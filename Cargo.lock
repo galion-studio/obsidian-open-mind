@@ -202,6 +202,7 @@ dependencies = [
 name = "hermes-rs"
 version = "0.1.0"
 dependencies = [
+ "openmind-persona",
  "rusqlite",
  "serde_json",
 ]
@@ -317,6 +318,10 @@ dependencies = [
  "serde",
  "toml",
 ]
+
+[[package]]
+name = "openmind-persona"
+version = "0.1.0"
 
 [[package]]
 name = "openmind-sandbox"

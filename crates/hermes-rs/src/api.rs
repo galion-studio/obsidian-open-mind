@@ -308,11 +308,19 @@ impl Gateway {
         let reasoning = resolve_reasoning(&self.cfg, &target.model, rq, false);
 
         let channel = channel_for_key(session_key.as_deref());
-        let mut parts = PromptParts::load(
-            &self.cfg.home,
+        let persona = crate::persona::persona_prompt(
+            self.cfg.persona_file.as_deref(),
             channel.as_deref(),
-            self.cfg.system_prompt.as_deref(),
+            &row.id,
         );
+        // A persona channel drops the global `agent.system_prompt` (its length rule conflicts).
+        let cfg_prompt = if persona.is_some() {
+            None
+        } else {
+            self.cfg.system_prompt.as_deref()
+        };
+        let mut parts = PromptParts::load(&self.cfg.home, channel.as_deref(), cfg_prompt);
+        parts.persona = persona;
         if let Some(i) = extra_instructions {
             parts.client.push(i.to_string());
         }

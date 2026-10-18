@@ -48,6 +48,8 @@ pub struct PromptParts {
     pub channel: Option<String>,
     pub config: Option<String>,
     pub client: Vec<String>,
+    /// Persona Plex prompt (role + channel rules). Goes last so it wins.
+    pub persona: Option<String>,
 }
 
 impl PromptParts {
@@ -58,6 +60,7 @@ impl PromptParts {
                 .and_then(|c| read_capped(&home.join("channels").join(format!("{c}.md")))),
             config: config_prompt.map(str::to_string),
             client: Vec::new(),
+            persona: None,
         }
     }
 
@@ -75,8 +78,36 @@ impl PromptParts {
         for c in &self.client {
             parts.push(c);
         }
+        if let Some(p) = &self.persona {
+            parts.push(p);
+        }
         parts.join("\n\n")
     }
+}
+
+/// Persona Plex for a channel, when a persona file is configured and valid.
+/// Galion One's admin line (`one-admin`) is the text channel; every other
+/// galion-one session is voice. Returns the role prompt + channel rules
+/// (SOUL.md stays in its own slot).
+pub fn persona_prompt(
+    file: Option<&Path>,
+    channel: Option<&str>,
+    session_id: &str,
+) -> Option<String> {
+    let file = file?;
+    if channel != Some("galion-one") {
+        return None;
+    }
+    let p = openmind_persona::Persona::from_file(file).ok()?;
+    if !p.is_valid() {
+        return None;
+    }
+    let ch = if session_id == "one-admin" {
+        openmind_persona::Channel::Text
+    } else {
+        openmind_persona::Channel::Voice
+    };
+    Some(p.prompt(None, ch))
 }
 
 #[cfg(test)]

@@ -591,3 +591,64 @@ fn delegate_task_end_to_end_with_caps() {
     assert_eq!(code, 200);
     assert!(body.contains("Too many tasks"), "{body}");
 }
+
+#[test]
+fn persona_plex_on_galion_one_when_configured() {
+    let plex = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../openmind-persona/personas/persona-plex-v1.md"
+    );
+    let h = harness_with(MockProvider::echo(), |c| {
+        c.persona_file = Some(PathBuf::from(plex));
+        c.system_prompt = Some("Reply in exactly four sentences.".into());
+    });
+    for (sid, rule) in [
+        ("one-voice", "Spoken form only"),
+        ("one-admin", "Text channel rules"),
+    ] {
+        let (code, _, _) = post(
+            h.addr,
+            "/v1/chat/completions",
+            &[
+                ("Authorization", &bearer()),
+                ("X-Hermes-Session-Id", sid),
+                ("X-Hermes-Session-Key", "galion-one"),
+            ],
+            &json!({"model": "galion", "messages": [{"role": "system", "content": "client voice setting"}, {"role": "user", "content": "hi"}]}),
+        );
+        assert_eq!(code, 200);
+        let calls = h.mock.calls.lock().unwrap();
+        let sys = calls.last().unwrap().1.messages[0]["content"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(sys.starts_with("You are Hermes."));
+        assert!(sys.contains("The voice in the room."));
+        assert!(sys.contains("You are Persona Plex, the voice of Galion One"));
+        assert!(sys.contains(rule), "{sid}");
+        assert!(
+            !sys.contains("four sentences"),
+            "persona channel drops the global length rule"
+        );
+        assert!(
+            sys.find("client voice setting").unwrap() < sys.find("You are Persona Plex").unwrap(),
+            "persona goes last"
+        );
+    }
+    // other channels are untouched
+    let (code, _, _) = post(
+        h.addr,
+        "/v1/chat/completions",
+        &[
+            ("Authorization", &bearer()),
+            ("X-Hermes-Session-Key", "console:user:u:project:p"),
+        ],
+        &json!({"messages": [{"role": "user", "content": "hi"}]}),
+    );
+    assert_eq!(code, 200);
+    let calls = h.mock.calls.lock().unwrap();
+    let sys = calls.last().unwrap().1.messages[0]["content"]
+        .as_str()
+        .unwrap();
+    assert!(!sys.contains("Persona Plex") && sys.contains("four sentences"));
+}

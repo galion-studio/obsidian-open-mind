@@ -22,6 +22,8 @@
 #![allow(clippy::sliced_string_as_bytes)]
 #![allow(dead_code)]
 
+mod models_refresh;
+
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -1836,11 +1838,10 @@ fn models_json() -> String {
         .and_then(|t| t.elapsed().ok())
         .map(|d| d.as_secs() > 600)
         .unwrap_or(true);
-    // Legacy: one/models.py refresh, only with ONE_LEGACY_PY=1 and ONE_LEGACY_PY_BIN set.
-    if stale && legacy_py() {
-        if let Some(bin) = legacy_bin() {
-            let _ = Command::new(bin).arg(p("one/models.py")).status();
-        }
+    // Refresh moved to Rust (models_refresh); the old models.py launcher is gone.
+    // No key or a failed fetch keeps serving the stale cache.
+    if stale {
+        let _ = models_refresh::refresh_live(std::path::Path::new(&cache));
     }
     fs::read_to_string(cache).unwrap_or_else(|_| "[]".to_string())
 }

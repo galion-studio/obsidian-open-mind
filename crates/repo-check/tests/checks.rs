@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Unit-level tests of every check. Strings that the scanner would flag in
 //! this very file are built at runtime, so `repo-check` passes on itself.

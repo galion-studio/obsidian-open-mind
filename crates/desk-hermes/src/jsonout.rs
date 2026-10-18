@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! JSON writer that reproduces CPython `json.dumps` byte-for-byte:
 //! - `ensure_ascii=True` (default) escapes every non-ASCII code point as
 //!   `\uXXXX` (surrogate pairs above U+FFFF);

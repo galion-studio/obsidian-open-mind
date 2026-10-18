@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! The probes. Each returns a [`ProbeResult`] stamped by `zagreb-time`.
 
@@ -210,4 +210,82 @@ pub fn check_cloudflared(proc_root: &Path) -> ProbeResult {
         }
     }
     ProbeResult::new("cloudflared", false, "not running")
+}
+
+/// Result of one [`http_get`]: elapsed milliseconds and status + body prefix.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HttpOutcome {
+    pub ms: f64,
+    /// `(status code, first bytes of the body)` or an error text.
+    pub result: Result<(u16, String), String>,
+}
+
+/// Plain HTTP/1.0 GET to `addr` (callers pass a loopback default from their
+/// config). Reads at most 4 KiB: enough for the status line and a short body.
+pub fn http_get(addr: SocketAddr, path: &str, timeout: Duration) -> HttpOutcome {
+    let started = std::time::Instant::now();
+    let result = http_get_inner(addr, path, timeout);
+    HttpOutcome {
+        ms: started.elapsed().as_secs_f64() * 1000.0,
+        result,
+    }
+}
+
+fn http_get_inner(addr: SocketAddr, path: &str, t: Duration) -> Result<(u16, String), String> {
+    let mut s = TcpStream::connect_timeout(&addr, t).map_err(|e| format!("connect: {e}"))?;
+    s.set_read_timeout(Some(t)).map_err(|e| e.to_string())?;
+    s.set_write_timeout(Some(t)).map_err(|e| e.to_string())?;
+    let req = format!("GET {path} HTTP/1.0\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+    s.write_all(req.as_bytes())
+        .map_err(|e| format!("write: {e}"))?;
+    let mut buf = vec![0u8; 4096];
+    let mut got = 0;
+    while got < buf.len() {
+        match s.read(&mut buf[got..]) {
+            Ok(0) => break,
+            Ok(n) => got += n,
+            Err(e) if got == 0 => return Err(format!("read: {e}")),
+            Err(_) => break,
+        }
+    }
+    let text = String::from_utf8_lossy(&buf[..got]);
+    let line = text.lines().next().unwrap_or("");
+    let code = line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .ok_or_else(|| format!("bad status line: {}", truncate(line, 80)))?;
+    let body = text
+        .split_once("\r\n\r\n")
+        .map(|(_, b)| truncate(b, 240).to_string())
+        .unwrap_or_default();
+    Ok((code, body))
+}
+
+/// Cut a string to at most `n` bytes on a char boundary.
+pub fn truncate(s: &str, n: usize) -> &str {
+    if s.len() <= n {
+        return s;
+    }
+    let mut i = n;
+    while !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    &s[..i]
+}
+
+/// desk_heal.py `probe()` semantics: ok on a code in `ok_codes`; a 503 whose
+/// body mentions `loading` also passes when `loading_ok`. Detail strings:
+/// `200`, `loading`, `http <code>`, or the error cut to 160 bytes.
+pub fn verdict(
+    result: &Result<(u16, String), String>,
+    ok_codes: &[u16],
+    loading_ok: bool,
+) -> (bool, String) {
+    match result {
+        Ok((code, _)) if ok_codes.contains(code) => (true, code.to_string()),
+        Ok((503, body)) if loading_ok && body.contains("loading") => (true, "loading".into()),
+        Ok((code, _)) => (false, format!("http {code}")),
+        Err(e) => (false, truncate(e, 160).to_string()),
+    }
 }

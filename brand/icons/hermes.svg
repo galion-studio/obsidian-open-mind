@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="t">
+  <title id="t">Hermes boss agent with capped subagents</title>
+  <rect x="0.75" y="0.75" width="46.5" height="46.5" rx="11" fill="#0B0F14" stroke="#24303C" stroke-width="1.5"/>
+  <g fill="none" stroke="#58C4FF" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M24 10l6 5-6 5-6-5z" fill="#58C4FF" fill-opacity="0.25"/>
+    <path d="M24 20v5M14 30v-3h20v3M24 25v5"/>
+    <path d="M14 30l3.5 3-3.5 3-3.5-3zM24 30l3.5 3-3.5 3-3.5-3zM34 30l3.5 3-3.5 3-3.5-3z"/>
+  </g>
+</svg>

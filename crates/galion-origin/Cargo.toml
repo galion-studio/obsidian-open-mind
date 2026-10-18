@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "galion-origin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Slim Rust port of galion-light origin.py: grinder static page, desk notes viewer, link.json, host splash. Std only, loopback by default."
+
+[dependencies]

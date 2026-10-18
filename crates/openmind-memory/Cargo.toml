@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "openmind-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "API-compatible Rust replacement for the TencentDB tdai memory gateway (the endpoints Hermes uses): SQLite FTS5 BM25 recall, offline, std HTTP."
+
+[[bin]]
+name = "openmind-memory"
+path = "src/main.rs"
+
+[dependencies]
+# bundled: SQLite (with FTS5) is compiled from the amalgamation; no system lib, no openssl.
+rusqlite = { version = "0.32", default-features = false, features = ["bundled", "backup"] }
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["preserve_order"] }
+zagreb-time = { path = "../zagreb-time" }

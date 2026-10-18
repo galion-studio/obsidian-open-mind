@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # Staged rollback: restores the unit file the switch script backed up. DRY RUN by default.
 # Usage: rollback.sh <unit> [--apply]
 set -u

@@ -1,0 +1,39 @@
+{
+  "name": "Obsidian Open Mind",
+  "maker": "Galion / galion-studio",
+  "version": "1.0.0",
+  "updated": "2026-10-18T20:50:13+02:00",
+  "copyright": "Copyright (c) 3000 Galion / galion-studio",
+  "source": "Ink, Paper, Sky, Ocean, Mist, Slate, Surface, Text and Line are carried over unchanged from release/brand/BRAND.md and release/site/style.css. Obsidian, Glass and Ice are added for the faceted mark and banner.",
+  "colors": [
+    { "token": "obsidian",    "hex": "#05070A", "rgb": [5, 7, 10],      "role": "deepest background: banner, hero, favicon tile" },
+    { "token": "ink",         "hex": "#0B0F14", "rgb": [11, 15, 20],    "role": "primary dark background; body text on paper" },
+    { "token": "surface",     "hex": "#131A22", "rgb": [19, 26, 34],    "role": "raised panels and code blocks on dark" },
+    { "token": "glass",       "hex": "#1B2633", "rgb": [27, 38, 51],    "role": "facet fill in the mark and illustrations" },
+    { "token": "line",        "hex": "#24303C", "rgb": [36, 48, 60],    "role": "hairlines and borders on dark" },
+    { "token": "slate",       "hex": "#4A7C99", "rgb": [74, 124, 153],  "role": "neutral graphic accent that holds on both backgrounds" },
+    { "token": "mist",        "hex": "#A7B6C4", "rgb": [167, 182, 196], "role": "muted text on dark" },
+    { "token": "text",        "hex": "#E6EDF3", "rgb": [230, 237, 243], "role": "body text on dark" },
+    { "token": "sky",         "hex": "#58C4FF", "rgb": [88, 196, 255],  "role": "primary accent on dark: links, focus rings, the lit core and rim of the mark" },
+    { "token": "ice",         "hex": "#B8E8FF", "rgb": [184, 232, 255], "role": "highlight on dark: specular edges, top of the core gradient" },
+    { "token": "ocean",       "hex": "#0B5FA5", "rgb": [11, 95, 165],   "role": "accent on light: links, buttons, rim of the light mark" },
+    { "token": "paper",       "hex": "#F7F9FB", "rgb": [247, 249, 251], "role": "light background" },
+    { "token": "muted-paper", "hex": "#3F4C59", "rgb": [63, 76, 89],    "role": "muted text on light" }
+  ],
+  "contrast": [
+    { "fg": "#E6EDF3", "bg": "#0B0F14", "ratio": "16.27:1" },
+    { "fg": "#E6EDF3", "bg": "#05070A", "ratio": "17.07:1" },
+    { "fg": "#A7B6C4", "bg": "#0B0F14", "ratio": "9.27:1" },
+    { "fg": "#58C4FF", "bg": "#0B0F14", "ratio": "9.84:1" },
+    { "fg": "#58C4FF", "bg": "#05070A", "ratio": "10.33:1" },
+    { "fg": "#B8E8FF", "bg": "#0B0F14", "ratio": "14.67:1" },
+    { "fg": "#0B0F14", "bg": "#F7F9FB", "ratio": "18.21:1" },
+    { "fg": "#0B5FA5", "bg": "#F7F9FB", "ratio": "6.23:1" },
+    { "fg": "#58C4FF", "bg": "#F7F9FB", "ratio": "1.85:1", "note": "fails: never use Sky for text on light" }
+  ],
+  "fonts": {
+    "display": { "family": "Jost",          "weights": [500],           "license": "SIL Open Font License 1.1", "url": "https://fonts.google.com/specimen/Jost" },
+    "text":    { "family": "IBM Plex Sans", "weights": [400, 500, 600], "license": "SIL Open Font License 1.1", "url": "https://fonts.google.com/specimen/IBM+Plex+Sans" },
+    "mono":    { "family": "IBM Plex Mono", "weights": [400, 500],      "license": "SIL Open Font License 1.1", "url": "https://fonts.google.com/specimen/IBM+Plex+Mono" }
+  }
+}

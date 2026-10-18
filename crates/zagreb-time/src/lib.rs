@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! Europe/Zagreb time.
 //!
 //! Every timestamp in the Galion Open Mind stack is Europe/Zagreb RFC 3339 with

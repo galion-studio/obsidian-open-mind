@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -83,4 +83,41 @@ fn mock_listener_ok_and_down() {
     assert_eq!(r[2]["ok"], false);
     let ts = j["ts"].as_str().unwrap();
     assert!(ts.ends_with("+01:00") || ts.ends_with("+02:00"), "{ts}");
+}
+
+#[test]
+fn nerve_lines_off_by_default_on_with_flag() {
+    let probes = tmp("nerve-probes.toml");
+    std::fs::write(
+        &probes,
+        "[[probe]]\nkind = \"mem\"\n[[probe]]\nkind = \"load\"\n",
+    )
+    .unwrap();
+    let nerve = tmp("nerve.jsonl");
+    let _ = std::fs::remove_file(&nerve);
+    let out = tmp("nerve-report.json");
+    let o = Command::new(BIN)
+        .arg("--probes")
+        .arg(&probes)
+        .arg("--out")
+        .arg(&out)
+        .output()
+        .unwrap();
+    assert!(o.status.success());
+    assert!(!nerve.exists());
+    let o = Command::new(BIN)
+        .arg("--probes")
+        .arg(&probes)
+        .arg("--out")
+        .arg(&out)
+        .arg("--nerve")
+        .arg(&nerve)
+        .output()
+        .unwrap();
+    assert!(o.status.success());
+    let t = std::fs::read_to_string(&nerve).unwrap();
+    assert_eq!(t.lines().count(), 2);
+    assert!(t
+        .lines()
+        .all(|l| l.contains("\"source\":\"guardian-tick\"") && l.contains("+0")));
 }

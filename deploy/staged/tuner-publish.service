@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# STAGED, NOT INSTALLED. Would replace the hand-made transient
+# tuner-quick.service (cloudflared tunnel --no-autoupdate --url
+# http://127.0.0.1:8650). Owner decision O4 first: keep publishing the tuner
+# on a random trycloudflare URL at all, or not. No [Install] section.
+[Unit]
+Description=Tuner quick-tunnel publisher (trycloudflare, random URL)
+After=network-online.target tuner.service
+Wants=network-online.target
+Requires=tuner.service
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/openmind/dist/bin-ws/tuner-publish
+Environment=TUNER_PUBLISH_LOCAL=http://127.0.0.1:8650
+Environment=TUNER_CLOUDFLARED=/usr/local/bin/cloudflared
+RuntimeDirectory=tuner
+Environment=TUNER_URL_FILE=/run/tuner/quick-url.json
+Restart=always
+RestartSec=5
+Nice=10
+NoNewPrivileges=true

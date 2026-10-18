@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="t">
+  <title id="t">Galion One voice surface</title>
+  <rect x="0.75" y="0.75" width="46.5" height="46.5" rx="11" fill="#0B0F14" stroke="#24303C" stroke-width="1.5"/>
+  <g fill="none" stroke="#58C4FF" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="24" cy="24" r="12"/>
+    <path d="M24 12a12 12 0 0 1 12 12" stroke="#B8E8FF" stroke-width="3"/>
+    <circle cx="24" cy="24" r="4" fill="#58C4FF" stroke="none"/>
+  </g>
+</svg>

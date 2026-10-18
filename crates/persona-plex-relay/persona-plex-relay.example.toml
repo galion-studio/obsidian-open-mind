@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Slavik / Galion Studio
+# Copyright (c) 3000 Galion / galion-studio
 #
 # Persona Plex v2 relay - example config. Copy to persona-plex-relay.toml and
 # edit. Every host comes from here; the binary hard-codes none.

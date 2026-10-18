@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # Staged switch for the OpenMind binaries. DRY RUN by default.
 # Usage: switch.sh <unit> [--apply]
 #   <unit> is a unit name without the .service suffix, e.g. galion-desk

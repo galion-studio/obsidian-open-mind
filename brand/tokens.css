@@ -1,0 +1,59 @@
+/* Obsidian Open Mind, by Galion: design tokens.
+   Palette and roles: brand/BRAND.md and brand/palette.json.
+   Fonts are SIL OFL 1.1 (Google Fonts). Self-host them or load them yourself;
+   this file does not fetch anything. */
+
+:root {
+  /* colour */
+  --om-obsidian:    #05070A;
+  --om-ink:         #0B0F14;
+  --om-surface:     #131A22;
+  --om-glass:       #1B2633;
+  --om-line:        #24303C;
+  --om-slate:       #4A7C99;
+  --om-mist:        #A7B6C4;
+  --om-text:        #E6EDF3;
+  --om-sky:         #58C4FF;
+  --om-ice:         #B8E8FF;
+  --om-ocean:       #0B5FA5;
+  --om-paper:       #F7F9FB;
+  --om-muted-paper: #3F4C59;
+
+  /* roles, dark first */
+  --om-bg:        var(--om-ink);
+  --om-bg-deep:   var(--om-obsidian);
+  --om-panel:     var(--om-surface);
+  --om-fg:        var(--om-text);
+  --om-fg-muted:  var(--om-mist);
+  --om-accent:    var(--om-sky);
+  --om-accent-fg: var(--om-ink);
+  --om-border:    var(--om-line);
+  --om-focus:     var(--om-sky);
+
+  /* the faceted glass gradient used by the mark core */
+  --om-core-gradient: linear-gradient(135deg, #B8E8FF 0%, #58C4FF 55%, #0B5FA5 100%);
+
+  /* type */
+  --om-font-display: "Jost", "IBM Plex Sans", system-ui, sans-serif;
+  --om-font-sans:    "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --om-font-mono:    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* shape */
+  --om-radius-sm: 6px;
+  --om-radius-md: 11px;
+  --om-radius-pill: 999px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --om-bg:        var(--om-paper);
+    --om-bg-deep:   var(--om-paper);
+    --om-panel:     #EEF2F6;
+    --om-fg:        var(--om-ink);
+    --om-fg-muted:  var(--om-muted-paper);
+    --om-accent:    var(--om-ocean);
+    --om-accent-fg: #FFFFFF;
+    --om-border:    #D5DDE5;
+    --om-focus:     var(--om-ocean);
+  }
+}

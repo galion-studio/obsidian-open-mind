@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# STAGED, NOT INSTALLED. Same as the live tuner.service except ExecStart now
+# points at the openmind crates/tuner build. Responses are byte-identical
+# (docs/ws-one-desk-tuner.md). No [Install] here; the live unit keeps its own.
+[Unit]
+Description=Ukulele tuner static server (127.0.0.1:8650)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/openmind/dist/bin-ws/tuner
+Environment=TUNER_ADDR=127.0.0.1:8650
+Environment=TUNER_ROOT=/opt/galion/tuner/www
+Restart=always
+RestartSec=2
+Nice=10
+NoNewPrivileges=true

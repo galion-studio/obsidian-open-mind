@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# STAGED, not installed. galion-healer config for the VPS.
+# apply = false: every allow-listed action is only logged ("dry-run") in
+# state/heal/actions.jsonl. Flipping it to true is a separate approval.
+# No [[restart]] rules: systemd Restart=always does restarts. Rules can only
+# name non-protected units (never hermes/gateway, whisper, vision,
+# cloudflared, ssh, memory-gateway).
+
+[healer]
+interval_s = 30
+state_dir = "/opt/galion/galion-light/state/heal"
+follow_s = 60
+apply = false
+hermes_home = "/opt/galion/hermes"
+gateway_probe = "hermes"
+fixture_root = "/opt/galion/galion-light/state/heal-fixture"
+restart_backend = "none"
+restart_min_gap_s = 600
+
+# desk_heal.py PROBES (a 503 with "loading" counts as up).
+[[probe]]
+name = "hermes"
+port = 8642
+path = "/health"
+
+[[probe]]
+name = "one"
+port = 8091
+path = "/health"
+
+[[probe]]
+name = "whisper"
+port = 8643
+path = "/health"
+
+[[probe]]
+name = "vision"
+port = 8645
+path = "/health"
+
+[[probe]]
+name = "voice"
+port = 8002
+path = "/health"
+
+# Example only (commented): restart galion-one after 4 failed cycles via systemd.
+# [[restart]]
+# probe = "one"
+# unit = "galion-one"
+# after_cycles = 4

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 512 512" role="img" aria-labelledby="t">
+  <title id="t">Obsidian Open Mind</title>
+  <!-- Simplified mark for 16-64 px: ink tile, enlarged core, heavier rim. -->
+  <defs>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#B8E8FF"/><stop offset="0.55" stop-color="#58C4FF"/><stop offset="1" stop-color="#0B5FA5"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="#0B0F14"/>
+  <polygon points="256,36 400,148 420,336 262,478 110,364 94,168" fill="#2B3A4A"/>
+  <polygon points="256,36 400,148 322,252 256,166" fill="#4A6378"/>
+  <polygon points="94,168 256,36 256,166 190,256" fill="#34475A"/>
+  <polygon points="420,336 262,478 258,338 322,252" fill="#1A2430"/>
+  <polygon points="262,478 110,364 190,256 258,338" fill="#121A23"/>
+  <polygon points="256,166 322,252 258,338 190,256" fill="url(#core)"/>
+  <polygon points="256,36 400,148 420,336 262,478 110,364 94,168" fill="none" stroke="#58C4FF" stroke-width="16" stroke-linejoin="round"/>
+</svg>

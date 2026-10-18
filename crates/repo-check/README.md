@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT -->
-<!-- SPDX-FileCopyrightText: 2026 Slavik / Galion Studio -->
+<!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
 # repo-check
 
 Read-only repo self-evaluation lint for OpenMind. Std only plus `zagreb-time`

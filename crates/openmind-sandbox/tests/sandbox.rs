@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 use openmind_sandbox::*;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -191,4 +191,24 @@ fn f_enforced_report() {
         )),
         Some(_) => assert_eq!(o.layer("landlock"), Some(&Enforcement::Enforced)),
     }
+}
+
+#[test]
+fn g_dev_files_usable_but_dev_dir_not_listable() {
+    let o = run(
+        &s(&[
+            "/bin/sh",
+            "-c",
+            "echo x >/dev/null && head -c 4 /dev/zero | wc -c",
+        ]),
+        &pol("dev"),
+    );
+    assert_eq!(o.status, Status::Exited(0), "{:?}", o.stderr);
+    assert_eq!(o.stdout_str().trim(), "4");
+    if landlock_abi().is_none() {
+        println!("skipped: landlock absent");
+        return;
+    }
+    let o = run(&s(&["/bin/ls", "/dev"]), &pol("devls"));
+    assert_ne!(o.status, Status::Exited(0), "{o:?}");
 }

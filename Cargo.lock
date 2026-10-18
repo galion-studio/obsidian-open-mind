@@ -236,11 +236,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-boot"
+version = "0.1.0"
+dependencies = [
+ "openmind-survival",
+ "serde",
+ "serde_json",
+ "toml",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-desk"
 version = "0.1.0"
 
 [[package]]
+name = "galion-guardian"
+version = "0.1.0"
+dependencies = [
+ "openmind-survival",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "toml",
+ "zagreb-time",
+]
+
+[[package]]
+name = "galion-healer"
+version = "0.1.0"
+dependencies = [
+ "openmind-survival",
+ "serde",
+ "serde_json",
+ "toml",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-one"
+version = "0.1.0"
+
+[[package]]
+name = "galion-origin"
 version = "0.1.0"
 
 [[package]]
@@ -280,6 +318,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
 dependencies = [
  "hashbrown 0.14.5",
+]
+
+[[package]]
+name = "hermes-gateway"
+version = "0.1.0"
+dependencies = [
+ "hermes-rs",
+ "serde_json",
+]
+
+[[package]]
+name = "hermes-rs"
+version = "0.1.0"
+dependencies = [
+ "openmind-persona",
+ "rusqlite",
+ "serde_json",
 ]
 
 [[package]]
@@ -393,6 +448,20 @@ dependencies = [
  "serde",
  "toml",
 ]
+
+[[package]]
+name = "openmind-memory"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
+name = "openmind-persona"
+version = "0.1.0"
 
 [[package]]
 name = "openmind-sandbox"
@@ -644,6 +713,13 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+
+[[package]]
+name = "tuner"
+version = "0.1.0"
+dependencies = [
+ "zagreb-time",
+]
 
 [[package]]
 name = "unicode-ident"

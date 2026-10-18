@@ -4,7 +4,7 @@ project: galion
 status: draft
 ---
 <!-- SPDX-License-Identifier: MIT -->
-<!-- SPDX-FileCopyrightText: 2026 Slavik / Galion Studio -->
+<!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
 
 # Legacy Python call-site audit (B10, read-only)
 

@@ -29,7 +29,7 @@ This matches how the model works: Moshi "models two streams of audio: one corres
 ## 2. Architecture
 
 ```
- Browser / phone                      VPS (51.38.137.193)                       GPU host (RunPod, not provisioned)
+ Browser / phone                      VPS (<vps-ip>)                       GPU host (RunPod, not provisioned)
  ----------------                     --------------------                      ----------------------------------
  mic -> AEC -> Opus/Ogg  ==WSS==>  persona-plex-relay (Rust)       ==WSS / SSH tunnel==>  PersonaPlex moshi server
  speaker <- Opus/Ogg     <=======  - bearer-token auth                    <==========     (python -m moshi.server,

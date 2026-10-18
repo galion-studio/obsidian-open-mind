@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // OpenRouter model list refresh. Replaces the old one/models.py launcher; the
 // output file format is the same: a JSON array of {"id","name"} objects sorted
@@ -14,219 +14,12 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 
 pub const DEFAULT_BASE: &str = "https://openrouter.ai/api/v1";
 
-#[derive(Debug, Clone, PartialEq)]
-enum Json {
-    Null,
-    Bool(bool),
-    Num,
-    Str(String),
-    Arr(Vec<Json>),
-    Obj(Vec<(String, Json)>),
-}
-
-struct Parser<'a> {
-    b: &'a [u8],
-    i: usize,
-}
-
-impl<'a> Parser<'a> {
-    fn ws(&mut self) {
-        while self.i < self.b.len() && self.b[self.i].is_ascii_whitespace() {
-            self.i += 1;
-        }
-    }
-
-    fn lit(&mut self, word: &str, v: Json) -> Result<Json, String> {
-        if self.b[self.i..].starts_with(word.as_bytes()) {
-            self.i += word.len();
-            Ok(v)
-        } else {
-            Err(format!("bad json at {}", self.i))
-        }
-    }
-
-    fn value(&mut self, depth: u32) -> Result<Json, String> {
-        if depth > 64 {
-            return Err("json too deep".into());
-        }
-        self.ws();
-        match self.b.get(self.i) {
-            None => Err("unexpected end of json".into()),
-            Some(b'n') => self.lit("null", Json::Null),
-            Some(b't') => self.lit("true", Json::Bool(true)),
-            Some(b'f') => self.lit("false", Json::Bool(false)),
-            Some(b'"') => self.string().map(Json::Str),
-            Some(b'[') => {
-                self.i += 1;
-                let mut out = Vec::new();
-                loop {
-                    self.ws();
-                    if self.b.get(self.i) == Some(&b']') {
-                        self.i += 1;
-                        return Ok(Json::Arr(out));
-                    }
-                    out.push(self.value(depth + 1)?);
-                    self.ws();
-                    match self.b.get(self.i) {
-                        Some(b',') => self.i += 1,
-                        Some(b']') => {}
-                        _ => return Err(format!("bad array at {}", self.i)),
-                    }
-                }
-            }
-            Some(b'{') => {
-                self.i += 1;
-                let mut out = Vec::new();
-                loop {
-                    self.ws();
-                    if self.b.get(self.i) == Some(&b'}') {
-                        self.i += 1;
-                        return Ok(Json::Obj(out));
-                    }
-                    let k = self.string()?;
-                    self.ws();
-                    if self.b.get(self.i) != Some(&b':') {
-                        return Err(format!("expected colon at {}", self.i));
-                    }
-                    self.i += 1;
-                    out.push((k, self.value(depth + 1)?));
-                    self.ws();
-                    match self.b.get(self.i) {
-                        Some(b',') => self.i += 1,
-                        Some(b'}') => {}
-                        _ => return Err(format!("bad object at {}", self.i)),
-                    }
-                }
-            }
-            Some(_) => {
-                let start = self.i;
-                while self.i < self.b.len()
-                    && matches!(
-                        self.b[self.i],
-                        b'-' | b'+' | b'.' | b'e' | b'E' | b'0'..=b'9'
-                    )
-                {
-                    self.i += 1;
-                }
-                if self.i == start {
-                    Err(format!("bad json at {}", self.i))
-                } else {
-                    Ok(Json::Num)
-                }
-            }
-        }
-    }
-
-    fn hex4(&mut self) -> Result<u32, String> {
-        let s = self
-            .b
-            .get(self.i..self.i + 4)
-            .and_then(|s| std::str::from_utf8(s).ok())
-            .ok_or("bad unicode escape")?;
-        let v = u32::from_str_radix(s, 16).map_err(|_| "bad unicode escape".to_string())?;
-        self.i += 4;
-        Ok(v)
-    }
-
-    fn string(&mut self) -> Result<String, String> {
-        if self.b.get(self.i) != Some(&b'"') {
-            return Err(format!("expected string at {}", self.i));
-        }
-        self.i += 1;
-        let mut out: Vec<u8> = Vec::new();
-        loop {
-            let c = *self.b.get(self.i).ok_or("unterminated string")?;
-            self.i += 1;
-            match c {
-                b'"' => break,
-                b'\\' => {
-                    let e = *self.b.get(self.i).ok_or("unterminated escape")?;
-                    self.i += 1;
-                    let ch = match e {
-                        b'n' => '\n',
-                        b't' => '\t',
-                        b'r' => '\r',
-                        b'b' => '\u{8}',
-                        b'f' => '\u{c}',
-                        b'u' => {
-                            let mut cp = self.hex4()?;
-                            if (0xD800..0xDC00).contains(&cp)
-                                && self.b.get(self.i..self.i + 2) == Some(b"\\u")
-                            {
-                                self.i += 2;
-                                let lo = self.hex4()?;
-                                cp = 0x10000
-                                    + ((cp - 0xD800) << 10)
-                                    + (lo.wrapping_sub(0xDC00) & 0x3FF);
-                            }
-                            char::from_u32(cp).unwrap_or('\u{fffd}')
-                        }
-                        other => other as char,
-                    };
-                    let mut buf = [0u8; 4];
-                    out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-                }
-                _ => out.push(c),
-            }
-        }
-        String::from_utf8(out).map_err(|_| "invalid utf-8 in string".to_string())
-    }
-}
-
-fn parse(text: &str) -> Result<Json, String> {
-    let mut p = Parser {
-        b: text.as_bytes(),
-        i: 0,
-    };
-    let v = p.value(0)?;
-    p.ws();
-    if p.i != p.b.len() {
-        return Err("trailing data after json".into());
-    }
-    Ok(v)
-}
-
-fn get<'a>(obj: &'a Json, key: &str) -> Option<&'a Json> {
-    match obj {
-        Json::Obj(kv) => kv.iter().find(|(k, _)| k == key).map(|(_, v)| v),
-        _ => None,
-    }
-}
-
-fn text_of(v: Option<&Json>) -> String {
-    match v {
-        Some(Json::Str(s)) => s.clone(),
-        _ => String::new(),
-    }
-}
-
-/// Python json.dumps string form (ensure_ascii).
-fn dump_str(s: &str) -> String {
-    let mut o = String::from("\"");
-    for ch in s.chars() {
-        match ch {
-            '"' => o.push_str("\\\""),
-            '\\' => o.push_str("\\\\"),
-            '\n' => o.push_str("\\n"),
-            '\r' => o.push_str("\\r"),
-            '\t' => o.push_str("\\t"),
-            '\u{8}' => o.push_str("\\b"),
-            '\u{c}' => o.push_str("\\f"),
-            c if (c as u32) < 0x20 || (c as u32) > 0x7e => {
-                let mut units = [0u16; 2];
-                for u in c.encode_utf16(&mut units) {
-                    o.push_str(&format!("\\u{u:04x}"));
-                }
-            }
-            c => o.push(c),
-        }
-    }
-    o.push('"');
-    o
-}
+use crate::json::{dump_str, get, parse, text_of, Json};
 
 /// Turn the API response body into the cache file text. Returns (text, count).
 pub fn transform(body: &str) -> Result<(String, usize), String> {
@@ -273,10 +66,10 @@ pub fn refresh(
 
 /// Real fetcher: curl, key via stdin config so it never shows in argv.
 pub fn curl_fetch(url: &str) -> Result<String, String> {
-    let key = std::env::var("OPENROUTER_API_KEY").unwrap_or_default();
+    let key = api_key();
     let key = key.trim();
     if key.is_empty() {
-        return Err("OPENROUTER_API_KEY is not set; keeping the stale cache".into());
+        return Err("no OpenRouter key (OPENROUTER_API_KEY or OPENROUTER_KEY_FILE); keeping the stale cache".into());
     }
     if key.contains('"') || key.contains('\n') {
         return Err("OPENROUTER_API_KEY has unusable characters".into());
@@ -298,9 +91,114 @@ pub fn curl_fetch(url: &str) -> Result<String, String> {
     String::from_utf8(o.stdout).map_err(|_| "response not utf-8".to_string())
 }
 
-/// Live refresh used by galion-one. Errors are returned; callers keep serving the stale cache.
-pub fn refresh_live(out: &Path) -> Result<usize, String> {
-    refresh(&curl_fetch, out)
+/// The OpenRouter key, read at call time and never logged: OPENROUTER_API_KEY,
+/// else the `OPENROUTER_API_KEY=` line of the env-format file named by
+/// OPENROUTER_KEY_FILE (the old models.py read /workspace/hermes/.env the same
+/// way; the staged unit names that file explicitly).
+fn api_key() -> String {
+    if let Ok(k) = std::env::var("OPENROUTER_API_KEY") {
+        if !k.trim().is_empty() {
+            return k;
+        }
+    }
+    let Ok(path) = std::env::var("OPENROUTER_KEY_FILE") else {
+        return String::new();
+    };
+    key_from_env_file(&fs::read_to_string(path.trim()).unwrap_or_default())
+}
+
+fn key_from_env_file(text: &str) -> String {
+    let mut key = String::new();
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("OPENROUTER_API_KEY=") {
+            key = rest.trim().trim_matches('"').to_string();
+        }
+    }
+    key
+}
+
+/// Failure backoff for the refresh (asked for in STAGED.md, B11): after a
+/// failed fetch the next try waits 60 s, then 120, 240 ... capped at 3600 s;
+/// one success resets it. Only one refresh runs at a time; a request that
+/// finds one running just serves the cache.
+pub struct Gate {
+    state: Mutex<(u32, u64)>,
+    busy: AtomicBool,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Outcome {
+    Refreshed(usize),
+    Failed(u32),
+    BackingOff(u64),
+    Busy,
+}
+
+pub fn delay_for(fails: u32) -> u64 {
+    if fails == 0 {
+        return 0;
+    }
+    (60u64 << (fails - 1).min(6)).min(3600)
+}
+
+impl Gate {
+    pub const fn new() -> Gate {
+        Gate {
+            state: Mutex::new((0, 0)),
+            busy: AtomicBool::new(false),
+        }
+    }
+
+    pub fn run(
+        &self,
+        now: u64,
+        fetch: &dyn Fn(&str) -> Result<String, String>,
+        out: &Path,
+    ) -> Outcome {
+        let next_at = self.state.lock().map(|s| s.1).unwrap_or(0);
+        if now < next_at {
+            return Outcome::BackingOff(next_at - now);
+        }
+        if self.busy.swap(true, Ordering::SeqCst) {
+            return Outcome::Busy;
+        }
+        let result = refresh(fetch, out);
+        let outcome = match self.state.lock() {
+            Ok(mut s) => match result {
+                Ok(n) => {
+                    *s = (0, 0);
+                    Outcome::Refreshed(n)
+                }
+                Err(_) => {
+                    s.0 = s.0.saturating_add(1);
+                    s.1 = now + delay_for(s.0);
+                    Outcome::Failed(s.0)
+                }
+            },
+            Err(_) => Outcome::Failed(0),
+        };
+        self.busy.store(false, Ordering::SeqCst);
+        outcome
+    }
+}
+
+static LIVE: Gate = Gate::new();
+
+/// Live refresh used by galion-one: gated (backoff + single flight). Callers
+/// keep serving the stale cache whatever the outcome.
+pub fn refresh_live(out: &Path) -> Outcome {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let o = LIVE.run(now, &curl_fetch, out);
+    if let Outcome::Failed(n) = o {
+        eprintln!(
+            "models: refresh failed ({n} in a row), next try in {} s",
+            delay_for(n)
+        );
+    }
+    o
 }
 
 #[cfg(test)]
@@ -341,6 +239,42 @@ mod tests {
         let mock = |_u: &str| -> Result<String, String> { Err("down".into()) };
         assert!(refresh(&mock, &out).is_err());
         assert_eq!(fs::read_to_string(&out).unwrap(), "[]");
+    }
+
+    #[test]
+    fn backoff_doubles_caps_and_resets() {
+        assert_eq!(
+            (1..=8).map(delay_for).collect::<Vec<_>>(),
+            [60, 120, 240, 480, 960, 1920, 3600, 3600]
+        );
+        let out = out_path("models-cache-gate.json");
+        fs::write(&out, "[]").unwrap();
+        let gate = Gate::new();
+        let calls = std::cell::Cell::new(0);
+        let down = |_u: &str| -> Result<String, String> {
+            calls.set(calls.get() + 1);
+            Err("down".into())
+        };
+        assert_eq!(gate.run(1000, &down, &out), Outcome::Failed(1));
+        assert_eq!(gate.run(1010, &down, &out), Outcome::BackingOff(50));
+        assert_eq!(gate.run(1060, &down, &out), Outcome::Failed(2));
+        assert_eq!(gate.run(1100, &down, &out), Outcome::BackingOff(80));
+        assert_eq!(calls.get(), 2, "no fetch while backing off");
+        let body = fixture("openrouter_models.json");
+        let up = move |_u: &str| -> Result<String, String> { Ok(body.clone()) };
+        assert_eq!(gate.run(1180, &up, &out), Outcome::Refreshed(3));
+        assert_eq!(gate.run(1181, &down, &out), Outcome::Failed(1));
+        assert_eq!(
+            fs::read_to_string(&out).unwrap(),
+            fixture("models_cache_expected.json")
+        );
+    }
+
+    #[test]
+    fn key_file_parsing() {
+        let text = "A=1\nOPENROUTER_API_KEY=\"sk-test-not-real\"\nB=2\n";
+        assert_eq!(key_from_env_file(text), "sk-test-not-real");
+        assert_eq!(key_from_env_file("A=1\n"), "");
     }
 
     #[test]

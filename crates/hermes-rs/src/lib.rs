@@ -18,6 +18,8 @@ pub mod persona;
 pub mod provider;
 pub mod runs;
 pub mod session;
+#[cfg(feature = "sqlite")]
+pub mod session_sqlite;
 pub mod spend;
 pub mod time;
 pub mod tools;

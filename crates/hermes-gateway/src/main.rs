@@ -30,12 +30,24 @@ fn env(k: &str) -> Option<String> {
 }
 
 fn open_store(cfg: &Config) -> Result<Arc<dyn SessionStore>, String> {
-    let dir = cfg.state_db.with_extension("sessions");
-    let primary: Box<dyn SessionStore> = Box::new(hermes_rs::session::JsonlStore::open(dir)?);
-    Ok(Arc::new(hermes_rs::session::Layered {
-        primary,
-        legacy: None,
-    }))
+    #[cfg(feature = "sqlite")]
+    let primary: Box<dyn SessionStore> = Box::new(hermes_rs::session_sqlite::SqliteStore::open_rw(
+        &cfg.state_db,
+    )?);
+    #[cfg(not(feature = "sqlite"))]
+    let primary: Box<dyn SessionStore> = Box::new(hermes_rs::session::JsonlStore::open(
+        cfg.state_db.with_extension("sessions"),
+    )?);
+    #[cfg(feature = "sqlite")]
+    let legacy: Option<Box<dyn SessionStore>> = match &cfg.legacy_state_db {
+        Some(p) => Some(Box::new(hermes_rs::session_sqlite::SqliteStore::open_ro(
+            p,
+        )?)),
+        None => None,
+    };
+    #[cfg(not(feature = "sqlite"))]
+    let legacy: Option<Box<dyn SessionStore>> = None;
+    Ok(Arc::new(hermes_rs::session::Layered { primary, legacy }))
 }
 
 fn main() {

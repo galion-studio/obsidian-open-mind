@@ -1,0 +1,6 @@
+{
+  "relay_url": "wss://<relay-host>/voice",
+  "text_url": "https://<galion-one-host>/api/text",
+  "device_id": "",
+  "token": ""
+}

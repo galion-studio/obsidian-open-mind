@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+
+# omnode config. Copy to ~/.config/openmind/node.toml (or pass --config).
+# Every field is optional; these are the defaults. No hosts are hard-coded.
+
+[node]
+# name = "slavik-phone"
+capabilities = ["cpu", "sandbox", "voice-client"]
+
+[network]
+# Stack-wide salt (hex) given by Hermes at enrollment. Unset = per-device salt.
+# salt_hex = ""
+
+[discover]
+seconds = 5
+ssdp_msearch = true        # one SSDP M-SEARCH packet at start
+mdns_query = false         # one active mDNS query packet (opt-in)
+probe_ports = [22, 80, 443, 8080, 11434, 50052, 52415]
+probe_rate_per_sec = 20    # only with --probe, only on a bound (trusted) private network
+probe_timeout_ms = 300
+
+[announce]
+service_type = "_openmind._tcp.local."
+port = 7787                # SRV port; nothing listens there in v0.1
+
+[sandbox]
+wall_secs = 30
+cpu_secs = 20
+mem_mb = 512
+fsize_mb = 64
+nofile = 256
+max_output_kb = 256
+allow_net = false
+require_isolation = false
+landlock = true
+seccomp = true             # deny-list of dangerous syscalls (EPERM)
+namespaces = true          # user/net/mount/pid namespaces when available
+extra_ro_paths = []
+
+[pair]
+# enroll_url = "https://<your-hermes-host>/openmind/enroll"

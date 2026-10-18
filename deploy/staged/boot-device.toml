@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+#
+# Example for a device WITHOUT systemd (Termux on Android, a Pi with a
+# minimal init, a container). Run:
+#   galion-boot supervise --config boot-device.toml
+# Paths are relative to $HOME on Termux; adjust per device. The tunnel token
+# comes from an env file written by `galion-boot tunnel-env`, never argv.
+
+[boot]
+log_dir = "galion/logs"
+supervisor_dir = "galion/state/supervisor"
+
+[[service]]
+name = "galion-guardian"
+description = "guardian"
+argv = ["/data/data/com.termux/files/usr/bin/galion-guardian", "--config", "galion/etc/guardian.toml"]
+
+[[service]]
+name = "galion-healer"
+description = "healer"
+argv = ["/data/data/com.termux/files/usr/bin/galion-healer", "run", "--config", "galion/etc/healer.toml"]
+
+[[service]]
+name = "galion-tunnel"
+description = "cloudflared with TUNNEL_TOKEN from an env file"
+argv = ["/data/data/com.termux/files/usr/bin/cloudflared", "--no-autoupdate", "tunnel", "run"]
+env_files = ["galion/secrets/cloudflared.env"]
+restart_sec = 10

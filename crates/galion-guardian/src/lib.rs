@@ -183,7 +183,9 @@ pub fn beat(
     write_atomic(&s.state_dir.join("report.json"), &(body + "\n"))?;
     write_atomic(&s.state_dir.join("beat"), &format!("{stamp}\n"))?;
     if !s.beat.is_empty() {
-        write_atomic(Path::new(&s.beat), &format!("{}\n", now_ms() / 1000))?;
+        // In place, not temp+rename: the unit may only have this file writable.
+        std::fs::write(&s.beat, format!("{}\n", now_ms() / 1000))
+            .map_err(|e| format!("{}: {e}", s.beat))?;
     }
 
     if !s.nerve.is_empty() {

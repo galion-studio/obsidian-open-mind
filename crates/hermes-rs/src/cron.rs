@@ -10,7 +10,8 @@
 //! kill, redacted output), agent jobs through [`Agent`], upstream-format
 //! output files. Stubbed: `cron` expressions (listed, never fired), delivery
 //! to chat platforms (Galion has none), Python scripts (refused: hermes-rs
-//! never runs Python).
+//! never runs Python; `.sh` wrappers that invoke a Python interpreter are
+//! refused too, so the Galion jobs that `exec python3` never start).
 
 use crate::agent::{Agent, Turn};
 use crate::provider::{resolve_reasoning, resolve_target};
@@ -49,6 +50,29 @@ impl Default for Scheduler {
     }
 }
 
+/// First line of a shell script that runs a Python interpreter, if any:
+/// `python`, `python3`, `python3.x` as a command word (also after `exec`,
+/// `env`, a path, `$(`, a pipe or a heredoc). Comments are ignored.
+pub fn invokes_python(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with('#') && !line.starts_with("#!") {
+            continue;
+        }
+        let hit = line
+            .split(|c: char| c.is_whitespace() || "|;&()`$\"'=/".contains(c))
+            .any(|w| {
+                w == "python"
+                    || w.strip_prefix("python")
+                        .is_some_and(|r| r.chars().all(|c| c.is_ascii_digit() || c == '.'))
+            });
+        if hit {
+            return Some(line.chars().take(80).collect());
+        }
+    }
+    None
+}
 /// Seconds between runs, or None for unsupported/one-shot kinds.
 fn interval_secs(job: &Value) -> Option<i64> {
     let s = &job["schedule"];
@@ -245,6 +269,14 @@ impl Scheduler {
                 )
             }
             Some("sh") | Some("bash") | None => {
+                // A shell wrapper that hands off to Python is still Python
+                // (the Galion jobs are `exec python3 ...` wrappers).
+                if let Some(why) = invokes_python(&path) {
+                    return (
+                        false,
+                        format!("script invokes Python ({why}); hermes-rs never runs Python"),
+                    );
+                }
                 let mut c = Command::new("bash");
                 c.arg(&path);
                 c
@@ -416,6 +448,39 @@ mod tests {
         .unwrap();
     }
 
+    #[test]
+    fn python_wrappers_are_refused() {
+        let h = home();
+        for (name, body) in [
+            ("a.sh", "#!/bin/bash\nexec python3 /x/survival.py\n"),
+            ("b.sh", "set -e\npython3 - << 'PY'\nprint(1)\nPY\n"),
+            ("c.sh", "x=$(python3 -c 'print(1)')\n"),
+            ("d.sh", "/usr/bin/env python /x.py\n"),
+            ("e.sh", "/usr/bin/python3.13 /x.py\n"),
+        ] {
+            std::fs::write(h.join("scripts").join(name), body).unwrap();
+            assert!(
+                invokes_python(&h.join("scripts").join(name)).is_some(),
+                "{name}"
+            );
+        }
+        std::fs::write(
+            h.join("scripts/ok.sh"),
+            "#!/bin/bash\n# python is mentioned in a comment only\necho pythonic /opt/galion/rust/bin/x\n",
+        )
+        .unwrap();
+        assert_eq!(invokes_python(&h.join("scripts/ok.sh")), None);
+        jobs(
+            &h,
+            json!([{"id": "p1", "name": "survival-cash", "no_agent": true, "script": "a.sh",
+            "schedule": {"kind": "interval", "minutes": 15}, "enabled": true}]),
+        );
+        let s = Scheduler::new(&h, None);
+        let r = s.tick(s.started + 15 * 60);
+        assert_eq!(r.len(), 1);
+        assert!(!r[0].1.ok);
+        assert!(r[0].1.output.contains("invokes Python"), "{:?}", r[0].1);
+    }
     #[test]
     fn interval_script_job_runs_once_due_and_writes_upstream_md() {
         let h = home();

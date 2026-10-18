@@ -15,6 +15,25 @@ use std::os::unix::fs::symlink;
 use std::path::{Path, PathBuf};
 
 fn main() {
+    // `galion_no_sqlite` is a build-time cfg the source switches on, so declare
+    // it here to keep the `unexpected_cfgs` lint quiet.
+    println!("cargo::rustc-check-cfg=cfg(galion_no_sqlite)");
+    println!("cargo:rerun-if-changed=build.rs");
+
+    // Tier-1 musl / cross builds (UNIVERSAL-CPU.md): the host's glibc
+    // libsqlite3.so cannot be linked into a static musl or foreign-arch
+    // binary, so build without the SQLite defence panel there (it then shows
+    // no guardian rows). The native glibc build (the live `one`) is unchanged.
+    let target = std::env::var("TARGET").unwrap_or_default();
+    let host = std::env::var("HOST").unwrap_or_default();
+    let env = std::env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
+    if env != "gnu" || target != host {
+        println!("cargo:rustc-cfg=galion_no_sqlite");
+        println!(
+            "cargo:warning=galion-one for {target}: built without system SQLite (defence panel empty)"
+        );
+        return;
+    }
     let candidates = [
         "/usr/lib/x86_64-linux-gnu/libsqlite3.so.0",
         "/lib/x86_64-linux-gnu/libsqlite3.so.0",
@@ -38,8 +57,4 @@ fn main() {
         ),
     }
     println!("cargo:rustc-link-lib=dylib=sqlite3");
-    // `galion_no_sqlite` is a build-time cfg the source switches on, so declare
-    // it here to keep the `unexpected_cfgs` lint quiet.
-    println!("cargo::rustc-check-cfg=cfg(galion_no_sqlite)");
-    println!("cargo:rerun-if-changed=build.rs");
 }

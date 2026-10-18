@@ -235,7 +235,13 @@ impl Landlock {
     }
 }
 
-fn setrl(res: libc::__rlimit_resource_t, v: u64) -> std::io::Result<()> {
+/// glibc types the resource as `__rlimit_resource_t`; musl (tier-1) uses c_int.
+#[cfg(target_env = "gnu")]
+type RlimitResource = libc::__rlimit_resource_t;
+#[cfg(not(target_env = "gnu"))]
+type RlimitResource = libc::c_int;
+
+fn setrl(res: RlimitResource, v: u64) -> std::io::Result<()> {
     let l = libc::rlimit {
         rlim_cur: v as libc::rlim_t,
         rlim_max: v as libc::rlim_t,

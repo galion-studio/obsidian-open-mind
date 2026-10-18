@@ -1013,7 +1013,7 @@ fn load_edge() -> Vec<Edge> {
 fn load_defence() -> Vec<Guard> {
     #[cfg(galion_no_sqlite)]
     {
-        return Vec::new();
+        Vec::new()
     }
     #[cfg(not(galion_no_sqlite))]
     {
@@ -2906,6 +2906,13 @@ fn sql_ident(name: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Built without SQLite (tier-1 musl / cross, see build.rs): no counts.
+#[cfg(galion_no_sqlite)]
+fn memory_file_counts(_path: &str) -> Option<Vec<(String, i64)>> {
+    None
+}
+
+#[cfg(not(galion_no_sqlite))]
 fn memory_file_counts(path: &str) -> Option<Vec<(String, i64)>> {
     use std::ffi::{CStr, CString};
     use std::os::raw::{c_char, c_int, c_void};

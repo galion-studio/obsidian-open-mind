@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // `one` reaches SQLite through hand-written `extern "C"` declarations, so the
 // system SQLite shared library has to be named at link time - the same library
 // the live `one` binary links today (`ldd` shows libsqlite3.so.0). No rusqlite

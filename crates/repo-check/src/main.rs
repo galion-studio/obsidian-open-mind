@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! repo-check CLI. Read-only: scans the tree, prints findings, exits 1 when
 //! any finding is at error level, 2 on usage or I/O errors.

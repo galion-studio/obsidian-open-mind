@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # Staged rollback for the console. DRY RUN by default, --apply required.
 # Wrapper around deploy/rollback.sh: it restores the console unit file that
 # switch-console.sh copied into deploy/backup/ before installing the new one.

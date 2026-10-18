@@ -1,6 +1,6 @@
 # A — Foundation: the Rust core of the Obsidian / Open Mind stack
 
-Read-only study of root@51.38.137.193 (ip50). Snapshot taken **2026-10-18 18:52 CEST (UTC+2)**. The VPS clock is UTC; every time below has been converted to Europe/Zagreb (CEST until 2026-10-25, then CET UTC+1). Published milestone: **2026-10-31**.
+Read-only study of root@<vps-ip> (ip50). Snapshot taken **2026-10-18 18:52 CEST (UTC+2)**. The VPS clock is UTC; every time below has been converted to Europe/Zagreb (CEST until 2026-10-25, then CET UTC+1). Published milestone: **2026-10-31**.
 Load on the VPS: about 10 short ssh commands (cat/grep/ls/ps, plus `find -maxdepth 3/4` under nice/ionice). No writes, no Python run.
 
 ## 1. Component inventory

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! The contract for the Obsidian desk.
 //!
 //! The processor owns the loop, the skills, the memory, and the key box.

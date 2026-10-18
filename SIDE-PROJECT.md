@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT -->
-<!-- SPDX-FileCopyrightText: 2026 Slavik / Galion Studio -->
+<!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
 # Side project: `repo-check` - repo self-evaluation lint binary
 
 Started 2026-10-18T21:01:42+02:00 (Europe/Zagreb), branch `ws/side`.

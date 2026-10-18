@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! openmind-sandbox v0: run one command with rlimits, a cleared environment,
 //! a fixed working directory, a wall-clock timeout and, when the kernel
 //! supports it, Landlock filesystem restrictions. Linux only.
@@ -39,6 +39,10 @@ pub struct SandboxPolicy {
     pub fs_read: Vec<PathBuf>,
     /// Landlock write roots (workdir is always added).
     pub fs_write: Vec<PathBuf>,
+    /// Device files granted read+write file access under Landlock (shells
+    /// need `/dev/null` for redirects and `&`; pipelines read `/dev/zero`).
+    /// Only file rights are granted, never directory rights on `/dev`.
+    pub fs_dev: Vec<PathBuf>,
 }
 
 impl SandboxPolicy {
@@ -55,6 +59,12 @@ impl SandboxPolicy {
             net: false,
             fs_read: vec![p("/usr"), p("/bin"), p("/lib"), p("/lib64"), p("/etc")],
             fs_write: vec![],
+            fs_dev: vec![
+                p("/dev/null"),
+                p("/dev/zero"),
+                p("/dev/random"),
+                p("/dev/urandom"),
+            ],
         }
     }
 }
@@ -103,6 +113,10 @@ const SYS_LL_ADD: libc::c_long = 445;
 const SYS_LL_RESTRICT: libc::c_long = 446;
 const LL_FS_ALL: u64 = 0x1FFF; // 13 ABI-1 rights
 const LL_READ: u64 = 1 | (1 << 2) | (1 << 3); // exec, read file, read dir
+/// Rights that apply to a non-directory (exec, write file, read file); the
+/// kernel rejects a path-beneath rule on a file that carries directory rights.
+const LL_FILE_MASK: u64 = 1 | (1 << 1) | (1 << 2);
+const LL_DEV: u64 = (1 << 1) | (1 << 2); // write file, read file
 
 #[repr(C)]
 struct LlRulesetAttr {
@@ -163,8 +177,17 @@ impl Landlock {
         for w in &policy.fs_write {
             roots.push((w.clone(), LL_FS_ALL));
         }
+        for d in &policy.fs_dev {
+            roots.push((d.clone(), LL_DEV));
+        }
         roots.push((policy.workdir.clone(), LL_FS_ALL));
         for (path, acc) in roots {
+            // Files (devices included) only take file rights.
+            let acc = if path.is_dir() {
+                acc
+            } else {
+                acc & LL_FILE_MASK
+            };
             let c = match CString::new(path.as_os_str().as_bytes()) {
                 Ok(c) => c,
                 Err(_) => continue,

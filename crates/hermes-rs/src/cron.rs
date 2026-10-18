@@ -301,6 +301,9 @@ impl Scheduler {
                 Ok(None) if t0.elapsed() >= self.script_timeout => {
                     let _ = Command::new("kill")
                         .arg("-KILL")
+                        // "--" so procps-ng kill reads -PID as a process group, not
+                        // as a signal option (without it the group kill is a no-op).
+                        .arg("--")
                         .arg(format!("-{}", child.id()))
                         .status();
                     let _ = child.kill();

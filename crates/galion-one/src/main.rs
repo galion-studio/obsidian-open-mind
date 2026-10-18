@@ -1114,21 +1114,29 @@ fn warm_pass() {
         quote(&voice_setting())
     ));
     let auth = format!("Bearer {key}");
-    let mind = http_to(
-        mind_addr(),
-        "POST",
-        "/v1/chat/completions",
-        &[
-            ("Content-Type", "application/json"),
-            ("Authorization", auth.as_str()),
-            ("X-Hermes-Session-Id", "one-warm"),
-            ("X-Hermes-Session-Key", "one-warm"),
-        ],
-        payload.as_bytes(),
-        Duration::from_secs(25),
-    )
-    .map(|(code, _)| code)
-    .unwrap_or(0);
+    // The live binary also pruned the "one-warm" session out of Hermes state.db
+    // with an inline python3 script after each pass (trim_warm). That write is
+    // not ported: Galion One never writes state.db. ONE_WARM_MIND=0 skips the
+    // Hermes ping (and with it the session growth); default keeps it.
+    let mind = if std::env::var("ONE_WARM_MIND").as_deref() == Ok("0") {
+        0
+    } else {
+        http_to(
+            mind_addr(),
+            "POST",
+            "/v1/chat/completions",
+            &[
+                ("Content-Type", "application/json"),
+                ("Authorization", auth.as_str()),
+                ("X-Hermes-Session-Id", "one-warm"),
+                ("X-Hermes-Session-Key", "one-warm"),
+            ],
+            payload.as_bytes(),
+            Duration::from_secs(25),
+        )
+        .map(|(code, _)| code)
+        .unwrap_or(0)
+    };
     if audio.is_empty() && mind != 200 {
         eprintln!("warm rust skipped mouth=0 mind={mind}");
         return;

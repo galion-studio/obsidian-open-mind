@@ -32,10 +32,36 @@ Planned principles:
 
 ## Status
 
-This branch is just the space for Gaia: a concept doc and the build rules.
-There's no code yet. The first milestone is a `crates/gaia-core` crate
-covering the seed format, the candidate and lineage types, and the
-selection trait, with a mock generator and tests.
+Updated 2026-10-18 21:50 CEST (+02:00).
+
+The first milestone is in. Gaia is modelled on the GAIA system of *Horizon
+Zero Dawn* (inspiration only; see the design doc for the trademark note):
+
+- **Design:** [docs/gaia-design.md](docs/gaia-design.md) covers the HZD
+  scenario in our own words, the nine subordinate functions, how the game
+  shows them, and the mapping of every Obsidian Open Mind system to exactly one
+  function, with mermaid diagrams of the hierarchy, the signal-tower bus and the
+  lifecycle.
+- **Code:** `crates/gaia-core` (orchestrator, `SubordinateFunction` trait,
+  `System` ownership table, bus, Alpha registry, master override, lifecycle,
+  containment, lineage), nine function crates (`gaia-hades`, `gaia-minerva`,
+  `gaia-apollo`, `gaia-hephaestus`, `gaia-artemis`, `gaia-poseidon`,
+  `gaia-aether`, `gaia-demeter`, `gaia-eleuthia`) and the `gaia` CLI
+  (`status`, `tick --n N`, `systems`, `dispatch`,
+  `simulate-faro [--full-power] [--approve ALPHA]`, all JSON).
+- **Safety:** simulation only, with no network, no processes, no file writes
+  and no secrets. HADES produces plans only: it works in dry-run and refuses
+  `Execute` without an Alpha's approval token. A function that acts outside
+  its own systems is contained at once and its changes are discarded. There is
+  no "Omega" clearance, and real-money access is refused.
+- **Checks:** 71 tests pass; fmt and clippy `-D warnings` are clean;
+  repo-check is clean on the gaia crates; tier 1 musl builds pass (x86_64
+  587,160 B, aarch64 512,920 B); tier 2 `cargo check` passes for Android and
+  armv7.
+
+Next milestone: real seed files to candidates to selection by the repo checks
+(fmt, clippy, tests, repo-check) with scoring and lineage, and wiring HEPHAESTUS
+to openmind-sandbox behind the same review.
 
 ## Build rules
 

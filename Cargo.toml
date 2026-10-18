@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+# contrib/grokbot is a vendored, read-only material dump with its own package.
+# It is not part of the OpenMind workspace.
+exclude = ["contrib"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+version = "0.1.0"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+chrono-tz = "0.10"
+
+# Release profile:
+# opt-level = "z" -> minimize binary size. The workspace crates are small I/O
+# helpers and HTTP servers, not hot compute loops, and T3 targets < 2 MB per
+# binary. Speed matters far less here than footprint, so "z" over "3".
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

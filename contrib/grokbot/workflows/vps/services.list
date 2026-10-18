@@ -1,0 +1,34 @@
+# Checks run by health-check.sh in addition to generic host checks.
+# Filled in 2026-10-18 from facts recorded in stack-map.md.
+# One check per line:  <type> <target> [label]
+#   systemd <unit-name>          [label]   -> systemctl is-active
+#   docker  <container-name>     [label]   -> docker inspect State.Status/Health/RestartCount
+#   port    <port-number>        [label]   -> something listening on the VPS (ss -tln)
+#   http    <url-as-seen-from-vps> [label] -> curl status code from the VPS (e.g. http://127.0.0.1:PORT/health)
+#   path    <remote-path>        [label]   -> path exists
+#
+# Hermes (boss agent / "the mind")
+systemd hermes.service                    Hermes
+http    http://127.0.0.1:8642/health      Hermes-API
+# Hermes memory backend (TencentDB agent memory)
+systemd memory-gateway.service            MemoryGateway
+http    http://127.0.0.1:8420/health      MemoryGateway-API
+# Galleon = Galion console / IDE (vite on 8080)
+systemd console.service                   Galion-Console
+http    http://127.0.0.1:8080/            Galion-Console-HTTP
+# Galleon1 = Galion One (manual nohup process, no unit)
+port    8091                              Galion-One
+http    http://127.0.0.1:8091/health      Galion-One-HTTP
+# Galion desk
+systemd galion-desk.service               Galion-Desk
+http    http://127.0.0.1:8646/health      Galion-Desk-HTTP
+# Laptop link watcher + laptop Ollama tunnel (model "galion"); 11434 currently DOWN
+systemd link-watch.service                Link-Watch
+port    11434                             Laptop-Ollama-Tunnel
+# Ingress (Cloudflare tunnel)
+systemd cloudflared.service               Cloudflared
+http    http://127.0.0.1:20241/ready      Cloudflared-Ready
+# Obsidian / OpenMind (code + home paths; not services)
+path    /opt/galion/openmind-schema/Cargo.toml   OpenMind-Schema
+path    /opt/galion/hermes/SOUL.md               Hermes-Home
+path    /opt/galion/galion-light/stack-boot.sh   Obsidian-Stack

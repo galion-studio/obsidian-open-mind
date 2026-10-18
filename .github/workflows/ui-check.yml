@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+#
+# Gate for the One/desk/tuner and UI workstreams: fmt, clippy, tests and a
+# portable static musl build. Read-only, no secrets.
+name: ui-check
+
+on:
+  push:
+    branches: ["ws/ui", "ws/one-desk-tuner"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TZ: Europe/Zagreb
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          targets: x86_64-unknown-linux-musl
+      - name: fmt
+        run: cargo fmt -p galion-one -p galion-desk -p tuner -- --check
+      - name: clippy
+        run: cargo clippy -j 2 -p galion-one -p galion-desk -p tuner --all-targets -- -D warnings
+      - name: test
+        run: cargo test -j 2 -p galion-one -p galion-desk -p tuner
+      - name: build (static musl)
+        run: |
+          cargo build -j 2 --release --target x86_64-unknown-linux-musl -p galion-one -p galion-desk -p tuner \
+            --config "target.x86_64-unknown-linux-musl.linker='rust-lld'"
+          ls -l target/x86_64-unknown-linux-musl/release/{galion-one,galion-desk,tuner}

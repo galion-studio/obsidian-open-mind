@@ -233,10 +233,10 @@ fn snapshot() -> String {
 }
 
 fn mindpack() -> String {
-    let Ok(out) = Command::new("python3")
-        .arg("/opt/galion/bin/desk-hermes.py")
-        .output()
-    else {
+    // Replaces the old python script desk-hermes.py with the Rust binary.
+    let bin = std::env::var("DESK_HERMES_BIN")
+        .unwrap_or_else(|_| "/opt/galion/openmind/dist/bin/desk-hermes".to_string());
+    let Ok(out) = Command::new(bin).output() else {
         return "{}".to_string();
     };
     if !out.status.success() {

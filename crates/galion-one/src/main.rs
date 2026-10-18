@@ -227,9 +227,13 @@ fn main() {
         sample();
         thread::sleep(Duration::from_secs(1));
     });
-    thread::spawn(boot_worker);
+    if legacy_py() {
+        thread::spawn(boot_worker);
+    }
     thread::spawn(serve_tts);
-    thread::spawn(keep_warm);
+    if std::env::var("ONE_NO_WARM").as_deref() != Ok("1") {
+        thread::spawn(keep_warm);
+    }
     let listener = TcpListener::bind(bind_addr("ONE_BIND", 8091)).unwrap_or_else(|err| {
         eprintln!("one: bind failed: {err}");
         std::process::exit(1);
@@ -1125,19 +1129,7 @@ fn tone() -> Vec<u8> {
     wav
 }
 
-fn trim_warm() {
-    let script = concat!(
-        "import sqlite3\n",
-        "c=sqlite3.connect('/workspace/hermes/state.db')\n",
-        "c.execute(\"delete from messages where session_id=?\", ('one-warm',))\n",
-        "c.execute(\"update sessions set message_count=0 where id=?\", ('one-warm',))\n",
-        "c.commit()\n"
-    );
-    let _ = Command::new("python3").arg("-c").arg(script).status();
-}
-
 fn warm_pass() {
-    trim_warm();
     let _ = transcribe(&tone());
     let audio = speak("Yes.");
     let key = hermes_key();
@@ -1212,6 +1204,19 @@ fn workers() -> &'static Mutex<Option<Worker>> {
     WORKER.get_or_init(|| Mutex::new(None))
 }
 
+// Legacy path: the old python TTS worker (tts/worker.py), only with ONE_LEGACY_PY=1.
+fn legacy_py() -> bool {
+    std::env::var("ONE_LEGACY_PY").as_deref() == Ok("1")
+}
+
+/// Legacy interpreter for the retired voice worker. The path is never hard-coded,
+/// so this crate names no interpreter of its own: set ONE_LEGACY_PY_BIN explicitly.
+fn legacy_bin() -> Option<String> {
+    std::env::var("ONE_LEGACY_PY_BIN")
+        .ok()
+        .filter(|s| !s.is_empty())
+}
+
 fn boot_worker() {
     if !std::path::Path::new("/workspace/galion-light/tts/worker.py").exists() {
         eprintln!("one: no voice on this machine");
@@ -1235,7 +1240,12 @@ fn boot_worker() {
 }
 
 fn start_worker() -> std::io::Result<Worker> {
-    let mut child = Command::new("/workspace/tts/venv/bin/python")
+    let Some(bin) = legacy_bin() else {
+        return Err(std::io::Error::other(
+            "legacy voice worker off: set ONE_LEGACY_PY_BIN to enable",
+        ));
+    };
+    let mut child = Command::new(bin)
         .arg(p("tts/worker.py"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1826,8 +1836,11 @@ fn models_json() -> String {
         .and_then(|t| t.elapsed().ok())
         .map(|d| d.as_secs() > 600)
         .unwrap_or(true);
-    if stale {
-        let _ = Command::new("python3").arg(p("one/models.py")).status();
+    // Legacy: one/models.py refresh, only with ONE_LEGACY_PY=1 and ONE_LEGACY_PY_BIN set.
+    if stale && legacy_py() {
+        if let Some(bin) = legacy_bin() {
+            let _ = Command::new(bin).arg(p("one/models.py")).status();
+        }
     }
     fs::read_to_string(cache).unwrap_or_else(|_| "[]".to_string())
 }

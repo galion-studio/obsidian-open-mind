@@ -1,0 +1,16 @@
+[Unit]
+Description=Galion One (Rust port of ./one/one)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/openmind/dist/bin/galion-one
+Environment=ONE_BIND=127.0.0.1:8091
+Environment=ONE_MOUTH_BIND=127.0.0.1:8002
+Restart=always
+RestartSec=3
+
+# No [Install] section on purpose: not enabled until Slavik approves the switch.
+# ONE_NO_WARM and ONE_LEGACY_PY are deliberately absent: the warm loop keeps running
+# in production, the voice worker path is off by default.

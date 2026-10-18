@@ -1,0 +1,15 @@
+[Unit]
+Description=Laptop link watch (Rust port of galion-light/scripts/link-watch.py)
+After=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=3
+ExecStart=/opt/galion/openmind/dist/bin/link-watch
+
+# No [Install] section on purpose: not enabled until Slavik approves the switch.
+# The live link-watch.service still carries [Install] WantedBy=multi-user.target;
+# this staged copy drops it so it cannot be enabled.
+# No Environment lines: the Rust defaults are byte-identical to the constants in
+# the replaced script (same output path, same laptop and France URLs).

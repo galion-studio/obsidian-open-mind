@@ -1,0 +1,18 @@
+[Unit]
+Description=Galion console (production build, staged, not enabled)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/galion/openmind/stage/console-dist
+Environment=PATH=/opt/galion/tooling/node/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PORT=8080
+ExecStart=/opt/galion/tooling/node/bin/node /opt/galion/openmind/stage/console-dist/node_modules/srvx/bin/srvx.mjs --host=127.0.0.1 --port=8080 --static=/opt/galion/openmind/stage/console-dist/static /opt/galion/openmind/stage/console-dist/server/index.mjs
+Restart=always
+RestartSec=3
+
+# No [Install] section on purpose: this unit must not be enabled until Slavik
+# approves the switch. The live console.service runs the vite dev server on
+# 0.0.0.0:8080; this one runs the built output on 127.0.0.1:8080.
+# The build itself is reproduced by the command in deploy/console-prod.md.

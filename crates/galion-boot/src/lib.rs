@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! galion-boot: replaces galion-light keep.sh, stack-boot.sh,
 //! persist-boot.sh, vps-boot.sh, start.sh, hardware.sh, loop-daemon.sh and

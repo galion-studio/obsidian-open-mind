@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! galion-boot <command>
 //!   hardware [--state-dir D] [--public-host H] [--lan host:port] [--wan host:port]

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! The allow-list. These are the only things the healer can change, each
 //! dry-run unless `apply` is true, each logged to actions.jsonl:

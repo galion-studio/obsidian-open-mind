@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Run one probe spec into a [`Row`] with guardian-tick.py statuses:
 //! `healthy`, `unhealthy` (wrong code, warn level, stale) or `critical`

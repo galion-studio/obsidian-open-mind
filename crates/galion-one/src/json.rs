@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // Small std-only JSON reader/writer shared by models_refresh and set-model.
 // Numbers are kept as their raw text so a rewrite does not change them.

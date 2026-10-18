@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // tuner-publish: the trycloudflare quick-tunnel publisher for the tuner,
 // replacing the hand-made transient unit `tuner-quick.service`

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // Clippy allows, added only so `clippy -D warnings` passes. Both fire on the
 // accept loop exactly as it is written in the live galion-desk source. The

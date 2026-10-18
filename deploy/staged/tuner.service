@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 #
 # STAGED, NOT INSTALLED. Same as the live tuner.service except ExecStart now
 # points at the openmind crates/tuner build. Responses are byte-identical

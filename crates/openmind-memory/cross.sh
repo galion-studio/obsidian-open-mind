@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # Cross builds for the universal-CPU targets. Rust links with rust-lld (musl is
 # self-contained); the only C is SQLite's amalgamation (rusqlite `bundled`),
 # compiled with `zig cc` as a portable cross C compiler.

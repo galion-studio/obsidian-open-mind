@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! Plain portable MD5 and SHA-256 (no SIMD, no asm, no deps).
 //!
 //! MD5 is only used for the offload MMD `version` field (first 12 hex chars),

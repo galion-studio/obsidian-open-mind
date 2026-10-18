@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! A small YAML subset reader, enough for Hermes' config.yaml: block maps,
 //! block lists (incl. `- key: v` items), flow `[..]` / `{..}`, quoted and

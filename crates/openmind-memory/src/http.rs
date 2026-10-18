@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! Minimal std-only HTTP/1.1 server: one short-lived thread per connection,
 //! `Connection: close`, Content-Length bodies. Enough for a loopback sidecar
 //! whose only client is Hermes' urllib, and it keeps RSS in the low MB.

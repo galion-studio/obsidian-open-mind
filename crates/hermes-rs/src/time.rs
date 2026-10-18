@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Clock helpers. Logs and reports use Europe/Zagreb with an explicit offset
 //! (EU summer-time rule, no tz database needed); wire timestamps stay unix

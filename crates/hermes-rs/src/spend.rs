@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Spend tracker: USD per session (parent + its subagents), USD and call
 //! count per Europe/Zagreb day, persisted to a small JSON file. Checked

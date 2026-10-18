@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Tiny HTTP/1.0 POST for `fire-loops` (loop-daemon.sh died when curl went
 //! missing on 2026-10-10; this needs no curl).

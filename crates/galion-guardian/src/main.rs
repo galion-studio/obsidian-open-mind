@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! `galion-guardian [--config F] [--once]`. Loop by default; a systemd
 //! service, the galion-boot supervisor, or Termux can all run it as is.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! /v2/offload/{ingest,query-mmd,read-ref}, ported from `offload_server/*`.
 //! Files live under `<data_dir>/offload/<sanitized session>/` exactly like the
 //! gateway's LocalStorageBackend. The LLM-driven L1/L1.5 offload tasks are
@@ -250,7 +250,10 @@ impl Offload {
         if prompt.is_some() || !recent.is_empty() {
             let mut parts = Vec::new();
             if !recent.is_empty() {
-                parts.push("历史消息，可作为参考：".to_string());
+                parts.push(
+                    "\u{5386}\u{53F2}\u{6D88}\u{606F}，\u{53EF}\u{4F5C}\u{4E3A}\u{53C2}\u{8003}："
+                        .to_string(),
+                );
                 for (r, c) in &recent {
                     parts.push(format!(
                         "[{}]: {c}",
@@ -259,7 +262,7 @@ impl Offload {
                 }
             }
             if let Some(p) = &prompt {
-                parts.push(format!("\n最新user message：\n[User]: {p}"));
+                parts.push(format!("\n\u{6700}\u{65B0}user message：\n[User]: {p}"));
             }
             let _ = self.write(&format!("{base}/recent-context.txt"), &parts.join("\n"));
         }

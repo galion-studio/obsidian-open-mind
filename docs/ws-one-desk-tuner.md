@@ -4,7 +4,7 @@ project: galion
 status: staged, awaiting Slavik's approval
 ---
 <!-- SPDX-License-Identifier: MIT -->
-<!-- SPDX-FileCopyrightText: 2026 Slavik / Galion Studio -->
+<!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
 
 # Workstream one-desk-tuner: Galion One, galion-desk, tuner
 

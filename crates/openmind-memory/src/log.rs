@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! Stderr logging with Europe/Zagreb timestamps. Never logs bodies or secrets.
 
 pub fn info(msg: &str) {

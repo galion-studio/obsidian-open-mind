@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Session store. `SessionStore` is the interface; `MemStore` (tests),
 //! `JsonlStore` (pure Rust, phones / Pi) and, with the `sqlite` feature,

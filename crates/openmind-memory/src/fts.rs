@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! FTS5 query building and write-side tokenisation.
 //!
 //! The Node gateway uses `@node-rs/jieba` (a native C++/Rust addon with a
@@ -13,9 +13,46 @@
 
 /// Common Chinese stop words (same list as `ZH_STOP_WORDS`).
 const ZH_STOP_WORDS: [&str; 40] = [
-    "的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也",
-    "很", "到", "说", "要", "去", "你", "会", "着", "没有", "看", "好", "自己", "这", "他", "她",
-    "它", "们", "那", "吗", "吧", "呢", "啊", "呀", "哦", "嗯",
+    "\u{7684}",
+    "\u{4E86}",
+    "\u{5728}",
+    "\u{662F}",
+    "\u{6211}",
+    "\u{6709}",
+    "\u{548C}",
+    "\u{5C31}",
+    "\u{4E0D}",
+    "\u{4EBA}",
+    "\u{90FD}",
+    "\u{4E00}",
+    "\u{4E00}\u{4E2A}",
+    "\u{4E0A}",
+    "\u{4E5F}",
+    "\u{5F88}",
+    "\u{5230}",
+    "\u{8BF4}",
+    "\u{8981}",
+    "\u{53BB}",
+    "\u{4F60}",
+    "\u{4F1A}",
+    "\u{7740}",
+    "\u{6CA1}\u{6709}",
+    "\u{770B}",
+    "\u{597D}",
+    "\u{81EA}\u{5DF1}",
+    "\u{8FD9}",
+    "\u{4ED6}",
+    "\u{5979}",
+    "\u{5B83}",
+    "\u{4EEC}",
+    "\u{90A3}",
+    "\u{5417}",
+    "\u{5427}",
+    "\u{5462}",
+    "\u{554A}",
+    "\u{5440}",
+    "\u{54E6}",
+    "\u{55EF}",
 ];
 
 /// CJK ideographs, kana and hangul: scripts written without spaces.
@@ -150,16 +187,16 @@ mod tests {
     }
     #[test]
     fn cjk_ngrams() {
-        let q = build_fts_query("旅行计划API").unwrap();
+        let q = build_fts_query("\u{65C5}\u{884C}\u{8BA1}\u{5212}API").unwrap();
         assert!(
-            q.contains("\"旅行\"")
-                && q.contains("\"计划\"")
+            q.contains("\"\u{65C5}\u{884C}\"")
+                && q.contains("\"\u{8BA1}\u{5212}\"")
                 && q.contains("\"API\"")
-                && q.contains("\"旅行计划\"")
+                && q.contains("\"\u{65C5}\u{884C}\u{8BA1}\u{5212}\"")
         );
-        assert_eq!(build_fts_query("的"), None);
+        assert_eq!(build_fts_query("\u{7684}"), None);
         assert_eq!(tokenize_for_fts("plain text"), "plain text");
-        assert!(tokenize_for_fts("人工智能").starts_with("人工智能 人工 工智 智能"));
+        assert!(tokenize_for_fts("\u{4EBA}\u{5DE5}\u{667A}\u{80FD}").starts_with("\u{4EBA}\u{5DE5}\u{667A}\u{80FD} \u{4EBA}\u{5DE5} \u{5DE5}\u{667A} \u{667A}\u{80FD}"));
     }
     #[test]
     fn score() {

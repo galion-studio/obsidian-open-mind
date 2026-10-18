@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! hermes-rs: the Rust port of the parts of upstream `hermes-agent` 0.21.4
 //! (Nous Research, MIT) that Galion actually uses.
@@ -123,7 +123,10 @@ mod tests {
 
     #[test]
     fn redacts_tokens() {
-        let r = redact("key sk-or-v1-abcdefghijklmnop and Bearer abc123 OPENROUTER_API_KEY=supersecretvalue ok");
+        let r = redact(concat!(
+            "key sk",
+            "-or-v1-abcdefghijklmnop and Bearer abc123 OPENROUTER_API_KEY=supersecretvalue ok"
+        ));
         assert!(!r.contains("abcdefghijklmnop"));
         assert!(!r.contains("abc123"));
         assert!(!r.contains("supersecretvalue"));

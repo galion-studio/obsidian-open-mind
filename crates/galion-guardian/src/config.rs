@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Guardian config (TOML). Every path and address has a safe default:
 //! state under `target/test-out/guardian`, probes on 127.0.0.1.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Minimal blocking HTTP/1.0 + 1.1 server: one request per connection,
 //! `Connection: close`, close-delimited SSE bodies (works for HTTP/1.0

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // Starts the built galion-desk on a spare loopback port with every path pointed
 // at target/test-out and checks /health, /desk and one POST /desk act. Never

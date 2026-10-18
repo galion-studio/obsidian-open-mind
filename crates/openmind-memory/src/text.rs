@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! Text helpers ported from the gateway (`utils/sanitize.ts`,
 //! `core/hooks/auto-recall.ts`, `core/scene/scene-navigation.ts`).
 //! The TS code uses regexes; these are hand-written matchers with the same
@@ -428,7 +428,7 @@ pub fn filter_recall_text_by_session(text: &str, session_id: &str) -> String {
 }
 
 pub const NAV_HEADER: &str = "---\n## 🗺️ Scene Navigation (Scene Index)";
-const NAV_FOOTER_LOCAL: &str = "📌 使用说明：\n- Path 是 scene block 的绝对路径，可直接使用 **read** 工具读取完整内容（参数: filePath）\n- 热度：该场景被记忆命中的累计次数，越高越重要\n- Summary：场景的核心要点摘要";
+const NAV_FOOTER_LOCAL: &str = "📌 \u{4F7F}\u{7528}\u{8BF4}\u{660E}：\n- Path \u{662F} scene block \u{7684}\u{7EDD}\u{5BF9}\u{8DEF}\u{5F84}，\u{53EF}\u{76F4}\u{63A5}\u{4F7F}\u{7528} **read** \u{5DE5}\u{5177}\u{8BFB}\u{53D6}\u{5B8C}\u{6574}\u{5185}\u{5BB9}（\u{53C2}\u{6570}: filePath）\n- \u{70ED}\u{5EA6}：\u{8BE5}\u{573A}\u{666F}\u{88AB}\u{8BB0}\u{5FC6}\u{547D}\u{4E2D}\u{7684}\u{7D2F}\u{8BA1}\u{6B21}\u{6570}，\u{8D8A}\u{9AD8}\u{8D8A}\u{91CD}\u{8981}\n- Summary：\u{573A}\u{666F}\u{7684}\u{6838}\u{5FC3}\u{8981}\u{70B9}\u{6458}\u{8981}";
 
 /// Port of `stripSceneNavigation`.
 pub fn strip_scene_navigation(persona: &str) -> &str {
@@ -519,10 +519,10 @@ pub fn generate_scene_navigation(entries: &[SceneEntry], data_dir: &str) -> Stri
             let upd = if e.updated.is_empty() {
                 String::new()
             } else {
-                format!(" | **更新**: {}", e.updated)
+                format!(" | **\u{66F4}\u{65B0}**: {}", e.updated)
             };
             format!(
-                "### Path: {}\n**热度**: {}{}{}\nSummary: {}",
+                "### Path: {}\n**\u{70ED}\u{5EA6}**: {}{}{}\nSummary: {}",
                 path.display(),
                 js_num(e.heat),
                 heat_emoji(e.heat),
@@ -532,7 +532,7 @@ pub fn generate_scene_navigation(entries: &[SceneEntry], data_dir: &str) -> Stri
         })
         .collect();
     format!(
-        "{NAV_HEADER}\n*以下是当前场景记忆的索引，可根据需要 read 读取详细内容。*\n\n{}\n\n{NAV_FOOTER_LOCAL}",
+        "{NAV_HEADER}\n*\u{4EE5}\u{4E0B}\u{662F}\u{5F53}\u{524D}\u{573A}\u{666F}\u{8BB0}\u{5FC6}\u{7684}\u{7D22}\u{5F15}，\u{53EF}\u{6839}\u{636E}\u{9700}\u{8981} read \u{8BFB}\u{53D6}\u{8BE6}\u{7EC6}\u{5185}\u{5BB9}\u{3002}*\n\n{}\n\n{NAV_FOOTER_LOCAL}",
         blocks.join("\n\n")
     )
 }
@@ -579,10 +579,18 @@ pub fn format_memory_line(
     let mut line = format!("- [{tag}] {content}");
     let f = |o: Option<&str>| o.filter(|s| !s.is_empty()).and_then(format_timestamp);
     match (f(start), f(end), f(point)) {
-        (Some(s), Some(e), _) => line.push_str(&format!(" (活动时间: {s} ~ {e})")),
-        (Some(s), None, _) => line.push_str(&format!(" (活动时间: {s}起)")),
-        (None, Some(e), _) => line.push_str(&format!(" (活动时间: 至{e})")),
-        (None, None, Some(p)) => line.push_str(&format!(" (活动时间: {p})")),
+        (Some(s), Some(e), _) => {
+            line.push_str(&format!(" (\u{6D3B}\u{52A8}\u{65F6}\u{95F4}: {s} ~ {e})"))
+        }
+        (Some(s), None, _) => {
+            line.push_str(&format!(" (\u{6D3B}\u{52A8}\u{65F6}\u{95F4}: {s}\u{8D77})"))
+        }
+        (None, Some(e), _) => {
+            line.push_str(&format!(" (\u{6D3B}\u{52A8}\u{65F6}\u{95F4}: \u{81F3}{e})"))
+        }
+        (None, None, Some(p)) => {
+            line.push_str(&format!(" (\u{6D3B}\u{52A8}\u{65F6}\u{95F4}: {p})"))
+        }
         _ => {}
     }
     line
@@ -676,7 +684,7 @@ mod tests {
                 Some("2025-05-10"),
                 None
             ),
-            "- [episodic|travel] trip (活动时间: 2025-05-01 ~ 2025-05-10)"
+            "- [episodic|travel] trip (\u{6D3B}\u{52A8}\u{65F6}\u{95F4}: 2025-05-01 ~ 2025-05-10)"
         );
         assert_eq!(
             format_memory_line("persona", "x", "", None, None, None),

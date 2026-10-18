@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! v1 endpoint logic: /recall, /capture, /search/memories,
 //! /search/conversations, /session/end. Ported from `gateway/server.ts`,
 //! `core/hooks/auto-recall.ts`, `core/hooks/auto-capture.ts`,
@@ -267,7 +267,7 @@ impl Engine {
                 String::new()
             } else {
                 let p = format!(
-                    "<relevant-memories>\n以下是当前对话召回的相关记忆，不代表当前任务进程，仅作为参考：\n\n{}\n</relevant-memories>",
+                    "<relevant-memories>\n\u{4EE5}\u{4E0B}\u{662F}\u{5F53}\u{524D}\u{5BF9}\u{8BDD}\u{53EC}\u{56DE}\u{7684}\u{76F8}\u{5173}\u{8BB0}\u{5FC6}，\u{4E0D}\u{4EE3}\u{8868}\u{5F53}\u{524D}\u{4EFB}\u{52A1}\u{8FDB}\u{7A0B}，\u{4EC5}\u{4F5C}\u{4E3A}\u{53C2}\u{8003}：\n\n{}\n</relevant-memories>",
                     lines.join("\n")
                 );
                 filter_recall_text_by_session(&p, &session_key)

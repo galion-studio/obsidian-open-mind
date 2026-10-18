@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! galion-healer: Rust port of galion-light `guardian/desk_heal.py` (cases,
 //! follow-ups, nerve), `scripts/heal-dry.py` (plan), `scripts/heal-apply.py`

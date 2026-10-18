@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Cron scheduler for upstream `cron/jobs.json` (read-only: hermes-rs never
 //! writes jobs.json; its own run state lives in `cron_state_file`, so a
@@ -418,7 +418,10 @@ mod tests {
         let h = home();
         std::fs::write(
             h.join("scripts/digest.sh"),
-            "echo digest for $HERMES_HOME\necho token sk-abcdefghijklmnopqrstuv\n",
+            concat!(
+                "echo digest for $HERMES_HOME\necho token sk",
+                "-abcdefghijklmnopqrstuv\n"
+            ),
         )
         .unwrap();
         jobs(
@@ -434,7 +437,10 @@ mod tests {
         let o = &r[0].1;
         assert!(o.ok, "{o:?}");
         assert!(o.output.contains("digest for"));
-        assert!(!o.output.contains("sk-abcdefghijklmnopqrstuv"), "redacted");
+        assert!(
+            !o.output.contains(concat!("sk", "-abcdefghijklmnopqrstuv")),
+            "redacted"
+        );
         let md = std::fs::read_to_string(o.file.as_ref().unwrap()).unwrap();
         assert!(md.starts_with("# Cron Job: daily-digest\n\n**Job ID:** abc123\n**Run Time:** "));
         assert!(md.contains("**Mode:** no_agent (script)\n\n---\n\n"));

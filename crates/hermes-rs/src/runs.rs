@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! `/v1/runs`: start an agent run in the background, poll it, stream its
 //! events (SSE), stop or steer it. Event payloads follow upstream

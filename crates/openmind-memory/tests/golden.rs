@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! Golden tests: recorded live shapes (no data) + source-derived shapes,
 //! synthetic data only. Calls App::handle directly (no sockets).
 
@@ -282,7 +282,7 @@ fn l1_keyword_recall_persona_scene() {
     assert_eq!(b["strategy"], json!("hybrid"));
     let ctx = b["context"].as_str().unwrap();
     let expected_nav = format!(
-        "<scene-navigation>\n---\n## 🗺️ Scene Navigation (Scene Index)\n*以下是当前场景记忆的索引，可根据需要 read 读取详细内容。*\n\n### Path: {}\n**热度**: 120 🔥🔥 | **更新**: 2026-10-02\nSummary: Coffee habits",
+        "<scene-navigation>\n---\n## 🗺️ Scene Navigation (Scene Index)\n*\u{4EE5}\u{4E0B}\u{662F}\u{5F53}\u{524D}\u{573A}\u{666F}\u{8BB0}\u{5FC6}\u{7684}\u{7D22}\u{5F15}，\u{53EF}\u{6839}\u{636E}\u{9700}\u{8981} read \u{8BFB}\u{53D6}\u{8BE6}\u{7EC6}\u{5185}\u{5BB9}\u{3002}*\n\n### Path: {}\n**\u{70ED}\u{5EA6}**: 120 🔥🔥 | **\u{66F4}\u{65B0}**: 2026-10-02\nSummary: Coffee habits",
         dir.join("scene_blocks").join("scene-s1.md").display()
     );
     assert!(ctx.starts_with("<user-persona>\n# Persona\n\n- id: p1\n  likes coffee\n  session: s1\n</user-persona>\n\n"), "{ctx}");
@@ -302,7 +302,7 @@ fn l1_keyword_recall_persona_scene() {
         &[],
     );
     assert!(b["context"].as_str().unwrap().contains(
-        "- [persona|Coffee] User prefers espresso in the morning (活动时间: 2026-10-01 08:30)"
+        "- [persona|Coffee] User prefers espresso in the morning (\u{6D3B}\u{52A8}\u{65F6}\u{95F4}: 2026-10-01 08:30)"
     ));
 
     // Unknown session: no persona/nav, but L1 hit -> strategy present, empty context.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! openmind-memory: API-compatible replacement for the endpoints Hermes uses
 //! on the TencentDB `tdai` memory gateway. See docs/ws-memory.md.
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Port of `scripts/heal-dry.py`: match an error text against the guardian
 //! healer patterns (same order as `AutoHealer._initialize_fix_patterns`) and

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 #
 # STAGED, not installed. galion-guardian config for the VPS (B20 probe list as
 # data). Every probe is read-only: loopback HTTP GET, systemctl is-active,

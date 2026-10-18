@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Secret restore from the age bundles, replacing keep.sh's plaintext
 //! `secrets/persist/*` copies, lock-secrets.sh and persist-boot.sh's key copy.

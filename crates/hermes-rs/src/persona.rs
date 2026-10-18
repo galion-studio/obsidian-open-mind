@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! System prompt assembly: SOUL.md, the channel prompt for the caller
 //! (channels/<name>.md, e.g. galion-one), config `agent.system_prompt`,

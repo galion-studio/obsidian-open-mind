@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! Operator subcommands for the B60 shadow run (no server involved):
 //! - `snapshot <src.db> <dst.db>`: consistent copy via the SQLite online
 //!   backup API (source opened read-only; safe while the gateway writes).

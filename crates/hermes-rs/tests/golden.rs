@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Golden tests: the exact request shapes the console (`hermes.ts`) and
 //! Galion One (`crates/galion-one`) send, against a gateway on a loopback

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! Time and id helpers. Stored data keeps the gateway's formats (JS
 //! `toISOString()` UTC strings, epoch ms); human-facing logs use Zagreb time.
 

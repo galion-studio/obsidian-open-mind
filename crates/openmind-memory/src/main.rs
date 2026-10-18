@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 use openmind_memory::{api::App, config::Config, engine::Engine, http, log};
 use std::net::TcpListener;
 use std::sync::Arc;

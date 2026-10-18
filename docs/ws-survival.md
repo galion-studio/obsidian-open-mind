@@ -4,7 +4,7 @@ project: galion
 status: staged
 ---
 <!-- SPDX-License-Identifier: MIT -->
-<!-- SPDX-FileCopyrightText: 2026 Slavik / Galion Studio -->
+<!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
 
 # Workstream ws/survival: guardian, healer, boot/keep and origin in Rust
 

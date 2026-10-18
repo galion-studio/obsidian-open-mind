@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! SQLite session store, column-compatible with upstream hermes-agent
 //! state.db (schema v30: `sessions`, `messages`). Read-only mode opens the

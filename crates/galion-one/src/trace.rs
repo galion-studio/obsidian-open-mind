@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // Port of one/trace.py: look at a black mark, then write one filled SVG of its
 // corners. Same steps as the Python: grey threshold < 140, Moore-neighbour

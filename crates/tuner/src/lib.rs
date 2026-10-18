@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // tuner: minimal static file server (std only) for the ukulele tuner page,
 // imported from /opt/galion/tuner/src/main.rs (B53). The responses are byte

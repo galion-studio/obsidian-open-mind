@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! SQLite store, same schema as the gateway's `core/store/sqlite.ts` (v2 FTS
 //! schema). Only the tables used by keyword recall are touched; vec0 tables
 //! (sqlite-vec) are never created or read: the live gateway runs with no

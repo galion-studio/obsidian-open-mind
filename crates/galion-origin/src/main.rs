@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! galion-origin: env ORIGIN_ADDR (default 127.0.0.1:8655), ORIGIN_ROOT,
 //! ORIGIN_GRINDER_ROOT, ORIGIN_CONSOLE_URL. One thread per connection, at

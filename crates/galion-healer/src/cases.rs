@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Port of galion-light `guardian/desk_heal.py` `cycle()`/`follow()`.
 //! A clear check writes nothing to the nerve. A new fault signature

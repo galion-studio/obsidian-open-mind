@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Minimal MCP client for stdio servers (newline-delimited JSON-RPC 2.0):
 //! `initialize` -> `notifications/initialized` -> `tools/list` (paged) ->

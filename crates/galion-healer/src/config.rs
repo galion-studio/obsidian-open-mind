@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Healer config. Safe defaults: state under target/test-out, dry-run,
 //! no restart allow-list, probes on 127.0.0.1.

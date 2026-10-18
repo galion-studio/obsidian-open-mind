@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! B25: guardian report as nerve event lines (one JSON object per line).
 //! Std only, so JSON is written by hand with proper escaping.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! B24: graceful degradation rules as data. Given what the machine has (GPU,
 //! RAM, LAN, WAN), pick the CPU-light fallback. First matching rule wins.

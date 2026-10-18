@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! B54: hardware probe (port of hardware.sh + the machine.json half of
 //! stack-boot.sh). CPU count, RAM from /proc/meminfo, GPU from nvidia-smi

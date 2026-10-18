@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Gateway configuration: read the existing Hermes `config.yaml` (subset),
 //! then env overrides. Loopback defaults. Secrets are never stored here,

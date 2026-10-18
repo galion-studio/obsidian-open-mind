@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Model providers: model/route resolution (`galion` -> haiku etc.),
 //! reasoning settings, the OpenAI-compatible wire body, SSE parsing, a curl

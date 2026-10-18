@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! boot.toml: the service list both backends use (systemd unit renderer and
 //! the plain supervisor for Termux / minimal Linux without systemd).

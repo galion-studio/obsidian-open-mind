@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Plain supervisor: the non-systemd backend (Termux/Android, Alpine/OpenRC
 //! boxes, containers, minimal Linux). Same boot.toml as the unit renderer.

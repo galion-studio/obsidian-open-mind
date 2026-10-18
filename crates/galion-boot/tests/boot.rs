@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 use galion_boot::secrets::{self, Live, Tools};
 use galion_boot::supervise::{parse_env_file, Supervisor};

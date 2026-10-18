@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! Shadow-run tooling over real sockets: snapshot a DB, serve the original
 //! and the read-only copy on two loopback ports, run parity. Synthetic data.
 

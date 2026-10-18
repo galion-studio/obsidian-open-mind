@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // End-to-end: the tuner server on a spare port, and tuner-publish against a
 // fake cloudflared (a shell script under target/test-out) that prints a quick

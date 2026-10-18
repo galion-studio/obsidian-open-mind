@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 use galion_healer::actions::{clear_stale_gateway_lock, json_brace_repair, restart_unit};
 use galion_healer::{config, run_cycle, Deps};

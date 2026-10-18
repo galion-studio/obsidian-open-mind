@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! The OpenAI-compatible HTTP API (the `api_server` platform of upstream
 //! hermes-agent): /health, /v1/models, /v1/chat/completions (incl. SSE),

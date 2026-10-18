@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Health rows + incidents. Same semantics as guardian-tick.py: one row per
 //! probe per beat; open an incident when a service is not healthy and has

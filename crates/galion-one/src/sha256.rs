@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // SHA-256 (FIPS 180-4), portable scalar code, no intrinsics. Used for the
 // device-pairing token hashes so no `sha256sum` child is spawned per check.

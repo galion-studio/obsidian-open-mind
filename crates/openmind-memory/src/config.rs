@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! Configuration from the environment only, loopback defaults.
 //! `OPENMIND_MEMORY_*` wins; the gateway's own `TDAI_*` names are read as a
 //! fallback so the existing `/etc/memory-gateway.env` works unchanged.

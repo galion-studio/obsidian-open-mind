@@ -186,6 +186,7 @@ systems! {
     Messaging => ("messaging", Aether, "chat and messaging channels", false),
     Nerve => ("nerve", Aether, "the nerve: signal lines between components", false),
     VoiceRelay => ("voice-relay", Aether, "crates/galion-voice-core, crates/persona-plex-relay", false),
+    SpeechIo => ("speech-io", Aether, "STT/TTS on CPU (ws/speech, queued)", false),
     WifiIdentity => ("wifi-identity", Aether, "omnode Wi-Fi identity", false),
     LanDiscovery => ("lan-discovery", Aether, "omnode LAN discovery", false),
     Tunnels => ("tunnels", Aether, "tuner-publish quick tunnel, network", false),

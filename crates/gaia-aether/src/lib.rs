@@ -71,6 +71,7 @@ impl SubordinateFunction for Aether {
             System::Messaging,
             System::Nerve,
             System::VoiceRelay,
+            System::SpeechIo,
             System::WifiIdentity,
             System::LanDiscovery,
             System::Tunnels,
@@ -124,6 +125,13 @@ impl SubordinateFunction for Aether {
                     .metric("frames", frames as i64)
                     .metric("bytes", (frames * FRAME_BYTES) as i64)
                     .metric("jitter_buffer_bytes", (JITTER_FRAMES * FRAME_BYTES) as i64)
+            }
+            System::SpeechIo => {
+                // Budget only: real-time factor target < 1 means speech keeps up.
+                let secs = scaled(30, d.intensity);
+                done(format!("{secs} s of speech queued for STT/TTS (simulated)"))
+                    .metric("audio_secs", secs as i64)
+                    .metric("rtf_target_x100", 100)
             }
             System::WifiIdentity => {
                 let seed = if d.payload.is_empty() {

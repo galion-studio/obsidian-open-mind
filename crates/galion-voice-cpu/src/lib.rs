@@ -11,6 +11,8 @@
 #![deny(unsafe_code)]
 
 pub mod g2p;
+#[cfg(feature = "kitten")]
+pub mod kitten;
 pub mod pipeline;
 pub mod resample;
 pub mod stt;

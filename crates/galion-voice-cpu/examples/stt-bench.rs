@@ -15,7 +15,7 @@ use galion_voice_core::session::{Session, SessionConfig, SessionEvent};
 use galion_voice_cpu::pipeline::mocks::{BeepTts, EchoModel};
 use galion_voice_cpu::pipeline::CpuPipelineBackend;
 use galion_voice_cpu::resample::{i16_to_f32, linear};
-use galion_voice_cpu::stt::SpeechToText;
+use galion_voice_cpu::stt::{SpeechToText, TextToSpeech};
 use galion_voice_cpu::wav;
 use galion_voice_cpu::whisper_stt::{EncoderContext, WhisperStt};
 
@@ -82,25 +82,41 @@ fn main() -> Result<(), String> {
     }
 
     // Same model as a voice-core backend: the clip as mic audio at 24 kHz.
-    // STT now runs on the backend's worker thread, so we tick in (simulated)
+    // STT/TTS run on the backend's worker thread, so we tick in (simulated)
     // real time and record how long each tick takes.
     stt.context = EncoderContext::Trimmed;
+    #[cfg(feature = "kitten")]
+    if let (Ok(kdir), Ok(dict)) = (std::env::var("KITTEN_DIR"), std::env::var("CMUDICT")) {
+        let tts = galion_voice_cpu::kitten::KittenTts::load(Path::new(&kdir), Path::new(&dict))?;
+        println!("TTS: KittenTTS nano, VmHWM {} kB", vm_hwm_kb());
+        return run_session(stt, tts, &w);
+    }
+    println!("TTS: BeepTts placeholder");
+    run_session(stt, BeepTts, &w)
+}
+
+fn run_session<T: TextToSpeech + Send + 'static>(
+    stt: WhisperStt,
+    tts: T,
+    w: &wav::Wav,
+) -> Result<(), String> {
     let spec = FrameSpec::MOSHI;
     let mic = linear(&i16_to_f32(&w.samples), w.sample_rate, spec.sample_rate);
     let mut s = Session::new(
-        CpuPipelineBackend::new(stt, EchoModel, BeepTts, spec),
+        CpuPipelineBackend::new(stt, EchoModel, tts, spec),
         SessionConfig::default(),
     );
     s.start(&StaticPersona::new("Galion", "default"))
         .map_err(|e| e.to_string())?;
     let mut frames: Vec<_> = mic.chunks(spec.frame_samples).map(|c| c.to_vec()).collect();
     let speech_frames = frames.len();
-    frames.extend(std::iter::repeat_n(vec![0.0f32; spec.frame_samples], 400));
+    frames.extend(std::iter::repeat_n(vec![0.0f32; spec.frame_samples], 600));
     let frame_dur = std::time::Duration::from_millis(spec.frame_ms() as u64);
     let mut worst_tick = std::time::Duration::ZERO;
     let mut end_tick = None;
     let mut speech_end_at = None;
     let mut first_audio_at = None;
+    let mut played = 0usize;
     for (i, c) in frames.iter().enumerate() {
         let mut samples = galion_voice_cpu::resample::f32_to_i16(c);
         samples.resize(spec.frame_samples, 0);
@@ -123,10 +139,17 @@ fn main() -> Result<(), String> {
                 _ => {}
             }
         }
-        if out.playout.is_some() && first_audio_at.is_none() {
-            first_audio_at = Some(Instant::now());
+        if out.playout.is_some() {
+            played += 1;
+            if first_audio_at.is_none() {
+                first_audio_at = Some(Instant::now());
+            }
         }
-        if i >= speech_frames && first_audio_at.is_some() && !s.backend().busy() {
+        if i >= speech_frames
+            && first_audio_at.is_some()
+            && !s.backend().busy()
+            && s.state() == galion_voice_core::session::State::Listening
+        {
             break;
         }
         // Real time only after the speech, to keep the bench short.
@@ -141,9 +164,11 @@ fn main() -> Result<(), String> {
     };
     println!(
         "pipeline last turn: {tm:?}; end-of-turn tick {} us; worst tick {} us; \
-         speech end -> first reply frame {reply_ms} ms; session {:?}; VmHWM {} kB",
+         speech end -> first reply frame {reply_ms} ms; reply frames played {played}; \
+         jitter {:?}; session {:?}; VmHWM {} kB",
         end_tick.map_or(0, |d| d.as_micros()),
         worst_tick.as_micros(),
+        s.jitter_stats(),
         s.stats(),
         vm_hwm_kb()
     );

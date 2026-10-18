@@ -16,6 +16,8 @@ default = []
 # Whisper STT through candle. Off by default so the crate (and the backend
 # wiring, mock STT/TTS) builds with zero heavy deps.
 whisper = ["dep:candle-core", "dep:candle-nn", "dep:serde_json", "dep:serde", "dep:num-traits"]
+# KittenTTS nano via candle (same deps as whisper, no new crates).
+kitten = ["dep:candle-core", "dep:candle-nn"]
 
 [dependencies]
 galion-voice-core = { path = "../galion-voice-core" }
@@ -28,3 +30,7 @@ num-traits = { version = "0.2", default-features = false, features = ["std"], op
 [[example]]
 name = "stt-bench"
 required-features = ["whisper"]
+
+[[example]]
+name = "tts-bench"
+required-features = ["kitten"]

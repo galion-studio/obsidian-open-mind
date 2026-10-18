@@ -51,6 +51,29 @@ pub fn sentences(text: &str) -> Vec<&str> {
     out
 }
 
+/// [`sentences`], with sentences longer than `max` bytes cut again after
+/// `,` or `:` (pieces of at least 20 bytes), so the first audio of a long
+/// reply comes sooner.
+pub fn clauses(text: &str, max: usize) -> Vec<&str> {
+    let mut out = Vec::new();
+    for s in sentences(text) {
+        if s.len() <= max {
+            out.push(s);
+            continue;
+        }
+        let mut start = 0;
+        for (i, c) in s.char_indices() {
+            let end = i + c.len_utf8();
+            if matches!(c, ',' | ':') && end - start >= 20 && s.len() - end >= 20 {
+                out.push(s[start..end].trim());
+                start = end;
+            }
+        }
+        out.push(s[start..].trim());
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -60,5 +83,15 @@ mod tests {
             ["Hi.", "How are you?", "Fine"]
         );
         assert!(super::sentences("  ").is_empty());
+        let long =
+            "Galion heard: and so my fellow Americans, ask not what your country can do for you.";
+        assert_eq!(
+            super::clauses(long, 60),
+            [
+                "Galion heard: and so my fellow Americans,",
+                "ask not what your country can do for you."
+            ]
+        );
+        assert_eq!(super::clauses("Short, one.", 60), ["Short, one."]);
     }
 }

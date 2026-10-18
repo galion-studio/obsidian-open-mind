@@ -677,7 +677,21 @@ fn chat_json(
 pub fn spawn(gw: Arc<Gateway>, addr: &str) -> std::io::Result<std::net::SocketAddr> {
     let listener = std::net::TcpListener::bind(addr)?;
     let local = listener.local_addr()?;
-    let handler: crate::http::Handler = Arc::new(move |req| gw.handle(req));
+    let handler: crate::http::Handler = Arc::new(move |req: crate::http::Request| {
+        // NERVE push (no-op unless NERVE_URL is set): report server-side failures.
+        let what = format!("{} {}", req.method, req.path);
+        let resp = gw.handle(req);
+        if resp.status() >= 500 {
+            nerve_client::error(
+                "hermes-rs",
+                "http_5xx",
+                &format!("{what} -> {}", resp.status()),
+            );
+        }
+        resp
+    });
+    nerve_client::event("hermes-rs", "started", &format!("listening on {local}"));
+    nerve_client::start_heartbeat("hermes-rs", 60);
     std::thread::Builder::new()
         .name("hermes-accept".into())
         .spawn(move || crate::http::serve(listener, handler, 64))?;

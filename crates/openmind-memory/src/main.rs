@@ -25,6 +25,8 @@ fn main() {
         cfg.read_only
     ));
     let app = Arc::new(App::new(Engine::new(cfg)));
+    nerve_client::event("openmind-memory", "started", &addr);
+    nerve_client::start_heartbeat("openmind-memory", 60);
     let listener = match TcpListener::bind(&addr) {
         Ok(l) => l,
         Err(e) => {
@@ -36,7 +38,23 @@ fn main() {
         listener,
         max_body,
         max_conns,
-        Arc::new(move |req| app.handle(req)),
+        Arc::new(move |req: openmind_memory::http::Request| {
+            // NERVE push (no-op unless NERVE_URL is set): report server-side failures.
+            let what = format!(
+                "{} {}",
+                req.method,
+                req.path.split('?').next().unwrap_or("")
+            );
+            let resp = app.handle(req);
+            if resp.status >= 500 {
+                nerve_client::error(
+                    "openmind-memory",
+                    "http_5xx",
+                    &format!("{what} -> {}", resp.status),
+                );
+            }
+            resp
+        }),
     );
 }
 

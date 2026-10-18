@@ -1,0 +1,30 @@
+# /etc/systemd/system/link-watch-rs.service
+# Installed 2026-10-18 (switch gaps). Rust port of /opt/galion/galion-light/scripts/link-watch.py
+# (oom-rust ws/switch-gaps, crates/link-watch). Replaces link-watch.service (Python, disabled).
+# Same files: /opt/galion/galion-light/state/{link.json,link-log.json} written, laptop.json read.
+# LINK_WATCH_FRANCE_URL: the Rust code has no built-in remote host (B01); it is set here to the
+# host the Python hard-codes so link.json "france" stays a bool probed every 30 s, as the Python did.
+# Unset it to get "france": "unconfigured" and no remote probe.
+# Rollback: /root/galion-switch-20261018-2140/rollback-gaps.sh link-watch
+[Unit]
+Description=Laptop link watch (Rust; replaces link-watch.service)
+After=network-online.target hermes-rs.service
+Wants=network-online.target
+Conflicts=link-watch.service
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/rust/bin/link-watch
+Environment=LINK_WATCH_FRANCE_URL=http://54.37.161.82
+Restart=always
+RestartSec=3
+MemoryMax=32M
+TasksMax=16
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/galion/galion-light/state
+
+[Install]
+WantedBy=multi-user.target

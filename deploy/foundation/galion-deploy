@@ -1,0 +1,54 @@
+#!/bin/bash
+# galion-deploy <service> <new-binary> [health-url]
+# Backup -> install -> restart -> health check -> automatic rollback on failure. (ws/foundation)
+set -euo pipefail
+umask 077
+log() { echo "ts=$(TZ=Europe/Zagreb date -Iseconds) svc=galion-deploy $*"; }
+die() { log "level=error msg=\"$*\""; exit 1; }
+[ $# -ge 2 ] || { echo "usage: galion-deploy <service> <new-binary> [health-url]"; exit 2; }
+SVC=${1%.service}; NEW=$2
+declare -A HEALTH=(
+  [openmind-memory]=http://127.0.0.1:8420/health [hermes-rs]=http://127.0.0.1:8642/health
+  [galion-desk]=http://127.0.0.1:8646/health [tuner]=http://127.0.0.1:8650/health
+  [galion-health]=http://127.0.0.1:8660/healthz-self [link-watch-rs]=none
+)
+URL=${3:-${HEALTH[$SVC]:-none}}
+[ "$URL" = http://127.0.0.1:8660/healthz-self ] && URL=http://127.0.0.1:8660/status.json
+systemctl cat "$SVC.service" >/dev/null 2>&1 || die "unknown unit $SVC.service"
+TARGET=$(systemctl show -p ExecStart --value "$SVC.service" | sed -n 's/.*path=\([^ ;]*\).*/\1/p' | head -1)
+[ -n "$TARGET" ] && [ -f "$TARGET" ] || die "cannot resolve installed binary for $SVC"
+[ -f "$NEW" ] || die "no such file $NEW"
+head -c4 "$NEW" | od -An -c | grep -q 'E   L   F' || die "$NEW is not an ELF binary"
+"$NEW" --version >/dev/null 2>&1 || true   # informational only; not all binaries support it
+
+BDIR=/var/backups/galion/deploy; mkdir -p "$BDIR"; chmod 0700 /var/backups/galion "$BDIR"
+STAMP=$(TZ=Europe/Zagreb date +%Y%m%d-%H%M%S%z)
+BAK="$BDIR/$SVC-$STAMP.bin"
+cp -p "$TARGET" "$BAK"
+[ -x /opt/galion/rust/bin/galion-backup.sh ] && [ "${SKIP_DATA_BACKUP:-0}" != 1 ] && /opt/galion/rust/bin/galion-backup.sh || true
+log "level=info msg=\"backup\" unit=$SVC target=$TARGET backup=$BAK sha_old=$(sha256sum "$TARGET" | cut -c1-12) sha_new=$(sha256sum "$NEW" | cut -c1-12)"
+
+healthy() {
+  for i in $(seq 1 20); do
+    sleep 1
+    systemctl is-active --quiet "$SVC.service" || continue
+    [ "$URL" = none ] && { [ $i -ge 5 ] && systemctl is-active --quiet "$SVC.service" && return 0; continue; }
+    code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$URL" || true)
+    case $code in 2*) return 0;; esac
+  done
+  return 1
+}
+
+install -m 0755 "$NEW" "$TARGET.new" && mv -f "$TARGET.new" "$TARGET"
+systemctl restart "$SVC.service"
+if healthy; then
+  log "level=info msg=\"deployed\" unit=$SVC health=$URL"
+  ls -1t "$BDIR/$SVC"-*.bin | tail -n +6 | xargs -r rm -f   # keep last 5 binaries per service
+  exit 0
+fi
+log "level=error msg=\"health failed, rolling back\" unit=$SVC"
+journalctl -u "$SVC.service" -n 20 --no-pager -o cat | sed 's/^/  | /' | cut -c1-240
+install -m 0755 "$BAK" "$TARGET.new" && mv -f "$TARGET.new" "$TARGET"
+systemctl restart "$SVC.service"
+healthy && { log "level=warn msg=\"rolled back ok\" unit=$SVC"; exit 1; }
+die "ROLLBACK ALSO UNHEALTHY for $SVC; manual action needed (backup $BAK)"

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+[package]
+name = "galion-backup"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Consistent online SQLite snapshots (backup API), integrity verify, and schema_migrations baseline."
+
+[dependencies]
+rusqlite = { version = "0.32", default-features = false, features = ["bundled", "backup"] }

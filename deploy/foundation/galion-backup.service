@@ -1,0 +1,9 @@
+[Unit]
+Description=Galion snapshot backup to /var/backups/galion (ws/foundation)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/galion/rust/bin/galion-backup.sh
+Nice=19
+IOSchedulingClass=idle
+UMask=0077

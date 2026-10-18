@@ -70,6 +70,14 @@ pub struct Runs {
 }
 
 impl Runs {
+    pub fn len(&self) -> usize {
+        self.map.lock().map(|m| m.len()).unwrap_or(0)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn get(&self, id: &str) -> Option<Arc<Run>> {
         self.map.lock().ok()?.get(id).cloned()
     }
@@ -162,7 +170,8 @@ pub fn start(gw: &Arc<Gateway>, req: &Request) -> Response {
             "too many concurrent runs",
             "rate_limit_error",
             Some("max_concurrent_runs"),
-        );
+        )
+        .with_header("Retry-After", "1");
     };
     let run_id = crate::new_id("run_");
     let run = Arc::new(Run {
@@ -185,6 +194,8 @@ pub fn start(gw: &Arc<Gateway>, req: &Request) -> Response {
         .name("hermes-run".into())
         .spawn(move || {
             let _slot = slot;
+            let _wd =
+                crate::limits::watchdog::arm(gw2.cfg.limits.run_timeout, &prepared.turn.cancel);
             execute(&gw2, &r2, prepared);
         });
     if spawned.is_err() {

@@ -29,16 +29,13 @@ pub struct Gateway {
     pub jobs: Option<Arc<crate::cron::Scheduler>>,
     /// memory_tencentdb provider (recall before, capture after each turn).
     pub memory: Option<Arc<crate::memory::MemoryProvider>>,
+    /// Run slots + bounded wait queue (backpressure before 429).
+    pub slots: Arc<crate::limits::SlotPool>,
+    pub started: std::time::Instant,
 }
 
 /// Holds one agent slot (`gateway.api_server.max_concurrent_runs`).
-pub struct Slot(Arc<AtomicUsize>);
-
-impl Drop for Slot {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
-    }
-}
+pub use crate::limits::Slot;
 
 fn ct_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
@@ -79,12 +76,21 @@ impl Gateway {
         store: Arc<dyn SessionStore>,
         api_key: Option<String>,
     ) -> Self {
+        let active = Arc::new(AtomicUsize::new(0));
+        let slots = crate::limits::SlotPool::new(
+            cfg.max_concurrent_runs,
+            active.clone(),
+            cfg.limits.queue_max,
+            cfg.limits.queue_wait,
+        );
         Gateway {
             cfg,
             agent,
             store,
             api_key,
-            active: Arc::new(AtomicUsize::new(0)),
+            active,
+            slots,
+            started: std::time::Instant::now(),
             runs: crate::runs::Runs::default(),
             jobs: None,
             memory: None,
@@ -110,13 +116,182 @@ impl Gateway {
         ))
     }
 
+    /// A run slot, waiting briefly in a bounded queue when all are busy
+    /// (`HERMES_RS_QUEUE_WAIT_MS`, `HERMES_RS_QUEUE_MAX`); None -> 429.
     pub fn try_slot(&self) -> Option<Slot> {
-        let n = self.active.fetch_add(1, Ordering::SeqCst);
-        if n >= self.cfg.max_concurrent_runs.max(1) {
-            self.active.fetch_sub(1, Ordering::SeqCst);
-            return None;
+        self.slots.acquire()
+    }
+
+    fn metrics_allowed(&self, req: &Request) -> bool {
+        self.cfg.limits.metrics_open || self.check_auth(req).is_none()
+    }
+
+    /// GET /status: live load figures (JSON). No content, no secrets.
+    pub fn status_json(&self) -> Value {
+        let m = crate::limits::metrics();
+        let g = |a: &std::sync::atomic::AtomicU64| a.load(Ordering::Relaxed);
+        let l = &self.cfg.limits;
+        let routes: serde_json::Map<String, Value> = crate::limits::ROUTES
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (r.to_string(), json!(g(&m.requests[i]))))
+            .collect();
+        let finished = g(&m.runs_finished);
+        json!({
+            "status": if crate::limits::shutdown::requested() { "draining" } else { "ok" },
+            "implementation": "hermes-rs", "implementation_version": crate::VERSION,
+            "uptime_s": self.started.elapsed().as_secs(), "pid": std::process::id(),
+            "connections": {"in_flight": m.conns_in_flight.load(Ordering::SeqCst), "max": l.max_conns, "rejected": g(&m.rejected_conns), "bad_requests": g(&m.bad_requests)},
+            "runs": {"active": self.active.load(Ordering::SeqCst), "max": self.slots.max, "waiting": self.slots.waiting(),
+                     "queue_max": l.queue_max, "queue_wait_ms": l.queue_wait.as_millis() as u64,
+                     "queued_total": g(&m.queued), "rejected_429": g(&m.rejected_runs), "started": g(&m.runs_started),
+                     "finished": finished, "timeouts": g(&m.run_timeouts), "run_timeout_s": l.run_timeout.as_secs(),
+                     "avg_run_ms": if finished == 0 { 0.0 } else { g(&m.run_us_sum) as f64 / finished as f64 / 1000.0 },
+                     "tracked_runs": self.runs.len()},
+            "requests": {"by_route": routes, "status_2xx": g(&m.status_2xx), "status_4xx": g(&m.status_4xx), "status_5xx": g(&m.status_5xx)},
+            "spend": self.agent.spend.status(),
+            "memory": self.memory.as_ref().map(|mm| mm.status_json()),
+        })
+    }
+
+    /// GET /metrics: Prometheus text format 0.0.4.
+    pub fn metrics_text(&self) -> String {
+        use std::fmt::Write as _;
+        let m = crate::limits::metrics();
+        let g = |a: &std::sync::atomic::AtomicU64| a.load(Ordering::Relaxed);
+        let mut s = String::new();
+        let gauge = |s: &mut String, name: &str, help: &str, kind: &str, v: f64| {
+            let _ = writeln!(s, "# HELP {name} {help}\n# TYPE {name} {kind}\n{name} {v}");
+        };
+        gauge(
+            &mut s,
+            "hermes_up",
+            "1 while serving, 0 while draining",
+            "gauge",
+            if crate::limits::shutdown::requested() {
+                0.0
+            } else {
+                1.0
+            },
+        );
+        gauge(
+            &mut s,
+            "hermes_uptime_seconds",
+            "process uptime",
+            "gauge",
+            self.started.elapsed().as_secs_f64(),
+        );
+        gauge(
+            &mut s,
+            "hermes_connections_in_flight",
+            "open HTTP connections",
+            "gauge",
+            m.conns_in_flight.load(Ordering::SeqCst) as f64,
+        );
+        gauge(
+            &mut s,
+            "hermes_connections_rejected_total",
+            "connections refused with 503 (max_conns)",
+            "counter",
+            g(&m.rejected_conns) as f64,
+        );
+        gauge(
+            &mut s,
+            "hermes_bad_requests_total",
+            "unreadable or timed-out requests (400/408/413)",
+            "counter",
+            g(&m.bad_requests) as f64,
+        );
+        gauge(
+            &mut s,
+            "hermes_runs_active",
+            "agent runs holding a slot",
+            "gauge",
+            self.active.load(Ordering::SeqCst) as f64,
+        );
+        gauge(
+            &mut s,
+            "hermes_runs_max",
+            "max_concurrent_runs",
+            "gauge",
+            self.slots.max as f64,
+        );
+        gauge(
+            &mut s,
+            "hermes_runs_waiting",
+            "requests waiting for a run slot",
+            "gauge",
+            self.slots.waiting() as f64,
+        );
+        gauge(
+            &mut s,
+            "hermes_runs_queued_total",
+            "requests that had to wait for a slot",
+            "counter",
+            g(&m.queued) as f64,
+        );
+        gauge(
+            &mut s,
+            "hermes_runs_queue_wait_seconds_total",
+            "time spent waiting for slots",
+            "counter",
+            g(&m.queue_wait_us) as f64 / 1e6,
+        );
+        gauge(
+            &mut s,
+            "hermes_runs_rejected_total",
+            "runs refused with 429",
+            "counter",
+            g(&m.rejected_runs) as f64,
+        );
+        gauge(
+            &mut s,
+            "hermes_runs_timeouts_total",
+            "runs cancelled by HERMES_RS_RUN_TIMEOUT_S",
+            "counter",
+            g(&m.run_timeouts) as f64,
+        );
+        let _ = writeln!(s, "# HELP hermes_requests_total HTTP requests by route class and status class\n# TYPE hermes_requests_total counter");
+        for (i, r) in crate::limits::ROUTES.iter().enumerate() {
+            let _ = writeln!(
+                s,
+                "hermes_requests_total{{route=\"{r}\"}} {}",
+                g(&m.requests[i])
+            );
         }
-        Some(Slot(self.active.clone()))
+        let _ = writeln!(s, "# HELP hermes_responses_total HTTP responses by status class\n# TYPE hermes_responses_total counter");
+        for (c, v) in [
+            ("2xx", &m.status_2xx),
+            ("4xx", &m.status_4xx),
+            ("5xx", &m.status_5xx),
+        ] {
+            let _ = writeln!(s, "hermes_responses_total{{class=\"{c}\"}} {}", g(v));
+        }
+        let _ = writeln!(s, "# HELP hermes_run_duration_seconds agent run wall time (slot held)\n# TYPE hermes_run_duration_seconds histogram");
+        let mut cum = 0u64;
+        for (i, b) in crate::limits::RUN_BUCKETS.iter().enumerate() {
+            cum += g(&m.run_buckets[i]);
+            let _ = writeln!(s, "hermes_run_duration_seconds_bucket{{le=\"{b}\"}} {cum}");
+        }
+        cum += g(&m.run_buckets[crate::limits::RUN_BUCKETS.len()]);
+        let _ = writeln!(s, "hermes_run_duration_seconds_bucket{{le=\"+Inf\"}} {cum}");
+        let _ = writeln!(
+            s,
+            "hermes_run_duration_seconds_sum {}",
+            g(&m.run_us_sum) as f64 / 1e6
+        );
+        let _ = writeln!(s, "hermes_run_duration_seconds_count {cum}");
+        s
+    }
+
+    fn busy_429(&self) -> Response {
+        error(
+            429,
+            "too many concurrent runs",
+            "rate_limit_error",
+            Some("max_concurrent_runs"),
+        )
+        .with_header("Retry-After", "1")
     }
 
     pub fn handle(self: &Arc<Self>, mut req: Request) -> Response {
@@ -140,6 +315,22 @@ impl Gateway {
                 200,
                 &json!({"status": "ok", "platform": "hermes-agent", "version": crate::UPSTREAM_COMPAT, "implementation": "hermes-rs", "implementation_version": crate::VERSION}),
             );
+        }
+        if m == "GET" && (path == "/metrics" || path == "/status") {
+            if !self.metrics_allowed(&req) {
+                return self
+                    .check_auth(&req)
+                    .unwrap_or_else(|| error(401, "unauthorized", "gateway_auth_error", None));
+            }
+            if path == "/status" {
+                return Response::json(200, &self.status_json());
+            }
+            return Response::Full {
+                status: 200,
+                content_type: "text/plain; version=0.0.4; charset=utf-8".into(),
+                headers: Vec::new(),
+                body: self.metrics_text().into_bytes(),
+            };
         }
         if let Some(r) = self.check_auth(&req) {
             return r;
@@ -416,19 +607,16 @@ impl Gateway {
             Err(r) => return r,
         };
         let Some(slot) = self.try_slot() else {
-            return error(
-                429,
-                "too many concurrent runs",
-                "rate_limit_error",
-                Some("max_concurrent_runs"),
-            );
+            return self.busy_429();
         };
         let completion_id = format!("chatcmpl-{}", &crate::new_id("")[..16]);
         let created = crate::time::now_secs();
         let model_name = body["model"].as_str().unwrap_or("hermes-agent").to_string();
         let echo_sid = sid.unwrap_or_else(|| prepared.row.id.clone());
         let stream = body["stream"].as_bool().unwrap_or(false);
+        let run_timeout = self.cfg.limits.run_timeout;
         if !stream {
+            let _wd = crate::limits::watchdog::arm(run_timeout, &prepared.turn.cancel);
             let res = self.agent.run(clone_turn(&prepared.turn), &|_e| {});
             drop(slot);
             self.persist(&prepared, &res);
@@ -447,6 +635,7 @@ impl Gateway {
             headers: vec![("X-Hermes-Session-Id".into(), echo_sid.clone())],
             writer: Box::new(move |w: &mut SseWriter| {
                 let _slot = slot;
+                let _wd = crate::limits::watchdog::arm(run_timeout, &prepared.turn.cancel);
                 let chunk = |delta: Value, finish: Value| {
                     json!({"id": completion_id, "object": "chat.completion.chunk", "created": created, "model": model_name,
                            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]})
@@ -694,9 +883,15 @@ fn chat_json(
 pub fn spawn(gw: Arc<Gateway>, addr: &str) -> std::io::Result<std::net::SocketAddr> {
     let listener = std::net::TcpListener::bind(addr)?;
     let local = listener.local_addr()?;
+    let l = &gw.cfg.limits;
+    let opts = crate::http::ServeOpts {
+        max_conns: l.max_conns,
+        header_timeout: l.header_timeout,
+        write_timeout: l.write_timeout,
+    };
     let handler: crate::http::Handler = Arc::new(move |req| gw.handle(req));
     std::thread::Builder::new()
         .name("hermes-accept".into())
-        .spawn(move || crate::http::serve(listener, handler, 64))?;
+        .spawn(move || crate::http::serve_with(listener, handler, opts))?;
     Ok(local)
 }

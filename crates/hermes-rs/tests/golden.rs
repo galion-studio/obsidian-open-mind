@@ -452,7 +452,12 @@ fn console_runs_lifecycle() {
 fn concurrency_cap_returns_429() {
     let mut mock = MockProvider::echo();
     mock.delay_ms = 600;
-    let h = harness_with(mock, |c| c.max_concurrent_runs = 1);
+    // queue_wait = 0: the upstream behaviour (429 at once). With the default
+    // growth queue the chat would wait for the slot instead (tests/limits.rs).
+    let h = harness_with(mock, |c| {
+        c.max_concurrent_runs = 1;
+        c.limits.queue_wait = std::time::Duration::ZERO;
+    });
     let (code, _, _) = post(
         h.addr,
         "/v1/runs",

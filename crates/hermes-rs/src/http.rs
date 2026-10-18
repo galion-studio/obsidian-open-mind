@@ -9,9 +9,9 @@
 use serde_json::Value;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub const MAX_HEADER_BYTES: usize = 64 * 1024;
 pub const MAX_BODY_BYTES: usize = 8 * 1024 * 1024;
@@ -49,8 +49,40 @@ impl Request {
     }
 }
 
+/// Reads from a socket but fails with `TimedOut` once `deadline` passes, so a
+/// client that dribbles bytes cannot hold a connection beyond the header
+/// timeout (each read only gets the time that is left).
+struct DeadlineReader {
+    s: TcpStream,
+    deadline: Instant,
+}
+
+impl Read for DeadlineReader {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let left = self.deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "request read timed out",
+            ));
+        }
+        self.s.set_read_timeout(Some(left))?;
+        self.s.read(buf)
+    }
+}
+
 pub fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
-    let mut reader = BufReader::new(stream.try_clone()?);
+    read_request_until(stream, Instant::now() + Duration::from_secs(30))
+}
+
+/// Read one request; all of it (line, headers, body) must arrive before
+/// `deadline`.
+pub fn read_request_until(stream: &mut TcpStream, deadline: Instant) -> io::Result<Request> {
+    let mut reader = BufReader::new(DeadlineReader {
+        s: stream.try_clone()?,
+        deadline,
+    });
+
     let mut line = String::new();
     let mut total = 0usize;
     reader.read_line(&mut line)?;
@@ -137,6 +169,7 @@ fn reason(code: u16) -> &'static str {
         402 => "Payment Required",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        408 => "Request Timeout",
         409 => "Conflict",
         413 => "Payload Too Large",
         429 => "Too Many Requests",
@@ -287,49 +320,103 @@ pub fn write_response(stream: &mut TcpStream, resp: Response) {
 
 pub type Handler = Arc<dyn Fn(Request) -> Response + Send + Sync>;
 
+/// Connection-level limits for [`serve_with`].
+#[derive(Debug, Clone)]
+pub struct ServeOpts {
+    pub max_conns: usize,
+    /// Whole request (line + headers + body) must arrive within this.
+    pub header_timeout: Duration,
+    pub write_timeout: Duration,
+}
+
+impl Default for ServeOpts {
+    fn default() -> Self {
+        ServeOpts {
+            max_conns: 64,
+            header_timeout: Duration::from_secs(30),
+            write_timeout: Duration::from_secs(30),
+        }
+    }
+}
+
 /// Accept loop. Returns only on listener error.
 pub fn serve(listener: TcpListener, handler: Handler, max_conns: usize) -> io::Result<()> {
-    let active = Arc::new(AtomicUsize::new(0));
+    serve_with(
+        listener,
+        handler,
+        ServeOpts {
+            max_conns,
+            ..Default::default()
+        },
+    )
+}
+
+/// Accept loop with limits. Returns when a shutdown was requested (the
+/// listener is dropped, so new connections are refused) or on listener error.
+/// Connections over `max_conns` get 503 + `Retry-After` (backpressure).
+pub fn serve_with(listener: TcpListener, handler: Handler, o: ServeOpts) -> io::Result<()> {
+    let m = crate::limits::metrics();
+    // Per-listener count for the limit; the global one is for /metrics + drain.
+    let mine = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     for conn in listener.incoming() {
+        if crate::limits::shutdown::requested() {
+            break;
+        }
         let mut stream = match conn {
             Ok(s) => s,
             Err(_) => continue,
         };
-        if active.load(Ordering::SeqCst) >= max_conns {
-            let resp = error(503, "too many connections", "server_busy", Some("busy"));
+        if mine.load(Ordering::SeqCst) >= o.max_conns {
+            m.rejected_conns.fetch_add(1, Ordering::Relaxed);
+            let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
+            let resp = error(503, "too many connections", "server_busy", Some("busy"))
+                .with_header("Retry-After", "1");
             write_response(&mut stream, resp);
             continue;
         }
-        active.fetch_add(1, Ordering::SeqCst);
+        m.conns_in_flight.fetch_add(1, Ordering::SeqCst);
+        mine.fetch_add(1, Ordering::SeqCst);
+        let mine2 = mine.clone();
         let h = handler.clone();
-        let a = active.clone();
+        let o = o.clone();
         let spawned = std::thread::Builder::new()
             .name("hermes-conn".into())
             .stack_size(256 * 1024)
             .spawn(move || {
-                let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
-                match read_request(&mut stream) {
+                let _ = stream.set_write_timeout(Some(o.write_timeout));
+                match read_request_until(&mut stream, Instant::now() + o.header_timeout) {
                     Ok(req) => {
                         let _ = stream.set_read_timeout(None);
+                        let path = req.path.clone();
                         let resp = h(req);
+                        m.record(&path, resp.status());
                         write_response(&mut stream, resp);
                     }
                     Err(e) => {
-                        let code = if e.to_string().contains("too large") {
-                            413
+                        let s = e.to_string();
+                        let (code, msg) = if matches!(
+                            e.kind(),
+                            io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock
+                        ) {
+                            (408, "request read timed out".to_string())
+                        } else if s.contains("too large") {
+                            (413, s)
                         } else {
-                            400
+                            (400, s)
                         };
+                        m.bad_requests.fetch_add(1, Ordering::Relaxed);
                         write_response(
                             &mut stream,
-                            error(code, &e.to_string(), "invalid_request_error", None),
+                            error(code, &msg, "invalid_request_error", None),
                         );
                     }
                 }
-                a.fetch_sub(1, Ordering::SeqCst);
+                m.conns_in_flight.fetch_sub(1, Ordering::SeqCst);
+                mine2.fetch_sub(1, Ordering::SeqCst);
             });
         if spawned.is_err() {
-            active.fetch_sub(1, Ordering::SeqCst);
+            m.conns_in_flight.fetch_sub(1, Ordering::SeqCst);
+            mine.fetch_sub(1, Ordering::SeqCst);
         }
     }
     Ok(())

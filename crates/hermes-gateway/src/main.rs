@@ -20,6 +20,7 @@ use hermes_rs::session::SessionStore;
 use hermes_rs::spend::SpendTracker;
 use hermes_rs::tools::{ClockTool, Registry};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 fn log(msg: &str) {
     eprintln!(
@@ -105,7 +106,9 @@ fn main() {
     let provider: Arc<dyn Provider> = if mock {
         Arc::new(MockProvider::echo())
     } else {
-        Arc::new(CurlProvider::new(Arc::new(|k: &str| std::env::var(k).ok())))
+        let mut p = CurlProvider::new(Arc::new(|k: &str| std::env::var(k).ok()));
+        p.max_time_s = cfg.limits.provider_max_time_s;
+        Arc::new(p)
     };
     let spend = Arc::new(SpendTracker::new(
         cfg.spend.clone(),
@@ -164,17 +167,76 @@ fn main() {
         std::process::exit(2);
     }
     let addr = format!("{}:{}", cfg.host, cfg.port);
-    match hermes_rs::api::spawn(gw, &addr) {
-        Ok(a) => log(&format!(
-            "listening on {a} mock={mock} loopback={}",
-            cfg.is_loopback()
-        )),
+    hermes_rs::limits::shutdown::install_handlers();
+    let l = &cfg.limits;
+    let bound = match hermes_rs::api::spawn(gw.clone(), &addr) {
+        Ok(a) => {
+            log(&format!(
+                "listening on {a} mock={mock} loopback={} max_conns={} max_runs={} queue={}x{}ms run_timeout={}s header_timeout={}s grace={}s metrics_open={}",
+                cfg.is_loopback(),
+                l.max_conns,
+                cfg.max_concurrent_runs,
+                l.queue_max,
+                l.queue_wait.as_millis(),
+                l.run_timeout.as_secs(),
+                l.header_timeout.as_secs(),
+                l.shutdown_grace.as_secs(),
+                l.metrics_open
+            ));
+            a
+        }
         Err(e) => {
             log(&format!("bind {addr}: {e}"));
             std::process::exit(1);
         }
+    };
+    while !hermes_rs::limits::shutdown::requested() {
+        std::thread::sleep(Duration::from_millis(200));
     }
-    loop {
-        std::thread::park();
+    drain(&gw, bound, cfg.limits.shutdown_grace);
+    std::process::exit(0);
+}
+
+/// Graceful shutdown (SIGTERM/SIGINT): stop accepting (the accept loop drops
+/// the listener), let in-flight requests and runs finish for up to `grace`,
+/// cancel what is left, end open memory sessions, exit 0.
+fn drain(gw: &Arc<Gateway>, bound: std::net::SocketAddr, grace: Duration) {
+    use std::sync::atomic::Ordering;
+    let m = hermes_rs::limits::metrics();
+    let t0 = Instant::now();
+    log(&format!(
+        "shutdown requested: draining (conns={} runs={} grace={}s)",
+        m.conns_in_flight.load(Ordering::SeqCst),
+        gw.active.load(Ordering::SeqCst),
+        grace.as_secs()
+    ));
+    // Wake the blocking accept() so it sees the flag and closes the listener.
+    let _ = std::net::TcpStream::connect_timeout(&bound, Duration::from_secs(1));
+    let busy =
+        || m.conns_in_flight.load(Ordering::SeqCst) > 0 || gw.active.load(Ordering::SeqCst) > 0;
+    while busy() && t0.elapsed() < grace {
+        std::thread::sleep(Duration::from_millis(100));
     }
+    let cancelled = if busy() {
+        hermes_rs::limits::watchdog::fire_all()
+    } else {
+        0
+    };
+    if cancelled > 0 {
+        // Give cancelled runs a moment to persist their partial turn.
+        let t1 = Instant::now();
+        while gw.active.load(Ordering::SeqCst) > 0 && t1.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+    if let Some(mem) = &gw.memory {
+        let n = mem.shutdown();
+        log(&format!("memory: session/end sent for {n} open sessions"));
+    }
+    log(&format!(
+        "drained in {} ms: conns_left={} runs_left={} cancelled_runs={cancelled}",
+        t0.elapsed().as_millis(),
+        m.conns_in_flight.load(Ordering::SeqCst),
+        gw.active.load(Ordering::SeqCst)
+    ));
 }

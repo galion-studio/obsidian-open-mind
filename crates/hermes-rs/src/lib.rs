@@ -14,6 +14,7 @@ pub mod config;
 pub mod cron;
 pub mod delegate;
 pub mod http;
+pub mod limits;
 pub mod mcp;
 pub mod memory;
 pub mod persona;

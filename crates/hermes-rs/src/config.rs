@@ -98,6 +98,8 @@ pub struct Config {
     /// Optional legacy Python state.db, opened read-only for history.
     pub legacy_state_db: Option<PathBuf>,
     pub history_tool_output_max_chars: usize,
+    /// Connection/queue/timeout/shutdown knobs (env `HERMES_RS_*`, see limits.rs).
+    pub limits: crate::limits::Limits,
     pub tool_hard_stop_after: usize,
     pub api_key_env: String,
     pub persona_file: Option<PathBuf>,
@@ -184,6 +186,7 @@ impl Config {
             state_db: home.join("rs-state.db"),
             legacy_state_db: None,
             history_tool_output_max_chars: 4000,
+            limits: crate::limits::Limits::default(),
             tool_hard_stop_after: 5,
             api_key_env: "API_SERVER_KEY".into(),
             persona_file: None,
@@ -439,6 +442,7 @@ impl Config {
                 p.base_url = x;
             }
         }
+        self.limits.apply_env(env)?;
         Ok(())
     }
 

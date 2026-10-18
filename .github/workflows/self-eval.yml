@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+#
+# Repo self-evaluation: builds the std-only `repo-check` lint and runs it over
+# the tree. Read-only, no secrets, no network beyond the toolchain/crates fetch.
+# `spdx` is downgraded to a warning until the older crates get their headers
+# (see crates/repo-check/README.md); drop `--warn spdx` once they are clean.
+name: self-eval
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repo-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TZ: Europe/Zagreb
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+      - name: fmt (repo-check)
+        run: cargo fmt -p repo-check -- --check
+      - name: clippy (repo-check)
+        run: cargo clippy -j 2 -p repo-check --all-targets -- -D warnings
+      - name: test (repo-check)
+        run: cargo test -j 2 -p repo-check
+      - name: build (portable musl, both tier-1 targets)
+        run: |
+          for t in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            cargo build -j 2 --release -p repo-check --target "$t" \
+              --config "target.$t.linker='rust-lld'"
+            ls -l "target/$t/release/repo-check"
+          done
+      - name: self-eval
+        run: |
+          bin=target/x86_64-unknown-linux-musl/release/repo-check
+          "$bin" --warn spdx --copyright "Galion Studio"
+          "$bin" --warn spdx --copyright "Galion Studio" --json > self-eval.json || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: self-eval
+          path: self-eval.json

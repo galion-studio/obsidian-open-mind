@@ -1,0 +1,55 @@
+# STAGED, NOT INSTALLED. hermes-rs shadow gateway (Rust port of Hermes).
+# Proposal for Slavik's approval. Nothing in production points at it.
+#
+# Shadow rules:
+# - Own port 8652 (Python Hermes stays on 8642). Loopback only.
+# - --mock: no OpenRouter/River calls (no spend) until Slavik approves a paid shadow.
+# - Reads /opt/galion/hermes/config.yaml, SOUL.md, channels/ and cron/jobs.json; never writes them.
+# - Own state under /var/lib/hermes-rs (sessions DB, spend ledger, cron state/output).
+# - Python's state.db is opened read-only (SQLite mode=ro) for session history only.
+# - Cron is OFF (HERMES_RS_CRON unset) so jobs never double-fire with Python Hermes.
+# - Persona Plex is OFF (HERMES_RS_PERSONA unset): persona-plex-v1.md is still "Proposed".
+#
+# Install (only after approval):
+#   install -m 0755 hermes-gateway /opt/galion/hermes-rs/hermes-gateway
+#   cp hermes-rs.service /etc/systemd/system/ && systemctl daemon-reload && systemctl start hermes-rs
+# Rollback: systemctl stop hermes-rs && rm /etc/systemd/system/hermes-rs.service && systemctl daemon-reload
+
+[Unit]
+Description=hermes-rs shadow gateway (Rust port of Hermes, staged)
+After=network-online.target hermes.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/hermes-rs/hermes-gateway --mock
+# API_SERVER_KEY (and provider key names) come from the existing env file; values never in this unit.
+EnvironmentFile=/opt/galion/hermes/.env
+Environment=HERMES_HOME=/opt/galion/hermes
+Environment=HERMES_RS_HOST=127.0.0.1
+Environment=HERMES_RS_PORT=8652
+Environment=HERMES_RS_STATE_DB=/var/lib/hermes-rs/rs-state.db
+Environment=HERMES_RS_LEGACY_STATE_DB=/opt/galion/hermes/state.db
+Environment=HERMES_RS_SPEND_FILE=/var/lib/hermes-rs/rs-spend.json
+Environment=HERMES_RS_CRON_STATE=/var/lib/hermes-rs/rs-cron-state.json
+Environment=HERMES_RS_CRON_OUTPUT=/var/lib/hermes-rs/rs-cron-output
+Environment=HERMES_RS_SESSION_USD_CAP=1.00
+Environment=HERMES_RS_DAILY_USD_CAP=2.00
+Environment=HERMES_RS_DAILY_CALL_CAP=500
+# galion-stack MCP is a Python script; keep it off in the shadow run.
+Environment=HERMES_RS_MCP=0
+StateDirectory=hermes-rs
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=3
+MemoryMax=64M
+TasksMax=64
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/hermes-rs
+ReadOnlyPaths=/opt/galion/hermes
+
+# No [Install] section on purpose: never starts at boot until Slavik approves.

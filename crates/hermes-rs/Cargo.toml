@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
+[package]
+name = "hermes-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust port of the parts of hermes-agent 0.21.4 Galion uses: OpenAI-compatible API, agent loop, delegate_task caps, sessions, cron, stdio MCP, spend."
+
+[features]
+# `sqlite` gives read-compat with the Python state.db. It compiles the SQLite
+# amalgamation (C), so it needs a C compiler for the target. Cross builds
+# for phones / Pi without a C cross toolchain use --no-default-features and
+# the pure-Rust JSONL session store.
+default = ["sqlite"]
+sqlite = ["dep:rusqlite"]
+
+[dependencies]
+serde_json = { workspace = true, features = ["preserve_order"] }
+openmind-persona = { path = "../openmind-persona" }
+rusqlite = { version = "0.32", default-features = false, features = ["bundled"], optional = true }

@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
+[package]
+name = "openmind-survival"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Std-only read-only survival probes (HTTP, systemctl is-active, disk, /proc, freshness) and pure incident logic."
+
+[dependencies]
+zagreb-time = { path = "../zagreb-time" }

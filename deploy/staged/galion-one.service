@@ -1,0 +1,42 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+#
+# STAGED, NOT INSTALLED. Awaiting Slavik's approval (docs/ws-one-desk-tuner.md).
+# Replaces the nohup-started ./one/one (pid since 2026-10-13, cwd
+# /opt/galion/galion-light, log /var/log/galion-one.log) with the openmind
+# crates/galion-one build. No [Install] section on purpose: it cannot be
+# enabled by accident; the switch steps add the boot hook explicitly.
+[Unit]
+Description=Galion One (Rust, openmind crates/galion-one): text 127.0.0.1:8091, mouth 127.0.0.1:8002
+After=network-online.target hermes.service
+Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/galion/galion-light
+ExecStart=/opt/galion/openmind/dist/bin-ws/galion-one
+# Every value below is the live default, written out so a typo cannot
+# silently change behaviour. A missing ONE_DEVICE_STORE file means "unpaired"
+# and leaves One OPEN (castle() is false), exactly like the live binary.
+Environment=GALION_HOME=/workspace/galion-light
+Environment=ONE_BIND=127.0.0.1:8091
+Environment=ONE_MOUTH_BIND=127.0.0.1:8002
+Environment=ONE_DEVICE_STORE=/root/galion-secrets/admin-device.json
+Environment=ONE_HERMES_DIR=/workspace/hermes
+Environment=ONE_HERMES_ENV=/root/.hermes/.env
+# Models refresh key: read at call time from this env-format file (the file
+# models.py used). The key value never appears in this unit or in logs.
+Environment=OPENROUTER_KEY_FILE=/workspace/hermes/.env
+# Keep-warm stays on (live behaviour). ONE_WARM_MIND=0 would stop the Hermes
+# "one-warm" ping; see the doc for the state.db trim that is no longer done.
+StandardOutput=append:/var/log/galion-one.log
+StandardError=append:/var/log/galion-one.log
+Restart=always
+RestartSec=5
+Nice=5
+NoNewPrivileges=true
+ProtectSystem=full
+MemoryMax=128M
+TasksMax=512

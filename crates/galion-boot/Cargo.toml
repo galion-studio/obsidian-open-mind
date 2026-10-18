@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
+[package]
+name = "galion-boot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Boot/keep tool replacing keep.sh, stack-boot.sh, persist-boot.sh and hardware.sh: hardware probe, age-bundle secret restore, tunnel env file, systemd unit renderer, plain supervisor fallback, status."
+
+[dependencies]
+openmind-survival = { path = "../openmind-survival" }
+zagreb-time = { path = "../zagreb-time" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }

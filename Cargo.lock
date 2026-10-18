@@ -148,11 +148,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-boot"
+version = "0.1.0"
+dependencies = [
+ "openmind-survival",
+ "serde",
+ "serde_json",
+ "toml",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-desk"
 version = "0.1.0"
 
 [[package]]
+name = "galion-guardian"
+version = "0.1.0"
+dependencies = [
+ "openmind-survival",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "toml",
+ "zagreb-time",
+]
+
+[[package]]
+name = "galion-healer"
+version = "0.1.0"
+dependencies = [
+ "openmind-survival",
+ "serde",
+ "serde_json",
+ "toml",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-one"
+version = "0.1.0"
+
+[[package]]
+name = "galion-origin"
 version = "0.1.0"
 
 [[package]]

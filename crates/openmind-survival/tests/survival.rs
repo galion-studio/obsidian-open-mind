@@ -146,3 +146,44 @@ fn ts_has_zagreb_offset() {
     );
     assert!(!r.ts.ends_with('Z'));
 }
+
+#[test]
+fn http_get_and_verdict() {
+    use std::time::Duration;
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    let h = std::thread::spawn(move || {
+        for (code, body) in [
+            ("200 OK", "ok"),
+            ("503 Service Unavailable", "{\"status\":\"loading\"}"),
+            ("503 Service Unavailable", "down"),
+        ] {
+            let (mut s, _) = l.accept().unwrap();
+            let mut b = [0u8; 512];
+            let _ = s.read(&mut b);
+            write!(
+                s,
+                "HTTP/1.0 {code}\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        }
+    });
+    let t = Duration::from_millis(2500);
+    let a = http_get(addr, "/health", t);
+    assert_eq!(a.result, Ok((200, "ok".to_string())));
+    assert_eq!(verdict(&a.result, &[200], true), (true, "200".into()));
+    let b = http_get(addr, "/health", t);
+    assert_eq!(verdict(&b.result, &[200], true), (true, "loading".into()));
+    assert_eq!(
+        verdict(&b.result, &[200], false),
+        (false, "http 503".into())
+    );
+    let c = http_get(addr, "/health", t);
+    assert_eq!(verdict(&c.result, &[200], true), (false, "http 503".into()));
+    h.join().unwrap();
+    let d = http_get(addr, "/", t);
+    let (ok, detail) = verdict(&d.result, &[200], true);
+    assert!(!ok && detail.starts_with("connect:"), "{detail}");
+    assert_eq!(truncate("héllo", 2), "h");
+}

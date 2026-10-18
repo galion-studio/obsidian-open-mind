@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+#
+# STAGED, not installed. Service list for the VPS. Rendered into the
+# *.service/*.timer files next to this one with:
+#   galion-boot render-units --config deploy/staged/boot.toml --out deploy/staged
+# The same file drives `galion-boot supervise` on hosts without systemd.
+
+[boot]
+log_dir = "/opt/galion/galion-light/logs"
+supervisor_dir = "/opt/galion/galion-light/state/supervisor"
+
+[[service]]
+name = "galion-guardian"
+description = "Galion guardian (probes, guardian.db, incidents; records only)"
+argv = ["/opt/galion/bin/galion-guardian", "--config", "/opt/galion/etc/guardian.toml"]
+after = ["hermes.service", "console.service"]
+nice = 10
+memory_max = "64M"
+read_write = ["/opt/galion/galion-light/state", "/opt/galion/galion-light/guardian", "/opt/galion/hermes/activity.jsonl", "/opt/galion/hermes/last-guardian.ts"]
+
+[[service]]
+name = "galion-healer"
+description = "Galion desk healer (cases, follow-ups; allow-listed repairs, dry-run)"
+argv = ["/opt/galion/bin/galion-healer", "run", "--config", "/opt/galion/etc/healer.toml"]
+after = ["hermes.service"]
+nice = 10
+memory_max = "64M"
+read_write = ["/opt/galion/galion-light/state"]
+
+[[service]]
+name = "galion-hardware"
+description = "Galion hardware probe (writes hardware.json, machine.json)"
+type = "oneshot"
+argv = ["/opt/galion/bin/galion-boot", "hardware", "--state-dir", "/opt/galion/galion-light/state"]
+read_write = ["/opt/galion/galion-light/state"]
+supervise = false
+
+[[service]]
+name = "galion-fire-loops"
+description = "Fire due Hermes chat loops (replaces loop-daemon.sh)"
+type = "oneshot"
+argv = ["/opt/galion/bin/galion-boot", "fire-loops", "--addr", "127.0.0.1:8080"]
+after = ["console.service"]
+timer_every_s = 60
+
+[[service]]
+name = "galion-origin"
+description = "Galion origin (grinder page, desk notes, splash; loopback)"
+argv = ["/opt/galion/bin/galion-origin"]
+env = ["ORIGIN_ADDR=127.0.0.1:8655", "ORIGIN_ROOT=/opt/galion/galion-light", "ORIGIN_GRINDER_ROOT=/var/www/grinder"]
+memory_max = "32M"
+health = { port = 8655, path = "/health" }

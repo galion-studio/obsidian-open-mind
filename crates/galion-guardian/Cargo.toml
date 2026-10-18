@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
+[package]
+name = "galion-guardian"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Guardian daemon: probes on a beat, health/incident store, beat file, suggestions, activity and nerve lines. Records only; never kills, restarts or seals."
+
+[features]
+default = []
+# guardian.db (health_checks/incidents) parity and the Hermes tool-loop warning
+# reader. Pulls bundled SQLite (C), so it is off for cross targets.
+sqlite = ["dep:rusqlite"]
+
+[dependencies]
+openmind-survival = { path = "../openmind-survival" }
+zagreb-time = { path = "../zagreb-time" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+rusqlite = { version = "0.32", default-features = false, features = ["bundled"], optional = true }

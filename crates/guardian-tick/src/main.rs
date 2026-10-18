@@ -170,6 +170,7 @@ struct Args {
     probes: Option<String>,
     out: String,
     suggest: bool,
+    nerve: Option<String>,
 }
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
@@ -177,6 +178,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         probes: std::env::var("GUARDIAN_PROBES").ok(),
         out: "target/test-out/guardian.json".into(),
         suggest: false,
+        nerve: None,
     };
     let mut it = argv.iter();
     while let Some(x) = it.next() {
@@ -184,6 +186,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--probes" => a.probes = Some(it.next().ok_or("--probes needs a value")?.clone()),
             "--out" => a.out = it.next().ok_or("--out needs a value")?.clone(),
             "--suggest" => a.suggest = true,
+            "--nerve" => a.nerve = Some(it.next().ok_or("--nerve needs a value")?.clone()),
             o => return Err(format!("unknown argument {o}")),
         }
     }
@@ -206,6 +209,11 @@ fn real_main() -> Result<(), (i32, String)> {
     }
     let body = serde_json::to_string_pretty(&rep).map_err(|e| (1, e.to_string()))?;
     std::fs::write(out, body + "\n").map_err(|e| (1, format!("{}: {e}", a.out)))?;
+    // B25: nerve event lines, off unless --nerve is given.
+    if let Some(n) = &a.nerve {
+        openmind_survival::nerve::append_nerve(Path::new(n), "guardian-tick", &results)
+            .map_err(|e| (1, format!("{n}: {e}")))?;
+    }
     let bad = results.iter().filter(|r| !r.ok).count();
     println!(
         "guardian-tick {} host_ok={} probes={} failed={}",

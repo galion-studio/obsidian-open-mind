@@ -226,7 +226,11 @@ pub mod sqlite {
                         )
                         .map_err(|e| e.to_string())?;
                     if n > 0 {
-                        events.push(Event { service: r.name.clone(), opened: false, severity: severity(r.status) });
+                        events.push(Event {
+                            service: r.name.clone(),
+                            opened: false,
+                            severity: severity(r.status),
+                        });
                     }
                 } else {
                     let open: Option<String> = tx
@@ -242,7 +246,11 @@ pub mod sqlite {
                             params![incident_id(stamp, &r.name), format!("{} {}", r.name, r.status), severity(r.status), r.name, r.error, stamp],
                         )
                         .map_err(|e| e.to_string())?;
-                        events.push(Event { service: r.name.clone(), opened: true, severity: severity(r.status) });
+                        events.push(Event {
+                            service: r.name.clone(),
+                            opened: true,
+                            severity: severity(r.status),
+                        });
                     }
                 }
             }

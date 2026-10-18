@@ -36,12 +36,19 @@ pub fn nerve_line(source: &str, r: &ProbeResult) -> String {
 }
 
 /// Append nerve lines to a JSONL file (creates parent dirs).
-pub fn append_nerve(path: &std::path::Path, source: &str, rs: &[ProbeResult]) -> std::io::Result<()> {
+pub fn append_nerve(
+    path: &std::path::Path,
+    source: &str,
+    rs: &[ProbeResult],
+) -> std::io::Result<()> {
     use std::io::Write;
     if let Some(d) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(d)?;
     }
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
     let mut buf = String::new();
     for r in rs {
         buf.push_str(&nerve_line(source, r));

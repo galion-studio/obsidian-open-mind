@@ -105,7 +105,10 @@ pub fn decide(obs: &[Observation], policy: Policy) -> Vec<Suggestion> {
                 (Level::Warn, ProbeKind::Host) => format!("{n} high for {} beats", o.fails_in_row),
                 (Level::Warn, _) => format!("{n} down for {} beats", o.fails_in_row),
                 (Level::SuggestRestart, _) => {
-                    format!("{n} down for {} beats: operator may restart it", o.fails_in_row)
+                    format!(
+                        "{n} down for {} beats: operator may restart it",
+                        o.fails_in_row
+                    )
                 }
             };
             Suggestion {

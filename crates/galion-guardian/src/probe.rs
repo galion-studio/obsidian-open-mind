@@ -102,7 +102,11 @@ pub fn run(spec: &Spec, env: &Env) -> Row {
                 Err(e) => return row(name, "critical", ms(t0), e),
             };
             let out = http_get(addr, path, Duration::from_millis(*timeout_ms));
-            let codes: &[u16] = if ok_codes.is_empty() { &[200] } else { ok_codes };
+            let codes: &[u16] = if ok_codes.is_empty() {
+                &[200]
+            } else {
+                ok_codes
+            };
             let (ok, detail) = verdict(&out.result, codes, *loading_ok);
             let status = match (&out.result, ok) {
                 (_, true) => "healthy",

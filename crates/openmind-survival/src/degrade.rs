@@ -71,8 +71,20 @@ pub const RULES: &[(&str, Pred, Llm, bool, &str)] = &[
         true,
         LINE_WEIGHTS,
     ),
-    ("wan-down-lan-up", |s| !s.wan_ok && s.lan_ok, Llm::Lan, false, LINE_LAN),
-    ("offline", |s| !s.wan_ok && !s.lan_ok, Llm::CpuLight, false, LINE_OFFLINE),
+    (
+        "wan-down-lan-up",
+        |s| !s.wan_ok && s.lan_ok,
+        Llm::Lan,
+        false,
+        LINE_LAN,
+    ),
+    (
+        "offline",
+        |s| !s.wan_ok && !s.lan_ok,
+        Llm::CpuLight,
+        false,
+        LINE_OFFLINE,
+    ),
     ("gpu-low", |s| s.gpu_present, Llm::Api, false, LINE_CARD_LOW),
     ("cpu-only", |_| true, Llm::Api, false, LINE_CPU),
 ];
@@ -109,17 +121,63 @@ mod tests {
     #[test]
     fn table() {
         let rows = [
-            (s(true, 9000, 16000, true, true), "gpu-room", Llm::LocalGpu, true, true),
-            (s(true, 9000, 16000, false, false), "gpu-room", Llm::LocalGpu, true, true),
-            (s(true, 4000, 16000, true, true), "gpu-low", Llm::Api, false, true),
-            (s(true, 9000, 4000, true, true), "gpu-low", Llm::Api, false, false),
-            (s(false, 0, 2048, true, true), "cpu-only", Llm::Api, false, false),
-            (s(false, 0, 16000, true, false), "wan-down-lan-up", Llm::Lan, false, true),
-            (s(false, 0, 1024, false, false), "offline", Llm::CpuLight, false, false),
+            (
+                s(true, 9000, 16000, true, true),
+                "gpu-room",
+                Llm::LocalGpu,
+                true,
+                true,
+            ),
+            (
+                s(true, 9000, 16000, false, false),
+                "gpu-room",
+                Llm::LocalGpu,
+                true,
+                true,
+            ),
+            (
+                s(true, 4000, 16000, true, true),
+                "gpu-low",
+                Llm::Api,
+                false,
+                true,
+            ),
+            (
+                s(true, 9000, 4000, true, true),
+                "gpu-low",
+                Llm::Api,
+                false,
+                false,
+            ),
+            (
+                s(false, 0, 2048, true, true),
+                "cpu-only",
+                Llm::Api,
+                false,
+                false,
+            ),
+            (
+                s(false, 0, 16000, true, false),
+                "wan-down-lan-up",
+                Llm::Lan,
+                false,
+                true,
+            ),
+            (
+                s(false, 0, 1024, false, false),
+                "offline",
+                Llm::CpuLight,
+                false,
+                false,
+            ),
         ];
         for (sig, rule, llm, w, mouth) in rows {
             let p = profile(&sig);
-            assert_eq!((p.rule, p.llm, p.weights, p.mouth), (rule, llm, w, mouth), "{sig:?}");
+            assert_eq!(
+                (p.rule, p.llm, p.weights, p.mouth),
+                (rule, llm, w, mouth),
+                "{sig:?}"
+            );
         }
         assert_eq!(profile(&s(false, 0, 1, true, true)).line, LINE_CPU);
         assert_eq!(Llm::CpuLight.as_str(), "cpu-light");

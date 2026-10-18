@@ -86,9 +86,7 @@ fn prefix_quoted_any(line: &str, prefix: &str) -> bool {
             if is_quote(q) {
                 let body = &rest[q.len_utf8()..];
                 let mut chars = body.char_indices();
-                if chars.next().is_some()
-                    && chars.any(|(ix, c)| ix > 0 && is_quote(c))
-                {
+                if chars.next().is_some() && chars.any(|(ix, c)| ix > 0 && is_quote(c)) {
                     return true;
                 }
             }
@@ -122,11 +120,24 @@ const PATTERNS: &[(&str, Matcher, bool)] = &[
         |l| prefix_quoted_word(l, "importerror: no module named ", None),
         false,
     ),
-    ("SyntaxError_general", |l| prefix_any(l, "syntaxerror: "), false),
-    ("IndentationError", |l| prefix_any(l, "indentationerror: "), false),
+    (
+        "SyntaxError_general",
+        |l| prefix_any(l, "syntaxerror: "),
+        false,
+    ),
+    (
+        "IndentationError",
+        |l| prefix_any(l, "indentationerror: "),
+        false,
+    ),
     (
         "FileNotFoundError",
-        |l| prefix_quoted_any(l, "filenotfounderror: [errno 2] no such file or directory: "),
+        |l| {
+            prefix_quoted_any(
+                l,
+                "filenotfounderror: [errno 2] no such file or directory: ",
+            )
+        },
         false,
     ),
     (
@@ -151,7 +162,11 @@ const PATTERNS: &[(&str, Matcher, bool)] = &[
         },
         false,
     ),
-    ("JSONDecodeError", |l| prefix_any(l, "jsondecodeerror: "), false),
+    (
+        "JSONDecodeError",
+        |l| prefix_any(l, "jsondecodeerror: "),
+        false,
+    ),
     (
         "DatabaseConnectionError",
         |l| {
@@ -205,10 +220,22 @@ mod tests {
     #[test]
     fn table() {
         let cases = [
-            ("ModuleNotFoundError: No module named 'psutil'", "ModuleNotFoundError", ""),
-            ("importerror: no module named \"yaml\"", "ImportError_no_module", ""),
+            (
+                "ModuleNotFoundError: No module named 'psutil'",
+                "ModuleNotFoundError",
+                "",
+            ),
+            (
+                "importerror: no module named \"yaml\"",
+                "ImportError_no_module",
+                "",
+            ),
             ("SyntaxError: invalid syntax", "SyntaxError_general", ""),
-            ("IndentationError: unexpected indent", "IndentationError", ""),
+            (
+                "IndentationError: unexpected indent",
+                "IndentationError",
+                "",
+            ),
             (
                 "FileNotFoundError: [Errno 2] No such file or directory: '/x/y'",
                 "FileNotFoundError",
@@ -219,21 +246,45 @@ mod tests {
                 "PermissionError",
                 "",
             ),
-            ("No module named 'pkg' because __init__ missing", "init_file_missing", ""),
-            ("TypeError: f() missing 1 required positional argument", "TypeError_argument", ""),
-            ("json.decoder.JSONDecodeError: Expecting value", "JSONDecodeError", ""),
+            (
+                "No module named 'pkg' because __init__ missing",
+                "init_file_missing",
+                "",
+            ),
+            (
+                "TypeError: f() missing 1 required positional argument",
+                "TypeError_argument",
+                "",
+            ),
+            (
+                "json.decoder.JSONDecodeError: Expecting value",
+                "JSONDecodeError",
+                "",
+            ),
             (
                 "sqlite3.OperationalError: unable to open database file",
                 "DatabaseConnectionError",
                 "not auto-fixable",
             ),
-            ("ConnectionError to redis:6379", "RedisConnectionError", "not auto-fixable"),
+            (
+                "ConnectionError to redis:6379",
+                "RedisConnectionError",
+                "not auto-fixable",
+            ),
             ("all good", "none", ""),
-            ("SyntaxError: in gateway config", "SyntaxError_general", "protected"),
+            (
+                "SyntaxError: in gateway config",
+                "SyntaxError_general",
+                "protected",
+            ),
             ("please restart it", "none", "protected"),
             ("SyntaxError: ", "none", ""),
             ("ModuleNotFoundError: No module named ''", "none", ""),
-            ("FileNotFoundError: [Errno 2] No such file or directory: ''", "none", ""),
+            (
+                "FileNotFoundError: [Errno 2] No such file or directory: ''",
+                "none",
+                "",
+            ),
         ];
         for (text, m, r) in cases {
             let p = dry_plan(text);

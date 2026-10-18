@@ -49,7 +49,11 @@ pub fn tool_warn_format(mid: i64, tool: Option<&str>, ts: f64, content: &str) ->
     let end = start + content[start..].find(']')?;
     let body = content[start + mark.len()..end].trim();
     let parts: Vec<&str> = body.split(';').map(str::trim).collect();
-    let code = parts.first().copied().filter(|s| !s.is_empty()).unwrap_or("warn");
+    let code = parts
+        .first()
+        .copied()
+        .filter(|s| !s.is_empty())
+        .unwrap_or("warn");
     let count = parts
         .iter()
         .find_map(|p| p.strip_prefix("count="))
@@ -216,7 +220,11 @@ pub fn beat(
     if !s.activity.is_empty() && !s.digest_text.is_empty() {
         let day = stamp.get(..10).unwrap_or("").to_string();
         let f = s.state_dir.join("last-digest.day");
-        if std::fs::read_to_string(&f).map(|t| t.trim().to_string()).ok() != Some(day.clone()) {
+        if std::fs::read_to_string(&f)
+            .map(|t| t.trim().to_string())
+            .ok()
+            != Some(day.clone())
+        {
             write_atomic(&f, &format!("{day}\n"))?;
             let text = s.digest_text.replace("{day}", &day);
             let row = json!({"at": now_ms() as u64, "kind": "digest", "text": text});
@@ -271,7 +279,10 @@ fn open_sqlite(s: &Settings) -> Result<Box<dyn Store>, String> {
     } else {
         PathBuf::from(&s.db)
     };
-    Ok(Box::new(store::sqlite::SqliteStore::open(&db, s.keep_rows)?))
+    Ok(Box::new(store::sqlite::SqliteStore::open(
+        &db,
+        s.keep_rows,
+    )?))
 }
 
 #[cfg(not(feature = "sqlite"))]

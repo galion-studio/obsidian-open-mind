@@ -22,7 +22,9 @@ impl Runner for Fake {
 }
 
 fn out(name: &str) -> PathBuf {
-    let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/galion-guardian").join(name);
+    let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../target/test-out/galion-guardian")
+        .join(name);
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -68,52 +70,99 @@ fn parses_staged_config() {
 fn probe_statuses() {
     let d = out("statuses");
     let proc_root = fake_proc(&d, Some("cloudflared"));
-    let env = Env { runner: &Fake, proc_root: &proc_root, has_systemd: true };
+    let env = Env {
+        runner: &Fake,
+        proc_root: &proc_root,
+        has_systemd: true,
+    };
     let (port, h) = serve(vec![
         "HTTP/1.0 401 Unauthorized\r\n\r\n",
         "HTTP/1.0 500 Oops\r\n\r\n",
         "HTTP/1.0 503 X\r\n\r\n{\"loading\":true}",
     ]);
     let http = |codes: Vec<u16>, loading_ok| Spec::Http {
-        name: "svc".into(), host: "127.0.0.1".into(), port, path: "/health".into(),
-        ok_codes: codes, loading_ok, timeout_ms: 2500,
+        name: "svc".into(),
+        host: "127.0.0.1".into(),
+        port,
+        path: "/health".into(),
+        ok_codes: codes,
+        loading_ok,
+        timeout_ms: 2500,
     };
-    assert_eq!(probe::run(&http(vec![200, 401], false), &env).status, "healthy");
+    assert_eq!(
+        probe::run(&http(vec![200, 401], false), &env).status,
+        "healthy"
+    );
     let r = probe::run(&http(vec![200], false), &env);
-    assert_eq!((r.status, r.error.as_deref()), ("unhealthy", Some("http 500")));
+    assert_eq!(
+        (r.status, r.error.as_deref()),
+        ("unhealthy", Some("http 500"))
+    );
     let r = probe::run(&http(vec![200], true), &env);
     assert_eq!((r.status, r.detail.as_str()), ("healthy", "loading"));
     h.join().unwrap();
     assert_eq!(probe::run(&http(vec![200], false), &env).status, "critical");
-    let unit = Spec::Unit { name: None, unit: "x".into() };
+    let unit = Spec::Unit {
+        name: None,
+        unit: "x".into(),
+    };
     assert_eq!(probe::run(&unit, &env).status, "critical");
-    let nosd = Env { runner: &Fake, proc_root: &proc_root, has_systemd: false };
+    let nosd = Env {
+        runner: &Fake,
+        proc_root: &proc_root,
+        has_systemd: false,
+    };
     let r = probe::run(&unit, &nosd);
-    assert_eq!((r.status, r.detail.as_str()), ("healthy", "skipped: no systemd"));
-    let disk = Spec::Disk { path: "/".into(), warn: 85.0, crit: 95.0 };
+    assert_eq!(
+        (r.status, r.detail.as_str()),
+        ("healthy", "skipped: no systemd")
+    );
+    let disk = Spec::Disk {
+        path: "/".into(),
+        warn: 85.0,
+        crit: 95.0,
+    };
     assert_eq!(probe::run(&disk, &env).status, "unhealthy");
     assert_eq!(probe::run(&Spec::Mem, &env).status, "healthy");
     assert_eq!(probe::run(&Spec::Load, &env).status, "healthy");
-    let tun = Spec::Process { name: None, comm: "cloudflared".into() };
+    let tun = Spec::Process {
+        name: None,
+        comm: "cloudflared".into(),
+    };
     let r = probe::run(&tun, &env);
     assert_eq!((r.name.as_str(), r.status), ("tunnel", "healthy"));
     let none = fake_proc(&out("statuses2"), None);
-    let env2 = Env { runner: &Fake, proc_root: &none, has_systemd: true };
+    let env2 = Env {
+        runner: &Fake,
+        proc_root: &none,
+        has_systemd: true,
+    };
     let r = probe::run(&tun, &env2);
-    assert_eq!((r.status, r.detail.as_str()), ("critical", "cloudflared not running"));
+    assert_eq!(
+        (r.status, r.detail.as_str()),
+        ("critical", "cloudflared not running")
+    );
 }
 
 #[test]
 fn beat_incidents_streaks_sinks() {
     let d = out("beat");
     let proc_root = fake_proc(&d, None);
-    let env = Env { runner: &Fake, proc_root: &proc_root, has_systemd: true };
+    let env = Env {
+        runner: &Fake,
+        proc_root: &proc_root,
+        has_systemd: true,
+    };
     let text = format!(
         "[guardian]\nstate_dir = \"{0}/state\"\nactivity = \"{0}/activity.jsonl\"\nnerve = \"{0}/nerve.jsonl\"\ndigest_text = \"Standup {{day}}\"\nbeat = \"{0}/last-guardian.ts\"\n[[probe]]\nkind = \"process\"\ncomm = \"cloudflared\"\n[[probe]]\nkind = \"mem\"\n",
         d.display()
     );
     let f = config::parse(&text).unwrap();
-    let mut st = JsonlStore { dir: f.guardian.state_dir.clone(), keep_rows: 4000, keep_resolved: 500 };
+    let mut st = JsonlStore {
+        dir: f.guardian.state_dir.clone(),
+        keep_rows: 4000,
+        keep_resolved: 500,
+    };
     let mut last = None;
     for _ in 0..4 {
         last = Some(beat(&f.guardian, &f.probe, &env, &mut st).unwrap());
@@ -130,7 +179,12 @@ fn beat_incidents_streaks_sinks() {
     assert_eq!(health.lines().count(), 8);
     // activity: one health row (900 s gate) + one digest row
     let act = std::fs::read_to_string(d.join("activity.jsonl")).unwrap();
-    assert_eq!(act.lines().filter(|l| l.contains("\"health fail tunnel\"")).count(), 1);
+    assert_eq!(
+        act.lines()
+            .filter(|l| l.contains("\"health fail tunnel\""))
+            .count(),
+        1
+    );
     assert_eq!(act.lines().filter(|l| l.contains("\"digest\"")).count(), 1);
     // nerve: only the opening change
     let nerve = std::fs::read_to_string(d.join("nerve.jsonl")).unwrap();
@@ -143,29 +197,64 @@ fn beat_incidents_streaks_sinks() {
     assert!(b.line().contains(" watch"));
     assert!(b.events[0].service == "tunnel" && !b.events[0].opened);
     assert!(st.open_incidents().unwrap().is_empty());
-    assert_eq!(st.incidents()[0].resolution.as_deref(), Some("beat healthy"));
-    assert_eq!(std::fs::read_to_string(d.join("nerve.jsonl")).unwrap().lines().count(), 2);
+    assert_eq!(
+        st.incidents()[0].resolution.as_deref(),
+        Some("beat healthy")
+    );
+    assert_eq!(
+        std::fs::read_to_string(d.join("nerve.jsonl"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
 }
 
 #[test]
 fn prune_rows() {
     let d = out("prune");
-    let mut st = JsonlStore { dir: d.clone(), keep_rows: 10, keep_resolved: 2 };
+    let mut st = JsonlStore {
+        dir: d.clone(),
+        keep_rows: 10,
+        keep_resolved: 2,
+    };
     let row = galion_guardian::probe::Row {
-        name: "a".into(), status: "healthy", ms: 1.0, error: None, detail: "ok".into(),
+        name: "a".into(),
+        status: "healthy",
+        ms: 1.0,
+        error: None,
+        detail: "ok".into(),
     };
     for _ in 0..30 {
-        st.record(std::slice::from_ref(&row), "2026-10-18T21:00:00+02:00").unwrap();
+        st.record(std::slice::from_ref(&row), "2026-10-18T21:00:00+02:00")
+            .unwrap();
     }
-    let n = std::fs::read_to_string(d.join("health.jsonl")).unwrap().lines().count();
+    let n = std::fs::read_to_string(d.join("health.jsonl"))
+        .unwrap()
+        .lines()
+        .count();
     assert!((10..=11).contains(&n), "{n}");
 }
 
 #[test]
 fn ids_and_tool_warn() {
-    assert_eq!(incident_id("2026-10-18T21:05:07+02:00", "whisper"), "20261018T210507whis");
-    let l = tool_warn_format(7, Some("terminal"), 0.0, "x [Tool loop warning: same_call; count=3 ] y").unwrap();
-    assert!(l.starts_with("WARN id=7 code=same_call count=3 tool=terminal when=1970-01-01T01:00:00+01:00"), "{l}");
+    assert_eq!(
+        incident_id("2026-10-18T21:05:07+02:00", "whisper"),
+        "20261018T210507whis"
+    );
+    let l = tool_warn_format(
+        7,
+        Some("terminal"),
+        0.0,
+        "x [Tool loop warning: same_call; count=3 ] y",
+    )
+    .unwrap();
+    assert!(
+        l.starts_with(
+            "WARN id=7 code=same_call count=3 tool=terminal when=1970-01-01T01:00:00+01:00"
+        ),
+        "{l}"
+    );
     assert!(tool_warn_format(1, None, 0.0, "no marker").is_none());
     let d = out("toolwarn");
     let p = d.join("tool-warn.txt");
@@ -180,13 +269,26 @@ fn sqlite_store_parity() {
     let d = out("sqlite");
     let mut st = SqliteStore::open(&d.join("guardian.db"), 4000).unwrap();
     let bad = galion_guardian::probe::Row {
-        name: "voice".into(), status: "critical", ms: 2.0, error: Some("connect".into()), detail: "connect".into(),
+        name: "voice".into(),
+        status: "critical",
+        ms: 2.0,
+        error: Some("connect".into()),
+        detail: "connect".into(),
     };
-    let ev = st.record(std::slice::from_ref(&bad), "2026-10-18T21:00:00+02:00").unwrap();
+    let ev = st
+        .record(std::slice::from_ref(&bad), "2026-10-18T21:00:00+02:00")
+        .unwrap();
     assert!(ev[0].opened);
-    assert!(st.record(std::slice::from_ref(&bad), "2026-10-18T21:01:00+02:00").unwrap().is_empty());
+    assert!(st
+        .record(std::slice::from_ref(&bad), "2026-10-18T21:01:00+02:00")
+        .unwrap()
+        .is_empty());
     assert_eq!(st.open_incidents().unwrap(), vec!["voice".to_string()]);
-    let good = galion_guardian::probe::Row { status: "healthy", error: None, ..bad };
+    let good = galion_guardian::probe::Row {
+        status: "healthy",
+        error: None,
+        ..bad
+    };
     let ev = st.record(&[good], "2026-10-18T21:02:00+02:00").unwrap();
     assert!(!ev[0].opened);
     assert!(st.open_incidents().unwrap().is_empty());

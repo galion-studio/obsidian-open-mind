@@ -105,7 +105,10 @@ pub enum Spec {
         timeout_ms: u64,
     },
     /// systemctl is-active; reported as skipped where systemd is absent.
-    Unit { name: Option<String>, unit: String },
+    Unit {
+        name: Option<String>,
+        unit: String,
+    },
     Disk {
         path: String,
         #[serde(default = "d_warn")]
@@ -115,7 +118,10 @@ pub enum Spec {
     },
     Mem,
     Load,
-    Fresh { path: String, max_age_s: u64 },
+    Fresh {
+        path: String,
+        max_age_s: u64,
+    },
     /// Process present (scan of /proc/*/comm, no pgrep). Named `tunnel` by
     /// default like guardian-tick.py.
     Process {

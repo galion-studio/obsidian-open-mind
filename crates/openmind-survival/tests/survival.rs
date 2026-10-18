@@ -161,7 +161,12 @@ fn http_get_and_verdict() {
             let (mut s, _) = l.accept().unwrap();
             let mut b = [0u8; 512];
             let _ = s.read(&mut b);
-            write!(s, "HTTP/1.0 {code}\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+            write!(
+                s,
+                "HTTP/1.0 {code}\r\nContent-Length: {}\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
         }
     });
     let t = Duration::from_millis(2500);
@@ -170,7 +175,10 @@ fn http_get_and_verdict() {
     assert_eq!(verdict(&a.result, &[200], true), (true, "200".into()));
     let b = http_get(addr, "/health", t);
     assert_eq!(verdict(&b.result, &[200], true), (true, "loading".into()));
-    assert_eq!(verdict(&b.result, &[200], false), (false, "http 503".into()));
+    assert_eq!(
+        verdict(&b.result, &[200], false),
+        (false, "http 503".into())
+    );
     let c = http_get(addr, "/health", t);
     assert_eq!(verdict(&c.result, &[200], true), (false, "http 503".into()));
     h.join().unwrap();

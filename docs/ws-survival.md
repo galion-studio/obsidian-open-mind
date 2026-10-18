@@ -31,7 +31,7 @@ health-tick 119, revive 109, origin 684) + ~190 inline heredoc lines in keep.sh/
 **3,734** upstream library lines retired without a port. Shell replaced: 593 lines (keep, stack-boot,
 persist-boot, vps-boot, start, hardware, loop-daemon, lock-secrets step).
 
-Commits (author Grok Bot): `50da469` UNIVERSAL-CPU.md, `205bd81` survival lib B23/B24/B25, `e84a53d` guardian,
+Commits (author Grok Bot): `50da469` UNIVERSAL-CPU.md, `205bd81` survival lib B23/B24/B25, `ec28d09` guardian,
 `94d3260` healer, `de1edf9` boot + staged units, `95183c5` origin (B56), `7101702` guardian-tick --nerve, plus this doc.
 
 ## 2. Dangerous behaviours removed

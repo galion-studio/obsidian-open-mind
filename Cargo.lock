@@ -152,6 +152,18 @@ name = "galion-desk"
 version = "0.1.0"
 
 [[package]]
+name = "galion-guardian"
+version = "0.1.0"
+dependencies = [
+ "openmind-survival",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "toml",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-one"
 version = "0.1.0"
 

@@ -8,3 +8,4 @@ description = "Galion Open Mind stack contract. The processor runs this. The car
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }

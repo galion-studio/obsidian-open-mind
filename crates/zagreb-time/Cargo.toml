@@ -1,0 +1,10 @@
+[package]
+name = "zagreb-time"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Europe/Zagreb time helpers: every timestamp in the stack is RFC 3339 with an explicit offset, never Z."
+
+[dependencies]
+chrono = { workspace = true }
+chrono-tz = { workspace = true }

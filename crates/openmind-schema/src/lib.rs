@@ -5,6 +5,13 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Every timestamp in the stack, re-exported as `openmind_schema::time`.
+///
+/// `zagreb-time` owns the Europe/Zagreb RFC 3339 formatting (explicit offset,
+/// never `Z`). The schema re-exports it so consumers of the contract get the
+/// one shared time helper without a second dependency line.
+pub use zagreb_time as time;
+
 /// What this machine is allowed to start. Measured, never assumed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Machine {

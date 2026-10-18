@@ -191,6 +191,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "hermes-gateway"
+version = "0.1.0"
+dependencies = [
+ "hermes-rs",
+ "serde_json",
+]
+
+[[package]]
+name = "hermes-rs"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde_json",
+]
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -320,13 +336,6 @@ dependencies = [
 
 [[package]]
 name = "openmind-survival"
-version = "0.1.0"
-dependencies = [
- "zagreb-time",
-]
-
-[[package]]
-name = "persona-plex-relay"
 version = "0.1.0"
 dependencies = [
  "zagreb-time",

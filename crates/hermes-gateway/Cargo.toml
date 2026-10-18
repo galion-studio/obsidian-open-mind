@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
+[package]
+name = "hermes-gateway"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "hermes-gateway: the Rust Hermes API server binary (shadow of hermes.service)."
+
+[[bin]]
+name = "hermes-gateway"
+path = "src/main.rs"
+
+[features]
+default = ["sqlite"]
+sqlite = ["hermes-rs/sqlite"]
+
+[dependencies]
+hermes-rs = { path = "../hermes-rs", default-features = false }
+serde_json = { workspace = true }

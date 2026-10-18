@@ -148,10 +148,74 @@ dependencies = [
 ]
 
 [[package]]
+name = "gaia-aether"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
+]
+
+[[package]]
+name = "gaia-apollo"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
+]
+
+[[package]]
+name = "gaia-artemis"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
+]
+
+[[package]]
 name = "gaia-core"
 version = "0.1.0"
 dependencies = [
  "zagreb-time",
+]
+
+[[package]]
+name = "gaia-demeter"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
+]
+
+[[package]]
+name = "gaia-eleuthia"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
+]
+
+[[package]]
+name = "gaia-hades"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
+]
+
+[[package]]
+name = "gaia-hephaestus"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
+]
+
+[[package]]
+name = "gaia-minerva"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
+ "repo-check",
+]
+
+[[package]]
+name = "gaia-poseidon"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
 ]
 
 [[package]]

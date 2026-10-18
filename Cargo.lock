@@ -156,6 +156,17 @@ name = "galion-one"
 version = "0.1.0"
 
 [[package]]
+name = "guardian-tick"
+version = "0.1.0"
+dependencies = [
+ "openmind-survival",
+ "serde",
+ "serde_json",
+ "toml",
+ "zagreb-time",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.14.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -289,6 +300,13 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "toml",
+]
+
+[[package]]
+name = "openmind-sandbox"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

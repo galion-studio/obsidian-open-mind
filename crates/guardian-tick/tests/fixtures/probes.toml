@@ -1,0 +1,62 @@
+# Fixture probe set (loopback, read-only). Real set is ticket B20.
+[[probe]]
+kind = "http"
+name = "console"
+port = 8080
+path = "/api/v1/health"
+ok_codes = [200, 401]
+
+[[probe]]
+kind = "http"
+name = "hermes"
+port = 8642
+path = "/health"
+ok_codes = [200, 401]
+
+[[probe]]
+kind = "http"
+name = "whisper"
+port = 8643
+path = "/health"
+ok_codes = [200]
+
+[[probe]]
+kind = "http"
+name = "vision"
+port = 8645
+path = "/health"
+ok_codes = [200]
+
+[[probe]]
+kind = "http"
+name = "voice"
+port = 8002
+path = "/health"
+ok_codes = [200]
+
+[[probe]]
+kind = "http"
+name = "origin"
+port = 80
+path = "/"
+ok_codes = [200, 301, 302, 401, 404]
+
+[[probe]]
+kind = "unit"
+name = "unit-console"
+unit = "galion-console"
+
+[[probe]]
+kind = "disk"
+path = "/"
+warn = 85.0
+crit = 95.0
+
+[[probe]]
+kind = "mem"
+
+[[probe]]
+kind = "load"
+
+[[probe]]
+kind = "cloudflared"

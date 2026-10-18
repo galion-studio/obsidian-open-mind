@@ -31,6 +31,10 @@ const MAX_ALERTS: usize = 64;
 /// A built-in, clean sample used when an audit directive has no payload.
 const SAMPLE: &str = "// SPDX-License-Identifier: MIT\nfn main() {}\n";
 
+/// The policy reviewed when none is given: the openmind-sandbox shape plus
+/// one deliberately risky rule, so the review has something to find.
+const DEFAULT_POLICY: &str = "rlimit cpu 60\nrlimit as 512M\nworkdir ./job\nenv:clear\nnet\n";
+
 /// Risky sandbox policy lines and why.
 const RISKY_POLICY: &[(&str, &str)] = &[
     ("net", "network access"),
@@ -180,7 +184,15 @@ impl SubordinateFunction for Minerva {
                 .metric("alerts", self.alerts.len() as i64),
             System::Vision => {
                 let frames = scaled(30, d.intensity);
-                match Minerva::decode_hex(&d.payload) {
+                let synthetic;
+                let input = if d.payload.is_empty() {
+                    // A synthetic frame: "GAIA" repeated, hex-encoded, sized by intensity.
+                    synthetic = "47414941".repeat(scaled(16, d.intensity) as usize);
+                    synthetic.as_str()
+                } else {
+                    d.payload.as_str()
+                };
+                match Minerva::decode_hex(input) {
                     Some(bytes) => {
                         let printable = bytes
                             .iter()
@@ -200,7 +212,12 @@ impl SubordinateFunction for Minerva {
                 }
             }
             System::SandboxPolicyReview => {
-                let risky = Minerva::review_policy(&d.payload);
+                let policy = if d.payload.is_empty() {
+                    DEFAULT_POLICY
+                } else {
+                    d.payload.as_str()
+                };
+                let risky = Minerva::review_policy(policy);
                 ok(format!("{} risky rule(s)", risky.len()))
                     .metric("risky", risky.len() as i64)
                     .plan(risky)

@@ -148,6 +148,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "gaia"
+version = "0.1.0"
+dependencies = [
+ "gaia-aether",
+ "gaia-apollo",
+ "gaia-artemis",
+ "gaia-core",
+ "gaia-demeter",
+ "gaia-eleuthia",
+ "gaia-hades",
+ "gaia-hephaestus",
+ "gaia-minerva",
+ "gaia-poseidon",
+ "zagreb-time",
+]
+
+[[package]]
 name = "gaia-aether"
 version = "0.1.0"
 dependencies = [

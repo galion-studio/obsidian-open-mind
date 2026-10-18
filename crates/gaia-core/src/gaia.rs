@@ -394,6 +394,7 @@ impl Gaia {
         ctx_touched: &[System],
         report: Option<&Report>,
         approved: bool,
+        mutating: bool,
     ) -> Option<String> {
         let foreign: Vec<&str> = ctx_touched
             .iter()
@@ -408,7 +409,12 @@ impl Gaia {
                 if s.function() != f {
                     return Some(format!("reported on foreign system {s}"));
                 }
-                if s.destructive() && !approved && !r.dry_run && r.outcome == Outcome::Done {
+                if mutating
+                    && s.destructive()
+                    && !approved
+                    && !r.dry_run
+                    && r.outcome == Outcome::Done
+                {
                     return Some(format!("executed destructive {s} without approval"));
                 }
             }
@@ -473,7 +479,13 @@ impl Gaia {
             slot.handled += 1;
             (r, ctx.touched, ctx.outbox, ctx.births)
         };
-        if let Some(reason) = self.judge(owner, &touched, Some(&report), approved) {
+        if let Some(reason) = self.judge(
+            owner,
+            &touched,
+            Some(&report),
+            approved,
+            d.verb != Verb::Status,
+        ) {
             self.contain(owner, &reason, None);
             return Report::for_directive(d, Outcome::Contained).summary(reason);
         }
@@ -530,7 +542,7 @@ impl Gaia {
                 let r = slot.func.tick(&mut ctx);
                 (r, ctx.touched, ctx.outbox, ctx.births)
             };
-            if let Some(reason) = self.judge(f, &touched, report.as_ref(), false) {
+            if let Some(reason) = self.judge(f, &touched, report.as_ref(), false, true) {
                 self.contain(f, &reason, Some(&mut out));
                 continue;
             }
@@ -574,19 +586,28 @@ impl Gaia {
 
     /// The rogue swarm: it eats biomass and replicates while there is food.
     fn world_step(&mut self) {
-        let e = &mut self.env;
-        if e.swarm_active && e.swarm > 0 {
-            let eat = e.biomass.min(e.swarm.saturating_mul(2));
-            e.biomass -= eat;
-            if eat > 0 {
-                e.swarm = (e.swarm + e.swarm / 4 + 1).min(Environment::SWARM_MAX);
-            }
-            e.air = e.air.saturating_sub(3);
-            e.water = e.water.saturating_sub(3);
-            e.soil = e.soil.saturating_sub(2);
-        }
+        swarm_step(&mut self.env);
     }
+}
 
+/// Biomass one swarm unit eats per tick.
+pub const SWARM_BITE: u64 = 8;
+
+/// One tick of the rogue swarm, as a pure function so callers can predict it.
+pub fn swarm_step(e: &mut Environment) {
+    if e.swarm_active && e.swarm > 0 {
+        let eat = e.biomass.min(e.swarm.saturating_mul(SWARM_BITE));
+        e.biomass -= eat;
+        if eat > 0 {
+            e.swarm = (e.swarm + e.swarm / 2 + 1).min(Environment::SWARM_MAX);
+        }
+        e.air = e.air.saturating_sub(3);
+        e.water = e.water.saturating_sub(3);
+        e.soil = e.soil.saturating_sub(2);
+    }
+}
+
+impl Gaia {
     /// The command hierarchy, top to bottom.
     pub fn hierarchy_json(&self) -> Json {
         Json::obj()

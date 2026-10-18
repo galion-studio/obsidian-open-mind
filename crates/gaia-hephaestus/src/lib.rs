@@ -23,6 +23,15 @@ const ALLOWED: &[&str] = &[
     "cargo", "ls", "cat", "rg", "git", "echo", "wc", "head", "date",
 ];
 const GIT_READ: &[&str] = &["status", "log", "diff", "show", "branch"];
+/// Desk tools registered when none are named.
+const DESK_TOOLS: &[&str] = &[
+    "notes",
+    "pod-view",
+    "grinder",
+    "link-json",
+    "splash",
+    "health",
+];
 const META: &[&str] = &[";", "|", "&", ">", "<", "`", "$("];
 
 #[derive(Debug, Default)]
@@ -167,12 +176,12 @@ impl SubordinateFunction for Hephaestus {
                     .plan(self.artifacts.iter().take(16).cloned().collect())
             }
             System::GalionDesk => {
-                for t in d
-                    .payload
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|t| !t.is_empty())
-                {
+                let given = if d.payload.is_empty() {
+                    DESK_TOOLS[..(scaled(DESK_TOOLS.len() as u64, d.intensity) as usize)].join(",")
+                } else {
+                    d.payload.clone()
+                };
+                for t in given.split(',').map(str::trim).filter(|t| !t.is_empty()) {
                     if !self.tools.iter().any(|x| x == t) && self.tools.len() < 64 {
                         self.tools.push(t.to_string());
                     }

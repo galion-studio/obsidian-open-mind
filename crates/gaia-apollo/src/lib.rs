@@ -191,8 +191,12 @@ impl SubordinateFunction for Apollo {
                 Report::for_directive(d, Outcome::Done).summary(format!("appended {key} at {at}"))
             }
             (System::StackSchema, _) => {
-                let fields: Vec<(&str, &str)> = d
-                    .payload
+                let text = if d.payload.is_empty() {
+                    "version=1\nprocessor=runs the stack\ncard=runs only the model"
+                } else {
+                    d.payload.as_str()
+                };
+                let fields: Vec<(&str, &str)> = text
                     .lines()
                     .filter_map(|l| l.split_once('='))
                     .map(|(k, v)| (k.trim(), v.trim()))

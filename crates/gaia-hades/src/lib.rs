@@ -151,6 +151,9 @@ impl SubordinateFunction for Hades {
             ctx.touch(*s);
         }
         ctx.env.biomass = 0;
+        ctx.env.air = 0;
+        ctx.env.water = 0;
+        ctx.env.soil = 0;
         ctx.send(Route::AllTowers, "reverse-terraforming", "all systems");
         Some(
             Report::new(FunctionId::Hades, None, Outcome::Done)

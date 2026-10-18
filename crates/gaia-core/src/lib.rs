@@ -21,7 +21,7 @@ pub mod registry;
 pub mod system;
 
 pub use bus::{Bus, Endpoint, Message, Route};
-pub use gaia::{Gaia, Override, TickReport};
+pub use gaia::{swarm_step, Gaia, Override, TickReport, SWARM_BITE};
 pub use json::Json;
 pub use lineage::{Lineage, LineageRecord, SimClock};
 pub use model::{

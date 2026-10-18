@@ -91,6 +91,12 @@ fn main() {
     ));
     let mut tools = Registry::new();
     tools.add(Arc::new(ClockTool));
+    let cron_agent = Arc::new(hermes_rs::agent::Agent {
+        cfg: cfg.clone(),
+        provider: provider.clone(),
+        spend: spend.clone(),
+        tools: tools.clone(),
+    });
     let agent = hermes_rs::agent::boss(cfg.clone(), provider, spend, tools);
     let store = match open_store(&cfg) {
         Ok(s) => s,
@@ -99,7 +105,18 @@ fn main() {
             std::process::exit(2);
         }
     };
-    let gw = Arc::new(Gateway::new(cfg.clone(), agent, store, api_key));
+    let mut gw = Gateway::new(cfg.clone(), agent, store, api_key);
+    let sched = Arc::new(hermes_rs::cron::Scheduler::new(&cfg.home, Some(cron_agent)));
+    gw.jobs = Some(sched.clone());
+    let gw = Arc::new(gw);
+    if cfg.cron_enabled {
+        sched.spawn();
+        log(&format!(
+            "cron on: {} jobs, own state {}",
+            sched.jobs().len(),
+            cfg.cron_state_file.display()
+        ));
+    }
     if !gw.key_ok() {
         log("refusing to start: API_SERVER_KEY is missing or shorter than 16 chars");
         std::process::exit(2);

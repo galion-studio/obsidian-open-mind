@@ -652,3 +652,40 @@ fn persona_plex_on_galion_one_when_configured() {
         .unwrap();
     assert!(!sys.contains("Persona Plex") && sys.contains("four sentences"));
 }
+
+#[test]
+fn cron_agent_job_runs_through_mock_and_api_lists_jobs() {
+    use hermes_rs::agent::Agent;
+    use hermes_rs::cron::Scheduler;
+    let home = std::env::temp_dir().join(hermes_rs::new_id("hermes-rs-cron-"));
+    std::fs::create_dir_all(home.join("cron")).unwrap();
+    std::fs::write(
+        home.join("cron/jobs.json"),
+        r#"{"jobs":[{"id":"ag1","name":"ask","prompt":"say hi","no_agent":false,
+            "schedule":{"kind":"interval","minutes":30,"display":"every 30m"}},
+           {"id":"cx","name":"expr","schedule":{"kind":"cron","expr":"0 9 * * *","display":"0 9 * * *"}}],
+           "updated_at":"x"}"#,
+    )
+    .unwrap();
+    let mut cfg = Config::defaults(&home);
+    cfg.apply_yaml(&hermes_rs::yaml::parse(CONFIG).unwrap());
+    let cfg = Arc::new(cfg);
+    let mock = Arc::new(MockProvider::echo());
+    let agent = Arc::new(Agent {
+        cfg: cfg.clone(),
+        provider: mock.clone(),
+        spend: Arc::new(SpendTracker::new(cfg.spend.clone(), None)),
+        tools: Registry::new(),
+    });
+    let s = Scheduler::new(&home, Some(agent));
+    let jobs = s.jobs();
+    let o = s.run_job(&jobs[0], 1_792_350_000);
+    assert!(o.ok, "{o:?}");
+    assert!(o.output.contains("say hi"), "{}", o.output);
+    let md = std::fs::read_to_string(o.file.unwrap()).unwrap();
+    assert!(md.contains("**Mode:** agent"));
+    assert!(md.contains("**Run Time:** 2026-10-18 21:00:00+02:00"));
+    let list = s.list();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[1]["supported"], false, "cron expressions are stubbed");
+}

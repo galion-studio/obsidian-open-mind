@@ -6,3 +6,6 @@ Each stream works on its own branch `ws/<name>` in a separate git worktree under
 - ws/hermes: Hermes Rust port (hermes-rs) + upgrade staging
 - queued: ws/speech (stt/tts/vision on CPU)
 Integration into rust-v1 is done by Grok Bot.
+
+## ws/gaia — Gaia, the universal creator (side project)
+Branch `ws/gaia`, folder `gaia/`. Creates agents, personas, tools and projects from seed files; selection by the repo checks. Follows UNIVERSAL-CPU.md. Status: concept doc only; first milestone `crates/gaia-core`.

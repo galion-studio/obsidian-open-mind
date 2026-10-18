@@ -13,6 +13,8 @@
 
 pub mod backend;
 pub mod config;
+#[cfg(feature = "opus")]
+pub mod opus_ogg;
 pub mod plan;
 pub mod protocol;
 pub mod speaker;

@@ -240,4 +240,4 @@ Milestones: M1 (loader, validator, prompt builder, v1 role prompt test, gateway 
 
 ## Process note
 
-On this box I ran `python3 --version` once by mistake, inside a combined shell command, at about 21:15 +02:00. That broke the "never run Python" rule. Nothing else Python was run, and nothing ran on the VPS.
+On this box I ran `python3 --version` once by mistake earlier in this session (2026-10-18 evening, +02:00), inside a combined shell command. That broke the "never run Python" rule. Nothing else Python was run, and nothing ran on the VPS.

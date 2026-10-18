@@ -1,0 +1,13 @@
+# ~/.config/systemd/user/galion-offsite-pull.timer (ws/offsite)
+# VPS backups run 00/6:17 UTC (+<=5 min); pull 28 min later. UTC keeps it aligned across DST:
+# 02:45 08:45 14:45 20:45 CEST (01:45 07:45 13:45 19:45 CET in winter).
+[Unit]
+Description=Galion offsite pull every 6h
+
+[Timer]
+OnCalendar=*-*-* 00/6:45:00 UTC
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target

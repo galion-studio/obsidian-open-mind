@@ -1,0 +1,28 @@
+#!/bin/sh
+# galion-offsite-serve (ws/offsite): forced command AND login shell of user galion-offsite.
+# Only these requests are honoured (from $SSH_ORIGINAL_COMMAND; argv is ignored):
+#   list          -> "<sha256>  <name>" lines, oldest -> newest (last line = newest)
+#   get <name>    -> streams /var/backups/galion/offsite/<name>; name must match
+#                    ^galion-[0-9T+:-]+\.tar\.gz\.age$
+#   latest        -> streams the newest archive
+# Everything else (shells, scp, sftp, other paths) is refused with exit 2.
+PATH=/usr/bin:/bin; export PATH
+umask 077
+set -f
+D=/var/backups/galion/offsite
+RE='^galion-[0-9T+:-]+\.tar\.gz\.age$'
+log() { logger -t galion-offsite-serve -- "$*" 2>/dev/null || true; }
+refuse() { echo "galion-offsite: refused ($1). allowed: list | get <name> | latest" >&2; log "refused: $1 from ${SSH_CLIENT%% *}"; exit 2; }
+okname() { printf '%s\n' "$1" | grep -Eq "$RE"; }
+stream() { okname "$1" || refuse "bad name"; [ -f "$D/$1" ] && [ ! -L "$D/$1" ] || { echo "galion-offsite: no such archive" >&2; exit 3; }
+  log "get $1 from ${SSH_CLIENT%% *}"; exec cat -- "$D/$1"; }
+
+[ -n "${SSH_ORIGINAL_COMMAND:-}" ] || refuse "no command / interactive"
+# shellcheck disable=SC2086
+set -- $SSH_ORIGINAL_COMMAND
+case "${1:-}" in
+  list)   [ $# -eq 1 ] || refuse "list takes no args"; exec cat -- "$D/SHA256SUMS" ;;
+  get)    [ $# -eq 2 ] || refuse "get takes one name"; stream "$2" ;;
+  latest) [ $# -eq 1 ] || refuse "latest takes no args"; n=$(readlink -- "$D/latest") || { echo "galion-offsite: no latest" >&2; exit 3; }; stream "$n" ;;
+  *)      refuse "command" ;;
+esac

@@ -1,0 +1,2 @@
+# cron alternative (crontab -e), laptop local time = CEST: 28 min after each VPS backup
+45 2,8,14,20 * * * $HOME/.galion-offsite/galion-offsite-pull.sh >> $HOME/.galion-offsite/pull.log 2>&1

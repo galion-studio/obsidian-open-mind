@@ -1,0 +1,11 @@
+# ~/.config/systemd/user/galion-offsite-pull.service (ws/offsite)
+[Unit]
+Description=Pull newest encrypted Galion backup (galion-offsite)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh %h/.galion-offsite/galion-offsite-pull.sh
+Nice=10
+IOSchedulingClass=idle

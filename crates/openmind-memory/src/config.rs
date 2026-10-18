@@ -23,6 +23,13 @@ pub struct Config {
     /// Opt-in: also put the L1 keyword hits into `/recall` `context`
     /// (the Node gateway computes them but drops them; default keeps parity).
     pub recall_include_l1: bool,
+    /// Pooled read-only SQLite connections next to the writer (WAL).
+    pub readers: usize,
+    /// Bounded /recall result cache (entries; 0 = off) and its TTL.
+    pub recall_cache: usize,
+    pub recall_cache_ttl_ms: u64,
+    /// Max items in one POST /capture/batch.
+    pub batch_max: usize,
 }
 
 impl Config {
@@ -74,6 +81,22 @@ impl Config {
                 .unwrap_or(0.3),
             recall_strategy: strategy,
             recall_include_l1: truthy(&["OPENMIND_MEMORY_RECALL_INCLUDE_L1"]),
+            readers: pick(&["OPENMIND_MEMORY_READERS"])
+                .and_then(|v| v.parse().ok())
+                .map(|v: usize| v.min(16))
+                .unwrap_or(crate::store::DEFAULT_READERS),
+            recall_cache: pick(&["OPENMIND_MEMORY_RECALL_CACHE"])
+                .and_then(|v| v.parse().ok())
+                .map(|v: usize| v.min(10_000))
+                .unwrap_or(256),
+            recall_cache_ttl_ms: pick(&["OPENMIND_MEMORY_RECALL_CACHE_TTL_MS"])
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30_000),
+            batch_max: pick(&["OPENMIND_MEMORY_BATCH_MAX"])
+                .and_then(|v| v.parse().ok())
+                .filter(|v: &usize| *v > 0)
+                .map(|v: usize| v.min(10_000))
+                .unwrap_or(256),
         }
     }
 

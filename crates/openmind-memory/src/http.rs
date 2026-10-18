@@ -6,9 +6,45 @@
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// Process-wide request counters (no labels, no content).
+static REQUESTS: AtomicU64 = AtomicU64::new(0);
+static IN_FLIGHT: AtomicU64 = AtomicU64::new(0);
+static REJECTED_BUSY: AtomicU64 = AtomicU64::new(0);
+static STATUS_2XX: AtomicU64 = AtomicU64::new(0);
+static STATUS_4XX: AtomicU64 = AtomicU64::new(0);
+static STATUS_5XX: AtomicU64 = AtomicU64::new(0);
+static BUSY_US: AtomicU64 = AtomicU64::new(0);
+static MAX_US: AtomicU64 = AtomicU64::new(0);
+
+fn record(status: u16, started: Instant) {
+    REQUESTS.fetch_add(1, Ordering::Relaxed);
+    match status {
+        200..=299 => &STATUS_2XX,
+        400..=499 => &STATUS_4XX,
+        _ => &STATUS_5XX,
+    }
+    .fetch_add(1, Ordering::Relaxed);
+    let us = started.elapsed().as_micros() as u64;
+    BUSY_US.fetch_add(us, Ordering::Relaxed);
+    MAX_US.fetch_max(us, Ordering::Relaxed);
+}
+
+/// Counters for GET /stats.
+pub fn metrics_json() -> serde_json::Value {
+    let g = |a: &AtomicU64| a.load(Ordering::Relaxed);
+    let n = g(&REQUESTS);
+    serde_json::json!({
+        "total": n, "in_flight": g(&IN_FLIGHT), "rejected_busy": g(&REJECTED_BUSY),
+        "status_2xx": g(&STATUS_2XX), "status_4xx": g(&STATUS_4XX), "status_5xx": g(&STATUS_5XX),
+        "avg_ms": if n == 0 { 0.0 } else { g(&BUSY_US) as f64 / n as f64 / 1000.0 },
+        "max_ms": g(&MAX_US) as f64 / 1000.0,
+    })
+}
 
 pub struct Request {
     pub method: String,
@@ -121,10 +157,11 @@ pub fn write_response(mut stream: &TcpStream, resp: &Response) {
         "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n".to_string()
     } else {
         format!(
-            "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            "HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{}Connection: close\r\n\r\n",
             resp.status,
             reason(resp.status),
-            resp.body.len()
+            resp.body.len(),
+            if resp.status == 503 { "Retry-After: 1\r\n" } else { "" }
         )
     };
     let _ = stream.write_all(head.as_bytes());
@@ -145,6 +182,7 @@ where
         let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
         if active.load(Ordering::SeqCst) >= max_conns {
+            REJECTED_BUSY.fetch_add(1, Ordering::Relaxed);
             write_response(
                 &stream,
                 &Response {
@@ -157,6 +195,8 @@ where
         active.fetch_add(1, Ordering::SeqCst);
         let (h, a) = (handler.clone(), active.clone());
         let spawned = std::thread::Builder::new().stack_size(512 * 1024).spawn(move || {
+            let t0 = Instant::now();
+            IN_FLIGHT.fetch_add(1, Ordering::Relaxed);
             let resp = match read_request(&stream, max_body) {
                 Ok(req) => h(req),
                 Err(ReadError::TooLarge(m)) => Response {
@@ -165,11 +205,14 @@ where
                 },
                 Err(ReadError::Bad(m)) => Response { status: 400, body: serde_json::json!({ "error": m }).to_string() },
                 Err(ReadError::Io) => {
+                    IN_FLIGHT.fetch_sub(1, Ordering::Relaxed);
                     a.fetch_sub(1, Ordering::SeqCst);
                     return;
                 }
             };
             write_response(&stream, &resp);
+            record(resp.status, t0);
+            IN_FLIGHT.fetch_sub(1, Ordering::Relaxed);
             a.fetch_sub(1, Ordering::SeqCst);
         });
         if spawned.is_err() {

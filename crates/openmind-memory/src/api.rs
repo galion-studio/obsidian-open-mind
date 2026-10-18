@@ -193,6 +193,11 @@ impl App {
             ("POST", "/search/memories") => route(&|b| self.engine.search_memories(b)),
             ("POST", "/search/conversations") => route(&|b| self.engine.search_conversations(b)),
             ("POST", "/session/end") => route(&|b| self.engine.session_end(b)),
+            // growth additions (new paths only; existing routes unchanged)
+            ("POST", "/capture/batch") => route(&|b| self.engine.capture_batch(b)),
+            ("POST", "/conversations/list") => route(&|b| self.engine.list_conversations(b)),
+            ("POST", "/memories/list") => route(&|b| self.engine.list_memories(b)),
+            ("GET", "/stats") => resp(200, self.engine.stats_json()),
             ("POST", "/seed") => resp(
                 501,
                 json!({ "error": "Not implemented in openmind-memory: POST /seed" }),

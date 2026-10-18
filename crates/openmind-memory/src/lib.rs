@@ -4,6 +4,7 @@
 //! on the TencentDB `tdai` memory gateway. See docs/ws-memory.md.
 
 pub mod api;
+pub mod cache;
 pub mod config;
 pub mod engine;
 pub mod fts;

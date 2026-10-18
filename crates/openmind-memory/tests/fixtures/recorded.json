@@ -1,0 +1,7 @@
+{
+  "_note": "Recorded 2026-10-18 21:1x +02:00 from the live Node gateway on 127.0.0.1:8420 with read-only GET/OPTIONS calls and no credentials. Numeric values and ids replaced by type placeholders; no memory content.",
+  "health": {"status":"ok","version":"0.1.0","uptime":0,"stores":{"vectorStore":true,"embeddingService":false},"services":{"timerScanner":{},"pipelineWorker":{},"stateBackend":"connected"}},
+  "unauth_v1": {"status": 401, "body": {"error":"Unauthorized: missing Bearer token"}},
+  "unauth_v2": {"status": 401, "body": {"code":401,"message":"Unauthorized: missing Bearer token","request_id":"req-0123456789abcdef"}},
+  "options_status": 204
+}

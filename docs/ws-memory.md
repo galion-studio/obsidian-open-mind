@@ -112,10 +112,10 @@ Results (2026-10-18 21:16–21:20 +02:00, release profile opt-level z, lto, stri
 
 | Target | Tier | Result | Size |
 |---|---|---|---|
-| x86_64-unknown-linux-gnu | host | build + 23 tests + clippy -D warnings | 1,659,528 B |
-| x86_64-unknown-linux-musl | 1 | build, static, runs on the box | 1,952,512 B |
-| aarch64-unknown-linux-musl | 1 | build | 1,787,296 B |
-| armv7-unknown-linux-musleabihf | 2 | build | 1,748,100 B |
+| x86_64-unknown-linux-gnu | host | build + 23 tests + clippy -D warnings | 1,687,336 B |
+| x86_64-unknown-linux-musl | 1 | build, static, runs on the box | 1,980,096 B |
+| aarch64-unknown-linux-musl | 1 | build | 1,809,752 B |
+| armv7-unknown-linux-musleabihf | 2 | build | 1,769,892 B |
 | aarch64-linux-android | 2 | `cargo check` OK for all Rust code; bundled SQLite C needs bionic headers (no NDK on the box), check run with musl headers for that one C file. On Termux: `pkg install rust clang` and build natively. | – |
 
 RSS (x86_64): gnu build 4.4 MB VmHWM after 200 captures + 400 recall/search requests on synthetic data; static musl build 2.5 MB VmHWM after 200 captures + 200 recalls. Node gateway: 614.7 MB (≈ 140–250× less).

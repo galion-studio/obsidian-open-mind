@@ -30,3 +30,15 @@ New crate `crates/repo-check` (std only, zero dependencies), binary `repo-check`
 - `cargo test -p repo-check`, `cargo clippy -p repo-check -- -D warnings`, `cargo fmt --check` pass.
 - Runs on this repo, findings reported; release binary size recorded (< 2 MB).
 - No other crates touched (SPDX gaps in other crates are reported, not fixed).
+
+## Status (2026-10-18T21:07:08+02:00)
+Done. `crates/repo-check` (lib + bin, std only + zagreb-time), 13 tests,
+clippy -D warnings and fmt clean. Draft CI: `.github/workflows/self-eval.yml`.
+Release (opt-level z, strip): x86_64-musl 462264 B, aarch64-musl 406968 B,
+armv7-musleabihf 444428 B; aarch64-linux-android `cargo check` ok. Full scan of
+this repo: 90 files in about 18 ms, peak RSS about 1.8 MB.
+Current repo result with `--warn spdx`: 0 errors; warnings = 22 files missing
+SPDX headers (older crates + deploy/*.sh, owned by other workstreams, not
+touched here) and 10 `SystemTime::now()` review items.
+Added: a `portable` check for UNIVERSAL-CPU.md (asm, arch intrinsics,
+target-cpu/feature, openssl-sys).

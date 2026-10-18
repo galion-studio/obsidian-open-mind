@@ -10,6 +10,7 @@
 //! * `whisper_stt` (feature `whisper`) - Whisper tiny via candle, CPU only.
 #![deny(unsafe_code)]
 
+pub mod g2p;
 pub mod pipeline;
 pub mod resample;
 pub mod stt;

@@ -1,0 +1,32 @@
+'@
+Set-Content -LiteralPath $Pull -Value $PullScript -Encoding ASCII
+Say ('wrote ' + $Pull)
+
+# 5. scheduled task for the current user (runs while logged on; no admin, no stored password)
+$ps = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$action = New-ScheduledTaskAction -Execute $ps `
+    -Argument ('-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Pull + '"') `
+    -WorkingDirectory $Cfg
+$triggers = @('02:45', '08:45', '14:45', '20:45') | ForEach-Object { New-ScheduledTaskTrigger -Daily -At $_ }
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+    -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+$userId = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
+$principal = New-ScheduledTaskPrincipal -UserId $userId -LogonType Interactive -RunLevel Limited
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $triggers -Settings $settings `
+    -Principal $principal -Description 'Pull the newest encrypted Galion backup from the VPS (galion-offsite).' -Force | Out-Null
+Say ('scheduled task ' + $TaskName + ' registered: daily 02:45 08:45 14:45 20:45 local, missed runs start when available')
+
+# 6. public key for the admin to send
+$pub = (Get-Content -LiteralPath ($Key + '.pub') | Select-Object -First 1).Trim()
+Write-Host ''
+Write-Host '=================================================================='
+Write-Host ' Send this public key line to Grok Bot (it is PUBLIC, safe to send):'
+Write-Host ''
+Write-Host $pub
+Write-Host ''
+Write-Host ' Do NOT send id_ed25519 (no .pub) - that private key stays here.'
+Write-Host '=================================================================='
+Write-Host ''
+Say ('after Grok Bot confirms the key is authorised, test with:  Start-ScheduledTask -TaskName ' + $TaskName)
+Say ('or run:  powershell -NoProfile -ExecutionPolicy Bypass -File "' + $Pull + '"')
+Say ('log: ' + (Join-Path $Cfg 'pull.log') + '   backups: ' + (Join-Path $env:USERPROFILE 'GalionBackups'))

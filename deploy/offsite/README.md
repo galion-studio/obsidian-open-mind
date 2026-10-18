@@ -28,10 +28,23 @@ VPS (idempotent): `/opt/galion/offsite/setup-vps.sh`
 Laptop: `sh -c "$(ssh root@51.38.137.193 cat /opt/galion/offsite/laptop/install-laptop.sh)"`
 (custom root key: prefix `GALION_ROOT_SSH_OPTS="-i ~/.ssh/KEY -o IdentitiesOnly=yes"` and add the same to the inner ssh.)
 
+## Windows laptop (no root ssh needed, private key never leaves the laptop)
+1. Admin runs `powershell -NoProfile -ExecutionPolicy Bypass -File .\install-galion-offsite.ps1`
+   (`laptop/windows/`, PowerShell 5.1, no admin). It makes `%USERPROFILE%\.galion-offsite\id_ed25519`
+   (user-only ACL), pins the VPS host key (SHA256:35BjCqYWlUUOEZIos88Y6csdExE4Riql18I2Q+pRzRI) in
+   `known_hosts`, writes `galion-offsite-pull.ps1`, registers task `GalionOffsitePull`
+   (02:45 08:45 14:45 20:45 local, StartWhenAvailable) and prints the PUBLIC key line.
+2. VPS (root): `/opt/galion/offsite/add-laptop-key.sh 'ssh-ed25519 AAAA... comment'`
+   (validates one ed25519 key, adds the restrict/command prefix, de-dups; `--remove`, `--list`).
+3. Pull: `list` -> `get <newest>` via Start-Process -RedirectStandardOutput (binary-safe) -> Get-FileHash
+   == list -> `%USERPROFILE%\GalionBackups` (or `GALION_BACKUP_DIR`), keep 8. Log `.galion-offsite\pull.log`.
+   No decryption on Windows; the agekey stays in the password manager.
+`install-galion-offsite.ps1` embeds `galion-offsite-pull.ps1`; regenerate with `laptop/windows/build-install.sh`.
+
 ## Restore (on a trusted machine)
     age -d -i ~/.galion-offsite/offsite.agekey ~/GalionBackups/galion-<stamp>.tar.gz.age | tar -C /restore -xzf -
     cd /restore/galion-*; sha256sum -c SHA256SUMS; galion-backup verify db/*.db; tar -C restored -xf files/files.tar
 
 ## Revoke laptop
-`: > /var/lib/galion-offsite/.ssh/authorized_keys` (or delete the key line), then rotate with
+`add-laptop-key.sh --remove 'ssh-ed25519 AAAA...'` (one key; `--list` shows fingerprints) or `: > /var/lib/galion-offsite/.ssh/authorized_keys` (all), then rotate with
 `rm /root/galion-secrets/offsite-laptop/id_ed25519*; /opt/galion/offsite/setup-vps.sh`.

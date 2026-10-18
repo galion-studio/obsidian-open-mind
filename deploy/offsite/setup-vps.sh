@@ -37,8 +37,8 @@ age-keygen -y "$AGEKEY" > "$RCPT.tmp" && chmod 0644 "$RCPT.tmp" && mv -f "$RCPT.
 # 4. laptop ssh keypair (private fetched by admin over root ssh; never printed)
 [ -s "$LKEY" ] || ssh-keygen -q -t ed25519 -N '' -C "galion-offsite-laptop" -f "$LKEY"
 chmod 0600 "$LKEY"; chmod 0644 "$LKEY.pub"
-printf 'restrict,command="/usr/local/bin/galion-offsite-serve" %s\n' "$(cat "$LKEY.pub")" > "$UHOME/.ssh/authorized_keys.tmp"
-chmod 0644 "$UHOME/.ssh/authorized_keys.tmp"; mv -f "$UHOME/.ssh/authorized_keys.tmp" "$UHOME/.ssh/authorized_keys"
+# add (idempotent) without dropping laptop-generated keys added via add-laptop-key.sh
+"$H/add-laptop-key.sh" "$(cat "$LKEY.pub")"
 
 # 5. systemd hook after galion-backup.service
 install -d -m 0755 /etc/systemd/system/galion-backup.service.d

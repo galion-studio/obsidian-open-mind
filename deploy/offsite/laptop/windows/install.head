@@ -1,0 +1,77 @@
+# install-galion-offsite.ps1 (ws/offsite): set up the Galion offsite backup pull on a Windows laptop.
+# Windows 10/11, Windows PowerShell 5.1, built-in OpenSSH client. No admin rights needed.
+# Run it (as yourself, not elevated):
+#   powershell -NoProfile -ExecutionPolicy Bypass -File .\install-galion-offsite.ps1
+# What it does (idempotent; safe to re-run):
+#   - creates %USERPROFILE%\.galion-offsite
+#   - generates id_ed25519 there if missing (no passphrase; ACL = current user only, as OpenSSH requires)
+#   - writes known_hosts with the pinned VPS host key (public data, embedded below)
+#   - writes galion-offsite-pull.ps1 (embedded below)
+#   - registers the scheduled task GalionOffsitePull (02:45, 08:45, 14:45, 20:45 local, catches up missed runs)
+#   - prints the PUBLIC key line to send to Grok Bot. The private key never leaves this laptop.
+# The backups stay age-encrypted; the age key is kept separately in the password manager.
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version 2.0
+
+$VpsHost   = '51.38.137.193'
+$HostKey   = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINuUEX+qXmabIUUnNOc4l/Pj6uodQgS88AomCjxdPfDp'
+$HostKeyFp = 'SHA256:35BjCqYWlUUOEZIos88Y6csdExE4Riql18I2Q+pRzRI'
+$TaskName  = 'GalionOffsitePull'
+
+$Cfg  = Join-Path $env:USERPROFILE '.galion-offsite'
+$Key  = Join-Path $Cfg 'id_ed25519'
+$KH   = Join-Path $Cfg 'known_hosts'
+$Pull = Join-Path $Cfg 'galion-offsite-pull.ps1'
+
+function Say([string]$m) { Write-Host ('install-galion-offsite: ' + $m) }
+
+function FindTool([string]$exe) {
+    foreach ($p in @((Join-Path $env:SystemRoot ('System32\OpenSSH\' + $exe)), (Join-Path $env:SystemRoot ('Sysnative\OpenSSH\' + $exe)))) {
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    $c = Get-Command $exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($c) { return $c.Source }
+    throw ($exe + ' not found. Install the "OpenSSH Client" optional feature (Settings > Apps > Optional features).')
+}
+
+# Run a program with an explicit command line (avoids PowerShell 5.1 dropping empty arguments).
+function RunExe([string]$exe, [string]$argLine) {
+    $p = Start-Process -FilePath $exe -ArgumentList $argLine -NoNewWindow -PassThru -Wait
+    return $p.ExitCode
+}
+
+$SshKeygen = FindTool 'ssh-keygen.exe'
+$null = FindTool 'ssh.exe'
+
+# 1. config dir
+if (-not (Test-Path -LiteralPath $Cfg)) { New-Item -ItemType Directory -Path $Cfg -Force | Out-Null }
+Say ('config dir: ' + $Cfg)
+
+# 2. laptop key (generated here; only the .pub is ever sent anywhere)
+$me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+if (-not (Test-Path -LiteralPath $Key)) {
+    $cmt = ('galion-offsite-' + $env:COMPUTERNAME + '-' + $env:USERNAME) -replace '[^A-Za-z0-9._-]', ''
+    $rc = RunExe $SshKeygen ('-q -t ed25519 -N "" -C ' + $cmt + ' -f "' + $Key + '"')
+    if ($rc -ne 0 -or -not (Test-Path -LiteralPath $Key)) { throw ('ssh-keygen failed (exit ' + $rc + ')') }
+    Say ('generated new key ' + $Key)
+} else {
+    Say ('keeping existing key ' + $Key)
+}
+# private key readable by the current user only (no inheritance), otherwise ssh.exe refuses it
+& icacls.exe $Key /inheritance:r /grant:r ('*' + $me + ':F') | Out-Null
+if ($LASTEXITCODE -ne 0) { throw ('icacls on ' + $Key + ' failed (exit ' + $LASTEXITCODE + ')') }
+if (-not (Test-Path -LiteralPath ($Key + '.pub'))) {
+    $pubText = & $SshKeygen -y -f $Key
+    if ($LASTEXITCODE -ne 0) { throw 'could not derive the public key' }
+    Set-Content -LiteralPath ($Key + '.pub') -Value $pubText -Encoding ASCII
+}
+
+# 3. pinned VPS host key
+Set-Content -LiteralPath $KH -Value ($VpsHost + ' ' + $HostKey) -Encoding ASCII
+$fpOut = (& $SshKeygen -l -f $KH) -join ' '
+if ($fpOut -notmatch [regex]::Escape($HostKeyFp)) { throw ('known_hosts fingerprint check failed: ' + $fpOut) }
+Say ('pinned VPS host key ' + $HostKeyFp)
+
+# 4. pull script
+$PullScript = @'

@@ -5,7 +5,6 @@
 //! Galion One (`crates/galion-one`) send, against a gateway on a loopback
 //! port with the mock provider. No network beyond 127.0.0.1, no spend.
 
-use hermes_rs::agent::Agent;
 use hermes_rs::api::Gateway;
 use hermes_rs::config::Config;
 use hermes_rs::provider::{ChatResult, MockProvider, Reasoning};
@@ -80,12 +79,7 @@ pub fn harness_with(mock: MockProvider, tweak: impl FnOnce(&mut Config)) -> Harn
     let spend = Arc::new(SpendTracker::new(cfg.spend.clone(), None));
     let mut tools = Registry::new();
     tools.add(Arc::new(ClockTool));
-    let agent = Agent {
-        cfg: cfg.clone(),
-        provider: mock.clone(),
-        spend,
-        tools,
-    };
+    let agent = hermes_rs::agent::boss(cfg.clone(), mock.clone(), spend, tools);
     let gw = Arc::new(Gateway::new(
         cfg,
         agent,
@@ -550,4 +544,50 @@ fn bad_requests() {
     );
     assert_eq!(get(h.addr, "/p/other/v1/models", true).0, 404);
     let _ = std::fs::remove_dir_all(&h.home);
+}
+
+#[test]
+fn delegate_task_end_to_end_with_caps() {
+    let h = harness();
+    let (code, _, body) = post(
+        h.addr,
+        "/v1/chat/completions",
+        &[
+            ("Authorization", &bearer()),
+            ("X-Hermes-Session-Id", "boss-1"),
+        ],
+        &json!({"stream": true, "messages": [{"role": "user", "content": "delegate_task: find a | find b"}]}),
+    );
+    assert_eq!(code, 200);
+    assert!(body.contains("\"tool\":\"delegate_task\""));
+    let text = streamed_text(&sse_data(&body));
+    assert!(
+        text.contains("echo: find a") && text.contains("echo: find b"),
+        "{text}"
+    );
+    let calls = h.mock.calls.lock().unwrap();
+    assert_eq!(calls.len(), 4, "boss, two children, boss again");
+    assert_eq!(calls[0].0.model, "anthropic/claude-opus-5.5");
+    assert!(calls[0]
+        .1
+        .tools
+        .iter()
+        .any(|t| t["function"]["name"] == "delegate_task"));
+    let kids: Vec<_> = calls[1..3].iter().collect();
+    assert!(kids
+        .iter()
+        .all(|(t, r)| t.model == "anthropic/claude-sonnet-5.5"
+            && r.tools
+                .iter()
+                .all(|x| x["function"]["name"] != "delegate_task")));
+    drop(calls);
+    // four tasks exceed max_concurrent_children=3: the tool refuses, the boss answers
+    let (code, _, body) = post(
+        h.addr,
+        "/v1/chat/completions",
+        &[("Authorization", &bearer())],
+        &json!({"messages": [{"role": "user", "content": "delegate_task: 1|2|3|4"}]}),
+    );
+    assert_eq!(code, 200);
+    assert!(body.contains("Too many tasks"), "{body}");
 }

@@ -243,6 +243,28 @@ impl Agent {
     }
 }
 
+/// The boss agent: `base` tools plus `delegate_task` (children get `base`).
+pub fn boss(
+    cfg: Arc<Config>,
+    provider: Arc<dyn Provider>,
+    spend: Arc<SpendTracker>,
+    base: Registry,
+) -> Agent {
+    let mut tools = base.clone();
+    tools.add(Arc::new(crate::delegate::DelegateTool::new(
+        cfg.clone(),
+        provider.clone(),
+        spend.clone(),
+        base,
+    )));
+    Agent {
+        cfg,
+        provider,
+        spend,
+        tools,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

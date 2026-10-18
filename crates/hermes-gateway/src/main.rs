@@ -10,7 +10,6 @@
 //! is read from $API_SERVER_KEY only. `--mock` uses the offline mock
 //! provider (no network, no spend) for shadow smoke tests.
 
-use hermes_rs::agent::Agent;
 use hermes_rs::api::Gateway;
 use hermes_rs::config::Config;
 use hermes_rs::provider::{CurlProvider, MockProvider, Provider};
@@ -80,12 +79,7 @@ fn main() {
     ));
     let mut tools = Registry::new();
     tools.add(Arc::new(ClockTool));
-    let agent = Agent {
-        cfg: cfg.clone(),
-        provider,
-        spend,
-        tools,
-    };
+    let agent = hermes_rs::agent::boss(cfg.clone(), provider, spend, tools);
     let store = match open_store(&cfg) {
         Ok(s) => s,
         Err(e) => {

@@ -31,7 +31,7 @@ pub struct ToolCtx<'a> {
     pub spend_session: &'a str,
     pub depth: usize,
     pub user_text: &'a str,
-    pub cancel: &'a AtomicBool,
+    pub cancel: &'a Arc<AtomicBool>,
     pub emit: &'a (dyn Fn(Event) + Sync),
 }
 

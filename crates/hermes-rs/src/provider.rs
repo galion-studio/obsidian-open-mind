@@ -561,7 +561,7 @@ impl MockProvider {
         }
     }
 
-    /// Echo the last user line. `delegate: <goal>` makes it call
+    /// Echo the last user line. `delegate_task: <goal>[|<goal>]` makes it call
     /// delegate_task once; `tool:<name> <json>` calls any tool once.
     pub fn echo() -> Self {
         MockProvider::new(|_t, r| {
@@ -603,7 +603,7 @@ impl MockProvider {
                 return res;
             }
             let has_tool = |n: &str| r.tools.iter().any(|t| t["function"]["name"] == n);
-            if let Some(goal) = user.strip_prefix("delegate:") {
+            if let Some(goal) = user.strip_prefix("delegate_task:") {
                 if has_tool("delegate_task") {
                     let goals: Vec<Value> =
                         goal.split('|').map(|g| json!({"goal": g.trim()})).collect();

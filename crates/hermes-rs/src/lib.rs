@@ -12,6 +12,7 @@ pub mod agent;
 pub mod api;
 pub mod config;
 pub mod cron;
+pub mod delegate;
 pub mod http;
 pub mod persona;
 pub mod provider;

@@ -58,3 +58,10 @@ desk, the One loop or the link watch.
   through the srvx wrapper rather than `node .output/server/index.mjs`. A pod-native
   `node-server` preset build would need a config override in the copy, which was not done.
 
+
+## B01 link-watch: France probe is config-only (awaiting Slavik's approval)
+Written 2026-10-18T20:13:11+02:00 by Hermes (boss), session openmind-boss-20261018.
+- The hard-coded France host is gone from `crates/link-watch/src/main.rs`. The probe URL comes only from `LINK_WATCH_FRANCE_URL`.
+- Behaviour change: when the variable is unset, the `france` key reads the string `"unconfigured"` instead of a bool, and no network call is made. When it is set, `france` is still true/false.
+- Before any switch, the staged `deploy/link-watch.service` needs one line: `Environment=LINK_WATCH_FRANCE_URL=http://<france-host>`. Its comment "No Environment lines" becomes wrong. Readers that expect a strict bool in `france` must be checked first.
+- Measured: release binary 394,936 bytes, stripped; peak RSS 1,536 kB for one `LINK_WATCH_ONCE=1` run under target/test-out. Not installed, not enabled, not switched.

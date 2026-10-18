@@ -15,12 +15,12 @@
 //!   LINK_WATCH_LOG         event log     (default: live `state/link-log.json`)
 //!   LINK_WATCH_OLLAMA_URL  base URL for `/api/ps` and `/api/tags`
 //!   LINK_WATCH_HERMES_URL  base URL for `/health`
-//!   LINK_WATCH_FRANCE_URL  base URL for `/console`
+//!   LINK_WATCH_FRANCE_URL  base URL for `/console` (no default; unset means
+//!                          no network call and `"france": "unconfigured"`)
 //!   LINK_WATCH_ONCE        if set, run exactly one iteration and exit
 //!
-//! The defaults are byte-identical to the constants in the Python original, so
-//! running the binary with no environment at all behaves exactly like the
-//! script did.
+//! Loopback and path defaults match the Python original. The remote probe has
+//! no built-in host.
 
 mod jsonout;
 
@@ -31,12 +31,26 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const DEFAULT_OUT: &str = "/opt/galion/galion-light/state/link.json";
-const DEFAULT_LAPTOP: &str = "/opt/galion/galion-light/state/laptop.json";
-const DEFAULT_LOG: &str = "/opt/galion/galion-light/state/link-log.json";
-const DEFAULT_OLLAMA: &str = "http://127.0.0.1:11434";
-const DEFAULT_HERMES: &str = "http://127.0.0.1:8642";
-const DEFAULT_FRANCE: &str = "http://54.37.161.82";
+/// Every built-in default in one place. Only loopback and local state paths
+/// live here; the remote probe has no default and comes from the environment.
+struct Defaults {
+    out: &'static str,
+    laptop: &'static str,
+    log: &'static str,
+    ollama: &'static str,
+    hermes: &'static str,
+}
+
+const DEFAULTS: Defaults = Defaults {
+    out: "/opt/galion/galion-light/state/link.json",
+    laptop: "/opt/galion/galion-light/state/laptop.json",
+    log: "/opt/galion/galion-light/state/link-log.json",
+    ollama: "http://127.0.0.1:11434",
+    hermes: "http://127.0.0.1:8642",
+};
+
+/// Value of the `france` key when `LINK_WATCH_FRANCE_URL` is unset or empty.
+const UNCONFIGURED: &str = "unconfigured";
 
 fn env_or(key: &str, default: &str) -> String {
     std::env::var(key).unwrap_or_else(|_| default.to_string())
@@ -265,20 +279,25 @@ fn model_from_tags(body: &[u8]) -> String {
 }
 
 fn main() {
-    let out = PathBuf::from(env_or("LINK_WATCH_OUT", DEFAULT_OUT));
-    let laptop = PathBuf::from(env_or("LINK_WATCH_LAPTOP", DEFAULT_LAPTOP));
-    let log = PathBuf::from(env_or("LINK_WATCH_LOG", DEFAULT_LOG));
-    let ollama = env_or("LINK_WATCH_OLLAMA_URL", DEFAULT_OLLAMA);
-    let hermes = env_or("LINK_WATCH_HERMES_URL", DEFAULT_HERMES);
-    let france = env_or("LINK_WATCH_FRANCE_URL", DEFAULT_FRANCE);
+    let out = PathBuf::from(env_or("LINK_WATCH_OUT", DEFAULTS.out));
+    let laptop = PathBuf::from(env_or("LINK_WATCH_LAPTOP", DEFAULTS.laptop));
+    let log = PathBuf::from(env_or("LINK_WATCH_LOG", DEFAULTS.log));
+    let ollama = env_or("LINK_WATCH_OLLAMA_URL", DEFAULTS.ollama);
+    let hermes = env_or("LINK_WATCH_HERMES_URL", DEFAULTS.hermes);
+    let france = std::env::var("LINK_WATCH_FRANCE_URL")
+        .ok()
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty());
     let once = env_flag("LINK_WATCH_ONCE");
 
     let ps_url = format!("{}/api/ps", trim_base(&ollama));
     let tags_url = format!("{}/api/tags", trim_base(&ollama));
     let health_url = format!("{}/health", trim_base(&hermes));
-    let console_url = format!("{}/console", trim_base(&france));
+    let console_url = france
+        .as_deref()
+        .map(|base| format!("{}/console", trim_base(base)));
 
-    let mut france_ok = false;
+    let mut france_state = Value::String(UNCONFIGURED.to_string());
     let mut france_at = 0.0_f64;
     let mut previous: Option<(bool, String, bool, bool, String)> = None;
     let mut events = load_events(&log);
@@ -295,10 +314,12 @@ fn main() {
         }
         let (hermes_ok, hermes_ms, _) = probe(&health_url, Duration::from_secs(3));
         let now = unix_now_f64();
-        if now - france_at > 30.0 {
-            let (f_ok, _, _) = probe(&console_url, Duration::from_secs(4));
-            france_ok = f_ok;
-            france_at = now;
+        if let Some(url) = &console_url {
+            if now - france_at > 30.0 {
+                let (f_ok, _, _) = probe(url, Duration::from_secs(4));
+                france_state = Value::Bool(f_ok);
+                france_at = now;
+            }
         }
         let mut card = Value::Object(Map::new());
         if laptop.exists() {
@@ -314,7 +335,8 @@ fn main() {
             Some(v) => json_str(v),
             None => String::new(),
         };
-        let signature = (ok, model.clone(), hermes_ok, france_ok, card_name);
+        let france_sig = france_state.as_bool().unwrap_or(false);
+        let signature = (ok, model.clone(), hermes_ok, france_sig, card_name);
         if Some(&signature) != previous.as_ref() {
             if previous.is_some() {
                 let bit = if ok { "up" } else { "down" };
@@ -346,7 +368,7 @@ fn main() {
         row.insert("model_ms".to_string(), Value::Number(ms.into()));
         row.insert("hermes".to_string(), Value::Bool(hermes_ok));
         row.insert("hermes_ms".to_string(), Value::Number(hermes_ms.into()));
-        row.insert("france".to_string(), Value::Bool(france_ok));
+        row.insert("france".to_string(), france_state.clone());
         row.insert("laptop".to_string(), card);
         row.insert("events".to_string(), Value::Array(events.clone()));
         write_json(&out, &Value::Object(row));

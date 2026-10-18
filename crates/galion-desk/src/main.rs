@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+//
 // Clippy allows, added only so `clippy -D warnings` passes. Both fire on the
 // accept loop exactly as it is written in the live galion-desk source. The
 // suggested rewrites (`.flatten()` on `listener.incoming()`, dropping the
@@ -14,11 +17,51 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-const NOTES: &str = "/opt/galion/galion-light/state/desk-notes.jsonl";
-const FOCUS: &str = "/opt/galion/galion-light/state/desk-focus";
-const LINK: &str = "/opt/galion/galion-light/state/link.json";
-const VOICE: &str = "/workspace/galion-light/one/voice";
-const ONE: &str = "/workspace/galion-light/one/session.jsonl";
+// Paths and the Ollama address come from env with the live values as defaults
+// (B05). Unset or empty means the default, so default behaviour is the same as
+// the live /opt/galion/bin/galion-desk.
+//   DESK_STATE_DIR   default /opt/galion/galion-light/state
+//   DESK_ONE_DIR     default /workspace/galion-light/one
+//   DESK_HERMES_DIR  default /opt/galion/hermes
+//   DESK_OLLAMA      default 127.0.0.1:11434 (host:port)
+const STATE_DIR: &str = "/opt/galion/galion-light/state";
+const ONE_DIR: &str = "/workspace/galion-light/one";
+const HERMES_DIR: &str = "/opt/galion/hermes";
+const OLLAMA: &str = "127.0.0.1:11434";
+
+fn env_or(name: &str, default: &str) -> String {
+    match std::env::var(name) {
+        Ok(value) if !value.trim().is_empty() => value.trim().trim_end_matches('/').to_string(),
+        _ => default.to_string(),
+    }
+}
+
+fn state_dir() -> String {
+    env_or("DESK_STATE_DIR", STATE_DIR)
+}
+
+fn state(name: &str) -> String {
+    format!("{}/{name}", state_dir())
+}
+
+fn one_file(name: &str) -> String {
+    format!("{}/{name}", env_or("DESK_ONE_DIR", ONE_DIR))
+}
+
+fn hermes_file(name: &str) -> String {
+    format!("{}/{name}", env_or("DESK_HERMES_DIR", HERMES_DIR))
+}
+
+fn ollama() -> String {
+    env_or("DESK_OLLAMA", OLLAMA)
+}
+
+fn ollama_open() -> bool {
+    let Ok(addr) = ollama().parse::<std::net::SocketAddr>() else {
+        return false;
+    };
+    TcpStream::connect_timeout(&addr, Duration::from_millis(200)).is_ok()
+}
 
 fn main() {
     let bind = match std::env::var("DESK_BIND") {
@@ -26,7 +69,7 @@ fn main() {
         _ => "127.0.0.1:8646".to_string(),
     };
     let listener = TcpListener::bind(&bind).expect("bind");
-    eprintln!("galion-desk 127.0.0.1:8646");
+    eprintln!("galion-desk {bind}");
     for conn in listener.incoming() {
         if let Ok(stream) = conn {
             thread::spawn(move || {
@@ -84,20 +127,20 @@ fn apply(body: &str) {
     } else if act == "voice" {
         let name = json_string(body, "name");
         if name == "samantha" || name == "jarvis" {
-            let _ = fs::write(VOICE, format!("{name}\n"));
+            let _ = fs::write(one_file("voice"), format!("{name}\n"));
         }
     } else if act == "drop" {
         drop_note();
     } else if act == "stamp" {
-        let line = if tcp_open(11434) { "up" } else { "down" };
+        let line = if ollama_open() { "up" } else { "down" };
         let hermes = if tcp_open(8642) { "up" } else { "down" };
         write_note(&format!("Stamp. Line {line}. Hermes {hermes}."));
     } else if act == "hold" {
-        let path = "/opt/galion/galion-light/state/desk-hold";
-        if fs::metadata(path).is_ok() {
-            let _ = fs::remove_file(path);
+        let path = state("desk-hold");
+        if fs::metadata(&path).is_ok() {
+            let _ = fs::remove_file(&path);
         } else {
-            let _ = fs::write(path, "held\n");
+            let _ = fs::write(&path, "held\n");
         }
     } else if act == "wake" {
         wake();
@@ -114,16 +157,16 @@ fn focus_set(raw: &str) {
         .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
         .take(80)
         .collect();
-    let _ = fs::create_dir_all("/opt/galion/galion-light/state");
+    let _ = fs::create_dir_all(state_dir());
     if id.is_empty() {
-        let _ = fs::remove_file(FOCUS);
+        let _ = fs::remove_file(state("desk-focus"));
     } else {
-        let _ = fs::write(FOCUS, format!("{id}\n"));
+        let _ = fs::write(state("desk-focus"), format!("{id}\n"));
     }
 }
 
 fn focus_id() -> String {
-    fs::read_to_string(FOCUS)
+    fs::read_to_string(state("desk-focus"))
         .unwrap_or_default()
         .trim()
         .to_string()
@@ -135,15 +178,19 @@ fn write_note(text: &str) {
     if text.trim().is_empty() {
         return;
     }
-    let _ = fs::create_dir_all("/opt/galion/galion-light/state");
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(NOTES) {
+    let _ = fs::create_dir_all(state_dir());
+    if let Ok(mut file) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(state("desk-notes.jsonl"))
+    {
         let line = format!("{{\"at\":{},\"text\":\"{}\"}}\n", now(), escape(&text));
         let _ = file.write_all(line.as_bytes());
     }
 }
 
 fn drop_note() {
-    let raw = fs::read_to_string(NOTES).unwrap_or_default();
+    let raw = fs::read_to_string(state("desk-notes.jsonl")).unwrap_or_default();
     let mut rows: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
     if rows.is_empty() {
         return;
@@ -153,7 +200,7 @@ fn drop_note() {
     if !out.is_empty() {
         out.push('\n');
     }
-    let _ = fs::write(NOTES, out);
+    let _ = fs::write(state("desk-notes.jsonl"), out);
 }
 
 static WAKING: AtomicBool = AtomicBool::new(false);
@@ -164,7 +211,7 @@ fn wake() {
     }
     thread::spawn(|| {
         let body = "{\"model\":\"galion:latest\",\"prompt\":\"ok\",\"stream\":false,\"options\":{\"num_predict\":1}}";
-        let _ = http_post("127.0.0.1:11434", "/api/generate", body);
+        let _ = http_post(&ollama(), "/api/generate", body);
         WAKING.store(false, Ordering::SeqCst);
     });
 }
@@ -181,13 +228,13 @@ fn rest() {
             "{{\"model\":\"{}\",\"keep_alive\":0,\"prompt\":\"\",\"stream\":false}}",
             escape(&name)
         );
-        let _ = http_post("127.0.0.1:11434", "/api/generate", &body);
+        let _ = http_post(&ollama(), "/api/generate", &body);
         RESTING.store(false, Ordering::SeqCst);
     });
 }
 
 fn snapshot() -> String {
-    let link = fs::read_to_string(LINK).unwrap_or_default();
+    let link = fs::read_to_string(state("link.json")).unwrap_or_default();
     let model_ps = ollama_ps();
     let (model, vram, ctx) = if model_ps.0.is_empty() {
         let raw = json_string(&link, "model");
@@ -195,7 +242,7 @@ fn snapshot() -> String {
     } else {
         (clean_model(&model_ps.0), model_ps.1, model_ps.2)
     };
-    let voice = fs::read_to_string(VOICE)
+    let voice = fs::read_to_string(one_file("voice"))
         .unwrap_or_else(|_| "samantha".into())
         .trim()
         .to_string();
@@ -209,7 +256,7 @@ fn snapshot() -> String {
     format!(
         "{{\"foundation\":\"rust\",\"at\":{},\"line\":{},\"model\":\"{}\",\"vram\":{},\"ctx\":{},\"hermes\":{},\"one\":{},\"tunnel\":{},\"voice\":\"{}\",\"heard\":\"{}\",\"said\":\"{}\",\"turns\":{},\"waking\":{},\"resting\":{},\"hold\":{},\"services\":[{}],\"board\":{},\"events\":[{}],\"mindpack\":{},\"focus\":\"{}\",\"notes\":[{}]}}",
         now(),
-        tcp_open(11434),
+        ollama_open(),
         escape(&model),
         vram,
         ctx,
@@ -222,7 +269,7 @@ fn snapshot() -> String {
         turns,
         WAKING.load(Ordering::SeqCst),
         RESTING.load(Ordering::SeqCst),
-        fs::metadata("/opt/galion/galion-light/state/desk-hold").is_ok(),
+        fs::metadata(state("desk-hold")).is_ok(),
         services(),
         board(),
         events(&link),
@@ -276,25 +323,31 @@ fn services() -> String {
         ("Console", 8080u16),
         ("Origin", 80u16),
         ("Hermes", 8642u16),
-        ("Laptop", 11434u16),
+        ("Laptop", 0u16),
         ("One", 8002u16),
         ("Room", 4020u16),
         ("Tulu", 8093u16),
         ("Tunnel", 20241u16),
     ];
     rows.iter()
-        .map(|(name, port)| format!("{{\"name\":\"{}\",\"up\":{}}}", name, tcp_open(*port)))
+        .map(|(name, port)| {
+            // Port 0 marks the Laptop row: probe the configured Ollama address.
+            let up = if *port == 0 {
+                ollama_open()
+            } else {
+                tcp_open(*port)
+            };
+            format!("{{\"name\":\"{}\",\"up\":{}}}", name, up)
+        })
         .collect::<Vec<_>>()
         .join(",")
 }
 
 fn board() -> String {
-    let link = fs::read_to_string(LINK).unwrap_or_default();
-    let survival =
-        fs::read_to_string("/opt/galion/galion-light/state/survival.json").unwrap_or_default();
-    let gw = fs::read_to_string("/opt/galion/hermes/gateway_state.json").unwrap_or_default();
-    let machine =
-        fs::read_to_string("/opt/galion/galion-light/state/machine.json").unwrap_or_default();
+    let link = fs::read_to_string(state("link.json")).unwrap_or_default();
+    let survival = fs::read_to_string(state("survival.json")).unwrap_or_default();
+    let gw = fs::read_to_string(hermes_file("gateway_state.json")).unwrap_or_default();
+    let machine = fs::read_to_string(state("machine.json")).unwrap_or_default();
     let studio = {
         let name = json_string(&link, "name");
         if name.is_empty() {
@@ -469,7 +522,7 @@ fn load_line() -> String {
 }
 
 fn notes() -> String {
-    let raw = fs::read_to_string(NOTES).unwrap_or_default();
+    let raw = fs::read_to_string(state("desk-notes.jsonl")).unwrap_or_default();
     let mut rows: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
     if rows.len() > 12 {
         rows = rows[rows.len() - 12..].to_vec();
@@ -478,7 +531,7 @@ fn notes() -> String {
 }
 
 fn one_last() -> (String, String, usize) {
-    let raw = fs::read_to_string(ONE).unwrap_or_default();
+    let raw = fs::read_to_string(one_file("session.jsonl")).unwrap_or_default();
     let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
     let turns = lines.len();
     let last = lines.last().copied().unwrap_or("");
@@ -486,7 +539,7 @@ fn one_last() -> (String, String, usize) {
 }
 
 fn ollama_ps() -> (String, u64, u64) {
-    let raw = http_get("127.0.0.1:11434", "/api/ps");
+    let raw = http_get(&ollama(), "/api/ps");
     if raw.is_empty() {
         return (String::new(), 0, 0);
     }
@@ -611,4 +664,35 @@ fn escape(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_or_defaults_when_unset_or_blank() {
+        assert_eq!(env_or("DESK_TEST_UNSET_9f1", STATE_DIR), STATE_DIR);
+        std::env::set_var("DESK_TEST_BLANK_9f1", "  ");
+        assert_eq!(env_or("DESK_TEST_BLANK_9f1", ONE_DIR), ONE_DIR);
+        std::env::set_var("DESK_TEST_SET_9f1", " /tmp/x/ ");
+        assert_eq!(env_or("DESK_TEST_SET_9f1", ONE_DIR), "/tmp/x");
+    }
+
+    #[test]
+    fn defaults_are_the_live_paths() {
+        assert_eq!(STATE_DIR, "/opt/galion/galion-light/state");
+        assert_eq!(ONE_DIR, "/workspace/galion-light/one");
+        assert_eq!(HERMES_DIR, "/opt/galion/hermes");
+        assert_eq!(OLLAMA, "127.0.0.1:11434");
+    }
+
+    #[test]
+    fn json_helpers() {
+        let src = r#"{"name":"galion:latest","size_vram":123,"model":"a (idle) ctx 4096"}"#;
+        assert_eq!(json_string(src, "name"), "galion:latest");
+        assert_eq!(json_number(src, "size_vram"), 123);
+        assert_eq!(clean_model(&json_string(src, "model")), "a");
+        assert_eq!(escape("a\"b\\c\nd\u{1}"), "a\\\"b\\\\c d");
+    }
 }

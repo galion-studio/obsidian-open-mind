@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+#
+# STAGED, NOT INSTALLED. Rust replacement for memory-gateway.service (B60).
+# Install only with Slavik's approval, following docs/ws-memory.md "Switch".
+#
+# /etc/openmind-memory.env (mode 600) holds ONLY what this binary reads:
+#   OPENMIND_MEMORY_HOST=127.0.0.1
+#   OPENMIND_MEMORY_PORT=8421            # 8421 = shadow; 8420 only after the switch
+#   OPENMIND_MEMORY_DATA_DIR=/var/lib/openmind-memory-shadow   # switch: /var/lib/memory-tencentdb
+#   OPENMIND_MEMORY_INSTANCE_ID=galion
+#   OPENMIND_MEMORY_READ_ONLY=1          # shadow only; remove at the switch
+#   TDAI_GATEWAY_API_KEY=...             # same Bearer secret Hermes sends (copy the line, never print it)
+# It must NOT contain the OpenRouter / LLM key: this binary makes no outbound calls.
+
+[Unit]
+Description=OpenMind memory (Rust, loopback only; replaces memory-gateway)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/openmind-memory.env
+ExecStart=/opt/galion/openmind/dist/openmind-memory
+Restart=always
+RestartSec=5
+# Data dir is root-owned today (same as the Node unit); sandbox instead of a new user.
+User=root
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/openmind-memory-shadow /var/lib/memory-tencentdb
+MemoryMax=64M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

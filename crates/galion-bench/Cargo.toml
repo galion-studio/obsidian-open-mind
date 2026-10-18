@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+[package]
+name = "galion-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Tiny std-only HTTP/1.1 load generator for the loopback services (latency percentiles + throughput). No deps, no TLS."
+
+[[bin]]
+name = "galion-bench"
+path = "src/main.rs"
+
+[dependencies]

@@ -395,6 +395,10 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
         let bytes = fs::read(p("one/catalog.json")).unwrap_or_else(|_| b"[]".to_vec());
         return write_response(&mut stream, 200, "application/json", &bytes, None);
     }
+    if method == "GET" && path == "/api/v1/services" {
+        let bytes = services_json().into_bytes();
+        return write_response(&mut stream, 200, "application/json", &bytes, None);
+    }
     if method == "GET" && path == "/api/v1/awake" {
         let bytes = awake_json().into_bytes();
         return write_response(&mut stream, 200, "application/json", &bytes, None);
@@ -3447,5 +3451,78 @@ mod pairing_tests {
 
         std::env::remove_var("ONE_DEVICE_STORE");
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+// Status panel: Rust services on this host. Only up/down + latency, no bodies.
+fn probe_http(port: u16) -> (bool, u128) {
+    let start = Instant::now();
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(800)) else {
+        return (false, 0);
+    };
+    let _ = s.set_read_timeout(Some(Duration::from_millis(1500)));
+    let _ = s.set_write_timeout(Some(Duration::from_millis(800)));
+    if s.write_all(b"GET /health HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
+        .is_err()
+    {
+        return (false, 0);
+    }
+    let mut head = [0u8; 16];
+    let n = s.read(&mut head).unwrap_or(0);
+    (status_ok(&head[..n]), start.elapsed().as_millis())
+}
+
+fn status_ok(head: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(head);
+    let mut bits = text.split_whitespace();
+    bits.next().map(|v| v.starts_with("HTTP/")).unwrap_or(false)
+        && bits.next().map(|c| c.starts_with('2')).unwrap_or(false)
+}
+
+fn unit_active(unit: &str) -> bool {
+    Command::new("systemctl")
+        .args(["is-active", "--quiet", unit])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn services_json() -> String {
+    let (h_ok, h_ms) = probe_http(8642);
+    let (m_ok, m_ms) = probe_http(8420);
+    let l_ok = unit_active("link-watch-rs.service");
+    format!(
+        "{{\"services\":[{{\"id\":\"hermes-rs\",\"port\":8642,\"ok\":{h_ok},\"ms\":{h_ms}}},{{\"id\":\"openmind-memory\",\"port\":8420,\"ok\":{m_ok},\"ms\":{m_ms}}},{{\"id\":\"link-watch-rs\",\"port\":null,\"ok\":{l_ok},\"ms\":0}}]}}"
+    )
+}
+
+#[cfg(test)]
+mod services_tests {
+    use super::*;
+
+    #[test]
+    fn status_line_parsing() {
+        assert!(status_ok(b"HTTP/1.1 200 OK\r\n"));
+        assert!(status_ok(b"HTTP/1.0 204 No"));
+        assert!(!status_ok(b"HTTP/1.1 503 x"));
+        assert!(!status_ok(b""));
+        assert!(!status_ok(b"garbage"));
+    }
+
+    #[test]
+    fn closed_port_is_down() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        drop(l);
+        assert!(!probe_http(port).0);
+    }
+
+    #[test]
+    fn json_shape() {
+        let j = services_json();
+        for id in ["hermes-rs", "openmind-memory", "link-watch-rs"] {
+            assert!(j.contains(id));
+        }
     }
 }

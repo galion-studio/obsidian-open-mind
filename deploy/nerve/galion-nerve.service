@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# galion-nerve (ws/nerve): self-eval + nervous-system hub, loopback only.
+# API: http://127.0.0.1:8670/ (dashboard), /state, /self-eval(.md), /alerts,
+# /audit, POST /signal. Not exposed publicly; no tunnel route.
+# Reflex mode: NERVE_DRY_RUN below, overridden at runtime by
+#   echo live    > /var/lib/galion-nerve/mode
+#   echo dry-run > /var/lib/galion-nerve/mode
+# Runs as root only so systemctl/journalctl work over the private socket
+# (system dbus refuses DynamicUser here, same as galion-health); all
+# capabilities are dropped and the filesystem is read-only except the state dir.
+# Rollback reflexes run galion-deploy via systemd-run, outside this sandbox.
+[Unit]
+Description=galion-nerve: Galion self-eval + nervous system hub (127.0.0.1:8670)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/rust/bin/galion-nerve serve
+Environment=NERVE_ADDR=127.0.0.1:8670
+Environment=NERVE_INTERVAL=30
+Environment=NERVE_DATA_DIR=/var/lib/galion-nerve
+Environment=NERVE_DRY_RUN=0
+Environment=NERVE_FAIL_CYCLES=3
+Environment=NERVE_REPORT_EVERY=20
+StateDirectory=galion-nerve
+StateDirectoryMode=0700
+User=root
+Nice=10
+IOSchedulingClass=idle
+CPUQuota=15%
+MemoryMax=64M
+TasksMax=64
+Restart=always
+RestartSec=10
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/galion-nerve
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SyslogIdentifier=galion-nerve
+
+[Install]
+WantedBy=multi-user.target

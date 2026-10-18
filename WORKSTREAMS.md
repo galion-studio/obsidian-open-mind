@@ -5,4 +5,5 @@ Each stream works on its own branch `ws/<name>` in a separate git worktree under
 - ws/memory: memory-gateway Rust replacement
 - ws/hermes: Hermes Rust port (hermes-rs) + upgrade staging
 - queued: ws/speech (stt/tts/vision on CPU)
+- ws/nerve: galion-nerve (self-eval + nervous system hub, 127.0.0.1:8670) + nerve-client (docs/ws-nerve.md)
 Integration into rust-v1 is done by Grok Bot.

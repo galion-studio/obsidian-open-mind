@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "galion-nerve"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "NERVE: Galion stack self-analysis (V1) and nervous system hub (V2): pull probes + POST /signal ingest, trend correlation, guarded reflexes, self-eval reports. Loopback only. std + serde_json + zagreb-time."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "galion-nerve"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }

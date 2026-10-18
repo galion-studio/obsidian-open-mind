@@ -186,6 +186,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-nerve"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-one"
 version = "0.1.0"
 
@@ -244,6 +252,7 @@ dependencies = [
 name = "hermes-rs"
 version = "0.1.0"
 dependencies = [
+ "nerve-client",
  "openmind-persona",
  "rusqlite",
  "serde_json",
@@ -339,6 +348,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
+name = "nerve-client"
+version = "0.1.0"
+
+[[package]]
 name = "num-traits"
 version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -365,6 +378,7 @@ dependencies = [
 name = "openmind-memory"
 version = "0.1.0"
 dependencies = [
+ "nerve-client",
  "rusqlite",
  "serde",
  "serde_json",

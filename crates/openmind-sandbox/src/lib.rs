@@ -1,24 +1,60 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
-//! openmind-sandbox v0: run one command with rlimits, a cleared environment,
-//! a fixed working directory, a wall-clock timeout and, when the kernel
-//! supports it, Landlock filesystem restrictions. Linux only.
+//! openmind-sandbox v1: run one command with rlimits, a cleared environment,
+//! a fixed working directory, a wall-clock timeout, `PR_SET_NO_NEW_PRIVS`,
+//! and, when the platform allows it without root or seccomp:
 //!
-//! Every restriction is reported in [`Outcome::enforced`]; nothing is claimed
-//! that was not applied. The timeout only ever signals the child this crate
+//! - unprivileged user namespace (uid/gid mapped 1:1),
+//! - empty network namespace (when `net = false`),
+//! - PID namespace (the command is PID 1 of its own namespace; it cannot see
+//!   or signal anything outside, and everything it started dies with it),
+//! - mount namespace with a read-only view of every mount except the work dir
+//!   and `fs_write`, the invoking user's home hidden behind an empty tmpfs,
+//!   and a private `/proc` when the kernel allows it,
+//! - Landlock filesystem rules (ABI 1-3) and Landlock TCP deny (ABI >= 4),
+//! - all capabilities dropped (bounding set emptied) before exec.
+//!
+//! Linux and Android (Termux) only. No seccomp, no root needed, libc only.
+//! Kernel features that a seccomp filter might kill us for (Android apps run
+//! under one) are first probed in a throwaway child, so a filtered syscall
+//! shows up as "not enforced" instead of crashing.
+//!
+//! Every layer is reported in [`Outcome::enforced`]; nothing is claimed that
+//! was not applied. The timeout only ever signals the child this crate
 //! spawned (and the process group it created with `setsid`).
+//!
+//! Not a hard security boundary against a determined attacker (no seccomp,
+//! no disk quota). It keeps agent tool runs bounded and contained.
 
 use std::ffi::CString;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// Maximum bytes kept per output stream.
+/// Default maximum bytes kept per output stream.
 pub const OUTPUT_CAP: usize = 64 * 1024;
+
+/// Layer names, in report order.
+pub const LAYERS: [&str; 13] = [
+    "rlimits",
+    "env",
+    "workdir",
+    "no_new_privs",
+    "userns",
+    "net",
+    "pidns",
+    "mountns",
+    "ro_root",
+    "hide_home",
+    "proc",
+    "landlock",
+    "caps",
+];
 
 /// What to enforce for one run.
 #[derive(Clone, Debug)]
@@ -26,6 +62,8 @@ pub struct SandboxPolicy {
     pub workdir: PathBuf,
     /// Names copied from the parent env; everything else is dropped.
     pub env_allowlist: Vec<String>,
+    /// Variables set explicitly after clearing (e.g. HOME=workdir).
+    pub env_set: Vec<(String, String)>,
     pub wall_timeout: Duration,
     /// RLIMIT_CPU seconds.
     pub cpu_secs: u64,
@@ -33,38 +71,73 @@ pub struct SandboxPolicy {
     pub mem_bytes: u64,
     /// RLIMIT_NOFILE.
     pub nofile: u64,
-    /// false = network should be denied (not enforceable in v0, reported).
+    /// RLIMIT_FSIZE bytes (0 = leave unchanged).
+    pub fsize_bytes: u64,
+    /// Bytes kept per output stream (the rest is drained and dropped).
+    pub output_cap: usize,
+    /// false = deny network (empty netns, else Landlock TCP deny).
     pub net: bool,
+    /// Fail with `Status::Error` instead of running when `net = false` but
+    /// neither a network namespace nor Landlock TCP deny could be applied.
+    pub require_net_isolation: bool,
+    /// Try Landlock when the kernel has it.
+    pub landlock: bool,
     /// Landlock read roots (workdir is always added).
     pub fs_read: Vec<PathBuf>,
-    /// Landlock write roots (workdir is always added).
+    /// Writable roots (Landlock + kept writable under `ro_root`).
     pub fs_write: Vec<PathBuf>,
-    /// Device files granted read+write file access under Landlock (shells
-    /// need `/dev/null` for redirects and `&`; pipelines read `/dev/zero`).
-    /// Only file rights are granted, never directory rights on `/dev`.
-    pub fs_dev: Vec<PathBuf>,
+    /// Try unprivileged user/net/pid/mount namespaces.
+    pub namespaces: bool,
+    /// In a mount namespace: everything read-only except workdir + fs_write.
+    pub ro_root: bool,
+    /// In a mount namespace: cover these dirs with an empty read-only tmpfs.
+    /// Paths that contain the workdir, a read/write root or the program are
+    /// skipped (and reported).
+    pub hide_paths: Vec<PathBuf>,
 }
 
 impl SandboxPolicy {
     /// Conservative default for a given workdir.
     pub fn new(workdir: impl Into<PathBuf>) -> Self {
         let p = |s: &str| PathBuf::from(s);
+        let mut hide = vec![p("/root")];
+        if let Some(h) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+            hide.insert(0, PathBuf::from(h));
+        }
         SandboxPolicy {
             workdir: workdir.into(),
             env_allowlist: vec!["PATH".into(), "LANG".into()],
+            env_set: vec![],
             wall_timeout: Duration::from_secs(10),
             cpu_secs: 5,
             mem_bytes: 512 * 1024 * 1024,
             nofile: 64,
+            fsize_bytes: 256 * 1024 * 1024,
+            output_cap: OUTPUT_CAP,
             net: false,
-            fs_read: vec![p("/usr"), p("/bin"), p("/lib"), p("/lib64"), p("/etc")],
+            require_net_isolation: false,
+            landlock: true,
+            // /proc is needed by most tools (ps, /proc/self/*); with a PID
+            // namespace and private /proc it only shows the sandbox.
+            fs_read: [
+                "/usr",
+                "/bin",
+                "/sbin",
+                "/lib",
+                "/lib64",
+                "/etc",
+                "/proc",
+                "/dev/zero",
+                "/dev/urandom",
+                "/dev/random",
+            ]
+            .iter()
+            .map(|s| p(s))
+            .collect(),
             fs_write: vec![],
-            fs_dev: vec![
-                p("/dev/null"),
-                p("/dev/zero"),
-                p("/dev/random"),
-                p("/dev/urandom"),
-            ],
+            namespaces: true,
+            ro_root: true,
+            hide_paths: hide,
         }
     }
 }
@@ -73,6 +146,12 @@ impl SandboxPolicy {
 pub enum Enforcement {
     Enforced,
     NotEnforced(String),
+}
+
+impl Enforcement {
+    pub fn is_enforced(&self) -> bool {
+        matches!(self, Enforcement::Enforced)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -88,10 +167,12 @@ pub struct Outcome {
     pub status: Status,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
     pub timed_out: bool,
     pub wall: Duration,
     pub error: Option<String>,
-    /// (layer, state) for: rlimits, env, workdir, landlock, net.
+    /// (layer, state) for every name in [`LAYERS`].
     pub enforced: Vec<(String, Enforcement)>,
 }
 
@@ -102,25 +183,167 @@ impl Outcome {
             .find(|(n, _)| n == name)
             .map(|(_, e)| e)
     }
+    pub fn enforced(&self, name: &str) -> bool {
+        self.layer(name).is_some_and(Enforcement::is_enforced)
+    }
     pub fn stdout_str(&self) -> String {
         String::from_utf8_lossy(&self.stdout).into_owned()
     }
 }
 
-// ---- Landlock via raw syscalls (ABI v1 filesystem rights) ----
+// ---- syscall numbers (asm-generic numbering, same on x86_64 and aarch64) ----
+const SYS_MOUNT_SETATTR: libc::c_long = 442;
 const SYS_LL_CREATE: libc::c_long = 444;
 const SYS_LL_ADD: libc::c_long = 445;
 const SYS_LL_RESTRICT: libc::c_long = 446;
-const LL_FS_ALL: u64 = 0x1FFF; // 13 ABI-1 rights
-const LL_READ: u64 = 1 | (1 << 2) | (1 << 3); // exec, read file, read dir
-/// Rights that apply to a non-directory (exec, write file, read file); the
-/// kernel rejects a path-beneath rule on a file that carries directory rights.
-const LL_FILE_MASK: u64 = 1 | (1 << 1) | (1 << 2);
-const LL_DEV: u64 = (1 << 1) | (1 << 2); // write file, read file
+const MOUNT_ATTR_RDONLY: u64 = 1;
+const AT_RECURSIVE: libc::c_uint = 0x8000;
+
+#[repr(C)]
+struct MountAttr {
+    attr_set: u64,
+    attr_clr: u64,
+    propagation: u64,
+    userns_fd: u64,
+}
+
+// ---- kernel feature probes, each in a throwaway child ----
+
+/// What this kernel/platform offers. Each risky syscall is tried in a forked
+/// child first, so a seccomp filter (Android) that kills with SIGSYS only
+/// kills that child.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Features {
+    /// Landlock ABI version, 0 = unavailable or filtered.
+    pub landlock_abi: i32,
+    /// unshare(CLONE_NEWUSER) works for this process.
+    pub userns: bool,
+    /// unshare(CLONE_NEWUSER|CLONE_NEWNS|CLONE_NEWNET|CLONE_NEWPID) works.
+    pub userns_full: bool,
+    /// mount_setattr(2) exists (Linux >= 5.12) and is not filtered.
+    pub mount_setattr: bool,
+    /// capget/capset and PR_CAPBSET_* are usable (not filtered).
+    pub caps: bool,
+    /// Running on Android (Termux or adb shell).
+    pub android: bool,
+}
+
+/// fork, run `f` in the child, `_exit` with its result. None = child died
+/// from a signal (e.g. SIGSYS from seccomp) or fork failed.
+fn probe_in_child(f: fn() -> i32) -> Option<i32> {
+    // SAFETY: the child only calls `f` (raw syscalls, no allocation) and _exit.
+    unsafe {
+        let pid = libc::fork();
+        if pid < 0 {
+            return None;
+        }
+        if pid == 0 {
+            libc::_exit(f().clamp(0, 125));
+        }
+        let mut st = 0;
+        while libc::waitpid(pid, &mut st, 0) < 0 {
+            if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                return None;
+            }
+        }
+        if libc::WIFEXITED(st) {
+            Some(libc::WEXITSTATUS(st))
+        } else {
+            None
+        }
+    }
+}
+
+fn p_landlock() -> i32 {
+    // SAFETY: flag-only query; null attr with size 0 is the documented form.
+    let r = unsafe { libc::syscall(SYS_LL_CREATE, std::ptr::null::<u8>(), 0usize, 1u32) };
+    if r < 0 {
+        0
+    } else {
+        r.min(100) as i32
+    }
+}
+fn p_userns() -> i32 {
+    // SAFETY: affects only this throwaway child.
+    (unsafe { libc::unshare(libc::CLONE_NEWUSER) } == 0) as i32
+}
+fn p_userns_full() -> i32 {
+    let f = libc::CLONE_NEWUSER | libc::CLONE_NEWNS | libc::CLONE_NEWNET | libc::CLONE_NEWPID;
+    // SAFETY: affects only this throwaway child.
+    (unsafe { libc::unshare(f) } == 0) as i32
+}
+fn p_mount_setattr() -> i32 {
+    // Bad fd on purpose: EBADF/EINVAL = present, ENOSYS = absent.
+    // SAFETY: invalid dirfd, null attr, size 0; the kernel rejects it.
+    let r = unsafe {
+        libc::syscall(
+            SYS_MOUNT_SETATTR,
+            -1,
+            c"".as_ptr(),
+            0u32,
+            std::ptr::null::<u8>(),
+            0usize,
+        )
+    };
+    let e = std::io::Error::last_os_error().raw_os_error();
+    (r < 0 && e != Some(libc::ENOSYS)) as i32
+}
+
+fn p_caps() -> i32 {
+    let mut hdr = [0x2008_0522u32, 0];
+    let mut data = [0u32; 6];
+    // SAFETY: v3 header and two data structs (6 u32), valid pointers.
+    let g = unsafe { libc::syscall(libc::SYS_capget, hdr.as_mut_ptr(), data.as_mut_ptr()) };
+    // SAFETY: read-only query.
+    let b = unsafe { libc::prctl(libc::PR_CAPBSET_READ, 0, 0, 0, 0) };
+    (g == 0 && b >= 0) as i32
+}
+
+/// Probe once per process (cached).
+pub fn features() -> Features {
+    static F: OnceLock<Features> = OnceLock::new();
+    *F.get_or_init(|| Features {
+        landlock_abi: probe_in_child(p_landlock).unwrap_or(0),
+        userns: probe_in_child(p_userns) == Some(1),
+        userns_full: probe_in_child(p_userns_full) == Some(1),
+        mount_setattr: probe_in_child(p_mount_setattr) == Some(1),
+        caps: probe_in_child(p_caps) == Some(1),
+        android: is_android(),
+    })
+}
+
+/// True on Android (Termux, adb shell).
+pub fn is_android() -> bool {
+    cfg!(target_os = "android")
+        || std::env::var_os("ANDROID_ROOT").is_some()
+        || Path::new("/system/build.prop").exists()
+}
+
+/// Landlock ABI version of the running kernel, or None if unavailable.
+pub fn landlock_abi() -> Option<i64> {
+    match features().landlock_abi {
+        0 => None,
+        n => Some(n as i64),
+    }
+}
+
+// ---- Landlock via raw syscalls ----
+const LL_EXEC: u64 = 1;
+const LL_WRITE_FILE: u64 = 1 << 1;
+const LL_READ_FILE: u64 = 1 << 2;
+const LL_READ_DIR: u64 = 1 << 3;
+const LL_ABI1_ALL: u64 = 0x1FFF; // 13 ABI-1 rights
+const LL_REFER: u64 = 1 << 13; // ABI 2
+const LL_TRUNCATE: u64 = 1 << 14; // ABI 3
+const LL_READ: u64 = LL_EXEC | LL_READ_FILE | LL_READ_DIR;
+const LL_FILE_ONLY: u64 = LL_EXEC | LL_WRITE_FILE | LL_READ_FILE | LL_TRUNCATE;
+const LL_NET_BIND_TCP: u64 = 1;
+const LL_NET_CONNECT_TCP: u64 = 2;
 
 #[repr(C)]
 struct LlRulesetAttr {
     handled_access_fs: u64,
+    handled_access_net: u64,
 }
 #[repr(C, packed)]
 struct LlPathBeneath {
@@ -128,38 +351,41 @@ struct LlPathBeneath {
     parent_fd: i32,
 }
 
-/// Landlock ABI version of the running kernel, or None if unavailable.
-pub fn landlock_abi() -> Option<i64> {
-    // SAFETY: flag-only query; null attr with size 0 is the documented form.
-    let r = unsafe { libc::syscall(SYS_LL_CREATE, std::ptr::null::<u8>(), 0usize, 1u32) };
-    if r >= 1 {
-        Some(r as i64)
-    } else {
-        None
-    }
-}
-
 #[derive(Clone)]
 struct Landlock {
     ruleset_fd: i32,
     path_fds: Vec<(i32, u64)>,
+    net: bool,
+    /// Rights to grant on a freshly mounted private /proc (0 = none).
+    proc_acc: u64,
 }
 
 impl Landlock {
     /// Built in the parent (allocation and open() allowed here).
-    fn prepare(policy: &SandboxPolicy) -> Result<Landlock, String> {
+    fn prepare(policy: &SandboxPolicy, abi: i32) -> Result<Landlock, String> {
+        let mut handled = LL_ABI1_ALL;
+        if abi >= 2 {
+            handled |= LL_REFER;
+        }
+        if abi >= 3 {
+            handled |= LL_TRUNCATE;
+        }
+        let net = abi >= 4 && !policy.net;
         let attr = LlRulesetAttr {
-            handled_access_fs: LL_FS_ALL,
+            handled_access_fs: handled,
+            handled_access_net: if net {
+                LL_NET_BIND_TCP | LL_NET_CONNECT_TCP
+            } else {
+                0
+            },
         };
-        // SAFETY: attr is a valid repr(C) struct of the size we pass.
-        let fd = unsafe {
-            libc::syscall(
-                SYS_LL_CREATE,
-                &attr as *const _,
-                std::mem::size_of::<LlRulesetAttr>(),
-                0u32,
-            )
+        let size = if net {
+            std::mem::size_of::<LlRulesetAttr>()
+        } else {
+            8 // ABI-1 struct: handled_access_fs only
         };
+        // SAFETY: attr is a valid repr(C) struct at least `size` bytes long.
+        let fd = unsafe { libc::syscall(SYS_LL_CREATE, &attr as *const _, size, 0u32) };
         if fd < 0 {
             return Err(format!(
                 "create_ruleset: {}",
@@ -169,40 +395,70 @@ impl Landlock {
         let mut ll = Landlock {
             ruleset_fd: fd as i32,
             path_fds: vec![],
+            net,
+            proc_acc: if policy.fs_read.iter().any(|p| p == Path::new("/proc")) {
+                LL_READ & handled
+            } else {
+                0
+            },
         };
         let mut roots: Vec<(PathBuf, u64)> = vec![];
         for r in &policy.fs_read {
             roots.push((r.clone(), LL_READ));
         }
         for w in &policy.fs_write {
-            roots.push((w.clone(), LL_FS_ALL));
+            roots.push((w.clone(), handled));
         }
-        for d in &policy.fs_dev {
-            roots.push((d.clone(), LL_DEV));
-        }
-        roots.push((policy.workdir.clone(), LL_FS_ALL));
+        roots.push((policy.workdir.clone(), handled));
+        roots.push((
+            PathBuf::from("/dev/null"),
+            LL_READ_FILE | LL_WRITE_FILE | LL_TRUNCATE,
+        ));
         for (path, acc) in roots {
-            // Files (devices included) only take file rights.
-            let acc = if path.is_dir() {
+            let Ok(meta) = std::fs::metadata(&path) else {
+                continue; // missing roots are skipped: they grant nothing
+            };
+            let Ok(c) = CString::new(path.as_os_str().as_bytes()) else {
+                continue;
+            };
+            // Rules on a non-directory may only carry file rights.
+            let acc = if meta.is_dir() {
                 acc
             } else {
-                acc & LL_FILE_MASK
-            };
-            let c = match CString::new(path.as_os_str().as_bytes()) {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
+                acc & LL_FILE_ONLY
+            } & handled;
             // SAFETY: c is a valid NUL-terminated string.
             let pfd = unsafe { libc::open(c.as_ptr(), libc::O_PATH | libc::O_CLOEXEC) };
             if pfd >= 0 {
                 ll.path_fds.push((pfd, acc));
-            } // missing roots are skipped: they grant nothing
+            }
         }
         Ok(ll)
     }
 
     /// Async-signal-safe: syscalls only, no allocation. Runs after fork.
-    fn apply(&self) -> std::io::Result<()> {
+    /// `new_proc`: a private /proc was mounted after the rules were prepared;
+    /// the old /proc rule points at the host proc, so add one for the new one.
+    fn apply(&self, new_proc: bool) -> std::io::Result<()> {
+        if new_proc && self.proc_acc != 0 {
+            // SAFETY: open of a constant path; the fd is passed to the kernel only.
+            let pfd = unsafe { libc::open(c"/proc".as_ptr(), libc::O_PATH | libc::O_CLOEXEC) };
+            if pfd >= 0 {
+                let rule = LlPathBeneath {
+                    allowed_access: self.proc_acc,
+                    parent_fd: pfd,
+                };
+                // SAFETY: valid packed struct; type 1 = PATH_BENEATH.
+                let r = unsafe {
+                    libc::syscall(SYS_LL_ADD, self.ruleset_fd, 1u32, &rule as *const _, 0u32)
+                };
+                // SAFETY: closing the fd opened above.
+                unsafe { libc::close(pfd) };
+                if r != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+            }
+        }
         for (pfd, acc) in &self.path_fds {
             let rule = LlPathBeneath {
                 allowed_access: *acc,
@@ -235,13 +491,12 @@ impl Landlock {
     }
 }
 
-/// glibc types the resource as `__rlimit_resource_t`; musl (tier-1) uses c_int.
-#[cfg(target_env = "gnu")]
-type RlimitResource = libc::__rlimit_resource_t;
-#[cfg(not(target_env = "gnu"))]
-type RlimitResource = libc::c_int;
+#[cfg(all(any(target_os = "linux", target_os = "android"), target_env = "gnu"))]
+type Res = libc::__rlimit_resource_t;
+#[cfg(not(all(any(target_os = "linux", target_os = "android"), target_env = "gnu")))]
+type Res = libc::c_int;
 
-fn setrl(res: RlimitResource, v: u64) -> std::io::Result<()> {
+fn setrl(res: Res, v: u64) -> std::io::Result<()> {
     let l = libc::rlimit {
         rlim_cur: v as libc::rlim_t,
         rlim_max: v as libc::rlim_t,
@@ -253,21 +508,125 @@ fn setrl(res: RlimitResource, v: u64) -> std::io::Result<()> {
     Ok(())
 }
 
-fn capped_reader<R: Read + Send + 'static>(mut r: R) -> thread::JoinHandle<Vec<u8>> {
+/// Write `data` to an existing file (proc maps). Async-signal-safe.
+fn write_file(path: &std::ffi::CStr, data: &[u8]) -> bool {
+    // SAFETY: open/write/close on a valid C string and buffer.
+    unsafe {
+        let fd = libc::open(path.as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC);
+        if fd < 0 {
+            return false;
+        }
+        let ok = libc::write(fd, data.as_ptr().cast(), data.len()) == data.len() as isize;
+        libc::close(fd);
+        ok
+    }
+}
+
+fn mount_setattr(path: &std::ffi::CStr, flags: libc::c_uint, set: u64, clr: u64) -> bool {
+    let a = MountAttr {
+        attr_set: set,
+        attr_clr: clr,
+        propagation: 0,
+        userns_fd: 0,
+    };
+    // SAFETY: valid path and attr struct of the size passed.
+    unsafe {
+        libc::syscall(
+            SYS_MOUNT_SETATTR,
+            libc::AT_FDCWD,
+            path.as_ptr(),
+            flags,
+            &a as *const MountAttr,
+            std::mem::size_of::<MountAttr>(),
+        ) == 0
+    }
+}
+
+/// Drop every capability: empty bounding set, then zero eff/perm/inh.
+/// Returns true when the process ends up holding no capabilities and cannot
+/// regain any through exec. Async-signal-safe.
+fn drop_caps(may_hold_caps: bool) -> bool {
+    #[repr(C)]
+    struct Hdr {
+        version: u32,
+        pid: i32,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Data {
+        eff: u32,
+        perm: u32,
+        inh: u32,
+    }
+    const V3: u32 = 0x2008_0522;
+    // SAFETY: prctl/capget/capset with valid pointers to local structs.
+    unsafe {
+        let mut bset_empty = true;
+        for cap in 0..64 {
+            if libc::prctl(libc::PR_CAPBSET_READ, cap, 0, 0, 0) == 1
+                && libc::prctl(libc::PR_CAPBSET_DROP, cap, 0, 0, 0) != 0
+            {
+                bset_empty = false;
+            }
+        }
+        // ambient set: clear all
+        libc::prctl(
+            libc::PR_CAP_AMBIENT,
+            libc::PR_CAP_AMBIENT_CLEAR_ALL,
+            0,
+            0,
+            0,
+        );
+        let mut h = Hdr {
+            version: V3,
+            pid: 0,
+        };
+        let zero = [Data {
+            eff: 0,
+            perm: 0,
+            inh: 0,
+        }; 2];
+        libc::syscall(libc::SYS_capset, &mut h as *mut Hdr, zero.as_ptr());
+        let mut now = [Data {
+            eff: 1,
+            perm: 1,
+            inh: 1,
+        }; 2];
+        let mut h = Hdr {
+            version: V3,
+            pid: 0,
+        };
+        if libc::syscall(libc::SYS_capget, &mut h as *mut Hdr, now.as_mut_ptr()) != 0 {
+            return false;
+        }
+        let none_held = now.iter().all(|d| d.eff == 0 && d.perm == 0 && d.inh == 0);
+        // A process whose (namespace) uid is 0 regains its bounding set on
+        // exec, so for it the bounding set must be empty too. Everyone else
+        // gains nothing on exec under no_new_privs.
+        none_held && (bset_empty || !may_hold_caps)
+    }
+}
+
+fn capped_reader<R: Read + Send + 'static>(
+    mut r: R,
+    cap: usize,
+) -> thread::JoinHandle<(Vec<u8>, bool)> {
     thread::spawn(move || {
         let mut keep = Vec::new();
+        let mut truncated = false;
         let mut buf = [0u8; 8192];
         loop {
             match r.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     // keep draining after the cap so the child never blocks
-                    let room = OUTPUT_CAP.saturating_sub(keep.len());
+                    let room = cap.saturating_sub(keep.len());
                     keep.extend_from_slice(&buf[..n.min(room)]);
+                    truncated |= n > room;
                 }
             }
         }
-        keep
+        (keep, truncated)
     })
 }
 
@@ -276,6 +635,8 @@ fn fail(msg: String, start: Instant, enforced: Vec<(String, Enforcement)>) -> Ou
         status: Status::Error,
         stdout: vec![],
         stderr: vec![],
+        stdout_truncated: false,
+        stderr_truncated: false,
         timed_out: false,
         wall: start.elapsed(),
         error: Some(msg),
@@ -283,18 +644,44 @@ fn fail(msg: String, start: Instant, enforced: Vec<(String, Enforcement)>) -> Ou
     }
 }
 
+// Status bits written by the process that execs, right before exec.
+const B_RLIMIT: u16 = 1;
+const B_NNP: u16 = 1 << 1;
+const B_USERNS: u16 = 1 << 2;
+const B_NETNS: u16 = 1 << 3;
+const B_PIDNS: u16 = 1 << 4;
+const B_MNTNS: u16 = 1 << 5;
+const B_RO_ROOT: u16 = 1 << 6;
+const B_HIDE: u16 = 1 << 7;
+const B_PROC: u16 = 1 << 8;
+const B_LANDLOCK: u16 = 1 << 9;
+const B_LL_NET: u16 = 1 << 10;
+const B_CAPS: u16 = 1 << 11;
+const B_UIDMAP: u16 = 1 << 12;
+
+fn cstr(p: &Path) -> Option<CString> {
+    CString::new(p.as_os_str().as_bytes()).ok()
+}
+
+fn resolve_program(prog: &str, env_path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
+    if prog.contains('/') {
+        return std::fs::canonicalize(prog).ok();
+    }
+    std::env::split_paths(env_path?)
+        .map(|d| d.join(prog))
+        .find(|p| p.is_file())
+        .and_then(|p| std::fs::canonicalize(p).ok())
+}
+
 /// Run `cmd` (program + args) under `policy`. Never panics on bad input;
 /// failures come back as `Status::Error` with `error` set.
 pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     let start = Instant::now();
     let ne = |s: &str| Enforcement::NotEnforced(s.to_string());
-    let mut enforced: Vec<(String, Enforcement)> = vec![
-        ("rlimits".into(), ne("not started")),
-        ("env".into(), ne("not started")),
-        ("workdir".into(), ne("not started")),
-        ("landlock".into(), ne("not started")),
-        ("net".into(), ne("not started")),
-    ];
+    let mut enforced: Vec<(String, Enforcement)> = LAYERS
+        .iter()
+        .map(|l| (l.to_string(), ne("not started")))
+        .collect();
     let set = |e: &mut Vec<(String, Enforcement)>, k: &str, v: Enforcement| {
         if let Some(s) = e.iter_mut().find(|(n, _)| n == k) {
             s.1 = v;
@@ -310,26 +697,121 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             enforced,
         );
     }
+    let workdir = policy
+        .workdir
+        .canonicalize()
+        .unwrap_or_else(|_| policy.workdir.clone());
+    let feat = features();
 
-    // Landlock: only when the kernel has it and there is something to say.
-    let ll = match landlock_abi() {
-        None => {
-            set(&mut enforced, "landlock", ne("kernel has no landlock"));
-            None
-        }
-        Some(_) => match Landlock::prepare(policy) {
+    // Landlock: only when wanted and the kernel has it.
+    let ll = if !policy.landlock {
+        set(&mut enforced, "landlock", ne("disabled by policy"));
+        None
+    } else if feat.landlock_abi == 0 {
+        set(&mut enforced, "landlock", ne("kernel has no landlock"));
+        None
+    } else {
+        let mut p2 = policy.clone();
+        p2.workdir = workdir.clone();
+        match Landlock::prepare(&p2, feat.landlock_abi) {
             Ok(l) => Some(l),
             Err(e) => {
                 set(&mut enforced, "landlock", Enforcement::NotEnforced(e));
                 None
             }
-        },
+        }
     };
+
+    // ---- everything the forked child needs, prepared here ----
+    // SAFETY: plain id getters.
+    let (uid, gid, euid) = unsafe { (libc::getuid(), libc::getgid(), libc::geteuid()) };
+    let uid_map = format!("{uid} {uid} 1");
+    let gid_map = format!("{gid} {gid} 1");
+    let want_ns = policy.namespaces && feat.userns;
+    let mut full = libc::CLONE_NEWUSER | libc::CLONE_NEWPID;
+    if !policy.net {
+        full |= libc::CLONE_NEWNET;
+    }
+    if policy.ro_root || !policy.hide_paths.is_empty() {
+        full |= libc::CLONE_NEWNS;
+    }
+    let mut attempts: [libc::c_int; 5] = [0; 5];
+    if want_ns {
+        attempts[0] = full;
+        attempts[1] = full & !libc::CLONE_NEWNS;
+        attempts[2] = full & !(libc::CLONE_NEWNS | libc::CLONE_NEWPID);
+        attempts[3] = libc::CLONE_NEWUSER;
+    }
+    if policy.namespaces && euid == 0 && !policy.net {
+        // root without user namespaces: plain netns still works
+        attempts[4] = libc::CLONE_NEWNET;
+    }
+    // Writable binds (workdir + fs_write) and paths to hide.
+    let prog_path = resolve_program(
+        prog,
+        std::env::var_os("PATH")
+            .as_deref()
+            .filter(|_| !prog.contains('/')),
+    );
+    let mut binds: Vec<CString> = vec![];
+    for w in std::iter::once(&workdir).chain(policy.fs_write.iter()) {
+        if let Some(c) = w.canonicalize().ok().as_deref().and_then(cstr) {
+            binds.push(c);
+        }
+    }
+    let mut hide: Vec<CString> = vec![];
+    let mut hide_skipped: Vec<String> = vec![];
+    for h in &policy.hide_paths {
+        let Ok(hc) = h.canonicalize() else { continue };
+        if !hc.is_dir() || hc == Path::new("/") {
+            continue;
+        }
+        // Needed if the work dir, a root or the program lies inside it; a
+        // read root that *contains* the hide path (e.g. /) is fine.
+        let needed = std::iter::once(&workdir)
+            .chain(policy.fs_write.iter())
+            .chain(prog_path.iter())
+            .chain(policy.fs_read.iter())
+            .any(|p| {
+                p.canonicalize()
+                    .unwrap_or_else(|_| p.clone())
+                    .starts_with(&hc)
+            });
+        if needed {
+            hide_skipped.push(hc.display().to_string());
+        } else if let Some(c) = cstr(&hc) {
+            hide.push(c);
+        }
+    }
+    let can_ro = policy.ro_root && feat.mount_setattr;
+    // Highest fd number to close in the PID-namespace supervisor.
+    let max_fd: i32 = {
+        let mut l = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: valid pointer.
+        unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut l) };
+        // rlim_t is not u64 on every target
+        let cur: u64 = l.rlim_cur as _;
+        cur.clamp(1024, 65536) as i32
+    };
+
+    // Status pipe: the exec'ing process writes 2 bytes of flags before exec.
+    let mut fds = [0i32; 2];
+    // SAFETY: valid array of two fds.
+    if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
+        if let Some(l) = &ll {
+            l.close();
+        }
+        return fail("pipe2 failed".into(), start, enforced);
+    }
+    let (rfd, wfd) = (fds[0], fds[1]);
 
     let mut c = Command::new(prog);
     c.args(args)
         .env_clear()
-        .current_dir(&policy.workdir)
+        .current_dir(&workdir)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -338,15 +820,29 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             c.env(k, v);
         }
     }
-    let (cpu, mem, nofile) = (policy.cpu_secs, policy.mem_bytes, policy.nofile);
+    for (k, v) in &policy.env_set {
+        c.env(k, v);
+    }
+    let (cpu, mem, nofile, fsize) = (
+        policy.cpu_secs,
+        policy.mem_bytes,
+        policy.nofile,
+        policy.fsize_bytes,
+    );
+    let require_net = policy.require_net_isolation && !policy.net;
     let llown = ll.clone();
+    let caps_ok = feat.caps;
+    // std chdirs before pre_exec; re-enter the workdir after mounts so the
+    // cwd is the writable bind, not the (now read-only) mount below it.
+    let workdir_c = cstr(&workdir).unwrap_or_default();
+    let hide_count = hide.len();
     // SAFETY: the closure runs between fork and exec and only calls
-    // async-signal-safe functions: setsid, setrlimit, prctl, and raw
-    // landlock syscalls on fds prepared before the fork. It allocates nothing
-    // (the error path returns io::Error::last_os_error, an errno wrapper).
-    // The closure owns a clone of the prepared fd list.
+    // async-signal-safe functions (setsid, setrlimit, prctl, unshare, mount,
+    // fork, waitpid, write, close, raw syscalls) on data prepared before the
+    // fork. It allocates nothing; errors are errno wrappers.
     unsafe {
         c.pre_exec(move || {
+            let mut bits: u16 = 0;
             if libc::setsid() < 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -354,11 +850,152 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             setrl(libc::RLIMIT_AS, mem)?;
             setrl(libc::RLIMIT_NOFILE, nofile)?;
             setrl(libc::RLIMIT_CORE, 0)?;
+            if fsize > 0 {
+                setrl(libc::RLIMIT_FSIZE, fsize)?;
+            }
+            bits |= B_RLIMIT;
             if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
+            bits |= B_NNP;
+
+            // Namespaces, best effort, biggest set first.
+            let mut got: libc::c_int = 0;
+            for f in attempts {
+                if f != 0 && libc::unshare(f) == 0 {
+                    got = f;
+                    break;
+                }
+            }
+            if got & libc::CLONE_NEWUSER != 0 {
+                bits |= B_USERNS;
+                let a = write_file(c"/proc/self/setgroups", b"deny");
+                let b = write_file(c"/proc/self/uid_map", uid_map.as_bytes());
+                let g = write_file(c"/proc/self/gid_map", gid_map.as_bytes());
+                if a && b && g {
+                    bits |= B_UIDMAP;
+                }
+            }
+            if got & libc::CLONE_NEWNET != 0 {
+                bits |= B_NETNS;
+            }
+            if got & libc::CLONE_NEWNS != 0
+                && libc::mount(
+                    std::ptr::null(),
+                    c"/".as_ptr(),
+                    std::ptr::null(),
+                    libc::MS_REC | libc::MS_PRIVATE,
+                    std::ptr::null(),
+                ) == 0
+            {
+                bits |= B_MNTNS;
+                // Hide home dirs behind an empty, read-only tmpfs.
+                let mut hid = !hide.is_empty();
+                for h in &hide {
+                    if libc::mount(
+                        c"none".as_ptr(),
+                        h.as_ptr(),
+                        c"tmpfs".as_ptr(),
+                        libc::MS_RDONLY | libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+                        c"size=4k,mode=555".as_ptr().cast(),
+                    ) != 0
+                    {
+                        hid = false;
+                    }
+                }
+                if hid {
+                    bits |= B_HIDE;
+                }
+                if can_ro {
+                    let mut ok = true;
+                    for b in &binds {
+                        ok &= libc::mount(
+                            b.as_ptr(),
+                            b.as_ptr(),
+                            std::ptr::null(),
+                            libc::MS_BIND | libc::MS_REC,
+                            std::ptr::null(),
+                        ) == 0;
+                    }
+                    if ok && mount_setattr(c"/", AT_RECURSIVE, MOUNT_ATTR_RDONLY, 0) {
+                        for b in &binds {
+                            if !mount_setattr(b, AT_RECURSIVE, 0, MOUNT_ATTR_RDONLY) {
+                                // fail closed: the work dir must stay writable
+                                return Err(std::io::Error::from_raw_os_error(libc::EROFS));
+                            }
+                        }
+                        bits |= B_RO_ROOT;
+                    }
+                }
+            }
+
+            if bits & B_MNTNS != 0 && libc::chdir(workdir_c.as_ptr()) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            if got & libc::CLONE_NEWPID != 0 {
+                let child = libc::fork();
+                if child < 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                if child > 0 {
+                    // Supervisor outside the PID namespace: drop every fd but
+                    // stdio (incl. std's exec-error pipe and our status pipe),
+                    // wait, and pass on the exit status or signal.
+                    for fd in 3..max_fd {
+                        libc::close(fd);
+                    }
+                    let mut st = 0;
+                    loop {
+                        if libc::waitpid(child, &mut st, 0) == child {
+                            break;
+                        }
+                        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                            libc::_exit(127);
+                        }
+                    }
+                    if libc::WIFEXITED(st) {
+                        libc::_exit(libc::WEXITSTATUS(st));
+                    }
+                    let sig = libc::WTERMSIG(st);
+                    libc::signal(sig, libc::SIG_DFL);
+                    let mut set: libc::sigset_t = std::mem::zeroed();
+                    libc::sigemptyset(&mut set);
+                    libc::sigaddset(&mut set, sig);
+                    libc::sigprocmask(libc::SIG_UNBLOCK, &set, std::ptr::null_mut());
+                    libc::kill(libc::getpid(), sig);
+                    libc::_exit(128 + sig);
+                }
+                // PID 1 of the new namespace.
+                bits |= B_PIDNS;
+                if bits & B_MNTNS != 0
+                    && libc::mount(
+                        c"proc".as_ptr(),
+                        c"/proc".as_ptr(),
+                        c"proc".as_ptr(),
+                        libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+                        std::ptr::null(),
+                    ) == 0
+                {
+                    bits |= B_PROC;
+                }
+            }
+
             if let Some(l) = &llown {
-                l.apply()?;
+                l.apply(bits & B_PROC != 0)?;
+                bits |= B_LANDLOCK;
+                if l.net {
+                    bits |= B_LL_NET;
+                }
+            }
+            let may_hold_caps = euid == 0 || bits & B_USERNS != 0;
+            if caps_ok && drop_caps(may_hold_caps) {
+                bits |= B_CAPS;
+            }
+            let b = bits.to_le_bytes();
+            libc::write(wfd, b.as_ptr().cast(), 2);
+            if require_net && bits & (B_NETNS | B_LL_NET) == 0 {
+                return Err(std::io::Error::from_raw_os_error(libc::EPERM));
             }
             Ok(())
         });
@@ -367,57 +1004,208 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     if let Some(l) = &ll {
         l.close();
     }
+    // SAFETY: closing our copy of the write end, then reading at most 2 bytes.
+    let mut b = [0u8; 2];
+    let got_bits = unsafe {
+        libc::close(wfd);
+        let n = libc::read(rfd, b.as_mut_ptr().cast(), 2);
+        libc::close(rfd);
+        n == 2
+    };
+    let bits = if got_bits { u16::from_le_bytes(b) } else { 0 };
     let mut child = match spawned {
         Ok(ch) => ch,
-        Err(e) => return fail(format!("spawn {prog}: {e}"), start, enforced),
+        Err(e) => {
+            let msg = if require_net && e.raw_os_error() == Some(libc::EPERM) {
+                "network isolation required but unavailable (no netns, no landlock TCP deny)"
+                    .to_string()
+            } else if e.raw_os_error() == Some(libc::EROFS) {
+                "read-only root applied but the work dir could not be kept writable".to_string()
+            } else {
+                format!("spawn {prog}: {e}")
+            };
+            return fail(msg, start, enforced);
+        }
     };
-    set(&mut enforced, "rlimits", Enforcement::Enforced);
+
+    // ---- honest report ----
+    let en = |ok: bool, why: &str| {
+        if ok {
+            Enforcement::Enforced
+        } else {
+            Enforcement::NotEnforced(why.to_string())
+        }
+    };
+    let ns_why = if !policy.namespaces {
+        "disabled by policy"
+    } else if !feat.userns {
+        "unprivileged user namespaces unavailable (kernel/sysctl/AppArmor/seccomp)"
+    } else {
+        "unshare failed at run time"
+    };
+    set(
+        &mut enforced,
+        "rlimits",
+        en(bits & B_RLIMIT != 0, "not applied"),
+    );
     set(&mut enforced, "env", Enforcement::Enforced);
     set(&mut enforced, "workdir", Enforcement::Enforced);
-    if ll.is_some() {
-        set(&mut enforced, "landlock", Enforcement::Enforced);
-    }
+    set(
+        &mut enforced,
+        "no_new_privs",
+        en(bits & B_NNP != 0, "prctl failed"),
+    );
+    set(
+        &mut enforced,
+        "userns",
+        if bits & B_USERNS != 0 && bits & B_UIDMAP == 0 {
+            ne("user namespace entered but uid/gid map could not be written")
+        } else {
+            en(bits & B_USERNS != 0, ns_why)
+        },
+    );
     set(
         &mut enforced,
         "net",
         if policy.net {
+            ne("network allowed by policy (net = true)")
+        } else if bits & B_NETNS != 0 {
+            Enforcement::Enforced
+        } else if bits & B_LL_NET != 0 {
+            ne("only TCP connect/bind blocked (landlock); UDP and other sockets NOT blocked")
+        } else {
+            ne("no network namespace and no landlock TCP deny on this platform")
+        },
+    );
+    set(&mut enforced, "pidns", en(bits & B_PIDNS != 0, ns_why));
+    let mnt_why = if !(policy.ro_root || !policy.hide_paths.is_empty()) {
+        "not requested by policy"
+    } else {
+        ns_why
+    };
+    set(&mut enforced, "mountns", en(bits & B_MNTNS != 0, mnt_why));
+    set(
+        &mut enforced,
+        "ro_root",
+        en(
+            bits & B_RO_ROOT != 0,
+            if !policy.ro_root {
+                "disabled by policy"
+            } else if bits & B_MNTNS == 0 {
+                "needs a mount namespace"
+            } else if !feat.mount_setattr {
+                "kernel lacks mount_setattr (Linux < 5.12)"
+            } else {
+                "mount_setattr refused"
+            },
+        ),
+    );
+    let hide_state = if bits & B_HIDE != 0 {
+        if hide_skipped.is_empty() {
             Enforcement::Enforced
         } else {
-            ne("net=false cannot be enforced in v0 (no netns/seccomp)")
-        },
+            Enforcement::NotEnforced(format!(
+                "partial: kept visible because needed: {}",
+                hide_skipped.join(", ")
+            ))
+        }
+    } else if hide_count == 0 {
+        Enforcement::NotEnforced(if hide_skipped.is_empty() {
+            "nothing to hide".into()
+        } else {
+            format!("kept visible because needed: {}", hide_skipped.join(", "))
+        })
+    } else if bits & B_MNTNS == 0 {
+        ne("needs a mount namespace")
+    } else {
+        ne("tmpfs mount refused")
+    };
+    set(&mut enforced, "hide_home", hide_state);
+    set(
+        &mut enforced,
+        "proc",
+        en(
+            bits & B_PROC != 0,
+            if bits & B_PIDNS == 0 || bits & B_MNTNS == 0 {
+                "needs pid + mount namespaces; host /proc stays visible"
+            } else {
+                "proc mount refused (e.g. container with overmounted /proc); host /proc stays visible"
+            },
+        ),
+    );
+    if ll.is_some() {
+        set(
+            &mut enforced,
+            "landlock",
+            en(bits & B_LANDLOCK != 0, "restrict_self failed"),
+        );
+    }
+    set(
+        &mut enforced,
+        "caps",
+        en(
+            bits & B_CAPS != 0,
+            if feat.caps {
+                "capabilities could not be fully dropped"
+            } else {
+                "capget/capset unavailable (filtered); process keeps whatever it had"
+            },
+        ),
     );
 
     let pid = child.id() as i32; // pid of our own child; setsid made it the pgid
-    let out_h = child.stdout.take().map(capped_reader);
-    let err_h = child.stderr.take().map(capped_reader);
+    let out_h = child
+        .stdout
+        .take()
+        .map(|r| capped_reader(r, policy.output_cap));
+    let err_h = child
+        .stderr
+        .take()
+        .map(|r| capped_reader(r, policy.output_cap));
 
     let mut timed_out = false;
     let mut error = None;
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(st)) => break Some(st),
-            Ok(None) => {}
-            Err(e) => {
-                error = Some(format!("wait: {e}"));
-                break None;
-            }
+    // Wait WITHOUT reaping (WNOWAIT): while our child is a zombie its pid,
+    // and so the process group id, cannot be reused by an unrelated process.
+    // Only then is the group killed, and only then is the child reaped.
+    loop {
+        // SAFETY: zeroed siginfo is a valid out-param for waitid.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        // SAFETY: waitid on our own child pid with a valid out pointer.
+        let r = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        // SAFETY: si_pid is valid to read after a successful waitid.
+        if r != 0 || unsafe { info.si_pid() } != 0 {
+            break;
         }
         if start.elapsed() >= policy.wall_timeout {
             timed_out = true;
-            let _ = child.kill();
-            break child.wait().ok();
+            break;
         }
-        thread::sleep(Duration::from_millis(50));
-    };
-    // Clean up leftovers in the group we created (pgid == our child's pid).
+        thread::sleep(Duration::from_millis(10));
+    }
     if pid > 1 {
-        // SAFETY: signals only the process group created by our own setsid'd child.
+        // SAFETY: our child is alive or an unreaped zombie, so pgid == pid is
+        // still the group our setsid'd child created; nothing else is hit.
         unsafe {
             libc::kill(-pid, libc::SIGKILL);
         }
     }
-    let stdout = out_h.and_then(|h| h.join().ok()).unwrap_or_default();
-    let stderr = err_h.and_then(|h| h.join().ok()).unwrap_or_default();
+    let status = match child.wait() {
+        Ok(st) => Some(st),
+        Err(e) => {
+            error = Some(format!("wait: {e}"));
+            None
+        }
+    };
+    let (stdout, stdout_truncated) = out_h.and_then(|h| h.join().ok()).unwrap_or_default();
+    let (stderr, stderr_truncated) = err_h.and_then(|h| h.join().ok()).unwrap_or_default();
     let status = match status {
         Some(st) => match (st.code(), st.signal()) {
             (Some(c), _) => Status::Exited(c),
@@ -430,6 +1218,8 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         status,
         stdout,
         stderr,
+        stdout_truncated,
+        stderr_truncated,
         timed_out,
         wall: start.elapsed(),
         error,

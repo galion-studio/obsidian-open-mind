@@ -141,7 +141,7 @@ jobs:
           bin=target/x86_64-unknown-linux-musl/release/repo-check
           "$bin" --json --copyright "3000 Galion / galion-studio" > self-eval.json || true
           "$bin" --copyright "3000 Galion / galion-studio"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: self-eval

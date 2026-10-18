@@ -82,6 +82,8 @@ fn main() -> Result<(), String> {
     }
 
     // Same model as a voice-core backend: the clip as mic audio at 24 kHz.
+    // STT now runs on the backend's worker thread, so we tick in (simulated)
+    // real time and record how long each tick takes.
     stt.context = EncoderContext::Trimmed;
     let spec = FrameSpec::MOSHI;
     let mic = linear(&i16_to_f32(&w.samples), w.sample_rate, spec.sample_rate);
@@ -92,25 +94,56 @@ fn main() -> Result<(), String> {
     s.start(&StaticPersona::new("Galion", "default"))
         .map_err(|e| e.to_string())?;
     let mut frames: Vec<_> = mic.chunks(spec.frame_samples).map(|c| c.to_vec()).collect();
-    frames.extend(std::iter::repeat_n(vec![0.0f32; spec.frame_samples], 40));
+    let speech_frames = frames.len();
+    frames.extend(std::iter::repeat_n(vec![0.0f32; spec.frame_samples], 400));
+    let frame_dur = std::time::Duration::from_millis(spec.frame_ms() as u64);
+    let mut worst_tick = std::time::Duration::ZERO;
+    let mut end_tick = None;
+    let mut speech_end_at = None;
+    let mut first_audio_at = None;
     for (i, c) in frames.iter().enumerate() {
         let mut samples = galion_voice_cpu::resample::f32_to_i16(c);
         samples.resize(spec.frame_samples, 0);
+        let t0 = Instant::now();
         let out = s
             .tick(&galion_voice_core::audio::Frame {
                 seq: i as u64,
                 samples,
             })
             .map_err(|e| e.to_string())?;
-        for e in out.events {
-            if let SessionEvent::Text(t) = e {
-                println!("session text @frame {i}: {t}");
+        let took = t0.elapsed();
+        worst_tick = worst_tick.max(took);
+        for e in &out.events {
+            match e {
+                SessionEvent::Text(t) => println!("session text @frame {i}: {t}"),
+                SessionEvent::UserSpeechEnd => {
+                    end_tick = Some(took);
+                    speech_end_at = Some(Instant::now());
+                }
+                _ => {}
             }
+        }
+        if out.playout.is_some() && first_audio_at.is_none() {
+            first_audio_at = Some(Instant::now());
+        }
+        if i >= speech_frames && first_audio_at.is_some() && !s.backend().busy() {
+            break;
+        }
+        // Real time only after the speech, to keep the bench short.
+        if i >= speech_frames {
+            std::thread::sleep(frame_dur.saturating_sub(took));
         }
     }
     let tm = s.backend().last_timing;
+    let reply_ms = match (speech_end_at, first_audio_at) {
+        (Some(a), Some(b)) => b.duration_since(a).as_millis().to_string(),
+        _ => "?".into(),
+    };
     println!(
-        "pipeline last turn: {tm:?}; session {:?}; VmHWM {} kB",
+        "pipeline last turn: {tm:?}; end-of-turn tick {} us; worst tick {} us; \
+         speech end -> first reply frame {reply_ms} ms; session {:?}; VmHWM {} kB",
+        end_tick.map_or(0, |d| d.as_micros()),
+        worst_tick.as_micros(),
         s.stats(),
         vm_hwm_kb()
     );

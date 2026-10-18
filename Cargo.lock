@@ -303,6 +303,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmind-memory"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "openmind-sandbox"
 version = "0.1.0"
 dependencies = [
@@ -320,13 +330,6 @@ dependencies = [
 
 [[package]]
 name = "openmind-survival"
-version = "0.1.0"
-dependencies = [
- "zagreb-time",
-]
-
-[[package]]
-name = "persona-plex-relay"
 version = "0.1.0"
 dependencies = [
  "zagreb-time",

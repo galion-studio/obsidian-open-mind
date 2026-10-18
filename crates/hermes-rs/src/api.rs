@@ -27,6 +27,8 @@ pub struct Gateway {
     pub active: Arc<AtomicUsize>,
     pub runs: crate::runs::Runs,
     pub jobs: Option<Arc<crate::cron::Scheduler>>,
+    /// memory_tencentdb provider (recall before, capture after each turn).
+    pub memory: Option<Arc<crate::memory::MemoryProvider>>,
 }
 
 /// Holds one agent slot (`gateway.api_server.max_concurrent_runs`).
@@ -85,6 +87,7 @@ impl Gateway {
             active: Arc::new(AtomicUsize::new(0)),
             runs: crate::runs::Runs::default(),
             jobs: None,
+            memory: None,
         }
     }
 
@@ -182,7 +185,8 @@ impl Gateway {
             &json!({"status": "ok", "platform": "hermes-agent", "version": crate::UPSTREAM_COMPAT, "implementation": "hermes-rs",
                     "gateway_state": "running", "active_agents": self.active.load(Ordering::SeqCst),
                     "max_concurrent_runs": self.cfg.max_concurrent_runs, "platforms": {"api_server": {"state": "connected"}},
-                    "spend": self.agent.spend.status(), "pid": std::process::id()}),
+                    "spend": self.agent.spend.status(), "pid": std::process::id(),
+                    "memory": self.memory.as_ref().map(|m| m.status_json())}),
         )
     }
 
@@ -325,6 +329,13 @@ impl Gateway {
             parts.client.push(i.to_string());
         }
         parts.client.extend(client_system);
+        // Plugin prefetch: recalled memory goes into the system prompt only
+        // (never into the stored transcript).
+        if let Some(m) = &self.memory {
+            if let Some(block) = m.recall(&user_text, &row.id) {
+                parts.client.push(block);
+            }
+        }
 
         let mut messages = history.clone();
         messages.push(json!({"role": "user", "content": user_text}));
@@ -357,6 +368,12 @@ impl Gateway {
     /// Store the turn: any body history the store lacked, the user message,
     /// the assistant/tool messages, usage.
     pub fn persist(&self, p: &Prepared, res: &TurnResult) {
+        // Plugin sync_turn: capture completed turns, in the background.
+        if let Some(m) = &self.memory {
+            if !res.failed && !res.final_text.trim().is_empty() {
+                m.capture_async(&p.user_text, &res.final_text, &p.row.id);
+            }
+        }
         let mut row = p.row.clone();
         row.input_tokens += res.usage.prompt_tokens;
         row.output_tokens += res.usage.completion_tokens;

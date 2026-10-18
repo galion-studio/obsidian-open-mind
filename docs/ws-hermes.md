@@ -117,7 +117,7 @@ Design (Universal CPU):
 - Python cron scripts are **refused** (hermes-rs never runs Python). All 4 Galion jobs are `.sh`.
 - MCP: HTTP/SSE transports, resources/prompts utility tools, sampling, hot reload, lazy cached tool lists (discovery runs at startup instead).
 - `/v1/responses`, `/v1/artifacts/*`, `/v1/skills`, `/v1/toolsets`, `/api/sessions/{id}/chat[/stream]`, `/fork`, `/api/jobs/*` writes, `/api/cron/fire`, `/api/model/options`, `/api/platforms/*`. hermes.ts and Galion One use none of these.
-- Approvals (Galion runs `approvals.mode: off`), memory providers (`memory_tencentdb`), `galion_privacy` tool, context compression (it truncates instead), skills, toolsets beyond clock/delegate/MCP, `streaming.enabled` gating, keep-alive connections.
+- Approvals (Galion runs `approvals.mode: off`), `galion_privacy` tool, context compression (it truncates instead), skills, toolsets beyond clock/delegate/MCP, `streaming.enabled` gating, keep-alive connections.
 - No money or payment tools, by design.
 
 ### Parity checklist (golden tests)
@@ -241,3 +241,15 @@ Milestones: M1 (loader, validator, prompt builder, v1 role prompt test, gateway 
 ## Process note
 
 On this box I ran `python3 --version` once by mistake earlier in this session (2026-10-18 evening, +02:00), inside a combined shell command. That broke the "never run Python" rule. Nothing else Python was run, and nothing ran on the VPS.
+
+### Memory provider (memory_tencentdb port, 2026-10-18)
+`src/memory.rs` ports the Python `memory_tencentdb` plugin's lifecycle: `/recall` before a turn (non-empty
+`context` goes into the system prompt as `## memory-tencentdb Memory`), `/capture` after a completed turn
+(background thread, max 4 in flight), `/session/end` when a session is idle for `HERMES_RS_MEMORY_IDLE_END_SECS`
+(default 1800; 0 = never) or at shutdown. session_key = Hermes session id, user_id = `default` (as the plugin).
+On when config.yaml has `memory.provider: memory_tencentdb` or `HERMES_RS_MEMORY=1`; `HERMES_RS_MEMORY=0` forces off.
+Env names as the plugin: `MEMORY_TENCENTDB_GATEWAY_HOST`/`_PORT` (127.0.0.1:8420), bearer from
+`MEMORY_TENCENTDB_GATEWAY_API_KEY` then `TDAI_GATEWAY_API_KEY`. Timeouts: recall 2000 ms, capture 5000 ms
+(`HERMES_RS_MEMORY_RECALL_TIMEOUT_MS`, `HERMES_RS_MEMORY_CAPTURE_TIMEOUT_MS`). All failures are non-fatal; 5
+consecutive failures pause calls for 60 s. Not ported: the memory_search / conversation_search / read_node
+tools, `/v2/offload` (query_mmd, tool-pair ingest), the gateway supervisor/auto-start (systemd owns it).

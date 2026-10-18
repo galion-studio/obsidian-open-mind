@@ -101,6 +101,9 @@ pub struct Config {
     pub tool_hard_stop_after: usize,
     pub api_key_env: String,
     pub persona_file: Option<PathBuf>,
+    /// External memory provider (`memory.provider: memory_tencentdb` in
+    /// config.yaml, or HERMES_RS_MEMORY=1). None = no memory calls.
+    pub memory: Option<crate::memory::MemoryCfg>,
 }
 
 fn s(v: &Value) -> Option<String> {
@@ -184,11 +187,19 @@ impl Config {
             tool_hard_stop_after: 5,
             api_key_env: "API_SERVER_KEY".into(),
             persona_file: None,
+            memory: None,
         }
     }
 
     /// Apply a parsed config.yaml (as JSON value) on top of defaults.
     pub fn apply_yaml(&mut self, v: &Value) {
+        match s(&v["memory"]["provider"]).as_deref() {
+            Some(crate::memory::PROVIDER_NAME) => {
+                self.memory.get_or_insert_with(Default::default);
+            }
+            Some(_) => self.memory = None,
+            None => {}
+        }
         let m = &v["model"];
         if let Some(x) = s(&m["default"]) {
             self.default_model = x;
@@ -384,6 +395,45 @@ impl Config {
         if let Some(x) = get("HERMES_RS_PERSONA") {
             self.persona_file = Some(PathBuf::from(x));
         }
+        // Memory provider gate + the plugin's env names.
+        if let Some(x) = get("HERMES_RS_MEMORY") {
+            if matches!(x.as_str(), "0" | "false" | "no" | "off") {
+                self.memory = None;
+            } else if matches!(x.as_str(), "1" | "true" | "yes" | "on") {
+                self.memory.get_or_insert_with(Default::default);
+            }
+        }
+        if let Some(m) = self.memory.as_mut() {
+            if let Some(h) = get("MEMORY_TENCENTDB_GATEWAY_HOST") {
+                m.host = h;
+            }
+            if let Some(p) =
+                get("MEMORY_TENCENTDB_GATEWAY_PORT").and_then(|p| p.parse::<u16>().ok())
+            {
+                if p > 0 {
+                    m.port = p;
+                }
+            }
+            if let Some(x) = get("HERMES_RS_MEMORY_USER_ID") {
+                m.user_id = x;
+            }
+            let ms = |k: &str| {
+                get(k)
+                    .and_then(|x| x.parse::<u64>().ok())
+                    .filter(|x| *x > 0)
+            };
+            if let Some(x) = ms("HERMES_RS_MEMORY_RECALL_TIMEOUT_MS") {
+                m.recall_timeout = std::time::Duration::from_millis(x);
+            }
+            if let Some(x) = ms("HERMES_RS_MEMORY_CAPTURE_TIMEOUT_MS") {
+                m.capture_timeout = std::time::Duration::from_millis(x);
+            }
+            if let Some(x) =
+                get("HERMES_RS_MEMORY_IDLE_END_SECS").and_then(|x| x.parse::<u64>().ok())
+            {
+                m.idle_end_secs = x;
+            }
+        }
         if let Some(x) = get("OPENROUTER_BASE_URL") {
             if let Some(p) = self.providers.get_mut("openrouter") {
                 p.base_url = x;
@@ -496,6 +546,38 @@ mcp_servers:
         assert_eq!(c.max_turns, 500);
         assert_eq!(c.mcp_servers[0].name, "galion-stack");
         assert!(c.free_only_background);
+    }
+
+    #[test]
+    fn memory_provider_gate() {
+        let mut c = Config::defaults(Path::new("/h"));
+        c.apply_yaml(&yaml::parse(GALION).unwrap());
+        assert!(c.memory.is_none());
+        c.apply_yaml(
+            &yaml::parse("memory:\n  provider: memory_tencentdb\n  memory_enabled: true\n")
+                .unwrap(),
+        );
+        assert_eq!(c.memory, Some(crate::memory::MemoryCfg::default()));
+        let env = |k: &str| match k {
+            "MEMORY_TENCENTDB_GATEWAY_PORT" => Some(" 8421 ".to_string()),
+            "HERMES_RS_MEMORY_RECALL_TIMEOUT_MS" => Some("750".to_string()),
+            "HERMES_RS_MEMORY_IDLE_END_SECS" => Some("0".to_string()),
+            _ => None,
+        };
+        c.apply_env(&env).unwrap();
+        let m = c.memory.clone().unwrap();
+        assert_eq!(m.base_url(), "http://127.0.0.1:8421");
+        assert_eq!(m.recall_timeout.as_millis(), 750);
+        assert_eq!(m.idle_end_secs, 0);
+        c.apply_env(&|k: &str| (k == "HERMES_RS_MEMORY").then(|| "0".to_string()))
+            .unwrap();
+        assert!(c.memory.is_none());
+        let mut d = Config::defaults(Path::new("/h"));
+        d.apply_env(&|k: &str| (k == "HERMES_RS_MEMORY").then(|| "on".to_string()))
+            .unwrap();
+        assert!(d.memory.is_some());
+        d.apply_yaml(&yaml::parse("memory:\n  provider: honcho\n").unwrap());
+        assert!(d.memory.is_none());
     }
 
     #[test]

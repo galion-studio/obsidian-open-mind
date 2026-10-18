@@ -7,7 +7,10 @@
 //!
 //! Config: $HERMES_HOME/config.yaml (the Python Hermes file, subset), then
 //! env (HERMES_RS_HOST, HERMES_RS_PORT, HERMES_RS_STATE_DB, ...). The API key
-//! is read from $API_SERVER_KEY only. `--mock` uses the offline mock
+//! is read from $API_SERVER_KEY only. Memory: `memory.provider:
+//! memory_tencentdb` in config.yaml (or HERMES_RS_MEMORY=1/0) turns on the
+//! memory gateway client (MEMORY_TENCENTDB_GATEWAY_HOST/PORT, key from
+//! MEMORY_TENCENTDB_GATEWAY_API_KEY or TDAI_GATEWAY_API_KEY). `--mock` uses the offline mock
 //! provider (no network, no spend) for shadow smoke tests.
 
 use hermes_rs::api::Gateway;
@@ -50,6 +53,24 @@ fn open_store(cfg: &Config) -> Result<Arc<dyn SessionStore>, String> {
     Ok(Arc::new(hermes_rs::session::Layered { primary, legacy }))
 }
 
+/// One line about the memory provider; names the key env var, never the value.
+fn memory_summary(cfg: &Config) -> String {
+    match &cfg.memory {
+        None => "off".into(),
+        Some(m) => format!(
+            "{} {} key_env={} recall_timeout_ms={} capture_timeout_ms={} idle_end_secs={}",
+            hermes_rs::memory::PROVIDER_NAME,
+            m.base_url(),
+            hermes_rs::memory::resolve_key(&env)
+                .map(|(_, n)| n)
+                .unwrap_or("none"),
+            m.recall_timeout.as_millis(),
+            m.capture_timeout.as_millis(),
+            m.idle_end_secs
+        ),
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mock = args.iter().any(|a| a == "--mock");
@@ -62,7 +83,7 @@ fn main() {
     };
     if args.iter().any(|a| a == "--check-config") {
         println!(
-            "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={}",
+            "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={} memory={}",
             cfg.home.display(),
             cfg.host,
             cfg.port,
@@ -74,7 +95,8 @@ fn main() {
             cfg.max_concurrent_runs,
             cfg.context_length,
             cfg.mcp_servers.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
-            cfg.cron_enabled
+            cfg.cron_enabled,
+            memory_summary(&cfg)
         );
         return;
     }
@@ -116,6 +138,16 @@ fn main() {
         }
     };
     let mut gw = Gateway::new(cfg.clone(), agent, store, api_key);
+    if let Some(mcfg) = cfg.memory.clone() {
+        let mem = hermes_rs::memory::MemoryProvider::new(mcfg, &env);
+        let probe = match mem.probe() {
+            Ok(()) => "health 200".to_string(),
+            Err(e) => format!("not reachable yet ({e}); calls stay non-fatal"),
+        };
+        log(&format!("memory: {} ({probe})", memory_summary(&cfg)));
+        mem.spawn_reaper();
+        gw.memory = Some(mem);
+    }
     let sched = Arc::new(hermes_rs::cron::Scheduler::new(&cfg.home, Some(cron_agent)));
     gw.jobs = Some(sched.clone());
     let gw = Arc::new(gw);

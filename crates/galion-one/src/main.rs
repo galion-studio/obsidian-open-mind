@@ -2985,8 +2985,9 @@ fn castle() -> bool {
 }
 
 fn token_ok(cookie: &str) -> bool {
+    // Fail closed: a missing, unreadable or empty pairing store means nobody is paired.
     if !castle() {
-        return true;
+        return false;
     }
     let token = cookie_token(cookie);
     if token.is_empty() {
@@ -3400,4 +3401,51 @@ fn write_response(
     }
     let _ = stream.shutdown(std::net::Shutdown::Write);
     Ok(())
+}
+
+#[cfg(test)]
+mod pairing_tests {
+    use super::*;
+
+    // One test touches ONE_DEVICE_STORE so env changes never race.
+    #[test]
+    fn pairing_store_fails_closed_and_keeps_tokens() {
+        let dir = std::env::temp_dir().join(format!("one-pair-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let store = dir.join("admin-device.json");
+        let _ = fs::remove_file(&store);
+        std::env::set_var("ONE_DEVICE_STORE", &store);
+
+        // Missing store: nobody is paired, with or without a cookie.
+        assert!(!token_ok(""));
+        assert!(!token_ok("galion_admin=anything"));
+
+        // Store without a codeHash: still closed.
+        fs::write(&store, r#"{"codeHash":"","tokenHashes":[]}"#).unwrap();
+        assert!(!token_ok("galion_admin=anything"));
+
+        // Real store: existing token valid, wrong token rejected.
+        let good = sha256("tok-1");
+        let code = sha256("ABC123");
+        fs::write(
+            &store,
+            format!(r#"{{"codeHash":"{code}","tokenHash":"","tokenHashes":["{good}"],"deviceHash":"","fails":0,"lockedUntil":0}}"#),
+        )
+        .unwrap();
+        assert!(token_ok("galion_admin=tok-1"));
+        assert!(!token_ok("galion_admin=tok-2"));
+        assert!(!token_ok(""));
+
+        // Lower-case code is uppercased before hashing; old token survives pairing.
+        let (_, body, tok) = pair("abc123");
+        assert_eq!(body, br#"{"ok":true}"#.to_vec());
+        let tok = tok.unwrap();
+        assert!(token_ok(&format!("galion_admin={tok}")));
+        assert!(token_ok("galion_admin=tok-1"));
+        let text = fs::read_to_string(&store).unwrap();
+        assert!(text.contains(&code));
+
+        std::env::remove_var("ONE_DEVICE_STORE");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

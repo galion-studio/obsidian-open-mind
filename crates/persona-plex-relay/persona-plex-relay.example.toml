@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Slavik / Galion Studio
+#
+# Persona Plex v2 relay - example config. Copy to persona-plex-relay.toml and
+# edit. Every host comes from here; the binary hard-codes none.
+# Secrets are NEVER written in this file: only the NAME of an environment
+# variable that holds them.
+
+[relay]
+# Where the relay WOULD listen once the listener exists (the scaffold never binds).
+bind = "127.0.0.1:8095"
+# PersonaPlex's moshi server serves one conversation at a time (global lock).
+max_sessions = 1
+idle_timeout_s = 120
+# Name of the env var holding the client bearer token. Value is never printed.
+auth_token_env = "PERSONA_PLEX_RELAY_TOKEN"
+
+[upstream]
+# GPU host running `python -m moshi.server` from NVIDIA/personaplex (route /api/chat).
+# Off until a GPU is provisioned (needs RUNPOD_API_KEY and Slavik's approval).
+enabled = false
+url = "wss://GPU_HOST_NOT_PROVISIONED:8998/api/chat"
+# One of the 18 packaged voices (NATF0..3, NATM0..3, VARF0..4, VARM0..4) or a
+# custom prompt file on the GPU host. samantha.wav as a custom prompt is untested.
+voice_prompt = "NATF2.pt"
+# Persona Plex v1; the relay extracts the "## Role prompt (text)" code block.
+role_prompt_file = "/opt/galion/openmind/personas/persona-plex-v1.md"
+connect_timeout_ms = 5000
+
+[audio]
+# Mimi codec: 24 kHz in/out, 12.5 Hz frames (80 ms). Transport: Opus in Ogg pages.
+sample_rate_hz = 24000
+frame_ms = 80
+codec = "opus"
+
+[speaker]
+enabled = true
+# ONNX speaker-embedding model on the VPS (CPU). Not downloaded yet.
+model_path = "/opt/galion/openmind/models/speaker/NOT_DOWNLOADED.onnx"
+embedding_dim = 256
+# Cosine thresholds: >= accept -> match; < reject -> no match; between -> uncertain.
+# PLACEHOLDERS. Must be calibrated on Slavik's own enrollment + impostor audio
+# (to be measured). Do not treat these numbers as tuned.
+accept_threshold = 0.70
+reject_threshold = 0.50
+enrollment_min_phrases = 5
+# Minimum enrollment-phrase agreement with the centroid (placeholder, to be measured).
+enrollment_min_consistency = 0.60
+# Continuous verification: score a rolling window of user speech.
+window_ms = 3000
+min_speech_ms = 1500
+max_consecutive_rejects = 2
+require_liveness = true
+# Encrypted voiceprint store (biometric data, GDPR art. 9). Box-local only.
+store_dir = "/opt/galion/openmind/var/voiceprints"
+# Name of the env var holding the store encryption key. Value is never printed.
+store_key_env = "PERSONA_PLEX_VOICEPRINT_KEY"
+
+[fallback]
+# When the GPU is off: hand the user to Galion One text mode.
+mode = "galion-one-text"
+galion_one_url = "http://127.0.0.1:8091"

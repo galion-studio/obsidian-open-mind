@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 Slavik / Galion Studio
+#
+# Persona Plex v2 relay (scaffold). Workspace member via the root `crates/*`
+# glob. No third-party dependencies: the only dependency is the in-tree
+# `zagreb-time` crate, whose own deps (chrono, chrono-tz) are already in the
+# workspace Cargo.lock.
+
+[package]
+name = "persona-plex-relay"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Persona Plex v2: VPS relay scaffold for the voice-to-voice channel (auth, session, speaker verification policy; no inference)."
+
+[[bin]]
+name = "persona-plex-relay"
+path = "src/main.rs"
+
+[dependencies]
+zagreb-time = { path = "../zagreb-time" }

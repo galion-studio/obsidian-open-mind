@@ -117,7 +117,8 @@ fn unix_now_f64() -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Tiny blocking HTTP/1.1 client (no TLS, no redirects - the probes are plain
+// Tiny blocking HTTP/1.1 client (no TLS; follows http redirects like urllib;
+// stops at Content-Length so keep-alive servers do not stall. The probes are plain
 // loopback HTTP, exactly like the Python urllib calls).
 // ---------------------------------------------------------------------------
 
@@ -151,7 +152,10 @@ fn dechunk(mut data: &[u8]) -> Option<Vec<u8>> {
     Some(out)
 }
 
-fn http_get(url: &str, timeout: Duration) -> Option<(u16, Vec<u8>)> {
+/// One GET. Reads until EOF or until the Content-Length body is complete, so
+/// a server that keeps the connection open does not cost a full timeout.
+/// Returns `(status, raw headers, body)`.
+fn http_get_once(url: &str, timeout: Duration) -> Option<(u16, String, Vec<u8>)> {
     let rest = url.strip_prefix("http://")?;
     let (hostport, path) = match rest.find('/') {
         Some(i) => (&rest[..i], &rest[i..]),
@@ -174,29 +178,97 @@ fn http_get(url: &str, timeout: Duration) -> Option<(u16, Vec<u8>)> {
     );
     stream.write_all(request.as_bytes()).ok()?;
     let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).ok()?;
+    let mut chunk = [0u8; 8192];
+    loop {
+        match stream.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if let Some(sep) = find(&buf, b"\r\n\r\n") {
+                    let head = String::from_utf8_lossy(&buf[..sep]).to_ascii_lowercase();
+                    let want = head.lines().find_map(|l| {
+                        l.strip_prefix("content-length:")
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                    });
+                    if want.is_some_and(|w| buf.len() - sep - 4 >= w) {
+                        break;
+                    }
+                }
+                if buf.len() > 8 * 1024 * 1024 {
+                    return None;
+                }
+            }
+            Err(_) => return None,
+        }
+    }
     let sep = find(&buf, b"\r\n\r\n")?;
     let head = &buf[..sep];
     let raw_body = &buf[sep + 4..];
     let first_line_end = find(head, b"\r\n").unwrap_or(head.len());
     let status_line = String::from_utf8_lossy(&head[..first_line_end]);
     let status: u16 = status_line.split_whitespace().nth(1)?.parse().ok()?;
-    let headers = String::from_utf8_lossy(head).to_ascii_lowercase();
-    let body = if headers.contains("transfer-encoding: chunked") {
+    let headers = String::from_utf8_lossy(head).to_string();
+    let body = if headers
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
         dechunk(raw_body)?
     } else {
         raw_body.to_vec()
     };
-    Some((status, body))
+    Some((status, headers, body))
 }
 
-/// CPython `probe(url, timeout)`: `(ok, milliseconds, body)`.
+/// Resolve a redirect `Location` against the current http URL.
+fn redirect_target(current: &str, location: &str) -> Option<String> {
+    let location = location.trim();
+    if location.starts_with("http://") {
+        return Some(location.to_string());
+    }
+    if location.starts_with("https://") || location.is_empty() {
+        // No TLS here; urllib would follow it. Treat as a failed probe.
+        return None;
+    }
+    let rest = current.strip_prefix("http://")?;
+    let host_end = rest.find('/').unwrap_or(rest.len());
+    let origin = &current[..7 + host_end];
+    if location.starts_with('/') {
+        return Some(format!("{origin}{location}"));
+    }
+    let path = &rest[host_end..];
+    let dir = &path[..path.rfind('/').map(|i| i + 1).unwrap_or(0)];
+    let dir = if dir.is_empty() { "/" } else { dir };
+    Some(format!("{origin}{dir}{location}"))
+}
+
+/// GET following up to 5 redirects (301/302/303/307/308), like urllib.
+fn http_get(url: &str, timeout: Duration) -> Option<(u16, Vec<u8>)> {
+    let mut url = url.to_string();
+    for _ in 0..=5 {
+        let (status, headers, body) = http_get_once(&url, timeout)?;
+        if matches!(status, 301 | 302 | 303 | 307 | 308) {
+            let loc = headers.lines().skip(1).find_map(|l| {
+                let (k, v) = l.split_once(':')?;
+                k.trim()
+                    .eq_ignore_ascii_case("location")
+                    .then(|| v.trim().to_string())
+            });
+            url = redirect_target(&url, &loc?)?;
+            continue;
+        }
+        return Some((status, body));
+    }
+    None
+}
+
+/// CPython `probe(url, timeout)`: `(ok, milliseconds, body)`. urllib raises on
+/// any final status outside 2xx, so only 2xx counts as up.
 fn probe(url: &str, timeout: Duration) -> (bool, i64, Vec<u8>) {
     let started = Instant::now();
     let got = http_get(url, timeout);
     let ms = started.elapsed().as_millis() as i64;
     match got {
-        Some((status, body)) if (200..400).contains(&status) => (true, ms, body),
+        Some((status, body)) if (200..300).contains(&status) => (true, ms, body),
         _ => (false, ms, Vec::new()),
     }
 }
@@ -379,5 +451,86 @@ fn main() {
             break;
         }
         std::thread::sleep(Duration::from_secs(3));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+
+    #[test]
+    fn redirect_targets() {
+        let u = "http://10.0.0.1/console";
+        assert_eq!(
+            redirect_target(u, "/console/").as_deref(),
+            Some("http://10.0.0.1/console/")
+        );
+        assert_eq!(
+            redirect_target(u, "Login").as_deref(),
+            Some("http://10.0.0.1/Login")
+        );
+        assert_eq!(
+            redirect_target("http://h:8/a/b", "c").as_deref(),
+            Some("http://h:8/a/c")
+        );
+        assert_eq!(
+            redirect_target(u, "http://x/y").as_deref(),
+            Some("http://x/y")
+        );
+        assert_eq!(redirect_target(u, "https://x/y"), None);
+    }
+
+    /// Fake server: `/r` redirects to `/Ok`, `/Ok` answers 200 and keeps the
+    /// connection open (Content-Length only), `/e` answers 503.
+    fn serve() -> String {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", l.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for mut c in l.incoming().flatten() {
+                let mut b = [0u8; 2048];
+                let n = c.read(&mut b).unwrap_or(0);
+                let req = String::from_utf8_lossy(&b[..n]).to_string();
+                let path = req.split_whitespace().nth(1).unwrap_or("").to_string();
+                let resp = match path.as_str() {
+                    "/r" => "HTTP/1.1 302 Found\r\nLocation: /Ok\r\nContent-Length: 0\r\n\r\n"
+                        .to_string(),
+                    "/Ok" => {
+                        "HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\n{\"ok\":true}".to_string()
+                    }
+                    _ => "HTTP/1.1 503 Busy\r\nContent-Length: 0\r\n\r\n".to_string(),
+                };
+                let _ = c.write_all(resp.as_bytes());
+                held.push(c); // never close: a keep-alive server
+            }
+        });
+        base
+    }
+
+    #[test]
+    fn follows_redirect_and_does_not_wait_for_close() {
+        let base = serve();
+        let t0 = Instant::now();
+        let (ok, _ms, body) = probe(&format!("{base}/r"), Duration::from_secs(3));
+        assert!(ok);
+        assert_eq!(body, b"{\"ok\":true}");
+        assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+        let (ok, _, body) = probe(&format!("{base}/e"), Duration::from_secs(3));
+        assert!(!ok && body.is_empty());
+    }
+
+    #[test]
+    fn model_names() {
+        assert_eq!(
+            model_from_ps(br#"{"models":[{"name":"galion:latest","context_length":65536}]}"#),
+            "galion:latest ctx 65536"
+        );
+        assert_eq!(model_from_ps(br#"{"models":[]}"#), "");
+        assert_eq!(
+            model_from_tags(br#"{"models":[{"name":"qwen"},{"name":"galion:latest"}]}"#),
+            "galion:latest (idle)"
+        );
+        assert_eq!(model_from_tags(b"{}"), " (idle)");
     }
 }

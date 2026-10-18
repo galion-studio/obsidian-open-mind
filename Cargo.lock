@@ -190,6 +190,10 @@ name = "galion-one"
 version = "0.1.0"
 
 [[package]]
+name = "galion-origin"
+version = "0.1.0"
+
+[[package]]
 name = "guardian-tick"
 version = "0.1.0"
 dependencies = [

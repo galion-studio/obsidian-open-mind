@@ -13,4 +13,5 @@ pub mod log;
 pub mod offload;
 pub mod store;
 pub mod text;
+pub mod tools;
 pub mod util;

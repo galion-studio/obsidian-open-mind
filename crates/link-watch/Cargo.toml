@@ -1,0 +1,15 @@
+[package]
+name = "link-watch"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust port of the laptop link watcher (was /opt/galion/galion-light/scripts/link-watch.py)"
+
+[[bin]]
+name = "link-watch"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true, features = ["preserve_order"] }
+zagreb-time = { path = "../zagreb-time" }

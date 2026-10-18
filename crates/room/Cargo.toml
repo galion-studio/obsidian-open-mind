@@ -1,0 +1,12 @@
+[package]
+name = "room"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "room: a read-only view of the operator's files as one page."
+
+[[bin]]
+name = "room"
+path = "src/main.rs"
+
+[dependencies]

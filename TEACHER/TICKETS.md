@@ -80,3 +80,16 @@ Dependency order: T1 → (T2, T3, T4 in parallel once the workspace exists) → 
 - `deploy/switch-console.sh` + `deploy/rollback-console.sh` (dry-run default, `--apply` required; rollback restores today's unit file
   from a backup copy taken by the switch script). Run only in dry-run.
 - Record RAM of the test prod server vs today's dev server (expected: much lower) in PROGRESS.md. Add to STAGED.md.
+
+## T3b — remove runtime Python from galion-desk and galion-one   (after T3 + T4)   [teacher review #1]
+- C8 fails for the workspace as a whole: the ported binaries still spawn Python at runtime.
+  - `crates/galion-desk/src/main.rs:236` — spawns `python3 /opt/galion/bin/desk-hermes.py`. Replace with the Rust binary:
+    path from env `DESK_HERMES_BIN`, default `/opt/galion/openmind/dist/bin/desk-hermes`. Same stdout JSON, so desk output is unchanged.
+    Re-run the desk `GET /desk` diff against live 8646.
+  - `crates/galion-one/src/main.rs:1136,1238,1830` — remove `trim_warm`'s `python3 -c` entirely (it DELETEs rows in Hermes state.db — forbidden).
+    Do NOT replace it with a write to state.db. Gate `one/models.py` and the TTS python worker behind `ONE_LEGACY_PY=1` (default off; the TTS
+    worker fails today anyway, no torch). Add `ONE_NO_WARM=1` to disable `keep_warm` in test instances; every test instance from now on runs
+    with `ONE_NO_WARM=1`.
+- Every behaviour change goes into `TEACHER/STAGED.md` as "needs Slavik's approval before switch-over".
+- Done when: C1–C3, C5 (desk), C7 pass, and C8 passes: `rg -l -i python crates/` shows only comment lines naming the replaced scripts
+  (list them in PROGRESS.md). C4: rebuilt binaries still < 2 MB and stripped.

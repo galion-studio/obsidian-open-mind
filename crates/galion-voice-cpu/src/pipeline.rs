@@ -38,6 +38,8 @@ pub struct TurnTiming {
     pub stt_ms: u64,
     pub model_ms: u64,
     pub tts_ms: u64,
+    /// TTS time until the first chunk's audio was handed over.
+    pub tts_first_ms: u64,
 }
 
 /// One utterance for the worker.
@@ -136,31 +138,56 @@ impl<S: SpeechToText, M: TextModel, T: TextToSpeech> Worker<S, M, T> {
         if !self.send(gen, Msg::Event(BackendEvent::Text(reply.clone()))) {
             return Ok(Vec::new());
         }
+        // TTS chunk by chunk (e.g. per sentence): each chunk's frames go out as
+        // soon as it is made, and a barge-in stops before the next chunk.
         let t = std::time::Instant::now();
-        let speech = self.tts.synthesize(&reply, &job.voice)?;
-        let speech = f32_to_i16(&linear(
-            &i16_to_f32(&speech),
-            self.tts.sample_rate(),
-            self.spec.sample_rate,
-        ));
-        timing.tts_ms = ms(t);
-        if self.stale(gen) {
-            return Ok(Vec::new());
-        }
         let n = self.spec.frame_samples.max(1);
-        let mut msgs = Vec::with_capacity(speech.len() / n + 3);
-        for chunk in speech.chunks(n) {
-            let mut samples = chunk.to_vec();
-            samples.resize(n, 0);
-            msgs.push(Msg::Event(BackendEvent::Audio(Frame {
-                seq: *out_seq,
-                samples,
-            })));
-            *out_seq += 1;
+        let mut tail: Vec<i16> = Vec::new();
+        let chunks: Vec<String> = self
+            .tts
+            .chunks(&reply)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        for (ci, chunk) in chunks.iter().enumerate() {
+            if self.stale(gen) {
+                return Ok(Vec::new());
+            }
+            let speech = self.tts.synthesize(chunk, &job.voice)?;
+            tail.extend(f32_to_i16(&linear(
+                &i16_to_f32(&speech),
+                self.tts.sample_rate(),
+                self.spec.sample_rate,
+            )));
+            if ci == 0 {
+                timing.tts_first_ms = ms(t);
+            }
+            if self.stale(gen) {
+                return Ok(Vec::new());
+            }
+            // Whole frames now; the remainder waits for the next chunk.
+            let last = ci + 1 == chunks.len();
+            let full = if last { tail.len() } else { tail.len() / n * n };
+            let rest = tail.split_off(full);
+            for f in tail.chunks(n) {
+                let mut samples = f.to_vec();
+                samples.resize(n, 0);
+                let ev = Msg::Event(BackendEvent::Audio(Frame {
+                    seq: *out_seq,
+                    samples,
+                }));
+                *out_seq += 1;
+                if !self.send(gen, ev) {
+                    return Ok(Vec::new());
+                }
+            }
+            tail = rest;
         }
-        msgs.push(Msg::Timing(timing));
-        msgs.push(Msg::Event(BackendEvent::TurnDone));
-        Ok(msgs)
+        timing.tts_ms = ms(t);
+        Ok(vec![
+            Msg::Timing(timing),
+            Msg::Event(BackendEvent::TurnDone),
+        ])
     }
 }
 
@@ -464,6 +491,30 @@ pub mod mocks {
         }
     }
 
+    /// Fixed reply text.
+    pub struct FixedModel(pub String);
+    impl TextModel for FixedModel {
+        fn reply(&mut self, _: &str, _: &str) -> Result<String, String> {
+            Ok(self.0.clone())
+        }
+    }
+
+    /// Sentence-chunked TTS that takes a fixed time per sentence: 0.5 s of
+    /// tone per sentence.
+    pub struct SlowSentenceTts(pub std::time::Duration);
+    impl TextToSpeech for SlowSentenceTts {
+        fn sample_rate(&self) -> u32 {
+            16_000
+        }
+        fn synthesize(&mut self, _: &str, _: &str) -> Result<Vec<i16>, String> {
+            std::thread::sleep(self.0);
+            Ok(synth::tone(16_000, 300.0, 0.25, 8000, 0))
+        }
+        fn chunks<'a>(&self, text: &'a str) -> Vec<&'a str> {
+            crate::stt::sentences(text)
+        }
+    }
+
     /// Always fails (error path).
     pub struct FailingTts;
     impl TextToSpeech for FailingTts {
@@ -644,6 +695,65 @@ mod tests {
             !texts.iter().any(|t| t.contains("heard 80 ms")),
             "{texts:?}"
         );
+    }
+
+    /// Chunked TTS: sentence 1 plays before sentence 3 is made; a barge-in
+    /// after the first audio stops the remaining sentences.
+    #[test]
+    fn chunked_tts_streams_and_barge_in_stops_later_chunks() {
+        let tts = SlowSentenceTts(Duration::from_millis(150));
+        let model = FixedModel("One. Two. Three. Four.".into());
+        let mut be = CpuPipelineBackend::new(MockStt, model, tts, FrameSpec::MOSHI);
+        be.start(&persona()).unwrap();
+        be.send_audio(&talk(0)).unwrap();
+        let t0 = Instant::now();
+        be.end_of_user_turn().unwrap();
+        let mut frames = 0;
+        while frames == 0 && t0.elapsed() < Duration::from_secs(5) {
+            frames += be
+                .poll()
+                .unwrap()
+                .iter()
+                .filter(|e| matches!(e, BackendEvent::Audio(_)))
+                .count();
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let first = t0.elapsed();
+        assert!(frames > 0);
+        assert!(
+            first < Duration::from_millis(400),
+            "first audio after {first:?}"
+        );
+        be.interrupt().unwrap();
+        std::thread::sleep(Duration::from_millis(700));
+        for _ in 0..100 {
+            assert!(be.poll().unwrap().is_empty(), "later sentences leaked");
+        }
+        // Uninterrupted: 4 sentences x 0.5 s = 25 frames of 80 ms at 24 kHz.
+        let tts = SlowSentenceTts(Duration::from_millis(5));
+        let model = FixedModel("One. Two. Three. Four.".into());
+        let mut be = CpuPipelineBackend::new(MockStt, model, tts, FrameSpec::MOSHI);
+        be.start(&persona()).unwrap();
+        be.send_audio(&talk(0)).unwrap();
+        be.end_of_user_turn().unwrap();
+        let mut audio = 0;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while be.busy() && Instant::now() < deadline {
+            for e in be.poll().unwrap() {
+                audio += usize::from(matches!(e, BackendEvent::Audio(_)));
+            }
+        }
+        while let Ok(evs) = be.poll() {
+            if evs.is_empty() {
+                break;
+            }
+            audio += evs
+                .iter()
+                .filter(|e| matches!(e, BackendEvent::Audio(_)))
+                .count();
+        }
+        assert_eq!(audio, 25);
+        assert!(be.last_timing.tts_first_ms <= be.last_timing.tts_ms);
     }
 
     #[test]

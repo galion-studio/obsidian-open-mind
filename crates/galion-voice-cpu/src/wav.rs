@@ -9,6 +9,28 @@ pub struct Wav {
     pub samples: Vec<i16>,
 }
 
+/// 16-bit PCM mono WAV bytes.
+pub fn encode(samples: &[i16], sample_rate: u32) -> Vec<u8> {
+    let data = (samples.len() * 2) as u32;
+    let mut b = Vec::with_capacity(44 + data as usize);
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.extend_from_slice(&sample_rate.to_le_bytes());
+    b.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+    b.extend_from_slice(&2u16.to_le_bytes());
+    b.extend_from_slice(&16u16.to_le_bytes());
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data.to_le_bytes());
+    for s in samples {
+        b.extend_from_slice(&s.to_le_bytes());
+    }
+    b
+}
+
 pub fn parse(b: &[u8]) -> Result<Wav, String> {
     if b.len() < 12 || &b[0..4] != b"RIFF" || &b[8..12] != b"WAVE" {
         return Err("not a RIFF/WAVE file".into());

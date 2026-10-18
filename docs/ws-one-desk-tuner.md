@@ -91,7 +91,7 @@ galion-desk is 2.4 MB on gnu and 0.5 MB on musl, against 1.7 MB live. tuner is 2
 
 1. **Approve the switch** (section 7): the One unit, then the desk and tuner binaries.
 2. **The one-warm session in Hermes state.db:** live One deleted it with python3 after each warm pass. The Rust One never writes state.db, so with the default settings Hermes keeps one more short exchange about every 4 to 5 minutes. Options: (a) accept it, (b) a Hermes-side cleanup job, (c) `ONE_WARM_MIND=0` (no Hermes warm ping).
-3. **Open when unpaired (existing behaviour, flagged):** if the device store file is missing or has no `codeHash`, One treats every caller as paired. That includes `/files`, `/models` and `/api/v1/analytics`. The staged unit names the live store path explicitly. Consider fail-closed before One is reachable through any tunnel.
+3. **FIXED on ws/ui 15cdb53 (fail closed, now live):** formerly open when unpaired: if the device store file is missing or has no `codeHash`, One treats every caller as paired. That includes `/files`, `/models` and `/api/v1/analytics`. The staged unit names the live store path explicitly. Consider fail-closed before One is reachable through any tunnel.
 4. **O4:** keep publishing the tuner on a random trycloudflare URL (`tuner-publish.service`), or stop `tuner-quick`.
 5. **OpenRouter key:** the unit points `OPENROUTER_KEY_FILE` at `/workspace/hermes/.env`, the same file models.py read. Confirm, or give One its own key file.
 6. **Delete** `galion-light/one/{talk,trace,warm,models,set-model,defence}.py` and `__pycache__` once the switch has run for a day (not done).

@@ -156,6 +156,10 @@ name = "galion-one"
 version = "0.1.0"
 
 [[package]]
+name = "galion-voice-core"
+version = "0.1.0"
+
+[[package]]
 name = "guardian-tick"
 version = "0.1.0"
 dependencies = [
@@ -329,6 +333,7 @@ dependencies = [
 name = "persona-plex-relay"
 version = "0.1.0"
 dependencies = [
+ "galion-voice-core",
  "zagreb-time",
 ]
 

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Galion voice core: portable full-duplex voice session logic. std only, no
+# third-party dependencies, no unsafe, no asm, no SIMD intrinsics.
+
+[package]
+name = "galion-voice-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Galion voice-to-voice core: framing, energy VAD, jitter buffer, full-duplex session state machine with barge-in, pluggable backends."
+
+[dependencies]

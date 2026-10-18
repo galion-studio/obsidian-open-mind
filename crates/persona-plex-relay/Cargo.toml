@@ -19,3 +19,4 @@ path = "src/main.rs"
 
 [dependencies]
 zagreb-time = { path = "../zagreb-time" }
+galion-voice-core = { path = "../galion-voice-core" }

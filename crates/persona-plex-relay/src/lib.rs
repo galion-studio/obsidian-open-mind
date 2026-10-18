@@ -11,6 +11,7 @@
 //! opens no sockets and runs no model. Design:
 //! `docs/persona-plex-v2-design.md`.
 
+pub mod backend;
 pub mod config;
 pub mod plan;
 pub mod protocol;

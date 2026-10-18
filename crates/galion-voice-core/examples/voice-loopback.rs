@@ -13,7 +13,7 @@ use galion_voice_core::session::{Session, SessionConfig};
 fn main() {
     let spec = FrameSpec::MOSHI;
     let mut s = Session::new(
-        MockBackend::new(spec, DuplexMode::Full, 30),
+        MockBackend::new(spec, DuplexMode::Full, 60),
         SessionConfig::default(),
     );
     s.start(&StaticPersona::new("probe", "probe"))

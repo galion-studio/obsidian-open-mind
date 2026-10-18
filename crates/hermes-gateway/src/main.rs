@@ -91,6 +91,16 @@ fn main() {
     ));
     let mut tools = Registry::new();
     tools.add(Arc::new(ClockTool));
+    if !cfg.mcp_servers.is_empty() {
+        let (mcp_tools, errors) = hermes_rs::mcp::discover(&cfg.mcp_servers);
+        for e in errors {
+            log(&format!("mcp: {e}"));
+        }
+        log(&format!("mcp: {} tools", mcp_tools.len()));
+        for t in mcp_tools {
+            tools.add(t);
+        }
+    }
     let cron_agent = Arc::new(hermes_rs::agent::Agent {
         cfg: cfg.clone(),
         provider: provider.clone(),

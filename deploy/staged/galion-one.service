@@ -18,8 +18,8 @@ Type=simple
 WorkingDirectory=/opt/galion/galion-light
 ExecStart=/opt/galion/openmind/dist/bin-ws/galion-one
 # Every value below is the live default, written out so a typo cannot
-# silently change behaviour. A missing ONE_DEVICE_STORE file means "unpaired"
-# and leaves One OPEN (castle() is false), exactly like the live binary.
+# silently change behaviour. A missing or empty ONE_DEVICE_STORE file means
+# "nobody paired": One fails CLOSED (every gated route answers 401 pair).
 Environment=GALION_HOME=/workspace/galion-light
 Environment=ONE_BIND=127.0.0.1:8091
 Environment=ONE_MOUTH_BIND=127.0.0.1:8002

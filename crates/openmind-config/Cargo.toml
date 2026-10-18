@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
+[package]
+name = "openmind-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "One small config loader for OpenMind binaries: TOML file, then env overrides, loopback defaults."
+
+[dependencies]
+serde = { workspace = true }
+toml = { workspace = true }

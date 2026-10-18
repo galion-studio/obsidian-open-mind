@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="t">
+  <title id="t">Persona Plex full-duplex voice relay</title>
+  <rect x="0.75" y="0.75" width="46.5" height="46.5" rx="11" fill="#0B0F14" stroke="#24303C" stroke-width="1.5"/>
+  <g fill="none" stroke="#58C4FF" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11 24v0M15 20v8M19 16v16M23 21v6M27 18v12M31 14v20M35 20v8M39 24v0"/>
+  </g>
+</svg>

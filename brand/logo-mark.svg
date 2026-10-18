@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="t">
+  <title id="t">Obsidian Open Mind mark</title>
+  <!-- Hand-written SVG. Obsidian Open Mind, made by Galion. MIT License, Copyright (c) 3000 Galion / galion-studio. -->
+  <!-- Obsidian: a hexagonal shard of volcanic glass, split into six facets. -->
+  <polygon points="64,6 114.2,35 114.2,93 64,122 13.8,93 13.8,35" fill="#0B0F14"/>
+  <polygon points="64,6 114.2,35 64,64" fill="#1A2430"/>
+  <polygon points="114.2,35 114.2,93 64,64" fill="#131A22"/>
+  <polygon points="114.2,93 64,122 64,64" fill="#0B0F14"/>
+  <polygon points="64,122 13.8,93 64,64" fill="#07090C"/>
+  <polygon points="13.8,93 13.8,35 64,64" fill="#10161D"/>
+  <polygon points="13.8,35 64,6 64,64" fill="#24303C"/>
+  <g stroke="#4A7C99" stroke-opacity="0.35" stroke-width="1" fill="none">
+    <path d="M64 6 L64 64 M114.2 35 L64 64 M114.2 93 L64 64 M64 122 L64 64 M13.8 93 L64 64 M13.8 35 L64 64"/>
+  </g>
+  <polygon points="64,6 114.2,35 114.2,93 64,122 13.8,93 13.8,35" fill="none" stroke="#4A7C99" stroke-width="3" stroke-linejoin="round"/>
+  <!-- Open Mind: an open ring (gap at the upper right) around the loop the CPU owns. -->
+  <circle cx="64" cy="64" r="23" fill="none" stroke="#0B0F14" stroke-width="13"/>
+  <circle cx="64" cy="64" r="23" fill="none" stroke="#58C4FF" stroke-width="7" stroke-linecap="round" stroke-dasharray="112 32.5" transform="rotate(-12 64 64)"/>
+  <circle cx="64" cy="64" r="7" fill="#58C4FF"/>
+</svg>

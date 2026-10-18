@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" role="img" aria-labelledby="t">
+  <title id="t">CPU agent sandbox</title>
+  <rect x="0.75" y="0.75" width="46.5" height="46.5" rx="11" fill="#0B0F14" stroke="#24303C" stroke-width="1.5"/>
+  <g fill="none" stroke="#58C4FF" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M24 10l12 6v16l-12 6-12-6V16z"/>
+    <path d="M12 16l12 6 12-6M24 22v16" stroke-opacity="0.6"/>
+    <path d="M20 29l3 3 5-6"/>
+  </g>
+</svg>

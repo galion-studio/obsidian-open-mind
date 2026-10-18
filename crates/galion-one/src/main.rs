@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Clippy / rustc allows, added only so `clippy -D warnings` passes. The body of
 // this 2.8k-line file is the live `one` source; behaviour has to stay identical,
 // so where clippy wants a rewrite this ticket keeps the code and silences the
@@ -15,7 +13,7 @@
 // - sliced_string_as_bytes: `&text[i..].as_bytes()`. Re-slicing via
 //   `&text.as_bytes()[i..]` is equivalent but touches every byte-offset site in
 //   the small JSON readers, so the original form stays.
-// - dead_code: the live binary carries these same unused items (`CHANNEL`,
+// - dead_code: the live binary carries these same unused items (
 //   `ask_hermes`, `cut_prefix`, `field_of`, `lane_json`, `lane_name`,
 //   `set_lane`, `shorten`). They are unreferenced today, not newly orphaned.
 #![allow(clippy::manual_is_multiple_of)]
@@ -24,13 +22,20 @@
 #![allow(clippy::sliced_string_as_bytes)]
 #![allow(dead_code)]
 
+mod cli;
+mod json;
 mod models_refresh;
+mod persona;
+mod sha256;
+mod speech;
+mod sqlite_ro;
+mod trace;
 
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -106,9 +111,40 @@ fn one_page() -> Vec<u8> {
     html.into_bytes()
 }
 
-const STORE: &str = "/root/galion-secrets/admin-device.json";
-const VOICE_LOG: &str = "/workspace/hermes/channels/one.jsonl";
-const CHANNEL: &str = "/workspace/hermes/channels/galion-one.md";
+// File locations outside GALION_HOME, env-overridable with the live values as
+// defaults (B06). The device store holds pairing hashes (a secret file): its
+// contents are never logged.
+//   ONE_DEVICE_STORE  default /root/galion-secrets/admin-device.json
+//   ONE_HERMES_DIR    default /workspace/hermes (modes.json, channels/)
+//   ONE_HERMES_ENV    default /root/.hermes/.env (API_SERVER_KEY line only)
+fn env_path(name: &str, default: &str) -> String {
+    match std::env::var(name) {
+        Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
+        _ => default.to_string(),
+    }
+}
+
+fn store_path() -> String {
+    env_path("ONE_DEVICE_STORE", "/root/galion-secrets/admin-device.json")
+}
+
+fn hermes_dir() -> String {
+    env_path("ONE_HERMES_DIR", "/workspace/hermes")
+        .trim_end_matches('/')
+        .to_string()
+}
+
+fn hermes_file(rel: &str) -> String {
+    format!("{}/{rel}", hermes_dir())
+}
+
+fn voice_log() -> String {
+    hermes_file("channels/one.jsonl")
+}
+
+pub(crate) fn modes_path() -> String {
+    hermes_file("modes.json")
+}
 const QUOTA: u64 = 100 * 1024 * 1024 * 1024;
 
 struct Pulse {
@@ -181,13 +217,6 @@ struct Nerve {
 
 static NERVE: OnceLock<Mutex<Nerve>> = OnceLock::new();
 static MOUTH: OnceLock<Mutex<()>> = OnceLock::new();
-static WORKER: OnceLock<Mutex<Option<Worker>>> = OnceLock::new();
-
-struct Worker {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: ChildStdout,
-}
 
 fn nerve() -> &'static Mutex<Nerve> {
     NERVE.get_or_init(|| {
@@ -199,7 +228,7 @@ fn nerve() -> &'static Mutex<Nerve> {
             defence: Vec::new(),
             edge: Vec::new(),
             line: Vec::new(),
-            turns: count_lines(VOICE_LOG),
+            turns: count_lines(&voice_log()),
             cpu: 0,
             load: 0.0,
             cores: std::thread::available_parallelism()
@@ -227,13 +256,16 @@ fn mouth() -> &'static Mutex<()> {
 }
 
 fn main() {
+    // Operator subcommands (ports of one/set-model.py and one/trace.py). With no
+    // argument the server starts exactly as before.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if !args.is_empty() {
+        std::process::exit(cli::run(&args));
+    }
     thread::spawn(|| loop {
         sample();
         thread::sleep(Duration::from_secs(1));
     });
-    if legacy_py() {
-        thread::spawn(boot_worker);
-    }
     thread::spawn(serve_tts);
     if std::env::var("ONE_NO_WARM").as_deref() != Ok("1") {
         thread::spawn(keep_warm);
@@ -812,11 +844,11 @@ fn remember(whisper: u32, hermes: u32, tts: u32, heard: usize, said: usize) {
         );
         n.events.truncate(24);
     }
-    let _ = fs::create_dir_all("/workspace/hermes/channels");
+    let _ = fs::create_dir_all(hermes_file("channels"));
     if let Ok(mut file) = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(VOICE_LOG)
+        .open(voice_log())
     {
         let _ = writeln!(
             file,
@@ -903,7 +935,7 @@ fn admin_say(text: &str) -> Vec<u8> {
         .ok()
         .map(|n| n.line.iter().take(3).cloned().collect())
         .unwrap_or_default();
-    let setting = "You are Hermes on the admin line. The admin is typing, not speaking. Short. Direct. No tools.";
+    let setting = persona::admin_line();
     let mut messages = vec![format!(
         "{{\"role\":\"system\",\"content\":{}}}",
         quote(setting)
@@ -1011,81 +1043,21 @@ fn load_edge() -> Vec<Edge> {
 }
 
 fn load_defence() -> Vec<Guard> {
-    #[cfg(galion_no_sqlite)]
-    {
-        Vec::new()
-    }
-    #[cfg(not(galion_no_sqlite))]
-    {
-        use std::ffi::{CStr, CString};
-        use std::os::raw::{c_char, c_int, c_void};
-        extern "C" {
-            fn sqlite3_open(filename: *const c_char, pp: *mut *mut c_void) -> c_int;
-            fn sqlite3_close(db: *mut c_void) -> c_int;
-            fn sqlite3_exec(
-                db: *mut c_void,
-                sql: *const c_char,
-                cb: Option<
-                    extern "C" fn(*mut c_void, c_int, *mut *mut c_char, *mut *mut c_char) -> c_int,
-                >,
-                arg: *mut c_void,
-                err: *mut *mut c_char,
-            ) -> c_int;
-        }
-        extern "C" fn row(
-            arg: *mut c_void,
-            n: c_int,
-            vals: *mut *mut c_char,
-            _cols: *mut *mut c_char,
-        ) -> c_int {
-            if n < 3 || arg.is_null() || vals.is_null() {
-                return 0;
-            }
-            unsafe {
-                let out = &mut *(arg as *mut Vec<Guard>);
-                let cell = |i: isize| {
-                    let p = *vals.offset(i);
-                    if p.is_null() {
-                        String::new()
-                    } else {
-                        CStr::from_ptr(p).to_string_lossy().into_owned()
-                    }
-                };
-                let service = cell(0);
-                let status = cell(1);
-                let ms = cell(2).parse().unwrap_or(0);
-                if !service.is_empty() {
-                    out.push(Guard {
-                        service,
-                        ok: status == "healthy",
-                        status,
-                        ms,
-                    });
-                }
-            }
-            0
-        }
-        let mut rows = Vec::new();
-        let Ok(path) = CString::new(p("guardian/guardian.db")) else {
-            return rows;
-        };
-        let Ok(sql) = CString::new("SELECT service, status, CAST(response_time_ms AS INT) FROM health_checks WHERE id IN (SELECT MAX(id) FROM health_checks GROUP BY service)") else { return rows };
-        unsafe {
-            let mut db = std::ptr::null_mut();
-            if sqlite3_open(path.as_ptr(), &mut db) != 0 || db.is_null() {
-                return rows;
-            }
-            let _ = sqlite3_exec(
-                db,
-                sql.as_ptr(),
-                Some(row),
-                &mut rows as *mut Vec<Guard> as *mut c_void,
-                std::ptr::null_mut(),
-            );
-            sqlite3_close(db);
-        }
-        rows
-    }
+    // Pure-Rust read-only reader (sqlite_ro.rs); replaces the libsqlite3 FFI and
+    // the old defence.py. Same query result: newest row per service.
+    let path = p("guardian/guardian.db");
+    let Ok(rows) = sqlite_ro::latest_health(std::path::Path::new(&path)) else {
+        return Vec::new();
+    };
+    rows.into_iter()
+        .filter(|(service, _, _)| !service.is_empty())
+        .map(|(service, status, ms)| Guard {
+            ok: status == "healthy",
+            service,
+            status,
+            ms: ms.clamp(0, u32::MAX as i64) as _,
+        })
+        .collect()
 }
 
 fn warm_due() -> bool {
@@ -1142,21 +1114,29 @@ fn warm_pass() {
         quote(&voice_setting())
     ));
     let auth = format!("Bearer {key}");
-    let mind = http_to(
-        mind_addr(),
-        "POST",
-        "/v1/chat/completions",
-        &[
-            ("Content-Type", "application/json"),
-            ("Authorization", auth.as_str()),
-            ("X-Hermes-Session-Id", "one-warm"),
-            ("X-Hermes-Session-Key", "one-warm"),
-        ],
-        payload.as_bytes(),
-        Duration::from_secs(25),
-    )
-    .map(|(code, _)| code)
-    .unwrap_or(0);
+    // The live binary also pruned the "one-warm" session out of Hermes state.db
+    // with an inline python3 script after each pass (trim_warm). That write is
+    // not ported: Galion One never writes state.db. ONE_WARM_MIND=0 skips the
+    // Hermes ping (and with it the session growth); default keeps it.
+    let mind = if std::env::var("ONE_WARM_MIND").as_deref() == Ok("0") {
+        0
+    } else {
+        http_to(
+            mind_addr(),
+            "POST",
+            "/v1/chat/completions",
+            &[
+                ("Content-Type", "application/json"),
+                ("Authorization", auth.as_str()),
+                ("X-Hermes-Session-Id", "one-warm"),
+                ("X-Hermes-Session-Key", "one-warm"),
+            ],
+            payload.as_bytes(),
+            Duration::from_secs(25),
+        )
+        .map(|(code, _)| code)
+        .unwrap_or(0)
+    };
     if audio.is_empty() && mind != 200 {
         eprintln!("warm rust skipped mouth=0 mind={mind}");
         return;
@@ -1204,87 +1184,6 @@ fn speak(text: &str) -> Vec<u8> {
     }
 }
 
-fn workers() -> &'static Mutex<Option<Worker>> {
-    WORKER.get_or_init(|| Mutex::new(None))
-}
-
-// Legacy path: the old python TTS worker (tts/worker.py), only with ONE_LEGACY_PY=1.
-fn legacy_py() -> bool {
-    std::env::var("ONE_LEGACY_PY").as_deref() == Ok("1")
-}
-
-/// Legacy interpreter for the retired voice worker. The path is never hard-coded,
-/// so this crate names no interpreter of its own: set ONE_LEGACY_PY_BIN explicitly.
-fn legacy_bin() -> Option<String> {
-    std::env::var("ONE_LEGACY_PY_BIN")
-        .ok()
-        .filter(|s| !s.is_empty())
-}
-
-fn boot_worker() {
-    if !std::path::Path::new("/workspace/galion-light/tts/worker.py").exists() {
-        eprintln!("one: no voice on this machine");
-        return;
-    }
-    loop {
-        match start_worker() {
-            Ok(worker) => {
-                eprintln!("voice: ready");
-                if let Ok(mut slot) = workers().lock() {
-                    *slot = Some(worker);
-                }
-                return;
-            }
-            Err(err) => {
-                eprintln!("voice: {err}");
-                thread::sleep(Duration::from_secs(60));
-            }
-        }
-    }
-}
-
-fn start_worker() -> std::io::Result<Worker> {
-    let Some(bin) = legacy_bin() else {
-        return Err(std::io::Error::other(
-            "legacy voice worker off: set ONE_LEGACY_PY_BIN to enable",
-        ));
-    };
-    let mut child = Command::new(bin)
-        .arg(p("tts/worker.py"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()?;
-    let taken = (|| -> std::io::Result<_> {
-        let mut stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| std::io::Error::other("voice stdout"))?;
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| std::io::Error::other("voice stdin"))?;
-        let mut ready = [0u8; 1];
-        stdout.read_exact(&mut ready)?;
-        if ready[0] != b'R' {
-            return Err(std::io::Error::other("voice did not ready"));
-        }
-        Ok((stdin, stdout))
-    })();
-    match taken {
-        Ok((stdin, stdout)) => Ok(Worker {
-            child,
-            stdin,
-            stdout,
-        }),
-        Err(err) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            Err(err)
-        }
-    }
-}
-
 fn speak_out(stream: &mut TcpStream, text: &str) -> bool {
     if mouth_remote() {
         let audio = speak(text);
@@ -1309,73 +1208,16 @@ fn voice_pcm(text: &str) -> Option<Vec<u8>> {
 }
 
 fn voice_fold(text: &str, mut on_pcm: impl FnMut(&[u8])) -> bool {
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let text: String = text.chars().take(300).collect();
+    // The local mouth is a pluggable speech backend (speech.rs). Today it is the
+    // Unavailable stub: it fails at once instead of waiting 90 s for a Python
+    // worker that is never started. galion-voice-core plugs in here later.
+    let text = speech::normalize(text);
     if text.is_empty() {
         return false;
     }
-    let deadline = Instant::now() + Duration::from_secs(90);
-    loop {
-        let Ok(mut slot) = workers().lock() else {
-            return false;
-        };
-        if slot.is_none() {
-            drop(slot);
-            if Instant::now() > deadline {
-                return false;
-            }
-            thread::sleep(Duration::from_millis(100));
-            continue;
-        }
-        let worker = slot.as_mut().unwrap();
-        let mut body = vec![voice_id()];
-        body.extend_from_slice(text.as_bytes());
-        let mut msg = (body.len() as u32).to_le_bytes().to_vec();
-        msg.extend_from_slice(&body);
-        if worker.stdin.write_all(&msg).is_err() || worker.stdin.flush().is_err() {
-            let _ = worker.child.kill();
-            let _ = worker.child.wait();
-            *slot = None;
-            return false;
-        }
-        loop {
-            let len_buf = match read_full(&mut worker.stdout, 4) {
-                Ok(buf) => buf,
-                Err(_) => {
-                    let _ = worker.child.kill();
-                    let _ = worker.child.wait();
-                    *slot = None;
-                    return false;
-                }
-            };
-            let len = u32::from_le_bytes(len_buf.as_slice().try_into().unwrap_or([0; 4])) as usize;
-            if len == 0 {
-                return true;
-            }
-            if len > 8_000_000 {
-                let _ = worker.child.kill();
-                let _ = worker.child.wait();
-                *slot = None;
-                return false;
-            }
-            let pcm = match read_full(&mut worker.stdout, len) {
-                Ok(buf) => buf,
-                Err(_) => {
-                    let _ = worker.child.kill();
-                    let _ = worker.child.wait();
-                    *slot = None;
-                    return false;
-                }
-            };
-            on_pcm(&pcm);
-        }
-    }
-}
-
-fn read_full(src: &mut ChildStdout, n: usize) -> std::io::Result<Vec<u8>> {
-    let mut buf = vec![0u8; n];
-    src.read_exact(&mut buf)?;
-    Ok(buf)
+    speech::local()
+        .synth(voice_id(), &text, &mut on_pcm)
+        .is_ok()
 }
 
 fn wav_of(pcm: &[u8]) -> Vec<u8> {
@@ -1456,7 +1298,7 @@ fn tts_http(mut stream: TcpStream) -> std::io::Result<()> {
     }
     body.truncate(length);
     if method == "GET" && path == "/health" {
-        let ready = workers().lock().map(|slot| slot.is_some()).unwrap_or(false);
+        let ready = speech::local().ready();
         let bytes = if ready {
             br#"{"ok":true,"status":"ok","version":2,"provider":"local","model":"chatterbox","loaded":true,"device":"cuda","voices":["samantha","jarvis"],"bind":"127.0.0.1:8002"}"#.to_vec()
         } else {
@@ -1756,11 +1598,7 @@ fn voice_name() -> String {
 }
 
 fn voice_id() -> u8 {
-    if voice_name() == "jarvis" {
-        1
-    } else {
-        0
-    }
+    persona::Persona::voice_id(&persona::for_voice(&voice_name()))
 }
 
 fn set_voice(name: &str) {
@@ -1823,7 +1661,7 @@ fn with_lane_model(payload: String) -> String {
 }
 
 fn lane_json() -> String {
-    let text = fs::read_to_string("/workspace/hermes/modes.json").unwrap_or_default();
+    let text = fs::read_to_string(modes_path()).unwrap_or_default();
     format!(
         "{{\"mode\":{},\"plan\":{},\"action\":{}}}",
         quote(&lane_name()),
@@ -1849,15 +1687,8 @@ fn models_json() -> String {
 }
 
 fn voice_setting() -> String {
-    let who = voice_name();
-    let name = if who == "jarvis" {
-        "Jarvis. Dry and exact. One line, then stop."
-    } else {
-        "Samantha. A few words, warm and close, then one short line."
-    };
-    format!(
-        "You are the voice of Galion One. The person is speaking. You are not the admin desk.\n{name}\nPlain English. No greeting unless they greeted you. Do not say you are a model or a system.\nYou may read a file or search for one if they ask. Say the answer, not the path. Do not write. Do not run a command. Do not spawn anyone.\nIf you were not given a live number, say you do not have it.\nReply in exactly four sentences. Two paragraphs. Each paragraph has two sentences. No headings and no lists.\nYou keep the Obsidian Hearth: knowledge, prosperity, and integrity. You are not a copy of another model."
-    )
+    // Persona text lives in persona.rs (swap point for openmind-persona).
+    persona::Persona::voice_setting(&persona::for_voice(&voice_name()))
 }
 
 fn toolish(text: &str) -> bool {
@@ -1977,7 +1808,8 @@ fn session_json() -> String {
 }
 
 fn hermes_key() -> String {
-    let text = fs::read_to_string("/root/.hermes/.env").unwrap_or_default();
+    let text =
+        fs::read_to_string(env_path("ONE_HERMES_ENV", "/root/.hermes/.env")).unwrap_or_default();
     for line in text.lines() {
         if let Some(rest) = line.strip_prefix("API_SERVER_KEY=") {
             return rest.trim().trim_matches('"').to_string();
@@ -2906,158 +2738,34 @@ fn sql_ident(name: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-/// Built without SQLite (tier-1 musl / cross, see build.rs): no counts.
-#[cfg(galion_no_sqlite)]
-fn memory_file_counts(_path: &str) -> Option<Vec<(String, i64)>> {
-    None
-}
-
-#[cfg(not(galion_no_sqlite))]
 fn memory_file_counts(path: &str) -> Option<Vec<(String, i64)>> {
-    use std::ffi::{CStr, CString};
-    use std::os::raw::{c_char, c_int, c_void};
-    const SQLITE_OPEN_READONLY: c_int = 1;
-    extern "C" {
-        fn sqlite3_open_v2(
-            filename: *const c_char,
-            pp: *mut *mut c_void,
-            flags: c_int,
-            vfs: *const c_char,
-        ) -> c_int;
-        fn sqlite3_close(db: *mut c_void) -> c_int;
-        fn sqlite3_exec(
-            db: *mut c_void,
-            sql: *const c_char,
-            cb: Option<
-                extern "C" fn(*mut c_void, c_int, *mut *mut c_char, *mut *mut c_char) -> c_int,
-            >,
-            arg: *mut c_void,
-            err: *mut *mut c_char,
-        ) -> c_int;
-    }
-    extern "C" fn take_text(
-        arg: *mut c_void,
-        n: c_int,
-        vals: *mut *mut c_char,
-        _cols: *mut *mut c_char,
-    ) -> c_int {
-        if n < 1 || arg.is_null() || vals.is_null() {
-            return 0;
-        }
-        unsafe {
-            let out = &mut *(arg as *mut Vec<String>);
-            let p = *vals;
-            if !p.is_null() {
-                out.push(CStr::from_ptr(p).to_string_lossy().into_owned());
-            }
-        }
-        0
-    }
-    extern "C" fn take_count(
-        arg: *mut c_void,
-        n: c_int,
-        vals: *mut *mut c_char,
-        _cols: *mut *mut c_char,
-    ) -> c_int {
-        if n < 1 || arg.is_null() || vals.is_null() {
-            return 0;
-        }
-        unsafe {
-            let out = &mut *(arg as *mut Option<i64>);
-            let p = *vals;
-            if !p.is_null() {
-                if let Ok(text) = CStr::from_ptr(p).to_str() {
-                    if let Ok(v) = text.parse::<i64>() {
-                        *out = Some(v);
-                    }
-                }
-            }
-        }
-        0
-    }
-    let cpath = CString::new(path).ok()?;
-    let mut db = std::ptr::null_mut();
-    let opened = unsafe {
-        sqlite3_open_v2(
-            cpath.as_ptr(),
-            &mut db,
-            SQLITE_OPEN_READONLY,
-            std::ptr::null(),
-        )
-    };
-    if opened != 0 || db.is_null() {
-        if !db.is_null() {
-            unsafe {
-                sqlite3_close(db);
-            }
-        }
+    // Pure-Rust read-only reader (sqlite_ro.rs, WAL-aware) instead of the
+    // libsqlite3 FFI. Same answer: the store must have l0_conversations or
+    // l1_records, then COUNT(*) per memory table, sorted by table name.
+    let mut db = sqlite_ro::Db::open(std::path::Path::new(path)).ok()?;
+    let names = db.tables().ok()?;
+    if !names
+        .iter()
+        .any(|(n, _)| n == "l0_conversations" || n == "l1_records")
+    {
         return None;
     }
-    let result = (|| -> Option<Vec<(String, i64)>> {
-        let pragma = CString::new("PRAGMA busy_timeout=300").ok()?;
-        let _ = unsafe {
-            sqlite3_exec(
-                db,
-                pragma.as_ptr(),
-                None,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
-            )
-        };
-        let list_sql = CString::new("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").ok()?;
-        let mut names: Vec<String> = Vec::new();
-        let rc = unsafe {
-            sqlite3_exec(
-                db,
-                list_sql.as_ptr(),
-                Some(take_text),
-                &mut names as *mut Vec<String> as *mut c_void,
-                std::ptr::null_mut(),
-            )
-        };
-        if rc != 0 {
-            return None;
+    let mut rows = Vec::new();
+    for (name, root) in names {
+        if !memory_table(&name) || root == 0 {
+            continue;
         }
-        if !names
-            .iter()
-            .any(|n| n == "l0_conversations" || n == "l1_records")
-        {
-            return None;
+        if let Ok(v) = db.count(root) {
+            rows.push((name, v));
         }
-        let mut rows = Vec::new();
-        for name in names {
-            if !memory_table(&name) {
-                continue;
-            }
-            let sql = CString::new(format!("SELECT COUNT(*) FROM {name}")).ok()?;
-            let mut got: Option<i64> = None;
-            let rc = unsafe {
-                sqlite3_exec(
-                    db,
-                    sql.as_ptr(),
-                    Some(take_count),
-                    &mut got as *mut Option<i64> as *mut c_void,
-                    std::ptr::null_mut(),
-                )
-            };
-            if rc == 0 {
-                if let Some(v) = got {
-                    rows.push((name, v));
-                }
-            }
-        }
-        if !rows
-            .iter()
-            .any(|(n, _)| n == "l0_conversations" || n == "l1_records")
-        {
-            return None;
-        }
-        Some(rows)
-    })();
-    unsafe {
-        sqlite3_close(db);
     }
-    result
+    if !rows
+        .iter()
+        .any(|(n, _)| n == "l0_conversations" || n == "l1_records")
+    {
+        return None;
+    }
+    Some(rows)
 }
 
 fn cpu_ticks() -> (u64, u64) {
@@ -3093,7 +2801,7 @@ fn json_bool(text: &str, key: &str) -> bool {
 }
 
 fn pool_json() -> String {
-    let text = fs::read_to_string("/workspace/hermes/modes.json").unwrap_or_default();
+    let text = fs::read_to_string(modes_path()).unwrap_or_default();
     let Some(start) = text.find("\"saved\"") else {
         return "[]".to_string();
     };
@@ -3141,7 +2849,7 @@ fn cortex_body(n: &Nerve) -> String {
     let live = json_string(link_text.as_bytes(), "model");
     let pool = pool_json();
     let known = {
-        let text = fs::read_to_string("/workspace/hermes/modes.json").unwrap_or_default();
+        let text = fs::read_to_string(modes_path()).unwrap_or_default();
         let at = text.find("\"saved\"").unwrap_or(0);
         json_string(text[at..].as_bytes(), "model")
     };
@@ -3259,7 +2967,7 @@ fn gpu() -> Option<(String, u32, u32, u32)> {
 }
 
 fn phones() -> usize {
-    let text = fs::read_to_string(STORE).unwrap_or_default();
+    let text = fs::read_to_string(store_path()).unwrap_or_default();
     let mut set = json_array(&text, "tokenHashes");
     let one = json_string(text.as_bytes(), "tokenHash");
     if !one.is_empty() && !set.contains(&one) {
@@ -3269,7 +2977,7 @@ fn phones() -> usize {
 }
 
 fn castle() -> bool {
-    match fs::read_to_string(STORE) {
+    match fs::read_to_string(store_path()) {
         Ok(text) => !json_string(text.as_bytes(), "codeHash").is_empty(),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
         Err(_) => true,
@@ -3284,7 +2992,7 @@ fn token_ok(cookie: &str) -> bool {
     if token.is_empty() {
         return false;
     }
-    let text = fs::read_to_string(STORE).unwrap_or_default();
+    let text = fs::read_to_string(store_path()).unwrap_or_default();
     let mut hashes = json_array(&text, "tokenHashes");
     let one = json_string(text.as_bytes(), "tokenHash");
     if !one.is_empty() && !hashes.contains(&one) {
@@ -3294,7 +3002,7 @@ fn token_ok(cookie: &str) -> bool {
 }
 
 fn pair(code: &str) -> (u16, Vec<u8>, Option<String>) {
-    let text = fs::read_to_string(STORE).unwrap_or_default();
+    let text = fs::read_to_string(store_path()).unwrap_or_default();
     let mut fails = json_u64(text.as_bytes(), "fails");
     let locked_until = json_u64(text.as_bytes(), "lockedUntil");
     let now = SystemTime::now()
@@ -3332,8 +3040,8 @@ fn write_store(previous: &str, hashes: &[String], fails: u64, locked_until: u64)
         .collect::<Vec<_>>()
         .join(",");
     let body = format!("{{\"codeHash\":\"{code_hash}\",\"tokenHash\":\"{token_hash}\",\"tokenHashes\":[{list}],\"deviceHash\":\"{device_hash}\",\"fails\":{fails},\"lockedUntil\":{locked_until}}}\n");
-    if fs::write(STORE, body).is_ok() {
-        let _ = fs::set_permissions(STORE, fs::Permissions::from_mode(0o600));
+    if fs::write(store_path(), body).is_ok() {
+        let _ = fs::set_permissions(store_path(), fs::Permissions::from_mode(0o600));
     }
 }
 
@@ -3534,25 +3242,8 @@ fn json_u64(body: &[u8], key: &str) -> u64 {
 }
 
 fn sha256(text: &str) -> String {
-    let mut child = match Command::new("sha256sum")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => return String::new(),
-    };
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(text.as_bytes());
-    }
-    match child.wait_with_output() {
-        Ok(out) => String::from_utf8_lossy(&out.stdout)
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .to_string(),
-        Err(_) => String::new(),
-    }
+    // In-process SHA-256 (sha256.rs); no sha256sum child per token check.
+    sha256::hex(text.as_bytes())
 }
 
 fn new_token() -> String {

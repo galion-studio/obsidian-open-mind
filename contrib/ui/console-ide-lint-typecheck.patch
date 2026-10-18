@@ -1,0 +1,159 @@
+--- /opt/galion/console-ide/src/components/hermes-panel.tsx	2026-10-16 11:25:03.255293390 +0000
++++ src/components/hermes-panel.tsx	2026-10-18 20:15:28.742220859 +0000
+@@ -147,9 +147,9 @@
+ function md(text: string) {
+   const safe = text.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+   return safe
+-    .replace(/```(\w*)\n?([\s\S]*?)```/g, "<pre data-code=\"1\">\$2</pre>")
+-    .replace(/`([^`]+)`/g, "<code>\$1</code>")
+-    .replace(/\*\*([^*]+)\*\*/g, "<strong>\$1</strong>")
++    .replace(/```(\w*)\n?([\s\S]*?)```/g, "<pre data-code=\"1\">$2</pre>")
++    .replace(/`([^`]+)`/g, "<code>$1</code>")
++    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+     .replace(/\n/g, "<br/>");
+ }
+ 
+@@ -827,7 +827,7 @@
+     const body = await fetch(`/api/hermes/history?id=${encodeURIComponent(id)}`)
+       .then((r) => r.json())
+       .then((j: { items?: Item[]; tokens?: Tokens }) => j)
+-      .catch(() => ({ items: [] as Item[] }));
++      .catch((): { items?: Item[]; tokens?: Tokens } => ({ items: [] as Item[] }));
+     const row = ensure(id);
+     if (!loaded) {
+       row.items = body.items ?? [];
+--- /opt/galion/console-ide/src/components/shell.tsx	2026-10-08 00:29:41.000000000 +0000
++++ src/components/shell.tsx	2026-10-18 20:15:28.730220895 +0000
+@@ -60,7 +60,7 @@
+           </div>
+           <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col lg:px-3 lg:pb-6">
+             {NAV.map((item) => {
+-              const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
++              const active = pathname.startsWith(item.to);
+               const Icon = item.icon;
+               return (
+                 <Link
+--- /opt/galion/console-ide/src/lib/admin-device.ts	2026-10-08 00:31:44.000000000 +0000
++++ src/lib/admin-device.ts	2026-10-18 20:16:33.768028433 +0000
+@@ -97,7 +97,8 @@
+   if (store.lockedUntil && Date.now() < store.lockedUntil) {
+     return { error: "too many attempts", status: 429 as const };
+   }
+-  const given = code.trim();
++  // Same rule as Galion One: codes are case-insensitive (uppercased before sha256).
++  const given = code.trim().toUpperCase();
+   if (!store.codeHash || !given || !same(store.codeHash, given)) {
+     const fails = (store.fails ?? 0) + 1;
+     const next: Store = { ...store, fails };
+--- /opt/galion/console-ide/src/lib/app-data/client.server.ts	2026-09-07 13:33:22.000000000 +0000
++++ src/lib/app-data/client.server.ts	2026-10-18 20:15:28.750220836 +0000
+@@ -278,7 +278,9 @@
+             .digest("base64url");
+         }
+       }
+-    } catch {}
++    } catch {
++      // unreadable token file: fall through to hashing the token itself
++    }
+   }
+   return createHash("sha256").update(token).digest("base64url");
+ }
+--- /opt/galion/console-ide/src/lib/host.ts	2026-10-08 09:00:20.747725194 +0000
++++ src/lib/host.ts	2026-10-18 20:15:28.752220830 +0000
+@@ -26,6 +26,7 @@
+   if (host.includes("runpod.net")) return true;
+   if (host === "localhost" || host.startsWith("127.") || host.endsWith(".local")) return true;
+   try {
++    // eslint-disable-next-line @typescript-eslint/no-require-imports -- server-only lazy load; this module is also bundled for the client
+     const raw = require("node:fs").readFileSync("/workspace/galion-light/state/machine.json", "utf8");
+     const ip = String(JSON.parse(raw).publicIp || "").toLowerCase();
+     if (ip && host === ip) return true;
+--- /opt/galion/console-ide/src/routes/_console/analytics.tsx	2026-10-10 17:37:04.010990004 +0000
++++ src/routes/_console/analytics.tsx	2026-10-18 20:15:50.496156484 +0000
+@@ -53,6 +53,8 @@
+     load: number;
+     cores: number;
+     memory: number;
++    memUsed?: number;
++    memTotal?: number;
+     disk: { pct: number; used: number; total: number };
+     gpu: { name: string; pct: number; util: number; usedMb: number; totalMb: number } | null;
+   };
+@@ -304,7 +306,7 @@
+         <section className="flex flex-col">
+           {[
+             ["CPU", snap.infrastructure.cpu, `${shown(snap.infrastructure.load)} load · ${shown(snap.infrastructure.cores)} cores`],
+-            ["Memory", snap.infrastructure.memory, gb(snap.infrastructure.memUsed) + " of " + gb(snap.infrastructure.memTotal)],
++            ["Memory", snap.infrastructure.memory, snap.infrastructure.memUsed != null && snap.infrastructure.memTotal != null ? gb(snap.infrastructure.memUsed) + " of " + gb(snap.infrastructure.memTotal) : "—"],
+             ["Disk", snap.infrastructure.disk.pct, gb(snap.infrastructure.disk.used) + " of the 100 GB quota"],
+           ].map(([label, pct, note]) => (
+             <div key={String(label)} className="flex min-h-11 min-w-0 flex-wrap items-center justify-between gap-4 border-b border-line">
+--- /opt/galion/console-ide/src/routes/_console/arena.tsx	2026-10-10 13:37:21.661741350 +0000
++++ src/routes/_console/arena.tsx	2026-10-18 20:15:28.722220918 +0000
+@@ -14,6 +14,7 @@
+   skill: string;
+   tools: string[];
+   mutation: string | null;
++  mode?: string;
+   score: number;
+   answer?: string;
+ };
+--- /opt/galion/console-ide/src/routes/api/hermes/attach.ts	2026-09-26 17:39:40.000000000 +0000
++++ src/routes/api/hermes/attach.ts	2026-10-18 20:15:28.744220853 +0000
+@@ -20,7 +20,7 @@
+           if (file.size > 80_000_000) {
+             return Response.json({ error: "file over 80MB" }, { status: 413 });
+           }
+-          const raw = file.name.replace(/[^\w.\-]+/g, "_").slice(0, 80) || "file";
++          const raw = file.name.replace(/[^\w.-]+/g, "_").slice(0, 80) || "file";
+           const ext = raw.split(".").pop()?.toLowerCase() || "";
+           mkdirSync(DIR, { recursive: true });
+           const bytes = Buffer.from(await file.arrayBuffer());
+--- /opt/galion/console-ide/src/routes/api/hermes/models.ts	2026-10-14 08:43:15.157950051 +0000
++++ src/routes/api/hermes/models.ts	2026-10-18 20:15:28.747220845 +0000
+@@ -42,7 +42,7 @@
+ function gateway() {
+   try {
+     const text = readFileSync("/workspace/hermes/config.yaml", "utf8");
+-    return text.match(/model:\n  default:\s*(\S+)/)?.[1] ?? "";
++    return text.match(/model:\n {2}default:\s*(\S+)/)?.[1] ?? "";
+   } catch {
+     return "";
+   }
+--- /opt/galion/console-ide/src/routes/api/v1/admin.ts	2026-09-24 20:42:35.000000000 +0000
++++ src/routes/api/v1/admin.ts	2026-10-18 20:15:28.726220906 +0000
+@@ -8,7 +8,7 @@
+       POST: async ({ request }) => {
+         const body = (await request.json().catch(() => ({}))) as { code?: string; device?: string };
+         const result = await pairAdmin(request, body.code ?? "", body.device ?? "");
+-        if ("error" in result && result.error) {
++        if ("error" in result) {
+           return Response.json({ error: result.error }, { status: result.status });
+         }
+         return new Response(JSON.stringify({ ok: true, you: true, device: result.device ?? "" }), {
+--- /opt/galion/console-ide/scripts/public-soon.mjs	2026-10-09 14:40:26.432276021 +0000
++++ scripts/public-soon.mjs	2026-10-18 20:15:50.489156504 +0000
+@@ -1,3 +1,4 @@
++// eslint-disable-next-line @typescript-eslint/ban-ts-comment -- plain JS build script, intentionally not type-checked
+ // @ts-nocheck
+ /** Static coming-soon for every non-console host. No APIs, no console, no keys. */
+ 
+@@ -38,7 +39,9 @@
+   try {
+     const ip = JSON.parse(readFileSync("/workspace/galion-light/state/machine.json", "utf8")).publicIp;
+     if (normalizeHost(ip) === host) return true;
+-  } catch {}
++  } catch {
++    // no machine.json: not the public IP
++  }
+   return false;
+ }
+ 
+@@ -54,7 +57,6 @@
+   "api.galion.app": { name: "Galion", line: "Coming soon.", accent: "#c5ccd6" },
+   "api.galion.studio": { name: "Galion Studio", line: "Coming soon.", accent: "#c5ccd6" },
+   "api.developer.galion.app": { name: "NexusLang", line: "Coming soon.", accent: "#6b8ca8" },
+-  "status.galion.app": { name: "Galion", line: "Coming soon.", accent: "#c5ccd6" },
+   "voice.galion.app": { name: "Galion Voice", line: "In maintenance.", accent: "#b7c9d4" },
+   "neural.galion.app": { name: "Galion Neural", line: "In maintenance.", accent: "#b7c9d4" },
+   "code.galion.app": { name: "Galion Code", line: "In maintenance.", accent: "#b7c9d4" },

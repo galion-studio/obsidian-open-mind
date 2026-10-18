@@ -21,3 +21,10 @@ h1{margin:4px 0 0;font-size:22px;font-weight:600}.sub{margin:4px 0 18px;color:#8
 .hint{color:#8a919c;font-size:12.5px;margin:10px 4px}.small{font-size:11.5px}
 button{margin-top:10px;width:100%;padding:15px;border:0;border-radius:12px;background:#3b82f6;color:#fff;font-size:17px;font-weight:600;cursor:pointer}
 button.stop{background:#374151}
+/* Galion UI upgrade: brand accent, focus, motion, small screens */
+button{background:#58C4FF;color:#0B0F14}button.stop{background:#24303C;color:#E6EDF3}
+.chip.active{border-color:#58C4FF;background:#132235}
+:focus-visible{outline:2px solid #58C4FF;outline-offset:3px}
+.brand{letter-spacing:.12em;text-transform:uppercase;color:#A7B6C4}
+@media (max-width:360px){.string{font-size:72px;height:78px}.chip b{font-size:15px}.strings{gap:4px}}
+@media (prefers-reduced-motion:reduce){.string,.needle{transition:none}}

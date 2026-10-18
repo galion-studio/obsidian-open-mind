@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0B0F14">
+<link rel="icon" href="/mark.svg" type="image/svg+xml">
+<title>Admin · Galion One</title>
+<style>
+@font-face { font-family: "Jost"; src: url(/font/jost.woff2) format("woff2"); font-display: swap; }
+:root {
+  --bg: #0B0F14; --deep: #05070A; --panel: #131A22; --line: #24303C;
+  --fg: #E6EDF3; --muted: #A7B6C4; --accent: #58C4FF; --bad: #FF7A7A; --good: #6FD8A0;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--fg); }
+body {
+  font-family: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  padding: max(1.25rem, env(safe-area-inset-top)) 1.1rem max(2rem, env(safe-area-inset-bottom));
+  max-width: 64rem; margin: 0 auto;
+}
+.skip { position: absolute; left: -999px; }
+.skip:focus { left: 1rem; top: 1rem; background: var(--accent); color: var(--bg); padding: .5rem 1rem; border-radius: 8px; z-index: 9; }
+header { display: flex; align-items: center; gap: .7rem; }
+header img { width: 32px; height: 32px; }
+.brand { font: 500 1rem/1 "Jost", system-ui, sans-serif; letter-spacing: .02em; }
+.brand small { display: block; color: var(--muted); font-size: .72rem; margin-top: .2rem; }
+h1 { margin: 1rem 0 0; font: 500 2.2rem/1.1 "Jost", system-ui, sans-serif; letter-spacing: -0.03em; }
+h2, .k { margin: 0; font: 600 11px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+.score { margin: .6rem 0 1rem; font-size: 2.4rem; letter-spacing: -0.04em; min-height: 1em; }
+.grid { display: grid; gap: 1.2rem; grid-template-columns: 1fr; }
+@media (min-width: 52rem) { .grid { grid-template-columns: 1fr 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: 1rem; }
+.row { display: flex; justify-content: space-between; gap: 1rem; min-height: 2.6rem; align-items: center; border-top: 1px solid var(--line); }
+.row:first-of-type { border-top: 0; }
+.ms { font: 12px/1 ui-monospace, monospace; color: var(--muted); }
+.down { color: var(--bad); }
+.up { color: var(--good); }
+.dot { display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; margin-right: .45rem; background: var(--bad); }
+.dot.ok { background: var(--good); }
+.beats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .6rem; margin: 0 0 1.2rem; }
+@media (max-width: 22rem) { .beats { grid-template-columns: 1fr; } }
+.beatbox { background: var(--panel); border: 1px solid var(--line); border-radius: 11px; padding: .8rem; }
+.beatbox b { display: block; margin-top: .35rem; font-weight: 500; font-size: 1.15rem; }
+.turn p { margin: .25rem 0 0; line-height: 1.45; overflow-wrap: anywhere; }
+.who { font: 11px/1 ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-top: .7rem; }
+form { display: flex; gap: .5rem; margin-top: .8rem; flex-wrap: wrap; }
+label.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+input {
+  flex: 1; min-width: 10rem; height: 3rem; border: 1px solid var(--line); border-radius: 11px;
+  background: var(--deep); color: var(--fg); padding: 0 .8rem; font: inherit;
+}
+button { height: 3rem; padding: 0 1.1rem; border: 0; border-radius: 11px; background: var(--accent); color: var(--bg); font: inherit; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: .5; cursor: default; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+#pairbox { display: none; }
+#pairbox.on { display: block; }
+#pairbox p { color: var(--muted); line-height: 1.5; margin: .4rem 0 0; }
+.msg { min-height: 1.4rem; margin: .6rem 0 0; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header>
+  <img src="/mark.svg" alt="" width="32" height="32">
+  <div class="brand">Galion One<small>Obsidian Open Mind, made by Galion</small></div>
+</header>
+<main id="main">
+<h1 id="state" aria-live="polite">Loading…</h1>
+<p class="score" id="score"></p>
+
+<section id="pairbox" class="card" aria-labelledby="pairh">
+  <h2 id="pairh">Pair this device</h2>
+  <p>This browser is not paired. Enter the pairing code issued to you. Codes are not case-sensitive. After 5 wrong tries pairing locks for 15 minutes.</p>
+  <form id="pairform">
+    <label class="sr" for="code">Pairing code</label>
+    <input id="code" name="code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" placeholder="Pairing code" required>
+    <button type="submit">Pair</button>
+  </form>
+  <p class="msg" id="pairmsg" role="status" aria-live="polite"></p>
+</section>
+
+<div class="beats" aria-label="Voice loop latency">
+  <div class="beatbox"><span class="k">Ear</span><b id="ear">—</b></div>
+  <div class="beatbox"><span class="k">Mind</span><b id="mind">—</b></div>
+  <div class="beatbox"><span class="k">Mouth</span><b id="mouth">—</b></div>
+</div>
+<div class="grid">
+  <section class="card" aria-labelledby="svch">
+    <h2 id="svch">Rust services</h2>
+    <div id="svc"><div class="row"><span>Checking…</span></div></div>
+  </section>
+  <section class="card" aria-labelledby="nerveh"><h2 id="nerveh">Nerve</h2><div id="rows"></div></section>
+  <section class="card" aria-labelledby="guardh"><h2 id="guardh">Defence</h2><div id="guard"></div></section>
+  <section class="card" aria-labelledby="edgeh"><h2 id="edgeh">Edge</h2><div id="edge"></div></section>
+</div>
+<section class="card" aria-labelledby="hermesh" style="margin-top:1.2rem">
+  <h2 id="hermesh">Hermes</h2>
+  <div id="thread" aria-live="polite"></div>
+  <form id="line">
+    <label class="sr" for="text">Message to Hermes</label>
+    <input id="text" name="text" autocomplete="off" placeholder="Ask">
+    <button type="submit">Send</button>
+  </form>
+</section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const thread = $("thread");
+let pending = "";
+let paired = true;
+function esc(s) {
+  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+function draw(items) {
+  const rows = items.slice().reverse().map((t) =>
+    `<div class="turn"><div class="who">You</div><p>${esc(t.you)}</p><div class="who">Hermes</div><p>${esc(t.hermes)}${t.ms ? ` <span class="ms">${esc(t.ms)} ms</span>` : ""}</p></div>`
+  );
+  if (pending) rows.push(`<div class="turn"><div class="who">You</div><p>${esc(pending)}</p><div class="who">Hermes</div><p>…</p></div>`);
+  thread.innerHTML = rows.join("");
+}
+function line(name, right, bad) {
+  return `<div class="row"><span><span class="dot ${bad ? "" : "ok"}" aria-hidden="true"></span>${esc(name)}</span><span class="ms ${bad ? "down" : "up"}">${esc(right)}</span></div>`;
+}
+function setPaired(ok) {
+  paired = ok;
+  $("pairbox").classList.toggle("on", !ok);
+  $("line").querySelector("button").disabled = !ok;
+  if (!ok) $("state").textContent = "Not paired";
+}
+async function services() {
+  try {
+    const r = await fetch("/api/v1/services", { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    $("svc").innerHTML = (d.services || []).map((s) =>
+      line(s.id + (s.port ? " :" + s.port : ""), s.ok ? (s.ms ? s.ms + " ms" : "up") : "down", !s.ok)).join("");
+  } catch (e) {
+    $("svc").innerHTML = line("status endpoint", "unavailable", true);
+  }
+}
+async function tick() {
+  let res;
+  try { res = await fetch("/api/v1/analytics", { cache: "no-store" }); } catch (e) { return; }
+  if (res.status === 401) { setPaired(false); return; }
+  if (!res.ok) return;
+  setPaired(true);
+  const d = await res.json().catch(() => null);
+  if (!d) return;
+  $("state").textContent = (d.health && d.health.status) || "—";
+  $("score").textContent = (d.health && d.health.score) ?? "";
+  $("rows").innerHTML = (d.services || []).map((s) => line(s.id, s.ok ? s.ms + " ms" : "down", !s.ok)).join("");
+  $("guard").innerHTML = (d.defence || []).map((g) => line(g.service, g.ok ? g.ms + " ms" : g.status, !g.ok)).join("");
+  $("edge").innerHTML = (d.edge || []).map((e) => line(e.host, e.code ? e.code + " · " + e.ms + " ms" : "down", !e.code || e.code >= 400)).join("");
+  const b = (d.nerve && d.nerve.beats && d.nerve.beats[0]) || {};
+  $("ear").textContent = b.whisper ? b.whisper + " ms" : "—";
+  $("mind").textContent = b.hermes ? b.hermes + " ms" : "—";
+  $("mouth").textContent = b.tts ? b.tts + " ms" : "—";
+  draw(d.line || []);
+}
+$("pairform").onsubmit = async (e) => {
+  e.preventDefault();
+  const code = $("code").value.trim();
+  if (!code) return;
+  $("pairmsg").textContent = "Checking…";
+  const r = await fetch("/pair", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) }).catch(() => null);
+  const d = r ? await r.json().catch(() => ({})) : {};
+  if (d.ok) { $("pairmsg").textContent = "Paired."; $("code").value = ""; tick(); return; }
+  $("pairmsg").textContent = d.error === "later" ? "Too many tries. Wait 15 minutes, then try again." : "That code was not accepted. Check it and try again.";
+  $("code").focus();
+};
+$("line").onsubmit = async (e) => {
+  e.preventDefault();
+  const text = $("text").value.trim();
+  if (!text || pending || !paired) return;
+  pending = text;
+  $("text").value = "";
+  draw([]);
+  const res = await fetch("/admin/say", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) }).catch(() => null);
+  if (res && res.status === 401) setPaired(false);
+  pending = "";
+  tick();
+};
+tick(); services();
+setInterval(tick, 2000);
+setInterval(services, 10000);
+</script>
+</body>
+</html>

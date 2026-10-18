@@ -376,6 +376,11 @@ impl Config {
         if let Some(x) = get("HERMES_RS_CRON_OUTPUT") {
             self.cron_output_dir = PathBuf::from(x);
         }
+        // HERMES_RS_MCP=0 skips every configured MCP server (shadow runs).
+        if get("HERMES_RS_MCP").is_some_and(|x| matches!(x.as_str(), "0" | "false" | "no" | "off"))
+        {
+            self.mcp_servers.clear();
+        }
         if let Some(x) = get("HERMES_RS_PERSONA") {
             self.persona_file = Some(PathBuf::from(x));
         }
@@ -501,10 +506,22 @@ mcp_servers:
             "HERMES_RS_PORT" => Some("8652".to_string()),
             "API_SERVER_PORT" => Some("8642".to_string()),
             "HERMES_RS_CRON" => Some("1".to_string()),
+            "HERMES_RS_MCP" => Some("off".to_string()),
             _ => None,
         };
         c.apply_env(&env).unwrap();
         assert_eq!(c.port, 8652);
         assert!(c.cron_enabled);
+        let mut d = Config::defaults(Path::new("/h"));
+        d.mcp_servers.push(McpServerCfg {
+            name: "x".into(),
+            command: "true".into(),
+            args: vec![],
+            timeout_s: 1,
+            connect_timeout_s: 1,
+            lazy: false,
+        });
+        d.apply_env(&env).unwrap();
+        assert!(d.mcp_servers.is_empty());
     }
 }

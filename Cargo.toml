@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+# crates/one-defence (read-only port of galion-light/one/defence.py) joins via this glob.
 members = ["crates/*"]
 # contrib/grokbot is a vendored, read-only material dump with its own package.
 # It is not part of the OpenMind workspace.

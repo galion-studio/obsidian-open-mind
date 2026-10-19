@@ -7,32 +7,43 @@
 //! the legacy event stamps are kept verbatim too; both are UTC and both are
 //! documented as such in `docs/` and in the crate README.
 //!
-//! Every path and every probe target can be overridden with an environment
-//! variable so the binary can be tested without touching live state:
+//! Probe URLs and the output paths come from `openmind-config` when the config
+//! file exists (`$OPENMIND_CONFIG`, default `/etc/openmind/openmind.toml`).
+//! `LINK_WATCH_*` environment variables still win over that file, and over
+//! `OPENMIND_*` overrides applied by the loader. If the config file is missing,
+//! the `Defaults` below are kept (today's paths and loopback probe URLs) and
+//! `OPENMIND_*` is not consulted.
 //!
 //!   LINK_WATCH_OUT         output file (default: live `state/link.json`)
 //!   LINK_WATCH_LAPTOP      laptop card   (default: live `state/laptop.json`)
 //!   LINK_WATCH_LOG         event log     (default: live `state/link-log.json`)
 //!   LINK_WATCH_OLLAMA_URL  base URL for `/api/ps` and `/api/tags`
 //!   LINK_WATCH_HERMES_URL  base URL for `/health`
-//!   LINK_WATCH_FRANCE_URL  base URL for `/console` (no default; unset means
-//!                          no network call and `"france": "unconfigured"`)
+//!   LINK_WATCH_FRANCE_URL  base URL for `/console` (no built-in host; unset
+//!                          means no network call and `"france": "unconfigured"`,
+//!                          unless the config file sets `hosts.remote_probe`)
 //!   LINK_WATCH_ONCE        if set, run exactly one iteration and exit
 //!
-//! Loopback and path defaults match the Python original. The remote probe has
-//! no built-in host.
+//! A present file supplies `http://{hosts.ollama}:{ports.ollama}`,
+//! `http://{hosts.hermes}:{ports.hermes}`, and, when `hosts.remote_probe` is
+//! set, `http://{hosts.remote_probe}:{ports.console}` as the France base.
+//! `link.json`, `laptop.json` and `link-log.json` are `paths.base` joined with
+//! those names. Loopback defaults match the Python original. The remote probe
+//! has no built-in host.
 
 mod jsonout;
 
 use jsonout::{json_str, to_json_compat};
+use openmind_config::ConfigError;
 use serde_json::{Map, Value};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// Every built-in default in one place. Only loopback and local state paths
-/// live here; the remote probe has no default and comes from the environment.
+/// Built-in defaults used when the OpenMind config file is missing.
+/// Only loopback and local state paths live here; the remote probe has
+/// no default.
 struct Defaults {
     out: &'static str,
     laptop: &'static str,
@@ -49,11 +60,109 @@ const DEFAULTS: Defaults = Defaults {
     hermes: "http://127.0.0.1:8642",
 };
 
-/// Value of the `france` key when `LINK_WATCH_FRANCE_URL` is unset or empty.
+/// Value of the `france` key when no France probe base is configured.
 const UNCONFIGURED: &str = "unconfigured";
 
-fn env_or(key: &str, default: &str) -> String {
-    std::env::var(key).unwrap_or_else(|_| default.to_string())
+/// Resolved paths and probe bases for one process.
+#[derive(Debug)]
+struct Settings {
+    out: PathBuf,
+    laptop: PathBuf,
+    log: PathBuf,
+    ollama: String,
+    hermes: String,
+    france: Option<String>,
+}
+
+impl Settings {
+    fn from_defaults() -> Self {
+        Settings {
+            out: PathBuf::from(DEFAULTS.out),
+            laptop: PathBuf::from(DEFAULTS.laptop),
+            log: PathBuf::from(DEFAULTS.log),
+            ollama: DEFAULTS.ollama.to_string(),
+            hermes: DEFAULTS.hermes.to_string(),
+            france: None,
+        }
+    }
+}
+
+fn probe_base(host: &str, port: u16) -> String {
+    format!("http://{host}:{port}")
+}
+
+/// `$OPENMIND_CONFIG` when set and non-empty, otherwise the crate default path.
+fn config_file_path(env: &dyn Fn(&str) -> Option<String>) -> PathBuf {
+    match env("OPENMIND_CONFIG") {
+        Some(value) if !value.is_empty() => PathBuf::from(value),
+        _ => PathBuf::from(openmind_config::DEFAULT_PATH),
+    }
+}
+
+/// `Ok(false)` when the file is absent (today's defaults apply). A directory
+/// is treated as absent. Any other metadata error is reported.
+fn config_file_present(path: &Path) -> Result<bool, ConfigError> {
+    match std::fs::metadata(path) {
+        Ok(meta) => Ok(meta.is_file()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(ConfigError::Read {
+            file: path.to_path_buf(),
+            message: err.to_string(),
+        }),
+    }
+}
+
+fn apply_link_watch_env(settings: &mut Settings, env: &dyn Fn(&str) -> Option<String>) {
+    if let Some(value) = env("LINK_WATCH_OUT") {
+        settings.out = PathBuf::from(value);
+    }
+    if let Some(value) = env("LINK_WATCH_LAPTOP") {
+        settings.laptop = PathBuf::from(value);
+    }
+    if let Some(value) = env("LINK_WATCH_LOG") {
+        settings.log = PathBuf::from(value);
+    }
+    if let Some(value) = env("LINK_WATCH_OLLAMA_URL") {
+        settings.ollama = value;
+    }
+    if let Some(value) = env("LINK_WATCH_HERMES_URL") {
+        settings.hermes = value;
+    }
+    if let Some(value) = env("LINK_WATCH_FRANCE_URL") {
+        let trimmed = value.trim();
+        settings.france = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        };
+    }
+}
+
+/// Precedence: `LINK_WATCH_*`, then a present config file (with `OPENMIND_*`
+/// already applied by `openmind-config`), then `Defaults` when that file is
+/// missing.
+fn resolve(env: &dyn Fn(&str) -> Option<String>) -> Result<Settings, ConfigError> {
+    let mut settings = Settings::from_defaults();
+    let path = config_file_path(env);
+    if config_file_present(&path)? {
+        let cfg = openmind_config::load_from(Some(&path), env)?;
+        settings.out = cfg.paths.state_file("link.json");
+        settings.laptop = cfg.paths.state_file("laptop.json");
+        settings.log = cfg.paths.state_file("link-log.json");
+        settings.ollama = probe_base(cfg.hosts.ollama.trim(), cfg.ports.ollama);
+        settings.hermes = probe_base(cfg.hosts.hermes.trim(), cfg.ports.hermes);
+        if let Some(host) = cfg
+            .hosts
+            .remote_probe
+            .as_deref()
+            .map(str::trim)
+            .filter(|host| !host.is_empty())
+        {
+            settings.france = Some(probe_base(host, cfg.ports.console));
+        }
+    }
+    apply_link_watch_env(&mut settings, env);
+    Ok(settings)
 }
 
 fn env_flag(key: &str) -> bool {
@@ -279,15 +388,21 @@ fn model_from_tags(body: &[u8]) -> String {
 }
 
 fn main() {
-    let out = PathBuf::from(env_or("LINK_WATCH_OUT", DEFAULTS.out));
-    let laptop = PathBuf::from(env_or("LINK_WATCH_LAPTOP", DEFAULTS.laptop));
-    let log = PathBuf::from(env_or("LINK_WATCH_LOG", DEFAULTS.log));
-    let ollama = env_or("LINK_WATCH_OLLAMA_URL", DEFAULTS.ollama);
-    let hermes = env_or("LINK_WATCH_HERMES_URL", DEFAULTS.hermes);
-    let france = std::env::var("LINK_WATCH_FRANCE_URL")
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty());
+    let settings = match resolve(&|key| std::env::var(key).ok()) {
+        Ok(settings) => settings,
+        Err(err) => {
+            eprintln!("link-watch: {err}");
+            std::process::exit(1);
+        }
+    };
+    let Settings {
+        out,
+        laptop,
+        log,
+        ollama,
+        hermes,
+        france,
+    } = settings;
     let once = env_flag("LINK_WATCH_ONCE");
 
     let ps_url = format!("{}/api/ps", trim_base(&ollama));
@@ -377,5 +492,169 @@ fn main() {
             break;
         }
         std::thread::sleep(Duration::from_secs(3));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn out_dir() -> PathBuf {
+        let dir =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/link-watch");
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn env_from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let owned: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        move |key| {
+            owned
+                .iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.clone())
+        }
+    }
+
+    fn write_fixture(name: &str, body: &str) -> PathBuf {
+        let path = out_dir().join(name);
+        std::fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn missing_config_file_keeps_defaults_and_ignores_openmind_env() {
+        let missing = out_dir().join("does-not-exist.toml");
+        let _ = std::fs::remove_file(&missing);
+        let settings = resolve(&env_from(&[
+            ("OPENMIND_CONFIG", missing.to_str().unwrap()),
+            ("OPENMIND_HOSTS_OLLAMA", "evil.example.invalid"),
+            ("OPENMIND_PATHS_BASE", "/tmp/not-today"),
+        ]))
+        .unwrap();
+        assert_eq!(settings.out, PathBuf::from(DEFAULTS.out));
+        assert_eq!(settings.laptop, PathBuf::from(DEFAULTS.laptop));
+        assert_eq!(settings.log, PathBuf::from(DEFAULTS.log));
+        assert_eq!(settings.ollama, DEFAULTS.ollama);
+        assert_eq!(settings.hermes, DEFAULTS.hermes);
+        assert!(settings.france.is_none());
+    }
+
+    #[test]
+    fn config_fixture_supplies_urls_and_paths() {
+        let base = out_dir().join("unit-base");
+        let path = write_fixture(
+            "unit-fixture.toml",
+            &format!(
+                "\
+[hosts]
+ollama = \"ollama.example.invalid\"
+hermes = \"hermes.example.invalid\"
+remote_probe = \"probe.example.invalid\"
+[ports]
+ollama = 14001
+hermes = 14002
+console = 14003
+[paths]
+base = '{base}'
+",
+                base = base.display()
+            ),
+        );
+        let settings = resolve(&env_from(&[("OPENMIND_CONFIG", path.to_str().unwrap())])).unwrap();
+        assert_eq!(settings.out, base.join("link.json"));
+        assert_eq!(settings.laptop, base.join("laptop.json"));
+        assert_eq!(settings.log, base.join("link-log.json"));
+        assert_eq!(settings.ollama, "http://ollama.example.invalid:14001");
+        assert_eq!(settings.hermes, "http://hermes.example.invalid:14002");
+        assert_eq!(
+            settings.france.as_deref(),
+            Some("http://probe.example.invalid:14003")
+        );
+    }
+
+    #[test]
+    fn openmind_env_wins_over_config_file() {
+        let base = out_dir().join("unit-file-base");
+        let path = write_fixture(
+            "unit-env-file.toml",
+            &format!(
+                "\
+[hosts]
+ollama = \"file.example.invalid\"
+hermes = \"hermes.example.invalid\"
+[ports]
+ollama = 1
+[paths]
+base = '{base}'
+",
+                base = base.display()
+            ),
+        );
+        let overridden = out_dir().join("unit-env-base");
+        let settings = resolve(&env_from(&[
+            ("OPENMIND_CONFIG", path.to_str().unwrap()),
+            ("OPENMIND_HOSTS_OLLAMA", "env.example.invalid"),
+            ("OPENMIND_PORTS_OLLAMA", "9"),
+            ("OPENMIND_PATHS_BASE", overridden.to_str().unwrap()),
+            ("OPENMIND_HOSTS_REMOTE_PROBE", "probe.example.invalid"),
+        ]))
+        .unwrap();
+        assert_eq!(settings.ollama, "http://env.example.invalid:9");
+        assert_eq!(settings.out, overridden.join("link.json"));
+        assert_eq!(
+            settings.france.as_deref(),
+            Some("http://probe.example.invalid:8080")
+        );
+    }
+
+    #[test]
+    fn link_watch_env_wins_over_config_file() {
+        let base = out_dir().join("unit-link-base");
+        let path = write_fixture(
+            "unit-link-file.toml",
+            &format!(
+                "\
+[hosts]
+ollama = \"file.example.invalid\"
+hermes = \"file-hermes.example.invalid\"
+remote_probe = \"probe.example.invalid\"
+[paths]
+base = '{base}'
+",
+                base = base.display()
+            ),
+        );
+        let settings = resolve(&env_from(&[
+            ("OPENMIND_CONFIG", path.to_str().unwrap()),
+            ("OPENMIND_HOSTS_OLLAMA", "openmind.example.invalid"),
+            ("LINK_WATCH_OUT", "/tmp/link-watch-env-out.json"),
+            ("LINK_WATCH_LAPTOP", "/tmp/link-watch-env-laptop.json"),
+            ("LINK_WATCH_LOG", "/tmp/link-watch-env-log.json"),
+            ("LINK_WATCH_OLLAMA_URL", "http://127.0.0.1:1"),
+            ("LINK_WATCH_HERMES_URL", "http://127.0.0.1:1"),
+            ("LINK_WATCH_FRANCE_URL", "  "),
+        ]))
+        .unwrap();
+        assert_eq!(settings.out, PathBuf::from("/tmp/link-watch-env-out.json"));
+        assert_eq!(
+            settings.laptop,
+            PathBuf::from("/tmp/link-watch-env-laptop.json")
+        );
+        assert_eq!(settings.log, PathBuf::from("/tmp/link-watch-env-log.json"));
+        assert_eq!(settings.ollama, "http://127.0.0.1:1");
+        assert_eq!(settings.hermes, "http://127.0.0.1:1");
+        assert!(settings.france.is_none());
+    }
+
+    #[test]
+    fn bad_config_file_is_an_error() {
+        let path = write_fixture("unit-bad.toml", "[ports]\nollama = \"nope\"\n");
+        let err = resolve(&env_from(&[("OPENMIND_CONFIG", path.to_str().unwrap())])).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("unit-bad.toml"), "{msg}");
     }
 }

@@ -84,3 +84,47 @@ fn mock_listener_ok_and_down() {
     let ts = j["ts"].as_str().unwrap();
     assert!(ts.ends_with("+01:00") || ts.ends_with("+02:00"), "{ts}");
 }
+
+#[test]
+fn deploy_survival_probes_toml_parses() {
+    let rel = "../../deploy/survival/probes.toml";
+    let text = std::fs::read_to_string(rel).unwrap_or_else(|e| panic!("{rel}: {e}"));
+    let v: toml::Value = toml::from_str(&text).expect("toml");
+    let probes = v["probe"].as_array().expect("[[probe]] table");
+    assert!(!probes.is_empty(), "zero [[probe]] entries");
+
+    let mut saw_disk = false;
+    let mut saw_mem = false;
+    let mut saw_load = false;
+    let mut saw_cloudflared = false;
+    let mut http = Vec::new();
+    for p in probes {
+        let kind = p["kind"].as_str().expect("kind");
+        match kind {
+            "http" => http.push(p["name"].as_str().expect("http name")),
+            "disk" => saw_disk = true,
+            "mem" => saw_mem = true,
+            "load" => saw_load = true,
+            "cloudflared" => saw_cloudflared = true,
+            "unit" | "fresh" => {}
+            other => panic!("unknown probe kind {other}"),
+        }
+    }
+    assert!(saw_disk, "missing disk");
+    assert!(saw_mem, "missing mem");
+    assert!(saw_load, "missing load");
+    assert!(saw_cloudflared, "missing cloudflared");
+    for name in [
+        "hermes", "one", "whisper", "vision", "voice", "console", "origin",
+    ] {
+        assert!(http.contains(&name), "missing {name}");
+    }
+
+    let out = tmp("survival-probes-out.json");
+    let o = Command::new(BIN)
+        .args(["--probes", rel, "--out", out.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(0), "{err}");
+}

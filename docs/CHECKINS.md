@@ -1,0 +1,20 @@
+# CHECKINS for Slavik (newest at bottom, Europe/Zagreb)
+
+- 2026-10-18T20:00:44+02:00 | Boss session openmind-boss-20261018 starting: 50 small tickets queued (foundation for low-end CPU devices, last Python calls, Rust guardian/healer, agent sandbox first), max 3 workers at a time, $5 cap. Next: wave 1 (B01, B10, B17).
+- 2026-10-18T20:13:23+02:00 | B01 link-watch no hard-coded host: PASS, the France probe now reads its address from config only and says "unconfigured" when none is set; the staged unit needs one env line before any switch. Next: B02 shared config crate.
+- 2026-10-18T20:13:23+02:00 | B10 Python call-site audit: PASS, three Rust spots still can start Python but only behind an off-by-default switch, and warm/defence are already Rust. Next: B11 models refresh port.
+- 2026-10-18T20:13:23+02:00 | B17 guardian/healer study: PASS, the guardian last ran 2026-10-12 06:57 and stopped when keep.sh was no longer running; sealing, killing and restarts are excluded from the port. Next: B18 survival probe crate.
+- 2026-10-18T20:13:23+02:00 | Wave 1 done: 3 of 3 passed, production untouched, about 1 USD spent. Next: wave 2 (B02, B18, B26).
+- 2026-10-18T20:23:11+02:00 B02 PASS a801ebe: openmind-config, loopback-only defaults, env overrides, 8 tests.
+- 2026-10-18T20:23:11+02:00 B18 PASS a46ebe3: openmind-survival, read-only probes, no live network in tests, 7 tests.
+- 2026-10-18T20:23:11+02:00 B26 PASS 86986bc: docs/agentic-sandbox.md, landlock absent here, v0 = rlimits+env+workdir+timeout.
+- 2026-10-18T20:33:13+02:00 B11 PASS 4e24a51: galion-one models refresh in Rust, no Python launch for models.
+- 2026-10-18T20:33:13+02:00 B19 PASS 9efccef: guardian-tick report-only bin, under 2 MB and 10 MB.
+- 2026-10-18T20:33:13+02:00 B27 PASS 74d52ec: openmind-sandbox v0, landlock skips cleanly here.
+- 2026-10-18T20:33:13+02:00 Session done: 9/9 PASS, about 3.6 of 5 USD, next wave 4 B03 B12 B20, STAGED items wait for Slavik.
+- 2026-10-18T20:44:33+02:00 | B03 not started: the 5 USD cap for this boss work is nearly used up (about 0.87 USD left, and one ticket costs about 1.1-1.4 USD with review). Next: B03 when more budget is approved.
+- 2026-10-18T22:36:13+02:00 | W4 B03/B12/B20 not started: the new Rust Hermes has no file or shell tools yet, so it cannot run boss tickets; cap raised to 10 USD. Next: give hermes-rs tools (staged) or approve another runner.
+
+- 2026-10-19T15:30:58+02:00 | B03 PASS: link-watch reads openmind-config, LINK_WATCH_* still wins, missing file keeps today's defaults. Live unit not switched.
+- 2026-10-19T15:30:58+02:00 | B12 PASS: one-defence read-only port of defence.py, fixture only, live guardian.db not opened.
+- 2026-10-19T15:30:58+02:00 | B20 PASS: deploy/survival/probes.toml parsed by guardian-tick. Read-only probes only.

@@ -1,0 +1,25 @@
+# BOSS-PROGRESS (append-only, newest at bottom, Europe/Zagreb)
+
+Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <files> | <commit or ->`
+
+- 2026-10-18T20:00:44+02:00 | setup | teacher (Grok Bot) | BOSS.md and QUEUE.md written; session openmind-boss-20261018 created | TEACHER/BOSS.md TEACHER/QUEUE.md | -
+- 2026-10-18T20:13:23+02:00 | B01 | sa-0-21cf8d45 (deleg_9a25e7af) | PASS 9/10 C1 ok C2 ok C3 ok C6 ok C7 ok C8 ok C9 ok; size 394936 B stripped, RSS 1536 kB; -1 fidelity: france bool becomes "unconfigured" string when unset (staged) | crates/link-watch/src/main.rs crates/link-watch/tests/golden_keys.rs TEACHER/STAGED.md | 0a46603
+- 2026-10-18T20:13:23+02:00 | B10 | sa-1-a984a241 (deleg_9a25e7af) | PASS 9/10 C7 ok C8 ok secrets ok Zagreb header ok; 3 gated ONE_LEGACY_PY sites not 4, warm/defence already in Rust, no DB writes | docs/legacy-python.md | 12f62d0
+- 2026-10-18T20:13:23+02:00 | B17 | sa-2-fc754f8b (deleg_9a25e7af) | PASS 8/10 C7 ok C8 ok secrets ok Zagreb header ok; guardian.db row counts missing (no sqlite3 on box) | docs/survival-rust-plan.md | ad9fce0
+- 2026-10-18T20:13:23+02:00 | WAVE 1 | boss | 3/3 PASS; C9 hermes/console/galion-desk/link-watch active, 8091=200; spend about 1 USD | - | -
+- 2026-10-18T20:23:11+02:00 | B02 | sa-0-86d28ead (deleg_d311d327) | PASS 9/10 | a801ebe | per-pkg C1-C3 ok, 8 tests, deps serde+toml only, IPs only 127.0.0.1; dump example 285616 B stripped, RSS 1408 kB. Cargo.lock also carries a persona-plex-relay entry (other job, crate not committed).
+- 2026-10-18T20:23:11+02:00 | B18 | sa-1-9e2e60a8 (deleg_d311d327) | PASS 8/10 | a46ebe3 | C1-C3 C6 ok, 7 tests, std + zagreb-time only, Runner calls only systemctl is-active and df -P; boss added missing SPDX to Cargo.toml; probe_once 374208 B, RSS 1536 kB.
+- 2026-10-18T20:23:11+02:00 | B26 | sa-2-a34b6f92 (deleg_d311d327) | PASS 8/10 | 86986bc | six sections, kernel probes quoted (no landlock in LSM, userns ok, cgroup2, seccomp available), nothing enabled; 183 lines, over target.
+- 2026-10-18T20:23:11+02:00 | WAVE 2 | 3/3 PASS | workspace clippy also 0 with persona-plex-relay present; spend about 2.2 of 5 USD.
+- 2026-10-18T20:33:13+02:00 | B11 | sa-0-111b8a0f (deleg_da8221fd) | PASS 7/10 | 4e24a51 | per-pkg C1-C3 ok, golden test on mock fetcher, output under target/test-out only; key read from env at call time, sent to curl on stdin, never in errors or files; models.py launch gone, tts branch kept; release 642728 B (+26128), --help RSS 2176 kB. STAGED: retry backoff needed.
+- 2026-10-18T20:33:13+02:00 | B19 | sa-1-0e380239 (deleg_da8221fd) | PASS 8/10 | 9efccef | C1-C3 C6 ok, 5 tests, no Command::new, only write is --out; live loopback run 11 probes 5 failed (report only); 630896 B, RSS 4352 kB. Fixture unit name is a guess; B20 fixes.
+- 2026-10-18T20:33:13+02:00 | B27 | sa-2-02ec8856 (deleg_da8221fd) | PASS 8/10 | 74d52ec | C1-C3 ok, 13 tests, libc only; timeout kills own child and its own setsid group only; landlock skipped (absent), net reported NotEnforced; demo 371648 B, RSS 1792 kB. Landlock path untested on this kernel.
+- 2026-10-18T20:33:13+02:00 | WAVE 3 | 3/3 PASS | spend about 3.6 of 5 USD.
+- 2026-10-18T20:33:13+02:00 | SESSION openmind-boss-20261018 | 9/9 PASS over 3 waves | commits B01, 74d52ec 9efccef 4e24a51 86986bc a46ebe3 a801ebe | next session: wave 4 B03 B12 B20 | awaiting Slavik: STAGED.md items (link-watch FRANCE_URL, B11 key + backoff).
+- 2026-10-18T20:44:33+02:00 | B03 | teacher (Grok Bot) | NOT STARTED: budget | about 4.13 of 5 USD used, about 0.87 left; one boss dispatch turn plus one boss review turn cost about 0.5-0.6 USD each on Opus at the current 50k context, plus the Sonnet worker, so one ticket would pass the cap | - | -
+- 2026-10-18T22:36:13+02:00 | W4 B03 B12 B20 | teacher (Grok Bot) | NOT STARTED: hermes-rs cannot run boss tickets (tools are only clock + delegate_task; no terminal/file/git tools; unit is ProtectSystem=strict, MemoryMax=64M, session cap 1 USD, daily cap 2 USD). Cap raised 5 -> 10 USD in BOSS.md | TEACHER/BOSS.md | -
+
+- 2026-10-19T15:30:58+02:00 | B03 | grok-build | PASS 9/10 | crates/link-watch | pending
+- 2026-10-19T15:30:58+02:00 | B12 | grok-build | PASS 8/10 | crates/one-defence | pending
+- 2026-10-19T15:30:58+02:00 | B20 | grok-build | PASS 8/10 | deploy/survival/probes.toml | pending
+- 2026-10-19T15:30:58+02:00 | WAVE 4 | lead retest fmt+test+clippy of the three packages, exit 0; C9 hermes-rs galion-desk link-watch-rs console active, one health 200 | - | -

@@ -21,6 +21,8 @@ fn run_once(tag: &str, france: Option<&str>) -> Value {
         .env("LINK_WATCH_LOG", dir.join(format!("{tag}-log.json")))
         .env("LINK_WATCH_OLLAMA_URL", "http://127.0.0.1:1")
         .env("LINK_WATCH_HERMES_URL", "http://127.0.0.1:1")
+        // No config file: today's Defaults, then the LINK_WATCH_* values above.
+        .env("OPENMIND_CONFIG", dir.join("missing-openmind.toml"))
         .env_remove("LINK_WATCH_FRANCE_URL");
     if let Some(u) = france {
         cmd.env("LINK_WATCH_FRANCE_URL", u);

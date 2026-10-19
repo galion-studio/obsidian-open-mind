@@ -123,3 +123,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:40:42+02:00 | LW-HOST | grok-build | PASS 9/10 | docs/link-watch-host.md | source already clean; missing config is unconfigured; live process not restarted
 
 - 2026-10-19T17:42:21+02:00 | UCPU-1 | grok-build | PASS 8/10 | docs/universal-cpu.md scripts/target-check.sh | four target names KNOWN; no cross build
+
+- 2026-10-19T17:43:11+02:00 | PROV-MAP | grok-build | PASS 8/10 | docs/provider-map.md | 8 rows; network no; GPU forced false or label only; route not in tree yet

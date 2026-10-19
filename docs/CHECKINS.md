@@ -101,3 +101,5 @@
 - 2026-10-19T17:40:42+02:00 | LW-HOST PASS: link-watch source has no baked public host. Nothing was restarted.
 
 - 2026-10-19T17:42:21+02:00 | UCPU-1 PASS: rustc knows the four target names. A cross build was not run.
+
+- 2026-10-19T17:43:11+02:00 | PROV-MAP PASS: provider map written. None of those crates dial the network.

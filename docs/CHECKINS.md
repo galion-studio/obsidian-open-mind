@@ -189,3 +189,5 @@
 - 2026-10-19T18:30:03+02:00 | RELAY-2 PASS: a missing config stays quiet. It does not dial and it does not print a secret.
 
 - 2026-10-19T18:32:21+02:00 | LINK-2 PASS: the watch decision writes a report and does not dial. Live link-watch was left running.
+
+- 2026-10-19T18:34:24+02:00 | TALK-2 PASS: a talk fixture stays text. It does not dial and it does not play audio.

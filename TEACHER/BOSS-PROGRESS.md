@@ -211,3 +211,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:30:03+02:00 | RELAY-2 | grok-build | PASS 9/10 | crates/persona-plex-relay | missing config prints a stamp, opens no socket, prints no secret
 
 - 2026-10-19T18:32:21+02:00 | LINK-2 | grok-build | PASS 9/10 | crates/link-watch | watch_decision is a report; no systemctl, spawn, or socket
+
+- 2026-10-19T18:34:24+02:00 | TALK-2 | grok-build | PASS 9/10 | crates/one-talk | fixture parses in memory; no socket and no playback

@@ -1,0 +1,58 @@
+{
+  "when": "2026-10-05T17:46:52Z",
+  "boss": "hermes-local",
+  "via": "three workers, no gateway, no grok",
+  "task": "Read the live cash, receipt flag, disk percent, Hermes health, and nonempty skill count. Score is correct fields. Fastest correct worker wins.",
+  "truth": {
+    "cash_usd": 11.21,
+    "receipt": false,
+    "volume_used_pct": 75.6,
+    "hermes": 200,
+    "skills": 20
+  },
+  "workers": [
+    {
+      "name": "flint",
+      "points": 5,
+      "of": 5,
+      "elapsed_ms": 93.3,
+      "report": {
+        "cash_usd": 11.21,
+        "receipt": false,
+        "volume_used_pct": 75.6,
+        "hermes": 200,
+        "skills": 20
+      }
+    },
+    {
+      "name": "keel",
+      "points": 5,
+      "of": 5,
+      "elapsed_ms": 101.7,
+      "report": {
+        "cash_usd": 11.21,
+        "receipt": false,
+        "volume_used_pct": 75.6,
+        "hermes": 200,
+        "skills": 20
+      }
+    },
+    {
+      "name": "marsh",
+      "points": 5,
+      "of": 5,
+      "elapsed_ms": 106.4,
+      "report": {
+        "cash_usd": 11.21,
+        "receipt": false,
+        "volume_used_pct": 75.6,
+        "hermes": 200,
+        "skills": 20
+      }
+    }
+  ],
+  "winner": "flint",
+  "score": "5/5",
+  "elapsed_ms": 93.3,
+  "reward": "next local job goes to this worker first. Not cash. No receipt."
+}

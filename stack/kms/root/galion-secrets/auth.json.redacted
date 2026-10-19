@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "providers": {},
+  "credential_pool": {
+    "openrouter": [
+      {
+        "id": "a6cb04",
+        "label": "OPENROUTER_API_KEY",
+        "auth_type": "api_key",
+        "priority": 0,
+        "source": "env:OPENROUTER_API_KEY",
+        "last_status": null,
+        "last_status_at": null,
+        "last_error_code": null,
+        "last_error_reason": null,
+        "last_error_message": null,
+        "last_error_reset_at": null,
+        "base_url": "https://openrouter.ai/api/v1",
+        "request_count": 0,
+        "secret_fingerprint": "<REDACTED:credential_pool.openrouter.0.secret_fingerprint>"
+      }
+    ]
+  },
+  "updated_at": "2026-09-22T15:35:42.673200+00:00",
+  "_redacted_copy_of": "/root/galion-secrets/auth.json"
+}

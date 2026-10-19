@@ -1,0 +1,73 @@
+# release: runs only on a v* tag, and only after the full self-eval gate passes.
+# Builds release binaries, generates a CycloneDX SBOM, signs every artifact with
+# Sigstore cosign (keyless, GitHub OIDC), and creates the GitHub Release.
+name: release
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+permissions:
+  contents: read
+
+jobs:
+  self-eval:
+    name: self-eval gate
+    uses: ./.github/workflows/self-eval.yml
+
+  release:
+    name: build, SBOM, sign, publish release
+    needs: self-eval
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the GitHub Release
+      id-token: write   # cosign keyless signing via OIDC
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: build release binaries
+        run: cargo build --release --workspace --locked
+
+      - name: package
+        run: |
+          set -eu
+          name="open-mind-stack-${GITHUB_REF_NAME}-x86_64-linux"
+          mkdir -p "dist/$name"
+          for b in galion-one galion-desk room desk-hermes link-watch; do
+            [ -f "target/release/$b" ] && cp "target/release/$b" "dist/$name/"
+          done
+          cp LICENSE README.md "dist/$name/"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          rm -rf "dist/$name"
+          (cd dist && sha256sum ./*.tar.gz > SHA256SUMS)
+
+      - name: SBOM (CycloneDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: dist/open-mind-stack-${{ github.ref_name }}.cdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - uses: sigstore/cosign-installer@v3
+
+      - name: sign artifacts (keyless)
+        run: |
+          set -eu
+          cd dist
+          for f in *.tar.gz *.cdx.json SHA256SUMS; do
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
+          done
+          ls -l
+
+      - name: create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --title "$GITHUB_REF_NAME" \
+            --notes "Built by release.yml after self-eval passed. Verify with: cosign verify-blob --bundle <file>.sigstore.json --certificate-identity-regexp 'https://github.com/galion-studio/open-mind-stack/' --certificate-oidc-issuer https://token.actions.githubusercontent.com <file>"

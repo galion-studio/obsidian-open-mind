@@ -1,0 +1,16 @@
+[Unit]
+Description=Hermes agent gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=5
+Environment=HERMES_HOME=/opt/galion/hermes
+EnvironmentFile=/etc/memory-gateway.env
+ExecStart=/usr/local/bin/hermes gateway run --accept-hooks
+WorkingDirectory=/opt/galion
+
+[Install]
+WantedBy=multi-user.target

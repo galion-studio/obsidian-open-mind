@@ -1,0 +1,19 @@
+{
+  "model": "huihui_ai/qwen3.5-abliterated:9b",
+  "provider": "laptop",
+  "base_url": "http://127.0.0.1:11434/v1",
+  "context": 65536,
+  "browser": false,
+  "javascript": false,
+  "cookies": false,
+  "require_tunnel": false,
+  "proxy": "",
+  "mullvad": "later",
+  "terminal": "pod",
+  "laptop": "tokens-only",
+  "cloud_fallback": "ask-admin",
+  "board": "live",
+  "live_max_minutes": 20,
+  "guard": true,
+  "auto_accept": true
+}

@@ -1,2 +1,19 @@
 target/
 stage/console-dist/
+# stack/ secret guard: only *.redacted copies may live here, never real secrets
+stack/**/.env
+stack/**/*.env
+stack/**/auth.json
+stack/**/*.key
+stack/**/*.token
+stack/**/*.pem
+stack/**/*.sealed
+stack/**/*.cookie
+stack/**/*.pin
+stack/**/*_ed25519
+stack/**/id_*
+stack/**/*.db
+stack/**/vault/
+stack/**/galion-secrets/*
+!stack/**/galion-secrets/*.redacted
+!stack/**/galion-secrets/from-grok-build/

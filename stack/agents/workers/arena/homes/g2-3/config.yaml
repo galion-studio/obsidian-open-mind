@@ -1,0 +1,15 @@
+model:
+  provider: openrouter
+  default: deepseek/deepseek-v4.1-flash
+agent:
+  disabled_toolsets:
+    - terminal
+    - file
+    - code_execution
+    - browser
+    - delegation
+    - skills
+    - web
+    - memory
+    - cronjob
+gateway: false

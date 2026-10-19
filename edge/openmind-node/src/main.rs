@@ -1,0 +1,337 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Slavik / Galion Studio
+
+//! omnode: phone/LAN-side node of the Obsidian Open Mind Stack (MIT).
+//! Rust only. See docs/phone-instance.md.
+
+mod announce;
+mod config;
+mod discover;
+mod dns;
+mod doctor;
+mod identity;
+mod pair;
+mod sandbox;
+mod seccomp;
+mod sysinfo;
+mod util;
+mod wifi;
+mod zagreb;
+
+use identity::Identity;
+use std::path::PathBuf;
+use std::process::ExitCode;
+
+const USAGE: &str = "omnode - Obsidian Open Mind Stack phone/LAN node
+
+USAGE: omnode [--config FILE] <command>
+
+  identity init [--no-bind]  create device key (~/.config/openmind/node.key, 600); binds this network
+                           if its gateway is private (home LAN)
+  identity show            print key fingerprint and device id only
+  identity bind [--force]  trust the current network (only networks you own)
+  identity network         show current network hash and whether it is trusted
+  discover [--seconds N] [--dry-run] [--mdns-query] [--no-msearch] [--probe] [--probe-subnet]
+                           polite LAN discovery, JSON on stdout
+  announce [--seconds N] [--dry-run]
+                           advertise _openmind._tcp over mDNS (0 = until stopped)
+  pair [URL] [--no-qr] [--dry-run]
+                           signed pairing payload + QR; --dry-run prints the HTTP plan, sends nothing
+  sandbox run [--wall S] [--cpu S] [--mem MB] [--allow-net] [--require-isolation]
+              [--no-landlock] [--no-seccomp] [--no-namespaces] [--keep] -- CMD [ARGS...]
+  sandbox check            report which isolation this platform provides
+  doctor                   what this device can do (SSID, namespaces, landlock, CPU)
+  version
+
+Set OMNODE_PRINT_RSS=1 to print peak RSS (VmHWM) to stderr on exit.";
+
+fn die(msg: impl std::fmt::Display) -> ExitCode {
+    eprintln!("omnode: {msg}");
+    ExitCode::from(2)
+}
+
+fn print_json(v: &impl serde::Serialize) {
+    println!("{}", serde_json::to_string_pretty(v).unwrap_or_default());
+}
+
+struct Args(Vec<String>);
+impl Args {
+    fn flag(&mut self, f: &str) -> bool {
+        if let Some(i) = self.0.iter().position(|a| a == f) {
+            self.0.remove(i);
+            true
+        } else {
+            false
+        }
+    }
+    fn value(&mut self, f: &str) -> Result<Option<String>, String> {
+        match self.0.iter().position(|a| a == f) {
+            Some(i) if i + 1 < self.0.len() => {
+                let v = self.0.remove(i + 1);
+                self.0.remove(i);
+                Ok(Some(v))
+            }
+            Some(_) => Err(format!("{f} needs a value")),
+            None => Ok(None),
+        }
+    }
+    fn num(&mut self, f: &str) -> Result<Option<u64>, String> {
+        self.value(f)?
+            .map(|v| v.parse().map_err(|_| format!("{f}: not a number: {v}")))
+            .transpose()
+    }
+    fn done(&self) -> Result<(), String> {
+        match self.0.first() {
+            Some(a) => Err(format!("unexpected argument: {a}")),
+            None => Ok(()),
+        }
+    }
+}
+
+fn main() -> ExitCode {
+    let code = real_main();
+    if std::env::var_os("OMNODE_PRINT_RSS").is_some() {
+        if let Some(kb) = util::vm_hwm_kb() {
+            eprintln!("omnode: peak RSS (VmHWM) {kb} KiB");
+        }
+    }
+    code
+}
+
+fn real_main() -> ExitCode {
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    // Split off everything after `--` (sandbox command) before flag parsing.
+    let (head, tail) = match raw.iter().position(|a| a == "--") {
+        Some(i) => (raw[..i].to_vec(), raw[i + 1..].to_vec()),
+        None => (raw, vec![]),
+    };
+    let mut a = Args(head);
+    let cfg_path = match a.value("--config") {
+        Ok(p) => p.map(PathBuf::from),
+        Err(e) => return die(e),
+    };
+    let cfg = match config::load(cfg_path.as_deref()) {
+        Ok(c) => c,
+        Err(e) => return die(e),
+    };
+    if a.0.is_empty() || a.flag("--help") || a.flag("-h") {
+        println!("{USAGE}");
+        return ExitCode::SUCCESS;
+    }
+    let cmd = a.0.remove(0);
+    let sub = if a.0.first().is_some_and(|s| !s.starts_with('-')) {
+        Some(a.0.remove(0))
+    } else {
+        None
+    };
+    let dir = Identity::dir_default();
+    let r: Result<(), String> = (|| match (cmd.as_str(), sub.as_deref()) {
+        ("version", None) => {
+            println!(
+                "omnode {} ({}, {})",
+                env!("CARGO_PKG_VERSION"),
+                std::env::consts::ARCH,
+                sysinfo::platform()
+            );
+            Ok(())
+        }
+        ("identity", Some("init")) => {
+            let no_bind = a.flag("--no-bind");
+            a.done()?;
+            let mut id = Identity::init(&dir)?;
+            println!("device_id   {}", id.state.device_id);
+            println!("fingerprint {}", id.fingerprint());
+            let obs = wifi::observe(true);
+            if no_bind {
+                println!("network     not bound (--no-bind); run `omnode identity bind` on your own network");
+                return Ok(());
+            }
+            if let Some(gw) = obs.gateway_ip.filter(|g| !sysinfo::is_private(*g)) {
+                println!("network     not bound: gateway {gw} is public, not a home LAN (use `identity bind --force` if you really own it)");
+                return Ok(());
+            }
+            match id.bind(&cfg, &obs) {
+                Ok((h, kind, _)) => {
+                    println!("network     bound (hash {}..., anchor {kind})", &h[..8])
+                }
+                Err(e) => println!("network     not bound: {e}"),
+            }
+            Ok(())
+        }
+        ("identity", Some("show")) => {
+            a.done()?;
+            let id = Identity::load(&dir)?;
+            println!("device_id   {}", id.state.device_id);
+            println!("fingerprint {}", id.fingerprint());
+            Ok(())
+        }
+        ("identity", Some("bind")) => {
+            let force = a.flag("--force");
+            a.done()?;
+            let mut id = Identity::load(&dir)?;
+            let obs = wifi::observe(true);
+            if let Some(gw) = obs
+                .gateway_ip
+                .filter(|g| !force && !sysinfo::is_private(*g))
+            {
+                return Err(format!("gateway {gw} is public, not a home LAN; refusing (use --force only for a network you own)"));
+            }
+            let (h, kind, new) = id.bind(&cfg, &obs)?;
+            println!(
+                "{} network hash {}... (anchor {kind})",
+                if new { "bound" } else { "already trusted:" },
+                &h[..8]
+            );
+            Ok(())
+        }
+        ("identity", Some("network")) => {
+            a.done()?;
+            let id = Identity::load(&dir)?;
+            let obs = wifi::observe(true);
+            let cur = id.current_network(&cfg, &obs);
+            print_json(&serde_json::json!({
+                "observed": obs.public(),
+                "hash": cur.as_ref().map(|c| &c.0),
+                "anchor": cur.as_ref().map(|c| c.1),
+                "trusted": cur.as_ref().map(|c| c.2).unwrap_or(false),
+                "trusted_count": id.state.trusted_networks.len(),
+            }));
+            Ok(())
+        }
+        ("discover", None) => {
+            let o = discover::Opts {
+                seconds: a.num("--seconds")?.unwrap_or(cfg.discover.seconds),
+                dry_run: a.flag("--dry-run"),
+                mdns_query: a.flag("--mdns-query") || cfg.discover.mdns_query,
+                msearch: !a.flag("--no-msearch") && cfg.discover.ssdp_msearch,
+                probe: a.flag("--probe"),
+                probe_subnet: a.flag("--probe-subnet"),
+            };
+            let o = discover::Opts {
+                probe: o.probe || o.probe_subnet,
+                ..o
+            };
+            a.done()?;
+            let id = Identity::load(&dir).ok();
+            print_json(&discover::run(&cfg, &o, id.as_ref())?);
+            Ok(())
+        }
+        ("announce", None) => {
+            let secs = a.num("--seconds")?.unwrap_or(0);
+            let dry = a.flag("--dry-run");
+            a.done()?;
+            let id = Identity::load(&dir)?;
+            if dry {
+                print_json(&announce::record(&cfg, &id));
+                Ok(())
+            } else {
+                announce::run(&cfg, &id, secs)
+            }
+        }
+        ("pair", url) => {
+            let no_qr = a.flag("--no-qr");
+            let dry = a.flag("--dry-run");
+            let url = {
+                let positional = url.map(String::from).or_else(|| {
+                    if a.0.first().is_some_and(|s| !s.starts_with('-')) {
+                        Some(a.0.remove(0))
+                    } else {
+                        None
+                    }
+                });
+                positional
+                    .or(cfg.pair.enroll_url.clone())
+                    .ok_or("pair: give an enroll URL or set [pair] enroll_url")?
+            };
+            a.done()?;
+            let id = Identity::load(&dir)?;
+            let (p, sig, warns) = pair::build(&cfg, &id, &url, &wifi::observe(true))?;
+            for w in warns {
+                eprintln!("warning: {w}");
+            }
+            let body =
+                serde_json::json!({"payload": p, "signature": sig, "signed_string": p.canonical()});
+            if dry {
+                print_json(&serde_json::json!({
+                    "mode": "dry-run",
+                    "would_send": {
+                        "method": "POST",
+                        "url": url,
+                        "headers": {
+                            "content-type": "application/json",
+                            "accept": "application/json",
+                            "user-agent": format!("omnode/{}", env!("CARGO_PKG_VERSION")),
+                        },
+                        "body": body,
+                    },
+                    "note": "Nothing was sent. Hermes enrolls only after the owner approves.",
+                }));
+            } else {
+                print_json(&body);
+                if !no_qr {
+                    let q = pair::qr_payload(&id, &p);
+                    println!(
+                        "
+QR ({} chars, signed short form):
+{}",
+                        q.len(),
+                        pair::qr_text(&q)?
+                    );
+                }
+                println!("STUB: nothing was sent. v0.1 would POST the JSON above to {url}");
+                println!("Hermes enrolls the device only after the owner approves it.");
+                println!("Tip: `omnode pair --dry-run {url}` prints the HTTP plan only.");
+            }
+            Ok(())
+        }
+        ("sandbox", Some(s @ ("run" | "check"))) => {
+            let mut o = sandbox::Opts::from_cfg(&cfg.sandbox);
+            if let Some(v) = a.num("--wall")? {
+                o.wall = std::time::Duration::from_secs(v.max(1));
+            }
+            if let Some(v) = a.num("--cpu")? {
+                o.cpu_secs = v.max(1);
+            }
+            if let Some(v) = a.num("--mem")? {
+                o.mem_bytes = v.max(16) << 20;
+            }
+            o.allow_net |= a.flag("--allow-net");
+            o.require_isolation |= a.flag("--require-isolation");
+            o.landlock &= !a.flag("--no-landlock");
+            o.seccomp &= !a.flag("--no-seccomp");
+            o.namespaces &= !a.flag("--no-namespaces");
+            o.keep_dir = a.flag("--keep");
+            a.done()?;
+            if s == "check" {
+                let r = sandbox::run(&["true".into()], &o)?;
+                print_json(&r.isolation);
+                return Ok(());
+            }
+            let r = sandbox::run(&tail, &o)?;
+            print_json(&r);
+            if r.exit_code == Some(0) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "command failed (exit {:?}, signal {:?}, timed_out {})",
+                    r.exit_code, r.signal, r.timed_out
+                ))
+            }
+        }
+        ("doctor", None) => {
+            a.done()?;
+            let id = Identity::load(&dir).ok();
+            print_json(&doctor::run(&cfg, id.as_ref()));
+            Ok(())
+        }
+        _ => Err(format!(
+            "unknown command; see `omnode --help`
+
+{USAGE}"
+        )),
+    })();
+    match r {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => die(e),
+    }
+}

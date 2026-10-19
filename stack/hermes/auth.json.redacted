@@ -1,0 +1,63 @@
+{
+  "version": 1,
+  "providers": {},
+  "credential_pool": {
+    "openrouter": [
+      {
+        "id": "a6cb04",
+        "label": "OPENROUTER_API_KEY",
+        "auth_type": "api_key",
+        "priority": 0,
+        "source": "env:OPENROUTER_API_KEY",
+        "last_status": "exhausted",
+        "last_status_at": 1792345306.8087106,
+        "last_error_code": 429,
+        "last_error_reason": null,
+        "last_error_message": "<REDACTED:credential_pool.openrouter.0.last_error_message>",
+        "last_error_reset_at": null,
+        "base_url": "https://openrouter.ai/api/v1",
+        "request_count": 0,
+        "secret_fingerprint": "<REDACTED:credential_pool.openrouter.0.secret_fingerprint>"
+      }
+    ],
+    "custom:laptop": [
+      {
+        "id": "82215a",
+        "label": "laptop",
+        "auth_type": "api_key",
+        "priority": 0,
+        "source": "config:laptop",
+        "last_status": null,
+        "last_status_at": null,
+        "last_error_code": null,
+        "last_error_reason": null,
+        "last_error_message": null,
+        "last_error_reset_at": null,
+        "base_url": "http://127.0.0.1:11434/v1",
+        "request_count": 0,
+        "secret_fingerprint": "<REDACTED:credential_pool.custom:laptop.0.secret_fingerprint>"
+      }
+    ],
+    "custom:river": [
+      {
+        "id": "d458b1",
+        "label": "river",
+        "auth_type": "api_key",
+        "priority": 0,
+        "source": "config:river",
+        "last_status": "ok",
+        "last_status_at": null,
+        "last_error_code": null,
+        "last_error_reason": null,
+        "last_error_message": null,
+        "last_error_reset_at": null,
+        "base_url": "https://api.river.ai/v1",
+        "request_count": 2,
+        "secret_fingerprint": "<REDACTED:credential_pool.custom:river.0.secret_fingerprint>",
+        "failure_reason": "rate_limit"
+      }
+    ]
+  },
+  "updated_at": "2026-10-18T17:41:46.808999+00:00",
+  "_redacted_copy_of": "/opt/galion/hermes/auth.json"
+}

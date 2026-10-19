@@ -1,0 +1,27 @@
+{
+  "jobs": [
+    {
+      "id": "ca34b229",
+      "sessionId": "19682254-2179-4170-a9d3-c70e67857906",
+      "input": "For what you are using laptop gpu ?",
+      "mode": "action",
+      "model": "huihui_ai/qwen3.5-abliterated:9b",
+      "everySec": 900,
+      "until": 1792089270430,
+      "next": 1792003770431,
+      "stopped": true,
+      "paused": false
+    },
+    {
+      "id": "a8a28451",
+      "sessionId": "cffcf19c-f58f-46bb-94ae-872907dc305a",
+      "input": "networks at this geolocation\" has two real answers, and neither is a scan: find a way hiw we can get this informstion work 24h",
+      "mode": "execution",
+      "model": "z-ai/glm-5.3",
+      "everySec": 900,
+      "until": 1790307863157,
+      "next": 1790222363159,
+      "stopped": true
+    }
+  ]
+}

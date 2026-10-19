@@ -1,0 +1,10 @@
+# admin.preferences: Obsidian Open Mind Stack
+# Created: 2026-10-18 19:22 CEST (+02:00)
+# Base plan: docs/main.md (main.md is the base of everything). Times: Europe/Zagreb with offset, never server time.
+
+## Slavik's rules
+
+1. Everything must be automatic. Everything is on the server: Cloudflare, OpenRouter, Opus 5.5 models, all of it. Do not create anything new; only connect into the existing servers.
+2. Take the terminal, learn the KMS (key management system) and the research agent, sort all of that out, copy all the files (whatever the existing setup says), copy it and teach/train it.
+3. No instructions or manuals for Slavik. He does not want step-by-step guides. Everything must be done automatically by the agents on the VPS.
+4. Contact: maintain contact with Slavik proactively and be present in his environment (phone, chat, VPS) so he never has to hunt for the bot.

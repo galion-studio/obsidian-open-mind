@@ -119,3 +119,5 @@
 - 2026-10-19T17:49:35+02:00 | MEM-2 PASS: recall, session end, and the three offload routes return fixture JSON. The live gateway was not called.
 
 - 2026-10-19T18:10:16+02:00 | WAVE started: twenty agents. Sandbox, the SPDX sweep, and live restarts stay out.
+
+- 2026-10-19T18:10:26+02:00 | WAVE cap: sixteen agents started. Four more wait for a free slot.

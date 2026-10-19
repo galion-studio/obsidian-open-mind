@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+# Rendered: 2026-10-19T16:50:55+02:00 Europe/Zagreb
+# Staged and not installed.
+
+[Unit]
+Description=Galion desk (rendered from openmind.toml, staged, not installed)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/openmind/dist/bin/galion-desk
+Environment=DESK_BIND=127.0.0.1:8646
+Environment=DESK_HERMES_BIN=/opt/galion/openmind/dist/bin/desk-hermes
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Staged text only. Not installed. No install section.

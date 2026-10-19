@@ -81,3 +81,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T16:42:28+02:00 | B64 | grok-build | PASS 8/10 | docs/legacy-archive.md | 140 paths listed; 4 secret dirs skipped; nothing deleted
 
 - 2026-10-19T16:52:55+02:00 | B62 | grok-build | PASS 9/10 | crates/openmind-speech docs/speech-adapter.md | fixtures only; uses_gpu is false; 15 tests; no spawn
+
+- 2026-10-19T16:53:08+02:00 | B55 | grok-build | PASS 9/10 | crates/openmind-units deploy/boot/rendered docs/boot-units.md | staged unit text only; Restart=always; not installed

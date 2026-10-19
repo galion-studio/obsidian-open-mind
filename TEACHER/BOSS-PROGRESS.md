@@ -58,3 +58,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T16:26:46+02:00 | B38 | grok-build | PASS 9/10 | crates/openmind-fallback | GPU then approved LAN then CPU local; 14 tests; no network; lock not committed
 
 - 2026-10-19T16:29:09+02:00 | B45 | grok-build | PASS 8/10 | docs/openssf.md SECURITY.md | no invented contact; missing address is TODO; no Scorecard claim
+
+- 2026-10-19T16:29:52+02:00 | B44 | grok-build | PASS 8/10 | scripts/sbom.sh docs/sbom.md .github/workflows/sbom.yml | fixture allowlist passes, reject list fails; live cargo metadata not run

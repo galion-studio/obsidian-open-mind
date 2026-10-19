@@ -36,3 +36,5 @@
 - 2026-10-19T16:26:46+02:00 | B38 PASS: select_provider is GPU, then approved LAN, then CPU local. Pending and down rows are skipped.
 
 - 2026-10-19T16:29:09+02:00 | B45 PASS: OpenSSF map is honest. Security contact is TODO. No badge claimed.
+
+- 2026-10-19T16:29:52+02:00 | B44 PASS: SBOM script and allowlist. Tested on fixtures only. Workflow is a draft and was not pushed.

@@ -269,3 +269,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T19:56:37+02:00 | HADES-WIRE | grok-build | PASS 9/10 | docs/hades-wire.md | gate and journal are not installed; kill and rotate stay refused
 
 - 2026-10-19T19:56:55+02:00 | SPDX-LW | grok-build | PASS 9/10 | crates/link-watch | MIT header added to jsonout.rs and main.rs
+
+- 2026-10-19T19:57:49+02:00 | BINDS | grok-build | PASS 9/10 | docs/bind-defaults.md | default bind strings copied from source; nothing was started

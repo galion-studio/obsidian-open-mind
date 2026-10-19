@@ -244,3 +244,5 @@
 - 2026-10-19T19:56:37+02:00 | HADES-WIRE PASS: nothing Hades is wired to a live service. No process was started.
 
 - 2026-10-19T19:56:55+02:00 | SPDX-LW PASS: link-watch gained the SPDX header. The live binary was not replaced.
+
+- 2026-10-19T19:57:49+02:00 | BINDS PASS: bind strings were read from source. No port was opened.

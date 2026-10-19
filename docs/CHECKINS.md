@@ -91,3 +91,5 @@
 - 2026-10-19T17:14:03+02:00 | B58 PASS: memory route study written. The selected provider is v1. The Rust spare server does not cover every route it calls.
 
 - 2026-10-19T17:17:13+02:00 | B56 PASS: origin redirect is a pure 302. It does not listen.
+
+- 2026-10-19T17:17:48+02:00 | B63 PASS: tulu config parses a fixture. It does not start llama-server and it does not use a GPU.

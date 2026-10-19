@@ -113,3 +113,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:14:03+02:00 | B58 | grok-build | PASS 8/10 | docs/memory-api.md | v1 routes listed; one GET /health 200; crates/openmind-memory not edited
 
 - 2026-10-19T17:17:13+02:00 | B56 | grok-build | PASS 9/10 | crates/openmind-origin | 302 builder; default location /; no listener; 5 tests
+
+- 2026-10-19T17:17:48+02:00 | B63 | grok-build | PASS 9/10 | crates/openmind-tulu | fixture toml; uses_gpu always false; no llama.cpp; no spawn

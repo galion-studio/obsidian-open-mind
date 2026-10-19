@@ -216,3 +216,5 @@
 - 2026-10-19T18:46:29+02:00 | HEALTH-NOW PASS: three health reads recorded. Nothing was restarted.
 
 - 2026-10-19T18:48:43+02:00 | TIME-3 PASS: a Zulu timestamp is rejected. The clock stays on a Zagreb offset.
+
+- 2026-10-19T18:50:06+02:00 | JOURNAL-2 PASS: a journal record writes nothing. Kill and rotate stay refused.

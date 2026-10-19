@@ -241,3 +241,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:46:29+02:00 | HEALTH-NOW | grok-build | PASS 9/10 | docs/health-now.md | 8091 200 ok, 8420 200 JSON, 8080 404
 
 - 2026-10-19T18:48:43+02:00 | TIME-3 | grok-build | PASS 9/10 | crates/zagreb-time | a Z stamp is rejected; now_rfc3339 ends in +01:00 or +02:00
+
+- 2026-10-19T18:50:06+02:00 | JOURNAL-2 | grok-build | PASS 9/10 | crates/hades-journal | record returns JSON and writes no file; kill and rotate stay refused

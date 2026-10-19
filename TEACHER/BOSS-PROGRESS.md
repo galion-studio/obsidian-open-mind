@@ -265,3 +265,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T19:55:54+02:00 | NERVE-MATCH | grok-build | PASS 9/10 | docs/nerve-match.md | boot to_nerve and NerveEvent share ts source kind severity data
 
 - 2026-10-19T19:56:11+02:00 | INDEX-2 | grok-build | PASS 9/10 | docs/crate-index.md | 37 crate rows, including hades-journal
+
+- 2026-10-19T19:56:37+02:00 | HADES-WIRE | grok-build | PASS 9/10 | docs/hades-wire.md | gate and journal are not installed; kill and rotate stay refused

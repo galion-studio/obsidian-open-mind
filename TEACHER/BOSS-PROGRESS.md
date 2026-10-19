@@ -275,3 +275,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T19:58:15+02:00 | SPDX-ONE | grok-build | PASS 9/10 | crates/galion-one | MIT header added to build.rs and main.rs
 
 - 2026-10-19T20:00:55+02:00 | CONFIG-3 | grok-build | PASS 9/10 | crates/openmind-config | a missing file returns the seven default ports and reads no env
+
+- 2026-10-19T20:02:46+02:00 | CTL-HITS | grok-build | PASS 9/10 | docs/systemctl-hits.md | 30 word hits in 13 files; none is a restart

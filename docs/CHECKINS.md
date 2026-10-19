@@ -250,3 +250,5 @@
 - 2026-10-19T19:58:15+02:00 | SPDX-ONE PASS: galion-one gained the SPDX header. The live binary was not replaced.
 
 - 2026-10-19T20:00:55+02:00 | CONFIG-3 PASS: a missing config file stays on today's ports. It does not read overrides.
+
+- 2026-10-19T20:02:46+02:00 | CTL-HITS PASS: the word systemctl was listed. No unit was restarted.

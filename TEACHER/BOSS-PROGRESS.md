@@ -97,3 +97,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:08:32+02:00 | GAIA-2 | grok-build | PASS 8/10 | crates/gaia-registry docs/gaia-ownership.md | static ownership table; unknown crate is none
 
 - 2026-10-19T17:09:07+02:00 | WAVE | grok-build | started | B51 B52 B53 B56 B58 B60 B61 B63 B66 HADES-1 | previous six committed; B28 B30 B42 still held
+
+- 2026-10-19T17:12:02+02:00 | B52 | grok-build | PASS 8/10 | docs/source-dedupe.md | 4 old Rust roots listed; none deleted; crates stay the source of truth

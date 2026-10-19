@@ -75,3 +75,5 @@
 - 2026-10-19T17:08:32+02:00 | GAIA-2 PASS: each crate maps to one function or to none.
 
 - 2026-10-19T17:09:07+02:00 | WAVE started: ten agents on B51, B52, B53, B56, B58, B60, B61, B63, B66, HADES-1.
+
+- 2026-10-19T17:12:02+02:00 | B52 PASS: old Rust copies are listed. Nothing was deleted.

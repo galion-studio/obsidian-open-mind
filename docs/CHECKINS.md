@@ -47,3 +47,5 @@
 - 2026-10-19T16:31:49+02:00 | B49 PASS: galleon-arena loads g2-0 through g2-3. Score is paper only.
 
 - 2026-10-19T16:32:38+02:00 | B47 PASS: Persona Plex v1 is TOML. galleon-voice parses it. No audio.
+
+- 2026-10-19T16:33:18+02:00 | B24 PASS: a down probe says what still works and what is paused. Nothing is restarted.

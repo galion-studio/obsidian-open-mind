@@ -58,6 +58,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cgroup-detect"
+version = "0.1.0"
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -150,10 +154,25 @@ dependencies = [
 [[package]]
 name = "galion-desk"
 version = "0.1.0"
+dependencies = [
+ "openmind-config",
+]
 
 [[package]]
 name = "galion-one"
 version = "0.1.0"
+
+[[package]]
+name = "galleon-arena"
+version = "0.1.0"
+
+[[package]]
+name = "galleon-voice"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+]
 
 [[package]]
 name = "guardian-tick"
@@ -305,6 +324,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "one-set-model"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "one-talk"
 version = "0.1.0"
 dependencies = [
@@ -320,6 +346,49 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmind-discovery"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "openmind-exo"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "openmind-fallback"
+version = "0.1.0"
+
+[[package]]
+name = "openmind-llama"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "openmind-nerve"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
+name = "openmind-provider"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "openmind-sandbox"
 version = "0.1.0"
 dependencies = [
@@ -330,8 +399,10 @@ dependencies = [
 name = "openmind-schema"
 version = "0.1.0"
 dependencies = [
+ "openmind-config",
  "serde",
  "serde_json",
+ "toml",
  "zagreb-time",
 ]
 

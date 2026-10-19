@@ -6,6 +6,10 @@
 //! [`decide`] reads probe results and returns suggestions. It does not spawn
 //! a process, open a socket, or change unit state. Callers may print the
 //! text. They must not treat it as a command.
+//!
+//! When a service probe is down, the suggestion names the other services that
+//! still pass and the services that are paused. Loss of GPU, LAN, or network
+//! adds a CPU-light fallback note. Nothing is restarted.
 
 use crate::ProbeResult;
 
@@ -40,23 +44,64 @@ pub struct Suggestion {
     pub text: String,
 }
 
+/// Static rule for one kind of loss. Nothing here is executed.
+///
+/// `still_works` is the CPU-light set for this loss. [`decide`] does not copy
+/// it into the suggestion: the text lists only services present in the probe
+/// slice, so a name that was not probed is not reported as healthy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DegradationRule {
+    /// Probe name that means this loss: `gpu`, `lan`, or `network`.
+    pub loss: &'static str,
+    /// Heavy paths paused while the loss holds.
+    pub paused: &'static [&'static str],
+    /// CPU-light services that remain the fallback when they are healthy.
+    pub still_works: &'static [&'static str],
+}
+
+/// Loss of GPU, LAN, or network falls back to CPU-light services.
+pub const DEGRADATION_RULES: &[DegradationRule] = &[
+    DegradationRule {
+        loss: "gpu",
+        paused: &["vision", "voice", "whisper"],
+        still_works: &["hermes", "one", "console"],
+    },
+    DegradationRule {
+        loss: "lan",
+        paused: &["lan"],
+        still_works: &["hermes", "one", "console", "whisper", "vision", "voice"],
+    },
+    DegradationRule {
+        loss: "network",
+        paused: &["cloudflared", "origin"],
+        still_works: &["hermes", "one", "console", "whisper", "vision", "voice"],
+    },
+];
+
 /// Map each probe to one suggestion, in the same order.
 ///
 /// Host pressure (`mem`, `load`, `disk:`), stale files (`fresh:`), and
 /// unreadable samples stay at [`Escalation::Warn`]. A failed unit, tunnel,
 /// or other service is [`Escalation::SuggestRestart`]. A passing probe is
 /// [`Escalation::Observe`].
+///
+/// A down service suggestion stays text. It names other services that still
+/// pass and the services that are paused. A GPU, LAN, or network loss adds
+/// `cpu-light fallback`. No process is spawned and no socket is opened.
 #[must_use]
 pub fn decide(results: &[ProbeResult]) -> Vec<Suggestion> {
-    results.iter().map(suggest_one).collect()
+    results
+        .iter()
+        .map(|result| suggest_one(result, results))
+        .collect()
 }
 
-fn suggest_one(r: &ProbeResult) -> Suggestion {
+fn suggest_one(r: &ProbeResult, results: &[ProbeResult]) -> Suggestion {
     let level = escalate(r);
     let text = match level {
         Escalation::Observe => observe_text(&r.name),
         Escalation::Warn => warn_text(r),
-        Escalation::SuggestRestart => restart_text(&r.name),
+        Escalation::SuggestRestart => restart_text(&r.name, results),
     };
     Suggestion {
         name: r.name.clone(),
@@ -123,7 +168,19 @@ fn warn_text(r: &ProbeResult) -> String {
     }
 }
 
-fn restart_text(name: &str) -> String {
+fn restart_text(name: &str, results: &[ProbeResult]) -> String {
+    let base = restart_base(name);
+    let still = join_names(&service_names(results, Escalation::Observe));
+    let paused = join_names(&service_names(results, Escalation::SuggestRestart));
+    let text = format!("{base}; still works: {still}; paused: {paused}");
+    if cpu_light(&safe_token(name)) {
+        format!("{text}; cpu-light fallback")
+    } else {
+        text
+    }
+}
+
+fn restart_base(name: &str) -> String {
     if name == "cloudflared" {
         return "cloudflared absent: operator may restart the tunnel".to_owned();
     }
@@ -132,6 +189,36 @@ fn restart_text(name: &str) -> String {
         format!("{s} not active: operator may restart {s}")
     } else {
         format!("{s} down: operator may restart {s}")
+    }
+}
+
+/// True when this service is a GPU, LAN, or network path from [`DEGRADATION_RULES`].
+fn cpu_light(token: &str) -> bool {
+    DEGRADATION_RULES
+        .iter()
+        .any(|rule| rule.loss == token || rule.paused.contains(&token))
+}
+
+/// Service tokens at `level`, probe order, first token kept. Host probes are skipped.
+fn service_names(results: &[ProbeResult], level: Escalation) -> Vec<String> {
+    let mut names = Vec::new();
+    for result in results {
+        if escalate(result) != level || !matches!(host_kind(&result.name), Host::Other) {
+            continue;
+        }
+        let token = safe_token(&result.name);
+        if !names.contains(&token) {
+            names.push(token);
+        }
+    }
+    names
+}
+
+fn join_names(names: &[String]) -> String {
+    if names.is_empty() {
+        "none".to_owned()
+    } else {
+        names.join(", ")
     }
 }
 

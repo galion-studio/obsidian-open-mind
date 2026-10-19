@@ -4,7 +4,9 @@
 //! Read-only survival probes and a pure healer decision function.
 //!
 //! Probes are blocking and single-threaded. [`decide`] only returns
-//! suggestions: it does not spawn a process or open a socket.
+//! suggestions: it does not spawn a process or open a socket. When a
+//! service probe is down, the suggestion names the other services that
+//! still work and the services that are paused.
 //!
 //! Deliberately excluded: secret handling, process signals, and any unit
 //! state change. The only external commands are `systemctl is-active <unit>`
@@ -14,7 +16,7 @@ pub mod decide;
 pub mod incident;
 pub mod probes;
 
-pub use decide::{decide, Escalation, Suggestion};
+pub use decide::{decide, DegradationRule, Escalation, Suggestion, DEGRADATION_RULES};
 pub use probes::{
     check_cloudflared, check_disk, check_freshness, check_http, check_loadavg, check_meminfo,
     check_unit, parse_df, parse_loadavg, parse_meminfo, ProbeResult, Runner, SystemRunner,

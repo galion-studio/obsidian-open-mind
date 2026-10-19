@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
 
-use openmind_survival::{decide, Escalation, ProbeResult};
+use openmind_survival::{decide, DegradationRule, Escalation, ProbeResult, DEGRADATION_RULES};
 
 fn sample(name: &str, ok: bool, detail: &str, ts: &str) -> ProbeResult {
     ProbeResult {
@@ -15,6 +15,7 @@ fn sample(name: &str, ok: bool, detail: &str, ts: &str) -> ProbeResult {
 #[test]
 fn decide_table() {
     // name, ok, detail, level, token, text
+    // Each row is decided alone so the degradation clause has no siblings.
     let rows: &[(&str, bool, &str, Escalation, &str, &str)] = &[
         (
             "hermes",
@@ -166,7 +167,7 @@ fn decide_table() {
             "inactive",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "demo.service not active: operator may restart demo.service",
+            "demo.service not active: operator may restart demo.service; still works: none; paused: demo.service",
         ),
         (
             "unit:bad name",
@@ -174,7 +175,7 @@ fn decide_table() {
             "failed",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "service not active: operator may restart service",
+            "service not active: operator may restart service; still works: none; paused: service",
         ),
         (
             "unit:",
@@ -182,7 +183,7 @@ fn decide_table() {
             "inactive",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "service not active: operator may restart service",
+            "service not active: operator may restart service; still works: none; paused: service",
         ),
         (
             "cloudflared",
@@ -190,7 +191,7 @@ fn decide_table() {
             "not running",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "cloudflared absent: operator may restart the tunnel",
+            "cloudflared absent: operator may restart the tunnel; still works: none; paused: cloudflared; cpu-light fallback",
         ),
         (
             "whisper",
@@ -198,7 +199,7 @@ fn decide_table() {
             "status 503",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "whisper down: operator may restart whisper",
+            "whisper down: operator may restart whisper; still works: none; paused: whisper; cpu-light fallback",
         ),
         (
             "console",
@@ -206,7 +207,7 @@ fn decide_table() {
             "connect: refused",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "console down: operator may restart console",
+            "console down: operator may restart console; still works: none; paused: console",
         ),
         (
             "odd/name",
@@ -214,7 +215,7 @@ fn decide_table() {
             "status 0",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "service down: operator may restart service",
+            "service down: operator may restart service; still works: none; paused: service",
         ),
     ];
 
@@ -222,15 +223,31 @@ fn decide_table() {
         .iter()
         .map(|(name, ok, detail, _, _, _)| sample(name, *ok, detail, "2026-10-19T16:00:00+02:00"))
         .collect();
-    let got = decide(&results);
-    assert_eq!(got.len(), rows.len());
-    for (g, (name, _, _, level, token, text)) in got.iter().zip(rows.iter().copied()) {
+    let batch = decide(&results);
+    assert_eq!(batch.len(), rows.len());
+    for (i, (name, _, _, level, token, text)) in rows.iter().copied().enumerate() {
+        let one = decide(std::slice::from_ref(&results[i]));
+        assert_eq!(one.len(), 1);
+        let g = &one[0];
         assert_eq!(g.name, name);
         assert_eq!(g.level, level);
         assert_eq!(g.level.as_str(), token);
         assert_eq!(g.text, text);
         assert!(!g.text.contains('/'), "{}", g.text);
         assert!(!g.text.contains("systemctl"), "{}", g.text);
+        let grouped = &batch[i];
+        assert_eq!(grouped.name, name);
+        assert_eq!(grouped.level, level);
+        assert_eq!(grouped.level.as_str(), token);
+        assert!(!grouped.text.contains('/'), "{}", grouped.text);
+        assert!(!grouped.text.contains("systemctl"), "{}", grouped.text);
+        if level == Escalation::SuggestRestart {
+            assert!(grouped.text.contains("still works:"), "{}", grouped.text);
+            assert!(grouped.text.contains("paused:"), "{}", grouped.text);
+        } else {
+            assert!(!grouped.text.contains("still works:"), "{}", grouped.text);
+            assert!(!grouped.text.contains("paused:"), "{}", grouped.text);
+        }
     }
 }
 
@@ -254,7 +271,12 @@ fn decide_ignores_timestamp_and_keeps_order() {
     assert_eq!(got[0].level, Escalation::Observe);
     assert_eq!(got[1].level, Escalation::SuggestRestart);
     assert_eq!(got[1].name, "voice");
+    assert_eq!(
+        got[1].text,
+        "voice down: operator may restart voice; still works: hermes; paused: voice; cpu-light fallback"
+    );
     assert_eq!(got[2].level, Escalation::Warn);
+    assert!(!got[2].text.contains("paused:"));
 }
 
 #[test]
@@ -269,5 +291,234 @@ fn decide_module_does_not_touch_the_machine() {
         "std::fs",
     ] {
         assert!(!src.contains(banned), "{banned} in decide.rs");
+    }
+}
+
+#[test]
+fn degradation_rule_table() {
+    let losses: Vec<&str> = DEGRADATION_RULES.iter().map(|rule| rule.loss).collect();
+    assert_eq!(losses, ["gpu", "lan", "network"]);
+    for rule in DEGRADATION_RULES {
+        assert!(!rule.paused.is_empty(), "{}", rule.loss);
+        assert!(!rule.still_works.is_empty(), "{}", rule.loss);
+        for name in rule.paused.iter().chain(rule.still_works.iter()) {
+            assert!(!name.contains('/'), "{name}");
+            assert!(!name.chars().any(char::is_whitespace), "{name}");
+            assert_ne!(*name, "service");
+        }
+        for paused in rule.paused {
+            assert!(
+                !rule.still_works.contains(paused),
+                "{} lists {paused} as both paused and still working",
+                rule.loss
+            );
+        }
+    }
+    let gpu = rule("gpu");
+    assert_eq!(gpu.paused, ["vision", "voice", "whisper"]);
+    assert_eq!(gpu.still_works, ["hermes", "one", "console"]);
+    assert_eq!(rule("lan").paused, ["lan"]);
+    assert_eq!(rule("network").paused, ["cloudflared", "origin"]);
+    assert!(rule("network").still_works.contains(&"hermes"));
+    assert!(rule("lan").still_works.contains(&"whisper"));
+}
+
+fn rule(loss: &str) -> &'static DegradationRule {
+    DEGRADATION_RULES
+        .iter()
+        .find(|rule| rule.loss == loss)
+        .unwrap_or_else(|| panic!("missing rule {loss}"))
+}
+
+type ProbeCase = (&'static str, bool, &'static str, Escalation, &'static str);
+
+#[test]
+
+fn degrade_table() {
+    // name, ok, detail, level, text. Each group is one decide() call.
+    let groups: &[&[ProbeCase]] = &[
+        &[
+            (
+                "gpu",
+                false,
+                "absent",
+                Escalation::SuggestRestart,
+                "gpu down: operator may restart gpu; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
+            ),
+            (
+                "hermes",
+                true,
+                "status 200",
+                Escalation::Observe,
+                "hermes ok: keep watching",
+            ),
+            (
+                "one",
+                true,
+                "status 200",
+                Escalation::Observe,
+                "one ok: keep watching",
+            ),
+            (
+                "console",
+                true,
+                "status 200",
+                Escalation::Observe,
+                "console ok: keep watching",
+            ),
+            (
+                "vision",
+                false,
+                "status 503",
+                Escalation::SuggestRestart,
+                "vision down: operator may restart vision; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
+            ),
+            (
+                "voice",
+                false,
+                "connect: refused",
+                Escalation::SuggestRestart,
+                "voice down: operator may restart voice; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
+            ),
+            (
+                "whisper",
+                false,
+                "status 503",
+                Escalation::SuggestRestart,
+                "whisper down: operator may restart whisper; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
+            ),
+            (
+                "mem",
+                true,
+                "used 40.0% pass",
+                Escalation::Observe,
+                "memory ok: keep watching",
+            ),
+            (
+                "disk:/",
+                false,
+                "used 96.0% crit",
+                Escalation::Warn,
+                "disk critical: operator may free space or rotate logs",
+            ),
+        ],
+        &[
+            (
+                "lan",
+                false,
+                "absent",
+                Escalation::SuggestRestart,
+                "lan down: operator may restart lan; still works: none; paused: lan; cpu-light fallback",
+            ),
+        ],
+        &[
+            (
+                "hermes",
+                true,
+                "status 200",
+                Escalation::Observe,
+                "hermes ok: keep watching",
+            ),
+            (
+                "cloudflared",
+                false,
+                "not running",
+                Escalation::SuggestRestart,
+                "cloudflared absent: operator may restart the tunnel; still works: hermes; paused: cloudflared, origin; cpu-light fallback",
+            ),
+            (
+                "origin",
+                false,
+                "status 0",
+                Escalation::SuggestRestart,
+                "origin down: operator may restart origin; still works: hermes; paused: cloudflared, origin; cpu-light fallback",
+            ),
+            (
+                "load",
+                false,
+                "load1/core 90.0% warn (load1 3.60, cores 4)",
+                Escalation::Warn,
+                "load high: operator may pause a batch job",
+            ),
+            (
+                "fresh:/var/lib/beat",
+                false,
+                "age 100s max 60s",
+                Escalation::Warn,
+                "freshness failed: operator may check the writer service",
+            ),
+        ],
+        &[
+            (
+                "network",
+                false,
+                "absent",
+                Escalation::SuggestRestart,
+                "network down: operator may restart network; still works: one; paused: network; cpu-light fallback",
+            ),
+            (
+                "one",
+                true,
+                "status 200",
+                Escalation::Observe,
+                "one ok: keep watching",
+            ),
+        ],
+        &[
+            (
+                "console",
+                true,
+                "status 200",
+                Escalation::Observe,
+                "console ok: keep watching",
+            ),
+            (
+                "unit:demo.service",
+                false,
+                "inactive",
+                Escalation::SuggestRestart,
+                "demo.service not active: operator may restart demo.service; still works: console; paused: demo.service",
+            ),
+            (
+                "mystery",
+                false,
+                "unparseable sample",
+                Escalation::Warn,
+                "probe unreadable: operator may check the source",
+            ),
+        ],
+        &[
+            (
+                "unit:bad/name",
+                false,
+                "failed",
+                Escalation::SuggestRestart,
+                "service not active: operator may restart service; still works: none; paused: service",
+            ),
+            (
+                "odd/name",
+                false,
+                "status 0",
+                Escalation::SuggestRestart,
+                "service down: operator may restart service; still works: none; paused: service",
+            ),
+        ],
+    ];
+
+    for rows in groups {
+        let results: Vec<ProbeResult> = rows
+            .iter()
+            .map(|(name, ok, detail, _, _)| sample(name, *ok, detail, "2026-10-19T16:05:00+02:00"))
+            .collect();
+        let got = decide(&results);
+        assert_eq!(got.len(), rows.len());
+        for (g, (name, _, _, level, text)) in got.iter().zip(rows.iter().copied()) {
+            assert_eq!(g.name, name);
+            assert_eq!(g.level, level);
+            assert_eq!(g.level.as_str(), level.as_str());
+            assert_eq!(g.text, text, "{name}");
+            assert!(!g.text.contains('/'), "{}", g.text);
+            assert!(!g.text.contains("systemctl"), "{}", g.text);
+        }
     }
 }

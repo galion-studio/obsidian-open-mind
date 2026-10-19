@@ -242,3 +242,83 @@ fn jsonl_env_writes_one_line_per_probe() {
         .count();
     assert_eq!(n, 3);
 }
+
+fn proc_starttime(pid: u32) -> String {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+    let rest = stat.rsplit_once(')').unwrap().1;
+    rest.split_whitespace().nth(19).unwrap().to_string()
+}
+
+#[test]
+fn tick_result_is_report_only() {
+    let dir = tmp("report-only");
+    let _ = std::fs::remove_dir_all(&dir);
+    let probes = local_probes(&dir);
+    let out = dir.join("report.json");
+
+    let mut sentinel = Command::new("/bin/sleep").arg("60").spawn().unwrap();
+    let pid = sentinel.id();
+    let started = proc_starttime(pid);
+
+    let o = Command::new(BIN)
+        .args([
+            "--probes",
+            probes.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
+        .env_remove("GUARDIAN_JSONL")
+        .env_remove("GUARDIAN_PROBES")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&o.stderr).into_owned();
+    assert_eq!(o.status.code(), Some(0), "{stderr}");
+
+    assert!(
+        sentinel.try_wait().unwrap().is_none(),
+        "tick killed pid {pid}"
+    );
+    assert_eq!(proc_starttime(pid), started, "tick restarted pid {pid}");
+
+    let stdout = String::from_utf8_lossy(&o.stdout).into_owned();
+    let report = std::fs::read_to_string(&out).unwrap();
+    for (label, text) in [
+        ("stdout", &stdout),
+        ("stderr", &stderr),
+        ("report", &report),
+    ] {
+        assert!(
+            !text.contains("systemctl"),
+            "{label} contains systemctl: {text}"
+        );
+        assert!(!text.contains("kill"), "{label} contains kill: {text}");
+        assert!(
+            !text.contains("restart"),
+            "{label} contains restart: {text}"
+        );
+    }
+
+    let j: serde_json::Value = serde_json::from_str(&report).unwrap();
+    let obj = j.as_object().unwrap();
+    assert_eq!(obj.len(), 3, "{j}");
+    assert!(obj.contains_key("ts"), "{j}");
+    assert!(obj.contains_key("host_ok"), "{j}");
+    assert!(obj.contains_key("results"), "{j}");
+    assert!(j["host_ok"].is_boolean(), "{j}");
+    assert!(obj.get("restart").is_none(), "{j}");
+    assert!(obj.get("kill").is_none(), "{j}");
+    let rows = j["results"].as_array().unwrap();
+    assert_eq!(rows.len(), 3, "{j}");
+    for row in rows {
+        let row = row.as_object().unwrap();
+        assert_eq!(row.len(), 4, "{row:?}");
+        assert!(row.contains_key("name"), "{row:?}");
+        assert!(row.contains_key("ok"), "{row:?}");
+        assert!(row.contains_key("detail"), "{row:?}");
+        assert!(row.contains_key("ts"), "{row:?}");
+        let detail = row["detail"].as_str().unwrap();
+        assert!(!detail.contains("systemctl"), "{detail}");
+        assert!(!detail.contains("kill"), "{detail}");
+        assert!(!detail.contains("restart"), "{detail}");
+    }
+}

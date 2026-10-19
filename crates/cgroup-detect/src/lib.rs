@@ -4,7 +4,9 @@
 //! Read-only cgroup v2 delegation probe.
 //!
 //! [`detect`] only reads `/proc` and `/sys`. It never creates a cgroup and never
-//! writes a cgroup file. A parent under `system.slice` is never a per-run candidate.
+//! writes a cgroup file. [`detect_fixture`] reads a fixture tree the same way:
+//! it does not write a cgroup file and it does not call a delegate. A parent
+//! under `system.slice` is never a per-run candidate.
 
 #![deny(unsafe_code)]
 
@@ -92,6 +94,43 @@ pub fn detect() -> io::Result<Report> {
     let cg_txt = fs::read_to_string("/proc/self/cgroup")?;
     let mi_txt = fs::read_to_string("/proc/self/mountinfo")?;
     Ok(decide(&snap_from_text(&cg_txt, &mi_txt, &cred)?))
+}
+
+/// Read a fixture tree and report whether a per-run cgroup is possible.
+///
+/// `root` holds `proc/self/status`, `proc/self/cgroup`, and `proc/self/mountinfo`.
+/// The cgroup2 mount in that mountinfo must be a directory under `root`, and it
+/// must not be the live `/sys/fs/cgroup` tree. This function only reads. It does
+/// not write a cgroup file and it does not call `delegate`.
+pub fn detect_fixture(root: &Path, delegate: impl FnOnce()) -> io::Result<Report> {
+    // A read must not delegate. Drop the callback so it cannot run.
+    std::mem::drop(delegate);
+    let status = fs::read_to_string(root.join("proc/self/status"))?;
+    let cred = cred_from_status(&status)?;
+    let cg_txt = fs::read_to_string(root.join("proc/self/cgroup"))?;
+    let mi_txt = fs::read_to_string(root.join("proc/self/mountinfo"))?;
+    let scanned = parse_mountinfo(&mi_txt);
+    if let Some((mount, _)) = &scanned.cgroup2 {
+        if !mount_inside_fixture(root, mount) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "cgroup mount is outside the fixture",
+            ));
+        }
+    }
+    Ok(decide(&snap_from_text(&cg_txt, &mi_txt, &cred)?))
+}
+
+fn mount_inside_fixture(root: &Path, mount: &Path) -> bool {
+    root.is_absolute()
+        && mount.is_absolute()
+        && root.components().count() > 1
+        && mount.starts_with(root)
+        && !is_live_cgroup_mount(mount)
+}
+
+fn is_live_cgroup_mount(path: &Path) -> bool {
+    path.starts_with("/sys/fs/cgroup")
 }
 
 fn snap_from_text(cg_txt: &str, mi_txt: &str, cred: &Cred) -> io::Result<Snap> {

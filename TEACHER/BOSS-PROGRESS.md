@@ -193,3 +193,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:22:54+02:00 | UNITS-2 | grok-build | PASS 9/10 | crates/openmind-units | rendered text restarts always, Zagreb stamp, no install section
 
 - 2026-10-19T18:23:09+02:00 | SPEECH-2 | grok-build | PASS 9/10 | crates/openmind-speech | fixture parse stays off GPU, process, and socket
+
+- 2026-10-19T18:23:39+02:00 | CGROUP-2 | grok-build | PASS 9/10 | crates/cgroup-detect | fixture read writes no cgroup file and calls no delegate

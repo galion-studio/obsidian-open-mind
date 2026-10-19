@@ -171,3 +171,5 @@
 - 2026-10-19T18:22:54+02:00 | UNITS-2 PASS: staged unit text has no install section. Nothing was installed.
 
 - 2026-10-19T18:23:09+02:00 | SPEECH-2 PASS: whisper and piper fixtures do not spawn or dial. GPU stays false.
+
+- 2026-10-19T18:23:39+02:00 | CGROUP-2 PASS: a fixture cgroup is read only. The live cgroup tree was not written.

@@ -126,3 +126,71 @@ fn fd_targets() -> Vec<String> {
     names.sort();
     names
 }
+
+#[test]
+fn redirect_response_returns_302_with_location_empty_body_and_binds_no_port() {
+    let before_sockets = socket_fds(&fd_targets());
+    let before_listen = listening_ports(&before_sockets);
+
+    let response = redirect_response("/console");
+    let raw = response.to_string();
+    let (status, rest) = raw.split_once("\r\n").expect("status line");
+    assert_eq!(status, "HTTP/1.1 302 Found");
+    assert!(
+        rest.split("\r\n").any(|line| match line.split_once(':') {
+            Some(("Location", value)) => !value.trim().is_empty(),
+            _ => false,
+        }),
+        "Location header missing"
+    );
+    let (_, body) = raw.split_once("\r\n\r\n").expect("header end");
+    assert!(body.is_empty());
+    assert!(response.body().is_empty());
+
+    let home = redirect_response("");
+    let home_raw = home.to_string();
+    assert!(home_raw.starts_with("HTTP/1.1 302 Found\r\n"));
+    assert!(home_raw.contains("\r\nLocation: /\r\n"));
+    assert!(home.body().is_empty());
+    let (_, home_body) = home_raw.split_once("\r\n\r\n").expect("header end");
+    assert!(home_body.is_empty());
+
+    let after_sockets = socket_fds(&fd_targets());
+    let after_listen = listening_ports(&after_sockets);
+    assert_eq!(before_sockets, after_sockets, "socket table changed");
+    assert_eq!(
+        before_listen, after_listen,
+        "redirect_response bound a port"
+    );
+}
+
+fn listening_ports(socket_targets: &[String]) -> Vec<String> {
+    let mut inodes = Vec::new();
+    for target in socket_targets {
+        if let Some(inode) = target
+            .strip_prefix("socket:[")
+            .and_then(|rest| rest.strip_suffix(']'))
+        {
+            if inode != "0" {
+                inodes.push(inode.to_owned());
+            }
+        }
+    }
+    let mut ports = Vec::new();
+    for file in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let Ok(text) = std::fs::read_to_string(file) else {
+            continue;
+        };
+        for line in text.lines().skip(1) {
+            let cols: Vec<&str> = line.split_whitespace().collect();
+            if cols.len() < 10 || cols[3] != "0A" {
+                continue;
+            }
+            if inodes.iter().any(|inode| inode == cols[9]) {
+                ports.push(cols[1].to_owned());
+            }
+        }
+    }
+    ports.sort();
+    ports
+}

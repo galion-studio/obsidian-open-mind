@@ -175,3 +175,5 @@
 - 2026-10-19T18:23:39+02:00 | CGROUP-2 PASS: a fixture cgroup is read only. The live cgroup tree was not written.
 
 - 2026-10-19T18:25:07+02:00 | PROV-2 PASS: listing providers does not approve a pending row and does not dial.
+
+- 2026-10-19T18:25:22+02:00 | ORIGIN-2 PASS: the redirect builder returns a 302 and does not listen.

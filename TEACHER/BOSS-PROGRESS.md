@@ -143,3 +143,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:10:16+02:00 | WAVE | grok-build | started | PROV-MAP-2 SHADOW-2 NERVE-ALIGN SPDX-SCAN PY-SCAN LOCK-NOTE ORIGIN-WIRE CRATE-INDEX HEALTH-SNAP STAGED-NOW HADES-3 SCHEMA-2 DISC-2 FALL-2 EXO-2 LLAMA-2 CONFIG-2 ZAGREB-2 MCP-2 CGROUP-2 | twenty agents; B28 B30 B42 still held
 
 - 2026-10-19T18:10:26+02:00 | WAVE | grok-build | cap | 16 running; CONFIG-2 ZAGREB-2 MCP-2 CGROUP-2 refused by the 16-agent cap
+
+- 2026-10-19T18:11:06+02:00 | LOCK-NOTE | grok-build | PASS 8/10 | docs/lockfile.md | lock dirty; 63 /tmp copies; not regenerated

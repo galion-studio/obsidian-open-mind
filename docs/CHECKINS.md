@@ -121,3 +121,5 @@
 - 2026-10-19T18:10:16+02:00 | WAVE started: twenty agents. Sandbox, the SPDX sweep, and live restarts stay out.
 
 - 2026-10-19T18:10:26+02:00 | WAVE cap: sixteen agents started. Four more wait for a free slot.
+
+- 2026-10-19T18:11:06+02:00 | LOCK-NOTE PASS: Cargo.lock stays uncommitted. Ticket copies under /tmp are not the lock of record.

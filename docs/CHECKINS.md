@@ -83,3 +83,5 @@
 - 2026-10-19T17:12:58+02:00 | B60 PASS: memory shadow plan written. The live gateway was not compared and the switch is not done.
 
 - 2026-10-19T17:13:23+02:00 | B51 PASS: dist switch checklist written. Live One, desk, and link-watch were not switched.
+
+- 2026-10-19T17:13:23+02:00 | B66 PASS: legacy host table says retire and staged. DNS was not changed.

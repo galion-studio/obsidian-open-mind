@@ -261,3 +261,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T19:54:29+02:00 | LIVE-PIDS | grok-build | PASS 9/10 | docs/live-pids.md | four live pids still on their existing binaries
 
 - 2026-10-19T19:54:57+02:00 | SPDX-TIME | grok-build | PASS 9/10 | crates/zagreb-time | MIT header added to lib.rs and examples/clock.rs
+
+- 2026-10-19T19:55:54+02:00 | NERVE-MATCH | grok-build | PASS 9/10 | docs/nerve-match.md | boot to_nerve and NerveEvent share ts source kind severity data

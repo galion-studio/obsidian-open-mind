@@ -236,3 +236,5 @@
 - 2026-10-19T19:54:29+02:00 | LIVE-PIDS PASS: One, desk, link-watch, and tuner are still the same processes. None was killed.
 
 - 2026-10-19T19:54:57+02:00 | SPDX-TIME PASS: zagreb-time gained the SPDX header. No other line changed.
+
+- 2026-10-19T19:55:54+02:00 | NERVE-MATCH PASS: the five nerve fields match. Neither crate was edited.

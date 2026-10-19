@@ -63,3 +63,5 @@
 - 2026-10-19T16:53:08+02:00 | B55 PASS: unit text is rendered under deploy/boot/rendered. Nothing was installed.
 
 - 2026-10-19T17:08:32+02:00 | B50 PASS: 
+
+- 2026-10-19T17:08:32+02:00 | B54 PASS: hardware probe reads fixtures. It does not write a live hardware.json.

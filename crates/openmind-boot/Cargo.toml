@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
+[package]
+name = "openmind-boot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Read-only hardware probe: CPU, RAM, and GPU presence from /proc and /sys. hardware.json is written only under a temp dir."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }

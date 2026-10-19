@@ -85,3 +85,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T16:53:08+02:00 | B55 | grok-build | PASS 9/10 | crates/openmind-units deploy/boot/rendered docs/boot-units.md | staged unit text only; Restart=always; not installed
 
 - 2026-10-19T17:08:32+02:00 | B50 | grok-build | PASS 9/10 | crates/galleon-arena | list prints g2-0..g2-3; stripped 358640 B; RSS 1536 kB; no network
+
+- 2026-10-19T17:08:32+02:00 | B54 | grok-build | PASS 9/10 | crates/openmind-boot | fixture probe; missing GPU is absent; hardware.json only in temp

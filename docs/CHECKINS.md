@@ -34,3 +34,5 @@
 - 2026-10-19T16:25:05+02:00 | B35 PASS: discovery stub. Seeds stay pending. Scan is off and sends nothing.
 
 - 2026-10-19T16:26:46+02:00 | B38 PASS: select_provider is GPU, then approved LAN, then CPU local. Pending and down rows are skipped.
+
+- 2026-10-19T16:29:09+02:00 | B45 PASS: OpenSSF map is honest. Security contact is TODO. No badge claimed.

@@ -56,3 +56,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T16:25:05+02:00 | B35 | grok-build | PASS 8/10 | crates/openmind-discovery | 28 tests; --scan sends no packets; binary 355248 B stripped; RSS 1664 kB; lock not committed
 
 - 2026-10-19T16:26:46+02:00 | B38 | grok-build | PASS 9/10 | crates/openmind-fallback | GPU then approved LAN then CPU local; 14 tests; no network; lock not committed
+
+- 2026-10-19T16:29:09+02:00 | B45 | grok-build | PASS 8/10 | docs/openssf.md SECURITY.md | no invented contact; missing address is TODO; no Scorecard claim

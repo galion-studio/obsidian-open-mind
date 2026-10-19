@@ -99,3 +99,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:09:07+02:00 | WAVE | grok-build | started | B51 B52 B53 B56 B58 B60 B61 B63 B66 HADES-1 | previous six committed; B28 B30 B42 still held
 
 - 2026-10-19T17:12:02+02:00 | B52 | grok-build | PASS 8/10 | docs/source-dedupe.md | 4 old Rust roots listed; none deleted; crates stay the source of truth
+
+- 2026-10-19T17:12:30+02:00 | B61 | grok-build | PASS 8/10 | docs/console-prod.md | staged checklist; 8080/health is 404; vite still running; not switched

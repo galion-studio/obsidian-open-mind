@@ -93,3 +93,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:08:32+02:00 | B59 | grok-build | PASS 8/10 | crates/openmind-memory | fixture store and search; loopback ephemeral only; live gateway not touched
 
 - 2026-10-19T17:08:32+02:00 | GAIA-1 | grok-build | PASS 9/10 | crates/gaia-core docs/gaia-core.md | status tick simulate-faro; override refused
+
+- 2026-10-19T17:08:32+02:00 | GAIA-2 | grok-build | PASS 8/10 | crates/gaia-registry docs/gaia-ownership.md | static ownership table; unknown crate is none

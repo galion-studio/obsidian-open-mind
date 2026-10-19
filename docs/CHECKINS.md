@@ -257,3 +257,6 @@
 
 - 2026-10-19T22:29:11+02:00 | REAL-TUNER ABSENT: no dist tuner binary. Live tuner left running.
 - 2026-10-19T22:29:11+02:00 | REAL-MEM: one health read on 8420. Not a replacement.
+
+- 2026-10-19T22:29:38+02:00 | AUDIT-APPROVAL: no live cutover is approved.
+- 2026-10-19T22:29:38+02:00 | REAL-CONSOLE: 8080/health is 404. Vite was left running.

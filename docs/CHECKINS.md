@@ -111,3 +111,5 @@
 - 2026-10-19T17:45:58+02:00 | ROUTE-1 PASS: route picks GPU, then LAN, then CPU. Pending rows are not chosen. It does not dial.
 
 - 2026-10-19T17:46:17+02:00 | GAIA-3 PASS: the ownership table matches the crates on disk. Unknown names still return none.
+
+- 2026-10-19T17:46:41+02:00 | UNITS-2 PASS: tuner unit text is staged. It was not installed and the live tuner was not restarted.

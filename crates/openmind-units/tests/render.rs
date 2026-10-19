@@ -63,7 +63,7 @@ fn staged_dir() -> PathBuf {
 #[test]
 fn fixture_units_restart_always_zagreb_stamp_no_systemctl() {
     let units = render_fixture(fixture(), STAMP).expect("render");
-    assert_eq!(units.len(), 3);
+    assert_eq!(units.len(), 4);
     for unit in &units {
         assert!(unit
             .text
@@ -97,6 +97,19 @@ fn fixture_substitutes_ports_hosts_and_paths() {
     assert!(link
         .text
         .contains("ExecStart=/opt/galion/openmind/dist/bin/link-watch"));
+    let tuner = units.iter().find(|unit| unit.name == "tuner").unwrap();
+    assert!(tuner.text.contains("Environment=TUNER_ADDR=127.0.0.1:8650"));
+    assert!(tuner
+        .text
+        .contains("ExecStart=/opt/galion/openmind/dist/bin/tuner"));
+    assert!(tuner.text.contains("Restart=always"));
+    assert!(tuner.text.contains("Europe/Zagreb"));
+    assert!(!tuner.text.to_ascii_lowercase().contains("systemctl"));
+    assert!(tuner.text.lines().all(|line| line.trim() != "[Install]"));
+    assert!(!tuner
+        .text
+        .lines()
+        .any(|line| line.trim().starts_with("WantedBy=")));
 }
 
 #[test]
@@ -224,10 +237,12 @@ fn binary_prints_unit_text() {
     assert!(output.status.success(), "stderr {stderr}");
     let stdout = String::from_utf8(output.stdout).expect("utf8");
     assert!(output.stderr.is_empty());
-    assert_eq!(stdout.matches("Restart=always").count(), 3);
+    assert_eq!(stdout.matches("Restart=always").count(), 4);
     assert!(stdout.contains(&format!("# Rendered: {STAMP} Europe/Zagreb")));
     assert!(!stdout.to_ascii_lowercase().contains("systemctl"));
     assert!(stdout.contains("# file: galion-one.service"));
+    assert!(stdout.contains("# file: tuner.service"));
+    assert!(stdout.contains("TUNER_ADDR=127.0.0.1:8650"));
     let disk = fs::read_to_string(dir.join("galion-one.service")).expect("disk");
     assert_policy(&disk);
     assert!(!disk.contains("# file:"));

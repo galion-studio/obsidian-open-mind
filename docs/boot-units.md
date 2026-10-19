@@ -14,6 +14,8 @@
 
 These files are staged and not installed.
 
+The tuner unit is staged and not installed. `deploy/boot/rendered/tuner.service` holds bind text `127.0.0.1:8650` as renderer output only.
+
 The `*.service` files under `deploy/boot/rendered/` are unit text from the
 renderer. They are staged and not installed. Nothing in that directory is
 copied into a host unit directory. Nothing there is enabled or started.

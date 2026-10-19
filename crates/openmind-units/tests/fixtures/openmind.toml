@@ -16,6 +16,7 @@ docs = 8645
 one = 8091
 desk = 8646
 console = 8080
+tuner = 8650
 
 [paths]
 base = "/var/lib/openmind"
@@ -56,5 +57,16 @@ name = "link-watch"
 description = "Laptop link watch (rendered from openmind.toml, staged, not installed)"
 exec_start = "{paths.bin}/link-watch"
 after = "network-online.target"
+restart = "always"
+restart_sec = 5
+
+[[unit]]
+name = "tuner"
+description = "Ukulele tuner (rendered from openmind.toml, staged, not installed)"
+exec_start = "{paths.bin}/tuner"
+after = "network-online.target"
+environment = [
+  "TUNER_ADDR={hosts.ollama}:{ports.tuner}",
+]
 restart = "always"
 restart_sec = 5

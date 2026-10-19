@@ -133,3 +133,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:45:58+02:00 | ROUTE-1 | grok-build | PASS 9/10 | crates/openmind-route docs/route.md | calls select_provider; pending seeds never chosen; no network
 
 - 2026-10-19T17:46:17+02:00 | GAIA-3 | grok-build | PASS 9/10 | crates/gaia-registry docs/gaia-ownership.md | table matches ls crates; hades-gate is HADES; mcp-stack is MINERVA
+
+- 2026-10-19T17:46:41+02:00 | UNITS-2 | grok-build | PASS 9/10 | crates/openmind-units deploy/boot/rendered/tuner.service docs/boot-units.md | staged only; live tuner pid unchanged

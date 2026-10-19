@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
 //! Print the current Europe/Zagreb time and a fixed instant.
 //!
 //! Run: `nice -n 19 cargo run -j 2 -p zagreb-time --example clock`

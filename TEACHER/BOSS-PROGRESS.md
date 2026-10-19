@@ -129,3 +129,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:43:11+02:00 | HADES-2 | grok-build | PASS 8/10 | docs/hades-wiring.md | gate not called by any other crate; dry-run stays default
 
 - 2026-10-19T17:44:04+02:00 | RELAY-2 | grok-build | PASS 9/10 | crates/persona-plex-relay | missing config prints Zagreb stamp and exits 0; no socket; present config unchanged
+
+- 2026-10-19T17:45:58+02:00 | ROUTE-1 | grok-build | PASS 9/10 | crates/openmind-route docs/route.md | calls select_provider; pending seeds never chosen; no network

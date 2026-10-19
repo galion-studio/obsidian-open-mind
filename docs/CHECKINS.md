@@ -107,3 +107,5 @@
 - 2026-10-19T17:43:11+02:00 | HADES-2 PASS: wiring note written. The gate is not connected.
 
 - 2026-10-19T17:44:04+02:00 | RELAY-2 PASS: a missing relay config prints a Zagreb timestamp and exits 0. It does not open a socket.
+
+- 2026-10-19T17:45:58+02:00 | ROUTE-1 PASS: route picks GPU, then LAN, then CPU. Pending rows are not chosen. It does not dial.

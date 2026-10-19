@@ -89,3 +89,5 @@
 - 2026-10-19T17:13:43+02:00 | HADES-1 PASS: approval gate stays dry-run. kill and rotate are refused. Nothing was executed.
 
 - 2026-10-19T17:14:03+02:00 | B58 PASS: memory route study written. The selected provider is v1. The Rust spare server does not cover every route it calls.
+
+- 2026-10-19T17:17:13+02:00 | B56 PASS: origin redirect is a pure 302. It does not listen.

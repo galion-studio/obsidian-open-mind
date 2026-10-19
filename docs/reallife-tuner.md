@@ -15,7 +15,7 @@ ABSENT. /opt/galion/openmind/dist/bin/tuner is not on disk.
 
 Checked with ls at the stamp. ls printed: No such file or directory.
 
-The binary was not started. Nothing listened on 127.0.0.1:18650. Nothing listened on 8650. /health was not read. No child was spawned. pid 1196273 was not killed. /opt/galion/tuner/bin/tuner was not copied. The repo was not built. /tmp/om-real-tuner was not made.
+The binary was not started. Nothing new listened on 127.0.0.1:18650. The live tuner was already on 127.0.0.1:8650. This ticket did not bind that port. /health was not read. No child was spawned. pid 1196273 was not killed. /opt/galion/tuner/bin/tuner was not copied. The repo was not built. /tmp/om-real-tuner was not made.
 
 ## Not done
 

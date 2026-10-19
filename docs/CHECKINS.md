@@ -69,3 +69,5 @@
 - 2026-10-19T17:08:32+02:00 | B57 PASS: MCP stub answers on stdin. It does not open a port.
 
 - 2026-10-19T17:08:32+02:00 | B59 PASS: memory v0 stores and searches fixtures. The live gateway was not touched.
+
+- 2026-10-19T17:08:32+02:00 | GAIA-1 PASS: gaia status, tick, and simulate-faro are dry-run. Override is refused.

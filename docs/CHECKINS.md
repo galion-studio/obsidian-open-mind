@@ -266,3 +266,5 @@
 - 2026-10-19T22:30:42+02:00 | REAL-LINK PASS: a one-shot candidate exited 0. The live link-watch was not replaced.
 
 - 2026-10-19T22:31:05+02:00 | REAL-DESK FAIL: the candidate was not started. The live desk stayed on 8646.
+
+- 2026-10-19T22:31:56+02:00 | REAL-ONE NOT-STARTED: the candidate was not started. The live One stayed on 8091.

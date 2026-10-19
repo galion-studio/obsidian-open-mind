@@ -293,3 +293,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T22:30:42+02:00 | REAL-LINK | grok-build | PASS 8/10 | docs/reallife-link.md | one-shot exit 0 under /tmp; live pid 1359406 not replaced
 
 - 2026-10-19T22:31:05+02:00 | REAL-DESK | grok-build | FAIL | docs/reallife-desk.md | dist desk not started; state paths are live dirs; 8646/health 200 on pid 231
+
+- 2026-10-19T22:31:56+02:00 | REAL-ONE | grok-build | NOT-STARTED | docs/reallife-one.md | hermes state is fixed under /workspace/hermes; 8091/health 200 on pid 1373612

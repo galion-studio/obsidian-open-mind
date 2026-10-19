@@ -113,3 +113,5 @@
 - 2026-10-19T17:46:17+02:00 | GAIA-3 PASS: the ownership table matches the crates on disk. Unknown names still return none.
 
 - 2026-10-19T17:46:41+02:00 | UNITS-2 PASS: tuner unit text is staged. It was not installed and the live tuner was not restarted.
+
+- 2026-10-19T17:47:18+02:00 | BOOT-NERVE PASS: a hardware probe becomes one JSON event. A missing GPU is absent, not an error. No live hardware.json was written.

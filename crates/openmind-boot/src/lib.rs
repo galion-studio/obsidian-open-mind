@@ -14,6 +14,11 @@
 //!
 //! [`write_hardware_json`] writes a file named `hardware.json` only under a
 //! temp directory. `/etc` and live state paths are refused.
+//!
+//! [`to_nerve`] turns one probe into a single nerve JSON object (`ts`,
+//! `source`, `kind`, `severity`, `data`) and does not write a file.
+//! `source` is `boot`, `kind` is `hardware`, and `severity` is `info`.
+//! A missing GPU stays `absent`.
 
 #![forbid(unsafe_code)]
 
@@ -304,6 +309,81 @@ pub fn scan_gpu(root: &Path) -> Gpu {
 pub fn to_json(hw: &Hardware) -> Result<String, ProbeError> {
     let mut body =
         serde_json::to_string_pretty(hw).map_err(|err| ProbeError::new(format!("json: {err}")))?;
+    body.push('\n');
+    Ok(body)
+}
+
+/// Nerve `source` for a boot hardware probe.
+const NERVE_SOURCE: &str = "boot";
+
+/// Nerve `kind` for a boot hardware probe.
+const NERVE_KIND: &str = "hardware";
+
+/// A hardware probe is informational. A missing GPU is not an error.
+const NERVE_SEVERITY: &str = "info";
+
+#[derive(Serialize)]
+struct NerveBody<'a> {
+    ts: &'a str,
+    source: &'a str,
+    kind: &'a str,
+    severity: &'a str,
+    data: NerveData<'a>,
+}
+
+#[derive(Serialize)]
+struct NerveData<'a> {
+    cpu: NerveCpu<'a>,
+    ram: NerveRam,
+    gpu: &'a Gpu,
+}
+
+#[derive(Serialize)]
+struct NerveCpu<'a> {
+    processors: u32,
+    model: &'a str,
+}
+
+#[derive(Serialize)]
+struct NerveRam {
+    total_mib: u64,
+    free_mib: u64,
+}
+
+/// One nerve JSON object for a hardware probe.
+///
+/// The object has `ts`, `source`, `kind`, `severity`, and `data`.
+/// `source` is `boot`. `kind` is `hardware`. `severity` is `info`.
+/// `ts` is the probe stamp: Europe/Zagreb RFC 3339 from `zagreb-time`
+/// (explicit `+01:00` or `+02:00`, never `Z`). `data` holds cpu, ram,
+/// and gpu status. Absence of a GPU is `absent`, not an error.
+///
+/// This function does not write a file and does not create `hardware.json`.
+///
+/// # Errors
+///
+/// The probe timestamp is empty, ends in `Z`, or is not a Zagreb offset.
+pub fn to_nerve(hw: &Hardware) -> Result<String, ProbeError> {
+    check_timestamp(&hw.probed_at)?;
+    let event = NerveBody {
+        ts: &hw.probed_at,
+        source: NERVE_SOURCE,
+        kind: NERVE_KIND,
+        severity: NERVE_SEVERITY,
+        data: NerveData {
+            cpu: NerveCpu {
+                processors: hw.processors,
+                model: &hw.cpu_model,
+            },
+            ram: NerveRam {
+                total_mib: hw.ram_total_mib,
+                free_mib: hw.ram_free_mib,
+            },
+            gpu: &hw.gpu,
+        },
+    };
+    let mut body = serde_json::to_string_pretty(&event)
+        .map_err(|err| ProbeError::new(format!("json: {err}")))?;
     body.push('\n');
     Ok(body)
 }

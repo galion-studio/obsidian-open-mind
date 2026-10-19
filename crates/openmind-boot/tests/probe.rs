@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use openmind_boot::{
-    assemble, parse_cpuinfo, parse_meminfo, probe, scan_gpu, to_json, write_hardware_json, CpuInfo,
-    Gpu, GpuStatus, Hardware, RamInfo, CAP_MAX, CARD_SHORT_LINE, CPU_ONLY_LINE, WEIGHTS_LINE,
-    WEIGHTS_MIN_GPU_FREE_MIB, WEIGHTS_MIN_RAM_MIB, WORKER_MIB,
+    assemble, parse_cpuinfo, parse_meminfo, probe, scan_gpu, to_json, to_nerve,
+    write_hardware_json, CpuInfo, Gpu, GpuStatus, Hardware, RamInfo, CAP_MAX, CARD_SHORT_LINE,
+    CPU_ONLY_LINE, WEIGHTS_LINE, WEIGHTS_MIN_GPU_FREE_MIB, WEIGHTS_MIN_RAM_MIB, WORKER_MIB,
 };
 
 const CPUINFO: &str = "\
@@ -413,6 +413,95 @@ fn json_golden_for_absent_cpu() {
 }
 ";
     assert_eq!(json, expected);
+}
+
+#[test]
+fn nerve_golden_for_absent_gpu_is_info() {
+    let hw = absent_hw();
+    let json = to_nerve(&hw).unwrap();
+    let expected = "\
+{
+  \"ts\": \"2026-10-19T16:45:00+02:00\",
+  \"source\": \"boot\",
+  \"kind\": \"hardware\",
+  \"severity\": \"info\",
+  \"data\": {
+    \"cpu\": {
+      \"processors\": 4,
+      \"model\": \"Test CPU\"
+    },
+    \"ram\": {
+      \"total_mib\": 8192,
+      \"free_mib\": 4096
+    },
+    \"gpu\": {
+      \"status\": \"absent\",
+      \"count\": 0
+    }
+  }
+}
+";
+    assert_eq!(json, expected);
+    assert!(!json.contains('Z'));
+    assert!(!json.contains("+00:00"));
+}
+
+#[test]
+fn fixture_without_gpu_nerve_is_info_and_writes_only_temp() {
+    let tree = Tree::new();
+    tree.cpu_ram();
+    let live = Path::new("/opt/galion/openmind/crates/openmind-boot/hardware.json");
+    let state = Path::new("/opt/galion/galion-light/state/hardware.json");
+    let check_live = untouched(live);
+    let check_state = untouched(state);
+
+    let hw = probe(&tree.root).unwrap();
+    assert!(hw.gpu.is_absent());
+    let json = to_nerve(&hw).unwrap();
+    assert!(json.contains("\"severity\": \"info\""));
+    assert!(json.contains("\"source\": \"boot\""));
+    assert!(json.contains("\"kind\": \"hardware\""));
+    assert!(json.contains("\"status\": \"absent\""));
+    assert!(!json.contains("\"status\": \"present\""));
+    assert!(json.contains(&format!("\"ts\": \"{}\"", hw.probed_at)));
+    assert!(hw.probed_at.ends_with("+01:00") || hw.probed_at.ends_with("+02:00"));
+    assert!(!hw.probed_at.contains('Z'));
+    assert!(!tree.root.join("hardware.json").exists());
+
+    let dest = tree.root.join("nerve.json");
+    fs::write(&dest, &json).unwrap();
+    assert_eq!(fs::read_to_string(&dest).unwrap(), json);
+    assert!(dest.starts_with(std::env::temp_dir()));
+    assert_eq!(dest.file_name().unwrap(), "nerve.json");
+    assert!(!tree.root.join("hardware.json").exists());
+    check_live();
+    check_state();
+}
+
+#[test]
+fn nerve_present_gpu_stays_info() {
+    let tree = Tree::new();
+    tree.cpu_ram();
+    tree.file(
+        "proc/driver/nvidia/gpus/0000:01:00.0/information",
+        "Model:          NVIDIA GeForce RTX 3090\nBus Location:   0000:01:00.0\n",
+    );
+    let hw = probe(&tree.root).unwrap();
+    let json = to_nerve(&hw).unwrap();
+    assert!(json.contains("\"severity\": \"info\""));
+    assert!(json.contains("\"source\": \"boot\""));
+    assert!(json.contains("\"kind\": \"hardware\""));
+    assert!(json.contains("\"status\": \"present\""));
+    assert!(hw.gpu.is_present());
+    assert!(!tree.root.join("hardware.json").exists());
+}
+
+#[test]
+fn nerve_rejects_utc_timestamp() {
+    let mut hw = absent_hw();
+    hw.probed_at = "2026-10-19T14:45:00Z".to_string();
+    let err = to_nerve(&hw).unwrap_err();
+    assert!(err.to_string().contains("never Z"));
 }
 
 #[test]

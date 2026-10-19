@@ -95,3 +95,5 @@
 - 2026-10-19T17:17:48+02:00 | B63 PASS: tulu config parses a fixture. It does not start llama-server and it does not use a GPU.
 
 - 2026-10-19T17:21:44+02:00 | B53 PASS: tuner is a workspace crate. The live tuner was not restarted.
+
+- 2026-10-19T17:39:41+02:00 | WAVE started: ten agents on GAIA-3, MEM-2, UCPU-1, LW-HOST, ROUTE-1, HADES-2, UNITS-2, RELAY-2, PROV-MAP, BOOT-NERVE.

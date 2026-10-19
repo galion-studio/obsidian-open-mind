@@ -117,3 +117,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:17:48+02:00 | B63 | grok-build | PASS 9/10 | crates/openmind-tulu | fixture toml; uses_gpu always false; no llama.cpp; no spawn
 
 - 2026-10-19T17:21:44+02:00 | B53 | grok-build | PASS 8/10 | crates/tuner | imported; defaults 127.0.0.1:8650 and live www; tests do not bind 8650; live pid left running
+
+- 2026-10-19T17:39:41+02:00 | WAVE | grok-build | started | GAIA-3 MEM-2 UCPU-1 LW-HOST ROUTE-1 HADES-2 UNITS-2 RELAY-2 PROV-MAP BOOT-NERVE | B28 B30 B42 still held

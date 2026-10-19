@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
+[package]
+name = "hades-journal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "One JSON record of a hades-gate decision. Stores nothing on disk. Default is DryRun. kill and rotate are Refused."
+
+[dependencies]
+hades-gate = { path = "../hades-gate" }
+zagreb-time = { path = "../zagreb-time" }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+hades-gate = { path = "../hades-gate" }

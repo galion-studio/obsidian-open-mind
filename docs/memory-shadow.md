@@ -33,7 +33,36 @@ Routes, the Hermes subset the candidate already implements:
 | POST | `/capture` | candidate only |
 | POST | `/v2/conversation/add` | candidate only |
 
-Any other path is out of scope. On the candidate it is 404. Do not add embeddings, an extractor, pyramid, or offload to the shadow.
+Any other path is out of scope and is 404 on the candidate, except the five MEM-2 fixture paths in the next section. Those handlers exist on the candidate only. This ticket does not run them and does not send them to the live gateway. Do not add embeddings, an extractor, or pyramid.
+
+## MEM-2 fixture handlers
+
+- DESK-ID: openmind.SHADOW-2
+- Written: 2026-10-19T18:11:22+02:00 (Europe/Zagreb, `TZ=Europe/Zagreb date -Iseconds`)
+- Crate commit already present: `c3831fd`. This ticket does not edit `crates/openmind-memory`.
+
+MEM-2 now has fixture handlers for `POST /recall`, `POST /session/end`, `POST /v2/offload/query-mmd`, `POST /v2/offload/ingest`, and `POST /v2/offload/read-ref`. The shadow is still not run.
+
+No request was sent to the live memory-gateway on `127.0.0.1:8420`. No server was started. These five routes are candidate fixtures only. A cutover still needs a later owner approval. This ticket does not grant it.
+
+| Method | Path | Pass |
+| --- | --- | --- |
+| POST | `/recall` | candidate only, not run |
+| POST | `/session/end` | candidate only, not run |
+| POST | `/v2/offload/query-mmd` | candidate only, not run |
+| POST | `/v2/offload/ingest` | candidate only, not run |
+| POST | `/v2/offload/read-ref` | candidate only, not run |
+
+Shapes below are read from the crate. They are not a transcript of a call.
+
+- `POST /recall` needs `query` and `session_key`. Status 200 returns `context`, `strategy` `fts`, `memory_count`, `code` 0, `message` `ok`, `retryable` false. `user_id` is optional and is not copied. Embeddings stay off. A blank field is 400.
+- `POST /session/end` needs `session_key` and returns `flushed` true. The stored flush time is Europe/Zagreb RFC 3339 with `+01:00` or `+02:00`. Never `Z`. Never `+00:00`.
+- Offload routes use the same v2 gate as the other v2 fixtures: `Authorization: Bearer local` and `x-tdai-service-id: default`. Presence only. No key file. No model call. No dial to port 8420.
+- `POST /v2/offload/query-mmd` with no canvas returns `data.mmds` empty and `data.currentMmd` null. After a pair ingest, the canvas file name is `canvas.mmd`.
+- `POST /v2/offload/ingest` with tool pairs stores one markdown ref per pair and returns `data.node_ids`. A prompt with no pairs does not invent a canvas. Do not send this write to port 8420.
+- `POST /v2/offload/read-ref` returns content only when `result_ref` is owned by that `session_id`. Another session, or a missing ref, is 404. `full` must be a boolean when present.
+
+Do not replay these bodies against the live gateway. Writes would mix fixture text into Hermes memory.
 
 Listeners, when that later run is approved:
 

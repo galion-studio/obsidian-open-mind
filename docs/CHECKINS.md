@@ -129,3 +129,5 @@
 - 2026-10-19T18:11:57+02:00 | EXO-2 PASS: exo already refuses a GPU and does not dial. No code change.
 
 - 2026-10-19T18:12:10+02:00 | CRATE-INDEX PASS: every crate has a one-line description in the index.
+
+- 2026-10-19T18:12:18+02:00 | SHADOW-2 PASS: the five new memory routes are fixture-only. The shadow was not run.

@@ -32,3 +32,5 @@
 - 2026-10-19T16:21:10+02:00 | Wave 6/7 landed: B05 B07 B14 B15 B25 B29 B31 B32 B34 B36 B39 B40 B41 B46 B48. B35 still running. Lock not regenerated yet.
 
 - 2026-10-19T16:25:05+02:00 | B35 PASS: discovery stub. Seeds stay pending. Scan is off and sends nothing.
+
+- 2026-10-19T16:26:46+02:00 | B38 PASS: select_provider is GPU, then approved LAN, then CPU local. Pending and down rows are skipped.

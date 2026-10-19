@@ -248,3 +248,5 @@
 - 2026-10-19T19:57:49+02:00 | BINDS PASS: bind strings were read from source. No port was opened.
 
 - 2026-10-19T19:58:15+02:00 | SPDX-ONE PASS: galion-one gained the SPDX header. The live binary was not replaced.
+
+- 2026-10-19T20:00:55+02:00 | CONFIG-3 PASS: a missing config file stays on today's ports. It does not read overrides.

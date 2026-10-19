@@ -105,3 +105,5 @@
 - 2026-10-19T17:43:11+02:00 | PROV-MAP PASS: provider map written. None of those crates dial the network.
 
 - 2026-10-19T17:43:11+02:00 | HADES-2 PASS: wiring note written. The gate is not connected.
+
+- 2026-10-19T17:44:04+02:00 | RELAY-2 PASS: a missing relay config prints a Zagreb timestamp and exits 0. It does not open a socket.

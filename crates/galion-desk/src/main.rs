@@ -227,6 +227,11 @@ fn main() {
     }
 }
 
+/// `/health` body. Fixed JSON. No process and no socket.
+fn health_json() -> &'static str {
+    "{\"ok\":true}"
+}
+
 fn handle(mut stream: TcpStream) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
     let mut buf = [0u8; 8192];
@@ -250,7 +255,7 @@ fn handle(mut stream: TcpStream) {
     } else if method == "GET" && path.starts_with("/desk") {
         snapshot()
     } else if path.starts_with("/health") {
-        "{\"ok\":true}".to_string()
+        health_json().to_string()
     } else {
         send(&mut stream, 404, "{\"error\":\"not found\"}");
         return;
@@ -1041,5 +1046,212 @@ base = '{base}'
         let err = resolve(&env_from(&[("OPENMIND_CONFIG", path.to_str().unwrap())])).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("unit-bad.toml"), "{msg}");
+    }
+
+    /// Child processes of this test. The health path must not leave python.
+    fn child_cmdlines() -> Vec<String> {
+        let me = std::process::id();
+        let mut out = Vec::new();
+        let Ok(proc) = std::fs::read_dir("/proc") else {
+            return out;
+        };
+        for ent in proc.flatten() {
+            let name = ent.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if !name.bytes().all(|b| b.is_ascii_digit()) {
+                continue;
+            }
+            let Ok(stat) = std::fs::read_to_string(ent.path().join("stat")) else {
+                continue;
+            };
+            let Some(end) = stat.rfind(')') else {
+                continue;
+            };
+            let mut fields = stat[end + 1..].split_whitespace();
+            let _state = fields.next();
+            let Some(ppid) = fields.next() else {
+                continue;
+            };
+            let Ok(ppid_n) = ppid.parse::<u32>() else {
+                continue;
+            };
+            if ppid_n != me {
+                continue;
+            }
+            let Ok(raw) = std::fs::read(ent.path().join("cmdline")) else {
+                continue;
+            };
+            let cmd = String::from_utf8_lossy(&raw).replace('\0', " ");
+            out.push(format!("{name} {cmd}"));
+        }
+        out.sort();
+        out
+    }
+
+    /// Socket fds held by this process. The directory is dropped before return.
+    fn socket_targets() -> Vec<String> {
+        let mut out = Vec::new();
+        let Ok(dir) = std::fs::read_dir("/proc/self/fd") else {
+            return out;
+        };
+        for entry in dir.flatten() {
+            let Ok(target) = std::fs::read_link(entry.path()) else {
+                continue;
+            };
+            let text = target.to_string_lossy();
+            if text.starts_with("socket:") {
+                out.push(text.into_owned());
+            }
+        }
+        out.sort();
+        out
+    }
+
+    fn socket_inodes(socket_targets: &[String]) -> Vec<String> {
+        let mut inodes = Vec::new();
+        for target in socket_targets {
+            if let Some(inode) = target
+                .strip_prefix("socket:[")
+                .and_then(|rest| rest.strip_suffix(']'))
+            {
+                if inode != "0" {
+                    inodes.push(inode.to_string());
+                }
+            }
+        }
+        inodes.sort();
+        inodes
+    }
+
+    /// Local addresses of LISTEN sockets owned by this process (`IP:PORT` hex).
+    fn listening_locals(socket_targets: &[String]) -> Vec<String> {
+        let inodes = socket_inodes(socket_targets);
+        let mut locals = Vec::new();
+        for file in ["/proc/net/tcp", "/proc/net/tcp6"] {
+            let Ok(text) = std::fs::read_to_string(file) else {
+                continue;
+            };
+            for line in text.lines().skip(1) {
+                let cols: Vec<&str> = line.split_whitespace().collect();
+                if cols.len() < 10 || cols[3] != "0A" {
+                    continue;
+                }
+                if inodes.iter().any(|inode| inode == cols[9]) {
+                    locals.push(cols[1].to_string());
+                }
+            }
+        }
+        locals.sort();
+        locals
+    }
+
+    fn listen_inode(port: u16) -> Option<String> {
+        let suffix = format!(":{port:04X}");
+        for file in ["/proc/net/tcp", "/proc/net/tcp6"] {
+            let Ok(text) = std::fs::read_to_string(file) else {
+                continue;
+            };
+            for line in text.lines().skip(1) {
+                let cols: Vec<&str> = line.split_whitespace().collect();
+                if cols.len() < 10 || cols[3] != "0A" || !cols[1].ends_with(&suffix) {
+                    continue;
+                }
+                if cols[9] != "0" {
+                    return Some(cols[9].to_string());
+                }
+            }
+        }
+        None
+    }
+
+    fn is_desk_or_one_port(local: &str) -> bool {
+        let upper = local.to_ascii_uppercase();
+        upper.ends_with(":21C6") || upper.ends_with(":1F9B")
+    }
+
+    fn health_fn_text() -> &'static str {
+        const SRC: &str = include_str!("main.rs");
+        let start = SRC
+            .find("fn health_json() -> &'static str {")
+            .expect("health_json");
+        let rest = &SRC[start..];
+        let end = rest.find("\n}\n").expect("health_json end");
+        &rest[..end]
+    }
+
+    fn health_arm_text() -> &'static str {
+        const SRC: &str = include_str!("main.rs");
+        let start = SRC
+            .find("path.starts_with(\"/health\")")
+            .expect("health arm");
+        let rest = &SRC[start..];
+        let end = rest.find("} else {").expect("health arm end");
+        &rest[..end]
+    }
+
+    #[test]
+    fn library_or_fixture_health_json_does_not_spawn_python_or_bind() {
+        let before_kids = child_cmdlines();
+        let before_socks = socket_targets();
+        let before_listen = listening_locals(&before_socks);
+        let desk_inode = listen_inode(8646);
+        let one_inode = listen_inode(8091);
+        assert!(desk_inode.is_some(), "8646 listener was not visible");
+        assert!(one_inode.is_some(), "8091 listener was not visible");
+
+        let library = health_json();
+        assert_eq!(library, "{\"ok\":true}");
+        let fn_src = health_fn_text();
+        let arm = health_arm_text();
+        for banned in [
+            "python",
+            "Command",
+            "TcpListener",
+            "std::process",
+            "std::net",
+        ] {
+            assert!(!fn_src.contains(banned), "{banned} in health_json");
+            assert!(!arm.contains(banned), "{banned} in health arm");
+        }
+        assert!(arm.contains("health_json()"));
+
+        let fixture = write_fixture("health.json", "{\"ok\":true}\n");
+        let from_file = std::fs::read_to_string(&fixture).expect("fixture");
+        assert_eq!(from_file.trim(), library);
+        assert!(fixture.is_file());
+
+        let after_kids = child_cmdlines();
+        let after_socks = socket_targets();
+        let after_listen = listening_locals(&after_socks);
+        assert_eq!(before_kids, after_kids, "health json spawned a process");
+        assert!(
+            after_kids
+                .iter()
+                .all(|cmd| !cmd.to_ascii_lowercase().contains("python")),
+            "python child: {after_kids:?}"
+        );
+        assert_eq!(before_socks, after_socks, "health json opened a socket");
+        assert_eq!(before_listen, after_listen, "health json bound a port");
+        assert!(
+            after_listen.iter().all(|local| !is_desk_or_one_port(local)),
+            "bound 8646 or 8091: {after_listen:?}"
+        );
+        let ours = socket_inodes(&after_socks);
+        if let Some(inode) = &desk_inode {
+            assert!(
+                !ours.iter().any(|own| own == inode),
+                "this process holds 8646"
+            );
+        }
+        if let Some(inode) = &one_inode {
+            assert!(
+                !ours.iter().any(|own| own == inode),
+                "this process holds 8091"
+            );
+        }
+        assert_eq!(listen_inode(8646), desk_inode, "8646 listener changed");
+        assert_eq!(listen_inode(8091), one_inode, "8091 listener changed");
     }
 }

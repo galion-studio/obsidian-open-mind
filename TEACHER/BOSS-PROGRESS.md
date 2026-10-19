@@ -247,3 +247,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:50:18+02:00 | GAIA-4 | grok-build | PASS 9/10 | crates/gaia-registry | hades-journal added as HADES; table matches 37 crates
 
 - 2026-10-19T18:50:34+02:00 | SPDX-2 | grok-build | PASS 8/10 | docs/spdx-gap.md | 9 Rust files still lack SPDX in the first five lines
+
+- 2026-10-19T18:50:55+02:00 | DESK-3 | grok-build | PASS 9/10 | crates/galion-desk | health JSON does not spawn python or bind 8646 or 8091

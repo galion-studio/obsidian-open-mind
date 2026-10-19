@@ -93,3 +93,5 @@
 - 2026-10-19T17:17:13+02:00 | B56 PASS: origin redirect is a pure 302. It does not listen.
 
 - 2026-10-19T17:17:48+02:00 | B63 PASS: tulu config parses a fixture. It does not start llama-server and it does not use a GPU.
+
+- 2026-10-19T17:21:44+02:00 | B53 PASS: tuner is a workspace crate. The live tuner was not restarted.

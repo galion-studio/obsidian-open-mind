@@ -17,19 +17,19 @@
 pub enum Function {
     /// Orchestration and the registry itself.
     Gaia,
-    /// Destructive plans only. No current crate is in this domain.
+    /// Destructive plans only. The gate classifies them and runs nothing.
     Hades,
-    /// Fabrication: builds, adapters, the desk, and the sandbox runner.
+    /// Fabrication: builds, adapters, the desk, the redirect, the tuner, and the sandbox runner.
     Hephaestus,
-    /// Environment health: survival, config, and the routine tick.
+    /// Environment health: survival, config, hardware, staged units, and the routine tick.
     Demeter,
     /// Agent population.
     Artemis,
-    /// Knowledge: contract, intake, and the event archive.
+    /// Knowledge: contract, intake, memory, the Tulu row, and the event archive.
     Apollo,
-    /// Security audit and policy. No current crate is in this domain.
+    /// Security audit and policy. The read-only stack status stub.
     Minerva,
-    /// Personas and the agents grown from them.
+    /// Personas, speech fixtures, and the agents grown from them.
     Eleuthia,
     /// Contest. Paper scores only.
     Ares,
@@ -94,7 +94,7 @@ pub struct Owner {
 
 /// Every current workspace crate, once, sorted by name.
 ///
-/// Snapshot of `ls crates` plus this crate. See `docs/gaia-ownership.md`.
+/// Snapshot of `ls crates`. See `docs/gaia-ownership.md`.
 pub const TABLE: &[Owner] = &[
     Owner {
         crate_name: "cgroup-detect",
@@ -133,6 +133,10 @@ pub const TABLE: &[Owner] = &[
         function: Function::Demeter,
     },
     Owner {
+        crate_name: "hades-gate",
+        function: Function::Hades,
+    },
+    Owner {
         crate_name: "link-watch",
         function: Function::Apollo,
     },
@@ -147,6 +151,10 @@ pub const TABLE: &[Owner] = &[
     Owner {
         crate_name: "one-talk",
         function: Function::Hephaestus,
+    },
+    Owner {
+        crate_name: "openmind-boot",
+        function: Function::Demeter,
     },
     Owner {
         crate_name: "openmind-config",
@@ -170,6 +178,10 @@ pub const TABLE: &[Owner] = &[
     },
     Owner {
         crate_name: "openmind-mcp-stack",
+        function: Function::Minerva,
+    },
+    Owner {
+        crate_name: "openmind-memory",
         function: Function::Apollo,
     },
     Owner {
@@ -177,7 +189,15 @@ pub const TABLE: &[Owner] = &[
         function: Function::Apollo,
     },
     Owner {
+        crate_name: "openmind-origin",
+        function: Function::Hephaestus,
+    },
+    Owner {
         crate_name: "openmind-provider",
+        function: Function::Hephaestus,
+    },
+    Owner {
+        crate_name: "openmind-route",
         function: Function::Hephaestus,
     },
     Owner {
@@ -189,7 +209,19 @@ pub const TABLE: &[Owner] = &[
         function: Function::Apollo,
     },
     Owner {
+        crate_name: "openmind-speech",
+        function: Function::Eleuthia,
+    },
+    Owner {
         crate_name: "openmind-survival",
+        function: Function::Demeter,
+    },
+    Owner {
+        crate_name: "openmind-tulu",
+        function: Function::Apollo,
+    },
+    Owner {
+        crate_name: "openmind-units",
         function: Function::Demeter,
     },
     Owner {
@@ -199,6 +231,10 @@ pub const TABLE: &[Owner] = &[
     Owner {
         crate_name: "room",
         function: Function::Artemis,
+    },
+    Owner {
+        crate_name: "tuner",
+        function: Function::Hephaestus,
     },
     Owner {
         crate_name: "zagreb-time",
@@ -235,6 +271,7 @@ mod tests {
         assert_eq!(owner("GALION-ONE"), None);
         assert_eq!(owner(""), None);
         assert_eq!(Function::from_name("none"), None);
+        assert_eq!(Function::from_name("unknown"), None);
     }
 
     #[test]
@@ -262,6 +299,21 @@ mod tests {
     }
 
     #[test]
+    fn suggested_map_holds() {
+        assert_eq!(owner("hades-gate"), Some(Function::Hades));
+        assert_eq!(owner("tuner"), Some(Function::Hephaestus));
+        assert_eq!(owner("openmind-boot"), Some(Function::Demeter));
+        assert_eq!(owner("openmind-units"), Some(Function::Demeter));
+        assert_eq!(owner("openmind-origin"), Some(Function::Hephaestus));
+        assert_eq!(owner("openmind-tulu"), Some(Function::Apollo));
+        assert_eq!(owner("openmind-speech"), Some(Function::Eleuthia));
+        assert_eq!(owner("openmind-memory"), Some(Function::Apollo));
+        assert_eq!(owner("openmind-mcp-stack"), Some(Function::Minerva));
+        assert_eq!(owner("persona-plex-relay"), Some(Function::Eleuthia));
+        assert_eq!(owner("openmind-route"), Some(Function::Hephaestus));
+    }
+
+    #[test]
     fn table_is_sorted_and_each_crate_once() {
         let mut previous = "";
         for row in TABLE {
@@ -274,6 +326,23 @@ mod tests {
             assert_eq!(owner(row.crate_name), Some(row.function));
             assert!(Function::ALL.contains(&row.function));
         }
-        assert_eq!(TABLE.len(), 27);
+        assert_eq!(TABLE.len(), 36);
+    }
+
+    #[test]
+    fn table_matches_crate_directory() {
+        let crates_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let mut names = Vec::new();
+        for entry in std::fs::read_dir(&crates_dir).expect("read crates") {
+            let entry = entry.expect("crate entry");
+            let raw = entry.file_name();
+            let name = raw.to_str().expect("crate name is utf-8");
+            if !name.starts_with('.') {
+                names.push(name.to_string());
+            }
+        }
+        names.sort();
+        let table: Vec<String> = TABLE.iter().map(|row| row.crate_name.to_string()).collect();
+        assert_eq!(table, names);
     }
 }

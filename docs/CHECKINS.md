@@ -109,3 +109,5 @@
 - 2026-10-19T17:44:04+02:00 | RELAY-2 PASS: a missing relay config prints a Zagreb timestamp and exits 0. It does not open a socket.
 
 - 2026-10-19T17:45:58+02:00 | ROUTE-1 PASS: route picks GPU, then LAN, then CPU. Pending rows are not chosen. It does not dial.
+
+- 2026-10-19T17:46:17+02:00 | GAIA-3 PASS: the ownership table matches the crates on disk. Unknown names still return none.

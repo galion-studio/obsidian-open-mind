@@ -262,3 +262,5 @@
 - 2026-10-19T22:29:38+02:00 | REAL-CONSOLE: 8080/health is 404. Vite was left running.
 
 - 2026-10-19T22:29:58+02:00 | AUDIT-UNITS: rendered units are not the installed ones. Live pids were left running.
+
+- 2026-10-19T22:30:42+02:00 | REAL-LINK PASS: a one-shot candidate exited 0. The live link-watch was not replaced.

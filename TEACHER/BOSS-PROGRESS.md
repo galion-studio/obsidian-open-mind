@@ -289,3 +289,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T22:29:38+02:00 | REAL-CONSOLE | grok-build | PASS 8/10 | docs/reallife-console.md | 8080/health is 404 from vite; production console was not switched
 
 - 2026-10-19T22:29:58+02:00 | AUDIT-UNITS | grok-build | PASS 9/10 | docs/cutover-units.md | four rendered units are not installed; live exes unchanged
+
+- 2026-10-19T22:30:42+02:00 | REAL-LINK | grok-build | PASS 8/10 | docs/reallife-link.md | one-shot exit 0 under /tmp; live pid 1359406 not replaced

@@ -221,3 +221,7 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:40:51+02:00 | SAND-2 | grok-build | note | bak files removed from the tree; they were old copies, not the preset
 
 - 2026-10-19T18:41:09+02:00 | VOICE-2 | grok-build | PASS 9/10 | crates/galleon-voice | persona parses, max 2 sentences, no voice file and no audio device
+
+- 2026-10-19T18:43:27+02:00 | ROOM-2 | grok-build | PASS 9/10 | crates/room | no flags print the page and do not bind; --listen is required
+
+- 2026-10-19T18:43:27+02:00 | GATE-2 | grok-build | PASS 9/10 | crates/hades-gate | kill and rotate stay refused; WouldApply writes nothing

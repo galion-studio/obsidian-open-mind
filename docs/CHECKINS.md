@@ -197,3 +197,6 @@
 - 2026-10-19T18:40:21+02:00 | SAND-2 PASS: a sandbox preset stays data. It was not applied to a live service.
 
 - 2026-10-19T18:41:09+02:00 | VOICE-2 PASS: the persona loads as text. It does not open the voice file or an audio device.
+
+- 2026-10-19T18:43:27+02:00 | ROOM-2 PASS: room does not listen unless --listen is set. Port 4020 stayed closed.
+- 2026-10-19T18:43:27+02:00 | GATE-2 PASS: kill and rotate stay refused. WouldApply does not apply.

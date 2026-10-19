@@ -271,3 +271,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T19:56:55+02:00 | SPDX-LW | grok-build | PASS 9/10 | crates/link-watch | MIT header added to jsonout.rs and main.rs
 
 - 2026-10-19T19:57:49+02:00 | BINDS | grok-build | PASS 9/10 | docs/bind-defaults.md | default bind strings copied from source; nothing was started
+
+- 2026-10-19T19:58:15+02:00 | SPDX-ONE | grok-build | PASS 9/10 | crates/galion-one | MIT header added to build.rs and main.rs

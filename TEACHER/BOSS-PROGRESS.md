@@ -237,3 +237,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:45:05+02:00 | TUNER-2 | grok-build | ALREADY | crates/tuner | default bind is already 127.0.0.1:8650 and the test does not listen
 
 - 2026-10-19T18:45:34+02:00 | PY-2 | grok-build | PASS 9/10 | docs/python-hits.md | 35 word hits in 8 files; a hit is not a running interpreter
+
+- 2026-10-19T18:46:29+02:00 | HEALTH-NOW | grok-build | PASS 9/10 | docs/health-now.md | 8091 200 ok, 8420 200 JSON, 8080 404

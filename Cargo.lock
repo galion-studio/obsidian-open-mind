@@ -152,6 +152,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "gaia-core"
+version = "0.1.0"
+dependencies = [
+ "zagreb-time",
+]
+
+[[package]]
+name = "gaia-registry"
+version = "0.1.0"
+
+[[package]]
 name = "galion-desk"
 version = "0.1.0"
 dependencies = [
@@ -161,6 +172,9 @@ dependencies = [
 [[package]]
 name = "galion-one"
 version = "0.1.0"
+dependencies = [
+ "openmind-config",
+]
 
 [[package]]
 name = "galleon-arena"
@@ -182,6 +196,19 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
+ "zagreb-time",
+]
+
+[[package]]
+name = "hades-gate"
+version = "0.1.0"
+
+[[package]]
+name = "hades-journal"
+version = "0.1.0"
+dependencies = [
+ "hades-gate",
+ "serde_json",
  "zagreb-time",
 ]
 
@@ -338,6 +365,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmind-boot"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "openmind-config"
 version = "0.1.0"
 dependencies = [
@@ -372,6 +408,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmind-mcp-stack"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
+name = "openmind-memory"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "openmind-nerve"
 version = "0.1.0"
 dependencies = [
@@ -381,11 +435,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmind-origin"
+version = "0.1.0"
+
+[[package]]
 name = "openmind-provider"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "openmind-route"
+version = "0.1.0"
+dependencies = [
+ "openmind-fallback",
 ]
 
 [[package]]
@@ -407,9 +472,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmind-speech"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "openmind-survival"
 version = "0.1.0"
 dependencies = [
+ "zagreb-time",
+]
+
+[[package]]
+name = "openmind-tulu"
+version = "0.1.0"
+dependencies = [
+ "toml",
+]
+
+[[package]]
+name = "openmind-units"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
  "zagreb-time",
 ]
 
@@ -632,6 +720,10 @@ name = "toml_write"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
+
+[[package]]
+name = "tuner"
+version = "0.1.0"
 
 [[package]]
 name = "unicode-ident"

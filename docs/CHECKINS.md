@@ -252,3 +252,5 @@
 - 2026-10-19T20:00:55+02:00 | CONFIG-3 PASS: a missing config file stays on today's ports. It does not read overrides.
 
 - 2026-10-19T20:02:46+02:00 | CTL-HITS PASS: the word systemctl was listed. No unit was restarted.
+
+- 2026-10-19T22:22:11+02:00 | SESSION NOTE: the library wave is recorded. Live processes were not replaced. The repo stays private.

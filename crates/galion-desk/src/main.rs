@@ -1254,4 +1254,72 @@ base = '{base}'
         assert_eq!(listen_inode(8646), desk_inode, "8646 listener changed");
         assert_eq!(listen_inode(8091), one_inode, "8091 listener changed");
     }
+
+    /// Remote addresses of TCP sockets this process holds that are a dial to
+    /// `127.0.0.1:11434`. `/proc/net/tcp` stores that peer as `0100007F:2CAA`
+    /// (IPv4 loopback, port 11434). An IPv4-mapped tcp6 row ends with the same
+    /// bytes. Reading these files does not connect.
+    fn loopback_ollama_dials(socket_targets: &[String]) -> Vec<String> {
+        let inodes = socket_inodes(socket_targets);
+        let mut remotes = Vec::new();
+        for file in ["/proc/net/tcp", "/proc/net/tcp6"] {
+            let Ok(text) = std::fs::read_to_string(file) else {
+                continue;
+            };
+            for line in text.lines().skip(1) {
+                let cols: Vec<&str> = line.split_whitespace().collect();
+                if cols.len() < 10 {
+                    continue;
+                }
+                let remote = cols[2].to_ascii_uppercase();
+                if remote.ends_with("0100007F:2CAA") && inodes.iter().any(|inode| inode == cols[9])
+                {
+                    remotes.push(remote);
+                }
+            }
+        }
+        remotes.sort();
+        remotes
+    }
+
+    #[test]
+    fn health_json_does_not_dial_127_0_0_1_11434_or_open_a_socket() {
+        let before_socks = socket_targets();
+        let before_dials = loopback_ollama_dials(&before_socks);
+
+        let body = health_json();
+        assert_eq!(body, "{\"ok\":true}");
+        assert!(!body.contains("127.0.0.1"));
+        assert!(!body.contains("11434"));
+
+        let fn_src = health_fn_text();
+        let arm = health_arm_text();
+        for banned in [
+            "127.0.0.1:11434",
+            "11434",
+            "ollama_open",
+            "TcpStream",
+            "TcpListener",
+            "connect_timeout",
+            "connect(",
+            "std::net",
+        ] {
+            assert!(!fn_src.contains(banned), "{banned} in health_json");
+            assert!(!arm.contains(banned), "{banned} in health arm");
+        }
+        assert!(arm.contains("health_json()"));
+        assert!(!arm.contains("snapshot"));
+
+        let after_socks = socket_targets();
+        let after_dials = loopback_ollama_dials(&after_socks);
+        assert_eq!(before_socks, after_socks, "health json opened a socket");
+        assert_eq!(
+            before_dials, after_dials,
+            "health json dialed 127.0.0.1:11434"
+        );
+        assert!(
+            after_dials.is_empty(),
+            "health json dialed 127.0.0.1:11434: {after_dials:?}"
+        );
+    }
 }

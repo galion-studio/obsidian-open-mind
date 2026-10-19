@@ -92,6 +92,56 @@ fn untouched(path: &Path) -> impl Fn() {
     }
 }
 
+/// Names in `path`, sorted. Used to prove `to_nerve` creates nothing.
+fn dir_names(path: &Path) -> Vec<String> {
+    let mut names = Vec::new();
+    for entry in fs::read_dir(path).expect("read dir") {
+        let entry = entry.expect("dir entry");
+        names.push(entry.file_name().to_string_lossy().into_owned());
+    }
+    names.sort();
+    names
+}
+
+/// Keys of the outermost pretty-printed JSON object, in source order.
+///
+/// `serde_json` pretty output puts each top-level key on its own line
+/// indented by two spaces. Nested keys are indented further.
+fn top_level_object_keys(json: &str) -> Vec<&str> {
+    let mut keys = Vec::new();
+    for line in json.lines() {
+        let Some(rest) = line.strip_prefix("  \"") else {
+            continue;
+        };
+        let Some(end) = rest.find('"') else {
+            continue;
+        };
+        if rest[end + 1..].trim_start().starts_with(':') {
+            keys.push(&rest[..end]);
+        }
+    }
+    keys
+}
+
+/// Restores the process working directory when dropped.
+struct CwdGuard {
+    previous: PathBuf,
+}
+
+impl CwdGuard {
+    fn enter(dir: &Path) -> Self {
+        let previous = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(dir).expect("enter probe dir");
+        Self { previous }
+    }
+}
+
+impl Drop for CwdGuard {
+    fn drop(&mut self) {
+        let _ = std::env::set_current_dir(&self.previous);
+    }
+}
+
 #[test]
 fn parse_cpuinfo_counts_processors_and_model() {
     let cpu = parse_cpuinfo(CPUINFO).unwrap();
@@ -444,6 +494,38 @@ fn nerve_golden_for_absent_gpu_is_info() {
     assert_eq!(json, expected);
     assert!(!json.contains('Z'));
     assert!(!json.contains("+00:00"));
+}
+
+#[test]
+fn to_nerve_object_keys_are_ts_source_kind_severity_data_and_writes_no_file() {
+    let tree = Tree::new();
+    assert!(
+        dir_names(&tree.root).is_empty(),
+        "probe temp dir starts empty"
+    );
+
+    let watched = [
+        PathBuf::from("/opt/galion/openmind/crates/openmind-boot/hardware.json"),
+        PathBuf::from("/opt/galion/openmind/crates/openmind-boot/nerve.json"),
+        PathBuf::from("/opt/galion/galion-light/state/hardware.json"),
+        PathBuf::from("/opt/galion/galion-light/state/nerve.json"),
+        std::env::temp_dir().join("hardware.json"),
+        std::env::temp_dir().join("nerve.json"),
+    ];
+    let checks: Vec<_> = watched.iter().map(|path| untouched(path)).collect();
+
+    let cwd = CwdGuard::enter(&tree.root);
+    let json = to_nerve(&absent_hw()).expect("nerve json");
+    assert!(dir_names(&tree.root).is_empty(), "to_nerve wrote a file");
+    drop(cwd);
+
+    for check in checks {
+        check();
+    }
+    assert_eq!(
+        top_level_object_keys(&json),
+        ["ts", "source", "kind", "severity", "data"]
+    );
 }
 
 #[test]

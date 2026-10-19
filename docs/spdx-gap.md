@@ -3,16 +3,16 @@
 
 # SPDX gap
 
-- DESK-ID: openmind.SPDX-2
-- Written: 2026-10-19T18:49:14+02:00 (Europe/Zagreb, `TZ=Europe/Zagreb date -Iseconds`)
+- DESK-ID: openmind.SPDX-3
+- Written: 2026-10-19T21:04:55+02:00 (Europe/Zagreb, `TZ=Europe/Zagreb date -Iseconds`)
 - Repo: /opt/galion/openmind
 - Scope: regular *.rs files under crates/
 
 ## Status
 
-B42 is not done.
+Every regular *.rs file under crates/ was checked again. A file is missing when the text SPDX-License-Identifier does not appear in its first 5 lines. Lines after line 5 do not count as a header. No .rs file was edited. Cargo.toml was not edited. Nothing was committed. Nothing was pushed.
 
-Every regular *.rs file under crates/ was checked. A file is missing when the text SPDX-License-Identifier does not appear in its first 5 lines. Lines after line 5 do not count as a header. No .rs file was edited. Cargo.toml was not edited. Nothing was committed. Nothing was pushed.
+The nine files from the previous list now have headers. REUSE.toml is still not added.
 
 The stamp above is the time of this scan. The offset is numeric (+02:00 or +01:00). It is not a trailing UTC designator.
 
@@ -21,9 +21,15 @@ The stamp above is the time of this scan. The offset is numeric (+02:00 or +01:0
 | item | value |
 | --- | --- |
 | scanned crates/**/*.rs | 119 |
-| missing SPDX-License-Identifier in the first 5 lines | 9 |
+| missing SPDX-License-Identifier in the first 5 lines | 0 |
 
 ## Missing
+
+No path is missing.
+
+## Previous list
+
+These nine files were missing on the SPDX-2 scan. Each now has SPDX-License-Identifier in its first 5 lines:
 
 - `crates/desk-hermes/src/jsonout.rs`
 - `crates/desk-hermes/src/main.rs`
@@ -37,5 +43,4 @@ The stamp above is the time of this scan. The offset is numeric (+02:00 or +01:0
 
 ## Not claimed
 
-B42 is not done. SPDX headers are not on every .rs file. REUSE.toml was not added. LICENSES/MIT.txt was not added. No crate file was edited. Cargo.toml was not edited. Nothing was committed. Nothing was pushed.
-
+The nine files from the previous list now have headers. REUSE.toml is still not added. LICENSES/MIT.txt was not added. No crate file was edited. Cargo.toml was not edited. Nothing was committed. Nothing was pushed.

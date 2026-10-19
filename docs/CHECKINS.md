@@ -137,3 +137,5 @@
 - 2026-10-19T18:12:36+02:00 | SPDX-SCAN PASS: ten Rust files still lack an SPDX line. They were not edited.
 
 - 2026-10-19T18:12:36+02:00 | DISC-2 PASS: discovery already sends no packets. No code change.
+
+- 2026-10-19T18:12:41+02:00 | ZAGREB-2 PASS: Zagreb stamps already reject Z. Sample was 2026-10-19T18:12:16+02:00.

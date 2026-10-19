@@ -177,3 +177,5 @@
 - 2026-10-19T18:25:07+02:00 | PROV-2 PASS: listing providers does not approve a pending row and does not dial.
 
 - 2026-10-19T18:25:22+02:00 | ORIGIN-2 PASS: the redirect builder returns a 302 and does not listen.
+
+- 2026-10-19T18:25:51+02:00 | ONE-2 PASS: a missing config already keeps today bind and mouth. Live One was not touched.

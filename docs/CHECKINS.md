@@ -123,3 +123,5 @@
 - 2026-10-19T18:10:26+02:00 | WAVE cap: sixteen agents started. Four more wait for a free slot.
 
 - 2026-10-19T18:11:06+02:00 | LOCK-NOTE PASS: Cargo.lock stays uncommitted. Ticket copies under /tmp are not the lock of record.
+
+- 2026-10-19T18:11:26+02:00 | HEALTH-SNAP PASS: One and the memory gateway answered. Console /health is 404. Nothing was restarted.

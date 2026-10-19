@@ -224,3 +224,5 @@
 - 2026-10-19T18:50:34+02:00 | SPDX-2 PASS: nine files are listed. None were edited.
 
 - 2026-10-19T18:50:55+02:00 | DESK-3 PASS: desk health JSON stays local. The live binary was not replaced.
+
+- 2026-10-19T18:51:12+02:00 | DISC-3 PASS: a requested scan still sends no packets.

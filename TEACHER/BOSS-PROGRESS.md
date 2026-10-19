@@ -181,3 +181,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:16:12+02:00 | FALL-2 | grok-build | PASS 9/10 | crates/openmind-fallback | remote skipped when CPU exists; pending never selected
 
 - 2026-10-19T18:16:18+02:00 | HADES-3 | grok-build | PASS 9/10 | crates/hades-journal | in-memory decision JSON; kill and rotate refused; no disk write in the library
+
+- 2026-10-19T18:19:21+02:00 | TULU-2 | grok-build | PASS 8/10 | docs/tulu-gap.md | ALREADY; fixture parse stays off GPU, socket, and process

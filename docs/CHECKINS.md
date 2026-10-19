@@ -185,3 +185,5 @@
 - 2026-10-19T18:26:50+02:00 | ROUTE-2 PASS: route never returns a pending seed or a remote row, and it does not dial.
 
 - 2026-10-19T18:27:05+02:00 | DESKH-2 PASS: desk JSON stays compact and local. The live binary was not replaced.
+
+- 2026-10-19T18:30:03+02:00 | RELAY-2 PASS: a missing config stays quiet. It does not dial and it does not print a secret.

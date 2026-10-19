@@ -34,6 +34,7 @@
 mod jsonout;
 
 use jsonout::{json_str, to_json_compat};
+use link_watch::{watch_decision, WatchFacts};
 use openmind_config::ConfigError;
 use serde_json::{Map, Value};
 use std::io::{Read, Write};
@@ -414,7 +415,7 @@ fn main() {
 
     let mut france_state = Value::String(UNCONFIGURED.to_string());
     let mut france_at = 0.0_f64;
-    let mut previous: Option<(bool, String, bool, bool, String)> = None;
+    let mut previous: Option<link_watch::WatchSignature> = None;
     let mut events = load_events(&log);
 
     loop {
@@ -445,48 +446,25 @@ fn main() {
             }
         }
         let now_secs = unix_now();
-        let stamp = utc_stamp_clock(now_secs);
-        let card_name = match card.get("name") {
-            Some(v) => json_str(v),
-            None => String::new(),
+        let facts = WatchFacts {
+            at: utc_stamp_full(now_secs),
+            at_local: zagreb_time::now_rfc3339(),
+            stamp: utc_stamp_clock(now_secs),
+            laptop_port: ok,
+            model,
+            model_ms: ms,
+            hermes: hermes_ok,
+            hermes_ms,
+            france: france_state.clone(),
+            laptop: card,
         };
-        let france_sig = france_state.as_bool().unwrap_or(false);
-        let signature = (ok, model.clone(), hermes_ok, france_sig, card_name);
-        if Some(&signature) != previous.as_ref() {
-            if previous.is_some() {
-                let bit = if ok { "up" } else { "down" };
-                let model_display = if model.is_empty() {
-                    "none".to_string()
-                } else {
-                    model.clone()
-                };
-                let hermes_word = if hermes_ok { "up" } else { "down" };
-                events.push(Value::String(format!(
-                    "{stamp}  laptop {bit}  model {model_display}  hermes {hermes_word}"
-                )));
-                let len = events.len();
-                if len > 12 {
-                    events.drain(0..len - 12);
-                }
-                write_json(&log, &Value::Array(events.clone()));
-            }
-            previous = Some(signature);
+        let decision = watch_decision(&facts, previous.as_ref(), &events);
+        if decision.events_changed {
+            write_json(&log, &Value::Array(decision.events.clone()));
         }
-        let mut row = Map::new();
-        row.insert("at".to_string(), Value::String(utc_stamp_full(now_secs)));
-        row.insert(
-            "at_local".to_string(),
-            Value::String(zagreb_time::now_rfc3339()),
-        );
-        row.insert("laptop_port".to_string(), Value::Bool(ok));
-        row.insert("model".to_string(), Value::String(model));
-        row.insert("model_ms".to_string(), Value::Number(ms.into()));
-        row.insert("hermes".to_string(), Value::Bool(hermes_ok));
-        row.insert("hermes_ms".to_string(), Value::Number(hermes_ms.into()));
-        row.insert("france".to_string(), france_state.clone());
-        row.insert("laptop".to_string(), card);
-        row.insert("events".to_string(), Value::Array(events.clone()));
-        write_json(&out, &Value::Object(row));
+        events = decision.events;
+        previous = Some(decision.signature);
+        write_json(&out, &decision.report);
 
         if once {
             break;

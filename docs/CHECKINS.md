@@ -131,3 +131,5 @@
 - 2026-10-19T18:12:10+02:00 | CRATE-INDEX PASS: every crate has a one-line description in the index.
 
 - 2026-10-19T18:12:18+02:00 | SHADOW-2 PASS: the five new memory routes are fixture-only. The shadow was not run.
+
+- 2026-10-19T18:12:25+02:00 | PY-SCAN PASS: the scan found the word python in 7 crate files. Those files were left in place.

@@ -153,3 +153,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:12:10+02:00 | CRATE-INDEX | grok-build | PASS 8/10 | docs/crate-index.md | 36 crates; descriptions copied from Cargo.toml; no crate edited
 
 - 2026-10-19T18:12:18+02:00 | SHADOW-2 | grok-build | PASS 8/10 | docs/memory-shadow.md | five fixture routes noted; shadow still not run; live gateway not called
+
+- 2026-10-19T18:12:25+02:00 | PY-SCAN | grok-build | PASS 8/10 | scripts/crate-python-scan.sh | exit 1; 7 files name python; nothing deleted

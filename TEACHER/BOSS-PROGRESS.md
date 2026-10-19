@@ -255,3 +255,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T19:53:27+02:00 | FIXTURES | grok-build | PASS 9/10 | docs/fixtures.md | 12 fixture directories, 30 regular files
 
 - 2026-10-19T19:53:46+02:00 | SPDX-DH | grok-build | PASS 9/10 | crates/desk-hermes | MIT header added to jsonout.rs and main.rs; no other line changed
+
+- 2026-10-19T19:54:00+02:00 | SPDX-ROOM | grok-build | PASS 9/10 | crates/room | MIT header added to main.rs; no other line changed

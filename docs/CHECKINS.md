@@ -230,3 +230,5 @@
 - 2026-10-19T19:53:27+02:00 | FIXTURES PASS: fixture directories were listed. No crate was edited.
 
 - 2026-10-19T19:53:46+02:00 | SPDX-DH PASS: desk-hermes gained the SPDX header. The live binary was not replaced.
+
+- 2026-10-19T19:54:00+02:00 | SPDX-ROOM PASS: room gained the SPDX header. Port 4020 was not opened.

@@ -513,6 +513,107 @@ fn library_source_has_no_socket_api() {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn register_or_list_does_not_open_a_socket_or_approve_pending() {
+    let src = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs"))
+        .unwrap();
+    for token in [
+        "std::net",
+        "TcpStream",
+        "UdpSocket",
+        "TcpListener",
+        "UnixStream",
+        "reqwest",
+        "ureq",
+        "hyper",
+    ] {
+        assert!(!src.contains(token), "{token} found in lib.rs");
+    }
+
+    let path = scratch("list-pending").join("registry.json");
+    let mut registry = Registry::load(&path).unwrap();
+    let before = socket_fds();
+
+    registry
+        .register(&lan("pending-box", "http://192.0.2.10:9/v1"))
+        .unwrap();
+    assert_eq!(
+        registry.get("pending-box").unwrap().approval(),
+        Approval::Pending
+    );
+    assert_eq!(
+        socket_fds(),
+        before,
+        "registering a provider opened a socket"
+    );
+
+    let listed: Vec<String> = registry
+        .providers()
+        .iter()
+        .map(|row| row.id().to_string())
+        .collect();
+    assert_eq!(listed, ["pending-box"]);
+    assert!(registry.with_approval(Approval::Approved).next().is_none());
+    assert_eq!(
+        registry.get("pending-box").unwrap().approval(),
+        Approval::Pending
+    );
+    assert_eq!(socket_fds(), before, "listing providers opened a socket");
+
+    registry
+        .register(
+            &StaticProvider::try_new(
+                "up-box",
+                ProviderKind::Remote,
+                "http://192.0.2.20:9/v1",
+                vec![Capability::Llm],
+            )
+            .unwrap()
+            .with_health(Health::Up),
+        )
+        .unwrap();
+    assert_eq!(registry.get("up-box").unwrap().health(), Health::Up);
+    assert_eq!(
+        registry.get("up-box").unwrap().approval(),
+        Approval::Pending
+    );
+    assert_eq!(
+        registry.get("pending-box").unwrap().approval(),
+        Approval::Pending
+    );
+    assert!(registry.with_approval(Approval::Approved).next().is_none());
+
+    let loaded = Registry::load(&path).unwrap();
+    let pending: Vec<String> = loaded
+        .with_approval(Approval::Pending)
+        .map(|row| row.id().to_string())
+        .collect();
+    assert_eq!(pending, ["pending-box", "up-box"]);
+    assert_eq!(loaded.with_approval(Approval::Approved).count(), 0);
+    assert_eq!(
+        socket_fds(),
+        before,
+        "registering providers opened a socket"
+    );
+}
+
+#[cfg(target_os = "linux")]
+fn socket_fds() -> Vec<String> {
+    let mut names = Vec::new();
+    let dir = std::fs::read_dir("/proc/self/fd").unwrap();
+    for entry in dir.flatten() {
+        if let Ok(target) = std::fs::read_link(entry.path()) {
+            let text = target.to_string_lossy().into_owned();
+            if text.starts_with("socket:") {
+                names.push(text);
+            }
+        }
+    }
+    names.sort();
+    names
+}
+
 fn cpu(id: &str, endpoint: &str) -> StaticProvider {
     StaticProvider::try_new(id, ProviderKind::CpuLocal, endpoint, vec![Capability::Llm]).unwrap()
 }

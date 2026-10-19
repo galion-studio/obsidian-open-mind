@@ -173,3 +173,5 @@
 - 2026-10-19T18:23:09+02:00 | SPEECH-2 PASS: whisper and piper fixtures do not spawn or dial. GPU stays false.
 
 - 2026-10-19T18:23:39+02:00 | CGROUP-2 PASS: a fixture cgroup is read only. The live cgroup tree was not written.
+
+- 2026-10-19T18:25:07+02:00 | PROV-2 PASS: listing providers does not approve a pending row and does not dial.

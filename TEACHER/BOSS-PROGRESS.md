@@ -219,3 +219,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:40:21+02:00 | SAND-2 | grok-build | PASS 9/10 | crates/openmind-sandbox | preset builds a policy only; no spawn, unshare, or write outside temp
 
 - 2026-10-19T18:40:51+02:00 | SAND-2 | grok-build | note | bak files removed from the tree; they were old copies, not the preset
+
+- 2026-10-19T18:41:09+02:00 | VOICE-2 | grok-build | PASS 9/10 | crates/galleon-voice | persona parses, max 2 sentences, no voice file and no audio device

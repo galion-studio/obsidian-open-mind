@@ -195,3 +195,5 @@
 - 2026-10-19T18:37:42+02:00 | DEF-2 PASS: a defence decision stays a report. The live firewall was not changed.
 
 - 2026-10-19T18:40:21+02:00 | SAND-2 PASS: a sandbox preset stays data. It was not applied to a live service.
+
+- 2026-10-19T18:41:09+02:00 | VOICE-2 PASS: the persona loads as text. It does not open the voice file or an audio device.

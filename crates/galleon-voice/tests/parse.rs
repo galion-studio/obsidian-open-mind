@@ -140,3 +140,113 @@ fn path_and_str_agree() {
     let from_str = load_str(&text, &path).unwrap();
     assert_eq!(from_path, from_str);
 }
+
+#[test]
+fn parsed_persona_keeps_two_sentences_and_does_not_open_voice_or_audio() {
+    // The persona names a wav that is present on disk. A successful parse is
+    // not proof that path stayed closed, so the load is traced. Capture and
+    // playback devices stay out of that trace, and out of this crate.
+    const CHILD: &str = "GALLEON_VOICE_IO_CHILD";
+    let toml_path = repo_file("personas/persona-plex-v1.toml");
+
+    if std::env::var_os(CHILD).is_some() {
+        let doc = load_path(&toml_path).expect("parse persona toml");
+        assert_eq!(doc.reply.max_sentences, 2);
+        assert_eq!(Persona::reply_length(&doc).max_sentences, 2);
+        assert!(!VoiceIdentity::reference_path(&doc).is_empty());
+        return;
+    }
+
+    let doc = load_path(&toml_path).expect("parse persona toml");
+    assert_eq!(doc.reply.max_sentences, 2);
+    assert_eq!(Persona::reply_length(&doc).max_sentences, 2);
+    let reference = VoiceIdentity::reference_path(&doc);
+    assert!(!reference.is_empty());
+    assert!(Path::new(reference).is_absolute());
+
+    let src = include_str!("../src/lib.rs");
+    let manifest = include_str!("../Cargo.toml");
+    assert_eq!(
+        src.matches("fs::").count(),
+        1,
+        "persona load is the only filesystem call"
+    );
+    assert!(src.contains("fs::read_to_string(path)"));
+    for banned in [
+        "File::open",
+        "OpenOptions",
+        "std::process",
+        "std::net::",
+        "TcpStream",
+        "UdpSocket",
+        "Command::",
+        "cpal",
+        "rodio",
+        "alsa",
+        "libpulse",
+        "portaudio",
+        "miniaudio",
+        "snd_pcm",
+        "/dev/snd",
+        "libasound",
+        "coreaudio",
+        "wasapi",
+        "cubeb",
+    ] {
+        assert!(!src.contains(banned), "{banned} in library source");
+        assert!(!manifest.contains(banned), "{banned} in library manifest");
+    }
+
+    let log = std::env::temp_dir().join(format!("galleon-voice-open-{}.log", std::process::id()));
+    let exe = std::env::current_exe().expect("test executable");
+    let output = std::process::Command::new("strace")
+        .args(["-f", "-s", "512", "-e", "trace=open,openat,openat2", "-o"])
+        .arg(&log)
+        .arg("--")
+        .arg(&exe)
+        .args([
+            "--exact",
+            "parsed_persona_keeps_two_sentences_and_does_not_open_voice_or_audio",
+            "--test-threads=1",
+        ])
+        .env(CHILD, "1")
+        .output()
+        .expect("run strace");
+    let trace = std::fs::read_to_string(&log).unwrap_or_default();
+    let _ = std::fs::remove_file(&log);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "traced persona parse failed: {}\n{stdout}\n{stderr}\n{trace}",
+        output.status
+    );
+    assert!(
+        trace.contains("persona-plex-v1.toml"),
+        "traced run did not read the persona document\n{trace}"
+    );
+    assert!(
+        !trace.contains(reference),
+        "library opened the voice reference {reference}\n{trace}"
+    );
+    for device in [
+        "/dev/snd",
+        "/dev/dsp",
+        "/dev/audio",
+        "/dev/mixer",
+        "pulse/native",
+    ] {
+        assert!(!trace.contains(device), "library opened {device}\n{trace}");
+    }
+
+    let maps = std::fs::read_to_string("/proc/self/maps").unwrap_or_default();
+    for lib in [
+        "libasound",
+        "libpulse",
+        "libjack",
+        "libsndfile",
+        "libportaudio",
+    ] {
+        assert!(!maps.contains(lib), "{lib} is loaded");
+    }
+}

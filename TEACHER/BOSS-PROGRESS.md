@@ -229,3 +229,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:43:59+02:00 | SCHEMA-3 | grok-build | ALREADY | crates/openmind-schema | a Z timestamp is already rejected
 
 - 2026-10-19T18:44:31+02:00 | SIZE-2 | grok-build | PASS 9/10 | docs/binary-sizes.md | live binaries are not the dist/bin copies; tuner dist file is absent
+
+- 2026-10-19T18:44:40+02:00 | PORT-NOW | grok-build | PASS 9/10 | docs/listen-now.md | 8091 8002 8080 8420 8646 8650 are listening on loopback

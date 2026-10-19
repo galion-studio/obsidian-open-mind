@@ -204,3 +204,5 @@
 - 2026-10-19T18:43:59+02:00 | SCHEMA-3 ALREADY: nerve events already reject a Z timestamp. The crate was not edited.
 
 - 2026-10-19T18:44:31+02:00 | SIZE-2 PASS: sizes recorded. Nothing was copied or restarted.
+
+- 2026-10-19T18:44:40+02:00 | PORT-NOW PASS: loopback listeners recorded. Nothing was restarted.

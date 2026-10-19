@@ -217,3 +217,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:37:42+02:00 | DEF-2 | grok-build | PASS 9/10 | crates/one-defence | decide does not apply a firewall change, spawn iptables or nft, or open a socket
 
 - 2026-10-19T18:40:21+02:00 | SAND-2 | grok-build | PASS 9/10 | crates/openmind-sandbox | preset builds a policy only; no spawn, unshare, or write outside temp
+
+- 2026-10-19T18:40:51+02:00 | SAND-2 | grok-build | note | bak files removed from the tree; they were old copies, not the preset

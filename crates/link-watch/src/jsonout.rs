@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
 //! JSON writer that reproduces CPython `json.dumps` byte-for-byte.
 //!
 //! link-watch uses the CPython default separators `(", ", ": ")` (it calls

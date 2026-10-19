@@ -242,3 +242,5 @@
 - 2026-10-19T19:56:11+02:00 | INDEX-2 PASS: the crate index matches the directories. No Cargo.toml was edited.
 
 - 2026-10-19T19:56:37+02:00 | HADES-WIRE PASS: nothing Hades is wired to a live service. No process was started.
+
+- 2026-10-19T19:56:55+02:00 | SPDX-LW PASS: link-watch gained the SPDX header. The live binary was not replaced.

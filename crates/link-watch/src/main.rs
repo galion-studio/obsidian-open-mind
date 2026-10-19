@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
 //! Rust port of `/opt/galion/galion-light/scripts/link-watch.py`.
 //!
 //! Same probes, same JSON keys, same CPython `json.dumps` byte layout. One new

@@ -18,3 +18,7 @@
 - 2026-10-19T15:30:58+02:00 | B03 PASS: link-watch reads openmind-config, LINK_WATCH_* still wins, missing file keeps today's defaults. Live unit not switched.
 - 2026-10-19T15:30:58+02:00 | B12 PASS: one-defence read-only port of defence.py, fixture only, live guardian.db not opened.
 - 2026-10-19T15:30:58+02:00 | B20 PASS: deploy/survival/probes.toml parsed by guardian-tick. Read-only probes only.
+
+- 2026-10-19T15:47:58+02:00 | B04 PASS: portability inventory, 103 hard-coded hits classified.
+- 2026-10-19T15:47:58+02:00 | B13 PASS: one-talk hear/reply shapes against a spare port. Pairing not ported. Warm loop unchanged.
+- 2026-10-19T15:47:58+02:00 | B21 PASS: survival units staged, not enabled.

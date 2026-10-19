@@ -23,3 +23,10 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T15:30:58+02:00 | B12 | grok-build | PASS 8/10 | crates/one-defence | pending
 - 2026-10-19T15:30:58+02:00 | B20 | grok-build | PASS 8/10 | deploy/survival/probes.toml | pending
 - 2026-10-19T15:30:58+02:00 | WAVE 4 | lead retest fmt+test+clippy of the three packages, exit 0; C9 hermes-rs galion-desk link-watch-rs console active, one health 200 | - | -
+
+- 2026-10-19T15:46:24+02:00 | B13 | grok-build | PASS | crates/one-talk Cargo.lock | pending | fmt/clippy/test exit 0; release 324256 B stripped; RSS 1664 kB; warm loop untouched; no pairing, no secret files, no live ports
+
+- 2026-10-19T15:47:58+02:00 | B04 | grok-build | PASS 8/10 | docs/portability-inventory.md | 103 rg hits inventoried before one-talk landed
+- 2026-10-19T15:47:58+02:00 | B13 | grok-build | PASS 8/10 | crates/one-talk | pairing and secret store not ported; warm loop left as-is; lead retest 10 tests fmt clippy 0
+- 2026-10-19T15:47:58+02:00 | B21 | grok-build | PASS 8/10 | deploy/survival units | not installed; is-enabled not-found; verify fails only because dist binary is absent
+- 2026-10-19T15:47:58+02:00 | WAVE 5 | C9 active, one health 200 | - | -

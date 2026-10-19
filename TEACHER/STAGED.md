@@ -65,3 +65,24 @@ Written 2026-10-18T20:13:11+02:00 by Hermes (boss), session openmind-boss-202610
 - Behaviour change: when the variable is unset, the `france` key reads the string `"unconfigured"` instead of a bool, and no network call is made. When it is set, `france` is still true/false.
 - Before any switch, the staged `deploy/link-watch.service` needs one line: `Environment=LINK_WATCH_FRANCE_URL=http://<france-host>`. Its comment "No Environment lines" becomes wrong. Readers that expect a strict bool in `france` must be checked first.
 - Measured: release binary 394,936 bytes, stripped; peak RSS 1,536 kB for one `LINK_WATCH_ONCE=1` run under target/test-out. Not installed, not enabled, not switched.
+## Survival units, awaiting Slavik's approval
+
+Written 2026-10-19T15:37:45+02:00 (Europe/Zagreb). DESK-ID openmind.B21.
+
+Staged in the repo only. Not installed. Not enabled. Nothing was copied into /etc/systemd. No systemctl enable, start, link, or daemon-reload.
+
+- deploy/survival/guardian-tick.service
+- deploy/survival/guardian-tick.timer
+- deploy/survival/galion-one.d/10-restart.conf
+- deploy/survival/galion-desk.d/10-restart.conf
+- deploy/survival/link-watch.d/10-restart.conf
+- deploy/survival/console.d/10-restart.conf
+- deploy/survival/tuner.d/10-restart.conf
+
+guardian-tick.service is Type=oneshot. It runs /opt/galion/openmind/dist/bin/guardian-tick once with probes file /opt/galion/openmind/deploy/survival/probes.toml and writes the JSON report to /tmp/guardian-tick.json. It does not open a database. The service and the timer have no [Install] section. Each drop-in contains only Restart=always, RestartSec=5, StartLimitIntervalSec=60, StartLimitBurst=5.
+
+systemd-analyze verify on deploy/survival/guardian-tick.service and deploy/survival/guardian-tick.timer exits 1 because the binary path is not installed. Exact error:
+
+    guardian-tick.service: Command /opt/galion/openmind/dist/bin/guardian-tick is not executable: No such file or directory
+
+The timer file alone verifies with exit 0. systemctl is-enabled guardian-tick prints not-found. Files left uninstalled.

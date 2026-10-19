@@ -147,3 +147,5 @@
 - 2026-10-19T18:13:41+02:00 | STAGED-NOW PASS: rendered units are still staged. One, desk, link-watch, and tuner were not switched.
 
 - 2026-10-19T18:14:01+02:00 | SCHEMA-2 PASS: a boot hardware event parses as the existing nerve type. The parser was not changed.
+
+- 2026-10-19T18:14:18+02:00 | PROV-MAP-2 PASS: the provider map now includes openmind-route. It does not dial.

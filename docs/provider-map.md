@@ -3,8 +3,9 @@
 
 # Provider map
 
-- DESK-ID: openmind.PROV-MAP
+- DESK-ID: openmind.PROV-MAP-2
 - Written: 2026-10-19T17:42:19+02:00 (Europe/Zagreb, `TZ=Europe/Zagreb date -Iseconds`)
+- Stamped: 2026-10-19T18:13:40+02:00 (Europe/Zagreb, `TZ=Europe/Zagreb date -Iseconds`)
 - Repo: /opt/galion/openmind
 - Scope: one row per named crate. Sources under `crates/` were read. No crate file was edited.
 
@@ -21,9 +22,9 @@ Network is no for every crate that is in the tree: an endpoint or a port may be 
 | openmind-fallback | Does not parse a body. `select_provider` picks one already-built `ProviderRow` for a need (`Llm`, `Stt`, `Tts`, or `Vision`). A row is usable only when approval is Approved, health is not Down, the endpoint is non-empty, and capabilities contain the need. Order among usable rows: first `Kind::Gpu`, else first `Kind::Lan`, else first `Kind::CpuLocal`. `Kind::Remote` is never chosen. Pending and Rejected are skipped. Input order inside a tier is kept. The slice is not reordered. Returns none when no tier has a usable row. Does not open a socket, read a registry file, or change approval. `Kind::Gpu` is a preference label, not a device this crate uses. | no | no |
 | openmind-discovery | Decides a candidate report. Default path is `static_seeds` only: four loopback rows (ports 7787 openmind, 11434 ollama, 50052 llama.cpp rpc-server, 52415 exo), origin Seed, txt `caps=cpu`, approval always `pending`. Optional fixture text is parsed by `parse_mdns_sd` (zone-file subset: owner, optional TTL, optional class `IN`, then `PTR`, `SRV`, `TXT`, `A`, or `AAAA`; comments at an unquoted `;`) and folded by `fold_records` after the seeds. `A` / `AAAA` values are parsed as addresses and not dialed. `Scan::Off` does not call a scanner. `Scan::Requested` calls `active_scan`, which sets `packets_sent` to 0 and sends no packets. No candidate is approved. CLI default opens no socket; `--fixture` reads a local file (regular file, at most 64 KiB); `--scan` only reaches the stub. | no | no |
 | openmind-provider | Parses and writes a version-1 JSON registry at a caller path (`Registry::load` / `save`). Document fields: `version` must be 1; each provider has `id`, `kind` (`cpu_local`, `lan`, `gpu`, `remote`), `endpoint`, `capabilities` (`llm`, `stt`, `tts`, `vision`, no duplicates), `approval` (`pending`, `approved`, `rejected`), `health` (`unknown`, `up`, `down`). Unknown fields are rejected. A missing file is an empty registry and is not created. `register` copies id, kind, endpoint, capabilities, and `health()` and always stores `Approval::Pending`. `set_approval` allows any transition. `set_health` records a caller snapshot and does not contact the endpoint. `ComputeProvider::health` must not open a socket. Writes are local and atomic (temp file, then rename). `ProviderKind::Gpu` means an external GPU host that this box only relays. Endpoints are stored, not dialed. No key material is stored. | no | no |
-| openmind-route | not in tree yet | not in tree yet | not in tree yet |
+| openmind-route | Does not parse a body. `route` places four pending LAN seed rows in front of the caller slice and calls `openmind_fallback::select_provider`. The seeds copy discovery ids and endpoints (`seed-openmind` at 127.0.0.1:7787, `seed-ollama` at 127.0.0.1:11434, `seed-llama-rpc` at 127.0.0.1:50052, `seed-exo` at 127.0.0.1:52415) with approval Pending, health Unknown, and capability Llm. They are never returned. The chosen row is kept only when approval is Approved. A fixture is usable only when the endpoint is non-empty, health is not Down, and capabilities contain the need (`Llm`, `Stt`, `Tts`, or `Vision`). Order among usable rows: first `Kind::Gpu`, else first `Kind::Lan`, else first `Kind::CpuLocal`. `Kind::Remote` is never chosen. Pending and Rejected are skipped. Input order inside a tier is kept. The caller slice is not reordered. Returns none when no tier has a usable approved row. Endpoints are stored and not dialed. No socket is opened and no process is spawned. | no | fallback label, not a device |
 
-`openmind-route` was not in the tree when this file was written. There is no `crates/openmind-route` directory. Workspace members are `crates/*`, so the crate is not a member until that directory exists. The other seven rows were read from each crate's `src` and `Cargo.toml`. Those crates were not edited.
+`openmind-route` is in the tree at `crates/openmind-route` and is a workspace member because members are `crates/*`. `route` calls `select_provider`. Network is no. `Kind::Gpu` is the fallback label, not a device this process uses. The row was read from `src/lib.rs`, `tests/route.rs`, and `Cargo.toml`. That crate was not edited. The other seven rows were left as written.
 
 GPU functions that force false:
 
@@ -31,3 +32,5 @@ GPU functions that force false:
 - `ExoProvider::uses_linux_gpu` returns false. `LINUX_GPU_USED` is false. `ExoProvider::requires_gpu` is also false (`id.is_empty()`, which `new` rejects). Exo GPU on Linux is not used here.
 - `TuluProvider::uses_gpu` returns `USES_GPU` (false) even when the fixture sets `gpu = true`. `gpu_flag` only records the key.
 - `SpeechProvider::uses_gpu` returns `USES_GPU` (false) for `Engine::WhisperCpp` and `Engine::Piper`.
+
+`openmind-route` has no function that reads a GPU. `Kind::Gpu` is only the first fallback label inside `select_provider`.

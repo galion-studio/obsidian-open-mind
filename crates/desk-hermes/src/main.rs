@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
 //! Rust port of `/opt/galion/bin/desk-hermes.py`.
 //!
 //! Same stdout as the Python original: one compact JSON object

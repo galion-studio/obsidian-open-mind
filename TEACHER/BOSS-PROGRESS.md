@@ -253,3 +253,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:51:12+02:00 | DISC-3 | grok-build | PASS 9/10 | crates/openmind-discovery | scan path reports packets_sent 0 and opens no socket
 
 - 2026-10-19T19:53:27+02:00 | FIXTURES | grok-build | PASS 9/10 | docs/fixtures.md | 12 fixture directories, 30 regular files
+
+- 2026-10-19T19:53:46+02:00 | SPDX-DH | grok-build | PASS 9/10 | crates/desk-hermes | MIT header added to jsonout.rs and main.rs; no other line changed

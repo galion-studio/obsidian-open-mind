@@ -218,3 +218,5 @@
 - 2026-10-19T18:48:43+02:00 | TIME-3 PASS: a Zulu timestamp is rejected. The clock stays on a Zagreb offset.
 
 - 2026-10-19T18:50:06+02:00 | JOURNAL-2 PASS: a journal record writes nothing. Kill and rotate stay refused.
+
+- 2026-10-19T18:50:18+02:00 | GAIA-4 PASS: the ownership table now includes hades-journal. Nine functions, no tenth.

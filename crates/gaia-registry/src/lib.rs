@@ -137,6 +137,10 @@ pub const TABLE: &[Owner] = &[
         function: Function::Hades,
     },
     Owner {
+        crate_name: "hades-journal",
+        function: Function::Hades,
+    },
+    Owner {
         crate_name: "link-watch",
         function: Function::Apollo,
     },
@@ -301,6 +305,7 @@ mod tests {
     #[test]
     fn suggested_map_holds() {
         assert_eq!(owner("hades-gate"), Some(Function::Hades));
+        assert_eq!(owner("hades-journal"), Some(Function::Hades));
         assert_eq!(owner("tuner"), Some(Function::Hephaestus));
         assert_eq!(owner("openmind-boot"), Some(Function::Demeter));
         assert_eq!(owner("openmind-units"), Some(Function::Demeter));
@@ -326,7 +331,7 @@ mod tests {
             assert_eq!(owner(row.crate_name), Some(row.function));
             assert!(Function::ALL.contains(&row.function));
         }
-        assert_eq!(TABLE.len(), 36);
+        assert_eq!(TABLE.len(), 37);
     }
 
     #[test]

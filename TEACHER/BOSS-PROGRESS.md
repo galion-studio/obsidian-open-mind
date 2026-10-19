@@ -287,3 +287,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T22:29:38+02:00 | AUDIT-APPROVAL | grok-build | NO | docs/cutover-approval.md | no live replacement is approved
 
 - 2026-10-19T22:29:38+02:00 | REAL-CONSOLE | grok-build | PASS 8/10 | docs/reallife-console.md | 8080/health is 404 from vite; production console was not switched
+
+- 2026-10-19T22:29:58+02:00 | AUDIT-UNITS | grok-build | PASS 9/10 | docs/cutover-units.md | four rendered units are not installed; live exes unchanged

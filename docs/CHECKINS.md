@@ -260,3 +260,5 @@
 
 - 2026-10-19T22:29:38+02:00 | AUDIT-APPROVAL: no live cutover is approved.
 - 2026-10-19T22:29:38+02:00 | REAL-CONSOLE: 8080/health is 404. Vite was left running.
+
+- 2026-10-19T22:29:58+02:00 | AUDIT-UNITS: rendered units are not the installed ones. Live pids were left running.

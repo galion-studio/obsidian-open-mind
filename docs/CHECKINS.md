@@ -65,3 +65,5 @@
 - 2026-10-19T17:08:32+02:00 | B50 PASS: 
 
 - 2026-10-19T17:08:32+02:00 | B54 PASS: hardware probe reads fixtures. It does not write a live hardware.json.
+
+- 2026-10-19T17:08:32+02:00 | B57 PASS: MCP stub answers on stdin. It does not open a port.

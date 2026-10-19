@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
+[package]
+name = "openmind-mcp-stack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Read-only stdio MCP stub. initialize and tools/list for stack_status. Fixture JSON only. No sockets."
+
+[[bin]]
+name = "openmind-mcp-stack"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }

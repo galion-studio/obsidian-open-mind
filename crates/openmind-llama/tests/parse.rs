@@ -28,6 +28,7 @@ fn provider_row_does_not_dial_or_need_a_gpu() {
     assert!(!llama.is_rpc_device());
     assert!(!llama.dials_network());
     assert!(!llama.requires_gpu());
+    assert!(!llama.spawns_process());
     assert_eq!(LLAMA_SERVER_PORT, 8080);
 
     let rpc = row(ServerKind::RpcServer);
@@ -36,7 +37,27 @@ fn provider_row_does_not_dial_or_need_a_gpu() {
     assert!(!rpc.speaks_openai());
     assert!(!rpc.dials_network());
     assert!(!rpc.requires_gpu());
+    assert!(!rpc.spawns_process());
     assert_eq!(RPC_SERVER_PORT, 50052);
+}
+
+#[test]
+fn gpu_requirement_is_false_and_no_process_is_spawned() {
+    let src = include_str!("../src/lib.rs");
+    for banned in ["std::process", "Command::new", "process::Command"] {
+        assert!(!src.contains(banned), "{banned}");
+    }
+    for kind in [ServerKind::LlamaServer, ServerKind::RpcServer] {
+        let provider = row(kind);
+        assert!(!provider.requires_gpu());
+        assert!(!provider.spawns_process());
+        let health = provider.parse_health(r#"{"status":"ok"}"#).unwrap();
+        assert!(health.is_ready());
+        let models = provider
+            .parse_models(r#"{"object":"list","data":[]}"#)
+            .unwrap();
+        assert!(models.data.is_empty());
+    }
 }
 
 #[test]

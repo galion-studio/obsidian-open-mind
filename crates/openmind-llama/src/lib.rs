@@ -112,6 +112,13 @@ impl LlamaCppProvider {
         }
     }
 
+    /// Always false. This crate does not start `llama-server` or `rpc-server`.
+    pub fn spawns_process(&self) -> bool {
+        match self.kind {
+            ServerKind::LlamaServer | ServerKind::RpcServer => false,
+        }
+    }
+
     /// Parse a `/health` or `/v1/health` body.
     ///
     /// # Errors
@@ -132,6 +139,8 @@ impl LlamaCppProvider {
     /// let health = row.parse_health(r#"{"status":"ok"}"#).unwrap();
     /// assert!(health.is_ready());
     /// assert!(!row.dials_network());
+    /// assert!(!row.requires_gpu());
+    /// assert!(!row.spawns_process());
     /// ```
     pub fn parse_health(&self, body: &str) -> Result<Health, FixtureError> {
         let _ = self.kind;

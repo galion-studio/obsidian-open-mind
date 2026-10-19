@@ -1,0 +1,8 @@
+{
+  "status": "unavailable",
+  "error": {
+    "code": 503,
+    "message": "cluster has no ready instance",
+    "type": "server_error"
+  }
+}

@@ -87,3 +87,5 @@
 - 2026-10-19T17:13:23+02:00 | B66 PASS: legacy host table says retire and staged. DNS was not changed.
 
 - 2026-10-19T17:13:43+02:00 | HADES-1 PASS: approval gate stays dry-run. kill and rotate are refused. Nothing was executed.
+
+- 2026-10-19T17:14:03+02:00 | B58 PASS: memory route study written. The selected provider is v1. The Rust spare server does not cover every route it calls.

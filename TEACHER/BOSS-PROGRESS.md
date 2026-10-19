@@ -161,3 +161,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:12:36+02:00 | DISC-2 | grok-build | PASS 8/10 | docs/discovery-gap.md | ALREADY; packets_sent is 0; seeds stay pending
 
 - 2026-10-19T18:12:41+02:00 | ZAGREB-2 | grok-build | PASS 8/10 | docs/zagreb-gap.md | ALREADY; stamp offset +02:00; crate not edited
+
+- 2026-10-19T18:12:46+02:00 | NERVE-ALIGN | grok-build | PASS 8/10 | docs/nerve-align.md | boot JSON and schema event are not wired; nested gpu fields are gaps

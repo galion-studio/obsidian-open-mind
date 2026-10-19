@@ -139,3 +139,5 @@
 - 2026-10-19T18:12:36+02:00 | DISC-2 PASS: discovery already sends no packets. No code change.
 
 - 2026-10-19T18:12:41+02:00 | ZAGREB-2 PASS: Zagreb stamps already reject Z. Sample was 2026-10-19T18:12:16+02:00.
+
+- 2026-10-19T18:12:46+02:00 | NERVE-ALIGN PASS: boot nerve JSON and the schema event are separate. They were not wired.

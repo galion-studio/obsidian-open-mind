@@ -103,3 +103,5 @@
 - 2026-10-19T17:42:21+02:00 | UCPU-1 PASS: rustc knows the four target names. A cross build was not run.
 
 - 2026-10-19T17:43:11+02:00 | PROV-MAP PASS: provider map written. None of those crates dial the network.
+
+- 2026-10-19T17:43:11+02:00 | HADES-2 PASS: wiring note written. The gate is not connected.

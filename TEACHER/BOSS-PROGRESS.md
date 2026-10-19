@@ -279,3 +279,7 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T20:02:46+02:00 | CTL-HITS | grok-build | PASS 9/10 | docs/systemctl-hits.md | 30 word hits in 13 files; none is a restart
 
 - 2026-10-19T22:22:11+02:00 | SESSION | grok-build | note | docs/session-2026-10-19-agents.md docs/next.md | private record of the agent wave; nothing pushed
+
+- 2026-10-19T22:29:11+02:00 | REAL-TUNER | grok-build | ABSENT | docs/reallife-tuner.md | dist/bin/tuner is not on disk; live tuner was not touched
+
+- 2026-10-19T22:29:11+02:00 | REAL-MEM | grok-build | PASS 8/10 | docs/reallife-memory.md | 8420/health is 200 JSON; the crate was not switched in

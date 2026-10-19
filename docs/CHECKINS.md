@@ -254,3 +254,6 @@
 - 2026-10-19T20:02:46+02:00 | CTL-HITS PASS: the word systemctl was listed. No unit was restarted.
 
 - 2026-10-19T22:22:11+02:00 | SESSION NOTE: the library wave is recorded. Live processes were not replaced. The repo stays private.
+
+- 2026-10-19T22:29:11+02:00 | REAL-TUNER ABSENT: no dist tuner binary. Live tuner left running.
+- 2026-10-19T22:29:11+02:00 | REAL-MEM: one health read on 8420. Not a replacement.

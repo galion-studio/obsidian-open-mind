@@ -3,10 +3,10 @@
 
 # Crate index
 
-- DESK-ID: openmind.CRATE-INDEX
-- Written: 2026-10-19T18:11:43+02:00 (Europe/Zagreb, `TZ=Europe/Zagreb date -Iseconds`)
+- DESK-ID: openmind.INDEX-2
+- Written: 2026-10-19T19:54:48+02:00 (Europe/Zagreb, `TZ=Europe/Zagreb date -Iseconds`)
 - Repo: /opt/galion/openmind
-- One row per directory in crates/. name and description are copied from that directory Cargo.toml. A missing description is none. No Cargo.toml was edited.
+- One row per directory under crates/. name and description match that crate Cargo.toml. A missing description is none. No Cargo.toml was edited.
 
 | name | description |
 | --- | --- |
@@ -20,6 +20,7 @@
 | galleon-voice | Persona Plex v1 document loader. Traits only: text persona, voice name, session policy. No audio. |
 | guardian-tick | Report-only guardian tick: runs a TOML probe set once via openmind-survival, writes a JSON report, optionally prints suggestions. JSONL is off unless --jsonl PATH or GUARDIAN_JSONL is set. |
 | hades-gate | Pure approval gate. Dry-run by default. WouldApply is a decision only and never runs a command. kill and rotate are always refused. |
+| hades-journal | One JSON record of a hades-gate decision. Stores nothing on disk. Default is DryRun. kill and rotate are Refused. |
 | link-watch | Rust port of the laptop link watcher (was /opt/galion/galion-light/scripts/link-watch.py) |
 | one-defence | Read-only port of galion-light/one/defence.py: newest health_checks row per service. |
 | one-set-model | Validate a plan or action lane and return the modes JSON set-model.py would write. Reads a caller path. Writes nothing. |

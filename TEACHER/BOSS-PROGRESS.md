@@ -205,3 +205,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:26:22+02:00 | GUARD-2 | grok-build | PASS 9/10 | crates/guardian-tick | tick JSON is a report; no systemctl, kill, or restart
 
 - 2026-10-19T18:26:50+02:00 | ROUTE-2 | grok-build | PASS 9/10 | crates/openmind-route | pending seeds and remote rows are never returned; no socket
+
+- 2026-10-19T18:27:05+02:00 | DESKH-2 | grok-build | PASS 9/10 | crates/desk-hermes | compact JSON matches CPython separators; no python and no socket

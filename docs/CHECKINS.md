@@ -183,3 +183,5 @@
 - 2026-10-19T18:26:22+02:00 | GUARD-2 PASS: a tick writes a report and does not touch a live process.
 
 - 2026-10-19T18:26:50+02:00 | ROUTE-2 PASS: route never returns a pending seed or a remote row, and it does not dial.
+
+- 2026-10-19T18:27:05+02:00 | DESKH-2 PASS: desk JSON stays compact and local. The live binary was not replaced.

@@ -67,3 +67,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 
 - 2026-10-19T16:31:49+02:00 | B33 | grok-build | PASS 9/10 | crates/openmind-schema | NerveEvent Zagreb ts; DST 2026-10-25 covered; B07 urls kept
 - 2026-10-19T16:31:49+02:00 | B49 | grok-build | PASS 8/10 | crates/galleon-arena | paper score; homes read-only; 16 tests; no money
+
+- 2026-10-19T16:32:38+02:00 | B47 | grok-build | PASS 9/10 | personas/persona-plex-v1.toml crates/galleon-voice | traits only; reply length 1 or 2; 6 tests; lock not committed

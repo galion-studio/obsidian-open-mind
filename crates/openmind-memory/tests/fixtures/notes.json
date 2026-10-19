@@ -1,0 +1,15 @@
+[
+  {
+    "kind": "memory",
+    "content": "The desk keeps notes in Zagreb time.",
+    "mem_type": "episodic",
+    "scene": "desk",
+    "session_key": "fixture"
+  },
+  {
+    "kind": "conversation",
+    "role": "user",
+    "content": "Where is the spare memory port?",
+    "session_key": "fixture-session"
+  }
+]

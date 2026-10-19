@@ -89,3 +89,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:08:32+02:00 | B54 | grok-build | PASS 9/10 | crates/openmind-boot | fixture probe; missing GPU is absent; hardware.json only in temp
 
 - 2026-10-19T17:08:32+02:00 | B57 | grok-build | PASS 9/10 | crates/openmind-mcp-stack | stdio only; stack_status fixture; 12 tests; no TCP
+
+- 2026-10-19T17:08:32+02:00 | B59 | grok-build | PASS 8/10 | crates/openmind-memory | fixture store and search; loopback ephemeral only; live gateway not touched

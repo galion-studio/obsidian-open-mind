@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
+[package]
+name = "openmind-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Fixture-backed memory store and search for the Hermes gateway subset."
+
+[[bin]]
+name = "openmind-memory"
+path = "src/main.rs"
+
+[dependencies]
+# Same bundled feature already resolved in Cargo.lock (one-defence, desk-hermes).
+# This host has no sqlite headers, so the amalgamation is required. FTS5 is
+# compiled into that amalgamation. No new crate is fetched.
+rusqlite = { version = "0.32", default-features = false, features = ["bundled"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }

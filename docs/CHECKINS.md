@@ -125,3 +125,5 @@
 - 2026-10-19T18:11:06+02:00 | LOCK-NOTE PASS: Cargo.lock stays uncommitted. Ticket copies under /tmp are not the lock of record.
 
 - 2026-10-19T18:11:26+02:00 | HEALTH-SNAP PASS: One and the memory gateway answered. Console /health is 404. Nothing was restarted.
+
+- 2026-10-19T18:11:57+02:00 | EXO-2 PASS: exo already refuses a GPU and does not dial. No code change.

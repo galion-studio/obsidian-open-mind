@@ -147,3 +147,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:11:06+02:00 | LOCK-NOTE | grok-build | PASS 8/10 | docs/lockfile.md | lock dirty; 63 /tmp copies; not regenerated
 
 - 2026-10-19T18:11:26+02:00 | HEALTH-SNAP | grok-build | PASS 8/10 | docs/health-snap.md | 8091=200 8420=200 8080=404; nothing restarted
+
+- 2026-10-19T18:11:57+02:00 | EXO-2 | grok-build | PASS 8/10 | docs/exo-gap.md | ALREADY; uses_linux_gpu false and no socket are tested; crate not edited

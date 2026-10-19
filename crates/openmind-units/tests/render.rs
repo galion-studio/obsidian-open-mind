@@ -74,6 +74,36 @@ fn fixture_units_restart_always_zagreb_stamp_no_systemctl() {
 }
 
 #[test]
+fn rendered_unit_text_restarts_always_with_zagreb_offset_and_no_install() {
+    for stamp in [STAMP, WINTER] {
+        let units = render_fixture(fixture(), stamp).expect("render");
+        assert!(!units.is_empty());
+        for unit in &units {
+            let text = &unit.text;
+            assert!(text.contains("Restart=always"), "{}", unit.name);
+            assert!(
+                text.contains(&format!("# Rendered: {stamp} Europe/Zagreb")),
+                "{}",
+                unit.name
+            );
+            let got = stamp_of(text);
+            assert!(
+                got.ends_with("+01:00") || got.ends_with("+02:00"),
+                "{got} is not a Europe/Zagreb offset"
+            );
+            assert_eq!(got, stamp);
+            assert!(
+                !text.to_ascii_lowercase().contains("systemctl"),
+                "{}",
+                unit.name
+            );
+            assert!(!text.contains("WantedBy="), "{}", unit.name);
+            assert!(!text.contains("[Install]"), "{}", unit.name);
+        }
+    }
+}
+
+#[test]
 fn fixture_substitutes_ports_hosts_and_paths() {
     let units = render_fixture(fixture(), STAMP).expect("render");
     let one = units.iter().find(|unit| unit.name == "galion-one").unwrap();

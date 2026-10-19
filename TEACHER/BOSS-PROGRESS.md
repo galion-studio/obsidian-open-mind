@@ -189,3 +189,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:20:34+02:00 | BOOT-2 | grok-build | PASS 8/10 | docs/boot-gap.md | ALREADY; to_nerve is local JSON and writes no file
 
 - 2026-10-19T18:22:38+02:00 | SURV-2 | grok-build | PASS 9/10 | crates/openmind-survival | decide() text has no systemctl, restart, or kill; still works names hermes
+
+- 2026-10-19T18:22:54+02:00 | UNITS-2 | grok-build | PASS 9/10 | crates/openmind-units | rendered text restarts always, Zagreb stamp, no install section

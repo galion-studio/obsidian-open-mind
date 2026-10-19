@@ -161,3 +161,5 @@
 - 2026-10-19T18:16:18+02:00 | HADES-3 PASS: the journal records a gate decision and writes nothing. kill and rotate stay refused.
 
 - 2026-10-19T18:19:21+02:00 | TULU-2 PASS: tulu already refuses a GPU, a socket, and a process. No code change.
+
+- 2026-10-19T18:20:29+02:00 | MEM-3 PASS: the memory fixture routes already refuse the live gateway. No code change.

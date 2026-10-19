@@ -127,3 +127,5 @@
 - 2026-10-19T18:11:26+02:00 | HEALTH-SNAP PASS: One and the memory gateway answered. Console /health is 404. Nothing was restarted.
 
 - 2026-10-19T18:11:57+02:00 | EXO-2 PASS: exo already refuses a GPU and does not dial. No code change.
+
+- 2026-10-19T18:12:10+02:00 | CRATE-INDEX PASS: every crate has a one-line description in the index.

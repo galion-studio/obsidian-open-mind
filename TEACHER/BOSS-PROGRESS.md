@@ -235,3 +235,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:44:40+02:00 | LOCK-2 | grok-build | PASS 9/10 | docs/lockfile.md | working lock is dirty, 19970 bytes versus HEAD 18791; 80 ticket copies stay in /tmp
 
 - 2026-10-19T18:45:05+02:00 | TUNER-2 | grok-build | ALREADY | crates/tuner | default bind is already 127.0.0.1:8650 and the test does not listen
+
+- 2026-10-19T18:45:34+02:00 | PY-2 | grok-build | PASS 9/10 | docs/python-hits.md | 35 word hits in 8 files; a hit is not a running interpreter

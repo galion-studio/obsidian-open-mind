@@ -12,6 +12,13 @@ fn sample(name: &str, ok: bool, detail: &str, ts: &str) -> ProbeResult {
     }
 }
 
+fn assert_suggestion_only(text: &str) {
+    let lower = text.to_ascii_lowercase();
+    for banned in ["systemctl", "restart", "kill"] {
+        assert!(!lower.contains(banned), "{banned} in {text}");
+    }
+}
+
 #[test]
 fn decide_table() {
     // name, ok, detail, level, token, text
@@ -167,7 +174,7 @@ fn decide_table() {
             "inactive",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "demo.service not active: operator may restart demo.service; still works: none; paused: demo.service",
+            "demo.service not active: operator may bring demo.service back; still works: none; paused: demo.service",
         ),
         (
             "unit:bad name",
@@ -175,7 +182,7 @@ fn decide_table() {
             "failed",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "service not active: operator may restart service; still works: none; paused: service",
+            "service not active: operator may bring service back; still works: none; paused: service",
         ),
         (
             "unit:",
@@ -183,7 +190,7 @@ fn decide_table() {
             "inactive",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "service not active: operator may restart service; still works: none; paused: service",
+            "service not active: operator may bring service back; still works: none; paused: service",
         ),
         (
             "cloudflared",
@@ -191,7 +198,7 @@ fn decide_table() {
             "not running",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "cloudflared absent: operator may restart the tunnel; still works: none; paused: cloudflared; cpu-light fallback",
+            "cloudflared absent: operator may bring the tunnel back; still works: none; paused: cloudflared; cpu-light fallback",
         ),
         (
             "whisper",
@@ -199,7 +206,7 @@ fn decide_table() {
             "status 503",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "whisper down: operator may restart whisper; still works: none; paused: whisper; cpu-light fallback",
+            "whisper down: operator may bring whisper back; still works: none; paused: whisper; cpu-light fallback",
         ),
         (
             "console",
@@ -207,7 +214,7 @@ fn decide_table() {
             "connect: refused",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "console down: operator may restart console; still works: none; paused: console",
+            "console down: operator may bring console back; still works: none; paused: console",
         ),
         (
             "odd/name",
@@ -215,7 +222,7 @@ fn decide_table() {
             "status 0",
             Escalation::SuggestRestart,
             "suggest-restart",
-            "service down: operator may restart service; still works: none; paused: service",
+            "service down: operator may bring service back; still works: none; paused: service",
         ),
     ];
 
@@ -234,13 +241,13 @@ fn decide_table() {
         assert_eq!(g.level.as_str(), token);
         assert_eq!(g.text, text);
         assert!(!g.text.contains('/'), "{}", g.text);
-        assert!(!g.text.contains("systemctl"), "{}", g.text);
+        assert_suggestion_only(&g.text);
         let grouped = &batch[i];
         assert_eq!(grouped.name, name);
         assert_eq!(grouped.level, level);
         assert_eq!(grouped.level.as_str(), token);
         assert!(!grouped.text.contains('/'), "{}", grouped.text);
-        assert!(!grouped.text.contains("systemctl"), "{}", grouped.text);
+        assert_suggestion_only(&grouped.text);
         if level == Escalation::SuggestRestart {
             assert!(grouped.text.contains("still works:"), "{}", grouped.text);
             assert!(grouped.text.contains("paused:"), "{}", grouped.text);
@@ -273,7 +280,7 @@ fn decide_ignores_timestamp_and_keeps_order() {
     assert_eq!(got[1].name, "voice");
     assert_eq!(
         got[1].text,
-        "voice down: operator may restart voice; still works: hermes; paused: voice; cpu-light fallback"
+        "voice down: operator may bring voice back; still works: hermes; paused: voice; cpu-light fallback"
     );
     assert_eq!(got[2].level, Escalation::Warn);
     assert!(!got[2].text.contains("paused:"));
@@ -343,7 +350,7 @@ fn degrade_table() {
                 false,
                 "absent",
                 Escalation::SuggestRestart,
-                "gpu down: operator may restart gpu; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
+                "gpu down: operator may bring gpu back; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
             ),
             (
                 "hermes",
@@ -371,21 +378,21 @@ fn degrade_table() {
                 false,
                 "status 503",
                 Escalation::SuggestRestart,
-                "vision down: operator may restart vision; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
+                "vision down: operator may bring vision back; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
             ),
             (
                 "voice",
                 false,
                 "connect: refused",
                 Escalation::SuggestRestart,
-                "voice down: operator may restart voice; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
+                "voice down: operator may bring voice back; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
             ),
             (
                 "whisper",
                 false,
                 "status 503",
                 Escalation::SuggestRestart,
-                "whisper down: operator may restart whisper; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
+                "whisper down: operator may bring whisper back; still works: hermes, one, console; paused: gpu, vision, voice, whisper; cpu-light fallback",
             ),
             (
                 "mem",
@@ -408,7 +415,7 @@ fn degrade_table() {
                 false,
                 "absent",
                 Escalation::SuggestRestart,
-                "lan down: operator may restart lan; still works: none; paused: lan; cpu-light fallback",
+                "lan down: operator may bring lan back; still works: none; paused: lan; cpu-light fallback",
             ),
         ],
         &[
@@ -424,14 +431,14 @@ fn degrade_table() {
                 false,
                 "not running",
                 Escalation::SuggestRestart,
-                "cloudflared absent: operator may restart the tunnel; still works: hermes; paused: cloudflared, origin; cpu-light fallback",
+                "cloudflared absent: operator may bring the tunnel back; still works: hermes; paused: cloudflared, origin; cpu-light fallback",
             ),
             (
                 "origin",
                 false,
                 "status 0",
                 Escalation::SuggestRestart,
-                "origin down: operator may restart origin; still works: hermes; paused: cloudflared, origin; cpu-light fallback",
+                "origin down: operator may bring origin back; still works: hermes; paused: cloudflared, origin; cpu-light fallback",
             ),
             (
                 "load",
@@ -454,7 +461,7 @@ fn degrade_table() {
                 false,
                 "absent",
                 Escalation::SuggestRestart,
-                "network down: operator may restart network; still works: one; paused: network; cpu-light fallback",
+                "network down: operator may bring network back; still works: one; paused: network; cpu-light fallback",
             ),
             (
                 "one",
@@ -477,7 +484,7 @@ fn degrade_table() {
                 false,
                 "inactive",
                 Escalation::SuggestRestart,
-                "demo.service not active: operator may restart demo.service; still works: console; paused: demo.service",
+                "demo.service not active: operator may bring demo.service back; still works: console; paused: demo.service",
             ),
             (
                 "mystery",
@@ -493,14 +500,14 @@ fn degrade_table() {
                 false,
                 "failed",
                 Escalation::SuggestRestart,
-                "service not active: operator may restart service; still works: none; paused: service",
+                "service not active: operator may bring service back; still works: none; paused: service",
             ),
             (
                 "odd/name",
                 false,
                 "status 0",
                 Escalation::SuggestRestart,
-                "service down: operator may restart service; still works: none; paused: service",
+                "service down: operator may bring service back; still works: none; paused: service",
             ),
         ],
     ];
@@ -518,7 +525,37 @@ fn degrade_table() {
             assert_eq!(g.level.as_str(), level.as_str());
             assert_eq!(g.text, text, "{name}");
             assert!(!g.text.contains('/'), "{}", g.text);
-            assert!(!g.text.contains("systemctl"), "{}", g.text);
+            assert_suggestion_only(&g.text);
         }
     }
+}
+
+#[test]
+fn decide_text_is_suggestion_only() {
+    // Suggestion text is not a command. A down probe names a service that
+    // still works when that service is in the same slice.
+    let slice = [
+        sample("hermes", true, "status 200", "2026-10-19T16:10:00+02:00"),
+        sample("voice", false, "status 503", "2026-10-19T16:10:00+02:00"),
+        sample("mem", false, "used 90.0% warn", "2026-10-19T16:10:00+02:00"),
+    ];
+    let got = decide(&slice);
+    assert_eq!(got.len(), 3);
+    for g in &got {
+        assert_suggestion_only(&g.text);
+    }
+    let down = got.iter().find(|g| g.name == "voice").expect("voice");
+    assert_eq!(down.level, Escalation::SuggestRestart);
+    let still = down
+        .text
+        .split("still works:")
+        .nth(1)
+        .unwrap_or("")
+        .split(';')
+        .next()
+        .unwrap_or("");
+    assert!(
+        still.split(',').any(|part| part.trim() == "hermes"),
+        "down probe must name a service that still works: {still}"
+    );
 }

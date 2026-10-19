@@ -164,7 +164,7 @@ fn warn_text(r: &ProbeResult) -> String {
         Host::Disk if crit => "disk critical: operator may free space or rotate logs".to_owned(),
         Host::Disk => "disk high: operator may free space or rotate logs".to_owned(),
         Host::Other if unreadable => "probe unreadable: operator may check the source".to_owned(),
-        Host::Other => "probe degraded: operator may look, not restart".to_owned(),
+        Host::Other => "probe degraded: operator may look, not act".to_owned(),
     }
 }
 
@@ -182,13 +182,13 @@ fn restart_text(name: &str, results: &[ProbeResult]) -> String {
 
 fn restart_base(name: &str) -> String {
     if name == "cloudflared" {
-        return "cloudflared absent: operator may restart the tunnel".to_owned();
+        return "cloudflared absent: operator may bring the tunnel back".to_owned();
     }
     let s = safe_token(name);
     if name.starts_with("unit:") {
-        format!("{s} not active: operator may restart {s}")
+        format!("{s} not active: operator may bring {s} back")
     } else {
-        format!("{s} down: operator may restart {s}")
+        format!("{s} down: operator may bring {s} back")
     }
 }
 

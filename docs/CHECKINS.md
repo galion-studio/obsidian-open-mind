@@ -165,3 +165,5 @@
 - 2026-10-19T18:20:29+02:00 | MEM-3 PASS: the memory fixture routes already refuse the live gateway. No code change.
 
 - 2026-10-19T18:20:34+02:00 | BOOT-2 PASS: boot nerve JSON is already local. No schema call and no file write.
+
+- 2026-10-19T18:22:38+02:00 | SURV-2 PASS: a down probe stays a suggestion. It does not restart anything.

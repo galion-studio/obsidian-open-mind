@@ -187,3 +187,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:20:29+02:00 | MEM-3 | grok-build | PASS 8/10 | docs/memory-gap.md | ALREADY; fixture routes bind port 0 and refuse 8420
 
 - 2026-10-19T18:20:34+02:00 | BOOT-2 | grok-build | PASS 8/10 | docs/boot-gap.md | ALREADY; to_nerve is local JSON and writes no file
+
+- 2026-10-19T18:22:38+02:00 | SURV-2 | grok-build | PASS 9/10 | crates/openmind-survival | decide() text has no systemctl, restart, or kill; still works names hermes

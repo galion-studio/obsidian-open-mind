@@ -165,3 +165,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:12:46+02:00 | NERVE-ALIGN | grok-build | PASS 8/10 | docs/nerve-align.md | boot JSON and schema event are not wired; nested gpu fields are gaps
 
 - 2026-10-19T18:13:03+02:00 | ORIGIN-WIRE | grok-build | PASS 8/10 | docs/origin-wire.md | galion-one does not call origin; port 443 unchanged
+
+- 2026-10-19T18:13:41+02:00 | STAGED-NOW | grok-build | PASS 8/10 | docs/staged-not-live.md | four rendered units not installed; live pids unchanged

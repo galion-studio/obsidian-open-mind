@@ -143,3 +143,5 @@
 - 2026-10-19T18:12:46+02:00 | NERVE-ALIGN PASS: boot nerve JSON and the schema event are separate. They were not wired.
 
 - 2026-10-19T18:13:03+02:00 | ORIGIN-WIRE PASS: the origin redirect is not wired into One. Nothing was bound on 80 or 443.
+
+- 2026-10-19T18:13:41+02:00 | STAGED-NOW PASS: rendered units are still staged. One, desk, link-watch, and tuner were not switched.

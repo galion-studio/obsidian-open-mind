@@ -57,3 +57,5 @@
 - 2026-10-19T16:42:27+02:00 | B65 PASS: persona-plex-relay is tracked. A no-flag run reads no socket and no secret. It exits 1 until a config file is present.
 
 - 2026-10-19T16:42:28+02:00 | B64 PASS: archive list written. Nothing was deleted.
+
+- 2026-10-19T16:52:55+02:00 | B62 PASS: speech adapter parses whisper and piper fixtures. It does not spawn a model and it does not use a GPU.

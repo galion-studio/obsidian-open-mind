@@ -22,3 +22,9 @@
 - 2026-10-19T15:47:58+02:00 | B04 PASS: portability inventory, 103 hard-coded hits classified.
 - 2026-10-19T15:47:58+02:00 | B13 PASS: one-talk hear/reply shapes against a spare port. Pairing not ported. Warm loop unchanged.
 - 2026-10-19T15:47:58+02:00 | B21 PASS: survival units staged, not enabled.
+
+- 2026-10-19T16:05:09+02:00 | B08 PASS: size-budget script and low-end profile. Fixtures only, no workspace build during the wave.
+- 2026-10-19T16:05:09+02:00 | B09 PASS: RSS baseline of the binaries that were already built.
+- 2026-10-19T16:05:09+02:00 | B16 PASS: no-python gate. Clean tree exit 0, fixture exit 1.
+- 2026-10-19T16:05:09+02:00 | B22 PASS: survival audit. galion-one is a real enabled unit now.
+- 2026-10-19T16:05:09+02:00 | B23 PASS: healer decide() is suggestions only.

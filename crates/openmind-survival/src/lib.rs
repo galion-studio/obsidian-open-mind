@@ -1,15 +1,20 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
 
-//! Read-only survival probes. Std only, blocking, single-threaded.
+//! Read-only survival probes and a pure healer decision function.
+//!
+//! Probes are blocking and single-threaded. [`decide`] only returns
+//! suggestions: it does not spawn a process or open a socket.
 //!
 //! Deliberately excluded: secret handling, process signals, and any unit
 //! state change. The only external commands are `systemctl is-active <unit>`
 //! and `df -P <path>`, both read-only and run without a shell.
 
+pub mod decide;
 pub mod incident;
 pub mod probes;
 
+pub use decide::{decide, Escalation, Suggestion};
 pub use probes::{
     check_cloudflared, check_disk, check_freshness, check_http, check_loadavg, check_meminfo,
     check_unit, parse_df, parse_loadavg, parse_meminfo, ProbeResult, Runner, SystemRunner,

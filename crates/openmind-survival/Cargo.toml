@@ -6,7 +6,7 @@ name = "openmind-survival"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Std-only read-only survival probes (HTTP, systemctl is-active, disk, /proc, freshness) and pure incident logic."
+description = "Std-only read-only survival probes (HTTP, systemctl is-active, disk, /proc, freshness), pure incident logic, and a pure healer decision function."
 
 [dependencies]
 zagreb-time = { path = "../zagreb-time" }

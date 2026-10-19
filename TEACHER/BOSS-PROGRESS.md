@@ -30,3 +30,9 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T15:47:58+02:00 | B13 | grok-build | PASS 8/10 | crates/one-talk | pairing and secret store not ported; warm loop left as-is; lead retest 10 tests fmt clippy 0
 - 2026-10-19T15:47:58+02:00 | B21 | grok-build | PASS 8/10 | deploy/survival units | not installed; is-enabled not-found; verify fails only because dist binary is absent
 - 2026-10-19T15:47:58+02:00 | WAVE 5 | C9 active, one health 200 | - | -
+
+- 2026-10-19T16:05:09+02:00 | B08 | grok-build | PASS 8/10 | scripts/size-budget.sh docs/low-end-profile.md | fixture exits shown; full workspace build not run during the wave
+- 2026-10-19T16:05:09+02:00 | B09 | grok-build | PASS 8/10 | docs/rss-baseline.md | RSS of existing release bins; persona-plex-relay not built
+- 2026-10-19T16:05:09+02:00 | B16 | grok-build | PASS 8/10 | scripts/no-python.sh | exit 0 on tree, exit 1 on fixture; ONE_LEGACY_PY still present until B14 lands
+- 2026-10-19T16:05:09+02:00 | B22 | grok-build | PASS 9/10 | docs/survival-audit.md | galion-one.service is enabled; the old no-unit gap is not the live state
+- 2026-10-19T16:05:09+02:00 | B23 | grok-build | PASS 9/10 | crates/openmind-survival | decide() suggestions only; lead retest this note

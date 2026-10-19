@@ -115,3 +115,5 @@
 - 2026-10-19T17:46:41+02:00 | UNITS-2 PASS: tuner unit text is staged. It was not installed and the live tuner was not restarted.
 
 - 2026-10-19T17:47:18+02:00 | BOOT-NERVE PASS: a hardware probe becomes one JSON event. A missing GPU is absent, not an error. No live hardware.json was written.
+
+- 2026-10-19T17:49:35+02:00 | MEM-2 PASS: recall, session end, and the three offload routes return fixture JSON. The live gateway was not called.

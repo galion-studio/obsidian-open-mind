@@ -3,13 +3,13 @@
 
 #![forbid(unsafe_code)]
 
-//! Fixture-backed v0 of the memory routes Hermes actually calls.
+//! Fixture-backed memory routes the selected Hermes provider calls.
 //!
-//! Read from the memory-tencentdb Hermes plugin (not from the Hermes home):
-//! v1 store is `POST /capture`, v1 search is `POST /search/memories` and
-//! `POST /search/conversations`, and v1 probes `GET /health`. v2 store is
-//! `POST /v2/conversation/add`. v2 search is `POST /v2/atomic/search` and
-//! `POST /v2/conversation/search`.
+//! v1 is `GET /health`, `POST /capture`, `POST /recall`, `POST /session/end`,
+//! `POST /search/memories`, and `POST /search/conversations`. Offload, which
+//! uses the same bearer plus `x-tdai-service-id`, is `POST /v2/offload/ingest`,
+//! `POST /v2/offload/query-mmd`, and `POST /v2/offload/read-ref`. The spare
+//! server also keeps the unselected v2 store and search routes.
 //!
 //! There is no embedding model and no extractor. A stored turn is indexed
 //! with FTS5 and searched by ASCII tokens. `embeddingService` stays false.

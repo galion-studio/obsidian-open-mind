@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS meta (
     value INTEGER NOT NULL
 );
 INSERT OR IGNORE INTO meta (key, value) VALUES ('next_id', 1);
+INSERT OR IGNORE INTO meta (key, value) VALUES ('offload_seq', 1);
 CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
     id UNINDEXED,
     kind UNINDEXED,
@@ -27,6 +28,24 @@ CREATE VIRTUAL TABLE IF NOT EXISTS docs USING fts5(
     scene UNINDEXED,
     recorded_at UNINDEXED,
     content
+);
+CREATE TABLE IF NOT EXISTS offload_ref (
+    result_ref TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    content TEXT NOT NULL,
+    recorded_at TEXT NOT NULL,
+    seq INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS offload_canvas (
+    session_id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    recorded_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS session_end (
+    session_key TEXT PRIMARY KEY,
+    flushed_at TEXT NOT NULL
 );
 ";
 
@@ -359,6 +378,231 @@ impl Index {
         hits.truncate(limit);
         Ok(hits)
     }
+
+    /// v1 `POST /recall`. FTS only: embeddings stay off, so context is the
+    /// matching L0 lines for this session, then the matching L1 notes.
+    pub(crate) fn recall(&self, query: &str, session_key: &str) -> Result<RecallOut, Error> {
+        let session_key = session_key.trim();
+        if query.trim().is_empty() || session_key.is_empty() {
+            return Err(Error::BadRequest(
+                "Missing required fields: query, session_key".into(),
+            ));
+        }
+        if session_key.len() > MAX_SESSION {
+            return Err(Error::BadRequest("session_key is too long".into()));
+        }
+        let mut memories = SearchRequest::new(query);
+        memories.kind = Some(Kind::Memory);
+        memories.session_key = Some(session_key.to_string());
+        let mem_hits = self.search(&memories)?;
+
+        let mut talks = SearchRequest::new(query);
+        talks.kind = Some(Kind::Conversation);
+        talks.session_key = Some(session_key.to_string());
+        let talk_hits = self.search(&talks)?;
+
+        let mut parts = Vec::new();
+        for hit in &talk_hits {
+            parts.push(hit.content.as_str());
+        }
+        for hit in &mem_hits {
+            parts.push(hit.content.as_str());
+        }
+        Ok(RecallOut {
+            context: clip_chars(&parts.join("\n"), 2000),
+            memory_count: mem_hits.len(),
+            strategy: "fts",
+        })
+    }
+
+    /// v1 `POST /session/end`. Records a Zagreb flush time and reports success.
+    pub(crate) fn end_session(&mut self, session_key: &str) -> Result<(), Error> {
+        let session_key = session_key.trim();
+        if session_key.is_empty() {
+            return Err(Error::BadRequest(
+                "Missing required field: session_key".into(),
+            ));
+        }
+        if session_key.len() > MAX_SESSION {
+            return Err(Error::BadRequest("session_key is too long".into()));
+        }
+        let flushed_at = zagreb_stamp()?;
+        self.conn
+            .execute(
+                "INSERT INTO session_end (session_key, flushed_at) VALUES (?1, ?2)
+                 ON CONFLICT(session_key) DO UPDATE SET flushed_at = excluded.flushed_at",
+                params![session_key, flushed_at],
+            )
+            .map_err(store_err)?;
+        Ok(())
+    }
+
+    /// Fixture `POST /v2/offload/ingest`. Writes one markdown ref per pair and
+    /// rebuilds the session canvas. No model runs.
+    pub(crate) fn ingest_offload(
+        &mut self,
+        session_id: &str,
+        pairs: &[ToolPairRow],
+    ) -> Result<Vec<String>, Error> {
+        if !valid_offload_session(session_id) {
+            return Err(Error::BadRequest("missing or invalid session_id".into()));
+        }
+        if pairs.is_empty() || pairs.len() > 100 {
+            return Err(Error::BadRequest(
+                "tool_pairs must hold 1 to 100 items".into(),
+            ));
+        }
+        let session_id = session_id.trim();
+        let refs_dir = format!("offload/{}/refs", sanitize_session(session_id));
+        let tx = self.conn.transaction().map_err(store_err)?;
+        let mut node_ids = Vec::with_capacity(pairs.len());
+        for pair in pairs {
+            let tool_name = pair.tool_name.trim();
+            if tool_name.is_empty() || tool_name.len() > 256 {
+                return Err(Error::BadRequest("tool pair tool_name is empty".into()));
+            }
+            if pair.tool_call_id.len() > 256 {
+                return Err(Error::BadRequest(
+                    "tool pair tool_call_id is too long".into(),
+                ));
+            }
+            if pair.params_json.len() > MAX_CONTENT || pair.result_text.len() > MAX_CONTENT {
+                return Err(Error::BadRequest("tool pair is too long".into()));
+            }
+            let seq = next_offload_seq(&tx)?;
+            let node_id = tool_node_id(&pair.tool_call_id, seq);
+            let result_ref = format!("{refs_dir}/{node_id}.md");
+            let recorded_at = zagreb_stamp()?;
+            let content = render_tool_ref(&node_id, tool_name, pair);
+            tx.execute(
+                "INSERT INTO offload_ref (
+                    result_ref, session_id, node_id, tool_name, content, recorded_at, seq
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                 ON CONFLICT(result_ref) DO UPDATE SET
+                    tool_name = excluded.tool_name,
+                    content = excluded.content",
+                params![
+                    result_ref,
+                    session_id,
+                    node_id,
+                    tool_name,
+                    content,
+                    recorded_at,
+                    seq
+                ],
+            )
+            .map_err(store_err)?;
+            node_ids.push(node_id);
+        }
+        rewrite_canvas(&tx, session_id)?;
+        tx.commit().map_err(store_err)?;
+        Ok(node_ids)
+    }
+
+    /// Fixture `POST /v2/offload/query-mmd`. One canvas file, or nothing yet.
+    pub(crate) fn offload_canvas(&self, session_id: &str) -> Result<Option<OffloadCanvas>, Error> {
+        if !valid_offload_session(session_id) {
+            return Err(Error::BadRequest(
+                "missing or invalid session_id in body".into(),
+            ));
+        }
+        let session_id = session_id.trim();
+        let mut stmt = self
+            .conn
+            .prepare("SELECT content, recorded_at FROM offload_canvas WHERE session_id = ?1")
+            .map_err(store_err)?;
+        let mut rows = stmt.query(params![session_id]).map_err(store_err)?;
+        if let Some(row) = rows.next().map_err(store_err)? {
+            Ok(Some(OffloadCanvas {
+                content: row.get(0).map_err(store_err)?,
+                recorded_at: row.get(1).map_err(store_err)?,
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Fixture `POST /v2/offload/read-ref`. The caller already checked ownership.
+    pub(crate) fn read_offload_ref(&self, result_ref: &str) -> Result<Option<String>, Error> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT content FROM offload_ref WHERE result_ref = ?1")
+            .map_err(store_err)?;
+        let mut rows = stmt.query(params![result_ref]).map_err(store_err)?;
+        if let Some(row) = rows.next().map_err(store_err)? {
+            Ok(Some(row.get(0).map_err(store_err)?))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+/// v1 `POST /recall` body the provider reads (`context` is the injected text).
+pub(crate) struct RecallOut {
+    pub context: String,
+    pub memory_count: usize,
+    pub strategy: &'static str,
+}
+
+/// One tool pair accepted by the offload ingest fixture.
+pub(crate) struct ToolPairRow {
+    pub tool_name: String,
+    pub tool_call_id: String,
+    pub params_json: String,
+    pub result_text: String,
+    pub error: Option<String>,
+}
+
+/// Session canvas returned by the offload MMD fixture.
+pub(crate) struct OffloadCanvas {
+    pub content: String,
+    pub recorded_at: String,
+}
+
+/// Offload session ids: alphanumeric plus `_ . - :`, at most 500 chars.
+pub(crate) fn valid_offload_session(session_id: &str) -> bool {
+    let session_id = session_id.trim();
+    !session_id.is_empty()
+        && session_id.len() <= 500
+        && session_id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '-' | ':'))
+}
+
+/// A result ref is owned only when it is a direct markdown child of this
+/// session's refs directory. The session id is sanitized the same way the
+/// provider builds `offload/<id>/refs/<node>.md`.
+pub(crate) fn owned_result_ref(session_id: &str, result_ref: &str) -> Option<String> {
+    if !valid_offload_session(session_id) || result_ref.len() > 1000 {
+        return None;
+    }
+    let prefix = format!("offload/{}/refs/", sanitize_session(session_id.trim()));
+    let filename = result_ref.strip_prefix(&prefix)?;
+    if filename.is_empty()
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains('\0')
+        || filename == "."
+        || filename == ".."
+        || !filename.ends_with(".md")
+        || filename.len() <= ".md".len()
+    {
+        return None;
+    }
+    Some(result_ref.to_string())
+}
+
+fn sanitize_session(session_id: &str) -> String {
+    session_id
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 struct RawHit {
@@ -378,10 +622,7 @@ fn insert(tx: &Transaction<'_>, req: &PutRequest) -> Result<Stored, Error> {
         Kind::Conversation => 'c',
     };
     let id = alloc_id(tx, prefix)?;
-    let recorded_at = zagreb_time::now_rfc3339();
-    if recorded_at.contains('Z') || recorded_at.contains("+00:00") {
-        return Err(Error::Store("refusing a non-Zagreb timestamp".to_string()));
-    }
+    let recorded_at = zagreb_stamp()?;
     let mem_type = if req.kind == Kind::Memory && req.mem_type.trim().is_empty() {
         "episodic".to_string()
     } else {
@@ -403,6 +644,136 @@ fn insert(tx: &Transaction<'_>, req: &PutRequest) -> Result<Stored, Error> {
     )
     .map_err(store_err)?;
     Ok(Stored { id, recorded_at })
+}
+
+fn zagreb_stamp() -> Result<String, Error> {
+    let recorded_at = zagreb_time::now_rfc3339();
+    if recorded_at.contains('Z') || recorded_at.contains("+00:00") {
+        return Err(Error::Store("refusing a non-Zagreb timestamp".to_string()));
+    }
+    Ok(recorded_at)
+}
+
+fn clip_chars(text: &str, max: usize) -> String {
+    if text.len() <= max {
+        return text.to_string();
+    }
+    let mut end = max;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_string()
+}
+
+fn next_offload_seq(tx: &Transaction<'_>) -> Result<i64, Error> {
+    let n: i64 = tx
+        .query_row(
+            "SELECT value FROM meta WHERE key = 'offload_seq'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(store_err)?;
+    tx.execute(
+        "UPDATE meta SET value = ?1 WHERE key = 'offload_seq'",
+        params![n + 1],
+    )
+    .map_err(store_err)?;
+    Ok(n)
+}
+
+/// Node ids match `^n[A-Za-z0-9]+$` and stay within 24 characters.
+/// An empty tool-call id falls back to `n` plus a hex sequence. No hash crate.
+fn tool_node_id(tool_call_id: &str, seq: i64) -> String {
+    let stripped: String = tool_call_id
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .collect();
+    if stripped.is_empty() {
+        return format!("n{seq:012x}");
+    }
+    let mut id = format!("n{stripped}");
+    if id.len() > 24 {
+        id.truncate(24);
+    }
+    id
+}
+
+fn render_tool_ref(node_id: &str, tool_name: &str, pair: &ToolPairRow) -> String {
+    let mut lines = vec![
+        format!("# node_id: {node_id}"),
+        format!("tool: {tool_name}"),
+        format!("tool_call_id: {}", pair.tool_call_id),
+        "```json".to_string(),
+        pair.params_json.clone(),
+        "```".to_string(),
+        "## result".to_string(),
+        pair.result_text.clone(),
+    ];
+    if let Some(error) = pair.error.as_deref() {
+        lines.push("## error".to_string());
+        lines.push(error.to_string());
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn mermaid_label(tool_name: &str) -> String {
+    let mut out = String::new();
+    for ch in tool_name.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push('\''),
+            '\n' | '\r' => out.push(' '),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+fn render_canvas(nodes: &[(String, String)]) -> String {
+    let mut lines = vec![
+        "%% each node drills to refs/<nodeId>.md".to_string(),
+        "flowchart TD".to_string(),
+    ];
+    for (node_id, tool_name) in nodes {
+        let label = mermaid_label(tool_name);
+        lines.push(format!("  {node_id}[\"{label}\"]"));
+    }
+    for pair in nodes.windows(2) {
+        lines.push(format!("  {} --> {}", pair[0].0, pair[1].0));
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn rewrite_canvas(tx: &Transaction<'_>, session_id: &str) -> Result<(), Error> {
+    let mut stmt = tx
+        .prepare(
+            "SELECT node_id, tool_name FROM offload_ref
+             WHERE session_id = ?1 ORDER BY seq, node_id",
+        )
+        .map_err(store_err)?;
+    let rows = stmt
+        .query_map(params![session_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(store_err)?;
+    let mut nodes = Vec::new();
+    for row in rows {
+        nodes.push(row.map_err(store_err)?);
+    }
+    drop(stmt);
+    let content = render_canvas(&nodes);
+    let recorded_at = zagreb_stamp()?;
+    tx.execute(
+        "INSERT INTO offload_canvas (session_id, content, recorded_at) VALUES (?1, ?2, ?3)
+         ON CONFLICT(session_id) DO UPDATE SET
+            content = excluded.content,
+            recorded_at = excluded.recorded_at",
+        params![session_id, content, recorded_at],
+    )
+    .map_err(store_err)?;
+    Ok(())
 }
 
 fn alloc_id(tx: &Transaction<'_>, prefix: char) -> Result<String, Error> {

@@ -5,9 +5,15 @@
 //!
 //! Bind is loopback only. Port 8420 is refused because that is the live
 //! gateway. The server thread stops when [`Server`] is dropped.
+//!
+//! Selected-provider fixtures, all JSON:
+//! `POST /recall`, `POST /session/end`, `POST /v2/offload/query-mmd`,
+//! `POST /v2/offload/ingest`, and `POST /v2/offload/read-ref`.
+//! Offload does not call a model and does not dial the live gateway.
 
 use crate::index::{
-    clamp_limit, field_limit, field_str, Error, Hit, Index, Kind, PutRequest, SearchRequest,
+    clamp_limit, field_limit, field_str, owned_result_ref, valid_offload_session, Error, Hit,
+    Index, Kind, PutRequest, SearchRequest, ToolPairRow,
 };
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -294,6 +300,8 @@ fn dispatch(index: &mut Index, started: Instant, raw: &RawRequest) -> (u16, Valu
     };
     match path {
         "/capture" => capture(index, &body),
+        "/recall" => recall(index, &body),
+        "/session/end" => session_end(index, &body),
         "/search/memories" => search_memories(index, &body),
         "/search/conversations" => search_conversations(index, &body),
         _ => (
@@ -335,6 +343,9 @@ fn dispatch_v2(index: &mut Index, raw: &RawRequest) -> (u16, Value) {
         "/v2/conversation/add" => v2_add(index, &body, &req_id),
         "/v2/atomic/search" => v2_atomic_search(index, &body, &req_id),
         "/v2/conversation/search" => v2_conversation_search(index, &body, &req_id),
+        "/v2/offload/ingest" => offload_ingest(index, &body, &req_id),
+        "/v2/offload/query-mmd" => offload_query_mmd(index, &body, &req_id),
+        "/v2/offload/read-ref" => offload_read_ref(index, &body, &req_id),
         _ => (
             404,
             json!({ "error": format!("Not found: POST {}", raw.path) }),
@@ -345,7 +356,12 @@ fn dispatch_v2(index: &mut Index, raw: &RawRequest) -> (u16, Value) {
 fn known_v2(path: &str) -> bool {
     matches!(
         path,
-        "/v2/conversation/add" | "/v2/atomic/search" | "/v2/conversation/search"
+        "/v2/conversation/add"
+            | "/v2/atomic/search"
+            | "/v2/conversation/search"
+            | "/v2/offload/ingest"
+            | "/v2/offload/query-mmd"
+            | "/v2/offload/read-ref"
     )
 }
 
@@ -445,6 +461,242 @@ fn search_conversations(index: &Index, body: &Value) -> (u16, Value) {
         ),
         Err(err) => map_err(err),
     }
+}
+
+fn recall(index: &Index, body: &Value) -> (u16, Value) {
+    let Some(query) = field_str(body, "query") else {
+        return (
+            400,
+            json!({ "error": "Missing required fields: query, session_key" }),
+        );
+    };
+    let Some(session) = field_str(body, "session_key") else {
+        return (
+            400,
+            json!({ "error": "Missing required fields: query, session_key" }),
+        );
+    };
+    // `user_id` is optional and is not copied into the response.
+    match index.recall(query, session) {
+        Ok(out) => (
+            200,
+            json!({
+                "context": out.context,
+                "strategy": out.strategy,
+                "memory_count": out.memory_count,
+                "code": 0,
+                "message": "ok",
+                "retryable": false
+            }),
+        ),
+        Err(err) => map_err(err),
+    }
+}
+
+fn session_end(index: &mut Index, body: &Value) -> (u16, Value) {
+    let Some(session) = field_str(body, "session_key") else {
+        return (
+            400,
+            json!({ "error": "Missing required field: session_key" }),
+        );
+    };
+    match index.end_session(session) {
+        Ok(()) => (200, json!({ "flushed": true })),
+        Err(err) => map_err(err),
+    }
+}
+
+fn offload_ingest(index: &mut Index, body: &Value, req_id: &str) -> (u16, Value) {
+    let Some(session) = field_str(body, "session_id") else {
+        return v2_err(400, "missing or invalid session_id", req_id);
+    };
+    if !valid_offload_session(session) {
+        return v2_err(400, "missing or invalid session_id", req_id);
+    }
+    if body.get("prompt").is_some() && field_str(body, "prompt").is_none() {
+        return v2_err(400, "prompt must not be empty or whitespace-only", req_id);
+    }
+    let prompt = field_str(body, "prompt");
+    let pairs = match body.get("tool_pairs") {
+        None => Vec::new(),
+        Some(Value::Array(items)) => match parse_tool_pairs(items) {
+            Ok(rows) => rows,
+            Err(msg) => return v2_err(400, &msg, req_id),
+        },
+        Some(_) => return v2_err(400, "tool_pairs must be an array", req_id),
+    };
+    if pairs.is_empty() && prompt.is_none() {
+        return v2_err(
+            400,
+            "Either tool_pairs must be non-empty or prompt must be provided",
+            req_id,
+        );
+    }
+    // Prompt-only ingest does not invent a canvas. Internal sessions are skipped.
+    if pairs.is_empty() || skip_offload_session(session) {
+        return v2_ok(req_id, json!({}));
+    }
+    match index.ingest_offload(session, &pairs) {
+        Ok(node_ids) => v2_ok(req_id, json!({ "node_ids": node_ids })),
+        Err(err) => v2_err(status_of(&err), &err.to_string(), req_id),
+    }
+}
+
+fn offload_query_mmd(index: &Index, body: &Value, req_id: &str) -> (u16, Value) {
+    let Some(session) = field_str(body, "session_id") else {
+        return v2_err(400, "missing or invalid session_id in body", req_id);
+    };
+    if !valid_offload_session(session) {
+        return v2_err(400, "missing or invalid session_id in body", req_id);
+    }
+    if let Some(limit) = body.get("limit") {
+        match limit.as_u64() {
+            Some(n) if n >= 1 => {}
+            _ => return v2_err(400, "limit must be an integer >= 1", req_id),
+        }
+    }
+    match index.offload_canvas(session) {
+        Ok(Some(canvas)) => v2_ok(
+            req_id,
+            json!({
+                "mmds": [{
+                    "filename": "canvas.mmd",
+                    "content": canvas.content,
+                    "version": canvas.recorded_at
+                }],
+                "currentMmd": "canvas.mmd"
+            }),
+        ),
+        Ok(None) => v2_ok(req_id, json!({ "mmds": [], "currentMmd": null })),
+        Err(err) => v2_err(status_of(&err), &err.to_string(), req_id),
+    }
+}
+
+fn offload_read_ref(index: &Index, body: &Value, req_id: &str) -> (u16, Value) {
+    let Some(session) = field_str(body, "session_id") else {
+        return v2_err(400, "missing or invalid session_id", req_id);
+    };
+    if !valid_offload_session(session) {
+        return v2_err(400, "missing or invalid session_id", req_id);
+    }
+    let Some(result_ref) = field_str(body, "result_ref") else {
+        return v2_err(400, "Missing required field: result_ref", req_id);
+    };
+    let Some(owned) = owned_result_ref(session, result_ref) else {
+        return v2_err(404, "result_ref not found", req_id);
+    };
+    let full = match body.get("full") {
+        None => false,
+        Some(Value::Bool(flag)) => *flag,
+        Some(_) => return v2_err(400, "full must be a boolean", req_id),
+    };
+    match index.read_offload_ref(&owned) {
+        Ok(Some(raw)) => {
+            let (content, truncated) = if full { (raw, false) } else { clip_ref(&raw) };
+            v2_ok(
+                req_id,
+                json!({
+                    "result_ref": owned,
+                    "content": content,
+                    "truncated": truncated
+                }),
+            )
+        }
+        Ok(None) => v2_err(404, "result_ref not found", req_id),
+        Err(err) => v2_err(status_of(&err), &err.to_string(), req_id),
+    }
+}
+
+fn v2_ok(req_id: &str, data: Value) -> (u16, Value) {
+    (
+        200,
+        json!({
+            "code": 0,
+            "message": "ok",
+            "request_id": req_id,
+            "data": data
+        }),
+    )
+}
+
+fn parse_tool_pairs(items: &[Value]) -> Result<Vec<ToolPairRow>, String> {
+    if items.len() > 100 {
+        return Err("tool_pairs must hold at most 100 items".into());
+    }
+    let mut rows = Vec::with_capacity(items.len());
+    for item in items {
+        if !item.is_object() {
+            return Err("tool pair must be an object".into());
+        }
+        let Some(tool_name) = field_str(item, "tool_name") else {
+            return Err("tool pair tool_name is empty".into());
+        };
+        if tool_name.len() > 256 {
+            return Err("tool pair tool_name is too long".into());
+        }
+        let Some(tool_call_id) = item.get("tool_call_id").and_then(Value::as_str) else {
+            return Err("tool pair tool_call_id must be a string".into());
+        };
+        if tool_call_id.len() > 256 {
+            return Err("tool pair tool_call_id is too long".into());
+        }
+        // Caller stamps are not stored. They may contain a `Z` suffix.
+        if field_str(item, "timestamp").is_none() {
+            return Err("tool pair timestamp is missing".into());
+        }
+        let params_json = match item.get("params") {
+            None => String::new(),
+            Some(value) => serde_json::to_string(value).unwrap_or_else(|_| "null".to_string()),
+        };
+        let result_text = match item.get("result") {
+            None => String::new(),
+            Some(Value::String(text)) => text.clone(),
+            Some(value) => serde_json::to_string(value).unwrap_or_else(|_| "null".to_string()),
+        };
+        let error = match item.get("error") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(text)) => Some(text.clone()),
+            Some(_) => return Err("tool pair error must be a string".into()),
+        };
+        rows.push(ToolPairRow {
+            tool_name: tool_name.to_string(),
+            tool_call_id: tool_call_id.to_string(),
+            params_json,
+            result_text,
+            error,
+        });
+    }
+    Ok(rows)
+}
+
+fn skip_offload_session(session_id: &str) -> bool {
+    session_id.contains("subagent") || internal_memory_session(session_id)
+}
+
+fn internal_memory_session(session_id: &str) -> bool {
+    let Some(start) = session_id.find("memory-") else {
+        return false;
+    };
+    let after = &session_id[start + "memory-".len()..];
+    let Some(pos) = after.find("-session-") else {
+        return false;
+    };
+    after[pos + "-session-".len()..]
+        .chars()
+        .next()
+        .is_some_and(|ch| ch.is_ascii_digit())
+}
+
+fn clip_ref(text: &str) -> (String, bool) {
+    const MAX: usize = 6400;
+    if text.len() <= MAX {
+        return (text.to_string(), false);
+    }
+    let mut end = MAX;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (text[..end].to_string(), true)
 }
 
 fn v2_add(index: &mut Index, body: &Value, req_id: &str) -> (u16, Value) {

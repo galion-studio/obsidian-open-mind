@@ -137,3 +137,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:46:41+02:00 | UNITS-2 | grok-build | PASS 9/10 | crates/openmind-units deploy/boot/rendered/tuner.service docs/boot-units.md | staged only; live tuner pid unchanged
 
 - 2026-10-19T17:47:18+02:00 | BOOT-NERVE | grok-build | PASS 9/10 | crates/openmind-boot | to_nerve JSON; missing GPU is absent; tests write only under temp
+
+- 2026-10-19T17:49:35+02:00 | MEM-2 | grok-build | PASS 9/10 | crates/openmind-memory | five fixture routes; tests bind port 0; live 8420 not touched

@@ -238,6 +238,183 @@ fn http_put_and_search_on_ephemeral_port() {
 }
 
 #[test]
+fn http_selected_provider_fixture_routes() {
+    let server = Server::spawn(Arc::new(Mutex::new(Index::open_memory().unwrap()))).unwrap();
+    let addr = server.addr();
+    assert_eq!(addr.ip().to_string(), "127.0.0.1");
+    assert_ne!(addr.port(), 0);
+    assert_ne!(addr.port(), 8420);
+
+    let (status, missing) = exchange(addr, "POST", "/recall", "", r#"{"query":"cedar"}"#);
+    assert_eq!(status, 400, "{missing}");
+    assert!(missing["error"].as_str().unwrap().contains("session_key"));
+
+    let capture = r#"{"user_content":"Store the cedar key.","assistant_content":"Cedar key stored.","session_key":"recall-sess"}"#;
+    let (status, body) = exchange(addr, "POST", "/capture", "", capture);
+    assert_eq!(status, 200, "{body}");
+
+    let (status, body) = exchange(
+        addr,
+        "POST",
+        "/recall",
+        "",
+        r#"{"query":"cedar","session_key":"recall-sess","user_id":"user-1"}"#,
+    );
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["code"], 0);
+    assert_eq!(body["message"], "ok");
+    assert_eq!(body["retryable"], false);
+    assert_eq!(body["strategy"], "fts");
+    assert!(body["memory_count"].as_u64().unwrap() >= 1);
+    let context = body["context"].as_str().unwrap();
+    assert!(context.contains("cedar"), "{context}");
+    assert!(!body.to_string().contains('Z'));
+
+    let (status, other) = exchange(
+        addr,
+        "POST",
+        "/recall",
+        "",
+        r#"{"query":"cedar","session_key":"other-sess"}"#,
+    );
+    assert_eq!(status, 200, "{other}");
+    assert_eq!(other["context"], "");
+    assert_eq!(other["memory_count"], 0);
+
+    let (status, missing) = exchange(addr, "POST", "/session/end", "", "{}");
+    assert_eq!(status, 400, "{missing}");
+    let (status, ended) = exchange(
+        addr,
+        "POST",
+        "/session/end",
+        "",
+        r#"{"session_key":"recall-sess","user_id":"user-1"}"#,
+    );
+    assert_eq!(status, 200, "{ended}");
+    assert_eq!(ended["flushed"], true);
+    assert!(!ended.to_string().contains('Z'));
+
+    let v2 = "Authorization: Bearer local\r\nx-tdai-service-id: galion\r\n";
+    let (status, denied) = exchange(
+        addr,
+        "POST",
+        "/v2/offload/query-mmd",
+        "",
+        r#"{"session_id":"recall-sess"}"#,
+    );
+    assert_eq!(status, 401, "{denied}");
+    assert_eq!(denied["code"], 401);
+
+    let (status, bad) = exchange(
+        addr,
+        "POST",
+        "/v2/offload/query-mmd",
+        v2,
+        r#"{"session_id":"../escape"}"#,
+    );
+    assert_eq!(status, 400, "{bad}");
+
+    let (status, empty) = exchange(
+        addr,
+        "POST",
+        "/v2/offload/query-mmd",
+        v2,
+        r#"{"session_id":"recall-sess"}"#,
+    );
+    assert_eq!(status, 200, "{empty}");
+    assert_eq!(empty["code"], 0);
+    assert!(empty["data"]["mmds"].as_array().unwrap().is_empty());
+    assert!(empty["data"]["currentMmd"].is_null());
+
+    let ingest = r#"{"session_id":"recall-sess","tool_pairs":[{"tool_name":"memory_search","tool_call_id":"call_Ab12","params":{"query":"cedar"},"result":"cedar key","timestamp":"2026-10-19T00:00:00Z"}],"prompt":"find the cedar key"}"#;
+    let (status, body) = exchange(addr, "POST", "/v2/offload/ingest", v2, ingest);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["code"], 0);
+    let node_ids = body["data"]["node_ids"].as_array().unwrap();
+    assert_eq!(node_ids.len(), 1);
+    let node_id = node_ids[0].as_str().unwrap();
+    assert_eq!(node_id, "ncallAb12");
+    assert!(!body.to_string().contains('Z'), "{body}");
+
+    let (status, mmd) = exchange(
+        addr,
+        "POST",
+        "/v2/offload/query-mmd",
+        v2,
+        r#"{"session_id":"recall-sess"}"#,
+    );
+    assert_eq!(status, 200, "{mmd}");
+    let diagram = mmd["data"]["mmds"][0]["content"].as_str().unwrap();
+    assert!(diagram.contains("flowchart TD"), "{diagram}");
+    assert!(diagram.contains(node_id), "{diagram}");
+    assert_zagreb(mmd["data"]["mmds"][0]["version"].as_str().unwrap());
+    assert!(!mmd.to_string().contains('Z'), "{mmd}");
+
+    let result_ref = format!("offload/recall-sess/refs/{node_id}.md");
+    let read = format!(r#"{{"session_id":"recall-sess","result_ref":"{result_ref}","full":true}}"#);
+    let (status, body) = exchange(addr, "POST", "/v2/offload/read-ref", v2, &read);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["code"], 0);
+    assert_eq!(body["data"]["result_ref"], result_ref);
+    assert_eq!(body["data"]["truncated"], false);
+    let text = body["data"]["content"].as_str().unwrap();
+    assert!(text.contains("cedar key"), "{text}");
+    assert!(text.contains(node_id), "{text}");
+    assert!(!text.contains('Z'), "{text}");
+
+    let (status, missing_ref) = exchange(
+        addr,
+        "POST",
+        "/v2/offload/read-ref",
+        v2,
+        r#"{"session_id":"recall-sess","result_ref":"offload/other/refs/ncallAb12.md","full":true}"#,
+    );
+    assert_eq!(status, 404, "{missing_ref}");
+    assert_eq!(missing_ref["code"], 404);
+
+    let colon = r#"{"session_id":"desk:main","tool_pairs":[{"tool_name":"read","tool_call_id":"Node9","params":{},"result":"desk line","timestamp":"t"}]}"#;
+    let (status, body) = exchange(addr, "POST", "/v2/offload/ingest", v2, colon);
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["data"]["node_ids"][0], "nNode9");
+    let colon_ref =
+        r#"{"session_id":"desk:main","result_ref":"offload/desk_main/refs/nNode9.md","full":true}"#;
+    let (status, body) = exchange(addr, "POST", "/v2/offload/read-ref", v2, colon_ref);
+    assert_eq!(status, 200, "{body}");
+    assert!(body["data"]["content"]
+        .as_str()
+        .unwrap()
+        .contains("desk line"));
+
+    let (status, prompt_only) = exchange(
+        addr,
+        "POST",
+        "/v2/offload/ingest",
+        v2,
+        r#"{"session_id":"recall-sess","prompt":"only a prompt"}"#,
+    );
+    assert_eq!(status, 200, "{prompt_only}");
+    assert!(prompt_only["data"].get("node_ids").is_none());
+
+    let (status, neither) = exchange(
+        addr,
+        "POST",
+        "/v2/offload/ingest",
+        v2,
+        r#"{"session_id":"recall-sess"}"#,
+    );
+    assert_eq!(status, 400, "{neither}");
+
+    let skipped = r#"{"session_id":"subagent-1","tool_pairs":[{"tool_name":"read","tool_call_id":"Skip1","params":{},"result":"hidden","timestamp":"t"}]}"#;
+    let (status, body) = exchange(addr, "POST", "/v2/offload/ingest", v2, skipped);
+    assert_eq!(status, 200, "{body}");
+    assert!(body["data"].get("node_ids").is_none());
+
+    drop(server);
+    let closed = TcpStream::connect_timeout(&addr, Duration::from_millis(200));
+    assert!(closed.is_err(), "listener still open on {addr}");
+}
+
+#[test]
 fn refuses_public_and_live_port() {
     assert!(parse_bind("127.0.0.1:0").is_ok());
     assert!(parse_bind("127.0.0.1:8439").is_ok());

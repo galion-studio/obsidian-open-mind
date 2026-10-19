@@ -171,3 +171,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:14:01+02:00 | SCHEMA-2 | grok-build | PASS 9/10 | crates/openmind-schema | boot hardware JSON parses as NerveEvent; production parse unchanged
 
 - 2026-10-19T18:14:18+02:00 | PROV-MAP-2 | grok-build | PASS 8/10 | docs/provider-map.md | route row added; calls select_provider; network no
+
+- 2026-10-19T18:14:46+02:00 | MCP-2 | grok-build | PASS 8/10 | docs/mcp-gap.md | ALREADY; tools/list is only stack_status; handle_bytes opens no descriptor

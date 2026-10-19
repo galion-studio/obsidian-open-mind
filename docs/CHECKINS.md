@@ -149,3 +149,5 @@
 - 2026-10-19T18:14:01+02:00 | SCHEMA-2 PASS: a boot hardware event parses as the existing nerve type. The parser was not changed.
 
 - 2026-10-19T18:14:18+02:00 | PROV-MAP-2 PASS: the provider map now includes openmind-route. It does not dial.
+
+- 2026-10-19T18:14:46+02:00 | MCP-2 PASS: the MCP stack already lists one local tool and does not open a socket. No code change.

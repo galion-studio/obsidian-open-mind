@@ -225,3 +225,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:43:27+02:00 | ROOM-2 | grok-build | PASS 9/10 | crates/room | no flags print the page and do not bind; --listen is required
 
 - 2026-10-19T18:43:27+02:00 | GATE-2 | grok-build | PASS 9/10 | crates/hades-gate | kill and rotate stay refused; WouldApply writes nothing
+
+- 2026-10-19T18:43:59+02:00 | SCHEMA-3 | grok-build | ALREADY | crates/openmind-schema | a Z timestamp is already rejected

@@ -200,3 +200,5 @@
 
 - 2026-10-19T18:43:27+02:00 | ROOM-2 PASS: room does not listen unless --listen is set. Port 4020 stayed closed.
 - 2026-10-19T18:43:27+02:00 | GATE-2 PASS: kill and rotate stay refused. WouldApply does not apply.
+
+- 2026-10-19T18:43:59+02:00 | SCHEMA-3 ALREADY: nerve events already reject a Z timestamp. The crate was not edited.

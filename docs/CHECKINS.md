@@ -49,3 +49,7 @@
 - 2026-10-19T16:32:38+02:00 | B47 PASS: Persona Plex v1 is TOML. galleon-voice parses it. No audio.
 
 - 2026-10-19T16:33:18+02:00 | B24 PASS: a down probe says what still works and what is paused. Nothing is restarted.
+
+- 2026-10-19T16:37:37+02:00 | WAVE started: ten agents on B50, B54, B55, B57, B59, B62, B64, B65, GAIA-1, GAIA-2. B06 still running.
+
+- 2026-10-19T16:40:57+02:00 | B06 PASS: galion-one reads bind and state from the config file when it exists. A missing file keeps today's ports. Live One was not restarted.

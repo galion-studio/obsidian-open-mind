@@ -13,7 +13,7 @@
 // - sliced_string_as_bytes: `&text[i..].as_bytes()`. Re-slicing via
 //   `&text.as_bytes()[i..]` is equivalent but touches every byte-offset site in
 //   the small JSON readers, so the original form stays.
-// - dead_code: the live binary carries these same unused items (`CHANNEL`,
+// - dead_code: the live binary carries these same unused items (`channel`,
 //   `ask_hermes`, `cut_prefix`, `field_of`, `lane_json`, `lane_name`,
 //   `set_lane`, `shorten`). They are unreferenced today, not newly orphaned.
 #![allow(clippy::manual_is_multiple_of)]
@@ -24,16 +24,114 @@
 
 mod models_refresh;
 
+use openmind_config::ConfigError;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-fn endpoint(key: &str, port: u16) -> std::net::SocketAddr {
+// Bind, the mouth port, and state paths come from `openmind-config` when the
+// config file exists (`$OPENMIND_CONFIG`, default `/etc/openmind/openmind.toml`).
+// `OPENMIND_*` overrides win over keys in that file. `ONE_BIND`,
+// `ONE_MOUTH_BIND`, `GALION_MOUTH`, `GALION_HOME`, and `ONE_HERMES_DIR` win
+// over both. A missing config file keeps today's loopback addresses and
+// absolute paths, and `OPENMIND_*` is not consulted.
+//
+//   ONE_BIND         listen address (default `127.0.0.1:8091`; from a present
+//                    file: `127.0.0.1:{ports.one}`)
+//   ONE_MOUTH_BIND   local mouth listen address (default `127.0.0.1:8002`)
+//   GALION_MOUTH     mouth client `host:port` (default `127.0.0.1:{mouth port}`)
+//   GALION_HOME      page and state root (default `/workspace/galion-light`;
+//                    from a present file: `paths.base`)
+//   ONE_HERMES_DIR   Hermes state directory (default `/workspace/hermes`;
+//                    from a present file: `paths.base/hermes`)
+//
+// `openmind-config::Ports` has no TTS key. The mouth port therefore stays
+// today's 8002 unless `ONE_MOUTH_BIND` or `GALION_MOUTH` is set. The device
+// store and the Hermes env file are secret paths, not state: they stay at
+// today's locations and are not taken from the config file.
+
+/// Today's addresses and paths. Used when the config file is missing.
+struct Defaults {
+    bind: &'static str,
+    mouth_bind: &'static str,
+    mouth_port: u16,
+    home: &'static str,
+    hermes_dir: &'static str,
+}
+
+const DEFAULTS: Defaults = Defaults {
+    bind: "127.0.0.1:8091",
+    mouth_bind: "127.0.0.1:8002",
+    mouth_port: 8002,
+    home: "/workspace/galion-light",
+    hermes_dir: "/workspace/hermes",
+};
+
+/// Resolved listen addresses and state roots for one process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Settings {
+    bind: String,
+    mouth_bind: String,
+    mouth_port: u16,
+    home: String,
+    hermes_dir: String,
+}
+
+impl Settings {
+    fn from_defaults() -> Self {
+        Settings {
+            bind: DEFAULTS.bind.to_string(),
+            mouth_bind: DEFAULTS.mouth_bind.to_string(),
+            mouth_port: DEFAULTS.mouth_port,
+            home: DEFAULTS.home.to_string(),
+            hermes_dir: DEFAULTS.hermes_dir.to_string(),
+        }
+    }
+
+    fn home_file(&self, rel: &str) -> String {
+        let root = self.home.trim_end_matches('/');
+        format!("{root}/{rel}")
+    }
+
+    fn hermes_file(&self, rel: &str) -> String {
+        let root = self.hermes_dir.trim_end_matches('/');
+        format!("{root}/{rel}")
+    }
+
+    fn voice_log(&self) -> String {
+        self.hermes_file("channels/one.jsonl")
+    }
+
+    fn channel(&self) -> String {
+        self.hermes_file("channels/galion-one.md")
+    }
+
+    fn hermes_channels(&self) -> String {
+        self.hermes_file("channels")
+    }
+
+    fn modes_path(&self) -> String {
+        self.hermes_file("modes.json")
+    }
+}
+
+static SETTINGS: OnceLock<Settings> = OnceLock::new();
+
+fn cfg() -> &'static Settings {
+    SETTINGS.get().expect("settings")
+}
+
+fn endpoint_from(
+    env: &dyn Fn(&str) -> Option<String>,
+    key: &str,
+    port: u16,
+) -> std::net::SocketAddr {
     let name = match key {
         "ear" => "GALION_EAR",
         "mouth" => "GALION_MOUTH",
@@ -41,7 +139,7 @@ fn endpoint(key: &str, port: u16) -> std::net::SocketAddr {
         "eye" => "GALION_EYE",
         _ => "",
     };
-    let raw = std::env::var(name).unwrap_or_default();
+    let raw = env(name).unwrap_or_default();
     let raw = raw.trim();
     if !raw.is_empty() {
         if let Ok(mut found) = std::net::ToSocketAddrs::to_socket_addrs(raw) {
@@ -53,13 +151,17 @@ fn endpoint(key: &str, port: u16) -> std::net::SocketAddr {
     std::net::SocketAddr::from(([127, 0, 0, 1], port))
 }
 
+fn endpoint(key: &str, port: u16) -> std::net::SocketAddr {
+    endpoint_from(&|name| std::env::var(name).ok(), key, port)
+}
+
 fn ear_addr() -> std::net::SocketAddr {
     static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
     *SLOT.get_or_init(|| endpoint("ear", 8643))
 }
 fn mouth_addr() -> std::net::SocketAddr {
     static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
-    *SLOT.get_or_init(|| endpoint("mouth", 8002))
+    *SLOT.get_or_init(|| endpoint("mouth", cfg().mouth_port))
 }
 fn mind_addr() -> std::net::SocketAddr {
     static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
@@ -72,26 +174,103 @@ fn eye_addr() -> std::net::SocketAddr {
 
 fn mouth_remote() -> bool {
     let addr = mouth_addr();
-    !(addr.ip().is_loopback() && addr.port() == 8002)
+    !(addr.ip().is_loopback() && addr.port() == cfg().mouth_port)
 }
 
 fn home() -> String {
-    std::env::var("GALION_HOME").unwrap_or_else(|_| "/workspace/galion-light".to_string())
+    cfg().home.clone()
 }
 
 fn p(rel: &str) -> String {
-    format!("{}/{}", home().trim_end_matches('/'), rel)
+    let root = home();
+    let root = root.trim_end_matches('/');
+    format!("{root}/{rel}")
 }
 
-// Listen address for a server socket. Reads the named env var (trimmed; empty
-// counts as unset) and otherwise falls back to the loopback address this
-// service has always bound. Returned as a string and handed to
-// TcpListener::bind unchanged.
-fn bind_addr(name: &str, port: u16) -> String {
-    match std::env::var(name) {
-        Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
-        _ => format!("127.0.0.1:{port}"),
+fn voice_log() -> String {
+    cfg().voice_log()
+}
+
+fn hermes_channels() -> String {
+    cfg().hermes_channels()
+}
+
+fn modes_path() -> String {
+    cfg().modes_path()
+}
+
+/// `$OPENMIND_CONFIG` when set and non-empty, otherwise the crate default path.
+fn config_file_path(env: &dyn Fn(&str) -> Option<String>) -> PathBuf {
+    match env("OPENMIND_CONFIG") {
+        Some(value) if !value.is_empty() => PathBuf::from(value),
+        _ => PathBuf::from(openmind_config::DEFAULT_PATH),
     }
+}
+
+/// `Ok(false)` when the file is absent (today's defaults apply). A directory
+/// is treated as absent. Any other metadata error is reported.
+fn config_file_present(path: &Path) -> Result<bool, ConfigError> {
+    match std::fs::metadata(path) {
+        Ok(meta) => Ok(meta.is_file()),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(ConfigError::Read {
+            file: path.to_path_buf(),
+            message: err.to_string(),
+        }),
+    }
+}
+
+fn path_to_string(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+fn non_empty(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
+fn apply_one_env(settings: &mut Settings, env: &dyn Fn(&str) -> Option<String>) {
+    if let Some(value) = env("ONE_BIND").as_deref().and_then(non_empty) {
+        settings.bind = value.to_string();
+    }
+    if let Some(value) = env("ONE_MOUTH_BIND").as_deref().and_then(non_empty) {
+        settings.mouth_bind = value.to_string();
+    }
+    // A set value, including empty or blank, wins. That matches
+    // `std::env::var("GALION_HOME").unwrap_or_else(|_| default)`.
+    if let Some(value) = env("GALION_HOME") {
+        settings.home = value;
+    }
+    if let Some(value) = env("ONE_HERMES_DIR").as_deref().and_then(non_empty) {
+        settings.hermes_dir = value.to_string();
+    }
+}
+
+/// Precedence: `ONE_*` and `GALION_HOME`, then a present config file (with
+/// `OPENMIND_*` already applied by `openmind-config`), then [`Defaults`] when
+/// that file is missing. `GALION_MOUTH` is applied later, inside [`endpoint`],
+/// and wins over `mouth_port`.
+fn resolve(env: &dyn Fn(&str) -> Option<String>) -> Result<Settings, ConfigError> {
+    let mut settings = Settings::from_defaults();
+    let path = config_file_path(env);
+    if config_file_present(&path)? {
+        let loaded = openmind_config::load_from(Some(&path), env)?;
+        let one_port = loaded.ports.one;
+        settings.bind = format!("127.0.0.1:{one_port}");
+        // The crate's port list has no mouth/TTS key. Keep today's mouth port
+        // so a present file cannot move 8002 onto `ports.one` (8091).
+        settings.mouth_port = DEFAULTS.mouth_port;
+        let mouth_port = settings.mouth_port;
+        settings.mouth_bind = format!("127.0.0.1:{mouth_port}");
+        settings.home = path_to_string(&loaded.paths.base);
+        settings.hermes_dir = path_to_string(&loaded.paths.state_file("hermes"));
+    }
+    apply_one_env(&mut settings, env);
+    Ok(settings)
 }
 
 fn one_page() -> Vec<u8> {
@@ -105,8 +284,6 @@ fn one_page() -> Vec<u8> {
 }
 
 const STORE: &str = "/root/galion-secrets/admin-device.json";
-const VOICE_LOG: &str = "/workspace/hermes/channels/one.jsonl";
-const CHANNEL: &str = "/workspace/hermes/channels/galion-one.md";
 const QUOTA: u64 = 100 * 1024 * 1024 * 1024;
 
 struct Pulse {
@@ -190,7 +367,7 @@ fn nerve() -> &'static Mutex<Nerve> {
             defence: Vec::new(),
             edge: Vec::new(),
             line: Vec::new(),
-            turns: count_lines(VOICE_LOG),
+            turns: count_lines(&voice_log()),
             cpu: 0,
             load: 0.0,
             cores: std::thread::available_parallelism()
@@ -218,6 +395,15 @@ fn mouth() -> &'static Mutex<()> {
 }
 
 fn main() {
+    let settings = match resolve(&|key| std::env::var(key).ok()) {
+        Ok(settings) => settings,
+        Err(err) => {
+            eprintln!("galion-one: {err}");
+            std::process::exit(1);
+        }
+    };
+    let bind = settings.bind.clone();
+    SETTINGS.set(settings).expect("settings once");
     thread::spawn(|| loop {
         sample();
         thread::sleep(Duration::from_secs(1));
@@ -226,7 +412,7 @@ fn main() {
     if std::env::var("ONE_NO_WARM").as_deref() != Ok("1") {
         thread::spawn(keep_warm);
     }
-    let listener = TcpListener::bind(bind_addr("ONE_BIND", 8091)).unwrap_or_else(|err| {
+    let listener = TcpListener::bind(&bind).unwrap_or_else(|err| {
         eprintln!("one: bind failed: {err}");
         std::process::exit(1);
     });
@@ -800,11 +986,11 @@ fn remember(whisper: u32, hermes: u32, tts: u32, heard: usize, said: usize) {
         );
         n.events.truncate(24);
     }
-    let _ = fs::create_dir_all("/workspace/hermes/channels");
+    let _ = fs::create_dir_all(hermes_channels());
     if let Ok(mut file) = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(VOICE_LOG)
+        .open(voice_log())
     {
         let _ = writeln!(
             file,
@@ -1197,8 +1383,9 @@ fn speak_out(stream: &mut TcpStream, text: &str) -> bool {
 }
 
 fn serve_tts() {
+    let mouth_bind = cfg().mouth_bind.clone();
     let listener = loop {
-        match TcpListener::bind(bind_addr("ONE_MOUTH_BIND", 8002)) {
+        match TcpListener::bind(&mouth_bind) {
             Ok(listener) => break listener,
             Err(_) => thread::sleep(Duration::from_millis(300)),
         }
@@ -1616,7 +1803,7 @@ fn with_lane_model(payload: String) -> String {
 }
 
 fn lane_json() -> String {
-    let text = fs::read_to_string("/workspace/hermes/modes.json").unwrap_or_default();
+    let text = fs::read_to_string(modes_path()).unwrap_or_default();
     format!(
         "{{\"mode\":{},\"plan\":{},\"action\":{}}}",
         quote(&lane_name()),
@@ -2880,7 +3067,7 @@ fn json_bool(text: &str, key: &str) -> bool {
 }
 
 fn pool_json() -> String {
-    let text = fs::read_to_string("/workspace/hermes/modes.json").unwrap_or_default();
+    let text = fs::read_to_string(modes_path()).unwrap_or_default();
     let Some(start) = text.find("\"saved\"") else {
         return "[]".to_string();
     };
@@ -2928,7 +3115,7 @@ fn cortex_body(n: &Nerve) -> String {
     let live = json_string(link_text.as_bytes(), "model");
     let pool = pool_json();
     let known = {
-        let text = fs::read_to_string("/workspace/hermes/modes.json").unwrap_or_default();
+        let text = fs::read_to_string(modes_path()).unwrap_or_default();
         let at = text.find("\"saved\"").unwrap_or(0);
         json_string(text[at..].as_bytes(), "model")
     };
@@ -3496,4 +3683,262 @@ fn write_response(
     }
     let _ = stream.shutdown(std::net::Shutdown::Write);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn out_dir() -> PathBuf {
+        let dir = std::env::var_os("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"))
+            .join("test-out/galion-one");
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn env_from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let owned: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect();
+        move |key| {
+            owned
+                .iter()
+                .find(|(name, _)| name == key)
+                .map(|(_, value)| value.clone())
+        }
+    }
+
+    fn write_fixture(name: &str, body: &str) -> PathBuf {
+        let path = out_dir().join(name);
+        std::fs::write(&path, body).unwrap();
+        path
+    }
+
+    #[test]
+    fn missing_config_file_keeps_today_and_ignores_openmind_env() {
+        let missing = out_dir().join("does-not-exist.toml");
+        let _ = std::fs::remove_file(&missing);
+        let settings = resolve(&env_from(&[
+            ("OPENMIND_CONFIG", missing.to_str().unwrap()),
+            ("OPENMIND_PORTS_ONE", "1"),
+            ("OPENMIND_PATHS_BASE", "/tmp/not-today"),
+            ("ONE_BIND", "   "),
+            ("ONE_MOUTH_BIND", ""),
+            ("ONE_HERMES_DIR", "  "),
+        ]))
+        .unwrap();
+        assert_eq!(settings.bind, DEFAULTS.bind);
+        assert_eq!(settings.mouth_bind, DEFAULTS.mouth_bind);
+        assert_eq!(settings.mouth_port, DEFAULTS.mouth_port);
+        assert_eq!(settings.home, DEFAULTS.home);
+        assert_eq!(settings.hermes_dir, DEFAULTS.hermes_dir);
+        assert_eq!(
+            settings.home_file("one/session.jsonl"),
+            "/workspace/galion-light/one/session.jsonl"
+        );
+        assert_eq!(
+            settings.home_file("one/models-cache.json"),
+            "/workspace/galion-light/one/models-cache.json"
+        );
+        assert_eq!(
+            settings.home_file("state/warm.ts"),
+            "/workspace/galion-light/state/warm.ts"
+        );
+        assert_eq!(
+            settings.home_file("guardian/guardian.db"),
+            "/workspace/galion-light/guardian/guardian.db"
+        );
+        assert_eq!(settings.voice_log(), "/workspace/hermes/channels/one.jsonl");
+        assert_eq!(
+            settings.channel(),
+            "/workspace/hermes/channels/galion-one.md"
+        );
+        assert_eq!(settings.hermes_channels(), "/workspace/hermes/channels");
+        assert_eq!(settings.modes_path(), "/workspace/hermes/modes.json");
+    }
+
+    #[test]
+    fn config_dir_is_treated_as_missing() {
+        let dir = out_dir().join("config-dir");
+        std::fs::create_dir_all(&dir).unwrap();
+        let settings = resolve(&env_from(&[
+            ("OPENMIND_CONFIG", dir.to_str().unwrap()),
+            ("OPENMIND_PORTS_ONE", "9"),
+            ("OPENMIND_PATHS_BASE", "/tmp/not-today"),
+        ]))
+        .unwrap();
+        assert_eq!(settings.bind, DEFAULTS.bind);
+        assert_eq!(settings.home, DEFAULTS.home);
+        assert_eq!(settings.mouth_port, 8002);
+    }
+
+    #[test]
+    fn config_fixture_supplies_bind_and_state_paths_not_mouth() {
+        let base = out_dir().join("unit-base");
+        let path = write_fixture(
+            "unit-fixture.toml",
+            &format!(
+                "\
+[ports]
+one = 18091
+[paths]
+base = '{base}'
+",
+                base = base.display()
+            ),
+        );
+        let settings = resolve(&env_from(&[("OPENMIND_CONFIG", path.to_str().unwrap())])).unwrap();
+        assert_eq!(settings.bind, "127.0.0.1:18091");
+        assert_eq!(settings.mouth_bind, "127.0.0.1:8002");
+        assert_eq!(settings.mouth_port, 8002);
+        assert_eq!(settings.home, path_to_string(&base));
+        assert_eq!(settings.hermes_dir, path_to_string(&base.join("hermes")));
+        assert_eq!(
+            settings.home_file("one/voice"),
+            path_to_string(&base.join("one/voice"))
+        );
+        assert_eq!(
+            settings.home_file("state/link.json"),
+            path_to_string(&base.join("state/link.json"))
+        );
+        assert_eq!(
+            settings.modes_path(),
+            path_to_string(&base.join("hermes/modes.json"))
+        );
+        assert_eq!(
+            settings.voice_log(),
+            path_to_string(&base.join("hermes/channels/one.jsonl"))
+        );
+    }
+
+    #[test]
+    fn openmind_env_wins_over_config_file() {
+        let base = out_dir().join("unit-file-base");
+        let path = write_fixture(
+            "unit-env-file.toml",
+            &format!(
+                "\
+[ports]
+one = 2
+[paths]
+base = '{base}'
+",
+                base = base.display()
+            ),
+        );
+        let overridden = out_dir().join("unit-env-base");
+        let settings = resolve(&env_from(&[
+            ("OPENMIND_CONFIG", path.to_str().unwrap()),
+            ("OPENMIND_PORTS_ONE", "18091"),
+            ("OPENMIND_PATHS_BASE", overridden.to_str().unwrap()),
+        ]))
+        .unwrap();
+        assert_eq!(settings.bind, "127.0.0.1:18091");
+        assert_eq!(settings.mouth_port, 8002);
+        assert_eq!(settings.home, path_to_string(&overridden));
+        assert_eq!(
+            settings.hermes_dir,
+            path_to_string(&overridden.join("hermes"))
+        );
+    }
+
+    #[test]
+    fn one_env_wins_over_file_and_openmind_env() {
+        let base = out_dir().join("unit-one-base");
+        let path = write_fixture(
+            "unit-one-file.toml",
+            &format!(
+                "\
+[ports]
+one = 2
+[paths]
+base = '{base}'
+",
+                base = base.display()
+            ),
+        );
+        let home = out_dir().join("env-home");
+        let hermes = out_dir().join("env-hermes");
+        let settings = resolve(&env_from(&[
+            ("OPENMIND_CONFIG", path.to_str().unwrap()),
+            ("OPENMIND_PORTS_ONE", "8"),
+            ("OPENMIND_PATHS_BASE", "/tmp/openmind-base"),
+            ("ONE_BIND", "  127.0.0.1:18091  "),
+            ("ONE_MOUTH_BIND", "127.0.0.1:18091"),
+            ("GALION_HOME", home.to_str().unwrap()),
+            ("ONE_HERMES_DIR", hermes.to_str().unwrap()),
+        ]))
+        .unwrap();
+        assert_eq!(settings.bind, "127.0.0.1:18091");
+        assert_eq!(settings.mouth_bind, "127.0.0.1:18091");
+        assert_eq!(settings.mouth_port, 8002);
+        assert_eq!(settings.home, path_to_string(&home));
+        assert_eq!(settings.hermes_dir, path_to_string(&hermes));
+        assert_eq!(
+            settings.home_file("state/volume.json"),
+            path_to_string(&home.join("state/volume.json"))
+        );
+        assert_eq!(
+            settings.modes_path(),
+            path_to_string(&hermes.join("modes.json"))
+        );
+
+        let missing = out_dir().join("also-missing.toml");
+        let _ = std::fs::remove_file(&missing);
+        let from_env = resolve(&env_from(&[
+            ("OPENMIND_CONFIG", missing.to_str().unwrap()),
+            ("OPENMIND_PATHS_BASE", "/tmp/ignored"),
+            ("OPENMIND_PORTS_ONE", "1"),
+            ("GALION_HOME", "/tmp/one-home/"),
+            ("ONE_HERMES_DIR", "/tmp/one-hermes/"),
+        ]))
+        .unwrap();
+        assert_eq!(from_env.bind, DEFAULTS.bind);
+        assert_eq!(from_env.mouth_bind, DEFAULTS.mouth_bind);
+        assert_eq!(from_env.home, "/tmp/one-home/");
+        assert_eq!(
+            from_env.home_file("one/index.html"),
+            "/tmp/one-home/one/index.html"
+        );
+        assert_eq!(from_env.hermes_dir, "/tmp/one-hermes/");
+        assert_eq!(from_env.modes_path(), "/tmp/one-hermes/modes.json");
+
+        let blank_home = resolve(&env_from(&[
+            ("OPENMIND_CONFIG", missing.to_str().unwrap()),
+            ("GALION_HOME", ""),
+        ]))
+        .unwrap();
+        assert_eq!(blank_home.home, "");
+        assert_eq!(blank_home.home_file("one/lane"), "/one/lane");
+    }
+
+    #[test]
+    fn galion_mouth_wins_over_the_configured_port() {
+        let set = endpoint_from(
+            &env_from(&[("GALION_MOUTH", "127.0.0.1:18002")]),
+            "mouth",
+            DEFAULTS.mouth_port,
+        );
+        assert_eq!(set, "127.0.0.1:18002".parse().unwrap());
+        let blank = endpoint_from(
+            &env_from(&[("GALION_MOUTH", "   ")]),
+            "mouth",
+            DEFAULTS.mouth_port,
+        );
+        assert_eq!(blank, "127.0.0.1:8002".parse().unwrap());
+        let unset = endpoint_from(&env_from(&[]), "mouth", DEFAULTS.mouth_port);
+        assert!(unset.ip().is_loopback());
+        assert_eq!(unset.port(), 8002);
+    }
+
+    #[test]
+    fn bad_config_file_is_an_error() {
+        let path = write_fixture("unit-bad.toml", "[ports]\none = \"nope\"\n");
+        let err = resolve(&env_from(&[("OPENMIND_CONFIG", path.to_str().unwrap())])).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("unit-bad.toml"), "{msg}");
+    }
 }

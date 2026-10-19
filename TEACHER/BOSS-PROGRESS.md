@@ -71,3 +71,7 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T16:32:38+02:00 | B47 | grok-build | PASS 9/10 | personas/persona-plex-v1.toml crates/galleon-voice | traits only; reply length 1 or 2; 6 tests; lock not committed
 
 - 2026-10-19T16:33:18+02:00 | B24 | grok-build | PASS 9/10 | crates/openmind-survival | decide still suggestion-only; down text names what still works and what is paused
+
+- 2026-10-19T16:37:37+02:00 | WAVE | grok-build | started | B50 B54 B55 B57 B59 B62 B64 B65 GAIA-1 GAIA-2 | B06 still running on galion-one; B28 B30 skipped (sandbox dirty); B42 held (touches every rs file)
+
+- 2026-10-19T16:40:57+02:00 | B06 | grok-build | PASS 8/10 | crates/galion-one | config file supplies bind and state; missing file keeps 8091 and 8002; live /health unchanged; lock not committed

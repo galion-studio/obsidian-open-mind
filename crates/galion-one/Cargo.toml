@@ -11,3 +11,4 @@ name = "galion-one"
 path = "src/main.rs"
 
 [dependencies]
+openmind-config = { path = "../openmind-config" }

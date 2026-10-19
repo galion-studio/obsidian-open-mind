@@ -135,3 +135,5 @@
 - 2026-10-19T18:12:25+02:00 | PY-SCAN PASS: the scan found the word python in 7 crate files. Those files were left in place.
 
 - 2026-10-19T18:12:36+02:00 | SPDX-SCAN PASS: ten Rust files still lack an SPDX line. They were not edited.
+
+- 2026-10-19T18:12:36+02:00 | DISC-2 PASS: discovery already sends no packets. No code change.

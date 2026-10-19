@@ -191,3 +191,5 @@
 - 2026-10-19T18:32:21+02:00 | LINK-2 PASS: the watch decision writes a report and does not dial. Live link-watch was left running.
 
 - 2026-10-19T18:34:24+02:00 | TALK-2 PASS: a talk fixture stays text. It does not dial and it does not play audio.
+
+- 2026-10-19T18:37:42+02:00 | DEF-2 PASS: a defence decision stays a report. The live firewall was not changed.

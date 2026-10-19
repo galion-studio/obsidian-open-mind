@@ -213,3 +213,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:32:21+02:00 | LINK-2 | grok-build | PASS 9/10 | crates/link-watch | watch_decision is a report; no systemctl, spawn, or socket
 
 - 2026-10-19T18:34:24+02:00 | TALK-2 | grok-build | PASS 9/10 | crates/one-talk | fixture parses in memory; no socket and no playback
+
+- 2026-10-19T18:37:42+02:00 | DEF-2 | grok-build | PASS 9/10 | crates/one-defence | decide does not apply a firewall change, spawn iptables or nft, or open a socket

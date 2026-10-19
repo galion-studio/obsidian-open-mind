@@ -6,7 +6,13 @@
 //! Opens a SQLite file with a `file:...?mode=ro` URI and
 //! `SQLITE_OPEN_READ_ONLY`, then returns the newest `health_checks` row per
 //! service. The SQL is the defence.py statement. This crate never writes a
-//! database.
+//! database. [`decide`] turns those rows into a [`DefenceDecision`] note. The
+//! note does not apply a firewall change, spawn a firewall tool, or open a
+//! socket.
+
+mod decide;
+
+pub use decide::{decide, DefenceDecision, ServiceNote};
 
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;

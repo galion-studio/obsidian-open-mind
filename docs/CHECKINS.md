@@ -155,3 +155,5 @@
 - 2026-10-19T18:14:57+02:00 | LLAMA-2 PASS: llama does not require a GPU and does not spawn a process.
 
 - 2026-10-19T18:15:02+02:00 | CONFIG-2 PASS: a missing config file already returns the current defaults. No code change.
+
+- 2026-10-19T18:16:12+02:00 | FALL-2 PASS: a remote row loses to a CPU row. A pending row is never chosen.

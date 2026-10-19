@@ -183,3 +183,44 @@ fn sources_do_not_name_sockets_or_http_clients() {
         assert!(!manifest.contains(token), "{token} in Cargo.toml");
     }
 }
+
+#[test]
+fn remote_is_never_selected_when_cpu_local_exists() {
+    let rows = [
+        base("api", Kind::Remote),
+        base("cpu-local", Kind::CpuLocal),
+        base("api-later", Kind::Remote),
+    ];
+    let picked = select_provider(&rows, Capability::Llm).expect("cpu");
+    assert_eq!(picked.id, "cpu-local");
+    assert_eq!(picked.kind, Kind::CpuLocal);
+    assert!(std::ptr::eq(picked, &rows[1]));
+}
+
+#[test]
+fn pending_row_is_never_selected() {
+    for kind in [Kind::Gpu, Kind::Lan, Kind::CpuLocal, Kind::Remote] {
+        let mut row = base("pending-only", kind);
+        row.approval = Approval::Pending;
+        assert!(
+            select_provider(&[row], Capability::Llm).is_none(),
+            "pending {kind:?} must not be selected"
+        );
+    }
+
+    let mut pending_gpu = base("gpu-pending", Kind::Gpu);
+    pending_gpu.approval = Approval::Pending;
+    let mut pending_lan = base("lan-pending", Kind::Lan);
+    pending_lan.approval = Approval::Pending;
+    let mut pending_remote = base("api-pending", Kind::Remote);
+    pending_remote.approval = Approval::Pending;
+    let rows = [
+        pending_gpu,
+        pending_lan,
+        pending_remote,
+        base("cpu-local", Kind::CpuLocal),
+    ];
+    let picked = select_provider(&rows, Capability::Llm).expect("cpu");
+    assert_eq!(picked.id, "cpu-local");
+    assert_eq!(picked.approval, Approval::Approved);
+}

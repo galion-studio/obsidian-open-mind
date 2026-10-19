@@ -85,3 +85,5 @@
 - 2026-10-19T17:13:23+02:00 | B51 PASS: dist switch checklist written. Live One, desk, and link-watch were not switched.
 
 - 2026-10-19T17:13:23+02:00 | B66 PASS: legacy host table says retire and staged. DNS was not changed.
+
+- 2026-10-19T17:13:43+02:00 | HADES-1 PASS: approval gate stays dry-run. kill and rotate are refused. Nothing was executed.

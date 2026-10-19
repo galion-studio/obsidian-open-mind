@@ -107,3 +107,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:13:23+02:00 | B51 | grok-build | PASS 8/10 | docs/dist-switch.md | staged checklist; live bins differ from dist; nothing switched; /health 200
 
 - 2026-10-19T17:13:23+02:00 | B66 | grok-build | PASS 8/10 | docs/host-decisions.md | 33 legacy hosts retire, staged; live hosts left out; no DNS change
+
+- 2026-10-19T17:13:43+02:00 | HADES-1 | grok-build | PASS 9/10 | crates/hades-gate docs/hades-gate.md | dry-run default; kill and rotate refused; nothing executed

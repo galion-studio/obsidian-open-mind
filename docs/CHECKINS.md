@@ -214,3 +214,5 @@
 - 2026-10-19T18:45:34+02:00 | PY-2 PASS: the word python was listed. No interpreter was run.
 
 - 2026-10-19T18:46:29+02:00 | HEALTH-NOW PASS: three health reads recorded. Nothing was restarted.
+
+- 2026-10-19T18:48:43+02:00 | TIME-3 PASS: a Zulu timestamp is rejected. The clock stays on a Zagreb offset.

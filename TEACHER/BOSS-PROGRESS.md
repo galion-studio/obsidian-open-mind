@@ -36,3 +36,19 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T16:05:09+02:00 | B16 | grok-build | PASS 8/10 | scripts/no-python.sh | exit 0 on tree, exit 1 on fixture; ONE_LEGACY_PY still present until B14 lands
 - 2026-10-19T16:05:09+02:00 | B22 | grok-build | PASS 9/10 | docs/survival-audit.md | galion-one.service is enabled; the old no-unit gap is not the live state
 - 2026-10-19T16:05:09+02:00 | B23 | grok-build | PASS 9/10 | crates/openmind-survival | decide() suggestions only; lead retest this note
+
+- 2026-10-19T16:21:10+02:00 | B05 | grok-build | PASS 8/10 | crates/galion-desk | config when the file exists; missing file keeps 8646; live /health identical; RSS 2212 kB
+- 2026-10-19T16:21:10+02:00 | B07 | grok-build | PASS 8/10 | crates/openmind-schema | provider base_url from the config file; missing file keeps the two default URLs
+- 2026-10-19T16:21:10+02:00 | B14 | grok-build | PASS 9/10 | crates/galion-one | python TTS spawn removed; mouth 503 body unchanged
+- 2026-10-19T16:21:10+02:00 | B15 | grok-build | PASS 8/10 | crates/one-set-model | no caller of set-model.py or trace.py; crate returns JSON only
+- 2026-10-19T16:21:10+02:00 | B25 | grok-build | PASS 9/10 | crates/guardian-tick | JSONL off unless --jsonl or GUARDIAN_JSONL
+- 2026-10-19T16:21:10+02:00 | B29 | grok-build | PASS 8/10 | crates/cgroup-detect docs/cgroup-v2.md | read-only; no cgroup created
+- 2026-10-19T16:21:10+02:00 | B31 | grok-build | PASS 8/10 | deploy/sandbox/presets | three presets; sandbox crate not edited
+- 2026-10-19T16:21:10+02:00 | B32 | grok-build | PASS 9/10 | docs/lan-plugin.md | design only
+- 2026-10-19T16:21:10+02:00 | B34 | grok-build | PASS 8/10 | crates/openmind-provider | registry JSON; no network
+- 2026-10-19T16:21:10+02:00 | B36 | grok-build | PASS 9/10 | crates/openmind-llama | fixtures only
+- 2026-10-19T16:21:10+02:00 | B39 | grok-build | PASS 8/10 | docs/timestamps-audit.md | read-only list
+- 2026-10-19T16:21:10+02:00 | B40 | grok-build | PASS 9/10 | crates/openmind-nerve | JSONL writer; Zagreb ts
+- 2026-10-19T16:21:10+02:00 | B41 | grok-build | PASS 9/10 | docs/cortex.md | design only
+- 2026-10-19T16:21:10+02:00 | B46 | grok-build | PASS 9/10 | docs/voice-to-voice.md | design only
+- 2026-10-19T16:21:10+02:00 | B48 | grok-build | PASS 9/10 | docs/arena.md | paper score only

@@ -6,7 +6,7 @@ name = "guardian-tick"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Report-only guardian tick: runs a TOML probe set once via openmind-survival, writes a JSON report, optionally prints suggestions."
+description = "Report-only guardian tick: runs a TOML probe set once via openmind-survival, writes a JSON report, optionally prints suggestions. JSONL is off unless --jsonl PATH or GUARDIAN_JSONL is set."
 
 [dependencies]
 openmind-survival = { path = "../openmind-survival" }

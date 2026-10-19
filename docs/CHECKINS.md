@@ -28,3 +28,5 @@
 - 2026-10-19T16:05:09+02:00 | B16 PASS: no-python gate. Clean tree exit 0, fixture exit 1.
 - 2026-10-19T16:05:09+02:00 | B22 PASS: survival audit. galion-one is a real enabled unit now.
 - 2026-10-19T16:05:09+02:00 | B23 PASS: healer decide() is suggestions only.
+
+- 2026-10-19T16:21:10+02:00 | Wave 6/7 landed: B05 B07 B14 B15 B25 B29 B31 B32 B34 B36 B39 B40 B41 B46 B48. B35 still running. Lock not regenerated yet.

@@ -128,3 +128,117 @@ fn deploy_survival_probes_toml_parses() {
     let err = String::from_utf8_lossy(&o.stderr);
     assert_eq!(o.status.code(), Some(0), "{err}");
 }
+
+fn local_probes(dir: &std::path::Path) -> std::path::PathBuf {
+    std::fs::create_dir_all(dir).unwrap();
+    let p = dir.join("probes.toml");
+    std::fs::write(
+        &p,
+        "[[probe]]\nkind=\"mem\"\n[[probe]]\nkind=\"load\"\n[[probe]]\nkind=\"cloudflared\"\n",
+    )
+    .unwrap();
+    p
+}
+
+fn dir_names(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+#[test]
+fn default_run_writes_no_jsonl() {
+    let dir = tmp("b25-no-jsonl");
+    let _ = std::fs::remove_dir_all(&dir);
+    let probes = local_probes(&dir);
+    let out = dir.join("report.json");
+    let o = Command::new(BIN)
+        .args([
+            "--probes",
+            probes.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
+        .env_remove("GUARDIAN_JSONL")
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(0), "{err}");
+    assert_eq!(
+        dir_names(&dir),
+        vec!["probes.toml".to_string(), "report.json".to_string()]
+    );
+    assert!(!dir.join("report.jsonl").exists());
+}
+
+#[test]
+fn jsonl_flag_writes_one_line_per_probe() {
+    let dir = tmp("b25-jsonl");
+    let _ = std::fs::remove_dir_all(&dir);
+    let probes = local_probes(&dir);
+    let out = dir.join("report.json");
+    let jsonl = dir.join("events.jsonl");
+    let o = Command::new(BIN)
+        .args([
+            "--probes",
+            probes.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+            "--jsonl",
+            jsonl.to_str().unwrap(),
+        ])
+        .env_remove("GUARDIAN_JSONL")
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(0), "{err}");
+    let text = std::fs::read_to_string(&jsonl).unwrap();
+    let lines: Vec<&str> = text.lines().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 3, "{text}");
+    let report: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+    let results = report["results"].as_array().unwrap();
+    assert_eq!(results.len(), 3);
+    for (row, line) in results.iter().zip(lines.iter()) {
+        let v: serde_json::Value = serde_json::from_str(line).unwrap();
+        assert_eq!(&v["name"], &row["name"]);
+        assert_eq!(&v["ok"], &row["ok"]);
+        assert_eq!(&v["detail"], &row["detail"]);
+        assert_eq!(&v["ts"], &row["ts"]);
+        assert_eq!(v.as_object().unwrap().len(), 4, "{v}");
+        let ts = v["ts"].as_str().unwrap();
+        assert!(ts.ends_with("+01:00") || ts.ends_with("+02:00"), "{ts}");
+        assert!(!ts.ends_with('Z'), "{ts}");
+        assert!(!ts.contains("+00:00"), "{ts}");
+    }
+}
+
+#[test]
+fn jsonl_env_writes_one_line_per_probe() {
+    let dir = tmp("b25-jsonl-env");
+    let _ = std::fs::remove_dir_all(&dir);
+    let probes = local_probes(&dir);
+    let out = dir.join("report.json");
+    let jsonl = dir.join("env.jsonl");
+    let o = Command::new(BIN)
+        .args([
+            "--probes",
+            probes.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
+        .env("GUARDIAN_JSONL", jsonl.as_os_str())
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(0), "{err}");
+    let n = std::fs::read_to_string(&jsonl)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.is_empty())
+        .count();
+    assert_eq!(n, 3);
+}

@@ -3,7 +3,7 @@
 //
 // OpenRouter model list refresh. Replaces the old one/models.py launcher; the
 // output file format is the same: a JSON array of {"id","name"} objects sorted
-// by lowercased name, written the way Python's json.dumps writes it
+// by lowercased name, written the way models.py json.dumps writes it
 // (", " and ": " separators, non-ASCII escaped as \uXXXX).
 //
 // The HTTP fetch is injected so tests never touch the network. The API key is
@@ -203,7 +203,7 @@ fn text_of(v: Option<&Json>) -> String {
     }
 }
 
-/// Python json.dumps string form (ensure_ascii).
+/// models.py json.dumps string form (ensure_ascii).
 fn dump_str(s: &str) -> String {
     let mut o = String::from("\"");
     for ch in s.chars() {

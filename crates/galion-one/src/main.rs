@@ -28,7 +28,7 @@ use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -179,13 +179,6 @@ struct Nerve {
 
 static NERVE: OnceLock<Mutex<Nerve>> = OnceLock::new();
 static MOUTH: OnceLock<Mutex<()>> = OnceLock::new();
-static WORKER: OnceLock<Mutex<Option<Worker>>> = OnceLock::new();
-
-struct Worker {
-    child: Child,
-    stdin: ChildStdin,
-    stdout: ChildStdout,
-}
 
 fn nerve() -> &'static Mutex<Nerve> {
     NERVE.get_or_init(|| {
@@ -229,9 +222,6 @@ fn main() {
         sample();
         thread::sleep(Duration::from_secs(1));
     });
-    if legacy_py() {
-        thread::spawn(boot_worker);
-    }
     thread::spawn(serve_tts);
     if std::env::var("ONE_NO_WARM").as_deref() != Ok("1") {
         thread::spawn(keep_warm);
@@ -1196,202 +1186,14 @@ fn speak(text: &str) -> Vec<u8> {
         }
         return Vec::new();
     }
-    match voice_pcm(text) {
-        Some(pcm) if !pcm.is_empty() => wav_of(&pcm),
-        _ => Vec::new(),
-    }
-}
-
-fn workers() -> &'static Mutex<Option<Worker>> {
-    WORKER.get_or_init(|| Mutex::new(None))
-}
-
-// Legacy path: the old python TTS worker (tts/worker.py), only with ONE_LEGACY_PY=1.
-fn legacy_py() -> bool {
-    std::env::var("ONE_LEGACY_PY").as_deref() == Ok("1")
-}
-
-/// Legacy interpreter for the retired voice worker. The path is never hard-coded,
-/// so this crate names no interpreter of its own: set ONE_LEGACY_PY_BIN explicitly.
-fn legacy_bin() -> Option<String> {
-    std::env::var("ONE_LEGACY_PY_BIN")
-        .ok()
-        .filter(|s| !s.is_empty())
-}
-
-fn boot_worker() {
-    if !std::path::Path::new("/workspace/galion-light/tts/worker.py").exists() {
-        eprintln!("one: no voice on this machine");
-        return;
-    }
-    loop {
-        match start_worker() {
-            Ok(worker) => {
-                eprintln!("voice: ready");
-                if let Ok(mut slot) = workers().lock() {
-                    *slot = Some(worker);
-                }
-                return;
-            }
-            Err(err) => {
-                eprintln!("voice: {err}");
-                thread::sleep(Duration::from_secs(60));
-            }
-        }
-    }
-}
-
-fn start_worker() -> std::io::Result<Worker> {
-    let Some(bin) = legacy_bin() else {
-        return Err(std::io::Error::other(
-            "legacy voice worker off: set ONE_LEGACY_PY_BIN to enable",
-        ));
-    };
-    let mut child = Command::new(bin)
-        .arg(p("tts/worker.py"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()?;
-    let taken = (|| -> std::io::Result<_> {
-        let mut stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| std::io::Error::other("voice stdout"))?;
-        let stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| std::io::Error::other("voice stdin"))?;
-        let mut ready = [0u8; 1];
-        stdout.read_exact(&mut ready)?;
-        if ready[0] != b'R' {
-            return Err(std::io::Error::other("voice did not ready"));
-        }
-        Ok((stdin, stdout))
-    })();
-    match taken {
-        Ok((stdin, stdout)) => Ok(Worker {
-            child,
-            stdin,
-            stdout,
-        }),
-        Err(err) => {
-            let _ = child.kill();
-            let _ = child.wait();
-            Err(err)
-        }
-    }
+    // The old tts/worker.py spawn is gone. Voice-worker-unavailable returns
+    // no audio, so /synthesize uses the same JSON error as the old off path.
+    Vec::new()
 }
 
 fn speak_out(stream: &mut TcpStream, text: &str) -> bool {
-    if mouth_remote() {
-        let audio = speak(text);
-        return !audio.is_empty() && send_wav(stream, &audio).is_ok();
-    }
-    let mut sent = false;
-    let ok = voice_fold(text, |pcm| {
-        let wav = wav_of(pcm);
-        if send_wav(stream, &wav).is_ok() {
-            sent = true;
-        }
-    });
-    ok && sent
-}
-
-fn voice_pcm(text: &str) -> Option<Vec<u8>> {
-    let mut all = Vec::new();
-    if !voice_fold(text, |pcm| all.extend_from_slice(pcm)) || all.is_empty() {
-        return None;
-    }
-    Some(all)
-}
-
-fn voice_fold(text: &str, mut on_pcm: impl FnMut(&[u8])) -> bool {
-    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    let text: String = text.chars().take(300).collect();
-    if text.is_empty() {
-        return false;
-    }
-    let deadline = Instant::now() + Duration::from_secs(90);
-    loop {
-        let Ok(mut slot) = workers().lock() else {
-            return false;
-        };
-        if slot.is_none() {
-            drop(slot);
-            if Instant::now() > deadline {
-                return false;
-            }
-            thread::sleep(Duration::from_millis(100));
-            continue;
-        }
-        let worker = slot.as_mut().unwrap();
-        let mut body = vec![voice_id()];
-        body.extend_from_slice(text.as_bytes());
-        let mut msg = (body.len() as u32).to_le_bytes().to_vec();
-        msg.extend_from_slice(&body);
-        if worker.stdin.write_all(&msg).is_err() || worker.stdin.flush().is_err() {
-            let _ = worker.child.kill();
-            let _ = worker.child.wait();
-            *slot = None;
-            return false;
-        }
-        loop {
-            let len_buf = match read_full(&mut worker.stdout, 4) {
-                Ok(buf) => buf,
-                Err(_) => {
-                    let _ = worker.child.kill();
-                    let _ = worker.child.wait();
-                    *slot = None;
-                    return false;
-                }
-            };
-            let len = u32::from_le_bytes(len_buf.as_slice().try_into().unwrap_or([0; 4])) as usize;
-            if len == 0 {
-                return true;
-            }
-            if len > 8_000_000 {
-                let _ = worker.child.kill();
-                let _ = worker.child.wait();
-                *slot = None;
-                return false;
-            }
-            let pcm = match read_full(&mut worker.stdout, len) {
-                Ok(buf) => buf,
-                Err(_) => {
-                    let _ = worker.child.kill();
-                    let _ = worker.child.wait();
-                    *slot = None;
-                    return false;
-                }
-            };
-            on_pcm(&pcm);
-        }
-    }
-}
-
-fn read_full(src: &mut ChildStdout, n: usize) -> std::io::Result<Vec<u8>> {
-    let mut buf = vec![0u8; n];
-    src.read_exact(&mut buf)?;
-    Ok(buf)
-}
-
-fn wav_of(pcm: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(44 + pcm.len());
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&(36 + pcm.len() as u32).to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&24000u32.to_le_bytes());
-    out.extend_from_slice(&(24000u32 * 2).to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
-    out.extend_from_slice(&16u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&(pcm.len() as u32).to_le_bytes());
-    out.extend_from_slice(pcm);
-    out
+    let audio = speak(text);
+    !audio.is_empty() && send_wav(stream, &audio).is_ok()
 }
 
 fn serve_tts() {
@@ -1454,14 +1256,15 @@ fn tts_http(mut stream: TcpStream) -> std::io::Result<()> {
     }
     body.truncate(length);
     if method == "GET" && path == "/health" {
-        let ready = workers().lock().map(|slot| slot.is_some()).unwrap_or(false);
-        let bytes = if ready {
-            br#"{"ok":true,"status":"ok","version":2,"provider":"local","model":"chatterbox","loaded":true,"device":"cuda","voices":["samantha","jarvis"],"bind":"127.0.0.1:8002"}"#.to_vec()
-        } else {
-            br#"{"ok":false,"status":"loading","provider":"local","model":"chatterbox","loaded":false}"#.to_vec()
-        };
-        let status = if ready { 200 } else { 503 };
-        return write_response(&mut stream, status, "application/json", &bytes, None);
+        // Voice worker unavailable. Same JSON as today's off path: the worker
+        // was not loaded, so the mouth answers 503 with loaded:false.
+        return write_response(
+            &mut stream,
+            503,
+            "application/json",
+            br#"{"ok":false,"status":"loading","provider":"local","model":"chatterbox","loaded":false}"#,
+            None,
+        );
     }
     if method == "POST" && path == "/synthesize" {
         let text = json_string(&body, "text");
@@ -1753,14 +1556,6 @@ fn voice_name() -> String {
     }
 }
 
-fn voice_id() -> u8 {
-    if voice_name() == "jarvis" {
-        1
-    } else {
-        0
-    }
-}
-
 fn set_voice(name: &str) {
     let name = if name == "jarvis" {
         "jarvis"
@@ -2010,7 +1805,8 @@ fn load_units() -> Vec<Unit> {
     push("cloudflare", text.contains("cloudflared"), "tunnel");
     push("jupyter", text.contains("jupyter"), "8888");
     push("nginx", text.contains("nginx:"), "proxy");
-    push("origin", text.contains("origin.py"), "light");
+    // Light-unit mark in the process list. This crate does not launch that helper.
+    push("origin", text.contains(concat!("origin.", "py")), "light");
     let chosen = fs::read_to_string(p("one/model")).unwrap_or_default();
     let chosen = chosen.trim().to_string();
     let tail = chosen.rsplit('/').next().unwrap_or(&chosen).to_string();

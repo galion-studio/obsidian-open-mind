@@ -77,3 +77,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T16:40:57+02:00 | B06 | grok-build | PASS 8/10 | crates/galion-one | config file supplies bind and state; missing file keeps 8091 and 8002; live /health unchanged; lock not committed
 
 - 2026-10-19T16:42:27+02:00 | B65 | grok-build | PASS 8/10 | crates/persona-plex-relay | already built; 24 tests; stripped 390368 B; RSS 1536 kB; default run sends no packets; now tracked
+
+- 2026-10-19T16:42:28+02:00 | B64 | grok-build | PASS 8/10 | docs/legacy-archive.md | 140 paths listed; 4 secret dirs skipped; nothing deleted

@@ -55,3 +55,5 @@
 - 2026-10-19T16:40:57+02:00 | B06 PASS: galion-one reads bind and state from the config file when it exists. A missing file keeps today's ports. Live One was not restarted.
 
 - 2026-10-19T16:42:27+02:00 | B65 PASS: persona-plex-relay is tracked. A no-flag run reads no socket and no secret. It exits 1 until a config file is present.
+
+- 2026-10-19T16:42:28+02:00 | B64 PASS: archive list written. Nothing was deleted.

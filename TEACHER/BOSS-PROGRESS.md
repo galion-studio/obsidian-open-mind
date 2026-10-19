@@ -103,3 +103,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T17:12:30+02:00 | B61 | grok-build | PASS 8/10 | docs/console-prod.md | staged checklist; 8080/health is 404; vite still running; not switched
 
 - 2026-10-19T17:12:58+02:00 | B60 | grok-build | PASS 8/10 | docs/memory-shadow.md | shadow plan only; live gateway not called; switch not done
+
+- 2026-10-19T17:13:23+02:00 | B51 | grok-build | PASS 8/10 | docs/dist-switch.md | staged checklist; live bins differ from dist; nothing switched; /health 200

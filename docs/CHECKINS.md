@@ -169,3 +169,5 @@
 - 2026-10-19T18:22:38+02:00 | SURV-2 PASS: a down probe stays a suggestion. It does not restart anything.
 
 - 2026-10-19T18:22:54+02:00 | UNITS-2 PASS: staged unit text has no install section. Nothing was installed.
+
+- 2026-10-19T18:23:09+02:00 | SPEECH-2 PASS: whisper and piper fixtures do not spawn or dial. GPU stays false.

@@ -370,3 +370,83 @@ fn crate_source_has_no_process_or_client() {
     assert!(src.contains("fn uses_gpu"));
     assert!(src.contains("USES_GPU"));
 }
+
+#[test]
+fn parsing_a_fixture_does_not_use_a_gpu_spawn_or_open_a_socket() {
+    let before_fd = fd_targets();
+    let before_sockets = socket_fds(&before_fd);
+    assert!(!before_fd.is_empty(), "proc fd table was not readable");
+    let before_children = child_pids();
+
+    let stt = whisper();
+    assert!(!stt.uses_gpu());
+    assert_eq!(stt.uses_gpu(), USES_GPU);
+    let heard = stt
+        .parse_whisper(include_str!("../fixtures/whisper_cli.json"))
+        .unwrap();
+    assert!(!heard.text.is_empty());
+    assert!(!stt.uses_gpu());
+    assert!(!stt.spawns_process());
+    assert!(!stt.dials_network());
+
+    let tts = piper();
+    assert!(!tts.uses_gpu());
+    let report = tts
+        .parse_piper_log(include_str!("../fixtures/piper_log.txt"))
+        .unwrap();
+    assert!(!report.real_time_factor.is_empty());
+    assert!(!tts.uses_gpu());
+    assert!(!tts.spawns_process());
+    assert!(!tts.dials_network());
+
+    let src = include_str!("../src/lib.rs");
+    for banned in [
+        "std::process",
+        "std::net",
+        "Command::",
+        ".spawn(",
+        "TcpStream",
+        "TcpListener",
+        "UdpSocket",
+    ] {
+        assert!(!src.contains(banned), "{banned}");
+    }
+
+    let after_fd = fd_targets();
+    assert_eq!(before_sockets, socket_fds(&after_fd));
+    assert_eq!(before_fd, after_fd);
+    assert_eq!(before_children, child_pids());
+}
+
+fn socket_fds(targets: &[String]) -> Vec<String> {
+    targets
+        .iter()
+        .filter(|target| target.starts_with("socket:"))
+        .cloned()
+        .collect()
+}
+
+fn fd_targets() -> Vec<String> {
+    let mut names = Vec::new();
+    let dir = std::fs::read_dir("/proc/self/fd").expect("fd");
+    for entry in dir.flatten() {
+        if let Ok(target) = std::fs::read_link(entry.path()) {
+            names.push(target.to_string_lossy().into_owned());
+        }
+    }
+    names.sort();
+    names
+}
+
+fn child_pids() -> Vec<String> {
+    let mut kids = Vec::new();
+    let dir = std::fs::read_dir("/proc/self/task").expect("task");
+    for entry in dir.flatten() {
+        let Ok(text) = std::fs::read_to_string(entry.path().join("children")) else {
+            continue;
+        };
+        kids.extend(text.split_whitespace().map(str::to_owned));
+    }
+    kids.sort();
+    kids
+}

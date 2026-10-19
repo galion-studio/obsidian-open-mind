@@ -12,11 +12,13 @@
 #![forbid(unsafe_code)]
 
 mod bout;
+mod cli;
 mod gladiator;
 mod load;
 mod paper;
 
 pub use bout::{BoutError, Match};
+pub use cli::{dispatch, read_zagreb_now, render_list, CliError, CliOut, ListError, USAGE};
 pub use gladiator::{Gladiator, Kind};
 pub use load::{load_seed, redacted_homes, LoadError, SEED_IDS, SEED_TEAM_ID};
 pub use paper::{score_match, Board, Score, ScoreError, SeatReport};

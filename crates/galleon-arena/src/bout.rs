@@ -120,7 +120,7 @@ impl Match {
 
 /// `YYYY-MM-DDTHH:MM:SS` with an optional fraction, then `+01:00` or `+02:00`.
 /// Rejects `Z` and `+00:00`.
-fn zagreb_stamp(at: &str) -> bool {
+pub(crate) fn zagreb_stamp(at: &str) -> bool {
     if at.contains('Z') || at.contains('z') || at.contains("+00:00") {
         return false;
     }

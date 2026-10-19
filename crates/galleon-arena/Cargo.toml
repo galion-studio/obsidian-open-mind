@@ -6,6 +6,10 @@ name = "galleon-arena"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Read-only paper arena: load seed gladiators and score a match. Paper integers only. No network."
+description = "Read-only paper arena: list seed gladiators and score a match. Paper integers only. No network."
+
+[[bin]]
+name = "galleon-arena"
+path = "src/main.rs"
 
 [dependencies]

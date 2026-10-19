@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+
 //! The contract for the Obsidian desk.
 //!
 //! The processor owns the loop, the skills, the memory, and the key box.
@@ -619,6 +622,33 @@ base_url = "http://extra.example.invalid/v1"
         let raw = serde_json::to_string(&event).unwrap();
         assert!(!raw.contains("sk-"), "{raw}");
         let back: NerveEvent = serde_json::from_str(&raw).unwrap();
+        assert_eq!(event, back);
+    }
+
+    /// Boot hardware JSON is the existing nerve event.
+    ///
+    /// Object keys are `ts`, `source` `boot`, `kind` `hardware`,
+    /// `severity` `info`, and `data`. Parsing uses [`NerveEvent`] as it
+    /// stands. This test does not change that contract.
+    #[test]
+    fn nerve_event_parses_boot_hardware() {
+        let raw = "{\n  \"ts\": \"2026-10-19T16:45:00+02:00\",\n  \"source\": \"boot\",\n  \"kind\": \"hardware\",\n  \"severity\": \"info\",\n  \"data\": {\n    \"cpu\": {\n      \"processors\": 4,\n      \"model\": \"Test CPU\"\n    },\n    \"ram\": {\n      \"total_mib\": 8192,\n      \"free_mib\": 4096\n    },\n    \"gpu\": {\n      \"status\": \"absent\",\n      \"count\": 0\n    }\n  }\n}\n";
+        let event: NerveEvent = serde_json::from_str(raw).expect("boot hardware nerve");
+        assert_eq!(event.ts, "2026-10-19T16:45:00+02:00");
+        assert!(is_zagreb_rfc3339(&event.ts), "{}", event.ts);
+        assert_eq!(event.source, "boot");
+        assert_eq!(event.kind, "hardware");
+        assert_eq!(event.severity, "info");
+        assert_eq!(event.data["cpu"]["processors"], 4);
+        assert_eq!(event.data["cpu"]["model"], "Test CPU");
+        assert_eq!(event.data["ram"]["total_mib"], 8192);
+        assert_eq!(event.data["ram"]["free_mib"], 4096);
+        assert_eq!(event.data["gpu"]["status"], "absent");
+        assert_eq!(event.data["gpu"]["count"], 0);
+        let again = serde_json::to_string(&event).unwrap();
+        assert!(!again.contains("sk-"), "{again}");
+        assert!(!again.contains("+00:00"), "{again}");
+        let back: NerveEvent = serde_json::from_str(&again).unwrap();
         assert_eq!(event, back);
     }
 }

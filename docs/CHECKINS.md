@@ -145,3 +145,5 @@
 - 2026-10-19T18:13:03+02:00 | ORIGIN-WIRE PASS: the origin redirect is not wired into One. Nothing was bound on 80 or 443.
 
 - 2026-10-19T18:13:41+02:00 | STAGED-NOW PASS: rendered units are still staged. One, desk, link-watch, and tuner were not switched.
+
+- 2026-10-19T18:14:01+02:00 | SCHEMA-2 PASS: a boot hardware event parses as the existing nerve type. The parser was not changed.

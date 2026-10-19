@@ -167,3 +167,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:13:03+02:00 | ORIGIN-WIRE | grok-build | PASS 8/10 | docs/origin-wire.md | galion-one does not call origin; port 443 unchanged
 
 - 2026-10-19T18:13:41+02:00 | STAGED-NOW | grok-build | PASS 8/10 | docs/staged-not-live.md | four rendered units not installed; live pids unchanged
+
+- 2026-10-19T18:14:01+02:00 | SCHEMA-2 | grok-build | PASS 9/10 | crates/openmind-schema | boot hardware JSON parses as NerveEvent; production parse unchanged

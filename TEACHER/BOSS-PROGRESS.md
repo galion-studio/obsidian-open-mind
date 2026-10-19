@@ -175,3 +175,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T18:14:46+02:00 | MCP-2 | grok-build | PASS 8/10 | docs/mcp-gap.md | ALREADY; tools/list is only stack_status; handle_bytes opens no descriptor
 
 - 2026-10-19T18:14:57+02:00 | LLAMA-2 | grok-build | PASS 9/10 | crates/openmind-llama | GPU requirement false; spawns_process false; no llama.cpp vendor
+
+- 2026-10-19T18:15:02+02:00 | CONFIG-2 | grok-build | PASS 8/10 | docs/config-gap.md | ALREADY; missing file returns defaults; no secret read

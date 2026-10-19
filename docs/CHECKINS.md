@@ -153,3 +153,5 @@
 - 2026-10-19T18:14:46+02:00 | MCP-2 PASS: the MCP stack already lists one local tool and does not open a socket. No code change.
 
 - 2026-10-19T18:14:57+02:00 | LLAMA-2 PASS: llama does not require a GPU and does not spawn a process.
+
+- 2026-10-19T18:15:02+02:00 | CONFIG-2 PASS: a missing config file already returns the current defaults. No code change.

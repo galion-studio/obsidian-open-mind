@@ -50,21 +50,24 @@ fn a2_unrelated_sleep_survives() {
 
 #[test]
 fn group_kill_leaves_no_grandchild() {
+    // A PID namespace hides real pids, so look for a unique argv instead.
     let mut p = pol("grp");
     p.wall_timeout = Duration::from_secs(1);
-    let o = run(&s(&["/bin/sh", "-c", "sleep 31 & echo $! ; wait"]), &p);
+    let o = run(&s(&["/bin/sh", "-c", "sleep 3171 & wait"]), &p);
     assert!(o.timed_out);
-    let pid: i32 = o.stdout_str().trim().parse().unwrap();
-    std::thread::sleep(Duration::from_millis(200));
-    // SAFETY: signal 0 probe of a pid we learned from our own child's output.
-    let alive = unsafe { libc_kill0(pid) };
-    assert!(!alive, "grandchild still alive");
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!sleep_alive("3171"), "grandchild still alive");
 }
-unsafe fn libc_kill0(pid: i32) -> bool {
-    std::path::Path::new(&format!("/proc/{pid}")).exists() && {
-        let st = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
-        !st.contains(") Z ") // zombie awaiting init reaping counts as dead
-    }
+
+/// Is a non-zombie `sleep <arg>` running anywhere on the host?
+fn sleep_alive(arg: &str) -> bool {
+    let want = format!("sleep\0{arg}\0");
+    std::fs::read_dir("/proc").unwrap().flatten().any(|e| {
+        let d = e.path();
+        let cmd = std::fs::read(d.join("cmdline")).unwrap_or_default();
+        let st = std::fs::read_to_string(d.join("stat")).unwrap_or_default();
+        cmd.ends_with(want.as_bytes()) && !st.contains(") Z ")
+    })
 }
 
 #[test]
@@ -183,7 +186,16 @@ fn f_enforced_report() {
     assert_eq!(o.layer("rlimits"), Some(&Enforcement::Enforced));
     assert_eq!(o.layer("env"), Some(&Enforcement::Enforced));
     assert_eq!(o.layer("workdir"), Some(&Enforcement::Enforced));
-    assert!(matches!(o.layer("net"), Some(Enforcement::NotEnforced(_))));
+    for l in LAYERS {
+        assert!(o.layer(l).is_some(), "missing layer {l}");
+    }
+    assert_eq!(o.layer("no_new_privs"), Some(&Enforcement::Enforced));
+    // net is Enforced only with a netns; otherwise it must say why.
+    match o.layer("net") {
+        Some(Enforcement::Enforced) => assert!(o.enforced("userns") || o.enforced("net")),
+        Some(Enforcement::NotEnforced(why)) => assert!(!why.is_empty()),
+        None => unreachable!(),
+    }
     match landlock_abi() {
         None => assert!(matches!(
             o.layer("landlock"),
@@ -191,4 +203,181 @@ fn f_enforced_report() {
         )),
         Some(_) => assert_eq!(o.layer("landlock"), Some(&Enforcement::Enforced)),
     }
+}
+
+fn sh(script: &str, p: &SandboxPolicy) -> Outcome {
+    run(&s(&["/bin/sh", "-c", script]), p)
+}
+fn status_field(o: &Outcome, key: &str) -> String {
+    o.stdout_str()
+        .lines()
+        .find_map(|l| l.strip_prefix(key).map(|v| v.trim().to_string()))
+        .unwrap_or_default()
+}
+fn report(o: &Outcome) {
+    for (l, e) in &o.enforced {
+        println!("{l}: {e:?}");
+    }
+}
+
+#[test]
+fn g_no_new_privs_always() {
+    let o = sh("cat /proc/self/status", &pol("nnp"));
+    assert_eq!(status_field(&o, "NoNewPrivs:"), "1", "{o:?}");
+    assert!(o.enforced("no_new_privs"));
+}
+
+#[test]
+fn h_caps_dropped_when_enforced() {
+    let o = sh("cat /proc/self/status", &pol("caps"));
+    report(&o);
+    if o.enforced("caps") {
+        assert_eq!(status_field(&o, "CapEff:"), "0000000000000000");
+        assert_eq!(status_field(&o, "CapPrm:"), "0000000000000000");
+        if o.enforced("userns") || euid() == 0 {
+            assert_eq!(status_field(&o, "CapBnd:"), "0000000000000000");
+        }
+    }
+}
+fn euid() -> u32 {
+    std::fs::read_to_string("/proc/self/status")
+        .unwrap_or_default()
+        .lines()
+        .find_map(|l| l.strip_prefix("Uid:"))
+        .and_then(|v| v.split_whitespace().nth(1).map(|x| x.parse().unwrap_or(1)))
+        .unwrap_or(1)
+}
+
+#[test]
+fn i_pid_namespace_hides_and_protects_others() {
+    let mut bystander = std::process::Command::new("/bin/sleep")
+        .arg("3172")
+        .spawn()
+        .unwrap();
+    let script = format!("echo $$; kill -0 {} && echo REACHED", bystander.id());
+    let o = sh(&script, &pol("pidns"));
+    report(&o);
+    if o.enforced("pidns") {
+        assert_eq!(o.stdout_str().lines().next(), Some("1"), "{o:?}");
+        assert!(!o.stdout_str().contains("REACHED"), "{o:?}");
+    } else {
+        println!("skipped: pidns not enforced here");
+    }
+    assert!(bystander.try_wait().unwrap().is_none());
+    bystander.kill().ok();
+    bystander.wait().ok();
+}
+
+#[test]
+fn j_net_namespace_has_only_lo() {
+    let o = sh("cat /proc/net/dev", &pol("netns"));
+    if o.enforced("net") {
+        let ifs: Vec<String> = o
+            .stdout_str()
+            .lines()
+            .skip(2)
+            .filter_map(|l| l.split(':').next().map(|x| x.trim().to_string()))
+            .collect();
+        assert_eq!(ifs, vec!["lo".to_string()], "{o:?}");
+    } else {
+        println!("skipped: net not enforced: {:?}", o.layer("net"));
+    }
+}
+
+#[test]
+fn k_ro_root_keeps_only_workdir_writable() {
+    let p = pol("ro");
+    let outside = wd("ro_outside").join("x");
+    let _ = std::fs::remove_file(&outside);
+    let script = format!(
+        "echo a > {} 2>/dev/null && echo OUT; echo b > inside && echo IN",
+        outside.display()
+    );
+    let o = sh(&script, &p);
+    report(&o);
+    assert!(
+        o.stdout_str().contains("IN"),
+        "workdir must stay writable: {o:?}"
+    );
+    if o.enforced("ro_root") {
+        assert!(!o.stdout_str().contains("OUT"), "{o:?}");
+        assert!(!outside.exists());
+    } else {
+        println!("skipped: ro_root not enforced: {:?}", o.layer("ro_root"));
+    }
+}
+
+#[test]
+fn l_hide_paths_masks_secrets() {
+    let secret_dir = wd("hide_me");
+    std::fs::write(secret_dir.join("key"), "top-secret").unwrap();
+    let mut p = pol("hide");
+    p.hide_paths = vec![secret_dir.clone()];
+    let o = sh(&format!("cat {}/key", secret_dir.display()), &p);
+    if o.enforced("hide_home") {
+        assert!(!o.stdout_str().contains("top-secret"), "{o:?}");
+    } else {
+        println!("skipped: hide not enforced: {:?}", o.layer("hide_home"));
+    }
+    // hiding a dir that contains the work dir is refused, not applied
+    let mut p = pol("hide2");
+    p.hide_paths = vec![p.workdir.parent().unwrap().to_path_buf()];
+    let o = sh("echo ok > f && cat f", &p);
+    assert_eq!(o.stdout_str().trim(), "ok", "{o:?}");
+    assert!(!o.enforced("hide_home"));
+}
+
+#[test]
+fn m_namespaces_off_is_reported() {
+    let mut p = pol("nons");
+    p.namespaces = false;
+    let o = run(&s(&["/bin/true"]), &p);
+    assert_eq!(o.status, Status::Exited(0));
+    for l in ["userns", "pidns", "mountns", "ro_root"] {
+        assert!(!o.enforced(l), "{l} must not be enforced");
+    }
+    assert!(matches!(o.layer("userns"), Some(Enforcement::NotEnforced(w)) if w.contains("policy")));
+}
+
+#[test]
+fn n_require_net_isolation_fails_closed() {
+    let mut p = pol("reqnet");
+    p.namespaces = false;
+    p.landlock = false;
+    p.require_net_isolation = true;
+    let o = run(&s(&["/bin/echo", "should-not-run"]), &p);
+    assert_eq!(o.status, Status::Error, "{o:?}");
+    assert!(!o.stdout_str().contains("should-not-run"));
+    // with namespaces allowed it runs if the platform can isolate
+    p.namespaces = true;
+    let o = run(&s(&["/bin/echo", "ran"]), &p);
+    if o.enforced("net") {
+        assert_eq!(o.stdout_str(), "ran\n");
+    } else {
+        assert_eq!(o.status, Status::Error);
+    }
+}
+
+#[test]
+fn o_exit_code_passes_through_supervisor() {
+    let o = sh("exit 7", &pol("exit7"));
+    assert_eq!(o.status, Status::Exited(7));
+}
+
+#[test]
+fn p_features_probe_is_stable() {
+    let a = features();
+    let b = features();
+    assert_eq!(a, b);
+    println!("{a:?}");
+}
+
+#[test]
+fn q_output_cap_configurable() {
+    let mut p = pol("cap2");
+    p.output_cap = 100;
+    let o = sh("head -c 5000 /dev/zero | tr '\\0' a; echo err >&2", &p);
+    assert_eq!(o.stdout.len(), 100);
+    assert!(o.stdout_truncated);
+    assert!(!o.stderr_truncated);
 }

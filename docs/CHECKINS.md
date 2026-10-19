@@ -193,3 +193,5 @@
 - 2026-10-19T18:34:24+02:00 | TALK-2 PASS: a talk fixture stays text. It does not dial and it does not play audio.
 
 - 2026-10-19T18:37:42+02:00 | DEF-2 PASS: a defence decision stays a report. The live firewall was not changed.
+
+- 2026-10-19T18:40:21+02:00 | SAND-2 PASS: a sandbox preset stays data. It was not applied to a live service.

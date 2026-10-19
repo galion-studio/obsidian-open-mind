@@ -64,3 +64,6 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T16:29:58+02:00 | B43 | grok-build | PASS 8/10 | scripts/self-check.sh | light mode exit 0; cargo only when SELF_CHECK_FULL=1
 
 - 2026-10-19T16:31:26+02:00 | B37 | grok-build | PASS 9/10 | crates/openmind-exo docs/exo-adapter.md | fixtures only; uses_linux_gpu is false; 12 tests; lock not touched
+
+- 2026-10-19T16:31:49+02:00 | B33 | grok-build | PASS 9/10 | crates/openmind-schema | NerveEvent Zagreb ts; DST 2026-10-25 covered; B07 urls kept
+- 2026-10-19T16:31:49+02:00 | B49 | grok-build | PASS 8/10 | crates/galleon-arena | paper score; homes read-only; 16 tests; no money

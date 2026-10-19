@@ -4,9 +4,12 @@
 //! Video memory is only for a model. A provider is an adapter, not a secret.
 //! `Stack::cpu_desk` builds provider `base_url` values from the OpenMind
 //! config provider list instead of a fixed pair.
+//! A [`NerveEvent`] is one nerve firing: `ts`, `source`, `kind`, `severity`,
+//! and `data`. `ts` is Europe/Zagreb RFC 3339 from `zagreb-time`.
 
 use openmind_config::{Config, ConfigError};
-use serde::{Deserialize, Serialize};
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -16,6 +19,129 @@ use std::path::{Path, PathBuf};
 /// never `Z`). The schema re-exports it so consumers of the contract get the
 /// one shared time helper without a second dependency line.
 pub use zagreb_time as time;
+
+/// One nerve firing.
+///
+/// `ts` is Europe/Zagreb RFC 3339, seconds precision, with an explicit numeric
+/// offset (`+02:00` in summer, `+01:00` in winter). Never `Z`, never `+00:00`.
+/// [`NerveEvent::now`] and [`NerveEvent::at_unix`] stamp it through [`time`]
+/// (`zagreb-time`). `data` is a JSON value, usually an object of counts and
+/// short tokens.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NerveEvent {
+    #[serde(deserialize_with = "deserialize_zagreb_ts")]
+    pub ts: String,
+    pub source: String,
+    pub kind: String,
+    pub severity: String,
+    pub data: serde_json::Value,
+}
+
+impl NerveEvent {
+    /// Current instant as Europe/Zagreb RFC 3339.
+    pub fn now(
+        source: impl Into<String>,
+        kind: impl Into<String>,
+        severity: impl Into<String>,
+        data: serde_json::Value,
+    ) -> Self {
+        Self::stamped(time::now_rfc3339(), source, kind, severity, data)
+    }
+
+    /// Unix second as Europe/Zagreb RFC 3339, the same format as [`Self::now`].
+    ///
+    /// The 2026-10-25 fold is owned by `zagreb-time`: `2026-10-25T00:59:59Z`
+    /// is `2026-10-25T02:59:59+02:00`, and `2026-10-25T01:00:00Z` is
+    /// `2026-10-25T02:00:00+01:00`.
+    pub fn at_unix(
+        secs: i64,
+        source: impl Into<String>,
+        kind: impl Into<String>,
+        severity: impl Into<String>,
+        data: serde_json::Value,
+    ) -> Self {
+        Self::stamped(time::from_unix(secs), source, kind, severity, data)
+    }
+
+    fn stamped(
+        ts: String,
+        source: impl Into<String>,
+        kind: impl Into<String>,
+        severity: impl Into<String>,
+        data: serde_json::Value,
+    ) -> Self {
+        debug_assert!(
+            is_zagreb_rfc3339(&ts),
+            "zagreb-time produced a non-Zagreb stamp: {ts}"
+        );
+        Self {
+            ts,
+            source: source.into(),
+            kind: kind.into(),
+            severity: severity.into(),
+            data,
+        }
+    }
+}
+
+/// `YYYY-MM-DDTHH:MM:SS+01:00` or `+02:00`. Seconds precision, never `Z`.
+fn is_zagreb_rfc3339(ts: &str) -> bool {
+    let bytes = ts.as_bytes();
+    if bytes.len() != 25 {
+        return false;
+    }
+    if !(bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes[10] == b'T'
+        && bytes[13] == b':'
+        && bytes[16] == b':'
+        && bytes[19] == b'+'
+        && bytes[22] == b':')
+    {
+        return false;
+    }
+    let digit_at = |index: usize| bytes[index].is_ascii_digit();
+    let digits_ok = (0..4).all(digit_at)
+        && (5..7).all(digit_at)
+        && (8..10).all(digit_at)
+        && (11..13).all(digit_at)
+        && (14..16).all(digit_at)
+        && (17..19).all(digit_at)
+        && (20..22).all(digit_at)
+        && (23..25).all(digit_at);
+    if !digits_ok {
+        return false;
+    }
+    let month = two_digits(bytes, 5);
+    let day = two_digits(bytes, 8);
+    let hour = two_digits(bytes, 11);
+    let minute = two_digits(bytes, 14);
+    let second = two_digits(bytes, 17);
+    (1..=12).contains(&month)
+        && (1..=31).contains(&day)
+        && (0..=23).contains(&hour)
+        && (0..=59).contains(&minute)
+        && (0..=59).contains(&second)
+        && (ts.ends_with("+01:00") || ts.ends_with("+02:00"))
+}
+
+fn two_digits(bytes: &[u8], index: usize) -> u16 {
+    u16::from(bytes[index] - b'0') * 10 + u16::from(bytes[index + 1] - b'0')
+}
+
+fn deserialize_zagreb_ts<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let ts = String::deserialize(deserializer)?;
+    if is_zagreb_rfc3339(&ts) {
+        Ok(ts)
+    } else {
+        Err(D::Error::custom(
+            "ts must be Europe/Zagreb RFC 3339 seconds with offset +01:00 or +02:00",
+        ))
+    }
+}
 
 /// What this machine is allowed to start. Measured, never assumed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -393,5 +519,106 @@ base_url = "http://extra.example.invalid/v1"
         let err = Stack::cpu_desk_from_env(&env_for(&path, &[])).unwrap_err();
         let message = err.to_string();
         assert!(message.contains("bad config"), "{message}");
+    }
+
+    /// 2026-10-25T00:59:59Z, 2026-10-25T01:00:00Z, and 2026-12-01T12:00:00Z.
+    const DST_BEFORE_2026_10_25: i64 = 1_792_889_999;
+    const DST_AFTER_2026_10_25: i64 = 1_792_890_000;
+    const WINTER_2026_12_01: i64 = 1_796_126_400;
+
+    fn nerve(secs: i64, source: &str, kind: &str, severity: &str) -> NerveEvent {
+        NerveEvent::at_unix(
+            secs,
+            source,
+            kind,
+            severity,
+            serde_json::json!({"window_s": 300, "failed_password": 30}),
+        )
+    }
+
+    #[test]
+    fn nerve_event_dst_2026_10_25() {
+        let before = nerve(DST_BEFORE_2026_10_25, "auth.log", "ddos", "warn");
+        assert_eq!(before.ts, "2026-10-25T02:59:59+02:00");
+        assert_eq!(before.source, "auth.log");
+        assert_eq!(before.kind, "ddos");
+        assert_eq!(before.severity, "warn");
+        assert_eq!(before.data["failed_password"], 30);
+
+        let after = nerve(DST_AFTER_2026_10_25, "memory-gateway", "bleeding", "crit");
+        assert_eq!(after.ts, "2026-10-25T02:00:00+01:00");
+        assert_eq!(after.source, "memory-gateway");
+        assert_eq!(after.kind, "bleeding");
+        assert_eq!(after.severity, "crit");
+
+        let winter = nerve(WINTER_2026_12_01, "auth.log", "vulnerability", "high");
+        assert_eq!(winter.ts, "2026-12-01T13:00:00+01:00");
+
+        for event in [&before, &after, &winter] {
+            assert!(is_zagreb_rfc3339(&event.ts), "{}", event.ts);
+            assert!(!event.ts.ends_with('Z'), "{}", event.ts);
+            assert!(!event.ts.contains("+00:00"), "{}", event.ts);
+            let raw = serde_json::to_string(event).unwrap();
+            let ts_at = raw.find("\"ts\"").unwrap();
+            let source_at = raw.find("\"source\"").unwrap();
+            let kind_at = raw.find("\"kind\"").unwrap();
+            let severity_at = raw.find("\"severity\"").unwrap();
+            let data_at = raw.find("\"data\"").unwrap();
+            assert!(
+                ts_at < source_at
+                    && source_at < kind_at
+                    && kind_at < severity_at
+                    && severity_at < data_at,
+                "{raw}"
+            );
+            let back: NerveEvent = serde_json::from_str(&raw).unwrap();
+            assert_eq!(event, &back);
+            assert!(!raw.contains("+00:00"), "{raw}");
+            assert!(!raw.contains("sk-"), "{raw}");
+        }
+    }
+
+    #[test]
+    fn nerve_event_rejects_non_zagreb_ts() {
+        let samples = [
+            r#"{"ts":"2026-10-25T00:59:59Z","source":"auth.log","kind":"ddos","severity":"warn","data":{}}"#,
+            r#"{"ts":"2026-10-25T01:00:00+00:00","source":"auth.log","kind":"ddos","severity":"warn","data":{}}"#,
+            r#"{"ts":"2026-10-25T02:59:59.000+02:00","source":"auth.log","kind":"ddos","severity":"warn","data":{}}"#,
+            r#"{"ts":"2026-10-25T03:00:00+03:00","source":"auth.log","kind":"ddos","severity":"warn","data":{}}"#,
+        ];
+        for raw in samples {
+            assert!(
+                serde_json::from_str::<NerveEvent>(raw).is_err(),
+                "accepted {raw}"
+            );
+        }
+        let folded = r#"{"ts":"2026-10-25T02:59:59+02:00","source":"auth.log","kind":"ddos","severity":"warn","data":{"window_s":300,"rule":"failed_password"}}"#;
+        let event: NerveEvent = serde_json::from_str(folded).unwrap();
+        assert_eq!(event.ts, "2026-10-25T02:59:59+02:00");
+        assert_eq!(event.data["window_s"], 300);
+        assert_eq!(event.data["rule"], "failed_password");
+    }
+
+    #[test]
+    fn nerve_event_now_is_zagreb_rfc3339() {
+        let event = NerveEvent::now(
+            "auth.log",
+            "vulnerability",
+            "warn",
+            serde_json::json!({"invalid_user": 0}),
+        );
+        assert_eq!(event.ts.len(), 25, "{}", event.ts);
+        assert!(is_zagreb_rfc3339(&event.ts), "{}", event.ts);
+        assert!(
+            event.ts.ends_with("+02:00") || event.ts.ends_with("+01:00"),
+            "{}",
+            event.ts
+        );
+        assert!(!event.ts.ends_with('Z'), "{}", event.ts);
+        assert!(!event.ts.contains("+00:00"), "{}", event.ts);
+        let raw = serde_json::to_string(&event).unwrap();
+        assert!(!raw.contains("sk-"), "{raw}");
+        let back: NerveEvent = serde_json::from_str(&raw).unwrap();
+        assert_eq!(event, back);
     }
 }

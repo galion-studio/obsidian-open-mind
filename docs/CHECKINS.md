@@ -42,3 +42,6 @@
 - 2026-10-19T16:29:58+02:00 | B43 PASS: self-check light mode. Greps and no-python only. Full cargo stays behind SELF_CHECK_FULL=1.
 
 - 2026-10-19T16:31:26+02:00 | B37 PASS: exo adapter parses fixtures. Linux GPU is not used.
+
+- 2026-10-19T16:31:49+02:00 | B33 PASS: NerveEvent schema. Zagreb offset only. DST fold tested.
+- 2026-10-19T16:31:49+02:00 | B49 PASS: galleon-arena loads g2-0 through g2-3. Score is paper only.

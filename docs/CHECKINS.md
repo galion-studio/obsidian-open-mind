@@ -294,3 +294,5 @@
 - 2026-10-20T10:02:54+02:00 | MEM-SHADOW-RUN: health keys were compared. The crate was not switched in front of 8420.
 
 - 2026-10-20T10:28:20+02:00 | TUNER-REL PASS: a stripped release tuner answered on 18650 and was stopped. The live tuner was not replaced.
+
+- 2026-10-20T10:30:27+02:00 | MEM-SEARCH: search keys were compared on an ephemeral port. The live gateway was not switched.

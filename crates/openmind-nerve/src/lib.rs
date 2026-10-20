@@ -25,6 +25,7 @@
 //! - [`score`]: the explained self-eval score.
 //! - [`reflex`]: allowlisted, rate-limited auto-remediation with an audit log.
 //! - [`alerts`]: journald + alerts.json.
+//! - [`feed`]: the cortex B33 event feed (`GET /api/v1/cortex/events`).
 //! - [`engine`]: the loop; [`server`]: the loopback JSON API and dashboard;
 //!   [`replay`]: run captured live data through the same pipeline.
 
@@ -34,6 +35,7 @@ pub mod collect;
 pub mod config;
 pub mod cortex;
 pub mod engine;
+pub mod feed;
 pub mod hub;
 pub mod incident;
 pub mod logscan;

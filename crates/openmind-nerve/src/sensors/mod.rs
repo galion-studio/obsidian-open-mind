@@ -38,6 +38,7 @@ pub mod connrate;
 pub mod ddos;
 pub mod drift;
 pub mod edge;
+pub mod hades;
 pub mod listeners;
 pub mod proc_owner;
 pub mod rustsec;
@@ -166,6 +167,7 @@ impl Sensors {
         s.add_opt(connrate::ConnRate::from_env(env));
         s.add_opt(proc_owner::ProcOwner::from_env(env));
         s.add_opt(surface::Surface::from_env(env));
+        s.add_opt(hades::Hades::from_env(env));
         let off: Vec<String> = env("NERVE_SENSORS_OFF")
             .unwrap_or_default()
             .split(',')

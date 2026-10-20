@@ -458,6 +458,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "hermes-core"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
+ "hades-gate",
+ "serde",
+ "serde_json",
+ "sha2",
+ "toml",
+ "zagreb-time",
+]
+
+[[package]]
 name = "hermes-gateway"
 version = "0.1.0"
 dependencies = [

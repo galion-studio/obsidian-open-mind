@@ -36,3 +36,6 @@ stack/**/vault/
 stack/**/galion-secrets/*
 !stack/**/galion-secrets/*.redacted
 !stack/**/galion-secrets/from-grok-build/
+
+# hermes-core runtime state (ledger), default --state dir
+/state/

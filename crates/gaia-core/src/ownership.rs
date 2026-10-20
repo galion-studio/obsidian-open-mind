@@ -86,8 +86,8 @@ impl CrateOwner {
 
 use CrateRole::{Core, Function as F, System as S};
 
-/// Every workspace crate, alphabetical. 35 crates of main 13a296c plus the
-/// 11 Gaia crates from `ws/gaia`.
+/// Every workspace crate, alphabetical. 35 crates of main 13a296c, the
+/// 11 Gaia crates from `ws/gaia`, and hermes-core (swarm/hermes-core).
 pub const CRATES: &[CrateOwner] = &[
     c("cgroup-detect", S(System::Quotas), "read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS)"),
     c("desk-hermes", S(System::HermesAgents), "Hermes mind snap for the desk: the agent population view"),
@@ -110,6 +110,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("galleon-arena", S(System::EcosystemCensus), "paper arena that lists and scores the gladiator population; no value moves (was ARES)"),
     c("guardian-tick", S(System::GuardianTick), "one report-only health pass"),
     c("hades-gate", S(System::Teardown), "approval gate and journal for destructive plans; dry-run, never executes"),
+    c("hermes-core", S(System::BossNode), "Hermes coordinator above the seven swarm sectors: registry, governor, retry loop, HADES-gated dispatch, ledger (swarm/hermes-core)"),
     c("hermes-gateway", S(System::Messaging), "Hermes API server binary: the chat/messaging channel"),
     c("hermes-rs", S(System::HermesAgents), "Rust Hermes: agent loop, delegate_task caps, sessions, spend caps"),
     c("link-watch", S(System::LinkWatch), "laptop link intake"),
@@ -311,10 +312,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} has no system", r.name));
             assert_eq!(r.role.function(), Some(s.function()));
         }
-        // 35 crates of main 13a296c.
+        // 35 crates of main 13a296c, plus hermes-core (swarm/hermes-core).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            35
+            36
         );
     }
 

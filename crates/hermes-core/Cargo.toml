@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "hermes-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hermes core: the single coordinator above the seven swarm sectors. Sector/agent registry from TOML, plan loader, task queue with a hash-chained JSONL ledger, concurrency governor, request-limit retry loop, HADES-gated approvals, offline provider trait, readiness gate, loopback status API."
+
+[[bin]]
+name = "hermes"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+# Ledger hash chain. Same pinned, portable (no SHA-NI/NEON) build hades-gate uses.
+sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
+zagreb-time = { path = "../zagreb-time" }
+hades-gate = { path = "../hades-gate" }
+gaia-core = { path = "../gaia-core" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(curve25519_dalek_backend, values("serial", "fiat", "simd"))'] }

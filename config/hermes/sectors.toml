@@ -1,0 +1,189 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Hermes sector registry (crates/hermes-core). Written 2026-10-20 21:30 CEST (+02:00).
+# Seeded from the seven sector plans in /workspace/swarm/plans/*.md (planners
+# finished 2026-10-20 20:44-20:46 CEST). `planner_*` numbers are what each
+# planner reported (CALL-RECORD.md 20:44-20:46); `hermes readiness` checks
+# that the plan loader reproduces them from the plan files.
+#
+# Gaia mapping: every name in `gaia_systems` must be one of the 52 systems of
+# gaia_core::System (swarm/gaia-land 9d3ec18) and its owning function must be
+# listed in `gaia_functions`. The registry refuses to load otherwise.
+
+[hermes]
+# The boss. One session, always counted against the cap.
+boss_agent = "hermes"
+# Planned models (OpenRouter). Latest names as recorded in the repo
+# (hermes-rs Config::defaults, TEACHER/BOSS.md). OpenRouter answers 402
+# (credit) today, so only the offline mock provider is wired. Slavik decides.
+boss_model = "anthropic/claude-opus-5.5"
+boss_reasoning = "high"
+sub_model = "anthropic/claude-sonnet-5.5"
+provider = "mock"
+# Concurrency governor. Measured request limit on 2026-10-20: about 18-20
+# concurrent agents (11 of 15 lost at ~20:14; 16 survived from 20:34; stops at
+# 20 and 22 at 20:38). Default cap 16 leaves a margin of 2 under the floor.
+concurrency_cap = 16
+measured_limit_low = 18
+measured_limit_high = 20
+# Slots held back for always-on sessions (the boss).
+reserved_slots = 1
+plans_dir = "/workspace/swarm/plans"
+
+[retry]
+# Request-limit stops and stalls are retried until done (Slavik, Q13 20:41).
+max_attempts = 8
+backoff_base_secs = 30
+backoff_factor = 2
+backoff_max_secs = 600
+# Plain errors (not limit, not stall) get fewer tries before Failed.
+max_error_attempts = 2
+
+[hades]
+# hades-gate config (flat TOML: admin_pubkey, ledger, disable_file). Empty
+# means no HADES: every merge, deploy or destructive task is refused.
+config = ""
+
+[[readiness.require_merged]]
+name = "integration-1 (20 wave-1 branches)"
+commit = "8fd26f6"
+into = "main"
+
+[[readiness.require_merged]]
+name = "hades-approval (Ed25519 single-use tokens)"
+commit = "ccaab42"
+into = "main"
+
+[[readiness.require_merged]]
+name = "gaia-land (ownership registry, 52 systems)"
+commit = "9d3ec18"
+into = "main"
+
+[[readiness.owner]]
+item = "OpenRouter credit (402) and spend approval for boss and sub-agent models"
+decided = false
+
+[[readiness.owner]]
+item = "HADES admin key custody: Slavik generates the Ed25519 seed on his device; only the public key goes on the Hermes host"
+decided = false
+
+[[readiness.owner]]
+item = "Wave-1 merge order (ucpu before edge-boot, tuner-cutover before common, nerve main.rs over gaia-live)"
+decided = false
+
+[[readiness.owner]]
+item = "POSEIDON vs HEPHAESTUS ownership of compute (gaia-land decision record)"
+decided = false
+
+[[readiness.owner]]
+item = "Whether HADES gets merge and deploy action kinds so Hermes may act on signed approvals (today merges stay owner-only)"
+decided = false
+
+[[readiness.owner]]
+item = "Stray processes on the VPS: hermes-gateway --mock on 8652 (from /opt/galion/rust/bin, up since 2026-10-18 22:15 CEST, RSS ~52 MB) and hermes-gateway.new --mock on 8653 (from /root/growth-20261018), plus openmind-memory 8431-8433: keep or stop, one port per approval"
+decided = false
+
+[[readiness.owner]]
+item = "Max-agents rule: SOURCE-OF-TRUTH.md says 3 at once; the swarm runs 16. Record the new cap"
+decided = false
+
+[[sector]]
+id = "gaia"
+name = "Gaia"
+plan = "gaia.md"
+lead = "gaia.lead"
+max_concurrent = 4
+gaia_functions = ["HADES", "POSEIDON", "DEMETER", "ARTEMIS", "AETHER", "ELEUTHIA"]
+gaia_systems = ["teardown", "heal-apply", "rollback", "queues", "vram-pool", "quotas", "healer", "guardian-tick", "agent-spawning", "agent-retirement", "ecosystem-census", "lan-discovery", "gaia-seeds"]
+planner_sessions = 8
+planner_tasks = 31
+planner_target = 77
+planner_useful = 61
+note = "GAIA core owns no system; the sector lands the nine functions, POSEIDON queue, heal-tick and LAN routing."
+
+[[sector]]
+id = "nerve"
+name = "Nerve"
+plan = "nerve.md"
+lead = "nerve.lead"
+max_concurrent = 3
+gaia_functions = ["AETHER", "MINERVA"]
+gaia_systems = ["nerve", "guardian-watchdog", "alerting"]
+planner_sessions = 6
+planner_tasks = 20
+planner_target = 55
+planner_useful = 52
+note = "openmind-nerve, nerve-client wiring, galion-health provenance, nerve cutover rehearsal."
+
+[[sector]]
+id = "cortex"
+name = "Cortex"
+plan = "cortex.md"
+lead = "cortex.lead"
+max_concurrent = 4
+gaia_functions = ["AETHER", "MINERVA"]
+gaia_systems = ["nerve", "guardian-watchdog", "alerting", "vision", "sandbox-policy-review"]
+planner_sessions = 6
+planner_tasks = 39
+planner_target = 119
+planner_useful = 87
+note = "The cortex module in openmind-nerve: sensors, reasoning, proposals through Gaia/HADES."
+
+[[sector]]
+id = "vps-ops"
+name = "VPS operations"
+plan = "vps-ops.md"
+lead = "vps-ops.lead"
+# At most 2 agents touching the VPS at once (vps-ops plan schedule).
+max_concurrent = 2
+gaia_functions = ["DEMETER", "HEPHAESTUS", "AETHER", "HADES"]
+gaia_systems = ["boot-units", "survival", "deploy-switch", "release-artifacts", "console", "tunnels", "origin", "rollback"]
+planner_sessions = 7
+planner_tasks = 28
+planner_target = 72
+planner_useful = 44
+note = "Baseline, build stamping, box rehearsals, one cutover per approval, strays, freeze."
+
+[[sector]]
+id = "integration-ci"
+name = "Integration and CI"
+plan = "integration-ci.md"
+lead = "integration-ci.lead"
+# Build-bound: 3 builders on the 8-core box (integration-ci plan 2.6).
+max_concurrent = 3
+gaia_functions = ["HEPHAESTUS", "MINERVA"]
+gaia_systems = ["cargo-build", "release-artifacts", "repo-check", "secret-scan"]
+planner_sessions = 6
+planner_tasks = 27
+planner_target = 74
+planner_useful = 60
+note = "Land integration-1, fold wave 2, CI workflows, release v0.1.x, freeze."
+
+[[sector]]
+id = "security"
+name = "Security"
+plan = "security.md"
+lead = "security.lead"
+max_concurrent = 3
+gaia_functions = ["MINERVA", "HADES", "HEPHAESTUS"]
+gaia_systems = ["repo-check", "secret-scan", "sandbox-policy-review", "guardian-watchdog", "secret-rotation-plan", "kill-switch", "omnode-sandbox-runner"]
+planner_sessions = 9
+planner_tasks = 33
+planner_target = 166
+planner_useful = 69
+note = "Fuzzing, SAST, HADES admin safety, seccomp evidence, launch gates, SEC-1..5 verification."
+
+[[sector]]
+id = "docs-whitepaper"
+name = "Docs and white paper"
+plan = "docs-whitepaper.md"
+lead = "docs-whitepaper.lead"
+max_concurrent = 2
+gaia_functions = ["APOLLO"]
+gaia_systems = ["teacher-docs", "session-history", "stack-schema"]
+planner_sessions = 5
+planner_tasks = 22
+planner_target = 82
+planner_useful = 34
+note = "Measurement freeze, doc fixes D1-D19, white paper draft, adversarial fact-check, publication prep."

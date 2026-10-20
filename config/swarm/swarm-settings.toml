@@ -51,3 +51,13 @@ cloudflared = "Go (Cloudflare binary): cloudflared.service and tuner-quick.servi
 postfix = "C (OS mail server)"
 tts_server = "Python /opt/galion/galion-light/tts/tts_server.py + worker.py: on disk, NOT running on the VPS (Chatterbox runs on the GPU pod)"
 already_rust = ["galion-one", "galion-desk", "galion-health", "galion-nerve", "hermes-rs", "link-watch-rs", "openmind-memory", "tuner", "tanga-serve"]
+
+[revolut]
+# Lift recorded 2026-10-20 22:56 CEST (+02:00). Slavik typed (relayed by Mate):
+# "Revolut bank is allowed on the current Rust V2 redesign of V1 Hermes Python build."
+standing_ban = "lifted"
+lifted_at = "2026-10-20 22:56 CEST (+02:00)"
+scope = "Hermes Rust V2 redesign of V1 Hermes Python build; admin-phone link design and mocks"
+allowed = ["design", "UI", "fixtures", "mock HTTP", "read-only reachability probes", "phone app surface"]
+forbidden = ["any transfer", "any order", "any top-up", "any withdrawal", "any buy/sell", "acting on Slavik's behalf", "storing card PANs"]
+needs_separate_approval = "live mutating Revolut API calls"

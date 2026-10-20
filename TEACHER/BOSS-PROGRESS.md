@@ -313,3 +313,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-20T10:00:19+02:00 | REAL-ONE-2 | grok-build | PASS 9/10 | docs/reallife-one-2.md | spare 18091 returned 200; live pid 1373612 not replaced
 
 - 2026-10-20T10:00:45+02:00 | REAL-DESK-2 | grok-build | PASS 9/10 | docs/reallife-desk-2.md | spare 18646 returned 200; live pid 231 not replaced
+
+- 2026-10-20T10:00:51+02:00 | REAL-LINK-2 | grok-build | PASS 9/10 | docs/reallife-link-2.md | once-run exit 0 under /tmp; live pid 1359406 not replaced

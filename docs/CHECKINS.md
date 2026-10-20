@@ -286,3 +286,5 @@
 - 2026-10-20T10:00:19+02:00 | REAL-ONE-2 PASS: the new One answered on 18091. The live One was not replaced.
 
 - 2026-10-20T10:00:45+02:00 | REAL-DESK-2 PASS: the new desk answered on 18646. The live desk was not replaced.
+
+- 2026-10-20T10:00:51+02:00 | REAL-LINK-2 PASS: the new link-watch wrote a report under /tmp. The live process was not replaced.

@@ -19,7 +19,9 @@
 //! - [`hub`]: POST /signal ingest for services that push (see `nerve-client`).
 //! - [`state`]: per-component history and trend verdicts.
 //! - [`incident`]: correlation: several failing signals become one incident.
-//! - [`cortex`]: vulnerabilities, where the stack is "bleeding", DDoS.
+//! - [`cortex`]: vulnerabilities, where the stack is "bleeding", DDoS: the
+//!   contract ([`cortex::Input`], [`cortex::Finding`] as B33/B41 events).
+//! - [`sensors`]: the cortex detectors, one file per [`sensors::Sensor`].
 //! - [`score`]: the explained self-eval score.
 //! - [`reflex`]: allowlisted, rate-limited auto-remediation with an audit log.
 //! - [`alerts`]: journald + alerts.json.
@@ -39,6 +41,7 @@ pub mod probe;
 pub mod reflex;
 pub mod replay;
 pub mod score;
+pub mod sensors;
 pub mod server;
 pub mod state;
 pub mod util;

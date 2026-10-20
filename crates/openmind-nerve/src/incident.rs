@@ -44,6 +44,30 @@ impl Sev {
             Sev::Critical => "critical",
         }
     }
+
+    /// B41 severity (docs/cortex.md section 2) for a B33 `NerveEvent`:
+    /// warn -> `warn`, error -> `high`, critical -> `crit`. B41 has no info
+    /// level; info stays `info` (below every B41 alert line).
+    pub fn b41(self) -> &'static str {
+        match self {
+            Sev::Info => "info",
+            Sev::Warn => "warn",
+            Sev::Error => "high",
+            Sev::Critical => "crit",
+        }
+    }
+
+    /// Parse a severity from a pushed event: B41 (`warn`, `high`, `crit`)
+    /// or nerve (`info`, `warn`, `error`, `critical`) spelling.
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "info" => Sev::Info,
+            "warn" | "warning" => Sev::Warn,
+            "high" | "error" => Sev::Error,
+            "crit" | "critical" => Sev::Critical,
+            _ => return None,
+        })
+    }
 }
 
 /// One failing observation in one cycle.

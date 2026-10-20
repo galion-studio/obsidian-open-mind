@@ -199,7 +199,7 @@ pub fn score(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cortex::Finding;
+    use crate::cortex::{Finding, FindingKind};
     use std::collections::BTreeSet;
 
     fn inc(cause: &str, sev: Sev, comps: &[&str]) -> Incident {
@@ -231,24 +231,23 @@ mod tests {
         let a = inc("edge", Sev::Error, &["cloudflared"]);
         let b = inc("galion-one", Sev::Error, &["galion-one-mouth"]);
         let mut cx = Cortex::default();
-        cx.bleeding.push(Finding {
-            id: "edge-dead-origins".into(),
-            sev: Sev::Error,
-            component: "cloudflared".into(),
-            title: "t".into(),
-            evidence: vec![],
-            fix: String::new(),
-            cause: Some("edge".into()),
-        });
-        cx.vulnerabilities.push(Finding {
-            id: "unmanaged-listeners".into(),
-            sev: Sev::Warn,
-            component: "host".into(),
-            title: "5 stray".into(),
-            evidence: vec![],
-            fix: String::new(),
-            cause: None,
-        });
+        cx.bleeding.push(
+            Finding::new(
+                FindingKind::Bleeding,
+                "edge-dead-origins",
+                Sev::Error,
+                "cloudflared",
+                "t",
+            )
+            .with_cause("edge"),
+        );
+        cx.vulnerabilities.push(Finding::new(
+            FindingKind::Vulnerability,
+            "unmanaged-listeners",
+            Sev::Warn,
+            "host",
+            "5 stray",
+        ));
         let s = score(&[&a, &b], &cx, &[], &[]);
         assert_eq!(s.score, 100 - 15 - 15 - 4, "{:?}", s.deductions);
         assert_eq!(s.grade, "D");

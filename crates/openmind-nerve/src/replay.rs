@@ -165,6 +165,7 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
     ));
     let mut e = Engine::new(cfg)?;
     e.reflexes_enabled = false;
+    e.live = false;
     e.write_files = false;
     e.alerts.path = None;
     e.alerts.to_journal = false;

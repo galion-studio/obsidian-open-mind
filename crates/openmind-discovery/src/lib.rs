@@ -18,6 +18,7 @@ pub mod dns;
 pub mod mdns;
 mod parse;
 pub mod probe;
+pub mod routing;
 mod scan;
 mod seed;
 

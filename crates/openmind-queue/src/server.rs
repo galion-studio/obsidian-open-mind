@@ -12,9 +12,9 @@
 
 use crate::engine::{Config, Engine, Job, JobSpec, Miss, Record, Refusal, GLOBAL};
 use crate::store::{OpenReport, Store};
-use crate::vram::{Device, VramPool};
+use crate::vram::{Device, ProviderView, VramPool};
 use crate::{gaia, http, now_ms, zagreb_ms};
-use openmind_provider::{Approval, ComputeProvider, Health, Registry};
+use openmind_provider::{Approval, Registry};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::io;
@@ -55,7 +55,7 @@ impl Default for Options {
     }
 }
 
-type ProviderRows = Vec<(String, Approval, Health)>;
+type ProviderRows = Vec<ProviderView>;
 
 struct State {
     engine: Engine,
@@ -104,11 +104,7 @@ fn load_providers(path: &Option<PathBuf>) -> io::Result<ProviderRows> {
         return Ok(Vec::new());
     };
     let reg = Registry::load(p).map_err(|e| io::Error::other(e.to_string()))?;
-    Ok(reg
-        .providers()
-        .iter()
-        .map(|r| (r.id().to_string(), r.approval(), r.health()))
-        .collect())
+    Ok(reg.providers().iter().map(ProviderView::from).collect())
 }
 
 fn lock(s: &Shared) -> MutexGuard<'_, State> {
@@ -577,7 +573,7 @@ fn route(s: &Shared, req: &http::Request) -> (u16, Value) {
                 let rows = g.providers.clone();
                 let note = VramPool::gate_manual(&mut d, |p| {
                     rows.iter()
-                        .any(|(id, a, _)| id == p && *a == Approval::Approved)
+                        .any(|r| r.id == p && r.approval == Approval::Approved)
                 });
                 let rec = Record::Device(d.clone());
                 if let Err(e) = commit(&mut g, &[rec], cm) {

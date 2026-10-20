@@ -24,6 +24,10 @@ openmind-discovery deny     ID [--registry PATH] [--log PATH] [--by NAME] [--not
 openmind-discovery join     ID [--registry PATH] [--log PATH] [--by NAME] [--timeout-ms N]
 openmind-discovery announce --service TYPE:INSTANCE:PORT[:k=v;k=v] [--service ...]
                             [--host NAME] [--addr IPV4] [--mdns-port P] [--duration-s N] [--ttl S]
+openmind-discovery route    [--registry PATH] [--gpu URL ...] [--cpu URL] [--timeout-ms N]
+                            [--chat TEXT [--model NAME]]
+openmind-discovery serve-route [--bind 127.0.0.1:PORT] [--registry PATH] [--gpu URL ...]
+                            [--cpu URL] [--timeout-ms N] [--duration-s N]
 
 Without a subcommand: print seed candidates as JSON. No socket is opened.
   --fixture PATH  add candidates parsed from an mDNS-SD style record file.
@@ -37,6 +41,12 @@ deny      mark a row rejected. Logged.
 join      approved rows only: one TCP connect to the local endpoint, health up/down. Logged.
 announce  answer mDNS for the given services only (binds the mDNS port shared, SO_REUSEPORT),
           2 startup announcements, at most 20 replies per second, then exit after --duration-s.
+route     print the fallback chain GPU -> LAN -> CPU for llm: approved registry rows only
+          (pending and denied never), a LAN row only after join recorded it up, plus the
+          operator --gpu/--cpu rows (local http only). --chat sends one chat completion.
+serve-route  OpenAI-compatible router on loopback: /v1/chat/completions, /v1/completions,
+          /v1/embeddings, /v1/models go to the first reachable row of the chain, re-read per
+          request; /v1/route shows the chain. Never changes approval or health.
 Defaults: --registry ./discovery-providers.json, --log <registry>.approvals.log, --mdns-port 5353.
 ";
 

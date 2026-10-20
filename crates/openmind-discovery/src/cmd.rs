@@ -2,13 +2,16 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Subcommands: `find`, `list`, `approve`, `deny`, `join`, `announce`.
+//! Subcommands: `find`, `list`, `approve`, `deny`, `join`, `announce`,
+//! `route`, `serve-route`.
 //! Anything else falls through to the legacy flag form in `cli.rs`.
 
 use crate::admit::{self, ApprovalsLog, Decision};
 use crate::mdns::{self, Announcer, BrowseOpts, Service, DEFAULT_SERVICES, MAX_BROWSE};
 use crate::probe::{self, Net24, ProbeOpts, DEFAULT_PORTS, DEFAULT_RATE};
+use crate::routing;
 use crate::{cli, fold_records, read_fixture_file, CliError, CliOut, DeviceKind};
+use openmind_provider::route::{Capability, Kind};
 use openmind_provider::{Approval, Registry};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -32,6 +35,8 @@ pub fn run(args: Vec<String>) -> Result<CliOut, CliError> {
         "deny" => decide(rest, Decision::Deny),
         "join" => join(rest),
         "announce" => announce(rest),
+        "route" => route(rest),
+        "serve-route" => serve_route(rest),
         "help" => Ok(CliOut::Help),
         _ => cli(args, read_fixture_file),
     }
@@ -80,7 +85,7 @@ impl Opts {
             }
         }
         for (k, v) in &out.values {
-            if v.len() > 1 && k != "--service" {
+            if v.len() > 1 && k != "--service" && k != "--gpu" {
                 return Err(usage(format!("duplicate {k}")));
             }
         }
@@ -350,7 +355,7 @@ fn list(args: &[String]) -> Result<CliOut, CliError> {
         .providers()
         .iter()
         .filter(|r| filter.is_none_or(|f| r.approval() == f))
-        .map(|r| admit::row_json(r, r.approval()))
+        .map(admit::record_json)
         .collect();
     Ok(CliOut::Report(json!({
         "registry": registry.path().display().to_string(),
@@ -391,6 +396,119 @@ fn join(args: &[String]) -> Result<CliOut, CliError> {
     )
     .map_err(fail)?;
     Ok(CliOut::Report(line))
+}
+
+fn router(opts: &Opts) -> Result<routing::Router, CliError> {
+    let timeout_ms: u64 = opts.num("--timeout-ms", 2000)?;
+    if !(1..=120_000).contains(&timeout_ms) {
+        return Err(usage("--timeout-ms must be 1..=120000"));
+    }
+    let mut extra = Vec::new();
+    for (i, url) in opts.all("--gpu").iter().enumerate() {
+        extra.push(routing::operator_row(&format!("gpu-{i}"), Kind::Gpu, url).map_err(usage)?);
+    }
+    if let Some(url) = opts.get("--cpu") {
+        extra.push(routing::operator_row("cpu-local", Kind::CpuLocal, url).map_err(usage)?);
+    }
+    Ok(routing::Router {
+        registry: opts.registry(),
+        extra,
+        timeout: Duration::from_millis(timeout_ms),
+    })
+}
+
+/// `route`: print the current fallback chain; with `--chat TEXT`, send one
+/// chat completion through it.
+fn route(args: &[String]) -> Result<CliOut, CliError> {
+    let opts = Opts::parse(
+        args,
+        &[
+            "--registry",
+            "--gpu",
+            "--cpu",
+            "--timeout-ms",
+            "--chat",
+            "--model",
+        ],
+        &[],
+    )?;
+    opts.no_positional()?;
+    let r = router(&opts)?;
+    let rows = r.chain(Capability::Llm).map_err(fail)?;
+    let chain: Vec<Value> = rows
+        .iter()
+        .map(|row| json!({"id": row.id, "kind": routing::kind_str(row.kind), "endpoint": row.endpoint}))
+        .collect();
+    let mut report = json!({
+        "registry": r.registry.display().to_string(),
+        "need": "llm",
+        "chain": chain,
+        "first": rows.first().map(|row| row.id.clone()),
+    });
+    if let Some(text) = opts.get("--chat") {
+        let body = json!({
+            "model": opts.get("--model").unwrap_or("auto"),
+            "messages": [{"role": "user", "content": text}],
+        });
+        let fwd = r
+            .forward(
+                Capability::Llm,
+                "POST",
+                "/v1/chat/completions",
+                body.to_string().as_bytes(),
+            )
+            .map_err(fail)?;
+        report["provider"] = json!(fwd.provider);
+        report["status"] = json!(fwd.status);
+        report["attempts"] = json!(fwd.attempts);
+        report["response"] = serde_json::from_slice(&fwd.body)
+            .unwrap_or_else(|_| json!(String::from_utf8_lossy(&fwd.body)));
+    }
+    Ok(CliOut::Report(report))
+}
+
+/// `serve-route`: an OpenAI-compatible loopback router over the chain.
+fn serve_route(args: &[String]) -> Result<CliOut, CliError> {
+    let opts = Opts::parse(
+        args,
+        &[
+            "--registry",
+            "--gpu",
+            "--cpu",
+            "--timeout-ms",
+            "--bind",
+            "--duration-s",
+        ],
+        &[],
+    )?;
+    opts.no_positional()?;
+    let r = router(&opts)?;
+    let bind: std::net::SocketAddr = opts
+        .get("--bind")
+        .unwrap_or("127.0.0.1:19312")
+        .parse()
+        .map_err(|_| usage("--bind wants IP:PORT"))?;
+    if !bind.ip().is_loopback() {
+        return Err(usage("--bind must be a loopback address"));
+    }
+    let duration = match opts.get("--duration-s") {
+        None => None,
+        Some(_) => {
+            let s: u64 = opts.num("--duration-s", 0)?;
+            if !(1..=86_400).contains(&s) {
+                return Err(usage("--duration-s must be 1..=86400"));
+            }
+            Some(Duration::from_secs(s))
+        }
+    };
+    let registry = r.registry.display().to_string();
+    let stats = routing::serve(r, &routing::ServeOpts { bind, duration })
+        .map_err(|e| fail(format!("serve-route {bind}: {e}")))?;
+    Ok(CliOut::Report(json!({
+        "bind": bind.to_string(),
+        "registry": registry,
+        "stats": stats,
+    })))
 }
 
 /// Parse `TYPE:INSTANCE:PORT[:k=v;k=v]`.

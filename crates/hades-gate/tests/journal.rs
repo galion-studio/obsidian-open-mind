@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! The journal returns one object and stores nothing. A test may write a temp file.
+#![allow(deprecated)]
 
 use hades_gate::journal::record;
 use hades_gate::{decide, Decision, ALLOW_LIST, ALWAYS_REFUSED, APPROVED_TEST_TOKEN};
@@ -54,9 +55,9 @@ fn default_is_dry_run() {
 }
 
 #[test]
-fn would_apply_only_for_the_test_token_on_the_allow_list() {
+fn the_public_test_token_no_longer_approves() {
     for action in ALLOW_LIST {
-        assert_record(action, APPROVED_TEST_TOKEN, Decision::WouldApply);
+        assert_record(action, APPROVED_TEST_TOKEN, Decision::DryRun);
     }
 }
 
@@ -72,7 +73,7 @@ fn kill_and_rotate_are_refused() {
 #[test]
 fn a_test_may_write_the_object_the_crate_does_not() {
     let row = record("switch", APPROVED_TEST_TOKEN);
-    assert_eq!(row["decision"].as_str(), Some("WouldApply"));
+    assert_eq!(row["decision"].as_str(), Some("DryRun"));
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock after epoch")

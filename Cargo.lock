@@ -190,6 +190,16 @@ name = "galion-voice-core"
 version = "0.1.0"
 
 [[package]]
+name = "galion-wallstreet"
+version = "0.1.0"
+dependencies = [
+ "galion-bench",
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galleon-arena"
 version = "0.1.0"
 

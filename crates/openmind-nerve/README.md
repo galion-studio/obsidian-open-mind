@@ -34,7 +34,9 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
    components, ddos); findings carry a B41 `kind` and their sensor as `source`,
    and `/api/v1/state` has `cortex_sensors` (per-sensor counts, us) and
    `cortex_events` (B33 `NerveEvent`s). `NERVE_SENSORS_OFF=name,...` turns
-   sensors off. Adding one: [`docs/cortex/sensors.md`](../../docs/cortex/sensors.md).
+   sensors off. S2 sensor `event-feed` (T2.10, off unless `NERVE_EVENT_FEED_FILE`
+   is set) reads the `POST /event` JSONL log back: Gaia heal/probe records,
+   survival probe lines and pushed B33 findings become cortex findings. Adding one: [`docs/cortex/sensors.md`](../../docs/cortex/sensors.md).
 4. **DDoS detector**: 10 s buckets, 2 h kept; the baseline is the median and MAD of
    the window from 30 min ago to 2 min ago. Threshold = max(`NERVE_DDOS_MIN_RPS`,
    5x median, median + 8 x 1.4826 x MAD). Level = flood / elevated / normal,

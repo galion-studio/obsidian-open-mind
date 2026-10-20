@@ -95,9 +95,12 @@ use CrateRole::{Core, Function as F, System as S};
 
 /// Every workspace crate, alphabetical. 35 crates of main 13a296c, the 11
 /// Gaia crates from `ws/gaia`, and 7 crates that integration-1 brought in
-/// (rows added by integration-2; the judgement calls start with
-/// `pending Slavik` until the S2 decision).
+/// (rows added by integration-2), and 10 crates that integration-3 brought
+/// in (backup, deploy, guard, health and the six benchmark crates). The
+/// judgement calls start with `pending Slavik` until the S2 decision.
 pub const CRATES: &[CrateOwner] = &[
+    c("bench-banking", S(System::EcosystemCensus), "pending Slavik: B1 banking benchmark on a local Revolut-shaped mock (draft-only, no money moves); scores the agent population like galleon-arena; alternative: a new bench system (hermes-core-bench-sector, wave-4 slot 129)"),
+    c("bench-scoreboard", S(System::EcosystemCensus), "pending Slavik: renders docs/bench/SCOREBOARD.md from the B1/B2/B3 score JSONs; alternative: teacher-docs/APOLLO or a new bench system"),
     c("cgroup-detect", S(System::Quotas), "read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS)"),
     c("desk-hermes", S(System::HermesAgents), "Hermes mind snap for the desk: the agent population view"),
     c("gaia", Core, "the gaia CLI: wires GAIA core to the nine functions; dry-run only"),
@@ -112,17 +115,25 @@ pub const CRATES: &[CrateOwner] = &[
     c("gaia-live", Core, "pending Slavik: Gaia's read-only live sensing (status --live) and the approval-gated heal path for box TEST services; owns no system (gaia-land note); alternatives guardian-watchdog/MINERVA or healer/DEMETER"),
     c("gaia-minerva", F(FunctionId::Minerva), "MINERVA function crate"),
     c("gaia-poseidon", F(FunctionId::Poseidon), "POSEIDON function crate"),
+    c("galion-backup", S(System::Survival), "pending Slavik: periodic backup (SQLite snapshots, files tar, SHA256SUMS, rotation), the data part of galion-deploy backup; alternatives healer/DEMETER or release-artifacts/HEPHAESTUS"),
+    c("galion-bench", S(System::EcosystemCensus), "pending Slavik: shared mock-only benchmark harness and 0-100 scorecards for B1/B2/B3; alternative: a new bench system"),
     c("galion-boot", S(System::BootUnits), "boot/keep replacement and systemd unit renderer"),
     c("galion-common", S(System::ZagrebClock), "pending Slavik: shared std-only helpers (SHA-256, hex, base64, JSON, Zagreb time, small HTTP/1.1 server/client); nearest system is the Zagreb clock it carries; alternative: core"),
+    c("galion-deploy", S(System::DeploySwitch), "pending Slavik: backup -> atomic install -> restart -> health -> automatic rollback for one unit (replaces deploy/foundation/galion-deploy); executes, unlike the plan-only switch scripts; alternative rollback/HADES"),
     c("galion-desk", S(System::GalionDesk), "operator desk endpoint (:8646)"),
+    c("galion-guard", S(System::GuardianWatchdog), "pending Slavik: Rust SSH ban daemon replacing the fail2ban sshd jail (nft timeout sets); security watch like one-defence; alternative tunnels/AETHER"),
+    c("galion-health", S(System::GuardianTick), "pending Slavik: loopback health dashboard polling service ports and systemd states (nerve T1.2a); alternatives alerting/MINERVA or guardian-watchdog/MINERVA"),
     c("galion-one", S(System::GalionOne), "Galion One, the persona the stack embodies (:8091, :8002)"),
     c("galion-origin", S(System::Origin), "origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin)"),
     c("galion-realtest", S(System::RepoCheck), "pending Slavik: platform-wide real-life test harness (self-evaluation); alternative cargo-build/HEPHAESTUS"),
+    c("galion-vending", S(System::EcosystemCensus), "pending Slavik: B3 deterministic vending business sim benchmark; alternative: a new bench system"),
     c("galion-voice-core", S(System::VoiceRelay), "full-duplex framing, VAD, jitter buffer, barge-in"),
     c("galion-voice-cpu", S(System::SpeechIo), "on-device CPU STT -> text model -> TTS pipeline (Whisper-tiny via candle); speech on CPU like openmind-speech"),
+    c("galion-wallstreet", S(System::EcosystemCensus), "pending Slavik: B2 paper broker benchmark on delayed fixture data, no live brokerage; alternative: a new bench system"),
     c("galleon-arena", S(System::EcosystemCensus), "paper arena that lists and scores the gladiator population; no value moves (was ARES)"),
     c("guardian-tick", S(System::GuardianTick), "one report-only health pass"),
     c("hades-gate", S(System::Teardown), "approval gate and journal for destructive plans; dry-run, never executes"),
+    c("hermes-bench", S(System::HermesAgents), "pending Slavik: hermes-rs adapters and runner for the B1/B2/B3 benchmark tool sets (scripted, mock LLM, opt-in live); alternatives ecosystem-census/ARTEMIS or a new bench system"),
     c("hermes-gateway", S(System::Messaging), "Hermes API server binary: the chat/messaging channel"),
     c("hermes-rs", S(System::HermesAgents), "Rust Hermes: agent loop, delegate_task caps, sessions, spend caps"),
     c("hermes-tools", S(System::Terminal), "pending Slavik: sandboxed coding tools for hermes-rs, run through openmind-sandbox; alternative hermes-agents/ARTEMIS"),
@@ -328,10 +339,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} has no system", r.name));
             assert_eq!(r.role.function(), Some(s.function()));
         }
-        // 35 crates of main 13a296c plus 6 from integration-1.
+        // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3.
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            41
+            51
         );
     }
 
@@ -360,9 +371,19 @@ mod tests {
         assert_eq!(
             pending,
             [
+                "bench-banking",
+                "bench-scoreboard",
                 "gaia-live",
+                "galion-backup",
+                "galion-bench",
                 "galion-common",
+                "galion-deploy",
+                "galion-guard",
+                "galion-health",
                 "galion-realtest",
+                "galion-vending",
+                "galion-wallstreet",
+                "hermes-bench",
                 "hermes-tools",
                 "openmind-queue"
             ]

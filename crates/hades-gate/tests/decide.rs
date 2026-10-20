@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Dry-run, would-apply, and refused. No process is spawned.
+#![allow(deprecated)]
 
 use hades_gate::{
     decide, Action, Decision, Gate, Mode, ALLOW_LIST, ALWAYS_REFUSED, APPROVED_TEST_TOKEN,
@@ -27,12 +28,12 @@ fn dry_run_is_the_default() {
 }
 
 #[test]
-fn would_apply_only_for_the_test_token_on_the_allow_list() {
+fn the_public_test_token_no_longer_approves() {
     for action in ALLOW_LIST {
-        assert_eq!(decide(action, APPROVED_TEST_TOKEN), Decision::WouldApply);
+        assert_eq!(decide(action, APPROVED_TEST_TOKEN), Decision::DryRun);
         assert_eq!(
             Gate::default().decide(action, APPROVED_TEST_TOKEN),
-            Decision::WouldApply
+            Decision::DryRun
         );
     }
     assert_eq!(APPROVED_TEST_TOKEN, "approved-test");
@@ -94,10 +95,10 @@ fn approved_token_refuses_kill_and_rotate_and_would_apply_is_not_an_apply() {
 
     for action in ALLOW_LIST {
         let decision = decide(action, APPROVED_TEST_TOKEN);
-        assert_eq!(decision, Decision::WouldApply);
+        assert_eq!(decision, Decision::DryRun);
         assert_eq!(
             Gate::default().decide(action, "approved-test"),
-            Decision::WouldApply
+            Decision::DryRun
         );
     }
 

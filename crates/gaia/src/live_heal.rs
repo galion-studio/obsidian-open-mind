@@ -48,7 +48,13 @@ pub const SOURCE: &str = "gaia-live";
 pub const ADMIN_ALPHA: &str = "owner";
 
 /// First line of every signed heal plan (bump on any format change).
-pub const PLAN_HEADER: &str = "gaia heal-apply plan v1 (box test service)";
+///
+/// v2 (integration-3): every line starts with a hades-gate
+/// `safety::PLAN_VERBS` verb and uses only its plan punctuation, so the S3.1
+/// allow-list (hades-redteam e6ceca7) admits the plan without being loosened.
+/// v1 started lines with `gaia`/`service`/`probe`/`start`/`at` and JSON-quoted
+/// the argv, which that allow-list refuses.
+pub const PLAN_HEADER: &str = "record gaia heal-apply plan v2 (box test service)";
 
 /// Longest token file read.
 const MAX_TOKEN_FILE: u64 = 4096;
@@ -89,29 +95,37 @@ pub struct HealTick {
 /// The exact plan the admin signs for one restart of `t`. Deterministic: the
 /// same target always gives the same bytes (joined with `\n` by
 /// [`hades_gate::adapter::gaia_plan_bytes`]), so `gaia heal-plan` and
-/// `gaia heal-tick` agree on the hash. The start command is JSON-quoted so
-/// argument boundaries are part of what is signed.
+/// `gaia heal-tick` agree on the hash. Argument boundaries are part of what is
+/// signed: the argument count, then one numbered line per argument. An
+/// argument with a shell metacharacter makes the plan unapprovable (fail
+/// closed), which is the intent for a box test service.
 #[must_use]
 pub fn heal_plan(t: &TestTarget) -> Vec<String> {
-    let argv = serde_json::to_string(&t.argv).unwrap_or_default();
-    vec![
+    let mut plan = vec![
         PLAN_HEADER.to_string(),
         format!(
-            "service {} on 127.0.0.1:{} (box test ports {}-{} only)",
+            "restart box test service {} on 127.0.0.1:{} (box test ports {}-{} only)",
             t.name,
             t.port,
             heal::TEST_PORTS.start(),
             heal::TEST_PORTS.end()
         ),
-        format!("probe GET {} must answer status ok", t.health_path),
-        format!("start {argv} detached in its own process group, stdin closed, no shell"),
+        format!("verify GET {} answers status ok", t.health_path),
         format!(
-            "at most {} restarts of {} per rolling hour",
-            heal::MAX_RESTARTS_PER_HOUR,
-            t.name
+            "restart with argument count {}, detached in its own process group, stdin closed, no shell",
+            t.argv.len()
         ),
-        "record the result on the nerve".to_string(),
-    ]
+    ];
+    for (i, arg) in t.argv.iter().enumerate() {
+        plan.push(format!("verify argument {i} is {arg}"));
+    }
+    plan.push(format!(
+        "keep at most {} restarts of {} per rolling hour",
+        heal::MAX_RESTARTS_PER_HOUR,
+        t.name
+    ));
+    plan.push("record the result on the nerve".to_string());
+    plan
 }
 
 /// SHA-256 (hex) of the plan bytes for `t`.

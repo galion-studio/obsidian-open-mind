@@ -33,9 +33,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
+          toolchain: stable
           components: rustfmt
       - run: cargo fmt --all -- --check
       - run: cargo fmt --manifest-path edge/openmind-node/Cargo.toml --all -- --check
@@ -45,9 +46,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
+          toolchain: stable
           components: clippy
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
@@ -56,8 +58,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
       - run: cargo test --workspace --locked
 
   omnode:
@@ -65,9 +69,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
+          toolchain: stable
           components: clippy
       - run: cargo clippy --manifest-path edge/openmind-node/Cargo.toml --all-targets --locked -- -D warnings
       - run: cargo test --manifest-path edge/openmind-node/Cargo.toml --locked
@@ -90,9 +95,10 @@ jobs:
       UCPU_JOBS: 4
       UCPU_NICE: 0
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
           components: clippy
       - name: install zig cc (pinned, checksum-verified)
@@ -152,9 +158,10 @@ jobs:
       CARGO_TERM_COLOR: never
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
+          toolchain: stable
           targets: x86_64-unknown-linux-musl
       - name: build repo-check (portable musl)
         run: cargo build --release --locked -p repo-check --target x86_64-unknown-linux-musl
@@ -163,7 +170,7 @@ jobs:
           bin=target/x86_64-unknown-linux-musl/release/repo-check
           "$bin" --json --copyright "3000 Galion / galion-studio" > self-eval.json || true
           "$bin" --copyright "3000 Galion / galion-studio"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: self-eval
@@ -175,7 +182,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: fail on any *.py file or python shebang
         run: |
           set -eu
@@ -200,7 +207,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: scan tracked text for Han, Hiragana, Katakana, Hangul
         run: |
           set -eu
@@ -217,7 +224,7 @@ jobs:
     timeout-minutes: 5
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: warn on ISO timestamps ending in Z (UTC) in tracked text
         run: |
           set -u
@@ -235,7 +242,7 @@ jobs:
     env:
       GITLEAKS_VERSION: 8.30.1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - name: install gitleaks (checksum-verified binary)
@@ -257,7 +264,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: LICENSE present and MIT; workspace declares MIT; crate copies identical
         run: |
           set -eu

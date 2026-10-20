@@ -15,11 +15,15 @@
 //! `TUNER_CONFIG` is optional. The file format is one assignment per line,
 //! `key = "value"`, with `#` comments. Only `bind` and `root` are accepted.
 //! This crate does not start or stop the live tuner.
+//!
+//! `tuner --version`, `--help` and `--check` exit without binding a port (see
+//! [`cli`]). The cutover plan is `docs/cutover/tuner.md`.
 
 #![forbid(unsafe_code)]
 
+pub mod cli;
 mod config;
 mod http;
 
 pub use config::{resolve, ConfigError, Settings, DEFAULT_ADDR, DEFAULT_ROOT};
-pub use http::{respond, FILES};
+pub use http::{respond, ListedFile, FILES};

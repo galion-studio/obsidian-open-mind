@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# curve25519-dalek (via ed25519-dalek in crates/hades-gate) would otherwise
+# compile its AVX2 SIMD backend on x86_64. Project rule: no SIMD. "serial"
+# is the portable pure-Rust backend on every target. A RUSTFLAGS env var
+# replaces this list; crates/hades-gate/tests/simd_free.rs fails if it does.
+[build]
+rustflags = ["--cfg", "curve25519_dalek_backend=\"serial\""]

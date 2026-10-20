@@ -28,3 +28,37 @@ lto = true
 codegen-units = 1
 panic = "abort"
 strip = true
+
+# Exception to opt-level "z" for the on-device voice models only (voice-rust):
+# Chatterbox and Whisper run billions of multiply-adds per request in candle
+# and gemm, and "z" makes those loops several times slower. Size of every other
+# binary is unchanged (per-package overrides apply only where these crates are
+# linked, i.e. the voice service).
+[profile.release.package.candle-core]
+opt-level = 3
+[profile.release.package.candle-nn]
+opt-level = 3
+[profile.release.package.gemm]
+opt-level = 3
+[profile.release.package.gemm-common]
+opt-level = 3
+[profile.release.package.gemm-f32]
+opt-level = 3
+[profile.release.package.gemm-f16]
+opt-level = 3
+[profile.release.package.gemm-f64]
+opt-level = 3
+[profile.release.package.gemm-c32]
+opt-level = 3
+[profile.release.package.gemm-c64]
+opt-level = 3
+[profile.release.package.pulp]
+opt-level = 3
+[profile.release.package.half]
+opt-level = 3
+[profile.release.package.rayon-core]
+opt-level = 3
+[profile.release.package.galion-chatterbox]
+opt-level = 3
+[profile.release.package.galion-voice-cpu]
+opt-level = 3

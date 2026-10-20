@@ -353,6 +353,7 @@ version = "0.1.0"
 dependencies = [
  "candle-core",
  "candle-nn",
+ "galion-chatterbox",
  "galion-voice-core",
  "num-traits",
  "serde",

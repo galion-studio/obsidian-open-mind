@@ -74,6 +74,25 @@ impl Conditionals {
         })
     }
 
+    /// The same voice with the S3Gen prompt cut to at most `secs` seconds
+    /// (25 tokens and 50 mel frames per second). The flow-matching decoder
+    /// attends over prompt + output, so a shorter prompt is proportionally
+    /// cheaper on CPU; the reference uses up to 10 s.
+    pub fn with_gen_prompt_limit(&self, secs: f32) -> Conditionals {
+        let mut c = self.clone();
+        let max_tok = (secs.max(0.0) * 25.0) as usize;
+        let toks = c
+            .gen
+            .prompt_tokens
+            .len()
+            .min(max_tok)
+            .min(c.gen.prompt_frames / 2);
+        c.gen.prompt_tokens.truncate(toks);
+        c.gen.prompt_frames = 2 * toks;
+        c.gen.prompt_feat.truncate(2 * toks * 80);
+        c
+    }
+
     /// Build conditionals from a reference clip (any rate; mono mix).
     /// The first 10 s condition S3Gen, the first 6 s give T3's prompt tokens.
     pub fn from_wav(

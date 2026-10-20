@@ -9,6 +9,9 @@ pub trait SpeechToText {
     fn sample_rate(&self) -> u32;
     /// Mono f32 PCM in -1..1 at `sample_rate()`.
     fn transcribe(&mut self, pcm: &[f32]) -> Result<String, String>;
+    /// Language hint from the request (`en`, `de`, ...); ignored by
+    /// English-only engines.
+    fn set_language(&mut self, _language: &str) {}
 }
 
 /// The "brain": user text in, reply text out. Local model, LAN llama-server
@@ -27,6 +30,10 @@ pub trait TextToSpeech {
     /// chunks). Default: the whole text in one go.
     fn chunks<'a>(&self, text: &'a str) -> Vec<&'a str> {
         vec![text]
+    }
+    /// Longest text one request accepts (chars); longer input is cut.
+    fn max_chars(&self) -> usize {
+        300
     }
 }
 

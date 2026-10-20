@@ -754,7 +754,7 @@ fn http_post(host: &str, path: &str, body: &str) -> String {
 }
 
 fn now() -> u64 {
-    SystemTime::now()
+    SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)

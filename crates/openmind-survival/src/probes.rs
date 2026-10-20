@@ -180,7 +180,7 @@ pub fn check_freshness(path: &Path, max_age_secs: u64) -> ProbeResult {
         Ok(t) => t,
         Err(e) => return ProbeResult::new(&name, false, e.to_string()),
     };
-    let age = SystemTime::now()
+    let age = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(mtime)
         .unwrap_or_default()
         .as_secs();

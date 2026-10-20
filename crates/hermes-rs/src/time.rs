@@ -8,7 +8,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_f64() -> f64 {
-    SystemTime::now()
+    SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
@@ -136,13 +136,17 @@ mod tests {
 
     #[test]
     fn zagreb_summer_and_winter() {
-        // 2026-10-18T19:00:00Z is CEST
-        let t = parse_rfc3339("2026-10-18T19:00:00Z").unwrap();
+        // 2026-10-18T21:00:00+02:00 is CEST
+        let t = parse_rfc3339("2026-10-18T21:00:00+02:00").unwrap();
+        assert_eq!(t, 1_792_350_000);
+        // upstream wire stamps may still carry Z; the parser must accept them
+        assert_eq!(parse_rfc3339("2026-10-18T19:00:00Z"), Some(t)); // repo-check: allow (Z input accepted on the wire)
         assert_eq!(zagreb_rfc3339(t), "2026-10-18T21:00:00+02:00");
-        // 2026-10-25 is the last Sunday of October; after 01:00Z it is CET
-        let t = parse_rfc3339("2026-10-25T01:00:00Z").unwrap();
+        // 2026-10-25 is the last Sunday of October; from 03:00+02:00 (= 02:00+01:00) it is CET
+        let t = parse_rfc3339("2026-10-25T02:00:00+01:00").unwrap();
+        assert_eq!(t, 1_792_890_000);
         assert_eq!(zagreb_rfc3339(t), "2026-10-25T02:00:00+01:00");
-        let t = parse_rfc3339("2026-03-29T00:59:59Z").unwrap();
+        let t = parse_rfc3339("2026-03-29T01:59:59+01:00").unwrap();
         assert_eq!(zagreb_offset(t), 3600);
         assert_eq!(zagreb_offset(t + 1), 7200);
     }

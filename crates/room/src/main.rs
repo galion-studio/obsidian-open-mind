@@ -427,7 +427,7 @@ mod tests {
         assert!(page_default.contains("\"name\":\"room\""));
         assert_eq!(socket_fds(), before);
 
-        let nanos = std::time::SystemTime::now()
+        let nanos = std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock")
             .as_nanos();

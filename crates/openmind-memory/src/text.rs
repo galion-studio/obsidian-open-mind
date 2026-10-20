@@ -668,11 +668,11 @@ mod tests {
     #[test]
     fn memory_line_and_time() {
         assert_eq!(
-            format_timestamp("2025-03-01T14:30:00.000Z").as_deref(),
+            format_timestamp("2025-03-01T14:30:00.000Z").as_deref(), // repo-check: allow (legacy stored UTC row under test; output is the formatted label)
             Some("2025-03-01 14:30")
         );
         assert_eq!(
-            format_timestamp("2025-03-01T00:00:00Z").as_deref(),
+            format_timestamp("2025-03-01T00:00:00Z").as_deref(), // repo-check: allow (legacy stored UTC row under test; output is the formatted label)
             Some("2025-03-01")
         );
         assert_eq!(

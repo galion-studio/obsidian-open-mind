@@ -24,7 +24,7 @@ struct TempDir {
 
 impl TempDir {
     fn new() -> Self {
-        let nanos = SystemTime::now()
+        let nanos = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_nanos();

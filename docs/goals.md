@@ -116,3 +116,9 @@ Galleon Voice to Voice is the planned multi-persona, multiplexed voice/persona s
 - [ ] 2026-10-18 18:58 CEST (+02:00): Evaluate Galleon Voice to Voice for Galion One: verify license, GPU needs, and a minimal integration path (see project to-do).
 - [ ] 2026-10-18 18:58 CEST (+02:00): Local network instances: design the LAN device discovery and approval interface (see goal above).
 - [ ] 2026-10-18 18:59 CEST (+02:00): Survival Skills: audit every service for auto-restart and reboot survival, and review the galion/survival skill (see goal above).
+- [ ] 2026-10-18 19:54 CEST (+02:00): lock down galion-light/secrets/persist (in progress)
+- [ ] 2026-10-18 19:54 CEST (+02:00): create GitHub repo galion-studio/open-mind-stack private, push, wire remote (blocked on sign-in)
+- [ ] 2026-10-18 19:54 CEST (+02:00): decide guardian/healer: rewrite in Rust under Survival Skills (investigating)
+- [x] 2026-10-18 19:54 CEST (+02:00): Hermes switched to OpenRouter Opus 5.5 boss / Sonnet workers (19:36 CEST)
+- [x] 2026-10-18 19:54 CEST (+02:00): foundation tickets T1-T6 passed, staged awaiting approval
+- [ ] 2026-10-18 19:54 CEST (+02:00): set OpenRouter credit limit on the key

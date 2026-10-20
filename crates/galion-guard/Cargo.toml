@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-guard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust SSH ban daemon (replaces the VPS fail2ban sshd jail): journald/auth.log tailing, sshd filter, findtime/maxretry/bantime with increment, nftables timeout sets, persistent state, fail-safe allowlist."
+
+[[bin]]
+name = "galion-guard"
+path = "src/main.rs"
+
+[dependencies]
+# Unicode tables are only needed for `\s`/`\w`/`\S` classes in the filter.
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }

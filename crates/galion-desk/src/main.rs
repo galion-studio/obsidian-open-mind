@@ -23,22 +23,19 @@
 //!   DESK_HERMES_BIN  mindpack binary (default
 //!                    `/opt/galion/openmind/dist/bin/desk-hermes`)
 //!
-// Clippy allows, added only so `clippy -D warnings` passes. Both fire on the
-// accept loop exactly as it is written in the live galion-desk source. The
-// suggested rewrites (`.flatten()` on `listener.incoming()`, dropping the
-// `let _ =` in front of a unit-valued `handle`) touch the control flow of the
-// running server, so this ticket prefers an explicit allow over a rewrite.
-#![allow(clippy::manual_flatten)]
-#![allow(clippy::let_unit_value)]
+//! HTTP goes through galion-common: the strict bounded server (8 KiB head,
+//! 64 KiB body, 3 s deadlines, 32 connections) and its one-shot client for
+//! the Ollama calls. Reply bytes are unchanged.
 
+use galion_common::http;
 use openmind_config::ConfigError;
 use std::fs::{self, OpenOptions};
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -218,12 +215,25 @@ fn main() {
     SETTINGS.set(settings).expect("settings once");
     let listener = TcpListener::bind(&bind).expect("bind");
     eprintln!("galion-desk {bind}");
-    for conn in listener.incoming() {
-        if let Ok(stream) = conn {
-            thread::spawn(move || {
-                let _ = handle(stream);
-            });
-        }
+    let handler =
+        |req: &http::Request| http::Response::raw(handle(req.method(), req.target(), &req.body));
+    if let Err(err) = http::serve(listener, limits(), Arc::new(handler)) {
+        eprintln!("galion-desk: serve: {err}");
+        std::process::exit(1);
+    }
+}
+
+/// Connection limits for the galion-common server. The old loop read one
+/// 8 KiB buffer with a 3 s timeout and spawned a thread per connection
+/// without a cap.
+fn limits() -> http::Limits {
+    http::Limits {
+        max_head_bytes: 8 * 1024,
+        max_body_bytes: 64 * 1024,
+        head_timeout: Duration::from_secs(3),
+        body_timeout: Duration::from_secs(3),
+        max_connections: 32,
+        ..http::Limits::default()
     }
 }
 
@@ -232,23 +242,10 @@ fn health_json() -> &'static str {
     "{\"ok\":true}"
 }
 
-fn handle(mut stream: TcpStream) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
-    let mut buf = [0u8; 8192];
-    let n = stream.read(&mut buf).unwrap_or(0);
-    if n == 0 {
-        return;
-    }
-    let req = String::from_utf8_lossy(&buf[..n]);
-    let mut lines = req.split("\r\n");
-    let start = lines.next().unwrap_or("");
-    let mut parts = start.split_whitespace();
-    let method = parts.next().unwrap_or("GET");
-    let path = parts.next().unwrap_or("/");
-    let mut body = String::new();
-    if let Some(idx) = req.find("\r\n\r\n") {
-        body = req[idx + 4..].to_string();
-    }
+/// Route one request; returns the reply bytes.
+fn handle(method: &str, target: &str, body: &[u8]) -> Vec<u8> {
+    let path = target;
+    let body = String::from_utf8_lossy(body);
     let json = if method == "POST" && path.starts_with("/desk") {
         apply(body.trim());
         snapshot()
@@ -257,20 +254,20 @@ fn handle(mut stream: TcpStream) {
     } else if path.starts_with("/health") {
         health_json().to_string()
     } else {
-        send(&mut stream, 404, "{\"error\":\"not found\"}");
-        return;
+        return send(404, "{\"error\":\"not found\"}");
     };
-    send(&mut stream, 200, &json);
+    send(200, &json)
 }
 
-fn send(stream: &mut TcpStream, code: u16, body: &str) {
+fn send(code: u16, body: &str) -> Vec<u8> {
     let reason = if code == 200 { "OK" } else { "Not Found" };
-    let head = format!(
+    let mut out = format!(
         "HTTP/1.1 {code} {reason}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
         body.len()
-    );
-    let _ = stream.write_all(head.as_bytes());
-    let _ = stream.write_all(body.as_bytes());
+    )
+    .into_bytes();
+    out.extend_from_slice(body.as_bytes());
+    out
 }
 
 fn apply(body: &str) {
@@ -702,24 +699,23 @@ fn ollama_ps() -> (String, u64, u64) {
 }
 
 fn http_get(host: &str, path: &str) -> String {
-    let Ok(mut stream) = TcpStream::connect_timeout(
-        &host
-            .parse()
-            .unwrap_or_else(|_| "127.0.0.1:1".parse().unwrap()),
-        Duration::from_millis(400),
-    ) else {
-        return String::new();
+    let addr = host
+        .parse()
+        .unwrap_or_else(|_| "127.0.0.1:1".parse().unwrap());
+    let req = http::ClientRequest {
+        method: "GET",
+        path,
+        minor: 1,
+        headers: vec![
+            ("Host".into(), host.into()),
+            ("Connection".into(), "close".into()),
+        ],
+        body: &[],
     };
-    let _ = stream.set_read_timeout(Some(Duration::from_millis(700)));
-    let _ = stream.set_write_timeout(Some(Duration::from_millis(400)));
-    let req = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
-    if stream.write_all(req.as_bytes()).is_err() {
-        return String::new();
+    match http::send(addr, &req, Duration::from_millis(1100), 1 << 20) {
+        Ok(resp) => resp.text(),
+        Err(_) => String::new(),
     }
-    let mut buf = Vec::new();
-    let _ = stream.read_to_end(&mut buf);
-    let text = String::from_utf8_lossy(&buf);
-    text.split("\r\n\r\n").nth(1).unwrap_or("").to_string()
 }
 
 fn tcp_open(port: u16) -> bool {
@@ -731,26 +727,25 @@ fn tcp_open(port: u16) -> bool {
 }
 
 fn http_post(host: &str, path: &str, body: &str) -> String {
-    let Ok(mut stream) = TcpStream::connect_timeout(
-        &host
-            .parse()
-            .unwrap_or_else(|_| "127.0.0.1:1".parse().unwrap()),
-        Duration::from_secs(2),
-    ) else {
-        return String::new();
+    let addr = host
+        .parse()
+        .unwrap_or_else(|_| "127.0.0.1:1".parse().unwrap());
+    let req = http::ClientRequest {
+        method: "POST",
+        path,
+        minor: 1,
+        headers: vec![
+            ("Host".into(), host.into()),
+            ("content-type".into(), "application/json".into()),
+            ("content-length".into(), body.len().to_string()),
+            ("connection".into(), "close".into()),
+        ],
+        body: body.as_bytes(),
     };
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(90)));
-    let _ = stream.set_write_timeout(Some(Duration::from_secs(2)));
-    let req = format!(
-        "POST {path} HTTP/1.1\r\nHost: {host}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    if stream.write_all(req.as_bytes()).is_err() {
-        return String::new();
+    match http::send(addr, &req, Duration::from_secs(92), 16 << 20) {
+        Ok(resp) => resp.text(),
+        Err(_) => String::new(),
     }
-    let mut buf = Vec::new();
-    let _ = stream.read_to_end(&mut buf);
-    String::from_utf8_lossy(&buf).to_string()
 }
 
 fn now() -> u64 {

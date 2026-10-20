@@ -177,6 +177,7 @@ dependencies = [
 name = "galion-desk"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "openmind-config",
 ]
 
@@ -492,6 +493,7 @@ dependencies = [
 name = "openmind-survival"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "zagreb-time",
 ]
 
@@ -568,6 +570,9 @@ dependencies = [
 [[package]]
 name = "room"
 version = "0.1.0"
+dependencies = [
+ "galion-common",
+]
 
 [[package]]
 name = "rusqlite"

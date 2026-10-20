@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
+//! room: a read-only view of the operator's files as one page. HTTP goes
+//! through galion-common's strict bounded server; reply bytes are unchanged.
+
+use galion_common::http;
 use std::fs;
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::TcpListener;
 use std::path::Path;
-use std::thread;
+use std::sync::Arc;
 use std::time::Duration;
 
 // Listen address for the room socket. Reads ROOM_BIND (trimmed; empty counts as
@@ -71,11 +74,25 @@ fn serve() {
     let json = to_json(&objects);
     let listener = TcpListener::bind(bind_addr("ROOM_BIND", 4020)).expect("4020");
     eprintln!("room: {} objects", objects.len());
-    for stream in listener.incoming().flatten() {
-        let json = json.clone();
-        thread::spawn(move || {
-            let _ = handle(stream, &json);
-        });
+    let handler =
+        move |req: &http::Request| http::Response::raw(handle(req.method(), req.target(), &json));
+    if let Err(err) = http::serve(listener, limits(), Arc::new(handler)) {
+        eprintln!("room: serve: {err}");
+        std::process::exit(1);
+    }
+}
+
+/// Connection limits for the galion-common server. The old loop read one
+/// 4 KiB buffer with an 8 s timeout and spawned a thread per connection
+/// without a cap. Bodies are ignored, but a POST must still get its 405.
+fn limits() -> http::Limits {
+    http::Limits {
+        max_head_bytes: 4096,
+        max_body_bytes: 64 * 1024,
+        head_timeout: Duration::from_secs(8),
+        body_timeout: Duration::from_secs(8),
+        max_connections: 32,
+        ..http::Limits::default()
     }
 }
 
@@ -298,41 +315,33 @@ fn to_json(rows: &[Obj]) -> String {
     out
 }
 
-fn handle(mut stream: TcpStream, json: &str) -> std::io::Result<()> {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(8)));
-    let mut buf = [0u8; 4096];
-    let n = stream.read(&mut buf)?;
-    let head = String::from_utf8_lossy(&buf[..n]);
-    let line = head.lines().next().unwrap_or("");
-    let mut parts = line.split_whitespace();
-    let method = parts.next().unwrap_or("");
-    let url = parts.next().unwrap_or("/");
+/// Route one request; returns the reply bytes.
+fn handle(method: &str, url: &str, json: &str) -> Vec<u8> {
     let path = url.split('?').next().unwrap_or("/");
     let query = url.split_once('?').map(|p| p.1).unwrap_or("");
     if method != "GET" {
-        return write(&mut stream, 405, "text/plain", "no\n");
+        return write(405, "text/plain", "no\n");
     }
     match path {
-        "/health" => write(&mut stream, 200, "text/plain", "ok\n"),
+        "/health" => write(200, "text/plain", "ok\n"),
         "/" | "/index.html" => {
             let bytes = fs::read("/workspace/galion-light/room/index.html")
                 .unwrap_or_else(|_| b"missing".to_vec());
             write(
-                &mut stream,
                 200,
                 "text/html; charset=utf-8",
                 &String::from_utf8_lossy(&bytes),
             )
         }
-        "/api/objects" => write(&mut stream, 200, "application/json", json),
+        "/api/objects" => write(200, "application/json", json),
         "/api/read" => {
             let raw = query.strip_prefix("path=").unwrap_or("");
             match read_doc(&decode(raw)) {
-                Some(text) => write(&mut stream, 200, "text/plain; charset=utf-8", &text),
-                None => write(&mut stream, 404, "text/plain", "held\n"),
+                Some(text) => write(200, "text/plain; charset=utf-8", &text),
+                None => write(404, "text/plain", "held\n"),
             }
         }
-        _ => write(&mut stream, 404, "text/plain", "no\n"),
+        _ => write(404, "text/plain", "no\n"),
     }
 }
 
@@ -386,14 +395,15 @@ fn decode(raw: &str) -> String {
     out
 }
 
-fn write(stream: &mut TcpStream, status: u16, kind: &str, body: &str) -> std::io::Result<()> {
+fn write(status: u16, kind: &str, body: &str) -> Vec<u8> {
     let reason = if status == 200 { "OK" } else { "No" };
-    let head = format!(
+    let mut out = format!(
         "HTTP/1.1 {status} {reason}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
         body.len()
-    );
-    stream.write_all(head.as_bytes())?;
-    stream.write_all(body.as_bytes())
+    )
+    .into_bytes();
+    out.extend_from_slice(body.as_bytes());
+    out
 }
 
 #[cfg(test)]

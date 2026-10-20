@@ -18,9 +18,10 @@
 //! Dialing is limited to a loopback address that is not a live voice port.
 //! Tests point at a spare listener. Nothing here has a default host or port.
 
+use galion_common::http;
 use serde_json::{json, Value};
-use std::io::{self, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::io;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 /// Lock path `warm.py` and `talk.py` flock (`LOCK_EX | LOCK_NB`).
@@ -344,91 +345,40 @@ fn post(
             ));
         }
     }
-    let mut stream = TcpStream::connect_timeout(&addr, timeout)?;
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
-    let mut head = format!(
-        "POST {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nContent-Length: {}\r\n",
-        body.len()
-    );
-    for (name, value) in headers {
-        head.push_str(name);
-        head.push_str(": ");
-        head.push_str(value);
-        head.push_str("\r\n");
-    }
-    head.push_str("\r\n");
-    stream.write_all(head.as_bytes())?;
-    stream.write_all(body)?;
-    read_response(&mut stream)
-}
-
-fn read_response(stream: &mut TcpStream) -> io::Result<(u16, Vec<u8>)> {
-    let mut buf = Vec::new();
-    let mut tmp = [0u8; 4096];
-    loop {
-        if buf.len() > 8_000_000 {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "response too large",
-            ));
-        }
-        match stream.read(&mut tmp) {
-            Ok(0) => break,
-            Ok(n) => buf.extend_from_slice(&tmp[..n]),
-            Err(err)
-                if err.kind() == io::ErrorKind::WouldBlock
-                    || err.kind() == io::ErrorKind::TimedOut =>
-            {
-                if buf.is_empty() {
-                    return Err(err);
-                }
-                break;
-            }
-            Err(err) => return Err(err),
-        }
-        if let Some(pos) = header_end(&buf) {
-            if let Some(len) = content_length(&buf[..pos]) {
-                if buf.len() >= pos + 4 + len {
-                    let code = status_code(&buf);
-                    return Ok((code, buf[pos + 4..pos + 4 + len].to_vec()));
-                }
-            }
-        }
-    }
-    let Some(pos) = header_end(&buf) else {
-        return Err(io::Error::new(
+    let mut wire = vec![
+        ("Host".to_string(), addr.to_string()),
+        ("Connection".to_string(), "close".to_string()),
+        ("Content-Length".to_string(), body.len().to_string()),
+    ];
+    wire.extend(headers.iter().map(|(k, v)| (k.to_string(), v.to_string())));
+    let req = http::ClientRequest {
+        method: "POST",
+        path,
+        minor: 1,
+        headers: wire,
+        body,
+    };
+    match http::send(addr, &req, timeout, MAX_RESPONSE) {
+        Ok(resp) => Ok((resp.status, resp.body)),
+        Err(http::ClientError::Connect(e) | http::ClientError::Write(e)) => Err(e),
+        Err(http::ClientError::Read(e)) => Err(e),
+        Err(http::ClientError::TooLarge) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "response too large",
+        )),
+        Err(http::ClientError::BadStatus(_)) => Err(io::Error::new(
             io::ErrorKind::UnexpectedEof,
             "no http header",
-        ));
-    };
-    Ok((status_code(&buf), buf[pos + 4..].to_vec()))
-}
-
-fn header_end(buf: &[u8]) -> Option<usize> {
-    buf.windows(4).position(|window| window == b"\r\n\r\n")
-}
-
-fn content_length(header: &[u8]) -> Option<usize> {
-    let text = String::from_utf8_lossy(header);
-    for line in text.lines() {
-        let Some((name, value)) = line.split_once(':') else {
-            continue;
-        };
-        if name.eq_ignore_ascii_case("content-length") {
-            return value.trim().parse().ok();
-        }
+        )),
+        Err(http::ClientError::Invalid(what)) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid request {what}"),
+        )),
     }
-    None
 }
 
-fn status_code(buf: &[u8]) -> u16 {
-    buf.split(|&byte| byte == b' ')
-        .nth(1)
-        .and_then(|token| std::str::from_utf8(token).ok())
-        .and_then(|token| token.parse().ok())
-        .unwrap_or(0)
-}
+/// Largest reply read (the synthesized WAV is the big one).
+const MAX_RESPONSE: usize = 8_000_000;
 
 #[cfg(test)]
 mod tests {

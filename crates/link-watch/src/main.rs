@@ -36,12 +36,12 @@
 
 mod jsonout;
 
+use galion_common::http;
 use jsonout::{json_str, to_json_compat};
 use link_watch::{watch_decision, WatchFacts};
 use openmind_config::ConfigError;
 use serde_json::{Map, Value};
-use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::ToSocketAddrs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -228,39 +228,11 @@ fn unix_now_f64() -> f64 {
 }
 
 // ---------------------------------------------------------------------------
-// Tiny blocking HTTP/1.1 client (no TLS, no redirects - the probes are plain
-// loopback HTTP, exactly like the Python urllib calls).
+// Tiny blocking HTTP/1.1 GET (no TLS, no redirects - the probes are plain
+// loopback HTTP, exactly like the Python urllib calls), on galion-common's
+// one-shot client: `timeout` bounds the whole exchange, replies over 8 MiB
+// count as a failed probe.
 // ---------------------------------------------------------------------------
-
-fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || haystack.len() < needle.len() {
-        return None;
-    }
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
-
-fn dechunk(mut data: &[u8]) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
-    loop {
-        let nl = find(data, b"\r\n")?;
-        let line = String::from_utf8_lossy(&data[..nl]);
-        let size_str = line.split(';').next()?.trim();
-        let size = usize::from_str_radix(size_str, 16).ok()?;
-        data = &data[nl + 2..];
-        if size == 0 {
-            break;
-        }
-        if data.len() < size {
-            return None;
-        }
-        out.extend_from_slice(&data[..size]);
-        data = &data[size..];
-        if data.len() >= 2 {
-            data = &data[2..];
-        }
-    }
-    Some(out)
-}
 
 fn http_get(url: &str, timeout: Duration) -> Option<(u16, Vec<u8>)> {
     let rest = url.strip_prefix("http://")?;
@@ -277,28 +249,25 @@ fn http_get(url: &str, timeout: Duration) -> Option<(u16, Vec<u8>)> {
         format!("{hostport}:80")
     };
     let sock = addr.to_socket_addrs().ok()?.next()?;
-    let mut stream = TcpStream::connect_timeout(&sock, timeout).ok()?;
-    stream.set_read_timeout(Some(timeout)).ok()?;
-    stream.set_write_timeout(Some(timeout)).ok()?;
-    let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {hostport}\r\nUser-Agent: link-watch\r\nAccept: */*\r\nConnection: close\r\n\r\n"
-    );
-    stream.write_all(request.as_bytes()).ok()?;
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).ok()?;
-    let sep = find(&buf, b"\r\n\r\n")?;
-    let head = &buf[..sep];
-    let raw_body = &buf[sep + 4..];
-    let first_line_end = find(head, b"\r\n").unwrap_or(head.len());
-    let status_line = String::from_utf8_lossy(&head[..first_line_end]);
-    let status: u16 = status_line.split_whitespace().nth(1)?.parse().ok()?;
-    let headers = String::from_utf8_lossy(head).to_ascii_lowercase();
-    let body = if headers.contains("transfer-encoding: chunked") {
-        dechunk(raw_body)?
-    } else {
-        raw_body.to_vec()
+    let req = http::ClientRequest {
+        method: "GET",
+        path,
+        minor: 1,
+        headers: vec![
+            ("Host".into(), hostport.into()),
+            ("User-Agent".into(), "link-watch".into()),
+            ("Accept".into(), "*/*".into()),
+            ("Connection".into(), "close".into()),
+        ],
+        body: &[],
     };
-    Some((status, body))
+    let resp = http::send(sock, &req, timeout, 8 << 20).ok()?;
+    // A reply cut short (no blank line after the head, or the deadline hit
+    // mid-body) is a failed probe, as with the old read-to-close client.
+    if !resp.complete {
+        return None;
+    }
+    Some((resp.status, resp.body))
 }
 
 /// CPython `probe(url, timeout)`: `(ok, milliseconds, body)`.

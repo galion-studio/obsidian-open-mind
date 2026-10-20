@@ -135,3 +135,7 @@ Go only when every box is ticked:
 - The live tuner runs as root with only `NoNewPrivileges`. A later unit hardening (`DynamicUser=yes`, `ProtectSystem=strict`, `ReadOnlyPaths=/opt/galion/tuner/www`) would be a unit change with its own approval.
 - One thread per connection with a 5 s read timeout, the same as live. It is fine behind loopback and a tunnel; a connection cap would be a behaviour change and is left out on purpose.
 - `deploy/staged/tuner.service` still names a working-copy path. Fix it, or delete it in a follow-up.
+
+## 8. Box rehearsal (2026-10-20, swarm/deploy-sim)
+
+Every step of sections 3 and 4 was rehearsed on the box with the real old and new binaries, a systemd-shaped supervisor and galion-deploy's real code: `docs/cutover/tuner-rehearsal.md` (21/21 checks, downtime 2–3 ms per swap or rollback). Four rules come out of it and apply on top of this plan: (1) use the L2 manual rollback only while the unit is active, and if it is down use the last resort, because the live galion-deploy waits forever for `--version` and the old tuner ignores it and serves; (2) add `systemctl reset-failed tuner` before every manual restart; (3) after any non-zero galion-deploy exit, check `is-active` and the sha, because exit 1 is ambiguous; (4) run galion-deploy under `nohup` with a log file.

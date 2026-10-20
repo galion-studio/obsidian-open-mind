@@ -71,6 +71,9 @@ wait_code() { # wait_code URL CODE SECONDS
 sim_up() { # sim_up NAME -> fresh root $R with units already written by the caller hook
   R=$SIM/root-$1; rm -rf "$R"; mkdir -p "$R/units" "$R/opt/galion/rust/bin" "$R/var/backups/galion"
   : > "$R/checks"
+  # per-rehearsal copies, so parallel rehearsals never match each other's processes
+  mkdir -p "$R/bad"; install -m 0755 "$BIN/sim-broken" "$BIN/sim-hang" "$R/bad/"
+  BROKEN=$R/bad/sim-broken; HANG=$R/bad/sim-hang
   cat > "$R/opt/galion/rust/bin/galion-backup.sh" <<'B'
 #!/bin/sh
 # sim stand-in for galion-backup.sh: the real data snapshot takes about 3 s.
@@ -210,7 +213,7 @@ U
   : > "$R/traps"
   head -c 65536 "$N" > "$STAGE/tuner-truncated"; chmod 0755 "$STAGE/tuner-truncated"
   say "rollback level 1 (automatic): broken binary (valid ELF, exits 1 at start)"
-  l1 "L1 broken binary" "$BIN/sim-broken"
+  l1 "L1 broken binary" "$BROKEN"
   say "rollback level 1 (automatic): truncated ELF (first 64 KiB of the new tuner; crashes at start)"
   l1 "L1 truncated ELF" "$STAGE/tuner-truncated"
   say "rollback level 1 with GALION_DEPLOY_RESET_FAILED=1 (opt-in): the rollback restart cannot be refused"
@@ -223,11 +226,11 @@ U
   say "hang A: binary that hangs on --version, galion-deploy as shipped (no timeout)"
   ctl reset-failed tuner >/dev/null
   local nb; nb=$(ls "$R"/var/backups/galion/deploy | wc -l)
-  bg_deploy 25 tuner "$BIN/sim-hang" "$H"
+  bg_deploy 25 tuner "$HANG" "$H"
   sleep 5
-  echo "5 s in: deploy still running; '--version' processes: $(vpids "$BIN/sim-hang"); health $(code "$H"); backups $(ls "$R"/var/backups/galion/deploy | wc -l)"
+  echo "5 s in: deploy still running; '--version' processes: $(vpids "$HANG"); health $(code "$H"); backups $(ls "$R"/var/backups/galion/deploy | wc -l)"
   bg_wait
-  local orphan; orphan=$(vpids "$BIN/sim-hang")
+  local orphan; orphan=$(vpids "$HANG")
   echo "after the outer timeout (SIGTERM to the process group): orphaned '--version' processes: ${orphan:-none}"
   check "hang A: deploy never returns on its own (killed by outer timeout 124), service untouched" \
     "$([ "$DRC" = 124 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ] && [ "$(ls "$R"/var/backups/galion/deploy | wc -l)" = "$nb" ]; echo $?)" "exit $DRC, sha $(sha "$T"), orphan ${orphan:-none}"
@@ -235,7 +238,7 @@ U
 
   say "hang B: same binary with GALION_DEPLOY_VERSION_TIMEOUT=5 (opt-in)"
   probe_start 127.0.0.1:$P /health 5
-  GALION_DEPLOY_VERSION_TIMEOUT=5 tdeploy 90 tuner "$BIN/sim-hang" "$H"
+  GALION_DEPLOY_VERSION_TIMEOUT=5 tdeploy 90 tuner "$HANG" "$H"
   probe_stop
   check "hang B: version step times out, install, health fails, auto rollback" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC, outage ${DOWN} ms"
   echo "DOWNTIME tuner auto-rollback-hang ${DOWN} ms" >> "$R/downtime"
@@ -353,7 +356,7 @@ nerve() {
   say "rollback level 1 (automatic) right after: broken binary. The unit allows 5 starts per 600 s (StartLimitBurst=5)"
   echo "starts so far in this window: swap, L2, re-deploy, L3 = 4"
   probe_start 127.0.0.1:$P /healthz 5
-  tdeploy 90 galion-nerve "$BIN/sim-broken" "$H"
+  tdeploy 90 galion-nerve "$BROKEN" "$H"
   probe_stop
   echo "unit: $(ctl is-active galion-nerve); installed sha $(sha "$T"); /healthz $(code "$H")"
   ctl journal galion-nerve 12 | grep -E 'start-limit|too quickly|Scheduled|exited' | sed 's/^/  journal| /'
@@ -368,26 +371,26 @@ nerve() {
   for i in 1 2 3; do ctl restart galion-nerve >/dev/null; done
   wait_code "$H" 200 10
   echo "4 starts used in the 600 s window (recovery + 3 restarts standing in for swap/L2/forward); now a broken deploy:"
-  GALION_DEPLOY_RESET_FAILED=1 tdeploy 90 galion-nerve "$BIN/sim-broken" "$H"
+  GALION_DEPLOY_RESET_FAILED=1 tdeploy 90 galion-nerve "$BROKEN" "$H"
   check "RESET_FAILED=1: rolled back ok even with a full start-limit window" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ] && [ "$(ctl is-active galion-nerve)" = active ]; echo $?)" "exit $DRC, unit $(ctl is-active galion-nerve)"
 
   say "rollback level 1 (automatic) with an empty start-limit window"
   ctl reset-failed galion-nerve >/dev/null
   probe_start 127.0.0.1:$P /healthz 5
-  tdeploy 90 galion-nerve "$BIN/sim-broken" "$H"
+  tdeploy 90 galion-nerve "$BROKEN" "$H"
   probe_stop
   check "L1 broken binary: rolled back ok, old sha, healthy" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC, outage ${DOWN} ms"
   echo "DOWNTIME nerve auto-rollback-broken ${DOWN} ms" >> "$R/downtime"
 
   say "health-URL trap: the same broken deploy judged on /health (new nerve has it, the old one answers 404)"
   ctl reset-failed galion-nerve >/dev/null
-  tdeploy 90 galion-nerve "$BIN/sim-broken" "http://127.0.0.1:$P/health"
+  tdeploy 90 galion-nerve "$BROKEN" "http://127.0.0.1:$P/health"
   check "FINDING: with /health the rollback to the old nerve is reported 'ROLLBACK ALSO UNHEALTHY' although it serves" \
     "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC, /healthz $(code "$H"), /health $(code "http://127.0.0.1:$P/health")"
 
   say "hang: sim-hang, no version timeout"
   ctl reset-failed galion-nerve >/dev/null
-  tdeploy 15 galion-nerve "$BIN/sim-hang" "$H"
+  tdeploy 15 galion-nerve "$HANG" "$H"
   check "hang: deploy never returns on its own; service untouched" "$([ "$DRC" = 124 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC"
 
   say "final forward swap (leave the sim on the new nerve) and end state"
@@ -445,7 +448,7 @@ room() {
   check "redeploy exit 0, downtime < 1 s" "$([ "$DRC" = 0 ] && [ "$DOWN" -lt 1000 ]; echo $?)" "exit $DRC, outage ${DOWN} ms"
   echo "DOWNTIME room redeploy ${DOWN} ms" >> "$R/downtime"
   probe_start 127.0.0.1:$P /health 5
-  tdeploy 90 room "$BIN/sim-broken" "$H"
+  tdeploy 90 room "$BROKEN" "$H"
   probe_stop
   check "L1 broken: rolled back ok" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$(sha "$STAGE/room.new")" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC, outage ${DOWN} ms"
   echo "DOWNTIME room auto-rollback-broken ${DOWN} ms" >> "$R/downtime"
@@ -527,7 +530,7 @@ U
   echo "DOWNTIME desk deploy-swap ${DOWN} ms" >> "$R/downtime"
   local BAK; BAK=$(ls -1t "$R"/var/backups/galion/deploy/galion-desk-*.bin | head -1)
   probe_start 127.0.0.1:$P /health 5
-  tdeploy 90 galion-desk "$BIN/sim-broken" "$H"
+  tdeploy 90 galion-desk "$BROKEN" "$H"
   probe_stop
   check "L1 broken: rolled back ok to the new desk" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$NEW" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC, outage ${DOWN} ms"
   probe_start 127.0.0.1:$P /health 2

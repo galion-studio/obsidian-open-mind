@@ -4,7 +4,7 @@
 # What to do next
 
 - Written: 2026-10-19T22:22:11+02:00 (Europe/Zagreb)
-- Private only. Do not push. Do not add a public remote.
+- Private only. Do not push. Do not add a public remote. (Superseded 2026-10-20: see docs/SOURCE-OF-TRUTH.md. GitHub is the source of truth; work goes through branches and PRs.)
 - Do not systemctl restart, and do not copy a new binary over a live pid, until Slavik says so.
 
 The library wave is far enough. More "does not dial" tests will not make Hermes autonomous. The next work is one shadow path at a time.
@@ -19,7 +19,7 @@ The library wave is far enough. More "does not dial" tests will not make Hermes 
 
 ## Order
 
-1. Keep this repo private. Commit locally. No push.
+1. Keep this repo private. (Superseded 2026-10-20: commit on a branch, push it, open a PR; see docs/SOURCE-OF-TRUTH.md.)
 2. One offline cargo metadata, or one cargo generate-lockfile, as a single job, then replace the working-tree Cargo.lock only if the diff is the package list and nothing else. Until that job, the lock in git is the dirty working copy from parallel builds.
 3. Shadow memory. Run the fixture server on 127.0.0.1:0, never 8420. Compare health, v1 search, and v2 search to the live gateway with a field projection. A miss on a fixture phrase is expected. Do not switch the client.
 4. Dry-run route inside a test only. An approved CPU-local row may be chosen. Do not dial it from galion-one.

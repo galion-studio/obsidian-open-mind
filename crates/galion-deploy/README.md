@@ -68,6 +68,24 @@ Also fixed:
 Test knobs (do not use in production): `GALION_DEPLOY_HEALTH_TRIES` (20),
 `GALION_DEPLOY_HEALTH_INTERVAL_MS` (1000).
 
+## Pre-cutover backup
+
+```
+galion-deploy backup [--root DIR] [--dest DIR] [--unit NAME]... [--no-data | --galion-backup BIN]
+galion-deploy backup-verify DIR [--live-root DIR]
+```
+
+Writes `/opt/galion/backups/<YYYYMMDD-HHMMSS+zzzz>/` (Europe/Zagreb, 0700, files 0600):
+`backup.tar` (ustar overlay), `MANIFEST.tsv`, `SHA256SUMS`, `VERIFY.txt` and `data/`. Default
+units are `tuner` and `galion-nerve`. **One definition of a backup lives in galion-backup**
+(swarm/rust-ports, `galion-backup run`): the data part is that binary, run with
+`GALION_BACKUP_DEST=<snapshot>/data GALION_BACKUP_KEEP=1` (default
+`/opt/galion/rust/bin/galion-backup`, env `GALION_DEPLOY_GALION_BACKUP`). galion-deploy adds
+only what a binary swap can break: the unit binaries, unit files and drop-ins, the tuner
+quick-tunnel transient unit, the tuner static/source tree, `/var/lib/galion-nerve`, and the
+deploy tool itself. Secret trees and secret-like names are never read. Exit 0 written and
+verified, 1 failed, 2 usage. Runbook: `docs/ops/cutover-tuner-nerve.md`.
+
 ## Callers to know about
 
 - openmind-nerve (swarm/nerve) launches `/opt/galion/rust/bin/galion-deploy` through

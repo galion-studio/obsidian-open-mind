@@ -32,3 +32,13 @@ A spare process with `ONE_BIND=127.0.0.1:18091` and `ONE_MOUTH_BIND=127.0.0.1:18
 pid 1373612 was not signaled and was not restarted. galion-one was not started. This work did not bind 8091, 8002, 18091, or 18002. No other crate was edited. Nothing was committed. Nothing was pushed. systemctl was not used.
 
 The stamp offset is numeric. It is not a trailing UTC designator.
+
+## Port onto the portable galion-one (swarm/one-probe, 2026-10-20T19:05+02:00)
+
+The text above records the VPS fix (2f5a730). That code sat on the VPS-only
+`Settings`/`openmind-config` layer (B06), so it did not apply to GitHub main's
+portable galion-one. The behaviour is now ported onto main's env-only design in
+`crates/galion-one/src/probe.rs`; the full write-up, the list of dropped
+VPS/live features and the cutover differences are in
+[one-probe-cutover.md](one-probe-cutover.md). Real-life evidence:
+[real-tests/one-probe.md](real-tests/one-probe.md).

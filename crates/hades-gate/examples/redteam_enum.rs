@@ -26,9 +26,19 @@ fn main() {
         let shown = shown.replace('|', "\\|");
         let cell = match res {
             Ok(()) => "**WouldApply**".to_owned(),
-            Err(h) => format!("refused: {}", h.reason().trim_start_matches("admin-safety: ")),
+            Err(h) => format!(
+                "refused: {}",
+                h.reason().trim_start_matches("admin-safety: ")
+            ),
         };
-        println!("| {} | {} | {} | `{}` | {} |", i + 1, c.family, c.desc, shown, cell);
+        println!(
+            "| {} | {} | {} | `` {} `` | {} |",
+            i + 1,
+            c.family,
+            c.desc.replace('|', "\\|"),
+            shown,
+            cell
+        );
         let pos = match fams.iter().position(|f| f.0 == c.family) {
             Some(p) => p,
             None => {

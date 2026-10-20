@@ -17,8 +17,11 @@
 //! * plans the reviewer cannot read: non-ASCII text, shell substitution, `eval`,
 //!   encoded payloads.
 //!
-//! This is a deny list on top of an allow list (only `heal-apply`, `switch`
-//! and `rollback` can be approved at all). It is deliberately over-cautious:
+//! Since S3.1 (docs/security/hades-redteam.md) the deny list is backed by
+//! allow lists: plan punctuation is limited to `/ . - _ : , ( ) ;` (no shell
+//! metacharacters), every statement must start with a [`PLAN_VERBS`] verb, and
+//! the target must be a plain service name. On top of that, only `heal-apply`,
+//! `switch` and `rollback` can be approved at all. It is deliberately over-cautious:
 //! a false refusal costs the admin one manual step, a false approval could
 //! cost them their box.
 
@@ -199,7 +202,67 @@ const WORDS: &[(&str, Hazard)] = &[
     ("base64", Hazard::Opaque("encoded payload")),
     ("xxd", Hazard::Opaque("encoded payload")),
     ("openssl", Hazard::Opaque("openssl")),
+    // S3.1 red-team additions (docs/security/hades-redteam.md).
+    ("rm", Hazard::Destructive("rm")),
+    ("find", Hazard::Destructive("find")),
+    ("delete", Hazard::Destructive("delete")),
+    ("dd", Hazard::Destructive("dd")),
+    ("mv", Hazard::Destructive("mv")),
+    ("cp", Hazard::Destructive("cp")),
+    ("tee", Hazard::Destructive("tee")),
+    ("install", Hazard::Destructive("install")),
+    ("sed", Hazard::Destructive("sed")),
+    ("systemctl", Hazard::AdminAccount("service manager")),
+    ("mask", Hazard::AdminAccount("unit mask")),
+    ("setcap", Hazard::AdminAccount("capability change")),
+    ("ip", Hazard::AdminAccount("network change")),
+    ("route", Hazard::AdminAccount("network change")),
+    ("keygen", Hazard::AdminAccount("key generation")),
+    ("curl", Hazard::Opaque("remote payload")),
+    ("wget", Hazard::Opaque("remote payload")),
+    ("nc", Hazard::Opaque("remote payload")),
+    ("ncat", Hazard::Opaque("remote payload")),
+    ("socat", Hazard::Opaque("remote payload")),
+    ("bash", Hazard::Opaque("shell")),
+    ("zsh", Hazard::Opaque("shell")),
+    ("dash", Hazard::Opaque("shell")),
+    ("ksh", Hazard::Opaque("shell")),
+    ("csh", Hazard::Opaque("shell")),
+    ("busybox", Hazard::Opaque("shell")),
+    ("exec", Hazard::Opaque("exec")),
+    ("source", Hazard::Opaque("source")),
+    ("alias", Hazard::Opaque("alias")),
+    ("xargs", Hazard::Opaque("xargs")),
+    ("nohup", Hazard::Opaque("background job")),
+    ("setsid", Hazard::Opaque("background job")),
+    ("printf", Hazard::Opaque("encoded payload")),
+    ("base32", Hazard::Opaque("encoded payload")),
+    ("basenc", Hazard::Opaque("encoded payload")),
+    ("perl", Hazard::Opaque("interpreter")),
+    ("ruby", Hazard::Opaque("interpreter")),
+    ("python", Hazard::Opaque("interpreter")),
+    ("python3", Hazard::Opaque("interpreter")),
+    ("node", Hazard::Opaque("interpreter")),
+    ("awk", Hazard::Opaque("interpreter")),
+    ("gawk", Hazard::Opaque("interpreter")),
 ];
+
+/// The allow-list (S3.1): every statement of a plan (lines, and `;`-separated
+/// parts of a line) must start with one of these verbs. They are exactly the
+/// leading words of the plans HADES can approve: gaia-hades `plan_for` for
+/// `heal-apply` and `rollback`, and the `switch`/`restart`/`verify` plans in
+/// the tests and docs. Add a verb only together with a test and a red-team
+/// row; a deny-list miss then still needs an allowed verb to get through.
+pub const PLAN_VERBS: &[&str] = &[
+    "apply", "append", "keep", "operator", "read", "record", "restart", "switch", "take", "verify",
+];
+
+/// Bytes a plan may contain besides ASCII letters, digits, space, tab and
+/// newline. No shell metacharacters: no `$ \` ' " \ | & > < = { } * ? ! ~ #`.
+const PLAN_PUNCT: &[u8] = b"/.-_:,();";
+
+/// Longest target name.
+pub const MAX_TARGET_BYTES: usize = 64;
 
 /// Target names (or parts of them) that are never approvable.
 const PROTECTED_TARGETS: &[&str] = &[
@@ -240,9 +303,27 @@ pub fn review(target: &str, plan: &[u8]) -> Result<(), Hazard> {
 
 /// Only the target name.
 ///
+/// A target is a plain service name: 1 to [`MAX_TARGET_BYTES`] ASCII bytes
+/// from `A-Z a-z 0-9 . _ - @ :` (as [`crate::token::valid_target`]), starting
+/// with a letter or digit, no `..`; and no
+/// part of it may be a protected name.
+///
 /// # Errors
 /// [`Hazard::ProtectedTarget`].
 pub fn review_target(target: &str) -> Result<(), Hazard> {
+    let b = target.as_bytes();
+    if b.is_empty()
+        || b.len() > MAX_TARGET_BYTES
+        || !b[0].is_ascii_alphanumeric()
+        || !b
+            .iter()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-' | b'@' | b':'))
+        || target.contains("..")
+    {
+        return Err(Hazard::ProtectedTarget(
+            "target is not a plain service name",
+        ));
+    }
     let lower = target.to_ascii_lowercase();
     for part in lower.split(|c: char| !c.is_ascii_alphanumeric()) {
         if let Some(hit) = PROTECTED_TARGETS.iter().find(|p| **p == part) {
@@ -258,6 +339,10 @@ pub fn review_target(target: &str) -> Result<(), Hazard> {
 }
 
 /// Only the plan text.
+///
+/// Order: size and ASCII checks, the deny-list (so a known hazard is named),
+/// then the allow-list: only [`PLAN_PUNCT`] punctuation, and every statement
+/// starts with a [`PLAN_VERBS`] verb.
 ///
 /// # Errors
 /// The first [`Hazard`] found.
@@ -275,6 +360,36 @@ pub fn review_plan(plan: &[u8]) -> Result<(), Hazard> {
         return Err(Hazard::Opaque("non-printable or non-ASCII bytes"));
     }
     let text = String::from_utf8_lossy(plan).to_ascii_lowercase();
+    deny_list(&text)?;
+    if !plan.iter().all(|b| {
+        b.is_ascii_alphanumeric() || matches!(b, b' ' | b'\t' | b'\n') || PLAN_PUNCT.contains(b)
+    }) {
+        return Err(Hazard::Opaque("shell metacharacter"));
+    }
+    let mut statements = 0usize;
+    for stmt in text.split(['\n', ';']) {
+        let stmt = stmt.trim();
+        if stmt.is_empty() {
+            continue;
+        }
+        statements += 1;
+        let verb: String = stmt
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+            .collect();
+        if !PLAN_VERBS.contains(&verb.as_str()) {
+            return Err(Hazard::Opaque(
+                "statement does not start with an allow-listed plan verb",
+            ));
+        }
+    }
+    if statements == 0 {
+        return Err(Hazard::Opaque("empty plan"));
+    }
+    Ok(())
+}
+
+fn deny_list(text: &str) -> Result<(), Hazard> {
     let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
     // `kill ... -1` signals every process the caller can reach.
     let args: Vec<&str> = folded.split(' ').collect();
@@ -291,6 +406,14 @@ pub fn review_plan(plan: &[u8]) -> Result<(), Hazard> {
         if let Some((_, hazard)) = WORDS.iter().find(|(w, _)| *w == word) {
             return Err(*hazard);
         }
+    }
+    // A bare `sh` cannot be a WORDS entry (`deploy/rollback.sh` splits into
+    // `sh`), so match whole whitespace tokens: `sh`, `/bin/sh`, `-c`.
+    if args
+        .iter()
+        .any(|a| *a == "sh" || a.ends_with("/sh") || *a == "-c")
+    {
+        return Err(Hazard::Opaque("shell"));
     }
     Ok(())
 }

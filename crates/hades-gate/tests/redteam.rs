@@ -27,6 +27,17 @@ fn every_redteam_attempt_is_refused() {
 #[test]
 fn legitimate_plans_still_pass() {
     for (target, plan) in corpus::LEGIT {
-        assert_eq!(review(target, plan.as_bytes()), Ok(()), "{target}: {plan:?}");
+        assert_eq!(
+            review(target, plan.as_bytes()),
+            Ok(()),
+            "{target}: {plan:?}"
+        );
+    }
+}
+
+#[test]
+fn legitimate_targets_still_pass() {
+    for t in corpus::LEGIT_TARGETS {
+        assert_eq!(review(t, b"restart galion-tuner"), Ok(()), "{t}");
     }
 }

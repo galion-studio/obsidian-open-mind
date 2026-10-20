@@ -98,3 +98,24 @@ against the old local copy for 600 lengths).
   a non-HTTP reply is `UnexpectedEof "no http header"` (warm used to return
   `Ok(0)`), a bare status line is a valid status (warm returns 503 instead
   of an error); 8 MB reply cap.
+
+### Limits from the environment (`Limits::with_env`)
+
+`Limits::with_env(prefix)` overrides a limit from
+`<PREFIX>_HTTP_<KEY>`. The keys are `MAX_HEAD_BYTES`, `MAX_HEADERS`,
+`MAX_BODY_BYTES`, `HEAD_TIMEOUT_MS`, `BODY_TIMEOUT_MS`, `WRITE_TIMEOUT_MS`
+and `MAX_CONNECTIONS`. Values must be whole numbers above 0; anything else is
+ignored, with a warning on stderr. An unset variable keeps the crate default.
+`with_vars` takes the same keys from any lookup, so a config file can use it
+too.
+
+| crate | prefix | head bytes / headers | body bytes | head / body / write timeout | connections |
+|---|---|---|---|---|---|
+| hermes-rs | `HERMES_RS` | 64 KiB / 256 | 8 MiB | 10 s / 60 s / 30 s | 64 |
+| openmind-memory | `OPENMIND_MEMORY` | 64 KiB / 256 | 1 MiB (`MEMORY_MAX_BODY_BYTES`; the HTTP_ variable wins) | 10 s / 30 s / 30 s | 32 (`OPENMIND_MEMORY_MAX_CONNS`) |
+| galion-desk | `DESK` | 8 KiB / 64 | 64 KiB | 3 s / 3 s / 10 s | 32 |
+| room | `ROOM` | 4 KiB / 64 | 64 KiB | 8 s / 8 s / 10 s | 32 |
+
+Each strict limit can be approved or reverted separately with these
+variables; see `docs/approvals/common-migrate-2-strict.md`. Parser strictness
+is not configurable; that document explains why.

@@ -76,7 +76,7 @@ fn serve() {
     eprintln!("room: {} objects", objects.len());
     let handler =
         move |req: &http::Request| http::Response::raw(handle(req.method(), req.target(), &json));
-    if let Err(err) = http::serve(listener, limits(), Arc::new(handler)) {
+    if let Err(err) = http::serve(listener, limits().with_env("ROOM"), Arc::new(handler)) {
         eprintln!("room: serve: {err}");
         std::process::exit(1);
     }
@@ -85,6 +85,9 @@ fn serve() {
 /// Connection limits for the galion-common server. The old loop read one
 /// 4 KiB buffer with an 8 s timeout and spawned a thread per connection
 /// without a cap. Bodies are ignored, but a POST must still get its 405.
+///
+/// Defaults; `serve` applies `ROOM_HTTP_*` overrides (galion-common
+/// `Limits::with_env`).
 fn limits() -> http::Limits {
     http::Limits {
         max_head_bytes: 4096,

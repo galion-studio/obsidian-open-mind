@@ -1,32 +1,50 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Real-life old-vs-new comparison for the crates moved onto galion-common's
-//! server and client (gated: `GALION_REAL=1`; `scripts/real/common-migrate-2.sh`
-//! builds both sets of release binaries and runs this).
+//! Real-life test for the crates moved onto galion-common (wave 2 slot 28,
+//! ports 19280-19289). It is gated twice, by `GALION_REAL=1` and by `#[ignore]`:
 //!
-//! Env: `GALION_REAL_OLD_BIN` / `GALION_REAL_NEW_BIN` (directories with the
-//! pre-migration and migrated release binaries), `GALION_REAL_SCRATCH` (an
-//! empty scratch directory), `GALION_REAL_PORT_BASE` (default 19280; ten
-//! ports are used: base+0..7 servers, base+8 fixture, base+9 kept closed).
+//! ```text
+//! GALION_REAL=1 cargo test --release -p galion-common --test real_migrate \
+//!     -- --ignored --nocapture
+//! ```
 //!
-//! 1. Servers (hermes-gateway --mock, openmind-memory, galion-desk, room):
-//!    old and new run side by side on their own state; the same sequence of
-//!    valid requests goes to both and the raw reply bytes are compared.
-//!    Fields that differ run to run (ids, clocks, pids) are masked; the
-//!    report says how many replies were byte-identical and how many only
-//!    after masking.
-//! 2. Clients (guardian-tick -> openmind-survival, link-watch, galion-desk's
-//!    Ollama calls, `openmind-memory parity`): a fixture server records the
-//!    exact request bytes each binary sends; old and new must send the same
-//!    bytes and produce the same output.
+//! The test does all of the work itself; it replaced
+//! `scripts/real/common-migrate-2.sh`.
 //!
-//! Nothing here touches a live service; all data is synthetic.
+//! 1. It builds the migrated release binaries, and also the same packages
+//!    at `GALION_REAL_OLD_REV` (default 26d98b0, which is swarm/common
+//!    before this migration) in a throw-away git worktree. Nested builds
+//!    go to `$CARGO_TARGET_DIR/real-new` and `real-old`, never to the
+//!    directory the outer `cargo test` uses.
+//! 2. Valid traffic, old vs new. hermes-gateway --mock, openmind-memory,
+//!    galion-desk and room run side by side, each on its own synthetic
+//!    state. The same requests go to both, and the raw reply bytes are
+//!    compared. Fields that change from run to run (ids, clocks, pids) are
+//!    masked, but only when the raw bytes differ. The client binaries run
+//!    against a recording fixture: guardian-tick (openmind-survival),
+//!    link-watch, galion-desk's Ollama calls and `openmind-memory parity`.
+//!    Old and new must send the same request bytes and print the same
+//!    output.
+//! 3. Abuse. Chunked-upload abuse goes to both hermes builds. Then the
+//!    galion-common hammer (`real_hammer.rs`: latency, malformed,
+//!    oversized, slowloris) runs against all 8 servers, while memory and
+//!    threads are sampled. Every process must still be alive at the end;
+//!    all of them are killed on drop.
+//!
+//! Ports come from `GALION_REAL_PORT_BASE` (default 19280): base+0..7 are
+//! the servers (old/new pairs), base+8 is the fixture, and base+9 is kept
+//! closed. Nothing here touches a live service; all data is synthetic.
 
+#[path = "real_hammer.rs"]
+mod real_hammer;
+mod realsupport;
+
+use realsupport::{addr, now, Proc};
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -39,64 +57,9 @@ struct Env {
     base: u16,
 }
 
-fn env() -> Option<Env> {
-    if std::env::var("GALION_REAL").ok().as_deref() != Some("1") {
-        return None;
-    }
-    let get = |k: &str| std::env::var(k).ok().map(PathBuf::from);
-    Some(Env {
-        old: get("GALION_REAL_OLD_BIN")?,
-        new: get("GALION_REAL_NEW_BIN")?,
-        scratch: get("GALION_REAL_SCRATCH")?,
-        base: std::env::var("GALION_REAL_PORT_BASE")
-            .ok()
-            .and_then(|p| p.parse().ok())
-            .unwrap_or(19280),
-    })
-}
-
-fn addr(port: u16) -> SocketAddr {
-    SocketAddr::from(([127, 0, 0, 1], port))
-}
-
-struct Proc {
-    child: Child,
-}
-
-impl Drop for Proc {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 fn start(bin: &Path, args: &[&str], envs: &[(&str, String)], port: u16, log: &Path) -> Proc {
-    let log = std::fs::File::create(log).expect("log");
-    let mut cmd = Command::new(bin);
-    cmd.args(args)
-        .env_clear()
-        .env("PATH", "/usr/bin:/bin")
-        .env("HOME", "/nonexistent")
-        .env("OPENMIND_CONFIG", "/nonexistent/openmind.toml")
-        .stdout(Stdio::null())
-        .stderr(log);
-    for (k, v) in envs {
-        cmd.env(k, v);
-    }
-    let child = cmd
-        .spawn()
-        .unwrap_or_else(|e| panic!("{}: {e}", bin.display()));
-    let p = Proc { child };
-    let t = Instant::now();
-    while TcpStream::connect_timeout(&addr(port), Duration::from_millis(100)).is_err() {
-        assert!(
-            t.elapsed() < Duration::from_secs(20),
-            "{} did not listen on {port}",
-            bin.display()
-        );
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    p
+    let name = bin.file_name().unwrap_or_default().to_string_lossy();
+    realsupport::start(&name, bin, args, envs, port, log)
 }
 
 /// Write `bytes`, read until the server closes (or 15 s).
@@ -585,12 +548,8 @@ fn compare_requests(t: &mut Tally, what: &str, old: &[Vec<u8>], new: &[Vec<u8>])
     }
 }
 
-#[test]
-fn real_migrate() {
-    let Some(e) = env() else {
-        eprintln!("skipped: set GALION_REAL=1, GALION_REAL_OLD_BIN, GALION_REAL_NEW_BIN, GALION_REAL_SCRATCH");
-        return;
-    };
+/// Phase 2: valid traffic and client captures, old vs new.
+fn valid_traffic(e: &Env) {
     let b = e.base;
     let sc = |p: &str| e.scratch.join(p);
     for d in [
@@ -868,19 +827,10 @@ fn real_migrate() {
     assert!(t.diff.is_empty(), "old and new differ: {:?}", t.diff);
 }
 
-/// Chunked-upload abuse for servers that accept chunked bodies (hermes):
-/// `GALION_REAL_CHUNKED_TARGETS=name=host:port,...`. Each case prints the
-/// status (or how the connection ended); the server must answer `/health`
-/// afterwards.
-#[test]
-fn real_chunked_abuse() {
-    if std::env::var("GALION_REAL").ok().as_deref() != Some("1") {
-        return;
-    }
-    let Ok(list) = std::env::var("GALION_REAL_CHUNKED_TARGETS") else {
-        eprintln!("skipped: GALION_REAL_CHUNKED_TARGETS not set");
-        return;
-    };
+/// Chunked-upload abuse for servers that accept chunked bodies (hermes).
+/// Each case prints the status, or how the connection ended. The server
+/// must answer `/health` afterwards.
+fn chunked_abuse(targets: &[(String, SocketAddr)]) {
     let head = |extra: &str| {
         format!("POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {KEY}\r\nContent-Type: application/json\r\n{extra}\r\n")
     };
@@ -929,13 +879,8 @@ fn real_chunked_abuse() {
         ),
         ("truncated chunked", format!("{te}10\r\nabc").into_bytes()),
     ];
-    for kv in list.split(',') {
-        let Some((name, a)) = kv.split_once('=') else {
-            continue;
-        };
-        let Ok(a) = a.parse::<SocketAddr>() else {
-            continue;
-        };
+    for (name, a) in targets {
+        let a = *a;
         for (label, bytes) in &cases {
             let t = Instant::now();
             let reply = (|| {
@@ -986,4 +931,248 @@ fn real_chunked_abuse() {
             "{name} not healthy after abuse"
         );
     }
+}
+
+/// The packages built for the test (each has a binary of the same name).
+const PACKAGES: [&str; 6] = [
+    "hermes-gateway",
+    "openmind-memory",
+    "galion-desk",
+    "room",
+    "link-watch",
+    "guardian-tick",
+];
+
+#[test]
+#[ignore = "real-life test: GALION_REAL=1, builds and runs release binaries on 19280-19289"]
+fn real_migrate() {
+    if !realsupport::enabled("real_migrate") {
+        return;
+    }
+    let base = realsupport::port_base(19280);
+    let rev = std::env::var("GALION_REAL_OLD_REV")
+        .unwrap_or_else(|_| "26d98b055bd980045e718e3ab63a0d26888f0256".into());
+    let scratch = realsupport::Scratch::new("common-migrate-2-real");
+
+    // ------------------------------------------------------------ 1. build
+    println!("== {} build migrated tree and {rev}", now());
+    let new = realsupport::build(
+        &realsupport::workspace(),
+        &realsupport::target_dir("new"),
+        &PACKAGES,
+    );
+    let old = realsupport::build_old(&rev, &scratch, &PACKAGES, &PACKAGES);
+
+    // ------------------------------------------- 2. valid traffic, old vs new
+    std::fs::create_dir_all(scratch.join("diff")).unwrap();
+    println!("== {} valid traffic, old vs new", now());
+    valid_traffic(&Env {
+        old: old.clone(),
+        new: new.clone(),
+        scratch: scratch.join("diff"),
+        base,
+    });
+
+    // ------------------------------------------------------------ 3. abuse
+    let mut specs: Vec<Spec> = Vec::new();
+    for (side, dir, o) in [("new", &new, 1u16), ("old", &old, 0)] {
+        let (hp, mp, dp, rp) = (base + o, base + 2 + o, base + 4 + o, base + 6 + o);
+        let d = |p: &str| scratch.join(&format!("{side}/{p}"));
+        for p in ["hermes", "memory", "desk/state", "desk/one"] {
+            std::fs::create_dir_all(d(p)).unwrap();
+        }
+        let s = |p: PathBuf| p.display().to_string();
+        let spec = |name: &str, bin: &str, prefix, args: &[&'static str], envs| Spec {
+            name: format!("{side}-{name}"),
+            bin: dir.join(bin),
+            prefix,
+            args: args.to_vec(),
+            envs,
+            port: 0,
+        };
+        specs.push(Spec {
+            port: hp,
+            ..spec(
+                "hermes",
+                "hermes-gateway",
+                "HERMES_RS",
+                &["--mock"],
+                vec![
+                    ("HERMES_HOME", s(d("hermes"))),
+                    ("HERMES_RS_HOST", "127.0.0.1".into()),
+                    ("HERMES_RS_PORT", hp.to_string()),
+                    ("HERMES_RS_MCP", "0".into()),
+                    ("API_SERVER_KEY", KEY.into()),
+                ],
+            )
+        });
+        specs.push(Spec {
+            port: mp,
+            ..spec(
+                "memory",
+                "openmind-memory",
+                "OPENMIND_MEMORY",
+                &[],
+                vec![
+                    ("OPENMIND_MEMORY_DATA_DIR", s(d("memory"))),
+                    ("OPENMIND_MEMORY_PORT", mp.to_string()),
+                ],
+            )
+        });
+        specs.push(Spec {
+            port: dp,
+            ..spec(
+                "desk",
+                "galion-desk",
+                "DESK",
+                &[],
+                vec![
+                    ("DESK_BIND", format!("127.0.0.1:{dp}")),
+                    ("DESK_STATE_DIR", s(d("desk/state"))),
+                    ("DESK_ONE_DIR", s(d("desk/one"))),
+                    ("DESK_HERMES_DIR", s(d("desk/hermes"))),
+                    ("DESK_OLLAMA", format!("127.0.0.1:{}", base + 9)),
+                    ("DESK_HERMES_BIN", "/bin/false".into()),
+                ],
+            )
+        });
+        specs.push(Spec {
+            port: rp,
+            ..spec(
+                "room",
+                "room",
+                "ROOM",
+                &["--listen"],
+                vec![("ROOM_BIND", format!("127.0.0.1:{rp}"))],
+            )
+        });
+    }
+    let mut procs: Vec<Proc> = specs.iter().map(|s| s.start(&scratch, &[])).collect();
+    let targets: Vec<(String, SocketAddr)> = specs
+        .iter()
+        .map(|s| (s.name.clone(), addr(s.port)))
+        .collect();
+    println!("== {} abuse", now());
+    realsupport::mem("before", &procs);
+    let sampler = realsupport::Sampler::start(&procs);
+    let hermes: Vec<_> = targets
+        .iter()
+        .filter(|(n, _)| n.ends_with("-hermes"))
+        .cloned()
+        .collect();
+    chunked_abuse(&hermes);
+    for (name, a) in &targets {
+        real_hammer::hammer(name, *a);
+    }
+    std::thread::sleep(Duration::from_secs(1));
+    println!("== {} done", now());
+    realsupport::mem("after", &procs);
+    sampler.finish();
+    let dead = realsupport::alive_report(&mut procs);
+    assert!(dead.is_empty(), "died under abuse: {dead:?}");
+    drop(procs);
+
+    // ------------------------------------------- 4. limits from environment
+    // Every migrated server takes <PREFIX>_HTTP_* overrides, so a stricter
+    // limit can be relaxed (or a revert approximated) without a rebuild.
+    // Default vs override, measured on the migrated binaries.
+    println!("== {} limits from environment (migrated binaries)", now());
+    for spec in specs.iter().filter(|s| s.name.starts_with("new-")) {
+        let (head_default, _) = {
+            let _p = spec.start(&scratch, &[]);
+            slow_head(spec.port)
+        };
+        let head_ms = format!("{}_HTTP_HEAD_TIMEOUT_MS", spec.prefix);
+        let conns = format!("{}_HTTP_MAX_CONNECTIONS", spec.prefix);
+        let _p = spec.start(&scratch, &[(&head_ms, "1000".into()), (&conns, "2".into())]);
+        let (head_override, reply) = slow_head(spec.port);
+        // Let the server notice that client close and free its slot first.
+        std::thread::sleep(Duration::from_millis(300));
+        let busy = over_cap(spec.port, 2);
+        println!(
+            "{} stalled head closed after {:.1}s by default, {:.1}s with {head_ms}=1000 ({reply}); {conns}=2: 3rd connection -> {busy}",
+            spec.name,
+            head_default.as_secs_f64(),
+            head_override.as_secs_f64()
+        );
+        assert!(
+            head_override < Duration::from_millis(2500),
+            "{head_ms} ignored"
+        );
+        assert!(
+            head_default > Duration::from_millis(2500),
+            "default head deadline"
+        );
+        assert!(busy.contains("503"), "{conns} ignored: {busy}");
+    }
+}
+
+/// How to start one server (the abuse and environment phases share it).
+struct Spec {
+    name: String,
+    bin: PathBuf,
+    /// Environment prefix for `Limits::with_env` (`<PREFIX>_HTTP_*`).
+    prefix: &'static str,
+    args: Vec<&'static str>,
+    envs: Vec<(&'static str, String)>,
+    port: u16,
+}
+
+impl Spec {
+    fn start(&self, scratch: &realsupport::Scratch, extra: &[(&str, String)]) -> Proc {
+        let mut envs: Vec<(&str, String)> =
+            self.envs.iter().map(|(k, v)| (*k, v.clone())).collect();
+        envs.extend(extra.iter().map(|(k, v)| (*k, v.clone())));
+        let log = scratch.join(&format!("{}.log", self.name));
+        realsupport::start(&self.name, &self.bin, &self.args, &envs, self.port, &log)
+    }
+}
+
+/// Send half a request head and wait for the server to give up; returns the
+/// time it took and the first bytes of the reply.
+fn slow_head(port: u16) -> (Duration, String) {
+    let t = Instant::now();
+    let Ok(mut s) = TcpStream::connect_timeout(&addr(port), Duration::from_secs(2)) else {
+        return (t.elapsed(), "connect failed".into());
+    };
+    let _ = s.set_read_timeout(Some(Duration::from_secs(30)));
+    let _ = s.write_all(b"GET /health HTTP/1.1\r\nHost: x\r\n");
+    let mut out = Vec::new();
+    let _ = s.read_to_end(&mut out);
+    let reply = if out.is_empty() {
+        "closed".to_string()
+    } else {
+        String::from_utf8_lossy(&out[..out.len().min(12)]).into_owned()
+    };
+    (t.elapsed(), reply)
+}
+
+/// Hold `held` stalled connections, then send a full GET on one more.
+fn over_cap(port: u16, held: usize) -> String {
+    let hold: Vec<TcpStream> = (0..held)
+        .filter_map(|_| {
+            let mut s = TcpStream::connect_timeout(&addr(port), Duration::from_secs(2)).ok()?;
+            let _ = s.write_all(b"GET /health HTTP/1.1\r\n");
+            Some(s)
+        })
+        .collect();
+    std::thread::sleep(Duration::from_millis(200));
+    let early: Vec<String> = hold
+        .iter()
+        .map(|s| {
+            let _ = s.set_read_timeout(Some(Duration::from_millis(50)));
+            let mut b = [0u8; 12];
+            match s.peek(&mut b) {
+                Ok(0) => "closed".to_string(),
+                Ok(n) => String::from_utf8_lossy(&b[..n]).into_owned(),
+                Err(_) => "held".to_string(),
+            }
+        })
+        .collect();
+    let r = exchange(port, &get("/health", ""));
+    drop(hold);
+    format!(
+        "{} (held: {early:?})",
+        String::from_utf8_lossy(&r[..r.len().min(12)])
+    )
 }

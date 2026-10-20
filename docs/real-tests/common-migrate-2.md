@@ -6,9 +6,14 @@ All times are Europe/Zagreb (CEST, +02:00).
 
 ## 1. Migrated vs pre-migration binaries on the box
 
-Run: `scripts/real/common-migrate-2.sh` from 2026-10-20 20:59:15 to 21:02:30
-+02:00, on the final code of this branch. The script:
-
+Run: `GALION_REAL=1 nice -n 10 cargo test -p galion-common --release --test
+real_migrate -- --ignored --nocapture` (Rust:
+`crates/galion-common/tests/real_migrate.rs`, helpers in
+`tests/realsupport/mod.rs`, hammer in `tests/real_hammer.rs`). It replaces
+`scripts/real/common-migrate-2.sh`, which is deleted. Run from 2026-10-20
+21:26:18 to 21:30:10 +02:00 on the final code of this branch; 231.9 s, exit 0.
+`GALION_REAL_OLD_REV` (default 26d98b0) and `GALION_REAL_PORT_BASE`
+(default 19280) can be overridden. The test:
 - builds release binaries of the migrated tree, and the same packages from
   26d98b0 (swarm/common, before this migration) in a temporary worktree;
 - runs old and new **hermes-rs** (`--mock`, 19280/19281), **openmind-memory**
@@ -33,11 +38,29 @@ Run: `scripts/real/common-migrate-2.sh` from 2026-10-20 20:59:15 to 21:02:30
   - a 100 KB header, 1000 headers, a 10 GB Content-Length and a real 5 MB
     body;
   - 80 slowloris connections, with 60 legit GETs during the wave;
-- samples memory and threads, and checks every process is still alive. All
-  processes are killed at the end (trap).
+- samples memory and threads, and checks every process is still alive;
+- phase 4 (new): restarts each migrated server with
+  `<PREFIX>_HTTP_HEAD_TIMEOUT_MS=1000` and `<PREFIX>_HTTP_MAX_CONNECTIONS=2`,
+  and checks that a stalled head is cut at 1 s instead of the default and
+  that a 3rd connection gets 503.
 
-Result: **88 byte-identical, 10 identical after masking, 0 different**.
+Every started process is a `Proc` guard that is killed on drop, also on
+panic. The old-revision git worktree and the scratch dir are removed on drop.
+The nested release builds go to `$CARGO_TARGET_DIR/real-new` and
+`real-old`, so they never wait on the outer cargo lock.
+
+Result: **87 byte-identical, 11 identical after masking, 0 different**.
 **All 8 servers alive** at the end; exit 0.
+
+**Same as the shell-script run (20:59:15 to 21:02:30, 88/10/0).** The
+98 probe names are identical. The only change is `desk POST /desk rest`,
+which was byte-identical in one run and identical after masking in the
+other: desk's board contains host load and RAM figures. Abuse outcome counts
+are identical for all 8 servers, apart from timings and one case:
+old-hermes slowloris was `503:16, survived:64` before and is
+`503:4, survived:64, write cut:12` now. That is the old code's 503 being
+reset before the client read it. It is the TCP RST issue under
+"Open issue" in the approval packet, and it is not a migrated-server change.
 
 The memory parity tool reports `diff: 2` for old-server vs new-server, from
 **both** the old and the new parity build, with identical stdout. Those two
@@ -62,10 +85,25 @@ Abuse, migrated vs old, in short:
 - **Peak RSS** is unchanged within noise (hermes 12.0 MB both, the others
   2.9 to 4.9 MB).
 
+### Phase 4: limits from the environment (migrated binaries only)
+
+| server | stalled head, default | with `HEAD_TIMEOUT_MS=1000` | 3rd connection with `MAX_CONNECTIONS=2` |
+|---|---|---|---|
+| hermes-rs (`HERMES_RS_`) | cut at 10.2 s | 1.0 s, 408 | 503 |
+| openmind-memory (`OPENMIND_MEMORY_`) | 10.0 s | 1.0 s, quiet close (as before) | 503 |
+| galion-desk (`DESK_`) | 3.1 s | 1.0 s, 408 | 503 |
+| room (`ROOM_`) | 8.0 s | 1.0 s, 408 | 503 |
+
+The first run of the port (started 21:17:44 +02:00) failed here for desk.
+The cause was a race in the test, not in desk: the 1 s stalled-head probe's
+handler thread had not yet freed its slot when the cap probe began. The
+test now waits 300 ms and prints the state of the held connections.
+
 ### Output (verbatim)
 
 ```
-== 2026-10-20T20:59:15+02:00 valid traffic, old vs new
+== 2026-10-20T21:26:18+02:00 build migrated tree and 26d98b055bd980045e718e3ab63a0d26888f0256
+== 2026-10-20T21:26:29+02:00 valid traffic, old vs new
 == hermes: old 127.0.0.1:19280 vs new 127.0.0.1:19281
   same   hermes GET /health (261 bytes)
   same   hermes GET /v1/health HTTP/1.0 (Galion One) (261 bytes)
@@ -79,7 +117,7 @@ Abuse, migrated vs old, in short:
   masked hermes POST /v1/chat/completions stream (SSE) (old 1195 / new 1195 bytes)
   masked hermes POST /v1/chat/completions chunked upload (old 477 / new 477 bytes)
   same   hermes POST /v1/chat/completions bad JSON (239 bytes)
-  masked hermes GET /api/sessions (old 1458 / new 1456 bytes)
+  masked hermes GET /api/sessions (old 1459 / new 1455 bytes)
   same   hermes GET /api/jobs (149 bytes)
   same   hermes GET /api/spend (291 bytes)
   same   hermes GET /p/default/health (261 bytes)
@@ -134,7 +172,7 @@ Abuse, migrated vs old, in short:
   masked desk POST /desk wake (old 864 / new 864 bytes)
   same   desk wake -> Ollama fixture request 1 (66 bytes)
   same   desk wake -> Ollama fixture request 2 (207 bytes)
-  same   desk POST /desk rest (864 bytes)
+  masked desk POST /desk rest (old 864 / new 864 bytes)
   same   desk rest -> Ollama fixture request 1 (66 bytes)
   same   desk rest -> Ollama fixture request 2 (66 bytes)
   same   desk rest -> Ollama fixture request 3 (192 bytes)
@@ -176,151 +214,148 @@ Abuse, migrated vs old, in short:
   same   memory parity request 10 (154 bytes)
   same   memory parity request 11 (156 bytes)
   same   memory parity request 12 (156 bytes)
-== summary: 88 byte-identical, 10 identical after masking, 0 different
-.
-== 2026-10-20T20:59:25+02:00 abuse
-before new-hermes: VmHWM:4056 VmRSS:4056 Threads:2
-before new-memory: VmHWM:3980 VmRSS:3980 Threads:1
-before new-desk: VmHWM:2536 VmRSS:2536 Threads:1
-before new-room: VmHWM:2404 VmRSS:2404 Threads:1
-before old-hermes: VmHWM:4092 VmRSS:4092 Threads:2
-before old-memory: VmHWM:4096 VmRSS:4096 Threads:1
-before old-desk: VmHWM:2440 VmRSS:2440 Threads:1
-before old-room: VmHWM:2308 VmRSS:2308 Threads:1
-new-hermes chunked size ffffffffffffffff: HTTP/1.1 400 in 0.4ms
-new-hermes chunked size line 2000 bytes: HTTP/1.1 400 in 0.2ms
+== summary: 87 byte-identical, 11 identical after masking, 0 different
+== 2026-10-20T21:26:32+02:00 abuse
+before new-hermes: VmHWM:4052 VmRSS:4052 Threads:2
+before new-memory: VmHWM:4040 VmRSS:4040 Threads:1
+before new-desk: VmHWM:2544 VmRSS:2544 Threads:1
+before new-room: VmHWM:2220 VmRSS:2220 Threads:1
+before old-hermes: VmHWM:4088 VmRSS:4088 Threads:2
+before old-memory: VmHWM:3976 VmRSS:3976 Threads:1
+before old-desk: VmHWM:2468 VmRSS:2468 Threads:1
+before old-room: VmHWM:2172 VmRSS:2172 Threads:2
+new-hermes chunked size ffffffffffffffff: HTTP/1.1 400 in 0.6ms
+new-hermes chunked size line 2000 bytes: HTTP/1.1 400 in 0.6ms
 new-hermes chunked non-hex size: HTTP/1.1 400 in 0.2ms
-new-hermes chunked negative size: HTTP/1.1 400 in 0.1ms
-new-hermes chunked missing CRLF after data: HTTP/1.1 400 in 0.1ms
-new-hermes chunked trailer 20 KB: HTTP/1.1 400 in 0.2ms
-new-hermes chunked 9 MiB chunked body: HTTP/1.1 413 in 8.9ms
-new-hermes chunked TE gzip: HTTP/1.1 501 in 0.3ms
-new-hermes chunked TE chunked + CL: HTTP/1.1 400 in 0.2ms
-new-hermes chunked TE twice: HTTP/1.1 501 in 0.1ms
+new-hermes chunked negative size: HTTP/1.1 400 in 0.2ms
+new-hermes chunked missing CRLF after data: HTTP/1.1 400 in 0.6ms
+new-hermes chunked trailer 20 KB: HTTP/1.1 400 in 0.4ms
+new-hermes chunked 9 MiB chunked body: HTTP/1.1 413 in 9.7ms
+new-hermes chunked TE gzip: HTTP/1.1 501 in 0.6ms
+new-hermes chunked TE chunked + CL: HTTP/1.1 400 in 0.4ms
+new-hermes chunked TE twice: HTTP/1.1 501 in 0.2ms
 new-hermes chunked truncated chunked: HTTP/1.1 400 in 0.1ms
 new-hermes chunked slow drip: Some("dripped 4 s, client gave up") after 3.9s
 new-hermes after chunked abuse: /health -> HTTP/1.1 200
 old-hermes chunked size ffffffffffffffff: HTTP/1.1 413 in 0.2ms
 old-hermes chunked size line 2000 bytes: HTTP/1.1 400 in 0.1ms
-old-hermes chunked non-hex size: HTTP/1.1 400 in 0.1ms
-old-hermes chunked negative size: HTTP/1.1 400 in 0.1ms
-old-hermes chunked missing CRLF after data: HTTP/1.1 400 in 0.1ms
+old-hermes chunked non-hex size: HTTP/1.1 400 in 1.3ms
+old-hermes chunked negative size: HTTP/1.1 400 in 0.4ms
+old-hermes chunked missing CRLF after data: HTTP/1.1 400 in 0.2ms
 old-hermes chunked trailer 20 KB: HTTP/1.1 400 in 0.1ms
-old-hermes chunked 9 MiB chunked body: HTTP/1.1 413 in 13.8ms
-old-hermes chunked TE gzip: HTTP/1.1 400 in 0.3ms
-old-hermes chunked TE chunked + CL: HTTP/1.1 400 in 0.3ms
-old-hermes chunked TE twice: HTTP/1.1 400 in 0.1ms
-old-hermes chunked truncated chunked: HTTP/1.1 400 in 0.4ms
+old-hermes chunked 9 MiB chunked body: HTTP/1.1 413 in 13.2ms
+old-hermes chunked TE gzip: HTTP/1.1 400 in 0.2ms
+old-hermes chunked TE chunked + CL: HTTP/1.1 400 in 0.2ms
+old-hermes chunked TE twice: HTTP/1.1 400 in 0.5ms
+old-hermes chunked truncated chunked: HTTP/1.1 400 in 0.2ms
 old-hermes chunked slow drip: Some("dripped 4 s, client gave up") after 3.9s
 old-hermes after chunked abuse: /health -> HTTP/1.1 200
-.
-new-hermes sequential GET /health: n=2000 ok=2000 p50=0.06ms p99=0.42ms max=1.39ms
-new-hermes concurrent: 31622 req/s over 0.10s
-new-hermes concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.36ms p99=2.71ms max=6.34ms
-new-hermes malformed: 416 requests in 0.03s -> {"400": 412, "401": 1, "505": 1, "closed": 2}
+new-hermes sequential GET /health: n=2000 ok=2000 p50=0.07ms p99=0.93ms max=8.85ms
+new-hermes concurrent: 18361 req/s over 0.17s
+new-hermes concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.31ms p99=6.12ms max=15.75ms
+new-hermes malformed: 416 requests in 0.05s -> {"400": 412, "401": 1, "505": 1, "closed": 2}
 new-hermes after malformed: /health -> Some(200)
-new-hermes oversized 100 KB header: Some(413) in 0.7ms
-new-hermes oversized 1000 headers: Some(413) in 0.2ms
+new-hermes oversized 100 KB header: Some(413) in 0.6ms
+new-hermes oversized 1000 headers: Some(413) in 0.1ms
 new-hermes oversized Content-Length 10 GB (no body): Some(413) in 0.1ms
-new-hermes oversized 5 MB body: Some(401) in 4.7ms
+new-hermes oversized 5 MB body: Some(401) in 19.7ms
 new-hermes slowloris x80: outcomes {"HTTP/1.1 408": 64, "HTTP/1.1 503": 16}, longest held 10.1s
 new-hermes legit GETs during slowloris (60 over 15s): {"Some(200)": 21, "Some(503)": 39}, first 200 at Some("10.3s")
 new-hermes final /health -> Some(200)
-new-memory sequential GET /health: n=2000 ok=2000 p50=0.06ms p99=3.67ms max=7.26ms
-new-memory concurrent: 8979 req/s over 0.36s
-new-memory concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.43ms p99=12.55ms max=27.74ms
-new-memory malformed: 416 requests in 0.09s -> {"400": 15, "closed": 401}
+new-memory sequential GET /health: n=2000 ok=2000 p50=0.06ms p99=0.24ms max=3.35ms
+new-memory concurrent: 23773 req/s over 0.13s
+new-memory concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.26ms p99=5.93ms max=8.34ms
+new-memory malformed: 416 requests in 0.02s -> {"400": 15, "closed": 401}
 new-memory after malformed: /health -> Some(200)
-new-memory oversized 100 KB header: Some(400) in 1.1ms
+new-memory oversized 100 KB header: Some(400) in 0.6ms
 new-memory oversized 1000 headers: Some(400) in 0.2ms
-new-memory oversized Content-Length 10 GB (no body): Some(413) in 2.9ms
-new-memory oversized 5 MB body: Some(413) in 0.8ms
+new-memory oversized Content-Length 10 GB (no body): Some(413) in 0.1ms
+new-memory oversized 5 MB body: Some(413) in 1.0ms
 new-memory slowloris x80: outcomes {"HTTP/1.1 503": 48, "closed": 32}, longest held 10.1s
 new-memory legit GETs during slowloris (60 over 15s): {"Some(200)": 21, "Some(503)": 39}, first 200 at Some("10.3s")
 new-memory final /health -> Some(200)
-new-desk sequential GET /health: n=2000 ok=2000 p50=0.06ms p99=2.17ms max=6.42ms
-new-desk concurrent: 11037 req/s over 0.29s
-new-desk concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.35ms p99=11.05ms max=18.04ms
+new-desk sequential GET /health: n=2000 ok=2000 p50=0.06ms p99=0.46ms max=3.71ms
+new-desk concurrent: 36479 req/s over 0.09s
+new-desk concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.30ms p99=3.34ms max=7.82ms
 new-desk malformed: 416 requests in 0.04s -> {"400": 411, "501": 2, "505": 1, "closed": 2}
 new-desk after malformed: /health -> Some(200)
-new-desk oversized 100 KB header: Some(431) in 0.2ms
+new-desk oversized 100 KB header: Some(431) in 0.1ms
 new-desk oversized 1000 headers: Some(431) in 0.1ms
 new-desk oversized Content-Length 10 GB (no body): Some(413) in 0.1ms
-new-desk oversized 5 MB body: Some(413) in 0.7ms
+new-desk oversized 5 MB body: Some(413) in 0.6ms
+test real_migrate has been running for over 60 seconds
 new-desk slowloris x80: outcomes {"HTTP/1.1 408": 32, "HTTP/1.1 503": 48}, longest held 3.0s
 new-desk legit GETs during slowloris (60 over 15s): {"Some(200)": 49, "Some(503)": 11}, first 200 at Some("3.3s")
 new-desk final /health -> Some(200)
-new-room sequential GET /health: n=2000 ok=2000 p50=0.06ms p99=0.26ms max=1.54ms
-new-room concurrent: 36276 req/s over 0.09s
-new-room concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.25ms p99=2.12ms max=3.63ms
+new-room sequential GET /health: n=2000 ok=2000 p50=0.06ms p99=0.25ms max=1.53ms
+new-room concurrent: 25268 req/s over 0.13s
+new-room concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.23ms p99=5.20ms max=7.38ms
 new-room malformed: 416 requests in 0.03s -> {"400": 411, "501": 2, "505": 1, "closed": 2}
 new-room after malformed: /health -> Some(200)
-new-room oversized 100 KB header: Some(431) in 0.2ms
-new-room oversized 1000 headers: Some(431) in 0.2ms
+new-room oversized 100 KB header: Some(431) in 0.3ms
+new-room oversized 1000 headers: Some(431) in 0.1ms
 new-room oversized Content-Length 10 GB (no body): Some(413) in 0.1ms
-new-room oversized 5 MB body: Some(413) in 0.5ms
-test real_hammer has been running for over 60 seconds
+new-room oversized 5 MB body: Some(413) in 0.6ms
 new-room slowloris x80: outcomes {"HTTP/1.1 408": 32, "HTTP/1.1 503": 48}, longest held 8.1s
 new-room legit GETs during slowloris (60 over 15s): {"Some(200)": 29, "Some(503)": 31}, first 200 at Some("8.3s")
 new-room final /health -> Some(200)
-old-hermes sequential GET /health: n=2000 ok=2000 p50=0.07ms p99=0.71ms max=3.53ms
-old-hermes concurrent: 25499 req/s over 0.13s
-old-hermes concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.23ms p99=4.59ms max=10.38ms
+old-hermes sequential GET /health: n=2000 ok=2000 p50=0.06ms p99=0.97ms max=6.00ms
+old-hermes concurrent: 11758 req/s over 0.27s
+old-hermes concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.29ms p99=9.60ms max=14.27ms
 old-hermes malformed: 416 requests in 0.05s -> {"400": 405, "401": 11}
 old-hermes after malformed: /health -> Some(200)
-old-hermes oversized 100 KB header: Some(413) in 0.4ms
-old-hermes oversized 1000 headers: Some(401) in 0.3ms
-old-hermes oversized Content-Length 10 GB (no body): Some(413) in 0.2ms
-old-hermes oversized 5 MB body: Some(401) in 5.9ms
-old-hermes slowloris x80: outcomes {"HTTP/1.1 503": 16, "survived whole drip": 64}, longest held 37.4s
+old-hermes oversized 100 KB header: Some(413) in 0.3ms
+old-hermes oversized 1000 headers: Some(401) in 0.4ms
+old-hermes oversized Content-Length 10 GB (no body): Some(413) in 0.1ms
+old-hermes oversized 5 MB body: Some(401) in 8.6ms
+old-hermes slowloris x80: outcomes {"HTTP/1.1 503": 4, "survived whole drip": 64, "write cut": 12}, longest held 37.4s
 old-hermes legit GETs during slowloris (60 over 15s): {"Some(503)": 60}, first 200 at None
 old-hermes final /health -> Some(200)
-old-memory sequential GET /health: n=2000 ok=2000 p50=0.07ms p99=0.22ms max=3.60ms
-old-memory concurrent: 17227 req/s over 0.19s
-old-memory concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.16ms p99=7.44ms max=11.94ms
+old-memory sequential GET /health: n=2000 ok=2000 p50=0.07ms p99=0.39ms max=0.62ms
+old-memory concurrent: 33236 req/s over 0.10s
+old-memory concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.30ms p99=3.39ms max=5.40ms
 old-memory malformed: 416 requests in 0.03s -> {"400": 5, "404": 11, "closed": 400}
 old-memory after malformed: /health -> Some(200)
-old-memory oversized 100 KB header: Some(400) in 3.9ms
-old-memory oversized 1000 headers: Some(404) in 0.3ms
-old-memory oversized Content-Length 10 GB (no body): Some(413) in 0.1ms
-old-memory oversized 5 MB body: Some(413) in 0.2ms
+old-memory oversized 100 KB header: Some(400) in 0.4ms
+old-memory oversized 1000 headers: Some(404) in 0.6ms
+old-memory oversized Content-Length 10 GB (no body): Some(413) in 0.3ms
+old-memory oversized 5 MB body: Some(413) in 0.3ms
 old-memory slowloris x80: outcomes {"HTTP/1.1 503": 48, "survived whole drip": 32}, longest held 37.4s
 old-memory legit GETs during slowloris (60 over 15s): {"Some(503)": 60}, first 200 at None
 old-memory final /health -> Some(200)
-old-desk sequential GET /health: n=2000 ok=2000 p50=0.06ms p99=0.49ms max=1.16ms
-old-desk concurrent: 42788 req/s over 0.07s
-old-desk concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.30ms p99=2.02ms max=4.82ms
-old-desk malformed: 416 requests in 0.03s -> {"404": 414, "closed": 2}
+old-desk sequential GET /health: n=2000 ok=2000 p50=0.09ms p99=0.61ms max=4.13ms
+old-desk concurrent: 20258 req/s over 0.16s
+old-desk concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.36ms p99=5.42ms max=9.12ms
+old-desk malformed: 416 requests in 0.05s -> {"404": 414, "closed": 2}
 old-desk after malformed: /health -> Some(200)
-old-desk oversized 100 KB header: Some(404) in 0.4ms
-old-desk oversized 1000 headers: Some(404) in 0.6ms
-old-desk oversized Content-Length 10 GB (no body): Some(200) in 0.3ms
-old-desk oversized 5 MB body: Some(200) in 0.4ms
+old-desk oversized 100 KB header: Some(404) in 0.2ms
+old-desk oversized 1000 headers: Some(404) in 0.1ms
+old-desk oversized Content-Length 10 GB (no body): Some(200) in 0.1ms
+old-desk oversized 5 MB body: Some(200) in 0.2ms
 old-desk slowloris x80: outcomes {"HTTP/1.1 404": 80}, longest held 0.0s
 old-desk legit GETs during slowloris (60 over 15s): {"Some(200)": 60}, first 200 at Some("0.5s")
 old-desk final /health -> Some(200)
-old-room sequential GET /health: n=2000 ok=2000 p50=0.06ms p99=0.41ms max=2.32ms
-old-room concurrent: 33063 req/s over 0.10s
-old-room concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.28ms p99=4.07ms max=5.36ms
-old-room malformed: 416 requests in 0.03s -> {"200": 7, "404": 1, "405": 408}
+old-room sequential GET /health: n=2000 ok=2000 p50=0.07ms p99=0.42ms max=3.77ms
+old-room concurrent: 30304 req/s over 0.11s
+old-room concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.31ms p99=4.70ms max=6.21ms
+old-room malformed: 416 requests in 0.04s -> {"200": 7, "404": 1, "405": 408}
 old-room after malformed: /health -> Some(200)
 old-room oversized 100 KB header: Some(200) in 0.2ms
-old-room oversized 1000 headers: Some(200) in 0.3ms
-old-room oversized Content-Length 10 GB (no body): Some(405) in 0.1ms
+old-room oversized 1000 headers: Some(200) in 0.1ms
+old-room oversized Content-Length 10 GB (no body): Some(405) in 0.2ms
 old-room oversized 5 MB body: Some(405) in 0.2ms
 old-room slowloris x80: outcomes {"HTTP/1.1 405": 80}, longest held 0.0s
 old-room legit GETs during slowloris (60 over 15s): {"Some(200)": 60}, first 200 at Some("0.5s")
 old-room final /health -> Some(200)
-.
-== 2026-10-20T21:02:30+02:00 done
-after new-hermes: VmHWM:12040 VmRSS:10664 Threads:2
-after new-memory: VmHWM:4880 VmRSS:4880 Threads:1
-after new-desk: VmHWM:3304 VmRSS:3304 Threads:1
-after new-room: VmHWM:3220 VmRSS:3220 Threads:1
-after old-hermes: VmHWM:12024 VmRSS:10688 Threads:2
-after old-memory: VmHWM:4936 VmRSS:4936 Threads:1
-after old-desk: VmHWM:2888 VmRSS:2888 Threads:1
-after old-room: VmHWM:2736 VmRSS:2736 Threads:1
+== 2026-10-20T21:29:30+02:00 done
+after new-hermes: VmHWM:12228 VmRSS:10676 Threads:2
+after new-memory: VmHWM:4964 VmRSS:4964 Threads:1
+after new-desk: VmHWM:3316 VmRSS:3316 Threads:1
+after new-room: VmHWM:3116 VmRSS:3116 Threads:1
+after old-hermes: VmHWM:12068 VmRSS:10648 Threads:2
+after old-memory: VmHWM:4812 VmRSS:4812 Threads:1
+after old-desk: VmHWM:2956 VmRSS:2956 Threads:1
+after old-room: VmHWM:2740 VmRSS:2740 Threads:1
 peak threads seen by the 1 s sampler:
   new-desk 33
   new-hermes 66
@@ -338,7 +373,13 @@ old-hermes: alive
 old-memory: alive
 old-desk: alive
 old-room: alive
-exit 0
+== 2026-10-20T21:29:31+02:00 limits from environment (migrated binaries)
+new-hermes stalled head closed after 10.2s by default, 1.0s with HERMES_RS_HTTP_HEAD_TIMEOUT_MS=1000 (HTTP/1.1 408); HERMES_RS_HTTP_MAX_CONNECTIONS=2: 3rd connection -> HTTP/1.1 503 (held: ["held", "held"])
+new-memory stalled head closed after 10.0s by default, 1.0s with OPENMIND_MEMORY_HTTP_HEAD_TIMEOUT_MS=1000 (closed); OPENMIND_MEMORY_HTTP_MAX_CONNECTIONS=2: 3rd connection -> HTTP/1.1 503 (held: ["held", "held"])
+new-desk stalled head closed after 3.1s by default, 1.0s with DESK_HTTP_HEAD_TIMEOUT_MS=1000 (HTTP/1.1 408); DESK_HTTP_MAX_CONNECTIONS=2: 3rd connection -> HTTP/1.1 503 (held: ["held", "held"])
+new-room stalled head closed after 8.0s by default, 1.0s with ROOM_HTTP_HEAD_TIMEOUT_MS=1000 (HTTP/1.1 408); ROOM_HTTP_MAX_CONNECTIONS=2: 3rd connection -> HTTP/1.1 503 (held: ["held", "held"])
+.
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 231.89s
 ```
 
 ## 2. Live VPS, read-only GETs (status, headers, JSON shape only)
@@ -457,4 +498,23 @@ one-talk
 > OUT  warm garbage Err(UnexpectedEof)
 < OUT  warm status line only Err(UnexpectedEof)
 > OUT  warm status line only Ok(503)
+```
+
+## 4. scripts/real/common.sh ported as well
+
+The branch must not add or keep any `.sh` compared with main. Slot 16's
+`scripts/real/common.sh` (tuner + galion-origin, old vs new hammer) was also
+on this branch, so it is ported to `crates/galion-common/tests/real_common.rs`
+(same probes; default port base 19160, the swarm/common slot). It is run with
+`GALION_REAL=1 GALION_REAL_OLD=1 cargo test -p galion-common --release --test
+real_common -- --ignored --nocapture`. Run on my ports
+(`GALION_REAL_PORT_BASE=19280`) from 21:32:27 to 21:33:52 +02:00, exit 0,
+92.8 s:
+
+```
+tuner slowloris x80: {"HTTP/1.1 408": 64, "HTTP/1.1 503": 16}, longest held 5.1s; legit 200:41 503:19, first 200 at 5.3s
+origin slowloris x80: {"HTTP/1.1 408": 32, "HTTP/1.1 503": 48}, longest held 10.1s; legit 200:21 503:39, first 200 at 10.3s
+old-tuner slowloris x80: {"HTTP/1.1 405": 80}; legit 200:60
+old-origin slowloris x80: {"closed": 3, "survived whole drip": 32, "write cut": 45}, longest held 37.4s; legit: 60 no reply
+peak RSS after: tuner 3.8 MB, origin 3.1 MB, old-tuner 2.5 MB, old-origin 3.0 MB; all 4 alive
 ```

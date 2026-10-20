@@ -76,6 +76,9 @@ impl Request {
 /// Server limits: the old caps (64 KiB head, 8 MiB body, 64 connections,
 /// chunked uploads accepted) plus total deadlines instead of a 30 s
 /// per-read timeout.
+///
+/// `serve` applies `HERMES_RS_HTTP_*` overrides (galion-common
+/// `Limits::with_env`) on top of these defaults.
 pub fn limits(max_conns: usize) -> common::Limits {
     common::Limits {
         max_head_bytes: MAX_HEADER_BYTES,
@@ -308,5 +311,10 @@ pub fn serve(listener: TcpListener, handler: Handler, max_conns: usize) -> io::R
     .unwrap_or_default();
     let conn: Arc<common::ConnHandler> =
         Arc::new(move |s: TcpStream, l: &common::Limits| connection(s, l, &handler));
-    common::serve_connections(listener, limits(max_conns), busy, conn)
+    common::serve_connections(
+        listener,
+        limits(max_conns).with_env("HERMES_RS"),
+        busy,
+        conn,
+    )
 }

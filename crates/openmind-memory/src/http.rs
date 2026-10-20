@@ -80,6 +80,9 @@ fn reason(code: u16) -> &'static str {
 
 /// Server limits: the old 64 KiB head cap and the configured body and
 /// connection caps, with total deadlines instead of a 30 s per-read timeout.
+///
+/// `serve` applies `OPENMIND_MEMORY_HTTP_*` overrides (galion-common
+/// `Limits::with_env`) on top of these defaults.
 pub fn limits(max_body: usize, max_conns: usize) -> common::Limits {
     common::Limits {
         max_head_bytes: 64 * 1024,
@@ -146,6 +149,10 @@ pub fn serve<H>(listener: TcpListener, max_body: usize, max_conns: usize, handle
 where
     H: Fn(Request) -> Response + Send + Sync + 'static,
 {
+    // OPENMIND_MEMORY_HTTP_* (galion-common `Limits::with_env`) override the
+    // defaults; its MAX_BODY_BYTES also wins over MEMORY_MAX_BODY_BYTES.
+    let limits = limits(max_body, max_conns).with_env("OPENMIND_MEMORY");
+    let max_body = limits.max_body_bytes;
     let busy = response_bytes(&Response {
         status: 503,
         body: r#"{"error":"Too many connections"}"#.into(),
@@ -168,5 +175,5 @@ where
     });
     // `serve_connections` only returns on a listener error it cannot
     // recover from; it never does in practice (accept errors back off).
-    let _ = common::serve_connections(listener, limits(max_body, max_conns), busy, conn);
+    let _ = common::serve_connections(listener, limits, busy, conn);
 }

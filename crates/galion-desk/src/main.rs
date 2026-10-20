@@ -217,7 +217,7 @@ fn main() {
     eprintln!("galion-desk {bind}");
     let handler =
         |req: &http::Request| http::Response::raw(handle(req.method(), req.target(), &req.body));
-    if let Err(err) = http::serve(listener, limits(), Arc::new(handler)) {
+    if let Err(err) = http::serve(listener, limits().with_env("DESK"), Arc::new(handler)) {
         eprintln!("galion-desk: serve: {err}");
         std::process::exit(1);
     }
@@ -226,6 +226,9 @@ fn main() {
 /// Connection limits for the galion-common server. The old loop read one
 /// 8 KiB buffer with a 3 s timeout and spawned a thread per connection
 /// without a cap.
+///
+/// Defaults; `main` applies `DESK_HTTP_*` overrides (galion-common
+/// `Limits::with_env`).
 fn limits() -> http::Limits {
     http::Limits {
         max_head_bytes: 8 * 1024,

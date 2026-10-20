@@ -68,6 +68,54 @@ impl Default for Limits {
     }
 }
 
+impl Limits {
+    /// The environment variables [`Limits::with_env`] reads, after
+    /// `<PREFIX>_HTTP_`. Sizes and counts are plain numbers, times are
+    /// milliseconds.
+    pub const ENV_KEYS: [&'static str; 7] = [
+        "MAX_HEAD_BYTES",
+        "MAX_HEADERS",
+        "MAX_BODY_BYTES",
+        "HEAD_TIMEOUT_MS",
+        "BODY_TIMEOUT_MS",
+        "WRITE_TIMEOUT_MS",
+        "MAX_CONNECTIONS",
+    ];
+
+    /// Override limits from `<PREFIX>_HTTP_<KEY>` environment variables
+    /// (keys in [`Limits::ENV_KEYS`]), e.g. `ROOM_HTTP_HEAD_TIMEOUT_MS=30000`.
+    /// Unset variables keep the value from `self`. A value that is not a
+    /// whole number above zero is ignored, with a warning on stderr.
+    pub fn with_env(self, prefix: &str) -> Limits {
+        self.with_vars(prefix, |k| std::env::var(k).ok())
+    }
+
+    /// [`Limits::with_env`] with an explicit lookup (for tests and config
+    /// files).
+    pub fn with_vars(mut self, prefix: &str, get: impl Fn(&str) -> Option<String>) -> Limits {
+        for key in Self::ENV_KEYS {
+            let name = format!("{prefix}_HTTP_{key}");
+            let Some(raw) = get(&name) else { continue };
+            let Some(n) = raw.trim().parse::<u64>().ok().filter(|n| *n > 0) else {
+                eprintln!("galion-common: ignoring {name}: want a whole number above 0");
+                continue;
+            };
+            let size = usize::try_from(n).unwrap_or(usize::MAX);
+            let ms = Duration::from_millis(n);
+            match key {
+                "MAX_HEAD_BYTES" => self.max_head_bytes = size,
+                "MAX_HEADERS" => self.max_headers = size,
+                "MAX_BODY_BYTES" => self.max_body_bytes = size,
+                "HEAD_TIMEOUT_MS" => self.head_timeout = ms,
+                "BODY_TIMEOUT_MS" => self.body_timeout = ms,
+                "WRITE_TIMEOUT_MS" => self.write_timeout = ms,
+                _ => self.max_connections = size,
+            }
+        }
+        self
+    }
+}
+
 /// Why a request was refused. [`Error::status`] is the reply code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Error {
@@ -1137,6 +1185,30 @@ fn finish(buf: Vec<u8>, head: ParsedHead, complete: bool) -> Result<ClientRespon
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn limits_from_env_vars() {
+        let vars = |k: &str| match k {
+            "X_HTTP_HEAD_TIMEOUT_MS" => Some("30000".to_string()),
+            "X_HTTP_MAX_CONNECTIONS" => Some(" 512 ".to_string()),
+            "X_HTTP_MAX_BODY_BYTES" => Some("0".to_string()),
+            "X_HTTP_MAX_HEADERS" => Some("lots".to_string()),
+            _ => None,
+        };
+        let base = Limits::default();
+        let l = base.clone().with_vars("X", vars);
+        assert_eq!(l.head_timeout, Duration::from_secs(30));
+        assert_eq!(l.max_connections, 512);
+        // 0 and non-numbers are ignored; unset keys keep the default.
+        assert_eq!(l.max_body_bytes, base.max_body_bytes);
+        assert_eq!(l.max_headers, base.max_headers);
+        assert_eq!(l.body_timeout, base.body_timeout);
+        assert_eq!(l.write_timeout, base.write_timeout);
+        assert_eq!(l.max_head_bytes, base.max_head_bytes);
+        // Nothing set: identical.
+        let same = base.clone().with_vars("X", |_| None);
+        assert_eq!(format!("{same:?}"), format!("{base:?}"));
+    }
     use super::*;
 
     fn p(s: &str) -> Result<Head, Error> {

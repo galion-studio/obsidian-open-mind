@@ -2,6 +2,8 @@
 <!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
 # Real-life test: galion-common HTTP (slot 16, ports 19160-19169)
 
+(On swarm/common-migrate-2 the script is ported to Rust: `crates/galion-common/tests/real_common.rs`, see docs/real-tests/common-migrate-2.md section 4. The run below used the script.)
+
 Run: `OLD=1 scripts/real/common.sh` on the box, 2026-10-20 20:02:25 to
 20:04:01 +02:00 (Europe/Zagreb). Release builds (`opt-level = "z"`, LTO,
 `panic = "abort"`) of the migrated **tuner** (127.0.0.1:19160, cap 64

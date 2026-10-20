@@ -1,0 +1,109 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+# Full output of: scripts/real/deploy-sim.sh room  (run 5, box, 2026-10-20, Europe/Zagreb CEST +02:00; tuner, nerve, room and desk ran in parallel, so 'leftover listeners' counts the other rehearsals' ports)
+simsup pid 2074331, root /workspace/swarm/sim/deploy-sim/root-room
+
+[2026-10-20T21:14:57.050+02:00] == today: no room unit, nothing on :19332 (live: nothing on :4020)
+listeners: 0; Unit room.service could not be found.
+room.new sha 05075415e0c54025; --version: room 0.1.0
+
+[2026-10-20T21:14:57.076+02:00] == install the staged unit (deploy/staged/room.service from swarm/room 5bb27e1, sim paths) + daemon-reload
+$ ctl daemon-reload
+reloaded 1 unit(s)
+  -> exit=0
+state after reload: inactive (daemon-reload does not start it)
+
+[2026-10-20T21:14:57.110+02:00] == galion-deploy room <new> on a unit that never ran
+$ galion-deploy room /workspace/swarm/sim/deploy-sim/root-room/var/tmp/galion-cutover/room.new http://127.0.0.1:19332/health   (direct backend, outer timeout 30s)
+ts=2026-10-20T21:14:57+02:00 svc=galion-deploy level=error msg="cannot resolve installed binary for room"
+  -> exit=1 elapsed_ms=40
+CHECK PASS  FINDING: galion-deploy cannot do a first install (no installed binary to resolve/back up) (exit 1)
+
+[2026-10-20T21:14:57.155+02:00] == first install by hand (room.md fallback): install + start
+$ install -m 755 /workspace/swarm/sim/deploy-sim/root-room/var/tmp/galion-cutover/room.new /workspace/swarm/sim/deploy-sim/root-room/opt/galion/rust/bin/room
+  -> exit=0
+$ ctl start room
+  -> exit=0
+  probe| probe http://127.0.0.1:19332/health interval=5ms tries=64 ok=2 fail=62 outages=1
+  probe| outage first_fail=2026-10-20T21:14:57.157+02:00 last_fail=2026-10-20T21:14:57.468+02:00 next_ok=2026-10-20T21:14:57.473+02:00 fail_span_ms=311 until_ok_ms=316 tries=62 kinds=Refusedx62
+  probe| longest_gap_between_ok_ms=5
+/health -> 'ok' ; /api/objects -> {"objects":[ ; /api/read?path=/etc/passwd -> 404
+listeners: LISTEN 0 128 127.0.0.1:19332 0.0.0.0:* users:(("room",pid=2075002,fd=5))
+CHECK PASS  room health checks (ok, {"objects":[, 404, loopback only) (ok / {"objects":[ / 404)
+
+[2026-10-20T21:14:57.537+02:00] == upgrades now go through galion-deploy: same binary (restart gap) and a broken one (auto rollback)
+$ galion-deploy room /workspace/swarm/sim/deploy-sim/root-room/var/tmp/galion-cutover/room.new http://127.0.0.1:19332/health   (direct backend, outer timeout 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:00+02:00 svc=galion-deploy level=info msg="backup" unit=room target=/workspace/swarm/sim/deploy-sim/root-room/opt/galion/rust/bin/room backup=/workspace/swarm/sim/deploy-sim/root-room/var/backups/galion/deploy/room-20261020-211457+0200.bin sha_old=05075415e0c5 sha_new=05075415e0c5
+ts=2026-10-20T21:15:01+02:00 svc=galion-deploy level=info msg="deployed" unit=room health=http://127.0.0.1:19332/health
+  -> exit=0 elapsed_ms=4092
+  probe| probe http://127.0.0.1:19332/health interval=2ms tries=2102 ok=2100 fail=2 outages=1
+  probe| outage first_fail=2026-10-20T21:15:00.916+02:00 last_fail=2026-10-20T21:15:00.918+02:00 next_ok=2026-10-20T21:15:00.921+02:00 fail_span_ms=2 until_ok_ms=5 tries=2 kinds=Refusedx2
+  probe| longest_gap_between_ok_ms=12
+CHECK PASS  redeploy exit 0, downtime < 1 s (exit 0, outage 5 ms)
+$ galion-deploy room /workspace/swarm/sim/deploy-sim/root-room/bad/sim-broken http://127.0.0.1:19332/health   (direct backend, outer timeout 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:05+02:00 svc=galion-deploy level=info msg="backup" unit=room target=/workspace/swarm/sim/deploy-sim/root-room/opt/galion/rust/bin/room backup=/workspace/swarm/sim/deploy-sim/root-room/var/backups/galion/deploy/room-20261020-211502+0200.bin sha_old=05075415e0c5 sha_new=cf3c5ab9b1c9
+ts=2026-10-20T21:15:25+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=room
+  | room.service: Scheduled restart job, restart counter is at 6.
+  | room.service: Started (pid 2088983): /workspace/swarm/sim/deploy-sim/root-room/opt/galion/rust/bin/room --listen
+  | sim-broken: refusing to serve (deliberately broken build)
+  | room.service: Main process exited, code=exited, status=1/FAILURE
+  | room.service: Failed with result 'exit-code'.
+  | room.service: Scheduled restart job, restart counter is at 7.
+  | room.service: Started (pid 2089503): /workspace/swarm/sim/deploy-sim/root-room/opt/galion/rust/bin/room --listen
+  | sim-broken: refusing to serve (deliberately broken build)
+  | room.service: Main process exited, code=exited, status=1/FAILURE
+  | room.service: Failed with result 'exit-code'.
+  | room.service: Scheduled restart job, restart counter is at 8.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | room.service: Started (pid 2090544): /workspace/swarm/sim/deploy-sim/root-room/opt/galion/rust/bin/room --listen
+  | room.service: Main process exited, code=exited, status=1/FAILURE
+  | room.service: Failed with result 'exit-code'.
+  | room.service: Scheduled restart job, restart counter is at 9.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | room.service: Started (pid 2091290): /workspace/swarm/sim/deploy-sim/root-room/opt/galion/rust/bin/room --listen
+  | room.service: Main process exited, code=exited, status=1/FAILURE
+  | room.service: Failed with result 'exit-code'.
+ts=2026-10-20T21:15:26+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=room
+  -> exit=1 elapsed_ms=24251
+  probe| probe http://127.0.0.1:19332/health interval=5ms tries=4813 ok=864 fail=3949 outages=1
+  probe| outage first_fail=2026-10-20T21:15:05.325+02:00 last_fail=2026-10-20T21:15:25.477+02:00 next_ok=2026-10-20T21:15:25.483+02:00 fail_span_ms=20152 until_ok_ms=20158 tries=3949 kinds=Refusedx3949
+  probe| longest_gap_between_ok_ms=20163
+CHECK PASS  L1 broken: rolled back ok (exit 1, outage 20158 ms)
+$ galion-deploy room /workspace/swarm/sim/deploy-sim/bin/room-old http://127.0.0.1:19332/health   (direct backend, outer timeout 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:29+02:00 svc=galion-deploy level=info msg="backup" unit=room target=/workspace/swarm/sim/deploy-sim/root-room/opt/galion/rust/bin/room backup=/workspace/swarm/sim/deploy-sim/root-room/var/backups/galion/deploy/room-20261020-211526+0200.bin sha_old=05075415e0c5 sha_new=d06001090e1a
+ts=2026-10-20T21:15:30+02:00 svc=galion-deploy level=info msg="deployed" unit=room health=http://127.0.0.1:19332/health
+  -> exit=0 elapsed_ms=4093
+  probe| probe http://127.0.0.1:19332/health interval=5ms tries=861 ok=861 fail=0 outages=0
+  probe| longest_gap_between_ok_ms=7
+room-old (main 13a296c) deploy: exit 0 (old builds also need --listen); back to new:
+$ galion-deploy room /workspace/swarm/sim/deploy-sim/root-room/var/tmp/galion-cutover/room.new http://127.0.0.1:19332/health   (direct backend, outer timeout 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:34+02:00 svc=galion-deploy level=info msg="backup" unit=room target=/workspace/swarm/sim/deploy-sim/root-room/opt/galion/rust/bin/room backup=/workspace/swarm/sim/deploy-sim/root-room/var/backups/galion/deploy/room-20261020-211530+0200.bin sha_old=d06001090e1a sha_new=05075415e0c5
+ts=2026-10-20T21:15:35+02:00 svc=galion-deploy level=info msg="deployed" unit=room health=http://127.0.0.1:19332/health
+  -> exit=0 elapsed_ms=4085
+
+[2026-10-20T21:15:35.040+02:00] == manual rollback to today's state (room.md): stop, remove the unit, daemon-reload
+$ ctl stop room
+  -> exit=0
+$ ctl daemon-reload
+reloaded 0 unit(s)
+  -> exit=0
+listeners on 19332: 0; Unit room.service could not be found.
+CHECK PASS  rollback: nothing on :19332, unit gone (0 listeners)
+simsup stopped; leftover listeners on 19330-19339: 3
+DOWNTIME room redeploy 5 ms
+DOWNTIME room auto-rollback-broken 20158 ms
+
+== summary room: 5 pass, 0 fail
+  FINDING: galion-deploy cannot do a first install (no installed binary to resolve/back up)|PASS|exit 1
+  room health checks (ok, {"objects":[, 404, loopback only)|PASS|ok / {"objects":[ / 404
+  redeploy exit 0, downtime < 1 s|PASS|exit 0, outage 5 ms
+  L1 broken: rolled back ok|PASS|exit 1, outage 20158 ms
+  rollback: nothing on :19332, unit gone|PASS|0 listeners
+
+deploy-sim: 0 failed check(s)
+rc=0

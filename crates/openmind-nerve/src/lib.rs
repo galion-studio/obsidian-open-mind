@@ -14,7 +14,8 @@
 //! rotation renames or unlinks the whole file. A single line longer than
 //! `max_bytes` is still written; the following append rotates.
 //!
-//! One writer owns a path. This crate does not open sockets.
+//! One writer owns a path. The library does not open sockets; the
+//! `openmind-nerve serve` binary (src/main.rs) is a loopback-only HTTP front.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

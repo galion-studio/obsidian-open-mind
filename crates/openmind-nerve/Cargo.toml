@@ -6,7 +6,7 @@ name = "openmind-nerve"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Append-only JSONL nerve log: Europe/Zagreb timestamps, size rotation, caller-supplied path."
+description = "Append-only JSONL nerve log: Europe/Zagreb timestamps, size rotation, caller-supplied path; `openmind-nerve serve` is a loopback-only HTTP front (GET /health, POST /event, GET /events)."
 
 [dependencies]
 serde = { workspace = true }

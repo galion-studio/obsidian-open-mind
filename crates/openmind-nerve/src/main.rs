@@ -1,327 +1,220 @@
 // SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
 #![forbid(unsafe_code)]
 
-//! `openmind-nerve serve`: a tiny loopback-only HTTP front for the JSONL
-//! nerve log in this crate.
+//! openmind-nerve binary (deployed as galion-nerve.service).
 //!
-//! * `GET /health`        -> `{"status":"ok","service":"openmind-nerve",...}`
-//! * `POST /event`        -> body `{"source","kind","severity","data"}`, one line appended
-//! * `GET /events?n=N`    -> the last N records (default 50, max 1000) as a JSON array
+//!   openmind-nerve [serve] [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K]
+//!       loop + loopback API (default 127.0.0.1:8670 / NERVE_ADDR). `--log`
+//!       (or NERVE_EVENT_LOG) enables the JSONL event log behind POST /event
+//!       and GET /events (swarm/gaia-live's `openmind-nerve serve` API).
+//!   openmind-nerve once [--md]        one observe-only cycle; prints the self-eval
+//!   openmind-nerve replay DIR [--md | --state]
+//!       run a read-only capture of a live host through the same pipeline
+//!   openmind-nerve --version
 //!
-//! Binds to loopback only (a non-loopback `--listen` is refused). Bodies are
-//! capped at 64 KiB, every connection has a 5 s read timeout, and one
-//! connection is served at a time (the nerve is a low-rate log, not a bus).
-//! std + serde_json only; no TLS, no auth: it never leaves 127.0.0.1.
+//! Env: NERVE_ADDR, NERVE_INTERVAL (30), NERVE_DATA_DIR (/var/lib/galion-nerve),
+//! NERVE_DRY_RUN (1), NERVE_REFLEX (1), NERVE_FAIL_CYCLES (3), NERVE_REPORT_EVERY (20),
+//! NERVE_GALION_HEALTH_PORT (8660, 0 = off), NERVE_ROLLBACK (1), NERVE_GAIA_BIN,
+//! NERVE_VOICE_UNIT, NERVE_VOICE_PORT, NERVE_TELEGRAM_ENV, NERVE_EXT_ALERTS_PER_HOUR (4),
+//! NERVE_COMPONENTS (JSON table), NERVE_SYSTEMD (1), NERVE_JOURNAL (1),
+//! NERVE_ACCESS_LOGS (name=path[@component],...), NERVE_KNOWN_PORTS,
+//! NERVE_PUBLIC_OK_PORTS (22), NERVE_LISTEN_SCOPE (lo-hi), NERVE_DDOS_MIN_RPS (10),
+//! NERVE_DDOS_MIN_REQUESTS (300), NERVE_LOADING_GRACE (900), NERVE_EVENT_LOG.
+//! Runtime dry-run switch: `echo live > $NERVE_DATA_DIR/mode` or `echo dry-run > ...`.
 
-use openmind_nerve::{read_all, Event, Writer};
-use serde_json::{json, Value};
-use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
+use openmind_nerve::config::Config;
+use openmind_nerve::engine::Engine;
+use openmind_nerve::server::EventLog;
+use openmind_nerve::Writer;
+use std::net::TcpListener;
 use std::path::PathBuf;
 use std::process::ExitCode;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
-const MAX_BODY: usize = 64 * 1024;
-const MAX_HEAD: usize = 8 * 1024;
-const MAX_TAIL: usize = 1000;
+const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state] | --version]";
 
-const USAGE: &str =
-    "usage: openmind-nerve serve --listen 127.0.0.1:PORT --log PATH [--max-bytes N] [--keep K]
-  GET /health, POST /event {source,kind,severity,data}, GET /events?n=N
-  loopback only; one JSONL line per event, Europe/Zagreb timestamps";
-
-struct Cfg {
-    listen: SocketAddr,
-    log: PathBuf,
-    max_bytes: u64,
-    keep: usize,
-}
-
-fn parse(args: &[String]) -> Result<Cfg, String> {
-    if args.first().map(String::as_str) != Some("serve") {
-        return Err("missing command `serve`".into());
-    }
-    let opt = |k: &str| {
-        args.iter()
-            .position(|a| a == k)
-            .and_then(|i| args.get(i + 1))
-            .cloned()
-    };
-    let listen: SocketAddr = opt("--listen")
-        .ok_or("--listen is required")?
-        .parse()
-        .map_err(|e| format!("--listen: {e}"))?;
-    if !listen.ip().is_loopback() {
-        return Err(format!("refusing non-loopback listen address {listen}"));
-    }
-    let log = PathBuf::from(opt("--log").ok_or("--log is required")?);
-    let max_bytes = match opt("--max-bytes") {
-        Some(v) => v.parse().map_err(|e| format!("--max-bytes: {e}"))?,
-        None => 8 * 1024 * 1024,
-    };
-    let keep = match opt("--keep") {
-        Some(v) => v.parse().map_err(|e| format!("--keep: {e}"))?,
-        None => 3,
-    };
-    Ok(Cfg {
-        listen,
-        log,
-        max_bytes,
-        keep,
-    })
-}
-
-/// One parsed request: method, path (with query), body.
-struct Req {
-    method: String,
-    target: String,
-    body: Vec<u8>,
-}
-
-fn read_req(s: &mut TcpStream) -> io::Result<Req> {
-    let bad = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
-    let mut r = BufReader::new(s.take((MAX_HEAD + MAX_BODY) as u64));
-    let mut line = String::new();
-    r.read_line(&mut line)?;
-    let mut parts = line.split_whitespace();
-    let method = parts
-        .next()
-        .ok_or_else(|| bad("empty request"))?
-        .to_string();
-    let target = parts.next().ok_or_else(|| bad("no target"))?.to_string();
-    let mut len = 0usize;
-    let mut head = line.len();
-    loop {
-        let mut h = String::new();
-        if r.read_line(&mut h)? == 0 {
-            break;
-        }
-        head += h.len();
-        if head > MAX_HEAD {
-            return Err(bad("header too large"));
-        }
-        let t = h.trim_end();
-        if t.is_empty() {
-            break;
-        }
-        if let Some((k, v)) = t.split_once(':') {
-            if k.trim().eq_ignore_ascii_case("content-length") {
-                len = v.trim().parse().map_err(|_| bad("bad content-length"))?;
-            }
-        }
-    }
-    if len > MAX_BODY {
-        return Err(bad("body too large"));
-    }
-    let mut body = vec![0u8; len];
-    r.read_exact(&mut body)?;
-    Ok(Req {
-        method,
-        target,
-        body,
-    })
-}
-
-fn respond(s: &mut TcpStream, code: u16, body: &Value) {
-    let reason = match code {
-        200 => "OK",
-        400 => "Bad Request",
-        404 => "Not Found",
-        405 => "Method Not Allowed",
-        _ => "Internal Server Error",
-    };
-    let text = body.to_string();
-    let _ = write!(
-        s,
-        "HTTP/1.1 {code} {reason}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}",
-        text.len()
-    );
-    let _ = s.flush();
-}
-
-/// `n` from `?n=N`, clamped to 1..=MAX_TAIL.
-fn tail_n(target: &str) -> usize {
-    target
-        .split_once('?')
-        .map(|(_, q)| q)
-        .unwrap_or("")
-        .split('&')
-        .find_map(|kv| kv.strip_prefix("n="))
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(50)
-        .clamp(1, MAX_TAIL)
-}
-
-fn event_from(body: &[u8]) -> Result<Event, String> {
-    let v: Value = serde_json::from_slice(body).map_err(|e| format!("json: {e}"))?;
-    let field = |k: &str| -> Result<String, String> {
-        match v.get(k).and_then(Value::as_str) {
-            Some(s) if !s.is_empty() && s.len() <= 128 => Ok(s.to_string()),
-            _ => Err(format!(
-                "`{k}` must be a non-empty string of at most 128 bytes"
-            )),
-        }
-    };
-    let data = v.get("data").cloned().unwrap_or(Value::Null);
-    Event::new(
-        field("source")?,
-        field("kind")?,
-        field("severity")?,
-        &data.to_string(),
-    )
-    .map_err(|e| e.to_string())
-}
-
-fn record_json(e: &Event) -> Value {
-    json!({
-        "ts": e.ts(),
-        "source": e.source(),
-        "kind": e.kind(),
-        "severity": e.severity(),
-        "data": serde_json::from_str::<Value>(&e.data_json()).unwrap_or(Value::Null),
-    })
-}
-
-fn handle(s: &mut TcpStream, cfg: &Cfg, w: &mut Writer, appended: &mut u64) {
-    let req = match read_req(s) {
-        Ok(r) => r,
-        Err(e) => return respond(s, 400, &json!({"ok": false, "error": e.to_string()})),
-    };
-    let path = req.target.split('?').next().unwrap_or("");
-    match (req.method.as_str(), path) {
-        ("GET", "/health") => respond(
-            s,
-            200,
-            &json!({
-                "status": "ok",
-                "service": "openmind-nerve",
-                "version": env!("CARGO_PKG_VERSION"),
-                "appended": *appended,
-                "ts": zagreb_time::now_rfc3339(),
-            }),
-        ),
-        ("POST", "/event") => match event_from(&req.body) {
-            Ok(ev) => match w.append(&ev) {
-                Ok(()) => {
-                    *appended += 1;
-                    respond(s, 200, &json!({"ok": true, "appended": *appended}))
-                }
-                Err(e) => respond(s, 500, &json!({"ok": false, "error": e.to_string()})),
-            },
-            Err(e) => respond(s, 400, &json!({"ok": false, "error": e})),
-        },
-        ("GET", "/events") => {
-            let n = tail_n(&req.target);
-            match read_all(&cfg.log) {
-                Ok(all) => {
-                    let from = all.len().saturating_sub(n);
-                    let arr: Vec<Value> = all[from..].iter().map(record_json).collect();
-                    respond(s, 200, &Value::Array(arr))
-                }
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                    respond(s, 200, &Value::Array(vec![]))
-                }
-                Err(e) => respond(s, 500, &json!({"ok": false, "error": e.to_string()})),
-            }
-        }
-        (_, "/health" | "/event" | "/events") => {
-            respond(s, 405, &json!({"ok": false, "error": "method not allowed"}))
-        }
-        _ => respond(s, 404, &json!({"ok": false, "error": "not found"})),
-    }
+fn opt(args: &[String], k: &str) -> Option<String> {
+    args.iter()
+        .position(|a| a == k)
+        .and_then(|i| args.get(i + 1))
+        .cloned()
 }
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let cmd = args.first().map(String::as_str).unwrap_or("serve");
+    if cmd == "--version" || cmd == "-V" {
+        println!("openmind-nerve {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
     if args.iter().any(|a| a == "-h" || a == "--help") {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
     }
-    let cfg = match parse(&args) {
+    let listen = opt(&args, "--listen");
+    let env = |k: &str| {
+        if k == "NERVE_ADDR" {
+            if let Some(l) = &listen {
+                return Some(l.clone());
+            }
+        }
+        std::env::var(k).ok()
+    };
+    let cfg = match Config::from_env(&env) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("openmind-nerve: {e}\n{USAGE}");
+            eprintln!("<3>openmind-nerve: config: {e}\n{USAGE}");
             return ExitCode::from(2);
         }
     };
-    let mut w = match Writer::open(&cfg.log, cfg.max_bytes, cfg.keep) {
-        Ok(w) => w,
+    match cmd {
+        "once" => {
+            let mut e = match Engine::new(cfg) {
+                Ok(e) => e,
+                Err(err) => {
+                    eprintln!("<3>openmind-nerve: {err}");
+                    return ExitCode::from(2);
+                }
+            };
+            e.reflexes_enabled = false;
+            e.write_files = false;
+            e.alerts.path = None;
+            e.alerts.to_journal = false;
+            e.cycle();
+            print_report(&e, &args)
+        }
+        "replay" => {
+            let Some(dir) = args.get(1).filter(|a| !a.starts_with("--")) else {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            };
+            match openmind_nerve::replay::replay_dir(&PathBuf::from(dir), cfg) {
+                Ok(out) => {
+                    for n in &out.notes {
+                        eprintln!("replay: {n}");
+                    }
+                    print_report(&out.engine, &args)
+                }
+                Err(err) => {
+                    eprintln!("openmind-nerve replay: {err}");
+                    ExitCode::from(2)
+                }
+            }
+        }
+        "serve" => serve(cfg, &args),
+        other => {
+            eprintln!("openmind-nerve: unknown command {other:?}\n{USAGE}");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn print_report(e: &Engine, args: &[String]) -> ExitCode {
+    let sh = e.shared.lock().unwrap_or_else(|x| x.into_inner());
+    if args.iter().any(|a| a == "--md") {
+        print!("{}", sh.report_md);
+    } else if args.iter().any(|a| a == "--state") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&sh.state).unwrap_or_default()
+        );
+    } else {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&sh.report).unwrap_or_default()
+        );
+    }
+    if sh.report["pass"] == true {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    }
+}
+
+fn serve(cfg: Config, args: &[String]) -> ExitCode {
+    let log = opt(args, "--log").or_else(|| std::env::var("NERVE_EVENT_LOG").ok());
+    let ev = match log {
+        Some(p) => {
+            let max = opt(args, "--max-bytes")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(8 * 1024 * 1024);
+            let keep = opt(args, "--keep")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(3);
+            match Writer::open(&p, max, keep) {
+                Ok(w) => Some(Arc::new(Mutex::new(EventLog {
+                    writer: w,
+                    path: PathBuf::from(&p),
+                    appended: 0,
+                }))),
+                Err(e) => {
+                    eprintln!("<3>openmind-nerve: open {p}: {e}");
+                    return ExitCode::from(1);
+                }
+            }
+        }
+        None => None,
+    };
+    let listener = match TcpListener::bind(cfg.addr) {
+        Ok(l) => l,
         Err(e) => {
-            eprintln!("openmind-nerve: open {}: {e}", cfg.log.display());
+            eprintln!("<3>openmind-nerve: bind {}: {e}", cfg.addr);
             return ExitCode::from(1);
         }
     };
-    let l = match TcpListener::bind(cfg.listen) {
-        Ok(l) => l,
-        Err(e) => {
-            eprintln!("openmind-nerve: bind {}: {e}", cfg.listen);
-            return ExitCode::from(1);
+    let interval = Duration::from_secs(cfg.interval_s);
+    let mut e = match Engine::new(cfg) {
+        Ok(e) => e,
+        Err(err) => {
+            eprintln!("<3>openmind-nerve: {err}");
+            return ExitCode::from(2);
         }
     };
     eprintln!(
-        "openmind-nerve: listening on {} log {} ({})",
-        cfg.listen,
-        cfg.log.display(),
-        zagreb_time::now_rfc3339()
+        "<6>openmind-nerve {} listening on {} interval={}s mode={} data={} event-log={} components={}",
+        env!("CARGO_PKG_VERSION"),
+        e.cfg.addr,
+        e.cfg.interval_s,
+        e.mode(),
+        e.cfg.data_dir.display(),
+        ev.as_ref().map(|x| x.lock().map(|l| l.path.display().to_string()).unwrap_or_default()).unwrap_or_else(|| "off".into()),
+        e.comps.len()
     );
-    let mut appended = 0u64;
-    for conn in l.incoming() {
-        let Ok(mut s) = conn else { continue };
-        let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
-        let _ = s.set_write_timeout(Some(Duration::from_secs(5)));
-        handle(&mut s, &cfg, &mut w, &mut appended);
+    let sh = e.shared.clone();
+    if std::thread::Builder::new()
+        .name("nerve-http".into())
+        .spawn(move || openmind_nerve::server::serve(listener, sh, ev))
+        .is_err()
+    {
+        eprintln!("<3>openmind-nerve: cannot start http thread");
+        return ExitCode::from(1);
     }
-    ExitCode::SUCCESS
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn a(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn refuses_non_loopback() {
-        let e = parse(&a(&[
-            "serve",
-            "--listen",
-            "0.0.0.0:19031",
-            "--log",
-            "/tmp/x",
-        ]))
-        .err()
-        .unwrap();
-        assert!(e.contains("non-loopback"), "{e}");
-        assert!(parse(&a(&[
-            "serve",
-            "--listen",
-            "127.0.0.1:19031",
-            "--log",
-            "/tmp/x"
-        ]))
-        .is_ok());
-        assert!(parse(&a(&["serve", "--log", "/tmp/x"])).is_err());
-    }
-
-    #[test]
-    fn tail_is_clamped() {
-        assert_eq!(tail_n("/events"), 50);
-        assert_eq!(tail_n("/events?n=3"), 3);
-        assert_eq!(tail_n("/events?x=1&n=0"), 1);
-        assert_eq!(tail_n("/events?n=99999"), MAX_TAIL);
-    }
-
-    #[test]
-    fn event_body_is_validated() {
-        let ok = event_from(br#"{"source":"gaia","kind":"k","severity":"info","data":{"a":1}}"#)
-            .unwrap();
-        assert_eq!(ok.kind(), "k");
-        assert_eq!(ok.data_json(), r#"{"a":1}"#);
-        assert!(event_from(br#"{"source":"gaia","kind":"","severity":"info"}"#).is_err());
-        assert!(event_from(b"not json").is_err());
+    let mut last_mode = e.mode();
+    let mut last_sys = String::new();
+    loop {
+        let t = Instant::now();
+        e.cycle();
+        let m = e.mode();
+        if m != last_mode {
+            eprintln!("<5>openmind-nerve reflex mode {last_mode} -> {m}");
+            last_mode = m;
+        }
+        let sys = e.system_status().to_string();
+        if e.cycle % 10 == 1 || sys != last_sys {
+            eprintln!(
+                "<6>openmind-nerve cycle {} system={sys} score={} incidents={} ddos={} cycle_ms={}",
+                e.cycle,
+                e.score.as_ref().map(|s| s.score).unwrap_or(0),
+                e.incidents.open.len(),
+                e.cortex.ddos_firing,
+                t.elapsed().as_millis()
+            );
+            last_sys = sys;
+        }
+        std::thread::sleep(interval.saturating_sub(t.elapsed()));
     }
 }

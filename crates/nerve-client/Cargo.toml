@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "nerve-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Optional fire-and-forget signal push to galion-nerve (POST /signal over loopback HTTP). std only; no-op when NERVE_URL is unset."
+
+[dependencies]

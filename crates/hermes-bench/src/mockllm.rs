@@ -31,6 +31,7 @@ pub struct MockLlm {
     pub port: u16,
     pub seen: Arc<Mutex<Seen>>,
     stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl MockLlm {
@@ -41,7 +42,7 @@ impl MockLlm {
         let seen = Arc::new(Mutex::new(Seen::default()));
         let stop = Arc::new(AtomicBool::new(false));
         let (s2, st2) = (seen.clone(), stop.clone());
-        std::thread::spawn(move || {
+        let thread = std::thread::spawn(move || {
             for conn in l.incoming() {
                 if st2.load(Ordering::SeqCst) {
                     break;
@@ -50,7 +51,12 @@ impl MockLlm {
                 let _ = handle(c, &brain, &s2);
             }
         });
-        Ok(MockLlm { port, seen, stop })
+        Ok(MockLlm {
+            port,
+            seen,
+            stop,
+            thread: Some(thread),
+        })
     }
 
     pub fn base_url(&self) -> String {
@@ -67,6 +73,10 @@ impl Drop for MockLlm {
         self.stop.store(true, Ordering::SeqCst);
         // wake the accept loop
         let _ = TcpStream::connect(("127.0.0.1", self.port));
+        // join so the listener is closed (port reusable) when drop returns
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
     }
 }
 

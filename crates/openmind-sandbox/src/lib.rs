@@ -119,6 +119,10 @@ pub struct SandboxPolicy {
     /// tree (RLIMIT_AS is per process). Swap is set to 0 and an OOM kills the
     /// whole group.
     pub cgroup_mem_bytes: u64,
+    /// `cpu.max` of the per-run cgroup as a percentage of one CPU (100 = one
+    /// full core, 200 = two). 0 leaves `cpu.max` alone. When set and the
+    /// parent does not delegate the `cpu` controller, the run fails closed.
+    pub cgroup_cpu_pct: u32,
 }
 
 impl SandboxPolicy {
@@ -166,6 +170,7 @@ impl SandboxPolicy {
             cgroup_parent: None,
             cgroup_pids_max: 64,
             cgroup_mem_bytes: 256 * 1024 * 1024,
+            cgroup_cpu_pct: 0,
         }
     }
 }
@@ -870,8 +875,12 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     let cg = match &policy.cgroup_parent {
         None => None,
         Some(parent) => {
-            match cgroup::RunCgroup::create(parent, policy.cgroup_pids_max, policy.cgroup_mem_bytes)
-            {
+            match cgroup::RunCgroup::create(
+                parent,
+                policy.cgroup_pids_max,
+                policy.cgroup_mem_bytes,
+                policy.cgroup_cpu_pct,
+            ) {
                 Ok(c) => Some(c),
                 Err(e) => {
                     if let Some(l) = &ll {

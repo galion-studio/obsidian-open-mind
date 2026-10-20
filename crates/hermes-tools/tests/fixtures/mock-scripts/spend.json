@@ -1,0 +1,10 @@
+{
+  "cost_per_call": 0.6,
+  "steps": [
+    {"tool": "fs_read", "args": {"path": "README.md"}},
+    {"tool": "fs_read", "args": {"path": "README.md"}},
+    {"tool": "fs_read", "args": {"path": "README.md"}},
+    {"tool": "fs_read", "args": {"path": "README.md"}},
+    {"final": "should never get here under a $1.00 session cap"}
+  ]
+}

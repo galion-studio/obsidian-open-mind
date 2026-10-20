@@ -9,6 +9,9 @@
 //! env (HERMES_RS_HOST, HERMES_RS_PORT, HERMES_RS_STATE_DB, ...). The API key
 //! is read from $API_SERVER_KEY only. `--mock` uses the offline mock
 //! provider (no network, no spend) for shadow smoke tests.
+//!
+//! Coding tools (feature `coding`, on by default at build time) stay off
+//! unless HERMES_RS_CODING_WORKTREE is set; see docs/hermes-tools.md.
 
 use hermes_rs::api::Gateway;
 use hermes_rs::config::Config;
@@ -99,6 +102,27 @@ fn main() {
         log(&format!("mcp: {} tools", mcp_tools.len()));
         for t in mcp_tools {
             tools.add(t);
+        }
+    }
+    #[cfg(feature = "coding")]
+    match hermes_tools::CodingConfig::from_env(&env, &cfg.home) {
+        Ok(None) => {}
+        Ok(Some(mut cc)) => match hermes_tools::preflight(&mut cc, &cfg.spend) {
+            Ok(notes) => {
+                for n in notes {
+                    log(&format!("coding: {n}"));
+                }
+                hermes_tools::register(&mut tools, cc, Some(spend.clone()));
+                log(&format!("coding: tools on: {:?}", hermes_tools::TOOL_NAMES));
+            }
+            Err(e) => {
+                log(&format!("coding: refusing to start: {e}"));
+                std::process::exit(2);
+            }
+        },
+        Err(e) => {
+            log(&format!("coding: config error: {e}"));
+            std::process::exit(2);
         }
     }
     let cron_agent = Arc::new(hermes_rs::agent::Agent {

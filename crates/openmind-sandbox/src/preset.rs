@@ -198,6 +198,7 @@ impl Preset {
             cgroup_parent: None,
             cgroup_pids_max: 64,
             cgroup_mem_bytes: self.mem_bytes,
+            cgroup_cpu_pct: 0,
         }
     }
 }

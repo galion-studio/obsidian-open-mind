@@ -463,6 +463,17 @@ impl Provider for CurlProvider {
     ) -> Result<ChatResult, String> {
         let key = self.key(t);
         let local = matches!(host_of(&t.base_url), "127.0.0.1" | "localhost" | "::1");
+        // HERMES_RS_PROVIDER_LOOPBACK_ONLY=1: tests and mock runs can never
+        // reach a paid provider, whatever the config or a route says.
+        if (self.env)("HERMES_RS_PROVIDER_LOOPBACK_ONLY")
+            .is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
+            && !local
+        {
+            return Err(format!(
+                "HERMES_RS_PROVIDER_LOOPBACK_ONLY is set: refusing non-loopback provider URL for {}",
+                t.provider
+            ));
+        }
         if key.is_none() && !local {
             return Err(format!(
                 "no API key for provider {} (set {})",
@@ -819,5 +830,41 @@ platforms:
     #[test]
     fn curl_quote_escapes() {
         assert_eq!(curl_quote("a\"b\\c\nd"), "\"a\\\"b\\\\c\\nd\"");
+    }
+
+    #[test]
+    fn loopback_only_refuses_remote_providers_before_curl() {
+        let env: EnvFn =
+            Arc::new(|k: &str| (k == "HERMES_RS_PROVIDER_LOOPBACK_ONLY").then(|| "1".to_string()));
+        let mut p = CurlProvider::new(env);
+        p.curl = "/nonexistent/curl".into();
+        let mk = |url: &str| Target {
+            provider: "openrouter".into(),
+            base_url: url.into(),
+            model: "anthropic/claude-opus-5.5".into(),
+            requested: "default".into(),
+            key_env: None,
+            inline_key: Some("k".repeat(20)),
+        };
+        let c = AtomicBool::new(false);
+        let e = p
+            .chat(
+                &mk("https://openrouter.ai/api/v1"),
+                &ChatRequest::default(),
+                &c,
+                &mut |_| {},
+            )
+            .unwrap_err();
+        assert!(e.contains("LOOPBACK_ONLY"), "{e}");
+        // loopback passes the guard (then fails on the missing curl binary)
+        let e = p
+            .chat(
+                &mk("http://127.0.0.1:19179/v1"),
+                &ChatRequest::default(),
+                &c,
+                &mut |_| {},
+            )
+            .unwrap_err();
+        assert!(e.starts_with("curl:"), "{e}");
     }
 }

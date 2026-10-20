@@ -27,7 +27,12 @@ fn write(dir: &Path, name: &str, val: &str) -> Result<(), String> {
 }
 
 impl RunCgroup {
-    pub(crate) fn create(parent: &Path, pids_max: u64, mem_bytes: u64) -> Result<Self, String> {
+    pub(crate) fn create(
+        parent: &Path,
+        pids_max: u64,
+        mem_bytes: u64,
+        cpu_pct: u32,
+    ) -> Result<Self, String> {
         let name = format!(
             "om-sbx-{}-{}",
             std::process::id(),
@@ -40,14 +45,14 @@ impl RunCgroup {
                 .map_err(|_| "cgroup path contains NUL".to_string())?,
             dir,
         };
-        if let Err(e) = cg.configure(pids_max, mem_bytes) {
+        if let Err(e) = cg.configure(pids_max, mem_bytes, cpu_pct) {
             let _ = fs::remove_dir(&cg.dir);
             return Err(e);
         }
         Ok(cg)
     }
 
-    fn configure(&self, pids_max: u64, mem_bytes: u64) -> Result<(), String> {
+    fn configure(&self, pids_max: u64, mem_bytes: u64, cpu_pct: u32) -> Result<(), String> {
         // The limit files only exist when the parent delegates the controller.
         for need in ["pids.max", "memory.max"] {
             if !self.dir.join(need).exists() {
@@ -64,6 +69,17 @@ impl RunCgroup {
         }
         if self.dir.join("memory.oom.group").exists() {
             write(&self.dir, "memory.oom.group", "1")?;
+        }
+        if cpu_pct > 0 {
+            if !self.dir.join("cpu.max").exists() {
+                return Err(
+                    "cpu.max missing: the parent's cgroup.subtree_control does not enable the cpu controller"
+                        .into(),
+                );
+            }
+            // period 100 ms; quota = pct % of one CPU per period
+            let quota = u64::from(cpu_pct).max(1) * 1000;
+            write(&self.dir, "cpu.max", &format!("{quota} 100000"))?;
         }
         Ok(())
     }

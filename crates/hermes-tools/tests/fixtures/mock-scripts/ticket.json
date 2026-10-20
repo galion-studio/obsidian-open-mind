@@ -1,0 +1,13 @@
+{
+  "cost_per_call": 0.0,
+  "steps": [
+    {"tool": "git", "args": {"op": "status"}},
+    {"tool": "fs_read", "args": {"path": "src/lib.rs"}},
+    {"tool": "cargo", "args": {"command": "test"}},
+    {"tool": "fs_write", "args": {"path": "src/lib.rs", "content": "@FILE:../ticket/lib.rs.fixed"}},
+    {"tool": "cargo", "args": {"command": "test"}},
+    {"tool": "git", "args": {"op": "diff"}},
+    {"tool": "git", "args": {"op": "commit", "paths": ["src/lib.rs"], "message": "fix(adder): add() adds instead of subtracting (FAKE-1)"}},
+    {"final": "FAKE-1 done: read src/lib.rs, fixed add(), cargo test green, committed on the work branch. Not pushed."}
+  ]
+}

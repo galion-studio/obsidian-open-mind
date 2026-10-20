@@ -233,6 +233,7 @@ name = "hermes-gateway"
 version = "0.1.0"
 dependencies = [
  "hermes-rs",
+ "hermes-tools",
  "serde_json",
 ]
 
@@ -242,6 +243,15 @@ version = "0.1.0"
 dependencies = [
  "openmind-persona",
  "rusqlite",
+ "serde_json",
+]
+
+[[package]]
+name = "hermes-tools"
+version = "0.1.0"
+dependencies = [
+ "hermes-rs",
+ "openmind-sandbox",
  "serde_json",
 ]
 

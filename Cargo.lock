@@ -280,6 +280,7 @@ dependencies = [
 name = "desk-hermes"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "rusqlite",
  "serde",
  "serde_json",
@@ -528,10 +529,20 @@ dependencies = [
 name = "galion-boot"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "openmind-survival",
  "serde",
  "serde_json",
  "toml",
+ "zagreb-time",
+]
+
+[[package]]
+name = "galion-common"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
  "zagreb-time",
 ]
 
@@ -546,10 +557,16 @@ dependencies = [
 [[package]]
 name = "galion-one"
 version = "0.1.0"
+dependencies = [
+ "galion-common",
+]
 
 [[package]]
 name = "galion-origin"
 version = "0.1.0"
+dependencies = [
+ "galion-common",
+]
 
 [[package]]
 name = "galion-voice-core"
@@ -817,6 +834,7 @@ dependencies = [
 name = "hermes-rs"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "openmind-persona",
  "rusqlite",
  "serde_json",
@@ -915,6 +933,7 @@ dependencies = [
 name = "link-watch"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "openmind-config",
  "serde",
  "serde_json",
@@ -1003,6 +1022,7 @@ dependencies = [
 name = "one-talk"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "serde_json",
 ]
 
@@ -1051,6 +1071,7 @@ dependencies = [
 name = "openmind-memory"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1660,6 +1681,9 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 [[package]]
 name = "tuner"
 version = "0.1.0"
+dependencies = [
+ "galion-common",
+]
 
 [[package]]
 name = "typed-path"

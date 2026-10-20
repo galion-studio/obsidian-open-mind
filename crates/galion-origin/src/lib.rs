@@ -12,7 +12,7 @@
 //! `ORIGIN_CONSOLE_URL`), spawning persist-boot.sh, binding 0.0.0.0 on eight
 //! ports, the hard-coded RunPod pod id and the public-IP lookup.
 
-use std::io::{Read, Write};
+use galion_common::http;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -320,41 +320,29 @@ fn reason(code: u16) -> &'static str {
     }
 }
 
-/// Serve one connection (HTTP/1.0 style, closes after the reply).
-pub fn handle(cfg: &Config, mut s: TcpStream, started: Instant) {
-    let _ = s.set_read_timeout(Some(Duration::from_secs(10)));
-    let _ = s.set_write_timeout(Some(Duration::from_secs(30)));
-    let mut buf = vec![0u8; 8192];
-    let mut got = 0;
-    while got < buf.len() {
-        match s.read(&mut buf[got..]) {
-            Ok(0) => break,
-            Ok(n) => {
-                got += n;
-                if buf[..got].windows(4).any(|w| w == b"\r\n\r\n") {
-                    break;
-                }
-            }
-            Err(_) => return,
-        }
+/// Connection limits for the origin, on the shared galion-common server:
+/// 8 KiB head, 10 s for the whole head (was 10 s per read), 30 s writes,
+/// 32 live connections, 64 KiB thread stacks. Bodies are never used (GET,
+/// HEAD and OPTIONS only), so they are capped at 64 KiB.
+pub fn limits() -> http::Limits {
+    http::Limits {
+        max_head_bytes: 8192,
+        max_body_bytes: 64 * 1024,
+        head_timeout: Duration::from_secs(10),
+        body_timeout: Duration::from_secs(10),
+        write_timeout: Duration::from_secs(30),
+        max_connections: 32,
+        thread_stack: 64 * 1024,
+        ..http::Limits::default()
     }
-    let head = String::from_utf8_lossy(&buf[..got]);
-    let mut lines = head.lines();
-    let first = lines.next().unwrap_or("");
-    let mut parts = first.split_whitespace();
-    let (Some(method), Some(target)) = (parts.next(), parts.next()) else {
-        let _ = s.write_all(b"HTTP/1.0 400 Bad Request\r\ncontent-length: 0\r\n\r\n");
-        return;
-    };
-    let host = lines
-        .take_while(|l| !l.is_empty())
-        .find_map(|l| {
-            l.split_once(':')
-                .filter(|(k, _)| k.eq_ignore_ascii_case("host"))
-                .map(|(_, v)| v.trim().to_string())
-        })
-        .unwrap_or_default();
-    let r = route(cfg, method, target, &host, started);
+}
+
+/// The reply bytes for one parsed request (HTTP/1.0 style, closes after the
+/// reply). Byte layout unchanged from the hand-rolled server.
+pub fn render(cfg: &Config, req: &http::Request, started: Instant) -> Vec<u8> {
+    let method = req.method();
+    let host = req.header("host").unwrap_or("");
+    let r = route(cfg, method, req.target(), host, started);
     let mut out = format!(
         "HTTP/1.0 {} {}\r\ncontent-type: {}\r\ncontent-length: {}\r\n",
         r.code,
@@ -366,8 +354,16 @@ pub fn handle(cfg: &Config, mut s: TcpStream, started: Instant) {
         out.push_str(&format!("{k}: {v}\r\n"));
     }
     out.push_str("connection: close\r\n\r\n");
-    let _ = s.write_all(out.as_bytes());
+    let mut out = out.into_bytes();
     if method != "HEAD" {
-        let _ = s.write_all(&r.body);
+        out.extend_from_slice(&r.body);
     }
+    out
+}
+
+/// Serve one connection with the shared hardened parser.
+pub fn handle(cfg: &Config, s: TcpStream, started: Instant) {
+    http::handle_connection(s, &limits(), &|req: &http::Request| {
+        http::Response::raw(render(cfg, req, started))
+    });
 }

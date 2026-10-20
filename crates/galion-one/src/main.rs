@@ -30,7 +30,6 @@ mod models_refresh;
 mod persona;
 mod probe;
 mod services;
-mod sha256;
 mod speech;
 mod sqlite_ro;
 mod trace;
@@ -3295,8 +3294,8 @@ fn json_u64(body: &[u8], key: &str) -> u64 {
 }
 
 fn sha256(text: &str) -> String {
-    // In-process SHA-256 (sha256.rs); no sha256sum child per token check.
-    sha256::hex(text.as_bytes())
+    // In-process SHA-256 (galion-common); no sha256sum child per token check.
+    galion_common::sha256::hex(text.as_bytes())
 }
 
 fn new_token() -> String {
@@ -3322,36 +3321,8 @@ fn quote(text: &str) -> String {
     out
 }
 
-fn b64(data: &[u8]) -> String {
-    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::new();
-    for chunk in data.chunks(3) {
-        let a = chunk[0] as u32;
-        let b = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-        let c = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
-        let n = (a << 16) | (b << 8) | c;
-        out.push(T[((n >> 18) & 63) as usize] as char);
-        out.push(T[((n >> 12) & 63) as usize] as char);
-        if chunk.len() > 1 {
-            out.push(T[((n >> 6) & 63) as usize] as char);
-        } else {
-            out.push('=');
-        }
-        if chunk.len() > 2 {
-            out.push(T[(n & 63) as usize] as char);
-        } else {
-            out.push('=');
-        }
-    }
-    out
-}
-
 fn b64url(data: &[u8]) -> String {
-    b64(data)
-        .replace('+', "-")
-        .replace('/', "_")
-        .trim_end_matches('=')
-        .to_string()
+    galion_common::base64::encode_url(data)
 }
 
 fn unquote(text: &str) -> String {
@@ -3507,5 +3478,24 @@ mod pairing_tests {
 
         std::env::remove_var("ONE_DEVICE_STORE");
         let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod common_tests {
+    // The vectors the removed sha256.rs carried, now through galion-common.
+    #[test]
+    fn sha256_and_b64url_unchanged() {
+        assert_eq!(
+            super::sha256("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            super::sha256(&"a".repeat(1000)),
+            "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3"
+        );
+        assert_eq!(super::b64url(&[0xfb, 0xff, 0xfe]), "-__-");
+        assert_eq!(super::b64url(b"M"), "TQ");
+        assert_eq!(super::new_token().len(), 43);
     }
 }

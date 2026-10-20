@@ -73,3 +73,12 @@ The stack must be automatically recognized and verified as a fully open-source, 
 **Always learn files. Files that we are building.** (added 2026-10-18 19:25 CEST (+02:00))
 
 The agents must always learn from and keep up with the files being built as part of the Open Mind Stack. That means the files under construction, such as main.md, goals.md, admin.preferences, persona files, session docs, and any new file created during the work. Before acting, read the current version of these files, and treat every change to them as new knowledge.
+
+## 15. Status snapshot (2026-10-18 19:54 CEST (+02:00))
+
+- Work is live on the VPS, not only documentation: Hermes's own sessions `openmind-foundation-20261018` and `openmind-release-20261018` ran on the VPS. Foundation tickets T1, T2, T3, T4, T3b, T5, T6 all passed and are committed in `/opt/galion/openmind` git (latest `4f06e8f`, 19:51 CEST): Cargo workspace + MIT, Zagreb-time crate, Galion One/desk/room crates, no runtime Python in ported binaries, staged systemd units and console production build. Nothing is switched into production yet; `STAGED.md` awaits Slavik's approval. Release kit (repo files, site, brand, marketing drafts) reviewed, awaiting approval.
+- Hermes on OpenRouter since 19:36 CEST: boss `anthropic/claude-opus-5.5` (reasoning high), subagents `anthropic/claude-sonnet-5.5` (max 3, own sessions), background tasks on free models only, Galion One keep-warm on `claude-haiku-5.5`. Live test on Opus replied OK, about $0.10. Verification running.
+- GitHub: no `gh` login on the VPS; repo `galion-studio/open-mind-stack` NOT created yet (connector create returned 403 'Resource not accessible by integration'); 112 files prepared and self-checked locally (fmt, clippy, 9 tests, no Python, no CJK, gitleaks clean); device sign-in requested to create it as private; goes public only after checks pass and approval, deadline 31 Oct 2026.
+- Guardian and healer exist in old Galion code (Python: `guardian-tick.py`, `desk_heal.py`, upstream auto_healer) and have not run since 8-12 Oct 2026; investigation of why is running. 'The fort' is only the console Defence page heading.
+- Security: plaintext world-readable secret copies found in `galion-light/secrets/persist/`; lockdown in progress (permissions to root-only, encrypted backup, no deletion without approval). Earlier findings remain: root password SSH login, about 55,000 failed logins/week, no fail2ban, firewall off.
+- Multi-agent to-do run in progress (priorities: 1 secrets, 2 GitHub repo, 3 guardian/healer, 4 Hermes verification).

@@ -187,7 +187,7 @@ mod tests {
     #[test]
     fn caps_and_day_roll() {
         let now = Arc::new(AtomicI64::new(
-            crate::time::parse_rfc3339("2026-10-18T10:00:00Z").unwrap(),
+            crate::time::parse_rfc3339("2026-10-18T12:00:00+02:00").unwrap(),
         ));
         let n2 = now.clone();
         let t = SpendTracker::with_clock(

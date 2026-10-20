@@ -73,7 +73,7 @@ fn kill_and_rotate_are_refused() {
 fn a_test_may_write_the_object_the_crate_does_not() {
     let row = record("switch", APPROVED_TEST_TOKEN);
     assert_eq!(row["decision"].as_str(), Some("WouldApply"));
-    let nanos = std::time::SystemTime::now()
+    let nanos = std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock after epoch")
         .as_nanos();
@@ -158,7 +158,7 @@ impl Drop for CwdGuard {
 }
 
 fn probe_dir() -> std::path::PathBuf {
-    let nanos = std::time::SystemTime::now()
+    let nanos = std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock after epoch")
         .as_nanos();

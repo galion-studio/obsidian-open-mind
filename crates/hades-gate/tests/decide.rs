@@ -128,7 +128,7 @@ fn approved_token_refuses_kill_and_rotate_and_would_apply_is_not_an_apply() {
 }
 
 fn probe_dir() -> std::path::PathBuf {
-    let nanos = std::time::SystemTime::now()
+    let nanos = std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock after epoch")
         .as_nanos();

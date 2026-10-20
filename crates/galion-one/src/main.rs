@@ -1074,7 +1074,7 @@ fn warm_due() -> bool {
         .ok()
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(0.0);
-    let now = SystemTime::now()
+    let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
@@ -1143,7 +1143,7 @@ fn warm_pass() {
         eprintln!("warm rust skipped mouth=0 mind={mind}");
         return;
     }
-    let now = SystemTime::now()
+    let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
@@ -1354,7 +1354,7 @@ fn share_id() -> String {
     if let Ok(mut file) = File::open("/dev/urandom") {
         let _ = file.read_exact(&mut buf);
     }
-    let now = SystemTime::now()
+    let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
@@ -3007,7 +3007,7 @@ fn pair(code: &str) -> (u16, Vec<u8>, Option<String>) {
     let text = fs::read_to_string(store_path()).unwrap_or_default();
     let mut fails = json_u64(text.as_bytes(), "fails");
     let locked_until = json_u64(text.as_bytes(), "lockedUntil");
-    let now = SystemTime::now()
+    let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
@@ -3329,7 +3329,7 @@ fn count_lines(path: &str) -> u32 {
 }
 
 fn unix_secs() -> u64 {
-    SystemTime::now()
+    SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)

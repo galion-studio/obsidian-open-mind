@@ -53,9 +53,9 @@ impl NerveEvent {
 
     /// Unix second as Europe/Zagreb RFC 3339, the same format as [`Self::now`].
     ///
-    /// The 2026-10-25 fold is owned by `zagreb-time`: `2026-10-25T00:59:59Z`
-    /// is `2026-10-25T02:59:59+02:00`, and `2026-10-25T01:00:00Z` is
-    /// `2026-10-25T02:00:00+01:00`.
+    /// The 2026-10-25 fold is owned by `zagreb-time`: unix `1_792_889_999`
+    /// is `2026-10-25T02:59:59+02:00` (last CEST second), and unix `1_792_890_000` is
+    /// `2026-10-25T02:00:00+01:00` (first CET second).
     pub fn at_unix(
         secs: i64,
         source: impl Into<String>,
@@ -524,7 +524,7 @@ base_url = "http://extra.example.invalid/v1"
         assert!(message.contains("bad config"), "{message}");
     }
 
-    /// 2026-10-25T00:59:59Z, 2026-10-25T01:00:00Z, and 2026-12-01T12:00:00Z.
+    /// 2026-10-25T02:59:59+02:00, 2026-10-25T02:00:00+01:00, and 2026-12-01T13:00:00+01:00.
     const DST_BEFORE_2026_10_25: i64 = 1_792_889_999;
     const DST_AFTER_2026_10_25: i64 = 1_792_890_000;
     const WINTER_2026_12_01: i64 = 1_796_126_400;
@@ -584,7 +584,7 @@ base_url = "http://extra.example.invalid/v1"
     #[test]
     fn nerve_event_rejects_non_zagreb_ts() {
         let samples = [
-            r#"{"ts":"2026-10-25T00:59:59Z","source":"auth.log","kind":"ddos","severity":"warn","data":{}}"#,
+            r#"{"ts":"2026-10-25T00:59:59Z","source":"auth.log","kind":"ddos","severity":"warn","data":{}}"#, // repo-check: allow (the Z stamp is the refused input under test)
             r#"{"ts":"2026-10-25T01:00:00+00:00","source":"auth.log","kind":"ddos","severity":"warn","data":{}}"#,
             r#"{"ts":"2026-10-25T02:59:59.000+02:00","source":"auth.log","kind":"ddos","severity":"warn","data":{}}"#,
             r#"{"ts":"2026-10-25T03:00:00+03:00","source":"auth.log","kind":"ddos","severity":"warn","data":{}}"#,

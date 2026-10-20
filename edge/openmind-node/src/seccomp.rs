@@ -49,6 +49,17 @@ pub const AUDIT_ARCH: u32 = 0xC000_003E; // AUDIT_ARCH_X86_64
 #[cfg(target_arch = "aarch64")]
 pub const AUDIT_ARCH: u32 = 0xC000_00B7; // AUDIT_ARCH_AARCH64
 
+// AUDIT_ARCH_ARM (EM_ARM | __AUDIT_ARCH_LE), armv7 EABI.
+#[cfg(target_arch = "arm")]
+pub const AUDIT_ARCH: u32 = 0x4000_0028;
+
+// Any other architecture: no syscall table here, so fail closed. The arch
+// check never matches (no real AUDIT_ARCH is 0), every syscall after install
+// is KILL_PROCESS, and `available()` reports false. Portable fallback for
+// UNIVERSAL-CPU.md; add the arch with its own numbers to enable it.
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm")))]
+pub const AUDIT_ARCH: u32 = 0;
+
 // ---- Denied syscall numbers per architecture ----
 // Goal: block escape / host change / process inspection. Everyday shell
 // tools (read, write, open, mmap, clone for threads, socket inside a netns
@@ -113,7 +124,37 @@ pub const DENIED: &[u32] = &[
     271, // process_vm_writev
 ];
 
-#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+// armv7 (32-bit ARM EABI) numbers from arch/arm/tools/syscall.tbl, same set
+// as aarch64.
+#[cfg(target_arch = "arm")]
+pub const DENIED: &[u32] = &[
+    26,  // ptrace
+    21,  // mount
+    52,  // umount2
+    218, // pivot_root
+    88,  // reboot
+    337, // unshare
+    87,  // swapon
+    115, // swapoff
+    74,  // sethostname
+    121, // setdomainname
+    128, // init_module
+    129, // delete_module
+    347, // kexec_load
+    311, // keyctl
+    309, // add_key
+    310, // request_key
+    386, // bpf
+    388, // userfaultfd
+    364, // perf_event_open
+    379, // finit_module
+    131, // quotactl
+    51,  // acct
+    376, // process_vm_readv
+    377, // process_vm_writev
+];
+
+#[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm")))]
 pub const DENIED: &[u32] = &[];
 
 const EPERM: u32 = 1;
@@ -228,6 +269,8 @@ mod tests {
         assert!(p.iter().any(|i| i.code == JEQ_K && i.k == 101));
         #[cfg(target_arch = "aarch64")]
         assert!(p.iter().any(|i| i.code == JEQ_K && i.k == 117));
+        #[cfg(target_arch = "arm")]
+        assert!(p.iter().any(|i| i.code == JEQ_K && i.k == 26));
         assert_eq!(p[0].code, LD_W_ABS);
         assert_eq!(p[0].k, OFF_ARCH);
         assert_eq!(p[1].code, JEQ_K);

@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# DESK-ID: openmind.UCPU-1
+#
+# Workspace-wide cargo settings. Portable only: no target-cpu, no
+# target-feature, no rustflags (UNIVERSAL-CPU.md).
+
+[env]
+# rusqlite "bundled" (libsqlite3-sys 0.30) compiles the SQLite amalgamation
+# with FTS3, R*Tree, DBSTAT, STAT4, SOUNDEX, column metadata and runtime
+# extension loading switched on. No workspace crate uses any of them
+# (grep: no fts3/rtree/dbstat/soundex/load_extension/column_metadata in
+# crates/*/src). Turning them off saves ~130 KB of C code per binary that
+# links SQLite and gets hermes-gateway under the 2 MiB budget (docs/ucpu.md).
+# Kept on purpose: FTS5 and JSON (the Python Hermes state.db may hold FTS5
+# tables; the legacy DB is opened read-only, but keep the module anyway).
+# OMIT_LOAD_EXTENSION also drops the dlopen() path, which a static musl
+# binary cannot use anyway.
+LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_SOUNDEX -USQLITE_ENABLE_COLUMN_METADATA -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION"

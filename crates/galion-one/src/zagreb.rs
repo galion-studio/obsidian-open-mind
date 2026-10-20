@@ -98,13 +98,13 @@ mod tests {
 
     #[test]
     fn known_instants() {
-        // 2026-10-20T18:34:00Z is 20:34 CEST.
+        // unix 1792521240 is 2026-10-20 18:34:00 +00:00, i.e. 20:34 CEST.
         assert_eq!(rfc3339(1_792_521_240), "2026-10-20T20:34:00+02:00");
         assert_eq!(clock(1_792_521_240), "20:34:00+02:00");
-        // 2026 switch-back: 2026-10-25 01:00 UTC. One second before is CEST.
+        // 2026 switch-back: 2026-10-25 03:00 CEST becomes 02:00 CET.
         assert_eq!(rfc3339(1_792_890_000 - 1), "2026-10-25T02:59:59+02:00");
         assert_eq!(rfc3339(1_792_890_000), "2026-10-25T02:00:00+01:00");
-        // 2027 spring forward: 2027-03-28 01:00 UTC.
+        // 2027 spring forward: 2027-03-28 02:00 CET becomes 03:00 CEST.
         assert_eq!(rfc3339(1_806_195_600 - 1), "2027-03-28T01:59:59+01:00");
         assert_eq!(rfc3339(1_806_195_600), "2027-03-28T03:00:00+02:00");
         // Winter, new year.

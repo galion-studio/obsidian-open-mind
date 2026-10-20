@@ -34,3 +34,7 @@ required-features = ["whisper"]
 [[example]]
 name = "tts-bench"
 required-features = ["kitten"]
+
+[[test]]
+name = "real_voice_serve"
+required-features = ["whisper", "kitten"]

@@ -7,6 +7,7 @@
 //! * [`pipeline`] - `CpuPipelineBackend`: STT -> text model -> TTS as a
 //!   `galion-voice-core` backend (turn-based with barge-in).
 //! * [`wav`] - minimal PCM WAV reader, [`resample`] - linear resampler.
+//! * [`serve`] - std-only HTTP voice service (ear + mouth contracts).
 //! * `whisper_stt` (feature `whisper`) - Whisper tiny via candle, CPU only.
 #![deny(unsafe_code)]
 
@@ -15,6 +16,7 @@ pub mod g2p;
 pub mod kitten;
 pub mod pipeline;
 pub mod resample;
+pub mod serve;
 pub mod stt;
 pub mod wav;
 

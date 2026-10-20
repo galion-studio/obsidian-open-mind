@@ -3,7 +3,7 @@
 
 # docs/swarm: the durable record of the PROJECT 42 / Gaia coding swarm
 
-Written 2026-10-20 23:45 CEST (+02:00).
+Written 2026-10-20 23:31 CEST (+02:00).
 
 **Why this exists:** Slavik does not want anything important to live only on the swarm box, which is temporary and lost on restart. Everything important is kept on GitHub (this branch, `swarm/swarm-record`) and on the VPS (`/opt/galion/archive/swarm-<timestamp>/`), with text that explains each process, why it was done, and the bigger picture.
 

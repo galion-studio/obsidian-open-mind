@@ -3,7 +3,7 @@
 
 # The big picture: PROJECT 42 / Gaia
 
-Written 2026-10-20 23:45 CEST (+02:00) by swarm/swarm-record. This file explains what the work is for. `PROCESSES.md` lists each piece.
+Written 2026-10-20 23:31 CEST (+02:00) by swarm/swarm-record. This file explains what the work is for. `PROCESSES.md` lists each piece.
 
 ## The vision
 
@@ -57,7 +57,7 @@ Totals from the seven planners: 47 sessions, 200 tasks, 645 target agents, 407 u
 7. The measured ceiling is about 18-20 agents at once on one 8-vCPU box. Stopped agents are restarted and tracked in a retry ledger.
 8. Everything important is kept in three places: GitHub (`swarm/*` branches, including this record), the VPS archive (`/opt/galion/archive/swarm-<timestamp>/`, with a git bundle and a sha256 manifest), and the box (working copy only).
 
-## Merged vs waiting on Slavik (23:45 CEST)
+## Merged vs waiting on Slavik (23:31 CEST)
 
 - **Merged into main today:** nothing. Main is `13a296c`.
 - **Ready and waiting for Slavik's merge:** `swarm/integration-2` (`df42e0f`), which includes integration-1, all 20 wave-1 branches and the Gaia branches. The other wave-2 and wave-3 branches are on GitHub, each listed in `PROCESSES.md`.

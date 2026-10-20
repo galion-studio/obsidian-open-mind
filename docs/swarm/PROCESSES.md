@@ -3,11 +3,11 @@
 
 # Swarm processes, 2026-10-20 (Europe/Zagreb, CEST +02:00)
 
-Written 2026-10-20 23:40 CEST (+02:00) by swarm/swarm-record (wave 3, slot 39). Sources: `docs/swarm/record/CALL-RECORD.md` (snapshot of the live call record), `docs/swarm/record/WAVE2.md`, the agents' branch heads in `/workspace/swarm/wt/*`, and a read-only `git ls-remote` of GitHub at 23:27 CEST.
+Written 2026-10-20 23:31 CEST (+02:00) by swarm/swarm-record (wave 3, slot 39). Sources: `docs/swarm/record/CALL-RECORD.md` (snapshot of the live call record), `docs/swarm/record/WAVE2.md`, the agents' branch heads in `/workspace/swarm/wt/*`, and a read-only `git ls-remote` of GitHub at 23:27 CEST.
 
 **State of `main`:** GitHub `main` is still `13a296c` (PR #8, one-source merge). Nothing from today's swarm is merged into main yet. Every branch below is on GitHub as `swarm/<slug>` and waits for Slavik to merge, through the integration branches (`swarm/integration-1`, then `swarm/integration-2`).
 
-**How to read this file:** one row per agent slot or workstream. *What* is the deliverable. *Why* is the reason it was started. *Status* is the state at 23:40 CEST. *Owner decisions* are open questions only Slavik can answer. Agents did not decide these themselves.
+**How to read this file:** one row per agent slot or workstream. *What* is the deliverable. *Why* is the reason it was started. *Status* is the state at 23:31 CEST. *Owner decisions* are open questions only Slavik can answer. Agents did not decide these themselves.
 
 ## Why the swarm ran today
 
@@ -63,10 +63,10 @@ All 20 are on GitHub and merged together in `swarm/integration-1` (`8fd26f6`).
 | hermes-core | 45b7980 | `hermes` coordinator: 7 sectors, governor, ledger, HADES gate, readiness G1-G15 | Slavik: program Hermes first | on GitHub; readiness 11/15 | HADES key, merges, 7 decisions |
 | settings-snapshot | b7afd6d | voice + swarm settings, TOP PRIORITY RULE, Revolut lift | Keep Slavik's rules in the repo | on GitHub | none |
 | slavik-todo | 87fdd91 | Croatian mobile checklist (OpenRouter item done) | Slavik's to-do list on his phone | on GitHub | items 1 and 3 |
-| fuzz-sast (25) | e78b2e7 | cargo-fuzz targets, 11-min runs 0 crashes, CodeQL/ClusterFuzzLite workflows | Security S1 | **pushed now (23:30)**, was box-only | libFuzzer/CodeQL licence ruling |
-| hermes-enroll (32) | f2121a8 | Device enrollment: nonce store, scoped node credentials, revocation | Phones and edges join Hermes | **pushed now (23:30)**, was box-only | merge |
-| nerve-wiring (30) | 8d7a924 | hermes-rs + openmind-memory push events through nerve-client | Nerve only polled before | **pushed now (23:30)**, was box-only; still adds a .sh real test | port .sh to Rust |
-| tunnel-audit (35) | d35ef73 | cloudflared ingress audit + tunnel-lint (read-only) | 33 hostnames have no listener | **pushed now (23:30)**, was box-only | merge |
+| fuzz-sast (25) | e78b2e7 | cargo-fuzz targets, 11-min runs 0 crashes, CodeQL/ClusterFuzzLite workflows | Security S1 | **pushed now (23:28-23:30)**, was box-only | libFuzzer/CodeQL licence ruling |
+| hermes-enroll (32) | f2121a8 | Device enrollment: nonce store, scoped node credentials, revocation | Phones and edges join Hermes | **pushed now (23:28-23:30)**, was box-only | merge |
+| nerve-wiring (30) | 8d7a924 | hermes-rs + openmind-memory push events through nerve-client | Nerve only polled before | **pushed now (23:28-23:30)**, was box-only; still adds a .sh real test | port .sh to Rust |
+| tunnel-audit (35) | d35ef73 | cloudflared ingress audit + tunnel-lint (read-only) | 33 hostnames have no listener | **pushed now (23:28-23:30)**, was box-only | merge |
 | planners x7 | plans/*.md | gaia, nerve, cortex, vps-ops, integration-ci, security, docs-whitepaper: 47 sessions, 200 tasks, 645 target / 407 useful agents | Plan the launch work by sector | done | items in each plan |
 | non-rust inventory | plans/non-rust-inventory.md | Every non-Rust piece in the repo and on the VPS | Rust-only rule | done | OS packages, cloudflared, CI YAML, browser JS |
 
@@ -75,7 +75,7 @@ All 20 are on GitHub and merged together in `swarm/integration-1` (`8fd26f6`).
 | Slot | Slug | Head | What it did | Status | Owner decisions |
 |---|---|---|---|---|---|
 | 37 | integration-2 | df42e0f | Merged 4 Gaia branches on integration-1; 999 tests, clippy 0 | on GitHub; main merge held for verifiers | 5 pending ownership rows; how main is pushed |
-| 38 | cutover-prep | (=787a54d) | Rust galion-deploy F1/F2, backup, runbook | running at 23:40; same sha as deploy-rust on GitHub | — |
+| 38 | cutover-prep | (=787a54d) | Rust galion-deploy F1/F2, backup, runbook | running at 23:31; same sha as deploy-rust on GitHub | — |
 | 39 (first run) | deploy-rust | 787a54d | Rust galion-deploy, F1-F6 fixed, rehearsals all pass | on GitHub | install before/after cutovers |
 | 39b | swarm-record | this branch | This record, the GitHub safety sweep, VPS archive | on GitHub | none |
 | 40 | landing-overview | 669dc18 | `/console` one-screen big picture, no JS | on GitHub | merge |
@@ -90,11 +90,11 @@ All 20 are on GitHub and merged together in `swarm/integration-1` (`8fd26f6`).
 | 48 | build-info | db9924d | `--version` on 10 binaries in ~1 ms | on GitHub | add to health JSON? |
 | 49 | health-land | f4a66ea | galion-health landed; rebuild byte-identical to live | on GitHub | merge (T1.2) |
 | 50-54 | bench-harness / banking / wallstreet / vending / scoreboard | ea8315c / adda699 / 4b1e127 / a9daaf1 / f2ff169 | Benchmarks at 100% on mocks/paper/sim; no money moved | on GitHub | live Revolut reads, market data, scoring mode |
-| 55 | cortex-s2-a | 9557eb3 | sshd brute-force + RustSec sensors | running; **pushed now (23:31)** as backup | — |
-| 56 | cortex-s2-b | 51100e1 | drift + conn-rate sensors | running; **pushed now (23:31)** as backup | — |
-| 57 | cortex-s2-c | dbec5c9 | proc-owner + surface sensors | running; see final table in ARCHIVE.md | — |
+| 55 | cortex-s2-a | 9557eb3 | sshd brute-force + RustSec sensors | running; **pushed now (23:28-23:30)** as backup | — |
+| 56 | cortex-s2-b | 51100e1 | drift + conn-rate sensors | running; **pushed now (23:28-23:30)** as backup | — |
+| 57 | cortex-s2-c | dbec5c9 | proc-owner + surface sensors | running; on GitHub (pushed by its agent by 23:31) | — |
 | 58 | cortex-s2-d | f3468ce | cortex events feed + hades sensor, off by default | on GitHub | enable in prod |
-| 59 | bench-hermes | f7da261 | Run the benchmarks through hermes-rs | running; **pushed now (23:30)** as backup | — |
+| 59 | bench-hermes | f7da261 | Run the benchmarks through hermes-rs | running; **pushed now (23:28-23:30)** as backup | — |
 
 Other tracks today: the Galion OS repo was staged at `/workspace/swarm/galion-os-repo` (copied into `docs/swarm/galion-os-staging/`); it waits for the GitHub connection to create `galion-studio/galion-os`. The voice config is recorded in Q11/Q12 of the call record.
 

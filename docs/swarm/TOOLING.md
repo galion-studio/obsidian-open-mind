@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
 
-# Swarm tooling (box-side helpers), recorded 2026-10-20 23:35 CEST (+02:00)
+# Swarm tooling (box-side helpers), recorded 2026-10-20 23:31 CEST (+02:00)
 
 These small helpers live on the swarm box under `/workspace/swarm`. They are recorded here as text so they survive a box restart. They are kept as documentation, not as `.sh` files in the repo, because the project is Rust-only and the branch should add no new scripts. `<vps>` stands for the VPS address.
 

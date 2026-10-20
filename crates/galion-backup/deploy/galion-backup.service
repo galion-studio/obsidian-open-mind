@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+# PROPOSED replacement for /etc/systemd/system/galion-backup.service (not
+# deployed; owner decision). Only ExecStart changes: the Rust binary does what
+# /opt/galion/rust/bin/galion-backup.sh did. The ws/offsite drop-in
+# (galion-backup.service.d/offsite.conf: ExecStartPost / ExecStopPost
+# galion-offsite-encrypt.sh) and galion-backup.timer stay as they are.
+[Unit]
+Description=Galion snapshot backup to /var/backups/galion (ws/foundation)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/galion/rust/bin/galion-backup run
+Nice=19
+IOSchedulingClass=idle
+UMask=0077

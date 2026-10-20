@@ -163,6 +163,7 @@ dependencies = [
  "gaia-eleuthia",
  "gaia-hades",
  "gaia-hephaestus",
+ "gaia-live",
  "gaia-minerva",
  "gaia-poseidon",
  "zagreb-time",
@@ -219,6 +220,13 @@ dependencies = [
 
 [[package]]
 name = "gaia-hephaestus"
+version = "0.1.0"
+dependencies = [
+ "gaia-core",
+]
+
+[[package]]
+name = "gaia-live"
 version = "0.1.0"
 dependencies = [
  "gaia-core",

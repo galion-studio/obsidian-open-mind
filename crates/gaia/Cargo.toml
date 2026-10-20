@@ -23,4 +23,5 @@ gaia-poseidon = { path = "../gaia-poseidon" }
 gaia-aether = { path = "../gaia-aether" }
 gaia-demeter = { path = "../gaia-demeter" }
 gaia-eleuthia = { path = "../gaia-eleuthia" }
+gaia-live = { path = "../gaia-live" }
 zagreb-time = { path = "../zagreb-time" }

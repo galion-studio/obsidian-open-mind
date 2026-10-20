@@ -423,3 +423,117 @@ pub fn dispatch(
     let r = send(&mut g, s, v, 50, payload, approve);
     Ok(r.to_json())
 }
+
+/// Live mode (M1): GAIA booted as usual, then fed read-only probe results of
+/// the real services. A service that is not up degrades the function that
+/// owns its system; for each one HADES is asked for a **plan** (Verb::Plan,
+/// never Execute), so nothing is approved and nothing runs. The operator
+/// follows a plan by hand, after an Alpha's approval.
+pub fn status_live(results: &[gaia_live::ProbeResult]) -> Json {
+    use gaia_live::State;
+    let mut g = booted();
+    let services: Vec<Json> = results.iter().map(|r| r.to_json()).collect();
+    let (mut up, mut degraded, mut down) = (0u64, 0u64, 0u64);
+    for r in results {
+        match r.state {
+            State::Up => up += 1,
+            State::Degraded => degraded += 1,
+            State::Down => down += 1,
+        }
+    }
+    // Function view: worst state among the services it owns.
+    let mut functions = Json::obj();
+    for f in FunctionId::ALL {
+        let mine: Vec<&gaia_live::ProbeResult> = results
+            .iter()
+            .filter(|r| r.system.function() == f)
+            .collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let worst = mine
+            .iter()
+            .map(|r| r.state.clone())
+            .max()
+            .unwrap_or(State::Up);
+        let live = match worst {
+            State::Up => "terraforming",
+            State::Degraded | State::Down => "degraded",
+        };
+        functions = functions.with(
+            f.name(),
+            Json::obj()
+                .with("live_state", live)
+                .with("simulated_state", g.function_state(f).map(Lifecycle::name))
+                .with(
+                    "services",
+                    Json::Arr(
+                        mine.iter()
+                            .map(|r| {
+                                Json::obj()
+                                    .with("service", r.name.as_str())
+                                    .with("system", r.system.name())
+                                    .with("state", r.state.name())
+                            })
+                            .collect(),
+                    ),
+                ),
+        );
+    }
+    // HADES proposals: plans only, approval-gated, never executed here.
+    let mut proposals = Vec::new();
+    for r in results.iter().filter(|r| r.state != State::Up) {
+        let unit = r
+            .unit
+            .as_ref()
+            .map(|(u, _)| u.as_str())
+            .unwrap_or(r.name.as_str());
+        let payload = format!("{} is {} ({})", r.name, r.state.name(), r.notes.join("; "));
+        let rep = send(&mut g, System::Rollback, Verb::Plan, 10, &payload, None);
+        let mut steps = vec![
+            format!("inspect: journalctl -u {unit} -n 100 (read-only)"),
+            format!("restart (operator, after approval): systemctl restart {unit}"),
+            "if the restart does not help: run the rollback script recorded for the last deploy (operator, after approval)".to_string(),
+        ];
+        steps.extend(rep.plan.iter().cloned());
+        proposals.push(
+            Json::obj()
+                .with("service", r.name.as_str())
+                .with("system", System::Rollback.name())
+                .with("function", "HADES")
+                .with("outcome", rep.outcome.name())
+                .with("approval_required", true)
+                .with("approved", false)
+                .with("executed", false)
+                .with(
+                    "steps",
+                    Json::Arr(steps.into_iter().map(Json::from).collect()),
+                ),
+        );
+    }
+    let overall = if down + degraded == 0 {
+        "healthy"
+    } else if up == 0 {
+        "down"
+    } else {
+        "degraded"
+    };
+    Json::obj()
+        .with("mode", "live-read-only")
+        .with(
+            "safety",
+            "HTTP GET + systemctl is-active + file mtime only; HADES returns plans, executes nothing",
+        )
+        .with("overall", overall)
+        .with(
+            "summary",
+            Json::obj()
+                .with("services", results.len())
+                .with("up", up)
+                .with("degraded", degraded)
+                .with("down", down),
+        )
+        .with("services", Json::Arr(services))
+        .with("functions", functions)
+        .with("hades", Json::obj().with("proposals", Json::Arr(proposals)))
+}

@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Gaia M1 live eyes: read-only health probes of the real services. std only
+# (plus gaia-core for Json/System). HTTP GET only, `systemctl is-active` only,
+# file metadata reads only. Never writes, never restarts, never kills.
+
+[package]
+name = "gaia-live"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gaia M1: read-only live health of the stack (HTTP GET /health, systemctl is-active, state-file freshness), mapped onto GAIA systems."
+
+[dependencies]
+gaia-core = { path = "../gaia-core" }

@@ -1,13 +1,19 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
-//! `gaia` CLI. Prints JSON. Simulation only: no network, no processes, no
-//! file writes.
+//! `gaia` CLI. Prints JSON. Simulation only (no network, no processes, no
+//! file writes), except `status --live`: read-only HTTP GETs to loopback
+//! health endpoints, `systemctl is-active`, and state-file mtimes.
 
 use std::process::ExitCode;
 
 const USAGE: &str = "usage: gaia <command> [options]
   status                         boot GAIA and print every function, the hierarchy and the system table
+  status --live [--host H] [--no-systemd] [--timeout-ms MS] [--strict]
+                                 READ-ONLY live health of the real services (8420, 8642, link-watch,
+                                 tuner 8650, one 8091, console 8080): HTTP GET, systemctl is-active,
+                                 state-file age; HADES proposes plans only (never executes);
+                                 --strict exits 3 unless everything is up
   tick [--n N]                   boot and run N ticks (default 10, max 1000)
   simulate-faro [--full-power] [--approve ALPHA]
                                  run the Faro scenario; --full-power drives every system at intensity 100;
@@ -30,7 +36,29 @@ fn main() -> ExitCode {
             .position(|a| *a == name)
             .and_then(|i| args.get(i + 1).copied())
     };
+    let mut live_exit = 0u8;
     let result = match args.first().copied() {
+        Some("status") if args.contains(&"--live") => {
+            let mut o = gaia_live::Opts::default();
+            if let Some(h) = opt("--host") {
+                o.host = h.to_string();
+            }
+            if args.contains(&"--no-systemd") {
+                o.systemd = false;
+            }
+            if let Some(ms) = opt("--timeout-ms").and_then(|v| v.parse::<u64>().ok()) {
+                o.connect_timeout = std::time::Duration::from_millis(ms.max(50));
+                o.read_timeout = std::time::Duration::from_millis(ms.max(50) * 2);
+            }
+            let results = gaia_live::probe_all(&gaia_live::default_probes(), &o);
+            let j = gaia::status_live(&results);
+            if args.contains(&"--strict")
+                && j.get("overall").and_then(gaia_core::Json::as_str) != Some("healthy")
+            {
+                live_exit = 3;
+            }
+            Ok(j)
+        }
         Some("status") => Ok(gaia::status()),
         Some("tick") => match opt("--n").map(str::parse::<u64>) {
             None => Ok(gaia::tick(10)),
@@ -60,7 +88,7 @@ fn main() -> ExitCode {
                 .with("generated_at", zagreb_time::now_rfc3339())
                 .with("result", j);
             println!("{}", if compact { j.compact() } else { j.pretty() });
-            ExitCode::SUCCESS
+            ExitCode::from(live_exit)
         }
         Err(e) => {
             eprintln!("gaia: {e}\n{USAGE}");

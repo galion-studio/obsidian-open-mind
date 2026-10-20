@@ -23,6 +23,7 @@ use crate::reflex::{
     deploy_in_progress, status_needs_alert, Decision, Reflex, MAX_ACTIONS_PER_CYCLE,
 };
 use crate::score::{score, Score};
+use crate::sensors::Sensors;
 use crate::state::{CompState, Status, Thresholds};
 use crate::util::{kib, now_secs, ts, write_atomic};
 use serde_json::{json, Value};
@@ -67,6 +68,10 @@ pub struct Engine {
     pub listeners: Option<Vec<Listener>>,
     pub incidents: Correlator,
     pub cortex: Cortex,
+    /// Cortex sensors, kept across cycles (stateful sensors).
+    pub sensors: Sensors,
+    /// Live host cycle (false in replay: host-reading sensors stay idle).
+    pub live: bool,
     pub ddos: Vec<DdosVerdict>,
     pub score: Option<Score>,
     tunnel_prev: HashMap<String, (u64, u64)>,
@@ -137,6 +142,8 @@ impl Engine {
             listeners: None,
             incidents: Correlator::default(),
             cortex: Cortex::default(),
+            sensors: Sensors::from_env(&|k| std::env::var(k).ok()),
+            live: true,
             ddos: vec![],
             score: None,
             tunnel_prev: HashMap::new(),
@@ -250,7 +257,7 @@ impl Engine {
             self.ddos = sh.detector.evaluate(now);
         }
         let own_port = self.cfg.addr.port();
-        self.cortex = cortex::analyse(&cortex::Input {
+        self.cortex = self.sensors.run(&cortex::Input {
             now,
             comps: &self.comps,
             logs: &self.logs,
@@ -261,6 +268,8 @@ impl Engine {
             listen_scope: self.cfg.listen_scope,
             own_port,
             loading_grace_s: self.cfg.loading_grace_s,
+            journal: &col.lines,
+            live: self.live,
         });
         let mut sigs = cortex::component_signals(&self.comps, now, self.cfg.loading_grace_s);
         sigs.extend(self.cortex.signals.iter().cloned());
@@ -437,6 +446,8 @@ impl Engine {
                        "open_incidents": self.incidents.open.len(), "ddos_firing": self.cortex.ddos_firing},
             "incidents": self.incidents.to_json(),
             "cortex": self.cortex.to_json(),
+            "cortex_sensors": self.sensors.last_json(),
+            "cortex_events": self.cortex.nerve_events(now),
             "self_eval": sc,
             "components": self.comps.iter().map(|c| c.to_json(now)).collect::<Vec<_>>(),
             "gaia": self.gaia_rollup(),

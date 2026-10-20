@@ -22,3 +22,4 @@ zagreb-time = { path = "../zagreb-time" }
 
 [dev-dependencies]
 zagreb-time = { path = "../zagreb-time" }
+openmind-schema = { path = "../openmind-schema" }

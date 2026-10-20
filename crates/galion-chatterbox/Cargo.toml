@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Chatterbox (Resemble AI, MIT) text-to-speech inference in pure Rust on candle,
+# CPU only: no cuda/metal/mkl/accelerate features, no target-cpu flags.
+
+[package]
+name = "galion-chatterbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Chatterbox TTS (T3 + S3Gen + HiFT, voice cloning from a reference clip) on candle, CPU only."
+
+[dependencies]
+candle-core = { version = "0.9", default-features = false }
+candle-nn = { version = "0.9", default-features = false }
+serde_json = { workspace = true }
+
+[[example]]
+name = "chatterbox-say"

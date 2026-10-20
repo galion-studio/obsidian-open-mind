@@ -320,6 +320,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-chatterbox"
+version = "0.1.0"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "serde_json",
+]
+
+[[package]]
 name = "galion-desk"
 version = "0.1.0"
 dependencies = [

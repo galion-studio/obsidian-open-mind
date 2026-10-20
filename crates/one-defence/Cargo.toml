@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "one-defence"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Read-only port of galion-light/one/defence.py: newest health_checks row per service."
+
+[[bin]]
+name = "one-defence"
+path = "src/main.rs"
+
+[dependencies]
+# Bundled SQLite: this host has libsqlite3.so.0 but no headers and no pkg-config,
+# so libsqlite3-sys cannot link the system library. default-features = false
+# keeps the build to the bundled amalgamation only. The database is still
+# opened read-only (URI mode=ro).
+rusqlite = { version = "0.32", default-features = false, features = ["bundled"] }
+serde = { workspace = true }
+serde_json = { workspace = true }

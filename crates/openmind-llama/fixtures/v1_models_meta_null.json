@@ -1,0 +1,12 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "loading-alias",
+      "object": "model",
+      "created": 1735142223,
+      "owned_by": "llamacpp",
+      "meta": null
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-labelledby="omTitle">
+  <title id="omTitle">Obsidian Open Mind</title>
+  <!-- The box is the machine. The dot is the loop the CPU owns. -->
+  <rect x="8.5" y="8.5" width="79" height="79" rx="14" ry="14" fill="none" stroke="#4A7C99" stroke-width="5"/>
+  <circle cx="48" cy="41" r="9.5" fill="#4A7C99"/>
+  <!-- The three small squares are provider rows: a site is a row, not a program. -->
+  <rect x="21" y="60" width="12" height="12" rx="2.5" ry="2.5" fill="#5E8CA6"/>
+  <rect x="42" y="60" width="12" height="12" rx="2.5" ry="2.5" fill="#5E8CA6"/>
+  <rect x="63" y="60" width="12" height="12" rx="2.5" ry="2.5" fill="#5E8CA6"/>
+</svg>

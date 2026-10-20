@@ -3,6 +3,12 @@
 
 //! guardian-tick: report-only. Runs each probe once, writes a JSON report,
 //! optionally prints suggestions as plain text. Changes nothing else.
+//!
+//! JSONL is off by default. Turn it on with `--jsonl PATH` or
+//! `GUARDIAN_JSONL=PATH` (the flag wins if both are set). Each probe is then
+//! one flat JSON object (`name`, `ok`, `detail`, `ts`) appended to that file.
+//! `ts` is the probe stamp from `zagreb_time::now_rfc3339` (Europe/Zagreb,
+//! never UTC). This writes a file; it is not a network client.
 
 use openmind_survival::{
     check_cloudflared, check_freshness, check_http, check_unit, parse_df, ProbeResult, Runner,
@@ -166,11 +172,40 @@ fn suggestion(r: &ProbeResult) -> String {
     }
 }
 
+/// Append one JSON object per probe. `ts` is [`ProbeResult::ts`], which
+/// `ProbeResult::new` sets with `zagreb_time::now_rfc3339`.
+fn append_probe_jsonl(path: &Path, results: &[ProbeResult]) -> Result<(), String> {
+    use std::io::Write;
+
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    let mut buf = String::new();
+    for r in results {
+        let line = serde_json::to_string(&json!({
+            "name": r.name,
+            "ok": r.ok,
+            "detail": r.detail,
+            "ts": r.ts,
+        }))
+        .map_err(|e| e.to_string())?;
+        buf.push_str(&line);
+        buf.push('\n');
+    }
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|e| e.to_string())?;
+    f.write_all(buf.as_bytes()).map_err(|e| e.to_string())
+}
+
 struct Args {
     probes: Option<String>,
     out: String,
     suggest: bool,
-    nerve: Option<String>,
+    // None unless `--jsonl PATH` or a non-empty GUARDIAN_JSONL.
+    jsonl: Option<String>,
 }
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
@@ -178,7 +213,9 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         probes: std::env::var("GUARDIAN_PROBES").ok(),
         out: "target/test-out/guardian.json".into(),
         suggest: false,
-        nerve: None,
+        jsonl: std::env::var("GUARDIAN_JSONL")
+            .ok()
+            .filter(|s| !s.is_empty()),
     };
     let mut it = argv.iter();
     while let Some(x) = it.next() {
@@ -186,7 +223,13 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--probes" => a.probes = Some(it.next().ok_or("--probes needs a value")?.clone()),
             "--out" => a.out = it.next().ok_or("--out needs a value")?.clone(),
             "--suggest" => a.suggest = true,
-            "--nerve" => a.nerve = Some(it.next().ok_or("--nerve needs a value")?.clone()),
+            "--jsonl" => {
+                let p = it.next().ok_or("--jsonl needs a value")?;
+                if p.is_empty() {
+                    return Err("--jsonl needs a value".into());
+                }
+                a.jsonl = Some(p.clone());
+            }
             o => return Err(format!("unknown argument {o}")),
         }
     }
@@ -209,10 +252,8 @@ fn real_main() -> Result<(), (i32, String)> {
     }
     let body = serde_json::to_string_pretty(&rep).map_err(|e| (1, e.to_string()))?;
     std::fs::write(out, body + "\n").map_err(|e| (1, format!("{}: {e}", a.out)))?;
-    // B25: nerve event lines, off unless --nerve is given.
-    if let Some(n) = &a.nerve {
-        openmind_survival::nerve::append_nerve(Path::new(n), "guardian-tick", &results)
-            .map_err(|e| (1, format!("{n}: {e}")))?;
+    if let Some(path) = &a.jsonl {
+        append_probe_jsonl(Path::new(path), &results).map_err(|e| (1, format!("{path}: {e}")))?;
     }
     let bad = results.iter().filter(|r| !r.ok).count();
     println!(
@@ -260,5 +301,15 @@ mod tests {
         let s = suggestion(&r);
         assert_eq!(s, "console down: operator may restart console");
         assert!(!s.contains('/'));
+    }
+
+    #[test]
+    fn jsonl_flag_sets_path() {
+        let a = parse_args(&["--jsonl".into(), "events.jsonl".into()]).unwrap();
+        assert_eq!(a.jsonl.as_deref(), Some("events.jsonl"));
+        match parse_args(&["--jsonl".into()]) {
+            Err(err) => assert!(err.contains("--jsonl"), "{err}"),
+            Ok(_) => panic!("--jsonl without a value must fail"),
+        }
     }
 }

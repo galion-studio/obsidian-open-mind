@@ -1,162 +1,243 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-//! B23: pure healer decision engine. Suggestions only, nothing executes here.
+//! Pure healer decisions.
+//!
+//! [`decide`] reads probe results and returns suggestions. It does not spawn
+//! a process, open a socket, or change unit state. Callers may print the
+//! text. They must not treat it as a command.
+//!
+//! When a service probe is down, the suggestion names the other services that
+//! still pass and the services that are paused. Loss of GPU, LAN, or network
+//! adds a CPU-light fallback note. Nothing is restarted.
 
-/// What a probe watches; decides how far escalation may go.
+use crate::ProbeResult;
+
+/// How far a suggestion escalates. Nothing here is executed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProbeKind {
-    /// HTTP health endpoint of a service.
-    Http,
-    /// systemd unit state.
-    Unit,
-    /// The tunnel process.
-    Tunnel,
-    /// Memory, disk or load. Never a restart.
-    Host,
-    /// File freshness. Never a restart.
-    Fresh,
-}
-
-impl ProbeKind {
-    /// Classify a probe result name as used by guardian-tick / galion-guardian.
-    pub fn of(name: &str) -> ProbeKind {
-        if name.starts_with("unit:") || name.starts_with("unit-") {
-            ProbeKind::Unit
-        } else if name.starts_with("disk:") || name == "mem" || name == "load" {
-            ProbeKind::Host
-        } else if name.starts_with("fresh:") {
-            ProbeKind::Fresh
-        } else if name == "cloudflared" || name == "tunnel" {
-            ProbeKind::Tunnel
-        } else {
-            ProbeKind::Http
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Level {
+pub enum Escalation {
+    /// Probe passed. Keep watching.
     Observe,
+    /// Degraded host or stale file. Tell the operator. Do not suggest a restart.
     Warn,
+    /// A unit, tunnel, or service looks down. Suggest a restart; do not perform it.
     SuggestRestart,
 }
 
-impl Level {
-    pub fn as_str(self) -> &'static str {
+impl Escalation {
+    /// Stable token: `observe`, `warn`, or `suggest-restart`.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
         match self {
-            Level::Observe => "observe",
-            Level::Warn => "warn",
-            Level::SuggestRestart => "suggest-restart",
+            Self::Observe => "observe",
+            Self::Warn => "warn",
+            Self::SuggestRestart => "suggest-restart",
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Observation {
-    pub name: String,
-    pub ok: bool,
-    /// Failures in a row, including this one (0 when ok).
-    pub fails_in_row: u32,
-}
-
+/// One suggestion for one probe. `text` is for a person, never a command line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Suggestion {
-    pub service: String,
-    pub level: Level,
+    pub name: String,
+    pub level: Escalation,
     pub text: String,
 }
 
-/// Escalation thresholds (beats in a row).
-#[derive(Debug, Clone, Copy)]
-pub struct Policy {
-    pub warn_after: u32,
-    pub restart_after: u32,
+/// Static rule for one kind of loss. Nothing here is executed.
+///
+/// `still_works` is the CPU-light set for this loss. [`decide`] does not copy
+/// it into the suggestion: the text lists only services present in the probe
+/// slice, so a name that was not probed is not reported as healthy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DegradationRule {
+    /// Probe name that means this loss: `gpu`, `lan`, or `network`.
+    pub loss: &'static str,
+    /// Heavy paths paused while the loss holds.
+    pub paused: &'static [&'static str],
+    /// CPU-light services that remain the fallback when they are healthy.
+    pub still_works: &'static [&'static str],
 }
 
-impl Default for Policy {
-    fn default() -> Self {
-        Policy {
-            warn_after: 2,
-            restart_after: 4,
-        }
-    }
-}
+/// Loss of GPU, LAN, or network falls back to CPU-light services.
+pub const DEGRADATION_RULES: &[DegradationRule] = &[
+    DegradationRule {
+        loss: "gpu",
+        paused: &["vision", "voice", "whisper"],
+        still_works: &["hermes", "one", "console"],
+    },
+    DegradationRule {
+        loss: "lan",
+        paused: &["lan"],
+        still_works: &["hermes", "one", "console", "whisper", "vision", "voice"],
+    },
+    DegradationRule {
+        loss: "network",
+        paused: &["cloudflared", "origin"],
+        still_works: &["hermes", "one", "console", "whisper", "vision", "voice"],
+    },
+];
 
-/// One suggestion per failing observation; healthy ones produce nothing.
-pub fn decide(obs: &[Observation], policy: Policy) -> Vec<Suggestion> {
-    obs.iter()
-        .filter(|o| !o.ok)
-        .map(|o| {
-            let kind = ProbeKind::of(&o.name);
-            let mut level = if o.fails_in_row >= policy.restart_after {
-                Level::SuggestRestart
-            } else if o.fails_in_row >= policy.warn_after {
-                Level::Warn
-            } else {
-                Level::Observe
-            };
-            if matches!(kind, ProbeKind::Host | ProbeKind::Fresh) && level > Level::Warn {
-                level = Level::Warn;
-            }
-            let n = o.name.as_str();
-            let text = match (level, kind) {
-                (Level::Observe, _) => format!("{n} failed once: watching"),
-                (Level::Warn, ProbeKind::Host) => format!("{n} high for {} beats", o.fails_in_row),
-                (Level::Warn, _) => format!("{n} down for {} beats", o.fails_in_row),
-                (Level::SuggestRestart, _) => {
-                    format!(
-                        "{n} down for {} beats: operator may restart it",
-                        o.fails_in_row
-                    )
-                }
-            };
-            Suggestion {
-                service: o.name.clone(),
-                level,
-                text,
-            }
-        })
+/// Map each probe to one suggestion, in the same order.
+///
+/// Host pressure (`mem`, `load`, `disk:`), stale files (`fresh:`), and
+/// unreadable samples stay at [`Escalation::Warn`]. A failed unit, tunnel,
+/// or other service is [`Escalation::SuggestRestart`]. A passing probe is
+/// [`Escalation::Observe`].
+///
+/// A down service suggestion stays text. It names other services that still
+/// pass and the services that are paused. A GPU, LAN, or network loss adds
+/// `cpu-light fallback`. No process is spawned and no socket is opened.
+#[must_use]
+pub fn decide(results: &[ProbeResult]) -> Vec<Suggestion> {
+    results
+        .iter()
+        .map(|result| suggest_one(result, results))
         .collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+fn suggest_one(r: &ProbeResult, results: &[ProbeResult]) -> Suggestion {
+    let level = escalate(r);
+    let text = match level {
+        Escalation::Observe => observe_text(&r.name),
+        Escalation::Warn => warn_text(r),
+        Escalation::SuggestRestart => restart_text(&r.name, results),
+    };
+    Suggestion {
+        name: r.name.clone(),
+        level,
+        text,
+    }
+}
 
-    fn o(name: &str, ok: bool, n: u32) -> Observation {
-        Observation {
-            name: name.into(),
-            ok,
-            fails_in_row: n,
+fn escalate(r: &ProbeResult) -> Escalation {
+    if r.ok {
+        Escalation::Observe
+    } else if !matches!(host_kind(&r.name), Host::Other) || r.detail.contains("unparseable") {
+        Escalation::Warn
+    } else {
+        Escalation::SuggestRestart
+    }
+}
+
+enum Host {
+    Memory,
+    Load,
+    Disk,
+    Fresh,
+    Other,
+}
+
+fn host_kind(name: &str) -> Host {
+    if name == "mem" {
+        Host::Memory
+    } else if name == "load" {
+        Host::Load
+    } else if name.starts_with("disk:") {
+        Host::Disk
+    } else if name.starts_with("fresh:") {
+        Host::Fresh
+    } else {
+        Host::Other
+    }
+}
+
+fn observe_text(name: &str) -> String {
+    let s = subject(name);
+    format!("{s} ok: keep watching")
+}
+
+fn warn_text(r: &ProbeResult) -> String {
+    let unreadable = r.detail.contains("unparseable");
+    let crit = r.detail.contains("crit");
+    match host_kind(&r.name) {
+        Host::Fresh => "freshness failed: operator may check the writer service".to_owned(),
+        Host::Memory if unreadable => "memory unreadable: operator may check the source".to_owned(),
+        Host::Memory if crit => {
+            "memory critical: operator may stop an idle heavy service".to_owned()
+        }
+        Host::Memory => "memory high: operator may stop an idle heavy service".to_owned(),
+        Host::Load if unreadable => "load unreadable: operator may check the source".to_owned(),
+        Host::Load if crit => "load critical: operator may pause a batch job".to_owned(),
+        Host::Load => "load high: operator may pause a batch job".to_owned(),
+        Host::Disk if unreadable => "disk unreadable: operator may check the source".to_owned(),
+        Host::Disk if crit => "disk critical: operator may free space or rotate logs".to_owned(),
+        Host::Disk => "disk high: operator may free space or rotate logs".to_owned(),
+        Host::Other if unreadable => "probe unreadable: operator may check the source".to_owned(),
+        Host::Other => "probe degraded: operator may look, not act".to_owned(),
+    }
+}
+
+fn restart_text(name: &str, results: &[ProbeResult]) -> String {
+    let base = restart_base(name);
+    let still = join_names(&service_names(results, Escalation::Observe));
+    let paused = join_names(&service_names(results, Escalation::SuggestRestart));
+    let text = format!("{base}; still works: {still}; paused: {paused}");
+    if cpu_light(&safe_token(name)) {
+        format!("{text}; cpu-light fallback")
+    } else {
+        text
+    }
+}
+
+fn restart_base(name: &str) -> String {
+    if name == "cloudflared" {
+        return "cloudflared absent: operator may bring the tunnel back".to_owned();
+    }
+    let s = safe_token(name);
+    if name.starts_with("unit:") {
+        format!("{s} not active: operator may bring {s} back")
+    } else {
+        format!("{s} down: operator may bring {s} back")
+    }
+}
+
+/// True when this service is a GPU, LAN, or network path from [`DEGRADATION_RULES`].
+fn cpu_light(token: &str) -> bool {
+    DEGRADATION_RULES
+        .iter()
+        .any(|rule| rule.loss == token || rule.paused.contains(&token))
+}
+
+/// Service tokens at `level`, probe order, first token kept. Host probes are skipped.
+fn service_names(results: &[ProbeResult], level: Escalation) -> Vec<String> {
+    let mut names = Vec::new();
+    for result in results {
+        if escalate(result) != level || !matches!(host_kind(&result.name), Host::Other) {
+            continue;
+        }
+        let token = safe_token(&result.name);
+        if !names.contains(&token) {
+            names.push(token);
         }
     }
+    names
+}
 
-    #[test]
-    fn table() {
-        let rows = [
-            (o("one", true, 0), None),
-            (o("one", false, 1), Some(Level::Observe)),
-            (o("one", false, 2), Some(Level::Warn)),
-            (o("one", false, 4), Some(Level::SuggestRestart)),
-            (o("unit:hermes", false, 9), Some(Level::SuggestRestart)),
-            (o("cloudflared", false, 5), Some(Level::SuggestRestart)),
-            (o("mem", false, 9), Some(Level::Warn)),
-            (o("disk:/", false, 9), Some(Level::Warn)),
-            (o("fresh:/x", false, 9), Some(Level::Warn)),
-            (o("load", false, 1), Some(Level::Observe)),
-        ];
-        for (ob, want) in rows {
-            let got = decide(std::slice::from_ref(&ob), Policy::default());
-            assert_eq!(got.first().map(|s| s.level), want, "{ob:?}");
-        }
+fn join_names(names: &[String]) -> String {
+    if names.is_empty() {
+        "none".to_owned()
+    } else {
+        names.join(", ")
     }
+}
 
-    #[test]
-    fn kinds() {
-        assert_eq!(ProbeKind::of("unit-console"), ProbeKind::Unit);
-        assert_eq!(ProbeKind::of("tunnel"), ProbeKind::Tunnel);
-        assert_eq!(ProbeKind::of("whisper"), ProbeKind::Http);
-        assert_eq!(Level::SuggestRestart.as_str(), "suggest-restart");
+fn subject(name: &str) -> String {
+    match host_kind(name) {
+        Host::Memory => "memory".to_owned(),
+        Host::Load => "load".to_owned(),
+        Host::Disk => "disk".to_owned(),
+        Host::Fresh => "freshness".to_owned(),
+        Host::Other => safe_token(name),
+    }
+}
+
+/// Drop path-like or blank tokens so suggestion text never names a file.
+fn safe_token(name: &str) -> String {
+    let raw = name.strip_prefix("unit:").unwrap_or(name);
+    if raw.is_empty() || raw.contains('/') || raw.chars().any(char::is_whitespace) {
+        "service".to_owned()
+    } else {
+        raw.to_owned()
     }
 }

@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# DESK-ID: openmind.B31
+# preset: read-only-tool
+# schema: 1
+# Data only. No program, no arguments, no interpreter, no unit, no install step.
+# The caller replaces every "{workdir}" and supplies the program.
+
+workdir = "{workdir}"
+env_allowlist = ["PATH", "LANG", "LC_ALL", "TZ"]
+env_set = [
+  ["HOME", "{workdir}"],
+  ["TMPDIR", "{workdir}"],
+]
+wall_timeout_secs = 15
+cpu_secs = 5
+mem_bytes = 268435456 # 256 MiB, RLIMIT_AS
+nofile = 64
+fsize_bytes = 1048576 # 1 MiB, RLIMIT_FSIZE
+output_cap = 65536 # 64 KiB per stream
+net = false
+require_net_isolation = true
+landlock = true
+fs_read = [
+  "/usr",
+  "/bin",
+  "/sbin",
+  "/lib",
+  "/lib64",
+  "/etc",
+  "/proc",
+  "/dev/zero",
+  "/dev/urandom",
+  "/dev/random",
+]
+fs_write = []
+namespaces = true
+ro_root = true
+hide_paths = ["/root", "/home", "/run/secrets"]

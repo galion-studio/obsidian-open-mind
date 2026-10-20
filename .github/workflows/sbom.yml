@@ -1,0 +1,37 @@
+# DRAFT — not pushed.
+# DESK-ID: openmind.B44
+# Cargo SBOM and license allowlist.
+# workflow_dispatch only, so this file does nothing until it is
+# intentionally pushed and someone starts it by hand.
+# scripts/sbom.sh always runs:
+#   cargo metadata --format-version 1 --offline
+# The fetch step only fills the runner cache. It is not `cargo install`.
+# `cargo fetch --locked` must not rewrite Cargo.lock.
+name: sbom (draft)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-sbom:
+    name: cargo metadata SBOM and license allowlist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: fill the cargo cache without rewriting Cargo.lock
+        run: cargo fetch --locked
+
+      - name: write dist/sbom-cargo.json and check the allowlist
+        run: bash scripts/sbom.sh
+
+      - name: upload sbom-cargo.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cargo
+          path: dist/sbom-cargo.json
+          retention-days: 14

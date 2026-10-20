@@ -39,7 +39,7 @@ fn staged_units_match_renderer() {
     let with = units::render_all(&f.service, true);
     assert!(with
         .iter()
-        .any(|(n, b)| n == "galion-guardian.service" && b.contains("WantedBy=multi-user.target")));
+        .any(|(n, b)| n == "galion-origin.service" && b.contains("WantedBy=multi-user.target")));
     assert!(with
         .iter()
         .any(|(n, b)| n == "galion-fire-loops.timer" && b.contains("WantedBy=timers.target")));

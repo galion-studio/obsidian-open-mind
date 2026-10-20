@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "hades-gate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure approval gate. Dry-run by default. WouldApply is a decision only and never runs a command. kill and rotate are always refused. journal: one JSON record per decision (folded in from hades-journal)."
+
+[dependencies]
+zagreb-time = { path = "../zagreb-time" }
+serde_json = { workspace = true }

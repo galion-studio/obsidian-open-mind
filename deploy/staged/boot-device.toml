@@ -11,15 +11,8 @@
 log_dir = "galion/logs"
 supervisor_dir = "galion/state/supervisor"
 
-[[service]]
-name = "galion-guardian"
-description = "guardian"
-argv = ["/data/data/com.termux/files/usr/bin/galion-guardian", "--config", "galion/etc/guardian.toml"]
-
-[[service]]
-name = "galion-healer"
-description = "healer"
-argv = ["/data/data/com.termux/files/usr/bin/galion-healer", "run", "--config", "galion/etc/healer.toml"]
+# galion-guardian and galion-healer left the workspace in the 2026-10-20
+# one-source merge. Run guardian-tick from cron or a loop on devices instead.
 
 [[service]]
 name = "galion-tunnel"

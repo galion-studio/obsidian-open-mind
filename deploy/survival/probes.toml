@@ -1,0 +1,69 @@
+# Read-only probes for guardian-tick.
+# HTTP: desk_heal.py PROBES, plus console and origin from guardian-tick.py.
+# disk, mem, load, and cloudflared (guardian-tick.py tunnel check) read only.
+# Pass codes match those scripts. desk_heal.py also treats HTTP 503 whose
+# body contains "loading" as ok; this schema has no body match, so only 200.
+
+[[probe]]
+kind = "http"
+name = "hermes"
+port = 8642
+path = "/health"
+ok_codes = [200]
+
+[[probe]]
+kind = "http"
+name = "one"
+port = 8091
+path = "/health"
+ok_codes = [200]
+
+[[probe]]
+kind = "http"
+name = "whisper"
+port = 8643
+path = "/health"
+ok_codes = [200]
+
+[[probe]]
+kind = "http"
+name = "vision"
+port = 8645
+path = "/health"
+ok_codes = [200]
+
+[[probe]]
+kind = "http"
+name = "voice"
+port = 8002
+path = "/health"
+ok_codes = [200]
+
+[[probe]]
+kind = "http"
+name = "console"
+port = 8080
+path = "/api/v1/health"
+ok_codes = [200, 401]
+
+[[probe]]
+kind = "http"
+name = "origin"
+port = 80
+path = "/"
+ok_codes = [200]
+
+[[probe]]
+kind = "disk"
+path = "/"
+warn = 85.0
+crit = 95.0
+
+[[probe]]
+kind = "mem"
+
+[[probe]]
+kind = "load"
+
+[[probe]]
+kind = "cloudflared"

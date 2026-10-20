@@ -58,6 +58,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cgroup-detect"
+version = "0.1.0"
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -161,28 +165,8 @@ dependencies = [
 [[package]]
 name = "galion-desk"
 version = "0.1.0"
-
-[[package]]
-name = "galion-guardian"
-version = "0.1.0"
 dependencies = [
- "openmind-survival",
- "rusqlite",
- "serde",
- "serde_json",
- "toml",
- "zagreb-time",
-]
-
-[[package]]
-name = "galion-healer"
-version = "0.1.0"
-dependencies = [
- "openmind-survival",
- "serde",
- "serde_json",
- "toml",
- "zagreb-time",
+ "openmind-config",
 ]
 
 [[package]]
@@ -198,6 +182,10 @@ name = "galion-voice-core"
 version = "0.1.0"
 
 [[package]]
+name = "galleon-arena"
+version = "0.1.0"
+
+[[package]]
 name = "guardian-tick"
 version = "0.1.0"
 dependencies = [
@@ -205,6 +193,14 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
+ "zagreb-time",
+]
+
+[[package]]
+name = "hades-gate"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
  "zagreb-time",
 ]
 
@@ -321,6 +317,7 @@ dependencies = [
 name = "link-watch"
 version = "0.1.0"
 dependencies = [
+ "openmind-config",
  "serde",
  "serde_json",
  "zagreb-time",
@@ -354,11 +351,64 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "one-defence"
+version = "0.1.0"
+dependencies = [
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "one-set-model"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "one-talk"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "openmind-config"
 version = "0.1.0"
 dependencies = [
  "serde",
  "toml",
+]
+
+[[package]]
+name = "openmind-discovery"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "openmind-exo"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "openmind-llama"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "openmind-mcp-stack"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "zagreb-time",
 ]
 
 [[package]]
@@ -372,8 +422,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmind-nerve"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "openmind-persona"
 version = "0.1.0"
+
+[[package]]
+name = "openmind-provider"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "openmind-sandbox"
@@ -386,9 +453,18 @@ dependencies = [
 name = "openmind-schema"
 version = "0.1.0"
 dependencies = [
+ "openmind-config",
  "serde",
  "serde_json",
+ "toml",
  "zagreb-time",
+]
+
+[[package]]
+name = "openmind-speech"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]
@@ -396,6 +472,13 @@ name = "openmind-survival"
 version = "0.1.0"
 dependencies = [
  "zagreb-time",
+]
+
+[[package]]
+name = "openmind-tulu"
+version = "0.1.0"
+dependencies = [
+ "toml",
 ]
 
 [[package]]
@@ -629,9 +712,6 @@ checksum = "5d99f8c9a7727884afe522e9bd5edbfc91a3312b36a77b5fb8926e4c31a41801"
 [[package]]
 name = "tuner"
 version = "0.1.0"
-dependencies = [
- "zagreb-time",
-]
 
 [[package]]
 name = "unicode-ident"

@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Obsidian Open Mind - a CPU-light Rust foundation</title>
+<meta name="description" content="Obsidian Open Mind is the stance and the code of the Obsidian stack by Galion Studio: a lightweight, CPU-light Rust foundation where the CPU box owns the loop, the memory and the keys. A GPU is one more Provider row. MIT.">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-head">
+  <a class="brand" href="#top">
+    <img src="logo.svg" width="40" height="40" alt="Obsidian Open Mind mark: a box holding a dot, with three small squares below it">
+    <span class="brand-name">Obsidian Open Mind</span>
+  </a>
+  <nav aria-label="Sections">
+    <a href="#what">What it is</a>
+    <a href="#why">Why</a>
+    <a href="#box">In the box</a>
+    <a href="#start">Quick start</a>
+    <a href="#status">Status</a>
+  </nav>
+</header>
+
+<main id="top">
+
+  <section class="hero" aria-labelledby="hero-h">
+    <h1 id="hero-h">Obsidian Open Mind</h1>
+    <p class="tagline">The CPU owns the loop and the keys.</p>
+    <p class="lede">
+      The stance and the code of the Obsidian stack by Galion Studio: a lightweight,
+      CPU-light Rust foundation where the CPU box owns the loop, the memory and the
+      keys. A GPU is not a special case in this design; it is one more <code>Provider</code>
+      row. License: MIT.
+    </p>
+    <p class="cta">
+      <a href="#start">Quick start</a> &middot; <a href="#TODO-repo-url">Source (link pending)</a>
+    </p>
+  </section>
+
+  <section id="what" aria-labelledby="what-h">
+    <h2 id="what-h">What it is</h2>
+    <p>
+      Obsidian Open Mind is a foundation, not a framework. The processor owns the loop, the
+      skills, the memory and the key box. Video memory is only for a model. A provider is an
+      adapter, not a secret.
+    </p>
+    <p>
+      The workspace is a plain Cargo workspace under the MIT license. Its contract crate
+      carries the types the rest of the stack agrees on: <code>Machine</code>,
+      <code>Provider</code>, <code>ProviderKind</code>, <code>KeySlot</code>,
+      <code>Surface</code> and <code>Stack</code>, plus <code>Stack::cpu_desk()</code> as
+      the reference shape of a CPU-only box. The schema re-exports the shared time helper,
+      so a consumer of the contract gets it without a second dependency line.
+    </p>
+  </section>
+
+  <section id="why" aria-labelledby="why-h">
+    <h2 id="why-h">Why a CPU-light Rust foundation</h2>
+    <ul class="reasons">
+      <li>
+        <strong>The CPU box owns the loop, the memory and the keys.</strong>
+        <code>Machine::weights()</code> turns local weights on only when a card has at
+        least 8192 MiB free <em>and</em> the box has at least 8192 MiB of memory.
+        <code>Machine::mouth()</code> needs ordinary memory only, never a card. A CPU-only
+        box is a first-class citizen, not a degraded one.
+      </li>
+      <li>
+        <strong>Adding a provider is a new row, not a new program.</strong>
+        <code>Provider { id, kind, base_url, key_slot, default_model }</code> covers a
+        laptop Ollama and a remote site with the same shape, and <code>ProviderKind</code>
+        is only <code>Remote</code> or <code>Local</code>. No per-backend code path.
+      </li>
+      <li>
+        <strong>Secrets never live in the schema.</strong>
+        A <code>KeySlot</code> records only <code>name</code>, <code>present</code> and a
+        <code>hint</code>. The contract types contain no key material, and a test asserts
+        the serialized stack never contains the string <code>sk-</code>.
+      </li>
+      <li>
+        <strong>Rust, small, built for footprint.</strong>
+        The workspace release profile is tuned for footprint, not throughput:
+        <code>opt-level = "z"</code>, <code>lto = true</code>,
+        <code>codegen-units = 1</code>, <code>panic = "abort"</code>,
+        <code>strip = true</code>.
+      </li>
+      <li>
+        <strong>The Rust parts are already light.</strong>
+        A 2026-10-18 snapshot of the <em>pre-workspace</em> binaries put the Rust parts at
+        about 10 MB of RAM and almost no CPU (<code>A-foundation.md</code>); that number
+        is not a measurement of the crates listed below. No accelerator is required to run
+        the foundation, and Open Mind is <em>designed so that</em> accelerators from NVIDIA,
+        AMD or Apple <em>can</em> be added the same way as anything else: as provider rows
+        that expose an OpenAI-compatible HTTP endpoint (<code>A-foundation.md</code> —
+        design, not code; no such row exists yet, TODO(verify)).
+      </li>
+    </ul>
+  </section>
+
+  <section id="box" aria-labelledby="box-h">
+    <h2 id="box-h">What is in the box today</h2>
+    <p>
+      This is the directory listing of <code>crates/</code> read at
+      <strong>2026-10-18T19:14:44+02:00</strong> (Europe/Zagreb). The workspace is being
+      assembled during the release window, so the list is dated, not permanent. Where this
+      list and the repository README differ, the directory listing is the dated fact. Each
+      description is traceable to the file named in the last column; the exact line numbers
+      live in <code>FACTS.md</code>, because they move while the workspace is edited.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <caption>Crates present in the workspace at the timestamp above</caption>
+        <thead>
+          <tr><th scope="col">Crate</th><th scope="col">What it is</th><th scope="col">Description sourced from</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>openmind-schema</code></td>
+            <td>The stack contract. The processor runs this; the card only runs the model.
+              It re-exports the shared time helper.</td>
+            <td><code>crates/openmind-schema/Cargo.toml</code>, <code>src/lib.rs</code></td>
+          </tr>
+          <tr>
+            <td><code>zagreb-time</code></td>
+            <td>Europe/Zagreb time: every timestamp is RFC 3339 with an explicit offset,
+              never <code>Z</code>. The timezone database is compiled in, so it works
+              offline.</td>
+            <td><code>crates/zagreb-time/Cargo.toml</code></td>
+          </tr>
+          <tr>
+            <td><code>galion-one</code></td>
+            <td>Galion One: the operator's own ear, mind and mouth on one box.</td>
+            <td><code>crates/galion-one/Cargo.toml</code></td>
+          </tr>
+          <tr>
+            <td><code>galion-desk</code></td>
+            <td>The operator's desk endpoint. Reads the pod, never writes it.</td>
+            <td><code>crates/galion-desk/Cargo.toml</code></td>
+          </tr>
+          <tr>
+            <td><code>room</code></td>
+            <td>A read-only view of the operator's files as one page.</td>
+            <td><code>crates/room/Cargo.toml</code></td>
+          </tr>
+          <tr>
+            <td><code>desk-hermes</code></td>
+            <td>The desk reader. Prints one compact JSON object with the same keys in the
+              same order, and opens the Hermes state database read-only.</td>
+            <td><code>crates/desk-hermes/Cargo.toml</code>,
+              <code>src/main.rs</code></td>
+          </tr>
+          <tr>
+            <td><code>link-watch</code></td>
+            <td>Link watcher port. <code>Cargo.toml</code> only at this timestamp:
+              <code>src/</code> is empty and no binary exists. <strong>TODO(verify)</strong>
+              before release.</td>
+            <td><code>crates/link-watch/Cargo.toml</code></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note">
+      The workspace members are <code>crates/*</code>; <code>contrib/</code> is excluded
+      because it is a vendored, read-only material dump with its own package.
+    </p>
+  </section>
+
+  <section id="start" aria-labelledby="start-h">
+    <h2 id="start-h">Quick start</h2>
+    <pre><code>git clone &lt;TODO-repo-url&gt; openmind
+cd openmind
+nice -n 19 cargo build -j 2 --release --workspace
+nice -n 19 cargo test -j 2 --workspace</code></pre>
+    <p>
+      <code>&lt;TODO-repo-url&gt;</code> is a placeholder: the repository does not exist yet
+      and nothing has been pushed. Builds run with <code>nice</code> and <code>-j 2</code>
+      on purpose, because the box is shared.
+    </p>
+    <h3>Requirements</h3>
+    <ul>
+      <li>A Rust toolchain with Cargo. The workspace does not pin a toolchain version:
+        <code>rust-version</code> is not set and there is no
+        <code>rust-toolchain.toml</code>.</li>
+      <li>The reference toolchain used to develop this workspace is rustc 1.99.0.</li>
+      <li>The workspace dependencies are Rust crates only: <code>serde</code>,
+        <code>serde_json</code>, <code>chrono</code> and <code>chrono-tz</code>.</li>
+    </ul>
+  </section>
+
+  <section id="license" aria-labelledby="license-h">
+    <h2 id="license-h">License</h2>
+    <p>
+      MIT. The workspace package declares <code>license = "MIT"</code>, the stack is
+      released under the MIT license, and a <code>LICENSE</code> file sits at the workspace
+      root.
+    </p>
+  </section>
+
+  <section id="status" aria-labelledby="status-h">
+    <h2 id="status-h">Status</h2>
+    <p>
+      The foundation is a Rust workspace being ported from programs that still shell out to a
+      Python helper, so read "Rust foundation" as the shape of the foundation, not as a claim
+      about every process on the machine. The known gaps, all measured 2026-10-18:
+    </p>
+    <ul>
+      <li><strong>Python helper call sites.</strong> The Rust binaries of
+        <code>galion-one</code> and <code>galion-desk</code> still spawn a Python helper at
+        runtime. No crate holds a Python file. Removing the calls is
+        <strong>TODO(verify)</strong>.</li>
+      <li><strong>The Hermes agent and the Node services are not part of this
+        foundation.</strong> Hermes is upstream software written in Python, and the Node
+        services run alongside it on the same box. They are named here so that nobody reads
+        "Rust foundation" as the whole machine (<code>A-foundation.md</code>, section 1).</li>
+      <li><strong>No accelerator provider row exists.</strong> That path is a design
+        statement, not code.</li>
+      <li><strong><code>link-watch</code> has no source yet</strong>, and
+        <code>openmind-http</code> and <code>openmind-state</code> are planned only.</li>
+      <li>Milestone: <strong>2026-10-31</strong> - published, everything live,
+        fact-checked and timestamped.</li>
+      <li>The repository is not published: there is no remote, no push and no site
+        deployment. Those steps wait for the owner's approval.</li>
+      <li>The list above is what the files say today. Anything not in the files is marked
+        planned and stays out of this page.</li>
+    </ul>
+  </section>
+
+</main>
+
+<footer class="site-foot">
+  <p class="disclaimer">
+    <strong>Not affiliated.</strong> Obsidian Open Mind is not affiliated with, endorsed by
+    or connected to the Obsidian note-taking application or its maintainers. "Obsidian"
+    here names an internal stack of Galion Studio.
+  </p>
+  <p>
+    Timestamps in this project are Europe/Zagreb time with an explicit UTC offset, never
+    server time and never <code>Z</code>.
+  </p>
+  <p class="updated">
+    Last updated 2026-10-18T19:25:00+02:00 (Europe/Zagreb, CEST).
+  </p>
+</footer>
+</body>
+</html>

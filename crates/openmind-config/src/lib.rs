@@ -2,9 +2,10 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! One small config loader for OpenMind binaries.
 //!
-//! Order: TOML file (`$OPENMIND_CONFIG`, default `/etc/openmind/openmind.toml`;
-//! a missing file means defaults), then env overrides
-//! `OPENMIND_<SECTION>_<KEY>`. Defaults are loopback only.
+//! A present TOML file (`$OPENMIND_CONFIG`, default `/etc/openmind/openmind.toml`)
+//! is parsed, then env overrides `OPENMIND_<SECTION>_<KEY>` apply.
+//! A missing file returns loopback defaults and reads no environment variable.
+//! `None` is those defaults, then env.
 
 use serde::Deserialize;
 use std::fmt;
@@ -242,7 +243,10 @@ impl Config {
     }
 }
 
-/// Load from `path` (None or missing file = defaults), then apply `env`.
+/// Load from `path`.
+///
+/// `None` is defaults, then `env`. A missing file is defaults and does not
+/// read `env`. A present file is parsed, then `env` overrides.
 pub fn load_from(
     path: Option<&Path>,
     env: &dyn Fn(&str) -> Option<String>,
@@ -251,7 +255,9 @@ pub fn load_from(
         None => Config::default(),
         Some(p) => match std::fs::read_to_string(p) {
             Ok(text) => Config::from_toml(&text, p)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Config::default(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Config::default());
+            }
             Err(e) => {
                 return Err(ConfigError::Read {
                     file: p.to_path_buf(),
@@ -264,8 +270,10 @@ pub fn load_from(
     Ok(cfg)
 }
 
-/// Load using the process env: file at `$OPENMIND_CONFIG` (default
-/// `/etc/openmind/openmind.toml`), then env overrides.
+/// Load using the process env. The path is `$OPENMIND_CONFIG` or
+/// `/etc/openmind/openmind.toml`. A missing file returns defaults and does
+/// not apply other env overrides. A present file then takes
+/// `OPENMIND_<SECTION>_<KEY>` overrides.
 pub fn load() -> Result<Config, ConfigError> {
     let env = |k: &str| std::env::var(k).ok();
     let path = env("OPENMIND_CONFIG").unwrap_or_else(|| DEFAULT_PATH.to_string());

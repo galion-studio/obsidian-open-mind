@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
 [package]
 name = "tuner"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Ukulele tuner static server (std only) and its trycloudflare quick-tunnel publisher."
+description = "Ukulele tuner static server. Bind and root are config-driven; defaults match the live tuner."
 
 [lib]
 path = "src/lib.rs"
@@ -14,9 +15,4 @@ path = "src/lib.rs"
 name = "tuner"
 path = "src/main.rs"
 
-[[bin]]
-name = "tuner-publish"
-path = "src/bin/tuner-publish.rs"
-
 [dependencies]
-zagreb-time = { path = "../zagreb-time" }

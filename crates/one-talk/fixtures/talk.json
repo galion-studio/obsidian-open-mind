@@ -1,0 +1,11 @@
+{
+  "hear_transcript": {"text": "  Hello there. Next bit.  "},
+  "chat_completion": {"choices": [{"message": {"content": "Yes, I am here. And more follows."}}]},
+  "reply_turn": {"heard": "good evening", "say": "Yes, I am here.", "audio": "RkFLRVdBVg=="},
+  "empty_reply": {"say": "Again", "heard": "", "audio": ""},
+  "fault_reply": {"say": "Again", "audio": ""},
+  "wait_reply": {"heard": "good evening", "say": "Wait", "audio": ""},
+  "warm_body": {"text": "Yes.", "voice": "samantha"},
+  "sample": {"model": "hermes-agent", "channel": "Stay brief.", "heard": "good evening"},
+  "speech_stub": "RIFFtest"
+}

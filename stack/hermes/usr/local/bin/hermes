@@ -1,0 +1,8 @@
+#!/bin/bash
+export HERMES_HOME=/opt/galion/hermes
+if [ -f /root/galion-secrets/hermes.env ]; then
+  set -a
+  . /root/galion-secrets/hermes.env
+  set +a
+fi
+exec /opt/galion/venv/bin/hermes "$@"

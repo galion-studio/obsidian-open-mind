@@ -1,0 +1,13 @@
+{
+  "codeHash": "<REDACTED:codeHash>",
+  "tokenHash": "<REDACTED:tokenHash>",
+  "tokenHashes": [
+    "<REDACTED:tokenHashes.0>",
+    "<REDACTED:tokenHashes.1>",
+    "<REDACTED:tokenHashes.2>",
+    "<REDACTED:tokenHashes.3>"
+  ],
+  "deviceHash": "<REDACTED:deviceHash>",
+  "fails": "<REDACTED:fails>",
+  "_redacted_copy_of": "/root/galion-secrets/admin-device.json"
+}

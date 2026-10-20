@@ -1,0 +1,2 @@
+[2026-10-19 16:40:00.000] [piper] [info] Loaded voice in 0.12 second(s)
+[2026-10-19 16:40:00.180] [piper] [info] Real-time factor: 0.15 (infer=0.03 sec, audio=0.20 sec)

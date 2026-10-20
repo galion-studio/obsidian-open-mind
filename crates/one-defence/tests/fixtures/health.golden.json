@@ -1,0 +1,1 @@
+[{"service":"console","status":"healthy","ms":45},{"service":"whisper","status":"degraded","ms":0},{"service":"hermes","status":"healthy","ms":12},{"service":"vision","status":"healthy","ms":0}]

@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# DESK-ID: openmind.B31
+# preset: net-tool
+# schema: 1
+# Data only. No program, no arguments, no interpreter, no unit, no install step.
+# Network is allowed. The host tree stays read-only except the workdir.
+# The caller replaces every "{workdir}" and supplies the program.
+# Proxy variables are not copied: they can carry credentials.
+
+workdir = "{workdir}"
+env_allowlist = ["PATH", "LANG", "LC_ALL", "TZ", "SSL_CERT_FILE", "SSL_CERT_DIR"]
+env_set = [
+  ["HOME", "{workdir}"],
+  ["TMPDIR", "{workdir}"],
+]
+wall_timeout_secs = 30
+cpu_secs = 10
+mem_bytes = 268435456 # 256 MiB, RLIMIT_AS
+nofile = 64
+fsize_bytes = 33554432 # 32 MiB, RLIMIT_FSIZE
+output_cap = 262144 # 256 KiB per stream
+net = true
+require_net_isolation = false
+landlock = true
+fs_read = [
+  "/usr",
+  "/bin",
+  "/sbin",
+  "/lib",
+  "/lib64",
+  "/etc",
+  "/proc",
+  "/dev/zero",
+  "/dev/urandom",
+  "/dev/random",
+]
+fs_write = []
+namespaces = true
+ro_root = true
+hide_paths = ["/root", "/home", "/run/secrets"]

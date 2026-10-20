@@ -17,7 +17,9 @@ use crate::rooms::{self, Room, Zone, DOCK, ROOMS};
 pub struct Frame<'a> {
     pub title: &'a str,
     pub css_href: &'a str,
-    pub light: bool,
+    /// `Some(true)` light, `Some(false)` dark (the `galion_theme` cookie);
+    /// `None` follows the system (`prefers-color-scheme`).
+    pub light: Option<bool>,
     /// Path of the page being rendered (dock/menu highlighting, theme back link).
     pub path: &'a str,
 }
@@ -31,33 +33,67 @@ pub enum Origin {
 
 /// `body_attrs` is empty or starts with a space (e.g. ` class="x"`).
 pub fn document(f: &Frame<'_>, body_attrs: &str, body: &str) -> String {
-    let theme = if f.light { "light" } else { "dark" };
+    let (attr, scheme, tc) = match f.light {
+        Some(true) => (
+            " data-theme=\"light\"",
+            "light",
+            format!(
+                "<meta name=\"theme-color\" content=\"{}\">",
+                crate::css::theme_color(true)
+            ),
+        ),
+        Some(false) => (
+            " data-theme=\"dark\"",
+            "dark",
+            format!(
+                "<meta name=\"theme-color\" content=\"{}\">",
+                crate::css::theme_color(false)
+            ),
+        ),
+        None => (
+            "",
+            "dark light",
+            format!(
+                "<meta name=\"theme-color\" media=\"(prefers-color-scheme: light)\" content=\"{}\">\
+<meta name=\"theme-color\" media=\"(prefers-color-scheme: dark)\" content=\"{}\">",
+                crate::css::theme_color(true),
+                crate::css::theme_color(false)
+            ),
+        ),
+    };
     format!(
-        "<!doctype html>\n<html lang=\"en\" data-theme=\"{theme}\"><head><meta charset=\"utf-8\">\
+        "<!doctype html>\n<html lang=\"en\"{attr}><head><meta charset=\"utf-8\">\
 <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\">\
-<title>{title}</title><meta name=\"theme-color\" content=\"{tc}\">\
-<meta name=\"color-scheme\" content=\"{theme}\">\
+<title>{title}</title>{tc}\
+<meta name=\"color-scheme\" content=\"{scheme}\">\
 <meta name=\"description\" content=\"Lightweight operator console for the Galion Studio fleet. API-first. CPU-safe.\">\
 <link rel=\"icon\" type=\"image/svg+xml\" href=\"/_ui/favicon.svg\">\
 <link rel=\"stylesheet\" href=\"{css}\"></head>\
 <body{body_attrs}>{body}</body></html>\n",
         title = esc(f.title),
-        tc = crate::css::theme_color(f.light),
         css = esc(f.css_href),
     )
 }
 
 fn theme_link(f: &Frame<'_>) -> String {
-    let (to, label, ic) = if f.light {
-        ("dark", "Use dark", "moon")
-    } else {
-        ("light", "Use light", "sun")
+    let one = |to: &str, label: &str, ic: &str, class: &str| {
+        format!(
+            "<a class=\"iconbtn{class}\" href=\"/_ui/theme?to={to}&amp;back={back}\" aria-label=\"{label}\" rel=\"nofollow\">{i}</a>",
+            back = esc(&url_enc(f.path)),
+            i = icon(ic, "i")
+        )
     };
-    format!(
-        "<a class=\"iconbtn\" href=\"/_ui/theme?to={to}&amp;back={back}\" aria-label=\"{label}\" rel=\"nofollow\">{i}</a>",
-        back = esc(&url_enc(f.path)),
-        i = icon(ic, "i")
-    )
+    match f.light {
+        Some(true) => one("dark", "Use dark", "moon", ""),
+        Some(false) => one("light", "Use light", "sun", ""),
+        // Following the system: offer the opposite of whatever it is; CSS
+        // (`prefers-color-scheme`) shows exactly one of the two.
+        None => format!(
+            "{}{}",
+            one("light", "Use light", "sun", " th-d"),
+            one("dark", "Use dark", "moon", " th-l")
+        ),
+    }
 }
 
 fn room_tile(room: &Room, path: &str) -> String {
@@ -148,7 +184,7 @@ mod tests {
         let f = Frame {
             title: "Galion <Console>",
             css_href: "/_ui/console.x.css",
-            light: false,
+            light: Some(false),
             path: "/services",
         };
         let html = console(&f, Origin::Up, "<p>body</p>");

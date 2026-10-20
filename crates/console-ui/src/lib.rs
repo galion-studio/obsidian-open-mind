@@ -25,6 +25,7 @@ pub mod html;
 pub mod icons;
 pub mod json;
 pub mod layout;
+pub mod overview;
 pub mod pages;
 pub mod rooms;
 
@@ -48,6 +49,7 @@ pub const PORTED: &[&str] = &[
     "/jupyter",
     "/data",
     "/soon",
+    "/console",
 ];
 
 /// Largest form body accepted (pairing code or a command name).
@@ -202,7 +204,11 @@ impl Ui {
         Frame {
             title,
             css_href: &self.css_href,
-            light: gate::cookie(req.cookie, "galion_theme").as_deref() == Some("light"),
+            light: match gate::cookie(req.cookie, "galion_theme").as_deref() {
+                Some("light") => Some(true),
+                Some("dark") => Some(false),
+                _ => None,
+            },
             path: req.path,
         }
     }
@@ -304,6 +310,7 @@ impl Ui {
             "/status" => self.status(req),
             "/services" => self.services(req),
             "/agents" => self.agents(req),
+            "/console" => self.landing(req),
             "/soon" => {
                 let f = self.frame(req, "Soon");
                 let host = gate::normalize_host(req.host);
@@ -540,6 +547,16 @@ impl Ui {
         Reply::html(200, layout::console(&f, origin, &body))
     }
 
+    /// The Desk landing: the whole-project overview ([`overview`]). Only the
+    /// header dot needs the API; the overview itself is static facts.
+    fn landing(&self, req: &Request<'_>) -> Reply {
+        let fwd = self.forward(req);
+        let origin = self.origin(&fwd);
+        let body = pages::overview::body(PORTED.len() + 1);
+        let f = self.frame(req, "Galion Studio · Project overview");
+        Reply::html(200, layout::console(&f, origin, &body))
+    }
+
     fn agents(&self, req: &Request<'_>) -> Reply {
         let fwd = self.forward(req);
         let mut note = String::new();
@@ -606,7 +623,7 @@ mod tests {
         let f = Frame {
             title: "t",
             css_href: "/c.css",
-            light: false,
+            light: Some(false),
             path: "/agents",
         };
         let mut all = String::new();
@@ -639,6 +656,12 @@ mod tests {
         all.push_str(&pages::catalog::data());
         all.push_str(&pages::catalog::repos(None));
         all.push_str(&pages::gate::coming_soon("galion.app"));
+        all.push_str(&pages::overview::body(PORTED.len() + 1));
+        let none = Frame {
+            light: None,
+            ..f.clone()
+        };
+        all.push_str(&layout::console(&none, Origin::Down, ""));
         let mut missing = Vec::new();
         for cap in all.split("class=\"").skip(1) {
             let list = cap.split('"').next().unwrap_or("");

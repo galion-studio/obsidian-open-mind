@@ -28,6 +28,12 @@ pub const DARK: &[(&str, &str)] = &[
     ("frost", "#007acc"),
     ("ice", "#569cd6"),
     ("winter", "#1e1e1e"),
+    // Text-safe status colours and link/bar colour (overview); WCAG AA on
+    // bg, surface and elevated in both themes.
+    ("ok", "#89d185"),
+    ("warn", "#e2c04a"),
+    ("bad", "#f48771"),
+    ("link", "#75beff"),
 ];
 
 /// Light overrides (console-ide `html[data-theme="light"]` and `LIGHT`).
@@ -40,6 +46,10 @@ pub const LIGHT: &[(&str, &str)] = &[
     ("subtle", "#8a8a86"),
     ("line", "#e2e2de"),
     ("winter", "#f6f6f4"),
+    ("ok", "#1f7a34"),
+    ("warn", "#835c00"),
+    ("bad", "#b42318"),
+    ("link", "#005fb8"),
 ];
 
 pub const RADII: &[(&str, &str)] = &[
@@ -211,6 +221,86 @@ button,input{font:inherit;color:inherit}
 @media (min-width:640px){.hib h1{font-size:2.25rem}}
 "#;
 
+/// Rules for the Desk landing (`pages/overview.rs`, classes `ov-*`) and the
+/// system-theme toggle. Kept apart from [`RULES`] so the overview can grow
+/// without touching the room pages.
+const LANDING: &str = r#"
+.th-l{display:none}
+@media (prefers-color-scheme:light){.th-d{display:none}.th-l{display:inline-flex}}
+.ov{max-width:76rem;margin:0 auto;padding:.5rem .5rem 6rem}
+.ov a{color:var(--c-link);text-underline-offset:2px}
+.ov-hero{padding:1.25rem 0 .5rem}
+.ov-kicker{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--c-muted)}
+.ov-hero h1{font-size:clamp(2rem,6vw,3.5rem);line-height:1.08;letter-spacing:-.035em;margin-top:.75rem;max-width:18ch}
+.ov-lede{margin-top:1rem;max-width:44rem;font-size:1.0625rem;line-height:1.65;color:var(--c-muted)}
+.ov-rule{margin:1.75rem 0 0;padding:1.25rem 1.25rem 1.25rem 1.5rem;border-radius:var(--r-lg);border:1px solid var(--c-line);border-left:3px solid var(--c-link);background:var(--c-surface);max-width:48rem}
+.ov-rule blockquote{margin:0}
+.ov-rule blockquote p{font-size:1.25rem;line-height:1.45;letter-spacing:-.01em}
+.ov-rule figcaption{margin-top:.75rem;color:var(--c-muted);font-size:.9375rem;line-height:1.6}
+.ov-ref{margin-top:.5rem;font-family:var(--mono);font-size:12px;color:var(--c-muted);overflow-wrap:anywhere}
+.ov-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.5rem;margin-top:1.75rem}
+@media (min-width:720px){.ov-stats{grid-template-columns:repeat(6,minmax(0,1fr))}}
+.ov-stats li{display:flex;flex-direction:column;gap:.25rem;min-width:0;border:1px solid var(--c-line);border-radius:var(--r-md);background:var(--c-surface);padding:.875rem 1rem}
+.ov-big{font-size:1.75rem;font-weight:500;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.ov-label{font-size:.8125rem;line-height:1.35;color:var(--c-muted)}
+.ov-h2{font-size:1.375rem;letter-spacing:-.02em;margin-top:3rem}
+.ov-sub{margin-top:.375rem;max-width:44rem;color:var(--c-muted)}
+.ov-map{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,21rem),1fr));gap:.75rem;margin-top:1.25rem}
+.ov-card,.ov-todo{display:flex;flex-direction:column;gap:.5rem;min-width:0;border:1px solid var(--c-line);border-radius:var(--r-lg);background:var(--c-surface);padding:1.125rem 1.25rem}
+.ov-card-top{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem}
+.ov-card h3,.ov-todo h3{font-size:1.0625rem;font-weight:600;letter-spacing:-.01em}
+.ov-role{font-size:.9375rem;line-height:1.5}
+.ov-status{font-family:var(--mono);font-size:12px;color:var(--c-muted)}
+.ov-facts{display:flex;flex-direction:column;gap:.375rem;margin-top:.25rem;font-size:.875rem;line-height:1.5;color:var(--c-muted)}
+.ov-facts li{position:relative;padding-left:.875rem;overflow-wrap:anywhere}
+.ov-facts li::before{content:"";position:absolute;left:0;top:.62em;width:.3rem;height:.3rem;border-radius:999px;background:var(--c-muted)}
+.ov-refs{margin-top:auto;padding-top:.625rem;border-top:1px solid var(--c-line);display:flex;flex-direction:column;gap:.125rem;font-size:12px;color:var(--c-muted);overflow-wrap:anywhere}
+.ov-sha{color:var(--c-link)}
+.ov-badge{flex-shrink:0;border:1px solid currentColor;border-radius:999px;padding:.125rem .625rem;font-family:var(--mono);font-size:11px;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}
+.ov-live{color:var(--c-ok)}
+.ov-built{color:var(--c-link)}
+.ov-building{color:var(--c-muted)}
+.ov-blocked{color:var(--c-warn)}
+.ov-flow{display:grid;grid-template-columns:minmax(0,1fr);gap:1rem;margin-top:1.25rem;align-items:start}
+@media (min-width:960px){.ov-flow{grid-template-columns:minmax(0,26rem) minmax(0,1fr)}}
+.ov-fig{margin:0;border:1px solid var(--c-line);border-radius:var(--r-lg);background:var(--c-surface);padding:1rem}
+.ov-fig figcaption{margin-top:.75rem;font-size:.875rem;line-height:1.55;color:var(--c-muted)}
+.ov-side{display:flex;flex-direction:column;gap:1rem;min-width:0}
+.ov-svg{display:block;width:100%;height:auto;max-width:28rem;margin:0 auto}
+.ov-side .ov-svg{max-width:32rem;margin:0}
+.ov-node{fill:var(--c-elevated);stroke:var(--c-line);stroke-width:1}
+.ov-hi{stroke:var(--c-link);stroke-width:1.5}
+.ov-group{fill:none;stroke:var(--c-line);stroke-dasharray:4 4}
+.ov-t{fill:var(--c-fg);font-family:var(--sans);font-size:14px;font-weight:600}
+.ov-ts{fill:var(--c-muted);font-family:var(--sans);font-size:12px}
+.ov-mono,.ov-num{font-family:var(--mono)}
+.ov-num{font-variant-numeric:tabular-nums}
+.ov-on{fill:var(--c-accent-fg)}
+.ov-arrow{fill:none;stroke:var(--c-muted);stroke-width:1.5}
+.ov-stop{stroke:var(--c-warn);stroke-dasharray:4 3}
+.ov-head{fill:var(--c-muted)}
+.ov-track{fill:var(--c-elevated)}
+.ov-bar-u{fill:var(--c-link)}
+.ov-bar-t{fill:color-mix(in srgb,var(--c-link) 32%,transparent)}
+.ov-bar-c{fill:var(--c-accent)}
+.ov-notes{display:flex;flex-direction:column;gap:.25rem;padding:0 .25rem;font-family:var(--mono);font-size:12px;line-height:1.5;color:var(--c-muted)}
+.ov-tablewrap{overflow-x:auto;border:1px solid var(--c-line);border-radius:var(--r-lg);background:var(--c-surface)}
+.ov-table{width:100%;border-collapse:collapse;font-size:.875rem;font-variant-numeric:tabular-nums}
+.ov-table caption{text-align:left;padding:.75rem 1rem .25rem;font-weight:600}
+.ov-table th,.ov-table td{padding:.5rem 1rem;text-align:right;border-bottom:1px solid var(--c-line)}
+.ov-table th:first-child,.ov-table td:first-child{text-align:left}
+.ov-table thead th{font-weight:500;font-size:12px;color:var(--c-muted)}
+.ov-table tfoot th,.ov-table tfoot td{font-weight:600;border-bottom:0}
+@media (max-width:480px){.ov-table th,.ov-table td{padding:.5rem}}
+.ov-todos{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,20rem),1fr));gap:.75rem;margin-top:1.25rem}
+.ov-todo p{font-size:.9375rem;line-height:1.55;color:var(--c-muted)}
+.ov-todo p.ov-ref{font-size:12px}
+@media (max-width:480px){.ov-fig{padding:.5rem}.ov-rule{padding:1rem 1rem 1rem 1.25rem}}
+.ov-foot{display:flex;flex-direction:column;gap:.5rem;margin-top:3rem;padding-top:1.25rem;border-top:1px solid var(--c-line);font-size:.8125rem;color:var(--c-muted)}
+.ov-foot ul{display:flex;flex-direction:column;gap:.125rem;font-family:var(--mono);font-size:12px}
+.ov-foot a{display:inline-block;min-height:1.5rem}
+"#;
+
 /// The whole sheet.
 pub fn sheet() -> String {
     let mut out = String::with_capacity(RULES.len() + 1024);
@@ -224,7 +314,16 @@ pub fn sheet() -> String {
         "html[data-theme=light]{{color-scheme:light;{}}}\n",
         vars(LIGHT, "c-")
     ));
-    for line in RULES.lines().filter(|l| !l.trim().is_empty()) {
+    // No theme cookie: follow the system.
+    out.push_str(&format!(
+        "@media (prefers-color-scheme:light){{html:not([data-theme]){{color-scheme:light;{}}}}}\n",
+        vars(LIGHT, "c-")
+    ));
+    for line in RULES
+        .lines()
+        .chain(LANDING.lines())
+        .filter(|l| !l.trim().is_empty())
+    {
         out.push_str(line.trim());
         out.push('\n');
     }
@@ -243,8 +342,9 @@ pub fn fnv64(data: &[u8]) -> u64 {
 
 /// Class names defined in [`RULES`] (for the "every emitted class exists" test).
 pub fn defined_classes() -> Vec<String> {
+    let all = format!("{RULES}{LANDING}");
     let mut out = Vec::new();
-    let b = RULES.as_bytes();
+    let b = all.as_bytes();
     let mut i = 0;
     while i < b.len() {
         if b[i] == b'.' && i + 1 < b.len() && (b[i + 1].is_ascii_alphabetic()) {
@@ -253,7 +353,7 @@ pub fn defined_classes() -> Vec<String> {
             while e < b.len() && (b[e].is_ascii_alphanumeric() || b[e] == b'-' || b[e] == b'_') {
                 e += 1;
             }
-            out.push(RULES[s..e].to_string());
+            out.push(all[s..e].to_string());
             i = e;
         } else {
             i += 1;
@@ -271,7 +371,11 @@ mod tests {
     #[test]
     fn sheet_is_small_and_balanced() {
         let s = sheet();
-        assert!(s.len() < 16 * 1024, "{}", s.len());
+        assert!(s.len() < 24 * 1024, "{}", s.len());
+        assert!(s.contains(
+            "@media (prefers-color-scheme:light){html:not([data-theme]){color-scheme:light;--c-bg:#f6f6f4"
+        ));
+        assert!(defined_classes().contains(&"ov-card".to_string()));
         assert_eq!(s.matches('{').count(), s.matches('}').count());
         assert!(s.contains("--c-bg:#1e1e1e"));
         assert!(s.contains("html[data-theme=light]{color-scheme:light;--c-bg:#f6f6f4"));

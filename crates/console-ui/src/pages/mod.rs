@@ -9,6 +9,7 @@ pub mod agents;
 pub mod catalog;
 pub mod gate;
 pub mod not_ported;
+pub mod overview;
 pub mod services;
 pub mod status;
 

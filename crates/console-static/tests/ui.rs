@@ -561,7 +561,7 @@ fn read_rooms_render_get_only() {
         .filter_map(|r| r.to)
         .filter(|p| !console_ui::PORTED.contains(p))
         .collect();
-    assert_eq!(not_ported.len(), 17, "{not_ported:?}");
+    assert_eq!(not_ported.len(), 16, "{not_ported:?}");
     for p in not_ported {
         let r = get(a, p, "127.0.0.1", "");
         assert_eq!(r.code, 200, "{p}");
@@ -693,4 +693,68 @@ fn read_rooms_are_gated() {
         "other hosts never see the pack"
     );
     assert!(!r.body.contains("reverse_proxy"));
+}
+
+/// The Desk landing (`/console`) is the whole-project overview: 200, every
+/// section, no script, no inline style (CSP), system theme without a cookie,
+/// and it costs the API one health GET for the header dot.
+#[test]
+fn landing_overview() {
+    let (a, log) = start(&[]);
+    let r = get(a, "/console", "127.0.0.1", "");
+    assert_eq!(r.code, 200, "{}", r.head);
+    for needle in [
+        "<title>Galion Studio · Project overview</title>",
+        "Discovering the universe together with humans.",
+        "you leave with more than you came in with",
+        "id=\"sectors\"",
+        "id=\"process\"",
+        "id=\"owner\"",
+        "id=\"sector-gaia\"",
+        "id=\"sector-hermes\"",
+        "id=\"sector-console\"",
+        "id=\"sector-voice\"",
+        "id=\"sector-nerve\"",
+        "id=\"sector-vps\"",
+        "id=\"sector-integration\"",
+        "id=\"sector-security\"",
+        "id=\"sector-docs\"",
+        "How the swarm runs",
+        "HADES admin key",
+        "swarm/common-migrate-2 123eab2",
+    ] {
+        assert!(r.body.contains(needle), "missing {needle}");
+    }
+    assert!(!r.body.to_ascii_lowercase().contains("<script"));
+    assert!(!r.body.contains("style=\""));
+    assert!(r
+        .head
+        .contains("Content-Security-Policy: default-src 'none'"));
+    // No cookie: no forced theme; both toggles present, CSS picks one.
+    assert!(r.body.contains("<html lang=\"en\"><head>"));
+    assert!(r.body.contains("prefers-color-scheme: light"));
+    assert!(r.body.contains("to=dark") && r.body.contains("to=light"));
+    // Cookie still wins.
+    let r = get(a, "/console", "127.0.0.1", "Cookie: galion_theme=light\r\n");
+    assert!(r.body.contains("data-theme=\"light\""));
+    let r = get(a, "/console", "127.0.0.1", "Cookie: galion_theme=dark\r\n");
+    assert!(r.body.contains("data-theme=\"dark\""));
+    let calls: Vec<String> = log.lock().unwrap().clone();
+    assert!(
+        calls.iter().all(|l| l.starts_with("GET /api/v1/health ")),
+        "{calls:?}"
+    );
+    // `/` still redirects here; HEAD works; POST does not.
+    let r = get(a, "/", "127.0.0.1", "");
+    assert_eq!(r.code, 302);
+    assert!(r.head.contains("Location: /console"));
+    let r = send(
+        a,
+        "HEAD /console HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+    );
+    assert_eq!(r.code, 200);
+    assert_eq!(post(a, "/console", "127.0.0.1", "", "x=1").code, 405);
+    // Off the console hosts it stays the quiet Soon page.
+    let r = get(a, "/console", "galion.app", "");
+    assert!(!r.body.contains("Sector map"));
 }

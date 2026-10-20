@@ -47,7 +47,12 @@ const fn d(to: &'static str, label: &'static str, line: &'static str, icon: &'st
 }
 
 pub const ROOMS: &[Room] = &[
-    r("/console", "Desk", "Home page of the console.", "desk"),
+    r(
+        "/console",
+        "Desk",
+        "The whole project on one screen.",
+        "desk",
+    ),
     r(
         "/instances",
         "Instances",

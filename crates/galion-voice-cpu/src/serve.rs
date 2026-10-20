@@ -302,10 +302,10 @@ impl Engines {
             "unavailable"
         };
         let mut errors = Vec::new();
-        if self.stt.is_none() && !self.stt_missing.is_empty() {
+        if self.stt.is_none() && self.want_stt && !self.stt_missing.is_empty() {
             errors.push(format!("stt: {}", self.stt_missing));
         }
-        if self.tts.is_none() && !self.tts_missing.is_empty() {
+        if self.tts.is_none() && self.want_tts && !self.tts_missing.is_empty() {
             errors.push(format!("tts: {}", self.tts_missing));
         }
         let error = if self.loading || errors.is_empty() {
@@ -854,6 +854,94 @@ mod tests {
         assert_eq!(r.status, 503);
         assert_eq!(none.handle(&req("GET", "/x", "", b"")).status, 404);
         assert_eq!(none.handle(&req("GET", "/synthesize", "", b"")).status, 405);
+    }
+
+    #[test]
+    fn health_loading_partial_and_legacy_fields() {
+        let loading = Engines {
+            loading: true,
+            want_tts: true,
+            bind: "127.0.0.1:19372".into(),
+            ..Default::default()
+        };
+        let r = loading.handle(&req("GET", "/health", "", b""));
+        assert_eq!(r.status, 503);
+        let b = String::from_utf8(r.body).unwrap();
+        for f in [
+            "\"ok\":false",
+            "\"status\":\"loading\"",
+            "\"provider\":\"local\"",
+            "\"model\":null",
+            "\"loaded\":false",
+            "\"error\":null",
+            "\"device\":\"cpu\"",
+            "\"voices\":[]",
+            "\"bind\":\"127.0.0.1:19372\"",
+        ] {
+            assert!(b.contains(f), "{f} in {b}");
+        }
+        // Asked for both, only the mouth loaded: 503 "partial" with the reason.
+        let mut e = both();
+        e.stt = None;
+        e.want_stt = true;
+        e.want_tts = true;
+        e.stt_missing = "no model dir".into();
+        let r = e.handle(&req("GET", "/health", "", b""));
+        assert_eq!(r.status, 503);
+        let b = String::from_utf8(r.body).unwrap();
+        assert!(
+            b.contains("\"status\":\"partial\"") && b.contains("\"error\":\"stt: no model dir\""),
+            "{b}"
+        );
+        // Mouth-only process (--stt none): healthy, error null, voices listed.
+        let mut e = both();
+        e.stt = None;
+        e.want_tts = true;
+        e.stt_missing = "disabled (--stt none)".into();
+        let r = e.handle(&req("GET", "/health", "", b""));
+        assert_eq!(r.status, 200);
+        let b = String::from_utf8(r.body).unwrap();
+        assert!(
+            b.contains("\"model\":\"fake-tts\"")
+                && b.contains("\"error\":null")
+                && b.contains("\"voices\":[\"a\",\"b\"]"),
+            "{b}"
+        );
+    }
+
+    #[test]
+    fn synth_legacy_headers_voice_case_and_language_field() {
+        let e = both();
+        let r = e.handle(&req(
+            "POST",
+            "/synthesize",
+            "application/json",
+            br#"{"text":"hi","voice":"  B "}"#,
+        ));
+        assert_eq!(r.status, 200);
+        assert!(r.headers.iter().any(|(k, v)| k == "X-Voice" && v == "b"));
+        assert!(r.headers.iter().any(|(k, _)| k == "X-RTF"));
+        assert!(r
+            .headers
+            .iter()
+            .any(|(k, v)| k == "X-Duration" && v.parse::<f32>().unwrap() > 0.0));
+        let r = e.handle(&req(
+            "POST",
+            "/synthesize",
+            "application/json",
+            br#"{"text":"hi","voice":"nobody"}"#,
+        ));
+        assert!(r.headers.iter().any(|(k, v)| k == "X-Voice" && v == "a"));
+        let mp = b"--B\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\nde\r\n--B--\r\n";
+        assert_eq!(
+            form_field("multipart/form-data; boundary=B", mp, "language").as_deref(),
+            Some("de")
+        );
+        assert_eq!(
+            form_field("multipart/form-data; boundary=B", mp, "fast"),
+            None
+        );
+        assert_eq!(form_field("audio/wav", b"RIFF", "language"), None);
     }
 
     #[test]

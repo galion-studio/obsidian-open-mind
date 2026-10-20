@@ -41,3 +41,7 @@ required-features = ["kitten"]
 [[test]]
 name = "real_voice_serve"
 required-features = ["whisper", "kitten"]
+
+[[test]]
+name = "real_chatterbox"
+required-features = ["whisper", "chatterbox"]

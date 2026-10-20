@@ -481,8 +481,17 @@ mod tests {
     use super::*;
 
     fn out_dir() -> PathBuf {
-        let dir =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/link-watch");
+        // Per target dir (next to this test binary: <target>/<profile>/test-out),
+        // not per source tree: copies of the suite with their own
+        // CARGO_TARGET_DIR may run from one checkout at once.
+        let dir = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("test-out")
+            .join("link-watch");
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }

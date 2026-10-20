@@ -5,8 +5,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 fn out(name: &str, body: &str) -> PathBuf {
-    let dir =
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/openmind-config");
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test-out/openmind-config");
     std::fs::create_dir_all(&dir).unwrap();
     let p = dir.join(name);
     std::fs::write(&p, body).unwrap();

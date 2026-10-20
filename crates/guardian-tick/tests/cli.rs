@@ -8,7 +8,9 @@ use std::process::Command;
 const BIN: &str = env!("CARGO_BIN_EXE_guardian-tick");
 
 fn tmp(name: &str) -> std::path::PathBuf {
-    let d = std::env::temp_dir().join("guardian-tick-tests");
+    // Per target dir, not one fixed /tmp/guardian-tick-tests shared by every
+    // checkout and agent on the box (tests rm -rf their subdirs).
+    let d = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("guardian-tick-tests");
     std::fs::create_dir_all(&d).unwrap();
     d.join(name)
 }
@@ -34,9 +36,22 @@ fn fixture_parses_and_bad_file_exits_2() {
     assert_eq!(o.status.code(), Some(2));
 }
 
+/// A loopback port nothing listens on: bound by us (so no one else held it),
+/// then released.
+fn closed_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
+}
+
 #[test]
 fn mock_listener_ok_and_down() {
-    let l = TcpListener::bind("127.0.0.1:18080").unwrap();
+    // Ephemeral ports: a fixed 18080 collides with any other run on the box.
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let closed = closed_port();
     let h = std::thread::spawn(move || {
         for _ in 0..2 {
             let (mut s, _) = l.accept().unwrap();
@@ -48,9 +63,11 @@ fn mock_listener_ok_and_down() {
     let p = tmp("mock.toml");
     std::fs::write(
         &p,
-        "[[probe]]\nkind=\"http\"\nname=\"mock\"\nport=18080\npath=\"/h\"\nok_codes=[200,401]\n\
-         [[probe]]\nkind=\"http\"\nname=\"strict\"\nport=18080\npath=\"/h\"\nok_codes=[200]\n\
-         [[probe]]\nkind=\"http\"\nname=\"closed\"\nport=18646\npath=\"/\"\n",
+        format!(
+            "[[probe]]\nkind=\"http\"\nname=\"mock\"\nport={port}\npath=\"/h\"\nok_codes=[200,401]\n\
+             [[probe]]\nkind=\"http\"\nname=\"strict\"\nport={port}\npath=\"/h\"\nok_codes=[200]\n\
+             [[probe]]\nkind=\"http\"\nname=\"closed\"\nport={closed}\npath=\"/\"\n"
+        ),
     )
     .unwrap();
     let out = tmp("mock-out/g.json");

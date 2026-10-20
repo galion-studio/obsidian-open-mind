@@ -5,8 +5,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 fn wd(name: &str) -> PathBuf {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-out/sandbox")
+    // Per target dir (CARGO_TARGET_TMPDIR), not per source tree: several
+    // copies of this suite with their own CARGO_TARGET_DIR may run from one
+    // checkout at once and must not share (and delete) each other's files.
+    let p = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("test-out/sandbox")
         .join(name);
     std::fs::create_dir_all(&p).unwrap();
     p.canonicalize().unwrap()
@@ -50,23 +53,55 @@ fn a2_unrelated_sleep_survives() {
 
 #[test]
 fn group_kill_leaves_no_grandchild() {
-    // A PID namespace hides real pids, so look for a unique argv instead.
+    // A PID namespace hides real pids, so the grandchild is found by a
+    // unique argv instead: `sleep 3171<our pid>`. Several agents/copies of
+    // this suite run at once on one box; a fixed `sleep 3171` matched their
+    // grandchildren too. The pid is unique among live processes, so a match
+    // can only be the sleeper this test started (even after it was
+    // reparented away from our process tree, which a tree walk would miss).
+    let secs = marker_secs(3171);
     let mut p = pol("grp");
     p.wall_timeout = Duration::from_secs(1);
-    let o = run(&s(&["/bin/sh", "-c", "sleep 3171 & wait"]), &p);
+    let o = run(&s(&["/bin/sh", "-c", &format!("sleep {secs} & wait")]), &p);
     assert!(o.timed_out);
-    std::thread::sleep(Duration::from_millis(300));
-    assert!(!sleep_alive("3171"), "grandchild still alive");
+    assert!(
+        gone_within(&secs, Duration::from_secs(5)),
+        "grandchild still alive"
+    );
 }
 
-/// Is a non-zombie `sleep <arg>` running anywhere on the host?
+/// `<tag><pid of this test process>`: a sleep argument no other process uses.
+fn marker_secs(tag: u32) -> String {
+    format!("{tag}{}", std::process::id())
+}
+
+/// Wait (bounded) until no live `sleep <arg>` exists. SIGKILL is delivered
+/// before `run` returns, but the kernel finishes the victim's exit
+/// asynchronously, so poll for the end state instead of guessing a delay.
+fn gone_within(arg: &str, limit: Duration) -> bool {
+    let t = std::time::Instant::now();
+    loop {
+        if !sleep_alive(arg) {
+            return true;
+        }
+        if t.elapsed() >= limit {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Is a non-zombie `sleep <arg>` running? `arg` must be a unique marker.
 fn sleep_alive(arg: &str) -> bool {
     let want = format!("sleep\0{arg}\0");
     std::fs::read_dir("/proc").unwrap().flatten().any(|e| {
         let d = e.path();
         let cmd = std::fs::read(d.join("cmdline")).unwrap_or_default();
         let st = std::fs::read_to_string(d.join("stat")).unwrap_or_default();
-        cmd.ends_with(want.as_bytes()) && !st.contains(") Z ")
+        // state is the first field after the last ')' (comm may hold ')')
+        let state = st.rsplit_once(')').map(|(_, r)| r.trim_start());
+        cmd.ends_with(want.as_bytes())
+            && !matches!(state.and_then(|r| r.chars().next()), Some('Z' | 'X') | None)
     })
 }
 

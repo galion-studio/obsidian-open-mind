@@ -167,8 +167,11 @@ fn real_escape() {
 
     // ---- ptrace / signal / visibility of a bystander outside ----
     {
+        // Unique argv (30<our pid>) so another agent's `sleep 30...` on the
+        // same box can never be mistaken for this bystander.
+        let by_secs = marker_secs(30);
         let mut bystander = std::process::Command::new("/bin/sleep")
-            .arg("30")
+            .arg(&by_secs)
             .spawn()
             .unwrap();
         let pid = bystander.id();
@@ -183,7 +186,7 @@ fn real_escape() {
             says(&o, "kill") == Some(false),
             "payload could signal a process outside".into(),
         );
-        let o = runsb(&p, &["seebystander", "sleep 30"]);
+        let o = runsb(&p, &["seebystander", &format!("sleep {by_secs} ")]);
         check(
             says(&o, "seebystander") == Some(false),
             "payload saw a process outside in /proc".into(),
@@ -329,10 +332,10 @@ fn real_escape() {
         let (mut p, _) = pol("orphan");
         p.cgroup_parent = Some(parent);
         p.wall_timeout = Duration::from_secs(3);
-        let _ = runsb(&p, &["setsid-orphan", "3133"]);
-        std::thread::sleep(Duration::from_millis(500));
+        let orphan = marker_secs(3133);
+        let _ = runsb(&p, &["setsid-orphan", &orphan]);
         check(
-            !sleep_alive("3133"),
+            gone_within(&orphan, Duration::from_secs(5)),
             "a setsid orphan survived the sandbox teardown".into(),
         );
     } else {
@@ -369,15 +372,37 @@ fn cgroup_parent() -> Option<PathBuf> {
     path.join("cgroup.subtree_control").exists().then_some(path)
 }
 
+/// `<tag><pid of this test process>`: a sleep argument no other process uses.
+fn marker_secs(tag: u32) -> String {
+    format!("{tag}{}", std::process::id())
+}
+
+/// Wait (bounded) until no live `sleep <arg>` exists. SIGKILL is delivered
+/// before `run` returns, but the kernel finishes the victim's exit
+/// asynchronously, so poll for the end state instead of guessing a delay.
+fn gone_within(arg: &str, limit: Duration) -> bool {
+    let t = std::time::Instant::now();
+    loop {
+        if !sleep_alive(arg) {
+            return true;
+        }
+        if t.elapsed() >= limit {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// Is a non-zombie `sleep <arg>` running? `arg` must be a unique marker.
 fn sleep_alive(arg: &str) -> bool {
     let want = format!("sleep\0{arg}\0");
-    std::fs::read_dir("/proc")
-        .map(|rd| {
-            rd.flatten().any(|e| {
-                let cmd = std::fs::read(e.path().join("cmdline")).unwrap_or_default();
-                let st = std::fs::read_to_string(e.path().join("stat")).unwrap_or_default();
-                cmd.ends_with(want.as_bytes()) && !st.contains(") Z ")
-            })
-        })
-        .unwrap_or(false)
+    std::fs::read_dir("/proc").unwrap().flatten().any(|e| {
+        let d = e.path();
+        let cmd = std::fs::read(d.join("cmdline")).unwrap_or_default();
+        let st = std::fs::read_to_string(d.join("stat")).unwrap_or_default();
+        // state is the first field after the last ')' (comm may hold ')')
+        let state = st.rsplit_once(')').map(|(_, r)| r.trim_start());
+        cmd.ends_with(want.as_bytes())
+            && !matches!(state.and_then(|r| r.chars().next()), Some('Z' | 'X') | None)
+    })
 }

@@ -28,7 +28,7 @@ Keys already present in `openmind-config` (`hosts.*`, `ports.*`, `paths.base`) o
 | crates/openmind-config/tests/config.rs:91 | 127.0.0.1 | hosts.ollama | low |
 | crates/openmind-config/src/lib.rs:29 | 127.0.0.1 | hosts.ollama | low |
 | crates/openmind-config/src/lib.rs:30 | 127.0.0.1 | hosts.hermes | low |
-| crates/guardian-tick/tests/cli.rs:39 | 127.0.0.1:18080 | n/a | low |
+| crates/guardian-tick/tests/cli.rs:52 | 127.0.0.1:0 (ephemeral; was 18080) | n/a | low |
 | crates/desk-hermes/src/main.rs:1 | /opt/galion/bin/desk-hermes.py | n/a | low |
 | crates/desk-hermes/src/main.rs:13 | /opt/galion/hermes | HERMES_HOME | low |
 | crates/desk-hermes/src/main.rs:181 | /opt/galion/hermes | HERMES_HOME | medium |
@@ -65,7 +65,7 @@ Keys already present in `openmind-config` (`hosts.*`, `ports.*`, `paths.base`) o
 | crates/galion-desk/src/main.rs:503 | 127.0.0.1:1 | n/a | low |
 | crates/galion-desk/src/main.rs:522 | 127.0.0.1:{port} | hosts.probe | high |
 | crates/galion-desk/src/main.rs:532 | 127.0.0.1:1 | n/a | low |
-| crates/openmind-survival/tests/survival.rs:27 | 127.0.0.1:18080 | n/a | low |
+| crates/openmind-survival/tests/survival.rs:28 | 127.0.0.1:0 (ephemeral; was 18080) | n/a | low |
 | crates/openmind-survival/src/probes.rs:52 | 127.0.0.1:port | hosts.probe | low |
 | crates/openmind-survival/src/probes.rs:66 | 127.0.0.1 | hosts.probe | high |
 | crates/openmind-schema/src/lib.rs:101 | http://127.0.0.1:11434/v1 | providers.laptop.base_url | high |

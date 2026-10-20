@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 fn setup(name: &str) -> Config {
-    let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-out/galion-origin")
+    let d = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("test-out/galion-origin")
         .join(name);
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(d.join("root/docs/build-session/sub")).unwrap();

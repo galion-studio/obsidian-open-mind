@@ -34,6 +34,14 @@ fn err() -> std::io::Error {
     std::io::Error::last_os_error()
 }
 
+// The libc crate does not export PTRACE_SEIZE for Android (bionic has it
+// since API 21; it is the Linux kernel ABI value 0x4206 everywhere), so
+// define it there instead of losing the attack on aarch64-android.
+#[cfg(not(target_os = "android"))]
+use libc::PTRACE_SEIZE;
+#[cfg(target_os = "android")]
+const PTRACE_SEIZE: libc::c_int = 0x4206;
+
 fn main() {
     let a: Vec<String> = std::env::args().skip(1).collect();
     let arg = |i: usize| a.get(i).cloned().unwrap_or_default();
@@ -67,8 +75,17 @@ fn main() {
         },
         "ptrace" => {
             let pid: i32 = arg(1).parse().unwrap_or(0);
-            // SAFETY: PTRACE_SEIZE on a target pid; read-only attempt.
-            let r = unsafe { libc::ptrace(libc::PTRACE_SEIZE, pid, 0, 0) };
+            // SAFETY: PTRACE_SEIZE on a target pid; read-only attempt. addr and
+            // data are pointers in the C prototype, so pass real null pointers
+            // through the variadic call rather than int 0.
+            let r = unsafe {
+                libc::ptrace(
+                    PTRACE_SEIZE,
+                    pid,
+                    std::ptr::null_mut::<libc::c_void>(),
+                    std::ptr::null_mut::<libc::c_void>(),
+                )
+            };
             if r == 0 {
                 out("ptrace", true, format!("seized pid {pid}"));
             } else {

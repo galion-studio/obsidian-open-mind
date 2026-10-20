@@ -17,14 +17,16 @@ impl Runner for Fake {
 }
 
 fn out_dir() -> PathBuf {
-    let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/survival");
+    let d = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test-out/survival");
     std::fs::create_dir_all(&d).unwrap();
     d
 }
 
 #[test]
 fn http_probe_mock() {
-    let l = TcpListener::bind("127.0.0.1:18080").unwrap();
+    // Ephemeral port: a fixed 18080 collides with any other run on the box.
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
     let h = std::thread::spawn(move || {
         for code in ["200 OK", "503 Service Unavailable"] {
             let (mut s, _) = l.accept().unwrap();
@@ -33,14 +35,14 @@ fn http_probe_mock() {
             write!(s, "HTTP/1.0 {code}\r\nContent-Length: 0\r\n\r\n").unwrap();
         }
     });
-    let a = check_http("mock", 18080, "/health");
+    let a = check_http("mock", port, "/health");
     assert!(a.ok, "{a:?}");
     assert_eq!(a.detail, "status 200");
-    let b = check_http("mock", 18080, "/health");
+    let b = check_http("mock", port, "/health");
     assert!(!b.ok);
     assert_eq!(b.detail, "status 503");
     h.join().unwrap();
-    let c = check_http("closed", 18080, "/");
+    let c = check_http("closed", port, "/");
     assert!(!c.ok);
 }
 

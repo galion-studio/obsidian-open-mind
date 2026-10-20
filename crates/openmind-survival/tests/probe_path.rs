@@ -198,7 +198,12 @@ fn probe_path_does_not_spawn_systemctl_or_restart_a_service() {
 
     let before_kids = child_cmdlines();
     assert!(
-        before_kids.iter().any(|line| line.contains("sleep")),
+        // By pid, not by argv: spawn() can return (vfork/posix_spawn) before
+        // the child's new argv is set up, so /proc/<pid>/cmdline may still
+        // read empty for a moment.
+        before_kids
+            .iter()
+            .any(|line| line.split(' ').next() == Some(pid.to_string().as_str())),
         "sentinel missing: {before_kids:?}"
     );
     assert!(

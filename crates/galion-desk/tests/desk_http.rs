@@ -44,7 +44,7 @@ fn req(port: u16, raw: &str) -> String {
 
 #[test]
 fn health_desk_and_note() {
-    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/desk");
+    let out = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test-out/desk");
     let _ = std::fs::remove_dir_all(&out);
     std::fs::create_dir_all(out.join("state")).unwrap();
     std::fs::create_dir_all(out.join("one")).unwrap();

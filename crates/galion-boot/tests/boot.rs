@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 fn out(name: &str) -> PathBuf {
-    let d = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-out/galion-boot")
+    let d = PathBuf::from(env!("CARGO_TARGET_TMPDIR"))
+        .join("test-out/galion-boot")
         .join(name);
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();

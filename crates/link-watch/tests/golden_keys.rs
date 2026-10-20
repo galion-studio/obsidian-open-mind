@@ -10,7 +10,7 @@ use std::process::Command;
 const GOLDEN: &str = r#"["at","at_local","laptop_port","model","model_ms","hermes","hermes_ms","france","laptop","events"]"#;
 
 fn run_once(tag: &str, france: Option<&str>) -> Value {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/link-watch");
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test-out/link-watch");
     std::fs::create_dir_all(&dir).unwrap();
     let out = dir.join(format!("{tag}-link.json"));
     let _ = std::fs::remove_file(&out);

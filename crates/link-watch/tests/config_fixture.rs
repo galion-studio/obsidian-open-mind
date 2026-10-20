@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 const GOLDEN: &str = r#"["at","at_local","laptop_port","model","model_ms","hermes","hermes_ms","france","laptop","events"]"#;
 
 fn out_dir() -> PathBuf {
-    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/link-watch");
+    let dir = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("test-out/link-watch");
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }

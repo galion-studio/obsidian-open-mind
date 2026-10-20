@@ -100,7 +100,7 @@ legacy hosts (galion.app -> :4000 and api.galion.app -> :8000 were served by ori
 Tests: **41** with default features (openmind-survival 14, galion-guardian 5, galion-healer 7, galion-boot 7,
 galion-origin 2, guardian-tick 6) + 1 sqlite-only test = **42**, all pass on x86_64-gnu and natively as
 x86_64-unknown-linux-musl. `systemd-analyze verify` (systemd 257 on the box) passes on all six staged unit files.
-Tests use ephemeral loopback ports and target/test-out only (guardian-tick/survival keep their old 18080 test).
+Tests use ephemeral loopback ports and a per-target-dir test-out (`CARGO_TARGET_TMPDIR`) only; guardian-tick/survival moved off their old fixed 18080 (swarm/flake-fix).
 
 Peak RSS (GNU time, x86_64 release, one run): guardian 2.6 MB (jsonl) / 3.8 MB (sqlite, gnu) / 2.0 MB (sqlite, musl static),
 healer 2.5 MB, boot hardware 2.4 MB, render-units 2.6 MB, status 2.5 MB, supervise 2.4 MB, guardian-tick 2.4 MB,

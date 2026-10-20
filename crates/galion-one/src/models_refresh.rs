@@ -213,7 +213,16 @@ mod tests {
     }
 
     fn out_path(name: &str) -> std::path::PathBuf {
-        let d = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out");
+        // Per target dir (next to this test binary: <target>/<profile>/test-out),
+        // not per source tree: copies of the suite with their own
+        // CARGO_TARGET_DIR may run from one checkout at once.
+        let d = std::env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("test-out");
         fs::create_dir_all(&d).unwrap();
         d.join(name)
     }

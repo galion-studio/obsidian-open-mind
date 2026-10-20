@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-//! Hear, reply, and warm shapes against a fake listener on 127.0.0.1:18002.
-//! Never 8002, 8642, or 8643. The listener is stopped before the test returns.
+//! Hear, reply, and warm shapes against a fake listener on an ephemeral
+//! 127.0.0.1 port (a fixed 18002 collided with other runs on the same box,
+//! and the /stop on drop could hit their listener). Never 8002, 8642, or
+//! 8643: ephemeral ports are far above them, and the test asserts it.
+//! The listener is stopped before the test returns.
 
 use one_talk::{
     b64_encode, chat_content, empty_reply, fault_reply, hear_exchange, reply_exchange,
@@ -14,8 +17,6 @@ use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-
-const SPARE: u16 = 18002;
 
 struct Hit {
     path: String,
@@ -46,16 +47,16 @@ impl Drop for Stop {
 
 #[test]
 fn spare_listener_shapes() {
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, SPARE))
-        .expect("127.0.0.1:18002 must be free; refusing to pick another port");
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("bind 127.0.0.1:0");
+    let addr = listener.local_addr().expect("listener addr");
+    assert!(!one_talk::dial_blocked(addr), "{addr} is a refused port");
     let hits = Arc::new(Mutex::new(Vec::<Hit>::new()));
     let recorded = Arc::clone(&hits);
     let join = thread::spawn(move || serve(listener, recorded));
     let _stop = Stop {
-        port: SPARE,
+        port: addr.port(),
         join: Some(join),
     };
-    let addr = listener_addr();
     let timeout = Duration::from_secs(2);
 
     let heard = hear_exchange(addr, b"RIFFtest", timeout).unwrap();
@@ -164,10 +165,6 @@ fn spare_listener_shapes() {
     assert!(!raw.contains("admin-device"));
     assert!(!raw.contains("state.db"));
     assert!(!raw.contains("ONE_COOKIE"));
-}
-
-fn listener_addr() -> std::net::SocketAddr {
-    std::net::SocketAddr::from((Ipv4Addr::LOCALHOST, SPARE))
 }
 
 fn serve(listener: TcpListener, hits: Arc<Mutex<Vec<Hit>>>) {

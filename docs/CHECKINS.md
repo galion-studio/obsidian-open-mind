@@ -290,3 +290,5 @@
 - 2026-10-20T10:00:51+02:00 | REAL-LINK-2 PASS: the new link-watch wrote a report under /tmp. The live process was not replaced.
 
 - 2026-10-20T10:01:26+02:00 | REAL-ROOM: the dist room binary was started only inside a private network namespace, then stopped. Host port 4020 stayed closed.
+
+- 2026-10-20T10:02:54+02:00 | MEM-SHADOW-RUN: health keys were compared. The crate was not switched in front of 8420.

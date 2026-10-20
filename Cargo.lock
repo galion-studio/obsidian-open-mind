@@ -189,6 +189,7 @@ version = "0.1.0"
 name = "guardian-tick"
 version = "0.1.0"
 dependencies = [
+ "openmind-nerve",
  "openmind-survival",
  "serde",
  "serde_json",

@@ -177,3 +177,22 @@ Owner item from the brief: the tunnel token that leaked into gateway-deaths.log 
 - The supervisor has no signal handler (std only); stop it with its process group.
 - `voice` (8002) answers 503 (voice worker missing torch), so the guardian will hold an open incident for it after the switch; expected.
 - TEACHER/STAGED.md and BOSS-PROGRESS.md entries are left to integration (shared files).
+
+## 2026-10-20 19:15 CEST (+02:00): guardian/healer re-ported (branch swarm/survival-heal)
+
+The PR #8 merge (13a296c) kept openmind-survival + guardian-tick and dropped `galion-guardian`
+and `galion-healer`, so sections 1–3 above describe crates that are no longer in main. Their
+repair path is re-ported:
+
+- `openmind-survival::heal` (pure): `classify` (healthy/degraded/down via `decide`),
+  `plan` (observe, notify, wait, refuse-protected, cap-reached, restart), `PROTECTED_UNITS`,
+  reflex cap `REFLEX_CAP = 3` per `REFLEX_WINDOW_S = 3600` (replaces the old 600 s gap).
+- `guardian-tick heal --probes F [--state DIR] [--allow UNIT]... [--nerve P] [--cap N]`:
+  probe → classify → plan → apply → `<state>/incidents.jsonl` (append-only, Zagreb `ts` + `unix`)
+  → nerve events (`openmind-nerve` JSONL file). Dry-run unless the unit has a `[[repair]]`
+  rule AND is named in `--allow`. Backends: `systemd`, `command` (absolute argv, no shell), `none`.
+  Protected units are refused at load and at plan time. The cap is counted from the store.
+- `guardian-tick classify --status-json F`: plans over a captured galion-health status.json; never applies.
+- Not ported: desk cases/inbox, stale gateway lock removal, json-brace-repair, sqlite store,
+  tool-loop warning, activity/digest rows. The staged `deploy/survival/probes.toml` has no
+  `[[repair]]` rules, so the staged timer stays report-only. Evidence: `docs/real-tests/survival-heal.md`.

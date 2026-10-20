@@ -14,14 +14,14 @@ docs. The percentage is computed, never typed: run `scripts/status-percent.sh`.
 - Credit: D = 1, P = 0.5, N and O = 0. "Done" does not mean live: only
   WS-HERMES, WS-MEM and B59 run in production.
 - Baseline: the 2026-10-20 progress review. Changed by the one-source merge:
-  GAIA-1 D -> P, HYG-2 N -> D.
+  GAIA-1 D -> P, HYG-2 N -> D. Corrected 2026-10-20 19:15 CEST (+02:00): WS-SURV D -> P (guardian/healer were not in 13a296c).
 
 Computed on 2026-10-20 (Europe/Zagreb) with `scripts/status-percent.sh`:
 
 ```
-status-percent: items 89 (D 54, P 12, N 2, O 21), weight 122
-done: 60.7 % unweighted, 59.0 % weighted
-done + half partial: 67.4 % unweighted, 67.2 % weighted
+status-percent: items 89 (D 53, P 13, N 2, O 21), weight 122
+done: 59.6 % unweighted, 57.4 % weighted
+done + half partial: 66.9 % unweighted, 66.4 % weighted
 owner-blocked: 23.6 % of items
 ```
 
@@ -31,7 +31,7 @@ owner-blocked: 23.6 % of items
 | GAIA-2 | 2 | P | VPS `gaia-registry` is a static table mapping 37 crates (GAIA-2/3/4 PASS). Nothing routes live services or ... |
 | UCPU-1 | 2 | P | docs/universal-cpu.md and scripts/target-check.sh ("four target names KNOWN; no cross build"). The gate is ... |
 | HADES-1 | 2 | P | crates/hades-gate: dry-run by default, kill and rotate always refused. HADES-WIRE: not wired or installed. ... |
-| WS-SURV | 2 | D | (not live) - Merged into GitHub main (galion-guardian, galion-healer, galion-boot, galion-origin). No guardian or healer... |
+| WS-SURV | 2 | P | (not live) - galion-boot and galion-origin are on main 13a296c; galion-guardian and galion-healer were DROPPED by the PR #8 merge (not merged, contrary to the old row). Their probe/classify/dry-run repair path and incident store are re-ported onto openmind-survival (`heal`) + guardian-tick (`heal`, `classify`) on branch swarm/survival-heal (not merged; becomes D on merge). No guardian/healer/guardian-tick unit installed on the VPS |
 | WS-HERMES | 2 | D | live - hermes-rs.service active since Oct 18 22:00 CEST; Python hermes.service inactive |
 | WS-MEM | 2 | D | live - openmind-memory.service on 8420 since Oct 18 22:14 CEST; memory-gateway inactive |
 | WS-ODT | 2 | D | (partly live) - Merged on GitHub main. Live galion-one is an Oct 18 ws/ui build; desk and tuner are older binaries |

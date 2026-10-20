@@ -10,6 +10,7 @@ mod config;
 mod discover;
 mod dns;
 mod doctor;
+mod enroll;
 mod identity;
 mod pair;
 mod sandbox;
@@ -37,8 +38,15 @@ USAGE: omnode [--config FILE] <command>
                            polite LAN discovery, JSON on stdout
   announce [--seconds N] [--dry-run]
                            advertise _openmind._tcp over mDNS (0 = until stopped)
-  pair [URL] [--no-qr] [--dry-run]
-                           signed pairing payload + QR; --dry-run prints the HTTP plan, sends nothing
+  pair [URL] [--no-qr] [--dry-run] [--state DIR] [--now UNIX]
+                           signed pairing payload + QR; --dry-run prints the HTTP plan, sends nothing;
+                           --now backdates it (tests: Hermes must refuse an expired payload)
+  enroll request URL [--state DIR] [--insecure-http]
+                           send the signed payload to Hermes (POST URL); exit 3 = waiting for owner
+  enroll claim [--state DIR] [--insecure-http]
+                           after approval: signed claim, stores the scoped credential (600, never printed)
+  enroll status [--state DIR] [--scope S] [--insecure-http]
+                           does Hermes accept this node (and scope S) now? exit 2 if not
   pair verify FILE --url URL [--now UNIX]
                            fail-closed check of a pairing payload (what Hermes runs); exit 2 if refused
   boot [--state DIR] [--listen IP:PORT] [--allow-lan] [--code-ttl S] [--code-file F]
@@ -134,6 +142,9 @@ fn real_main() -> ExitCode {
         None
     };
     let dir = Identity::dir_default();
+    if cmd == "enroll" {
+        return enroll_cmd(&cfg, sub.as_deref(), a, &dir);
+    }
     let r: Result<(), String> = (|| match (cmd.as_str(), sub.as_deref()) {
         ("version", None) => {
             println!(
@@ -312,6 +323,14 @@ fn real_main() -> ExitCode {
         ("pair", url) => {
             let no_qr = a.flag("--no-qr");
             let dry = a.flag("--dry-run");
+            let pair_dir = a
+                .value("--state")?
+                .map(PathBuf::from)
+                .unwrap_or(dir.clone());
+            let now = a
+                .num("--now")?
+                .map(|v| v as i64)
+                .unwrap_or_else(zagreb::now_unix);
             let url = {
                 let positional = url.map(String::from).or_else(|| {
                     if a.0.first().is_some_and(|s| !s.starts_with('-')) {
@@ -325,8 +344,8 @@ fn real_main() -> ExitCode {
                     .ok_or("pair: give an enroll URL or set [pair] enroll_url")?
             };
             a.done()?;
-            let id = Identity::load(&dir)?;
-            let (p, sig, warns) = pair::build(&cfg, &id, &url, &wifi::observe(true))?;
+            let id = Identity::load(&pair_dir)?;
+            let (p, sig, warns) = pair::build_at(&cfg, &id, &url, &wifi::observe(true), now)?;
             for w in warns {
                 eprintln!("warning: {w}");
             }
@@ -359,7 +378,7 @@ QR ({} chars, signed short form):
                         pair::qr_text(&q)?
                     );
                 }
-                println!("STUB: nothing was sent. v0.1 would POST the JSON above to {url}");
+                println!("Nothing was sent. `omnode enroll request {url}` POSTs it to Hermes.");
                 println!("Hermes enrolls the device only after the owner approves it.");
                 println!("Tip: `omnode pair --dry-run {url}` prints the HTTP plan only.");
             }
@@ -414,5 +433,72 @@ QR ({} chars, signed short form):
     match r {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => die(e),
+    }
+}
+
+/// `omnode enroll request|claim|status`: exit 0 done, 3 waiting for the
+/// owner, 2 refused or error. The credential is never printed.
+fn enroll_cmd(
+    cfg: &config::Config,
+    sub: Option<&str>,
+    mut a: Args,
+    default_dir: &std::path::Path,
+) -> ExitCode {
+    let r: Result<enroll::Outcome, String> = (|| {
+        let dir = a
+            .value("--state")?
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_dir.to_path_buf());
+        let allow_http = a.flag("--insecure-http");
+        match sub {
+            Some("request") => {
+                let url = if a.0.first().is_some_and(|s| !s.starts_with('-')) {
+                    a.0.remove(0)
+                } else {
+                    cfg.pair
+                        .enroll_url
+                        .clone()
+                        .ok_or("enroll request: give the Hermes enroll URL")?
+                };
+                a.done()?;
+                let id = Identity::load(&dir)?;
+                let (p, sig, warns) = pair::build(cfg, &id, &url, &wifi::observe(true))?;
+                for w in warns {
+                    eprintln!("warning: {w}");
+                }
+                let doc = serde_json::json!({"payload": p, "signature": sig, "signed_string": p.canonical()});
+                eprintln!(
+                    "omnode: asking Hermes to enroll {} (fingerprint {}); the owner must approve this fingerprint",
+                    id.state.device_id,
+                    id.fingerprint()
+                );
+                enroll::request(&dir, &url, &doc, allow_http)
+            }
+            Some("claim") => {
+                a.done()?;
+                let id = Identity::load(&dir)?;
+                enroll::claim(&dir, &id, allow_http)
+            }
+            Some("status") => {
+                let scope = a.value("--scope")?;
+                a.done()?;
+                enroll::status(&dir, scope.as_deref(), allow_http)
+            }
+            _ => Err("enroll: use `enroll request URL`, `enroll claim` or `enroll status`".into()),
+        }
+    })();
+    match r {
+        Ok(enroll::Outcome::Done(v)) => {
+            print_json(&serde_json::json!({"ok": true, "result": v}));
+            ExitCode::SUCCESS
+        }
+        Ok(enroll::Outcome::Pending(v)) => {
+            print_json(&serde_json::json!({"ok": true, "status": "pending", "result": v}));
+            ExitCode::from(3)
+        }
+        Err(e) => {
+            print_json(&serde_json::json!({"ok": false, "error": e}));
+            die(e)
+        }
     }
 }

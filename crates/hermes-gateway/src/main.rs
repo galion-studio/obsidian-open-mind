@@ -9,6 +9,9 @@
 //! env (HERMES_RS_HOST, HERMES_RS_PORT, HERMES_RS_STATE_DB, ...). The API key
 //! is read from $API_SERVER_KEY only. `--mock` uses the offline mock
 //! provider (no network, no spend) for shadow smoke tests.
+//!
+//! Device enrollment (`/openmind/*`) is off unless HERMES_RS_ENROLL=1 and
+//! HERMES_RS_ENROLL_URL are set; see docs/hermes-enroll.md.
 
 use hermes_rs::api::Gateway;
 use hermes_rs::config::Config;
@@ -118,6 +121,27 @@ fn main() {
     let mut gw = Gateway::new(cfg.clone(), agent, store, api_key);
     let sched = Arc::new(hermes_rs::cron::Scheduler::new(&cfg.home, Some(cron_agent)));
     gw.jobs = Some(sched.clone());
+    match hermes_rs::enroll::EnrollCfg::from_env(&cfg, &env) {
+        Ok(None) => {}
+        Ok(Some(ec)) => match hermes_rs::enroll::Enroll::open(ec) {
+            Ok(e) => {
+                log(&format!(
+                    "enroll on: {} store {}",
+                    e.cfg.url,
+                    e.cfg.store.display()
+                ));
+                gw.enroll = Some(Arc::new(e));
+            }
+            Err(e) => {
+                log(&format!("refusing to start: enroll: {e}"));
+                std::process::exit(2);
+            }
+        },
+        Err(e) => {
+            log(&format!("refusing to start: enroll: {e}"));
+            std::process::exit(2);
+        }
+    }
     let gw = Arc::new(gw);
     if cfg.cron_enabled {
         sched.spawn();

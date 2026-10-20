@@ -20,3 +20,7 @@ sqlite = ["dep:rusqlite"]
 serde_json = { workspace = true, features = ["preserve_order"] }
 openmind-persona = { path = "../openmind-persona" }
 rusqlite = { version = "0.32", default-features = false, features = ["bundled"], optional = true }
+# Device enrollment (src/enroll): Ed25519 strict verify, SHA-256, OS randomness.
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
+sha2 = { version = "0.10", default-features = false, features = ["std"] }
+getrandom = "0.2"

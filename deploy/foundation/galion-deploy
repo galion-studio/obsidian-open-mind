@@ -13,7 +13,9 @@
 # Optional overrides (all unset = original behaviour, original paths):
 #   GALION_DEPLOY_BACKUP_DIR (/var/backups/galion/deploy), GALION_DEPLOY_DATA_BACKUP
 #   (/opt/galion/rust/bin/galion-backup.sh), GALION_DEPLOY_VERSION_TIMEOUT (seconds; unset =
-#   wait for "<new> --version" forever, as before).
+#   wait for "<new> --version" forever, as before), GALION_DEPLOY_RESET_FAILED=1 (run
+#   reset-failed before each restart, so a start limit hit by a crash-looping binary cannot
+#   refuse the rollback restart; unset = as before).
 set -euo pipefail
 umask 077
 log() { echo "ts=$(TZ=Europe/Zagreb date -Iseconds) svc=galion-deploy $*"; }
@@ -35,6 +37,7 @@ case ${GALION_DEPLOY_SM:-systemd} in
     sm_restart() { systemctl restart "$1.service"; }
     sm_active()  { systemctl is-active --quiet "$1.service"; }
     sm_journal() { journalctl -u "$1.service" -n 20 --no-pager -o cat; }
+    sm_reset()   { systemctl reset-failed "$1.service"; }
     ;;
   direct)
     [ -n "${GALION_DEPLOY_CTL:-}" ] || die "GALION_DEPLOY_SM=direct needs GALION_DEPLOY_CTL"
@@ -44,6 +47,7 @@ case ${GALION_DEPLOY_SM:-systemd} in
     sm_restart() { "${CTL[@]}" restart "$1"; }
     sm_active()  { "${CTL[@]}" is-active "$1" >/dev/null 2>&1; }
     sm_journal() { "${CTL[@]}" journal "$1" 20; }
+    sm_reset()   { "${CTL[@]}" reset-failed "$1"; }
     ;;
   *) die "unknown GALION_DEPLOY_SM=${GALION_DEPLOY_SM} (systemd|direct)" ;;
 esac
@@ -79,6 +83,7 @@ healthy() {
 }
 
 install -m 0755 "$NEW" "$TARGET.new" && mv -f "$TARGET.new" "$TARGET"
+[ "${GALION_DEPLOY_RESET_FAILED:-0}" = 1 ] && sm_reset "$SVC"
 sm_restart "$SVC"
 if healthy; then
   log "level=info msg=\"deployed\" unit=$SVC health=$URL"
@@ -88,6 +93,7 @@ fi
 log "level=error msg=\"health failed, rolling back\" unit=$SVC"
 sm_journal "$SVC" | sed 's/^/  | /' | cut -c1-240
 install -m 0755 "$BAK" "$TARGET.new" && mv -f "$TARGET.new" "$TARGET"
+[ "${GALION_DEPLOY_RESET_FAILED:-0}" = 1 ] && sm_reset "$SVC"
 sm_restart "$SVC"
 healthy && { log "level=warn msg=\"rolled back ok\" unit=$SVC"; exit 1; }
 die "ROLLBACK ALSO UNHEALTHY for $SVC; manual action needed (backup $BAK)"

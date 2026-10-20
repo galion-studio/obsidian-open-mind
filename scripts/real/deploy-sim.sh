@@ -30,6 +30,8 @@ code() { curl -s -o /dev/null -m 3 -w '%{http_code}' "$1"; }
 ctl() { "$BIN/simsup" --root "$R" ctl "$@"; }
 sha() { sha256sum "$1" | cut -c1-16; }
 listeners() { ss -ltnpH "sport = :$1" 2>/dev/null | sed 's/  */ /g'; }
+# PIDs of "<file> --version" processes (fixed-string match: backup names contain "+")
+vpids() { local e; e=$(printf "%s" "$1" | sed "s/[][\\.*^$+?(){}|]/\\\\&/g"); pgrep -f "^$e --version" | tr "\n" " " | sed "s/ $//"; }
 
 # DENV: extra environment for the deploy, so that a "--version" which ignores its
 # argument binds the SAME address it would on the VPS (there the default port is the
@@ -58,6 +60,9 @@ probe_stop() {
   DOWN=$(grep -o 'until_ok_ms=[0-9]*' "$R/probe.out" | cut -d= -f2 | sort -n | tail -1)
   NEVER=$(grep -c 'next_ok=never' "$R/probe.out")
   DOWN=${DOWN:-0}
+  # a window that never ended in an OK answer counts with its whole fail span
+  local nspan; nspan=$(grep "next_ok=never" "$R/probe.out" | grep -o "fail_span_ms=[0-9]*" | cut -d= -f2 | sort -n | tail -1)
+  if [ -n "$nspan" ]; then DOWN=$(( nspan > DOWN ? nspan : DOWN )); echo "  probe| NOTE: service was still down when the probe stopped"; fi
 }
 wait_code() { # wait_code URL CODE SECONDS
   local i; for i in $(seq 1 $(( $3 * 10 ))); do [ "$(code "$1")" = "$2" ] && return 0; sleep 0.1; done; return 1
@@ -153,11 +158,13 @@ U
   check "3.4 / is 200 2356 and /nope is 404" "$([ "$rootline" = "200 2356" ] && [ "$root404" = 404 ]; echo $?)" "$rootline / $root404"
   ctl journal tuner 3 | sed 's/^/  journal| /'
   # 21-route byte diff against the live fixtures (old binary bytes, captured from VPS 8650)
+  grep -v '^#' "$HERE/scripts/real/tuner-requests.txt" | "$HERE/scripts/real/tuner-capture.sh" "$P" > "$R/routes.b64" 2>"$R/capture.err"
+  echo "route capture: exit ${PIPESTATUS[1]}, $(wc -l < "$R/routes.b64") responses"
   local same=0 tot=0 nm b64
   while read -r nm b64; do
     tot=$((tot+1))
     if [ -f "$HERE/crates/tuner/tests/fixtures/live/$nm.http" ] && cmp -s <(echo "$b64" | base64 -d) "$HERE/crates/tuner/tests/fixtures/live/$nm.http"; then same=$((same+1)); else echo "  route DIFF: $nm"; fi
-  done < <(grep -v '^#' "$HERE/scripts/real/tuner-requests.txt" | "$HERE/scripts/real/tuner-capture.sh" "$P" 2>"$R/capture.err")
+  done < "$R/routes.b64"
   [ -s "$R/capture.err" ] && sed 's/^/  capture-stderr| /' "$R/capture.err"
   check "3.4 all routes byte-identical to the live fixtures" "$([ "$same" = "$tot" ] && [ "$tot" -gt 0 ]; echo $?)" "$same/$tot"
 
@@ -179,31 +186,48 @@ U
   check "L3 last resort: old sha back and healthy" "$([ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ]; echo $?)" "sha $(sha "$T")"
   echo "DOWNTIME tuner rollback-L3 ${DOWN} ms" >> "$R/downtime"
 
-  say "rollback level 1 (automatic): deploy a broken binary (valid ELF, exits 1 on start)"
-  probe_start 127.0.0.1:$P /health 5
-  tdeploy 90 tuner "$BIN/sim-broken" "$H"
-  probe_stop
-  check "L1 broken binary: rolled back (exit 1), old sha, healthy" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC, sha $(sha "$T"), outage ${DOWN} ms"
-  echo "DOWNTIME tuner auto-rollback-broken ${DOWN} ms" >> "$R/downtime"
-  ctl show tuner | grep -E 'NRestarts|StartLimit'
-
-  say "rollback level 1 (automatic): truncated ELF (exec format error -> 203/EXEC)"
+  # l1 LABEL FILE: automatic rollback. systemd's default start limit (5 starts per 10 s,
+  # fixed window) and RestartSec=2 race with galion-deploy's 20 s health loop: if the
+  # rollback restart lands in a full window it is refused, galion-deploy dies under
+  # set -e (exit 1, the same code as "rolled back ok") and the unit stays failed.
+  l1() {
+    local label=$1 file=$2 before; before=$(grep -c start-limit-hit "$R/journal/tuner.log")
+    ctl reset-failed tuner >/dev/null
+    probe_start 127.0.0.1:$P /health 5
+    tdeploy 90 tuner "$file" "$H"
+    probe_stop
+    ctl journal tuner 60 | grep -E 'SEGV|203/EXEC|exited, code' | tail -2 | sed 's/^/  journal| /'
+    if [ "$(grep -c start-limit-hit "$R/journal/tuner.log")" -gt "$before" ] && [ "$(ctl is-active tuner)" = failed ]; then
+      echo "TRAP: rollback restart refused by the start limit; unit $(ctl is-active tuner), sha on disk $(sha "$T"), /health $(code "$H")"
+      echo "TRAP $label" >> "$R/traps"
+      local t=$(date +%s%N); x ctl reset-failed tuner; x ctl restart tuner; wait_code "$H" 200 5
+      check "$label: start-limit trap fired; recovered by reset-failed + restart" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC, down until manual recovery, recovery $(ms_since "$t") ms"
+    else
+      check "$label: rolled back ok (exit 1), old sha, healthy" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC, outage ${DOWN} ms"
+    fi
+    echo "DOWNTIME tuner $label ${DOWN} ms" >> "$R/downtime"
+  }
+  : > "$R/traps"
   head -c 65536 "$N" > "$STAGE/tuner-truncated"; chmod 0755 "$STAGE/tuner-truncated"
-  ctl reset-failed tuner >/dev/null
-  probe_start 127.0.0.1:$P /health 5
-  tdeploy 90 tuner "$STAGE/tuner-truncated" "$H"
-  probe_stop
-  check "L1 truncated ELF: rolled back, old sha, healthy" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC, outage ${DOWN} ms"
-  ctl journal tuner 40 | grep -m3 'Failed to execute\|203' | sed 's/^/  journal| /'
+  say "rollback level 1 (automatic): broken binary (valid ELF, exits 1 at start)"
+  l1 "L1 broken binary" "$BIN/sim-broken"
+  say "rollback level 1 (automatic): truncated ELF (first 64 KiB of the new tuner; crashes at start)"
+  l1 "L1 truncated ELF" "$STAGE/tuner-truncated"
+  say "rollback level 1 with GALION_DEPLOY_RESET_FAILED=1 (opt-in): the rollback restart cannot be refused"
+  for i in 1 2 3; do
+    GALION_DEPLOY_RESET_FAILED=1 tdeploy 90 tuner "$STAGE/tuner-truncated" "$H"
+    check "L1 truncated ELF + RESET_FAILED run $i: rolled back ok" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC"
+  done
+  echo "start-limit traps without the opt-in in this run: $(wc -l < "$R/traps")"
 
   say "hang A: binary that hangs on --version, galion-deploy as shipped (no timeout)"
   ctl reset-failed tuner >/dev/null
   local nb; nb=$(ls "$R"/var/backups/galion/deploy | wc -l)
   bg_deploy 25 tuner "$BIN/sim-hang" "$H"
   sleep 5
-  echo "5 s in: deploy still running; '--version' processes: $(pgrep -f "^$BIN/sim-hang --version" | tr '\n' ' '); health $(code "$H"); backups $(ls "$R"/var/backups/galion/deploy | wc -l)"
+  echo "5 s in: deploy still running; '--version' processes: $(vpids "$BIN/sim-hang"); health $(code "$H"); backups $(ls "$R"/var/backups/galion/deploy | wc -l)"
   bg_wait
-  local orphan; orphan=$(pgrep -f "^$BIN/sim-hang --version" | tr '\n' ' ')
+  local orphan; orphan=$(vpids "$BIN/sim-hang")
   echo "after the outer timeout (SIGTERM to the process group): orphaned '--version' processes: ${orphan:-none}"
   check "hang A: deploy never returns on its own (killed by outer timeout 124), service untouched" \
     "$([ "$DRC" = 124 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ] && [ "$(ls "$R"/var/backups/galion/deploy | wc -l)" = "$nb" ]; echo $?)" "exit $DRC, sha $(sha "$T"), orphan ${orphan:-none}"
@@ -222,11 +246,11 @@ U
   x ctl stop tuner; echo "port $P: $(listeners $P | wc -l) listener(s)"
   bg_deploy 20 tuner "$BAK" "$H"
   sleep 5
-  local during dcode; during=$(pgrep -f "^$BAK --version" | tr '\n' ' '); dcode=$(code "$H")
+  local during dcode; during=$(vpids "$BAK"); dcode=$(code "$H")
   echo "5 s in: unit state $(ctl is-active tuner); listeners on $P: $(listeners $P)"
   echo "GET $H -> $dcode, answered by '$BAK --version' (pid ${during:-none}), a process outside the unit"
   bg_wait
-  orphan=$(pgrep -f "^$BAK --version" | tr '\n' ' ')
+  orphan=$(vpids "$BAK")
   echo "after the outer timeout: orphan ${orphan:-none}; unit $(ctl is-active tuner)"
   check "hang C: deploy hangs while the old binary's --version serves the port outside the unit" "$([ "$DRC" = 124 ] && [ -n "$during" ] && [ "$dcode" = 200 ]; echo $?)" "exit $DRC, --version pid ${during:-none} answered $dcode"
   [ -n "$orphan" ] && kill $orphan; sleep 0.3
@@ -236,7 +260,7 @@ U
   say "hang C with GALION_DEPLOY_VERSION_TIMEOUT=5: same situation completes"
   tdeploy 60 tuner "$N" "$H"; x ctl stop tuner
   GALION_DEPLOY_VERSION_TIMEOUT=5 tdeploy 60 tuner "$BAK" "$H"
-  check "hang C + timeout: manual rollback completes, old sha, healthy, no orphan" "$([ "$DRC" = 0 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ] && ! pgrep -f "^$BAK --version" >/dev/null; echo $?)" "exit $DRC"
+  check "hang C + timeout: manual rollback completes, old sha, healthy, no orphan" "$([ "$DRC" = 0 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ] && [ -z "$(vpids "$BAK")" ]; echo $?)" "exit $DRC"
 
   say "end state"
   ctl status
@@ -338,6 +362,14 @@ nerve() {
   local t=$(date +%s%N)
   x ctl reset-failed galion-nerve; x ctl restart galion-nerve; wait_code "$H" 200 10
   check "recovery: reset-failed + restart brings the old nerve back" "$([ "$(code "$H")" = 200 ]; echo $?)" "$(ms_since "$t") ms"
+
+  say "the same 6th-start situation with GALION_DEPLOY_RESET_FAILED=1 (opt-in)"
+  ctl reset-failed galion-nerve >/dev/null
+  for i in 1 2 3; do ctl restart galion-nerve >/dev/null; done
+  wait_code "$H" 200 10
+  echo "4 starts used in the 600 s window (recovery + 3 restarts standing in for swap/L2/forward); now a broken deploy:"
+  GALION_DEPLOY_RESET_FAILED=1 tdeploy 90 galion-nerve "$BIN/sim-broken" "$H"
+  check "RESET_FAILED=1: rolled back ok even with a full start-limit window" "$([ "$DRC" = 1 ] && [ "$(sha "$T")" = "$OLD" ] && [ "$(code "$H")" = 200 ] && [ "$(ctl is-active galion-nerve)" = active ]; echo $?)" "exit $DRC, unit $(ctl is-active galion-nerve)"
 
   say "rollback level 1 (automatic) with an empty start-limit window"
   ctl reset-failed galion-nerve >/dev/null
@@ -507,11 +539,11 @@ U
   x ctl stop galion-desk
   bg_deploy 20 galion-desk "$N" "$H"
   sleep 5
-  local during dcode; during=$(pgrep -f "^$N --version" | tr '\n' ' '); dcode=$(code "$H")
+  local during dcode; during=$(vpids "$N"); dcode=$(code "$H")
   echo "5 s in: unit $(ctl is-active galion-desk); GET $H -> $dcode from '$N --version' (pid ${during:-none})"
   bg_wait
   check "FINDING: deploy hangs while 'galion-desk --version' serves the port outside the unit" "$([ "$DRC" = 124 ] && [ -n "$during" ] && [ "$dcode" = 200 ]; echo $?)" "exit $DRC"
-  pkill -f "^$N --version"; sleep 0.3
+  v=$(vpids "$N"); [ -n "$v" ] && kill $v; sleep 0.3
   GALION_DEPLOY_VERSION_TIMEOUT=5 tdeploy 60 galion-desk "$N" "$H"
   check "same with GALION_DEPLOY_VERSION_TIMEOUT=5: deploy completes" "$([ "$DRC" = 0 ] && [ "$(sha "$T")" = "$NEW" ] && [ "$(code "$H")" = 200 ]; echo $?)" "exit $DRC"
   ctl status

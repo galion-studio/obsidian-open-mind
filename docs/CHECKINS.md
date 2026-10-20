@@ -278,3 +278,5 @@
 - 2026-10-20T09:58:30+02:00 | REUSE-GAP: headers are present. REUSE.toml was not created.
 
 - 2026-10-20T09:58:42+02:00 | LIVE-PIDS-NOW: the live processes were listed. None was killed.
+
+- 2026-10-20T09:58:48+02:00 | BINARY-STRINGS: the dist copies are older than the env names in source. They were not run.

@@ -23,6 +23,19 @@ pub enum FunctionId {
 }
 
 impl FunctionId {
+    /// **The single config point** for who owns compute (`vram-pool`, `quotas`,
+    /// `queues`, `budget-caps`; implemented by `openmind-queue`).
+    ///
+    /// Two registries disagree and this crate does not decide between them:
+    /// the ws/gaia design (`gaia/docs/gaia-design.md` 4.2) gives compute to
+    /// POSEIDON, the VPS ownership registry (`docs/gaia-ownership.md`) puts
+    /// compute adapters under HEPHAESTUS. The ownership table below reads
+    /// this constant for the four compute rows, so changing the owner is a
+    /// one-line edit here. See `docs/gaia-poseidon.md` for what else a flip
+    /// needs (the new owner must declare and delegate the systems; GAIA
+    /// refuses to register a function whose declaration does not match).
+    pub const COMPUTE: FunctionId = FunctionId::Poseidon;
+
     pub const ALL: [FunctionId; 9] = [
         FunctionId::Hades,
         FunctionId::Minerva,
@@ -177,11 +190,11 @@ systems! {
     AgentSpawning => ("agent-spawning", Artemis, "agent spawning (Gaia, Hermes)", false),
     AgentRetirement => ("agent-retirement", Artemis, "agent retirement (Gaia, Hermes)", false),
     EcosystemCensus => ("ecosystem-census", Artemis, "population census (Gaia)", false),
-    // POSEIDON: compute resources.
-    VramPool => ("vram-pool", Poseidon, "GPU/RunPod pool and offload (openmind-memory offload)", false),
-    Quotas => ("quotas", Poseidon, "CPU/RAM/disk quotas, openmind-sandbox rlimits", false),
-    Queues => ("queues", Poseidon, "queues and backpressure", false),
-    BudgetCaps => ("budget-caps", Poseidon, "spend caps only; no real-money access", false),
+    // Compute: owned by `FunctionId::COMPUTE` (POSEIDON today; the single config point).
+    VramPool => ("vram-pool", COMPUTE, "crates/openmind-queue VRAM registry, GPU -> LAN -> CPU routing (model only, no spend)", false),
+    Quotas => ("quotas", COMPUTE, "crates/openmind-queue per-agent quotas; openmind-sandbox rlimits", false),
+    Queues => ("queues", COMPUTE, "crates/openmind-queue durable queues, leases, DLQ, backpressure", false),
+    BudgetCaps => ("budget-caps", COMPUTE, "crates/openmind-queue spend caps (read-only via Gaia); no real-money access", false),
     // AETHER: atmosphere and communications.
     Messaging => ("messaging", Aether, "chat and messaging channels", false),
     Nerve => ("nerve", Aether, "the nerve: signal lines between components", false),
@@ -206,6 +219,19 @@ systems! {
 }
 
 impl System {
+    /// The compute systems, whose owner is [`FunctionId::COMPUTE`].
+    pub const COMPUTE: [System; 4] = [
+        System::VramPool,
+        System::Quotas,
+        System::Queues,
+        System::BudgetCaps,
+    ];
+
+    /// Whether this is one of the [`System::COMPUTE`] systems.
+    pub fn is_compute(self) -> bool {
+        System::COMPUTE.contains(&self)
+    }
+
     /// Parse a kebab-case system name.
     pub fn parse(s: &str) -> Option<System> {
         System::ALL.iter().copied().find(|x| x.name() == s)
@@ -250,6 +276,17 @@ mod tests {
         for s in System::ALL {
             assert_eq!(s.destructive(), s.function() == FunctionId::Hades, "{s}");
         }
+    }
+
+    #[test]
+    fn compute_rows_follow_the_single_config_point() {
+        assert!(FunctionId::COMPUTE.systems().len() >= 4);
+        for s in System::COMPUTE {
+            assert!(s.is_compute());
+            assert_eq!(s.function(), FunctionId::COMPUTE, "{s}");
+        }
+        let n = System::ALL.iter().filter(|s| s.is_compute()).count();
+        assert_eq!(n, 4);
     }
 
     #[test]

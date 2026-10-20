@@ -5,6 +5,7 @@
 //! deterministic scenarios the `gaia` CLI prints.
 
 pub mod live_heal;
+pub mod poseidon;
 
 use gaia_core::{Directive, FunctionId, Gaia, Json, Lifecycle, Outcome, Report, System, Verb};
 
@@ -23,8 +24,15 @@ pub const SWARM_UNITS: u64 = 256;
 pub const PLAGUE_FLOOR_PERCENT: u64 = 10;
 pub const PLAGUE_TICKS: u64 = 12;
 
-/// GAIA with all nine functions registered (dormant).
+/// GAIA with all nine functions registered (dormant), POSEIDON on the
+/// in-memory stand-in.
 pub fn build() -> Gaia {
+    build_with(Box::new(gaia_poseidon::Poseidon::new()))
+}
+
+/// GAIA with all nine functions registered (dormant) and the given compute
+/// function (the stand-in or `gaia_poseidon::Poseidon::with_queue`).
+pub fn build_with(compute: Box<dyn gaia_core::SubordinateFunction>) -> Gaia {
     let mut g = Gaia::default();
     let funcs: Vec<Box<dyn gaia_core::SubordinateFunction>> = vec![
         Box::new(gaia_hades::Hades::new()),
@@ -32,7 +40,7 @@ pub fn build() -> Gaia {
         Box::new(gaia_apollo::Apollo::new()),
         Box::new(gaia_hephaestus::Hephaestus::new()),
         Box::new(gaia_artemis::Artemis::new()),
-        Box::new(gaia_poseidon::Poseidon::new()),
+        compute,
         Box::new(gaia_aether::Aether::new()),
         Box::new(gaia_demeter::Demeter::new()),
         Box::new(gaia_eleuthia::Eleuthia::new()),

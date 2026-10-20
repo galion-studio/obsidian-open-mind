@@ -1,22 +1,67 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 3000 Galion / galion-studio -->
-# Real-life tests: tunnel-lint (slot 35, ports 19350-19359)
+# Real-life tests: tunnel-lint (wave-4 slot 103, ports 19730-19739)
 
-Run: `scripts/real/tunnel-audit.sh` on the box, 2026-10-20 20:45:59 +02:00, exit 0, `PASS`.
-Also `GALION_REAL=1 cargo test -p tunnel-lint --test real_tunnel_lint` (1 passed,
-ports 19355-19357). All started processes were killed; `ss -ltn` showed no
-listener left on 19350-19359 afterwards.
+Current run (Rust only, slot 103 `tunnel-audit-2`), 2026-10-21 00:57:19 +02:00, exit 0:
 
-What the script does:
-1. Builds release `tunnel-lint` and `tuner` (the workspace's real static HTTP server).
-2. Takes the secrets-free copy of the VPS ingress config
+```
+cargo build --release -p tuner -p tunnel-lint
+GALION_REAL=1 cargo test --release -p tunnel-lint --test real_tunnel_lint -- --nocapture
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.38s
+```
+
+Full log on the box: `/workspace/swarm/evidence/tunnel-audit-2/real-run.txt`.
+After the run `ss -ltn` showed no listener on 19730-19739.
+
+The former `scripts/real/tunnel-audit.sh` (slot 35, ports 19350-19359) was ported
+to the Rust test `real_vps_copy_with_tuner_origins` in
+`crates/tunnel-lint/tests/real_tunnel_lint.rs` and deleted (Rust-only rule, 20:41).
+The two gated tests share one mutex because they share the slot's port range.
+
+What `real_vps_copy_with_tuner_origins` does:
+1. Uses the release `tunnel-lint` and `tuner` (the workspace's real static HTTP
+   server) from the same target dir (`TUNER_BIN` overrides); fails with a build hint
+   if `tuner` is missing.
+2. Checks 19730-19739 are free.
+3. Takes the secrets-free copy of the VPS ingress config
    (`crates/tunnel-lint/tests/fixtures/vps-config-20261020.yml`), moves the 4 live VPS
-   origins (8671, 8091, 8080, 8650) to 19350-19353 and the 21 dead VPS ports onto
-   19354-19359 (round-robin), `chmod 666` like the VPS file.
-3. Starts 4 real `tuner` origins on 19350-19353 and `curl`s each (200).
-4. Lints live (TCP probes), stages, re-lints the staged copy, kills the 19353 origin,
-   revives dead port 19354 with another `tuner`, replays the VPS `ss -ltnp` capture
-   offline, and checks the credentials guard.
+   origins (8671, 8091, 8080, 8650) to 19730-19733 and the 21 dead VPS ports onto
+   19734-19739 (round-robin), `chmod 666` like the VPS file.
+4. Starts 4 real `tuner` origins on 19730-19733 and GETs `/` on each (200).
+5. Lints live: exit 1, `summary: 39 rules, 33 closed routes on 6 ports [19734 … 19739]`,
+   5 OPEN rows, world-writable warning, credentials-file note.
+6. Stages with `--no-fail`, re-lints the staged copy at mode 640: exit 0,
+   `summary: 6 rules, 0 closed routes on 0 ports [], 0 findings`.
+7. Kills the 19733 origin: `tuner.galion.app … 19733 CLOSED`, exit 1.
+8. Revives dead port 19734 with another `tuner`: all 7 rules on 19734 flip to OPEN.
+9. Replays the VPS `ss -ltnp` capture offline: exactly 21 closed ports
+   `[3004 … 8889]`, 33 findings, exit 1.
+10. Credentials guard: `*.json` is refused with exit 2.
+11. Teardown (also on panic, via `Drop`): every origin killed, no listener left.
+
+Key lines of the 2026-10-21 run:
+
+```
+== 2026-10-21T00:57:19+02:00 lint live (expect exit 1: 33 closed routes on 6 ports, 5 open)
+warn: /tmp/tunnel-lint-real-vps-2816082/config.yml is world-writable (mode 666): any local user can reroute the tunnel
+summary: 39 rules, 33 closed routes on 6 ports [19734, 19735, 19736, 19737, 19738, 19739], 34 findings
+note: credentials-file is referenced; tunnel-lint did not read it
+exit=Some(1)
+== 2026-10-21T00:57:19+02:00 stage, re-lint staged (expect exit 0)
+summary: 6 rules, 0 closed routes on 0 ports [], 0 findings
+exit=Some(0)
+== 2026-10-21T00:57:19+02:00 kill the tuner on 19733 (tuner.galion.app) and re-lint
+38	tuner.galion.app		http://127.0.0.1:19733	19733	CLOSED	
+== 2026-10-21T00:57:19+02:00 offline replay of the VPS capture (ss -ltnp 2026-10-20 20:35 +02:00)
+summary: 39 rules, 33 closed routes on 21 ports [3004, 3005, 3010, 3011, 3015, 3020, 3080, 3333, 4000, 4001, 4003, 4004, 4020, 4042, 4050, 4060, 4444, 5530, 7681, 8000, 8889], 33 findings
+== 2026-10-21T00:57:19+02:00 teardown
+PASS 2026-10-21T00:57:19+02:00
+```
+
+## Earlier run (slot 35, shell script, now removed)
+
+`scripts/real/tunnel-audit.sh` on the box, 2026-10-20 20:45:59 +02:00, exit 0, `PASS`,
+ports 19350-19359; same steps and same results as above with ports shifted by -380.
 
 ## Read-only VPS probes used for comparison (no files written on the VPS)
 
@@ -33,7 +78,7 @@ What the script does:
 journal show: 21 closed ports; every origin in the journal's "connection
 refused" list is among them, and none of the 5 OPEN rules appears there.
 
-## Script output (abridged, full log on the box at `/workspace/swarm/evidence/tunnel-audit/real-run.txt`)
+## Slot 35 script output (abridged, full log on the box at `/workspace/swarm/evidence/tunnel-audit/real-run.txt`)
 
 ```
 

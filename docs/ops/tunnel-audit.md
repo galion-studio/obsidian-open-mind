@@ -428,4 +428,4 @@ Ingress hunk, line numbers as in the live file:
 - Exit 0 clean, 1 errors, 2 usage/read/parse error. Release binary: 447 KB
   (x86_64 musl), 392 KB (aarch64 musl).
 
-Real-life test: `scripts/real/tunnel-audit.sh`, results in `docs/real-tests/tunnel-audit.md`.
+Real-life test: `GALION_REAL=1 cargo test --release -p tunnel-lint --test real_tunnel_lint` (needs `cargo build --release -p tuner` first), results in `docs/real-tests/tunnel-audit.md`.

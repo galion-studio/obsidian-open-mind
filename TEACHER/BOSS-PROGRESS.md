@@ -323,3 +323,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-20T10:28:20+02:00 | TUNER-REL | grok-build | PASS 9/10 | docs/reallife-tuner-release.md | stripped release tuner 331944 bytes; spare 18650 returned 200; live pid 1196273 not replaced
 
 - 2026-10-20T10:30:27+02:00 | MEM-SEARCH | grok-build | PASS 9/10 | docs/memory-shadow-search.md | candidate search keys match the documented live shape; 8420 not posted
+
+- 2026-10-20T10:30:41+02:00 | ROUTE-DRY | grok-build | PASS 9/10 | docs/route-dry.md | ALREADY: approved CPU-local is chosen in a test and no socket is opened

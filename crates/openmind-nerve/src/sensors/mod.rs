@@ -36,6 +36,7 @@ use std::time::Instant;
 pub mod components;
 pub mod ddos;
 pub mod edge;
+pub mod edgerate;
 pub mod listeners;
 pub mod scanners;
 
@@ -154,6 +155,7 @@ impl Sensors {
     pub fn from_env(env: Env) -> Self {
         let mut s = Self::builtin();
         // S2 sensors: one line each, e.g. `s.add_opt(sshd::SshAuth::from_env(env));`
+        s.add_opt(edgerate::EdgeRate::from_env(env));
         let off: Vec<String> = env("NERVE_SENSORS_OFF")
             .unwrap_or_default()
             .split(',')
@@ -285,10 +287,20 @@ mod tests {
             Sensors::builtin().names(),
             ["listeners", "scanners", "edge", "components", "ddos"]
         );
+        // Registered S2 sensors run after the built-ins.
         assert_eq!(
             Sensors::from_env(&|_| None).names(),
-            Sensors::builtin().names()
+            [
+                "listeners",
+                "scanners",
+                "edge",
+                "components",
+                "ddos",
+                "edge-rate"
+            ]
         );
+        let off = |k: &str| (k == "NERVE_EDGE_HOSTS").then(|| "0".to_string());
+        assert_eq!(Sensors::from_env(&off).names(), Sensors::builtin().names());
     }
 
     #[test]
@@ -296,7 +308,7 @@ mod tests {
         let env = |k: &str| (k == "NERVE_SENSORS_OFF").then(|| " edge, ddos ,nope".to_string());
         assert_eq!(
             Sensors::from_env(&env).names(),
-            ["listeners", "scanners", "components"]
+            ["listeners", "scanners", "components", "edge-rate"]
         );
     }
 

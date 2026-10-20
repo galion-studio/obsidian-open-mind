@@ -83,6 +83,6 @@ sensor emits ddos-kind findings; `/api/v1/state` gains `cortex_sensors` `[{name,
 | T2.9 public DNS/TLS/HTTP | network GETs when `live` (keep under budget: cache/rotate) | ready |
 | T2.10 Gaia `/event` feed | event JSONL via its own env; `Sev::parse`, `FindingKind::parse` | ready |
 | T2.11 POSEIDON budget bleed | after nerve-wiring lands | API ready, blocked on nerve-wiring |
-| T2.12 per-hostname edge rate | `input.journal` (cloudflared `dest=`) | ready (feeding the access.rs detector itself needs engine.rs: T2.0) |
+| T2.12 per-hostname edge rate | `input.journal` (cloudflared `dest=`) | **done** on `swarm/cortex-t212-edgerate`: sensor `edge-rate` + engine.rs feeder hook ([edge-rate.md](edge-rate.md)) |
 | T2.13 hades/sandbox misbehaviour | `input.journal` | ready |
 | T2.15 push wiring | nerve-client/hub.rs (nerve-wiring) | not a sensor; unaffected |

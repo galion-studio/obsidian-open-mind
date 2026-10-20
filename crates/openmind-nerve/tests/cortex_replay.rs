@@ -37,10 +37,12 @@ fn replay_matches_the_pre_trait_build() {
     .unwrap();
     support::canon(&mut want);
     let mut got = sh.report.clone();
+    // T2.12 edge-host streams are additive (checked in edge_host_streams_from_the_journal).
+    support::drop_edge_hosts(&mut got);
     support::canon(&mut got);
     assert_eq!(got, want, "report differs from the pre-trait golden");
     assert_eq!(
-        sh.report_md,
+        support::drop_edge_hosts_md(&sh.report_md),
         support::expected_md(&fixture()),
         "markdown differs from the pre-trait golden"
     );
@@ -77,7 +79,14 @@ fn every_finding_names_its_kind_and_sensor() {
     assert!(cx.ddos_firing);
     assert_eq!(
         out.engine.sensors.names(),
-        ["listeners", "scanners", "edge", "components", "ddos"]
+        [
+            "listeners",
+            "scanners",
+            "edge",
+            "components",
+            "ddos",
+            "edge-rate"
+        ]
     );
     let ran: Vec<(&str, usize)> = out
         .engine
@@ -125,4 +134,53 @@ fn findings_are_valid_b33_nerve_events() {
     // B41: counts and tokens, never evidence lines (hostnames, addresses).
     let all = serde_json::to_string(&evs).unwrap();
     assert!(!all.contains("example.test"), "{all}");
+}
+
+/// T2.12: the fixture's cloudflared `Request failed ... dest=` lines become
+/// one counter-only stream per public hostname, judged by the access.rs
+/// detector; at fixture rates they stay normal and add no signal.
+#[test]
+fn edge_host_streams_from_the_journal() {
+    let out = run();
+    let sh = out.engine.shared.lock().unwrap();
+    let streams = sh.report["cortex"]["ddos"]["streams"].as_array().unwrap();
+    let hosts: Vec<(&str, &str, &str)> = streams
+        .iter()
+        .filter(|s| s["stream"].as_str().unwrap().starts_with("edge-host:"))
+        .map(|s| {
+            (
+                s["stream"].as_str().unwrap(),
+                s["level"].as_str().unwrap(),
+                s["component"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        hosts,
+        [
+            ("edge-host:one.example.test", "normal", "cloudflared"),
+            ("edge-host:two.example.test", "normal", "cloudflared"),
+        ]
+    );
+    for s in streams
+        .iter()
+        .filter(|s| s["stream"].as_str().unwrap().starts_with("edge-host:"))
+    {
+        assert!(s["total"].as_u64().unwrap() > 0, "{s}");
+        assert_eq!(s["shape"], "unknown (counter only)", "no client IPs kept");
+    }
+    let eh = out
+        .engine
+        .edge_hosts
+        .as_ref()
+        .expect("edge-rate on by default");
+    assert_eq!(eh.hosts(), 2);
+    assert!(eh.counted > 0);
+    assert!(out.engine.cortex.ddos_findings.is_empty());
+    assert!(!out
+        .engine
+        .cortex
+        .signals
+        .iter()
+        .any(|s| s.cause == "ddos:edge-cloudflared"));
 }

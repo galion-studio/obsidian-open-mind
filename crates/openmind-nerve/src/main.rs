@@ -23,7 +23,8 @@
 //! NERVE_ACCESS_LOGS (name=path[@component],...), NERVE_KNOWN_PORTS,
 //! NERVE_PUBLIC_OK_PORTS (22), NERVE_LISTEN_SCOPE (lo-hi), NERVE_DDOS_MIN_RPS (10),
 //! NERVE_DDOS_MIN_REQUESTS (300), NERVE_LOADING_GRACE (900), NERVE_EVENT_LOG,
-//! NERVE_SENSORS_OFF (cortex sensor names, comma-separated).
+//! NERVE_SENSORS_OFF (cortex sensor names, comma-separated), NERVE_EDGE_HOSTS (1; 0 = no
+//! per-hostname edge streams), NERVE_EDGE_HOSTS_MAX (32).
 //! Runtime dry-run switch: `echo live > $NERVE_DATA_DIR/mode` or `echo dry-run > ...`.
 
 use openmind_nerve::config::Config;

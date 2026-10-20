@@ -129,6 +129,7 @@ fn real_cortex_sensors_on_the_box() {
     assert_eq!(code, Some(1), "a failing verdict exits 1");
     let mut got: Value = serde_json::from_str(&out).unwrap();
     assert!(got["cortex"]["vulnerabilities"][0]["kind"].is_string());
+    support::drop_edge_hosts(&mut got); // T2.12 additive streams (tests/real_edge_rate.rs)
     support::canon(&mut got);
     let mut want: Value = serde_json::from_str(
         &std::fs::read_to_string(fx.join("cortex-replay.expected.json")).unwrap(),
@@ -137,7 +138,7 @@ fn real_cortex_sensors_on_the_box() {
     support::canon(&mut want);
     assert_eq!(got, want);
     let (_, md) = replay(&fx.join("cortex-replay"), &dir.join("replay-data"), true);
-    assert_eq!(md, support::expected_md(&fx));
+    assert_eq!(support::drop_edge_hosts_md(&md), support::expected_md(&fx));
     eprintln!(
         "replay fixture: score {} grade {} pass {} (= pre-trait golden)",
         want["score"], want["grade"], want["pass"]
@@ -183,7 +184,14 @@ fn real_cortex_sensors_on_the_box() {
         .collect();
     assert_eq!(
         names,
-        ["listeners", "scanners", "edge", "components", "ddos"],
+        [
+            "listeners",
+            "scanners",
+            "edge",
+            "components",
+            "ddos",
+            "edge-rate"
+        ],
         "{st}"
     );
     let f = unmanaged(&st).expect("stray listener reported");
@@ -260,7 +268,10 @@ fn real_cortex_sensors_on_the_box() {
         .iter()
         .filter_map(|s| s["name"].as_str())
         .collect();
-    assert_eq!(names, ["scanners", "edge", "components", "ddos"]);
+    assert_eq!(
+        names,
+        ["scanners", "edge", "components", "ddos", "edge-rate"]
+    );
     assert!(unmanaged(&st).is_none());
     assert!(st["cortex"]["exposure"].is_null());
     eprintln!("serve :19434 NERVE_SENSORS_OFF=listeners cycle {}: sensors {names:?}, stray :19435 not reported", st["cycle"]);

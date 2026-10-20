@@ -35,6 +35,9 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
    and `/api/v1/state` has `cortex_sensors` (per-sensor counts, us) and
    `cortex_events` (B33 `NerveEvent`s). `NERVE_SENSORS_OFF=name,...` turns
    sensors off. Adding one: [`docs/cortex/sensors.md`](../../docs/cortex/sensors.md).
+   S2 sensor `edge-rate` (T2.12): one `edge-host:<host>` DDoS stream per public
+   hostname from cloudflared `Request failed ... dest=` journal lines (see
+   [`docs/cortex/edge-rate.md`](../../docs/cortex/edge-rate.md)); `/api/v1/state` has `edge_hosts`.
 4. **DDoS detector**: 10 s buckets, 2 h kept; the baseline is the median and MAD of
    the window from 30 min ago to 2 min ago. Threshold = max(`NERVE_DDOS_MIN_RPS`,
    5x median, median + 8 x 1.4826 x MAD). Level = flood / elevated / normal,
@@ -67,7 +70,8 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
 `NERVE_COMPONENTS` (JSON component table), `NERVE_SYSTEMD=0`,
 `NERVE_JOURNAL=0`, `NERVE_REFLEX=0|1`, `NERVE_LISTEN_SCOPE=lo-hi`,
 `NERVE_KNOWN_PORTS`, `NERVE_PUBLIC_OK_PORTS`, `NERVE_DDOS_MIN_RPS`,
-`NERVE_DDOS_MIN_REQUESTS`, `NERVE_EVENT_LOG`, `NERVE_DATA_DIR`, `NERVE_SENSORS_OFF`.
+`NERVE_DDOS_MIN_REQUESTS`, `NERVE_EVENT_LOG`, `NERVE_DATA_DIR`, `NERVE_SENSORS_OFF`,
+`NERVE_EDGE_HOSTS=0`, `NERVE_EDGE_HOSTS_MAX` (32).
 
 Real-life tests: `GALION_REAL=1 cargo test -p openmind-nerve --test real_box`,
 `scripts/real/nerve.sh`, `scripts/real/nerve-capture-vps.sh` (read-only);

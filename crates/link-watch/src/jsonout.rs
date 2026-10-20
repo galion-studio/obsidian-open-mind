@@ -89,8 +89,10 @@ impl serde_json::ser::Formatter for PyFormatter {
 pub fn to_json_compat(value: &Value, spaced: bool) -> String {
     let mut buf: Vec<u8> = Vec::new();
     let mut ser = serde_json::Serializer::with_formatter(&mut buf, PyFormatter { spaced });
-    value.serialize(&mut ser).expect("serialise json");
-    String::from_utf8(buf).expect("utf-8 json")
+    if value.serialize(&mut ser).is_err() {
+        return String::new();
+    }
+    String::from_utf8(buf).unwrap_or_default()
 }
 
 /// CPython truthiness of a decoded JSON value.
@@ -120,5 +122,21 @@ pub fn json_str(value: &Value) -> String {
         Value::String(s) => s.clone(),
         Value::Array(_) => "[]".to_string(),
         Value::Object(_) => "{}".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn cpython_default_layout_and_ensure_ascii() {
+        let v = json!({"at": "x", "laptop": {"name": "Café"}, "events": ["a", "b"], "ok": true});
+        assert_eq!(
+            to_json_compat(&v, true),
+            r#"{"at": "x", "laptop": {"name": "Caf\u00e9"}, "events": ["a", "b"], "ok": true}"#
+        );
+        assert_eq!(to_json_compat(&json!(["😀"]), true), r#"["\ud83d\ude00"]"#);
     }
 }

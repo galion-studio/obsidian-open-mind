@@ -383,6 +383,7 @@ name = "galion-desk"
 version = "0.1.0"
 dependencies = [
  "openmind-config",
+ "serde_json",
 ]
 
 [[package]]

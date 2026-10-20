@@ -9,6 +9,9 @@
 
 #![forbid(unsafe_code)]
 
+pub mod http;
+pub mod urls;
+
 use serde_json::{Map, Value};
 
 /// Facts already collected by the caller. Nothing here is fetched.

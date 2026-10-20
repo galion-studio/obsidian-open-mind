@@ -100,6 +100,23 @@ pub fn health_body_summary(body: &str) -> Option<Value> {
     (!m.is_empty()).then_some(Value::Object(m))
 }
 
+/// Journal units read for the cortex sensors only (never component units:
+/// no sample, no status, no journal counts). `ssh.service` feeds the
+/// `sshd-auth` sensor (T2.1); a host without that unit yields no lines.
+pub const JOURNAL_EXTRA_UNITS: &[&str] = &["ssh.service"];
+
+/// The units whose journal lines one collection pass reads: the component
+/// units first, then [`JOURNAL_EXTRA_UNITS`] not already among them.
+pub fn journal_units<'a>(component_units: &[&'a str]) -> Vec<&'a str> {
+    let mut v = component_units.to_vec();
+    for u in JOURNAL_EXTRA_UNITS {
+        if !v.contains(u) {
+            v.push(u);
+        }
+    }
+    v
+}
+
 pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) -> Collected {
     let mut errs = vec![];
     let mut skipped = vec![];
@@ -120,7 +137,7 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
         skipped.push("journald (NERVE_JOURNAL=0 or no units)".to_string());
         vec![]
     } else {
-        match probe::journal_lines(&units, since) {
+        match probe::journal_lines(&journal_units(&units), since) {
             Ok(v) => v,
             Err(e) => {
                 errs.push(format!("journald: {e}"));
@@ -288,6 +305,27 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
 mod tests {
     use super::*;
 
+    #[test]
+    fn journal_units_add_ssh_once() {
+        assert_eq!(
+            journal_units(&["galion-one.service", "cloudflared.service"]),
+            ["galion-one.service", "cloudflared.service", "ssh.service"]
+        );
+        assert_eq!(
+            journal_units(&["ssh.service", "x.service"]),
+            ["ssh.service", "x.service"]
+        );
+        // ssh lines are read but never counted as a component's journal.
+        let lines = vec![probe::JLine {
+            t: 1,
+            unit: "ssh.service".into(),
+            prio: 3,
+            msg: "error: x".into(),
+        }];
+        let c = probe::journal_counts(&lines, &["galion-one.service"]);
+        assert!(!c.contains_key("ssh.service"));
+        assert_eq!(c["galion-one.service"].lines, 0);
+    }
     #[test]
     fn gaia_summary_is_shallow() {
         let v = json!({"functions": [1, 2, 3], "tick": 4, "bus": {"a": 1}});

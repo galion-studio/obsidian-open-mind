@@ -35,9 +35,10 @@
 //! - `NERVE_SSHD_AUTH_LOG` file for `bytes_added` (default
 //!   `/var/log/auth.log`; empty or `0` = off; a missing file is skipped).
 //!
-//! The live engine only collects journal lines of component units; until
-//! the T2.0 merger adds the ssh unit to that collection, a live nerve sees
-//! sshd lines only when a component spec names `ssh.service`.
+//! The live engine reads the journal of every component unit plus
+//! `collect::JOURNAL_EXTRA_UNITS` (`ssh.service`, T2.0 merge). An
+//! `sshd.service` or `sshd@*.service` host needs that unit in a component
+//! spec (or added to the extra list) before live lines reach this sensor.
 
 use super::{Env, Sensor, Sink};
 use crate::cortex::{Finding, FindingKind, Input};

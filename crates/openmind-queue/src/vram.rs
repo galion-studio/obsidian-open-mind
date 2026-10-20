@@ -13,9 +13,44 @@
 //! `openmind-provider` registry (the owner's approval), see
 //! [`VramPool::sync_providers`].
 
-use openmind_provider::{Approval as ProviderApproval, Health as ProviderHealth};
+use openmind_provider::{
+    Approval as ProviderApproval, ComputeProvider, Health as ProviderHealth, ProviderKind,
+    ProviderRecord,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+
+/// What the pool reads from one `openmind-provider` row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProviderView {
+    pub id: String,
+    pub kind: ProviderKind,
+    pub approval: ProviderApproval,
+    pub health: ProviderHealth,
+    pub vram_gb: Option<u32>,
+}
+
+impl ProviderView {
+    /// LAN rows need a `join` that said up; other rows are healthy unless down.
+    pub fn healthy(&self) -> bool {
+        match self.kind {
+            ProviderKind::Lan => self.health == ProviderHealth::Up,
+            _ => self.health != ProviderHealth::Down,
+        }
+    }
+}
+
+impl From<&ProviderRecord> for ProviderView {
+    fn from(r: &ProviderRecord) -> Self {
+        ProviderView {
+            id: r.id().to_string(),
+            kind: r.kind(),
+            approval: r.approval(),
+            health: r.health(),
+            vram_gb: r.vram_gb(),
+        }
+    }
+}
 
 /// The owner's VRAM capacity target (GB). Reaching it needs spend approval.
 pub const VRAM_GOAL_GB: u64 = 1500;
@@ -218,28 +253,34 @@ impl VramPool {
     }
 
     /// Mirror approval and health from `openmind-provider` rows onto the
-    /// devices that name a provider. Returns the changed devices (the caller
-    /// makes them durable). A device whose provider row is missing becomes
-    /// `planned`: no row, no approval.
-    pub fn sync_providers(
-        &self,
-        rows: &[(String, ProviderApproval, ProviderHealth)],
-    ) -> Vec<Device> {
+    /// pool. Returns the changed or new devices (the caller makes them
+    /// durable).
+    ///
+    /// - A device that names a provider row follows it: approved ->
+    ///   `approved`, pending -> `planned`, rejected -> `rejected`; a missing
+    ///   row makes it `planned` (no row, no approval).
+    /// - An **approved** LAN or GPU row that advertises `vram_gb` (discovery
+    ///   TXT `vram=`) and has no device yet becomes a device with the row's
+    ///   id. Pending and rejected rows never create a device.
+    /// - Health: a LAN row counts as healthy only when `join` recorded it
+    ///   `up` (never joined or down -> not routable); other rows are healthy
+    ///   unless `down`.
+    pub fn sync_providers(&self, rows: &[ProviderView]) -> Vec<Device> {
         let mut out = Vec::new();
         for d in self.devices.values() {
             if d.provider.is_empty() {
                 continue;
             }
-            let row = rows.iter().find(|(id, _, _)| *id == d.provider);
+            let row = rows.iter().find(|r| r.id == d.provider);
             let (state, healthy) = match row {
                 None => (DeviceState::Planned, d.healthy),
-                Some((_, a, h)) => (
-                    match a {
+                Some(r) => (
+                    match r.approval {
                         ProviderApproval::Approved => DeviceState::Approved,
                         ProviderApproval::Pending => DeviceState::Planned,
                         ProviderApproval::Rejected => DeviceState::Rejected,
                     },
-                    *h != ProviderHealth::Down,
+                    r.healthy(),
                 ),
             };
             if state != d.state || healthy != d.healthy {
@@ -247,6 +288,33 @@ impl VramPool {
                 n.state = state;
                 n.healthy = healthy;
                 out.push(n);
+            }
+        }
+        for r in rows {
+            if r.approval != ProviderApproval::Approved {
+                continue;
+            }
+            let kind = match r.kind {
+                ProviderKind::Lan => DeviceKind::Lan,
+                ProviderKind::Gpu => DeviceKind::Gpu,
+                ProviderKind::CpuLocal | ProviderKind::Remote => continue,
+            };
+            let Some(vram_gb) = r.vram_gb else { continue };
+            if self.devices.contains_key(&r.id) || self.devices.values().any(|d| d.provider == r.id)
+            {
+                continue;
+            }
+            let d = Device {
+                id: r.id.clone(),
+                kind,
+                vram_gb,
+                provider: r.id.clone(),
+                cents_per_hour: 0,
+                state: DeviceState::Approved,
+                healthy: r.healthy(),
+            };
+            if d.validate().is_ok() {
+                out.push(d);
             }
         }
         out
@@ -260,6 +328,13 @@ impl VramPool {
         d: &mut Device,
         provider_approved: impl Fn(&str) -> bool,
     ) -> Option<&'static str> {
+        if d.state == DeviceState::Approved
+            && !d.provider.is_empty()
+            && !provider_approved(&d.provider)
+        {
+            d.state = DeviceState::Planned;
+            return Some("device names an openmind-provider row that is not approved (pending, denied or missing); kept as planned");
+        }
         if d.state == DeviceState::Approved
             && d.cents_per_hour > 0
             && !(!d.provider.is_empty() && provider_approved(&d.provider))
@@ -349,6 +424,105 @@ mod tests {
         assert!(VramPool::gate_manual(&mut free, |_| false).is_none());
     }
 
+    fn view(
+        id: &str,
+        kind: ProviderKind,
+        approval: ProviderApproval,
+        health: ProviderHealth,
+        vram_gb: Option<u32>,
+    ) -> ProviderView {
+        ProviderView {
+            id: id.into(),
+            kind,
+            approval,
+            health,
+            vram_gb,
+        }
+    }
+
+    #[test]
+    fn only_approved_discovery_rows_become_devices_and_lan_needs_join_up() {
+        let mut p = VramPool::default();
+        let rows = vec![
+            view(
+                "lan-ok",
+                ProviderKind::Lan,
+                ProviderApproval::Approved,
+                ProviderHealth::Up,
+                Some(24),
+            ),
+            view(
+                "lan-pending",
+                ProviderKind::Lan,
+                ProviderApproval::Pending,
+                ProviderHealth::Up,
+                Some(48),
+            ),
+            view(
+                "lan-denied",
+                ProviderKind::Lan,
+                ProviderApproval::Rejected,
+                ProviderHealth::Up,
+                Some(80),
+            ),
+            view(
+                "lan-unjoined",
+                ProviderKind::Lan,
+                ProviderApproval::Approved,
+                ProviderHealth::Unknown,
+                Some(16),
+            ),
+            view(
+                "lan-novram",
+                ProviderKind::Lan,
+                ProviderApproval::Approved,
+                ProviderHealth::Up,
+                None,
+            ),
+            view(
+                "cpu",
+                ProviderKind::CpuLocal,
+                ProviderApproval::Approved,
+                ProviderHealth::Up,
+                Some(8),
+            ),
+        ];
+        let new = p.sync_providers(&rows);
+        let ids: Vec<&str> = new.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(ids, ["lan-ok", "lan-unjoined"]);
+        for d in new {
+            p.upsert(d);
+        }
+        assert!(p.get("lan-ok").unwrap().routable());
+        assert!(!p.get("lan-unjoined").unwrap().routable());
+        assert_eq!(p.place(20).as_deref(), Some("lan-ok"));
+        assert_eq!(p.place(30), None, "the 48 GB pending row is never used");
+        // Second sync: no change.
+        assert!(p.sync_providers(&rows).is_empty());
+        // Killed (join says down): not routable. Denied: rejected.
+        let mut rows2 = rows.clone();
+        rows2[0].health = ProviderHealth::Down;
+        for d in p.sync_providers(&rows2) {
+            p.upsert(d);
+        }
+        assert_eq!(p.place(1), None);
+        rows2[0].health = ProviderHealth::Up;
+        rows2[0].approval = ProviderApproval::Rejected;
+        for d in p.sync_providers(&rows2) {
+            p.upsert(d);
+        }
+        assert_eq!(p.get("lan-ok").unwrap().state, DeviceState::Rejected);
+        assert_eq!(p.place(1), None);
+    }
+
+    #[test]
+    fn manual_device_naming_an_unapproved_row_stays_planned() {
+        let mut d = dev("lan", DeviceKind::Lan, 24, DeviceState::Approved);
+        d.provider = "lan-pending".into();
+        assert!(VramPool::gate_manual(&mut d, |_| false).is_some());
+        assert_eq!(d.state, DeviceState::Planned);
+    }
+
     #[test]
     fn provider_sync_mirrors_approval_and_health() {
         let mut p = VramPool::default();
@@ -362,15 +536,19 @@ mod tests {
         p.upsert(b);
         p.upsert(c);
         let rows = vec![
-            (
-                "pa".to_string(),
+            view(
+                "pa",
+                ProviderKind::Remote,
                 ProviderApproval::Approved,
                 ProviderHealth::Up,
+                None,
             ),
-            (
-                "pb".to_string(),
+            view(
+                "pb",
+                ProviderKind::Lan,
                 ProviderApproval::Approved,
                 ProviderHealth::Down,
+                None,
             ),
         ];
         let ch = p.sync_providers(&rows);

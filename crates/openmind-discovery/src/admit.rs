@@ -19,8 +19,8 @@
 
 use crate::{Candidate, DeviceKind, Origin};
 use openmind_provider::{
-    Approval, Capability, ComputeProvider, Health, ProviderError, ProviderKind, Registry,
-    StaticProvider,
+    Approval, Capability, ComputeProvider, Health, ProviderError, ProviderKind, ProviderRecord,
+    Registry, StaticProvider,
 };
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -111,6 +111,15 @@ fn capabilities(c: &Candidate, kind: DeviceKind) -> Vec<Capability> {
         out.push(Capability::Llm);
     }
     out
+}
+
+/// VRAM (GB) a candidate advertises in TXT `vram` or `vram_gb`, 1..=4096.
+pub fn vram_gb(c: &Candidate) -> Option<u32> {
+    c.txt
+        .get("vram")
+        .or_else(|| c.txt.get("vram_gb"))
+        .and_then(|v| v.trim().parse::<u32>().ok())
+        .filter(|gb| (1..=4096).contains(gb))
 }
 
 /// True for loopback, RFC 1918, link-local and IPv6 ULA / link-local.
@@ -320,11 +329,19 @@ pub fn store_found(
                 row.seen_endpoint = Some(ep.clone());
             }
             if !dry_run {
+                // A move is only noted; the routed endpoint changes on re-approval.
+                let changed = registry.note_endpoint(&id, &ep)?;
                 let mut details = details;
                 details["approval"] = json!(row.approval);
                 if let Some(seen) = &row.seen_endpoint {
                     details["endpoint"] = json!(row.endpoint);
                     details["seen_endpoint"] = json!(seen);
+                    if changed {
+                        let mut moved = details.clone();
+                        moved["needs"] =
+                            json!("re-approval (approve ID) before the new endpoint is used");
+                        log.append("moved", moved)?;
+                    }
                 }
                 log.append("seen", details)?;
             }
@@ -337,7 +354,8 @@ pub fn store_found(
                 };
                 let provider =
                     StaticProvider::try_new(&id, ProviderKind::Lan, &ep, capabilities(c, kind))?
-                        .with_health(health);
+                        .with_health(health)
+                        .with_vram_gb(vram_gb(c));
                 registry.register(&provider)?;
                 let mut details = details;
                 details["approval"] = json!("pending");
@@ -373,8 +391,12 @@ pub fn decide(
         .get(id)
         .ok_or_else(|| ProviderError::NotFound { id: id.into() })?;
     let from = row.approval();
-    let endpoint = row.endpoint().to_string();
+    let old_endpoint = row.endpoint().to_string();
+    let pending = row.pending_endpoint().map(str::to_string);
     registry.set_approval(id, to)?;
+    let endpoint = registry
+        .get(id)
+        .map_or(old_endpoint.clone(), |r| r.endpoint().to_string());
     let mut fields = json!({
         "id": id,
         "from": approval_str(from),
@@ -382,6 +404,13 @@ pub fn decide(
         "endpoint": endpoint,
         "by": by,
     });
+    if endpoint != old_endpoint {
+        fields["moved_from"] = json!(old_endpoint);
+        fields["health"] = json!("unknown");
+        fields["needs"] = json!("join");
+    } else if let Some(p) = pending {
+        fields["pending_endpoint"] = json!(p);
+    }
     if let Some(note) = note {
         fields["note"] = json!(note.chars().take(200).collect::<String>());
     }
@@ -447,13 +476,26 @@ pub fn join(
 
 /// One provider row as JSON.
 pub fn row_json(row: &dyn ComputeProvider, approval: Approval) -> Value {
-    json!({
+    let mut v = json!({
         "id": row.id(),
         "endpoint": row.endpoint(),
         "approval": approval_str(approval),
         "health": health_str(row.health()),
         "capabilities": row.capabilities().iter().map(|c| c.as_str()).collect::<Vec<_>>(),
-    })
+    });
+    if let Some(gb) = row.vram_gb() {
+        v["vram_gb"] = json!(gb);
+    }
+    v
+}
+
+/// [`row_json`] for a registry row, plus its pending move if any.
+pub fn record_json(row: &ProviderRecord) -> Value {
+    let mut v = row_json(row, row.approval());
+    if let Some(p) = row.pending_endpoint() {
+        v["pending_endpoint"] = json!(p);
+    }
+    v
 }
 
 #[cfg(test)]
@@ -650,6 +692,58 @@ printer.local. IN A 127.0.0.1
         assert_eq!(stored[0].provider_id, "galion-lab");
         assert_eq!(stored[0].status, "known");
         assert_eq!(reg.len(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_moved_device_is_routed_at_its_old_endpoint_until_re_approved() {
+        let dir = tmpdir("moved");
+        let mut reg = Registry::load(dir.join("providers.json")).unwrap();
+        let log = ApprovalsLog::new(dir.join("approvals.log"));
+        store_found(&mut reg, &log, &found(19111), "t", false).unwrap();
+        decide(&mut reg, &log, "galion-lab", Decision::Approve, "t", None).unwrap();
+
+        let (seen, _) = store_found(&mut reg, &log, &found(19115), "t", false).unwrap();
+        let g = seen.iter().find(|s| s.provider_id == "galion-lab").unwrap();
+        assert_eq!(g.endpoint, "http://127.0.0.1:19111");
+        assert_eq!(g.seen_endpoint.as_deref(), Some("http://127.0.0.1:19115"));
+        let row = reg.get("galion-lab").unwrap();
+        assert_eq!(row.endpoint(), "http://127.0.0.1:19111");
+        assert_eq!(row.approval(), Approval::Approved);
+        assert_eq!(row.pending_endpoint(), Some("http://127.0.0.1:19115"));
+        assert_eq!(
+            record_json(row)["pending_endpoint"],
+            "http://127.0.0.1:19115"
+        );
+
+        let line = decide(&mut reg, &log, "galion-lab", Decision::Approve, "t", None).unwrap();
+        assert_eq!(line["moved_from"], "http://127.0.0.1:19111");
+        assert_eq!(line["endpoint"], "http://127.0.0.1:19115");
+        assert_eq!(line["needs"], "join");
+        let row = reg.get("galion-lab").unwrap();
+        assert_eq!(row.endpoint(), "http://127.0.0.1:19115");
+        assert_eq!(row.health(), Health::Unknown);
+        let events: Vec<String> = log
+            .read()
+            .unwrap()
+            .iter()
+            .map(|l| l["event"].as_str().unwrap().to_string())
+            .collect();
+        assert!(events.contains(&"moved".to_string()), "{events:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn txt_vram_is_stored() {
+        let dir = tmpdir("vram");
+        let mut reg = Registry::load(dir.join("providers.json")).unwrap();
+        let log = ApprovalsLog::new(dir.join("approvals.log"));
+        let mut c = found(19111);
+        for cand in &mut c {
+            cand.txt.insert("vram".into(), "24".into());
+        }
+        store_found(&mut reg, &log, &c, "t", false).unwrap();
+        assert_eq!(reg.get("galion-lab").unwrap().vram_gb(), Some(24));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

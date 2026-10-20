@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# Galion One voice configuration snapshot.
+# Recorded 2026-10-20 20:40 CEST (+02:00) from read-only checks of the VPS
+# and the repo. This is a record of the live settings, not read by any
+# binary yet. Secrets are deliberately absent.
+
+[persona]
+name = "samantha"                      # default voice persona, voice id 0
+definition = "Samantha preferences v1" # personas/persona-plex-v1.toml
+style = "warm and close"
+contrast = "Jarvis is dry and exact. Samantha is the warm one." # tone note only; no Jarvis voice is configured
+length_rule = "one or two short sentences" # decided by Slavik 2026-10-18 19:27 CEST (+02:00)
+language = "plain English"
+greeting = "No greeting unless they greeted you."
+identity = "Never says it is a model or a system."
+spoken_form = "Spoken form only: no tools, no XML, no paths, no lists, no headings, no markdown."
+gaia_function = "ELEUTHIA"            # personas and agents (gaia/docs/gaia-design.md:224,230)
+
+[mouth]                                # text to speech
+provider = "local"
+model = "chatterbox"
+voice = "samantha"
+reference_clip = "voice-backend/assets/voices/samantha.wav" # on the GPU workspace; samantha.mp3 also present
+bind = "127.0.0.1:8002"
+gaia_function = "AETHER"               # how the nerve classifies galion-one-mouth
+state_2026_10_20 = "503 loading (model not loaded); fix on swarm/voice-mouth 5d776c1, not deployed"
+server_note = "VPS still serves Chatterbox via legacy Python tts_server.py; Rust target is galion-voice.service on 8003 (swarm/voice-mouth)"
+
+[ear]                                  # speech to text
+provider = "faster-whisper 1.2.1"
+model = "large-v3-turbo"
+language = "en"
+beam = 1
+temperature = 0.0
+condition_on_previous_text = false
+bind = "GPU port 8643"
+
+[text]
+bind = "127.0.0.1:8091"
+mind = "Hermes (hermes-rs on 127.0.0.1:8642), channel prompt /opt/galion/hermes/channels/galion-one.md"
+warm_mind = true                       # ONE_WARM_MIND default (keep-warm ping on)
+
+[sources_vps]                          # read-only references; do not copy secrets
+voice_value_file = "/opt/galion/galion-light/one/voice"        # contains "samantha", set 2026-10-10 11:07 CEST (+02:00)
+old_one_source = "/opt/galion/galion-light/one/src/main.rs"    # lines 1360-1372 voice_name/set_voice, 1439-1450 voice_setting
+voice_doc = "/opt/galion/galion-light/docs/one/VOICE.md"
+unit = "/etc/systemd/system/galion-one.service"                # ExecStart /opt/galion/openmind/dist/bin-ws/galion-one (Oct 18 build)
+
+[nerve]
+monitored_as = "galion-one-mouth"
+status_2026_10_20 = "degrading: health probe HTTP 503"
+nerve_service = "galion-nerve on 127.0.0.1:8670"
+
+[cortex]
+voice_coverage = "none yet" # cortex module (swarm/nerve 5802d0e) has no voice-specific findings

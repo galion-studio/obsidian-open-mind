@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# Coding swarm settings snapshot, 2026-10-20 20:40 CEST (+02:00).
+# Rules live in /workspace/swarm/RULES.md and WAVE2.md on the build box.
+
+[limits]
+owner_ceiling = 250                    # set by Slavik
+auto_accept = true                     # set by Slavik
+measured_concurrent_limit = "18-20"    # agents that keep running at once, measured 2026-10-20
+measurement_notes = [
+  "20:14 burst of 15 new agents: 11 stopped by the request limit, 4 kept running",
+  "20:34 restart to 16 concurrent: all kept running",
+  "20:38 7 planners added (22 running): 4 stopped (2 coding, 2 planners), 18 kept running",
+]
+
+[planners]
+structure = "one planner per sector, not per task"
+sectors = ["gaia", "nerve", "cortex", "vps-ops", "integration-ci", "security", "docs-whitepaper"]
+brief = "/workspace/swarm/plans/PLANNER-BRIEF.md"
+outputs = "/workspace/swarm/plans/<sector>.md"
+target_group_size = 50                 # owner target per task; planners also state the useful maximum
+realistic_schedule_size = 16
+
+[rules]
+language = "Rust only; no Python"
+licences = "MIT or permissive only, each borrowed piece documented with licence, source URL and purpose"
+branches = "swarm/<slug> based on main; never push to main, never force-push, no PRs (owner merges)"
+ports = "slot NN uses 19NN0-19NN9; real-harness 19500-19551"
+vps = "read-only; working copy /opt/galion/openmind at 2f5a730 untouched; no deploys without owner approval"
+timezone = "Europe/Zagreb with explicit offset"

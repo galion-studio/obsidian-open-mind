@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) 3000 Galion / galion-studio
+#
+# Purge list for galion-purge (crates/history-purge), private repo
+# galion-studio/obsidian-open-mind. Same set as the export-ignore rules of
+# swarm/launch-gates (.gitattributes, 79ee761). Optional extra lines the owner
+# may add after the export-scope decision are commented out at the end.
+contrib/
+*.redacted
+stack/kms/
+stack/INDEX.md
+dist/bin/
+edge/dist/
+# optional (export-scope decision in docs/launch/PUBLIC-EXPORT.md):
+# TEACHER/
+# admin.preferences
+# docs/TERMINAL-LOG.md

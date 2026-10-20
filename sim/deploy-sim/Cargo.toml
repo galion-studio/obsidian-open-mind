@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# simsup: a tiny systemd-shaped supervisor for rehearsing galion-deploy cutovers on a
+# box without systemd (PID 1 is tini). Standalone on purpose (own [workspace] below):
+# it is test tooling, not a product crate. std only, no dependencies.
+[package]
+name = "simsup"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Box-only cutover rehearsal supervisor: systemd unit subset, restart policy, start-limit, journal, control socket, downtime probe."
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "simsup"
+path = "src/main.rs"
+
+[[bin]]
+name = "sim-broken"
+path = "src/bin/sim_broken.rs"
+
+[[bin]]
+name = "sim-hang"
+path = "src/bin/sim_hang.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

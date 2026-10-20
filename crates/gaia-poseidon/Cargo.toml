@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "gaia-poseidon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gaia POSEIDON: compute resources (VRAM pool, CPU/RAM/disk quotas, bounded queues with backpressure, budget caps). No real-money access."
+
+[dependencies]
+gaia-core = { path = "../gaia-core" }
+

@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "gaia"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gaia CLI: wires GAIA core to its nine subordinate functions; status, tick and the deterministic Faro-plague scenario (with --full-power), JSON out."
+
+[[bin]]
+name = "gaia"
+path = "src/main.rs"
+
+[dependencies]
+gaia-core = { path = "../gaia-core" }
+gaia-hades = { path = "../gaia-hades" }
+gaia-minerva = { path = "../gaia-minerva" }
+gaia-apollo = { path = "../gaia-apollo" }
+gaia-hephaestus = { path = "../gaia-hephaestus" }
+gaia-artemis = { path = "../gaia-artemis" }
+gaia-poseidon = { path = "../gaia-poseidon" }
+gaia-aether = { path = "../gaia-aether" }
+gaia-demeter = { path = "../gaia-demeter" }
+gaia-eleuthia = { path = "../gaia-eleuthia" }
+zagreb-time = { path = "../zagreb-time" }

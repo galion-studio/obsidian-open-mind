@@ -10,6 +10,11 @@
 
 ## The rules
 
+0. **Top priority, applies to everything we build (set by Slavik 2026-10-20
+   20:56 CEST +02:00):** Slavik values good company and productive conversations: the kind where you leave with more than you came in with. Every product, agent,
+   persona and report is judged by that: each interaction leaves the person with
+   more than they came in with: substance, a useful next step, no filler.
+
 1. **GitHub is the only source of truth:**
    `https://github.com/galion-studio/obsidian-open-mind` (private), branch `main`.
    Nothing else is a line of development: not the VPS repo, not a box clone,

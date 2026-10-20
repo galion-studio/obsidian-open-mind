@@ -30,6 +30,14 @@ ports = "slot NN uses 19NN0-19NN9; real-harness 19500-19551"
 vps = "read-only; working copy /opt/galion/openmind at 2f5a730 untouched; no deploys without owner approval"
 timezone = "Europe/Zagreb with explicit offset"
 
+[priority_rules]
+# TOP PRIORITY, cross-cutting. Set by Slavik 2026-10-20 20:56 CEST (+02:00).
+# Applies to all software in PROJECT 42 / Gaia (swarm, POSEIDON and everything in it).
+rank = 1
+good_company = "Slavik values good company and productive conversations: the kind where you leave with more than you came in with."
+applies_to = "all software, agents, personas, reports and conversations in the project"
+meaning = "Every interaction (voice, chat, agent report, UI) must leave Slavik with more than he came in with: real substance, a useful next step or insight, no filler, no wasted turns."
+
 [standing_rules]
 # Set by Slavik 2026-10-20 20:41 CEST (+02:00).
 rust_only = "Rust only for everything, no exceptions. No Python or other languages; non-Rust components are rewritten as proper Rust implementations, not quick ports."

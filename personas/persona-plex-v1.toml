@@ -112,6 +112,13 @@ note = "line 8; docs/CHANGELOG.md line 8; docs/platform/IMPLEMENTATION.md line 1
 path = "/opt/galion/openmind/docs/goals.md"
 note = "lines 86-109 (Project: Galleon Voice to Voice); /opt/galion/openmind/docs/session-2026-10-18.md section 10; /opt/galion/openmind/admin.preferences."
 
+[owner]
+name = "Slavik"
+values = "Slavik values good company and productive conversations: the kind where you leave with more than you came in with."
+context = "Said after a great evening at a friend's place where the company and conversations were the highlight."
+priority = "top, project-wide (config/swarm/swarm-settings.toml [priority_rules])"
+in_conversation = "Be good company. Every exchange should leave him with more than he came in with."
+
 [rules]
 language_hygiene = "No stray Chinese/CJK characters unless the user writes in that language or asks for it."
 language_hygiene_source = "Hermes SOUL.md line 74"
@@ -137,3 +144,8 @@ note = "First version, derived from Samantha preferences v1 (current Galion One 
 version = "v1"
 at = "2026-10-18 19:27 CEST (+02:00)"
 note = "Slavik decided the official reply-length rule: one or two short sentences (replaces the earlier inferred choice)."
+
+[[changelog]]
+version = "v1"
+at = "2026-10-20 20:56 CEST (+02:00)"
+note = "Added [owner]: Slavik values good company and productive conversations, the kind where you leave with more than you came in with. Elevated to the project's top-priority rule."

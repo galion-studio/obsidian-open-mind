@@ -16,17 +16,8 @@ use serde_json::{json, Value};
 
 /// Probe unprivileged user namespaces without keeping one around.
 fn userns_ok() -> bool {
-    let pid = unsafe { libc::fork() };
-    if pid < 0 {
-        return false;
-    }
-    if pid == 0 {
-        let ok = unsafe { libc::unshare(libc::CLONE_NEWUSER) } == 0;
-        unsafe { libc::_exit(if ok { 0 } else { 1 }) };
-    }
-    let mut st = 0;
-    let r = unsafe { libc::waitpid(pid, &mut st, 0) };
-    r == pid && libc::WIFEXITED(st) && libc::WEXITSTATUS(st) == 0
+    // SAFETY: the child only calls unshare(2) and leaves through _exit.
+    unsafe { crate::util::fork_probe(|| libc::unshare(libc::CLONE_NEWUSER) == 0) }
 }
 
 fn read_sysctl(path: &str) -> Option<String> {

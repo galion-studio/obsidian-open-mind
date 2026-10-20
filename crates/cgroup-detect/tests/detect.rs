@@ -27,6 +27,13 @@ fn has_all(list: &[String]) -> bool {
 #[test]
 fn live_cgroup_v2_delegation() {
     let report = cgroup_detect::detect().expect("read /proc and /sys");
+    if !(report.unified_v2 && report.mount_writable && report.per_run_possible) {
+        println!(
+            "SKIP live_cgroup_v2_delegation: no delegated, writable cgroup v2 subtree on this machine ({}); this check only means something on the target host",
+            report.reason
+        );
+        return;
+    }
     let cg = fs::read_to_string("/proc/self/cgroup").unwrap();
     let mountinfo = fs::read_to_string("/proc/self/mountinfo").unwrap();
     let self_path = cg

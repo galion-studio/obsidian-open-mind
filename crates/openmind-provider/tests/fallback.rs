@@ -3,7 +3,9 @@
 
 //! Fallback order: GPU, else an approved LAN row, else a CPU local row.
 
-use openmind_provider::fallback::{select_provider, Approval, Capability, Health, Kind, ProviderRow};
+use openmind_provider::fallback::{
+    select_provider, Approval, Capability, Health, Kind, ProviderRow,
+};
 use std::path::PathBuf;
 
 fn base(id: &str, kind: Kind) -> ProviderRow {

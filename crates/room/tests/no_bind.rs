@@ -34,6 +34,28 @@ fn assert_no_network(trace: &str) {
     }
 }
 
+/// This test needs `unshare --net` (a network namespace) and `strace`. Hosts
+/// without them (CI containers, the build box) skip it with a message.
+fn net_tools_missing() -> bool {
+    let works = |cmd: &str, args: &[&str]| {
+        Command::new(cmd)
+            .args(args)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+    };
+    let unshare = works("unshare", &["--net", "--", "true"]);
+    let strace = works("strace", &["-V"]);
+    if unshare && strace {
+        return false;
+    }
+    println!(
+        "SKIP room no_bind: needs `unshare --net` (ok={unshare}) and `strace` (ok={strace}) on this machine"
+    );
+    true
+}
+
 fn run_room(args: &[&str]) -> (i32, String, String, String) {
     let bin = env!("CARGO_BIN_EXE_room");
     let trace_path = scratch("trace");
@@ -80,6 +102,9 @@ fn run_room(args: &[&str]) -> (i32, String, String, String) {
 
 #[test]
 fn binary_no_flags_and_fixture_do_not_bind_or_open_a_socket() {
+    if net_tools_missing() {
+        return;
+    }
     let (code, stdout, stderr, trace) = run_room(&[]);
     assert_eq!(code, 0, "stderr={stderr} trace={trace}");
     assert!(stdout.starts_with("{\"objects\":["));

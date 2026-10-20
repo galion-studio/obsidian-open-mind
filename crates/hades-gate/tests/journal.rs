@@ -3,8 +3,8 @@
 
 //! The journal returns one object and stores nothing. A test may write a temp file.
 
-use hades_gate::{decide, Decision, ALLOW_LIST, ALWAYS_REFUSED, APPROVED_TEST_TOKEN};
 use hades_gate::journal::record;
+use hades_gate::{decide, Decision, ALLOW_LIST, ALWAYS_REFUSED, APPROVED_TEST_TOKEN};
 
 fn decision_name(decision: Decision) -> &'static str {
     match decision {

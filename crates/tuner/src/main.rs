@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-//! Tuner process. Bind and root come from [`tuner::resolve`].
+//! Tuner process. Bind and root come from [`tuner::resolve`]. Connections go
+//! through the shared galion-common HTTP server (head deadline, size caps,
+//! bounded threads); the reply bytes still come from [`tuner::respond`].
 
 #![forbid(unsafe_code)]
 
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use galion_common::http;
+use std::net::TcpListener;
 use std::process::ExitCode;
-use std::thread;
+use std::sync::Arc;
 use std::time::Duration;
 
 fn main() -> ExitCode {
@@ -19,20 +21,34 @@ fn main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    let listener = TcpListener::bind(&settings.bind).expect("bind");
+    let listener = match TcpListener::bind(&settings.bind) {
+        Ok(l) => l,
+        Err(err) => {
+            eprintln!("tuner: bind {}: {err}", settings.bind);
+            return ExitCode::from(1);
+        }
+    };
     eprintln!("tuner {} serving {}", settings.bind, settings.root);
-    for stream in listener.incoming().flatten() {
-        let root = settings.root.clone();
-        thread::spawn(move || handle(stream, &root));
-    }
-    ExitCode::SUCCESS
-}
-
-fn handle(mut stream: TcpStream, root: &str) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
-    let mut buf = [0u8; 4096];
-    let n = stream.read(&mut buf).unwrap_or(0);
-    if let Some(out) = tuner::respond(&buf[..n], root) {
-        let _ = stream.write_all(&out);
+    let limits = http::Limits {
+        // The old server read one 4 KiB buffer with a 5 s read timeout.
+        max_head_bytes: 4096,
+        // Bodies are ignored, but a POST must still reach `respond` (405).
+        max_body_bytes: 64 * 1024,
+        head_timeout: Duration::from_secs(5),
+        body_timeout: Duration::from_secs(5),
+        max_connections: 64,
+        thread_stack: 128 * 1024,
+        ..http::Limits::default()
+    };
+    let root = settings.root;
+    let handler = move |req: &http::Request| {
+        http::Response::raw(tuner::respond(&req.raw_head, &root).unwrap_or_default())
+    };
+    match http::serve(listener, limits, Arc::new(handler)) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            eprintln!("tuner: serve: {err}");
+            ExitCode::from(1)
+        }
     }
 }

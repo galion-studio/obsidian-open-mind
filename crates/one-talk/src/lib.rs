@@ -182,31 +182,7 @@ pub fn wait_reply(heard: &str) -> Value {
 
 /// Standard base64, with padding, as talk.py uses for the `audio` field.
 pub fn b64_encode(data: &[u8]) -> String {
-    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::new();
-    let mut index = 0;
-    while index + 3 <= data.len() {
-        let n = ((data[index] as u32) << 16)
-            | ((data[index + 1] as u32) << 8)
-            | (data[index + 2] as u32);
-        push_quartet(&mut out, T, n);
-        index += 3;
-    }
-    let rest = data.len() - index;
-    if rest == 1 {
-        let n = (data[index] as u32) << 16;
-        out.push(T[((n >> 18) & 63) as usize] as char);
-        out.push(T[((n >> 12) & 63) as usize] as char);
-        out.push('=');
-        out.push('=');
-    } else if rest == 2 {
-        let n = ((data[index] as u32) << 16) | ((data[index + 1] as u32) << 8);
-        out.push(T[((n >> 18) & 63) as usize] as char);
-        out.push(T[((n >> 12) & 63) as usize] as char);
-        out.push(T[((n >> 6) & 63) as usize] as char);
-        out.push('=');
-    }
-    out
+    galion_common::base64::encode(data)
 }
 
 /// Post `wav` to `addr` `HEAR_PATH` and return the hear JSON object.
@@ -348,13 +324,6 @@ fn first_sentence(text: &str) -> &str {
         }
     }
     &text[..end]
-}
-
-fn push_quartet(out: &mut String, alphabet: &[u8], n: u32) {
-    out.push(alphabet[((n >> 18) & 63) as usize] as char);
-    out.push(alphabet[((n >> 12) & 63) as usize] as char);
-    out.push(alphabet[((n >> 6) & 63) as usize] as char);
-    out.push(alphabet[(n & 63) as usize] as char);
 }
 
 fn post(

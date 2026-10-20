@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! Advertise this node as `_openmind._tcp` over mDNS (crate mdns-sd).
 //! This opens a UDP 5353 multicast socket: run it only on the owner's LAN

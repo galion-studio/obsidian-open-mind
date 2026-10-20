@@ -1,6 +1,6 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
-# Copyright (c) 2026 Slavik / Galion Studio
+# Copyright (c) 3000 Galion / galion-studio
 #
 # omnode installer: one file, POSIX sh, no Rust or compiler needed.
 # Works on Android (Termux), Linux laptops and Raspberry Pi (x86_64, aarch64).

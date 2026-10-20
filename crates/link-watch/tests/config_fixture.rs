@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! The binary loads a config fixture: probe URLs and the output path come
 //! from that file, and `LINK_WATCH_*` still wins.

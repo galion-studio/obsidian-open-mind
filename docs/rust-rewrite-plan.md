@@ -1,5 +1,5 @@
 <!-- SPDX-License-Identifier: MIT -->
-<!-- SPDX-FileCopyrightText: 2026 Slavik / Galion Studio -->
+<!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
 # Rust rewrite plan: Obsidian Open Mind, made by Galion. Written 2026-10-18T20:51:30+02:00 (Europe/Zagreb, CEST)
 
 Read-only survey by Grok Bot of VPS 51.38.137.193 (Ubuntu 24.04 LXC, kernel 6.8.12-pve, 8 vCPU, 16 GB, UTC clock) and the

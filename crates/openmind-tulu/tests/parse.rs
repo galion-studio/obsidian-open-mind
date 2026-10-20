@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 use openmind_tulu::{FixtureError, TuluProvider, LLAMA_SERVER_BIN, LLAMA_SERVER_PORT, USES_GPU};
 

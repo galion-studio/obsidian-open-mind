@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Reading a fixture must not write a cgroup file and must not call a delegate.
 

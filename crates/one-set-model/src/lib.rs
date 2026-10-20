@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Validate a lane and model the way `set-model.py` does, then return the
 //! JSON object that helper would write. This crate never writes a file.

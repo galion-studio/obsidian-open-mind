@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # DESK-ID: openmind.UCPU-1
 # Print rustc -vV, then whether host rustc knows four target names.
 # KNOWN: rustc --print cfg --target <name> exits 0 (built-in spec only).

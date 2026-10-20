@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! openmind-sandbox v1: run one command with rlimits, a cleared environment,
 //! a fixed working directory, a wall-clock timeout, `PR_SET_NO_NEW_PRIVS`,
 //! and, when the platform allows it without root or seccomp:

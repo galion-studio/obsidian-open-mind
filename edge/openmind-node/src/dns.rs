@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! Minimal, defensive DNS packet parser for passive mDNS listening, plus the
 //! one-packet query builder for the opt-in active query.

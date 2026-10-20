@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! `omnode doctor`: one JSON report of what this device can do for the stack.
 //! Runs no listeners and changes no system state (seccomp/namespace probes

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! Small helpers: hex, randomness, bounded subprocess calls, file reads.
 

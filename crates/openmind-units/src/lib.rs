@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Render staged unit text from an openmind.toml fixture.
 //!
@@ -352,7 +352,7 @@ fn render_one(
 
     let mut text = String::new();
     text.push_str("# SPDX-License-Identifier: MIT\n");
-    text.push_str("# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio\n");
+    text.push_str("# SPDX-FileCopyrightText: 3000 Galion / galion-studio\n");
     text.push_str("# Rendered: ");
     text.push_str(stamp);
     text.push_str(" Europe/Zagreb\n");

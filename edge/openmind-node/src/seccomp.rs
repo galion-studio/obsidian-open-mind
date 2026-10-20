@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! Seccomp-BPF deny-list for the agent sandbox, written with raw libc (no
 //! extra crate). Default action is ALLOW; a short list of syscalls that let a

@@ -30,7 +30,7 @@ Before each wave, re-read the current versions of:
    Test ports only: 18091, 18002, 18646, 14020, 18080. Kill test processes when done.
 9. **No config changes** to Hermes (caps stay: 3 runs, 3 subagents, depth 1).
 10. Toolchain: `export PATH=/root/.cargo/bin:$PATH`. Every new source file gets
-    `// SPDX-License-Identifier: MIT` and `// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio` at the top (MIT headers).
+    `// SPDX-License-Identifier: MIT` and `// SPDX-FileCopyrightText: 3000 Galion / galion-studio` at the top (MIT headers).
 
 ## 4. The boss loop (one wave at a time)
 1. Read the files in section 2. Pick the next **max 3** tickets by the wave order in QUEUE.md (priority P1 before P2 before P3;

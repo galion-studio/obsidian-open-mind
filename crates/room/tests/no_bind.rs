@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! No flags and `--fixture` must not bind a port or open a socket.
 //! The child runs in an empty network namespace, so a regression cannot listen

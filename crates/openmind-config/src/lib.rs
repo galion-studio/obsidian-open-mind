@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! One small config loader for OpenMind binaries.
 //!
 //! A present TOML file (`$OPENMIND_CONFIG`, default `/etc/openmind/openmind.toml`)

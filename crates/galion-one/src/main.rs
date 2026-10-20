@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 // Clippy / rustc allows, added only so `clippy -D warnings` passes. The body of
 // this 2.8k-line file is the live `one` source; behaviour has to stay identical,

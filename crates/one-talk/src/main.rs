@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Print the warm lock path and the hear/reply/synthesize shapes.
 //! Dials nothing. Opens no files. Reads no secrets.

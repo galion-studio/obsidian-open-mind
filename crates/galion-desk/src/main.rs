@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 //! Bind, the Ollama address, and state paths come from `openmind-config` when
 //! the config file exists (`$OPENMIND_CONFIG`, default

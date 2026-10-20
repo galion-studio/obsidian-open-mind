@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # DESK-ID: openmind.PY-SCAN
 # Search crates/ for the word python, case insensitive, in Rust and toml files.
 # Print matching paths, one per line. Exit 0 if none, exit 1 if any.

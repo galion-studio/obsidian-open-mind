@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # DESK-ID: openmind.B44
 # cargo metadata --format-version 1 --offline -> dist/sbom-cargo.json,
 # then fail if any package license is outside the allowlist.

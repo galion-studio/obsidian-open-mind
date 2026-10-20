@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! Config loading. A deliberately small TOML subset parser (tables, `key =
 //! value` with strings, integers, floats, booleans, `#` comments) so the crate

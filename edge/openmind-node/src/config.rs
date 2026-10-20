@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! omnode configuration (TOML). No hosts are hard-coded: every URL comes from
 //! here or from the command line. Missing file = defaults.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # DESK-ID: openmind.SPDX-SCAN
 # List *.rs under crates/ that lack a line containing SPDX-License-Identifier.
 # Does not edit files. Does not add headers. Exit 0 even if some are missing.

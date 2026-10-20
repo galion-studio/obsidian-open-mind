@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # DESK-ID: openmind.B08
 # Release size budget for the OpenMind workspace.
 # Builds with nice -n 19 and -j 2, then fails if any workspace

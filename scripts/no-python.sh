@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # DESK-ID: openmind.B16
 # Fail if crates/ or deploy/ contains a .py file, or a Python spawn written as
 # Command::new("python") or Command::new("python3").

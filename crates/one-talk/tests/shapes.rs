@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Hear, reply, and warm shapes against a fake listener on 127.0.0.1:18002.
 //! Never 8002, 8642, or 8643. The listener is stopped before the test returns.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! Human-readable plan of what the relay would do with a given config.
 //! Never prints secret values: env vars are reported as set / not set.

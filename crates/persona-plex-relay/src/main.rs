@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! persona-plex-relay (scaffold): load config, print the plan, exit.
 //! Opens no sockets, starts no listener, connects to nothing.

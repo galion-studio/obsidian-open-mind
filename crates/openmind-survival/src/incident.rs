@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Pure incident logic: open on first non-pass, resolve on pass, one open
 //! incident per service. Time is passed in, so tests use a fake clock.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! omnode: phone/LAN-side node of the Obsidian Open Mind Stack (MIT).
 //! Rust only. See docs/phone-instance.md.

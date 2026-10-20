@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! Pairing payload for enrollment by Hermes/VPS. v0.1 is a stub: it prints the
 //! signed payload and a terminal QR and does NOT contact the URL.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// Copyright (c) 2026 Slavik / Galion Studio
+// Copyright (c) 3000 Galion / galion-studio
 
 //! Device identity: an ed25519 keypair that never leaves the device, plus the
 //! list of trusted networks (salted hashes only) it has been bound to.

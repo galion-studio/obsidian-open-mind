@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! guardian-tick: report-only. Runs each probe once, writes a JSON report,
 //! optionally prints suggestions as plain text. Changes nothing else.

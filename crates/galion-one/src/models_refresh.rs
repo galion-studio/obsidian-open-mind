@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // OpenRouter model list refresh. Replaces the old one/models.py launcher; the
 // output file format is the same: a JSON array of {"id","name"} objects sorted

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Binary checks for `gaia`. No daemon is spawned; each call exits.
 //! Traced commands do not spawn systemctl and do not open a socket.

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Golden test: CLI text matches the defence.py `service status ms` lines,
 //! and the default stdout is the JSON array of {service, status, ms}.

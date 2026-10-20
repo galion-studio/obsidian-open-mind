@@ -115,6 +115,14 @@ A whole planned `galion-deploy` run took about 4.1 s: 3 s of (stub) data backup,
 
 Smaller notes: the new nerve flagged the 2 ms probe as a request flood (`ddos:nerve-api`), so its DDoS detection works, and the real cutover polls at 1/s. `daemon-reload` does not start a new unit, matching systemd, which is why room needs the explicit `start`.
 
+### Gated Rust test (`sim/deploy-sim/tests/real_deploy.rs`)
+
+`GALION_REAL=1 cargo test --test real_deploy` (port 19335) starts simsup with tuner-old, deploys
+tuner-new and asserts a gap under 1000 ms, then deploys `sim-broken` and expects exit 1 and the old
+binary back. Without `GALION_REAL` it skips. Run at about 21:22 +02:00: **1 passed, 22.89 s**. In that run the
+start limit (F2) fired during the health window (`Start request repeated too quickly`), and the
+rollback restart came after the 10 s window had expired, so the test also exercised the trap-recovery path.
+
 ## 6. Read-only VPS probe (GET only, nothing written)
 
 ```

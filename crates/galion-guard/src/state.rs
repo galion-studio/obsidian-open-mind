@@ -21,6 +21,9 @@ pub struct FilePos {
     pub dev: u64,
     pub ino: u64,
     pub pos: u64,
+    /// Fingerprint of the first line (0 = unknown).
+    #[serde(default)]
+    pub head: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

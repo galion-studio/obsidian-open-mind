@@ -30,20 +30,54 @@ const MAX_PARTIAL: usize = 64 * 1024;
 
 /// Tail one file across rename rotation (`auth.log` -> `auth.log.1`) and
 /// copy-truncate: the old file is drained to EOF before switching, so no
-/// line written just before the rotation is lost.
+/// line written just before the rotation is lost. Truncation is detected by
+/// size and by a fingerprint of the first line (like fail2ban's first-line
+/// hash), so a file truncated and refilled past the old offset between two
+/// polls is still read from the start.
 pub struct FileTail {
     path: PathBuf,
     file: Option<File>,
     dev: u64,
     ino: u64,
     pos: u64,
+    /// (length, FNV-1a) of the first line once it is complete.
+    head: Option<(u64, u64)>,
     partial: Vec<u8>,
     resume: Option<FilePos>,
 }
 
+/// Bytes of the first line used for the fingerprint.
+const HEAD_MAX: usize = 256;
+
+fn fnv1a(b: &[u8]) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for x in b {
+        h ^= *x as u64;
+        h = h.wrapping_mul(0x0100_0000_01b3);
+    }
+    h
+}
+
+/// Fingerprint of the first line (None until it is complete).
+fn head_of(f: &File) -> std::io::Result<Option<(u64, u64)>> {
+    use std::os::unix::fs::FileExt;
+    let mut buf = [0u8; HEAD_MAX];
+    let n = f.read_at(&mut buf, 0)?;
+    let b = &buf[..n];
+    Ok(match b.iter().position(|c| *c == b'\n') {
+        Some(i) => Some(((i + 1) as u64, fnv1a(&b[..=i]))),
+        None if n == HEAD_MAX => Some((n as u64, fnv1a(b))),
+        None => None,
+    })
+}
+
+fn head_hash(h: Option<(u64, u64)>) -> u64 {
+    h.map_or(0, |(_, x)| x)
+}
+
 impl FileTail {
-    /// `resume`: saved position; used only if the same file (dev, inode)
-    /// is still at `path` and is not shorter than the position.
+    /// `resume`: saved position; used only if the same file (dev, inode,
+    /// first-line fingerprint) is still at `path` and is not shorter.
     pub fn new(path: PathBuf, resume: Option<FilePos>) -> Self {
         FileTail {
             path,
@@ -51,6 +85,7 @@ impl FileTail {
             dev: 0,
             ino: 0,
             pos: 0,
+            head: None,
             partial: Vec::new(),
             resume,
         }
@@ -61,6 +96,7 @@ impl FileTail {
             dev: self.dev,
             ino: self.ino,
             pos: self.pos - self.partial.len() as u64,
+            head: head_hash(self.head),
         }
     }
 
@@ -71,9 +107,11 @@ impl FileTail {
             Err(e) => return Err(e),
         };
         let md = f.metadata()?;
+        let head = head_of(&f)?;
         let mut start = 0;
         if let Some(r) = self.resume.take() {
-            if r.dev == md.dev() && r.ino == md.ino() && r.pos <= md.len() {
+            let same_head = r.head == 0 || r.head == head_hash(head);
+            if r.dev == md.dev() && r.ino == md.ino() && r.pos <= md.len() && same_head {
                 start = r.pos;
             }
         }
@@ -81,9 +119,39 @@ impl FileTail {
         self.dev = md.dev();
         self.ino = md.ino();
         self.pos = start;
+        self.head = head;
         self.partial.clear();
         self.file = Some(f);
         Ok(true)
+    }
+
+    /// True if the open file was truncated (and maybe refilled) under us.
+    fn truncated(&mut self) -> std::io::Result<bool> {
+        let Some(f) = self.file.as_ref() else {
+            return Ok(false);
+        };
+        if f.metadata()?.len() < self.pos {
+            return Ok(true);
+        }
+        let now = head_of(f)?;
+        match (self.head, now) {
+            (Some(a), Some(b)) => Ok(a != b),
+            (Some(_), None) => Ok(true),
+            (None, n) => {
+                self.head = n;
+                Ok(false)
+            }
+        }
+    }
+
+    fn rewind(&mut self) -> std::io::Result<()> {
+        self.partial.clear();
+        if let Some(f) = self.file.as_mut() {
+            f.seek(SeekFrom::Start(0))?;
+            self.head = head_of(f)?;
+        }
+        self.pos = 0;
+        Ok(())
     }
 
     /// Complete new lines since the last poll.
@@ -91,6 +159,9 @@ impl FileTail {
         let mut out = Vec::new();
         if self.file.is_none() && !self.open()? {
             return Ok(out);
+        }
+        if self.truncated()? {
+            self.rewind()?;
         }
         let eof = self.read_some(&mut out)?;
         if eof {
@@ -105,16 +176,12 @@ impl FileTail {
                         self.read_some(&mut out)?;
                     }
                 }
-                Ok(md) if md.len() < self.pos => {
-                    // Copy-truncate.
-                    self.partial.clear();
-                    if let Some(f) = self.file.as_mut() {
-                        f.seek(SeekFrom::Start(0))?;
+                Ok(_) => {
+                    if self.truncated()? {
+                        self.rewind()?;
+                        self.read_some(&mut out)?;
                     }
-                    self.pos = 0;
-                    self.read_some(&mut out)?;
                 }
-                Ok(_) => {}
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     // Moved away and not recreated yet: keep the old handle.
                 }
@@ -147,6 +214,9 @@ impl FileTail {
         loop {
             let n = f.read(&mut buf)?;
             if n == 0 {
+                if self.head.is_none() {
+                    self.head = head_of(f)?;
+                }
                 return Ok(true);
             }
             total += n;
@@ -166,6 +236,7 @@ impl FileTail {
                         dev: self.dev,
                         ino: self.ino,
                         pos: consumed_to,
+                        head: head_hash(self.head),
                     }),
                 });
             }
@@ -349,6 +420,26 @@ mod tests {
         };
         let mut t3 = FileTail::new(p.clone(), Some(stale));
         assert_eq!(texts(t3.poll().unwrap()), vec!["x", "y"]);
+        // Truncate and refill past the old offset between two polls.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&p)
+            .unwrap();
+        append(&p, "first-after-truncate-is-long\nsecond\nthird\n");
+        assert_eq!(
+            texts(t3.poll().unwrap()),
+            vec!["first-after-truncate-is-long", "second", "third"]
+        );
+        // A saved position whose first line differs restarts at 0.
+        let mut t4 = FileTail::new(
+            p.clone(),
+            Some(FilePos {
+                head: 12345,
+                ..t3.position()
+            }),
+        );
+        assert_eq!(texts(t4.poll().unwrap()).len(), 3);
         let _ = std::fs::remove_dir_all(&d);
     }
 

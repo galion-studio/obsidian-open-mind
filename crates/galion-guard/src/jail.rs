@@ -4,7 +4,7 @@
 //! The ban engine: failure windows (findtime/maxretry), ban times with
 //! fail2ban-style increment, expiry, and the never-ban protections.
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
@@ -90,11 +90,43 @@ pub struct Ban {
     pub manual: bool,
 }
 
+/// Failure bookkeeping for one address (see [`Jail::on_failure`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Window {
+    /// fail2ban "retry": weighted, rate-rescaled failure count.
+    pub retry: u32,
+    pub first: i64,
+    pub last: i64,
+    /// Real number of failure lines.
+    pub failures: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct History {
     pub ip: IpAddr,
     pub count: u32,
     pub last_end: i64,
+    /// Start of the last ban (0 = unknown: treat as `last_end`).
+    #[serde(default)]
+    pub last_start: i64,
+}
+
+impl History {
+    /// fail2ban keeps a ban record until `timeofban + 3 * bantime` is older
+    /// than `dbpurgeage` (its hourly purge adds up to 1 h of lag, which we
+    /// do not imitate).
+    pub fn remembered(&self, purge_age: u64, now: i64) -> bool {
+        let start = if self.last_start == 0 {
+            self.last_end
+        } else {
+            self.last_start
+        };
+        let len = (self.last_end - start).max(0);
+        start
+            .saturating_add(len.saturating_mul(3))
+            .saturating_add(purge_age as i64)
+            >= now
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -124,7 +156,7 @@ pub struct Totals {
 pub struct Jail {
     pub params: JailParams,
     pub protect: Protect,
-    failures: HashMap<IpAddr, VecDeque<i64>>,
+    failures: HashMap<IpAddr, Window>,
     bans: BTreeMap<IpAddr, Ban>,
     history: HashMap<IpAddr, History>,
     accepted: HashMap<IpAddr, i64>,
@@ -181,10 +213,19 @@ impl Jail {
     }
 
     /// Count one failure seen at log time `t` (clamped to `now`).
+    ///
+    /// Window semantics are fail2ban's (1.0 `FailTicket.adjustTime`), not a
+    /// strict sliding window: per address we keep a retry count and the
+    /// start of its interval; when a failure arrives more than findtime
+    /// after that start, the count is rescaled to the observed rate over one
+    /// findtime (`round_half_even(retry / (t - first) * findtime)`) and the
+    /// interval start moves to `t - findtime`. An address whose last failure
+    /// is older than findtime starts again from zero.
     pub fn on_failure(&mut self, ip: IpAddr, t: i64, now: i64) -> FailResult {
         let ip = canonical(ip);
         let t = t.min(now);
-        if t < now - self.params.findtime as i64 {
+        let window = self.params.findtime as i64;
+        if t < now - window {
             return FailResult::TooOld;
         }
         if let Some(p) = self.protected(ip, now) {
@@ -202,35 +243,68 @@ impl Jail {
                 if let Some(old) = self
                     .failures
                     .iter()
-                    .min_by_key(|(_, q)| q.back().copied().unwrap_or(i64::MIN))
+                    .min_by_key(|(_, w)| w.last)
                     .map(|(k, _)| *k)
                 {
                     self.failures.remove(&old);
                 }
             }
         }
-        let window = self.params.findtime as i64;
-        let max = self.params.maxretry.max(1) as usize;
-        let q = self.failures.entry(ip).or_default();
-        // Keep log order even if lines arrive slightly out of order.
-        let pos = q.iter().rposition(|x| *x <= t).map_or(0, |p| p + 1);
-        q.insert(pos, t);
-        let newest = *q.back().unwrap_or(&t);
-        while q.front().is_some_and(|f| *f < newest - window) {
-            q.pop_front();
+        let max = self.params.maxretry.max(1);
+        let weight = self.failure_weight(ip, now);
+        let w = self.failures.entry(ip).or_insert(Window {
+            retry: 0,
+            first: t,
+            last: t,
+            failures: 0,
+        });
+        if w.last < t - window {
+            // Stale (fail2ban's cleanup would have dropped it): restart.
+            *w = Window {
+                retry: 0,
+                first: t,
+                last: t,
+                failures: 0,
+            };
         }
-        while q.len() > max {
-            q.pop_front();
+        if t > w.last {
+            if w.first < t - window {
+                let est = w.retry as f64 / (t - w.first) as f64 * window as f64;
+                w.retry = est.round_ties_even() as u32;
+                w.first = t - window;
+            }
+            w.last = t;
         }
-        let n = q.len() as u32;
-        if q.len() >= max {
+        w.retry = w.retry.saturating_add(weight);
+        w.failures = w.failures.saturating_add(1);
+        let n = w.retry;
+        let real = w.failures;
+        if n >= max {
             self.failures.remove(&ip);
-            let ban = self.make_ban(ip, now, n, false, None);
+            let ban = self.make_ban(ip, now, real, false, None);
             self.bans.insert(ip, ban.clone());
             self.totals.banned += 1;
             return FailResult::Banned(ban);
         }
         FailResult::Counted(n)
+    }
+
+    /// fail2ban `bantime.increment` also makes known offenders count faster:
+    /// with `k` earlier bans (within `purge_age`) one failure weighs
+    /// `2^k / 2 + 1` (2, 3, 5, 9, ...), capped at maxretry.
+    pub fn failure_weight(&self, ip: IpAddr, now: i64) -> u32 {
+        if !self.params.increment {
+            return 1;
+        }
+        let prev = match self.history.get(&ip) {
+            Some(h) if h.remembered(self.params.purge_age, now) => h.count,
+            _ => 0,
+        };
+        if prev == 0 {
+            return 1;
+        }
+        let w = (1u64 << prev.min(20)) / 2 + 1;
+        w.min(self.params.maxretry.max(1) as u64) as u32
     }
 
     fn make_ban(
@@ -242,7 +316,7 @@ impl Jail {
         dur: Option<u64>,
     ) -> Ban {
         let prev = match self.history.get(&ip) {
-            Some(h) if h.last_end + self.params.purge_age as i64 >= now => h.count,
+            Some(h) if h.remembered(self.params.purge_age, now) => h.count,
             _ => 0,
         };
         let count = prev.saturating_add(1);
@@ -254,6 +328,7 @@ impl Jail {
                 ip,
                 count,
                 last_end: end,
+                last_start: now,
             },
         );
         Ban {
@@ -327,15 +402,14 @@ impl Jail {
     pub fn prune(&mut self, now: i64) {
         self.prune_failures(now);
         let purge = self.params.purge_age as i64;
-        self.history.retain(|_, h| h.last_end + purge >= now);
+        self.history.retain(|_, h| h.remembered(purge as u64, now));
         let pa = self.params.protect_accepted as i64;
         self.accepted.retain(|_, t| now - *t <= pa);
     }
 
     fn prune_failures(&mut self, now: i64) {
         let w = self.params.findtime as i64;
-        self.failures
-            .retain(|_, q| q.back().is_some_and(|t| *t >= now - w));
+        self.failures.retain(|_, x| x.last >= now - w);
     }
 
     pub fn bans(&self) -> impl Iterator<Item = &Ban> {
@@ -434,16 +508,44 @@ mod tests {
     }
 
     #[test]
-    fn sliding_window_forgets_old_failures() {
+    fn window_rescales_like_fail2ban() {
         let mut j = jail();
         let a = ip("203.0.113.2");
         for t in [0, 100, 200, 300] {
             j.on_failure(a, t, t);
         }
-        // 701 - 600 = 101: the failure at 0 and 100 fell out of the window.
-        assert_eq!(j.on_failure(a, 701, 701), FailResult::Counted(3));
-        assert!(matches!(j.on_failure(a, 750, 750), FailResult::Counted(4)));
-        assert!(matches!(j.on_failure(a, 760, 760), FailResult::Banned(_)));
+        // 701: round(4 / 701 * 600) = 3, +1.
+        assert_eq!(j.on_failure(a, 701, 701), FailResult::Counted(4));
+        // 750: first = 101 -> round(4 / 649 * 600) = 4, +1 = 5: ban.
+        assert!(matches!(j.on_failure(a, 750, 750), FailResult::Banned(_)));
+        // A gap longer than findtime starts from zero.
+        let b = ip("203.0.113.3");
+        for t in [0, 100, 200, 300] {
+            j.on_failure(b, t, t);
+        }
+        assert_eq!(j.on_failure(b, 901, 901), FailResult::Counted(1));
+    }
+
+    #[test]
+    fn real_vps_sequence_bans_on_the_eighth_failure() {
+        // Failure offsets (s) of one attacker on 2026-10-18/19 that fail2ban
+        // banned on the 8th line although no 10-minute span holds 5 of them.
+        let mut j = jail();
+        let a = ip("203.0.113.30");
+        let offs = [0, 380, 442, 570, 1121, 1249, 1313, 1374];
+        let mut got = vec![];
+        for t in offs {
+            got.push(j.on_failure(a, t, t));
+        }
+        let counts: Vec<u32> = got[..7]
+            .iter()
+            .map(|r| match r {
+                FailResult::Counted(n) => *n,
+                o => panic!("{o:?}"),
+            })
+            .collect();
+        assert_eq!(counts, vec![1, 2, 3, 4, 3, 3, 4]);
+        assert!(matches!(got[7], FailResult::Banned(_)));
     }
 
     #[test]
@@ -472,14 +574,43 @@ mod tests {
         }
         // 1h, 2h, 4h, 8h, 16h, 32h (= the VPS "6 # 1d 8h").
         assert_eq!(lens, vec![3600, 7200, 14_400, 28_800, 57_600, 115_200]);
-        // After purge_age without a ban the count restarts.
-        now += 86_401;
+        // Still remembered just before start + 3 * bantime + purge_age ...
+        let h = j.history().next().unwrap().clone();
+        assert!(h.remembered(86_400, h.last_start + 3 * 115_200 + 86_400));
+        assert!(!h.remembered(86_400, h.last_start + 3 * 115_200 + 86_401));
+        // ... after that the count restarts.
+        now = h.last_start + 3 * 115_200 + 86_401;
         j.prune(now);
         for k in 0..5 {
             j.on_failure(a, now + k, now + k);
         }
         let b = j.ban_of(a).unwrap();
         assert_eq!((b.count, b.end - b.start), (1, 3600));
+    }
+
+    #[test]
+    fn repeat_offenders_count_faster_like_fail2ban() {
+        let mut j = jail();
+        let a = ip("203.0.113.40");
+        let mut now = 1000;
+        let mut needed = vec![];
+        for _ in 0..5 {
+            let mut n = 0;
+            loop {
+                n += 1;
+                if let FailResult::Banned(_) = j.on_failure(a, now, now) {
+                    break;
+                }
+                now += 1;
+            }
+            needed.push(n);
+            now = j.ban_of(a).unwrap().end;
+            j.tick(now);
+            now += 1;
+        }
+        // Weights 1, 2, 3, 5, 9 (capped at maxretry 5) -> 5, 3, 2, 1, 1 failures.
+        assert_eq!(needed, vec![5, 3, 2, 1, 1]);
+        assert_eq!(j.failure_weight(a, now), 5);
     }
 
     #[test]
@@ -538,10 +669,7 @@ mod tests {
         }
         // Protection lapses after protect_accepted.
         let later = 150 + 86_400 + 1;
-        assert!(matches!(
-            j.on_failure(a, later, later),
-            FailResult::Counted(1)
-        ));
+        assert_eq!(j.on_failure(a, later, later), FailResult::Counted(2)); // manual ban in history: weight 2
     }
 
     #[test]

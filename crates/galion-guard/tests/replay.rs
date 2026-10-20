@@ -159,10 +159,10 @@ fn findtime_window_slides() {
     let mut e = engine(None);
     let mut clock = T0;
     let mut lines = vec![];
-    // 5 failures spread over 11 minutes: never 5 inside 10 minutes.
+    // 5 failures 225 s apart: the rate-rescaled count stays at 4 (fail2ban).
     for i in 0..5 {
         lines.extend(invalid_user(
-            T0 + i * 165,
+            T0 + i * 225,
             3000 + i as u32,
             "203.0.113.21",
             "x",
@@ -170,10 +170,10 @@ fn findtime_window_slides() {
     }
     feed(&mut e, &lines, &mut clock);
     assert!(bans(&e).is_empty());
-    // One more inside the window of the last four: ban.
+    // One more 30 s later: round(4 / 630 * 600) + 1 = 5: ban.
     feed(
         &mut e,
-        &invalid_user(T0 + 4 * 165 + 30, 3009, "203.0.113.21", "x"),
+        &invalid_user(T0 + 4 * 225 + 30, 3009, "203.0.113.21", "x"),
         &mut clock,
     );
     assert_eq!(bans(&e).len(), 1);

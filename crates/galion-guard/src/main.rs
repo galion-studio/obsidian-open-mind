@@ -18,6 +18,24 @@ use galion_guard::source::LogLine;
 use galion_guard::state::now_secs;
 use galion_guard::timefmt;
 
+/// Like println!, but a closed pipe (`| head`) ends quietly instead of panicking.
+macro_rules! outln {
+    ($($t:tt)*) => {{
+        use std::io::Write as _;
+        if writeln!(std::io::stdout().lock(), $($t)*).is_err() {
+            std::process::exit(0);
+        }
+    }};
+}
+macro_rules! out {
+    ($($t:tt)*) => {{
+        use std::io::Write as _;
+        if write!(std::io::stdout().lock(), $($t)*).is_err() {
+            std::process::exit(0);
+        }
+    }};
+}
+
 const USAGE: &str = "galion-guard: Rust SSH ban daemon (fail2ban sshd jail replacement)
 
 usage:
@@ -119,23 +137,23 @@ fn test_filter(a: &Args) -> Result<(), String> {
                 failures += 1;
                 ips.insert(ip);
                 if a.show {
-                    println!("FAIL rule {rule:>2} {ip}: {line}");
+                    outln!("FAIL rule {rule:>2} {ip}: {line}");
                 }
             }
             Outcome::Accepted { .. } => accepted += 1,
             Outcome::Unresolved { .. } => unresolved += 1,
             Outcome::Nothing => {
                 if a.show {
-                    println!("     rule {:>2} (no count): {line}", m.rule);
+                    outln!("     rule {:>2} (no count): {line}", m.rule);
                 }
             }
         }
     }
-    println!("Lines: {total}, matched: {matched}, failures: {failures} from {} addresses, accepted logins: {accepted}, non-IP hosts: {unresolved}", ips.len());
-    println!("Matches per failregex:");
+    outln!("Lines: {total}, matched: {matched}, failures: {failures} from {} addresses, accepted logins: {accepted}, non-IP hosts: {unresolved}", ips.len());
+    outln!("Matches per failregex:");
     for (i, n) in per_rule.iter().enumerate() {
         if *n > 0 {
-            println!("  [{i:>2}] {n}");
+            outln!("  [{i:>2}] {n}");
         }
     }
     Ok(())
@@ -189,7 +207,7 @@ fn replay(a: &Args) -> Result<(), String> {
     }
     for ev in &eng.events {
         if a.json {
-            println!("{}", serde_json::to_string(ev).unwrap_or_default());
+            outln!("{}", serde_json::to_string(ev).unwrap_or_default());
             continue;
         }
         match ev {
@@ -200,29 +218,29 @@ fn replay(a: &Args) -> Result<(), String> {
                 count,
                 failures,
                 ..
-            } => println!(
+            } => outln!(
                 "{} BAN   {ip} until {} (ban #{count}, {failures} failures, {})",
                 zagreb_time::from_unix(*at),
                 zagreb_time::from_unix(*until),
                 galion_guard::duration::format((until - at) as u64)
             ),
             Event::Unban { ip, at, reason } => {
-                println!("{} UNBAN {ip} ({reason})", zagreb_time::from_unix(*at))
+                outln!("{} UNBAN {ip} ({reason})", zagreb_time::from_unix(*at))
             }
             Event::Protected { at, reason } => {
-                println!(
+                outln!(
                     "{} PROTECTED failure ignored ({reason:?})",
                     zagreb_time::from_unix(*at)
                 )
             }
             Event::Unresolved { at, rule } => {
-                println!(
+                outln!(
                     "{} NON-IP host ignored (rule {rule})",
                     zagreb_time::from_unix(*at)
                 )
             }
             Event::BackendError { at, error } => {
-                println!("{} FIREWALL ERROR {error}", zagreb_time::from_unix(*at))
+                outln!("{} FIREWALL ERROR {error}", zagreb_time::from_unix(*at))
             }
         }
     }
@@ -246,7 +264,7 @@ fn real_main() -> Result<(), String> {
                 &e.cfg.guard.socket,
                 if a.json { "status json" } else { "status" },
             )?;
-            print!("{out}");
+            out!("{out}");
             Ok(())
         }
         "unban" | "ban" => {
@@ -258,7 +276,7 @@ fn real_main() -> Result<(), String> {
                 req.push_str(d);
             }
             let out = daemon::request(&e.cfg.guard.socket, &req)?;
-            print!("{out}");
+            out!("{out}");
             if out.starts_with("error") {
                 return Err("request refused".into());
             }
@@ -266,12 +284,12 @@ fn real_main() -> Result<(), String> {
         }
         "stop" => {
             let e = load_config(&a.config)?;
-            print!("{}", daemon::request(&e.cfg.guard.socket, "stop")?);
+            out!("{}", daemon::request(&e.cfg.guard.socket, "stop")?);
             Ok(())
         }
         "check-config" => {
             let e = load_config(&a.config)?;
-            println!(
+            outln!(
                 "ok: source={} backend={} table={} ports={:?} maxretry={} findtime={}s bantime={}s increment={} factor={} maxtime={:?} purge_age={}s protect_accepted={}s allowlist={} entries ignoreself={}",
                 e.cfg.sshd.source, e.cfg.guard.backend, e.cfg.guard.table, e.cfg.sshd.ports,
                 e.params.maxretry, e.params.findtime, e.params.bantime, e.params.increment,
@@ -286,15 +304,15 @@ fn real_main() -> Result<(), String> {
             let e = load_config(&a.config)?;
             let mut b = daemon::backend_for(&e)?;
             b.teardown()?;
-            println!("removed table inet {}", e.cfg.guard.table);
+            outln!("removed table inet {}", e.cfg.guard.table);
             Ok(())
         }
         "version" | "--version" => {
-            println!("galion-guard {}", env!("CARGO_PKG_VERSION"));
+            outln!("galion-guard {}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
         "help" | "--help" | "-h" => {
-            println!("{USAGE}");
+            outln!("{USAGE}");
             Ok(())
         }
         other => Err(format!("unknown command {other:?}\n\n{USAGE}")),

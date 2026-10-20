@@ -301,3 +301,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-20T09:57:41+02:00 | PORTS-NOW | grok-build | PASS 9/10 | docs/ports-now.md | seven loopback ports listening; no curl
 
 - 2026-10-20T09:57:55+02:00 | LOCKFILE-NOW | grok-build | PASS 9/10 | docs/lockfile-now.md | Cargo.lock matched HEAD at the stamp; not regenerated
+
+- 2026-10-20T09:58:30+02:00 | REUSE-GAP | grok-build | PASS 9/10 | docs/reuse-gap.md | 120 Rust files have SPDX; REUSE.toml is absent

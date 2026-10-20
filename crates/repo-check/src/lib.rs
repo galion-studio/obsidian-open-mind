@@ -597,7 +597,11 @@ pub fn scan_tree(root: &Path, expect_copyright: Option<&str>) -> std::io::Result
             continue;
         };
         files_scanned += 1;
-        if rel != "LICENSE" && file_name(rel) == "LICENSE" {
+        // Only our own crate copies must equal the root LICENSE (same scope as the
+        // CI license job). Vendored third-party licences, e.g. under stack/, keep
+        // their own copyright line.
+        let ours = rel.starts_with("crates/") || rel.starts_with("edge/");
+        if ours && rel != "LICENSE" && file_name(rel) == "LICENSE" {
             findings.extend(check_crate_license(rel, &text, root_license.as_deref()));
         }
         findings.extend(scan_text(rel, &text));

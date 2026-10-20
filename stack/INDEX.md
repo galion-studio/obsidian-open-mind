@@ -2,7 +2,7 @@
 
 Written 2026-10-18 19:44 CEST (+02:00). All times Europe/Zagreb with offset; never server time.
 
-- Source: VPS ip50 (51.38.137.193). Originals were copied with `cp -a` and never moved or changed by this copy.
+- Source: VPS ip50 (<vps-ip>). Originals were copied with `cp -a` and never moved or changed by this copy.
 - **No secret values are in this tree.** Files that hold secrets were copied as `*.redacted`: every value is `<REDACTED:NAME>`, and a header names the real path. Raw single-value secrets (tokens, keys, PINs, cookies, the SSH private key, sealed blobs) are placeholders only.
 - Python files are listed as pointers, not copied (no-Python rule). Databases, personal files (USER.md, memories, voice transcripts) are pointers only.
 - Snapshot state: `hermes/config.yaml.redacted`, `hermes/.env.redacted`, `research-agent/hermes/modes.json` and `research-agent/console-ide/src/lib/hermes.ts` show the state AFTER the approved OpenRouter wiring of 2026-10-18 19:36-19:40 CEST (+02:00). Pre-change originals are on the VPS as `<file>.bak-20261018-193614+0200`.

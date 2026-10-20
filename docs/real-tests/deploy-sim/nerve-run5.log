@@ -1,0 +1,279 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+# Full output of: scripts/real/deploy-sim.sh nerve  (run 5, box, 2026-10-20, Europe/Zagreb CEST +02:00; tuner, nerve, room and desk ran in parallel, so 'leftover listeners' counts the other rehearsals' ports)
+  unit| StartLimitIntervalSec=600
+  unit| StartLimitBurst=5
+  unit| ExecStart=/workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  unit| Environment=NERVE_ADDR=127.0.0.1:19331
+  unit| Environment=NERVE_INTERVAL=5
+  unit| Environment=NERVE_DATA_DIR=/workspace/swarm/sim/deploy-sim/root-nerve/var/lib/galion-nerve
+  unit| Environment=NERVE_DRY_RUN=1
+  unit| Environment=NERVE_FAIL_CYCLES=3
+  unit| Environment=NERVE_REPORT_EVERY=20
+  unit| Environment=NERVE_SYSTEMD=0 NERVE_JOURNAL=0 NERVE_REFLEX=0 NERVE_ROLLBACK=0 NERVE_GALION_HEALTH_PORT=0 NERVE_DEPLOY_BIN=/nonexistent/galion-deploy NERVE_LISTEN_SCOPE=19330-19339
+  unit| Restart=always
+  unit| RestartSec=10
+simsup pid 2074353, root /workspace/swarm/sim/deploy-sim/root-nerve
+CHECK PASS  old galion-nerve serving /healthz (200)
+old nerve: / -> 200 ; /health -> 404 (live VPS 8670: / 200, /health 404)
+CHECK PASS  old nerve /health is 404 like live (404)
+letting the old nerve run 2 cycles so its data dir is real...
+data dir after old nerve: alerts.json self-eval state.json 
+
+[2026-10-20T21:15:08.022+02:00] == copy + verify (stand-in for scp to /var/tmp/galion-cutover)
+$ sha256sum -c SHA256SUMS
+openmind-nerve-x86_64-unknown-linux-musl: OK
+  -> exit=0
+CHECK PASS  artefact sha256 verified (sha ad9a5b29d8ce7133)
+
+[2026-10-20T21:15:08.034+02:00] == preflight
+installed sha 3b150dea692ffac0 (old = ws/nerve a63b730 galion-nerve)
+$ ctl is-active galion-nerve
+active
+  -> exit=0
+--version: openmind-nerve 0.1.0
+CHECK PASS  new --version answers without binding (openmind-nerve 0.1.0)
+health table: galion-deploy has NO entry for galion-nerve -> without a URL it would only check 'is-active' for 5 s
+
+[2026-10-20T21:15:08.057+02:00] == swap: galion-deploy galion-nerve <new> http://127.0.0.1:19331/healthz (probe every 2 ms on /healthz)
+$ galion-deploy galion-nerve /workspace/swarm/sim/deploy-sim/root-nerve/var/tmp/galion-cutover/openmind-nerve-x86_64-unknown-linux-musl http://127.0.0.1:19331/healthz   (direct backend, outer timeout 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:11+02:00 svc=galion-deploy level=info msg="backup" unit=galion-nerve target=/workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve backup=/workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211508+0200.bin sha_old=3b150dea692f sha_new=ad9a5b29d8ce
+ts=2026-10-20T21:15:12+02:00 svc=galion-deploy level=info msg="deployed" unit=galion-nerve health=http://127.0.0.1:19331/healthz
+  -> exit=0 elapsed_ms=4091
+  probe| probe http://127.0.0.1:19331/healthz interval=2ms tries=2109 ok=2108 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T21:15:11.432+02:00 last_fail=2026-10-20T21:15:11.432+02:00 next_ok=2026-10-20T21:15:11.434+02:00 fail_span_ms=0 until_ok_ms=2 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=7
+CHECK PASS  swap exit 0 (exit 0)
+CHECK PASS  swap downtime < 1 s (longest outage 2 ms)
+
+[2026-10-20T21:15:12.465+02:00] == health after the switch
+CHECK PASS  running binary is the new sha (ad9a5b29d8ce7133)
+/healthz -> ok
+/health  -> {"appended":0,"cycle":1,"score":62,"service":"openmind-nerve","status":"ok","system":"failing","ts":"2026-10-20T21:15:12+02:00","version":"0.1.0"}
+/state   -> 200, /self-eval.md -> 200, / -> 200
+  journal| <2>galion-nerve ALERT crit console: failing: failing: health probe down (connect: Connection refused (os error 111))
+  journal| <2>galion-nerve ALERT crit galion-health: failing: failing: health probe down (connect: Connection refused (os error 111))
+  journal| <2>galion-nerve ALERT crit stack-wide: incident inc-b8d789d4 [critical]: stack-wide failure: 8 components down at once (console, galion-desk, galion-health, galion-one, galion-one-mouth, hermes-rs, op
+  journal| <4>galion-nerve self-eval FAIL: score 62 (D), 1 error(s), 1 warning(s), system "failing"
+  journal| <6>openmind-nerve cycle 1 system=failing score=62 incidents=1 ddos=false cycle_ms=28
+  journal| <4>galion-nerve ALERT warn ddos:nerve-api: incident inc-e46f2bf2 [warn]: request flood on galion-nerve (stream nerve-api)
+CHECK PASS  new nerve reads the old nerve's data dir and keeps serving (data: alerts.json self-eval state.json )
+
+[2026-10-20T21:15:18.558+02:00] == rollback level 2 (manual): galion-deploy galion-nerve <backup> /healthz
+$ galion-deploy galion-nerve /workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211508+0200.bin http://127.0.0.1:19331/healthz   (direct backend, outer timeout 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:21+02:00 svc=galion-deploy level=info msg="backup" unit=galion-nerve target=/workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve backup=/workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211518+0200.bin sha_old=ad9a5b29d8ce sha_new=3b150dea692f
+ts=2026-10-20T21:15:22+02:00 svc=galion-deploy level=info msg="deployed" unit=galion-nerve health=http://127.0.0.1:19331/healthz
+  -> exit=0 elapsed_ms=4091
+  probe| probe http://127.0.0.1:19331/healthz interval=2ms tries=2107 ok=2105 fail=2 outages=1
+  probe| outage first_fail=2026-10-20T21:15:21.931+02:00 last_fail=2026-10-20T21:15:21.933+02:00 next_ok=2026-10-20T21:15:21.935+02:00 fail_span_ms=2 until_ok_ms=4 tries=2 kinds=Otherx1,Refusedx1
+  probe| longest_gap_between_ok_ms=6
+CHECK PASS  L2 manual rollback exit 0, old sha, old nerve healthy on the new nerve's data dir (exit 0, sha 3b150dea692ffac0)
+  journal| <2>galion-nerve ALERT crit console: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  journal| <2>galion-nerve ALERT crit galion-health: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  journal| <4>galion-nerve self-eval FAIL: 8 error(s), 4 warning(s), system "failing"
+  journal| <6>galion-nerve cycle 1 system=failing cycle_ms=67
+
+[2026-10-20T21:15:28.996+02:00] == forward again, then rollback level 3 (last resort)
+$ galion-deploy galion-nerve /workspace/swarm/sim/deploy-sim/root-nerve/var/tmp/galion-cutover/openmind-nerve-x86_64-unknown-linux-musl http://127.0.0.1:19331/healthz   (direct backend, outer timeout 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:32+02:00 svc=galion-deploy level=info msg="backup" unit=galion-nerve target=/workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve backup=/workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211529+0200.bin sha_old=3b150dea692f sha_new=ad9a5b29d8ce
+ts=2026-10-20T21:15:33+02:00 svc=galion-deploy level=info msg="deployed" unit=galion-nerve health=http://127.0.0.1:19331/healthz
+  -> exit=0 elapsed_ms=4092
+CHECK PASS  re-deploy new exit 0 (exit 0)
+$ install -m 0755 /workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211508+0200.bin /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve.new
+  -> exit=0
+$ mv -f /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve.new /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve
+  -> exit=0
+$ ctl restart galion-nerve
+  -> exit=0
+  probe| probe http://127.0.0.1:19331/healthz interval=2ms tries=149 ok=148 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T21:15:33.419+02:00 last_fail=2026-10-20T21:15:33.419+02:00 next_ok=2026-10-20T21:15:33.421+02:00 fail_span_ms=0 until_ok_ms=2 tries=1 kinds=Otherx1
+  probe| longest_gap_between_ok_ms=5
+CHECK PASS  L3 last resort: old sha, healthy (sha 3b150dea692ffac0)
+ActiveState=active
+StartLimitWindowStarts=4
+
+[2026-10-20T21:15:33.483+02:00] == rollback level 1 (automatic) right after: broken binary. The unit allows 5 starts per 600 s (StartLimitBurst=5)
+starts so far in this window: swap, L2, re-deploy, L3 = 4
+$ galion-deploy galion-nerve /workspace/swarm/sim/deploy-sim/root-nerve/bad/sim-broken http://127.0.0.1:19331/healthz   (direct backend, outer timeout 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:36+02:00 svc=galion-deploy level=info msg="backup" unit=galion-nerve target=/workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve backup=/workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211533+0200.bin sha_old=3b150dea692f sha_new=cf3c5ab9b1c9
+ts=2026-10-20T21:15:57+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=galion-nerve
+  | galion-nerve.service: Started (pid 2095459): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | <6>galion-nerve 0.1.0 listening on 127.0.0.1:19331 interval=5s mode=dry-run data=/workspace/swarm/sim/deploy-sim/root-nerve/var/lib/galion-nerve
+  | <2>galion-nerve ALERT crit openmind-memory: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <2>galion-nerve ALERT crit hermes-rs: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <2>galion-nerve ALERT crit galion-desk: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <2>galion-nerve ALERT crit tuner: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <2>galion-nerve ALERT crit galion-one: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <2>galion-nerve ALERT crit console: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <2>galion-nerve ALERT crit galion-health: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <4>galion-nerve self-eval FAIL: 8 error(s), 4 warning(s), system "failing"
+  | <6>galion-nerve cycle 1 system=failing cycle_ms=68
+  | galion-nerve.service: Stopping (SIGTERM to pid 2095459)...
+  | galion-nerve.service: Stopped after 4 ms (code=killed, status=15/TERM).
+  | galion-nerve.service: Started (pid 2097156): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-nerve.service: Failed with result 'exit-code'.
+  | galion-nerve.service: Scheduled restart job, restart counter is at 1.
+  | galion-nerve.service: Start request repeated too quickly.
+  | galion-nerve.service: Failed with result 'start-limit-hit'.
+Job for galion-nerve.service failed because start of the service was attempted too often.
+  -> exit=1 elapsed_ms=23268
+  probe| probe http://127.0.0.1:19331/healthz interval=5ms tries=4581 ok=659 fail=3922 outages=1
+  probe| outage first_fail=2026-10-20T21:15:36.880+02:00 last_fail=2026-10-20T21:15:57.053+02:00 next_ok=never fail_span_ms=20173 tries=3922 kinds=Otherx1,Refusedx3921
+  probe| longest_gap_between_ok_ms=9
+  probe| NOTE: service was still down when the probe stopped
+unit: failed; installed sha 3b150dea692ffac0; /healthz 000
+  journal| galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  journal| galion-nerve.service: Scheduled restart job, restart counter is at 1.
+  journal| galion-nerve.service: Start request repeated too quickly.
+  journal| galion-nerve.service: Failed with result 'start-limit-hit'.
+  journal| galion-nerve.service: Start request repeated too quickly.
+  journal| galion-nerve.service: Failed with result 'start-limit-hit'.
+CHECK PASS  FINDING: 6th start in 600 s is refused; galion-deploy dies at its rollback restart (set -e), old binary back on disk but unit FAILED (exit 1, unit failed)
+$ ctl reset-failed galion-nerve
+  -> exit=0
+$ ctl restart galion-nerve
+  -> exit=0
+CHECK PASS  recovery: reset-failed + restart brings the old nerve back (54 ms)
+
+[2026-10-20T21:15:57.190+02:00] == the same 6th-start situation with GALION_DEPLOY_RESET_FAILED=1 (opt-in)
+4 starts used in the 600 s window (recovery + 3 restarts standing in for swap/L2/forward); now a broken deploy:
+$ galion-deploy galion-nerve /workspace/swarm/sim/deploy-sim/root-nerve/bad/sim-broken http://127.0.0.1:19331/healthz   (direct backend, outer timeout 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:16:00+02:00 svc=galion-deploy level=info msg="backup" unit=galion-nerve target=/workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve backup=/workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211557+0200.bin sha_old=3b150dea692f sha_new=cf3c5ab9b1c9
+ts=2026-10-20T21:16:20+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=galion-nerve
+  | <2>galion-nerve ALERT crit console: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <2>galion-nerve ALERT crit galion-health: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <4>galion-nerve self-eval FAIL: 8 error(s), 4 warning(s), system "failing"
+  | <6>galion-nerve cycle 1 system=failing cycle_ms=68
+  | galion-nerve.service: Stopping (SIGTERM to pid 2097984)...
+  | galion-nerve.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-nerve.service: Started (pid 2098326): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-nerve.service: Failed with result 'exit-code'.
+  | galion-nerve.service: Scheduled restart job, restart counter is at 2.
+  | galion-nerve.service: Started (pid 2098782): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-nerve.service: Failed with result 'exit-code'.
+  | galion-nerve.service: Scheduled restart job, restart counter is at 3.
+  | galion-nerve.service: Started (pid 2099768): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-nerve.service: Failed with result 'exit-code'.
+ts=2026-10-20T21:16:21+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=galion-nerve
+  -> exit=1 elapsed_ms=24409
+CHECK PASS  RESET_FAILED=1: rolled back ok even with a full start-limit window (exit 1, unit active)
+
+[2026-10-20T21:16:21.752+02:00] == rollback level 1 (automatic) with an empty start-limit window
+$ galion-deploy galion-nerve /workspace/swarm/sim/deploy-sim/root-nerve/bad/sim-broken http://127.0.0.1:19331/healthz   (direct backend, outer timeout 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:16:25+02:00 svc=galion-deploy level=info msg="backup" unit=galion-nerve target=/workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve backup=/workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211622+0200.bin sha_old=3b150dea692f sha_new=cf3c5ab9b1c9
+ts=2026-10-20T21:16:45+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=galion-nerve
+  | <2>galion-nerve ALERT crit console: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <2>galion-nerve ALERT crit galion-health: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <4>galion-nerve self-eval FAIL: 8 error(s), 4 warning(s), system "failing"
+  | <6>galion-nerve cycle 1 system=failing cycle_ms=72
+  | galion-nerve.service: Stopping (SIGTERM to pid 2099837)...
+  | galion-nerve.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-nerve.service: Started (pid 2100730): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-nerve.service: Failed with result 'exit-code'.
+  | galion-nerve.service: Scheduled restart job, restart counter is at 4.
+  | galion-nerve.service: Started (pid 2101970): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-nerve.service: Failed with result 'exit-code'.
+  | galion-nerve.service: Scheduled restart job, restart counter is at 5.
+  | galion-nerve.service: Started (pid 2102720): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-nerve.service: Failed with result 'exit-code'.
+ts=2026-10-20T21:16:46+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=galion-nerve
+  -> exit=1 elapsed_ms=24258
+  probe| probe http://127.0.0.1:19331/healthz interval=5ms tries=4806 ok=862 fail=3944 outages=1
+  probe| outage first_fail=2026-10-20T21:16:25.147+02:00 last_fail=2026-10-20T21:16:45.313+02:00 next_ok=2026-10-20T21:16:45.318+02:00 fail_span_ms=20166 until_ok_ms=20171 tries=3944 kinds=Otherx1,Refusedx3943
+  probe| longest_gap_between_ok_ms=20176
+CHECK PASS  L1 broken binary: rolled back ok, old sha, healthy (exit 1, outage 20171 ms)
+
+[2026-10-20T21:16:46.361+02:00] == health-URL trap: the same broken deploy judged on /health (new nerve has it, the old one answers 404)
+$ galion-deploy galion-nerve /workspace/swarm/sim/deploy-sim/root-nerve/bad/sim-broken http://127.0.0.1:19331/health   (direct backend, outer timeout 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:16:49+02:00 svc=galion-deploy level=info msg="backup" unit=galion-nerve target=/workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve backup=/workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211646+0200.bin sha_old=3b150dea692f sha_new=cf3c5ab9b1c9
+ts=2026-10-20T21:17:09+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=galion-nerve
+  | <2>galion-nerve ALERT crit console: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <2>galion-nerve ALERT crit galion-health: failing: failing: health probe down (connect: Connection refused (os error 111)); degrading: systemd state unavailable
+  | <4>galion-nerve self-eval FAIL: 8 error(s), 4 warning(s), system "failing"
+  | <6>galion-nerve cycle 1 system=failing cycle_ms=67
+  | galion-nerve.service: Stopping (SIGTERM to pid 2102730)...
+  | galion-nerve.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-nerve.service: Started (pid 2103087): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-nerve.service: Failed with result 'exit-code'.
+  | galion-nerve.service: Scheduled restart job, restart counter is at 6.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-nerve.service: Started (pid 2103482): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-nerve.service: Failed with result 'exit-code'.
+  | galion-nerve.service: Scheduled restart job, restart counter is at 7.
+  | galion-nerve.service: Started (pid 2103718): /workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-nerve.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-nerve.service: Failed with result 'exit-code'.
+ts=2026-10-20T21:17:30+02:00 svc=galion-deploy level=error msg="ROLLBACK ALSO UNHEALTHY for galion-nerve; manual action needed (backup /workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211646+0200.bin)"
+  -> exit=1 elapsed_ms=43763
+CHECK PASS  FINDING: with /health the rollback to the old nerve is reported 'ROLLBACK ALSO UNHEALTHY' although it serves (exit 1, /healthz 200, /health 404)
+
+[2026-10-20T21:17:30.152+02:00] == hang: sim-hang, no version timeout
+$ galion-deploy galion-nerve /workspace/swarm/sim/deploy-sim/root-nerve/bad/sim-hang http://127.0.0.1:19331/healthz   (direct backend, outer timeout 15s)
+  -> exit=124 elapsed_ms=15004
+CHECK PASS  hang: deploy never returns on its own; service untouched (exit 124)
+
+[2026-10-20T21:17:45.174+02:00] == final forward swap (leave the sim on the new nerve) and end state
+$ galion-deploy galion-nerve /workspace/swarm/sim/deploy-sim/root-nerve/var/tmp/galion-cutover/openmind-nerve-x86_64-unknown-linux-musl http://127.0.0.1:19331/healthz   (direct backend, outer timeout 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:17:48+02:00 svc=galion-deploy level=info msg="backup" unit=galion-nerve target=/workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve backup=/workspace/swarm/sim/deploy-sim/root-nerve/var/backups/galion/deploy/galion-nerve-20261020-211745+0200.bin sha_old=3b150dea692f sha_new=ad9a5b29d8ce
+ts=2026-10-20T21:17:49+02:00 svc=galion-deploy level=info msg="deployed" unit=galion-nerve health=http://127.0.0.1:19331/healthz
+  -> exit=0 elapsed_ms=4096
+  probe| probe http://127.0.0.1:19331/healthz interval=2ms tries=2103 ok=2102 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T21:17:48.563+02:00 last_fail=2026-10-20T21:17:48.563+02:00 next_ok=2026-10-20T21:17:48.565+02:00 fail_span_ms=0 until_ok_ms=2 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=4
+CHECK PASS  final swap exit 0 (exit 0, outage 2 ms)
+galion-nerve.service active result=success pid=2110267 restarts=7 exec=/workspace/swarm/sim/deploy-sim/root-nerve/opt/galion/rust/bin/galion-nerve serve
+simsup stopped; leftover listeners on 19330-19339: 0
+DOWNTIME nerve swap 2 ms
+DOWNTIME nerve rollback-L2 4 ms
+DOWNTIME nerve rollback-L3 2 ms
+DOWNTIME nerve auto-rollback-broken 20171 ms
+
+== summary nerve: 18 pass, 0 fail
+  old galion-nerve serving /healthz|PASS|200
+  old nerve /health is 404 like live|PASS|404
+  artefact sha256 verified|PASS|sha ad9a5b29d8ce7133
+  new --version answers without binding|PASS|openmind-nerve 0.1.0
+  swap exit 0|PASS|exit 0
+  swap downtime < 1 s|PASS|longest outage 2 ms
+  running binary is the new sha|PASS|ad9a5b29d8ce7133
+  new nerve reads the old nerve's data dir and keeps serving|PASS|data: alerts.json self-eval state.json 
+  L2 manual rollback exit 0, old sha, old nerve healthy on the new nerve's data dir|PASS|exit 0, sha 3b150dea692ffac0
+  re-deploy new exit 0|PASS|exit 0
+  L3 last resort: old sha, healthy|PASS|sha 3b150dea692ffac0
+  FINDING: 6th start in 600 s is refused; galion-deploy dies at its rollback restart (set -e), old binary back on disk but unit FAILED|PASS|exit 1, unit failed
+  recovery: reset-failed + restart brings the old nerve back|PASS|54 ms
+  RESET_FAILED=1: rolled back ok even with a full start-limit window|PASS|exit 1, unit active
+  L1 broken binary: rolled back ok, old sha, healthy|PASS|exit 1, outage 20171 ms
+  FINDING: with /health the rollback to the old nerve is reported 'ROLLBACK ALSO UNHEALTHY' although it serves|PASS|exit 1, /healthz 200, /health 404
+  hang: deploy never returns on its own; service untouched|PASS|exit 124
+  final swap exit 0|PASS|exit 0, outage 2 ms
+
+deploy-sim: 0 failed check(s)
+rc=0

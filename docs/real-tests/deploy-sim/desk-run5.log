@@ -1,0 +1,124 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+# Full output of: scripts/real/deploy-sim.sh desk  (run 5, box, 2026-10-20, Europe/Zagreb CEST +02:00; tuner, nerve, room and desk ran in parallel, so 'leftover listeners' counts the other rehearsals' ports)
+simsup pid 2074337, root /workspace/swarm/sim/deploy-sim/root-desk
+CHECK PASS  old desk serving ({"ok":true})
+old (main 13a296c stand-in for the Oct 10 glibc build) sha 869b60fc5ba0078f; new (swarm/desk-linkwatch a54c792) sha b46b148f2b65d8f5
+/desk top-level keys (old): 22
+
+[2026-10-20T21:14:56.985+02:00] == preflight: new --help is safe; new --version is NOT handled (it resolves settings and binds)
+$ /workspace/swarm/sim/deploy-sim/root-desk/var/tmp/galion-cutover/galion-desk.new --help
+galion-desk: operator desk on DESK_BIND (default 127.0.0.1:8646). GET /desk, POST /desk, GET /health.
+  -> exit=0
+galion-desk: bind 127.0.0.1:19333: Address in use (os error 98)
+  --version while the desk holds :19333 -> exit 1 after 4 ms (bind error, so galion-deploy would continue)
+
+[2026-10-20T21:14:56.992+02:00] == manual cutover per docs/cutover/desk.md steps 8-11 (probe every 2 ms)
+$ cp -p /workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk /workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk.oct10
+  -> exit=0
+$ install -m 0755 /workspace/swarm/sim/deploy-sim/root-desk/var/tmp/galion-cutover/galion-desk.new /workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk
+  -> exit=0
+$ ctl restart galion-desk
+  -> exit=0
+  probe| probe http://127.0.0.1:19333/health interval=2ms tries=158 ok=156 fail=2 outages=1
+  probe| outage first_fail=2026-10-20T21:14:57.311+02:00 last_fail=2026-10-20T21:14:57.313+02:00 next_ok=2026-10-20T21:14:57.315+02:00 fail_span_ms=2 until_ok_ms=4 tries=2 kinds=Otherx1,Refusedx1
+  probe| longest_gap_between_ok_ms=6
+/health {"ok":true}; /desk keys: foundation,at,line,model,vram,ctx,hermes,one,tunnel,voice,heard,said,turns,waking,resting,hold,services,board,events,mindpack,focus,notes
+mindpack (no desk-hermes in the sim): {}
+  journal| galion-desk.service: Started (pid 2074821): /workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk
+  journal| galion-desk 127.0.0.1:19333
+CHECK PASS  manual swap: new sha running, 22 /desk keys, downtime < 1 s (outage 4 ms)
+
+[2026-10-20T21:14:57.383+02:00] == manual rollback per step 13
+$ install -m 0755 /workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk.oct10 /workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk
+  -> exit=0
+$ ctl restart galion-desk
+  -> exit=0
+  probe| probe http://127.0.0.1:19333/health interval=2ms tries=155 ok=154 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T21:14:57.697+02:00 last_fail=2026-10-20T21:14:57.697+02:00 next_ok=2026-10-20T21:14:57.699+02:00 fail_span_ms=0 until_ok_ms=2 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=7
+CHECK PASS  step 13 rollback: old sha, healthy, downtime < 1 s (outage 2 ms)
+
+[2026-10-20T21:14:57.730+02:00] == the galion-deploy route (it has [galion-desk]=8646/health): swap, broken, manual rollback
+$ galion-deploy galion-desk /workspace/swarm/sim/deploy-sim/root-desk/var/tmp/galion-cutover/galion-desk.new http://127.0.0.1:19333/health   (direct backend, outer timeout 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:01+02:00 svc=galion-deploy level=info msg="backup" unit=galion-desk target=/workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk backup=/workspace/swarm/sim/deploy-sim/root-desk/var/backups/galion/deploy/galion-desk-20261020-211458+0200.bin sha_old=869b60fc5ba0 sha_new=b46b148f2b65
+ts=2026-10-20T21:15:02+02:00 svc=galion-deploy level=info msg="deployed" unit=galion-desk health=http://127.0.0.1:19333/health
+  -> exit=0 elapsed_ms=4081
+  probe| probe http://127.0.0.1:19333/health interval=2ms tries=2098 ok=2097 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T21:15:01.098+02:00 last_fail=2026-10-20T21:15:01.098+02:00 next_ok=2026-10-20T21:15:01.100+02:00 fail_span_ms=0 until_ok_ms=2 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=12
+CHECK PASS  galion-deploy swap exit 0, downtime < 1 s (exit 0, outage 2 ms)
+$ galion-deploy galion-desk /workspace/swarm/sim/deploy-sim/root-desk/bad/sim-broken http://127.0.0.1:19333/health   (direct backend, outer timeout 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:05+02:00 svc=galion-deploy level=info msg="backup" unit=galion-desk target=/workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk backup=/workspace/swarm/sim/deploy-sim/root-desk/var/backups/galion/deploy/galion-desk-20261020-211502+0200.bin sha_old=b46b148f2b65 sha_new=cf3c5ab9b1c9
+ts=2026-10-20T21:15:25+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=galion-desk
+  | galion-desk.service: Scheduled restart job, restart counter is at 6.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-desk.service: Started (pid 2088986): /workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk
+  | galion-desk.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-desk.service: Failed with result 'exit-code'.
+  | galion-desk.service: Scheduled restart job, restart counter is at 7.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-desk.service: Started (pid 2089590): /workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk
+  | galion-desk.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-desk.service: Failed with result 'exit-code'.
+  | galion-desk.service: Scheduled restart job, restart counter is at 8.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-desk.service: Started (pid 2090632): /workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk
+  | galion-desk.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-desk.service: Failed with result 'exit-code'.
+  | galion-desk.service: Scheduled restart job, restart counter is at 9.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-desk.service: Started (pid 2091293): /workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk
+  | galion-desk.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-desk.service: Failed with result 'exit-code'.
+ts=2026-10-20T21:15:26+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=galion-desk
+  -> exit=1 elapsed_ms=24242
+  probe| probe http://127.0.0.1:19333/health interval=5ms tries=4815 ok=860 fail=3955 outages=1
+  probe| outage first_fail=2026-10-20T21:15:05.501+02:00 last_fail=2026-10-20T21:15:25.655+02:00 next_ok=2026-10-20T21:15:25.660+02:00 fail_span_ms=20154 until_ok_ms=20159 tries=3955 kinds=Refusedx3955
+  probe| longest_gap_between_ok_ms=20164
+CHECK PASS  L1 broken: rolled back ok to the new desk (exit 1, outage 20159 ms)
+$ galion-deploy galion-desk /workspace/swarm/sim/deploy-sim/root-desk/var/backups/galion/deploy/galion-desk-20261020-211458+0200.bin http://127.0.0.1:19333/health   (direct backend, outer timeout 60s)
+/workspace/swarm/wt/deploy-sim/deploy/foundation/galion-deploy: line 64: 2092237 Aborted                 "$NEW" --version > /dev/null 2>&1
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:30+02:00 svc=galion-deploy level=info msg="backup" unit=galion-desk target=/workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk backup=/workspace/swarm/sim/deploy-sim/root-desk/var/backups/galion/deploy/galion-desk-20261020-211527+0200.bin sha_old=b46b148f2b65 sha_new=869b60fc5ba0
+ts=2026-10-20T21:15:31+02:00 svc=galion-deploy level=info msg="deployed" unit=galion-desk health=http://127.0.0.1:19333/health
+  -> exit=0 elapsed_ms=4097
+  probe| probe http://127.0.0.1:19333/health interval=2ms tries=2121 ok=2120 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T21:15:30.080+02:00 last_fail=2026-10-20T21:15:30.080+02:00 next_ok=2026-10-20T21:15:30.082+02:00 fail_span_ms=0 until_ok_ms=2 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=4
+CHECK PASS  L2 manual rollback via galion-deploy: old sha back (exit 0, outage 2 ms)
+
+[2026-10-20T21:15:31.114+02:00] == hang trap: desk DOWN, forward deploy of the new desk (it ignores --version and serves)
+$ ctl stop galion-desk
+  -> exit=0
+5 s in: unit inactive; GET http://127.0.0.1:19333/health -> 200 from '/workspace/swarm/sim/deploy-sim/root-desk/var/tmp/galion-cutover/galion-desk.new --version' (pid 2095226)
+$ galion-deploy galion-desk /workspace/swarm/sim/deploy-sim/root-desk/var/tmp/galion-cutover/galion-desk.new http://127.0.0.1:19333/health   (direct backend, outer timeout 20s)
+  -> exit=124 elapsed_ms=20005
+CHECK PASS  FINDING: deploy hangs while 'galion-desk --version' serves the port outside the unit (exit 124)
+$ galion-deploy galion-desk /workspace/swarm/sim/deploy-sim/root-desk/var/tmp/galion-cutover/galion-desk.new http://127.0.0.1:19333/health   (direct backend, GALION_DEPLOY_VERSION_TIMEOUT=5, outer timeout 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T21:15:59+02:00 svc=galion-deploy level=info msg="backup" unit=galion-desk target=/workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk backup=/workspace/swarm/sim/deploy-sim/root-desk/var/backups/galion/deploy/galion-desk-20261020-211556+0200.bin sha_old=869b60fc5ba0 sha_new=b46b148f2b65
+ts=2026-10-20T21:16:00+02:00 svc=galion-deploy level=info msg="deployed" unit=galion-desk health=http://127.0.0.1:19333/health
+  -> exit=0 elapsed_ms=9084
+CHECK PASS  same with GALION_DEPLOY_VERSION_TIMEOUT=5: deploy completes (exit 0)
+galion-desk.service active result=success pid=2098229 restarts=9 exec=/workspace/swarm/sim/deploy-sim/root-desk/opt/galion/bin/galion-desk
+simsup stopped; leftover listeners on 19330-19339: 1
+DOWNTIME desk manual-swap 4 ms
+DOWNTIME desk manual-rollback 2 ms
+DOWNTIME desk deploy-swap 2 ms
+
+== summary desk: 8 pass, 0 fail
+  old desk serving|PASS|{"ok":true}
+  manual swap: new sha running, 22 /desk keys, downtime < 1 s|PASS|outage 4 ms
+  step 13 rollback: old sha, healthy, downtime < 1 s|PASS|outage 2 ms
+  galion-deploy swap exit 0, downtime < 1 s|PASS|exit 0, outage 2 ms
+  L1 broken: rolled back ok to the new desk|PASS|exit 1, outage 20159 ms
+  L2 manual rollback via galion-deploy: old sha back|PASS|exit 0, outage 2 ms
+  FINDING: deploy hangs while 'galion-desk --version' serves the port outside the unit|PASS|exit 124
+  same with GALION_DEPLOY_VERSION_TIMEOUT=5: deploy completes|PASS|exit 0
+
+deploy-sim: 0 failed check(s)
+rc=0

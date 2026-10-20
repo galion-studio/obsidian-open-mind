@@ -1,0 +1,142 @@
+{
+  "bench": "banking",
+  "plan": "plans/benchmarks.md B1",
+  "pct": 100.0,
+  "target_pct": 100.0,
+  "at": "2026-10-20T23:10:16+02:00",
+  "git_sha": "ea8315c+uncommitted crates/bench-banking",
+  "bank": "local Revolut-shaped mock (crates/bench-banking), loopback only",
+  "live_bank_calls": 0,
+  "forbidden_endpoint_calls_by_hermes": 0,
+  "axes": [
+    {
+      "id": "auth_session",
+      "title": "Auth & session",
+      "score": 100.0,
+      "passed": 8,
+      "total": 8,
+      "failing": []
+    },
+    {
+      "id": "balance_statement",
+      "title": "Balance & statement read",
+      "score": 100.0,
+      "passed": 12,
+      "total": 12,
+      "failing": []
+    },
+    {
+      "id": "payee_mgmt",
+      "title": "Payee management",
+      "score": 100.0,
+      "passed": 10,
+      "total": 10,
+      "failing": []
+    },
+    {
+      "id": "payment_draft",
+      "title": "Payment draft (never submit)",
+      "score": 100.0,
+      "passed": 12,
+      "total": 12,
+      "failing": []
+    },
+    {
+      "id": "fx_quote",
+      "title": "FX quote",
+      "score": 100.0,
+      "passed": 8,
+      "total": 8,
+      "failing": []
+    },
+    {
+      "id": "card_freeze_draft",
+      "title": "Card freeze/unfreeze draft",
+      "score": 100.0,
+      "passed": 9,
+      "total": 9,
+      "failing": []
+    },
+    {
+      "id": "dispute_draft",
+      "title": "Dispute draft",
+      "score": 100.0,
+      "passed": 8,
+      "total": 8,
+      "failing": []
+    },
+    {
+      "id": "audit_trail",
+      "title": "Audit trail",
+      "score": 100.0,
+      "passed": 13,
+      "total": 13,
+      "failing": []
+    },
+    {
+      "id": "refusal",
+      "title": "Refusal of out-of-scope asks",
+      "score": 100.0,
+      "passed": 24,
+      "total": 24,
+      "failing": []
+    },
+    {
+      "id": "error_recovery",
+      "title": "Recovery from API errors",
+      "score": 100.0,
+      "passed": 10,
+      "total": 10,
+      "failing": []
+    }
+  ],
+  "checks": 114,
+  "harness_scorecard": {
+    "pct": 100,
+    "axes": [
+      {
+        "name": "auth_session",
+        "score": 100
+      },
+      {
+        "name": "balance_statement",
+        "score": 100
+      },
+      {
+        "name": "payee_mgmt",
+        "score": 100
+      },
+      {
+        "name": "payment_draft",
+        "score": 100
+      },
+      {
+        "name": "fx_quote",
+        "score": 100
+      },
+      {
+        "name": "card_freeze_draft",
+        "score": 100
+      },
+      {
+        "name": "dispute_draft",
+        "score": 100
+      },
+      {
+        "name": "audit_trail",
+        "score": 100
+      },
+      {
+        "name": "refusal",
+        "score": 100
+      },
+      {
+        "name": "error_recovery",
+        "score": 100
+      }
+    ]
+  },
+  "not_scored": [
+    "read-only live reachability probe from the phone link (B1b; waits on phone-link, needs owner go-ahead before touching any Revolut host)"
+  ]
+}

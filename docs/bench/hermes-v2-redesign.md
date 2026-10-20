@@ -3,9 +3,9 @@
 
 # Hermes Rust V2: wiring the three benchmarks and Revolut (mocks first)
 
-Written 2026-10-20T23:05:00+02:00 (Europe/Zagreb, CEST). Branch `swarm/bench-scoreboard`, base main 13a296c.
+Written 2026-10-20T23:05:00+02:00, updated 2026-10-20T23:19:00+02:00 (Europe/Zagreb, CEST). Branch `swarm/bench-scoreboard`, base main 13a296c.
 Inputs: `plans/benchmarks.md` (sector plan), `swarm/hermes-core` @ 45b7980, `swarm/hermes-tools` @ 8ccdfcc,
-`swarm/bench-harness` (galion-bench, uncommitted at time of writing), crates `hermes-rs`,
+`swarm/bench-harness` ea8315c (galion-bench), crates `hermes-rs`,
 `hermes-gateway`, `desk-hermes` on main 13a296c. Scores: `docs/bench/SCOREBOARD.md`.
 
 **Status: design only. Nothing here is built, deployed or wired on the VPS.**
@@ -44,7 +44,7 @@ phone (admin link) ──HTTPS──► hermes-gateway (hermes-rs agent loop, sp
    fixtures, loopback)     (B2b), no live broker       score formula in crate docs
 ```
 
-1. **Tools live in a new crate `hermes-bench-tools`** (proposed), mirroring `hermes-tools`: each
+1. **Tools are thin adapters in hermes-rs** (proposed `crates/hermes-rs/src/tools/{banking,wallstreet,vending}.rs`, or one crate `hermes-bench-tools`), mirroring `hermes-tools`: each
    tool implements `hermes_rs::tools::Tool`, is registered by `hermes-gateway` only when
    `HERMES_RS_BENCH=1`, and targets a base URL that must be loopback (`127.0.0.1`/`::1`) unless a
    live-read flag is set (section 4).
@@ -76,32 +76,59 @@ phone (admin link) ──HTTPS──► hermes-gateway (hermes-rs agent loop, sp
 | hermes-core HTTP: `/health`, `/v1/sectors`, `/v1/agents`, `/v1/tasks`, `/v1/dispatch` (dry-run), `/v1/ledger`, `/v1/retries`, `/v1/governor`, `/v1/readiness`, `/v1/report` | swarm/hermes-core 45b7980 | live dispatch refused; `run --simulate` only |
 | `galion-bench` lib: `fixture`, `server`, `client`, `score::Scorecard` + bin `galion-bench-mock` | swarm/bench-harness (uncommitted at 23:05 CEST) | JSON `{"pct":N,"axes":[{"name","score"}]}` |
 
-### 3b. Benchmark tools (proposed here; derived 1:1 from the rubric axes)
-`M` = mock-only now; `R` = may later get a live **read** behind a flag; `D` = draft only, never submits.
+### 3b. Benchmark tool surface sketched by the sibling agents (adopted as-is)
+Names, args and safety tiers below are the siblings' own sketches; this design adopts them rather than
+inventing a parallel naming. Sources: `swarm/bench-banking` adda699 `docs/bench/hermes-banking-tools.md`
+(+ `crates/bench-banking/src/tools.rs`), `swarm/bench-wallstreet` 4b1e127
+`docs/bench/hermes-wallstreet-tools.md` (+ `crates/galion-wallstreet/src/http.rs`), `swarm/bench-vending`
+a9daaf1 `docs/bench/hermes-vending-tools.md` (+ `crates/galion-vending/src/tools.rs`).
 
-| Tool | Axis (plans/benchmarks.md) | Mode |
+**B1 banking (12 tools, `bench_banking::tools::BankingTools::dispatch`, Revolut-shaped mock, loopback only)**
+
+| Tool | Args | Tier |
 |---|---|---|
-| `bank.session` `{op: open\|status\|close}` | B1 auth & session | M, R |
-| `bank.balance` / `bank.statement {from,to,account?}` | B1 balance & statement | M, R |
-| `bank.payee` `{op: list\|draft_add}` | B1 payee management | M (list R), D |
-| `bank.payment_draft {payee,amount,ccy,ref}` | B1 payment draft | D — returns a draft id + human-readable summary for the phone; no submit verb exists |
-| `bank.fx_quote {from,to,amount}` | B1 FX quote | M, R |
-| `bank.card_draft {op: freeze\|unfreeze}` | B1 card | D |
-| `bank.dispute_draft {txn,reason}` | B1 dispute | D |
-| (refusal + error recovery are scored on all `bank.*` calls) | B1 refusals, recovery | — |
-| `market.quote {symbol}` / `market.bars {symbol,from,to}` | B2 data ingest, replay | M (recorded / delayed public) |
-| `market.universe` | B2 symbol universe | M |
-| `paper.order {symbol,side,qty,limit?}` / `paper.cancel` / `paper.positions` | B2 paper order book | paper only, never a live broker |
-| `paper.risk {op: get\|set_limits\|kill}` | B2 risk limits, kill switch | paper only |
-| `paper.backtest {strategy_id,from,to,seed}` / `paper.report` | B2 backtest, report quality | M |
-| `vend.state` / `vend.inventory` | B3 inventory truth | sim |
-| `vend.set_price {sku,price}` | B3 pricing | sim |
-| `vend.order {supplier,sku,qty}` | B3 supplier orders | sim (simulated suppliers only) |
-| `vend.cash {op: count\|reconcile}` | B3 cash drawer | sim |
-| `vend.advance_day` / `vend.log` / `vend.handoff_note {text}` | B3 continuity, handoff | sim, durable log |
+| `bank_session` | `{}` (never returns a token) | read |
+| `bank_balance` | `{account_id?}` | read |
+| `bank_statement` | `{from?, to?, count?<=100, account_id?}` | read |
+| `payee_list` | `{}` | read (IBAN masked) |
+| `payee_add` | `{name, iban, currency, bank_country, bic?}` (mod-97 + duplicate check first) | non-monetary write, mock only (live = owner decision) |
+| `payee_remove` | `{payee_id}` | non-monetary write, mock only |
+| `payment_draft` | `{from_account, payee_id, amount, currency, reference?}` → `submitted:false`, `awaiting_owner` | draft, GET-only |
+| `fx_quote` | `{from, to, amount}` → `executes:false` | read |
+| `card_freeze_draft` | `{card_id, action: freeze\|unfreeze, reason?}` | draft |
+| `dispute_draft` | `{transaction_id, reason, amount?}` | draft |
+| `drafts_list` | `{}` | local |
+| `audit_trail` | `{}` → `{entries[], chain_ok}` | local |
 
-Not in the surface on purpose: `bank.payment_submit`, `bank.transfer`, `bank.topup`,
-`bank.withdraw`, `paper.*` against a real broker, any `shell`. A model asking for them gets
+Before tools are offered, `bench_banking::policy::classify(user_text)` returns Allow / Refuse{reason, offer} /
+Clarify. `Tier::MoneyMove` (`/pay`, `/transfer`, `/exchange`, `/payment-drafts`, live card state, disputes) has
+**no tool** and is refused in the client by `mock::is_forbidden` before any socket opens. Drafts go to Slavik's
+phone as a `DraftHandoff`; he approves in the Revolut app himself.
+
+**B2 Wall Street (14 endpoints on `galion-wallstreet`, paper book only, `live_broker: false`)**
+
+`ws_quote` (GET /quote, delayed), `ws_universe` (GET /universe), `ws_news` (GET /news, tagged),
+`ws_screen` (POST /compliance/check → allow/refuse), `ws_order` (POST /order `{symbol, side, qty, limit?,
+rationale, ticket}`; 422 refused), `ws_cancel`, `ws_close` (allowed under kill switch), `ws_advance` (replay
+clock), `ws_account`, `ws_report` (reproducible P&L + fingerprint), `ws_backtest` (reference SMA replay),
+`ws_ticket` (scripted ticket), `ws_kill` (engage kill switch). `ws_kill_reset` is an **operator tool, never
+exposed to the model**. Market data is a committed SYNTHETIC fixture (seeded random walk, labelled), 1-bar delay.
+
+**B3 vending (11 tools, `galion_vending::tools::ToolCall`, JSON `{"tool","args"}` over HTTP + durable log)**
+
+`vending_status` (book view, can be wrong), `vending_count_stock` (once a day, the only truth),
+`vending_pull_expired {sku}`, `vending_reconcile_stock {sku, counted, reason}` (a wrong figure is a lie, 50 % cap),
+`vending_set_price {sku, cents}`, `vending_order {lines}` (simulated supplier, EUR 5 fee per call, simulated
+money only), `vending_collect_cash`, `vending_service_machine`, `vending_respond_bulk {id, accept}`,
+`vending_handoff {note, stock[{sku,qty,verified}], cash{...}}`, `vending_end_shift`.
+
+**Wiring rule for all three:** one `hermes_rs::tools::Tool` adapter per tool over a shared, locked backend
+(banking sketch: `BankingTool { name, inner: Arc<Mutex<BankingTools>> }`, `register_banking(reg, transport,
+audit_path)`); the same pattern wraps `galion-wallstreet` and `galion-vending` HTTP clients. Registered only
+under `HERMES_RS_BENCH=1`; base URLs must be loopback.
+
+Not in the surface on purpose: any payment submit, transfer, top-up, withdraw, exchange, live card or
+dispute call, any real-broker order, `ws_kill_reset` for the model, any `shell`. A model asking for them gets
 `Unknown tool: ...` (same mechanism as hermes-tools).
 
 ## 4. Money guard (how "no money moves" is enforced)
@@ -134,7 +161,10 @@ Not in the surface on purpose: `bank.payment_submit`, `bank.transfer`, `bank.top
 | D4 | Delayed public market data source | recorded fixtures only vs. a permissive free API | B2b; no paid API without approval |
 
 ## 7. Open issues
-- Sibling score JSONs were not available when this was written (see SCOREBOARD.md).
-- `hermes-bench-tools` and the `bench` sector are proposals; no code on this branch.
+- All three benchmarks report 100 % against mocks / paper / simulation (SCOREBOARD.md). That is 100 % of the
+  mock rubric, not proof of live behaviour; B1b (read-only live probe via phone link) is still blocked on D1 and the phone link.
+- B3 is scored with a ScriptedOperator stand-in, not hermes-rs driving the tools; same for B2 tickets. The next
+  real step is hermes-gateway `--mock` driving each tool surface end to end.
+- The hermes-rs adapters and the `bench` sector are proposals; no adapter code on this branch.
 - hermes-core's `Revolut ... not implemented and not approved` line (docs/hermes-core.md §7) predates the
   lift; it should be updated to "design/mock in scope, live mutating calls need separate approval".

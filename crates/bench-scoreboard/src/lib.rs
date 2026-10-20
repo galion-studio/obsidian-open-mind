@@ -44,33 +44,45 @@ pub struct Entry {
 /// Parse a score JSON into a Scorecard. Errors on a bad shape, a score above 100,
 /// or a `pct` that does not match the recomputed equal-weight mean.
 pub fn parse_score(text: &str) -> Result<Scorecard, String> {
-    let v: Value = serde_json::from_str(text).map_err(|e| format!("bad json: {e}"))?;
+    let top: Value = serde_json::from_str(text).map_err(|e| format!("bad json: {e}"))?;
+    // bench-vending nests the galion-bench card under `scorecard`.
+    let v = top
+        .get("scorecard")
+        .filter(|s| s.is_object())
+        .unwrap_or(&top);
     let axes = v
         .get("axes")
         .and_then(Value::as_array)
         .ok_or("missing axes array")?;
     let mut card = Scorecard::new();
     for a in axes {
-        let name = ["name", "title", "id"]
+        let name = ["name", "title", "axis", "id"]
             .iter()
             .find_map(|k| a.get(*k).and_then(Value::as_str))
             .ok_or("axis without name/title/id")?;
-        let score = a
-            .get("score")
-            .and_then(Value::as_f64)
-            .ok_or("axis without numeric score")?;
+        // `score` (galion-bench, bench-banking) or `percent` (bench-wallstreet).
+        let score = ["score", "percent"]
+            .iter()
+            .find_map(|k| a.get(*k).and_then(num))
+            .ok_or("axis without numeric score/percent")?;
         if !(0.0..=100.0).contains(&score) {
             return Err(format!("axis {name}: score {score} outside 0..=100"));
         }
         card.set(name, score.round() as u8);
     }
     if let Some(p) = v.get("pct") {
-        let p = p.as_f64().ok_or("pct not a number")?;
+        let p = num(p).ok_or("pct not a number")?;
         if (p - card.pct_exact()).abs() > 0.5 {
             return Err(format!("pct {p} != recomputed {}", card.pct()));
         }
     }
     Ok(card)
+}
+
+/// A JSON number, or a numeric string such as `"100.00"`.
+fn num(v: &Value) -> Option<f64> {
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
 fn cell(s: &str) -> String {
@@ -178,6 +190,21 @@ mod tests {
         assert_eq!(c.pct(), 100);
         assert_eq!(c.axes[0].0, "Auth");
         assert!(parse_score(r#"{"pct":90.0,"axes":[{"title":"a","score":100.0}]}"#).is_err());
+    }
+
+    #[test]
+    fn accepts_nested_scorecard_and_percent_axes() {
+        let v = parse_score(
+            r#"{"percent":"100.00","scorecard":{"pct":100,"axes":[{"name":"x","score":100}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(v.pct(), 100);
+        let w = parse_score(
+            r#"{"percent":75,"axes":[{"axis":"a","percent":100},{"axis":"b","percent":"50"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(w.pct(), 75);
+        assert_eq!(w.failing()[0].0, "b");
     }
 
     #[test]

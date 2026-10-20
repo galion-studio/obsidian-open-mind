@@ -299,3 +299,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-20T09:57:10+02:00 | DIST-AGE | grok-build | PASS 9/10 | docs/dist-age.md | dist binaries are from 2026-10-18; tuner is absent
 
 - 2026-10-20T09:57:41+02:00 | PORTS-NOW | grok-build | PASS 9/10 | docs/ports-now.md | seven loopback ports listening; no curl
+
+- 2026-10-20T09:57:55+02:00 | LOCKFILE-NOW | grok-build | PASS 9/10 | docs/lockfile-now.md | Cargo.lock matched HEAD at the stamp; not regenerated

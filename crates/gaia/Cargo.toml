@@ -31,3 +31,6 @@ gaia-eleuthia = { path = "../gaia-eleuthia" }
 gaia-live = { path = "../gaia-live" }
 serde_json = { workspace = true }
 zagreb-time = { path = "../zagreb-time" }
+# Signed, expiring, single-use, scope-bound approvals for heal-tick
+# (adapter::check_gaia + replay ledger). Pure Rust; see docs/third-party/gaia-hades-tokens.md.
+hades-gate = { path = "../hades-gate" }

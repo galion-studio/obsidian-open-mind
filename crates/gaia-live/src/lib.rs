@@ -14,9 +14,10 @@
 //! the owning subordinate function in `gaia status --live`.
 //!
 //! **M2, [`heal`] and [`nerve`]: the first apply path**, limited to
-//! box-local test services on 127.0.0.1:19000-19999, gated by a HADES
-//! approval token and capped at 3 restarts per service per hour. The only
-//! non-GET request is [`nerve::post`] to a loopback nerve.
+//! box-local test services on 127.0.0.1:19000-19999, gated by a hades-gate
+//! Ed25519-signed single-use approval token (checked in `gaia`) and capped
+//! at 3 restarts per service per hour. The only non-GET request is
+//! [`nerve::post`] to a loopback nerve.
 
 pub mod heal;
 pub mod nerve;

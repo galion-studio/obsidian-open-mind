@@ -59,6 +59,13 @@ Zero Dawn* (inspiration only; see the design doc for the trademark note):
   587,160 B, aarch64 512,920 B); tier 2 `cargo check` passes for Android and
   armv7.
 
+- **Live heal (2026-10-20 20:22 CEST, +02:00):** `gaia heal-tick` restarts a
+  box-local TEST service (127.0.0.1:19000-19999) only with a hades-gate
+  Ed25519-signed, expiring, single-use token scoped to heal-apply, the
+  service and the plan hash (`gaia heal-plan` prints the plan to sign), max 3
+  restarts per hour, every step on the nerve. See ../docs/hades-gate.md (GAIA)
+  and ../docs/real-tests/gaia-hades-tokens.md.
+
 Next milestone: real seed files to candidates to selection by the repo checks
 (fmt, clippy, tests, repo-check) with scoring and lineage, and wiring HEPHAESTUS
 to openmind-sandbox behind the same review.

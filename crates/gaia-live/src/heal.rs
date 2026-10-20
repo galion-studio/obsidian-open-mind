@@ -10,10 +10,11 @@
 //!   8650, 8670, ...) are therefore always refused. The start command must be
 //!   an absolute path to a program that is not a service manager, shell,
 //!   remote shell or killer, and it must name the target port.
-//! * [`check_approval`]: a HADES heal-apply only runs with an approval file
-//!   that names a registered Alpha, the action `heal-apply`, this exact
-//!   service, and a test token equal (constant-time) to the run's trusted
-//!   token. The token is never printed; only [`fingerprint`] is.
+//! * Approval is NOT here any more (2026-10-20, gaia-hades-tokens): the old
+//!   per-run random test token is gone. `gaia heal-tick` asks hades-gate
+//!   (`hades_gate::adapter::check_gaia`) for an Ed25519-signed, expiring,
+//!   single-use token scoped to `heal-apply`, this service and the exact plan
+//!   hash, consumed in hades-gate's fsynced replay ledger.
 //! * [`cap_check`] and [`Ledger`]: at most [`MAX_RESTARTS_PER_HOUR`]
 //!   restarts per service in any rolling hour, persisted on disk so separate
 //!   ticks share the budget.
@@ -34,8 +35,6 @@ pub const TEST_PORTS: RangeInclusive<u16> = 19000..=19999;
 pub const MAX_RESTARTS_PER_HOUR: usize = 3;
 /// Rolling window for [`MAX_RESTARTS_PER_HOUR`].
 pub const WINDOW_S: u64 = 3600;
-/// Shortest trusted test token, in hex characters (128 bits).
-pub const MIN_TOKEN_HEX: usize = 32;
 
 /// Programs the apply path refuses to start, whatever the path prefix.
 pub const FORBIDDEN_PROGRAMS: &[&str] = &[
@@ -163,134 +162,6 @@ pub fn parse_range(s: &str) -> Result<RangeInclusive<u16>, String> {
         .parse()
         .map_err(|_| format!("bad port range {s:?}"))?;
     Ok(a..=b)
-}
-
-// ---------------------------------------------------------------- approval
-
-/// One Alpha's approval, as read from an approval file:
-/// `alpha=ID action=heal-apply service=NAME token=HEX` (one line).
-#[derive(Clone, PartialEq, Eq)]
-pub struct Approval {
-    pub alpha: String,
-    pub action: String,
-    pub service: String,
-    token: String,
-}
-
-impl std::fmt::Debug for Approval {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Approval")
-            .field("alpha", &self.alpha)
-            .field("action", &self.action)
-            .field("service", &self.service)
-            .field("token_fp", &fingerprint(&self.token))
-            .finish()
-    }
-}
-
-impl Approval {
-    pub fn new(alpha: &str, action: &str, service: &str, token: &str) -> Approval {
-        Approval {
-            alpha: alpha.into(),
-            action: action.into(),
-            service: service.into(),
-            token: token.into(),
-        }
-    }
-
-    pub fn parse(text: &str) -> Result<Approval, String> {
-        let line = text
-            .lines()
-            .map(str::trim)
-            .find(|l| !l.is_empty() && !l.starts_with('#'))
-            .ok_or("empty approval file")?;
-        let mut a = Approval::new("", "", "", "");
-        for kv in line.split_whitespace() {
-            let (k, v) = kv.split_once('=').ok_or("approval fields are key=value")?;
-            match k {
-                "alpha" => a.alpha = v.into(),
-                "action" => a.action = v.into(),
-                "service" => a.service = v.into(),
-                "token" => a.token = v.into(),
-                _ => return Err(format!("unknown approval field {k:?}")),
-            }
-        }
-        if a.alpha.is_empty() || a.action.is_empty() || a.service.is_empty() || a.token.is_empty() {
-            return Err("approval needs alpha, action, service and token".into());
-        }
-        Ok(a)
-    }
-
-    pub fn token_fingerprint(&self) -> String {
-        fingerprint(&self.token)
-    }
-}
-
-/// Non-reversible short id of a token for logs (FNV-1a 64, first 8 hex).
-pub fn fingerprint(token: &str) -> String {
-    let h = gaia_core::fnv1a(token.as_bytes());
-    format!("fnv:{:08x}", h >> 32)
-}
-
-/// Read the run's trusted test token. It must be at least
-/// [`MIN_TOKEN_HEX`] hex characters and (on unix) not readable by group or
-/// others.
-pub fn load_trusted_token(path: &Path) -> Result<String, String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let m = fs::metadata(path)
-            .map_err(|e| format!("trust file {}: {e}", path.display()))?
-            .permissions()
-            .mode();
-        if m & 0o077 != 0 {
-            return Err(format!(
-                "trust file {} is readable by group/others (mode {:o}); chmod 600",
-                path.display(),
-                m & 0o777
-            ));
-        }
-    }
-    let t = fs::read_to_string(path)
-        .map_err(|e| format!("trust file {}: {e}", path.display()))?
-        .trim()
-        .to_string();
-    if t.len() < MIN_TOKEN_HEX || !t.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!(
-            "trusted test token must be at least {MIN_TOKEN_HEX} hex characters"
-        ));
-    }
-    Ok(t)
-}
-
-/// Constant-time equality (length is not secret).
-pub fn ct_eq(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    if a.len() != b.len() {
-        return false;
-    }
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-/// Everything except the Alpha registry (GAIA core checks that, and binds
-/// the approval to the directive id and target).
-pub fn check_approval(a: &Approval, trusted: &str, service: &str) -> Result<(), String> {
-    if a.action != "heal-apply" {
-        return Err(format!("approval is for {:?}, not heal-apply", a.action));
-    }
-    if a.service != service {
-        return Err(format!(
-            "approval is for service {:?}, not {service:?}",
-            a.service
-        ));
-    }
-    if !ct_eq(&a.token, trusted) {
-        return Err(format!(
-            "approval token {} does not match the trusted test token",
-            a.token_fingerprint()
-        ));
-    }
-    Ok(())
 }
 
 // ----------------------------------------------------------- restart cap

@@ -441,6 +441,7 @@ dependencies = [
  "gaia-live",
  "gaia-minerva",
  "gaia-poseidon",
+ "hades-gate",
  "serde_json",
  "zagreb-time",
 ]

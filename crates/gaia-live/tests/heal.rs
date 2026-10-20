@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Guards of the M2 apply path: scope, approval, restart cap, ledger.
+//! Guards of the M2 apply path: scope, restart cap, ledger. (Approval is
+//! hades-gate's signed tokens now; see crates/gaia/tests/heal_tick.rs.)
 
 use gaia_live::heal::*;
 use std::path::PathBuf;
@@ -103,58 +104,6 @@ fn range_parse() {
     assert_eq!(parse_range("19030-19039").unwrap(), 19030..=19039);
     assert_eq!(parse_range("19032").unwrap(), 19032..=19032);
     assert!(parse_range("a-b").is_err());
-}
-
-const TOK: &str = "0123456789abcdef0123456789abcdef";
-
-#[test]
-fn approval_parse_and_check() {
-    let a = Approval::parse(&format!(
-        "# test approval\nalpha=owner action=heal-apply service=gaia-dummy token={TOK}\n"
-    ))
-    .unwrap();
-    assert_eq!(a.alpha, "owner");
-    check_approval(&a, TOK, "gaia-dummy").unwrap();
-    let wrong = "f".repeat(32);
-    let e = check_approval(&a, &wrong, "gaia-dummy").unwrap_err();
-    assert!(e.contains("does not match"), "{e}");
-    assert!(!e.contains(TOK), "error must not echo the token");
-    assert!(check_approval(&a, TOK, "other")
-        .unwrap_err()
-        .contains("service"));
-    let k = Approval::new("owner", "kill", "gaia-dummy", TOK);
-    assert!(check_approval(&k, TOK, "gaia-dummy")
-        .unwrap_err()
-        .contains("heal-apply"));
-    assert!(Approval::parse("alpha=owner action=heal-apply").is_err());
-    assert!(Approval::parse("alpha=owner bogus=1 action=heal-apply service=s token=t").is_err());
-    assert!(Approval::parse("").is_err());
-    let dbg = format!("{a:?}");
-    assert!(!dbg.contains(TOK) && dbg.contains("fnv:"), "{dbg}");
-}
-
-#[test]
-fn ct_eq_and_fingerprint() {
-    assert!(ct_eq(TOK, TOK));
-    assert!(!ct_eq(TOK, &TOK[1..]));
-    assert!(!ct_eq(TOK, &"0".repeat(32)));
-    let fp = fingerprint(TOK);
-    assert!(fp.starts_with("fnv:") && fp.len() == 12 && !fp.contains(TOK));
-}
-
-#[test]
-fn trusted_token_file_rules() {
-    use std::os::unix::fs::PermissionsExt;
-    let d = tmp("trust");
-    let p = d.join("approval.token");
-    std::fs::write(&p, format!("{TOK}\n")).unwrap();
-    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
-    assert!(load_trusted_token(&p).unwrap_err().contains("chmod 600"));
-    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
-    assert_eq!(load_trusted_token(&p).unwrap(), TOK);
-    std::fs::write(&p, "approved-test").unwrap();
-    assert!(load_trusted_token(&p).unwrap_err().contains("hex"));
-    assert!(load_trusted_token(&d.join("missing")).is_err());
 }
 
 #[test]

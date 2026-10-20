@@ -300,3 +300,5 @@
 - 2026-10-20T10:30:41+02:00 | ROUTE-DRY ALREADY: the picker test covers an approved CPU-local row. galion-one was not changed.
 
 - 2026-10-20T10:39:43+02:00 | REAL-ROOM-2 PASS: the current room binary did not listen. The dist copy was not replaced.
+
+- 2026-10-20T10:44:56+02:00 | ONE-PROBE PASS: a spare One now probes its own bind. The live One was not restarted.

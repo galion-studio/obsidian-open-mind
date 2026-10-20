@@ -327,3 +327,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-20T10:30:41+02:00 | ROUTE-DRY | grok-build | PASS 9/10 | docs/route-dry.md | ALREADY: approved CPU-local is chosen in a test and no socket is opened
 
 - 2026-10-20T10:39:43+02:00 | REAL-ROOM-2 | grok-build | PASS 9/10 | docs/reallife-room-2.md | current room with no flags exited 0 and did not listen on 4020
+
+- 2026-10-20T10:44:56+02:00 | ONE-PROBE | grok-build | PASS 9/10 | crates/galion-one/src/main.rs docs/one-probe.md | spare probe and mouth client follow ONE_BIND and ONE_MOUTH_BIND; live pid 1373612 not restarted

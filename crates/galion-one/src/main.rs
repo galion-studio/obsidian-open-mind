@@ -48,16 +48,19 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 //   ONE_BIND         listen address (default `127.0.0.1:8091`; from a present
 //                    file: `127.0.0.1:{ports.one}`)
 //   ONE_MOUTH_BIND   local mouth listen address (default `127.0.0.1:8002`)
-//   GALION_MOUTH     mouth client `host:port` (default `127.0.0.1:{mouth port}`)
+//   GALION_MOUTH     mouth client `host:port` (default: the mouth listen address)
 //   GALION_HOME      page and state root (default `/workspace/galion-light`;
 //                    from a present file: `paths.base`)
 //   ONE_HERMES_DIR   Hermes state directory (default `/workspace/hermes`;
 //                    from a present file: `paths.base/hermes`)
 //
-// `openmind-config::Ports` has no TTS key. The mouth port therefore stays
-// today's 8002 unless `ONE_MOUTH_BIND` or `GALION_MOUTH` is set. The device
-// store and the Hermes env file are secret paths, not state: they stay at
-// today's locations and are not taken from the config file.
+// `openmind-config::Ports` has no TTS key, so `mouth_port` stays today's 8002.
+// The mouth client dials `GALION_MOUTH` when that value parses. Otherwise it
+// dials the mouth listen address this process was told (`ONE_MOUTH_BIND`,
+// default `127.0.0.1:8002`). The self probe dials `bind` (`ONE_BIND`), not a
+// fixed live port. The device store and the Hermes env file are secret paths,
+// not state: they stay at today's locations and are not taken from the config
+// file.
 
 /// Today's addresses and paths. Used when the config file is missing.
 struct Defaults {
@@ -158,13 +161,54 @@ fn endpoint(key: &str, port: u16) -> std::net::SocketAddr {
     endpoint_from(&|name| std::env::var(name).ok(), key, port)
 }
 
+fn dial_addr(raw: &str) -> Option<std::net::SocketAddr> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    let mut found = std::net::ToSocketAddrs::to_socket_addrs(raw).ok()?;
+    found.next()
+}
+
+/// Self-probe dials the listen address this process was told to use.
+fn one_probe_target(settings: &Settings) -> std::net::SocketAddr {
+    dial_addr(&settings.bind).unwrap_or_else(|| dial_addr(DEFAULTS.bind).expect("default bind"))
+}
+
+/// Mouth client dials `GALION_MOUTH` when it parses, otherwise the mouth
+/// listen address this process was told to use.
+fn mouth_client_target(
+    env: &dyn Fn(&str) -> Option<String>,
+    settings: &Settings,
+) -> std::net::SocketAddr {
+    if let Some(raw) = env("GALION_MOUTH") {
+        if let Some(addr) = dial_addr(&raw) {
+            return addr;
+        }
+    }
+    if let Some(addr) = dial_addr(&settings.mouth_bind) {
+        return addr;
+    }
+    std::net::SocketAddr::from(([127, 0, 0, 1], settings.mouth_port))
+}
+
+fn mouth_is_remote(addr: std::net::SocketAddr, settings: &Settings) -> bool {
+    if addr.ip().is_loopback() && addr.port() == settings.mouth_port {
+        return false;
+    }
+    match dial_addr(&settings.mouth_bind) {
+        Some(local) => addr != local,
+        None => true,
+    }
+}
+
 fn ear_addr() -> std::net::SocketAddr {
     static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
     *SLOT.get_or_init(|| endpoint("ear", 8643))
 }
 fn mouth_addr() -> std::net::SocketAddr {
     static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
-    *SLOT.get_or_init(|| endpoint("mouth", cfg().mouth_port))
+    *SLOT.get_or_init(|| mouth_client_target(&|name| std::env::var(name).ok(), cfg()))
 }
 fn mind_addr() -> std::net::SocketAddr {
     static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
@@ -176,8 +220,7 @@ fn eye_addr() -> std::net::SocketAddr {
 }
 
 fn mouth_remote() -> bool {
-    let addr = mouth_addr();
-    !(addr.ip().is_loopback() && addr.port() == cfg().mouth_port)
+    mouth_is_remote(mouth_addr(), cfg())
 }
 
 fn home() -> String {
@@ -255,8 +298,8 @@ fn apply_one_env(settings: &mut Settings, env: &dyn Fn(&str) -> Option<String>) 
 
 /// Precedence: `ONE_*` and `GALION_HOME`, then a present config file (with
 /// `OPENMIND_*` already applied by `openmind-config`), then [`Defaults`] when
-/// that file is missing. `GALION_MOUTH` is applied later, inside [`endpoint`],
-/// and wins over `mouth_port`.
+/// that file is missing. `GALION_MOUTH` is applied later, inside
+/// [`mouth_client_target`], and wins over the mouth listen address.
 fn resolve(env: &dyn Fn(&str) -> Option<String>) -> Result<Settings, ConfigError> {
     let mut settings = Settings::from_defaults();
     let path = config_file_path(env);
@@ -2056,13 +2099,15 @@ fn json_error(body: &str) -> String {
 }
 
 fn sample() {
+    // `voice` and `one` have no fixed port. They dial the mouth client and
+    // the listen address this process was told to use.
     let specs = [
-        ("console", 8080u16, "/"),
-        ("hermes", 8642, "/health"),
-        ("whisper", 8643, "/health"),
-        ("voice", 8002, "/health"),
-        ("vision", 8645, "/health"),
-        ("one", 8091, "/health"),
+        ("console", Some(8080u16), "/"),
+        ("hermes", Some(8642), "/health"),
+        ("whisper", Some(8643), "/health"),
+        ("voice", None, "/health"),
+        ("vision", Some(8645), "/health"),
+        ("one", None, "/health"),
     ];
     let mut joins = Vec::new();
     for spec in specs {
@@ -2073,7 +2118,8 @@ fn sample() {
                 "whisper" => ear_addr(),
                 "voice" => mouth_addr(),
                 "vision" => eye_addr(),
-                _ => std::net::SocketAddr::from(([127, 0, 0, 1], spec.1)),
+                "one" => one_probe_target(cfg()),
+                _ => std::net::SocketAddr::from(([127, 0, 0, 1], spec.1.unwrap_or(0))),
             };
             let (code, body) = http_to(addr, "GET", spec.2, &[], b"", Duration::from_millis(400))
                 .unwrap_or((0, Vec::new()));
@@ -2083,9 +2129,13 @@ fn sample() {
                 && !text.contains("\"loaded\":false")
                 && !text.contains("\"ok\":false");
             let note = service_note(&text, ok);
+            let port = match spec.1 {
+                Some(port) => port,
+                None => addr.port(),
+            };
             Pulse {
                 id: spec.0,
-                port: spec.1,
+                port,
                 ok,
                 ms: t.elapsed().as_millis() as u32,
                 note,
@@ -3916,6 +3966,30 @@ base = '{base}'
         .unwrap();
         assert_eq!(blank_home.home, "");
         assert_eq!(blank_home.home_file("one/lane"), "/one/lane");
+    }
+
+    #[test]
+    fn probe_and_mouth_client_follow_forced_bind_and_mouth() {
+        // Parses addresses only. Does not listen or connect.
+        let missing = out_dir().join("probe-targets-missing.toml");
+        let _ = std::fs::remove_file(&missing);
+        let settings = resolve(&env_from(&[
+            ("OPENMIND_CONFIG", missing.to_str().unwrap()),
+            ("ONE_BIND", "127.0.0.1:18091"),
+            ("ONE_MOUTH_BIND", "127.0.0.1:18002"),
+        ]))
+        .unwrap();
+        let probe = one_probe_target(&settings);
+        let mouth = mouth_client_target(&env_from(&[]), &settings);
+        let want_probe: std::net::SocketAddr = settings.bind.parse().unwrap();
+        let want_mouth: std::net::SocketAddr = settings.mouth_bind.parse().unwrap();
+        assert_eq!(settings.bind, "127.0.0.1:18091");
+        assert_eq!(settings.mouth_bind, "127.0.0.1:18002");
+        assert_eq!(probe, want_probe);
+        assert_eq!(mouth, want_mouth);
+        assert_ne!(probe.port(), 8091);
+        assert_ne!(mouth.port(), 8002);
+        assert!(!mouth_is_remote(mouth, &settings));
     }
 
     #[test]

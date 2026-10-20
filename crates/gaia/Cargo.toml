@@ -6,11 +6,16 @@ name = "gaia"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Gaia CLI: wires GAIA core to its nine subordinate functions; status, tick and the deterministic Faro-plague scenario (with --full-power), JSON out."
+description = "Gaia CLI: wires GAIA core to its nine subordinate functions; status, tick, the deterministic Faro-plague scenario (with --full-power), status --live (read-only) and heal-tick (approval-gated restart of box-local test services, nerve-recorded), JSON out."
 
 [[bin]]
 name = "gaia"
 path = "src/main.rs"
+
+# Throwaway loopback test service for `gaia heal-tick` (ports 19000-19999 only).
+[[bin]]
+name = "gaia-dummy"
+path = "src/bin/gaia-dummy.rs"
 
 [dependencies]
 gaia-core = { path = "../gaia-core" }
@@ -24,4 +29,5 @@ gaia-aether = { path = "../gaia-aether" }
 gaia-demeter = { path = "../gaia-demeter" }
 gaia-eleuthia = { path = "../gaia-eleuthia" }
 gaia-live = { path = "../gaia-live" }
+serde_json = { workspace = true }
 zagreb-time = { path = "../zagreb-time" }

@@ -3,7 +3,9 @@
 
 //! `gaia` CLI. Prints JSON. Simulation only (no network, no processes, no
 //! file writes), except `status --live`: read-only HTTP GETs to loopback
-//! health endpoints, `systemctl is-active`, and state-file mtimes.
+//! health endpoints, `systemctl is-active`, and state-file mtimes; and
+//! `heal-tick`: the approval-gated, capped restart of a box-local TEST service
+//! (127.0.0.1:19000-19999 only) with nerve events over loopback.
 
 use std::process::ExitCode;
 
@@ -14,6 +16,12 @@ const USAGE: &str = "usage: gaia <command> [options]
                                  tuner 8650, one 8091, console 8080): HTTP GET, systemctl is-active,
                                  state-file age; HADES proposes plans only (never executes);
                                  --strict exits 3 unless everything is up
+  heal-tick --service NAME --port P --allow-ports A-B --nerve 127.0.0.1:N --state DIR
+            --trust-file F [--approval-file F] [--health /health] [--wait-ms MS] -- /abs/start/cmd ARGS...
+                                 M2 live heal, BOX TEST SERVICES ONLY (127.0.0.1, ports 19000-19999):
+                                 probe -> nerve event -> GAIA -> DEMETER heal-dry -> HADES plan ->
+                                 approval-token check -> restart (max 3 per service per hour) -> nerve event;
+                                 exit 0 ok, 4 refused, 5 capped, 6 apply failed
   tick [--n N]                   boot and run N ticks (default 10, max 1000)
   simulate-faro [--full-power] [--approve ALPHA]
                                  run the Faro scenario; --full-power drives every system at intensity 100;
@@ -59,6 +67,16 @@ fn main() -> ExitCode {
             }
             Ok(j)
         }
+        Some("heal-tick") => match gaia::live_heal::parse_cli(&args[1..]) {
+            Err(e) => Err(e),
+            Ok(cfg) => match gaia::live_heal::heal_tick(&cfg) {
+                Ok(t) => {
+                    live_exit = t.exit;
+                    Ok(t.report)
+                }
+                Err(e) => Err(e),
+            },
+        },
         Some("status") => Ok(gaia::status()),
         Some("tick") => match opt("--n").map(str::parse::<u64>) {
             None => Ok(gaia::tick(10)),

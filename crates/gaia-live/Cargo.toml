@@ -1,16 +1,21 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 3000 Galion / galion-studio
 #
-# Gaia M1 live eyes: read-only health probes of the real services. std only
-# (plus gaia-core for Json/System). HTTP GET only, `systemctl is-active` only,
-# file metadata reads only. Never writes, never restarts, never kills.
+# Gaia live. M1 (lib.rs): read-only health probes of the real services
+# (HTTP GET only, `systemctl is-active` only, file metadata only).
+# M2 (heal.rs, nerve.rs; the test service is crates/gaia/src/bin/gaia-dummy.rs): the first apply path, scoped to
+# box-local TEST services on 127.0.0.1:19000-19999 behind a HADES approval
+# token and a 3-restarts-per-hour cap, with nerve events over loopback.
+# Never calls systemctl to change anything, never signals a process.
 
 [package]
 name = "gaia-live"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Gaia M1: read-only live health of the stack (HTTP GET /health, systemctl is-active, state-file freshness), mapped onto GAIA systems."
+description = "Gaia live: read-only health of the stack (M1) and an approval-gated, rate-capped restart path for box-local test services that records to the nerve (M2)."
 
 [dependencies]
 gaia-core = { path = "../gaia-core" }
+zagreb-time = { path = "../zagreb-time" }
+serde_json = { workspace = true }

@@ -1,0 +1,190 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 3000 Galion / galion-studio
+
+//! Guards of the M2 apply path: scope, approval, restart cap, ledger.
+
+use gaia_live::heal::*;
+use std::path::PathBuf;
+
+fn tmp(tag: &str) -> PathBuf {
+    let d = std::env::temp_dir().join(format!("gaia-live-heal-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
+/// Some absolute program that exists on any unix box and is not forbidden.
+fn prog() -> String {
+    for p in ["/bin/true", "/usr/bin/true", "/bin/echo", "/usr/bin/echo"] {
+        if std::path::Path::new(p).is_file() {
+            return p.into();
+        }
+    }
+    panic!("no /bin/true or /bin/echo")
+}
+
+fn target(port: u16, argv: Vec<String>) -> TestTarget {
+    TestTarget {
+        name: "gaia-dummy".into(),
+        port,
+        health_path: "/health".into(),
+        argv,
+    }
+}
+
+fn ok_argv(port: u16) -> Vec<String> {
+    vec![prog(), "--port".into(), port.to_string()]
+}
+
+#[test]
+fn scope_accepts_a_box_test_service() {
+    check_target(&target(19032, ok_argv(19032)), &(19030..=19039)).unwrap();
+}
+
+#[test]
+fn scope_refuses_live_stack_ports_and_wide_ranges() {
+    for live in [8080u16, 8091, 8002, 8420, 8642, 8646, 8650, 8670] {
+        let e = check_target(&target(live, ok_argv(live)), &(19030..=19039)).unwrap_err();
+        assert!(e.contains("outside the allowed"), "{live}: {e}");
+        // Even an operator range that includes the live port is refused.
+        let e = check_target(&target(live, ok_argv(live)), &(1..=65535)).unwrap_err();
+        assert!(e.contains("outside the test range"), "{live}: {e}");
+    }
+    let e = check_target(&target(19040, ok_argv(19040)), &(19030..=19039)).unwrap_err();
+    assert!(e.contains("outside the allowed"), "{e}");
+}
+
+#[test]
+fn scope_refuses_service_managers_shells_and_strangers() {
+    for bad in [
+        "/usr/bin/systemctl",
+        "/bin/systemctl",
+        "/usr/sbin/service",
+        "/bin/sh",
+        "/bin/bash",
+        "/usr/bin/sudo",
+        "/usr/bin/ssh",
+        "/bin/kill",
+        "/usr/bin/pkill",
+        "/usr/bin/python3",
+        "/usr/bin/env",
+    ] {
+        let t = target(19032, vec![bad.into(), "restart".into(), "19032".into()]);
+        let e = check_target(&t, &(19030..=19039)).unwrap_err();
+        assert!(e.contains("forbidden"), "{bad}: {e}");
+    }
+    let rel = target(
+        19032,
+        vec!["gaia-dummy".into(), "--port".into(), "19032".into()],
+    );
+    assert!(check_target(&rel, &(19030..=19039))
+        .unwrap_err()
+        .contains("absolute"));
+    let missing = target(
+        19032,
+        vec!["/nonexistent/gaia-dummy".into(), "19032".into()],
+    );
+    assert!(check_target(&missing, &(19030..=19039))
+        .unwrap_err()
+        .contains("does not exist"));
+    let other_port = target(19032, vec![prog(), "--port".into(), "8420".into()]);
+    assert!(check_target(&other_port, &(19030..=19039))
+        .unwrap_err()
+        .contains("does not name the target port"));
+    let empty = target(19032, vec![]);
+    assert!(check_target(&empty, &(19030..=19039)).is_err());
+    let mut bad_name = target(19032, ok_argv(19032));
+    bad_name.name = "x; rm -rf /".into();
+    assert!(check_target(&bad_name, &(19030..=19039)).is_err());
+}
+
+#[test]
+fn range_parse() {
+    assert_eq!(parse_range("19030-19039").unwrap(), 19030..=19039);
+    assert_eq!(parse_range("19032").unwrap(), 19032..=19032);
+    assert!(parse_range("a-b").is_err());
+}
+
+const TOK: &str = "0123456789abcdef0123456789abcdef";
+
+#[test]
+fn approval_parse_and_check() {
+    let a = Approval::parse(&format!(
+        "# test approval\nalpha=owner action=heal-apply service=gaia-dummy token={TOK}\n"
+    ))
+    .unwrap();
+    assert_eq!(a.alpha, "owner");
+    check_approval(&a, TOK, "gaia-dummy").unwrap();
+    let wrong = "f".repeat(32);
+    let e = check_approval(&a, &wrong, "gaia-dummy").unwrap_err();
+    assert!(e.contains("does not match"), "{e}");
+    assert!(!e.contains(TOK), "error must not echo the token");
+    assert!(check_approval(&a, TOK, "other")
+        .unwrap_err()
+        .contains("service"));
+    let k = Approval::new("owner", "kill", "gaia-dummy", TOK);
+    assert!(check_approval(&k, TOK, "gaia-dummy")
+        .unwrap_err()
+        .contains("heal-apply"));
+    assert!(Approval::parse("alpha=owner action=heal-apply").is_err());
+    assert!(Approval::parse("alpha=owner bogus=1 action=heal-apply service=s token=t").is_err());
+    assert!(Approval::parse("").is_err());
+    let dbg = format!("{a:?}");
+    assert!(!dbg.contains(TOK) && dbg.contains("fnv:"), "{dbg}");
+}
+
+#[test]
+fn ct_eq_and_fingerprint() {
+    assert!(ct_eq(TOK, TOK));
+    assert!(!ct_eq(TOK, &TOK[1..]));
+    assert!(!ct_eq(TOK, &"0".repeat(32)));
+    let fp = fingerprint(TOK);
+    assert!(fp.starts_with("fnv:") && fp.len() == 12 && !fp.contains(TOK));
+}
+
+#[test]
+fn trusted_token_file_rules() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = tmp("trust");
+    let p = d.join("approval.token");
+    std::fs::write(&p, format!("{TOK}\n")).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(load_trusted_token(&p).unwrap_err().contains("chmod 600"));
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert_eq!(load_trusted_token(&p).unwrap(), TOK);
+    std::fs::write(&p, "approved-test").unwrap();
+    assert!(load_trusted_token(&p).unwrap_err().contains("hex"));
+    assert!(load_trusted_token(&d.join("missing")).is_err());
+}
+
+#[test]
+fn cap_is_three_per_rolling_hour() {
+    let now = 1_000_000u64;
+    assert_eq!(cap_check(&[], now), Ok(0));
+    assert_eq!(cap_check(&[now - 10], now), Ok(1));
+    assert_eq!(cap_check(&[now - 10, now - 5], now), Ok(2));
+    let full = [now - 600, now - 10, now - 5];
+    assert_eq!(cap_check(&full, now), Err(WINDOW_S - 600));
+    // Restarts older than an hour no longer count.
+    assert_eq!(cap_check(&[now - 3600, now - 10, now - 5], now), Ok(2));
+    // Future stamps (clock skew) do not count either.
+    assert_eq!(cap_check(&[now + 50, now - 10, now - 5], now), Ok(2));
+    assert_eq!(MAX_RESTARTS_PER_HOUR, 3);
+}
+
+#[test]
+fn ledger_round_trip_per_service() {
+    let d = tmp("ledger");
+    let l = Ledger::new(&d);
+    assert!(l.history("a").unwrap().is_empty());
+    l.record("a", 10, 1).unwrap();
+    l.record("b", 11, 2).unwrap();
+    l.record("a", 12, 3).unwrap();
+    assert_eq!(l.history("a").unwrap(), vec![10, 12]);
+    assert_eq!(l.history("b").unwrap(), vec![11]);
+    let text = std::fs::read_to_string(l.path()).unwrap();
+    assert!(
+        text.contains("+01:00\"") || text.contains("+02:00\""),
+        "Europe/Zagreb stamp with explicit offset: {text}"
+    );
+}

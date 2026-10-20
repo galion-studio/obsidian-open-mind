@@ -4,6 +4,8 @@
 //! Gaia: GAIA core wired to its nine subordinate functions, plus the
 //! deterministic scenarios the `gaia` CLI prints.
 
+pub mod live_heal;
+
 use gaia_core::{Directive, FunctionId, Gaia, Json, Lifecycle, Outcome, Report, System, Verb};
 
 /// Hard cap on ticks in any one run.

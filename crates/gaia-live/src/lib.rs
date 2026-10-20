@@ -1,16 +1,25 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Gaia M1: read-only live health of the real services.
+//! Gaia live.
 //!
+//! **M1, this module: read-only live health of the real services.**
 //! Three kinds of evidence, all read-only:
-//! * an HTTP `GET` to a loopback port (the only method this crate can send;
+//! * an HTTP `GET` to a loopback port (the only method the probes send;
 //!   see [`GET_ONLY`]), with connect/read timeouts and a 64 KiB read cap;
 //! * `systemctl is-active <unit>` (a query; nothing is started or stopped);
 //! * the age of a state file (metadata only, content is never read).
 //!
 //! Each probe belongs to one GAIA [`System`], so a failing service degrades
 //! the owning subordinate function in `gaia status --live`.
+//!
+//! **M2, [`heal`] and [`nerve`]: the first apply path**, limited to
+//! box-local test services on 127.0.0.1:19000-19999, gated by a HADES
+//! approval token and capped at 3 restarts per service per hour. The only
+//! non-GET request is [`nerve::post`] to a loopback nerve.
+
+pub mod heal;
+pub mod nerve;
 
 use gaia_core::{Json, System};
 use std::io::{Read, Write};
@@ -18,7 +27,8 @@ use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime};
 
-/// The one HTTP method this crate emits.
+/// The one HTTP method the health probes emit (the nerve client in
+/// [`nerve`] is the only POST, and only to loopback).
 pub const GET_ONLY: &str = "GET";
 /// Bytes read from any probed response, at most.
 pub const MAX_READ: usize = 64 * 1024;

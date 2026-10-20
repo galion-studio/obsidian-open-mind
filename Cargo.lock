@@ -166,6 +166,7 @@ dependencies = [
  "gaia-live",
  "gaia-minerva",
  "gaia-poseidon",
+ "serde_json",
  "zagreb-time",
 ]
 
@@ -230,6 +231,8 @@ name = "gaia-live"
 version = "0.1.0"
 dependencies = [
  "gaia-core",
+ "serde_json",
+ "zagreb-time",
 ]
 
 [[package]]

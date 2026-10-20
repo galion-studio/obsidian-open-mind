@@ -4,7 +4,7 @@
 //! The journal returns one object and stores nothing. A test may write a temp file.
 
 use hades_gate::{decide, Decision, ALLOW_LIST, ALWAYS_REFUSED, APPROVED_TEST_TOKEN};
-use hades_journal::record;
+use hades_gate::journal::record;
 
 fn decision_name(decision: Decision) -> &'static str {
     match decision {
@@ -120,7 +120,7 @@ fn record_returns_json_writes_no_file_and_kill_and_rotate_stay_refused() {
     drop(cwd);
     std::fs::remove_dir(&probe).expect("probe dir removed");
 
-    let src = include_str!("../src/lib.rs");
+    let src = include_str!("../src/journal.rs");
     for banned in [
         "std::process",
         "process::Command",

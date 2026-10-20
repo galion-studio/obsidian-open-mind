@@ -12,6 +12,9 @@
 
 #![forbid(unsafe_code)]
 
+/// One JSON record of a gate decision (was the hades-journal crate until 2026-10-20).
+pub mod journal;
+
 /// The only operating mode. There is no apply mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Mode {

@@ -4,7 +4,7 @@
 //! Choose one provider row for a need.
 //!
 //! [`route`] returns the chosen row, or [`None`]. The order matches
-//! [`openmind_fallback::select_provider`]: the first usable GPU, else the
+//! [`crate::fallback::select_provider`]: the first usable GPU, else the
 //! first usable approved LAN row, else the first usable CPU-local row.
 //! Pending rows are not chosen. A remote row is never chosen.
 //!
@@ -15,9 +15,9 @@
 
 #![forbid(unsafe_code)]
 
-pub use openmind_fallback::{Approval, Capability, Health, Kind, ProviderRow};
+pub use crate::fallback::{Approval, Capability, Health, Kind, ProviderRow};
 
-use openmind_fallback::select_provider;
+use crate::fallback::select_provider;
 
 /// Pending seed ids and endpoints copied from discovery. Not dialed.
 ///
@@ -49,7 +49,7 @@ fn pending_candidates() -> Vec<ProviderRow> {
 /// Pick a row for `need`.
 ///
 /// `rows` are caller fixtures. The built-in pending candidates are placed
-/// in front of `rows` and passed to [`openmind_fallback::select_provider`].
+/// in front of `rows` and passed to [`crate::fallback::select_provider`].
 /// They are never returned. A fixture is chosen only when that policy would
 /// choose it: [`Approval::Approved`], a non-empty endpoint, health not
 /// [`Health::Down`], a capability list that contains `need`, and a kind of

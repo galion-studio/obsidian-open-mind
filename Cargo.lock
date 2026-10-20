@@ -199,12 +199,7 @@ dependencies = [
 [[package]]
 name = "hades-gate"
 version = "0.1.0"
-
-[[package]]
-name = "hades-journal"
-version = "0.1.0"
 dependencies = [
- "hades-gate",
  "serde_json",
  "zagreb-time",
 ]
@@ -402,10 +397,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "openmind-fallback"
-version = "0.1.0"
-
-[[package]]
 name = "openmind-llama"
 version = "0.1.0"
 dependencies = [
@@ -449,13 +440,6 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "openmind-route"
-version = "0.1.0"
-dependencies = [
- "openmind-fallback",
 ]
 
 [[package]]

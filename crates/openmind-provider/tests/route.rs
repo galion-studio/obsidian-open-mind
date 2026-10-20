@@ -4,7 +4,7 @@
 //! Route order: GPU, else an approved LAN row, else a CPU local row.
 //! Pending rows are not chosen. Fixture rows only.
 
-use openmind_route::{route, Approval, Capability, Health, Kind, ProviderRow};
+use openmind_provider::route::{route, Approval, Capability, Health, Kind, ProviderRow};
 use std::path::PathBuf;
 
 fn base(id: &str, kind: Kind) -> ProviderRow {
@@ -157,7 +157,7 @@ fn approved_fixture_with_a_seed_id_is_not_the_pending_copy() {
 #[test]
 fn sources_do_not_name_sockets_or_http_clients() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let lib = std::fs::read_to_string(root.join("src/lib.rs")).expect("lib");
+    let lib = std::fs::read_to_string(root.join("src/route.rs")).expect("lib");
     let manifest = std::fs::read_to_string(root.join("Cargo.toml")).expect("manifest");
     for token in [
         "std::net",
@@ -170,7 +170,7 @@ fn sources_do_not_name_sockets_or_http_clients() {
         "hyper",
         "tokio",
     ] {
-        assert!(!lib.contains(token), "{token} in lib.rs");
+        assert!(!lib.contains(token), "{token} in route.rs");
         assert!(!manifest.contains(token), "{token} in Cargo.toml");
     }
 }
@@ -241,7 +241,7 @@ fn route_never_returns_a_pending_seed_row_or_remote_and_opens_no_socket() {
     assert_eq!(socket_fds(&before), socket_fds(&after));
 
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let lib = std::fs::read_to_string(root.join("src/lib.rs")).expect("lib");
+    let lib = std::fs::read_to_string(root.join("src/route.rs")).expect("lib");
     let manifest = std::fs::read_to_string(root.join("Cargo.toml")).expect("manifest");
     for token in [
         "std::net",
@@ -254,7 +254,7 @@ fn route_never_returns_a_pending_seed_row_or_remote_and_opens_no_socket() {
         "hyper",
         "tokio",
     ] {
-        assert!(!lib.contains(token), "{token} in lib.rs");
+        assert!(!lib.contains(token), "{token} in route.rs");
         assert!(!manifest.contains(token), "{token} in Cargo.toml");
     }
 }

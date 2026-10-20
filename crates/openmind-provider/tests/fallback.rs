@@ -3,7 +3,7 @@
 
 //! Fallback order: GPU, else an approved LAN row, else a CPU local row.
 
-use openmind_fallback::{select_provider, Approval, Capability, Health, Kind, ProviderRow};
+use openmind_provider::fallback::{select_provider, Approval, Capability, Health, Kind, ProviderRow};
 use std::path::PathBuf;
 
 fn base(id: &str, kind: Kind) -> ProviderRow {
@@ -166,7 +166,7 @@ fn empty_input_selects_nothing() {
 #[test]
 fn sources_do_not_name_sockets_or_http_clients() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let lib = std::fs::read_to_string(root.join("src/lib.rs")).expect("lib");
+    let lib = std::fs::read_to_string(root.join("src/fallback.rs")).expect("lib");
     let manifest = std::fs::read_to_string(root.join("Cargo.toml")).expect("manifest");
     for token in [
         "std::net",
@@ -179,7 +179,7 @@ fn sources_do_not_name_sockets_or_http_clients() {
         "hyper",
         "tokio",
     ] {
-        assert!(!lib.contains(token), "{token} in lib.rs");
+        assert!(!lib.contains(token), "{token} in fallback.rs");
         assert!(!manifest.contains(token), "{token} in Cargo.toml");
     }
 }

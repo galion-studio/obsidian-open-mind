@@ -24,6 +24,11 @@
 
 #![forbid(unsafe_code)]
 
+/// Provider fallback policy (was the openmind-fallback crate until 2026-10-20).
+pub mod fallback;
+/// Route one need to a provider row (was the openmind-route crate until 2026-10-20).
+pub mod route;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;

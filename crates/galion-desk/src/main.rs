@@ -204,6 +204,7 @@ fn ollama_open() -> bool {
 }
 
 fn main() {
+    galion_common::build_info::exit_if_version("galion-desk", env!("CARGO_PKG_VERSION"));
     let settings = match resolve(&|key| std::env::var(key).ok()) {
         Ok(settings) => settings,
         Err(err) => {

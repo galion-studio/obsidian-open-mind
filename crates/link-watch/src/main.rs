@@ -361,6 +361,7 @@ fn model_from_tags(body: &[u8]) -> String {
 }
 
 fn main() {
+    galion_common::build_info::exit_if_version("link-watch", env!("CARGO_PKG_VERSION"));
     let settings = match resolve(&|key| std::env::var(key).ok()) {
         Ok(settings) => settings,
         Err(err) => {

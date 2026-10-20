@@ -14,6 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 fn main() -> ExitCode {
+    galion_common::build_info::exit_if_version("tuner", env!("CARGO_PKG_VERSION"));
     let settings = match tuner::resolve(&|key| std::env::var(key).ok()) {
         Ok(settings) => settings,
         Err(err) => {

@@ -6,6 +6,7 @@
 //! Everything here is std only, portable scalar code (no asm, no SIMD, no
 //! target-cpu), and total: malformed input returns an error, never a panic.
 //!
+//! - [`build_info`]: commit and build time for `--version` (no build.rs).
 //! - [`sha256`]: FIPS 180-4 SHA-256 (NIST vectors in the tests) and [`hex`].
 //! - [`base64`]: RFC 4648 standard and URL-safe alphabets, encode and decode.
 //! - [`json`]: JSON string escaping (CPython `ensure_ascii` compatible), and
@@ -17,6 +18,7 @@
 #![forbid(unsafe_code)]
 
 pub mod base64;
+pub mod build_info;
 pub mod hex;
 pub mod http;
 pub mod json;

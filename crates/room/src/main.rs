@@ -55,6 +55,7 @@ fn index_at(path: &Path) -> Vec<Obj> {
 }
 
 fn main() {
+    galion_common::build_info::exit_if_version("room", env!("CARGO_PKG_VERSION"));
     let args: Vec<String> = std::env::args().skip(1).collect();
     if serves(&args) {
         serve();

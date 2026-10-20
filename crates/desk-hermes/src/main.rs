@@ -180,6 +180,7 @@ fn mtime(path: &Path) -> i64 {
 }
 
 fn main() {
+    galion_common::build_info::exit_if_version("desk-hermes", env!("CARGO_PKG_VERSION"));
     let home = PathBuf::from(
         std::env::var("HERMES_HOME").unwrap_or_else(|_| "/opt/galion/hermes".to_string()),
     );

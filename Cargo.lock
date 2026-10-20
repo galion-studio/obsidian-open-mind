@@ -542,6 +542,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmind-queue"
+version = "0.1.0"
+dependencies = [
+ "openmind-provider",
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "openmind-sandbox"
 version = "0.1.0"
 dependencies = [

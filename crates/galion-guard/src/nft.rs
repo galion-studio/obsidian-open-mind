@@ -382,13 +382,13 @@ mod tests {
 
     #[test]
     fn parses_set_json() {
-        let j = r#"{"nftables": [{"metainfo": {"version": "1.1.3"}}, {"set": {"family": "inet", "name": "addr4", "table": "t", "type": "ipv4_addr", "handle": 1, "flags": ["timeout"], "elem": [{"elem": {"val": "1.2.3.4", "timeout": 5, "expires": 4}}, "5.6.7.8"]}}]}"#;
+        let j = r#"{"nftables": [{"metainfo": {"version": "1.1.3"}}, {"set": {"family": "inet", "name": "addr4", "table": "t", "type": "ipv4_addr", "handle": 1, "flags": ["timeout"], "elem": [{"elem": {"val": "1.2.3.4", "timeout": 5, "expires": 4}}, "5.6.7.8"]}}]}"#; // repo-check: allow (test fixture address, never dialled)
         let v = parse_set_json(j).unwrap();
         assert_eq!(
             v,
             vec![
-                ("1.2.3.4".parse().unwrap(), Some(4)),
-                ("5.6.7.8".parse().unwrap(), None)
+                ("1.2.3.4".parse().unwrap(), Some(4)), // repo-check: allow (test fixture address, never dialled)
+                ("5.6.7.8".parse().unwrap(), None) // repo-check: allow (test fixture address, never dialled)
             ]
         );
         let empty = r#"{"nftables": [{"metainfo": {}}, {"set": {"name": "addr6"}}]}"#;

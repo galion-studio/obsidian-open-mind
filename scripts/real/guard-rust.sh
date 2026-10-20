@@ -101,7 +101,7 @@ fail_line() { N=$((N+1)); echo "$(ts) box sshd[$N]: Invalid user u$N from $1 por
 fails() { local ip=$1 n=$2 f=${3:-$LOG}; for _ in $(seq "$n"); do fail_line "$ip" >> "$f"; done; sleep 0.8; }
 reach() { local out; out=$(curl -s --max-time 2 --interface "$1" telnet://10.99.0.1:19381 </dev/null 2>/dev/null || true); case $out in *SSH-2.0*) echo OPEN;; *) echo BLOCKED;; esac; }
 sj() { "$BIN" status --json --config "$CFG" | jq -r "$1"; }
-inset() { if [ "$BACKEND" = nft ]; then "$NFT" list set inet galion-guard addr4 | grep -q "$1"; else sj ".bans[].ip" | grep -qx "$1"; fi; }
+inset() { local s; if [ "$BACKEND" = nft ]; then s=$("$NFT" list set inet galion-guard addr4); else s=$(sj ".bans[].ip"); fi; case $s in *"$1"*) return 0;; *) return 1;; esac; }
 eq() { [ "$1" = "$2" ] || { say "   expected [$2] got [$1]"; return 1; }; }
 
 write_cfg file false

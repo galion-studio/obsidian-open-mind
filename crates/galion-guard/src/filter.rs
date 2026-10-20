@@ -286,6 +286,15 @@ impl SshdFilter {
                     continue;
                 }
             }
+            // Hardening (stricter than fail2ban): an address must end at a
+            // token boundary, so "2001:db8::Failed" never yields 2001:db8::fa
+            // and "1.2.3.4567" never yields 1.2.3.456.
+            if let Some(h) = c.name("ip4").or_else(|| c.name("ip6")) {
+                let next = content[h.end()..].chars().next();
+                if !matches!(next, None | Some(' ' | '\t' | ']' | ')' | ':' | ',')) {
+                    continue;
+                }
+            }
             let host = host_of(&c);
             return Some(Match {
                 rule: idx,
@@ -428,6 +437,20 @@ mod tests {
         // 999.1.1.1 is not an IPv4 address: no ban target.
         let r = m("h sshd[5]: Invalid user a from 999.1.1.1 port 22").unwrap();
         assert!(!matches!(r.host, Some(Host::Ip(_))));
+    }
+
+    #[test]
+    fn address_must_end_at_a_boundary() {
+        // Found by the fuzzer: hex letters of the next word were taken as
+        // part of an IPv6 address.
+        let r = m(
+            "h sshd[1]: Failed password for x from 2001:db8::Failed password for 66 r 66 port 1",
+        );
+        assert!(!matches!(r.and_then(|r| r.host), Some(Host::Ip(_))));
+        assert!(m("h sshd[1]: Invalid user a from 1.2.3.4567 port 1")
+            .is_none_or(|r| !matches!(r.host, Some(Host::Ip(_)))));
+        let r = m("h sshd[1]: Received disconnect from 2001:db8::1: 11: Bye [preauth]");
+        assert!(r.is_none() || matches!(r.unwrap().host, Some(Host::Ip(_))));
     }
 
     #[test]

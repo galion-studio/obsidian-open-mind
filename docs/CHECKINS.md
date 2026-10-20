@@ -268,3 +268,5 @@
 - 2026-10-19T22:31:05+02:00 | REAL-DESK FAIL: the candidate was not started. The live desk stayed on 8646.
 
 - 2026-10-19T22:31:56+02:00 | REAL-ONE NOT-STARTED: the candidate was not started. The live One stayed on 8091.
+
+- 2026-10-20T09:57:10+02:00 | DIST-AGE: dist binaries were dated. None was copied or run.

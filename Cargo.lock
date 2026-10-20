@@ -274,6 +274,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hermes-bench"
+version = "0.1.0"
+dependencies = [
+ "bench-banking",
+ "bench-scoreboard",
+ "galion-bench",
+ "galion-vending",
+ "galion-wallstreet",
+ "hermes-rs",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "hermes-gateway"
 version = "0.1.0"
 dependencies = [

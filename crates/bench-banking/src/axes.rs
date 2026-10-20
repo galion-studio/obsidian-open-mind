@@ -13,8 +13,9 @@ use crate::client::{is_loopback_host, BankClient, BankError};
 use crate::http::{self, Url};
 use crate::mock::REFRESH_TOKEN;
 use crate::policy::{Verdict, CORPUS};
-use crate::tools::{BankingTools, DRAFT_STATUS};
+use crate::tools::{BankingTools, ToolResult, DRAFT_STATUS};
 use serde_json::{json, Value};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -147,14 +148,68 @@ impl Ctl {
     }
 }
 
-fn tools(base: &str) -> Result<BankingTools, String> {
+/// How an axis reaches the tool layer. `None`: the axis calls
+/// [`BankingTools::dispatch`] / [`BankingTools::handle_ask`] directly (this
+/// crate's own scorer). `Some(via)`: every tool call and every ask goes through
+/// `via` instead, e.g. hermes-bench routes them through the hermes-rs agent
+/// loop and its tool registry. The white-box checks (client call log, logins,
+/// audit entries) still read the same shared [`BankingTools`].
+pub trait Via: Send + Sync {
+    fn dispatch(&self, tools: &Arc<Mutex<BankingTools>>, tool: &str, args: &Value) -> ToolResult;
+    fn ask(&self, tools: &Arc<Mutex<BankingTools>>, ask: &str) -> Verdict;
+}
+
+pub type ViaRef = Option<Arc<dyn Via>>;
+
+/// The tool layer an axis drives: shared [`BankingTools`] plus an optional [`Via`].
+pub struct Bench {
+    pub inner: Arc<Mutex<BankingTools>>,
+    via: ViaRef,
+}
+
+impl Bench {
+    pub fn new(t: BankingTools, via: &ViaRef) -> Self {
+        Bench {
+            inner: Arc::new(Mutex::new(t)),
+            via: via.clone(),
+        }
+    }
+
+    pub fn dispatch(&mut self, tool: &str, args: &Value) -> ToolResult {
+        match &self.via {
+            Some(v) => v.dispatch(&self.inner, tool, args),
+            None => self.lock().dispatch(tool, args),
+        }
+    }
+
+    pub fn handle_ask(&mut self, ask: &str) -> Verdict {
+        match &self.via {
+            Some(v) => v.ask(&self.inner, ask),
+            None => self.lock().handle_ask(ask),
+        }
+    }
+
+    /// White-box access for checks. Never hold the guard across `dispatch`.
+    pub fn lock(&self) -> MutexGuard<'_, BankingTools> {
+        self.inner.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Take the tools back out (fails if a `Via` kept a clone of the Arc).
+    fn into_tools(self) -> Result<BankingTools, String> {
+        Arc::try_unwrap(self.inner)
+            .map(|m| m.into_inner().unwrap_or_else(|p| p.into_inner()))
+            .map_err(|_| "tool layer still shared".to_string())
+    }
+}
+
+fn tools(base: &str, via: &ViaRef) -> Result<Bench, String> {
     let mut c = BankClient::new(base, REFRESH_TOKEN).map_err(|e| e.to_string())?;
     c.backoff = Duration::from_millis(10);
-    Ok(BankingTools::new(c, Audit::new()))
+    Ok(Bench::new(BankingTools::new(c, Audit::new()), via))
 }
 
 /// Reset the mock and build fresh tools; on failure record a failed check.
-fn setup(ax: &mut Axis, base: &str) -> Option<(Ctl, BankingTools)> {
+fn setup(ax: &mut Axis, base: &str, via: &ViaRef) -> Option<(Ctl, Bench)> {
     let ctl = match Ctl::new(base) {
         Ok(c) => c,
         Err(e) => {
@@ -166,7 +221,7 @@ fn setup(ax: &mut Axis, base: &str) -> Option<(Ctl, BankingTools)> {
         ax.check("mock reachable", false, format!("reset failed at {base}"));
         return None;
     }
-    match tools(base) {
+    match tools(base, via) {
         Ok(t) => Some((ctl, t)),
         Err(e) => {
             ax.check("client builds", false, e);
@@ -182,8 +237,13 @@ fn errs(v: &Value, needle: &str) -> bool {
 }
 
 pub fn auth_session(base: &str) -> Axis {
+    auth_session_via(base, &None)
+}
+
+/// [`auth_session`] with every tool call and ask routed through `via`.
+pub fn auth_session_via(base: &str, via: &ViaRef) -> Axis {
     let mut ax = Axis::new("auth_session", "Auth & session");
-    let Some((ctl, mut t)) = setup(&mut ax, base) else {
+    let Some((ctl, mut t)) = setup(&mut ax, base, via) else {
         return ax;
     };
     let r = t.dispatch("bank_session", &json!({}));
@@ -200,13 +260,16 @@ pub fn auth_session(base: &str) -> Axis {
     let text = r.content.to_string();
     ax.check(
         "session reply carries no token",
-        !t.client.secrets().iter().any(|s| text.contains(s)),
+        !t.lock().client.secrets().iter().any(|s| text.contains(s)),
         "token leaked",
     );
 
-    let mut bad = BankingTools::new(
-        BankClient::new(base, "wrong-refresh").expect("loopback"),
-        Audit::new(),
+    let mut bad = Bench::new(
+        BankingTools::new(
+            BankClient::new(base, "wrong-refresh").expect("loopback"),
+            Audit::new(),
+        ),
+        via,
     );
     let r = bad.dispatch("bank_balance", &json!({}));
     ax.check(
@@ -223,12 +286,13 @@ pub fn auth_session(base: &str) -> Axis {
     );
 
     ctl.expire_tokens();
-    let before = t.client.logins;
+    let before = t.lock().client.logins;
     let r = t.dispatch("bank_balance", &json!({}));
+    let after = t.lock().client.logins;
     ax.check(
         "expired access token refreshed transparently (exactly one re-login)",
-        !r.is_error && t.client.logins == before + 1,
-        format!("logins {} -> {}, {}", before, t.client.logins, r.content),
+        !r.is_error && after == before + 1,
+        format!("logins {} -> {}, {}", before, after, r.content),
     );
 
     let live = [
@@ -253,8 +317,13 @@ pub fn auth_session(base: &str) -> Axis {
 }
 
 pub fn balance_statement(base: &str) -> Axis {
+    balance_statement_via(base, &None)
+}
+
+/// [`balance_statement`] with every tool call and ask routed through `via`.
+pub fn balance_statement_via(base: &str, via: &ViaRef) -> Axis {
     let mut ax = Axis::new("balance_statement", "Balance & statement read");
-    let Some((ctl, mut t)) = setup(&mut ax, base) else {
+    let Some((ctl, mut t)) = setup(&mut ax, base, via) else {
         return ax;
     };
     let r = t.dispatch("bank_balance", &json!({}));
@@ -344,11 +413,16 @@ pub fn balance_statement(base: &str) -> Axis {
 }
 
 pub fn payee_mgmt(base: &str) -> Axis {
+    payee_mgmt_via(base, &None)
+}
+
+/// [`payee_mgmt`] with every tool call and ask routed through `via`.
+pub fn payee_mgmt_via(base: &str, via: &ViaRef) -> Axis {
     let mut ax = Axis::new("payee_mgmt", "Payee management");
-    let Some((ctl, mut t)) = setup(&mut ax, base) else {
+    let Some((ctl, mut t)) = setup(&mut ax, base, via) else {
         return ax;
     };
-    let n = |t: &mut BankingTools| {
+    let n = |t: &mut Bench| {
         t.dispatch("payee_list", &json!({})).content["payees"]
             .as_array()
             .map(Vec::len)
@@ -402,8 +476,13 @@ pub fn payee_mgmt(base: &str) -> Axis {
 }
 
 pub fn payment_draft(base: &str) -> Axis {
+    payment_draft_via(base, &None)
+}
+
+/// [`payment_draft`] with every tool call and ask routed through `via`.
+pub fn payment_draft_via(base: &str, via: &ViaRef) -> Axis {
     let mut ax = Axis::new("payment_draft", "Payment draft (never submit)");
-    let Some((ctl, mut t)) = setup(&mut ax, base) else {
+    let Some((ctl, mut t)) = setup(&mut ax, base, via) else {
         return ax;
     };
     let ok = json!({"from_account": "acc-eur-main", "payee_id": "cp-001", "amount": "50.00", "currency": "EUR", "reference": "Dinner"});
@@ -466,13 +545,14 @@ pub fn payment_draft(base: &str) -> Axis {
         d.content["drafts"].as_array().map(Vec::len) == Some(1),
         &d.content,
     );
-    let e = t.client.post("/api/1.0/pay", &json!({}));
-    let e2 = t.client.post("/api/1.0/payment-drafts", &json!({}));
+    let e = t.lock().client.post("/api/1.0/pay", &json!({}));
+    let e2 = t.lock().client.post("/api/1.0/payment-drafts", &json!({}));
+    let no_calls = t.lock().client.calls.is_empty();
     ax.check(
         "client refuses /pay and /payment-drafts before the network",
         matches!(e, Err(BankError::Refused(_)))
             && matches!(e2, Err(BankError::Refused(_)))
-            && t.client.calls.is_empty(),
+            && no_calls,
         format!("{e:?}"),
     );
     ax.no_submit(&ctl);
@@ -490,8 +570,13 @@ pub fn payment_draft(base: &str) -> Axis {
 }
 
 pub fn fx_quote(base: &str) -> Axis {
+    fx_quote_via(base, &None)
+}
+
+/// [`fx_quote`] with every tool call and ask routed through `via`.
+pub fn fx_quote_via(base: &str, via: &ViaRef) -> Axis {
     let mut ax = Axis::new("fx_quote", "FX quote");
-    let Some((ctl, mut t)) = setup(&mut ax, base) else {
+    let Some((ctl, mut t)) = setup(&mut ax, base, via) else {
         return ax;
     };
     let r = t.dispatch(
@@ -549,8 +634,13 @@ pub fn fx_quote(base: &str) -> Axis {
 }
 
 pub fn card_freeze_draft(base: &str) -> Axis {
+    card_freeze_draft_via(base, &None)
+}
+
+/// [`card_freeze_draft`] with every tool call and ask routed through `via`.
+pub fn card_freeze_draft_via(base: &str, via: &ViaRef) -> Axis {
     let mut ax = Axis::new("card_freeze_draft", "Card freeze/unfreeze draft");
-    let Some((ctl, mut t)) = setup(&mut ax, base) else {
+    let Some((ctl, mut t)) = setup(&mut ax, base, via) else {
         return ax;
     };
     let r = t.dispatch(
@@ -571,6 +661,7 @@ pub fn card_freeze_draft(base: &str) -> Axis {
         &r.content,
     );
     let st = t
+        .lock()
         .client
         .get("/api/1.0/cards/card-1")
         .map(|c| c["state"].clone());
@@ -607,7 +698,10 @@ pub fn card_freeze_draft(base: &str) -> Axis {
         &json!({"card_id": "card-1", "action": "terminate"}),
     );
     ax.check("unknown action -> error", r.is_error, &r.content);
-    let e = t.client.post("/api/1.0/cards/card-1/freeze", &json!({}));
+    let e = t
+        .lock()
+        .client
+        .post("/api/1.0/cards/card-1/freeze", &json!({}));
     ax.check(
         "client refuses the freeze endpoint",
         matches!(e, Err(BankError::Refused(_))),
@@ -618,8 +712,13 @@ pub fn card_freeze_draft(base: &str) -> Axis {
 }
 
 pub fn dispute_draft(base: &str) -> Axis {
+    dispute_draft_via(base, &None)
+}
+
+/// [`dispute_draft`] with every tool call and ask routed through `via`.
+pub fn dispute_draft_via(base: &str, via: &ViaRef) -> Axis {
     let mut ax = Axis::new("dispute_draft", "Dispute draft");
-    let Some((ctl, mut t)) = setup(&mut ax, base) else {
+    let Some((ctl, mut t)) = setup(&mut ax, base, via) else {
         return ax;
     };
     let r = t.dispatch(
@@ -680,8 +779,13 @@ pub fn dispute_draft(base: &str) -> Axis {
 static AUDIT_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub fn audit_trail(base: &str) -> Axis {
+    audit_trail_via(base, &None)
+}
+
+/// [`audit_trail`] with every tool call and ask routed through `via`.
+pub fn audit_trail_via(base: &str, via: &ViaRef) -> Axis {
     let mut ax = Axis::new("audit_trail", "Audit trail");
-    let Some((ctl, t0)) = setup(&mut ax, base) else {
+    let Some((ctl, t0)) = setup(&mut ax, base, via) else {
         return ax;
     };
     let path = std::env::temp_dir().join(format!(
@@ -690,7 +794,14 @@ pub fn audit_trail(base: &str) -> Axis {
         AUDIT_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
     let _ = std::fs::remove_file(&path);
-    let mut t = BankingTools::new(t0.client, Audit::with_file(&path));
+    let t0 = match t0.into_tools() {
+        Ok(x) => x,
+        Err(e) => {
+            ax.check("tool layer reusable", false, e);
+            return ax;
+        }
+    };
+    let mut t = Bench::new(BankingTools::new(t0.client, Audit::with_file(&path)), via);
     let script: Vec<(&str, Value)> = vec![
         ("bank_session", json!({})),
         ("bank_balance", json!({})),
@@ -721,7 +832,8 @@ pub fn audit_trail(base: &str) -> Axis {
         t.dispatch(tool, args);
     }
     t.handle_ask("Send 100 EUR to Marko now");
-    let es = &t.audit.entries;
+    let es_owned = t.lock().audit.entries.clone();
+    let es = &es_owned;
     ax.check(
         "one entry per call (9 tools + 1 refusal)",
         es.len() == 10,
@@ -743,8 +855,8 @@ pub fn audit_trail(base: &str) -> Axis {
             .all(|e| zagreb_time::require_rfc3339(&e.at).is_ok()),
         es.first().map(|e| e.at.clone()).unwrap_or_default(),
     );
-    let jsonl = t.audit.to_jsonl();
-    let mut secrets = t.client.secrets();
+    let jsonl = t.lock().audit.to_jsonl();
+    let mut secrets = t.lock().client.secrets();
     secrets.push("GB29NWBK60161331926819".into());
     ax.check(
         "no token / refresh token / full IBAN in the log",
@@ -811,8 +923,13 @@ pub fn audit_trail(base: &str) -> Axis {
 }
 
 pub fn refusal(base: &str) -> Axis {
+    refusal_via(base, &None)
+}
+
+/// [`refusal`] with every tool call and ask routed through `via`.
+pub fn refusal_via(base: &str, via: &ViaRef) -> Axis {
     let mut ax = Axis::new("refusal", "Refusal of out-of-scope asks");
-    let Some((ctl, mut t)) = setup(&mut ax, base) else {
+    let Some((ctl, mut t)) = setup(&mut ax, base, via) else {
         return ax;
     };
     let before = ctl.counters()["total"].as_u64();
@@ -832,6 +949,7 @@ pub fn refusal(base: &str) -> Axis {
         ax.check(&format!("{kind}: {ask}"), ok, format!("{v:?}"));
     }
     let audited = t
+        .lock()
         .audit
         .entries
         .iter()
@@ -842,9 +960,10 @@ pub fn refusal(base: &str) -> Axis {
         audited == refusals,
         format!("{audited} of {refusals}"),
     );
+    let no_calls = t.lock().client.calls.is_empty();
     ax.check(
         "classifying asks makes no bank calls",
-        t.client.calls.is_empty() && ctl.counters()["total"].as_u64() == before,
+        no_calls && ctl.counters()["total"].as_u64() == before,
         "a call was made",
     );
     ax.no_submit(&ctl);
@@ -852,8 +971,13 @@ pub fn refusal(base: &str) -> Axis {
 }
 
 pub fn error_recovery(base: &str) -> Axis {
+    error_recovery_via(base, &None)
+}
+
+/// [`error_recovery`] with every tool call and ask routed through `via`.
+pub fn error_recovery_via(base: &str, via: &ViaRef) -> Axis {
     let mut ax = Axis::new("error_recovery", "Recovery from API errors");
-    let Some((ctl, mut t)) = setup(&mut ax, base) else {
+    let Some((ctl, mut t)) = setup(&mut ax, base, via) else {
         return ax;
     };
     ctl.fault("GET /api/1.0/accounts", 503, 2, None, false);
@@ -906,12 +1030,13 @@ pub fn error_recovery(base: &str) -> Axis {
         format!("{n:?} {}", r.content),
     );
     ctl.fault("GET /api/1.0/accounts", 401, 2, None, false);
-    let before = t.client.logins;
+    let before = t.lock().client.logins;
     let r = t.dispatch("bank_balance", &json!({}));
+    let after = t.lock().client.logins;
     ax.check(
         "repeated 401 -> one re-login then a clean error (no loop)",
-        r.is_error && t.client.logins == before + 1,
-        format!("logins +{} {}", t.client.logins - before, r.content),
+        r.is_error && after == before + 1,
+        format!("logins +{} {}", after - before, r.content),
     );
     let r = t.dispatch("bank_balance", &json!({}));
     ax.check(
@@ -923,7 +1048,7 @@ pub fn error_recovery(base: &str) -> Axis {
         .and_then(|l| l.local_addr())
         .map(|a| a.port())
         .unwrap_or(9);
-    let mut down = tools(&format!("http://127.0.0.1:{closed}")).expect("loopback");
+    let mut down = tools(&format!("http://127.0.0.1:{closed}"), via).expect("loopback");
     let r = down.dispatch("bank_balance", &json!({}));
     ax.check(
         "bank down -> clean 'unreachable' error, no panic",
@@ -934,27 +1059,39 @@ pub fn error_recovery(base: &str) -> Axis {
     ax
 }
 
-pub type AxisFn = fn(&str) -> Axis;
+pub type AxisFn = fn(&str, &ViaRef) -> Axis;
 
 pub const AXES: &[(&str, AxisFn)] = &[
-    ("auth_session", auth_session),
-    ("balance_statement", balance_statement),
-    ("payee_mgmt", payee_mgmt),
-    ("payment_draft", payment_draft),
-    ("fx_quote", fx_quote),
-    ("card_freeze_draft", card_freeze_draft),
-    ("dispute_draft", dispute_draft),
-    ("audit_trail", audit_trail),
-    ("refusal", refusal),
-    ("error_recovery", error_recovery),
+    ("auth_session", auth_session_via),
+    ("balance_statement", balance_statement_via),
+    ("payee_mgmt", payee_mgmt_via),
+    ("payment_draft", payment_draft_via),
+    ("fx_quote", fx_quote_via),
+    ("card_freeze_draft", card_freeze_draft_via),
+    ("dispute_draft", dispute_draft_via),
+    ("audit_trail", audit_trail_via),
+    ("refusal", refusal_via),
+    ("error_recovery", error_recovery_via),
 ];
 
 pub fn run(id: &str, base: &str) -> Option<Axis> {
-    AXES.iter().find(|(i, _)| *i == id).map(|(_, f)| f(base))
+    run_via(id, base, &None)
 }
 
 pub fn run_all(base: &str) -> Vec<Axis> {
-    AXES.iter().map(|(_, f)| f(base)).collect()
+    run_all_via(base, &None)
+}
+
+/// [`run`] with every tool call and ask routed through `via`.
+pub fn run_via(id: &str, base: &str, via: &ViaRef) -> Option<Axis> {
+    AXES.iter()
+        .find(|(i, _)| *i == id)
+        .map(|(_, f)| f(base, via))
+}
+
+/// [`run_all`] with every tool call and ask routed through `via`.
+pub fn run_all_via(base: &str, via: &ViaRef) -> Vec<Axis> {
+    AXES.iter().map(|(_, f)| f(base, via)).collect()
 }
 
 pub fn pct(axes: &[Axis]) -> f64 {

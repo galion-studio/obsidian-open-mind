@@ -168,3 +168,10 @@ dispute call, any real-broker order, `ws_kill_reset` for the model, any `shell`.
 - The hermes-rs adapters and the `bench` sector are proposals; no adapter code on this branch.
 - hermes-core's `Revolut ... not implemented and not approved` line (docs/hermes-core.md §7) predates the
   lift; it should be updated to "design/mock in scope, live mutating calls need separate approval".
+
+### 7a. Update from swarm/bench-hermes (2026-10-20 ~23:45 +02:00)
+- The "B3/B2 scored with a stand-in, not hermes-rs" and "no adapter code" items are resolved on
+  `swarm/bench-hermes`: crate `hermes-bench` registers all 37 benchmark tools as hermes-rs `Tool`s and the
+  hermes-rs agent loop executes every tool call of all three benchmarks (see `docs/bench/hermes-bench.md`).
+- Still open: registration in hermes-gateway under `HERMES_RS_BENCH=1`, the hermes-core `bench` sector,
+  and the docs/hermes-core.md §7 wording (that file is not on `swarm/bench-hermes`; hermes-core was not merged).

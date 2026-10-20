@@ -226,6 +226,7 @@ fn real_live_vps_view() {
     println!("per system: {line}");
     println!("{}", pick(&view, "unmapped_listeners"));
     println!("{}", pick(&view, "unmapped_units"));
+    println!("{}", pick(&view, "listeners_not_declared_by_a_unit"));
     println!("captures: {}", dir.display());
     assert!(view.contains("\"mode\":\"observe-only"));
     assert!(view.contains("\"system\":\"memory-gateway\""));

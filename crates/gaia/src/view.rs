@@ -9,7 +9,7 @@
 //! functions and 52 systems. It opens no socket, spawns no process and
 //! changes nothing: it is an observer, not a controller.
 
-use gaia_core::ownership::{crates_for, unit_owner};
+use gaia_core::ownership::{crate_owner, crates_for, unit_owner};
 use gaia_core::{FunctionId, Json, System};
 
 /// One row of `systemctl list-units`.
@@ -124,11 +124,16 @@ fn known_port(port: u16) -> Option<(System, &'static str)> {
 
 /// Process name (from `ss -p`) to system.
 fn process_system(name: &str) -> Option<System> {
-    unit_owner(name).map(|u| u.system).or(match name {
-        "cloudflared" => Some(System::Tunnels),
-        "node" => Some(System::Console),
-        _ => None,
-    })
+    // `ss` shows the 15-byte comm name; a deleted binary can add a trailing dot.
+    let name = name.trim_end_matches('.');
+    unit_owner(name)
+        .map(|u| u.system)
+        .or_else(|| crate_owner(name).and_then(|c| c.role.system()))
+        .or(match name {
+            "cloudflared" => Some(System::Tunnels),
+            "node" => Some(System::Console),
+            _ => None,
+        })
 }
 
 fn is_running(u: &Unit) -> bool {
@@ -152,6 +157,9 @@ pub fn view(units_text: &str, listen_text: Option<&str>) -> Json {
         }
     }
     let mut stray = Vec::new();
+    // Listeners whose system is known but no running unit declares the port
+    // (in its description or as a well-known port): likely manual processes.
+    let mut undeclared = Vec::new();
     let mut host = Vec::new();
     let mut listener_rows = Vec::new();
     for l in &listeners {
@@ -164,6 +172,7 @@ pub fn view(units_text: &str, listen_text: Option<&str>) -> Json {
             .find(|(p, _, _)| *p == l.port)
             .map(|(_, s, why)| (*s, why.clone()));
         let by_known = known_port(l.port).map(|(s, n)| (s, format!("known port ({n})")));
+        let declared = by_unit.is_some() || by_known.is_some();
         let owner = by_proc.or(by_unit).or(by_known);
         let loopback = l.addr.starts_with("127.") || l.addr == "[::1]" || l.addr.contains("%lo");
         let mut row = Json::obj()
@@ -177,6 +186,10 @@ pub fn view(units_text: &str, listen_text: Option<&str>) -> Json {
                     .with("system", s.name())
                     .with("function", s.function().name())
                     .with("by", why.as_str());
+                row = row.with("declared_by_unit", declared);
+                if !declared {
+                    undeclared.push(Json::from(u64::from(l.port)));
+                }
             }
             None if matches!(l.port, 22 | 25 | 53) => {
                 row = row
@@ -279,6 +292,7 @@ pub fn view(units_text: &str, listen_text: Option<&str>) -> Json {
                 .with("units_unmapped", unmapped_units.len())
                 .with("listeners", listeners.len())
                 .with("listeners_unmapped", stray.len())
+                .with("listeners_not_declared_by_a_unit", undeclared.len())
                 .with("systems_total", System::ALL.len())
                 .with("systems_live", totals.0)
                 .with("systems_with_unit", totals.1)
@@ -291,6 +305,7 @@ pub fn view(units_text: &str, listen_text: Option<&str>) -> Json {
         )
         .with("unmapped_units", Json::Arr(unmapped_units))
         .with("unmapped_listeners", Json::Arr(stray))
+        .with("listeners_not_declared_by_a_unit", Json::Arr(undeclared))
         .with(
             "host_listeners",
             Json::Arr(host.into_iter().map(Json::from).collect()),
@@ -315,6 +330,18 @@ LISTEN 0      128        127.0.0.1:8002       0.0.0.0:*
 LISTEN 0      128        127.0.0.1:8653       0.0.0.0:*    users:((\"mystery\",pid=9,fd=3))
 LISTEN 0      4096               *:22               *:*
 LISTEN 0      100            [::1]:25            [::]:*";
+
+    #[test]
+    fn process_names_map_through_crates_and_undeclared_ports_are_flagged() {
+        let ss = "LISTEN 0 128 127.0.0.1:8091 0.0.0.0:* users:((\"galion-one\",pid=1))\nLISTEN 0 128 127.0.0.1:8653 0.0.0.0:* users:((\"hermes-gateway.\",pid=2))";
+        let v = view(UNITS, Some(ss)).compact();
+        assert!(v.contains("\"port\":8653,\"loopback\":true,\"process\":\"hermes-gateway.\",\"system\":\"messaging\""), "{v}");
+        assert!(
+            v.contains("\"listeners_not_declared_by_a_unit\":[8653]"),
+            "{v}"
+        );
+        assert!(v.contains("\"unmapped_listeners\":[]"), "{v}");
+    }
 
     #[test]
     fn parses_units() {

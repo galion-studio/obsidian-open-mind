@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+  clippy:
+    name: cargo clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: clippy, warnings are errors
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: cargo test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo test
+        run: cargo test --workspace
+
+  no-python:
+    name: no Python in the repo
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: fail if any tracked Python file exists
+        run: |
+          set -eu
+          if git ls-files '*.py' | grep -q .; then
+            echo "Python files are not allowed in this repository."
+            git ls-files '*.py'
+            exit 1
+          fi
+          echo "ok: no tracked .py files"
+
+  cjk-scan:
+    name: no CJK characters
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: scan tracked text for Han, Hiragana, Katakana, Hangul
+        run: |
+          set -eu
+          if grep -rInP --exclude-dir=.git \
+            '[\x{2E80}-\x{2EFF}\x{3000}-\x{303F}\x{3040}-\x{30FF}\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{AC00}-\x{D7AF}\x{F900}-\x{FAFF}]' . ; then
+            echo "Stray CJK characters found. Remove them."
+            exit 1
+          fi
+          echo "ok: no CJK characters"
+
+  secrets-scan:
+    name: no secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: scan for key-shaped strings
+        run: |
+          set -eu
+          hits=0
+          if grep -rInE --exclude-dir=.git --exclude=ci.yml 'sk-[A-Za-z0-9]{8,}' . ; then hits=1; fi
+          if grep -rInE --exclude-dir=.git --exclude=ci.yml 'BEGIN.*PRIVATE' . ; then hits=1; fi
+          if grep -rInE --exclude-dir=.git --exclude=ci.yml 'API_KEY[[:space:]]*=[[:space:]]*[A-Za-z0-9]' . ; then hits=1; fi
+          if [ "$hits" = "1" ]; then
+            echo "A key-shaped string is committed. Remove it and rotate the key."
+            exit 1
+          fi
+          echo "ok: no key-shaped strings"

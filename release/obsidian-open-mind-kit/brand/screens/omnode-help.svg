@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="976" height="570" viewBox="0 0 976 570" role="img" aria-labelledby="t">
+  <title id="t">Real terminal output of omnode --help (omnode 0.1.0)</title>
+  <!-- Verbatim stdout of omnode help (the double-dash help flag), omnode 0.1.0 (x86_64, linux), built with cargo build in release mode from edge/openmind-node. Captured 2026-10-18T20:49:11+02:00 (Europe/Zagreb). Text only, nothing edited. -->
+  <rect x="0.5" y="0.5" width="975" height="569" rx="12" fill="#0B0F14" stroke="#24303C"/>
+  <rect x="0.5" y="0.5" width="975" height="44" rx="12" fill="#131A22"/><rect x="0.5" y="32" width="975" height="13" fill="#131A22"/>
+  <text x="24" y="28" font-family="Inter, Arial, sans-serif" font-size="14" fill="#A7B6C4">omnode --help  ·  omnode 0.1.0 (x86_64, linux)  ·  captured 2026-10-18T20:49:11+02:00</text>
+  <g font-family="&apos;Geist Mono&apos;, &apos;JetBrains Mono&apos;, &apos;DejaVu Sans Mono&apos;, ui-monospace, monospace" font-size="15" fill="#E6EDF3" xml:space="preserve">
+    <text x="32" y="78" fill="#58C4FF">$ omnode --help</text>
+    <text x="32" y="100">omnode - Obsidian Open Mind Stack phone/LAN node</text>
+    <text x="32" y="122"></text>
+    <text x="32" y="144">USAGE: omnode [--config FILE] &lt;command&gt;</text>
+    <text x="32" y="166"></text>
+    <text x="32" y="188">  identity init [--no-bind]  create device key (~/.config/openmind/node.key, 600); binds this network</text>
+    <text x="32" y="210">                           if its gateway is private (home LAN)</text>
+    <text x="32" y="232">  identity show            print key fingerprint and device id only</text>
+    <text x="32" y="254">  identity bind [--force]  trust the current network (only networks you own)</text>
+    <text x="32" y="276">  identity network         show current network hash and whether it is trusted</text>
+    <text x="32" y="298">  discover [--seconds N] [--dry-run] [--mdns-query] [--no-msearch] [--probe] [--probe-subnet]</text>
+    <text x="32" y="320">                           polite LAN discovery, JSON on stdout</text>
+    <text x="32" y="342">  announce [--seconds N] [--dry-run]</text>
+    <text x="32" y="364">                           advertise _openmind._tcp over mDNS (0 = until stopped)</text>
+    <text x="32" y="386">  pair [URL] [--no-qr]     print signed pairing payload + terminal QR (nothing is sent)</text>
+    <text x="32" y="408">  sandbox run [--wall S] [--cpu S] [--mem MB] [--allow-net] [--require-isolation]</text>
+    <text x="32" y="430">              [--no-landlock] [--keep] -- CMD [ARGS...]</text>
+    <text x="32" y="452">  sandbox check            report which isolation this platform provides</text>
+    <text x="32" y="474">  version</text>
+    <text x="32" y="496"></text>
+    <text x="32" y="518">Set OMNODE_PRINT_RSS=1 to print peak RSS (VmHWM) to stderr on exit.</text>
+  </g>
+</svg>

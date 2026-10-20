@@ -1,0 +1,26 @@
+{
+  "modes": {
+    "plan": "anthropic/claude-opus-5.5",
+    "action": "anthropic/claude-opus-5.5"
+  },
+  "saved": [
+    {
+      "id": "river",
+      "name": "River DeepSeek V4.1 Flash",
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "note": "default"
+    },
+    {
+      "id": "laptop",
+      "name": "Laptop Qwen",
+      "model": "huihui_ai/qwen3.5-abliterated:9b",
+      "note": "primary"
+    }
+  ],
+  "stars": {
+    "laptop": [],
+    "openrouter": [],
+    "river": []
+  },
+  "provider": "openrouter"
+}

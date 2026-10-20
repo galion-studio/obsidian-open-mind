@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "galleon-voice"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Persona Plex v1 document loader. Traits only: text persona, voice name, session policy. No audio."
+
+[dependencies]
+serde = { workspace = true }
+toml = { workspace = true }

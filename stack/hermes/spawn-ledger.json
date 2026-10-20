@@ -1,0 +1,15 @@
+[
+  {
+    "pid": 1180146,
+    "create_time": 1790689199.12,
+    "purpose": "mcp-helper",
+    "install": "76f6e7e5145b",
+    "spawner_pid": 1179882,
+    "spawner_create": 1790689194.56,
+    "registered_at": 1790689199.2236946,
+    "argv": "/usr/local/lib/hermes-agent/venv/bin/python /workspace/galion-light/mcp/stack-read.py",
+    "host": "",
+    "port": null,
+    "profile": ""
+  }
+]

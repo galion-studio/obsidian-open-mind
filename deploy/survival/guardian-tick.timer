@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic Galion guardian tick (staged, not enabled)
+
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec=60s
+AccuracySec=10s
+Unit=guardian-tick.service
+
+# No [Install] section on purpose: this timer must not be enabled until Slavik
+# approves. It is not installed.

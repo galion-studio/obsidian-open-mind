@@ -1,0 +1,25 @@
+{
+  "name": "Obsidian Open Mind, made by Galion",
+  "version": "1.0.0",
+  "theme": "obsidian: deep volcanic black glass, one restrained sky accent",
+  "source": "Core hexes reused from the earlier Galion release kit: /opt/galion/openmind/release/brand/BRAND.md (section 4) and release/site/style.css. Facet shades are darker steps of Ink/Surface used only inside the logo mark and banner.",
+  "license": "MIT License, Copyright (c) 3000 Galion / galion-studio",
+  "colors": {
+    "ink":           { "hex": "#0B0F14", "role": "primary dark background; body text on light", "origin": "release kit" },
+    "surface":       { "hex": "#131A22", "role": "raised panel and code block on dark", "origin": "release kit" },
+    "line":          { "hex": "#24303C", "role": "hairlines and borders on dark; brightest logo facet", "origin": "release kit (site/style.css --line)" },
+    "text":          { "hex": "#E6EDF3", "role": "body text on dark (16.27:1 on ink)", "origin": "release kit" },
+    "mist":          { "hex": "#A7B6C4", "role": "muted text on dark (9.27:1 on ink)", "origin": "release kit" },
+    "slate":         { "hex": "#4A7C99", "role": "logo outline; neutral accent on both themes (4.24:1 on ink, 4.29:1 on paper)", "origin": "release kit" },
+    "sky":           { "hex": "#58C4FF", "role": "the one accent on dark: open ring, links, focus (9.84:1 on ink); never text on light (1.85:1)", "origin": "release kit" },
+    "ocean":         { "hex": "#0B5FA5", "role": "accent on light: links and buttons (6.23:1 on paper)", "origin": "release kit" },
+    "paper":         { "hex": "#F7F9FB", "role": "light background", "origin": "release kit" },
+    "paper-surface": { "hex": "#EEF2F6", "role": "raised panel on light", "origin": "release kit" },
+    "paper-muted":   { "hex": "#3F4C59", "role": "muted text on light (8.33:1 on paper)", "origin": "release kit" }
+  },
+  "facets": ["#24303C", "#1A2430", "#131A22", "#10161D", "#0B0F14", "#07090C", "#05070A"],
+  "fonts": {
+    "sans": { "family": "Inter", "weights": [400, 500, 700], "license": "SIL Open Font License 1.1", "url": "https://fonts.google.com/specimen/Inter", "fallback": "'Helvetica Neue', Arial, 'Liberation Sans', system-ui, sans-serif", "origin": "/opt/galion/galion-src/galion-studio-app/app/globals.css and tailwind.config.ts" },
+    "mono": { "family": "Geist Mono", "weights": [400], "license": "SIL Open Font License 1.1", "url": "https://fonts.google.com/specimen/Geist+Mono", "fallback": "'JetBrains Mono', ui-monospace, Menlo, Consolas, 'DejaVu Sans Mono', monospace", "origin": "/opt/galion/galion-src/galion-studio-app/app/globals.css and tailwind.config.ts" }
+  }
+}

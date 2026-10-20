@@ -1,0 +1,8 @@
+; mDNS-SD style fixture. Addresses are documentation ranges (TEST-NET-1, 2001:db8).
+; Reading this file opens no socket.
+_services._dns-sd._udp.local. IN PTR _openmind._tcp.local.
+_openmind._tcp.local. 120 IN PTR desk._openmind._tcp.local.
+desk._openmind._tcp.local. IN SRV 0 0 7787 desk.local.
+desk._openmind._tcp.local. IN TXT "v=1" "id=desk-1" "arch=x86_64" "caps=cpu,sandbox" "name=Desk"
+desk.local. IN A 192.0.2.10
+desk.local. IN AAAA 2001:db8::10

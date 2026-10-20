@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -23,7 +24,49 @@ struct Obj {
     note: String,
 }
 
+// True only when the operator passed --listen. No flags and --fixture do not.
+fn serves(args: &[String]) -> bool {
+    args.first().is_some_and(|flag| flag == "--listen")
+}
+
+// JSON page for no flags, or for one --fixture path. No listener, no socket.
+fn page(args: &[String]) -> Result<String, &'static str> {
+    if args.is_empty() {
+        return Ok(to_json(&index()));
+    }
+    if args.len() == 2 && args[0] == "--fixture" {
+        return Ok(to_json(&index_at(Path::new(&args[1]))));
+    }
+    Err("usage: room [--fixture PATH | --listen]")
+}
+
+fn index_at(path: &Path) -> Vec<Obj> {
+    let mut out = Vec::new();
+    let mut budget = 1800usize;
+    if path.is_dir() {
+        walk(path, &mut out, &mut budget);
+    } else if let Some(obj) = classify(path) {
+        out.push(obj);
+    }
+    out
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if serves(&args) {
+        serve();
+        return;
+    }
+    match page(&args) {
+        Ok(json) => println!("{json}"),
+        Err(msg) => {
+            eprintln!("{msg}");
+            std::process::exit(2);
+        }
+    }
+}
+
+fn serve() {
     let objects = index();
     let json = to_json(&objects);
     let listener = TcpListener::bind(bind_addr("ROOM_BIND", 4020)).expect("4020");
@@ -351,4 +394,60 @@ fn write(stream: &mut TcpStream, status: u16, kind: &str, body: &str) -> std::io
     );
     stream.write_all(head.as_bytes())?;
     stream.write_all(body.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{page, serves};
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn socket_fds() -> Vec<String> {
+        let mut out = Vec::new();
+        let dir = fs::read_dir("/proc/self/fd").expect("fd");
+        for entry in dir.flatten() {
+            let Ok(target) = fs::read_link(entry.path()) else {
+                continue;
+            };
+            let text = target.to_string_lossy();
+            if text.starts_with("socket:") {
+                out.push(text.into_owned());
+            }
+        }
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn default_and_fixture_do_not_open_a_socket() {
+        assert!(!serves(&[]));
+        let before = socket_fds();
+        let page_default = page(&[]).expect("default page");
+        assert!(page_default.starts_with("{\"objects\":["));
+        assert!(page_default.contains("\"name\":\"room\""));
+        assert_eq!(socket_fds(), before);
+
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir: PathBuf =
+            std::env::temp_dir().join(format!("room-fix-{}-{nanos}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("dir");
+        fs::write(dir.join("note.md"), "# Desk note\n").expect("note");
+        let args = vec!["--fixture".to_string(), dir.to_string_lossy().to_string()];
+        assert!(!serves(&args));
+        let before_fix = socket_fds();
+        let page_fix = page(&args).expect("fixture page");
+        let after_fix = socket_fds();
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(before_fix, after_fix);
+        assert!(page_fix.contains("\"kind\":\"doc\""));
+        assert!(page_fix.contains("Desk note"));
+        assert!(!serves(&[
+            "--fixture".to_string(),
+            dir.display().to_string()
+        ]));
+    }
 }

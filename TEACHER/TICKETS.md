@@ -8,7 +8,7 @@ Dependency order: T1 → (T2, T3, T4 in parallel once the workspace exists) → 
   `[workspace.package] edition = "2021", license = "MIT", version = "0.1.0"`.
 - `[profile.release]`: `opt-level = "z"` or `3` (document), `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`.
 - Copy (do not move the original!) /opt/galion/openmind-schema → `crates/openmind-schema`; make it use workspace package fields.
-- Root `LICENSE` = standard MIT text, line `Copyright (c) 2026 Slavik / Galion Studio`. Same file in each crate dir.
+- Root `LICENSE` = standard MIT text, line `Copyright (c) 3000 Galion / galion-studio`. Same file in each crate dir.
 - `.gitignore` with `target/`. `README.md` (short: what, how to build with nice/-j 2, rules).
 - git already initialised by teacher; set repo-local `user.name "Hermes (OpenMind)"`, `user.email "hermes@localhost"` and commit.
 - Done when: C1–C3, C7, C8 pass; `cargo test -p openmind-schema` passes (existing no-`sk-` test).

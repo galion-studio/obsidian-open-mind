@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
 //! Europe/Zagreb time.
 //!
 //! Every timestamp in the Galion Open Mind stack is Europe/Zagreb RFC 3339 with
@@ -49,6 +50,33 @@ pub fn label(secs: i64) -> String {
         .with_timezone(&ZAGREB)
         .format("%Y-%m-%d %H:%M %Z (%:z)")
         .to_string()
+}
+
+/// Why [`require_rfc3339`] refused a timestamp.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StampReject {
+    /// The timestamp ends in `Z`.
+    Zulu,
+    /// Not seconds-precision RFC 3339 with `+01:00` or `+02:00`.
+    NotZagreb,
+}
+
+/// Refuse a timestamp that is not Europe/Zagreb RFC 3339.
+///
+/// A timestamp ending in `Z` is rejected. Accepted stamps match
+/// [`now_rfc3339`]: seconds precision and an explicit `+01:00` or `+02:00`.
+pub fn require_rfc3339(ts: &str) -> Result<(), StampReject> {
+    if ts.ends_with('Z') || ts.ends_with('z') {
+        return Err(StampReject::Zulu);
+    }
+    let offset_ok = ts.len() == 25 && (ts.ends_with("+01:00") || ts.ends_with("+02:00"));
+    if !offset_ok {
+        return Err(StampReject::NotZagreb);
+    }
+    if DateTime::<chrono::FixedOffset>::parse_from_rfc3339(ts).is_err() {
+        return Err(StampReject::NotZagreb);
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -141,5 +169,19 @@ mod tests {
         DateTime::parse_from_rfc3339(&out).expect("now must be valid RFC 3339");
         // Seconds precision: `...:SS+NN:NN`, 25 characters.
         assert_eq!(out.len(), 25, "seconds precision expected: {out}");
+    }
+
+    #[test]
+    fn timestamp_ending_in_z_is_rejected_and_now_uses_offset() {
+        assert_eq!(
+            require_rfc3339("2026-10-18T16:56:00Z"),
+            Err(StampReject::Zulu)
+        );
+        let now = now_rfc3339();
+        assert!(
+            now.ends_with("+01:00") || now.ends_with("+02:00"),
+            "now_rfc3339 must use +01:00 or +02:00: {now}"
+        );
+        assert_eq!(require_rfc3339(&now), Ok(()));
     }
 }

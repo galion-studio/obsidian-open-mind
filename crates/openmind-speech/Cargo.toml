@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "openmind-speech"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Parse whisper.cpp and piper fixture outputs on CPU. No process, no download, no GPU."
+
+[dependencies]
+serde_json = { workspace = true }

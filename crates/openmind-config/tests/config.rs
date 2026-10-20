@@ -44,6 +44,37 @@ fn missing_file_is_defaults() {
 }
 
 #[test]
+fn missing_file_returns_default_ports_and_reads_no_env() {
+    let p = PathBuf::from("target/test-out/openmind-config/missing-default-ports.toml");
+    if p.exists() {
+        std::fs::remove_file(&p).unwrap();
+    }
+    let reads = std::cell::Cell::new(0usize);
+    let env = |key: &str| {
+        reads.set(reads.get() + 1);
+        Some(match key {
+            "OPENMIND_PORTS_OLLAMA" => "1".to_string(),
+            "OPENMIND_PORTS_HERMES" => "2".to_string(),
+            "OPENMIND_PORTS_WHISPER" => "3".to_string(),
+            "OPENMIND_PORTS_DOCS" => "4".to_string(),
+            "OPENMIND_PORTS_ONE" => "5".to_string(),
+            "OPENMIND_PORTS_DESK" => "6".to_string(),
+            "OPENMIND_PORTS_CONSOLE" => "7".to_string(),
+            _ => "9".to_string(),
+        })
+    };
+    let c = load_from(Some(&p), &env).unwrap();
+    assert_eq!(reads.get(), 0);
+    assert_eq!(c.ports.ollama, 11434);
+    assert_eq!(c.ports.hermes, 8642);
+    assert_eq!(c.ports.whisper, 8643);
+    assert_eq!(c.ports.docs, 8645);
+    assert_eq!(c.ports.one, 8091);
+    assert_eq!(c.ports.desk, 8646);
+    assert_eq!(c.ports.console, 8080);
+}
+
+#[test]
 fn full_file() {
     let p = out(
         "full.toml",

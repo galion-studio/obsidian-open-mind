@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 [package]
 name = "zagreb-time"
 version.workspace = true

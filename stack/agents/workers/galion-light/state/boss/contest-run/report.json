@@ -1,0 +1,53 @@
+{
+  "when": "2026-10-05T18:23:50Z",
+  "elapsed_sec": 1200.9,
+  "model": "deepseek/deepseek-v4.1-flash",
+  "task": "skill-index",
+  "decision": "TASK skill-index\n",
+  "judge": "WINNER ada\n",
+  "baseline_chars": 13326,
+  "workers": [
+    {
+      "name": "ada",
+      "turns": 26,
+      "best": {
+        "chars": 5946,
+        "galion_kept": true,
+        "names_only": true,
+        "demoted_n": 11,
+        "ok": true
+      }
+    },
+    {
+      "name": "bram",
+      "turns": 26,
+      "best": {
+        "chars": 5946,
+        "galion_kept": true,
+        "names_only": true,
+        "demoted_n": 11,
+        "ok": true
+      }
+    },
+    {
+      "name": "cato",
+      "turns": 26,
+      "best": {
+        "chars": 5946,
+        "galion_kept": true,
+        "names_only": true,
+        "demoted_n": 11,
+        "ok": true
+      }
+    }
+  ],
+  "winner": "ada",
+  "reward": "installed /workspace/galion-light/shadow/hermes-agent/agent/coding_context.py into the shadow checkout only. Live gateway was not restarted.",
+  "tokens": {
+    "calls": 80,
+    "prompt_tokens": 36140,
+    "completion_tokens": 14842,
+    "cost": 0.012021
+  },
+  "gateway_restarted": false
+}

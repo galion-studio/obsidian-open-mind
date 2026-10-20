@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="t">
+  <title id="t">Obsidian Open Mind mark (one colour)</title>
+  <!-- One-colour mark. Default ink #0B0F14 for light backgrounds; recolour the whole mark to #F7F9FB for dark ones, never to a tint. -->
+  <g fill="none" stroke="#0B0F14" stroke-linejoin="round">
+    <polygon points="64,8 112.5,36 112.5,92 64,120 15.5,92 15.5,36" stroke-width="6"/>
+    <circle cx="64" cy="64" r="23" stroke-width="7" stroke-linecap="round" stroke-dasharray="112 32.5" transform="rotate(-12 64 64)"/>
+  </g>
+  <circle cx="64" cy="64" r="7" fill="#0B0F14"/>
+</svg>

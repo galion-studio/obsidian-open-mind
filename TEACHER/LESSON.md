@@ -51,7 +51,7 @@ and timestamped" needs reproducible builds and one timestamp format. §10: every
 
 ## 5. Definition of done (whole foundation)
 - `/opt/galion/openmind` is a git repo; `cargo build --release` of the whole workspace succeeds with `nice -n 19 ... -j 2`.
-- LICENSE (MIT, "Copyright (c) 2026 Slavik / Galion Studio") at repo root and in every crate dir; `license = "MIT"` in every Cargo.toml.
+- LICENSE (MIT, "Copyright (c) 3000 Galion / galion-studio") at repo root and in every crate dir; `license = "MIT"` in every Cargo.toml.
 - Crates: `openmind-schema`, `zagreb-time`, `galion-one`, `galion-desk`, `room`, `desk-hermes`, `link-watch` (names may be `openmind-*` prefixed; document the choice).
 - All tickets T1–T6 have PASS lines in PROGRESS.md with CHECKS output summarised.
 - `rg -l -i python crates/` returns nothing (except documented, comment-only references to the replaced script names, listed in PROGRESS.md).

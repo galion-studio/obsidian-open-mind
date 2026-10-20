@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="t">
+  <title id="t">Obsidian Open Mind, made by Galion. Rust on CPU. Providers are just rows.</title>
+  <!-- Hand-written SVG. Repo header and GitHub social preview (1280x640). Content stays inside a 80 px safe margin.
+       MIT License, Copyright (c) 3000 Galion / galion-studio. -->
+  <defs>
+    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.62">
+      <stop offset="0" stop-color="#131A22"/>
+      <stop offset="0.6" stop-color="#0B0F14"/>
+      <stop offset="1" stop-color="#05070A"/>
+    </radialGradient>
+    <linearGradient id="rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#58C4FF" stop-opacity="0"/>
+      <stop offset="0.5" stop-color="#58C4FF" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#58C4FF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#glow)"/>
+  <!-- Volcanic glass: low, dark facets at the edges. -->
+  <g stroke="#24303C" stroke-width="1" stroke-opacity="0.8">
+    <polygon points="0,0 230,0 120,170" fill="#10161D"/>
+    <polygon points="0,0 120,170 0,260" fill="#0B0F14"/>
+    <polygon points="0,260 120,170 210,400" fill="#131A22" fill-opacity="0.7"/>
+    <polygon points="0,260 210,400 0,640" fill="#07090C"/>
+    <polygon points="0,640 210,400 300,640" fill="#10161D" fill-opacity="0.8"/>
+    <polygon points="1280,0 1050,0 1160,190" fill="#131A22"/>
+    <polygon points="1280,0 1160,190 1280,300" fill="#0B0F14"/>
+    <polygon points="1280,300 1160,190 1070,430" fill="#1A2430" fill-opacity="0.6"/>
+    <polygon points="1280,300 1070,430 1280,640" fill="#07090C"/>
+    <polygon points="1280,640 1070,430 980,640" fill="#10161D" fill-opacity="0.8"/>
+  </g>
+  <!-- Mark, 176 px, centred. -->
+  <g transform="translate(552 82) scale(1.375)">
+  <!-- Obsidian: a hexagonal shard of volcanic glass, split into six facets. -->
+  <polygon points="64,6 114.2,35 114.2,93 64,122 13.8,93 13.8,35" fill="#0B0F14"/>
+  <polygon points="64,6 114.2,35 64,64" fill="#1A2430"/>
+  <polygon points="114.2,35 114.2,93 64,64" fill="#131A22"/>
+  <polygon points="114.2,93 64,122 64,64" fill="#0B0F14"/>
+  <polygon points="64,122 13.8,93 64,64" fill="#07090C"/>
+  <polygon points="13.8,93 13.8,35 64,64" fill="#10161D"/>
+  <polygon points="13.8,35 64,6 64,64" fill="#24303C"/>
+  <g stroke="#4A7C99" stroke-opacity="0.35" stroke-width="1" fill="none">
+    <path d="M64 6 L64 64 M114.2 35 L64 64 M114.2 93 L64 64 M64 122 L64 64 M13.8 93 L64 64 M13.8 35 L64 64"/>
+  </g>
+  <polygon points="64,6 114.2,35 114.2,93 64,122 13.8,93 13.8,35" fill="none" stroke="#4A7C99" stroke-width="3" stroke-linejoin="round"/>
+  <!-- Open Mind: an open ring (gap at the upper right) around the loop the CPU owns. -->
+  <circle cx="64" cy="64" r="23" fill="none" stroke="#0B0F14" stroke-width="13"/>
+  <circle cx="64" cy="64" r="23" fill="none" stroke="#58C4FF" stroke-width="7" stroke-linecap="round" stroke-dasharray="112 32.5" transform="rotate(-12 64 64)"/>
+  <circle cx="64" cy="64" r="7" fill="#58C4FF"/>
+  </g>
+  <text x="640" y="358" text-anchor="middle" font-family="Inter, &apos;Helvetica Neue&apos;, Arial, &apos;Liberation Sans&apos;, sans-serif" font-size="84" font-weight="700" letter-spacing="-1.5" fill="#E6EDF3">Obsidian Open Mind</text>
+  <text x="640" y="404" text-anchor="middle" font-family="Inter, &apos;Helvetica Neue&apos;, Arial, &apos;Liberation Sans&apos;, sans-serif" font-size="28" font-weight="500" letter-spacing="0.5" fill="#A7B6C4">made by Galion</text>
+  <rect x="440" y="432" width="400" height="2" fill="url(#rule)"/>
+  <text x="640" y="484" text-anchor="middle" font-family="Inter, &apos;Helvetica Neue&apos;, Arial, &apos;Liberation Sans&apos;, sans-serif" font-size="30" font-weight="400" fill="#E6EDF3">Rust on CPU. Providers are just rows.</text>
+  <text x="640" y="548" text-anchor="middle" font-family="&apos;Geist Mono&apos;, &apos;JetBrains Mono&apos;, ui-monospace, Menlo, Consolas, monospace" font-size="20" fill="#A7B6C4">MIT License  ·  Rust-only  ·  CPU-light  ·  github.com/galion-studio/obsidian-open-mind</text>
+</svg>

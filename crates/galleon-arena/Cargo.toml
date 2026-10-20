@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "galleon-arena"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Read-only paper arena: list seed gladiators and score a match. Paper integers only. No network."
+
+[[bin]]
+name = "galleon-arena"
+path = "src/main.rs"
+
+[dependencies]

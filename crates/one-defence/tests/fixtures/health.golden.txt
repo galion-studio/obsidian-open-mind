@@ -1,0 +1,4 @@
+console healthy 45
+whisper degraded 0
+hermes healthy 12
+vision healthy 0

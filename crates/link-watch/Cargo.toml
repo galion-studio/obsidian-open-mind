@@ -1,5 +1,3 @@
-# SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 [package]
 name = "link-watch"
 version.workspace = true
@@ -12,6 +10,7 @@ name = "link-watch"
 path = "src/main.rs"
 
 [dependencies]
+openmind-config = { path = "../openmind-config" }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
 zagreb-time = { path = "../zagreb-time" }

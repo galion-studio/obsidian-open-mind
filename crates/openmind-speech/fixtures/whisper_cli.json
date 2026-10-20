@@ -1,0 +1,30 @@
+{
+  "systeminfo": "WHISPER : COREML = 0 | OPENVINO = 0 | CUDA = 0 | CPU : SSE3 = 1",
+  "model": {
+    "type": "tiny.en",
+    "multilingual": false,
+    "vocab": 51864,
+    "audio": { "ctx": 1500, "state": 384, "head": 6, "layer": 4 },
+    "text": { "ctx": 448, "state": 384, "head": 6, "layer": 4 },
+    "mels": 80,
+    "ftype": 1
+  },
+  "params": {
+    "model": "models/ggml-tiny.en.bin",
+    "language": "en",
+    "translate": false
+  },
+  "result": { "language": "en" },
+  "transcription": [
+    {
+      "timestamps": { "from": "00:00:00,000", "to": "00:00:00,400" },
+      "offsets": { "from": 0, "to": 400 },
+      "text": " Hello"
+    },
+    {
+      "timestamps": { "from": "00:00:00,400", "to": "00:00:01,200" },
+      "offsets": { "from": 400, "to": 1200 },
+      "text": " there."
+    }
+  ]
+}

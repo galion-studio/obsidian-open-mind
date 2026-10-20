@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "openmind-provider"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "ComputeProvider trait and a JSON registry of approval state (Pending, Approved, Rejected)."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

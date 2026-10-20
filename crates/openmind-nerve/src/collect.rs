@@ -76,6 +76,8 @@ pub struct Collected {
     pub lines: Vec<probe::JLine>,
     /// Listening sockets (None: not read).
     pub listeners: Option<Vec<probe::Listener>>,
+    /// Holders (from /proc or `ss -ltnp`) of listeners no component owns.
+    pub port_procs: std::collections::BTreeMap<u16, crate::owners::ProcInfo>,
     /// Probes intentionally skipped on this host (info, not errors).
     pub skipped: Vec<String>,
 }
@@ -275,11 +277,27 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
         }
         out.insert(sp.name.to_string(), s);
     }
+    let listeners = probe::listeners();
+    // Holders of listeners nobody owns (in scope), for "unknown owner".
+    let port_procs = match &listeners {
+        Some(ls) => {
+            let om = crate::owners::OwnerMap::for_config(specs, cfg);
+            let in_scope = |p: u16| cfg.listen_scope.is_none_or(|(a, b)| p >= a && p <= b);
+            let ports: std::collections::BTreeSet<u16> = ls
+                .iter()
+                .map(|l| l.port)
+                .filter(|p| in_scope(*p) && !om.is_owned(*p))
+                .collect();
+            crate::owners::socket_procs(&ports)
+        }
+        None => Default::default(),
+    };
     Collected {
         samples: out,
         probe_errors: errs,
         lines,
-        listeners: probe::listeners(),
+        listeners,
+        port_procs,
         skipped,
     }
 }

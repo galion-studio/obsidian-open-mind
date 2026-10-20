@@ -33,6 +33,9 @@ use std::time::Instant;
 /// How long journal insights (dead origins, scanner hits) stay in view.
 pub const LOG_WINDOW_S: u64 = 1800;
 
+/// Pushed events (errors, slow requests, caps) stay in incident view this long.
+pub const PUSH_WINDOW_S: u64 = 120;
+
 /// Shared between the loop and the HTTP server.
 #[derive(Default)]
 pub struct Shared {
@@ -70,6 +73,10 @@ pub struct Engine {
     pub ddos: Vec<DdosVerdict>,
     pub score: Option<Score>,
     tunnel_prev: HashMap<String, (u64, u64)>,
+    /// Port ownership map (component table + env).
+    pub owners: crate::owners::OwnerMap,
+    /// Holders of unowned listeners, from the last read.
+    pub port_procs: std::collections::BTreeMap<u16, crate::owners::ProcInfo>,
     /// Clock of the last cycle (live: now; replay: the capture time).
     pub now: u64,
 }
@@ -84,7 +91,7 @@ impl Engine {
         Ok(Self::with_specs(cfg, specs))
     }
 
-    pub fn with_specs(cfg: Config, specs: Vec<Spec>) -> Self {
+    pub fn with_specs(cfg: Config, specs_list: Vec<Spec>) -> Self {
         let mut reflex = Reflex::new(cfg.data_dir.clone(), cfg.dry_run_env, cfg.fail_cycles);
         reflex.rollback_enabled = cfg.rollback;
         reflex.deploy_bin = cfg.deploy_bin.clone();
@@ -117,7 +124,7 @@ impl Engine {
             })
             .collect();
         Engine {
-            comps: specs.into_iter().map(CompState::new).collect(),
+            comps: specs_list.iter().cloned().map(CompState::new).collect(),
             th: Thresholds::default(),
             reflex,
             alerts,
@@ -140,6 +147,8 @@ impl Engine {
             ddos: vec![],
             score: None,
             tunnel_prev: HashMap::new(),
+            owners: crate::owners::OwnerMap::for_config(&specs_list, &cfg),
+            port_procs: Default::default(),
             now,
             cfg,
         }
@@ -224,6 +233,7 @@ impl Engine {
         self.logs.expire(now.saturating_sub(LOG_WINDOW_S));
         if col.listeners.is_some() {
             self.listeners = col.listeners;
+            self.port_procs = col.port_procs;
         }
         {
             let mut sh = lock(&self.shared);
@@ -261,9 +271,21 @@ impl Engine {
             listen_scope: self.cfg.listen_scope,
             own_port,
             loading_grace_s: self.cfg.loading_grace_s,
+            owners: &self.owners,
+            procs: &self.port_procs,
         });
         let mut sigs = cortex::component_signals(&self.comps, now, self.cfg.loading_grace_s);
         sigs.extend(self.cortex.signals.iter().cloned());
+        // Pushed events (errors, slow requests, spend/conn caps, starts).
+        {
+            let hub = lock(&self.shared).hub.clone();
+            let comps = &self.comps;
+            let map = |src: &str| match comps.iter().find(|c| c.spec.name == src) {
+                Some(c) => (c.spec.group.to_string(), c.spec.name.to_string()),
+                None => (src.to_string(), src.to_string()),
+            };
+            sigs.extend(hub.incident_signals(now.saturating_sub(PUSH_WINDOW_S), &map));
+        }
         let comps_snapshot: Vec<(String, String, &'static str)> = self
             .comps
             .iter()
@@ -277,6 +299,7 @@ impl Engine {
             .collect();
         self.incidents
             .update(now, sigs, &|cause, ss| explain(cause, ss, &comps_snapshot));
+        self.cortex.attach_owners(&mut self.incidents, &self.comps);
         // Reflexes.
         if self.reflexes_enabled {
             let busy = deploy_in_progress();
@@ -746,6 +769,16 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
                 if others > 0 { format!("; {others} related signal(s) from the target folded in") } else { String::new() }
             ),
             next: "check the top source IPs; block or rate-limit them at the edge (Cloudflare WAF rule / rate limit) -- owner approval; the nerve never changes the edge".into(),
+        };
+    }
+    if let Some(group) = cause.strip_prefix("spend-cap:") {
+        return Explain {
+            title: format!("{group}: spend cap hit (provider calls refused)"),
+            why: format!(
+                "{}; the service refuses paid calls until the cap resets (Europe/Zagreb day or session), so users get 402s",
+                short(top)
+            ),
+            next: "expected when a budget is reached; if it is not expected, look for a runaway loop or cron job, otherwise raise the cap (owner approval: real money)".into(),
         };
     }
     if let Some(comp) = cause.strip_prefix("scan:") {

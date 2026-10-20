@@ -21,13 +21,15 @@
 
 use crate::access::DdosVerdict;
 use crate::config::Kind;
+use crate::incident::Correlator;
 use crate::incident::{Sev, Signal};
 use crate::logscan::LogInsights;
+use crate::owners::{OwnerMap, ProcInfo};
 use crate::probe::Listener;
 use crate::state::{CompState, Status};
 use crate::util::kib;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Finding {
@@ -60,6 +62,10 @@ pub struct Input<'a> {
     pub listen_scope: Option<(u16, u16)>,
     pub own_port: u16,
     pub loading_grace_s: u64,
+    /// Port ownership map ([`crate::owners`]).
+    pub owners: &'a OwnerMap,
+    /// Holders of unowned listeners (from /proc or `ss -ltnp`).
+    pub procs: &'a BTreeMap<u16, ProcInfo>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -70,16 +76,71 @@ pub struct Cortex {
     pub ddos_firing: bool,
     pub signals: Vec<Signal>,
     pub exposure: Value,
+    /// Open incidents with their owning Gaia function(s) ([`Cortex::attach_owners`]).
+    pub incident_owners: Vec<Value>,
+    /// component -> Gaia function, for findings.
+    pub gaia_of: BTreeMap<String, String>,
 }
 
 impl Cortex {
     pub fn to_json(&self) -> Value {
         json!({
-            "vulnerabilities": self.vulnerabilities.iter().map(Finding::to_json).collect::<Vec<_>>(),
-            "bleeding": self.bleeding.iter().map(Finding::to_json).collect::<Vec<_>>(),
+            "vulnerabilities": self.vulnerabilities.iter().map(|f| self.finding_json(f)).collect::<Vec<_>>(),
+            "bleeding": self.bleeding.iter().map(|f| self.finding_json(f)).collect::<Vec<_>>(),
+            "incidents": self.incident_owners,
             "ddos": {"firing": self.ddos_firing, "streams": self.ddos},
             "exposure": self.exposure,
         })
+    }
+
+    fn finding_json(&self, f: &Finding) -> Value {
+        let mut v = f.to_json();
+        v["gaia"] = json!(self.gaia_of.get(&f.component));
+        v
+    }
+
+    /// After correlation: name the owning Gaia function(s) of every open
+    /// incident. A component maps to its spec's function; signals from
+    /// components the table does not know (the host, an unknown pushed
+    /// source) are listed as "unknown". Also tags each incident itself.
+    pub fn attach_owners(&mut self, inc: &mut Correlator, comps: &[CompState]) {
+        self.gaia_of = comps
+            .iter()
+            .map(|c| (c.spec.name.to_string(), c.spec.gaia.to_string()))
+            .collect();
+        let sys: BTreeMap<&str, &str> = comps
+            .iter()
+            .map(|c| (c.spec.name, c.spec.gaia_system))
+            .collect();
+        for i in inc.open.values_mut() {
+            i.owners = i
+                .components
+                .iter()
+                .map(|c| {
+                    (
+                        c.clone(),
+                        self.gaia_of
+                            .get(c)
+                            .cloned()
+                            .unwrap_or_else(|| "unknown".into()),
+                    )
+                })
+                .collect();
+        }
+        self.incident_owners = inc
+            .open_sorted()
+            .iter()
+            .map(|i| {
+                let fns: BTreeSet<&String> = i.owners.values().collect();
+                json!({
+                    "id": i.id, "cause": i.cause, "title": i.title, "severity": i.sev.as_str(),
+                    "gaia": fns,
+                    "owners": i.owners.iter().map(|(c, g)| json!({
+                        "component": c, "gaia": g, "system": sys.get(c.as_str()),
+                    })).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
     }
 }
 
@@ -179,9 +240,11 @@ pub fn analyse(i: &Input) -> Cortex {
                         cause: None,
                     });
                 }
-            } else if !spec_ports.contains(&l.port)
-                && !i.known_ports.contains(&l.port)
-                && l.port != i.own_port
+            } else if l.port != i.own_port
+                && (i.owners.unowned.contains(&l.port)
+                    || (!spec_ports.contains(&l.port)
+                        && !i.known_ports.contains(&l.port)
+                        && !i.owners.is_owned(l.port)))
             {
                 unmanaged.push(l);
             }
@@ -199,15 +262,45 @@ pub fn analyse(i: &Input) -> Cortex {
                     ports.len(),
                     ports.iter().map(|p| format!(":{p}")).collect::<Vec<_>>().join(" ")
                 ),
-                evidence: vec![
-                    "not a component health/metrics port and not in NERVE_KNOWN_PORTS".into(),
-                    "typical cause: manual shadow/test processes left running (no unit, no restart policy, no patching)".into(),
-                ],
+                evidence: {
+                    let mut ev: Vec<String> = ports
+                        .iter()
+                        .map(|p| {
+                            let o = i.owners.lookup(*p, i.procs);
+                            format!(
+                                ":{p} {}{} -- {}",
+                                o.owner,
+                                if o.documented_unowned { " (documented: no unit owns it)" } else { "" },
+                                o.process
+                                    .as_ref()
+                                    .map(ProcInfo::describe)
+                                    .unwrap_or_else(|| "process not readable from /proc".into())
+                            )
+                        })
+                        .collect();
+                    ev.push("not a component health/metrics port and not in NERVE_KNOWN_PORTS".into());
+                    ev.push("typical cause: manual shadow/test processes left running (no unit, no restart policy, no patching)".into());
+                    ev
+                },
                 fix: "identify the owners (ss -ltnp), then stop them or give them a unit (owner approval; the nerve never kills processes)".into(),
                 cause: None,
             });
         }
-        cx.exposure = json!({"public_expected": public_ok, "unmanaged_ports": ports,
+        let ownership: Vec<Value> = ls
+            .iter()
+            .filter(|l| in_scope(l.port))
+            .map(|l| l.port)
+            .collect::<BTreeSet<u16>>()
+            .into_iter()
+            .map(|p| {
+                if p == i.own_port {
+                    json!({"port": p, "owner": "galion-nerve (self)", "gaia": "AETHER", "documented_unowned": false})
+                } else {
+                    i.owners.lookup(p, i.procs).to_json()
+                }
+            })
+            .collect();
+        cx.exposure = json!({"public_expected": public_ok, "unmanaged_ports": ports, "ownership": ownership,
                              "listeners_judged": ls.iter().filter(|l| in_scope(l.port)).count()});
     } else {
         cx.exposure = json!({"note": "listeners not read this cycle"});
@@ -530,7 +623,15 @@ mod tests {
             msg: format!("Z ERR Request failed error=\"dial tcp [::1]:{}: connect: connection refused\" dest=https://{}/ ip=1.1.1.1", if k % 2 == 0 { 4001 } else { 3011 }, if k % 2 == 0 { "galion.studio" } else { "merlinelement.com" }) }).chain([
             JLine { t: now - 60, unit: "console.service".into(), prio: 6, msg: "The request id \"/x/.git/config\" is outside of Vite serving allow list.".into() }]).collect();
         let li = crate::logscan::insights(&lines);
-        let ls = crate::probe::parse_ss("LISTEN 0 1 127.0.0.1:8652 0.0.0.0:*\nLISTEN 0 1 127.0.0.1:8420 0.0.0.0:*\nLISTEN 0 1 *:22 *:*\nLISTEN 0 1 127.0.0.1:20241 0.0.0.0:*\n");
+        let ss_text = "LISTEN 0 1 127.0.0.1:8652 0.0.0.0:* users:((\"hermes-gateway\",pid=1395619,fd=4))\nLISTEN 0 1 127.0.0.1:8431 0.0.0.0:* users:((\"openmind-memory\",pid=1375169,fd=6))\nLISTEN 0 1 127.0.0.1:8420 0.0.0.0:*\nLISTEN 0 1 *:22 *:*\nLISTEN 0 1 127.0.0.1:20241 0.0.0.0:*\n";
+        let ls = crate::probe::parse_ss(ss_text);
+        let procs = crate::owners::parse_ss_procs(ss_text);
+        let om = OwnerMap::build(
+            &default_specs(None, None),
+            &[20241],
+            &[],
+            &crate::owners::VPS_UNOWNED_PORTS,
+        );
         let cx = analyse(&Input {
             now,
             comps: &cs,
@@ -542,10 +643,37 @@ mod tests {
             listen_scope: None,
             own_port: 8670,
             loading_grace_s: 900,
+            owners: &om,
+            procs: &procs,
         });
         let ids: Vec<&str> = cx.vulnerabilities.iter().map(|f| f.id.as_str()).collect();
         assert!(ids.contains(&"unmanaged-listeners"), "{ids:?}");
         assert!(cx.vulnerabilities.iter().any(|f| f.title.contains(":8652")));
+        let um = cx
+            .vulnerabilities
+            .iter()
+            .find(|f| f.id == "unmanaged-listeners")
+            .unwrap();
+        assert!(um.title.contains(":8431 :8652"), "{}", um.title);
+        assert!(
+            um.evidence
+                .iter()
+                .any(|e| e.starts_with(":8652 unknown owner")
+                    && e.contains("hermes-gateway (pid 1395619)")),
+            "{:?}",
+            um.evidence
+        );
+        let own = cx.exposure["ownership"].as_array().unwrap();
+        let o8652 = own.iter().find(|o| o["port"] == 8652).unwrap();
+        assert_eq!(
+            (o8652["owner"].as_str(), o8652["process"].as_str()),
+            (Some("unknown owner"), Some("hermes-gateway"))
+        );
+        let o8420 = own.iter().find(|o| o["port"] == 8420).unwrap();
+        assert_eq!(
+            (o8420["owner"].as_str(), o8420["gaia"].as_str()),
+            (Some("openmind-memory"), Some("APOLLO"))
+        );
         assert!(ids.contains(&"scanner-probes-console"), "{ids:?}");
         assert_eq!(
             cx.vulnerabilities

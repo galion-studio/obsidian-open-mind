@@ -145,6 +145,11 @@ where
         let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
         let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
         if active.load(Ordering::SeqCst) >= max_conns {
+            nerve_client::cap_hit(
+                "openmind-memory",
+                "conn_cap",
+                &format!("{max_conns} connections busy: 503"),
+            );
             write_response(
                 &stream,
                 &Response {

@@ -92,6 +92,9 @@ pub struct Incident {
     pub signals: Vec<Signal>,
     pub why: String,
     pub next: String,
+    /// component -> owning Gaia function ("unknown" when not in the table);
+    /// set by [`crate::cortex::Cortex::attach_owners`].
+    pub owners: BTreeMap<String, String>,
 }
 
 impl Incident {
@@ -105,6 +108,7 @@ impl Incident {
             "components": self.components,
             "signals": self.signals.iter().map(|s| json!({"component": s.component, "severity": s.sev.as_str(), "msg": s.msg})).collect::<Vec<_>>(),
             "why": self.why, "next": self.next,
+            "gaia": self.owners.values().collect::<BTreeSet<_>>(), "owners": self.owners,
         })
     }
 }
@@ -191,6 +195,7 @@ impl Correlator {
                     signals: vec![],
                     why: String::new(),
                     next: String::new(),
+                    owners: BTreeMap::new(),
                 }
             });
             inc.sev = sev;

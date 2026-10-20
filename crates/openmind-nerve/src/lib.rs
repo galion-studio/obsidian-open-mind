@@ -19,7 +19,9 @@
 //! - [`hub`]: POST /signal ingest for services that push (see `nerve-client`).
 //! - [`state`]: per-component history and trend verdicts.
 //! - [`incident`]: correlation: several failing signals become one incident.
-//! - [`cortex`]: vulnerabilities, where the stack is "bleeding", DDoS.
+//! - [`cortex`]: vulnerabilities, where the stack is "bleeding", DDoS, and
+//!   the owning Gaia function of each incident.
+//! - [`owners`]: port ownership map ("unknown owner" + process from /proc).
 //! - [`score`]: the explained self-eval score.
 //! - [`reflex`]: allowlisted, rate-limited auto-remediation with an audit log.
 //! - [`alerts`]: journald + alerts.json.
@@ -35,6 +37,7 @@ pub mod engine;
 pub mod hub;
 pub mod incident;
 pub mod logscan;
+pub mod owners;
 pub mod probe;
 pub mod reflex;
 pub mod replay;

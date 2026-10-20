@@ -9,6 +9,10 @@
 //! env (HERMES_RS_HOST, HERMES_RS_PORT, HERMES_RS_STATE_DB, ...). The API key
 //! is read from $API_SERVER_KEY only. `--mock` uses the offline mock
 //! provider (no network, no spend) for shadow smoke tests.
+//!
+//! NERVE: with `NERVE_URL=http://127.0.0.1:8670` the gateway pushes started,
+//! heartbeat, 5xx, slow-request (`NERVE_SLOW_MS`), spend-cap and conn-cap
+//! events to the nerve (bounded queue, never blocks a request).
 
 use hermes_rs::api::Gateway;
 use hermes_rs::config::Config;
@@ -23,6 +27,37 @@ fn log(msg: &str) {
         "{} hermes-gateway {msg}",
         hermes_rs::time::zagreb_rfc3339(hermes_rs::time::now_secs())
     );
+}
+
+/// `--mock` test knobs (offline only, no network, no spend): a user message
+/// containing `mock-slow` waits `HERMES_RS_MOCK_DELAY_MS` (default 1500)
+/// before answering (slow-request tests); a user message containing
+/// `mock-fail` makes the call fail (a real 502 path for error-push tests).
+struct TestMock(MockProvider, u64);
+
+impl Provider for TestMock {
+    fn chat(
+        &self,
+        target: &hermes_rs::provider::Target,
+        req: &hermes_rs::provider::ChatRequest,
+        cancel: &std::sync::atomic::AtomicBool,
+        sink: &mut dyn FnMut(hermes_rs::provider::StreamEvent),
+    ) -> Result<hermes_rs::provider::ChatResult, String> {
+        let user = req
+            .messages
+            .iter()
+            .rev()
+            .find(|m| m["role"] == "user")
+            .and_then(|m| m["content"].as_str())
+            .unwrap_or("");
+        if user.contains("mock-slow") {
+            std::thread::sleep(std::time::Duration::from_millis(self.1));
+        }
+        if user.contains("mock-fail") {
+            return Err("mock provider failure (requested by test)".into());
+        }
+        self.0.chat(target, req, cancel, sink)
+    }
 }
 
 fn env(k: &str) -> Option<String> {
@@ -81,7 +116,10 @@ fn main() {
     let api_key = cfg.api_key(&env);
     let cfg = Arc::new(cfg);
     let provider: Arc<dyn Provider> = if mock {
-        Arc::new(MockProvider::echo())
+        let slow = env("HERMES_RS_MOCK_DELAY_MS")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1500);
+        Arc::new(TestMock(MockProvider::echo(), slow))
     } else {
         Arc::new(CurlProvider::new(Arc::new(|k: &str| std::env::var(k).ok())))
     };

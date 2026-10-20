@@ -296,6 +296,11 @@ pub fn serve(listener: TcpListener, handler: Handler, max_conns: usize) -> io::R
             Err(_) => continue,
         };
         if active.load(Ordering::SeqCst) >= max_conns {
+            nerve_client::cap_hit(
+                "hermes-rs",
+                "conn_cap",
+                &format!("{max_conns} connections busy: 503"),
+            );
             let resp = error(503, "too many connections", "server_busy", Some("busy"));
             write_response(&mut stream, resp);
             continue;

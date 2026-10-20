@@ -18,6 +18,7 @@
 
 pub mod decide;
 pub mod degrade;
+pub mod heal;
 pub mod incident;
 pub mod nerve;
 pub mod patterns;

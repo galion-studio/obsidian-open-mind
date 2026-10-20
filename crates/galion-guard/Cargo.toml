@@ -19,3 +19,14 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
 zagreb-time = { path = "../zagreb-time" }
+
+[dev-dependencies]
+# Source-address-bound TCP connects in the namespace test (already in Cargo.lock).
+libc = "0.2"
+
+# Namespace + real nftables run (GALION_REAL=1). Own main(): it re-executes
+# itself under `unshare -rn` and doubles as the fake `journalctl`.
+[[test]]
+name = "real_netns"
+path = "tests/real_netns.rs"
+harness = false

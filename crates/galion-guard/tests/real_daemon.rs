@@ -3,7 +3,7 @@
 // Copyright (c) 3000 Galion / galion-studio
 //! Real-life daemon test (GALION_REAL=1): the real `galion-guard` binary,
 //! file source, dry-run firewall, driven only through its CLI and control
-//! socket. The namespace + real nftables run is scripts/real/guard-rust.sh.
+//! socket. The namespace + real nftables run is tests/real_netns.rs.
 
 mod common;
 

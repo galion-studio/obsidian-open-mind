@@ -36,7 +36,7 @@ zagreb-time (chrono, chrono-tz). Licences checked with `cargo metadata`.
 * Debian `nftables` 1.1.3, `libnftables1`, `libnftnl11`, `libjansson4`,
   `libedit2`, `libbsd0`, `libmd0` .debs, downloaded with `apt-get download`
   and unpacked with `dpkg -x` under the target dir by
-  `scripts/real/guard-rust.sh` to run real nft inside a user namespace. Not
+  `crates/galion-guard/tests/real_netns.rs` to run real nft inside a user namespace. Not
   committed, not shipped.
 
 Crates evaluated and rejected: rustables (GPL-3.0-or-later), nftnl / mnl

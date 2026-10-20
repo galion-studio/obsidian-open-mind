@@ -241,13 +241,18 @@ missed several of fail2ban's bans; each difference was traced to fail2ban
 1.0.2 behaviour (`FailTicket.adjustTime`, observer `failureFound`,
 `_purge_bips`) and re-implemented (2.2), giving the table above.
 
-### 3.4 Real-life run (scripts/real/guard-rust.sh)
+### 3.4 Real-life run (crates/galion-guard/tests/real_netns.rs)
 
-Release binary, unprivileged `unshare -rn` user+network namespace, real
-kernel nf_tables via `nft` 1.1.3 from Debian debs unpacked with `dpkg -x`
-(no root, host firewall untouched), stand-in sshd on 10.99.0.1:19381
-(`examples/real_peer.rs`), clients bound to extra lo addresses with
-`curl --interface`. 38/38 checks pass; output in docs/real-tests/guard-rust.md.
+`GALION_REAL=1 cargo test --release -p galion-guard --test real_netns`
+(Rust port of the former `scripts/real/guard-rust.sh`, Rust-only rule
+2026-10-20 20:41). The test re-executes itself under an unprivileged
+`unshare -rn` user+network namespace; real kernel nf_tables via `nft` 1.1.3
+from Debian debs unpacked with `dpkg -x` (no root, host firewall
+untouched); stand-in sshd = a listener thread on 10.99.0.1:19471; clients
+are source-bound sockets from extra lo addresses; the same test binary
+doubles as the fake `journalctl`. Without nft it falls back to the dry-run
+backend; without unprivileged user namespaces it reports SKIP. 38/38 checks
+pass; output in docs/real-tests/guard-rust.md (section A2).
 
 ## 4. Known differences from fail2ban (deliberate)
 

@@ -3,7 +3,8 @@
 # DESK-ID: openmind.UCPU-1
 #
 # Workspace-wide cargo settings. Portable only: no target-cpu, no
-# target-feature, no rustflags (UNIVERSAL-CPU.md).
+# target-feature (UNIVERSAL-CPU.md). The single rustflag below is a cfg
+# that selects a portable pure-Rust backend, not a CPU feature flag.
 
 [env]
 # rusqlite "bundled" (libsqlite3-sys 0.30) compiles the SQLite amalgamation
@@ -17,3 +18,10 @@
 # OMIT_LOAD_EXTENSION also drops the dlopen() path, which a static musl
 # binary cannot use anyway.
 LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_SOUNDEX -USQLITE_ENABLE_COLUMN_METADATA -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION"
+
+# curve25519-dalek (via ed25519-dalek in crates/hades-gate) would otherwise
+# compile its AVX2 SIMD backend on x86_64. Project rule: no SIMD. "serial"
+# is the portable pure-Rust backend on every target. A RUSTFLAGS env var
+# replaces this list; crates/hades-gate/tests/simd_free.rs fails if it does.
+[build]
+rustflags = ["--cfg", "curve25519_dalek_backend=\"serial\""]

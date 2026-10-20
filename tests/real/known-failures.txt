@@ -1,0 +1,31 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# galion-realtest known failures: `scenario/check`, one per line.
+# A listed check that fails is reported as KNOWN-FAIL (not fatal); a listed
+# check that passes is reported as "PASS (was known-fail)" so this list can
+# be pruned. Every entry needs a reason and the branch that fixes it.
+# Added 2026-10-20T19:25:00+02:00 (galion-realtest, swarm/real-harness).
+
+# galion-one at 13a296c fails OPEN when the device store is missing or has no
+# codeHash (castle() == false => token_ok() == true). Fixed on swarm/one-probe
+# (b44cd4f): the harness passes all of these against that build. Remove these
+# lines when that fix lands on main.
+one-fail-closed-missing-store/me-unpaired-false
+one-fail-closed-missing-store/session-no-cookie-401
+one-fail-closed-missing-store/session-forged-cookie-401
+one-fail-closed-missing-store/analytics-no-cookie-401
+one-fail-closed-missing-store/files-no-cookie-401
+one-fail-closed-empty-store/me-unpaired-false
+one-fail-closed-empty-store/session-no-cookie-401
+one-fail-closed-empty-store/session-forged-cookie-401
+one-fail-closed-empty-store/analytics-no-cookie-401
+one-fail-closed-empty-store/files-no-cookie-401
+
+# Live (read-only probe). The One mouth (TTS, 8002) answers 503 "loading":
+# chatterbox needs a GPU that the CPU-light VPS does not have (goals.md).
+live-vps:galion-one-mouth/mouth-health
+# link-watch.service is disabled and inactive on the VPS since
+# 2026-10-18 19:42 CEST; the Rust port is built but its cutover is not
+# approved (docs/cutover-approval.md).
+live-vps:units/link-watch.service

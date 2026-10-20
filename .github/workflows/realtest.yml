@@ -1,0 +1,52 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# realtest: boots the WHOLE stack from release binaries on the runner
+# (loopback ports 19500-19551, fixture configs, no secrets, no network
+# beyond the toolchain and crates) and runs the galion-realtest scenarios.
+# The live probe is NOT run here: it needs ssh to the VPS and stays manual.
+name: realtest
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: realtest-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  TZ: Europe/Zagreb
+
+jobs:
+  box-stack:
+    name: box stack scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: build release binaries
+        run: >
+          cargo build --release --locked -p galion-realtest
+          -p galion-boot -p galion-one -p openmind-memory -p tuner -p galion-desk
+          -p link-watch -p guardian-tick -p persona-plex-relay
+      - name: run scenarios
+        run: target/release/galion-realtest stack --bin-dir target/release --out target/realtest/ci
+      - name: job summary
+        if: always()
+        run: test -f target/realtest/ci/report.md && cat target/realtest/ci/report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - name: upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: realtest-box-stack
+          path: |
+            target/realtest/ci/junit.xml
+            target/realtest/ci/report.md
+            target/realtest/ci/fixture/logs/
+          if-no-files-found: warn

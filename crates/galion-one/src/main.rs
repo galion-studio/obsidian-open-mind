@@ -256,6 +256,7 @@ fn mouth() -> &'static Mutex<()> {
 }
 
 fn main() {
+    galion_common::build_info::exit_if_version("galion-one", env!("CARGO_PKG_VERSION"));
     // Operator subcommands (ports of one/set-model.py and one/trace.py). With no
     // argument the server starts exactly as before.
     let args: Vec<String> = std::env::args().skip(1).collect();

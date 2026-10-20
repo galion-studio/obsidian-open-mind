@@ -144,18 +144,9 @@ mod tests {
 }
 
 /// Unpadded base64url (RFC 4648 section 5), used to keep QR payloads small.
+/// The shared std-only encoder from galion-common (was a local copy).
 pub fn b64url(bytes: &[u8]) -> String {
-    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for c in bytes.chunks(3) {
-        let n = (c[0] as u32) << 16
-            | (*c.get(1).unwrap_or(&0) as u32) << 8
-            | *c.get(2).unwrap_or(&0) as u32;
-        for i in 0..=c.len() {
-            s.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
-        }
-    }
-    s
+    galion_common::base64::encode_url(bytes)
 }
 
 #[cfg(test)]
@@ -168,5 +159,40 @@ mod b64_tests {
         assert_eq!(super::b64url(b"foo"), "Zm9v");
         assert_eq!(super::b64url(b"foobar"), "Zm9vYmFy");
         assert_eq!(super::b64url(&[0xfb, 0xff]), "-_8");
+    }
+
+    /// The local encoder this crate used before galion-common, kept as the
+    /// reference: the shared one must give the same text for every input.
+    fn old_b64url(bytes: &[u8]) -> String {
+        const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
+        for c in bytes.chunks(3) {
+            let n = (c[0] as u32) << 16
+                | (*c.get(1).unwrap_or(&0) as u32) << 8
+                | *c.get(2).unwrap_or(&0) as u32;
+            for i in 0..=c.len() {
+                s.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            }
+        }
+        s
+    }
+
+    #[test]
+    fn same_as_the_old_local_copy() {
+        let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+        for len in 0..600usize {
+            let bytes: Vec<u8> = (0..len)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    x as u8
+                })
+                .collect();
+            assert_eq!(super::b64url(&bytes), old_b64url(&bytes), "len {len}");
+        }
+        // Ed25519 public keys and signatures, the real payloads.
+        assert_eq!(super::b64url(&[0xff; 32]), old_b64url(&[0xff; 32]));
+        assert_eq!(super::b64url(&[0u8; 64]), old_b64url(&[0u8; 64]));
     }
 }

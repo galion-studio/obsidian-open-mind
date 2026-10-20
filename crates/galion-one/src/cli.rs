@@ -37,7 +37,10 @@ pub fn run(args: &[String]) -> i32 {
             }
         }
         "version" | "--version" => {
-            println!("galion-one {}", env!("CARGO_PKG_VERSION"));
+            println!(
+                "{}",
+                galion_common::build_info::version_line("galion-one", env!("CARGO_PKG_VERSION"))
+            );
             0
         }
         _ => {

@@ -24,6 +24,7 @@ fn run() -> Result<(), RoomError> {
 }
 
 fn main() -> ExitCode {
+    galion_common::build_info::exit_if_version("room", env!("CARGO_PKG_VERSION"));
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {

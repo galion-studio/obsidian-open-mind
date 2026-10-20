@@ -9,4 +9,5 @@ license.workspace = true
 description = "Std-only read-only survival probes (HTTP, systemctl is-active, disk, /proc, freshness), pure incident logic, and suggestion-only healer decisions with graceful degradation."
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 zagreb-time = { path = "../zagreb-time" }

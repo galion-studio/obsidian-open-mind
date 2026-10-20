@@ -7,6 +7,7 @@
 //!   HERMES_STATE_DB  default $HERMES_HOME/state.db
 
 fn main() {
+    galion_common::build_info::exit_if_version("desk-hermes", env!("CARGO_PKG_VERSION"));
     if std::env::args()
         .nth(1)
         .is_some_and(|a| a == "--help" || a == "-h")

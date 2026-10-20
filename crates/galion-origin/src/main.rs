@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 fn main() {
+    galion_common::build_info::exit_if_version("galion-origin", env!("CARGO_PKG_VERSION"));
     let cfg = Arc::new(Config::from_env());
     let l = match TcpListener::bind(&cfg.addr) {
         Ok(l) => l,

@@ -16,6 +16,7 @@ name = "galion-desk"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 openmind-config = { path = "../openmind-config" }
 
 [dev-dependencies]

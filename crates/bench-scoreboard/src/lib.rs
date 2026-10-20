@@ -51,22 +51,22 @@ pub fn parse_score(text: &str) -> Result<Scorecard, String> {
         .ok_or("missing axes array")?;
     let mut card = Scorecard::new();
     for a in axes {
-        let name = a
-            .get("name")
-            .and_then(Value::as_str)
-            .ok_or("axis without name")?;
+        let name = ["name", "title", "id"]
+            .iter()
+            .find_map(|k| a.get(*k).and_then(Value::as_str))
+            .ok_or("axis without name/title/id")?;
         let score = a
             .get("score")
-            .and_then(Value::as_u64)
-            .ok_or("axis without integer score")?;
-        if score > 100 {
-            return Err(format!("axis {name}: score {score} > 100"));
+            .and_then(Value::as_f64)
+            .ok_or("axis without numeric score")?;
+        if !(0.0..=100.0).contains(&score) {
+            return Err(format!("axis {name}: score {score} outside 0..=100"));
         }
-        card.set(name, score as u8);
+        card.set(name, score.round() as u8);
     }
     if let Some(p) = v.get("pct") {
-        let p = p.as_u64().ok_or("pct not an integer")?;
-        if p != u64::from(card.pct()) {
+        let p = p.as_f64().ok_or("pct not a number")?;
+        if (p - card.pct_exact()).abs() > 0.5 {
             return Err(format!("pct {p} != recomputed {}", card.pct()));
         }
     }
@@ -167,6 +167,17 @@ mod tests {
     fn rejects_lying_pct_and_overflow() {
         assert!(parse_score(r#"{"pct":100,"axes":[{"name":"a","score":0}]}"#).is_err());
         assert!(parse_score(r#"{"axes":[{"name":"a","score":101}]}"#).is_err());
+    }
+
+    #[test]
+    fn accepts_float_and_title_shape() {
+        let c = parse_score(
+            r#"{"pct":100.0,"axes":[{"id":"a","title":"Auth","score":100.0},{"id":"b","title":"FX","score":100.0}]}"#,
+        )
+        .unwrap();
+        assert_eq!(c.pct(), 100);
+        assert_eq!(c.axes[0].0, "Auth");
+        assert!(parse_score(r#"{"pct":90.0,"axes":[{"title":"a","score":100.0}]}"#).is_err());
     }
 
     #[test]

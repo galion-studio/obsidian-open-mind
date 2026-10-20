@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
-//! `gaia` CLI. Prints JSON. Simulation only (no network, no processes, no
-//! file writes), except `status --live`: read-only HTTP GETs to loopback
-//! health endpoints, `systemctl is-active`, and state-file mtimes; and
-//! `heal-tick`: the hades-gate-approved (signed, single-use token), capped
-//! restart of a box-local TEST service (127.0.0.1:19000-19999 only) with
-//! nerve events over loopback.
+//! `gaia` CLI. Prints JSON. Simulation and observation only (no network, no
+//! processes, no file writes; `view` only reads the capture files it is
+//! given), except `status --live`: read-only HTTP GETs to loopback health
+//! endpoints, `systemctl is-active`, and state-file mtimes; `poseidon` and
+//! `dispatch --queue`: loopback HTTP to openmind-queue (budget read-only, never
+//! leases or acks); and `heal-tick`: the hades-gate-approved (signed,
+//! single-use token), capped restart of a box-local TEST service
+//! (127.0.0.1:19000-19999 only) with nerve events over loopback.
 
 use std::process::ExitCode;
 
@@ -35,6 +37,13 @@ const USAGE_HEAD: &str = "usage: gaia <command> [options]
   systems                        print the system -> function ownership table
   dispatch SYSTEM VERB [--payload TEXT] [--approve ALPHA]
                                  route one directive (verbs: status, run, plan, execute)
+  plan SYSTEM [--payload TEXT]   ask the owning function for a plan only (never executes)
+  dry-run [--function F]         plan every system; destructive systems also get an unapproved
+                                 execute, which must come back refused with a dry-run plan
+  ownership                      crate and unit -> system -> function registry (52-system design)
+  view --units FILE [--listen FILE]
+                                 Gaia's view of a real host from captured `systemctl list-units`
+                                 and `ss -ltn[p]` text (FILE may be - for stdin); observe only
   --compact                      one-line JSON (any command)
 {POSEIDON}";
 
@@ -129,6 +138,19 @@ fn main() -> ExitCode {
             }
             _ => Err("dispatch needs SYSTEM and VERB".to_string()),
         },
+        Some("plan") => match args.get(1) {
+            Some(s) if !s.starts_with("--") => gaia::plan(s, opt("--payload").unwrap_or("")),
+            _ => Err("plan needs SYSTEM".to_string()),
+        },
+        Some("dry-run") => gaia::dry_run(opt("--function")),
+        Some("ownership") => Ok(gaia::ownership_json()),
+        Some("view") => match opt("--units") {
+            None => Err("view needs --units FILE".to_string()),
+            Some(u) => read_capture(u).and_then(|units| {
+                let listen = opt("--listen").map(read_capture).transpose()?;
+                Ok(gaia::view::view(&units, listen.as_deref()))
+            }),
+        },
         Some("-h" | "--help") | None => {
             println!("{}", usage());
             return ExitCode::SUCCESS;
@@ -148,4 +170,21 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Read one capture file (or stdin for `-`). Capped at 4 MiB.
+fn read_capture(path: &str) -> Result<String, String> {
+    use std::io::Read;
+    const CAP: u64 = 4 << 20;
+    let mut s = String::new();
+    let r = if path == "-" {
+        std::io::stdin().take(CAP).read_to_string(&mut s)
+    } else {
+        std::fs::File::open(path)
+            .map_err(|e| format!("{path}: {e}"))?
+            .take(CAP)
+            .read_to_string(&mut s)
+    };
+    r.map_err(|e| format!("{path}: {e}"))?;
+    Ok(s)
 }

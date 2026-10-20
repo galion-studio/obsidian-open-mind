@@ -10,7 +10,7 @@
 //! landlock, QR), so Hermes carries its own copy instead of depending on it.
 //! Keep the two in step: the canonical string, the 600 s window, the 120 s
 //! skew and the field list must stay identical (the real-life test
-//! scripts/real/hermes-enroll.sh signs with the real omnode binary).
+//! crates/hermes-gateway/tests/real_enroll.rs signs with the real omnode binary).
 
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde_json::Value;

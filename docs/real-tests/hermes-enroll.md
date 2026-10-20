@@ -1,25 +1,24 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- Copyright (c) 3000 Galion / galion-studio -->
 
-# Real-life test: Hermes device enrollment (swarm/hermes-enroll, slot 32)
+# Real-life test: Hermes device enrollment (swarm/hermes-enroll-2, resumed from swarm/hermes-enroll)
 
 | Field | Value |
 |---|---|
-| Run | 2026-10-20T20:51:55+02:00 to 20:51:56+02:00 (Europe/Zagreb), on the build box |
-| Script | `scripts/real/hermes-enroll.sh` (builds, starts, probes, tears down) |
-| Cargo test | `crates/hermes-gateway/tests/real_enroll.rs`, runs the script only with `GALION_REAL=1` (`GALION_REAL=1 cargo test -p hermes-gateway --test real_enroll`) |
-| Binaries | release, static musl (NEEDED=0): hermes-gateway x86_64 2,088,384 B; omnode A x86_64 1,586,792 B; omnode B aarch64 under `qemu-aarch64-static` |
-| Processes | `hermes-gateway --mock` (offline mock provider: no network, no spend) on 127.0.0.1:19320; `omnode boot` A on 127.0.0.1:19321 and B on 127.0.0.1:19322, each with its own state dir; refused-start probes on 19323 (they exit before binding) |
-| Ports | 19320-19323 only (slot 32 range 19320-19329), loopback only |
-| Result | **67 passed, 0 failed**; afterwards `ss -ltn` shows no listener on 19320-19329 and no test process is left |
+| Run | 2026-10-21T00:59:53+02:00 to 00:59:54+02:00 (Europe/Zagreb), on the build box (wave 4, slot 102); 47 s for the whole test incl. the two omnode release builds |
+| Test | `crates/hermes-gateway/tests/real_enroll.rs`, a Rust test that builds, starts, probes and tears down (`GALION_REAL=1 cargo test --release -p hermes-gateway --test real_enroll -- --nocapture`). It replaces `scripts/real/hermes-enroll.sh` (deleted; Rust-only rule 2026-10-20 20:41 CEST +02:00) |
+| Binaries | hermes-gateway: the release binary cargo builds for the test (host x86_64); omnode A: release build of edge/openmind-node made by the test (host x86_64); omnode B: aarch64 musl release (rust-lld) under `qemu-aarch64-static` |
+| Processes | `hermes-gateway --mock` (offline mock provider: no network, no spend) on 127.0.0.1:19720; `omnode boot` A on 127.0.0.1:19721 and B on 127.0.0.1:19722, each with its own state dir; refused-start probes on 19723 (they exit before binding) |
+| Ports | 19720-19723 only (slot 102 range 19720-19729), loopback only; the test asserts all four are free before start and after teardown |
+| Result | **72 passed, 0 failed** (the 67 checks of the old script + 1 "no token or owner key in any Hermes log" + 4 "port free after teardown") |
 
-Secrets: the owner API key is a throwaway random value made per run; it and the node
-credentials travel in mode-600 header files (`curl -H @file`), never in argv or
-output. The script asserts that A's token is not in omnode's stdout/stderr, not in
-the Hermes log, not in the Hermes store (only its SHA-256 is) and not in the owner's
-device list. Device ids and fingerprints are public identifiers of temporary
-identities that were deleted with the work dir.
-
+Secrets: the owner API key is a throwaway random value made per run (from
+/dev/urandom); it and the node credentials stay in the test process's memory, never
+in argv or output. The test asserts that A's token is not in omnode's stdout/stderr,
+not in the Hermes logs, not in the Hermes store (only its SHA-256 is) and not in the
+owner's device list, and that neither token nor the owner key is in any Hermes log.
+Device ids and fingerprints are public identifiers of temporary identities that were
+deleted with the work dir.
 ## What was exercised
 
 1. Enrollment off by default: `/openmind/*` is 404.
@@ -49,31 +48,31 @@ identities that were deleted with the work dir.
 ## Output (work dir shown as `$WORK`)
 
 ```
-== hermes-enroll real-life test 2026-10-20T20:51:54+02:00
-  hermes-gateway 2088384 bytes, NEEDED=0
-  omnode A x86_64 1586792 bytes; omnode B aarch64 (qemu-user)
-== 1. enrollment is off by default 2026-10-20T20:51:54+02:00
+== hermes-enroll real-life test 2026-10-21T00:59:53+02:00
+  hermes-gateway 1836072 bytes (cargo test release profile)
+  omnode A x86_64 1462408 bytes; omnode B aarch64 (qemu-user)
+== 1. enrollment is off by default 2026-10-21T00:59:53+02:00
   PASS off: GET /openmind/node/whoami (404)
   PASS off: POST /openmind/enroll (404)
-== 2. unsafe enrollment config refuses to start 2026-10-20T20:51:54+02:00
+== 2. unsafe enrollment config refuses to start 2026-10-21T00:59:53+02:00
   PASS no URL: exit 2, "HERMES_RS_ENROLL_URL is not set"
   PASS plain http to a public host: exit 2, "plain http is only allowed for a loopback"
   PASS wrong path: exit 2, "path must be /openmind/enroll"
   PASS non-loopback bind: exit 2, "needs HERMES_RS_ENROLL_ALLOW_PUBLIC=1"
   PASS nonce TTL shorter than payload life: exit 2, "NONCE_TTL must be"
-== 3. hermes (enroll on) + two omnode nodes 2026-10-20T20:51:54+02:00
-  log: enroll on: http://127.0.0.1:19320/openmind/enroll store $WORK/hermes/rs-enroll.json
+== 3. hermes (enroll on) + two omnode nodes 2026-10-21T00:59:53+02:00
+  log: enroll on: http://127.0.0.1:19720/openmind/enroll store $WORK/hermes/rs-enroll.json
   PASS store created, mode (600)
-  PASS omnode on 19321 up (yes)
-  PASS omnode on 19322 up (yes)
-  node A omn-fe9b8bf62342 SHA256:fe9b-8bf6-2342-af01-61c3-fe37-7164-60c9
-  node B omn-2b39f167a8d2 SHA256:2b39-f167-a8d2-16ee-6d8a-0101-89d9-dfa6 aarch64
-== 4. node A enrolls, owner approves by fingerprint, A claims 2026-10-20T20:51:55+02:00
+  PASS omnode on 19721 up (yes)
+  PASS omnode on 19722 up (yes)
+  node A omn-9e7c70e3c3f5 SHA256:9e7c-70e3-c3f5-3d4a-36e4-aed5-7515-0d02
+  node B omn-db8e7c9ccf10 SHA256:db8e-7c9c-cf10-14c2-f137-7d11-48fc-00c6 aarch64
+== 4. node A enrolls, owner approves by fingerprint, A claims 2026-10-21T00:59:54+02:00
   PASS A: enroll request -> pending (exit 3) (3)
   PASS A: hermes answered (202 pending)
   PASS pending list without owner key (401)
   PASS pending list (owner) (200)
-  PASS pending fingerprint == omnode identity show (SHA256:fe9b-8bf6-2342-af01-61c3-fe37-7164-60c9)
+  PASS pending fingerprint == omnode identity show (SHA256:9e7c-70e3-c3f5-3d4a-36e4-aed5-7515-0d02)
   PASS A: claim before approval -> pending (exit 3), no credential (3 absent)
   PASS approve with wrong fingerprint (409)
   PASS approve without owner key (401)
@@ -85,14 +84,14 @@ identities that were deleted with the work dir.
   PASS hermes store holds no clear token
   PASS A: status (whoami) accepted (0)
   PASS A: scope cpu (0)
-  PASS A: scope revolut-pay refused (2 403)
+  PASS A: scope revolut-pay refused (2 true)
   PASS node token on the owner API (/v1/models) (401)
   PASS node token on owner enroll routes (401)
   PASS owner API unchanged: mock chat with owner key (200)
-== 5. refusals: replayed nonce, expired, tampered, unenrolled 2026-10-20T20:51:55+02:00
+== 5. refusals: replayed nonce, expired, tampered, unenrolled 2026-10-21T00:59:54+02:00
   PASS B: first POST of its payload (202 pending)
   PASS B: same payload replayed (409 nonce already used)
-  PASS B: expired payload (created 1000 s ago) (400 expired)
+  PASS B: expired payload (created 1000 s ago) (400 true)
   PASS tampered capabilities (400 signature does not verify)
   PASS tampered expires_unix (400)
   PASS foreign public key (400)
@@ -103,57 +102,62 @@ identities that were deleted with the work dir.
   PASS unenrolled B (no request file yet) cannot claim (2)
   PASS pending B: claim -> pending (exit 3) (3)
   PASS owner rejects B (200)
-  PASS rejected B: claim refused (2 not enrolled)
+  PASS rejected B: claim refused (2 true)
   PASS B has no credential (absent)
-== 6. node B enrolls properly (aarch64 (qemu-user)) 2026-10-20T20:51:55+02:00
+== 6. node B enrolls properly (aarch64 (qemu-user)) 2026-10-21T00:59:54+02:00
   PASS B: enroll request -> pending (3)
   PASS approve B with scopes [cpu] (200 cpu)
   PASS B: claim -> credential (0)
   PASS B: accepted (0)
   PASS B: sandbox not granted (2)
-== 7. revoke A 2026-10-20T20:51:55+02:00
+== 7. revoke A 2026-10-21T00:59:54+02:00
   PASS revoke without owner key (401)
   PASS revoke A (owner) (200)
   PASS A's credential refused after revoke (401)
   PASS A: omnode status refused (2)
-  PASS A: new claim refused (2 device revoked)
-  PASS A: re-enroll refused (2 device revoked)
-  PASS B unaffected (200 omn-2b39f167a8d2)
-== 8. restart hermes: persistence 2026-10-20T20:51:56+02:00
+  PASS A: new claim refused (2 true)
+  PASS A: re-enroll refused (2 true)
+  PASS B unaffected (200 omn-db8e7c9ccf10)
+== 8. restart hermes: persistence 2026-10-21T00:59:54+02:00
   PASS after restart: A still refused (401)
   PASS after restart: B's credential still accepted (200 cpu)
   PASS after restart: replayed nonce still refused (409 nonce already used)
-  PASS devices after restart (omn-2b39f167a8d2:active omn-fe9b8bf62342:revoked)
+  PASS devices after restart (omn-9e7c70e3c3f5:revoked omn-db8e7c9ccf10:active)
   PASS devices list shows no token
   PASS store mode after writes (600)
-  store: {"nonces":9,"pending":0,"devices":2,"flags":0}
-== 9. damaged store refuses to start (never reset) 2026-10-20T20:51:56+02:00
+  store: nonces=9 pending=0 devices=2 flags=0
+  PASS no token or owner key in any hermes log
+== 9. damaged store refuses to start (never reset) 2026-10-21T00:59:54+02:00
   PASS corrupt store: exit 2, "is corrupt"
-  PASS corrupt store left untouched (a459d993ac20429877622085e17960454233e035cb6b0cb430501501b30cbf89)
+  PASS corrupt store left untouched (true)
   PASS store mode 644: exit 2, "must be 600"
   PASS store dir missing: exit 2, "write"
 == hermes log lines (no secrets) ==
-  2026-10-20T20:51:54+02:00 hermes-gateway enroll on: http://127.0.0.1:19320/openmind/enroll store $WORK/hermes/rs-enroll.json
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: pending omn-fe9b8bf62342 SHA256:fe9b-8bf6-2342-af01-61c3-fe37-7164-60c9 caps=["cpu", "sandbox", "revolut-pay"]
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: approved omn-fe9b8bf62342 by slavik scopes=["cpu", "sandbox"] denied=["revolut-pay"]
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: credential issued to omn-fe9b8bf62342 (any earlier one replaced)
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: pending omn-2b39f167a8d2 SHA256:2b39-f167-a8d2-16ee-6d8a-0101-89d9-dfa6 caps=["cpu", "sandbox", "voice-client"]
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: replayed nonce from omn-2b39f167a8d2
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: refused payload: payload expired at 2026-10-20T20:45:15+02:00
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: refused payload: signature does not verify
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: refused payload: expires_unix does not match the signed expires
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: refused payload: public_key is not an ed25519 point
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: refused payload: signature does not verify
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: refused payload: payload rejected: unknown field `admin`
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: rejected omn-2b39f167a8d2
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: claim from unenrolled device omn-2b39f167a8d2
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: pending omn-2b39f167a8d2 SHA256:2b39-f167-a8d2-16ee-6d8a-0101-89d9-dfa6 caps=["cpu", "sandbox", "voice-client"]
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: approved omn-2b39f167a8d2 by owner scopes=["cpu"] denied=[]
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: credential issued to omn-2b39f167a8d2 (any earlier one replaced)
-  2026-10-20T20:51:55+02:00 hermes-gateway enroll: revoked omn-fe9b8bf62342 by slavik
-  2026-10-20T20:51:56+02:00 hermes-gateway enroll on: http://127.0.0.1:19320/openmind/enroll store $WORK/hermes/rs-enroll.json
-  2026-10-20T20:51:56+02:00 hermes-gateway enroll: replayed nonce from omn-2b39f167a8d2
-RESULT 2026-10-20T20:51:56+02:00 pass=67 fail=0
+  2026-10-21T00:59:53+02:00 hermes-gateway enroll on: http://127.0.0.1:19720/openmind/enroll store $WORK/hermes/rs-enroll.json
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: pending omn-9e7c70e3c3f5 SHA256:9e7c-70e3-c3f5-3d4a-36e4-aed5-7515-0d02 caps=["cpu", "sandbox", "revolut-pay"]
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: approved omn-9e7c70e3c3f5 by slavik scopes=["cpu", "sandbox"] denied=["revolut-pay"]
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: credential issued to omn-9e7c70e3c3f5 (any earlier one replaced)
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: pending omn-db8e7c9ccf10 SHA256:db8e-7c9c-cf10-14c2-f137-7d11-48fc-00c6 caps=["cpu", "sandbox", "voice-client"]
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: replayed nonce from omn-db8e7c9ccf10
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: refused payload: payload expired at 2026-10-21T00:53:14+02:00
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: refused payload: signature does not verify
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: refused payload: expires_unix does not match the signed expires
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: refused payload: public_key is not an ed25519 point
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: refused payload: signature does not verify
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: refused payload: payload rejected: unknown field `admin`
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: rejected omn-db8e7c9ccf10
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: claim from unenrolled device omn-db8e7c9ccf10
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: pending omn-db8e7c9ccf10 SHA256:db8e-7c9c-cf10-14c2-f137-7d11-48fc-00c6 caps=["cpu", "sandbox", "voice-client"]
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: approved omn-db8e7c9ccf10 by owner scopes=["cpu"] denied=[]
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: credential issued to omn-db8e7c9ccf10 (any earlier one replaced)
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: revoked omn-9e7c70e3c3f5 by slavik
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll on: http://127.0.0.1:19720/openmind/enroll store $WORK/hermes/rs-enroll.json
+  2026-10-21T00:59:54+02:00 hermes-gateway enroll: replayed nonce from omn-db8e7c9ccf10
+  PASS port 19720 free after teardown (true)
+  PASS port 19721 free after teardown (true)
+  PASS port 19722 free after teardown (true)
+  PASS port 19723 free after teardown (true)
+RESULT 2026-10-21T00:59:54+02:00 pass=72 fail=0
 ```
 
 ## Read-only probe of the live VPS (GET only, nothing written)
@@ -188,3 +192,10 @@ GET :8652/openmind/node/whoami   -> 401
 | aarch64 musl release hermes-gateway | builds, 1,849,872 B, static |
 | `cargo check --all-targets` armv7-unknown-linux-musleabihf and aarch64-linux-android (hermes-rs, hermes-gateway, omnode) | ok (omnode android: 2 dead-code warnings that exist on the base too) |
 | `scripts/ucpu-gate.sh grep`, `scripts/spdx-scan.sh`, `scripts/no-python.sh` | ok, 0 missing, ok |
+
+Re-run after the Rust port (2026-10-21 01:03 CEST +02:00, slot 102, through the
+`cargo-slot` build queue, `-j 2`): `cargo fmt --all --check` ok;
+`cargo clippy --workspace --all-targets --locked -- -D warnings` ok;
+`cargo test --workspace --locked` 509 passed, 0 failed, 124 suites (the skipped
+`real_enroll` counts as one pass without `GALION_REAL=1`, as the old wrapper did);
+`scripts/no-python.sh` ok. omnode code is unchanged since f2121a8.

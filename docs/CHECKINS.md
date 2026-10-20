@@ -292,3 +292,5 @@
 - 2026-10-20T10:01:26+02:00 | REAL-ROOM: the dist room binary was started only inside a private network namespace, then stopped. Host port 4020 stayed closed.
 
 - 2026-10-20T10:02:54+02:00 | MEM-SHADOW-RUN: health keys were compared. The crate was not switched in front of 8420.
+
+- 2026-10-20T10:28:20+02:00 | TUNER-REL PASS: a stripped release tuner answered on 18650 and was stopped. The live tuner was not replaced.

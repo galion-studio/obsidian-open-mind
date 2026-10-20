@@ -319,3 +319,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-20T10:01:26+02:00 | REAL-ROOM | grok-build | PASS 8/10 | docs/reallife-room.md | no-flag room ran inside unshare -n and was stopped; host 4020 stayed closed
 
 - 2026-10-20T10:02:54+02:00 | MEM-SHADOW-RUN | grok-build | PASS 8/10 | docs/memory-shadow-run.md | live 8420 stayed 200; candidate on ephemeral ports was stopped
+
+- 2026-10-20T10:28:20+02:00 | TUNER-REL | grok-build | PASS 9/10 | docs/reallife-tuner-release.md | stripped release tuner 331944 bytes; spare 18650 returned 200; live pid 1196273 not replaced

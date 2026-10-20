@@ -12,7 +12,14 @@
 //!   and `fs_write`, the invoking user's home hidden behind an empty tmpfs,
 //!   and a private `/proc` when the kernel allows it,
 //! - Landlock filesystem rules (ABI 1-3) and Landlock TCP deny (ABI >= 4),
-//! - all capabilities dropped (bounding set emptied) before exec.
+//! - all capabilities dropped (bounding set emptied) before exec,
+//! - every inherited file descriptor above stderr marked close-on-exec, so a
+//!   descriptor the host process leaked (a socket, a directory outside the
+//!   sandbox) never reaches the command,
+//! - optionally a per-run cgroup v2 child (pids.max, memory.max, swap off,
+//!   group OOM kill) under a delegated parent. The whole cgroup is killed
+//!   with `cgroup.kill` at the end, so even processes that left the process
+//!   group with their own `setsid` die.
 //!
 //! Linux and Android (Termux) only. No seccomp, no root needed, libc only.
 //! Kernel features that a seccomp filter might kill us for (Android apps run
@@ -36,6 +43,7 @@ use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
+mod cgroup;
 mod preset;
 pub use preset::Preset;
 
@@ -43,7 +51,7 @@ pub use preset::Preset;
 pub const OUTPUT_CAP: usize = 64 * 1024;
 
 /// Layer names, in report order.
-pub const LAYERS: [&str; 13] = [
+pub const LAYERS: [&str; 15] = [
     "rlimits",
     "env",
     "workdir",
@@ -57,6 +65,8 @@ pub const LAYERS: [&str; 13] = [
     "proc",
     "landlock",
     "caps",
+    "fds",
+    "cgroup",
 ];
 
 /// What to enforce for one run.
@@ -97,6 +107,18 @@ pub struct SandboxPolicy {
     /// Paths that contain the workdir, a read/write root or the program are
     /// skipped (and reported).
     pub hide_paths: Vec<PathBuf>,
+    /// Delegated cgroup v2 directory to create a per-run child cgroup in
+    /// (the `cgroup-detect` crate finds one). The calling process must be
+    /// allowed to move itself there, i.e. it already lives inside the same
+    /// delegated subtree. When set and the child cgroup cannot be created or
+    /// joined, the run fails closed with `Status::Error`.
+    pub cgroup_parent: Option<PathBuf>,
+    /// `pids.max` of the per-run cgroup (processes and threads together).
+    pub cgroup_pids_max: u64,
+    /// `memory.max` of the per-run cgroup in bytes, for the whole process
+    /// tree (RLIMIT_AS is per process). Swap is set to 0 and an OOM kills the
+    /// whole group.
+    pub cgroup_mem_bytes: u64,
 }
 
 impl SandboxPolicy {
@@ -141,6 +163,9 @@ impl SandboxPolicy {
             namespaces: true,
             ro_root: true,
             hide_paths: hide,
+            cgroup_parent: None,
+            cgroup_pids_max: 64,
+            cgroup_mem_bytes: 256 * 1024 * 1024,
         }
     }
 }
@@ -177,6 +202,27 @@ pub struct Outcome {
     pub error: Option<String>,
     /// (layer, state) for every name in [`LAYERS`].
     pub enforced: Vec<(String, Enforcement)>,
+    /// Counters of the per-run cgroup, when one was used.
+    pub cgroup: Option<CgroupStats>,
+}
+
+/// What the per-run cgroup saw, read just before it was removed.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CgroupStats {
+    /// Path of the per-run cgroup that was created.
+    pub path: PathBuf,
+    /// `pids.events` max: forks refused because of `pids.max`.
+    pub pids_max_hits: u64,
+    /// `memory.events` oom_kill: processes killed by the cgroup OOM killer.
+    pub oom_kills: u64,
+    /// `memory.events` max: times usage hit `memory.max`.
+    pub mem_max_hits: u64,
+    /// `memory.peak` in bytes (0 when the kernel has no such file).
+    pub mem_peak: u64,
+    /// `pids.peak` (0 when the kernel has no such file).
+    pub pids_peak: u64,
+    /// The cgroup was empty afterwards and has been removed.
+    pub removed: bool,
 }
 
 impl Outcome {
@@ -644,6 +690,7 @@ fn fail(msg: String, start: Instant, enforced: Vec<(String, Enforcement)>) -> Ou
         wall: start.elapsed(),
         error: Some(msg),
         enforced,
+        cgroup: None,
     }
 }
 
@@ -661,6 +708,14 @@ const B_LANDLOCK: u16 = 1 << 9;
 const B_LL_NET: u16 = 1 << 10;
 const B_CAPS: u16 = 1 << 11;
 const B_UIDMAP: u16 = 1 << 12;
+const B_FDS: u16 = 1 << 13;
+const B_CGROUP: u16 = 1 << 14;
+// Private errno values the pre-exec code hands to `spawn` to fail closed with
+// a precise message (execve itself never returns these two).
+const E_UIDMAP: i32 = libc::ENOTRECOVERABLE;
+const E_CGROUP: i32 = libc::ESTALE;
+const SYS_CLOSE_RANGE: libc::c_long = 436;
+const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
 
 fn cstr(p: &Path) -> Option<CString> {
     CString::new(p.as_os_str().as_bytes()).ok()
@@ -799,6 +854,35 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         let cur: u64 = l.rlim_cur as _;
         cur.clamp(1024, 65536) as i32
     };
+    // Without close_range(2) the fallback loop only covers fds < max_fd.
+    let fd_loop_complete = {
+        let mut l = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: valid pointer.
+        unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut l) };
+        let cur: u64 = l.rlim_cur as _;
+        cur <= max_fd as u64
+    };
+
+    // Per-run cgroup: created before the fork, joined by the child first.
+    let cg = match &policy.cgroup_parent {
+        None => None,
+        Some(parent) => {
+            match cgroup::RunCgroup::create(parent, policy.cgroup_pids_max, policy.cgroup_mem_bytes)
+            {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    if let Some(l) = &ll {
+                        l.close();
+                    }
+                    return fail(format!("cgroup: {e}"), start, enforced);
+                }
+            }
+        }
+    };
+    let cg_procs: Option<CString> = cg.as_ref().map(|c| c.procs.clone());
 
     // Status pipe: the exec'ing process writes 2 bytes of flags before exec.
     let mut fds = [0i32; 2];
@@ -806,6 +890,9 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
         if let Some(l) = &ll {
             l.close();
+        }
+        if let Some(c) = &cg {
+            c.finish();
         }
         return fail("pipe2 failed".into(), start, enforced);
     }
@@ -846,17 +933,45 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     unsafe {
         c.pre_exec(move || {
             let mut bits: u16 = 0;
+            // Join the per-run cgroup first, so every process created below
+            // (the PID-namespace supervisor, PID 1, its children) is inside.
+            if let Some(p) = &cg_procs {
+                if !write_file(p, b"0") {
+                    return Err(std::io::Error::from_raw_os_error(E_CGROUP));
+                }
+                bits |= B_CGROUP;
+            }
             if libc::setsid() < 0 {
                 return Err(std::io::Error::last_os_error());
             }
+            // Leaked descriptors: whatever the (multi-threaded) host process
+            // had open without O_CLOEXEC at fork time must not reach the
+            // command. Mark all of them close-on-exec; std's own exec-error
+            // pipe and our status pipe are close-on-exec already.
+            if libc::syscall(SYS_CLOSE_RANGE, 3u32, u32::MAX, CLOSE_RANGE_CLOEXEC) == 0 {
+                bits |= B_FDS;
+            } else {
+                for fd in 3..max_fd {
+                    let fl = libc::fcntl(fd, libc::F_GETFD);
+                    if fl >= 0 {
+                        libc::fcntl(fd, libc::F_SETFD, fl | libc::FD_CLOEXEC);
+                    }
+                }
+                if fd_loop_complete {
+                    bits |= B_FDS;
+                }
+            }
+            // RLIMIT_NOFILE is set last (below): the setup opens files
+            // (uid_map, gid_map, /proc for Landlock) while the fd table
+            // inherited from a busy multi-threaded parent can already hold
+            // more descriptors than the limit, which made those opens fail
+            // with EMFILE (the old 1-in-5 "/proc: Permission denied" flake).
             setrl(libc::RLIMIT_CPU, cpu)?;
             setrl(libc::RLIMIT_AS, mem)?;
-            setrl(libc::RLIMIT_NOFILE, nofile)?;
             setrl(libc::RLIMIT_CORE, 0)?;
             if fsize > 0 {
                 setrl(libc::RLIMIT_FSIZE, fsize)?;
             }
-            bits |= B_RLIMIT;
             if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -872,12 +987,17 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             }
             if got & libc::CLONE_NEWUSER != 0 {
                 bits |= B_USERNS;
-                let a = write_file(c"/proc/self/setgroups", b"deny");
+                // setgroups only exists on Linux >= 3.19; absent is fine.
+                let a = write_file(c"/proc/self/setgroups", b"deny")
+                    || libc::access(c"/proc/self/setgroups".as_ptr(), libc::F_OK) != 0;
                 let b = write_file(c"/proc/self/uid_map", uid_map.as_bytes());
                 let g = write_file(c"/proc/self/gid_map", gid_map.as_bytes());
-                if a && b && g {
-                    bits |= B_UIDMAP;
+                if !(a && b && g) {
+                    // Unmapped, the command would run as the overflow uid
+                    // with an unreadable /proc/self: refuse instead.
+                    return Err(std::io::Error::from_raw_os_error(E_UIDMAP));
                 }
+                bits |= B_UIDMAP;
             }
             if got & libc::CLONE_NEWNET != 0 {
                 bits |= B_NETNS;
@@ -995,6 +1115,8 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             if caps_ok && drop_caps(may_hold_caps) {
                 bits |= B_CAPS;
             }
+            setrl(libc::RLIMIT_NOFILE, nofile)?;
+            bits |= B_RLIMIT;
             let b = bits.to_le_bytes();
             libc::write(wfd, b.as_ptr().cast(), 2);
             if require_net && bits & (B_NETNS | B_LL_NET) == 0 {
@@ -1007,6 +1129,11 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     if let Some(l) = &ll {
         l.close();
     }
+    let cg_fail = |cg: &Option<cgroup::RunCgroup>| {
+        if let Some(c) = cg {
+            c.finish();
+        }
+    };
     // SAFETY: closing our copy of the write end, then reading at most 2 bytes.
     let mut b = [0u8; 2];
     let got_bits = unsafe {
@@ -1024,9 +1151,14 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                     .to_string()
             } else if e.raw_os_error() == Some(libc::EROFS) {
                 "read-only root applied but the work dir could not be kept writable".to_string()
+            } else if e.raw_os_error() == Some(E_UIDMAP) {
+                "user namespace entered but the uid/gid map could not be written; refusing to run as the overflow uid".to_string()
+            } else if e.raw_os_error() == Some(E_CGROUP) {
+                "could not join the per-run cgroup (the caller must live inside the same delegated subtree)".to_string()
             } else {
                 format!("spawn {prog}: {e}")
             };
+            cg_fail(&cg);
             return fail(msg, start, enforced);
         }
     };
@@ -1058,13 +1190,23 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         "no_new_privs",
         en(bits & B_NNP != 0, "prctl failed"),
     );
+    // (entering a user namespace without writing the map now fails the run)
+    set(&mut enforced, "userns", en(bits & B_USERNS != 0, ns_why));
     set(
         &mut enforced,
-        "userns",
-        if bits & B_USERNS != 0 && bits & B_UIDMAP == 0 {
-            ne("user namespace entered but uid/gid map could not be written")
+        "fds",
+        en(
+            bits & B_FDS != 0,
+            "close_range(2) unavailable and the fd limit is above the fallback loop",
+        ),
+    );
+    set(
+        &mut enforced,
+        "cgroup",
+        if cg.is_none() {
+            ne("no cgroup_parent in policy; no pids.max / memory.max for the tree")
         } else {
-            en(bits & B_USERNS != 0, ns_why)
+            en(bits & B_CGROUP != 0, "cgroup join failed")
         },
     );
     set(
@@ -1200,6 +1342,11 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             libc::kill(-pid, libc::SIGKILL);
         }
     }
+    // Processes that left the group with their own setsid() are still in
+    // the cgroup; kill them before joining the output readers.
+    if let Some(c) = &cg {
+        c.kill();
+    }
     let status = match child.wait() {
         Ok(st) => Some(st),
         Err(e) => {
@@ -1207,6 +1354,7 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             None
         }
     };
+    let cgroup = cg.as_ref().map(cgroup::RunCgroup::finish);
     let (stdout, stdout_truncated) = out_h.and_then(|h| h.join().ok()).unwrap_or_default();
     let (stderr, stderr_truncated) = err_h.and_then(|h| h.join().ok()).unwrap_or_default();
     let status = match status {
@@ -1227,5 +1375,6 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         wall: start.elapsed(),
         error,
         enforced,
+        cgroup,
     }
 }

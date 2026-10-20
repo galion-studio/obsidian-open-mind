@@ -22,7 +22,7 @@ GAIA, HADES, HEPHAESTUS, DEMETER, ARTEMIS, APOLLO, MINERVA, ELEUTHIA, ARES. It c
 
 - The nine are HADES, MINERVA, APOLLO, HEPHAESTUS, ARTEMIS, POSEIDON, AETHER, DEMETER, ELEUTHIA (`gaia_core::FunctionId`). GAIA and ARES are not functions.
 - A crate maps to a **system**, and its function is that system's owner. A crate never maps straight to a function, except the nine function crates themselves.
-- Only `gaia-core` and `gaia` are **core** and own nothing.
+- Only `gaia-core` and `gaia` are **core** and own nothing (integration-2 adds `gaia-live` as core, pending Slavik; see below).
 - Every one of the **35 crates of main 13a296c** maps to one of the 52 systems (`non_gaia_crates_map_to_a_system` checks the count).
 
 Moves against the old list (the "was" notes in the table):
@@ -42,7 +42,7 @@ Moves against the old list (the "was" notes in the table):
 
 Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleon-voice`, `openmind-boot`, `openmind-fallback`, `openmind-origin`, `openmind-route`, `openmind-units`) are dropped; their code was folded into `hades-gate`, `openmind-provider`, `galion-origin` and `galion-boot` (see SOURCE-OF-TRUTH's winner table).
 
-## Crate table (46 workspace crates)
+## Crate table (53 workspace crates)
 
 | Crate | Kind | System | Function | Why |
 |---|---|---|---|---|
@@ -57,19 +57,25 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `gaia-eleuthia` | function | (none) | ELEUTHIA | ELEUTHIA function crate |
 | `gaia-hades` | function | (none) | HADES | HADES function crate (plans only, approval-gated) |
 | `gaia-hephaestus` | function | (none) | HEPHAESTUS | HEPHAESTUS function crate |
+| `gaia-live` | core | (none) | GAIA | pending Slavik: Gaia's read-only live sensing (status --live) and the approval-gated heal path for box TEST services; owns no system (gaia-land note); alternatives guardian-watchdog/MINERVA or healer/DEMETER |
 | `gaia-minerva` | function | (none) | MINERVA | MINERVA function crate |
 | `gaia-poseidon` | function | (none) | POSEIDON | POSEIDON function crate |
 | `galion-boot` | system | boot-units | DEMETER | boot/keep replacement and systemd unit renderer |
+| `galion-common` | system | zagreb-clock | AETHER | pending Slavik: shared std-only helpers (SHA-256, hex, base64, JSON, Zagreb time, small HTTP/1.1 server/client); nearest system is the Zagreb clock it carries; alternative: core |
 | `galion-desk` | system | galion-desk | HEPHAESTUS | operator desk endpoint (:8646) |
 | `galion-one` | system | galion-one | ELEUTHIA | Galion One, the persona the stack embodies (:8091, :8002) |
 | `galion-origin` | system | origin | AETHER | origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin) |
+| `galion-realtest` | system | repo-check | MINERVA | pending Slavik: platform-wide real-life test harness (self-evaluation); alternative cargo-build/HEPHAESTUS |
 | `galion-voice-core` | system | voice-relay | AETHER | full-duplex framing, VAD, jitter buffer, barge-in |
+| `galion-voice-cpu` | system | speech-io | AETHER | on-device CPU STT -> text model -> TTS pipeline (Whisper-tiny via candle); speech on CPU like openmind-speech |
 | `galleon-arena` | system | ecosystem-census | ARTEMIS | paper arena that lists and scores the gladiator population; no value moves (was ARES) |
 | `guardian-tick` | system | guardian-tick | DEMETER | one report-only health pass |
 | `hades-gate` | system | teardown | HADES | approval gate and journal for destructive plans; dry-run, never executes |
 | `hermes-gateway` | system | messaging | AETHER | Hermes API server binary: the chat/messaging channel |
 | `hermes-rs` | system | hermes-agents | ARTEMIS | Rust Hermes: agent loop, delegate_task caps, sessions, spend caps |
+| `hermes-tools` | system | terminal | HEPHAESTUS | pending Slavik: sandboxed coding tools for hermes-rs, run through openmind-sandbox; alternative hermes-agents/ARTEMIS |
 | `link-watch` | system | link-watch | APOLLO | laptop link intake |
+| `nerve-client` | system | nerve | AETHER | fire-and-forget signal push to galion-nerve over loopback; a nerve signal line |
 | `one-defence` | system | guardian-watchdog | MINERVA | read-only health_checks rows and a defence note; security watch (was HEPHAESTUS) |
 | `one-set-model` | system | galion-one | ELEUTHIA | Galion One plan/action model lane, validated, writes nothing (was HEPHAESTUS) |
 | `one-talk` | system | galion-one | ELEUTHIA | Galion One hear/reply request shapes (was HEPHAESTUS) |
@@ -82,6 +88,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `openmind-nerve` | system | nerve | AETHER | nerve event archive: the signal lines are AETHER (was APOLLO) |
 | `openmind-persona` | system | persona-plex | ELEUTHIA | persona TOML documents |
 | `openmind-provider` | system | vram-pool | POSEIDON | compute provider registry, approval state, GPU/LAN/CPU fallback and route (was HEPHAESTUS) |
+| `openmind-queue` | system | queues | POSEIDON | pending Slavik (S2 A/B): durable job queue, quotas, spend caps (numbers only), VRAM routing; the crate declares POSEIDON (option A) |
 | `openmind-sandbox` | system | terminal | HEPHAESTUS | runs one command under rlimits, cleared env, workdir, timeout |
 | `openmind-schema` | system | stack-schema | APOLLO | the stack contract |
 | `openmind-speech` | system | speech-io | AETHER | whisper.cpp / piper output parsers on CPU (was ELEUTHIA) |
@@ -93,7 +100,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `tuner` | system | tuner | DEMETER | ukulele tuner static server (:8650) |
 | `zagreb-time` | system | zagreb-clock | AETHER | Europe/Zagreb RFC 3339 with explicit offset (was GAIA) |
 
-Systems with no crate yet stay design-only (for example vision, queues, kill-switch). `gaia ownership` reports `systems_with_a_crate`.
+Systems with no crate yet stay design-only (for example vision, kill-switch). `gaia ownership` reports `systems_with_a_crate`.
 
 ## Live units
 
@@ -103,3 +110,17 @@ Systems with no crate yet stay design-only (for example vision, queues, kill-swi
 
 - `swarm/integration-1` (8fd26f6) also carries ws/gaia, plus `crates/gaia-live` and live-heal additions in `crates/gaia/src/{lib,main}.rs`, and still has the old GAIA-4 version of this file. This branch stays on main 13a296c. When the two meet: take this file and `gaia_core::ownership`; add one row for `gaia-live` (kind core: Gaia's read-only sensing / approval-gated test-service path, owns no system), otherwise `every_workspace_crate_is_mapped` fails, which is the point of the test. Expect textual conflicts where both branches append commands to `crates/gaia/src/lib.rs` and the USAGE/match in `main.rs`; the commands are disjoint (`plan`, `dry-run`, `ownership`, `view` here).
 - `docs/crate-index.md` and `docs/STATUS.md` (GAIA-1, GAIA-2 rows) still describe the VPS gaia-core/gaia-registry. Left untouched here (status lives in one table that the owner updates on merge).
+
+## integration-2 rows (2026-10-20, pending Slavik where marked)
+
+integration-1 brought 7 crates the registry did not know; `every_workspace_crate_is_mapped` failed on exactly these after the gaia-land merge, as intended. integration-2 adds one row each. Rows whose `why` starts with `pending Slavik` are judgement calls (`gaia ownership` shows `"pending_slavik": true`); they stay open until the S2 decision (plan S2.2).
+
+| Crate | Placed at | Pending? | Alternatives |
+|---|---|---|---|
+| `gaia-live` | core (owns no system) | yes | guardian-watchdog / MINERVA (read-only health), healer / DEMETER (heal path). Core follows the gaia-land note above, but widens "only gaia and gaia-core are core". |
+| `galion-common` | zagreb-clock / AETHER | yes | core; it is shared plumbing (SHA-256, base64, JSON, Zagreb time, HTTP/1.1) with no natural system. |
+| `galion-realtest` | repo-check / MINERVA | yes | cargo-build / HEPHAESTUS. |
+| `galion-voice-cpu` | speech-io / AETHER | no | Same place as `openmind-speech` (STT/TTS on CPU). |
+| `hermes-tools` | terminal / HEPHAESTUS | yes | hermes-agents / ARTEMIS. It runs through openmind-sandbox (terminal). |
+| `nerve-client` | nerve / AETHER | no | Same system as `openmind-nerve`. |
+| `openmind-queue` | queues / POSEIDON | yes (S2 A/B) | Under option B (VPS GAIA-4: no POSEIDON) it would move to HEPHAESTUS with the vram-pool crates. The crate itself declares POSEIDON. |

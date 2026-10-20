@@ -71,6 +71,12 @@ pub struct CrateOwner {
 }
 
 impl CrateOwner {
+    /// `true` while the row is a judgement call waiting for the owner (its
+    /// `why` starts with `pending Slavik`).
+    pub fn pending_slavik(&self) -> bool {
+        self.why.starts_with("pending Slavik")
+    }
+
     pub fn to_json(&self) -> Json {
         Json::obj()
             .with("crate", self.name)
@@ -81,13 +87,16 @@ impl CrateOwner {
                 self.role.function().map(FunctionId::name).unwrap_or("GAIA"),
             )
             .with("why", self.why)
+            .with("pending_slavik", self.pending_slavik())
     }
 }
 
 use CrateRole::{Core, Function as F, System as S};
 
-/// Every workspace crate, alphabetical. 35 crates of main 13a296c plus the
-/// 11 Gaia crates from `ws/gaia`.
+/// Every workspace crate, alphabetical. 35 crates of main 13a296c, the 11
+/// Gaia crates from `ws/gaia`, and 7 crates that integration-1 brought in
+/// (rows added by integration-2; the judgement calls start with
+/// `pending Slavik` until the S2 decision).
 pub const CRATES: &[CrateOwner] = &[
     c("cgroup-detect", S(System::Quotas), "read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS)"),
     c("desk-hermes", S(System::HermesAgents), "Hermes mind snap for the desk: the agent population view"),
@@ -100,19 +109,25 @@ pub const CRATES: &[CrateOwner] = &[
     c("gaia-eleuthia", F(FunctionId::Eleuthia), "ELEUTHIA function crate"),
     c("gaia-hades", F(FunctionId::Hades), "HADES function crate (plans only, approval-gated)"),
     c("gaia-hephaestus", F(FunctionId::Hephaestus), "HEPHAESTUS function crate"),
+    c("gaia-live", Core, "pending Slavik: Gaia's read-only live sensing (status --live) and the approval-gated heal path for box TEST services; owns no system (gaia-land note); alternatives guardian-watchdog/MINERVA or healer/DEMETER"),
     c("gaia-minerva", F(FunctionId::Minerva), "MINERVA function crate"),
     c("gaia-poseidon", F(FunctionId::Poseidon), "POSEIDON function crate"),
     c("galion-boot", S(System::BootUnits), "boot/keep replacement and systemd unit renderer"),
+    c("galion-common", S(System::ZagrebClock), "pending Slavik: shared std-only helpers (SHA-256, hex, base64, JSON, Zagreb time, small HTTP/1.1 server/client); nearest system is the Zagreb clock it carries; alternative: core"),
     c("galion-desk", S(System::GalionDesk), "operator desk endpoint (:8646)"),
     c("galion-one", S(System::GalionOne), "Galion One, the persona the stack embodies (:8091, :8002)"),
     c("galion-origin", S(System::Origin), "origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin)"),
+    c("galion-realtest", S(System::RepoCheck), "pending Slavik: platform-wide real-life test harness (self-evaluation); alternative cargo-build/HEPHAESTUS"),
     c("galion-voice-core", S(System::VoiceRelay), "full-duplex framing, VAD, jitter buffer, barge-in"),
+    c("galion-voice-cpu", S(System::SpeechIo), "on-device CPU STT -> text model -> TTS pipeline (Whisper-tiny via candle); speech on CPU like openmind-speech"),
     c("galleon-arena", S(System::EcosystemCensus), "paper arena that lists and scores the gladiator population; no value moves (was ARES)"),
     c("guardian-tick", S(System::GuardianTick), "one report-only health pass"),
     c("hades-gate", S(System::Teardown), "approval gate and journal for destructive plans; dry-run, never executes"),
     c("hermes-gateway", S(System::Messaging), "Hermes API server binary: the chat/messaging channel"),
     c("hermes-rs", S(System::HermesAgents), "Rust Hermes: agent loop, delegate_task caps, sessions, spend caps"),
+    c("hermes-tools", S(System::Terminal), "pending Slavik: sandboxed coding tools for hermes-rs, run through openmind-sandbox; alternative hermes-agents/ARTEMIS"),
     c("link-watch", S(System::LinkWatch), "laptop link intake"),
+    c("nerve-client", S(System::Nerve), "fire-and-forget signal push to galion-nerve over loopback; a nerve signal line"),
     c("one-defence", S(System::GuardianWatchdog), "read-only health_checks rows and a defence note; security watch (was HEPHAESTUS)"),
     c("one-set-model", S(System::GalionOne), "Galion One plan/action model lane, validated, writes nothing (was HEPHAESTUS)"),
     c("one-talk", S(System::GalionOne), "Galion One hear/reply request shapes (was HEPHAESTUS)"),
@@ -125,6 +140,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("openmind-nerve", S(System::Nerve), "nerve event archive: the signal lines are AETHER (was APOLLO)"),
     c("openmind-persona", S(System::PersonaPlex), "persona TOML documents"),
     c("openmind-provider", S(System::VramPool), "compute provider registry, approval state, GPU/LAN/CPU fallback and route (was HEPHAESTUS)"),
+    c("openmind-queue", S(System::Queues), "pending Slavik (S2 A/B): durable job queue, quotas, spend caps (numbers only), VRAM routing; the crate declares POSEIDON (option A)"),
     c("openmind-sandbox", S(System::Terminal), "runs one command under rlimits, cleared env, workdir, timeout"),
     c("openmind-schema", S(System::StackSchema), "the stack contract"),
     c("openmind-speech", S(System::SpeechIo), "whisper.cpp / piper output parsers on CPU (was ELEUTHIA)"),
@@ -296,7 +312,8 @@ mod tests {
             .filter(|r| r.role == CrateRole::Core)
             .map(|r| r.name)
             .collect();
-        assert_eq!(core, BTreeSet::from(["gaia", "gaia-core"]));
+        // gaia-live: pending Slavik (see its row).
+        assert_eq!(core, BTreeSet::from(["gaia", "gaia-core", "gaia-live"]));
         for r in CRATES.iter().filter(|r| r.role == CrateRole::Core) {
             assert_eq!(r.role.function(), None);
         }
@@ -311,10 +328,10 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} has no system", r.name));
             assert_eq!(r.role.function(), Some(s.function()));
         }
-        // 35 crates of main 13a296c.
+        // 35 crates of main 13a296c plus 6 from integration-1.
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            35
+            41
         );
     }
 
@@ -331,6 +348,30 @@ mod tests {
         );
         assert_eq!(unit_owner("sshd"), None);
         assert_eq!(crates_for(System::VramPool).len(), 4);
+    }
+
+    #[test]
+    fn pending_rows_are_flagged() {
+        let pending: Vec<_> = CRATES
+            .iter()
+            .filter(|r| r.pending_slavik())
+            .map(|r| r.name)
+            .collect();
+        assert_eq!(
+            pending,
+            [
+                "gaia-live",
+                "galion-common",
+                "galion-realtest",
+                "hermes-tools",
+                "openmind-queue"
+            ]
+        );
+        assert!(crate_owner("gaia-live")
+            .unwrap()
+            .to_json()
+            .compact()
+            .contains("\"pending_slavik\":true"));
     }
 
     #[test]

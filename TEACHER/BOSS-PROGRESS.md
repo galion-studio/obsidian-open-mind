@@ -297,3 +297,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-19T22:31:56+02:00 | REAL-ONE | grok-build | NOT-STARTED | docs/reallife-one.md | hermes state is fixed under /workspace/hermes; 8091/health 200 on pid 1373612
 
 - 2026-10-20T09:57:10+02:00 | DIST-AGE | grok-build | PASS 9/10 | docs/dist-age.md | dist binaries are from 2026-10-18; tuner is absent
+
+- 2026-10-20T09:57:41+02:00 | PORTS-NOW | grok-build | PASS 9/10 | docs/ports-now.md | seven loopback ports listening; no curl

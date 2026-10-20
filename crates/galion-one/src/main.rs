@@ -1270,6 +1270,39 @@ fn serve_tts() {
     }
 }
 
+/// What :8002 /health answers. It used to hard-code a Chatterbox/CUDA body
+/// and, with no worker, a permanent `"status":"loading"` 503. Now it tells
+/// the truth: with GALION_MOUTH set it passes the remote voice service's own
+/// health through (one GET, 3 s), otherwise it says no backend is configured.
+fn mouth_health() -> (u16, Vec<u8>) {
+    if mouth_remote() {
+        let addr = mouth_addr();
+        return match http_to(addr, "GET", "/health", &[], b"", Duration::from_secs(3)) {
+            Ok((code, body)) if code != 0 && !body.is_empty() => (code, body),
+            _ => (
+                503,
+                format!(
+                    "{{\"ok\":false,\"status\":\"unreachable\",\"provider\":\"remote\",\"mouth\":\"{addr}\"}}"
+                )
+                .into_bytes(),
+            ),
+        };
+    }
+    let m = speech::local();
+    if m.ready() {
+        let body = format!(
+            "{{\"ok\":true,\"status\":\"ok\",\"provider\":\"local\",\"model\":\"{}\",\"loaded\":true}}",
+            m.name()
+        );
+        return (200, body.into_bytes());
+    }
+    let body = format!(
+        "{{\"ok\":false,\"status\":\"unavailable\",\"provider\":\"{}\",\"loaded\":false,\"reason\":\"no speech backend configured; set GALION_MOUTH to a galion-voice-serve address\"}}",
+        m.name()
+    );
+    (503, body.into_bytes())
+}
+
 fn tts_http(mut stream: TcpStream) -> std::io::Result<()> {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(20)));
     let mut buf = Vec::new();
@@ -1310,13 +1343,7 @@ fn tts_http(mut stream: TcpStream) -> std::io::Result<()> {
     }
     body.truncate(length);
     if method == "GET" && path == "/health" {
-        let ready = speech::local().ready();
-        let bytes = if ready {
-            br#"{"ok":true,"status":"ok","version":2,"provider":"local","model":"chatterbox","loaded":true,"device":"cuda","voices":["samantha","jarvis"],"bind":"127.0.0.1:8002"}"#.to_vec()
-        } else {
-            br#"{"ok":false,"status":"loading","provider":"local","model":"chatterbox","loaded":false}"#.to_vec()
-        };
-        let status = if ready { 200 } else { 503 };
+        let (status, bytes) = mouth_health();
         return write_response(&mut stream, status, "application/json", &bytes, None);
     }
     if method == "POST" && path == "/synthesize" {

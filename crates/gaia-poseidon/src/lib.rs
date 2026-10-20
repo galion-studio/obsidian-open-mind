@@ -6,6 +6,22 @@
 //! backpressure and budget **caps**. It tracks caps only: anything that asks
 //! for real money movement (payments, transfers, Revolut) is refused, because
 //! that access is not approved. `env.water` is the free resource headroom.
+//!
+//! Two backends:
+//!
+//! * the **stand-in** ([`Poseidon::new`]): the original in-memory simulation,
+//!   used by the deterministic scenarios and the unit tests;
+//! * the **real adapter** ([`Poseidon::with_queue`], module [`queue`]): every
+//!   directive is forwarded to a running `openmind-queue` service. Budget is
+//!   read-only through it and it never leases or acks, so it never spends.
+//!
+//! Which Gaia function owns these systems is decided in one place,
+//! `gaia_core::FunctionId::COMPUTE` (POSEIDON today; see
+//! `docs/gaia-poseidon.md` for the HEPHAESTUS question).
+
+pub mod queue;
+
+pub use queue::{QueueAdapter, QueueConfig};
 
 use gaia_core::{
     scaled, Context, Directive, FunctionId, Health, Json, Outcome, Report, SubordinateFunction,
@@ -23,6 +39,8 @@ const MONEY_WORDS: &[&str] = &[
 
 #[derive(Debug)]
 pub struct Poseidon {
+    /// The real backend. `None` means the stand-in fields below are used.
+    backend: Option<QueueAdapter>,
     queue: VecDeque<u64>,
     rejected: u64,
     vram_local_gb: u64,
@@ -35,6 +53,7 @@ pub struct Poseidon {
 impl Default for Poseidon {
     fn default() -> Self {
         Poseidon {
+            backend: None,
             queue: VecDeque::new(),
             rejected: 0,
             vram_local_gb: 0,
@@ -46,8 +65,31 @@ impl Default for Poseidon {
 }
 
 impl Poseidon {
+    /// The stand-in (simulation only).
     pub fn new() -> Poseidon {
         Poseidon::default()
+    }
+
+    /// The real adapter: forward every directive to `openmind-queue`.
+    pub fn with_queue(cfg: QueueConfig) -> Poseidon {
+        Poseidon {
+            backend: Some(QueueAdapter::new(cfg)),
+            ..Poseidon::default()
+        }
+    }
+
+    /// `"openmind-queue"` or `"stand-in"`.
+    pub fn backend_name(&self) -> &'static str {
+        if self.backend.is_some() {
+            "openmind-queue"
+        } else {
+            "stand-in"
+        }
+    }
+
+    /// The real adapter, if this POSEIDON uses one.
+    pub fn adapter(&self) -> Option<&QueueAdapter> {
+        self.backend.as_ref()
     }
 
     /// Per-job quota when `jobs` share `total_mb` of RAM, keeping 10% spare.
@@ -75,19 +117,26 @@ impl SubordinateFunction for Poseidon {
     }
 
     fn systems(&self) -> Vec<System> {
-        vec![
-            System::VramPool,
-            System::Quotas,
-            System::Queues,
-            System::BudgetCaps,
-        ]
+        // Follows the single config point `FunctionId::COMPUTE`: if compute is
+        // moved to another function, POSEIDON declares the four systems while
+        // owning none and GAIA refuses to register it (a loud failure, never a
+        // silent split).
+        System::COMPUTE.to_vec()
     }
 
     fn health(&self) -> Health {
+        if let Some(q) = &self.backend {
+            return q.health();
+        }
         Health::ok(100 - self.headroom())
     }
 
     fn handle(&mut self, d: &Directive, ctx: &mut Context) -> Report {
+        if let Some(q) = self.backend.as_mut() {
+            let r = q.handle(d);
+            ctx.env.water = ctx.env.water.min(100 - q.load().min(100));
+            return r;
+        }
         if Poseidon::is_money_request(&d.payload) {
             return Report::for_directive(d, Outcome::Refused)
                 .summary("real-money access is not approved; POSEIDON tracks caps only");
@@ -163,6 +212,15 @@ impl SubordinateFunction for Poseidon {
     }
 
     fn tick(&mut self, ctx: &mut Context) -> Option<Report> {
+        if let Some(q) = self.backend.as_mut() {
+            // One read-only GET per tick keeps health and water honest.
+            q.refresh();
+            let headroom = 100 - q.load().min(100);
+            if !ctx.env.swarm_active {
+                ctx.env.water = ctx.env.water.saturating_add(4).min(headroom);
+            }
+            return None;
+        }
         // Drain the queue a little every tick; recover water after the swarm.
         for _ in 0..4 {
             self.queue.pop_front();
@@ -175,10 +233,20 @@ impl SubordinateFunction for Poseidon {
     }
 
     fn reset(&mut self) {
-        *self = Poseidon::default();
+        let backend = self.backend.take().map(|mut q| {
+            q.reset();
+            q
+        });
+        *self = Poseidon {
+            backend,
+            ..Poseidon::default()
+        };
     }
 
     fn state_json(&self) -> Json {
+        if let Some(q) = &self.backend {
+            return q.state_json();
+        }
         Json::obj()
             .with("queue_depth", self.queue.len())
             .with("queue_cap", QUEUE_CAP)
@@ -186,6 +254,7 @@ impl SubordinateFunction for Poseidon {
             .with("vram_used_gb", self.vram_used_gb)
             .with("vram_pool_gb", self.vram_pool_gb)
             .with("headroom", self.headroom())
+            .with("backend", "stand-in")
     }
 }
 

@@ -65,10 +65,9 @@ a read-only GET to loopback `http://` URLs only).
   token layer first.
 - One mutex for the whole engine and an fsync per write: fine for agent-scale
   work queues (hundreds of jobs per second), not a message bus.
-- Gaia integration is by vocabulary, not by a `gaia-core` trait impl,
-  because gaia-core is not on main 13a296ce. Once it lands, a
-  `gaia-poseidon` `SubordinateFunction::handle` can forward to
-  `openmind_queue::gaia::dispatch`.
+- Gaia integration: on `swarm/gaia-poseidon` the gaia-core POSEIDON function
+  forwards to this service through `gaia_poseidon::queue::QueueAdapter`
+  (read-only for budget, never leases or acks); see `docs/gaia-poseidon.md`.
 - The VPS ownership registry (`docs/gaia-ownership.md`, VPS `gaia-registry`)
   has a different nine (no POSEIDON; compute adapters under HEPHAESTUS). The
   ws/gaia design has POSEIDON. Row for this crate in the ws/gaia scheme:

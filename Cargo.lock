@@ -524,6 +524,8 @@ name = "gaia-poseidon"
 version = "0.1.0"
 dependencies = [
  "gaia-core",
+ "openmind-queue",
+ "serde_json",
 ]
 
 [[package]]

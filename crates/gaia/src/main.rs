@@ -10,7 +10,7 @@
 
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: gaia <command> [options]
+const USAGE_HEAD: &str = "usage: gaia <command> [options]
   status                         boot GAIA and print every function, the hierarchy and the system table
   status --live [--host H] [--no-systemd] [--timeout-ms MS] [--strict]
                                  READ-ONLY live health of the real services (8420, 8642, link-watch,
@@ -35,7 +35,12 @@ const USAGE: &str = "usage: gaia <command> [options]
   systems                        print the system -> function ownership table
   dispatch SYSTEM VERB [--payload TEXT] [--approve ALPHA]
                                  route one directive (verbs: status, run, plan, execute)
-  --compact                      one-line JSON (any command)";
+  --compact                      one-line JSON (any command)
+{POSEIDON}";
+
+fn usage() -> String {
+    USAGE_HEAD.replace("{POSEIDON}", gaia::poseidon::USAGE)
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -95,6 +100,29 @@ fn main() -> ExitCode {
             approve: opt("--approve").map(str::to_string),
         })),
         Some("systems") => Ok(gaia::systems_json()),
+        Some("poseidon") => match gaia::poseidon::run(&args[1..]) {
+            Ok((j, code)) => {
+                live_exit = code;
+                Ok(j)
+            }
+            Err(e) => Err(e),
+        },
+        Some("dispatch") if opt("--queue").is_some() => match (args.get(1), args.get(2)) {
+            (Some(s), Some(v)) => gaia::poseidon::queue_config(opt("--queue")).and_then(|cfg| {
+                gaia::poseidon::dispatch(
+                    cfg,
+                    s,
+                    v,
+                    opt("--payload").unwrap_or(""),
+                    opt("--approve"),
+                )
+                .map(|(j, code)| {
+                    live_exit = code;
+                    j
+                })
+            }),
+            _ => Err("dispatch needs SYSTEM and VERB".to_string()),
+        },
         Some("dispatch") => match (args.get(1), args.get(2)) {
             (Some(s), Some(v)) => {
                 gaia::dispatch(s, v, opt("--payload").unwrap_or(""), opt("--approve"))
@@ -102,7 +130,7 @@ fn main() -> ExitCode {
             _ => Err("dispatch needs SYSTEM and VERB".to_string()),
         },
         Some("-h" | "--help") | None => {
-            println!("{USAGE}");
+            println!("{}", usage());
             return ExitCode::SUCCESS;
         }
         Some(other) => Err(format!("unknown command {other:?}")),
@@ -116,7 +144,7 @@ fn main() -> ExitCode {
             ExitCode::from(live_exit)
         }
         Err(e) => {
-            eprintln!("gaia: {e}\n{USAGE}");
+            eprintln!("gaia: {e}\n{}", usage());
             ExitCode::from(2)
         }
     }

@@ -1,0 +1,50 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# ClusterFuzzLite (Apache-2.0) on pull requests: builds the cargo-fuzz
+# targets with .clusterfuzzlite/ and fuzzes the code the PR changed for up to
+# 4 minutes. Complements fuzz.yml (fixed 60 s per-target smoke). The token is
+# the read-only default GITHUB_TOKEN. Actions pinned by commit SHA.
+name: cflite-pr
+
+on:
+  pull_request:
+    paths:
+      - 'crates/galion-common/**'
+      - 'crates/openmind-discovery/**'
+      - 'crates/openmind-provider/**'
+      - 'fuzz/**'
+      - '.clusterfuzzlite/**'
+      - '.github/workflows/cflite-pr.yml'
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    concurrency:
+      group: cflite-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address]
+    steps:
+      - name: build fuzzers (${{ matrix.sanitizer }})
+        id: build
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: rust
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          sanitizer: ${{ matrix.sanitizer }}
+      - name: run fuzzers (${{ matrix.sanitizer }})
+        id: run
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 240
+          mode: code-change
+          sanitizer: ${{ matrix.sanitizer }}

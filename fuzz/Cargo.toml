@@ -1,0 +1,61 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# cargo-fuzz harnesses (libFuzzer). Nightly toolchain only, and only for
+# fuzzing: this package is outside the main workspace and never part of a
+# release build. See docs/fuzzing.md.
+[package]
+name = "galion-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+# (MIT OR Apache-2.0) AND NCSA (bundled LLVM libFuzzer). Fuzz-only, never
+# linked into a shipped binary. See docs/third-party/fuzz-sast.md.
+libfuzzer-sys = "0.4"
+galion-common = { path = "../crates/galion-common", features = ["serde-json"] }
+openmind-discovery = { path = "../crates/openmind-discovery" }
+# float_roundtrip: correctly rounded float parsing, so the JSON round-trip
+# check compares exact values (docs/fuzzing.md, finding 1).
+serde_json = { version = "1", features = ["float_roundtrip"] }
+
+# Own workspace so the fuzz package never joins the main one.
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "http_parse_head"
+path = "fuzz_targets/http_parse_head.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "base64_decode"
+path = "fuzz_targets/base64_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "json_escape"
+path = "fuzz_targets/json_escape.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mdns_parse"
+path = "fuzz_targets/mdns_parse.rs"
+test = false
+doc = false
+bench = false

@@ -8,6 +8,8 @@
 //!   `\uXXXX` (surrogate pairs above U+FFFF);
 //! - compact separators `(",", ":")` when `spaced` is false (desk-hermes), or
 //!   the CPython default `(", ", ": ")` when it is true (link-watch).
+//! - floats as CPython `repr(float)` (`1e+16`, `1e-05`, `1.5e-07`), see
+//!   [`crate::json::float_repr`].
 
 use serde::Serialize;
 use serde_json::Value;
@@ -41,6 +43,22 @@ impl serde_json::ser::Formatter for PyFormatter {
             writer.write_all(&bytes[start..])?;
         }
         Ok(())
+    }
+
+    /// CPython `repr(float)` layout (`1.5e-07`, `1e-05`), not serde_json's
+    /// (`1.5e-7`, `0.00001`). See [`crate::json::float_repr`].
+    fn write_f64<W>(&mut self, writer: &mut W, value: f64) -> io::Result<()>
+    where
+        W: ?Sized + Write,
+    {
+        writer.write_all(crate::json::float_repr(value).as_bytes())
+    }
+
+    fn write_f32<W>(&mut self, writer: &mut W, value: f32) -> io::Result<()>
+    where
+        W: ?Sized + Write,
+    {
+        self.write_f64(writer, f64::from(value))
     }
 
     fn begin_array_value<W>(&mut self, writer: &mut W, first: bool) -> io::Result<()>
@@ -133,5 +151,20 @@ mod tests {
         assert!(!truthy(&json!(0)));
         assert!(truthy(&json!("x")));
         assert_eq!(json_str(&json!(null)), "None");
+    }
+
+    /// CPython: json.dumps([1e16, 1e-05, 0.0001, 2.0, -0.0, 8.888000000937703e+46])
+    /// The last value is the fuzz finding in docs/fuzzing.md.
+    #[test]
+    fn cpython_floats() {
+        let v = json!([1e16, 0.00001, 0.0001, 2.0, -0.0, 8.888000000937703e46]);
+        assert_eq!(
+            to_json_compat(&v, true),
+            "[1e+16, 1e-05, 0.0001, 2.0, -0.0, 8.888000000937703e+46]"
+        );
+        assert_eq!(
+            to_json_compat(&json!({"t": 1.5e-7}), false),
+            "{\"t\":1.5e-07}"
+        );
     }
 }

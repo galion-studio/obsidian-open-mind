@@ -3,8 +3,9 @@ resolver = "2"
 # crates/one-defence (read-only port of galion-light/one/defence.py) joins via this glob.
 members = ["crates/*"]
 # contrib/grokbot is a vendored, read-only material dump with its own package.
-# It is not part of the OpenMind workspace.
-exclude = ["contrib"]
+# It is not part of the OpenMind workspace. fuzz/ is the nightly-only
+# cargo-fuzz package (docs/fuzzing.md) with its own workspace.
+exclude = ["contrib", "fuzz"]
 
 [workspace.package]
 edition = "2021"

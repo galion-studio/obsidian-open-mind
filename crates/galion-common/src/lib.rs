@@ -8,8 +8,9 @@
 //!
 //! - [`sha256`]: FIPS 180-4 SHA-256 (NIST vectors in the tests) and [`hex`].
 //! - [`base64`]: RFC 4648 standard and URL-safe alphabets, encode and decode.
-//! - [`json`]: JSON string escaping (CPython `ensure_ascii` compatible), and
-//!   with feature `serde-json` the `jsonout` CPython `json.dumps` writer.
+//! - [`json`]: JSON string escaping (CPython `ensure_ascii` compatible), CPython
+//!   float `repr`, and with feature `serde-json` the `jsonout` CPython
+//!   `json.dumps` writer.
 //! - [`time`]: Europe/Zagreb RFC 3339 with an explicit offset, never `Z`.
 //! - [`http`]: strict HTTP/1.x request parser, a bounded thread-per-connection
 //!   server (deadlines, size limits, `Connection: close`) and a small client.

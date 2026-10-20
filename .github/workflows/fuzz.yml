@@ -1,0 +1,71 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Short cargo-fuzz smoke runs (60 s per target) for the untrusted-input
+# parsers: galion-common HTTP head / base64 / JSON escaping and the
+# openmind-discovery mDNS wire parser. Nightly is used only for this job,
+# never for release builds. Long runs happen on the box (docs/fuzzing.md).
+# Actions are pinned by commit SHA.
+name: fuzz
+
+on:
+  pull_request:
+    paths:
+      - 'crates/galion-common/**'
+      - 'crates/openmind-discovery/**'
+      - 'crates/openmind-provider/**'
+      - 'fuzz/**'
+      - '.github/workflows/fuzz.yml'
+  push:
+    branches: [ main ]
+  schedule:
+    - cron: '41 3 * * 2'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: cargo-fuzz smoke (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [http_parse_head, base64_decode, json_escape, mdns_parse]
+    env:
+      # Dated nightly: reproducible, and the same one the box runs used.
+      FUZZ_TOOLCHAIN: nightly-2026-10-20
+      CARGO_FUZZ_VERSION: 0.13.1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - name: nightly toolchain (fuzzing only)
+        run: rustup toolchain install "$FUZZ_TOOLCHAIN" --profile minimal
+      - name: cargo-fuzz
+        run: cargo install cargo-fuzz --locked --version "$CARGO_FUZZ_VERSION"
+      - name: build
+        working-directory: fuzz
+        run: cargo "+$FUZZ_TOOLCHAIN" fuzz build -O "${{ matrix.target }}"
+      - name: fuzz 60 s
+        working-directory: fuzz
+        run: |
+          t='${{ matrix.target }}'
+          mkdir -p "corpus/$t" "artifacts/$t"
+          cargo "+$FUZZ_TOOLCHAIN" fuzz run -O "$t" "corpus/$t" "seeds/$t" -- \
+            -max_total_time=60 -timeout=10 -print_final_stats=1 \
+            -artifact_prefix="artifacts/$t/"
+      - name: upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          retention-days: 14

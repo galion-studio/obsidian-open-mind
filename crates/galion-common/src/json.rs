@@ -74,6 +74,66 @@ pub fn push_ascii_escaped(out: &mut String, c: char) {
     }
 }
 
+/// CPython `repr(float)` (what `json.dumps` writes for a float).
+///
+/// Shortest round-trip digits (Rust `{:e}` and CPython both pick the
+/// shortest, closest decimal), laid out the CPython way: positional when the
+/// decimal exponent `d` (value = 0.DIGITS x 10^d) satisfies `-4 < d <= 16`,
+/// with `.0` on integral values; otherwise `De[+-]XX` with a sign and at
+/// least two exponent digits (`1e+16`, `1e-05`). serde_json's own float
+/// writer (1.0.154) differs for small values (`1.5e-7`, `0.00001`). Non-finite values (which JSON
+/// cannot hold and serde_json writes as `null`) give `NaN` / `Infinity` /
+/// `-Infinity` like CPython.
+pub fn float_repr(v: f64) -> String {
+    if v.is_nan() {
+        return "NaN".into();
+    }
+    if v.is_infinite() {
+        return if v > 0.0 { "Infinity" } else { "-Infinity" }.into();
+    }
+    if v == 0.0 {
+        return if v.is_sign_negative() { "-0.0" } else { "0.0" }.into();
+    }
+    let sci = format!("{:e}", v.abs());
+    let (mant, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
+    let exp: i32 = exp.parse().unwrap_or(0);
+    let digits: String = mant.chars().filter(char::is_ascii_digit).collect();
+    let decpt = exp + 1;
+    let mut out = String::with_capacity(digits.len() + 8);
+    if v < 0.0 {
+        out.push('-');
+    }
+    if decpt <= -4 || decpt > 16 {
+        out.push_str(&digits[..1]);
+        if digits.len() > 1 {
+            out.push('.');
+            out.push_str(&digits[1..]);
+        }
+        let _ = write!(
+            out,
+            "e{}{:02}",
+            if exp < 0 { '-' } else { '+' },
+            exp.unsigned_abs()
+        );
+    } else if decpt <= 0 {
+        out.push_str("0.");
+        out.extend(std::iter::repeat_n('0', decpt.unsigned_abs() as usize));
+        out.push_str(&digits);
+    } else {
+        let point = decpt as usize;
+        if point >= digits.len() {
+            out.push_str(&digits);
+            out.extend(std::iter::repeat_n('0', point - digits.len()));
+            out.push_str(".0");
+        } else {
+            out.push_str(&digits[..point]);
+            out.push('.');
+            out.push_str(&digits[point..]);
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,5 +144,35 @@ mod tests {
         assert_eq!(string("é"), "\"é\"");
         assert_eq!(string_ascii("é😀"), "\"\\u00e9\\ud83d\\ude00\"");
         assert_eq!(string_ascii("\t\u{8}\u{c}\r"), "\"\\t\\b\\f\\r\"");
+    }
+
+    /// Expected strings are CPython 3 `repr(float)` outputs.
+    #[test]
+    fn float_repr_matches_cpython() {
+        let cases: [(f64, &str); 20] = [
+            (0.0, "0.0"),
+            (-0.0, "-0.0"),
+            (1.0, "1.0"),
+            (-2.5, "-2.5"),
+            (0.1, "0.1"),
+            (0.0001, "0.0001"),
+            (0.00001, "1e-05"),
+            (1.5e-7, "1.5e-07"),
+            (2.5e-10, "2.5e-10"),
+            (123456789.0, "123456789.0"),
+            (1e15, "1000000000000000.0"),
+            (1e16, "1e+16"),
+            (1.2345678901234568e17, "1.2345678901234568e+17"),
+            (1e22, "1e+22"),
+            (1.5e300, "1.5e+300"),
+            (5e-324, "5e-324"),
+            (f64::MAX, "1.7976931348623157e+308"),
+            (8.888000000937703e46, "8.888000000937703e+46"),
+            (f64::INFINITY, "Infinity"),
+            (f64::NAN, "NaN"),
+        ];
+        for (v, want) in cases {
+            assert_eq!(float_repr(v), want, "{v:e}");
+        }
     }
 }

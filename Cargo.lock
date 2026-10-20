@@ -203,6 +203,16 @@ name = "galion-origin"
 version = "0.1.0"
 
 [[package]]
+name = "galion-vending"
+version = "0.1.0"
+dependencies = [
+ "galion-bench",
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-voice-core"
 version = "0.1.0"
 

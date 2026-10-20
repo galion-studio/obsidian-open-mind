@@ -152,17 +152,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gaia-core"
-version = "0.1.0"
-dependencies = [
- "zagreb-time",
-]
-
-[[package]]
-name = "gaia-registry"
-version = "0.1.0"
-
-[[package]]
 name = "galion-boot"
 version = "0.1.0"
 dependencies = [
@@ -195,14 +184,6 @@ version = "0.1.0"
 [[package]]
 name = "galleon-arena"
 version = "0.1.0"
-
-[[package]]
-name = "galleon-voice"
-version = "0.1.0"
-dependencies = [
- "serde",
- "toml",
-]
 
 [[package]]
 name = "guardian-tick"
@@ -398,15 +379,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "openmind-boot"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "zagreb-time",
-]
-
-[[package]]
 name = "openmind-config"
 version = "0.1.0"
 dependencies = [
@@ -468,10 +440,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "openmind-origin"
-version = "0.1.0"
-
-[[package]]
 name = "openmind-persona"
 version = "0.1.0"
 
@@ -527,15 +495,6 @@ name = "openmind-tulu"
 version = "0.1.0"
 dependencies = [
  "toml",
-]
-
-[[package]]
-name = "openmind-units"
-version = "0.1.0"
-dependencies = [
- "serde",
- "toml",
- "zagreb-time",
 ]
 
 [[package]]

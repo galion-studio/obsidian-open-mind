@@ -1,9 +1,0 @@
-# SPDX-License-Identifier: MIT
-# SPDX-FileCopyrightText: 3000 Galion / galion-studio
-
-[package]
-name = "openmind-origin"
-version.workspace = true
-edition.workspace = true
-license.workspace = true
-description = "Pure function that builds an HTTP 302 redirect. Location comes from the caller; the default is /. The body is empty. No listener."

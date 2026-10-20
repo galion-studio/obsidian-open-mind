@@ -10,23 +10,18 @@
 log_dir = "/opt/galion/galion-light/logs"
 supervisor_dir = "/opt/galion/galion-light/state/supervisor"
 
+# galion-guardian and galion-healer left the workspace in the 2026-10-20
+# one-source merge (docs/SOURCE-OF-TRUTH.md). The canonical guardian is the
+# report-only guardian-tick on a timer, built on openmind-survival.
 [[service]]
-name = "galion-guardian"
-description = "Galion guardian (probes, guardian.db, incidents; records only)"
-argv = ["/opt/galion/bin/galion-guardian", "--config", "/opt/galion/etc/guardian.toml"]
-after = ["hermes.service", "console.service"]
-nice = 10
-memory_max = "64M"
-read_write = ["/opt/galion/galion-light/state", "/opt/galion/galion-light/guardian", "/opt/galion/hermes/activity.jsonl", "/opt/galion/hermes/last-guardian.ts"]
-
-[[service]]
-name = "galion-healer"
-description = "Galion desk healer (cases, follow-ups; allow-listed repairs, dry-run)"
-argv = ["/opt/galion/bin/galion-healer", "run", "--config", "/opt/galion/etc/healer.toml"]
-after = ["hermes.service"]
+name = "guardian-tick"
+description = "Galion guardian tick (report only; probes from deploy/survival/probes.toml)"
+type = "oneshot"
+argv = ["/opt/galion/bin/guardian-tick", "--probes", "/opt/galion/etc/probes.toml", "--out", "/opt/galion/galion-light/state/guardian-tick.json"]
 nice = 10
 memory_max = "64M"
 read_write = ["/opt/galion/galion-light/state"]
+timer_every_s = 60
 
 [[service]]
 name = "galion-hardware"

@@ -309,3 +309,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-20T09:58:48+02:00 | BINARY-STRINGS | grok-build | PASS 9/10 | docs/binary-vs-source.md | dist binaries lack ONE_HERMES_DIR and DESK_STATE_DIR; source has both
 
 - 2026-10-20T09:59:47+02:00 | REAL-TUNER-2 | grok-build | PASS 9/10 | docs/reallife-tuner-2.md | spare 18650 returned 200; live pid 1196273 not replaced
+
+- 2026-10-20T10:00:19+02:00 | REAL-ONE-2 | grok-build | PASS 9/10 | docs/reallife-one-2.md | spare 18091 returned 200; live pid 1373612 not replaced

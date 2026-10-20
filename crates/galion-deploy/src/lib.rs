@@ -19,14 +19,19 @@
 //! * F6 SIGINT/SIGTERM/SIGHUP roll back instead of killing the deploy, and a
 //!   rollback journal (`<backup-dir>/<unit>.journal`, also the per-unit lock) lets
 //!   the next run restore the old binary after an uncatchable kill.
+//!
+//! `galion-deploy backup` writes the pre-cutover snapshot (see [`backup`]); its
+//! data part is `galion-backup run`, the one definition of a Galion backup.
 
 pub mod backend;
+pub mod backup;
 pub mod deploy;
 pub mod files;
 pub mod http;
 pub mod journal;
 pub mod sha256;
 pub mod sys;
+pub mod tar;
 pub mod zagreb;
 
 pub use deploy::{Config, Exit};

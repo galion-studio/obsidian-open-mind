@@ -1090,6 +1090,7 @@ dependencies = [
 name = "openmind-nerve"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "openmind-schema",
  "semver",
  "serde",

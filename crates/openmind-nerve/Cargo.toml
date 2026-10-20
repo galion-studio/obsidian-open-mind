@@ -20,6 +20,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 semver = "1"
 zagreb-time = { path = "../zagreb-time" }
+galion-common = { path = "../galion-common" }
 
 [dev-dependencies]
 zagreb-time = { path = "../zagreb-time" }

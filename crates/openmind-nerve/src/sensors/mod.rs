@@ -34,7 +34,9 @@ use serde_json::{json, Value};
 use std::time::Instant;
 
 pub mod components;
+pub mod connrate;
 pub mod ddos;
+pub mod drift;
 pub mod edge;
 pub mod listeners;
 pub mod rustsec;
@@ -158,6 +160,8 @@ impl Sensors {
         // S2 sensors: one line each, e.g. `s.add_opt(sshd::SshAuth::from_env(env));`
         s.add_opt(sshd::SshAuth::from_env(env));
         s.add_opt(rustsec::RustSec::from_env(env));
+        s.add_opt(drift::Drift::from_env(env));
+        s.add_opt(connrate::ConnRate::from_env(env));
         let off: Vec<String> = env("NERVE_SENSORS_OFF")
             .unwrap_or_default()
             .split(',')

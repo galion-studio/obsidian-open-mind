@@ -98,3 +98,45 @@ PASS
 - Not run here: the GitHub workflows themselves (fuzz.yml, cflite-pr.yml,
   codeql.yml). The box has no Docker, so the ClusterFuzzLite image build was
   not tried locally.
+
+## 4. Resume by slot 100 (swarm/fuzz-sast-2, ports 19700-19709), 2026-10-21 +02:00
+
+The slot-25 agent stalled after committing e78b2e7 locally (never pushed).
+Slot 100 resumed from that commit on `swarm/fuzz-sast-2`:
+
+- **Rust-only port of section 2.** `scripts/real/fuzz-sast.sh` and the two
+  replay examples (`galion-common/examples/replay_http.rs`,
+  `openmind-discovery/examples/replay_mdns.rs`) are replaced by one Rust test,
+  `crates/openmind-discovery/tests/real_fuzz_replay.rs`, gated by
+  `GALION_REAL=1`. It builds release `galion-origin` + `openmind-discovery`,
+  starts them on 127.0.0.1:19700 / mDNS test port 19701, replays the corpus,
+  asserts (0 refused, no non-HTTP reply, `/health` 200 after, announcer alive,
+  final PTR query answered) and kills both processes. Sections 1-2 above keep
+  the slot-25 numbers and ports (19250/19251) as history.
+- Run: `GALION_REAL=1 cargo test --release -p openmind-discovery --test real_fuzz_replay -- --nocapture`
+  (`FUZZ_CORPUS_ROOT=` overrides the corpus dir; falls back to `fuzz/seeds/`).
+
+Run 2026-10-21T00:57:32+02:00, slot-25 corpus copied from wt/fuzz-sast (git-ignored):
+
+```
+== 2026-10-21T00:57:35+02:00  start galion-origin on 127.0.0.1:19700 (empty ORIGIN_ROOT)
+== 2026-10-21T00:57:35+02:00  replay http_parse_head corpus .../fuzz/corpus/http_parse_head
+{"files":5666,"refused":0,"status":{"200": 104, "400": 3483, "405": 2041, "413": 5, "501": 10, "505": 22, "no-reply": 1}}
+GET /health after replay -> Some(200)
+== 2026-10-21T00:57:35+02:00  start openmind-discovery announce on mDNS test port 19701 (up to 90 s)
+== 2026-10-21T00:57:36+02:00  replay mdns_parse corpus .../fuzz/corpus/mdns_parse
+{"files":1429,"sent":1429,"replies_during_replay":0,"final_records":4}
+== 2026-10-21T00:57:49+02:00  tear down
+PASS
+test result: ok. 1 passed; 0 failed; finished in 17.86s
+```
+
+(The corpus has 5 666 / 1 429 files now vs 5 450 / 1 343 in section 2: the
+slot-25 runs kept writing units after that replay.) Without `GALION_REAL=1`
+the test prints `skipped` and passes.
+
+Not redone by slot 100: new libFuzzer campaigns. `cargo-fuzz` and the
+unpacked g++ (section 1 box note) are no longer on the box (the slot-25 target
+dir was deleted); section 1 stays the fuzzing evidence. `scripts/fuzz.sh` (dev
+wrapper around `cargo +nightly fuzz run`, not used by CI) is still bash: open
+item for the Rust-only rule.

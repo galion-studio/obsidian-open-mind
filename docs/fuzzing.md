@@ -32,7 +32,7 @@ for it after that branch merges.
 
 ```
 scripts/fuzz.sh 600                       # every target 10 min, two at a time, nice -n 15
-scripts/fuzz.sh 60 mdns_parse             # one target
+scripts/fuzz.sh 60 mdns_parse             # one target (bash wrapper; Rust port pending)
 cd fuzz && cargo +nightly fuzz run -O json_escape corpus/json_escape seeds/json_escape
 ```
 
@@ -85,3 +85,11 @@ cd fuzz && cargo +nightly fuzz run -O json_escape corpus/json_escape seeds/json_
    `1e-10` and all larger floats were already equal).
 3. No crash, ASan report, timeout or OOM in the 11-minute runs of all four
    targets (numbers in docs/real-tests/fuzz-sast.md).
+
+## Real-life replay (Rust)
+
+`GALION_REAL=1 cargo test --release -p openmind-discovery --test real_fuzz_replay -- --nocapture`
+throws the whole `http_parse_head` corpus at a release `galion-origin` and
+the `mdns_parse` corpus at a release `openmind-discovery announce`, over real
+sockets on 127.0.0.1:19700/19701 (replaces the old `scripts/real/fuzz-sast.sh`).
+Evidence: docs/real-tests/fuzz-sast.md section 4.

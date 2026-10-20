@@ -79,6 +79,7 @@ fn write_node(dir: &Path, subtree: &str) {
         ("cgroup.stat", "nr_descendants 0\n"),
         ("cgroup.max.depth", "max\n"),
         ("cgroup.max.descendants", "max\n"),
+        ("cgroup.procs", ""),
     ];
     for (name, body) in files {
         fs::write(dir.join(name), body).unwrap();

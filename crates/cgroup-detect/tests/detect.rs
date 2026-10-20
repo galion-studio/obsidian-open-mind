@@ -27,6 +27,13 @@ fn has_all(list: &[String]) -> bool {
 #[test]
 fn live_cgroup_v2_delegation() {
     let report = cgroup_detect::detect().expect("read /proc and /sys");
+    // GALION_REAL_CGROUP=1 means "this process was started inside a
+    // delegated subtree" (scripts/real/sandbox.sh sets that up as root on
+    // the box): then a missing delegation is a failure, not a skip.
+    let required = std::env::var("GALION_REAL_CGROUP").as_deref() == Ok("1");
+    if required {
+        assert!(report.per_run_possible, "delegation expected: {report:?}");
+    }
     if !(report.unified_v2 && report.mount_writable && report.per_run_possible) {
         println!(
             "SKIP live_cgroup_v2_delegation: no delegated, writable cgroup v2 subtree on this machine ({}); this check only means something on the target host",

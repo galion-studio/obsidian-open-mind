@@ -60,10 +60,12 @@ git clone -q --no-hardlinks "$root" "$canary"
   key="AKIA$(head -c 4096 /dev/urandom | tr -dc 'A-Z2-7' | head -c 16)"
   sec="$(head -c 4096 /dev/urandom | tr -dc 'A-Za-z0-9' | head -c 40)"
   printf 'aws_access_key_id = %s\naws_secret_access_key = %s\n' "$key" "$sec" > docs/canary-leak.txt
+  # REUSE-IgnoreStart (the canary below writes a GPL header into the clone)
   # 2. GPL dependency inside the workspace
   mkdir -p crates/zz-gpl-canary/src
   printf '[package]\nname = "zz-gpl-canary"\nversion = "0.1.0"\nedition = "2021"\nlicense = "GPL-3.0-only"\npublish = false\n' > crates/zz-gpl-canary/Cargo.toml
   printf '// SPDX-License-Identifier: GPL-3.0-only\n// SPDX-FileCopyrightText: 3000 Canary\n' > crates/zz-gpl-canary/src/lib.rs
+  # REUSE-IgnoreEnd
   # 3. an ELF binary
   cp /bin/true docs/canary-elf
   # 4. contrib/ export rule removed

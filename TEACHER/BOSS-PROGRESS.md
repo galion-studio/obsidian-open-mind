@@ -325,3 +325,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-20T10:30:27+02:00 | MEM-SEARCH | grok-build | PASS 9/10 | docs/memory-shadow-search.md | candidate search keys match the documented live shape; 8420 not posted
 
 - 2026-10-20T10:30:41+02:00 | ROUTE-DRY | grok-build | PASS 9/10 | docs/route-dry.md | ALREADY: approved CPU-local is chosen in a test and no socket is opened
+
+- 2026-10-20T10:39:43+02:00 | REAL-ROOM-2 | grok-build | PASS 9/10 | docs/reallife-room-2.md | current room with no flags exited 0 and did not listen on 4020

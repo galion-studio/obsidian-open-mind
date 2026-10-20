@@ -298,3 +298,5 @@
 - 2026-10-20T10:30:27+02:00 | MEM-SEARCH: search keys were compared on an ephemeral port. The live gateway was not switched.
 
 - 2026-10-20T10:30:41+02:00 | ROUTE-DRY ALREADY: the picker test covers an approved CPU-local row. galion-one was not changed.
+
+- 2026-10-20T10:39:43+02:00 | REAL-ROOM-2 PASS: the current room binary did not listen. The dist copy was not replaced.

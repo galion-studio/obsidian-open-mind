@@ -94,8 +94,10 @@ need_tool() { # need_tool NAME -> 0 found, 1 missing
 missing_status() { if [ "$allow_missing" = 1 ]; then echo SKIP; else echo FAIL; fi; }
 
 : > "$report"
+# REUSE-IgnoreStart (these lines write the REPORT.md header, not this file's)
 line "<!-- SPDX-License-Identifier: MIT -->"
 line "<!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->"
+# REUSE-IgnoreEnd
 line "# Public export report"
 line ""
 line "- started: $(ts)"
@@ -205,11 +207,18 @@ fi
 
 # 7. REUSE lint -------------------------------------------------------------
 if need_tool comply; then
-  if comply lint --lines "$tree" > "$out_abs/logs/reuse-lint.txt" 2>&1; then
-    gate "7 REUSE lint (comply)" PASS "$(comply lint "$tree" 2>/dev/null | grep -E 'total' | head -1)"
+  # comply 0.1.1 matches .gitignore patterns against the ABSOLUTE path, so a
+  # tree under any .../target/... directory is reported as all-skipped. Lint a
+  # copy in a fresh temp directory instead.
+  rtmp=$(mktemp -d)
+  cp -a -- "$tree" "$rtmp/tree"
+  if comply lint --lines "$rtmp/tree" > "$out_abs/logs/reuse-lint.txt" 2>&1 \
+      && comply lint "$rtmp/tree" > "$out_abs/logs/reuse-summary.txt" 2>&1; then
+    gate "7 REUSE lint (comply)" PASS "$(grep -E 'total' "$out_abs/logs/reuse-summary.txt" | head -1)"
   else
     gate "7 REUSE lint (comply)" FAIL "$(grep -c . "$out_abs/logs/reuse-lint.txt") problems, see logs/reuse-lint.txt"
   fi
+  rm -rf -- "$rtmp"
 else
   gate "7 REUSE lint (comply)" "$(missing_status)" "comply not installed"
 fi
@@ -285,12 +294,12 @@ grep -rEnoI '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' "$tree" 2>/dev/null \
 awk -F: '{split($3,o,"."); if (o[1]<=255 && o[2]<=255 && o[3]<=255 && o[4]<=255) print}' \
   "$out_abs/logs/public-ipv4.txt" > "$out_abs/logs/public-ipv4.tmp" && mv "$out_abs/logs/public-ipv4.tmp" "$out_abs/logs/public-ipv4.txt"
 nip=$(wc -l < "$out_abs/logs/public-ipv4.txt" | tr -d ' ')
-grep -rEnI 'trycloudflare\.com' "$tree" 2>/dev/null | cut -d: -f1,2 | sed "s#^$tree/##" > "$out_abs/logs/quick-tunnels.txt" || true
+grep -rEnI '[a-z0-9-]+\.trycloudflare\.com' "$tree" 2>/dev/null | cut -d: -f1,2 | sed "s#^$tree/##" > "$out_abs/logs/quick-tunnels.txt" || true
 ntun=$(wc -l < "$out_abs/logs/quick-tunnels.txt" | tr -d ' ')
 if [ "$nip" = 0 ] && [ "$ntun" = 0 ]; then
   gate "10 infra disclosure" PASS "no public IPv4 literals, no quick-tunnel hostnames"
 else
-  gate "10 infra disclosure" WARN "$nip public IPv4 literals (logs/public-ipv4.txt), $ntun trycloudflare.com mentions (logs/quick-tunnels.txt); owner decides"
+  gate "10 infra disclosure" WARN "$nip public IPv4 literals (logs/public-ipv4.txt), $ntun quick-tunnel hostnames (logs/quick-tunnels.txt); owner decides"
 fi
 
 line ""

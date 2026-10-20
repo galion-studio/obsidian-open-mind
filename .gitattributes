@@ -19,7 +19,7 @@
 # --- private material: never in the public tree -----------------------------
 # Vendored Grok Bot operator material (VPS access skills, ssh MCP, private notes).
 /contrib export-ignore
-# Redacted secret inventories: values are <REDACTED:...> but the names, paths
+# Redacted secret inventories: every value is a REDACTED marker, but the names, paths
 # and tunnel ids are an inventory of the secret store.
 *.redacted export-ignore
 # The whole key-management mirror (console key routes, cloudflared config with

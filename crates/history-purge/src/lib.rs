@@ -16,7 +16,9 @@
 
 pub mod pattern;
 pub mod repo;
+pub mod sec3;
 pub mod stream;
+pub mod zagreb;
 
 pub use pattern::PathSet;
 pub use stream::{filter, Stats};

@@ -11,6 +11,17 @@ Written 2026-10-20T20:44:00+02:00 (Europe/Zagreb).
 No code was copied from other projects. The fast-export stream grammar was
 implemented from the git-fast-import(1) manual ("Input format").
 
+Update 2026-10-20T21:05:00+02:00: the SEC-3 tool (`galion-purge sec3-perms`,
+`src/sec3.rs`) and the Zagreb timestamp helper (`src/zagreb.rs`) are std only
+too; still no dependencies. The Zagreb offset follows the EU summer-time rule
+(Directive 2000/84/EC: last Sunday of March to last Sunday of October, 01:00
+UTC); the civil-date arithmetic is the well-known days-from-civil algorithm,
+written from Howard Hinnant's description ("chrono-Compatible Low-Level Date
+Algorithms", https://howardhinnant.github.io/date_algorithms.html), no code
+copied. The crate does not use the in-tree `zagreb-time` crate on purpose: it
+pulls chrono + chrono-tz, and this tool is meant to stay a dependency-free
+static binary that the owner copies to the VPS.
+
 ## External programs used (executed, not linked, not vendored)
 
 | Tool | Version on the box | Licence (SPDX) | Source | Used for | Why not write it / why this one |

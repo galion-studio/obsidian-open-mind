@@ -14,12 +14,24 @@ USAGE
   galion-purge scan    --repo DIR (--paths FILE | --path PAT)...
   galion-purge rewrite --repo SCRATCH.git (--paths FILE | --path PAT)... --confirm-scratch-copy [--strip-remotes]
   galion-purge verify  --repo DIR (--paths FILE | --path PAT)...
+  galion-purge sec3-perms [--apply] [--fix-world-writable] [--rollback FILE]
+                          [--hermes-home DIR] [--state-dir DIR] [--no-chown]
 
   scan     read-only: list every listed path that exists in any commit of any ref
   rewrite  git fast-export --all --no-data | filter | git fast-import --force, then
            reflog expire + gc --prune=now; then re-scans and checks the old blob ids
            are gone. Bare repos only (git clone --mirror). Never pushes.
   verify   read-only: exit 1 if any listed path is in any commit of any ref
+  sec3-perms  SEC-3 Hermes home permissions (owner runs it as root on the VPS).
+           Dry run by default: prints current -> target, changes nothing.
+           --apply writes a rollback file (modes, numeric uid:gid) to the state dir
+           first, then sets config.yaml 600, SOUL.md 644, vault/ 700,
+           vault/.vault.lock 600, USER.md 600, all root:root.
+           --fix-world-writable also clears o+w on the other world-writable entries.
+           --rollback FILE restores exactly what FILE recorded.
+           Never reads contents, never follows symlinks, stays on one filesystem.
+           Env defaults: HERMES_HOME (/opt/galion/hermes), SEC3_STATE_DIR
+           (/root/sec3-perms), SEC3_NO_CHOWN=1 (= --no-chown, fixture tests).
 
 PATTERNS (one per line in FILE, # comments)
   dir/        directory at the root and everything under it
@@ -28,7 +40,8 @@ PATTERNS (one per line in FILE, # comments)
   * and ? stop at /, ** crosses it
 
 Output lists paths, counts and object ids only; file contents are never read or printed.
-Exit codes: 0 ok, 1 listed paths found (verify) or failure, 2 usage error.
+Exit codes: 0 ok, 1 listed paths found (verify) or failure, 2 usage error,
+3 refused (sec3-perms: symlinked or wrong-type target).
 ";
 
 struct Args {
@@ -92,6 +105,9 @@ fn main() -> ExitCode {
         } else {
             ExitCode::SUCCESS
         };
+    }
+    if argv[0] == "sec3-perms" {
+        return sec3_main(&argv[1..]);
     }
     let a = match parse(&argv) {
         Ok(a) => a,
@@ -207,6 +223,75 @@ fn main() -> ExitCode {
         }
         o => {
             eprintln!("galion-purge: unknown command {o} (see --help)");
+            ExitCode::from(2)
+        }
+    }
+}
+
+fn sec3_main(argv: &[String]) -> ExitCode {
+    use history_purge::sec3::{self, Mode, Opts, Sec3Error};
+    let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty());
+    let mut o = Opts {
+        home: env("HERMES_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/opt/galion/hermes")),
+        state_dir: env("SEC3_STATE_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("/root/sec3-perms")),
+        mode: Mode::Dry,
+        fix_world_writable: false,
+        no_chown: std::env::var("SEC3_NO_CHOWN").as_deref() == Ok("1"),
+    };
+    let mut apply = false;
+    let mut rollback: Option<PathBuf> = None;
+    let mut it = argv.iter();
+    while let Some(x) = it.next() {
+        let mut val = |n: &str| {
+            it.next()
+                .map(PathBuf::from)
+                .ok_or_else(|| format!("{n} needs a value"))
+        };
+        let r = match x.as_str() {
+            "--apply" => {
+                apply = true;
+                Ok(())
+            }
+            "--fix-world-writable" => {
+                o.fix_world_writable = true;
+                Ok(())
+            }
+            "--no-chown" => {
+                o.no_chown = true;
+                Ok(())
+            }
+            "--rollback" => val("--rollback").map(|v| rollback = Some(v)),
+            "--hermes-home" => val("--hermes-home").map(|v| o.home = v),
+            "--state-dir" => val("--state-dir").map(|v| o.state_dir = v),
+            other => Err(format!("unknown argument {other}")),
+        };
+        if let Err(e) = r {
+            eprintln!("galion-purge sec3-perms: {e}\n(see --help)");
+            return ExitCode::from(2);
+        }
+    }
+    o.mode = match (apply, rollback) {
+        (true, Some(_)) => {
+            eprintln!("galion-purge sec3-perms: --apply and --rollback are exclusive");
+            return ExitCode::from(2);
+        }
+        (true, None) => Mode::Apply,
+        (false, Some(f)) => Mode::Rollback(f),
+        (false, None) => Mode::Dry,
+    };
+    let mut out = std::io::stdout();
+    match sec3::run(&o, &mut out) {
+        Ok(_) => ExitCode::SUCCESS,
+        Err(e @ Sec3Error::Refuse(_)) => {
+            eprintln!("galion-purge sec3-perms: {e}");
+            ExitCode::from(3)
+        }
+        Err(e) => {
+            eprintln!("galion-purge sec3-perms: {e}");
             ExitCode::from(2)
         }
     }

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) 3000 Galion / galion-studio
+#
+# Public export: keep the SEC owner runbooks out of `git archive` (the public
+# tree). They name secret file paths and a tunnel-id prefix. Nested
+# .gitattributes files are honoured by `git archive`, so this works alongside
+# the root .gitattributes of swarm/launch-gates without a merge conflict.
+# History still contains them: the public repo must start from the exported
+# tree (fresh history), see SEC-1-HISTORY-PURGE.md.
+SEC-*.md export-ignore

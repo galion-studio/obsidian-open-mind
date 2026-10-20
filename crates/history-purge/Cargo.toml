@@ -6,7 +6,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Drop listed paths from every commit of a scratch mirror clone: git fast-export | filter | git fast-import. No dependencies; never pushes."
+description = "SEC-1 history purge of a scratch mirror clone (git fast-export | filter | git fast-import, never pushes) and the SEC-3 Hermes permissions tool (dry run by default, rollback file). No dependencies."
 
 [[bin]]
 name = "galion-purge"

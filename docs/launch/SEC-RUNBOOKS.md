@@ -18,12 +18,15 @@ was changed, the galion-control key was not touched, no unit was restarted.
 |---|---|---|---|
 | SEC-1 | `SEC-1-ROTATION.md` (18 credentials, consumers, order), `SEC-1-HISTORY-PURGE.md` | `crates/history-purge` (`galion-purge`, Rust, no deps), `docs/launch/purge-paths.obsidian-open-mind.txt` | Oct 21 to 30 |
 | SEC-2 | below | none needed | 10 min |
-| SEC-3 | below | `deploy/staged/sec3-hermes-perms.sh` (dry run by default, rollback file) | 10 min |
+| SEC-3 | below | `galion-purge sec3-perms` (Rust, same crate, std only; dry run by default, rollback file) | 10 min |
 | SEC-4 | below | none needed | 15 min |
 | SEC-5 | below | none needed (staged `deploy/staged/tuner-publish.service` exists from ws/one-desk-tuner) | 5 min + DNS |
 
 Real-life test evidence: `docs/real-tests/sec-runbooks.md`
-(`GALION_REAL=1 scripts/real/sec-runbooks.sh`).
+(Rust test `crates/history-purge/tests/real_sec_runbooks.rs`, run with
+`GALION_REAL=1 cargo test --release -p history-purge --test real_sec_runbooks -- --ignored --nocapture`).
+The runbook docs `docs/launch/SEC-*.md` are `export-ignore` (`docs/launch/.gitattributes`):
+they name secret paths and a tunnel-id prefix and stay out of the public tree.
 
 ---
 
@@ -87,19 +90,24 @@ service user. All consumers (`hermes-rs`, `console`, `galion-one`) run as
 root (`systemctl show -p User` is empty), and `hermes.service` (Python) is
 inactive, so the change cannot lock a live service out.
 
-Script: `deploy/staged/sec3-hermes-perms.sh` (bash, reviewed; never reads
-file contents; refuses symlinks, wrong file types, `secrets/persist`,
-anything named galion-control, and HERMES_HOME values like `/` or `/root`).
+Tool: `galion-purge sec3-perms` (Rust, std only, in `crates/history-purge`;
+port of the earlier bash draft, same behaviour; never reads file contents;
+refuses symlinks (uses `lchown`, never follows links), wrong file types,
+`secrets/persist`, anything named galion-control, and HERMES_HOME values like
+`/` or `/root`; does not cross into other filesystems; rollback file is
+written 0600 in a 0700 dir **before** any change; exit 3 on a refusal).
 
 ```
-scp deploy/staged/sec3-hermes-perms.sh root@VPS:/root/          # owner
-ssh root@VPS 'bash /root/sec3-hermes-perms.sh'                   # dry run: prints now -> target
-ssh root@VPS 'bash /root/sec3-hermes-perms.sh --apply'           # writes /root/sec3-perms/sec3-before-*.tsv first
+# on the box (never build on the VPS): static binary
+CARGO_TARGET_DIR=/workspace/swarm/target/sec-runbooks cargo build --release -p history-purge --target x86_64-unknown-linux-musl
+scp /workspace/swarm/target/sec-runbooks/x86_64-unknown-linux-musl/release/galion-purge root@VPS:/root/galion-purge   # owner
+ssh root@VPS '/root/galion-purge sec3-perms'                          # dry run: prints now -> target, changes nothing
+ssh root@VPS '/root/galion-purge sec3-perms --apply'                  # writes /root/sec3-perms/sec3-before-*.tsv first
 ssh root@VPS 'curl -fsS http://127.0.0.1:8091/health; systemctl is-active hermes-rs console galion-one'
 # optional: also chmod o-w the other world-writable entries the dry run listed
-ssh root@VPS 'bash /root/sec3-hermes-perms.sh --apply --fix-world-writable'
-# rollback (restores modes and owners exactly):
-ssh root@VPS 'bash /root/sec3-hermes-perms.sh --rollback /root/sec3-perms/sec3-before-<stamp>.tsv'
+ssh root@VPS '/root/galion-purge sec3-perms --apply --fix-world-writable'
+# rollback (restores modes and numeric owners exactly):
+ssh root@VPS '/root/galion-purge sec3-perms --rollback /root/sec3-perms/sec3-before-<stamp>.tsv'
 ```
 
 No restart is needed (modes are checked at open time). Tested on a fixture

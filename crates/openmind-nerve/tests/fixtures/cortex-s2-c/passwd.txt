@@ -1,0 +1,3 @@
+root:x:0:0:root:/root:/bin/bash
+galion:x:998:998:galion services:/opt/galion:/usr/sbin/nologin
+slavik:x:1001:1001::/home/slavik:/bin/bash

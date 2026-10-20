@@ -111,7 +111,7 @@ fn start(upstream: Option<SocketAddr>) -> SocketAddr {
         args.push(u.to_string());
     }
     let cfg = Config::from_args(args).unwrap();
-    let site = Site::load(&cfg.root, &cfg.shell).unwrap();
+    let site = Site::load(cfg.root.as_deref().unwrap(), &cfg.shell).unwrap();
     let routes =
         Routes::parse("page /\npage /agents\npage /md/$name\nredirect /home /agents\n").unwrap();
     let l = TcpListener::bind("127.0.0.1:0").unwrap();

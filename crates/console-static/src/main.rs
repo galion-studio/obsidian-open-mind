@@ -68,12 +68,15 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let site = match Site::load(&cfg.root, &cfg.shell) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("galion-console-static: root {}: {e}", cfg.root.display());
-            return ExitCode::from(1);
-        }
+    let site = match &cfg.root {
+        None => Site::default(),
+        Some(root) => match Site::load(root, &cfg.shell) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("galion-console-static: root {}: {e}", root.display());
+                return ExitCode::from(1);
+            }
+        },
     };
     let routes = match &cfg.routes {
         Some(p) => match std::fs::read_to_string(p)
@@ -96,9 +99,13 @@ fn main() -> ExitCode {
         }
     };
     eprintln!(
-        "galion-console-static: listening {} root {} files {} skipped {} pages {} upstream {} prefixes {:?}",
+        "galion-console-static: listening {} ui {} root {} files {} skipped {} pages {} upstream {} prefixes {:?}",
         cfg.bind,
-        cfg.root.display(),
+        if cfg.rust_ui { "rust" } else { "spa" },
+        cfg.root
+            .as_ref()
+            .map(|r| r.display().to_string())
+            .unwrap_or_else(|| "none".into()),
         site.file_count(),
         site.skipped(),
         routes.page_count(),

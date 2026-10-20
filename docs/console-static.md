@@ -174,3 +174,9 @@ cannot be produced today without a JS runtime. Options:
 - Non-console Host on pages: SSR redirect becomes a client redirect to `/soon`
   (`_console.tsx` beforeLoad checks `document.location.host`).
 - `/auth/popup` is a dev-only middleware; deployed apps use full-page OAuth.
+
+## Rust pages (swarm/console-ui-rust, 2026-10-20 21:20 +02:00)
+
+`--ui rust` renders `/status`, `/services` and `/agents` in Rust (crates/console-ui) with no JavaScript; see
+`docs/console-ui-decision.md` for the decision record and `docs/real-tests/console-ui-rust.md` for the live
+comparison. The asset-set question above is narrowed to the rooms not yet ported.

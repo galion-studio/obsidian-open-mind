@@ -35,15 +35,26 @@ pub struct State {
     pub site: Site,
     pub routes: Routes,
     pub cfg: Config,
+    /// Rust-rendered pages (`--ui rust`).
+    pub ui: Option<console_ui::Ui>,
     active: AtomicUsize,
 }
 
 impl State {
     pub fn new(site: Site, routes: Routes, cfg: Config) -> State {
+        let ui = match (cfg.rust_ui, cfg.upstream) {
+            (true, Some(upstream)) => Some(console_ui::Ui::new(console_ui::UiConfig {
+                upstream,
+                pulse: cfg.pulse,
+                extra_hosts: cfg.extra_hosts.clone(),
+            })),
+            _ => None,
+        };
         State {
             site,
             routes,
             cfg,
+            ui,
             active: AtomicUsize::new(0),
         }
     }
@@ -183,6 +194,14 @@ fn handle_request(
         }
     }
 
+    if let Some(ui) = &state.ui {
+        if ui.owns(&clean, state.site.shell().is_some()) {
+            let (code, keep) = serve_ui(stream, head, carry, ui, &clean, query, keep, next_carry);
+            log(state, method, &clean, code);
+            return keep;
+        }
+    }
+
     enum Target<'a> {
         Redirect(&'a str),
         File(&'a Entry),
@@ -286,4 +305,88 @@ fn serve_file(
     }
     stream.flush()?;
     Ok(200)
+}
+
+/// Answer a request owned by the Rust UI. Returns (status, keep-alive).
+#[allow(clippy::too_many_arguments)]
+fn serve_ui(
+    stream: &mut TcpStream,
+    head: &RequestHead,
+    carry: Vec<u8>,
+    ui: &console_ui::Ui,
+    clean: &str,
+    query: &str,
+    keep: bool,
+    next_carry: &mut Vec<u8>,
+) -> (u16, bool) {
+    let method = head.method.as_str();
+    let head_only = method == "HEAD";
+    // Form bodies only: small, Content-Length framed, read fully here.
+    let mut body = Vec::new();
+    let mut keep = keep;
+    if head.header("transfer-encoding").is_some() {
+        let _ = http::write_simple(stream, 411, "", "Length Required\n", head_only, false);
+        return (411, false);
+    }
+    if let Some(len) = head.header("content-length") {
+        let n: usize = match len.trim().parse() {
+            Ok(n) => n,
+            Err(_) => {
+                let _ = http::write_simple(stream, 400, "", "Bad Request\n", head_only, false);
+                return (400, false);
+            }
+        };
+        if n > console_ui::MAX_FORM {
+            let _ = http::write_simple(stream, 413, "", "Content Too Large\n", head_only, false);
+            return (413, false);
+        }
+        body = carry;
+        while body.len() < n {
+            let mut buf = [0u8; 1024];
+            match stream.read(&mut buf) {
+                Ok(0) | Err(_) => return (400, false),
+                Ok(k) => body.extend_from_slice(&buf[..k]),
+            }
+        }
+        body.truncate(n);
+        keep = false;
+    } else if keep {
+        *next_carry = carry;
+    }
+    let peer = stream.peer_addr().ok();
+    let peer_loopback = peer.is_some_and(|p| p.ip().is_loopback());
+    let req = console_ui::Request {
+        method,
+        path: clean,
+        query,
+        host: head.header("host").unwrap_or(""),
+        cookie: head.header("cookie"),
+        origin: head.header("origin"),
+        sec_fetch_site: head.header("sec-fetch-site"),
+        // Only a loopback peer (cloudflared) may tell us the scheme.
+        forwarded_proto: head.header("x-forwarded-proto").filter(|_| peer_loopback),
+        peer_loopback,
+        client_ip: peer.map(|p| p.ip().to_string()).unwrap_or_default(),
+        content_type: head.header("content-type"),
+        body: &body,
+    };
+    let reply = ui.handle(&req);
+    let extra: String = reply
+        .headers
+        .iter()
+        .map(|(k, v)| {
+            let v: String = v.chars().filter(|c| *c != '\r' && *c != '\n').collect();
+            format!("{k}: {v}\r\n")
+        })
+        .collect();
+    let ok = http::write_head(stream, reply.status, &extra, reply.body.len() as u64, keep)
+        .and_then(|_| {
+            if head_only {
+                Ok(())
+            } else {
+                stream.write_all(&reply.body)
+            }
+        })
+        .and_then(|_| stream.flush());
+    (reply.status, keep && ok.is_ok())
 }

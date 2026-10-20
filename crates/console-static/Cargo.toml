@@ -17,3 +17,4 @@ name = "galion-console-static"
 path = "src/main.rs"
 
 [dependencies]
+console-ui = { path = "../console-ui" }

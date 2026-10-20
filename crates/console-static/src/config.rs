@@ -11,15 +11,26 @@ use std::path::PathBuf;
 pub const USAGE: &str = "galion-console-static: static front for the Galion console (B61)
 
 usage: galion-console-static --root DIR [options]
+       galion-console-static --ui rust --upstream ADDR [--root DIR] [options]
 
   --bind ADDR          listen address (default 127.0.0.1:8090; loopback only
                        unless --allow-public-bind)
-  --root DIR           built console (vite dist/client), indexed once at start
+  --root DIR           pre-built console (dist/client), indexed once at start;
+                       optional with --ui rust (then only Rust pages are served)
   --shell NAME         HTML shell under root (default _shell.html)
   --routes FILE        page/redirect list (see routes.rs); default: only `/`
   --upstream ADDR      loopback IP:port that answers the API (e.g. 127.0.0.1:8081)
   --proxy-prefix P     path prefix sent upstream; repeatable
                        (default /api/ and /_serverFn/ when --upstream is set)
+  --ui rust            render the ported pages in Rust (crates/console-ui):
+                       server-side HTML, Rust-generated CSS, no JavaScript;
+                       needs --upstream; with --root, unported pages fall back
+                       to the pre-built SPA
+  --pulse ADDR         loopback desk pulse for /services (GET /api/v1/awake),
+                       e.g. 127.0.0.1:8091; default none
+  --console-host HOST  extra host treated as a console host (repeatable),
+                       e.g. the machine public IP (the TSX had
+                       the two server IPs hard-coded; pass them here)
   --max-conns N        concurrent connections (default 256)
   --max-body BYTES     largest proxied request body (default 26214400)
   --allow-public-bind  allow a non-loopback --bind (tunnel-only hosts never need it)
@@ -33,7 +44,7 @@ usage: galion-console-static --root DIR [options]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub bind: SocketAddr,
-    pub root: PathBuf,
+    pub root: Option<PathBuf>,
     pub shell: String,
     pub routes: Option<PathBuf>,
     pub upstream: Option<SocketAddr>,
@@ -41,6 +52,9 @@ pub struct Config {
     pub max_conns: usize,
     pub max_body: u64,
     pub access_log: bool,
+    pub rust_ui: bool,
+    pub pulse: Option<SocketAddr>,
+    pub extra_hosts: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -79,6 +93,9 @@ impl Config {
         let mut max_body = 25 * 1024 * 1024u64;
         let mut access_log = true;
         let mut public = false;
+        let mut rust_ui = false;
+        let mut pulse = None;
+        let mut extra_hosts = Vec::new();
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             let mut val = |name: &str| {
@@ -132,12 +149,44 @@ impl Config {
                         .parse()
                         .map_err(|_| bad("--max-body must be a number"))?
                 }
+                "--ui" => match val("--ui")?.as_str() {
+                    "rust" => rust_ui = true,
+                    "spa" => rust_ui = false,
+                    other => return Err(bad(format!("--ui must be rust or spa, not {other:?}"))),
+                },
+                "--pulse" => {
+                    let p: SocketAddr = val("--pulse")?
+                        .parse()
+                        .map_err(|_| bad("--pulse must be IP:port"))?;
+                    if !p.ip().is_loopback() {
+                        return Err(bad("--pulse must be a loopback address"));
+                    }
+                    pulse = Some(p);
+                }
+                "--console-host" => {
+                    let h = val("--console-host")?.to_ascii_lowercase();
+                    if h.is_empty()
+                        || !h.bytes().all(|b| {
+                            b.is_ascii_alphanumeric() || b == b'.' || b == b'-' || b == b':'
+                        })
+                    {
+                        return Err(bad("--console-host must be a plain host name or IP"));
+                    }
+                    extra_hosts.push(h);
+                }
                 "--allow-public-bind" => public = true,
                 "--quiet" => access_log = false,
                 other => return Err(bad(format!("unknown argument {other:?}"))),
             }
         }
-        let root = root.ok_or_else(|| bad("--root is required"))?;
+        if root.is_none() && !rust_ui {
+            return Err(bad("--root is required (or use --ui rust)"));
+        }
+        if rust_ui && upstream.is_none() {
+            return Err(bad(
+                "--ui rust needs --upstream (the pages read the console API)",
+            ));
+        }
         if !public && !bind.ip().is_loopback() {
             return Err(bad(
                 "--bind is not loopback; pass --allow-public-bind if that is intended",
@@ -159,6 +208,9 @@ impl Config {
             max_conns,
             max_body,
             access_log,
+            rust_ui,
+            pulse,
+            extra_hosts,
         })
     }
 }
@@ -176,6 +228,8 @@ mod tests {
         let c = Config::from_args(args("--root /srv/c")).unwrap();
         assert_eq!(c.bind.to_string(), "127.0.0.1:8090");
         assert_eq!(c.shell, "_shell.html");
+        assert_eq!(c.root.as_deref(), Some(std::path::Path::new("/srv/c")));
+        assert!(!c.rust_ui);
         assert!(c.upstream.is_none());
         assert!(c.proxy_prefixes.is_empty());
     }
@@ -213,5 +267,25 @@ mod tests {
         assert!(Config::from_args(args("--root r --max-conns 0")).is_err());
         assert!(Config::from_args(args("--root r --bogus")).is_err());
         assert_eq!(Config::from_args(args("--help")), Err(ArgsError::Help));
+    }
+
+    #[test]
+    fn rust_ui_flags() {
+        let c = Config::from_args(args(
+            "--ui rust --upstream 127.0.0.1:8088 --pulse 127.0.0.1:8091 --console-host 203.0.113.7",
+        ))
+        .unwrap();
+        assert!(c.rust_ui);
+        assert!(c.root.is_none());
+        assert_eq!(c.pulse.unwrap().port(), 8091);
+        assert_eq!(c.extra_hosts, vec!["203.0.113.7"]);
+        assert!(Config::from_args(args("--ui rust")).is_err());
+        assert!(Config::from_args(args("--ui vue --root r")).is_err());
+        assert!(
+            Config::from_args(args("--ui rust --upstream 127.0.0.1:1 --pulse 10.0.0.1:1")).is_err()
+        );
+        assert!(
+            Config::from_args(args("--ui rust --upstream 127.0.0.1:1 --console-host a/b")).is_err()
+        );
     }
 }

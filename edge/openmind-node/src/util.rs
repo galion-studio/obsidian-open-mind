@@ -91,6 +91,35 @@ pub fn vm_hwm_kb() -> Option<u64> {
         .ok()
 }
 
+/// Run `child` in a forked child process and report whether it returned true.
+/// Used by the doctor/seccomp probes so the probe never changes this process
+/// (a seccomp filter or a new user namespace cannot be undone).
+///
+/// # Safety
+/// After `fork` in a possibly multi-threaded process only async-signal-safe
+/// work is allowed in the child. `child` must therefore not allocate, take
+/// locks, print through std, or unwind; plain syscalls (`prctl`, `unshare`,
+/// `ptrace`, `write`) are fine. The child always leaves through `_exit`.
+pub unsafe fn fork_probe(child: impl FnOnce() -> bool) -> bool {
+    // SAFETY: fork has no memory-safety preconditions of its own; what the
+    // child may do afterwards is the caller's contract (see `# Safety`).
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        return false;
+    }
+    if pid == 0 {
+        let ok = child();
+        // SAFETY: _exit is async-signal-safe and never returns, so the child
+        // never runs Rust destructors, atexit handlers or the test harness.
+        unsafe { libc::_exit(if ok { 0 } else { 1 }) };
+    }
+    let mut st = 0;
+    // SAFETY: `pid` is our own just-forked child and `st` is a valid,
+    // writable c_int for the duration of the call.
+    let r = unsafe { libc::waitpid(pid, &mut st, 0) };
+    r == pid && libc::WIFEXITED(st) && libc::WEXITSTATUS(st) == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

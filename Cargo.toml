@@ -4,7 +4,7 @@ resolver = "2"
 members = ["crates/*"]
 # contrib/grokbot is a vendored, read-only material dump with its own package.
 # It is not part of the OpenMind workspace.
-exclude = ["contrib"]
+exclude = ["contrib", "vendor"]
 
 [workspace.package]
 edition = "2021"
@@ -62,3 +62,9 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.galion-voice-cpu]
 opt-level = 3
+
+# RUSTSEC-2026-0367/0368/0369: no candle release (0.9.2..0.11.0, nor upstream main) allows zip >= 9.
+# vendor/candle-core is candle-core 0.9.2 unchanged except its zip requirement (7.2 -> 9.0.5).
+# See docs/security/candle-zip-fix.md. Drop this patch once upstream candle requires zip >= 9.
+[patch.crates-io]
+candle-core = { path = "vendor/candle-core" }

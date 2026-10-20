@@ -2,8 +2,8 @@
 # Copyright (c) 3000 Galion / galion-studio
 # DESK-ID: openmind.UCPU-1
 #
-# Workspace-wide cargo settings. Portable only: no target-cpu, no
-# target-feature (UNIVERSAL-CPU.md). The single rustflag below is a cfg
+# Workspace-wide cargo settings. Portable only: no CPU-pinning codegen flags
+# (UNIVERSAL-CPU.md). The single rustflag below is a cfg
 # that selects a portable pure-Rust backend, not a CPU feature flag.
 
 [env]

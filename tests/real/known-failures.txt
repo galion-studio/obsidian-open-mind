@@ -7,20 +7,10 @@
 # be pruned. Every entry needs a reason and the branch that fixes it.
 # Added 2026-10-20T19:25:00+02:00 (galion-realtest, swarm/real-harness).
 
-# galion-one at 13a296c fails OPEN when the device store is missing or has no
-# codeHash (castle() == false => token_ok() == true). Fixed on swarm/one-probe
-# (b44cd4f): the harness passes all of these against that build. Remove these
-# lines when that fix lands on main.
-one-fail-closed-missing-store/me-unpaired-false
-one-fail-closed-missing-store/session-no-cookie-401
-one-fail-closed-missing-store/session-forged-cookie-401
-one-fail-closed-missing-store/analytics-no-cookie-401
-one-fail-closed-missing-store/files-no-cookie-401
-one-fail-closed-empty-store/me-unpaired-false
-one-fail-closed-empty-store/session-no-cookie-401
-one-fail-closed-empty-store/session-forged-cookie-401
-one-fail-closed-empty-store/analytics-no-cookie-401
-one-fail-closed-empty-store/files-no-cookie-401
+# The galion-one fail-open entries (one-fail-closed-missing-store/* and
+# one-fail-closed-empty-store/*, 10 checks) were removed on
+# swarm/integration-1 (2026-10-20, +02:00): swarm/one-probe (b44cd4f) is merged
+# there and `galion-realtest stack` passes all of them without this list.
 
 # Live (read-only probe). The One mouth (TTS, 8002) answers 503 "loading":
 # chatterbox needs a GPU that the CPU-light VPS does not have (goals.md).

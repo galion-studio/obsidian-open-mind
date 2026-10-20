@@ -510,7 +510,7 @@ printer.local. IN A 127.0.0.1
         );
         assert!(is_local("10.1.2.3".parse().unwrap()));
         assert!(is_local("fd00::1".parse().unwrap()));
-        assert!(!is_local("8.8.8.8".parse().unwrap()));
+        assert!(!is_local("8.8.8.8".parse().unwrap())); // repo-check: allow (test fixture address, never dialled)
         assert!(!is_local("2001:db8::1".parse().unwrap()));
     }
 

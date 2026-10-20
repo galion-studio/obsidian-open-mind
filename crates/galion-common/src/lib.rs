@@ -4,7 +4,7 @@
 //! galion-common: the helpers that used to be copied crate to crate.
 //!
 //! Everything here is std only, portable scalar code (no asm, no SIMD, no
-//! target-cpu), and total: malformed input returns an error, never a panic.
+//! CPU-specific codegen), and total: malformed input returns an error, never a panic.
 //!
 //! - [`sha256`]: FIPS 180-4 SHA-256 (NIST vectors in the tests) and [`hex`].
 //! - [`base64`]: RFC 4648 standard and URL-safe alphabets, encode and decode.

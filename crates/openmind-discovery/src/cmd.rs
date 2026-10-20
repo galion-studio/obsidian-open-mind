@@ -587,7 +587,7 @@ mod tests {
     fn argument_errors_are_usage_and_touch_nothing() {
         for args in [
             s(&["find", "--probe-ports", "exo:1"]),
-            s(&["find", "--probe", "8.8.8.0/24"]),
+            s(&["find", "--probe", "8.8.8.0/24"]), // repo-check: allow (test fixture address, never dialled)
             s(&["find", "--probe", "10.0.0.0/16"]),
             s(&["find", "--timeout-ms", "0"]),
             s(&["find", "--timeout-ms", "60000"]),

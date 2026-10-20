@@ -25,6 +25,13 @@ use std::io::Write;
 use std::net::{TcpStream, UdpSocket};
 use std::time::Duration;
 
+#[cfg(not(target_os = "android"))]
+use libc::PTRACE_SEIZE;
+/// The libc crate's Android (bionic) bindings have no `PTRACE_SEIZE`; the
+/// kernel request number is the same on every Linux ABI (linux/ptrace.h).
+#[cfg(target_os = "android")]
+const PTRACE_SEIZE: libc::c_int = 0x4206;
+
 fn out(attack: &str, escaped: bool, detail: impl std::fmt::Display) {
     let v = if escaped { "ESCAPED" } else { "CONTAINED" };
     println!("RESULT {attack} {v} {detail}");
@@ -68,7 +75,7 @@ fn main() {
         "ptrace" => {
             let pid: i32 = arg(1).parse().unwrap_or(0);
             // SAFETY: PTRACE_SEIZE on a target pid; read-only attempt.
-            let r = unsafe { libc::ptrace(libc::PTRACE_SEIZE, pid, 0, 0) };
+            let r = unsafe { libc::ptrace(PTRACE_SEIZE, pid, 0, 0) };
             if r == 0 {
                 out("ptrace", true, format!("seized pid {pid}"));
             } else {

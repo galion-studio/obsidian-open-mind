@@ -19,7 +19,7 @@ hermes-gateway ran `--mock` (offline).
 | 19302 | openmind-memory | `NERVE_URL` set, same switches (default queue 256) |
 | 19305 | stray openmind-memory | no NERVE_URL, not in the component table: plays one of the VPS "no unit" shadows |
 
-Command: `N_REQ=1000 scripts/real/nerve-wiring.sh`. Load per phase: 1000
+Command (wave 2, since replaced by the Rust test below): `N_REQ=1000 scripts/real/nerve-wiring.sh`. Load per phase: 1000
 mock chats (every 10th says `mock-fail`, giving a real 502) plus 1000
 `POST /recall`, with 4 in parallel.
 
@@ -173,3 +173,93 @@ The live nerve (galion-nerve from 2f5a730, untouched; self-eval at
 listener or ownership view at all. swarm/nerve (5802d0e) listed the five ports
 as `5 loopback listener(s) no monitored unit owns`. This branch adds the
 "unknown owner" label, the holding process and the Gaia owner per incident.
+
+## Wave 4 (slot 101, swarm/nerve-wiring-2): the script is now a Rust test
+
+`scripts/real/nerve-wiring.sh` is deleted. `crates/openmind-nerve/tests/real_wiring.rs`
+does the same work in Rust (std + serde_json, hand-written HTTP/1.0 client,
+`kill -STOP/-CONT` via `Command`). It builds the three release binaries itself
+(`cargo build --release` into `<target>/real-nerve-wiring`, so it never waits
+on the outer `cargo test` lock), starts them, probes them and tears them down
+(`Drop` kills every process, SIGCONT first). Ports moved to the slot-101 range:
+
+| port | process |
+|---|---|
+| 19710 | openmind-nerve serve |
+| 19711 | hermes-gateway --mock, `NERVE_URL` set |
+| 19712 | openmind-memory, `NERVE_URL` set |
+| 19713 / 19714 | baseline hermes / memory with `NERVE_URL` unset (new phase 0, then killed) |
+| 19715 | stray openmind-memory -> "unknown owner" |
+
+New compared with the script: phase 0 runs the same load against hermes and
+memory with **`NERVE_URL` unset** (the plan T1.1 baseline), and the test now
+asserts instead of grepping: started events, ownership rows (19715 unknown
+owner, process from /proc), the unmanaged-listeners finding, incident Gaia
+owners and cortex systems, slow + 5xx signals, every request answered in every
+phase (memory 100 % 200, hermes only 200/429/502), hung/down hermes p95 within
+max(3x, +50 ms) of the baseline, failed+dropped counters rising after the nerve
+outage, critical probe-down incident, 402s + `spend_cap` event + spend-cap incident.
+
+Command:
+`GALION_REAL=1 N_REQ=1000 cargo test -p openmind-nerve --test real_wiring -- --nocapture`
+(`NERVE_WIRING_BIN_DIR=<dir>` skips the build).
+
+### Run 2026-10-21T00:57:47+02:00 .. 00:58:56+02:00, N_REQ=1000: passed (68.97 s)
+
+```
+== 2026-10-21T00:57:47+02:00 PHASE base: NERVE_URL unset, no nerve
+  hermes (base): n=1000 p50=2.77ms p95=7.63ms p99=11.13ms max=56.95ms codes={200: 900, 502: 100}
+  memory (base): n=1000 p50=0.20ms p95=0.32ms p99=0.47ms max=0.99ms codes={200: 1000}
+-- ownership (listen scope 19710-19719)
+{"documented_unowned":false,"gaia":"AETHER","owner":"galion-nerve (self)","port":19710}
+{"documented_unowned":false,"gaia":"ARTEMIS","owner":"hermes-rs","port":19711}
+{"documented_unowned":false,"gaia":"APOLLO","owner":"openmind-memory","port":19712}
+{"documented_unowned":true,"gaia":null,"manual":false,"owner":"unknown owner","pid":2825663,"port":19715,"process":"openmind-memory","unit":null}
+-- unmanaged listener finding
+"1 loopback listener(s) no monitored unit owns: :19715"
+  hermes (up): n=1000 p50=3.45ms p95=8.20ms p99=14.16ms max=33.80ms codes={200: 900, 502: 100}
+  memory (up): n=1000 p50=0.22ms p95=0.63ms p99=2.60ms max=6.08ms codes={200: 1000}
+-- 3 slow chats: 200 1.507s / 1.507s / 1.508s; POST /seed: 501 501 501
+{"cause":"hermes-rs","gaia":["ARTEMIS"],"severity":"error","title":"hermes-rs: pushed 59 error(s) in the last 2 min; last: POST /v1/chat/completions -> 502"}
+{"cause":"openmind-memory","gaia":["APOLLO"],"severity":"error","title":"openmind-memory: pushed 3 error(s) in the last 2 min; last: POST /seed -> 501"}
+== 2026-10-21T00:58:14+02:00 PHASE hung: nerve SIGSTOPped (accepts, never answers)
+  hermes (hung): n=1000 p50=2.89ms p95=10.19ms p99=15.47ms max=235.19ms codes={200: 896, 429: 4, 502: 100}
+  memory (hung): n=1000 p50=0.23ms p95=0.48ms p99=1.49ms max=5.27ms codes={200: 1000}
+== 2026-10-21T00:58:18+02:00 PHASE down: nerve killed
+  hermes (down): n=1000 p50=3.30ms p95=10.86ms p99=16.18ms max=36.30ms codes={200: 894, 429: 7, 502: 99}
+  memory (down): n=1000 p50=0.21ms p95=0.42ms p99=0.67ms max=1.32ms codes={200: 1000}
+-- client counters after hung + down phases (first heartbeats to the new nerve)
+"hermes-rs" heartbeat: queued=293 sent=112 dropped=18 failed=181
+"openmind-memory" heartbeat: queued=12 sent=12 dropped=0 failed=0
+  hermes (up2): n=1000 p50=3.14ms p95=16.21ms p99=100.97ms max=173.46ms codes={200: 893, 429: 8, 502: 99}
+  memory (up2): n=1000 p50=0.21ms p95=0.39ms p99=0.53ms max=3.26ms codes={200: 1000}
+== 2026-10-21T00:58:33+02:00 KILL hermes-gateway
+{"gaia":["ARTEMIS"],"severity":"critical","title":"hermes-rs: failing: health probe down (connect: Connection refused (os error 111)); failing-soon: 64 errors in 5 min"}
+== 2026-10-21T00:58:44+02:00 restart hermes with HERMES_RS_DAILY_CALL_CAP=5
+402 402 402 402 402 402
+{"kind":"event","msg":"daily provider call cap reached (3586 of 5)","name":"spend_cap","source":"hermes-rs","ts":"2026-10-21T00:58:45+02:00","value":1.0}
+{"gaia":["ARTEMIS"],"severity":"warn","title":"hermes-rs: spend cap hit (provider calls refused)"}
+-- RSS kB: nerve 5748 hermes 4376 memory 4480 stray 3912
+```
+
+A second run (2026-10-21 ~01:00 CEST (+02:00), N_REQ=300, test-side release
+build, no `NERVE_WIRING_BIN_DIR`) also passed in 97.92 s.
+
+### p99 against the `NERVE_URL`-unset baseline (plan T1.1 asked for within 5 %)
+
+| run (CEST +02:00) | N | hermes p99 base / up / hung / down / up2 | memory p99 base / down |
+|---|---|---|---|
+| 00:57:47 | 1000 | 11.13 / 14.16 / 15.47 / 16.18 / 100.97 ms | 0.47 / 0.67 ms |
+| ~01:00 | 300 | 9.00 / 9.80 / 23.83 / 16.42 / 14.55 ms | 0.72 / 0.70 ms |
+
+Honest reading: **the 5 % p99 criterion is not met on this box.** hermes p99
+with the nerve down is +45 % / +82 % over the baseline (about 5-7 ms in
+absolute terms); p50 does not move (2.8-3.7 ms in every phase), memory does
+not move, and no request ever failed or waited for the nerve. The box ran
+~15 other agents' builds at the same time and the baseline always runs first,
+so part of this is noise; part may be real (hermes pushes a 502 event per
+`mock-fail` request; with the nerve down each push becomes a failed POST in
+the worker thread, competing for CPU with request threads). The test asserts
+a loose bound (p95 within max(3x, +50 ms)), not 5 %. Next step to settle it:
+run the phases interleaved several times on a quiet box, or with every 10th
+request not failing (no 5xx pushes) to separate CPU contention from pushes.

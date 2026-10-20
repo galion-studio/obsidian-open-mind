@@ -90,6 +90,7 @@ results in [`docs/real-tests/nerve.md`](../../docs/real-tests/nerve.md).
   `cortex.incidents` lists the open incidents with their owning Gaia
   function(s) and systems. Every cortex finding carries its `gaia` too.
 
-Real-life test: `scripts/real/nerve-wiring.sh` (ports 19300-19309) or
-`GALION_REAL=1 cargo test -p openmind-nerve --test real_wiring`. Results
+Real-life test (Rust only; ports 19710-19719):
+`GALION_REAL=1 cargo test -p openmind-nerve --test real_wiring -- --nocapture`
+(`N_REQ`, default 300; `NERVE_WIRING_BIN_DIR` to reuse release binaries). Results
 are in [`docs/real-tests/nerve-wiring.md`](../../docs/real-tests/nerve-wiring.md).

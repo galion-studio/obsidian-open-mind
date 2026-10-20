@@ -1,0 +1,118 @@
+rehearsal desk: root /workspace/swarm/sim/deploy-rust/root-desk port 19393, galion-deploy /workspace/swarm/target/deploy-rust/release/galion-deploy (sha da2b5fba83e00ce2), sim bins /workspace/swarm/sim/deploy-sim/bin
+simsup pid 2641961, root /workspace/swarm/sim/deploy-rust/root-desk
+CHECK PASS  old desk serving ({"ok":true})
+old sha 869b60fc5ba0078f, new sha b46b148f2b65d8f5; /desk top-level keys (old): 22
+
+[2026-10-20T23:20:48.400+02:00] == manual cutover per docs/cutover/desk.md steps 8-11 (probe every 2 ms)
+$ ctl restart galion-desk
+  -> exit=0
+  probe| probe http://127.0.0.1:19393/health interval=2ms tries=142 ok=141 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T23:20:48.717+02:00 last_fail=2026-10-20T23:20:48.717+02:00 next_ok=never fail_span_ms=0 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=7
+  probe| NOTE: service was still down when the probe stopped
+DOWNTIME desk manual-swap 0 ms
+CHECK PASS  manual swap: new sha running, 22 /desk keys, downtime < 1 s (22 keys, outage 0 ms)
+
+[2026-10-20T23:20:48.729+02:00] == manual rollback per step 13
+$ ctl restart galion-desk
+  -> exit=0
+  probe| probe http://127.0.0.1:19393/health interval=2ms tries=139 ok=138 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T23:20:49.044+02:00 last_fail=2026-10-20T23:20:49.044+02:00 next_ok=2026-10-20T23:20:49.047+02:00 fail_span_ms=0 until_ok_ms=3 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=8
+CHECK PASS  step 13 rollback: old sha, healthy, downtime < 1 s (outage 3 ms)
+DOWNTIME desk manual-rollback 3 ms
+
+[2026-10-20T23:20:49.053+02:00] == the galion-deploy route: swap, broken, manual rollback
+$ galion-deploy galion-desk /workspace/swarm/sim/deploy-rust/root-desk/var/tmp/galion-cutover/galion-desk.new http://127.0.0.1:19393/health   (direct backend, outer limit 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:20:52+02:00 svc=galion-deploy level=info msg="backup" unit=galion-desk target=/workspace/swarm/sim/deploy-rust/root-desk/opt/galion/bin/galion-desk backup=/workspace/swarm/sim/deploy-rust/root-desk/var/backups/galion/deploy/galion-desk-20261020-232049+0200.bin sha_old=869b60fc5ba0 sha_new=b46b148f2b65
+ts=2026-10-20T23:20:53+02:00 svc=galion-deploy level=info msg="deployed" unit=galion-desk health=http://127.0.0.1:19393/health
+  -> exit=0 elapsed_ms=4163
+  probe| probe http://127.0.0.1:19393/health interval=2ms tries=1950 ok=1948 fail=2 outages=1
+  probe| outage first_fail=2026-10-20T23:20:52.473+02:00 last_fail=2026-10-20T23:20:52.475+02:00 next_ok=2026-10-20T23:20:52.477+02:00 fail_span_ms=2 until_ok_ms=4 tries=2 kinds=Otherx1,Refusedx1
+  probe| longest_gap_between_ok_ms=12
+CHECK PASS  galion-deploy swap exit 0, downtime < 1 s (exit 0, outage 4 ms)
+DOWNTIME desk deploy-swap 4 ms
+$ galion-deploy galion-desk /workspace/swarm/sim/deploy-rust/root-desk/bad/sim-broken http://127.0.0.1:19393/health   (direct backend, outer limit 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:20:56+02:00 svc=galion-deploy level=info msg="backup" unit=galion-desk target=/workspace/swarm/sim/deploy-rust/root-desk/opt/galion/bin/galion-desk backup=/workspace/swarm/sim/deploy-rust/root-desk/var/backups/galion/deploy/galion-desk-20261020-232053+0200.bin sha_old=b46b148f2b65 sha_new=cf3c5ab9b1c9
+ts=2026-10-20T23:21:17+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=galion-desk
+  | galion-desk.service: Scheduled restart job, restart counter is at 6.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-desk.service: Started (pid 2657156): /workspace/swarm/sim/deploy-rust/root-desk/opt/galion/bin/galion-desk
+  | galion-desk.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-desk.service: Failed with result 'exit-code'.
+  | galion-desk.service: Scheduled restart job, restart counter is at 7.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-desk.service: Started (pid 2658146): /workspace/swarm/sim/deploy-rust/root-desk/opt/galion/bin/galion-desk
+  | galion-desk.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-desk.service: Failed with result 'exit-code'.
+  | galion-desk.service: Scheduled restart job, restart counter is at 8.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-desk.service: Started (pid 2659822): /workspace/swarm/sim/deploy-rust/root-desk/opt/galion/bin/galion-desk
+  | galion-desk.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-desk.service: Failed with result 'exit-code'.
+  | galion-desk.service: Scheduled restart job, restart counter is at 9.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | galion-desk.service: Started (pid 2661326): /workspace/swarm/sim/deploy-rust/root-desk/opt/galion/bin/galion-desk
+  | galion-desk.service: Main process exited, code=exited, status=1/FAILURE
+  | galion-desk.service: Failed with result 'exit-code'.
+ts=2026-10-20T23:21:18+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=galion-desk
+  -> exit=3 elapsed_ms=24431
+  probe| probe http://127.0.0.1:19393/health interval=5ms tries=4693 ok=841 fail=3852 outages=1
+  probe| outage first_fail=2026-10-20T23:20:56.925+02:00 last_fail=2026-10-20T23:21:17.217+02:00 next_ok=2026-10-20T23:21:17.222+02:00 fail_span_ms=20292 until_ok_ms=20297 tries=3852 kinds=Refusedx3852
+  probe| longest_gap_between_ok_ms=20302
+CHECK PASS  L1 broken: exit 3, rolled back to the new desk (exit 3, outage 20297 ms)
+DOWNTIME desk auto-rollback-broken 20297 ms
+$ galion-deploy galion-desk /workspace/swarm/sim/deploy-rust/root-desk/var/backups/galion/deploy/galion-desk-20261020-232049+0200.bin http://127.0.0.1:19393/health   (direct backend, outer limit 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:21:21+02:00 svc=galion-deploy level=info msg="backup" unit=galion-desk target=/workspace/swarm/sim/deploy-rust/root-desk/opt/galion/bin/galion-desk backup=/workspace/swarm/sim/deploy-rust/root-desk/var/backups/galion/deploy/galion-desk-20261020-232118+0200.bin sha_old=b46b148f2b65 sha_new=869b60fc5ba0
+ts=2026-10-20T23:21:22+02:00 svc=galion-deploy level=info msg="deployed" unit=galion-desk health=http://127.0.0.1:19393/health
+  -> exit=0 elapsed_ms=4138
+  probe| probe http://127.0.0.1:19393/health interval=2ms tries=2045 ok=2044 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T23:21:21.670+02:00 last_fail=2026-10-20T23:21:21.670+02:00 next_ok=2026-10-20T23:21:21.672+02:00 fail_span_ms=0 until_ok_ms=2 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=12
+CHECK PASS  L2 manual rollback via galion-deploy: old sha back (exit 0, outage 2 ms)
+DOWNTIME desk rollback-L2 2 ms
+
+[2026-10-20T23:21:22.701+02:00] == F1 hang trap: desk DOWN, forward deploy of the new desk (it ignores --version and serves)
+$ ctl stop galion-desk
+  -> exit=0
+$ galion-deploy galion-desk /workspace/swarm/sim/deploy-rust/root-desk/var/tmp/galion-cutover/galion-desk.new http://127.0.0.1:19393/health   (direct backend, outer limit 60s)
+2 s in: unit inactive; GET http://127.0.0.1:19393/health -> 200 from '/workspace/swarm/sim/deploy-rust/root-desk/var/tmp/galion-cutover/galion-desk.new --version' (pids [2668509])
+ts=2026-10-20T23:21:27+02:00 svc=galion-deploy level=warn msg="/workspace/swarm/sim/deploy-rust/root-desk/var/tmp/galion-cutover/galion-desk.new --version did not exit within 5s; killed its process group" unit=galion-desk
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:21:30+02:00 svc=galion-deploy level=info msg="backup" unit=galion-desk target=/workspace/swarm/sim/deploy-rust/root-desk/opt/galion/bin/galion-desk backup=/workspace/swarm/sim/deploy-rust/root-desk/var/backups/galion/deploy/galion-desk-20261020-232122+0200.bin sha_old=869b60fc5ba0 sha_new=b46b148f2b65
+ts=2026-10-20T23:21:31+02:00 svc=galion-deploy level=info msg="deployed" unit=galion-desk health=http://127.0.0.1:19393/health
+  -> exit=0 elapsed_ms=9176
+CHECK PASS  F1 fixed: deploy completes on its own (exit 0, new sha, healthy); the stray --version was bounded and killed (exit 0 in 9176 ms (was: hung, 124); --version pids during [2668509], after [])
+
+[2026-10-20T23:21:31.887+02:00] == F6: SIGHUP (dropped ssh session) in the health window of a broken desk deploy
+$ galion-deploy galion-desk /workspace/swarm/sim/deploy-rust/root-desk/bad/sim-broken http://127.0.0.1:19393/health   (direct backend, outer limit 90s)
+  (new binary on disk: true; sending SIGHUP to galion-deploy pid 2674635)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:21:34+02:00 svc=galion-deploy level=info msg="backup" unit=galion-desk target=/workspace/swarm/sim/deploy-rust/root-desk/opt/galion/bin/galion-desk backup=/workspace/swarm/sim/deploy-rust/root-desk/var/backups/galion/deploy/galion-desk-20261020-232131+0200.bin sha_old=b46b148f2b65 sha_new=cf3c5ab9b1c9
+ts=2026-10-20T23:21:36+02:00 svc=galion-deploy level=warn msg="interrupted by SIGHUP, rolling back" unit=galion-desk
+ts=2026-10-20T23:21:37+02:00 svc=galion-deploy level=warn msg="SIGHUP received during rollback; ignored until it finished"
+ts=2026-10-20T23:21:37+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=galion-desk reason=interrupted
+  -> exit=5 elapsed_ms=5684
+CHECK PASS  F6 SIGHUP: exit 5, new desk back, healthy (exit 5)
+galion-desk.service active result=success pid=2675872 restarts=9 exec=/workspace/swarm/sim/deploy-rust/root-desk/opt/galion/bin/galion-desk
+
+simsup stopped; leftover listeners on :19393: 0
+
+== summary desk: 8 pass, 0 fail
+  old desk serving|PASS|{"ok":true}
+  manual swap: new sha running, 22 /desk keys, downtime < 1 s|PASS|22 keys, outage 0 ms
+  step 13 rollback: old sha, healthy, downtime < 1 s|PASS|outage 3 ms
+  galion-deploy swap exit 0, downtime < 1 s|PASS|exit 0, outage 4 ms
+  L1 broken: exit 3, rolled back to the new desk|PASS|exit 3, outage 20297 ms
+  L2 manual rollback via galion-deploy: old sha back|PASS|exit 0, outage 2 ms
+  F1 fixed: deploy completes on its own (exit 0, new sha, healthy); the stray --version was bounded and killed|PASS|exit 0 in 9176 ms (was: hung, 124); --version pids during [2668509], after []
+  F6 SIGHUP: exit 5, new desk back, healthy|PASS|exit 5
+  DOWNTIME manual-swap 0 ms
+  DOWNTIME manual-rollback 3 ms
+  DOWNTIME deploy-swap 4 ms
+  DOWNTIME auto-rollback-broken 20297 ms
+  DOWNTIME rollback-L2 2 ms
+log: /workspace/swarm/sim/deploy-rust/runs/desk-20261020-232048+0200.log

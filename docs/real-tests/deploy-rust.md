@@ -27,7 +27,7 @@
 GALION_REAL=1 nice -n 10 cargo test -j 2 --release -p galion-deploy --test real_rehearsal -- --nocapture --test-threads 4
 ```
 
-All four ran in parallel, 201 s.
+All four ran in parallel, 202 s, on the committed tree (9899537; galion-deploy release sha256 prefix da2b5fba83e00ce2) at 2026-10-20T23:20:48+02:00. Two earlier full runs gave identical counts. Afterwards there were 0 listeners in 19390-19399 and no leftover processes.
 
 | rehearsal | deploy-sim (bash) run 5 | **deploy-rust (Rust)** | full log |
 |---|---|---|---|
@@ -124,3 +124,17 @@ GALION_REAL=1 cargo test --release -p galion-deploy --test real_rehearsal -- --n
 ```
 
 Logs land in `/workspace/swarm/sim/deploy-rust/runs/`.
+
+## 7. Open issues and owner decisions
+
+1. **Owner decision: replacing the live tool.** The VPS still runs the 2,830 B bash `galion-deploy` (ws/foundation e43d7ab), and nothing was installed. The options:
+   - (a) Install the Rust binary at `/opt/galion/rust/bin/galion-deploy` before the tuner, nerve, room and desk cutovers, and simplify the runbooks: no manual `reset-failed`, use the exit codes, and room's first install becomes a galion-deploy run.
+   - (b) Keep bash for these cutovers and switch afterwards.
+   - (c) Keep bash.
+
+   The runbooks in docs/cutover/ are still written for the live bash script and stay valid for (b) and (c). Under (a), preflight should compare the sha of the installed Rust binary with the CI build.
+2. **The L1 outage is about 20 s by design.** It is the 20 tries × 1 s health window, kept from bash. Failing fast when the unit has crash-looped N times would cut it to a few seconds, but it changes the contract. Not done; it is an owner/tuning call.
+3. **Exit-code consumers.** Nothing in the repo reads galion-deploy's exit code. openmind-nerve launches it via `systemd-run` and matches `galion-deploy ` in a cmdline, and both still work. A wrapper that treats "non-zero = rolled back" still works. A wrapper that tests `== 1` for "rolled back" would need to be updated to `3`.
+4. **Defaults changed on purpose (F1/F2).** `--version` is bounded at 5 s (`GALION_DEPLOY_VERSION_TIMEOUT=0` skips it), and `reset-failed` runs before each restart (`GALION_DEPLOY_RESET_FAILED=0` gives the old behaviour). `reset-failed` also clears a unit's start-limit counter, which is the point.
+5. **Real systemd was not exercised** (PID 1 on the box is tini). The systemd backend is proven against shims that record the exact `systemctl`/`journalctl` calls. The behaviour under systemd itself rests on simsup's model (see sim/deploy-sim/README.md for what it does not model: the sandbox, other Type=s, D-Bus timing).
+6. The rehearsal's galion-backup.sh stand-in is the `sm_shim` example (Rust), which sleeps 3 s. The real data backup was not run.

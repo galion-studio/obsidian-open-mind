@@ -5,7 +5,7 @@
 # Desk cutover: box rehearsal of docs/cutover/desk.md (swarm/desk-linkwatch a54c792)
 
 - Rehearsed: 2026-10-20 21:14:56–21:15:45 CEST (+02:00), swarm slot 33, branch `swarm/deploy-sim`. **8/8 checks pass.** Full log: `docs/real-tests/deploy-sim/desk-run5.log`.
-- Re-run: `scripts/real/deploy-sim-build.sh && scripts/real/deploy-sim.sh desk` (port 19333; all desk probe targets point at the dead port 19339).
+- Re-run (Rust since swarm/deploy-rust; the bash drivers are gone): `GALION_REAL=1 cargo test --release -p galion-deploy --test real_rehearsal rehearsal_desk -- --nocapture` (port range 19390-19399; results in docs/real-tests/deploy-rust.md). Original run: (port 19333; all desk probe targets point at the dead port 19339).
 - The plan (desk.md §5) lives on `swarm/desk-linkwatch`. Nothing touched the VPS. A read-only GET at 21:03 CEST: `127.0.0.1:8646/health` → 200.
 
 ## Sim setup and its limits

@@ -5,7 +5,7 @@
 # Room cutover: box rehearsal of docs/cutover/room.md (swarm/room 5bb27e1)
 
 - Rehearsed: 2026-10-20 21:14:57–21:15:36 CEST (+02:00), swarm slot 33, branch `swarm/deploy-sim`. **5/5 checks pass.** Full log: `docs/real-tests/deploy-sim/room-run5.log`.
-- Re-run: `scripts/real/deploy-sim-build.sh && scripts/real/deploy-sim.sh room` (port 19332).
+- Re-run (Rust since swarm/deploy-rust; the bash drivers are gone): `GALION_REAL=1 cargo test --release -p galion-deploy --test real_rehearsal rehearsal_room -- --nocapture` (port range 19390-19399; results in docs/real-tests/deploy-rust.md). Original run: (port 19332).
 - The plan (room.md) lives on `swarm/room`. This file records how it behaved in the sim and what to change. Nothing touched the VPS. A read-only GET at 21:03 CEST confirmed that nothing answers on 127.0.0.1:4020 (`000`), as room.md says.
 
 ## Sim setup

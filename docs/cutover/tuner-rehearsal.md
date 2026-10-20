@@ -5,7 +5,7 @@
 # Tuner cutover: box rehearsal of docs/cutover/tuner.md
 
 - Rehearsed: 2026-10-20 21:14–21:19 CEST (+02:00), swarm slot 33, branch `swarm/deploy-sim`. Run 5: **21/21 checks pass**. Full log: `docs/real-tests/deploy-sim/tuner-run5.log`.
-- Re-run: `scripts/real/deploy-sim-build.sh && scripts/real/deploy-sim.sh tuner` (about 4 min, port 19330).
+- Re-run (Rust since swarm/deploy-rust; the bash drivers are gone): `GALION_REAL=1 cargo test --release -p galion-deploy --test real_rehearsal rehearsal_tuner -- --nocapture` (port range 19390-19399; results in docs/real-tests/deploy-rust.md). Original run: (about 4 min, port 19330).
 - Nothing touched the VPS. The box has no systemd (PID 1 is tini), so `simsup` played systemd. galion-deploy ran its real code with `GALION_DEPLOY_SM=direct`.
 
 ## Sim setup vs the VPS
@@ -16,7 +16,7 @@
 | live binary `ecad72a4…dd25` (hand build of `/opt/galion/tuner/src/main.rs`) | `tuner-old` = main 13a296c `crates/tuner`, the same logic: ignores argv, `expect("bind")` |
 | new `47a17df2…1370` | the same file (rebuilt from this branch, byte-identical to the artefact) |
 | www root: the four files | the same four files from `crates/tuner/www` |
-| galion-deploy 2,830 B | `deploy/foundation/galion-deploy` (systemd path proven identical, `scripts/real/galion-deploy-equiv.sh`). The stub `galion-backup.sh` sleeps 3 s like the real snapshot. |
+| galion-deploy 2,830 B | `deploy/foundation/galion-deploy` at the time (systemd path proven identical, `scripts/real/galion-deploy-equiv.sh`); both are gone since swarm/deploy-rust: the Rust `crates/galion-deploy` replaces them, the bash text is kept at `docs/reference/galion-deploy.bash`. The stub `galion-backup.sh` sleeps 3 s like the real snapshot. |
 | root shell env: no `TUNER_*` set, so a stray `tuner` binds the default 8650, the live port | the deploy gets `TUNER_ADDR=127.0.0.1:19330 TUNER_ROOT=…`, so a stray `tuner` binds the sim's live port, exactly as on the VPS |
 
 ## Step by step (tuner.md section → result)

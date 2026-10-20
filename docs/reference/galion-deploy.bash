@@ -2,6 +2,12 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # Copyright (c) 3000 Galion / galion-studio
+#
+# REFERENCE ONLY, NOT INSTALLED, NOT RUN: superseded by the Rust crates/galion-deploy
+# (swarm/deploy-rust). This is the pluggable bash version from swarm/deploy-sim c5ab8f9,
+# kept so the rehearsal docs and the live 2,830 B script (ws/foundation e43d7ab, the
+# one on the VPS today) can be compared with the Rust behaviour. See
+# crates/galion-deploy/README.md for the differences.
 # galion-deploy <service> <new-binary> [health-url]
 # Backup -> install -> restart -> health check -> automatic rollback on failure. (ws/foundation)
 #

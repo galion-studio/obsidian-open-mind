@@ -6,7 +6,7 @@
 
 - Status: **PREPARED AND REHEARSED ON THE BOX, NOT EXECUTED. Needs Slavik's approval.** Nothing has been copied to the VPS, and no unit was restarted or edited.
 - Prepared: 2026-10-20 21:25 CEST (+02:00) by swarm slot 33, branch `swarm/deploy-sim`.
-- Rehearsal: `scripts/real/deploy-sim.sh nerve`, 18/18 checks (`docs/real-tests/deploy-sim.md`, full log `docs/real-tests/deploy-sim/nerve-run5.log`).
+- Rehearsal: `scripts/real/deploy-sim.sh nerve` (bash, removed on swarm/deploy-rust; now `GALION_REAL=1 cargo test --release -p galion-deploy --test real_rehearsal rehearsal_nerve`, see docs/real-tests/deploy-rust.md), 18/18 checks (`docs/real-tests/deploy-sim.md`, full log `docs/real-tests/deploy-sim/nerve-run5.log`).
 - Do it **after** the tuner cutover, never in the same session (one service at a time, docs/next.md).
 - If the cutover runs on or after 2026-10-25 03:00, timestamps are CET (+01:00).
 
@@ -120,7 +120,7 @@ systemctl is-active galion-nerve; sha256sum /opt/galion/rust/bin/galion-nerve
 Go only when every box is ticked:
 - [ ] Slavik approves *this one* service (galion-nerve, 8670) and the 3.0 dry-run step, recorded in `docs/cutover-approval.md`.
 - [ ] swarm/nerve (and this branch, for the rehearsal tooling) are merged through a PR with the gate green.
-- [ ] Rebuilt from merged main: the sha matches `ad9a5b29…106a`, or the rehearsal was re-run with the new sha (`scripts/real/deploy-sim-build.sh && scripts/real/deploy-sim.sh nerve`).
+- [ ] Rebuilt from merged main: the sha matches `ad9a5b29…106a`, or the rehearsal was re-run with the new sha (`GALION_REAL=1 GALION_REAL_BUILD=1 cargo test --release -p galion-deploy --test real_build`, then `DEPLOY_SIM_BIN=/workspace/swarm/sim/deploy-rust/bin GALION_REAL=1 cargo test --release -p galion-deploy --test real_rehearsal rehearsal_nerve`).
 - [ ] Copied and `sha256sum -c` OK (3.1).
 - [ ] Preflight (3.2): the live unit matches section 1, the galion-deploy sha matches, the unit is active, `/healthz` is ok, `--version` prints `openmind-nerve 0.1.0`, and the live binary sha is recorded.
 - [ ] No other cutover in the same session. The tuner cutover was done (or abandoned) in an earlier session.
@@ -133,4 +133,5 @@ Go only when every box is ticked:
 
 - Adding `[galion-nerve]=http://127.0.0.1:8670/healthz` to galion-deploy's health table, and installing the pluggable galion-deploy of this branch on the VPS with `GALION_DEPLOY_VERSION_TIMEOUT` / `GALION_DEPLOY_RESET_FAILED` turned on. Both are changes to a live tool.
 - The live galion-nerve's own rollback reflex runs galion-deploy through `systemd-run`. It inherits F2/F3 (a refused restart looks like `rolled back ok` by exit code). Worth a look once the new nerve is live.
+- swarm/deploy-rust: a Rust `galion-deploy` (crates/galion-deploy) fixes F1-F6 (bounded `--version`, reset-failed by default, exit codes 0/1/2/3/4/5/6, galion-nerve -> `/healthz` in the table and rollback judged on the unit's own path, first install, signal-safe with a rollback journal). Not installed anywhere. **Owner decision:** whether and when it replaces `/opt/galion/rust/bin/galion-deploy` (see docs/real-tests/deploy-rust.md). Until then this plan stays as written for the live bash script.
 - Moving reflex mode from `dry-run` back to `live` after 24 h, based on `/audit`.

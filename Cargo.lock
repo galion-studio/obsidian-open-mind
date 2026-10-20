@@ -163,6 +163,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-deploy"
+version = "0.1.0"
+
+[[package]]
 name = "galion-desk"
 version = "0.1.0"
 dependencies = [

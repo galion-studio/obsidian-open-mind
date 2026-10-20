@@ -7,7 +7,7 @@
 
 use crate::fts::{bm25_rank_to_score, build_fts_query, tokenize_for_fts};
 use rusqlite::types::ValueRef;
-use rusqlite::{params, Connection, OpenFlags, Row};
+use rusqlite::{params, Connection, OpenFlags, Row, TransactionBehavior};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -49,6 +49,66 @@ CREATE VIRTUAL TABLE IF NOT EXISTS l0_fts USING fts5(
 /// exists: putting it in SCHEMA_SQL made pre-v3 databases fail to open.
 pub const SCHEMA_V3_SQL: &str =
     "CREATE INDEX IF NOT EXISTS idx_l0_timestamp ON l0_conversations(timestamp);";
+
+/// v4 (openmind-memory only, additive): lookup index for the import-mode
+/// dedupe key (session_key, timestamp, message_text). The gateway ignores
+/// indexes it did not create.
+pub const SCHEMA_V4_SQL: &str =
+    "CREATE INDEX IF NOT EXISTS idx_l0_session_ts ON l0_conversations(session_key, timestamp);";
+
+/// `PRAGMA user_version` this binary writes. 0 = never stamped (every
+/// gateway-created DB, the live one included), 3 = gateway baseline
+/// (`l0_conversations.timestamp` + v2 FTS), 4 = + `idx_l0_session_ts`.
+pub const SCHEMA_VERSION: i64 = 4;
+
+/// What one `Store::migrate` did.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MigrateReport {
+    pub from: i64,
+    pub to: i64,
+    /// `user_version` is newer than this binary: no DDL was run.
+    pub newer: bool,
+    pub fts_v1_dropped: bool,
+    pub l1_fts_rebuilt: Option<usize>,
+    pub l0_fts_rebuilt: Option<usize>,
+}
+
+/// Read-only schema facts for `openmind-memory schema <db>`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SchemaInfo {
+    pub user_version: i64,
+    pub binary_version: i64,
+    pub l0_timestamp: bool,
+    pub fts_v2: bool,
+    pub tables: Vec<String>,
+    /// Rows of a `schema_migrations` table if one exists (the VPS DB has a
+    /// baseline row from galion-backup); informational only, never written.
+    pub schema_migrations: Option<Vec<(i64, String)>>,
+    pub l0_rows: i64,
+    pub l0_fts_rows: i64,
+    pub l1_rows: i64,
+    pub l1_fts_rows: i64,
+}
+
+/// Outcome of one import batch.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ImportOutcome {
+    /// Indexes (into the input) of the records actually inserted.
+    pub inserted: Vec<usize>,
+    pub duplicates: usize,
+}
+
+/// Deterministic L0 record id for import mode: SHA-256 over the dedupe key
+/// (session_key, timestamp, message_text), NUL-separated.
+pub fn import_record_id(session_key: &str, timestamp: i64, message_text: &str) -> String {
+    let mut key = Vec::with_capacity(session_key.len() + message_text.len() + 24);
+    key.extend_from_slice(session_key.as_bytes());
+    key.push(0);
+    key.extend_from_slice(timestamp.to_string().as_bytes());
+    key.push(0);
+    key.extend_from_slice(message_text.as_bytes());
+    format!("l0_imp_{}", &crate::hash::sha256_hex(&key)[..32])
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct L1Hit {
@@ -92,6 +152,8 @@ pub struct Store {
     conn: Mutex<Connection>,
     pub fts_available: bool,
     pub read_only: bool,
+    /// `PRAGMA user_version` after open (and migration, when writable).
+    pub schema_version: i64,
 }
 
 fn s(row: &Row, i: usize) -> String {
@@ -138,36 +200,184 @@ impl Store {
         conn.execute_batch("PRAGMA cache_size = -2048;")?;
         if !read_only {
             let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
-            Self::migrate(&mut conn)?;
+            let rep = Self::migrate(&mut conn)?;
+            if rep.newer {
+                crate::log::warn(&format!(
+                    "schema user_version {} is newer than this binary ({SCHEMA_VERSION}): no migration run",
+                    rep.from
+                ));
+            } else if rep
+                != (MigrateReport {
+                    from: SCHEMA_VERSION,
+                    to: SCHEMA_VERSION,
+                    ..MigrateReport::default()
+                })
+            {
+                crate::log::info(&format!("schema migrated: {rep:?}"));
+            }
         }
         let fts_available = Self::has_v2_fts(&conn);
+        let schema_version = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap_or(0);
         Ok(Store {
             conn: Mutex::new(conn),
             fts_available,
             read_only,
+            schema_version,
         })
     }
 
-    /// Bring a database up to the v3 schema in ONE transaction (SQLite DDL is
-    /// transactional), so a crash mid-migration leaves the old schema intact
-    /// and the next start simply retries. Idempotent: `IF NOT EXISTS` plus a
-    /// column check instead of an ALTER whose error is ignored.
-    pub fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
-        let tx = conn.transaction()?;
+    /// Bring a database up to [`SCHEMA_VERSION`] in ONE immediate transaction
+    /// (SQLite DDL and `PRAGMA user_version` are both transactional), so a
+    /// kill -9 mid-migration leaves the old schema and old version intact and
+    /// the next start simply retries.
+    ///
+    /// Version bookkeeping is `PRAGMA user_version` only (a 4-byte header
+    /// field the Node gateway never reads or writes; see docs/memory-schema.md).
+    /// The baseline steps are idempotent and run on EVERY writable open, even
+    /// when `user_version` already says current: the gateway shares this file,
+    /// knows nothing about the version and may have changed the schema since
+    /// (for example dropped v1 FTS tables). Numbered steps above the baseline
+    /// are additive only (new indexes), so the gateway keeps working on a
+    /// database this binary migrated. A database whose `user_version` is
+    /// newer than this binary gets no DDL at all.
+    pub fn migrate(conn: &mut Connection) -> rusqlite::Result<MigrateReport> {
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let from: i64 = tx.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if from > SCHEMA_VERSION {
+            tx.commit()?;
+            return Ok(MigrateReport {
+                from,
+                to: from,
+                newer: true,
+                ..MigrateReport::default()
+            });
+        }
+        let exists = |t: &str| -> rusqlite::Result<bool> {
+            Ok(tx.query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?",
+                [t],
+                |r| r.get::<_, i64>(0),
+            )? > 0)
+        };
+        let has_col = |t: &str, c: &str| -> rusqlite::Result<bool> {
+            Ok(tx.query_row(
+                &format!("SELECT COUNT(*) FROM pragma_table_info('{t}') WHERE name = ?"),
+                [c],
+                |r| r.get::<_, i64>(0),
+            )? > 0)
+        };
+        let rows = |t: &str| -> rusqlite::Result<i64> {
+            if !exists(t)? {
+                return Ok(0);
+            }
+            tx.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
+        };
+
+        // Baseline v3 (gateway `initSchema`): v1 FTS -> drop both (FTS5 has
+        // no ALTER ADD COLUMN), the tables, the pre-v3 timestamp column, then
+        // repopulate any FTS table that was missing or dropped.
+        let (l1_fts_had, l0_fts_had) = (exists("l1_fts")?, exists("l0_fts")?);
+        let fts_v1 = (l1_fts_had && !has_col("l1_fts", "content_original")?)
+            || (l0_fts_had && !has_col("l0_fts", "message_text_original")?);
+        if fts_v1 {
+            tx.execute_batch("DROP TABLE IF EXISTS l1_fts; DROP TABLE IF EXISTS l0_fts;")?;
+        }
         tx.execute_batch(SCHEMA_SQL)?;
-        // Pre-v3 DBs lack l0_conversations.timestamp (gateway runs the same ALTER).
-        let has_ts: bool = tx.query_row(
-            "SELECT COUNT(*) FROM pragma_table_info('l0_conversations') WHERE name = 'timestamp'",
-            [],
-            |r| r.get::<_, i64>(0),
-        )? > 0;
-        if !has_ts {
+        if !has_col("l0_conversations", "timestamp")? {
             tx.execute_batch(
                 "ALTER TABLE l0_conversations ADD COLUMN timestamp INTEGER DEFAULT 0",
             )?;
         }
         tx.execute_batch(SCHEMA_V3_SQL)?;
-        tx.commit()
+        let mut rep = MigrateReport {
+            from,
+            to: SCHEMA_VERSION,
+            fts_v1_dropped: fts_v1,
+            ..MigrateReport::default()
+        };
+        if (fts_v1 || !l1_fts_had) && rows("l1_records")? > 0 {
+            rep.l1_fts_rebuilt = Some(Self::rebuild_l1_fts(&tx)?);
+        }
+        if (fts_v1 || !l0_fts_had) && rows("l0_conversations")? > 0 {
+            rep.l0_fts_rebuilt = Some(Self::rebuild_l0_fts(&tx)?);
+        }
+
+        // v4: (session_key, timestamp) index for the import-mode dedupe lookup.
+        if from < 4 {
+            tx.execute_batch(SCHEMA_V4_SQL)?;
+        }
+        if from != SCHEMA_VERSION {
+            tx.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))?;
+        }
+        tx.commit()?;
+        Ok(rep)
+    }
+
+    /// Port of the L1 half of the gateway's `rebuildFtsIndex`. Returns rows indexed.
+    fn rebuild_l1_fts(tx: &Connection) -> rusqlite::Result<usize> {
+        tx.execute_batch("DELETE FROM l1_fts")?;
+        let mut st = tx.prepare(
+            "SELECT record_id, content, type, priority, scene_name, session_key, session_id, \
+             timestamp_str, timestamp_start, timestamp_end, metadata_json FROM l1_records",
+        )?;
+        let mut ins = tx.prepare(
+            "INSERT INTO l1_fts (content, content_original, record_id, type, priority, scene_name, \
+             session_key, session_id, timestamp_str, timestamp_start, timestamp_end, metadata_json) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )?;
+        let mut q = st.query([])?;
+        let mut n_rows = 0;
+        while let Some(r) = q.next()? {
+            let content = s(r, 1);
+            ins.execute(params![
+                tokenize_for_fts(&content),
+                content,
+                s(r, 0),
+                s(r, 2),
+                n(r, 3),
+                s(r, 4),
+                s(r, 5),
+                s(r, 6),
+                s(r, 7),
+                s(r, 8),
+                s(r, 9),
+                s(r, 10)
+            ])?;
+            n_rows += 1;
+        }
+        Ok(n_rows)
+    }
+
+    /// Port of the L0 half of the gateway's `rebuildFtsIndex`. Returns rows indexed.
+    fn rebuild_l0_fts(tx: &Connection) -> rusqlite::Result<usize> {
+        tx.execute_batch("DELETE FROM l0_fts")?;
+        let mut st = tx.prepare(
+            "SELECT record_id, message_text, session_key, session_id, role, recorded_at, timestamp \
+             FROM l0_conversations",
+        )?;
+        let mut ins = tx.prepare(
+            "INSERT INTO l0_fts (message_text, message_text_original, record_id, session_key, \
+             session_id, role, recorded_at, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )?;
+        let mut q = st.query([])?;
+        let mut n_rows = 0;
+        while let Some(r) = q.next()? {
+            let text = s(r, 1);
+            ins.execute(params![
+                tokenize_for_fts(&text),
+                text,
+                s(r, 0),
+                s(r, 2),
+                s(r, 3),
+                s(r, 4),
+                s(r, 5),
+                n(r, 6)
+            ])?;
+            n_rows += 1;
+        }
+        Ok(n_rows)
     }
 
     fn has_v2_fts(conn: &Connection) -> bool {
@@ -380,6 +590,126 @@ impl Store {
         tx.commit()
     }
 
+    /// Import mode (opt-in, see `Engine::capture`): insert L0 records that are
+    /// not already stored, in ONE transaction. A record is a duplicate when a
+    /// row with the same (session_key, timestamp, message_text) exists, or its
+    /// deterministic id does; so replaying the same batch any number of times,
+    /// or replaying messages that live capture already stored, adds nothing.
+    pub fn import_l0(&self, recs: &[L0Record]) -> rusqlite::Result<ImportOutcome> {
+        let mut out = ImportOutcome::default();
+        if self.read_only {
+            return Ok(out);
+        }
+        let mut conn = self.lock();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        {
+            let mut seen = tx.prepare_cached(
+                "SELECT COUNT(*) FROM l0_conversations WHERE record_id = ?1 \
+                 OR (session_key = ?2 AND timestamp = ?3 AND message_text = ?4)",
+            )?;
+            let mut ins = tx.prepare_cached(
+                "INSERT INTO l0_conversations (record_id, session_key, session_id, role, message_text, recorded_at, timestamp) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+            )?;
+            let mut fts = tx.prepare_cached(
+                "INSERT INTO l0_fts (message_text, message_text_original, record_id, session_key, session_id, role, recorded_at, timestamp) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            )?;
+            for (i, r) in recs.iter().enumerate() {
+                let hits: i64 = seen.query_row(
+                    params![r.id, r.session_key, r.timestamp, r.message_text],
+                    |row| row.get(0),
+                )?;
+                if hits > 0 {
+                    out.duplicates += 1;
+                    continue;
+                }
+                ins.execute(params![
+                    r.id,
+                    r.session_key,
+                    r.session_id,
+                    r.role,
+                    r.message_text,
+                    r.recorded_at,
+                    r.timestamp
+                ])?;
+                if self.fts_available {
+                    fts.execute(params![
+                        tokenize_for_fts(&r.message_text),
+                        r.message_text,
+                        r.id,
+                        r.session_key,
+                        r.session_id,
+                        r.role,
+                        r.recorded_at,
+                        r.timestamp
+                    ])?;
+                }
+                out.inserted.push(i);
+            }
+        }
+        tx.commit()?;
+        Ok(out)
+    }
+
+    /// Read-only schema report for a database file (never migrates, never
+    /// creates the file).
+    pub fn schema_info(path: &Path) -> rusqlite::Result<SchemaInfo> {
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        conn.busy_timeout(std::time::Duration::from_millis(5000))?;
+        let user_version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        let mut st =
+            conn.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")?;
+        let tables: Vec<String> = st
+            .query_map([], |r| r.get(0))?
+            .filter_map(Result::ok)
+            .collect();
+        drop(st);
+        let has = |t: &str| tables.iter().any(|x| x == t);
+        let col = |t: &str, c: &str| -> bool {
+            conn.query_row(
+                &format!("SELECT COUNT(*) FROM pragma_table_info('{t}') WHERE name = ?"),
+                [c],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+                > 0
+        };
+        let rows = |t: &str| -> i64 {
+            if !has(t) {
+                return 0;
+            }
+            conn.query_row(&format!("SELECT COUNT(*) FROM {t}"), [], |r| r.get(0))
+                .unwrap_or(-1)
+        };
+        let schema_migrations = if has("schema_migrations") {
+            let mut st =
+                conn.prepare("SELECT version, name FROM schema_migrations ORDER BY version")?;
+            let v: Vec<(i64, String)> = st
+                .query_map([], |r| Ok((n(r, 0), s(r, 1))))?
+                .filter_map(Result::ok)
+                .collect();
+            Some(v)
+        } else {
+            None
+        };
+        Ok(SchemaInfo {
+            user_version,
+            binary_version: SCHEMA_VERSION,
+            l0_timestamp: col("l0_conversations", "timestamp"),
+            fts_v2: Self::has_v2_fts(&conn),
+            l0_rows: rows("l0_conversations"),
+            l0_fts_rows: rows("l0_fts"),
+            l1_rows: rows("l1_records"),
+            l1_fts_rows: rows("l1_fts"),
+            schema_migrations,
+            tables,
+        })
+    }
+
     /// Test/fixture helper: insert one L1 record into both tables.
     #[allow(clippy::too_many_arguments)]
     pub fn insert_l1(
@@ -480,5 +810,277 @@ mod tests {
         assert!(old.is_empty());
         let new = s.search_l1_fts_filtered(&q, 1, 5000, &|h| h.kind == "instruction");
         assert_eq!(new.len(), 1);
+    }
+
+    fn uv(p: &Path) -> i64 {
+        Connection::open(p)
+            .unwrap()
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn rec(id: &str, sk: &str, ts: i64, text: &str) -> L0Record {
+        L0Record {
+            id: id.into(),
+            session_key: sk.into(),
+            session_id: sk.into(),
+            role: "user".into(),
+            message_text: text.into(),
+            recorded_at: "2026-10-20T18:00:00.000Z".into(),
+            timestamp: ts,
+        }
+    }
+
+    #[test]
+    fn user_version_stamped_and_idempotent() {
+        let p = tmp("uv");
+        let s = Store::open(&p, false).unwrap();
+        assert_eq!(s.schema_version, SCHEMA_VERSION);
+        drop(s);
+        assert_eq!(uv(&p), SCHEMA_VERSION);
+        let mut c = Connection::open(&p).unwrap();
+        let rep = Store::migrate(&mut c).unwrap();
+        assert_eq!(
+            rep,
+            MigrateReport {
+                from: SCHEMA_VERSION,
+                to: SCHEMA_VERSION,
+                ..MigrateReport::default()
+            }
+        );
+        let idx: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE name='idx_l0_session_ts'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(idx, 1);
+    }
+
+    #[test]
+    fn gateway_db_at_user_version_0_is_upgraded_and_fts_rebuilt() {
+        // A gateway-created DB never stamps user_version (live: 0) and may
+        // have rows but no FTS tables (pre-FTS) -> rebuild like the gateway.
+        let p = tmp("gw0");
+        Connection::open(&p)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE l0_conversations (record_id TEXT PRIMARY KEY, session_key TEXT NOT NULL, \
+                 session_id TEXT DEFAULT '', role TEXT NOT NULL DEFAULT '', message_text TEXT NOT NULL, \
+                 recorded_at TEXT DEFAULT '');
+                 INSERT INTO l0_conversations VALUES ('a','s','s','user','老朋友 hello 🦀','');
+                 CREATE TABLE l1_records (record_id TEXT PRIMARY KEY, content TEXT NOT NULL, type TEXT DEFAULT '', \
+                 priority INTEGER DEFAULT 50, scene_name TEXT DEFAULT '', session_key TEXT DEFAULT '', \
+                 session_id TEXT DEFAULT '', timestamp_str TEXT DEFAULT '', timestamp_start TEXT DEFAULT '', \
+                 timestamp_end TEXT DEFAULT '', created_time TEXT DEFAULT '', updated_time TEXT DEFAULT '', \
+                 metadata_json TEXT DEFAULT '{}');
+                 INSERT INTO l1_records (record_id, content) VALUES ('m1','用户喜欢喝咖啡 ☕');",
+            )
+            .unwrap();
+        let mut c = Connection::open(&p).unwrap();
+        let rep = Store::migrate(&mut c).unwrap();
+        assert_eq!(
+            (rep.from, rep.to, rep.l0_fts_rebuilt, rep.l1_fts_rebuilt),
+            (0, SCHEMA_VERSION, Some(1), Some(1))
+        );
+        drop(c);
+        let s = Store::open(&p, false).unwrap();
+        let q = crate::fts::build_fts_query("咖啡").unwrap();
+        let hits = s.search_l1_fts(&q, 5);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].content, "用户喜欢喝咖啡 ☕");
+        let q = crate::fts::build_fts_query("朋友").unwrap();
+        assert_eq!(s.search_l0_fts(&q, 5)[0].message_text, "老朋友 hello 🦀");
+    }
+
+    #[test]
+    fn v1_fts_is_dropped_and_rebuilt() {
+        let p = tmp("v1");
+        {
+            let s = Store::open(&p, false).unwrap();
+            s.upsert_l0(&rec("x", "s", 5, "rebuild zagreb")).unwrap();
+        }
+        Connection::open(&p)
+            .unwrap()
+            .execute_batch(
+                "DROP TABLE l0_fts; DROP TABLE l1_fts; PRAGMA user_version = 0;
+                 CREATE VIRTUAL TABLE l1_fts USING fts5(content, record_id UNINDEXED);
+                 CREATE VIRTUAL TABLE l0_fts USING fts5(message_text, record_id UNINDEXED);",
+            )
+            .unwrap();
+        let s = Store::open(&p, false).unwrap();
+        assert!(s.fts_available);
+        assert_eq!(s.count("l0_fts"), 1);
+        assert_eq!(s.l0_text_fallback("zagreb", 5), vec!["rebuild zagreb"]);
+    }
+
+    #[test]
+    fn newer_user_version_gets_no_ddl() {
+        let p = tmp("newer");
+        Connection::open(&p)
+            .unwrap()
+            .execute_batch("CREATE TABLE keep_me (x); PRAGMA user_version = 99;")
+            .unwrap();
+        let s = Store::open(&p, false).unwrap();
+        assert_eq!(s.schema_version, 99);
+        assert!(!s.fts_available);
+        drop(s);
+        let info = Store::schema_info(&p).unwrap();
+        assert_eq!(info.tables, vec!["keep_me".to_string()]);
+        assert_eq!(info.user_version, 99);
+    }
+
+    #[test]
+    fn import_is_idempotent_and_dedupes_against_live_rows() {
+        let s = Store::open(&tmp("import"), false).unwrap();
+        // a row live capture stored earlier (random id), same key
+        s.upsert_l0(&rec("l0_live_1", "sess", 1000, "一样的消息 👋🏽"))
+            .unwrap();
+        let batch: Vec<L0Record> = [
+            (1000, "一样的消息 👋🏽"), // dup of the live row
+            (1001, "new one 👨‍👩‍👧"),
+            (1001, "new one 👨‍👩‍👧"), // dup inside the batch
+            (1002, "third"),
+        ]
+        .iter()
+        .map(|(ts, t)| rec(&import_record_id("sess", *ts, t), "sess", *ts, t))
+        .collect();
+        let a = s.import_l0(&batch).unwrap();
+        assert_eq!((a.inserted.clone(), a.duplicates), (vec![1, 3], 2));
+        let b = s.import_l0(&batch).unwrap();
+        assert_eq!((b.inserted.len(), b.duplicates), (0, 4));
+        assert_eq!(s.count("l0_conversations"), 3);
+        assert_eq!(s.count("l0_fts"), 3);
+        // same text + ts in ANOTHER session is not a duplicate
+        let other = rec(
+            &import_record_id("other", 1002, "third"),
+            "other",
+            1002,
+            "third",
+        );
+        assert_eq!(s.import_l0(&[other]).unwrap().inserted, vec![0]);
+    }
+
+    #[test]
+    fn import_id_is_stable() {
+        let a = import_record_id("s", 1, "x");
+        assert_eq!(a, import_record_id("s", 1, "x"));
+        assert_ne!(a, import_record_id("s", 2, "x"));
+        assert_ne!(a, import_record_id("s2", 1, "x"));
+        assert_eq!(a.len(), "l0_imp_".len() + 32);
+    }
+
+    /// The Node gateway's `initSchema` + statement preparation (tdai
+    /// `src/core/store/sqlite.ts` 1.0.3, MIT; vec0 parts skipped because the
+    /// live gateway runs without embeddings), replayed against a database this
+    /// binary migrated to v4. Every statement must succeed, the blind ALTER
+    /// must fail exactly the way the gateway expects (caught), and the
+    /// gateway must leave `user_version` alone.
+    #[test]
+    fn gateway_init_sequence_tolerates_v4_database() {
+        let p = tmp("gw-v4");
+        {
+            let s = Store::open(&p, false).unwrap();
+            s.import_l0(&[rec(&import_record_id("s", 7, "前"), "s", 7, "前")])
+                .unwrap();
+        }
+        let c = Connection::open(&p).unwrap();
+        c.execute_batch("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL;")
+            .unwrap();
+        c.execute_batch(SCHEMA_SQL).unwrap(); // same CREATE ... IF NOT EXISTS set
+                                              // gateway: try { ALTER ... ADD COLUMN timestamp } catch {}  -> must throw
+        let alter =
+            c.execute_batch("ALTER TABLE l0_conversations ADD COLUMN timestamp INTEGER DEFAULT 0");
+        assert!(alter.unwrap_err().to_string().contains("duplicate column"));
+        c.execute_batch(SCHEMA_V3_SQL).unwrap();
+        // migrateFtsTablesIfNeeded: l1_fts exists and has content_original -> no drop
+        let cols: i64 = c
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('l1_fts') WHERE name='content_original'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(cols, 1);
+        for sql in [
+            "INSERT INTO l0_conversations (record_id, session_key, session_id, role, message_text, recorded_at, timestamp) \
+             VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(record_id) DO UPDATE SET message_text=excluded.message_text, \
+             recorded_at=excluded.recorded_at, timestamp=excluded.timestamp",
+            "DELETE FROM l0_conversations WHERE record_id = ?",
+            "SELECT session_key, session_id, role, message_text, recorded_at, timestamp FROM l0_conversations WHERE record_id = ?",
+            "SELECT record_id, session_key, session_id, role, message_text, recorded_at, timestamp FROM l0_conversations \
+             WHERE session_key = ? AND recorded_at > ? ORDER BY recorded_at ASC LIMIT ?",
+            "SELECT record_id, session_key, session_id, role, message_text, recorded_at, timestamp FROM l0_conversations \
+             WHERE record_id > ? ORDER BY record_id ASC LIMIT ?",
+            "INSERT INTO l0_fts (message_text, message_text_original, record_id, session_key, session_id, role, recorded_at, timestamp) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "SELECT record_id, message_text_original AS message_text, session_key, session_id, role, recorded_at, timestamp, \
+             bm25(l0_fts) AS rank FROM l0_fts WHERE l0_fts MATCH ? ORDER BY rank ASC LIMIT ?",
+            "SELECT key, value FROM embedding_meta",
+        ] {
+            c.prepare(sql).unwrap_or_else(|e| panic!("gateway statement failed: {e}\n{sql}"));
+        }
+        c.execute(
+            "INSERT INTO l0_conversations (record_id, session_key, session_id, role, message_text, recorded_at, timestamp) \
+             VALUES ('gw1', 's', 's', 'user', '网关写入', '', 8) ON CONFLICT(record_id) DO UPDATE SET message_text=excluded.message_text",
+            [],
+        )
+        .unwrap();
+        let v: i64 = c
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(
+            v, SCHEMA_VERSION,
+            "gateway sequence must not touch user_version"
+        );
+        drop(c);
+        // and this binary reopens it as current, with the gateway's row
+        let s = Store::open(&p, false).unwrap();
+        assert_eq!(
+            (s.schema_version, s.count("l0_conversations")),
+            (SCHEMA_VERSION, 2)
+        );
+    }
+
+    /// The live VPS DB as of 2026-10-20: v3 schema written by openmind-memory
+    /// 0.1.0 (user_version 0) plus galion-backup's `schema_migrations` table
+    /// with a baseline row. Upgrade = one index + user_version 4; the
+    /// `schema_migrations` table and row are left exactly as they were.
+    #[test]
+    fn live_like_db_with_schema_migrations_baseline() {
+        let p = tmp("livelike");
+        {
+            let c = Connection::open(&p).unwrap();
+            c.execute_batch(SCHEMA_SQL).unwrap();
+            c.execute_batch(SCHEMA_V3_SQL).unwrap();
+            c.execute_batch(
+                "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, \
+                 applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')));
+                 INSERT INTO schema_migrations(version, name) VALUES (3, 'baseline');
+                 INSERT INTO l0_conversations VALUES ('r','s','s','user','živjeli 🍻','',5);
+                 INSERT INTO l0_fts VALUES ('živjeli 🍻','živjeli 🍻','r','s','s','user','',5);",
+            )
+            .unwrap();
+        }
+        let mut c = Connection::open(&p).unwrap();
+        let rep = Store::migrate(&mut c).unwrap();
+        assert_eq!(
+            rep,
+            MigrateReport {
+                from: 0,
+                to: SCHEMA_VERSION,
+                ..MigrateReport::default()
+            },
+            "no FTS rebuild on a v2-FTS DB"
+        );
+        drop(c);
+        let info = Store::schema_info(&p).unwrap();
+        assert_eq!(info.user_version, SCHEMA_VERSION);
+        assert_eq!(
+            info.schema_migrations,
+            Some(vec![(3, "baseline".to_string())])
+        );
+        assert_eq!((info.l0_rows, info.l0_fts_rows), (1, 1));
     }
 }

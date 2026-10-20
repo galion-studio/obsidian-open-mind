@@ -61,6 +61,7 @@ pub fn systems_json() -> Json {
                     .with("function", s.function().name())
                     .with("component", s.component())
                     .with("destructive", s.destructive())
+                    .with("crates", crates_json(*s))
             })
             .collect(),
     )
@@ -422,4 +423,86 @@ pub fn dispatch(
     let mut g = booted();
     let r = send(&mut g, s, v, 50, payload, approve);
     Ok(r.to_json())
+}
+
+pub mod view;
+
+/// `gaia plan SYSTEM`: ask the owning function for a plan only. Never
+/// executes; HADES returns its dry-run steps.
+pub fn plan(system: &str, payload: &str) -> Result<Json, String> {
+    let s = System::parse(system).ok_or_else(|| format!("unknown system {system:?}"))?;
+    let mut g = booted();
+    let r = send(&mut g, s, Verb::Plan, 50, payload, None);
+    Ok(Json::obj()
+        .with("system", s.name())
+        .with("function", s.function().name())
+        .with("crates", crates_json(s))
+        .with("report", r.to_json()))
+}
+
+/// `gaia dry-run [--function F]`: every system gets a `plan` directive, and
+/// every destructive system also gets an unapproved `execute`, which must be
+/// refused with a dry-run plan attached. Nothing acts.
+pub fn dry_run(function: Option<&str>) -> Result<Json, String> {
+    let only = match function {
+        Some(f) => Some(FunctionId::parse(f).ok_or_else(|| format!("unknown function {f:?}"))?),
+        None => None,
+    };
+    let mut g = booted();
+    let mut rows = Vec::new();
+    let (mut planned, mut refused, mut acted) = (0u64, 0u64, 0u64);
+    for f in FunctionId::ALL
+        .into_iter()
+        .filter(|f| only.is_none_or(|o| o == *f))
+    {
+        for s in f.systems() {
+            let p = send(&mut g, s, Verb::Plan, 50, "", None);
+            if matches!(p.outcome, Outcome::DryRun | Outcome::Done) {
+                planned += 1;
+            }
+            let mut row = Json::obj()
+                .with("system", s.name())
+                .with("function", f.name())
+                .with("destructive", s.destructive())
+                .with("plan", p.to_json());
+            if s.destructive() {
+                let e = send(&mut g, s, Verb::Execute, 50, "", None);
+                match e.outcome {
+                    Outcome::Refused => refused += 1,
+                    Outcome::Done => acted += 1,
+                    _ => {}
+                }
+                row = row.with("unapproved_execute", e.to_json());
+            }
+            rows.push(row);
+        }
+    }
+    Ok(Json::obj()
+        .with(
+            "mode",
+            "dry-run (no approval token given; nothing executes)",
+        )
+        .with(
+            "totals",
+            Json::obj()
+                .with("systems", rows.len())
+                .with("planned", planned)
+                .with("destructive_refused", refused)
+                .with("destructive_acted", acted),
+        )
+        .with("systems", Json::Arr(rows)))
+}
+
+fn crates_json(s: System) -> Json {
+    Json::Arr(
+        gaia_core::ownership::crates_for(s)
+            .into_iter()
+            .map(Json::from)
+            .collect(),
+    )
+}
+
+/// `gaia ownership`: the crate and unit registry.
+pub fn ownership_json() -> Json {
+    gaia_core::ownership::to_json()
 }

@@ -3,81 +3,103 @@
 
 # Gaia ownership registry
 
-- DESK-ID: openmind.GAIA-4
-- Written: 2026-10-19T18:48:07+02:00 (Europe/Zagreb, `TZ=Europe/Zagreb date -Iseconds`)
-- Repo: /opt/galion/openmind
-- Crate: crates/gaia-registry
-- Lookup: `gaia_registry::owner` returns one of the nine functions, or none.
+- Written: 2026-10-20 19:00 CEST (+02:00), branch `swarm/gaia-land` (swarm slot 01).
+- Code: `crates/gaia-core/src/ownership.rs` (`gaia_core::ownership::{CRATES, UNITS, crate_owner, unit_owner, crates_for}`).
+- CLI: `gaia ownership` prints the whole registry as JSON.
+- Guard: `crates/gaia-core/tests/workspace_ownership.rs` reads every `crates/*/Cargo.toml` and **fails if any workspace crate is unmapped**, or if the registry names a crate that is gone.
+- Design: `gaia/docs/gaia-design.md` (9 functions, 52 systems), merged from `ws/gaia` 04778e6.
 
-Unknown crate names return none. The match is exact: different case, an underscore, or extra space is none. Each crate below is listed once.
+## Decision (supersedes the GAIA-4 list of 2026-10-19 18:48 CEST)
 
-## The nine functions
+The previous version of this file (DESK-ID openmind.GAIA-4, crate `gaia-registry`) used a different set of nine:
+GAIA, HADES, HEPHAESTUS, DEMETER, ARTEMIS, APOLLO, MINERVA, ELEUTHIA, ARES. It conflicted with the design in three ways:
 
-These spellings are the only ones `Function::from_name` accepts. `none` is not a function.
+1. It counted **GAIA itself** as one of the nine. In the design, GAIA core owns *only* orchestration and the master override, and owns **no system** (gaia-design §4.1).
+2. It had an **ARES** function (the paper arena) that the design does not have.
+3. It had **no POSEIDON and no AETHER**, so compute resources and communications had nowhere to live and were spread over HEPHAESTUS, APOLLO, ELEUTHIA and GAIA.
 
-| Name | Domain in this registry |
-| --- | --- |
-| GAIA | Orchestration. The core, this table, and the Zagreb clock lineage stamps use. |
-| HADES | Destructive plans only. Assigned the dry-run approval gate. It classifies a plan and never runs a command. |
-| HEPHAESTUS | Fabrication: the desk, the One build helpers, compute adapters, the sandbox runner, per-run cgroup limits, the redirect builder, and the tuner page. |
-| DEMETER | Environment health: survival probes, config, the routine guardian tick, the hardware probe, and staged unit text. |
-| ARTEMIS | Agent population: the Hermes mind snap and the room. |
-| APOLLO | Knowledge: the stack contract, link intake, LAN seeds, the nerve archive, memory fixtures, and the Tulu row. |
-| MINERVA | Security audit and policy. Assigned the read-only stack status stub. It opens no socket and reads no foreign tree. |
-| ELEUTHIA | Personas and the channel that carries them, including Galion One, the speech fixtures, and the relay scaffold. |
-| ARES | Contest. The paper arena only. No value moves. |
+**Decision: the 52-system design wins.** `docs/SOURCE-OF-TRUTH.md` already picks ws/gaia over the VPS gaia-core + gaia-registry ("full orchestrator (52 systems, approval-token HADES path)"), and `gaia-registry` is not in main 13a296c any more. So:
 
-The backlog seed also used two domain labels that are not in this nine. Those labels are not accepted here. Crates that sat under them are placed on the nearest of the nine, and the reason is in the table.
+- The nine are HADES, MINERVA, APOLLO, HEPHAESTUS, ARTEMIS, POSEIDON, AETHER, DEMETER, ELEUTHIA (`gaia_core::FunctionId`). GAIA and ARES are not functions.
+- A crate maps to a **system**, and its function is that system's owner. A crate never maps straight to a function, except the nine function crates themselves.
+- Only `gaia-core` and `gaia` are **core** and own nothing.
+- Every one of the **35 crates of main 13a296c** maps to one of the 52 systems (`non_gaia_crates_map_to_a_system` checks the count).
 
-## Crate table
+Moves against the old list (the "was" notes in the table):
 
-`ls crates` at 2026-10-19T18:48:07+02:00 listed these thirty-seven directories. Alphabetical, one row each. `crates/gaia-core` is named here and was not edited.
+| Crate | Old | New (system / function) | Why |
+|---|---|---|---|
+| `zagreb-time` | GAIA | zagreb-clock / AETHER | GAIA core owns no system; the clock is a design AETHER system. |
+| `galleon-arena` | ARES | ecosystem-census / ARTEMIS | ARES is not a function; the arena lists and scores the gladiator population. |
+| `cgroup-detect` | HEPHAESTUS | quotas / POSEIDON | Per-run limits are compute resources. |
+| `openmind-exo`, `openmind-llama`, `openmind-provider`, `openmind-tulu` | HEPHAESTUS / APOLLO | vram-pool / POSEIDON | External compute pool and the GPU/LAN/CPU route. |
+| `openmind-discovery` | APOLLO | lan-discovery / AETHER | Network identity and discovery are comms. |
+| `openmind-nerve` | APOLLO | nerve / AETHER | The nerve is a design AETHER system. |
+| `openmind-speech`, `persona-plex-relay` | ELEUTHIA | speech-io, voice-relay / AETHER | Speech and relay are channels; ELEUTHIA keeps the personas. |
+| `openmind-mcp-stack` | MINERVA | stack-schema / APOLLO | It serves knowledge about the stack; it audits nothing. |
+| `one-defence` | HEPHAESTUS | guardian-watchdog / MINERVA | Health/defence watch is security. |
+| `one-set-model`, `one-talk` | HEPHAESTUS | galion-one / ELEUTHIA | Parts of Galion One. |
 
-| Crate | Function | Why |
-| --- | --- | --- |
-| `cgroup-detect` | HEPHAESTUS | Read-only probe of whether a per-run cgroup is possible. Limits for the forge. Creates nothing. |
-| `desk-hermes` | ARTEMIS | Hermes mind snap. Agent population. Opens its state file read-only. |
-| `gaia-core` | GAIA | Dry-run orchestrator: status, one tick, simulate-faro text. This ticket does not edit it. |
-| `gaia-registry` | GAIA | This ownership table. |
-| `galion-desk` | HEPHAESTUS | Operator desk endpoint. Reads the pod, does not write it. |
-| `galion-one` | ELEUTHIA | The persona the stack embodies: ear, mind, and mouth. |
-| `galleon-arena` | ARES | Paper contest for seed homes g2-0 through g2-3. Integers only. No network. |
-| `galleon-voice` | ELEUTHIA | Persona document loader: text, voice name, session policy. No audio. |
-| `guardian-tick` | DEMETER | One report-only health pass. Suggestions, not restarts. |
-| `hades-gate` | HADES | Pure approval gate for destructive plans. Dry-run only. WouldApply never runs a command. kill and rotate are always refused. |
-| `hades-journal` | HADES | One JSON record of a hades-gate decision. Stores nothing on disk. Default is DryRun. kill and rotate are Refused. WouldApply is not an apply. |
-| `link-watch` | APOLLO | Link intake. The address comes from config. |
-| `one-defence` | HEPHAESTUS | Read-only health-check rows that ship with the One build. Writes no database. |
-| `one-set-model` | HEPHAESTUS | Checks a plan or action lane for the One build. Writes nothing. |
-| `one-talk` | HEPHAESTUS | Hear and reply shapes for the One build. No pairing store. |
-| `openmind-boot` | DEMETER | Read-only hardware probe: CPU, RAM, and GPU presence. hardware.json is written only under a temp dir. |
-| `openmind-config` | DEMETER | Config health: TOML, then env, loopback defaults. |
-| `openmind-discovery` | APOLLO | Static seed list of LAN peers. The scan path sends no packets. |
-| `openmind-exo` | HEPHAESTUS | Fixture parser for an exo compute adapter. No socket and no GPU. |
-| `openmind-fallback` | HEPHAESTUS | Pick GPU, else an approved LAN row, else CPU local. No network. |
-| `openmind-llama` | HEPHAESTUS | Fixture parser for a llama.cpp adapter. No socket and no GPU. |
-| `openmind-mcp-stack` | MINERVA | Read-only stdio MCP stub for stack_status. Fixture JSON only. No sockets. |
-| `openmind-memory` | APOLLO | Fixture-backed memory store and search. The live gateway is never dialed. |
-| `openmind-nerve` | APOLLO | Append-only archive of nerve events. Opens no socket. |
-| `openmind-origin` | HEPHAESTUS | Builds one HTTP 302 redirect. Location comes from the caller; empty uses /. The body is empty. No listener. |
-| `openmind-provider` | HEPHAESTUS | Compute provider trait and approval state. Stores no key material. |
-| `openmind-route` | HEPHAESTUS | Chooses one provider row: GPU, else an approved LAN row, else CPU local. Pending candidates are not chosen. No network. |
-| `openmind-sandbox` | HEPHAESTUS | Runs one command under rlimits, a cleared env, a workdir, and a timeout. |
-| `openmind-schema` | APOLLO | The stack contract. |
-| `openmind-speech` | ELEUTHIA | Parses whisper.cpp and piper fixture outputs on CPU. No process, no download, no GPU. |
-| `openmind-survival` | DEMETER | Read-only probes and suggestion-only decisions. |
-| `openmind-tulu` | APOLLO | Parses a DR Tulu llama-server fixture TOML. No process, no socket, no GPU. |
-| `openmind-units` | DEMETER | Renders staged unit text from an openmind.toml fixture. Prints text only. Does not install a unit or start a process. |
-| `persona-plex-relay` | ELEUTHIA | Persona channel scaffold. No inference and no socket in this scaffold. |
-| `room` | ARTEMIS | Read-only page of the operator files, the place agents share. |
-| `tuner` | HEPHAESTUS | Static file server for the ukulele tuner page. Bind and root are config-driven. Does not start the live tuner. |
-| `zagreb-time` | GAIA | Europe/Zagreb RFC 3339 for lineage. Explicit offset, never a trailing Z. |
+Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleon-voice`, `openmind-boot`, `openmind-fallback`, `openmind-origin`, `openmind-route`, `openmind-units`) are dropped; their code was folded into `hades-gate`, `openmind-provider`, `galion-origin` and `galion-boot` (see SOURCE-OF-TRUTH's winner table).
 
-## Lookup
+## Crate table (46 workspace crates)
 
-- `owner("galion-one")` is `Some(Function::Eleuthia)`, spelling `ELEUTHIA`.
-- `owner("not-a-crate")` is none.
-- `owner("hades-gate")` is `Some(Function::Hades)`, spelling `HADES`.
-- `owner("hades-journal")` is `Some(Function::Hades)`, spelling `HADES`.
-- `owner("openmind-mcp-stack")` is `Some(Function::Minerva)`, spelling `MINERVA`.
-- An unknown string, including `none`, is not a function and returns none.
+| Crate | Kind | System | Function | Why |
+|---|---|---|---|---|
+| `cgroup-detect` | system | quotas | POSEIDON | read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS) |
+| `desk-hermes` | system | hermes-agents | ARTEMIS | Hermes mind snap for the desk: the agent population view |
+| `gaia` | core | (none) | GAIA | the gaia CLI: wires GAIA core to the nine functions; dry-run only |
+| `gaia-aether` | function | (none) | AETHER | AETHER function crate |
+| `gaia-apollo` | function | (none) | APOLLO | APOLLO function crate |
+| `gaia-artemis` | function | (none) | ARTEMIS | ARTEMIS function crate |
+| `gaia-core` | core | (none) | GAIA | GAIA core: orchestrator, ownership table, bus, Alpha registry, lineage |
+| `gaia-demeter` | function | (none) | DEMETER | DEMETER function crate |
+| `gaia-eleuthia` | function | (none) | ELEUTHIA | ELEUTHIA function crate |
+| `gaia-hades` | function | (none) | HADES | HADES function crate (plans only, approval-gated) |
+| `gaia-hephaestus` | function | (none) | HEPHAESTUS | HEPHAESTUS function crate |
+| `gaia-minerva` | function | (none) | MINERVA | MINERVA function crate |
+| `gaia-poseidon` | function | (none) | POSEIDON | POSEIDON function crate |
+| `galion-boot` | system | boot-units | DEMETER | boot/keep replacement and systemd unit renderer |
+| `galion-desk` | system | galion-desk | HEPHAESTUS | operator desk endpoint (:8646) |
+| `galion-one` | system | galion-one | ELEUTHIA | Galion One, the persona the stack embodies (:8091, :8002) |
+| `galion-origin` | system | origin | AETHER | origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin) |
+| `galion-voice-core` | system | voice-relay | AETHER | full-duplex framing, VAD, jitter buffer, barge-in |
+| `galleon-arena` | system | ecosystem-census | ARTEMIS | paper arena that lists and scores the gladiator population; no value moves (was ARES) |
+| `guardian-tick` | system | guardian-tick | DEMETER | one report-only health pass |
+| `hades-gate` | system | teardown | HADES | approval gate and journal for destructive plans; dry-run, never executes |
+| `hermes-gateway` | system | messaging | AETHER | Hermes API server binary: the chat/messaging channel |
+| `hermes-rs` | system | hermes-agents | ARTEMIS | Rust Hermes: agent loop, delegate_task caps, sessions, spend caps |
+| `link-watch` | system | link-watch | APOLLO | laptop link intake |
+| `one-defence` | system | guardian-watchdog | MINERVA | read-only health_checks rows and a defence note; security watch (was HEPHAESTUS) |
+| `one-set-model` | system | galion-one | ELEUTHIA | Galion One plan/action model lane, validated, writes nothing (was HEPHAESTUS) |
+| `one-talk` | system | galion-one | ELEUTHIA | Galion One hear/reply request shapes (was HEPHAESTUS) |
+| `openmind-config` | system | config-health | DEMETER | config health: TOML, then env, loopback defaults |
+| `openmind-discovery` | system | lan-discovery | AETHER | LAN peer seeds and scan path; network identity is AETHER (was APOLLO) |
+| `openmind-exo` | system | vram-pool | POSEIDON | exo compute adapter (fixtures); external compute is POSEIDON (was HEPHAESTUS) |
+| `openmind-llama` | system | vram-pool | POSEIDON | llama.cpp compute adapter (fixtures) (was HEPHAESTUS) |
+| `openmind-mcp-stack` | system | stack-schema | APOLLO | stdio MCP stack_status: serves knowledge about the stack (was MINERVA) |
+| `openmind-memory` | system | memory-gateway | APOLLO | memory store and gateway (:8420) |
+| `openmind-nerve` | system | nerve | AETHER | nerve event archive: the signal lines are AETHER (was APOLLO) |
+| `openmind-persona` | system | persona-plex | ELEUTHIA | persona TOML documents |
+| `openmind-provider` | system | vram-pool | POSEIDON | compute provider registry, approval state, GPU/LAN/CPU fallback and route (was HEPHAESTUS) |
+| `openmind-sandbox` | system | terminal | HEPHAESTUS | runs one command under rlimits, cleared env, workdir, timeout |
+| `openmind-schema` | system | stack-schema | APOLLO | the stack contract |
+| `openmind-speech` | system | speech-io | AETHER | whisper.cpp / piper output parsers on CPU (was ELEUTHIA) |
+| `openmind-survival` | system | survival | DEMETER | read-only probes and suggestion-only decisions |
+| `openmind-tulu` | system | vram-pool | POSEIDON | DR Tulu llama-server row (fixture); a compute provider (was APOLLO) |
+| `persona-plex-relay` | system | voice-relay | AETHER | voice relay backend adapter for Persona Plex (was ELEUTHIA) |
+| `repo-check` | system | repo-check | MINERVA | self-eval: SPDX, licence, secrets, no-Python, Zagreb time |
+| `room` | system | room | ARTEMIS | read-only page of the operator files agents share |
+| `tuner` | system | tuner | DEMETER | ukulele tuner static server (:8650) |
+| `zagreb-time` | system | zagreb-clock | AETHER | Europe/Zagreb RFC 3339 with explicit offset (was GAIA) |
+
+Systems with no crate yet stay design-only (for example vision, queues, kill-switch). `gaia ownership` reports `systems_with_a_crate`.
+
+## Live units
+
+`gaia_core::ownership::UNITS` maps the stack's systemd units (seen read-only on the VPS, 2026-10-20 18:52 CEST) to systems: cloudflared and tuner-quick to tunnels, console to console, galion-backup to survival, galion-desk, galion-health to guardian-watchdog, galion-nerve to nerve, galion-one and tanga-proto to galion-one, hermes-rs (and the legacy hermes) to hermes-agents, link-watch-rs (and legacy link-watch) to link-watch, openmind-memory (and legacy memory-gateway) to memory-gateway, tuner. `gaia view` uses this to show Gaia's view of a captured host; unknown units and listeners are reported as unmapped, never guessed.
+
+## Overlap with other swarm branches
+
+- `swarm/integration-1` (8fd26f6) also carries ws/gaia, plus `crates/gaia-live` and live-heal additions in `crates/gaia/src/{lib,main}.rs`, and still has the old GAIA-4 version of this file. This branch stays on main 13a296c. When the two meet: take this file and `gaia_core::ownership`; add one row for `gaia-live` (kind core: Gaia's read-only sensing / approval-gated test-service path, owns no system), otherwise `every_workspace_crate_is_mapped` fails, which is the point of the test. Expect textual conflicts where both branches append commands to `crates/gaia/src/lib.rs` and the USAGE/match in `main.rs`; the commands are disjoint (`plan`, `dry-run`, `ownership`, `view` here).
+- `docs/crate-index.md` and `docs/STATUS.md` (GAIA-1, GAIA-2 rows) still describe the VPS gaia-core/gaia-registry. Left untouched here (status lives in one table that the owner updates on merge).

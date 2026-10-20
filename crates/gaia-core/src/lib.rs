@@ -17,6 +17,7 @@ pub mod gaia;
 pub mod json;
 pub mod lineage;
 pub mod model;
+pub mod ownership;
 pub mod registry;
 pub mod system;
 
@@ -27,6 +28,7 @@ pub use lineage::{Lineage, LineageRecord, SimClock};
 pub use model::{
     ApprovalToken, Context, Directive, Environment, Health, Lifecycle, Outcome, Report, Verb,
 };
+pub use ownership::{CrateOwner, CrateRole, UnitOwner};
 pub use registry::AlphaRegistry;
 pub use system::{FunctionId, System};
 

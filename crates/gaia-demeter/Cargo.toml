@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "gaia-demeter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gaia DEMETER: environment health (survival decide/degrade, non-destructive healer, tuner, config health, guardian-tick cycle, boot units); regrows the world after the swarm."
+
+[dependencies]
+gaia-core = { path = "../gaia-core" }
+

@@ -152,6 +152,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-bench"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-boot"
 version = "0.1.0"
 dependencies = [

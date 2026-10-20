@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Galion voice: on-device CPU pipeline (M2 spike). STT via candle (pure Rust,
+# CPU only, no cuda/metal/mkl/accelerate features, no target-feature flags).
+
+[package]
+name = "galion-voice-cpu"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Galion voice M2: on-device CPU pipeline (Whisper-tiny STT via candle, pluggable text model and TTS) as a galion-voice-core backend."
+
+[features]
+default = []
+# Whisper STT through candle. Off by default so the crate (and the backend
+# wiring, mock STT/TTS) builds with zero heavy deps.
+whisper = ["dep:candle-core", "dep:candle-nn", "dep:serde_json", "dep:serde", "dep:num-traits"]
+# KittenTTS nano via candle (same deps as whisper, no new crates).
+kitten = ["dep:candle-core", "dep:candle-nn"]
+
+[dependencies]
+galion-voice-core = { path = "../galion-voice-core" }
+candle-core = { version = "0.9", default-features = false, optional = true }
+candle-nn = { version = "0.9", default-features = false, optional = true }
+serde_json = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+num-traits = { version = "0.2", default-features = false, features = ["std"], optional = true }
+
+[[example]]
+name = "stt-bench"
+required-features = ["whisper"]
+
+[[example]]
+name = "tts-bench"
+required-features = ["kitten"]

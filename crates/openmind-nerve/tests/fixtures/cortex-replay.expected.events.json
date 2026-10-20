@@ -1,0 +1,78 @@
+[
+  {
+    "data": {
+      "findings": 4,
+      "ids": [
+        "stuck-loading-galion-one-mouth",
+        "error-rate-cloudflared",
+        "restarts-galion-desk",
+        "memory-heavy-console"
+      ],
+      "top": {
+        "cause": "galion-one",
+        "component": "galion-one-mouth",
+        "evidence_n": 2,
+        "id": "stuck-loading-galion-one-mouth"
+      }
+    },
+    "kind": "bleeding",
+    "severity": "high",
+    "source": "components",
+    "ts": "2026-10-20T19:06:05+02:00"
+  },
+  {
+    "data": {
+      "findings": 1,
+      "ids": [
+        "edge-dead-origins"
+      ],
+      "top": {
+        "cause": "edge",
+        "component": "cloudflared",
+        "evidence_n": 4,
+        "id": "edge-dead-origins"
+      }
+    },
+    "kind": "bleeding",
+    "severity": "high",
+    "source": "edge",
+    "ts": "2026-10-20T19:06:05+02:00"
+  },
+  {
+    "data": {
+      "findings": 2,
+      "ids": [
+        "public-listener-9999",
+        "unmanaged-listeners"
+      ],
+      "top": {
+        "cause": null,
+        "component": "host",
+        "evidence_n": 1,
+        "id": "public-listener-9999"
+      }
+    },
+    "kind": "vulnerability",
+    "severity": "high",
+    "source": "listeners",
+    "ts": "2026-10-20T19:06:05+02:00"
+  },
+  {
+    "data": {
+      "findings": 1,
+      "ids": [
+        "scanner-probes-console"
+      ],
+      "top": {
+        "cause": "scan:console",
+        "component": "console",
+        "evidence_n": 4,
+        "id": "scanner-probes-console"
+      }
+    },
+    "kind": "vulnerability",
+    "severity": "high",
+    "source": "scanners",
+    "ts": "2026-10-20T19:06:05+02:00"
+  }
+]

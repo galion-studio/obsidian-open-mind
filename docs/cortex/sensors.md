@@ -38,8 +38,10 @@ s.add(S) / s.add_opt(Option<S>) / s.names() / s.run(&input) -> Cortex / s.last (
 
 B41 alignment: `FindingKind` = `vulnerability | bleeding | ddos`; `Sev::b41()` maps warn -> `warn`, error -> `high`,
 critical -> `crit` (info stays `info`, below B41; `nerve_events` skips info-only pairs). `Sev::parse` and
-`FindingKind::parse` read both spellings back (for T2.10 pushed events). Event `data` carries id, component, title,
-fix, cause and `evidence_n`; evidence lines (paths, hostnames, addresses) never leave the loopback API.
+`FindingKind::parse` read both spellings back (for T2.10 pushed events). Event `data` carries id, component, cause
+and `evidence_n` only (`nerve_events` `top` the same); titles, fixes and evidence lines (bind addresses, ports, paths,
+hostnames) stay in the loopback finding shape `/api/v1/cortex` / `/api/v1/state` `cortex` and never ride in an event
+(slot 105, golden `tests/fixtures/cortex-replay.expected.events.json`).
 
 Visible output: every finding in `/api/v1/cortex` gains `kind` and `source`; `ddos.findings` appears only when a
 sensor emits ddos-kind findings; `/api/v1/state` gains `cortex_sensors` `[{name, findings, signals, us}]` and

@@ -2,7 +2,7 @@
 # Copyright (c) 3000 Galion / galion-studio
 #
 # Galion voice: on-device CPU pipeline (M2 spike). STT via candle (pure Rust,
-# CPU only, no cuda/metal/mkl/accelerate features, no target-feature flags).
+# CPU only, no cuda/metal/mkl/accelerate features, no CPU-pinning build flags).
 
 [package]
 name = "galion-voice-cpu"
@@ -44,4 +44,8 @@ required-features = ["whisper", "kitten"]
 
 [[test]]
 name = "real_chatterbox"
+required-features = ["whisper", "chatterbox"]
+
+[[test]]
+name = "real_voice_rust"
 required-features = ["whisper", "chatterbox"]

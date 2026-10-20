@@ -7,8 +7,10 @@ CPU only, release binaries, no GPU, nothing on the VPS. Ports: ear 19371, mouth 
 mouth proxy 19375). 19370 was already bound by another agent's `galion-console-static` during the run, so the
 mouth moved to 19372. Every process the scripts started was killed at the end.
 
-Reproduce: `ONE_BIN=<galion-one from integration-1 8fd26f6> scripts/real/voice-rust.sh [models] [voices]`, and
-`MOUTH_ARGS="--flow-steps 5 --prompt-seconds 4"` for the fast profile. Galion One was built from
+Reproduce (Rust only; runs 1-2 below used an earlier shell version of the same steps, since ported to Rust and
+deleted under the Rust-only rule): `GALION_REAL=1 ONE_BIN=<galion-one from integration-1 8fd26f6> cargo test --release
+-p galion-voice-cpu --features whisper,kitten,chatterbox --test real_voice_rust -- --nocapture`, with
+`MOUTH_ARGS="--flow-steps 5 --prompt-seconds 4"` for the fast profile and `GALION_REAL_REPORT=<file>` to save the report. Galion One was built from
 `git archive 8fd26f6` (integration-1) into a scratch directory and started with `GALION_MOUTH=127.0.0.1:19372`,
 `GALION_EAR=127.0.0.1:19371`, a temp `GALION_HOME`, and a throw-away pairing store (`ONE_DEVICE_STORE`) holding the
 sha256 of a test code, so `/pair` hands out a cookie and `/hear` can be called. The mind (LLM) was not involved
@@ -125,3 +127,48 @@ Same seed gave the same 73 tokens in all three runs (deterministic sampling).
 
 Whisper large-v3-turbo in `stt-bench` on a 2.92 s clip: full 30 s window 14.4 s (correct text); "trimmed" encoder
 context 2.9 s but it hallucinated repetitions, so the service keeps the full window (as trained).
+
+## Run 3: the Rust real-life test `real_voice_rust` (reference settings), 2026-10-20 21:39 CEST (+02:00)
+
+`test result: ok. 2 passed` in 228.7 s. Report as printed by the test:
+
+# voice-rust real test, 8 CPUs, load 2.08 3.23 3.63
+mouth args: <reference: 10 flow steps, 10 s prompt>
+## health while loading
+- 127.0.0.1:19371 -> HTTP 503 {"ok":false,"status":"loading","provider":"local","model":null,"loaded":false,"error":null,"device":"cpu","voices":[],"bind":"127.0.0.1:19371","runtime":"galion-voice-cpu (Rust, candle)","stt":null,"tts":null,"stt_missing":"","tts_missing":""
+- 127.0.0.1:19372 -> HTTP 503 {"ok":false,"status":"loading","provider":"local","model":null,"loaded":false,"error":null,"device":"cpu","voices":[],"bind":"127.0.0.1:19372","runtime":"galion-voice-cpu (Rust, candle)","stt":null,"tts":null,"stt_missing":"","tts_missing":""
+both healthy after 6515 ms
+## health when loaded
+- 127.0.0.1:19371 -> HTTP 200 {"ok":true,"status":"ok","provider":"local","model":"whisper-large-v3-turbo","loaded":true,"error":null,"device":"cpu","voices":[],"bind":"127.0.0.1:19371","runtime":"galion-voice-cpu (Rust, candle)","stt":"whisper-large-v3-turbo","tts":null,"stt_missing":"","tts_missing":"disabled (--tts none)"
+- 127.0.0.1:19372 -> HTTP 200 {"ok":true,"status":"ok","provider":"local","model":"chatterbox","loaded":true,"error":null,"device":"cpu","voices":["samantha","jarvis"],"bind":"127.0.0.1:19372","runtime":"galion-voice-cpu (Rust, candle)","stt":null,"tts":"chatterbox","stt_missing":"disabled (--stt none)","tts_missing":""
+## Samantha lines: mouth -> WAV -> ear
+| # | voice | text | audio s | synth ms | X-RTF | ear ms | heard | words |
+|---|---|---|---|---|---|---|---|---|
+| 1 | samantha | Hi. I am right here with you, and I am listening. | 3.040 | 34038 | 11.197 | 13055 | Hi, I am right here with you, and I am listening. | 100% |
+| 2 | samantha | That sounds like a lot to carry. Do you want to talk about it? | 2.800 | 26648 | 9.517 | 13452 | That sounds like a lot to Carrie. Do you want to talk about it? | 93% |
+| 3 | jarvis | Good evening. All systems are running normally. | 3.360 | 34331 | 10.218 | 12413 | Good evening. All systems are running normally. | 100% |
+| 4 | samantha | I love the way the light looks this time of day. | 2.440 | 25228 | 10.339 | 12615 | I love the way the light looks this time of day. | 100% |
+mean word match 98.2%
+## contract checks
+- empty text -> HTTP 400 {"error":"text required"}
+- non-JSON body -> HTTP 400 {"error":"text required"}
+- ear without a file part -> HTTP 400 {"error":"multipart has no \"file\" part"}
+## Galion One end to end
+- one mouth /health pass-through -> HTTP 200 {"ok":true,"status":"ok","provider":"local","model":"chatterbox","loaded":true,"error":null,"device":"cpu","voices":["samantha","jarvis"],"bind":"127.0.0.1:19372","runtime":"galion-voice-cpu (Rust, candle)","stt":null,"tts":"chatterbox","stt_missing":"disabled (--stt none)","tts_missing":""
+- one mouth /synthesize -> HTTP 200, 90284 bytes, 21398 ms (Galion One's mouth timeout: 30 s)
+  - that WAV through the ear: "Hello, I can hear you now."
+- one /hear (paired, line 1 WAV) -> {"say":"Hi, I am right here with you, and I am listening."} in 14284 ms (Galion One's ear timeout: 20 s)
+peak RSS 127.0.0.1:19371: 4672004 kB
+peak RSS 127.0.0.1:19372: 4162388 kB
+
+Note: lines 1 and 3 took 34 s, over Galion One's 30 s mouth timeout. Galion One's own short line (21.4 s) fitted. With the
+reference settings, any line longer than ~2.5 s of speech is at risk when called through Galion One (see docs/voice-rust.md 6.1).
+
+## Gates and targets (2026-10-20 21:40 CEST, +02:00)
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` and clippy of the two voice crates with
+  `whisper,kitten,chatterbox`: clean. `cargo test --workspace`: 534 passed, 0 failed (127 test binaries); voice crates
+  with all features: 51 passed (real tests skip without GALION_REAL=1). `scripts/no-python.sh` ok, `spdx-scan` 0
+  missing, `repo-check` PASS (0 errors).
+- `galion-voice-serve` with `whisper,kitten,chatterbox`: release build for x86_64-unknown-linux-musl (static-pie,
+  5.1 MB) and aarch64-unknown-linux-musl (static, linker rust-lld) OK; `cargo check` for aarch64-linux-android and
+  armv7-unknown-linux-musleabihf OK.

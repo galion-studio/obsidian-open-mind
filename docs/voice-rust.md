@@ -142,17 +142,18 @@ docs/third-party/voice-rust.md for URLs, revisions and sha256. Nothing was deplo
 
 ## 5. Measured (details in docs/real-tests/voice-rust.md)
 On the shared 8-vCPU build box:
-- Mouth, reference settings: 25-32 s wall for 2.4-3.2 s of speech (RTF 8.9-11.5; T3 6-10 s, flow 17-22 s, HiFT 2 s).
+- Mouth, reference settings: 25-34 s wall for 2.4-3.4 s of speech (RTF 8.9-11.5; T3 6-10 s, flow 17-22 s, HiFT 2 s).
   Fast profile (5 steps, 4 s prompt): 15.6-19.2 s (RTF 5.9-7.0). Load 4-6 s, plus ~1.2 s per reference clip. Peak RSS 4.2 GB.
 - Ear (large-v3-turbo, full 30 s window): 12.7-14.0 s per utterance whatever its length. Peak RSS 4.8 GB.
 - Round trip: 10 of 12 transcriptions word-perfect; the other 2 are the same line in both runs, "carry" -> "Carrie" (homophone).
-- Galion One (integration-1 8fd26f6) end to end: `/hear` -> our ear -> correct text in 13.9-15.9 s (its timeout is
-  20 s); its mouth proxy `/synthesize` -> our mouth -> 200 WAV in 12.6 s (fast) / 20.7 s (reference) for a 2 s line
+- Galion One (integration-1 8fd26f6) end to end: `/hear` -> our ear -> correct text in 13.9-15.9 s (14.3 s in run 3) (its timeout is
+  20 s); its mouth proxy `/synthesize` -> our mouth -> 200 WAV in 12.6 s (fast) / 20.7-21.4 s (reference) for a 2 s line
   (its timeout is 30 s), and that WAV transcribes back correctly; `/health` passes our body and status through.
 
 ## 6. Open issues and gaps (honest)
-1. **CPU speed.** Chatterbox on this CPU is 6-11x slower than real time. A 2-3 s reply fits Galion One's 30 s mouth
-   timeout; long replies (several chunks) will not. The ear takes ~13 s per call (fits the 20 s timeout, not
+1. **CPU speed.** Chatterbox on this CPU is 6-11x slower than real time. With the reference settings a 2 s reply fits Galion One's 30 s mouth
+   timeout but 3 s replies already took 34 s (run 3); the fast profile (15-19 s for 2-3 s) fits, longer replies
+   (several chunks) will not. The ear takes ~13 s per call (fits the 20 s timeout, not
    pleasant). Options (need a decision, see 7): a GPU (not allowed now), quantised/bf16 weights, fewer flow steps,
    streaming chunk-by-chunk in Galion One, or keep KittenTTS/whisper-tiny for latency.
 2. **Real `samantha.wav` / `jarvis.wav` missing.** The tests used stand-ins (Chatterbox built-in voice, KittenTTS).

@@ -2,7 +2,7 @@
 # Copyright (c) 3000 Galion / galion-studio
 #
 # Chatterbox (Resemble AI, MIT) text-to-speech inference in pure Rust on candle,
-# CPU only: no cuda/metal/mkl/accelerate features, no target-cpu flags.
+# CPU only: no cuda/metal/mkl/accelerate features, no CPU-pinning build flags.
 
 [package]
 name = "galion-chatterbox"

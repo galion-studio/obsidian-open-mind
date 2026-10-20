@@ -74,3 +74,104 @@ caller, Galion One on `integration-1` 8fd26f6 (`crates/galion-one/src/main.rs`, 
 `GALION_MOUTH=<addr>` makes `speak()` send `POST /synthesize` with `{"text": ...}` only (no `voice`, so the server default
 `samantha` applies), 30 s timeout, and use the body only when the status is 200 and the body is non-empty.
 `:8002 /health` passes the remote `/health` status and body through (3 s timeout).
+
+## 2. What was built (all Rust, candle 0.9 on CPU, no Python anywhere)
+
+### 2.1 `crates/galion-chatterbox`: Chatterbox inference in candle
+A complete re-implementation of the inference path of Resemble AI's Chatterbox (MIT code and weights, HF
+`ResembleAI/chatterbox` @ 5bb1f6ee). No candle port existed (only ONNX ones), so every module was written from the
+architecture and checkpoint tensor names:
+
+| Module | What it is |
+|---|---|
+| `text.rs` | `punc_norm` (the reference text clean-up) and the English BPE tokenizer read from `tokenizer.json` |
+| `t3.rs` | T3: 30-layer Llama (1024 wide, 16 heads, Llama-3 RoPE scaling) with KV cache; conditioning = speaker projection + Perceiver resampler over the 150 prompt speech tokens + emotion (exaggeration) projection; classifier-free guidance batch; repetition penalty, temperature, min-p, top-p sampling |
+| `flow.rs` | S3Gen token-to-mel: token embedding, conformer encoder with ESPnet relative-position attention, pre-lookahead, 2x upsampling; conditional flow matching decoder (U-Net, causal conv blocks, 56 transformer blocks), cosine time schedule, CFG 0.7, Euler steps |
+| `hift.rs` | HiFT vocoder: F0 predictor, neural source filter (sine harmonics), STFT source branch, upsampling with Snake resblocks, iSTFT to 24 kHz |
+| `ve.rs` | Voice encoder (3-layer LSTM, 40-bin mel partials) for the T3 speaker embedding |
+| `s3tok.rs` | S3Tokenizer v2 (FSMN attention, FSQ) to tokenise the reference clip |
+| `campplus.rs` | CAM++ x-vector (Kaldi fbank, 2-D residual head, densely connected CAM blocks, stats pooling) for S3Gen speaker conditioning |
+| `conds.rs` | Built-in voice from `conds.pt` (torch zip pickle, read with candle's pickle reader) or a voice from any reference WAV; prompt-length cap |
+| `model.rs` | `Chatterbox::load(dir)`, `generate(text, conds, options)`, the reference 40 ms start trim/fade |
+| `dsp.rs`, `wav.rs`, `rng.rs` | FFT/STFT, Slaney mel banks, Kaldi fbank, resampling, silence trim; WAV I/O; seeded RNG |
+
+Examples: `chatterbox-say MODEL_DIR TEXT OUT.wav [--ref voice.wav] [--seed N] [--steps N]`, `voice-sim` (speaker
+similarity check). `unsafe` is used once: the read-only mmap of safetensors (`nnx::load_vb`, SAFETY comment).
+
+### 2.2 `galion-voice-serve` (crate `galion-voice-cpu`), new feature `chatterbox`
+- `--tts chatterbox` serves the legacy mouth: voice table `samantha`/`jarvis` -> `<--voices>/<name>.wav`, built-in
+  voice when a clip is missing, lower-cased voice name, unknown voice -> `samantha`, 1200-char cap, the legacy
+  300/200/50 chunking (`chatterbox_tts::legacy_chunks`), float->s16 conversion with torch's truncation, 24 kHz mono
+  44-byte WAV, `X-RTF` and `X-Duration` headers, `{"error": ...}` JSON errors. Reference clips are analysed once at
+  load (the legacy server re-analysed per call; same result).
+- `--worker`: the legacy `worker.py` frame protocol on stdin/stdout (`R`, `u32` frames, voice byte, 300-char cut,
+  exaggeration/cfg 0.4 as worker.py).
+- `--stt whisper-large-v3-turbo`: the legacy ear's model. `whisper_stt.rs` now handles multilingual checkpoints
+  (prompt `<|startoftranscript|><|en|><|transcribe|><|notimestamps|>`), 128 mel bins (Slaney bank computed in Rust when
+  `melfilters.bytes` is absent; verified equal to the shipped 80-bin file to 1e-5), the `language` form field, and
+  suppresses end-of-text/space as the first token. Same `POST /v1/audio/transcriptions` contract.
+- Health is truthful (section 3). The port is bound before loading, so a starting service answers 503 `loading`.
+- `--flow-steps` and `--prompt-seconds`: speed knobs (defaults = reference 10/10).
+- Release profile: per-package `opt-level = 3` for candle, gemm and the two voice crates (the workspace default `z`
+  made inference ~1.45x slower). Other binaries are unaffected.
+
+## 3. Contract conformance and deliberate deviations
+
+| Item | Legacy | Rust service | Note |
+|---|---|---|---|
+| `POST /synthesize` request/response, WAV format, voices, chunking, `X-RTF`, `X-Duration`, 400 `text required` | as section 1.1 | same | `X-Audio-S`, `X-Voice`, `X-Wall-Ms`, `X-Cpu-Ms` are extra headers |
+| `GET /health` fields | `ok,status,provider,model,loaded,error,device,voices,bind` | all present (`provider` "local", `device` "cpu" = real device) | extra: `runtime,stt,tts,stt_missing,tts_missing,rss_kb,hwm_kb` |
+| `/health` HTTP status | always 200 | **200 only when every requested engine is loaded; 503 while loading or broken** | deliberate: Galion One's mouth row and the nerve read the status code, and "always 200" hid a dead mouth (the voice-mouth 503 root cause). Body still says `status:"loading"` while loading |
+| Synthesis while not loaded | 500 | 503 `{"error":"no text-to-speech: ..."}` | more precise code; Galion One only checks for 200 |
+| Non-JSON body | treated as `{}` -> 400 | 400 `text required` | same |
+| Other paths | Flask HTML 404/405 | JSON 404/405 | |
+| Concurrency | Flask `threaded=False` | one synthesis at a time (engine mutex), health answers concurrently | |
+| Perth watermark | applied by the Python package | **not applied** | gap, section 6 |
+| Ear | faster-whisper large-v3-turbo, beam 1, temp 0 | candle Whisper large-v3-turbo, greedy (= beam 1, temp 0), no `condition_on_previous_text` | `fast=1` accepted and ignored; >30 s audio is windowed |
+
+## 4. Running it
+```
+galion-voice-serve --bind 127.0.0.1:8002 --models /var/lib/galion/voice-models --tts chatterbox --stt none \
+    --voices /var/lib/galion/voices            # mouth (legacy :8002 contract)
+galion-voice-serve --bind 127.0.0.1:8643 --models /var/lib/galion/voice-models --stt whisper-large-v3-turbo --tts none
+                                               # ear (legacy :8643 contract)
+```
+Build: `cargo build --release -p galion-voice-cpu --features whisper,kitten,chatterbox --bin galion-voice-serve`.
+Model dirs `chatterbox/` (5 files + README.md) and `whisper-large-v3-turbo/` (3 files + README.md), see
+docs/third-party/voice-rust.md for URLs, revisions and sha256. Nothing was deployed anywhere.
+
+## 5. Measured (details in docs/real-tests/voice-rust.md)
+On the shared 8-vCPU build box:
+- Mouth, reference settings: 25-32 s wall for 2.4-3.2 s of speech (RTF 8.9-11.5; T3 6-10 s, flow 17-22 s, HiFT 2 s).
+  Fast profile (5 steps, 4 s prompt): 15.6-19.2 s (RTF 5.9-7.0). Load 4-6 s, plus ~1.2 s per reference clip. Peak RSS 4.2 GB.
+- Ear (large-v3-turbo, full 30 s window): 12.7-14.0 s per utterance whatever its length. Peak RSS 4.8 GB.
+- Round trip: 10 of 12 transcriptions word-perfect; the other 2 are the same line in both runs, "carry" -> "Carrie" (homophone).
+- Galion One (integration-1 8fd26f6) end to end: `/hear` -> our ear -> correct text in 13.9-15.9 s (its timeout is
+  20 s); its mouth proxy `/synthesize` -> our mouth -> 200 WAV in 12.6 s (fast) / 20.7 s (reference) for a 2 s line
+  (its timeout is 30 s), and that WAV transcribes back correctly; `/health` passes our body and status through.
+
+## 6. Open issues and gaps (honest)
+1. **CPU speed.** Chatterbox on this CPU is 6-11x slower than real time. A 2-3 s reply fits Galion One's 30 s mouth
+   timeout; long replies (several chunks) will not. The ear takes ~13 s per call (fits the 20 s timeout, not
+   pleasant). Options (need a decision, see 7): a GPU (not allowed now), quantised/bf16 weights, fewer flow steps,
+   streaming chunk-by-chunk in Galion One, or keep KittenTTS/whisper-tiny for latency.
+2. **Real `samantha.wav` / `jarvis.wav` missing.** The tests used stand-ins (Chatterbox built-in voice, KittenTTS).
+   Conditioning demonstrably works (speaker similarity 0.87-0.91 to the reference vs 0.46-0.60 cross).
+3. **No Perth watermark.** Resemble's Python package watermarks every output; this port does not (no Rust Perth
+   exists; it would be its own port).
+4. **Numerical parity with PyTorch not measured** (no Python allowed): validation is functional (Whisper transcripts,
+   speaker similarity), not a tensor-by-tensor diff. Sampling RNG differs from torch, so outputs are not bit-identical.
+5. Whisper large-v3-turbo has no `suppress_tokens` in its config (they are in `generation_config.json`, not
+   downloaded); greedy decoding has been clean on the test lines. "Trimmed" encoder context hallucinates with turbo,
+   so the ear always uses the 30 s window.
+6. The S3Gen prompt from a reference clip is computed with our own resampler (windowed-sinc), not librosa's
+   soxr_hq; small spectral differences are possible.
+7. Port 19370 of this slot was occupied by another agent's `galion-console-static` during the run.
+
+## 7. Needs Slavik's approval / input
+- The real `samantha.wav` (and `jarvis.wav`) reference clips with their provenance/licence, to be placed in `--voices`.
+- Whether the mouth may ship without the Perth watermark (Resemble applies it by default; the MIT licence does not
+  require it).
+- The `/health` deviation (503 when not ready instead of always 200).
+- Which latency trade-off to take for production (section 6.1), and any deployment: nothing was deployed.
+- The per-package `opt-level = 3` override in the workspace `Cargo.toml` (an exception to the size-first profile).

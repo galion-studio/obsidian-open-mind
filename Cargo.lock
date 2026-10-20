@@ -1091,8 +1091,10 @@ name = "openmind-nerve"
 version = "0.1.0"
 dependencies = [
  "openmind-schema",
+ "semver",
  "serde",
  "serde_json",
+ "toml",
  "zagreb-time",
 ]
 

@@ -303,3 +303,5 @@ Format: `- <zagreb-ts> | Bxx | <subagent/session> | PASS n/10, REDO or FAIL | <f
 - 2026-10-20T09:57:55+02:00 | LOCKFILE-NOW | grok-build | PASS 9/10 | docs/lockfile-now.md | Cargo.lock matched HEAD at the stamp; not regenerated
 
 - 2026-10-20T09:58:30+02:00 | REUSE-GAP | grok-build | PASS 9/10 | docs/reuse-gap.md | 120 Rust files have SPDX; REUSE.toml is absent
+
+- 2026-10-20T09:58:42+02:00 | LIVE-PIDS-NOW | grok-build | PASS 9/10 | docs/live-pids-now.md | four live pids still exist; 8420 and 8080 named

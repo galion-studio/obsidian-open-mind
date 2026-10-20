@@ -152,7 +152,7 @@ cannot be produced today without a JS runtime. Options:
    `console-upstream-8088.conf` as a drop-in and `console-static.service`.
 4. `systemctl daemon-reload; systemctl restart console` (now on 8088), then
    `systemctl enable --now console-static` (takes 8080). Downtime: seconds.
-5. Verify with GETs: `scripts/real/console-static.sh` style checks against
+5. Verify with GETs: `crates/console-static/tests/real_console_static.rs` style checks against
    127.0.0.1:8080: pages 200, every probe 404, and `/api/v1/health` answers
    exactly as the console did per Host (measured through the front on
    2026-10-20T20:41+02:00: Host 127.0.0.1 200 JSON, Host console.galion.app

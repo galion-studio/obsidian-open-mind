@@ -25,8 +25,19 @@ const SERVICES: &str = r#"{"count":4,"items":[
 const DOMAINS: &str = r#"{"count":2,"items":[
 {"host":"console.galion.app","role":"Console IDE — operator control","serviceId":"console"},
 {"host":"voice.galion.app","role":"Voice <script>","serviceId":"whisper"}]}"#;
-const HEALTH: &str = r#"{"status":"healthy","version":"3.8.3-board","target":{"pod":"ip50"}}"#;
+const HEALTH: &str =
+    r#"{"status":"healthy","version":"3.8.3-board","target":{"pod":"ip50","podId":"ip50"}}"#;
 const AWAKE: &str = r#"{"services":[{"id":"console","ok":true},{"id":"whisper","ok":false},{"id":"vision","ok":false}]}"#;
+const REPOS: &str = r#"{"owner":"galion-studio","public":1,"privateVisible":1,"items":[
+{"name":"galion-console","visibility":"private","language":"TypeScript","updated":"2026-09-21","sizeKb":0,"role":"Operator console.","weight":"light"},
+{"name":"nexuslang","visibility":"fork","language":null,"updated":"2026-01-20","sizeKb":12,"role":"Fork <i>x</i>","weight":"heavy","empty":true}]}"#;
+const CATALOG: &str = r#"{"version":"3","live":2,"held":1,"items":[
+{"method":"GET","path":"/api/v1/health","title":"Light origin health","source":"console v3","zone":"live"},
+{"method":"GET","path":"/api/v1/repos","title":"GitHub inventory","source":"console v3","zone":"live"},
+{"method":"POST","path":"/api/v3/voice","title":"Voice","source":"galion-backend","zone":"held"}]}"#;
+const CLOUDFLARE: &str = r#"{"proxyHint":"https://ip50-8080.proxy.runpod.net","tunnel":{"id":"t","cname":"t.cfargotunnel.com"},"steps":["Do not change DNS.","Expect Soon-page."],"zones":[{"zone":"galion.studio","records":[{"type":"CNAME","name":"@","host":"galion.studio","proxied":true},{"type":"CNAME","name":"www","host":"www.galion.studio","proxied":true}]}]}"#;
+const PACK: &str = r#"{"zone":"chill","target":{"provider":"cpu","pod":"ip50","podId":"ip50"},"compose":"services:\n  origin: <x>\n","caddy":":80 {\n  reverse_proxy origin:8080\n}"}"#;
+const LEDGER: &str = r#"{"services":[{"id":"gen","name":"Generation","weight":"heavy","summary":"GPU only."},{"id":"console","name":"Control console","weight":"light","summary":"desk"}],"fridge":[{"id":"helium-browser","name":"Helium","summary":"Browser fork. Not an origin."}]}"#;
 
 type Log = Arc<Mutex<Vec<String>>>;
 
@@ -107,6 +118,11 @@ fn answer(mut s: TcpStream, log: Log) {
         }
         ("GET", "/api/v1/domains") => (200, "application/json", String::new(), DOMAINS.into()),
         ("GET", "/api/v1/awake") => (200, "application/json", String::new(), AWAKE.into()),
+        ("GET", "/api/v1/repos") => (200, "application/json", String::new(), REPOS.into()),
+        ("GET", "/api/v1/catalog") => (200, "application/json", String::new(), CATALOG.into()),
+        ("GET", "/api/v1/cloudflare") => (200, "application/json", String::new(), CLOUDFLARE.into()),
+        ("GET", "/api/v1/pack") => (200, "application/json", String::new(), PACK.into()),
+        ("GET", "/api/v1/ledger") => (200, "application/json", String::new(), LEDGER.into()),
         ("POST", "/api/v1/command") => (200, "application/json", String::new(), "{\"ok\":true,\"data\":{\"cmd\":\"health\",\"note\":\"undefined fine\"}}".into()),
         _ => (404, "text/plain", String::new(), "nope".into()),
     };
@@ -519,4 +535,162 @@ fn theme_css_and_fail_closed() {
     let r = get(b, "/agents", "127.0.0.1", "");
     assert_eq!(r.code, 200);
     assert!(r.body.contains("no answer"));
+}
+
+/// Every Rust room renders with no script, only GETs reach the API, and the
+/// remaining rooms say "Not in Rust yet".
+#[test]
+fn read_rooms_render_get_only() {
+    let (a, log) = start(&[]);
+    for p in console_ui::PORTED {
+        let r = get(a, p, "127.0.0.1", "");
+        assert_eq!(r.code, 200, "{p}: {}", r.head);
+        assert!(!r.body.contains("<script"), "{p} has a script");
+        assert!(!r.body.contains("Not in Rust yet"), "{p}");
+        assert!(!r.body.contains("did not load"), "{p}: {}", r.body);
+    }
+    let methods: Vec<String> = log
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|l| l.split(' ').next().unwrap_or("").to_string())
+        .collect();
+    assert!(methods.iter().all(|m| m == "GET"), "{methods:?}");
+    let not_ported: Vec<&str> = console_ui::rooms::ROOMS
+        .iter()
+        .filter_map(|r| r.to)
+        .filter(|p| !console_ui::PORTED.contains(p))
+        .collect();
+    assert_eq!(not_ported.len(), 17, "{not_ported:?}");
+    for p in not_ported {
+        let r = get(a, p, "127.0.0.1", "");
+        assert_eq!(r.code, 200, "{p}");
+        assert!(r.body.contains("Not in Rust yet"), "{p}");
+        assert!(r.body.contains("href=\"/repos\""), "{p} lists ported rooms");
+    }
+}
+
+#[test]
+fn catalog_rooms_content() {
+    let (a, log) = start(&[]);
+    let r = get(a, "/domains", "127.0.0.1", "");
+    assert!(
+        r.body.contains(
+            "<span>console.galion.app</span><span class=\"muted\"> · Control console</span>"
+        ),
+        "{}",
+        r.body
+    );
+    assert!(
+        r.body
+            .contains("<span>voice.galion.app</span><span class=\"muted\"> · Whisper</span>"),
+        "domain row names its service"
+    );
+    assert!(
+        r.body.contains("aria-current=\"page\""),
+        "dock or menu marks the room"
+    );
+
+    let r = get(a, "/repos", "127.0.0.1", "");
+    assert!(r.body.contains("github.com/galion-studio"));
+    assert!(r
+        .body
+        .contains("2 repositories indexed: 1 public, 1 private visible"));
+    assert!(r.body.contains(
+        "<span class=\"badge offline\">empty</span><span class=\"badge held\">heavy</span>"
+    ));
+    assert!(r.body.contains("Fork &lt;i&gt;x&lt;/i&gt;"));
+    assert!(r.body.contains("— · 2026-01-20 · 12 kb"));
+
+    let r = get(a, "/docs", "127.0.0.1", "");
+    assert!(
+        r.body.contains("Ledger · 3 routes")
+            && r.body.contains("Live · 2")
+            && r.body.contains("Fridge · 1")
+    );
+    let r = get(a, "/docs?q=VOICE", "127.0.0.1", "");
+    assert!(
+        r.body.contains("Live · 0") && r.body.contains("Fridge · 1"),
+        "{}",
+        r.body
+    );
+    assert!(r.body.contains("value=\"VOICE\""));
+    let r = get(a, "/docs?q=%22%3E%3Cscript%3E", "127.0.0.1", "");
+    assert!(!r.body.contains("<script>"));
+    assert!(r.body.contains("value=\"&quot;&gt;&lt;script&gt;\""));
+
+    let r = get(a, "/cloudflare", "127.0.0.1", "");
+    assert!(r.body.contains("Cutover · ip50"));
+    assert!(r.body.contains("CNAME target: t.cfargotunnel.com"));
+    assert!(r.body.contains(
+        "CNAME @ t.cfargotunnel.com galion.studio\nCNAME www t.cfargotunnel.com www.galion.studio"
+    ));
+
+    let r = get(a, "/pack", "127.0.0.1", "");
+    assert!(r.body.contains("cpu · not this pass"));
+    assert!(r.body.contains("origin: &lt;x&gt;"));
+    assert!(r.body.contains("reverse_proxy origin:8080"));
+
+    let r = get(a, "/chill", "127.0.0.1", "");
+    assert!(r.body.contains("Generation") && r.body.contains("Helium"));
+    assert!(
+        !r.body
+            .contains("Control console</span><span class=\"badge chill\">"),
+        "light services are not in the fridge"
+    );
+
+    let r = get(a, "/jupyter", "127.0.0.1", "");
+    assert!(
+        r.body.contains("https://ip50-8888.proxy.runpod.net/lab"),
+        "{}",
+        r.body
+    );
+    let r = get(a, "/data", "127.0.0.1", "");
+    assert!(r.body.contains("no database server"));
+    let r = get(a, "/soon", "127.0.0.1", "");
+    assert!(r.body.contains("Hibernating") && r.body.contains("<h1>127.0.0.1</h1>"));
+
+    // Each room fetched exactly what it needs, nothing else.
+    let l = log.lock().unwrap();
+    for want in [
+        "/api/v1/repos",
+        "/api/v1/catalog",
+        "/api/v1/cloudflare",
+        "/api/v1/pack",
+        "/api/v1/ledger",
+    ] {
+        assert!(
+            l.iter().any(|x| x.starts_with(&format!("GET {want} "))),
+            "{want}"
+        );
+    }
+    assert!(
+        !l.iter().any(|x| x.contains("markers")),
+        "never the marker stream"
+    );
+}
+
+/// Remote console host: the read rooms sit behind the same admin gate.
+#[test]
+fn read_rooms_are_gated() {
+    let (a, _) = start(&[]);
+    let r = get(a, "/repos", "console.galion.app", "");
+    assert!(
+        r.body.contains("This phone"),
+        "unpaired gets the pairing form"
+    );
+    assert!(!r.body.contains("galion-console"));
+    let r = get(
+        a,
+        "/repos",
+        "console.galion.app",
+        "Cookie: galion_admin=good\r\n",
+    );
+    assert!(r.body.contains("galion-console"));
+    let r = get(a, "/pack", "sentialink.com", "");
+    assert!(
+        r.body.contains("Soon online."),
+        "other hosts never see the pack"
+    );
+    assert!(!r.body.contains("reverse_proxy"));
 }

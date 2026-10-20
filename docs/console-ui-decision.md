@@ -105,6 +105,34 @@ Live streams: `marker-rail.tsx` uses `EventSource('/api/v1/markers/stream')` but
 - No JavaScript anywhere: 0 `<script>` tags; CSP forbids scripts. Pairing works without JS: `POST /_ui/pair` relays
   `{"code":...}` to `/api/v1/admin` and passes on **only** the `galion_admin` cookie.
 
+### Progress, second pass (2026-10-20 21:35 +02:00)
+
+13 of the 31 console routes are now Rust (29 `_console` route files incl. `index` and `md.$name`, plus
+`status` and `soon`): 12 rendered pages, `status`, `services`, `agents`, then the read-only catalog rooms from
+the Oct 21 row: `domains`, `repos`, `docs`, `cloudflare`, `pack`, `chill`, `jupyter`, `data`, and the `/soon` room
+(per-host hibernation card), plus the `index` route (`/` -> 302 `/console`). The 17 other menu rooms (and
+`md/$name`) answer "Not in Rust yet" / 404.
+
+Each new room reads the API payload that the TSX's compiled-in constants also feed (`/api/v1/domains`, `/services`,
+`/repos`, `/catalog`, `/cloudflare`, `/pack`, `/ledger`, `/health`), so a catalog change on the server shows
+without rebuilding a bundle. Docs filter = `GET /docs?q=`; Copy buttons are replaced by selectable `<pre>` text
+(clipboard needs JS).
+
+Left out of the Oct 21 row on purpose:
+- `node`: its content (the RunPod start command, the Jupyter flash command, the pod IP) exists only as constants in
+  `src/lib/runpod-start.ts`/`fleet.ts`, not in any API; porting it means copying operational commands and a public
+  IP into Rust source (repo-check forbids the IP). Needs either an `/api/v1/node` payload or Slavik's OK to drop it.
+- `md/$name`: reads `/workspace/.../*.md` on disk through a server function: a file-read room (decision 3).
+- `gateway` (relays arbitrary catalog calls, including POST ones), `markers` (POST emit + live tail), `keys`,
+  `guardian`, `arena` (POST actions), `session` (401 without a paired cookie, so no live GET comparison is possible
+  unpaired): Oct 22, they need CSRF-checked form posts tested against a fake upstream only.
+- `instances`, `security`, `analytics`, `mesh`: polled every few seconds in the TSX; refresh strategy waits on
+  decision 1.
+
+The shell real-life scripts are gone: `crates/console-ui/tests/real_console_ui.rs` and
+`crates/console-static/tests/real_console_static.rs` (both `#[ignore]`/`GALION_REAL=1`) build the binary, open the
+read-only SSH forward themselves and compare against the live API. The branch adds no `.sh`/`.py` vs main.
+
 ## What Slavik must decide
 
 1. **JS ruling for two rooms** (Hermes Research, Desk chat). Pick one:
@@ -130,7 +158,7 @@ Live streams: `marker-rail.tsx` uses `EventSource('/api/v1/markers/stream')` but
 
 | when (+02:00 until Oct 25, then +01:00) | rooms | notes |
 |---|---|---|
-| Oct 21 | domains, repos, docs, node, cloudflare, chill, pack, data, jupyter, soon, md | static catalog / one GET each |
+| Oct 21 (done Oct 20, except node, md) | domains, repos, docs, node, cloudflare, chill, pack, data, jupyter, soon, md | static catalog / one GET each |
 | Oct 22 | gateway, markers, keys, session, guardian, arena | forms; POST targets CSRF-checked |
 | Oct 23 | mesh, instances, analytics, security | refresh strategy per the JS ruling |
 | Oct 24-25 | bank, cache, context, memory | after decision 3 (data endpoints) |

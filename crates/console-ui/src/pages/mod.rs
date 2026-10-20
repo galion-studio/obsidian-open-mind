@@ -6,6 +6,7 @@
 //! so it can be tested without a network.
 
 pub mod agents;
+pub mod catalog;
 pub mod gate;
 pub mod not_ported;
 pub mod services;

@@ -155,3 +155,35 @@ list" lines) and replayed with the fixed list (`/.env`, `/phpinfo.php`,
 (pure Rust) printed the same 16 `page` lines as the earlier generated file;
 `deploy/console-static/routes.2169d1c.txt` is now that output. No Node, npm
 or Vite was run after 20:41 +02:00.
+
+## 4. Rust port of the script (2026-10-20 21:36 +02:00, swarm/console-ui-rust)
+
+`scripts/real/console-static.sh` was replaced by `crates/console-static/tests/real_console_static.rs` (Rust only,
+no shell; the run in section 3 above was the script's). The test now also opens the read-only SSH forward itself
+with `CONSOLE_STATIC_LIVE=1` and checks methods and the conditional GET. Run on the console-ui ports:
+
+```
+GALION_REAL=1 CONSOLE_STATIC_LIVE=1 CONSOLE_STATIC_ADDR=127.0.0.1:19376 CONSOLE_STATIC_UP=127.0.0.1:19377 \
+  cargo test --release -p console-static --test real_console_static -- --nocapture
+```
+
+```
+captured scanner paths: ["/public/.env", "/public/phpinfo.php", "/opt/galion/console-ide/.git/config"]
+real: 16 pages 200, 16 probes 404
+real: POST /agents -> 405
+real: POST /.env -> 404
+real: If-None-Match favicon -> 304
+real: /api/v1/health         ours 200 application/json                 live 200 application/json                 same-body
+real: /api/v1/catalog        ours 200 application/json                 live 200 application/json                 same-body
+real: /api/v1/services       ours 200 application/json                 live 200 application/json                 same-body
+real: /api/v1/protocol       ours 200 application/json                 live 200 application/json                 same-body
+real: /api/v1/markers        ours 200 application/json                 live 200 application/json                 same-body
+real: /api/hermes/health     ours 200 application/json                 live 200 application/json                 body-differs(5605/5605)
+real: /api/nope              ours 404 text/html; charset=utf-8         live 404 text/html; charset=utf-8         body-differs(2928/2928)
+real: /api/.env              ours 404 text/plain; charset=utf-8        live 404 text/html; charset=utf-8         body-differs(10/2928)
+test result: ok. 1 passed; 0 failed
+```
+
+`/api/v1/*` bodies are asserted byte-identical; `/api/hermes/health` (same length, changing uptime/clock fields) and
+the Vite 404 page are printed only. `/api/.env` is refused by the front (404 text/plain) before it reaches the
+upstream, which answers 404 too: same status. Only GETs went upstream; the markers stream was not opened.

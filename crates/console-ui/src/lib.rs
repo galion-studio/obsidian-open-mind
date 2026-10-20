@@ -35,7 +35,20 @@ use layout::{Frame, Origin};
 use std::net::SocketAddr;
 
 /// Pages rendered in Rust, in port order.
-pub const PORTED: &[&str] = &["/status", "/services", "/agents"];
+pub const PORTED: &[&str] = &[
+    "/status",
+    "/services",
+    "/agents",
+    "/domains",
+    "/repos",
+    "/docs",
+    "/cloudflare",
+    "/pack",
+    "/chill",
+    "/jupyter",
+    "/data",
+    "/soon",
+];
 
 /// Largest form body accepted (pairing code or a command name).
 pub const MAX_FORM: usize = 4096;
@@ -293,8 +306,14 @@ impl Ui {
             "/agents" => self.agents(req),
             "/soon" => {
                 let f = self.frame(req, "Soon");
-                Reply::html(200, layout::document(&f, "", &pages::gate::soon()))
+                let host = gate::normalize_host(req.host);
+                Reply::html(
+                    200,
+                    layout::document(&f, "", &pages::gate::coming_soon(&host)),
+                )
             }
+            "/domains" | "/repos" | "/docs" | "/cloudflare" | "/pack" | "/chill" | "/jupyter"
+            | "/data" => self.read_room(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);
@@ -472,6 +491,55 @@ impl Ui {
         Reply::html(200, layout::console(&f, origin, &body))
     }
 
+    /// Read-only catalog rooms (`pages::catalog`): GET the API payloads the
+    /// room needs plus `/api/v1/health` (origin dot), in parallel.
+    fn read_room(&self, req: &Request<'_>) -> Reply {
+        let apis: &[&str] = match req.path {
+            "/domains" => &["/api/v1/domains", "/api/v1/services"],
+            "/repos" => &["/api/v1/repos"],
+            "/docs" => &["/api/v1/catalog"],
+            "/cloudflare" => &["/api/v1/cloudflare"],
+            "/pack" => &["/api/v1/pack"],
+            "/chill" => &["/api/v1/ledger"],
+            _ => &[],
+        };
+        let fwd = self.forward(req);
+        let (health, got) = std::thread::scope(|s| {
+            let h = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/health", &fwd));
+            let hs: Vec<_> = apis
+                .iter()
+                .map(|p| s.spawn(|| self.get_json(self.cfg.upstream, p, &fwd)))
+                .collect();
+            let got: Vec<Option<Value>> = hs.into_iter().map(|j| j.join().ok().flatten()).collect();
+            (h.join().ok().flatten(), got)
+        });
+        let origin = match &health {
+            Some(h) if h.get("status").as_str() == Some("healthy") => Origin::Up,
+            _ => Origin::Down,
+        };
+        let a = got.first().and_then(Option::as_ref);
+        let b = got.get(1).and_then(Option::as_ref);
+        let body = match req.path {
+            "/domains" => pages::catalog::domains(a, b),
+            "/repos" => pages::catalog::repos(a),
+            "/docs" => {
+                let q = html::form_pairs(req.query);
+                pages::catalog::docs(a, html::form_get(&q, "q").unwrap_or(""))
+            }
+            "/cloudflare" => pages::catalog::cloudflare(a, health.as_ref()),
+            "/pack" => pages::catalog::pack(a),
+            "/chill" => pages::catalog::chill(a),
+            "/jupyter" => pages::catalog::jupyter(health.as_ref()),
+            _ => pages::catalog::data(),
+        };
+        let title = format!(
+            "Galion Console · {}",
+            rooms::exact(req.path).map(|r| r.label).unwrap_or("Console")
+        );
+        let f = self.frame(req, &title);
+        Reply::html(200, layout::console(&f, origin, &body))
+    }
+
     fn agents(&self, req: &Request<'_>) -> Reply {
         let fwd = self.forward(req);
         let mut note = String::new();
@@ -559,13 +627,26 @@ mod tests {
         all.push_str(&pages::gate::pair("/agents", Some("x")));
         all.push_str(&pages::gate::links());
         all.push_str(&pages::not_ported::body(&rooms::ROOMS[0], PORTED));
+        let cat = json::parse(br#"{"owner":"o","public":1,"privateVisible":1,"items":[{"name":"a","visibility":"fork","empty":true,"weight":"heavy","role":"r","method":"GET","path":"/p","title":"t","source":"s","zone":"live","host":"h","brand":"b","serviceId":"a"},{"method":"POST","path":"/q","title":"t","source":"s","zone":"held"}],"steps":["one"],"tunnel":{"cname":"c"},"zones":[{"zone":"z","records":[{"type":"CNAME","name":"@","host":"z"}]}],"target":{"provider":"cpu","pod":"p","podId":"p"},"compose":"x","caddy":"y","services":[{"name":"n","weight":"heavy","summary":"s"}],"fridge":[{"name":"f","summary":"s"}]}"#).unwrap();
+        all.push_str(&pages::catalog::domains(Some(&cat), Some(&services)));
+        all.push_str(&pages::catalog::repos(Some(&cat)));
+        all.push_str(&pages::catalog::docs(Some(&cat), "zz"));
+        all.push_str(&pages::catalog::docs(Some(&cat), ""));
+        all.push_str(&pages::catalog::cloudflare(Some(&cat), Some(&cat)));
+        all.push_str(&pages::catalog::pack(Some(&cat)));
+        all.push_str(&pages::catalog::chill(Some(&cat)));
+        all.push_str(&pages::catalog::jupyter(Some(&cat)));
+        all.push_str(&pages::catalog::data());
+        all.push_str(&pages::catalog::repos(None));
+        all.push_str(&pages::gate::coming_soon("galion.app"));
         let mut missing = Vec::new();
         for cap in all.split("class=\"").skip(1) {
             let list = cap.split('"').next().unwrap_or("");
             for c in list.split_whitespace() {
                 if !defined.iter().any(|d| d == c)
                     && ![
-                        "primary", "ghost", "online", "offline", "held", "i-open", "i-close",
+                        "primary", "ghost", "online", "offline", "held", "neutral", "fork",
+                        "chill", "i-open", "i-close",
                     ]
                     .contains(&c)
                 {

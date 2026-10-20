@@ -25,6 +25,9 @@ pub const DARK: &[(&str, &str)] = &[
     ("offline", "#f14c4c"),
     ("held", "#cca700"),
     ("ring", "#007acc"),
+    ("frost", "#007acc"),
+    ("ice", "#569cd6"),
+    ("winter", "#1e1e1e"),
 ];
 
 /// Light overrides (console-ide `html[data-theme="light"]` and `LIGHT`).
@@ -36,6 +39,7 @@ pub const LIGHT: &[(&str, &str)] = &[
     ("muted", "#5e5e5e"),
     ("subtle", "#8a8a86"),
     ("line", "#e2e2de"),
+    ("winter", "#f6f6f4"),
 ];
 
 pub const RADII: &[(&str, &str)] = &[
@@ -166,6 +170,45 @@ button,input{font:inherit;color:inherit}
 .gate input{width:100%;height:3rem;margin-top:1.5rem;border:1px solid var(--c-line);background:var(--c-surface);border-radius:var(--r-md);padding:0 .75rem;font-family:var(--mono)}
 .gate .btn{width:100%;margin-top:.75rem;height:3rem}
 .err{color:var(--c-offline);margin-top:.5rem;font-size:.875rem}
+.w68{max-width:67.86rem}
+.tiny{font-size:11px}
+.badge.neutral{background:var(--c-elevated);color:var(--c-muted);border:1px solid var(--c-line)}
+.badge.fork{background:var(--c-elevated);color:var(--c-subtle);border:1px solid var(--c-line)}
+.badge.chill{background:color-mix(in srgb,var(--c-frost) 10%,transparent);color:var(--c-frost)}
+.rows{display:flex;flex-direction:column;margin-top:1rem}
+.rows li{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.25rem 1rem;min-height:2.75rem;border-bottom:1px solid var(--c-line);padding:.375rem 0;min-width:0;overflow-wrap:anywhere}
+.rows li>span:last-child:not(:first-child){text-align:right}
+.rows .dns>span{flex:0 1 auto}
+.cards{margin-top:1.5rem;border:1px solid var(--c-line);border-radius:var(--r-xl);overflow:hidden}
+.cards li{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:.5rem 1rem;background:var(--c-surface);padding:1rem 1.25rem;min-width:0}
+.cards li+li{border-top:1px solid var(--c-line)}
+.cards li.row{align-items:baseline}
+.cards p.muted{margin-top:.25rem;font-size:.875rem}
+.name{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-width:0;overflow-wrap:anywhere}
+.name .mono{font-size:.875rem}
+.filter{display:flex;gap:.5rem;margin-top:1.5rem;max-width:28rem}
+.filter input{flex:1;min-width:0;height:2.75rem;border:1px solid var(--c-line);background:var(--c-surface);border-radius:var(--r-md);padding:0 .75rem;font-family:var(--mono);font-size:.875rem}
+.steps{margin:1rem 0 0;padding:0;list-style:none}
+.steps li{display:flex;gap:1rem;border-bottom:1px solid var(--c-line);padding:.75rem 0;font-size:15px;line-height:1.6}
+.page h2.split{display:flex;justify-content:space-between;gap:.75rem;margin-top:1.5rem}
+.plain{margin-top:.5rem}
+.plain summary{cursor:pointer;min-height:2.75rem;display:flex;align-items:center;font-size:.875rem;color:var(--c-muted)}
+.code{margin:.75rem 0 0;overflow:auto;border-radius:var(--r-lg);border:1px solid color-mix(in srgb,var(--c-frost) 15%,transparent);background:var(--c-winter);padding:1rem;font-family:var(--mono);font-size:12px;line-height:1.6;color:color-mix(in srgb,var(--c-frost) 90%,transparent)}
+.cold-file{margin-top:1.5rem;opacity:.8}
+.cold-file h2{font-size:1rem;font-weight:500;color:var(--c-fg)}
+.frost{color:var(--c-frost)}
+.ice{color:var(--c-ice)}
+.page header a.frost{color:var(--c-frost)}
+.ice-cards{background:var(--c-winter);border-color:color-mix(in srgb,var(--c-frost) 15%,transparent)}
+.ice-cards li{background:transparent}
+.ice-cards li+li{border-color:color-mix(in srgb,var(--c-frost) 10%,transparent)}
+.ice-cards .name span:first-child{font-weight:500}
+.hib{position:relative;display:flex;flex-direction:column;min-height:100dvh;overflow:hidden;background:radial-gradient(ellipse 70% 50% at 80% -10%,color-mix(in oklab,var(--c-frost) 18%,transparent),transparent 55%)}
+.hib header{display:flex;align-items:center;justify-content:space-between;padding:max(1rem,env(safe-area-inset-top)) 1.25rem 1rem}
+.hib-mark{width:1.75rem;height:1.75rem;border-radius:8px;border:1px solid var(--c-line);background:linear-gradient(160deg,var(--c-frost),var(--c-fg) 55%,var(--c-bg))}
+.hib main{margin:0 auto;display:flex;flex:1;flex-direction:column;justify-content:center;width:100%;max-width:36rem;padding:0 1.25rem 4rem}
+.hib h1{margin-top:.5rem;font-size:1.875rem;letter-spacing:-.03em}
+@media (min-width:640px){.hib h1{font-size:2.25rem}}
 "#;
 
 /// The whole sheet.

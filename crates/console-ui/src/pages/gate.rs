@@ -44,3 +44,54 @@ pub fn unavailable() -> String {
 <p class=\"lede\">The pairing check runs on the console API. It did not answer, so nothing is shown. Try again in a minute.</p></main>"
         .to_string()
 }
+
+/// Brand line per host for the `/soon` room (console-ide
+/// `src/components/coming-soon.tsx` `COPY`).
+pub const SOON_COPY: &[(&str, &str, &str)] = &[
+    ("merlinelement.com", "Merlin Element", "In maintenance."),
+    ("sentialink.com", "SentiaLink", "In maintenance."),
+    ("galion.studio", "Galion Studio", "Coming soon."),
+    ("galion.app", "Galion", "Coming soon."),
+    ("mc.galion.studio", "GALION Play", "In maintenance."),
+    ("play.galion.studio", "GALION Play", "In maintenance."),
+    ("developer.galion.app", "NexusLang", "Coming soon."),
+    ("docs.galion.studio", "Galion Docs", "Coming soon."),
+    ("voice.galion.app", "Galion Voice", "In maintenance."),
+    ("neural.galion.app", "Galion Neural", "In maintenance."),
+    ("code.galion.app", "Galion Code", "In maintenance."),
+];
+
+/// The `/soon` room: the hibernation card for the host it is opened on
+/// (`host` is already normalised). developer.galion.app gets the links.
+pub fn coming_soon(host: &str) -> String {
+    if host == "developer.galion.app" {
+        return links();
+    }
+    let (name, line) = SOON_COPY
+        .iter()
+        .find(|(h, _, _)| *h == host)
+        .map(|(_, n, l)| (*n, *l))
+        .unwrap_or((if host.is_empty() { "Soon" } else { host }, "Coming soon."));
+    format!(
+        "<div class=\"hib\"><header><span class=\"hib-mark\" aria-hidden=\"true\"></span><p class=\"k\">{h}</p></header>\
+<main><p class=\"k\">Hibernating</p><h1>{n}</h1><p class=\"lede\">{l}</p></main></div>",
+        h = esc(host),
+        n = esc(name),
+        l = esc(line)
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coming_soon_per_host() {
+        assert!(coming_soon("sentialink.com").contains("<h1>SentiaLink</h1>"));
+        assert!(coming_soon("sentialink.com").contains("In maintenance."));
+        assert!(coming_soon("x.example").contains("<h1>x.example</h1>"));
+        assert!(coming_soon("").contains("<h1>Soon</h1>"));
+        assert!(coming_soon("developer.galion.app").contains("Discussions"));
+        assert!(!coming_soon("<b>").contains("<b>"));
+    }
+}

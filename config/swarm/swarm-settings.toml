@@ -29,3 +29,17 @@ branches = "swarm/<slug> based on main; never push to main, never force-push, no
 ports = "slot NN uses 19NN0-19NN9; real-harness 19500-19551"
 vps = "read-only; working copy /opt/galion/openmind at 2f5a730 untouched; no deploys without owner approval"
 timezone = "Europe/Zagreb with explicit offset"
+
+[standing_rules]
+# Set by Slavik 2026-10-20 20:41 CEST (+02:00).
+rust_only = "Rust only for everything, no exceptions. No Python or other languages; non-Rust components are rewritten as proper Rust implementations, not quick ports."
+
+[non_rust_on_vps]
+# Read-only inventory 2026-10-20 20:43 CEST (+02:00). Flagged for replacement.
+console = "Node + Vite dev server on 127.0.0.1:8080 (/opt/galion/console-ide); UI source is TypeScript/TSX"
+fail2ban = "Python (OS package), SSH ban daemon"
+networkd_dispatcher = "Python (Ubuntu OS package)"
+cloudflared = "Go (Cloudflare binary): cloudflared.service and tuner-quick.service"
+postfix = "C (OS mail server)"
+tts_server = "Python /opt/galion/galion-light/tts/tts_server.py + worker.py: on disk, NOT running on the VPS (Chatterbox runs on the GPU pod)"
+already_rust = ["galion-one", "galion-desk", "galion-health", "galion-nerve", "hermes-rs", "link-watch-rs", "openmind-memory", "tuner", "tanga-serve"]

@@ -1,20 +1,28 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-//! LAN discovery stub.
+//! LAN device discovery for OpenMind.
 //!
-//! Candidates come from a static seed list and, when a fixture is supplied,
-//! from an mDNS-SD style record parser. Nothing in the default path opens a
-//! socket. [`Scan::Requested`] is the only path that calls a scanner, and the
-//! built-in scanner sends no packets. No candidate is approved: this crate
-//! does not join a device.
+//! Candidates come from a static seed list, an mDNS-SD style fixture, a real
+//! mDNS / DNS-SD browse ([`mdns::browse`]) and an opt-in /24 port probe
+//! ([`probe::probe`]). Every found device is stored as an OpenMind provider
+//! row in [`Approval::Pending`](openmind_provider::Approval::Pending); only an
+//! explicit `approve` admits it ([`admit`]). Nothing in the default path
+//! opens a socket: the browse runs only for `find` / `--scan`, the probe only
+//! for `--probe NET`, and the responder only for `announce`.
 
+pub mod admit;
 mod cli;
+mod cmd;
+pub mod dns;
+pub mod mdns;
 mod parse;
+pub mod probe;
 mod scan;
 mod seed;
 
-pub use cli::{cli, read_fixture_file, CliError, CliOut, USAGE};
+pub use cli::{cli, cli_with, read_fixture_file, CliError, CliOut, USAGE};
+pub use cmd::run;
 pub use parse::{fold_records, parse_mdns_sd, ParseError, RData, Record};
 pub use scan::{active_scan, ScanOutcome};
 pub use seed::static_seeds;
@@ -22,7 +30,8 @@ pub use seed::static_seeds;
 use serde::Serialize;
 use std::collections::BTreeMap;
 
-/// Approval string written on every candidate. This stub has no approve path.
+/// Approval string written on every candidate. Candidates are never
+/// approved here; approval lives in the provider registry ([`admit`]).
 pub const APPROVAL: &str = "pending";
 
 /// Where a candidate came from.
@@ -31,8 +40,90 @@ pub const APPROVAL: &str = "pending";
 pub enum Origin {
     /// Row from the built-in seed list. Not a joined device.
     Seed,
-    /// Folded out of mDNS-SD style records.
+    /// Folded out of mDNS-SD records (fixture or live browse).
     Mdns,
+    /// Found by the opt-in TCP port probe.
+    Probe,
+}
+
+/// What kind of compute a candidate looks like.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeviceKind {
+    /// A Galion edge node (or a Galion wrapper in front of Exo/Ollama/llama.cpp).
+    Galion,
+    /// Exo cluster HTTP API (default port 52415).
+    Exo,
+    /// llama.cpp `rpc-server` (binary protocol, default port 50052).
+    LlamaRpc,
+    /// llama.cpp `llama-server` HTTP API (default port 8080).
+    LlamaCpp,
+    /// Ollama HTTP API (default port 11434).
+    Ollama,
+    /// Another OpenMind peer (default port 7787).
+    OpenMind,
+}
+
+impl DeviceKind {
+    /// Every kind, in display order.
+    pub const ALL: [DeviceKind; 6] = [
+        DeviceKind::Galion,
+        DeviceKind::Exo,
+        DeviceKind::LlamaRpc,
+        DeviceKind::LlamaCpp,
+        DeviceKind::Ollama,
+        DeviceKind::OpenMind,
+    ];
+
+    /// Stable short name, also the DNS-SD service label without `_`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            DeviceKind::Galion => "galion",
+            DeviceKind::Exo => "exo",
+            DeviceKind::LlamaRpc => "llama-rpc",
+            DeviceKind::LlamaCpp => "llamacpp",
+            DeviceKind::Ollama => "ollama",
+            DeviceKind::OpenMind => "openmind",
+        }
+    }
+
+    /// Parse a short name (`exo`, `llama-rpc`, ...).
+    pub fn parse(text: &str) -> Option<Self> {
+        let text = text.trim().to_ascii_lowercase();
+        Self::ALL.into_iter().find(|kind| kind.as_str() == text)
+    }
+
+    /// DNS-SD service type, e.g. `_exo._tcp.local.`.
+    pub fn service_type(self) -> String {
+        format!("_{}._tcp.local.", self.as_str())
+    }
+
+    /// Kind for a DNS-SD service type such as `_ollama._tcp.local.`.
+    pub fn from_service_type(service_type: &str) -> Option<Self> {
+        let label = service_type.strip_prefix('_')?.split('.').next()?;
+        if !service_type.contains("._tcp.") {
+            return None;
+        }
+        Self::parse(label)
+    }
+
+    /// HTTP path used to fingerprint an open port, `None` for non-HTTP.
+    pub const fn fingerprint_path(self) -> Option<&'static str> {
+        match self {
+            DeviceKind::Exo => Some("/models"),
+            DeviceKind::Ollama => Some("/api/version"),
+            DeviceKind::LlamaCpp | DeviceKind::Galion | DeviceKind::OpenMind => Some("/health"),
+            DeviceKind::LlamaRpc => None,
+        }
+    }
+
+    /// Endpoint scheme stored in the provider row.
+    pub const fn scheme(self) -> &'static str {
+        match self {
+            DeviceKind::LlamaRpc => "tcp",
+            _ => "http",
+        }
+    }
 }
 
 /// One discovery candidate. `approval` is always [`APPROVAL`].
@@ -49,6 +140,19 @@ pub struct Candidate {
     pub approval: String,
 }
 
+impl Candidate {
+    /// The device kind: from the service type, or from the probe's `kind` TXT.
+    pub fn kind(&self) -> Option<DeviceKind> {
+        DeviceKind::from_service_type(&self.service_type).or_else(|| {
+            if self.origin == Origin::Probe {
+                self.txt.get("kind").and_then(|k| DeviceKind::parse(k))
+            } else {
+                None
+            }
+        })
+    }
+}
+
 /// Whether the caller asked for the active scan.
 ///
 /// [`Scan::Off`] is the default. It does not call the scanner.
@@ -56,7 +160,7 @@ pub struct Candidate {
 pub enum Scan {
     /// Do not call the scanner.
     Off,
-    /// Call the scanner once. The built-in scanner sends no packets.
+    /// Call the scanner once (the built-in one is a real mDNS browse).
     Requested,
 }
 
@@ -76,17 +180,9 @@ impl ScanReport {
             note: "off".to_owned(),
         }
     }
-
-    fn from_outcome(outcome: ScanOutcome) -> Self {
-        Self {
-            requested: true,
-            packets_sent: outcome.packets_sent,
-            note: outcome.note.to_owned(),
-        }
-    }
 }
 
-/// Seed rows plus any candidates folded from `fixture`.
+/// Seed rows plus any candidates folded from `fixture` and the scan.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Report {
     pub scan: ScanReport,
@@ -107,7 +203,15 @@ where
     }
     let scan_report = match scan {
         Scan::Off => ScanReport::off(),
-        Scan::Requested => ScanReport::from_outcome(scanner()),
+        Scan::Requested => {
+            let outcome = scanner();
+            candidates.extend(outcome.candidates);
+            ScanReport {
+                requested: true,
+                packets_sent: outcome.packets_sent,
+                note: outcome.note,
+            }
+        }
     };
     Ok(Report {
         scan: scan_report,
@@ -148,25 +252,45 @@ mod tests {
         assert!(err.line >= 1);
     }
 
-    #[test]
-    fn requested_scan_uses_the_stub_and_sends_no_packets() {
-        let report = discover(None, Scan::Requested).unwrap();
-        assert!(report.scan.requested);
-        assert_eq!(report.scan.packets_sent, 0);
-        assert!(report.scan.note.contains("no packets"));
-        assert_eq!(active_scan().packets_sent, 0);
+    fn fake_outcome() -> ScanOutcome {
+        let text = "\
+_galion._tcp.local. IN PTR lab._galion._tcp.local.
+lab._galion._tcp.local. IN SRV 0 0 19111 lab.local.
+lab.local. IN A 192.0.2.44
+";
+        ScanOutcome {
+            packets_sent: 2,
+            note: "test-scanner".into(),
+            candidates: fold_records(&parse_mdns_sd(text).unwrap()),
+        }
     }
 
     #[test]
-    fn requested_scan_reports_the_injected_scanner() {
-        let report = discover_with(None, Scan::Requested, || ScanOutcome {
-            packets_sent: 0,
-            note: "test-scanner",
-        })
-        .unwrap();
+    fn requested_scan_merges_the_scanner_candidates() {
+        let report = discover_with(None, Scan::Requested, fake_outcome).unwrap();
         assert!(report.scan.requested);
-        assert_eq!(report.scan.packets_sent, 0);
+        assert_eq!(report.scan.packets_sent, 2);
         assert_eq!(report.scan.note, "test-scanner");
+        assert_eq!(report.candidates.len(), static_seeds().len() + 1);
+        let found = report.candidates.last().unwrap();
+        assert_eq!(found.id, "lab");
+        assert_eq!(found.kind(), Some(DeviceKind::Galion));
+        assert_eq!(found.approval, APPROVAL);
+    }
+
+    #[test]
+    fn device_kinds_roundtrip() {
+        for kind in DeviceKind::ALL {
+            assert_eq!(DeviceKind::parse(kind.as_str()), Some(kind));
+            assert_eq!(
+                DeviceKind::from_service_type(&kind.service_type()),
+                Some(kind)
+            );
+        }
+        assert_eq!(DeviceKind::from_service_type("_ipp._tcp.local."), None);
+        assert_eq!(DeviceKind::from_service_type("_exo._udp.local."), None);
+        assert_eq!(DeviceKind::LlamaRpc.scheme(), "tcp");
+        assert_eq!(DeviceKind::LlamaRpc.fingerprint_path(), None);
     }
 
     #[test]
@@ -188,7 +312,9 @@ desk.local. IN A 192.0.2.10
     }
 
     #[test]
-    fn scan_source_names_no_socket_type() {
+    fn scan_gate_delegates_sockets_to_the_mdns_module() {
+        let src = include_str!("scan.rs");
+        assert!(src.contains("browse(&BrowseOpts::default())"));
         let src = include_str!("scan.rs");
         assert!(!src.contains("UdpSocket"));
         assert!(!src.contains("TcpStream"));
@@ -196,7 +322,7 @@ desk.local. IN A 192.0.2.10
     }
 
     #[test]
-    fn default_cli_does_not_read_a_fixture() {
+    fn default_cli_does_not_read_a_fixture_or_scan() {
         let out = cli(Vec::<&str>::new(), |_| -> io::Result<String> {
             panic!("fixture read")
         })
@@ -233,15 +359,26 @@ desk.local. IN A 192.0.2.10
     }
 
     #[test]
-    fn scan_flag_is_the_stub() {
-        let out = cli(["--scan"], |_| -> io::Result<String> {
-            panic!("fixture read")
-        })
+    fn scan_flag_calls_the_scanner_once() {
+        let mut calls = 0;
+        let out = cli_with(
+            ["--scan"],
+            |_| -> io::Result<String> { panic!("fixture read") },
+            || {
+                calls += 1;
+                fake_outcome()
+            },
+        )
         .unwrap();
+        assert_eq!(calls, 1);
         match out {
             CliOut::Report(value) => {
                 assert_eq!(value["scan"]["requested"], true);
-                assert_eq!(value["scan"]["packets_sent"], 0);
+                assert_eq!(value["scan"]["packets_sent"], 2);
+                let rows = value["candidates"].as_array().unwrap();
+                assert!(rows
+                    .iter()
+                    .any(|row| row["id"] == "lab" && row["approval"] == "pending"));
             }
             CliOut::Help => panic!("expected a report"),
         }

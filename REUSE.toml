@@ -25,6 +25,8 @@ path = [
     "release/TEACHER/**",
     "docs/third-party/**",
     "docs/real-tests/**",
+    # Its test fixture SAMPLE is a string holding an SPDX header line (swarm/integration-1).
+    "crates/gaia-minerva/src/lib.rs",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "3000 Galion / galion-studio"

@@ -34,7 +34,7 @@ of the private repo is the alternative; it is an owner decision, and
 | `/dist/bin export-ignore` | 11 | committed release binaries (+ `.license` companions); ship as signed release assets instead (Scorecard Binary-Artifacts) |
 | `/edge/dist export-ignore` | 6 | same, for omnode |
 
-Result at `7eee260`: **732 of 822 tracked files exported, 90 export-ignored.**
+Result at `17d7b73`: **738 of 830 tracked files exported, 92 export-ignored.**
 The exported workspace still builds: `cargo check --workspace --locked` passes
 on the exported tree (no crate depends on excluded paths; `Cargo.toml` already
 excludes `contrib`).

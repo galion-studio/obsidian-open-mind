@@ -11,7 +11,7 @@ the VPS. Every item marked **owner** needs Slavik.
 
 | Gate | Evidence |
 |---|---|
-| REUSE 3.3 compliance | `REUSE.toml`, `LICENSES/MIT.txt`, 13 `.license` companions for binary files; comply 0.1.1 (Rust) lint: repo 806 files 0 failed; export 717 files 0 failed |
+| REUSE 3.3 compliance | `REUSE.toml`, `LICENSES/MIT.txt`, 13 `.license` companions for binary files; comply 0.1.1 (Rust) lint: repo 812 files (771 passed, 41 LICENSE files skipped as licence texts, 0 failed); export 723 files, 0 failed |
 | Third-party licences under `stack/` | `REUSE.toml` annotations for claude-skills (Alireza Rezvani, MIT), Hermes Agent skills (Nous Research, MIT), superpowers-derived skill (Jesse Vincent + Nous Research, MIT); upstream `LICENSE` kept verbatim at `stack/agents/personas/crew-skills/LICENSE` |
 | SBOM from Cargo.lock | cargo-cyclonedx 0.5.9: 36 CycloneDX 1.5 JSON files (one per crate + omnode), 130 unique components, all with licence data |
 | Licence policy over all transitive deps | `deny.toml` = RULES.md allow-list; `cargo deny check licenses bans sources advisories` ok for the workspace and `edge/openmind-node`; a GPL canary crate is rejected |

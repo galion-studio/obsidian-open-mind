@@ -170,6 +170,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-health"
+version = "0.1.0"
+dependencies = [
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-one"
 version = "0.1.0"
 

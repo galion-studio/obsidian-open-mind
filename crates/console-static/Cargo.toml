@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "console-static"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Production front for the Galion console (B61): serves the static SPA build with a startup whitelist, strict paths, no dotfiles, no listing, and proxies /api/* to a loopback upstream."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "galion-console-static"
+path = "src/main.rs"
+
+[dependencies]

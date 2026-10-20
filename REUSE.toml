@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# REUSE 3.3 manifest (https://reuse.software/spec-3.3/).
+# Checked with `scripts/reuse-lint.sh` (comply, a Rust REUSE linter; the FSFE
+# `reuse` tool is Python and is not run here). Licence texts live in LICENSES/.
+
+version = 1
+
+# 1. Everything in the repository is MIT, Galion / galion-studio, unless a file
+#    carries its own SPDX header ("closest": the file header wins).
+[[annotations]]
+path = "**"
+precedence = "closest"
+SPDX-FileCopyrightText = "3000 Galion / galion-studio"
+SPDX-License-Identifier = "MIT"
+
+# 2. Files whose prose quotes SPDX tags in the text (rules, lessons, tickets).
+#    The quoted tags are examples, not this file's licensing, so REUSE.toml
+#    overrides them.
+[[annotations]]
+path = [
+    "SIDE-PROJECT.md",
+    "TEACHER/**",
+    "release/TEACHER/**",
+    "docs/third-party/**",
+    "docs/real-tests/**",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "3000 Galion / galion-studio"
+SPDX-License-Identifier = "MIT"
+
+# 3. Third-party: claude-skills by Alireza Rezvani (MIT),
+#    https://github.com/alirezarezvani/claude-skills
+#    The upstream licence is kept verbatim at
+#    stack/agents/personas/crew-skills/LICENSE.
+[[annotations]]
+path = [
+    "stack/agents/personas/crew-skills/**",
+    "stack/agents/teams/crew-skills/**",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2025 Alireza Rezvani"
+SPDX-License-Identifier = "MIT"
+
+# 4. Third-party: Hermes Agent skills by Nous Research (MIT),
+#    https://github.com/NousResearch/hermes-agent
+#    (each SKILL.md front matter says `license: MIT`).
+[[annotations]]
+path = "stack/research-agent/hermes/skills/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2025 Nous Research"
+SPDX-License-Identifier = "MIT"
+
+# 5. Third-party: Hermes Agent skill adapted from obra/superpowers (MIT),
+#    https://github.com/obra/superpowers and
+#    https://github.com/NousResearch/hermes-agent
+[[annotations]]
+path = "stack/agents/workers/galion-light/skills/subagent-driven-development/**"
+precedence = "override"
+SPDX-FileCopyrightText = ["2025 Jesse Vincent", "2025 Nous Research"]
+SPDX-License-Identifier = "MIT"
+
+# 6. Files that embed SPDX tags inside string literals or tables (test
+#    fixtures, unit-renderer templates). Their real header is MIT; override so
+#    the embedded examples are not read as the file's own licensing.
+[[annotations]]
+path = [
+    "crates/galion-boot/src/units.rs",
+    "crates/repo-check/tests/checks.rs",
+    "crates/repo-check/README.md",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "3000 Galion / galion-studio"
+SPDX-License-Identifier = "MIT"
+
+# 7. Binary files that cannot carry a header (SQLite/WAV test fixtures and the
+#    committed release binaries) use `<file>.license` companions, per REUSE
+#    spec 3.3 section "Comment headers / .license files". The binaries are
+#    export-ignored from the public tree (.gitattributes).

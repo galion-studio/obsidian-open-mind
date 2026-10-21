@@ -18,10 +18,12 @@
 //! | 20255 | stray openmind-memory (no unit, not in the table) -> "unknown owner" |
 //! | 20256 | openmind-memory, `NERVE_URL` set, 1-connection cap (conn-cap phase) |
 //! | 20257 | hermes-gateway --mock, `NERVE_URL` set, 1-connection cap (conn-cap phase) |
+//! | 20258 | hermes-gateway --mock, `NERVE_URL` set, nerve down (interleaved A/B phase; A reuses 20253) |
 //!
 //! Phases: baseline without the nerve; start-up events; ownership map;
 //! load with 5xx + slow requests; p95 with the nerve up, hung (SIGSTOP)
-//! and down (killed); nerve restart and client counters; hermes killed ->
+//! and down (killed); interleaved A/B of a fresh gateway with and without
+//! `NERVE_URL` while the nerve is down; nerve restart and client counters; hermes killed ->
 //! probe-down incident with its Gaia owner; hermes restarted with a low
 //! call cap -> spend-cap event + incident. Every process is killed on drop.
 //!
@@ -50,6 +52,8 @@ const STRAY: u16 = 20255;
 /// Conn-cap phase (rebase slot 155): memory / hermes with a 1-connection cap.
 const CAP_MEMORY: u16 = 20256;
 const CAP_HERMES: u16 = 20257;
+/// Interleaved A/B phase (slot 155 re-measure): hermes with `NERVE_URL` set while the nerve is down.
+const AB_DOWN_HERMES: u16 = 20258;
 
 /// A started process; killed (after SIGCONT, in case it was stopped) on drop.
 struct Proc(Child);
@@ -602,6 +606,81 @@ fn nerve_wiring_end_to_end() {
     println!("== {} PHASE down: nerve killed", stamp());
     drop(nerve);
     let down = load(&st, "down", n, HERMES, MEMORY);
+
+    // Interleaved A/B (re-measure, slot 155): the sequential base/down phases
+    // above compare different processes at different points in the run, so
+    // their p99 delta is mostly phase order. Here two FRESH gateways run side
+    // by side while the nerve is down: A has NERVE_URL unset, B points at the
+    // dead nerve port. They get the same traffic in alternating blocks (order
+    // flipped every round), so box load and warm-up hit both equally.
+    println!(
+        "== {} PHASE ab: interleaved A (NERVE_URL unset) vs B (nerve down)",
+        stamp()
+    );
+    let (ab_a, ab_b) = {
+        for d in ["ab-a", "ab-b"] {
+            std::fs::create_dir_all(work.join(d)).unwrap();
+        }
+        let _a = st.hermes(BASE_HERMES, 1_000_000, "ab-a", false);
+        let _b = st.hermes(AB_DOWN_HERMES, 1_000_000, "ab-b", true);
+        wait_up(BASE_HERMES, "/health");
+        wait_up(AB_DOWN_HERMES, "/health");
+        let rounds = 10;
+        let block = (n / rounds).max(1);
+        let (mut va, mut vb) = (Vec::new(), Vec::new());
+        for r in 0..rounds {
+            let order = if r % 2 == 0 {
+                [BASE_HERMES, AB_DOWN_HERMES]
+            } else {
+                [AB_DOWN_HERMES, BASE_HERMES]
+            };
+            for port in order {
+                let s = st.clone();
+                let v = parallel(block, move |i| {
+                    let text = if i % 10 == 0 {
+                        "mock-fail".to_string()
+                    } else {
+                        format!("ab {i}")
+                    };
+                    s.chat(port, &text)
+                });
+                if port == BASE_HERMES {
+                    va.extend(v);
+                } else {
+                    vb.extend(v);
+                }
+            }
+        }
+        let (a, b) = (Stats::of(&va), Stats::of(&vb));
+        println!("  hermes (ab A, NERVE_URL unset): {}", a.line(va.len()));
+        println!("  hermes (ab B, nerve down):      {}", b.line(vb.len()));
+        println!(
+            "-- interleaved p50/p95/p99 B vs A: {:+.1}% / {:+.1}% / {:+.1}%",
+            (b.p50 / a.p50 - 1.0) * 100.0,
+            (b.p95 / a.p95 - 1.0) * 100.0,
+            (b.p99 / a.p99 - 1.0) * 100.0
+        );
+        (a, b)
+    };
+    for (label, s) in [("ab A", &ab_a), ("ab B", &ab_b)] {
+        assert!(
+            !s.codes.contains_key(&0),
+            "hermes {label} unanswered: {:?}",
+            s.codes
+        );
+        assert!(
+            s.codes.keys().all(|c| [200, 429, 502].contains(c)),
+            "hermes {label}: {:?}",
+            s.codes
+        );
+    }
+    let bound = (ab_a.p95 * 3.0).max(ab_a.p95 + 50.0);
+    assert!(
+        ab_b.p95 <= bound,
+        "hermes p95 nerve down (interleaved) {:.2} ms vs {:.2} ms",
+        ab_b.p95,
+        ab_a.p95
+    );
 
     println!("== {} nerve restarted (fresh state)", stamp());
     nerve = st.nerve();

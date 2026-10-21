@@ -109,3 +109,49 @@ process); not done here.
 - 50 x `GET /health`: hermes :8642 p50 0.38 ms / p99 0.57 ms; memory :8420
   p50 0.41 ms / p99 2.50 ms (all 200).
 - Nothing on the VPS was changed, built or restarted.
+
+## Re-verification and interleaved re-measure (resumed executor, 2026-10-21 07:54-08:05 +02:00)
+
+Fresh executor after the previous one stopped at ~07:47 waiting on an
+approval; the merge commit `ce71ce4` was already there and nothing had been
+pushed. Re-run on the box:
+
+- `cargo fmt --check`: ok; `cargo clippy --workspace --all-targets --exclude openmind-sandbox --exclude cgroup-detect --exclude hermes-tools -- -D warnings`: clean
+- `cargo test --workspace --exclude openmind-sandbox --exclude cgroup-detect --exclude hermes-tools`: **1225 passed, 0 failed, 6 ignored**
+  (the 1237 above also ran hermes-tools' 12 tests; its `sandboxed.rs` runs the sandbox, so it is now excluded locally per sandbox_vps_only)
+- `GALION_REAL=1 N_REQ=1000 real_wiring`: **5/5 passed** (07:56:41, 07:58:11, 08:00:58, 08:02:16, 08:03:33), conn-cap phase `[503, 503, 503]` -> `conn_cap` event -> 200 for memory and hermes every run.
+
+### Why the sequential p99 delta is not the nerve
+
+Sequential "down vs base" p99 over all 8 runs: +32.2, -13.9, +67.7, +75.1,
++50.1, +24.1, +51.2, +19.1 % (median +41%). But `base` is a separate fresh
+process measured first, while `down` is the long-lived nerve-wired gateway
+measured after 4000 earlier requests; `up2` (nerve running again) is just as
+high (p99 14.9-26.1 ms). So the test now has an **interleaved A/B phase**
+while the nerve is down: two fresh gateways, A `NERVE_URL` unset (:20253), B
+`NERVE_URL` pointing at the dead nerve (:20258), same traffic (10%
+`mock-fail`), 10 alternating blocks of 100 per side, order flipped each round.
+
+| run (start) | A p50 | A p95 | A p99 | B p50 | B p95 | B p99 | B vs A p95 | B vs A p99 |
+|-------------|------:|------:|------:|------:|------:|------:|-----------:|-----------:|
+| 3 (08:01:31) | 3.69 | 7.88 | 11.90 | 3.38 | 8.55 | 11.84 | +8.5% | -0.5% |
+| 4 (08:02:48) | 3.39 | 8.67 | 13.26 | 3.38 | 8.06 | 12.17 | -7.0% | -8.2% |
+| 5 (08:04:06) | 3.41 | 7.76 | 11.70 | 3.30 | 7.34 | 14.39 | -5.4% | +23.0% |
+| median | | | | | | | **-5.4%** | **-0.5%** |
+
+(ms, n=1000 per side, codes per side 882-886 x 200, 14-18 x 429, 100 x 502 -
+the 429s hit both sides equally.) Reading: with the nerve down, hermes p99 is
+**within noise of no nerve at all (median -0.5%, range -8% .. +23%)**, inside
+the 5% target on the median; a single run can still swing +23% on 10 tail
+samples. Not measured interleaved: the **hung** nerve (SIGSTOP); its
+sequential p95 stays ~11-13 ms vs base ~8 ms in every run, which is the one
+open question (the client's connect/write timeout under a stopped peer).
+
+### Live VPS, read-only (2026-10-21 08:05:05 +02:00)
+
+nerve `127.0.0.1:8670/state`: version 0.1.0, cycle 6901, mode live, healthy
+11 / degrading 2 (galion-one-mouth, cloudflared) / absent 2 (voice-worker,
+gaia); `signals.sources` = [] (no live pusher yet - this wiring is not
+deployed); `/api/v1/signals` and `/api/v1/cortex` -> 404 (cortex not live,
+observed through the nerve). `GET /health`: hermes :8642 200 in 0.62 ms,
+memory :8420 200 in 0.34 ms. Nothing on the VPS changed.

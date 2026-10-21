@@ -88,3 +88,52 @@ guardian-tick +3 152, gaia +10 720, one-set-model +9 768, openmind-queue -1 176.
 
 Sandbox crates were not built or run here (sandbox_vps_only); they do not
 depend on serde_json.
+
+## 6. Slot 240 serde-pin-mergefix: re-run against main-staging (2026-10-22, CEST +02:00)
+
+Branch `swarm/serde-pin-mergefix` = serde-order-pin 1d222ad + merges of
+`swarm/main-staging` 7e2a12e and 7c95348; fast-forwards main-staging 7c95348.
+
+Why the main merge skipped 1d222ad: main-staging brought three crates that
+still asked for `preserve_order` per crate (bench-banking, galion-bench,
+hermes-bench). On the plain merge (01:08:45):
+
+```
+error deps crates/bench-banking/Cargo.toml:12: serde_json in a member crate must be `{ workspace = true }` ...
+error deps crates/galion-bench/Cargo.toml:19: ...
+error deps crates/hermes-bench/Cargo.toml:16: ...
+repo-check: 3 error(s) -> FAIL
+deps_pin::this_repo_has_one_pin FAILED (11 passed, 1 failed)
+```
+
+Fix: the three lines now read `serde_json = { workspace = true }`; their
+feature set does not change (the root pin keeps preserve_order on), and
+Cargo.lock is unchanged. main-staging 7c95348 had already fixed the nerve
+`Msg` large_enum_variant and the duplicate `#[test]` in cortex_replay.rs
+(the two clippy errors that the pin exposes), so openmind-nerve is
+byte-identical to main-staging.
+
+| Run (final tree 7f77092) | Result |
+|---|---|
+| `repo-check --only deps` | 0 errors, PASS (was 3) |
+| `repo-check` full | 2089 files, 0 errors, 79 warnings, PASS |
+| repo-check tests (deps_pin 12/0, checks, lib) + one-set-model key_order | all pass |
+| `cargo clippy --workspace --all-targets -D warnings` (excl. sandbox, cgroup-detect) | clean |
+| `cargo test --workspace` (excl. sandbox, cgroup-detect, hermes-tools; debuginfo 0 because the box disk was full) 01:25-01:27 | 370 suites, 1966 passed, 0 failed, 18 ignored |
+| `GALION_REAL=1 SERDE_ORDER_PORT=21100` real_serde_order 01:27:42-01:28:11 | 3/3; `cargo tree -p` preserve_order on=67 off=0; `-p openmind-nerve` release on :21100 `/health` = `status, service, version, appended, ts, system, score, cycle` (source order) |
+| fmt, no-python | ok |
+| x86_64 + aarch64 musl release build; aarch64-android + armv7 check (repo-check, bench-banking, galion-bench, hermes-bench) | ok |
+| Throwaway test merge (copy of main-staging 7c95348, `merge --ff-only`) | fast-forward to 7f77092; deps 0 errors; tests pass |
+
+Live VPS, read-only GETs 01:29:30:
+
+```
+galion-nerve :8670 /health {"appended":57,"cycle":18,"score":61,"service":"openmind-nerve","status":"ok","system":"degraded",...}   sorted (live bb287cc, built -p alone)
+hermes-rs    :8642 /health {"status":"ok","platform":"hermes-agent","version":"0.21.4",...}                                        insertion order
+openmind-memory :8420 /health {"status":"ok","version":"0.1.0","uptime":56645,...}                                                 insertion order
+systemctl is-active galion-nerve gaia-cortex -> active active
+```
+
+So the live nerve still prints sorted keys; once a build with this pin is
+deployed its `/health` and `/state` switch to source order (D-SOP2: confirm
+no raw-text readers before the nerve redeploy). Nothing changed on the VPS.

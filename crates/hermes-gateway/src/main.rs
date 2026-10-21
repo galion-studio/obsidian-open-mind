@@ -121,7 +121,9 @@ fn main() {
         let slow = env("HERMES_RS_MOCK_DELAY_MS")
             .and_then(|v| v.parse().ok())
             .unwrap_or(1500);
-        Arc::new(TestMock(MockProvider::echo(), slow))
+        // No request log: nothing reads it in the gateway, and it grew by
+        // one request clone per chat before slot 198.
+        Arc::new(TestMock(MockProvider::echo().without_call_log(), slow))
     } else {
         Arc::new(CurlProvider::new(Arc::new(|k: &str| std::env::var(k).ok())))
     };

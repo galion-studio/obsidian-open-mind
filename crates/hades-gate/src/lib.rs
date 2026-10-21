@@ -18,6 +18,20 @@
 
 #![forbid(unsafe_code)]
 
+// Gaia S5.4 backstop for builds that skip build.rs (e.g. plain rustc or a
+// non-cargo build system): the same rule as build_guard.rs, checked by rustc.
+// rustdoc (cargo doc, doctests) reads build.rustdocflags, not build.rustflags,
+// so it never sees the cfg; the deps it links were built by rustc with it.
+#[cfg(not(any(doc, doctest, curve25519_dalek_backend = "serial")))]
+compile_error!(
+    "hades-gate: SIMD guard (project rule 1, no SIMD): the target rustflags do not carry \
+     --cfg curve25519_dalek_backend=\"serial\", so curve25519-dalek would build its \
+     AVX2/AVX-512 backend on x86_64. A RUSTFLAGS / CARGO_ENCODED_RUSTFLAGS / \
+     CARGO_TARGET_<TRIPLE>_RUSTFLAGS env var or a target.<triple>.rustflags config entry \
+     replaced the workspace build.rustflags. Unset it or append the cfg. \
+     See .cargo/config.toml and docs/hades-rustflags-guard.md."
+);
+
 /// One JSON record of a gate decision (was the hades-journal crate until 2026-10-20).
 pub mod journal;
 

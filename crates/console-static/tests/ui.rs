@@ -39,6 +39,30 @@ const CLOUDFLARE: &str = r#"{"proxyHint":"https://ip50-8080.proxy.runpod.net","t
 const PACK: &str = r#"{"zone":"chill","target":{"provider":"cpu","pod":"ip50","podId":"ip50"},"compose":"services:\n  origin: <x>\n","caddy":":80 {\n  reverse_proxy origin:8080\n}"}"#;
 const LEDGER: &str = r#"{"services":[{"id":"gen","name":"Generation","weight":"heavy","summary":"GPU only."},{"id":"console","name":"Control console","weight":"light","summary":"desk"}],"fridge":[{"id":"helium-browser","name":"Helium","summary":"Browser fork. Not an origin."}]}"#;
 
+const DESK: &str = r#"{"line":true,"model":"galion","vram":0,"ctx":4096,"mindpack":{"context":{"model_window":65536},"road":[{"id":"s1","source":"api_server","model":"m","messages":3,"at":1792340805}],"tools":[{"name":"terminal","n":9}]}}"#;
+const GUARDIAN: &str = r#"{"status":"watching","score":97,"activeIncidents":0,"secrets":[{"name":"a.env","mode":"400","ok":true}],"library":{"count":1,"files":["s1.md"]}}"#;
+
+/// Fake `/api/hermes/*` GETs (shapes from the live API, 2026-10-21).
+fn hermes_fake(p: &str) -> &'static str {
+    match p {
+        "/api/hermes/health" => {
+            r#"{"ok":true,"ms":2,"bind":"127.0.0.1:8642","loopback":true,"mode":"gateway","skills":[{"id":"a"}],"raw":"{\"implementation\":\"hermes-rs\",\"implementation_version\":\"0.1.0\"}"}"#
+        }
+        "/api/hermes/guard" => r#"{"ok":true,"on":true,"autoAccept":true}"#,
+        "/api/hermes/modes" => {
+            r#"{"ok":true,"modes":{"plan":"p-model","action":"a-model"},"saved":[]}"#
+        }
+        "/api/hermes/models" => r#"{"ok":true,"models":[{"id":"x/y","name":"Laptop Y"}]}"#,
+        "/api/hermes/history" => {
+            r#"{"ok":true,"items":[{"id":"t-1","title":"First thread","count":2,"at":1792340805,"source":"one","tokens":{"total":1500}}],"files":[]}"#
+        }
+        "/api/hermes/history?id=t-1" => {
+            r#"{"ok":true,"tokens":{"input":1,"output":2,"total":3},"items":[{"kind":"user","text":"hello hermes"},{"kind":"assistant","text":"hi"}]}"#
+        }
+        _ => r#"{"ok":false,"error":"unknown"}"#,
+    }
+}
+
 type Log = Arc<Mutex<Vec<String>>>;
 
 /// Fake console API. Records "METHOD path host cookie body" per request.
@@ -123,6 +147,11 @@ fn answer(mut s: TcpStream, log: Log) {
         ("GET", "/api/v1/cloudflare") => (200, "application/json", String::new(), CLOUDFLARE.into()),
         ("GET", "/api/v1/pack") => (200, "application/json", String::new(), PACK.into()),
         ("GET", "/api/v1/ledger") => (200, "application/json", String::new(), LEDGER.into()),
+        // console-port-2 rooms (/context, /guardian, /hermes).
+        ("GET", "/desk") => (200, "application/json", String::new(), DESK.into()),
+        ("GET", "/api/v3/guardian/status") if !cookie.contains("galion_admin=bad") => (200, "application/json", String::new(), GUARDIAN.into()),
+        ("GET", "/api/v3/guardian/status") => (401, "application/json", String::new(), "{\"error\":\"phone required\"}".into()),
+        ("GET", p) if p.starts_with("/api/hermes/") => (200, "application/json", String::new(), hermes_fake(p).into()),
         ("POST", "/api/v1/command") => (200, "application/json", String::new(), "{\"ok\":true,\"data\":{\"cmd\":\"health\",\"note\":\"undefined fine\"}}".into()),
         _ => (404, "text/plain", String::new(), "nope".into()),
     };
@@ -142,6 +171,8 @@ fn start(extra: &[&str]) -> (SocketAddr, Log) {
         "--upstream".into(),
         api.to_string(),
         "--pulse".into(),
+        api.to_string(),
+        "--desk".into(),
         api.to_string(),
         "--quiet".into(),
     ];
@@ -503,7 +534,7 @@ fn theme_css_and_fail_closed() {
     );
     assert_eq!(get(a, "/_ui/favicon.svg", "127.0.0.1", "").code, 200);
     // Unported room: "not in Rust yet" page (no SPA fallback configured).
-    let r = get(a, "/hermes", "127.0.0.1", "");
+    let r = get(a, "/session", "127.0.0.1", "");
     assert_eq!(r.code, 200);
     assert!(r.body.contains("Not in Rust yet"));
     assert_eq!(get(a, "/nope", "127.0.0.1", "").code, 404);

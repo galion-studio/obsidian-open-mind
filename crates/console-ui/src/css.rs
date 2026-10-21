@@ -323,6 +323,42 @@ const PORT1: &str = r#"
 .page header .k a{gap:.375rem;font-size:11px;color:var(--c-muted)}
 "#;
 
+/// console-port-2 rooms (`/context`, `/gateway`, `/guardian`, `/hermes`). Kept
+/// apart so the five console-port branches do not edit the same lines.
+const PORT2: &str = r#"
+.sec{margin-top:1.5rem;min-width:0}
+.sec h2{font-size:13px;color:var(--c-subtle)}
+.sec h2 a{color:inherit}
+.small{margin-top:.5rem;font-size:13px;color:var(--c-muted);overflow-wrap:anywhere}
+.t-bad{color:var(--c-bad)}
+.road{list-style:none;margin:.75rem 0 0;padding:0;border-left:1px solid var(--c-line)}
+.road li{position:relative;padding:.75rem 0 .75rem 1rem;min-width:0}
+.road li::before{content:"";position:absolute;left:-3px;top:1rem;width:6px;height:6px;background:var(--c-fg)}
+.road p{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--c-muted)}
+.road p:first-child{font-size:13px;color:var(--c-fg)}
+.bars{margin-top:.75rem}
+.bars li{display:flex;align-items:center;gap:.75rem;min-height:2.75rem;border-bottom:1px solid var(--c-line);padding:.375rem 0;min-width:0}
+.bars .n{width:4.5rem;flex-shrink:0;text-align:right;font-size:12px;color:var(--c-muted)}
+.bars .ell{flex:1 1 8rem;font-size:13px}
+.bar{flex:1;min-width:0;height:.375rem;-webkit-appearance:none;appearance:none;border:0;background:var(--c-line);color:var(--c-fg)}
+.bar::-webkit-progress-bar{background:var(--c-line)}
+.bar::-webkit-progress-value{background:var(--c-fg)}
+.bar::-moz-progress-bar{background:var(--c-fg)}
+.eps{display:flex;flex-direction:column;margin-top:1rem}
+.eps a{display:flex;align-items:center;justify-content:space-between;gap:1rem;min-height:2.75rem;border-bottom:1px solid var(--c-line);text-decoration:none;color:var(--c-muted)}
+.eps a[aria-current=true]{color:var(--c-fg)}
+.json{margin:1rem 0 0;max-height:28rem;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--c-fg)}
+.pin{align-items:center}
+.pin label{font-size:13px;color:var(--c-muted)}
+.pin input{min-height:2.75rem;min-width:0;width:10rem;border-radius:var(--r-md);border:1px solid var(--c-line);background:var(--c-surface);padding:0 .75rem}
+.scroll{max-height:16rem;overflow-y:auto}
+.rows a[aria-current=page]{font-weight:600}
+.msgs{margin-top:.75rem}
+.msgs li{border-bottom:1px solid var(--c-line);padding:.5rem 0;min-width:0;font-size:12px}
+.say{margin:.25rem 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--sans);font-size:13px;line-height:1.5;color:var(--c-fg)}
+.tool{color:var(--c-muted);overflow-wrap:anywhere}
+"#;
+
 /// The whole sheet.
 pub fn sheet() -> String {
     let mut out = String::with_capacity(RULES.len() + 1024);
@@ -345,6 +381,7 @@ pub fn sheet() -> String {
         .lines()
         .chain(LANDING.lines())
         .chain(PORT1.lines())
+        .chain(PORT2.lines())
         .filter(|l| !l.trim().is_empty())
     {
         out.push_str(line.trim());
@@ -365,7 +402,7 @@ pub fn fnv64(data: &[u8]) -> u64 {
 
 /// Class names defined in [`RULES`] (for the "every emitted class exists" test).
 pub fn defined_classes() -> Vec<String> {
-    let all = format!("{RULES}{LANDING}{PORT1}");
+    let all = format!("{RULES}{LANDING}{PORT1}{PORT2}");
     let mut out = Vec::new();
     let b = all.as_bytes();
     let mut i = 0;

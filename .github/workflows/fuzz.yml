@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# fuzz: time-boxed runs of every existing fuzz target (std-only, seeded
+# xorshift mutation fuzzers that live as integration tests; no cargo-fuzz,
+# no nightly, no libFuzzer).
+#   pull_request      60 s per target (smoke)
+#   schedule (weekly) 600 s per target
+#   workflow_dispatch seconds per target from the input (1..1800)
+# Each target keeps an on-disk corpus (inputs with a new outcome shape) in
+# fuzz-corpus/<target>/, carried between runs by the actions cache. A crash
+# fails the job and uploads the crashing input plus the log.
+# Reproduce any run on a box with the commands in docs/ci/fuzz.md (same env,
+# same budgets). Adding a target: one matrix row (see docs/ci/fuzz.md).
+name: fuzz
+
+on:
+  pull_request:
+  schedule:
+    # GitHub reads cron fields on its own clock (UTC): this is Monday
+    # 05:17 CEST (+02:00) in summer, 04:17 CET (+01:00) in winter.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      secs:
+        description: "seconds per target (1-1800)"
+        required: false
+        default: "60"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  TZ: Europe/Zagreb
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  fuzz:
+    name: fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    # 10 min budget + release build + cache; dispatch is capped at 30 min.
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: http
+            package: galion-common
+            test: http_fuzz
+            filter: fuzz_http_timed
+          - target: guard
+            package: galion-guard
+            test: fuzz_parser
+            filter: fuzz_parser_timed
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+      - name: budget
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_SECS: ${{ github.event.inputs.secs }}
+        run: |
+          case "$EVENT" in
+            schedule) secs=600 ;;
+            workflow_dispatch) secs="${INPUT_SECS:-60}" ;;
+            *) secs=60 ;;
+          esac
+          if ! [[ "$secs" =~ ^[0-9]+$ ]] || (( secs < 1 || secs > 1800 )); then
+            echo "::error::secs must be 1..1800, got '$secs'"
+            exit 1
+          fi
+          echo "GALION_FUZZ_SECS=$secs" >> "$GITHUB_ENV"
+          echo "GALION_FUZZ_CORPUS=$GITHUB_WORKSPACE/fuzz-corpus/${{ matrix.target }}" >> "$GITHUB_ENV"
+      - name: restore corpus
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: fuzz-corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.target }}-
+      - name: build
+        run: cargo test --release --locked -p ${{ matrix.package }} --test ${{ matrix.test }} --no-run
+      - name: fuzz
+        run: |
+          set -o pipefail
+          mkdir -p "$GALION_FUZZ_CORPUS"
+          echo "corpus files before: $(find "$GALION_FUZZ_CORPUS" -maxdepth 1 -type f | wc -l)"
+          cargo test --release --locked -p ${{ matrix.package }} --test ${{ matrix.test }} \
+            -- --exact ${{ matrix.filter }} --nocapture 2>&1 | tee fuzz-${{ matrix.target }}.log
+      - name: job summary
+        if: always()
+        run: |
+          {
+            echo "### fuzz ${{ matrix.target }} (${GALION_FUZZ_SECS:-?} s)"
+            echo '```'
+            grep -E '^(fuzz seed|fuzz-summary|fuzz-crash)' fuzz-${{ matrix.target }}.log || echo "no fuzz output"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: save corpus
+        if: always()
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: fuzz-corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+      - name: upload crash
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: |
+            fuzz-corpus/${{ matrix.target }}/crashes/
+            target/fuzz-crashes/
+            fuzz-${{ matrix.target }}.log
+          if-no-files-found: warn

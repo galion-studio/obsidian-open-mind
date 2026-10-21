@@ -4,7 +4,11 @@
 //! Mutation fuzzing of the log parser (std-only PRNG, no fuzz framework).
 //! `cargo test` runs a short fixed-seed pass; `GALION_FUZZ_SECS=60` runs
 //! longer with a time-based seed (printed, so failures are reproducible
-//! with `GALION_FUZZ_SEED`).
+//! with `GALION_FUZZ_SEED`). `GALION_FUZZ_CORPUS=<dir>` adds the on-disk
+//! corpus `.github/workflows/fuzz.yml` caches between runs.
+
+#[path = "../../galion-common/tests/fuzz_corpus/mod.rs"]
+mod fuzz_corpus;
 
 mod common;
 
@@ -149,11 +153,41 @@ fn ip_in_line(ip: IpAddr, line: &str) -> bool {
     .any(|t| galion_guard::ipnet::canonical(t) == ip)
 }
 
+struct Stats {
+    execs: u64,
+    distinct: usize,
+}
+
 fn run(seed: u64, budget: Duration, max_iters: u64) -> u64 {
+    run_with(
+        seed,
+        budget,
+        max_iters,
+        &mut fuzz_corpus::Corpus::open(None),
+        false,
+    )
+    .execs
+}
+
+fn run_with(
+    seed: u64,
+    budget: Duration,
+    max_iters: u64,
+    corpus: &mut fuzz_corpus::Corpus,
+    feedback: bool,
+) -> Stats {
     let f = SshdFilter::new();
     let mut sessions = Sessions::new();
     let mut r = Rng(seed | 1);
-    let base = seeds();
+    let mut base = seeds();
+    let n_builtin = base.len();
+    base.extend(
+        corpus
+            .loaded
+            .iter()
+            .map(|b| String::from_utf8_lossy(b).into_owned()),
+    );
+    let mut sigs = std::collections::HashSet::new();
     let mut eng = Engine::new(
         Jail::new(
             JailParams {
@@ -169,52 +203,102 @@ fn run(seed: u64, budget: Duration, max_iters: u64) -> u64 {
         None,
     );
     let start = Instant::now();
+    // Replay the loaded corpus verbatim first: its shapes count as already
+    // seen (so a warm run saves only genuinely new ones) and old finds are
+    // re-checked against the current parser.
+    let replay = corpus.loaded.len() as u64;
     let mut n = 0;
-    while n < max_iters && start.elapsed() < budget {
+    while n < max_iters && (n < replay || start.elapsed() < budget) {
         n += 1;
-        let pick = r.below(base.len());
-        let line = mutate(&mut r, &base[pick]);
-        let now = common::T0 + (n as i64 % 600);
-        let _ = timefmt::split_stamp(&line, now, (r.below(28) as i64 - 14) * 3600);
-        let _ = timefmt::parse_rfc3339(&line);
-        let text = timefmt::split_stamp(&line, now, 0)
-            .map(|(_, x)| x.to_string())
-            .unwrap_or(line.clone());
-        if let Some(m) = f.matches(&text) {
-            assert!(m.rule < f.rule_count());
-            if let Some(Host::Ip(ip)) = &m.host {
-                assert!(
-                    ip_in_line(*ip, &text),
-                    "invented address {ip} from {text:?}"
+        let line = if n <= replay {
+            base[n_builtin + n as usize - 1].clone()
+        } else {
+            let pick = r.below(base.len());
+            mutate(&mut r, &base[pick])
+        };
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut sig = String::new();
+            let now = common::T0 + (n as i64 % 600);
+            let off = (r.below(28) as i64 - 14) * 3600;
+            let st = timefmt::split_stamp(&line, now, off).is_some();
+            let rfc = timefmt::parse_rfc3339(&line).is_some();
+            sig.push_str(if st { "s" } else { "-" });
+            sig.push_str(if rfc { "r" } else { "-" });
+            let text = timefmt::split_stamp(&line, now, 0)
+                .map(|(_, x)| x.to_string())
+                .unwrap_or(line.clone());
+            if let Some(m) = f.matches(&text) {
+                assert!(m.rule < f.rule_count());
+                sig.push_str(&format!(" m{}", m.rule));
+                sig.push_str(match &m.host {
+                    Some(Host::Ip(_)) => " ip",
+                    Some(_) => " host",
+                    None => " -",
+                });
+                if let Some(Host::Ip(ip)) = &m.host {
+                    assert!(
+                        ip_in_line(*ip, &text),
+                        "invented address {ip} from {text:?}"
+                    );
+                }
+                let o = sessions.feed(&m, now);
+                sig.push_str(&format!(" {:?}", std::mem::discriminant(&o)));
+                if let Outcome::Failure { ip, .. } = o {
+                    // The address may come from an earlier line of the same connection.
+                    let _ = ip;
+                }
+            }
+            eng.handle_line(
+                &LogLine {
+                    time: None,
+                    text: line.clone(),
+                    cursor: None,
+                    file_pos: None,
+                },
+                now,
+            );
+            sig.push_str(if parse_journal_json(&line).is_some() {
+                " j"
+            } else {
+                " -"
+            });
+            let _ = parse_journal_json(&format!(
+                "{{\"MESSAGE\":{:?},\"_HOSTNAME\":\"h\",\"_COMM\":\"sshd\"}}",
+                line
+            ));
+            if n % 64 == 0 {
+                eng.tick(now);
+            }
+            sig
+        }));
+        match res {
+            Ok(sig) => {
+                // The fixed-seed `cargo test` pass (no feedback) keeps its
+                // old input sequence; the timed run feeds new shapes back.
+                if sigs.insert(fuzz_corpus::fnv(sig.as_bytes())) && feedback && n > replay {
+                    corpus.save(line.as_bytes());
+                    if base.len() < n_builtin + 4 * fuzz_corpus::MAX_FILES {
+                        base.push(line);
+                    }
+                }
+            }
+            Err(p) => {
+                let path = corpus.save_crash("guard", line.as_bytes());
+                eprintln!(
+                    "fuzz-crash target=guard seed={seed} input={}",
+                    path.display()
                 );
+                std::panic::resume_unwind(p);
             }
-            if let Outcome::Failure { ip, .. } = sessions.feed(&m, now) {
-                // The address may come from an earlier line of the same connection.
-                let _ = ip;
-            }
-        }
-        eng.handle_line(
-            &LogLine {
-                time: None,
-                text: line.clone(),
-                cursor: None,
-                file_pos: None,
-            },
-            now,
-        );
-        let _ = parse_journal_json(&line);
-        let _ = parse_journal_json(&format!(
-            "{{\"MESSAGE\":{:?},\"_HOSTNAME\":\"h\",\"_COMM\":\"sshd\"}}",
-            line
-        ));
-        if n % 64 == 0 {
-            eng.tick(now);
         }
     }
     for b in eng.jail.bans() {
         assert!(!is_hard_protected(b.ip), "banned loopback {}", b.ip);
     }
-    n
+    Stats {
+        execs: n,
+        distinct: sigs.len(),
+    }
 }
 
 #[test]
@@ -225,20 +309,32 @@ fn fuzz_parser_short() {
 
 #[test]
 fn fuzz_parser_timed() {
-    let Ok(secs) = std::env::var("GALION_FUZZ_SECS") else {
+    let Some(secs) = fuzz_corpus::secs() else {
         return;
     };
-    let secs: u64 = secs.parse().unwrap_or(30);
-    let seed = std::env::var("GALION_FUZZ_SEED")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| {
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos() as u64
-        });
-    eprintln!("fuzz seed {seed}, {secs} s");
-    let n = run(seed, Duration::from_secs(secs), u64::MAX);
-    eprintln!("fuzz: {n} inputs, no panic, no invented address, no loopback ban");
+    let seed = fuzz_corpus::seed();
+    let mut corpus = fuzz_corpus::Corpus::from_env();
+    eprintln!(
+        "fuzz seed {seed}, {secs} s, corpus {:?} ({} loaded)",
+        corpus.dir(),
+        corpus.loaded.len()
+    );
+    let start = Instant::now();
+    let s = run_with(seed, Duration::from_secs(secs), u64::MAX, &mut corpus, true);
+    eprintln!(
+        "fuzz: {} inputs, no panic, no invented address, no loopback ban",
+        s.execs
+    );
+    eprintln!(
+        "{}",
+        fuzz_corpus::summary(
+            "guard",
+            s.execs,
+            s.distinct,
+            &corpus,
+            start.elapsed().as_secs_f64(),
+            seed
+        )
+    );
+    assert!(s.execs > 1000, "too few inputs in {secs} s: {}", s.execs);
 }

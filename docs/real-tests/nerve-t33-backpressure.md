@@ -146,8 +146,8 @@ Resources, warm-up (2 min) -> end:
 
 nerve-client adds no RSS growth (B minus A: hermes -52 kB, memory 0 kB),
 exactly 2 threads and no fds. **Separate finding:** hermes-gateway itself
-grows ~8.3 MB/min under this load (~7.5 kB per chat, linear, identical with
-and without `NERVE_URL`; ~22 000 chats per process). Not caused by the
+grows ~9.5 MB/min under this load (~4.3 kB per chat, linear, identical with
+and without `NERVE_URL`; ~44 300 chats per process in 20 min). Not caused by the
 nerve; not investigated further in this slot (see open issues).
 
 ## VPS (read-only, 2026-10-21 12:57 CEST +02:00)
@@ -165,3 +165,38 @@ nerve; not investigated further in this slot (see open issues).
 
 Live has lost nothing so far. Cortex: not live as its own service; observed
 through the nerve as above.
+
+## Owner decisions (Slavik)
+
+- **D-T33-1: deploy the 1 s POST deadline?** It is a nerve-client change, so
+  it reaches the VPS only with new hermes-rs and openmind-memory builds
+  (same drop-in pattern as aa77864: sandbox first, then nerve -> memory ->
+  hermes one at a time, old binaries kept). Options: (a) fold it into the next
+  planned hermes/memory rebuild (recommended: the bug needs a misbehaving
+  nerve to bite, live shows 0 failures, no urgency); (b) dedicated rollout now;
+  (c) leave it. No money, negligible CPU.
+- **D-T33-2: heartbeats inside the 120/min per-source budget.** During a
+  flood the nerve refuses the heartbeat too, so it cannot see the client's
+  counters for up to 60 s (measured 61 s). Options: (a) exempt `kind=heartbeat`
+  from the per-source limit in openmind-nerve (one heartbeat per source per
+  10 s at most; small nerve change); (b) reserve a few slots per minute for
+  heartbeats; (c) keep as is (the counters arrive a minute late, nothing is
+  lost). Recommended (a). No money.
+- **D-T33-3: no back-off after a 429.** By design since T3.6 ("the nerve is
+  up"); measured cost: one loopback connection per refused signal (6 824 in the
+  soak's 3 minutes of 429, ~0.2 ms each). Options: (a) keep (recommended for
+  now; live is at ~3 signals/min); (b) skip connecting for 1 s after a 429,
+  counting the skipped signals as `rejected`.
+
+## Open issues
+
+- hermes-gateway RSS grows ~9.5 MB/min under sustained mock chat load
+  (~4.3 kB per chat, linear for 20 min, no plateau seen), independent of the
+  nerve. Live RSS is 3.2 MB because live chats are mostly refused by the
+  spend cap, but real traffic would grow it. Worth a separate slot
+  (session store / spend map / runs cache).
+- aarch64-musl, aarch64-android and armv7 builds of hermes-rs and
+  openmind-memory need a C cross compiler for bundled SQLite
+  (`aarch64-linux-musl-gcc` not on the box): pre-existing, not caused here.
+  nerve-client and openmind-nerve `cargo check` pass on all three targets,
+  and openmind-nerve builds for aarch64-musl.

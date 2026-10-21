@@ -334,8 +334,10 @@ pub struct Agent {
     pub budget_blocked: u64,
 }
 
-/// Counters, rebuilt by replay (except the refusal counters, which are
-/// process-local).
+/// Counters, rebuilt by replay. The refusal counters (`quota_refusals`,
+/// `budget_refusals`, `backpressure_refusals`, `stale_acks`,
+/// `charge_clamped`) change no state, so no log record carries them; the
+/// server keeps them in the `refusals.dat` sidecar ([`crate::refusals`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Stats {

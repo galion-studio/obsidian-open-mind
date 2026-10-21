@@ -19,6 +19,7 @@ path = "src/main.rs"
 serde = { workspace = true }
 serde_json = { workspace = true }
 zagreb-time = { path = "../zagreb-time" }
+galion-common = { path = "../galion-common" }
 
 [dev-dependencies]
 zagreb-time = { path = "../zagreb-time" }

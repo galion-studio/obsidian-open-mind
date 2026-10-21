@@ -47,7 +47,11 @@ fn violations(root: &Path, manifest: &str) -> Vec<String> {
     package_overrides(manifest)
         .into_iter()
         .filter(|(name, _)| has_bins(root, name))
-        .filter(|(_, body)| !body.iter().any(|l| l == "strip=true" || l == "strip=\"symbols\""))
+        .filter(|(_, body)| {
+            !body
+                .iter()
+                .any(|l| l == "strip=true" || l == "strip=\"symbols\"")
+        })
         .map(|(name, _)| name)
         .collect()
 }
@@ -56,10 +60,19 @@ fn violations(root: &Path, manifest: &str) -> Vec<String> {
 fn bin_crate_overrides_keep_strip() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let manifest = std::fs::read_to_string(root.join("Cargo.toml")).unwrap();
-    let names: Vec<String> = package_overrides(&manifest).into_iter().map(|(n, _)| n).collect();
-    assert!(names.iter().any(|n| n == "galion-voice-cpu"), "override list: {names:?}");
+    let names: Vec<String> = package_overrides(&manifest)
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    assert!(
+        names.iter().any(|n| n == "galion-voice-cpu"),
+        "override list: {names:?}"
+    );
     let bad = violations(&root, &manifest);
-    assert!(bad.is_empty(), "add `strip = true` to [profile.release.package.X] for: {bad:?}");
+    assert!(
+        bad.is_empty(),
+        "add `strip = true` to [profile.release.package.X] for: {bad:?}"
+    );
 }
 
 #[test]

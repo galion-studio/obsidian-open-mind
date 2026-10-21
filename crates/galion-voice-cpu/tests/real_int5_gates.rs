@@ -87,7 +87,10 @@ fn real_simd_free_voice_hears_and_speaks() {
         std::env::var("GALION_VOICE_MODELS").unwrap_or_else(|_| "/workspace/oom-models".into());
     let port = std::env::var("GALION_INT5_PORT").unwrap_or_else(|_| "20810".into());
     let p: u16 = port.parse().expect("port");
-    assert!((20810..=20819).contains(&p), "slot 211 owns 20810-20819 only");
+    assert!(
+        (20810..=20819).contains(&p),
+        "slot 211 owns 20810-20819 only"
+    );
     let addr = format!("127.0.0.1:{p}");
     let bin = std::env::var("GALION_VOICE_SERVE_BIN")
         .unwrap_or_else(|_| env!("CARGO_BIN_EXE_galion-voice-serve").into());
@@ -103,7 +106,10 @@ fn real_simd_free_voice_hears_and_speaks() {
         sections.iter().any(|n| n == ".symtab")
     );
     if release {
-        assert!(!sections.iter().any(|n| n == ".symtab"), "release binary not stripped");
+        assert!(
+            !sections.iter().any(|n| n == ".symtab"),
+            "release binary not stripped"
+        );
     }
 
     let mut cmd = if runner.is_empty() {
@@ -158,7 +164,11 @@ fn real_simd_free_voice_hears_and_speaks() {
             "application/json",
             br#"{"text":"Hello from the Galion mouth."}"#,
         );
-        eprintln!("mouth {} ms: {code}, {} bytes", t.elapsed().as_millis(), body.len());
+        eprintln!(
+            "mouth {} ms: {code}, {} bytes",
+            t.elapsed().as_millis(),
+            body.len()
+        );
         assert_eq!(code, 200);
         assert_eq!(&body[..4], b"RIFF");
         assert!(body.len() > 44 + 24_000, "under half a second of audio");

@@ -131,6 +131,7 @@ fn outcome(q: Option<WorkdirQuota>, status: Status, timed_out: bool) -> Outcome 
         enforced: vec![],
         cgroup: None,
         workdir_quota: q,
+        proc_view: openmind_sandbox::ProcView::Host,
     }
 }
 

@@ -948,9 +948,13 @@ fn c_wd_in(dir: &Path, exe: &Path) -> PathBuf {
 fn s10_proc(c: &mut Ctx) {
     let wd = c.wd("s10-proc");
     let host_pids = c.r("proc.host_pids").cloned().unwrap_or_default();
-    let mut s = c.scen("S10", "the known /proc gap: what a sandboxed tool can see of the host", "(known gap, measured) host process list and cmdlines visible, same as the bare temp user sees; other users' environ and exe links NOT readable");
+    let mut s = c.scen("S10", "the /proc gap (slot 191 fix): what a sandboxed tool can see of the host", "shipped preset (proc_fallback = Mask): no host pid visible, no host cmdline or environ readable; the pre-fix view (proc_fallback = Host) is measured as the baseline");
     let o = sb(&wd, &pol(&wd), &["procview"], true);
     let out = o.stdout_str();
+    let mut ph = pol(&wd);
+    ph.proc_fallback = openmind_sandbox::ProcFallback::Host;
+    let oh = sb(&wd, &ph, &["procview"], false);
+    let outh = oh.stdout_str();
     let bare = std::process::Command::new(&s.c.exe)
         .arg("procview")
         .current_dir(&wd)
@@ -968,11 +972,37 @@ fn s10_proc(c: &mut Ctx) {
             .and_then(|v| v.parse::<i64>().ok())
             .unwrap_or(-1)
     };
-    let (sp, bp) = (g(&out, "pids"), g(&bare, "pids"));
+    let (sp, hp, bp) = (g(&out, "pids"), g(&outh, "pids"), g(&bare, "pids"));
     s.check(o.status == Status::Exited(0), "tool exited 0");
+    s.check(oh.status == Status::Exited(0), "baseline tool exited 0");
     s.note(format!(
-        "sandbox sees {sp} pids, bare user {bp}, root counted {host_pids}"
+        "proc view {:?} (layer {:?}); baseline view {:?}",
+        o.proc_view,
+        o.layer("proc"),
+        oh.proc_view
     ));
+    s.note(format!(
+        "sandbox sees {sp} pids, baseline (Host) {hp}, bare user {bp}, root counted {host_pids}"
+    ));
+    s.note(format!(
+        "baseline (Host): other-uid cmdlines readable {}, same-uid environ readable {}, other-uid environ readable {}",
+        g(&outh, "other_uid_cmdline_readable"),
+        g(&outh, "environ_readable"),
+        g(&outh, "other_uid_environ_readable")
+    ));
+    s.check(o.enforced("proc"), "proc layer enforced");
+    // A private proc shows the sandbox's own pids only (1-2); the mask none.
+    s.check(
+        (0..=5).contains(&sp),
+        format!("sandbox sees {sp} pids (<= 5)"),
+    );
+    s.check(
+        g(&out, "other_uid_cmdline_readable") == 0,
+        format!(
+            "other-uid cmdlines readable: {}",
+            g(&out, "other_uid_cmdline_readable")
+        ),
+    );
     s.check(
         g(&out, "other_uid_environ_readable") == 0,
         format!(
@@ -980,17 +1010,14 @@ fn s10_proc(c: &mut Ctx) {
             g(&out, "other_uid_environ_readable")
         ),
     );
-    let gap = g(&out, "other_uid_cmdline_readable") > 0;
-    s.note(format!(
-        "other-uid cmdlines readable in sandbox: {} (GAP {})",
-        g(&out, "other_uid_cmdline_readable"),
-        if gap { "confirmed" } else { "not seen" }
-    ));
     s.check(
-        (sp - bp).abs() <= 10,
-        "sandbox view == bare-user view (+-10 churn)",
+        g(&out, "environ_readable") <= sp.max(0),
+        format!(
+            "environ readable {} (only own)",
+            g(&out, "environ_readable")
+        ),
     );
-    s.end(if gap { "MEASURED (known gap)" } else { "PASS" });
+    s.end("PASS");
 }
 
 pub fn run_all(base: &str) -> i32 {

@@ -121,3 +121,5 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 
 VmRSS above is qemu plus the guest, so it overstates native RSS. It is still
 under 20 MB per service on both architectures.
+
+> **2026-10-21 (realscript-port-3):** the shell driver for this evidence was ported to Rust and deleted; re-run with the matching test in `crates/galion-realtest/tests/` (see `docs/real-tests/realscript-port-3.md`).

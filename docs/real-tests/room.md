@@ -116,3 +116,5 @@ galion-deploy install path as a go/no-go item instead.
 
 All started processes were killed. The script ends with `leftover room
 processes: none`, and each test's `Room` guard kills and reaps its child.
+
+> **2026-10-21 (realscript-port-3):** the shell driver for this evidence was ported to Rust and deleted; re-run with the matching test in `crates/galion-realtest/tests/` (see `docs/real-tests/realscript-port-3.md`).

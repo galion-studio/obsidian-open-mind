@@ -174,3 +174,5 @@ hermes-rs is refused (protected list), tuner would be restarted (once the owner 
 
 `cargo test -p openmind-survival -p guardian-tick` green; `GALION_REAL=1 cargo test -p guardian-tick --test real_heal`
 runs the real binary: dry-run never runs the backend, three applies run it exactly three times, the fourth tick is `cap-reached`.
+
+> **2026-10-21 (realscript-port-3):** the shell driver for this evidence was ported to Rust and deleted; re-run with the matching test in `crates/galion-realtest/tests/` (see `docs/real-tests/realscript-port-3.md`).

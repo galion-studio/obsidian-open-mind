@@ -138,8 +138,6 @@ jobs:
     name: ucpu real run under qemu-user (aarch64, armv7)
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    env:
-      UCPU_JOBS: 4
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
@@ -150,7 +148,10 @@ jobs:
         run: |
           sudo apt-get update -q && sudo apt-get install -y -q qemu-user-static
           echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
-      - run: scripts/real/ucpu.sh
+      - run: cargo test -p galion-realtest --test real_sh_ucpu -- --nocapture
+        env:
+          GALION_REAL: "1"
+          GALION_REAL_JOBS: "4"
 
   repo-check:
     name: repo-check self-eval

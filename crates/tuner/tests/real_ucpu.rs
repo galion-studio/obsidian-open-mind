@@ -6,13 +6,13 @@
 //!
 //! Gated: runs only with `GALION_REAL=1`. Needs `qemu-aarch64-static` and
 //! the release binary, built by `scripts/ucpu-gate.sh build` or
-//! `scripts/real/ucpu.sh`:
+//! `crates/galion-realtest/tests/real_sh_ucpu.rs`:
 //!
 //!   GALION_REAL=1 cargo test -p tuner --test real_ucpu -- --nocapture
 //!
 //! Binary: `$UCPU_TUNER_BIN`, else
 //! `$CARGO_TARGET_DIR/aarch64-unknown-linux-musl/release/tuner`.
-//! Port 19132 (swarm slot 13; do not run while scripts/real/ucpu.sh runs).
+//! Port 19132 (swarm slot 13; do not run while crates/galion-realtest/tests/real_sh_ucpu.rs runs).
 
 use std::io::{Read, Write};
 use std::net::TcpStream;

@@ -30,6 +30,12 @@ usage: galion-console-static --root DIR [options]
                        e.g. 127.0.0.1:8091; default none
   --desk ADDR          loopback galion-desk for /cache, /context (GET /desk),
                        e.g. 127.0.0.1:8646; default none
+  --memory-root DIR    host folder of Hermes memory for /memory and
+                       /md/persona, e.g. /var/lib/memory-tencentdb; default none
+  --model-file FILE    file holding the model name shown on /memory,
+                       e.g. /opt/galion/galion-light/one/model; default none
+  --user-md FILE       USER.md shown on /md/user,
+                       e.g. /opt/galion/hermes/memories/USER.md; default none
   --console-host HOST  extra host treated as a console host (repeatable),
                        e.g. the machine public IP (the TSX had
                        the two server IPs hard-coded; pass them here)
@@ -58,6 +64,7 @@ pub struct Config {
     pub pulse: Option<SocketAddr>,
     pub extra_hosts: Vec<String>,
     pub desk: Option<SocketAddr>,
+    pub files: console_ui::port4::HostFiles,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -100,6 +107,7 @@ impl Config {
         let mut pulse = None;
         let mut desk = None;
         let mut extra_hosts = Vec::new();
+        let mut files = console_ui::port4::HostFiles::default();
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             let mut val = |name: &str| {
@@ -187,6 +195,13 @@ impl Config {
                     }
                     extra_hosts.push(h);
                 }
+                "--memory-root" => {
+                    files.memory_root = Some(abs_path(val("--memory-root")?, "--memory-root")?)
+                }
+                "--model-file" => {
+                    files.model_file = Some(abs_path(val("--model-file")?, "--model-file")?)
+                }
+                "--user-md" => files.user_md = Some(abs_path(val("--user-md")?, "--user-md")?),
                 "--allow-public-bind" => public = true,
                 "--quiet" => access_log = false,
                 other => return Err(bad(format!("unknown argument {other:?}"))),
@@ -225,8 +240,22 @@ impl Config {
             pulse,
             extra_hosts,
             desk,
+            files,
         })
     }
+}
+
+/// Host-file flags take absolute paths only (no `..`), so the unit file says
+/// exactly which file the console reads.
+fn abs_path(v: String, flag: &str) -> Result<PathBuf, ArgsError> {
+    let p = PathBuf::from(&v);
+    if !p.is_absolute()
+        || p.components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(bad(format!("{flag} must be an absolute path without ..")));
+    }
+    Ok(p)
 }
 
 #[cfg(test)]
@@ -311,5 +340,39 @@ mod tests {
         assert!(
             Config::from_args(args("--ui rust --upstream 127.0.0.1:1 --console-host a/b")).is_err()
         );
+    }
+
+    #[test]
+    fn host_file_flags() {
+        let c = Config::from_args(args(
+            "--ui rust --upstream 127.0.0.1:1 --memory-root /var/lib/memory-tencentdb --model-file /opt/m --user-md /opt/U.md",
+        ))
+        .unwrap();
+        assert_eq!(
+            c.files.memory_root.as_deref(),
+            Some(std::path::Path::new("/var/lib/memory-tencentdb"))
+        );
+        assert_eq!(
+            c.files.model_file.as_deref(),
+            Some(std::path::Path::new("/opt/m"))
+        );
+        assert_eq!(
+            c.files.user_md.as_deref(),
+            Some(std::path::Path::new("/opt/U.md"))
+        );
+        let d = Config::from_args(args("--ui rust --upstream 127.0.0.1:1")).unwrap();
+        assert_eq!(d.files, console_ui::port4::HostFiles::default());
+        for bad in [
+            "--memory-root rel/dir",
+            "--memory-root /a/../etc",
+            "--user-md ./U.md",
+            "--model-file",
+        ] {
+            assert!(
+                Config::from_args(args(&format!("--ui rust --upstream 127.0.0.1:1 {bad}")))
+                    .is_err(),
+                "{bad}"
+            );
+        }
     }
 }

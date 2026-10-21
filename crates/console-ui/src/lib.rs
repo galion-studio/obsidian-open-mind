@@ -29,6 +29,7 @@ pub mod overview;
 pub mod pages;
 pub mod port2;
 pub mod port3;
+pub mod port4;
 pub mod rooms;
 
 use client::Forward;
@@ -69,6 +70,11 @@ pub const PORTED: &[&str] = &[
     "/instances",
     "/keys",
     "/markers",
+    // console-port-4 (wave 4 slot 138): 4th fifth, alphabetical, of the 17
+    // routes still in TypeScript at 669dc18 (`/md/user` stands for `/md/$name`).
+    "/md/user",
+    "/memory",
+    "/mesh",
 ];
 
 /// Ported pages the pre-built SPA keeps while a fallback is configured,
@@ -94,6 +100,8 @@ pub struct UiConfig {
     /// leaves `/cache` on its empty state and shows `/context` as "not
     /// answering".
     pub desk: Option<SocketAddr>,
+    /// Host files read by `/memory` and `/md/*` (console-port-4).
+    pub files: port4::HostFiles,
 }
 
 /// One request, already parsed and path-sanitised by the front.
@@ -221,6 +229,7 @@ impl Ui {
             || (PORTED.contains(&path)
                 && !(spa_fallback
                     && (SPA_FIRST.contains(&path) || port2::SPA_FIRST.contains(&path))))
+            || port4::owns(path)
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
     }
@@ -369,6 +378,8 @@ impl Ui {
             "/analytics" | "/arena" | "/bank" | "/cache" => self.port1_room(req),
             "/context" | "/gateway" | "/guardian" | "/hermes" => self.port2_room(req),
             "/instances" | "/keys" | "/markers" => self.port3_room(req),
+            "/memory" | "/mesh" => self.port4_room(req),
+            p if port4::owns(p) => self.port4_room(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);

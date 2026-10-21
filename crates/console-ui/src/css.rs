@@ -393,6 +393,23 @@ const PORT3: &str = r#"
 .p3-note{font-size:14px;overflow-wrap:anywhere;min-width:0}
 "#;
 
+/// console-port-4 rooms (`/md/$name`, `/memory`, `/mesh`). Kept apart (own
+/// `p4-` names) so the five console-port branches do not edit the same lines.
+const PORT4: &str = r#"
+.p4-sec{margin-top:1.5rem;min-width:0}
+.p4-sec h2{font-size:13px;color:var(--c-subtle)}
+.p4-sec h2 a{color:inherit}
+.p4-small{margin-top:.5rem;font-size:13px;color:var(--c-fg);overflow-wrap:anywhere}
+.p4-bad{color:var(--c-bad)}
+.p4-n{width:4.5rem;flex-shrink:0;text-align:right;font-size:12px;color:var(--c-muted)}
+.p4-line{font-size:15px;color:var(--c-fg);overflow-wrap:anywhere}
+.p4-pre{margin:.5rem 0 0;max-width:100%;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-family:var(--mono);font-size:12px;line-height:1.6;color:var(--c-muted)}
+.p4-md{font-size:14px;color:var(--c-fg);padding-bottom:3rem}
+.p4-tabs{position:sticky;top:0;display:flex;gap:.5rem;padding:.75rem 0;background:var(--c-bg)}
+.p4-tabs a{display:inline-flex;align-items:center;min-height:2.75rem;border:1px solid var(--c-line);border-radius:999px;padding:0 .875rem;color:var(--c-fg);text-decoration:none;background:var(--c-surface)}
+.p4-tabs a[aria-current=page]{border-color:var(--c-fg)}
+"#;
+
 /// The whole sheet.
 pub fn sheet() -> String {
     let mut out = String::with_capacity(RULES.len() + 1024);
@@ -417,6 +434,7 @@ pub fn sheet() -> String {
         .chain(PORT1.lines())
         .chain(PORT2.lines())
         .chain(PORT3.lines())
+        .chain(PORT4.lines())
         .filter(|l| !l.trim().is_empty())
     {
         out.push_str(line.trim());
@@ -437,7 +455,7 @@ pub fn fnv64(data: &[u8]) -> u64 {
 
 /// Class names defined in [`RULES`] (for the "every emitted class exists" test).
 pub fn defined_classes() -> Vec<String> {
-    let all = format!("{RULES}{LANDING}{PORT1}{PORT2}{PORT3}");
+    let all = format!("{RULES}{LANDING}{PORT1}{PORT2}{PORT3}{PORT4}");
     let mut out = Vec::new();
     let b = all.as_bytes();
     let mut i = 0;

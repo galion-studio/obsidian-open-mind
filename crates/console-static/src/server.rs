@@ -48,6 +48,7 @@ impl State {
                 pulse: cfg.pulse,
                 extra_hosts: cfg.extra_hosts.clone(),
                 desk: cfg.desk,
+                files: cfg.files.clone(),
             })),
             _ => None,
         };

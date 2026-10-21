@@ -157,6 +157,7 @@ fn answer(mut s: TcpStream, log: Log) {
         ("GET", "/api/v1/laptop") => (200, "application/json", String::new(), r#"{"connected":false,"jobs":[],"lines":[]}"#.into()),
         ("GET", "/api/v1/keys") => (200, "application/json", String::new(), r#"{"ok":true,"keys":[]}"#.into()),
         ("GET", "/api/v1/markers") => (200, "application/json", String::new(), r#"{"count":0,"cap":42,"items":[]}"#.into()),
+        ("GET", "/api/mesh") => (200, "application/json", String::new(), "{\"ok\":true,\"phase\":\"idle\",\"score\":[\"SCOPE 1\"]}".into()),
         ("POST", "/api/v1/command") => (200, "application/json", String::new(), "{\"ok\":true,\"data\":{\"cmd\":\"health\",\"note\":\"undefined fine\"}}".into()),
         _ => (404, "text/plain", String::new(), "nope".into()),
     };
@@ -577,7 +578,11 @@ fn theme_css_and_fail_closed() {
 /// remaining rooms say "Not in Rust yet".
 #[test]
 fn read_rooms_render_get_only() {
-    let (a, log) = start(&[]);
+    let (a, log) = start(&[
+        // console-port-4: /md/user needs a readable file.
+        "--user-md",
+        concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"),
+    ]);
     for p in console_ui::PORTED {
         let r = get(a, p, "127.0.0.1", "");
         assert_eq!(r.code, 200, "{p}: {}", r.head);

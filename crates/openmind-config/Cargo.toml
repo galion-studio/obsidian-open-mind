@@ -3,6 +3,7 @@
 
 [package]
 name = "openmind-config"
+publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true

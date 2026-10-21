@@ -55,7 +55,7 @@ fn spdx_scope() {
     );
     assert!(checks("crates/a/src/lib.rs", &format!("{HDR}fn main() {{}}\n")).is_empty());
     assert_eq!(
-        checks("crates/a/Cargo.toml", "[package]\n"),
+        checks("crates/a/Cargo.toml", "[package]\npublish = false\n"),
         vec![Check::Spdx]
     );
     assert_eq!(
@@ -264,4 +264,84 @@ fn check_names_roundtrip() {
         assert!(!c.describe().is_empty());
     }
     assert_eq!(Check::parse("nope"), None);
+}
+
+const TOML_HDR: &str =
+    "# SPDX-License-Identifier: MIT\n# Copyright (c) 3000 Galion / galion-studio\n";
+
+#[test]
+fn publish_false_required_on_workspace_crates() {
+    let ok = format!("{TOML_HDR}[package]\nname = \"a\"\npublish = false\nversion = \"0.1.0\"\n");
+    assert!(checks("crates/a/Cargo.toml", &ok).is_empty());
+    let inherited = format!("{TOML_HDR}[package]\nname = \"a\"\npublish.workspace = true\n");
+    assert!(checks("edge/a/Cargo.toml", &inherited).is_empty());
+    let spaced = format!("{TOML_HDR}[package]\nname = \"a\"\n  publish   =   false   # private\n");
+    assert!(checks("sim/a/Cargo.toml", &spaced).is_empty());
+
+    let missing =
+        format!("{TOML_HDR}[package]\nname = \"a\"\n\n[dependencies]\nb = {{ path = \"../b\" }}\n");
+    assert_eq!(
+        checks("crates/a/Cargo.toml", &missing),
+        vec![Check::Publish]
+    );
+    assert_eq!(checks("edge/a/Cargo.toml", &missing), vec![Check::Publish]);
+    assert_eq!(checks("sim/a/Cargo.toml", &missing), vec![Check::Publish]);
+    // `publish = true` or a registry list is public.
+    let public = format!("{TOML_HDR}[package]\nname = \"a\"\npublish = true\n");
+    assert_eq!(checks("crates/a/Cargo.toml", &public), vec![Check::Publish]);
+    let registry = format!("{TOML_HDR}[package]\nname = \"a\"\npublish = [\"crates-io\"]\n");
+    assert_eq!(
+        checks("crates/a/Cargo.toml", &registry),
+        vec![Check::Publish]
+    );
+    // `publish = false` outside [package] does not count.
+    let wrong_table =
+        format!("{TOML_HDR}[package]\nname = \"a\"\n\n[package.metadata.x]\npublish = false\n");
+    assert_eq!(
+        checks("crates/a/Cargo.toml", &wrong_table),
+        vec![Check::Publish]
+    );
+    // Commented out does not count.
+    let commented = format!("{TOML_HDR}[package]\nname = \"a\"\n# publish = false\n");
+    assert_eq!(
+        checks("crates/a/Cargo.toml", &commented),
+        vec![Check::Publish]
+    );
+
+    // Out of scope: root/virtual manifests, test fixtures, other trees.
+    let virt = "[workspace]\nmembers = [\"crates/*\"]\n";
+    assert!(package_publish_false(virt).is_none());
+    assert!(checks("Cargo.toml", virt).is_empty());
+    assert!(checks("crates/a/tests/fixtures/t/Cargo.toml", &missing).is_empty());
+    assert!(checks("contrib/x/Cargo.toml", &missing).is_empty());
+    assert!(!is_crate_manifest("crates/Cargo.toml"));
+    assert!(is_crate_manifest("crates/a/Cargo.toml"));
+}
+
+#[test]
+fn scan_tree_flags_public_crate() {
+    let d = tmp_tree("publish");
+    std::fs::write(
+        d.join("crates/a/Cargo.toml"),
+        format!("{TOML_HDR}[package]\nname = \"a\"\npublish = false\n"),
+    )
+    .unwrap();
+    assert!(scan_tree(&d, None).unwrap().findings.is_empty());
+    std::fs::create_dir_all(d.join("crates/b")).unwrap();
+    std::fs::write(
+        d.join("crates/b/Cargo.toml"),
+        format!("{TOML_HDR}[package]\nname = \"b\"\n"),
+    )
+    .unwrap();
+    let got: Vec<_> = scan_tree(&d, None)
+        .unwrap()
+        .findings
+        .into_iter()
+        .map(|f| (f.check, f.file))
+        .collect();
+    assert_eq!(
+        got,
+        vec![(Check::Publish, "crates/b/Cargo.toml".to_string())]
+    );
+    let _ = std::fs::remove_dir_all(&d);
 }

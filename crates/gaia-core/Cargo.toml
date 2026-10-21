@@ -6,6 +6,7 @@
 
 [package]
 name = "gaia-core"
+publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true

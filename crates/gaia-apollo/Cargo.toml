@@ -3,6 +3,7 @@
 
 [package]
 name = "gaia-apollo"
+publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true

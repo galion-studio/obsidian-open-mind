@@ -45,9 +45,9 @@ the VPS. Every item marked **owner** needs Slavik.
 ## Known gaps (not owner-only)
 
 - Fuzzing and CodeQL (Scorecard Fuzzing, SAST) are not set up.
-- `deny.toml` keeps `wildcards = "warn"` because workspace crates lack
-  `publish = false`; set it per crate (or `[workspace.package] publish = false`
-  inherited) and flip to `deny`.
+- `deny.toml` has `wildcards = "deny"` since slot 201 sec-deny-wildcards
+  (2026-10-21 +02:00): every workspace crate sets `publish = false`
+  (repo-check `publish` enforces it); see docs/real-tests/sec-deny-wildcards.md.
 - comply 0.1.1 is young (Aug 2026). It agrees with the REUSE spec on what was
   tested here, but it requires `.license` companions for binary files even when
   `REUSE.toml` covers them, and it mis-applies `.gitignore` to absolute paths

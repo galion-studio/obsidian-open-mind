@@ -2,6 +2,7 @@
 # Copyright (c) 3000 Galion / galion-studio
 [package]
 name = "openmind-queue"
+publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true

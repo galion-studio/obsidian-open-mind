@@ -49,10 +49,13 @@ ignore = false
 
 [bans]
 multiple-versions = "warn"
-# "warn", not "deny": the only wildcards today are intra-workspace path deps
-# in crates that lack `publish = false` (cargo-deny then treats them as
-# public). Flip to "deny" once every crate sets `publish = false`.
-wildcards = "warn"
+# "deny" since slot 201 sec-deny-wildcards (2026-10-21 +02:00): every
+# workspace crate (crates/*, edge/openmind-node, sim/deploy-sim) sets
+# `publish = false`, so intra-workspace path deps are not wildcards any more.
+# A new crate without `publish = false`, or any `version = "*"` dependency,
+# now fails `cargo deny check bans`. The repo-check xtask also checks
+# that every workspace crate keeps `publish = false`.
+wildcards = "deny"
 allow-wildcard-paths = true
 # Hard rule 1: no openssl.
 deny = [

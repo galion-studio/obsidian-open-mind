@@ -52,10 +52,11 @@ pub enum Check {
     Secrets,
     Hosts,
     Portable,
+    Publish,
 }
 
 impl Check {
-    pub const ALL: [Check; 8] = [
+    pub const ALL: [Check; 9] = [
         Check::License,
         Check::Spdx,
         Check::Cjk,
@@ -64,6 +65,7 @@ impl Check {
         Check::Secrets,
         Check::Hosts,
         Check::Portable,
+        Check::Publish,
     ];
 
     pub fn name(self) -> &'static str {
@@ -76,6 +78,7 @@ impl Check {
             Check::Secrets => "secrets",
             Check::Hosts => "hosts",
             Check::Portable => "portable",
+            Check::Publish => "publish",
         }
     }
 
@@ -102,6 +105,7 @@ impl Check {
             Check::Secrets => "no private-key blocks or token-shaped strings (matches are never printed)",
             Check::Hosts => "no public IPv4 literals in crates/, deploy/, .github/",
             Check::Portable => "no inline asm, arch intrinsics, target-cpu/target-feature, openssl-sys (UNIVERSAL-CPU.md)",
+            Check::Publish => "every workspace crate manifest (crates/*, edge/*, sim/*) sets `publish = false` in [package], so cargo-deny `wildcards = \"deny\"` holds",
         }
     }
 }
@@ -209,6 +213,7 @@ pub fn check_crate_license(path: &str, text: &str, root: Option<&str>) -> Vec<Fi
 pub fn scan_text(path: &str, text: &str) -> Vec<Finding> {
     let mut out = Vec::new();
     spdx(path, text, &mut out);
+    publish_manifest(path, text, &mut out);
     python_shebang(path, text, &mut out);
     let in_code = under(path, &["crates"]);
     let rs = ext(path) == "rs";
@@ -322,6 +327,55 @@ fn python_shebang(path: &str, text: &str, out: &mut Vec<Finding>) {
         if first.starts_with("#!") && first.contains(concat!("pyth", "on")) {
             out.push(finding(Check::Python, path, 1, "python shebang"));
         }
+    }
+}
+
+// ---------------------------------------------------------------- publish
+
+/// Workspace crate manifests: `crates/<x>/Cargo.toml`, `edge/<x>/Cargo.toml`,
+/// `sim/<x>/Cargo.toml` (exactly one directory deep, so test fixtures under
+/// `crates/<x>/tests/...` are out of scope).
+pub fn is_crate_manifest(path: &str) -> bool {
+    let parts: Vec<&str> = path.split('/').collect();
+    parts.len() == 3 && matches!(parts[0], "crates" | "edge" | "sim") && parts[2] == "Cargo.toml"
+}
+
+/// True when the `[package]` table of a Cargo manifest says `publish = false`
+/// (or `publish.workspace = true`, which inherits it). Returns `None` when the
+/// manifest has no `[package]` table (a virtual manifest).
+pub fn package_publish_false(text: &str) -> Option<bool> {
+    let mut in_pkg = false;
+    let mut seen_pkg = false;
+    let mut found = false;
+    for raw in text.lines() {
+        let line = raw.split('#').next().unwrap_or("").trim();
+        if line.starts_with('[') {
+            in_pkg = line == "[package]";
+            seen_pkg |= in_pkg;
+            continue;
+        }
+        if !in_pkg {
+            continue;
+        }
+        let compact: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+        if compact == "publish=false" || compact == "publish.workspace=true" {
+            found = true;
+        }
+    }
+    seen_pkg.then_some(found)
+}
+
+fn publish_manifest(path: &str, text: &str, out: &mut Vec<Finding>) {
+    if !is_crate_manifest(path) {
+        return;
+    }
+    if package_publish_false(text) == Some(false) {
+        out.push(finding(
+            Check::Publish,
+            path,
+            0,
+            "[package] lacks `publish = false`; cargo-deny wildcards = \"deny\" treats it as public and fails on its path deps",
+        ));
     }
 }
 

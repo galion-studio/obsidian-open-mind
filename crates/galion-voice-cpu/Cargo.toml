@@ -6,6 +6,7 @@
 
 [package]
 name = "galion-voice-cpu"
+publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true

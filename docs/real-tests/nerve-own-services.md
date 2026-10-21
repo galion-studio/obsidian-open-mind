@@ -88,10 +88,12 @@ cloudflared journal lines. That is not related to this change.)
 integration suites ok); `scripts/no-python.sh` ok. No new dependencies, and
 Cargo.lock is unchanged.
 
-Not done: the musl/android/armv7 cross builds. The box disk filled up
-(`No space left on device`, 124G/125G used by the shared swarm) during the
-x86_64 musl link. I removed my own build dir (1.4 GB) and did not retry. The
-change is a target-independent const table with no `cfg`.
+Cross builds (01:24-01:26): x86_64-unknown-linux-musl release ok; aarch64-unknown-linux-musl release ok with
+`CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld` (the default linker fails
+to link on this box, same as slot 222); `cargo check` ok for aarch64-linux-android
+and armv7-unknown-linux-musleabihf. The first attempt at 01:22 hit `No space left on
+device` (the shared box disk was full at 124G/125G). I removed my build dir and retried
+once there was free space. The build dir was removed again afterwards.
 
 ## Owner decisions
 

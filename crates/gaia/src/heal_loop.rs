@@ -18,7 +18,7 @@
 //!   3-per-hour restart cap is separate and global: it lives in the ledger
 //!   next to hades-gate's replay ledger ([`gaia_live::heal::Budget`]).
 //! * **Scope first.** A target that fails the scope guard (live port, range
-//!   outside 19000-19999, forbidden program) stops the loop before the
+//!   outside 19000-20999 or a live VPS port, forbidden program) stops the loop before the
 //!   first tick with exit 4; each tick still re-checks it.
 //! * **Supervised.** A tick that returns a setup error (nerve down, ledger
 //!   unreadable) or panics does not end the loop; the loop backs off
@@ -295,7 +295,22 @@ pub fn run_with(
         reaped += gaia_live::heal::reap().0 as u64;
         let line = match &r {
             Ok(t) => {
-                errors = 0;
+                // D-FI3 (slot 199): a restart whose result event could not be
+                // posted is still a restart (and its token is spent), but the
+                // tick counts as an error for back-off and --max-errors.
+                let unrecorded = t.exit == live_heal::exit::UNRECORDED
+                    && t.report.get("nerve_error").and_then(Json::as_str).is_some();
+                if unrecorded {
+                    errors += 1;
+                    errors_total += 1;
+                    last_error = t
+                        .report
+                        .get("nerve_error")
+                        .and_then(Json::as_str)
+                        .map(|e| format!("restart result not recorded on the nerve: {e}"));
+                } else {
+                    errors = 0;
+                }
                 let outcome = t
                     .report
                     .get("outcome")
@@ -325,7 +340,9 @@ pub fn run_with(
                        "detail": t.report.get("detail").and_then(Json::as_str),
                        "approval_code": t.approval_code, "spawned": t.spawned,
                        "token_file": token.as_ref().and_then(|p| p.file_name()).map(|n| n.to_string_lossy().to_string()),
-                       "token_moved": moved})
+                       "token_moved": moved,
+                       "nerve_error": t.report.get("nerve_error").and_then(Json::as_str).filter(|_| unrecorded),
+                       "consecutive_errors": errors})
             }
             Err(e) => {
                 errors += 1;

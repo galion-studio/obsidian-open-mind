@@ -6,7 +6,8 @@
 //!
 //! * [`check_target`]: the service must listen on 127.0.0.1 on a port inside
 //!   the operator-given range, and that range must sit inside
-//!   [`TEST_PORTS`] (19000-19999). Live stack ports (8080, 8091, 8420, 8642,
+//!   [`TEST_PORTS`] (19000-20999) and hold no [`LIVE_PORTS`] entry (POSEIDON
+//!   19120, cloudflared 20241/20242, ...). Live stack ports (8080, 8091, 8420, 8642,
 //!   8650, 8670, ...) are therefore always refused. The start command must be
 //!   an absolute path to a program that is not a service manager, shell,
 //!   remote shell or killer, and it must name the target port.
@@ -32,8 +33,67 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// The only ports the apply path may ever touch.
-pub const TEST_PORTS: RangeInclusive<u16> = 19000..=19999;
+/// The band the apply path may ever touch: box test ports for the swarm's
+/// slot bands (wave 1-3 slots NN use 19NN0-19NN9, wave-4 slots N use
+/// 19700+10*(N-100)..+9, up to slot 229). Live ports inside the band
+/// ([`LIVE_PORTS`], e.g. POSEIDON 19120 and cloudflared 20241/20242) are
+/// never test ports; use [`is_test_port`], not `TEST_PORTS.contains`.
+pub const TEST_PORTS: RangeInclusive<u16> = 19000..=20999;
+
+/// Every TCP port that is live on the VPS (listening, or the origin of a
+/// tunnel ingress rule), from `docs/ops/vps-baseline.md` (2026-10-21 11:23
+/// +02:00 refresh) plus a read-only `ss -ltn` on 2026-10-21 17:57 +02:00
+/// (slot 199). Gaia's apply path refuses all of them, even inside
+/// [`TEST_PORTS`], and a test (`gaia-live/tests/port_bands.rs`) fails if a
+/// test port or a Gaia test's hardcoded port is on this list. Sorted.
+pub const LIVE_PORTS: &[u16] = &[
+    22,    // sshd
+    25,    // postfix
+    53,    // systemd-resolved
+    3004,  // tunnel origin: machine
+    3005,  // tunnel origin: torchbearer
+    3010,  // tunnel origin: adriaticpadel
+    3011,  // tunnel origin: merlinelement.com
+    3020,  // tunnel origin: maivirtue.com
+    4001,  // tunnel origin: studio / galion.studio
+    4003,  // tunnel origin: voice
+    4004,  // tunnel origin: tactical-belts
+    4020,  // tunnel origin: ws3d / workspace3d
+    4042,  // tunnel origin: docs.galion.app
+    4060,  // tunnel origin: slaviknomad.com
+    4444,  // tunnel origin: downloader.galion.app
+    8002,  // galion-one mouth
+    8003,  // galion-one (closed, kept reserved)
+    8080,  // console
+    8091,  // galion-one
+    8420,  // openmind-memory
+    8431,  // former stray (closed, kept reserved)
+    8642,  // hermes-rs
+    8646,  // galion-desk
+    8650,  // tuner
+    8652,  // former stray mock gateway (closed, kept reserved)
+    8653,  // former stray mock gateway (closed, kept reserved)
+    8660,  // galion-health
+    8670,  // galion-nerve (openmind-nerve)
+    8671,  // tanga-proto
+    8672,  // galion-nerve-shadow
+    18800, // sshd forward seen 2026-10-21 17:57 +02:00 (transient)
+    19120, // openmind-queue (POSEIDON)
+    20241, // cloudflared metrics
+    20242, // tuner-quick cloudflared metrics
+];
+
+/// `true` when `p` is a live VPS port ([`LIVE_PORTS`]).
+#[must_use]
+pub fn is_live_port(p: u16) -> bool {
+    LIVE_PORTS.binary_search(&p).is_ok()
+}
+
+/// `true` when `p` is a box test port: inside [`TEST_PORTS`] and not live.
+#[must_use]
+pub fn is_test_port(p: u16) -> bool {
+    TEST_PORTS.contains(&p) && !is_live_port(p)
+}
 /// Restarts allowed per service per rolling hour.
 pub const MAX_RESTARTS_PER_HOUR: usize = 3;
 /// Rolling window for [`MAX_RESTARTS_PER_HOUR`].
@@ -108,6 +168,17 @@ pub fn check_target(t: &TestTarget, allowed: &RangeInclusive<u16>) -> Result<(),
             allowed.end(),
             TEST_PORTS.start(),
             TEST_PORTS.end()
+        ));
+    }
+    if let Some(live) = LIVE_PORTS
+        .iter()
+        .copied()
+        .find(|p| allowed.contains(p))
+    {
+        return Err(format!(
+            "allowed range {}-{} contains live VPS port {live}; test ranges must not include live ports",
+            allowed.start(),
+            allowed.end()
         ));
     }
     if !allowed.contains(&t.port) {

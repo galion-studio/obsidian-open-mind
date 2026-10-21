@@ -6,6 +6,7 @@
 //! token-dir bookkeeping. Nothing is started; the nerve address is a closed
 //! loopback port, so the loop's own started/stopped events are dropped. The
 //! real loop against real dummies and the real nerve is real_gaia_loop.rs.
+//! Ports: slot 160's band 20300-20309 (nothing binds them here).
 
 use gaia::heal_loop::{self, next_sleep, next_token, Jitter, LoopCfg, Stop, EXIT_ERRORS};
 use gaia::live_heal::{HealCfg, HealTick};
@@ -33,11 +34,11 @@ fn cfg(dir: &std::path::Path) -> LoopCfg {
         tick: HealCfg {
             target: TestTarget {
                 name: "gaia-dummy".into(),
-                port: 19999,
+                port: 20309,
                 health_path: "/health".into(),
-                argv: vec!["/bin/true".into(), "--port".into(), "19999".into()],
+                argv: vec!["/bin/true".into(), "--port".into(), "20309".into()],
             },
-            allowed: 19999..=19999,
+            allowed: 20309..=20309,
             nerve: closed_port(),
             state_dir: dir.join("state"),
             hades_config: dir.join("hades.toml"),
@@ -324,9 +325,9 @@ fn parse_cli_reads_loop_flags_and_refuses_bad_ones() {
             "--service",
             "gaia-dummy",
             "--port",
-            "19601",
+            "20301",
             "--allow-ports",
-            "19600-19609",
+            "20300-20309",
             "--nerve",
             "127.0.0.1:20300",
             "--state",
@@ -335,7 +336,7 @@ fn parse_cli_reads_loop_flags_and_refuses_bad_ones() {
             "/tmp/h.toml",
         ];
         v.extend_from_slice(extra);
-        v.extend_from_slice(&["--", "/bin/true", "--port", "19601"]);
+        v.extend_from_slice(&["--", "/bin/true", "--port", "20301"]);
         v
     };
     let c = heal_loop::parse_cli(&base(&[])).unwrap();
@@ -402,4 +403,95 @@ fn an_out_of_scope_target_stops_before_the_first_tick() {
         .unwrap()
         .contains("outside the test range"));
     assert!(out.is_empty());
+}
+
+/// D-FI3 (slot 199): `gaia.heal.applied` could not be posted after the
+/// spawn. The tick is `Ok` with exit 2, `spawned` and `nerve_error`; the loop
+/// counts the restart, retires the token as spent, and counts the tick as an
+/// error (back-off, `--max-errors`), so `--max-restarts` holds.
+fn unrecorded() -> HealTick {
+    HealTick {
+        exit: gaia::live_heal::exit::UNRECORDED,
+        report: Json::obj()
+            .with("outcome", "restarted")
+            .with("detail", "restart 1/3 this hour; health verified; result NOT recorded on the nerve")
+            .with("nerve_error", "nerve POST gaia.heal.applied: HTTP 500"),
+        approval_code: Some("approved".into()),
+        spawned: true,
+    }
+}
+
+#[test]
+fn a_restart_whose_applied_post_failed_still_counts() {
+    let d = tmp("unrecorded");
+    let td = d.join("tokens");
+    std::fs::create_dir_all(&td).unwrap();
+    for n in ["a.tok", "b.tok", "c.tok"] {
+        std::fs::write(td.join(n), "TOKEN-BODY-NEVER-PRINTED").unwrap();
+    }
+    let mut c = cfg(&d);
+    c.max_ticks = Some(10);
+    c.max_restarts = Some(2);
+    c.token_dir = Some(td.clone());
+    let mut out = Vec::new();
+    let mut n = 0;
+    let r = heal_loop::run_with(&c, &mut out, &mut |_| {
+        n += 1;
+        Ok(if n == 1 {
+            unrecorded()
+        } else {
+            tick("restarted", 0, Some("approved"), true)
+        })
+    });
+    // Before the fix the first restart was an Err tick: restarts stayed 0
+    // and the loop ran a third restart past --max-restarts 2.
+    assert_eq!((r.stop, r.exit, n), (Stop::MaxRestarts, 0, 2));
+    let s = sv(&r.summary);
+    assert_eq!(s["restarts"], 2, "{s}");
+    assert_eq!(s["errors_total"], 1, "{s}");
+    assert_eq!(s["tokens_spent"], 2, "{s}");
+    assert!(s["last_error"]
+        .as_str()
+        .unwrap()
+        .contains("not recorded on the nerve"));
+    let l = lines(&out);
+    assert_eq!(l[0]["spawned"], true);
+    assert_eq!(l[0]["exit"], 2);
+    assert_eq!(l[0]["token_moved"], "spent");
+    assert_eq!(l[0]["consecutive_errors"], 1);
+    assert!(l[0]["nerve_error"].as_str().unwrap().contains("HTTP 500"));
+    assert_eq!(l[1]["consecutive_errors"], 0, "an ok tick resets the run");
+    assert!(l[1]["nerve_error"].is_null());
+    // The unrecorded tick is a first error: 1 x interval, then doubling.
+    assert_eq!(s["sleeps_ms"], serde_json::json!([100]));
+    assert!(td.join("a.tok.spent").exists() && td.join("b.tok.spent").exists());
+}
+
+#[test]
+fn unrecorded_restarts_count_toward_max_errors() {
+    let d = tmp("unrecorded-errors");
+    let mut c = cfg(&d);
+    c.max_ticks = Some(10);
+    c.max_errors = 2;
+    let mut out = Vec::new();
+    let r = heal_loop::run_with(&c, &mut out, &mut |_| Ok(unrecorded()));
+    assert_eq!((r.stop, r.exit), (Stop::Errors, EXIT_ERRORS));
+    let s = sv(&r.summary);
+    assert_eq!((s["ticks"].as_u64(), s["restarts"].as_u64()), (Some(2), Some(2)));
+}
+
+#[test]
+fn a_live_port_inside_the_band_stops_before_the_first_tick() {
+    for live in [19120u16, 20241, 20242] {
+        let d = tmp(&format!("live-{live}"));
+        let mut c = cfg(&d);
+        c.tick.target.port = live;
+        c.tick.target.argv = vec!["/bin/true".into(), "--port".into(), live.to_string()];
+        c.tick.allowed = live..=live;
+        let mut out = Vec::new();
+        let r = heal_loop::run_with(&c, &mut out, &mut |_| panic!("must not tick"));
+        assert_eq!((r.stop, r.exit), (Stop::Scope, 4), "{live}");
+        let e = sv(&r.summary)["last_error"].as_str().unwrap().to_string();
+        assert!(e.contains(&format!("live VPS port {live}")), "{e}");
+    }
 }

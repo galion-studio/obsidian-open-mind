@@ -74,6 +74,12 @@ pub mod exit {
     /// (decision D-L4, accepted 2026-10-21): a `gaia.heal.hung` event goes to
     /// the nerve; nothing is restarted, killed or stopped, no token is used.
     pub const HUNG: u8 = 8;
+    /// The restart was spawned (and is in both ledgers), but its result
+    /// event (`gaia.heal.applied` / `gaia.heal.failed`) could not be posted
+    /// to the nerve. Same code as a setup error (2), but the tick is an
+    /// `Ok` with `spawned = true` and `nerve_error` set, so `--loop` counts
+    /// the restart and the spent token (D-FI3, slot 199).
+    pub const UNRECORDED: u8 = 2;
 }
 
 #[derive(Clone, Debug)]
@@ -766,7 +772,7 @@ pub fn heal_tick_at(cfg: &HealCfg, clock: Option<u64>) -> Result<HealTick, Strin
     ));
 
     // 6. Record the result on the nerve.
-    nerve_post(
+    let posted = nerve_post(
         cfg,
         kind,
         sev,
@@ -778,15 +784,24 @@ pub fn heal_tick_at(cfg: &HealCfg, clock: Option<u64>) -> Result<HealTick, Strin
             "nonce": nonce, "plan_sha256": plan_sha,
             "hades_directive": exec.directive_id, "probe_id": probe_id, "spawn_error": spawn_error,
         }),
-    )?;
+    );
     let detail = format!(
-        "restart {restarts_now}/{} this hour; health {}",
+        "restart {restarts_now}/{} this hour; health {}{}",
         heal::MAX_RESTARTS_PER_HOUR,
-        if verified { "verified" } else { "NOT verified" }
+        if verified { "verified" } else { "NOT verified" },
+        if posted.is_ok() {
+            ""
+        } else {
+            "; result NOT recorded on the nerve"
+        }
     );
     Ok(HealTick {
-        exit: exit_code,
-        report: result(cfg, steps, outcome, &detail, None),
+        exit: if posted.is_ok() {
+            exit_code
+        } else {
+            exit::UNRECORDED
+        },
+        report: result(cfg, steps, outcome, &detail, posted.err()),
         approval_code: Some("approved".to_string()),
         spawned: pid.is_some(),
     })

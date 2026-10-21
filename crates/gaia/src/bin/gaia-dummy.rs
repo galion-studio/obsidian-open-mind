@@ -8,7 +8,8 @@
 //! service for the Gaia live heal tests. `GET /health` answers
 //! `{"status":"ok","service":"gaia-dummy","pid":N,
 //! "started":"<Europe/Zagreb>","mode":"..."}`; everything else is 404. It
-//! binds 127.0.0.1 only and refuses ports outside 19000-19999.
+//! binds 127.0.0.1 only and refuses ports outside 19000-20999 and live VPS ports
+//! (`gaia_live::heal::is_test_port`).
 //!
 //! Fault modes (Gaia S3.1 loop tests, S3.2 fault injection):
 //! * `ok` (default): serves forever.
@@ -129,8 +130,8 @@ fn answer(mut s: TcpStream, c: &Cfg) {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     let port: Option<u16> = arg(&args, "--port").and_then(|p| p.parse().ok());
-    let Some(port) = port.filter(|p| (19000..=19999).contains(p)) else {
-        eprintln!("usage: gaia-dummy --port P [--mode ok|hang|flap|crash|slow|badjson|wrong] [--up-ms MS] [--once-file F] [--delay-ms MS] [--slow-count N] [--bad KIND]   (P in 19000-19999)");
+    let Some(port) = port.filter(|p| gaia_live::heal::is_test_port(*p)) else {
+        eprintln!("usage: gaia-dummy --port P [--mode ok|hang|flap|crash|slow|badjson|wrong] [--up-ms MS] [--once-file F] [--delay-ms MS] [--slow-count N] [--bad KIND]   (P in 19000-20999, not a live VPS port)");
         return ExitCode::from(2);
     };
     let mode = arg(&args, "--mode").unwrap_or("ok");

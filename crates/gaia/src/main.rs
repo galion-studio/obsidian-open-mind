@@ -8,7 +8,7 @@
 //! `dispatch --queue`: loopback HTTP to openmind-queue (budget read-only, never
 //! leases or acks); and `heal-tick`: the hades-gate-approved (signed,
 //! single-use token), capped restart of a box-local TEST service
-//! (127.0.0.1:19000-19999 only) with nerve events over loopback.
+//! (127.0.0.1:19000-20999 minus live VPS ports only) with nerve events over loopback.
 
 use std::process::ExitCode;
 
@@ -21,7 +21,7 @@ const USAGE_HEAD: &str = "usage: gaia <command> [options]
                                  --strict exits 3 unless everything is up
   heal-tick --service NAME --port P --allow-ports A-B --nerve 127.0.0.1:N --state DIR
             --hades-config C [--token-file F] [--health /health] [--wait-ms MS] -- /abs/start/cmd ARGS...
-                                 M2 live heal, BOX TEST SERVICES ONLY (127.0.0.1, ports 19000-19999):
+                                 M2 live heal, BOX TEST SERVICES ONLY (127.0.0.1, ports 19000-20999, never a live VPS port):
                                  probe -> nerve event -> GAIA -> DEMETER heal-dry -> HADES plan ->
                                  hades-gate check (disable, admin safety, Ed25519 token scoped to
                                  heal-apply + service + plan hash, expiry, single use) ->
@@ -127,6 +127,15 @@ fn main() -> ExitCode {
             Ok(cfg) => match gaia::live_heal::heal_tick(&cfg) {
                 Ok(t) => {
                     live_exit = t.exit;
+                    // D-FI3: restart spawned, result not on the nerve.
+                    if let Some(e) = t
+                        .report
+                        .get("nerve_error")
+                        .and_then(gaia_core::Json::as_str)
+                        .filter(|_| t.exit == gaia::live_heal::exit::UNRECORDED)
+                    {
+                        eprintln!("gaia heal-tick: restart result not recorded on the nerve: {e}");
+                    }
                     Ok(t.report)
                 }
                 Err(e) => Err(e),

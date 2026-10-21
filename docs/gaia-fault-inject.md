@@ -81,7 +81,7 @@ exit 2 or 4 with no spawn.
   `listener_pids(port)` is non-empty, report `gaia.heal.held` (like D-L4
   hung: evidence, no token, no budget, exit 8); (c) (b) only for foreign
   pids, keep restarting Gaia-started ones. No money or compute cost.
-- **D-FI3 token burnt when the nerve fails after approval.** If the
+- **D-FI3 token burnt when the nerve fails after approval.** (Loop-counter bug part fixed in slot 199, `docs/gaia-fault-followups.md`.) If the
   re-read of `/state` under the budget lock fails, or `POST
   gaia.heal.approved` fails, the token is already consumed and nothing
   restarts (F7d, F7e). Fail closed and correct; it only costs a token. Also:
@@ -89,7 +89,7 @@ exit 2 or 4 with no spawn.
   error, so the loop's own `restarts` / `--max-restarts` do not count that
   restart (the global 3/h cap still does). Options: keep (recommended,
   document) or make the loop count `spawned` from the ledger.
-- **D-FI4 test-port band vs. live ports.** `TEST_PORTS` is 19000-19999, and
+- **D-FI4 test-port band vs. live ports.** (Test-port part done in slot 199: band 19000-20999 minus `LIVE_PORTS`, tests in their slot bands, guard test; see `docs/gaia-fault-followups.md`.) `TEST_PORTS` was 19000-19999, and
   the VPS has POSEIDON listening on 127.0.0.1:19120 (read-only `ss -ltn`
   13:39 +02:00), so if Gaia's heal path ever ran on the VPS, the scope guard
   would treat a live port as a test port. Also, wave-4 slot ports are

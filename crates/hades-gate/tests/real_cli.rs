@@ -111,6 +111,10 @@ fn http(method: &str, path: &str, body: &str) -> String {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "real-life test: spawns the release binary and talks HTTP (process + network), not run under Miri"
+)]
 fn real_cli_and_http_round_trip() {
     if !enabled() {
         eprintln!("skipped: set GALION_REAL=1");

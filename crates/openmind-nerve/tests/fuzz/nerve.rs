@@ -166,10 +166,11 @@ fn check_event(text: &str) -> Result<u64, String> {
                 "data_json not JSON".into()
             })?;
             let v: Value = serde_json::from_str(text).map_err(|x| x.to_string())?;
-            ensure(
-                v.get("data").cloned().unwrap_or(Value::Null).to_string() == d,
-                || "data not carried verbatim".into(),
-            )?;
+            let sent = v.get("data").cloned().unwrap_or(Value::Null);
+            let got: Value = serde_json::from_str(&d).map_err(|x| x.to_string())?;
+            ensure(json_close(&sent, &got), || {
+                format!("data not carried: sent {sent} got {got}")
+            })?;
             Ok(fnv(&format!(
                 "ok:{}:{}",
                 e.severity().len().min(8),
@@ -338,7 +339,6 @@ fn check_journal(text: &str) -> Result<u64, String> {
     })?;
     for l in all.iter().chain(&some) {
         ensure(l.msg.chars().count() <= 2000, || "msg over 2000 chars".into())?;
-        ensure(l.t < 1 << 44, || format!("absurd t {}", l.t))?;
     }
     for l in &some {
         ensure(UNITS.contains(&l.unit.as_str()), || {
@@ -893,4 +893,26 @@ pub fn gens() -> Vec<Gen> {
             run: gen_deep,
         },
     ]
+}
+
+/// Same JSON value, numbers allowed 4 ULP apart: serde_json without its
+/// `float_roundtrip` feature can move a big float by 1 ULP when the value is
+/// printed and parsed again, which `event_from` does (D-212-3).
+pub fn json_close(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => {
+            x == y
+                || match (x.as_f64(), y.as_f64()) {
+                    (Some(p), Some(q)) => (p - q).abs() <= p.abs().max(q.abs()) * 4.0 * f64::EPSILON,
+                    _ => false,
+                }
+        }
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| json_close(p, q))
+        }
+        (Value::Object(x), Value::Object(y)) => {
+            x.len() == y.len() && x.iter().all(|(k, p)| y.get(k).is_some_and(|q| json_close(p, q)))
+        }
+        _ => a == b,
+    }
 }

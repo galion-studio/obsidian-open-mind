@@ -197,3 +197,25 @@ fn regress_deep_json_fits_server_stack() {
         }
     }
 }
+
+/// Find 4 (access JSON lines): the client address of a JSON line was not
+/// capped (the CLF branch caps it at 64 chars); it is the per-IP map key.
+#[test]
+fn regress_access_json_ip_capped() {
+    let long = "1".repeat(10_000);
+    let line = format!(r#"{{"ts":1792514105,"remote_addr":"{long}","path":"/","status":200}}"#);
+    let h = openmind_nerve::access::parse_line(&line, 0).unwrap();
+    assert_eq!(h.ip.chars().count(), 64);
+}
+
+/// Smoke find on /event (not a nerve logic bug, D-212-3): an integer past
+/// u64 is a float in serde_json, and `event_from` prints and re-parses the
+/// data, which can move it by 1 ULP. The value stays within 4 ULP.
+#[test]
+fn regress_event_big_number_within_ulps() {
+    let body = r#"{"source":"s","kind":"k","severity":"warn","data":[118446744073709551616]}"#;
+    let e = openmind_nerve::server::event_from(body).unwrap();
+    let got: serde_json::Value = serde_json::from_str(&e.data_json()).unwrap();
+    let sent = serde_json::json!([118446744073709551616.0f64]);
+    assert!(nerve::json_close(&sent, &got), "{sent} vs {got}");
+}

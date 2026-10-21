@@ -60,7 +60,7 @@ floor below 10 req/s would flap on the dead-origin bursts. The temp capture was 
 
 - `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets -D warnings` ok.
 - `cargo test --workspace --exclude openmind-sandbox --exclude cgroup-detect`: 218 suites, 1056 passed, 0 failed,
-  3 ignored. openmind-nerve lib 155 (incl. calibrate 3, sshd/components boundary tests), `calibration` 5/5,
+  3 ignored. openmind-nerve lib 153 (incl. calibrate 3 and the sshd/components boundary tests 2), `calibration` 5/5,
   `replay_corpus` 4/4 (17 entries), `real_calibrate` 3/3 and `real_replay_corpus` 3/3 with `GALION_REAL=1`.
 - `cargo xtask replay-corpus --require-live` ok. `scripts/no-python.sh` ok.
 - repo-check: 3 errors, the same 3 as base 55f07ff (`sensors/surface.rs` 198.18.0.0 lines, not touched here).

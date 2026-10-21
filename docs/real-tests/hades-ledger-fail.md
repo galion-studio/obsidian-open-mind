@@ -3,7 +3,7 @@
 # Real-life test: hades-ledger-fail (slot 125, finding 4 of cortex-s2-d)
 
 - Branch `swarm/hades-ledger-fail`, base `swarm/hades-redteam` e6ceca7. Box only, ports 19950-19951 (slot 125).
-  No VPS access: hades-gate is not deployed on the VPS, so there is nothing live to compare.
+  hades-gate is not deployed on the VPS, so there is no live gate to compare; read-only VPS evidence below.
 - Test: `crates/hades-gate/tests/real_ledger_fail.rs` (release binary, `GALION_REAL=1`):
 
 ```
@@ -88,3 +88,33 @@ killed by `Drop` on failure, stopped by `POST /v1/stop` on success; temp dir rem
 - `cargo check -p hades-gate`: x86_64/aarch64 musl, aarch64-linux-android, armv7-unknown-linux-musleabihf ok.
   Release musl: x86_64 623312 bytes, aarch64 538064 bytes (`linker=rust-lld`).
 - `scripts/no-python.sh` ok; `scripts/spdx-scan.sh` scanned 192, missing 0.
+
+## Re-run by the resumed slot-125 agent, 2026-10-21 04:46:45-04:47:19 +02:00
+
+All three real tests in the slot range (`real_cli` now takes `HADES_REAL_CLI_PORT`, default 19021 unchanged):
+
+```
+GALION_REAL=1 HADES_REDTEAM_PORT=19951 HADES_REAL_CLI_PORT=19952 cargo-slot test --release -j 2 -p hades-gate \
+  --test real_ledger_fail --test real_redteam --test real_cli -- --nocapture --test-threads=1
+test real_cli_and_http_round_trip ... ok
+sensor-matching journal lines: 5; elapsed 113.691203ms
+ledger lines kept: 2
+test real_ledger_write_failure_is_detectable ... ok
+REAL TOTAL WouldApply: 0 / 82
+test real_redteam_over_http ... ok
+```
+
+Gates re-run 04:44-04:46 +02:00: `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets -- -D warnings` ok;
+`cargo test --workspace --exclude openmind-sandbox --exclude cgroup-detect`: 121 result lines, 504 passed, 0 failed.
+
+## Real server (VPS), read-only, 2026-10-21 04:47:29 +02:00
+
+- `systemctl list-units --all | grep -iE 'hades|cortex|nerve'`: only `galion-nerve.service` (:8670) and
+  `galion-nerve-shadow.service` (:8672) - no hades-gate unit, no cortex unit (cortex not live yet, so the nerve is the observer).
+- `GET http://127.0.0.1:8670/state`: HTTP 200, 13139 B, 15 components (cloudflared, console, gaia, galion-desk,
+  galion-health, galion-nerve, galion-one, galion-one-mouth, hermes-rs, link-watch-rs, lxc-host, openmind-memory, tuner,
+  tuner-quick, voice-worker); Gaia function `HADES` has `"components":[]`.
+- `journalctl --since -24h | grep -c 'ledger unavailable'` = 0; `grep -c hades-gate` = 0.
+- So the ledger-failure signal has no live emitter yet: it starts reaching the nerve/cortex `hades` sensor
+  (`sensors/hades.rs` on cortex-s2-d f3468ce, `Class::LedgerFail` on `ledger unavailable`/`ledger corrupt`) only once
+  hades-gate is deployed as a `hades*` unit. Deploying it is an owner decision; nothing was written on the VPS.

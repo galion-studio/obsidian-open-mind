@@ -136,7 +136,12 @@ Every transition is a ledger event, and `Hermes::apply` replays the ledger. Afte
   - `held`: no token yet; Hermes writes the plan with `hermes gate --task K --plan-out F` for Slavik to sign.
   - `approved`: valid token, consumed.
   - `refused{code}`: codes are `action`, `wrong-scope`, `replayed`, `expired`, `not-yet-valid`, `lifetime`, `malformed`, `forged`, `ledger`, `disabled`, `admin-safety` (from hades-gate) and `no-hades` (from hermes-core).
-- Revolut and any real-money access are not implemented and not approved.
+- **Revolut (updated 2026-10-21T04:40+02:00 for the Revolut lift).** Slavik lifted the standing ban on 2026-10-20 ~22:56 CEST (+02:00), typed and relayed by Mate: "Revolut bank is allowed on the current Rust V2 redesign of V1 Hermes Python build." Record: `docs/decisions/revolut-lift.md` on swarm/decision-memos 1a0b851, RULES.md hard rule 5, `config/swarm/swarm-settings.toml` `[revolut]` (swarm/settings-snapshot b7afd6d).
+  - **In scope now:** designing, mocking, reading and wiring Revolut into the Hermes Rust V2 redesign and the admin-phone link; Revolut-shaped fixtures and paper/sandbox benchmarks (bench-banking adda699: money endpoints refused and counted, no live Revolut contact).
+  - **Still forbidden for Hermes and every sub-agent:** placing orders, sending transfers, topping up, withdrawing, buying, selling or any other money move on Slavik's behalf. Live mutating Revolut calls need a separate written approval from Slavik. Live read-only access also waits for his decision on the key location (plans/galion-os.md step 5: "live Revolut reads only under later approval"). Card PANs and banking secrets never go in the repo, the ledger or a brief.
+  - **What hermes-core does today:** hermes-core has no Revolut client and no money action. hades-gate has no money kind, so no signed token can authorise a money move. Live dispatch is off (`OpenRouter` refuses with 402, and the provider is a mock), so no task runs against a real bank. The sub-agent brief (`BRIEF_RULES` in `src/provider.rs`) still says "no Revolut, no real money". That is stricter than the lift, so it is safe, but it should read "Revolut design/mocks allowed; no money moves" once Slavik confirms the wording.
+  - **Known gap (probe 2026-10-21T04:39:16+02:00, release build of 45b7980):** `classify` in `src/action.rs` has no money keywords. `hermes intake --sector gaia --title "Revolut transfer 5 EUR to payee"` is queued as `code` (not gated), and so are "Send a Revolut payment to supplier", "Withdraw cash from Revolut" and "Read Revolut balance from the live API". Nothing can move money today, because there is no provider and no bank tool. But before any live provider or Revolut tool is wired in, money titles must be classified as a refused class. Evidence: `docs/real-tests/hermes-core-docs.md`.
+  - **Slavik decides (new; noted under section 12, not yet a G14 item in `sectors.toml`):** (a) a `money` class that Hermes always refuses, with no HADES kind (recommended: it matches the rule that agents never move money); (b) a `money` class held for a future HADES money-approval kind signed per payment; (c) no change until a live Revolut tool exists. Also: live read-only Revolut access and where its key lives, live payee edits, and the Revolut payment-drafts API (queued from bench-banking).
 
 ## 8. Audit log (`src/ledger.rs`)
 
@@ -210,6 +215,8 @@ The totals are 11/15 for A and 12/15 for B. Every check that fails needs Slavik,
 7. The max-agents rule: SOURCE-OF-TRUTH.md says 3 and the swarm runs 16. Record the new cap.
 
 When a decision is recorded, set `decided = true` for that item in `sectors.toml`. G14 then passes once all seven are true.
+
+Also open since the Revolut lift (section 7, added 2026-10-21T04:40+02:00): the money class for task intake (always refused, HADES-held, or later), live read-only Revolut access with its key location, live payee edits and the Revolut payment-drafts API. These are not yet in `sectors.toml`, so G14 still counts seven. Adding them is part of the same decision.
 
 ## 13. Overlaps with other branches
 

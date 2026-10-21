@@ -125,7 +125,7 @@ remaining `hosts` errors (`sensors/surface.rs` 198.18.0.0, the RFC 2544 benchmar
 range) are already on the base ee75f75 and not from this slot.
 Re-run: fmt ok; clippy `-p openmind-nerve --all-targets -D warnings` ok;
 `openmind-nerve` all tests: lib 115, dst_clock_replay 5, writer 12, cortex replays
-3+3+4, real_* stubs 8 (ungated) = 150 passed, 0 failed; real test row 4 above, 2/2.
+3+3+4, real_* 9 (ungated, gate skips) = 151 passed, 0 failed; real test row 4 above, 2/2.
 Live after the run (08:02 +02:00, read-only `systemctl show`): galion-nerve MainPID
 1466797 NRestarts 0 active, shadow MainPID 4008991 NRestarts 0 active (unchanged);
 live self-eval dir still old offset-less names (98 entries, newest

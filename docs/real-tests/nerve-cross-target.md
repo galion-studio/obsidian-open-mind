@@ -67,7 +67,7 @@ Report JSON of run 3: `/workspace/swarm/logs/nerve-cross-target/report-run3.json
 ## VPS read-only probes
 - 21:02:28 +02:00: `ls -l /opt/galion/rust/bin`, `sha256sum`/`stat`/`file` of both nerve
   binaries, `readlink`+`sha256sum /proc/<MainPID>/exe`, `systemctl show galion-nerve -p NRestarts -p ActiveEnterTimestamp`
-  (17:16:57 UTC = 19:16:57 +02:00), GET :8670/health 200 (cycle 10, score 61, degraded).
+  (19:16:57 +02:00), GET :8670/health 200 (cycle 10, score 61, degraded).
   The aa77864 binary was copied to the box by `ssh cat` (read-only) for the strings diff.
 - 21:08:48 +02:00: GET :8670/health 200 (149 B), /state 200 (37,934 B), PID 772576 NRestarts 0,
   gaia-cortex :8674/health ok dry-run, llm_enabled true. Disclosure: the bodies went to

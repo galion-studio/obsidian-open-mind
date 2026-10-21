@@ -11,8 +11,8 @@ Full transcripts: [vps-run-1608.log](vps-preflight-scripts/vps-run-1608.log),
 ## 1. Preflight READ-ONLY against the live VPS
 
 Command: `GALION_REAL=1 GALION_FLIGHT_VPS=slavik-vps cargo test -p galion-flight --test real_flight real_vps_flight -- --nocapture`
-(the test runs the real `galion-flight` binary 17 times). Runs: 15:59-16:01 and 16:08:03-16:09:55, both pass.
-The first manual pass 15:57:20-15:58:00 (release build) gave the same results.
+(the test runs the real `galion-flight` binary 17 times). Runs: 16:02:00-16:03:52 and 16:08:03-16:09:55, both pass.
+The first manual pass 15:57:20-15:58:00 (release build) gave the same verdicts but showed `timer.quiet` as "not scheduled": systemd 255 ignores `--timestamp=unix` for NextElapseUSecRealtime. Fixed in 56a6596 (parse the UTC form; anything unparsable now FAILs instead of passing).
 
 | Run 16:08 | exit | checks | remote reads | time | fails |
 |---|---|---|---|---|---|

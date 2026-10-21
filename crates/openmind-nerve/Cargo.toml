@@ -34,3 +34,5 @@ gaia-live = { path = "../gaia-live" }
 galion-realtest = { path = "../galion-realtest" }
 galion-deploy = { path = "../galion-deploy" }
 toml = { workspace = true }
+# Fuzz/property targets (T5.2) also drive the ingress YAML parser; path crate, no deps.
+tunnel-lint = { path = "../tunnel-lint" }

@@ -26,6 +26,7 @@
 #![allow(dead_code)]
 
 pub mod nerve;
+pub mod targets;
 
 use std::collections::HashSet;
 use std::panic::{catch_unwind, AssertUnwindSafe};

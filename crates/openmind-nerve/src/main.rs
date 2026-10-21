@@ -16,6 +16,9 @@
 //!       `--verdict` prints the replay-corpus summary (final + held verdict
 //!       after N quiet hold cycles, default 20, and any flapping keys; exit 3
 //!       on a flap)
+//!   openmind-nerve calibrate DIR...
+//!       T3.1: slide over each capture's journal in 10 s steps and print the
+//!       300 s window maxima of the threshold-bearing sensors (counts only, JSON)
 //!   openmind-nerve --version
 //!
 //! Env: NERVE_ADDR, NERVE_INTERVAL (30), NERVE_DATA_DIR (/var/lib/galion-nerve),
@@ -40,7 +43,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state|--verdict [--hold N]] | --version]";
+const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state|--verdict [--hold N]] | calibrate DIR... | --version]";
 
 fn opt(args: &[String], k: &str) -> Option<String> {
     args.iter()
@@ -91,6 +94,31 @@ fn main() -> ExitCode {
             e.alerts.to_journal = false;
             e.cycle();
             print_report(&e, &args)
+        }
+        "calibrate" => {
+            // T3.1: measure threshold headroom on saved capture windows.
+            let dirs: Vec<&String> = args[1..].iter().filter(|a| !a.starts_with("--")).collect();
+            if dirs.is_empty() {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            }
+            let mut out = vec![];
+            for d in dirs {
+                let p = PathBuf::from(d);
+                let name = p
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                match openmind_nerve::calibrate::calibrate_dir(&name, &p) {
+                    Ok(r) => out.push(r.to_json()),
+                    Err(err) => {
+                        eprintln!("openmind-nerve calibrate: {err}");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+            ExitCode::SUCCESS
         }
         "replay" => {
             let Some(dir) = args.get(1).filter(|a| !a.starts_with("--")) else {

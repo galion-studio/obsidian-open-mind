@@ -13,6 +13,13 @@ use crate::cortex::{dur, stuck_loading, Finding, FindingKind, Input};
 use crate::incident::Sev;
 use crate::util::kib;
 
+/// A service above this resident size (KiB) gets the info `memory-heavy` finding.
+/// Was 512 MiB; T3.1 (docs/cortex/calibration.md) tightened it to 256 MiB from
+/// 20 real VPS snapshots: the console holds 600 MiB-1.27 GiB, every other
+/// service at most 29.8 MiB (cloudflared), so 256 MiB is 8.6x the second
+/// largest and still flags only the console. Tighten only (`calibrate::CALIBRATED`).
+pub const MEMORY_HEAVY_KIB: u64 = 256 * 1024;
+
 /// Built-in sensor `components`.
 pub struct ComponentBleeding;
 
@@ -92,7 +99,7 @@ impl Sensor for ComponentBleeding {
                 }
             }
             if let Some(m) = s.mem_kb {
-                if m > 512 * 1024 && c.spec.kind == Kind::Service {
+                if m > MEMORY_HEAVY_KIB && c.spec.kind == Kind::Service {
                     push(
                         "memory-heavy",
                         Sev::Info,
@@ -151,6 +158,48 @@ mod tests {
         assert_eq!(cx.bleeding[1].sev, Sev::Info);
         assert_eq!(cx.bleeding[0].cause.as_deref(), Some(desk_group(&cs)));
         assert!(cx.signals.is_empty());
+    }
+
+    #[test]
+    fn memory_heavy_line_is_the_calibrated_one() {
+        // T3.1: above 256 MiB is memory-heavy (was 512 MiB); 256 MiB itself is not.
+        let th = Thresholds::default();
+        let now = 1_792_520_000;
+        for (kb, fires) in [
+            (MEMORY_HEAVY_KIB, false),
+            (MEMORY_HEAVY_KIB + 1, true),
+            (300 * 1024, true),
+            (30 * 1024, false),
+        ] {
+            let mut cs: Vec<CompState> = default_specs(None, None)
+                .into_iter()
+                .map(CompState::new)
+                .collect();
+            let desk = cs
+                .iter_mut()
+                .find(|c| c.spec.name == "galion-desk")
+                .unwrap();
+            desk.push(
+                Sample {
+                    t: now,
+                    present: true,
+                    mem_kb: Some(kb),
+                    http_code: Some(200),
+                    extra: json!({}),
+                    ..Default::default()
+                },
+                &th,
+            );
+            let logs = crate::logscan::LogInsights::default();
+            let mut s = Sensors::empty();
+            s.add(ComponentBleeding);
+            let cx = s.run(&Input::new(now, &cs, &logs));
+            let got = cx
+                .bleeding
+                .iter()
+                .any(|f| f.id == "memory-heavy-galion-desk");
+            assert_eq!(got, fires, "{kb} KiB");
+        }
     }
 
     fn desk_group(cs: &[CompState]) -> &'static str {

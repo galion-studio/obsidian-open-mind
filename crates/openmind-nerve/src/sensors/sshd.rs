@@ -10,7 +10,7 @@
 //! |---|---|---|
 //! | vulnerability | `sshd-accepted-password` | crit `accepted_password >= 1` |
 //! | vulnerability | `sshd-accepted-publickey-other` | high `>= 5`, warn `>= 1` |
-//! | vulnerability | `sshd-invalid-user` | warn `invalid_user >= 30` |
+//! | vulnerability | `sshd-invalid-user` | warn `invalid_user >= 20` (B41: 30; tightened by T3.1, [`INVALID_USER_WARN`]) |
 //! | vulnerability | `sshd-max-auth-attempts` | warn `max_auth_attempts >= 1` |
 //! | ddos | `sshd-credential-flood` (+ `ssh-flood` signal) | section 4.2 table |
 //! | bleeding | `sshd-auth-log-growth` | high `bytes_added >= 1 MiB`, warn `>= 256 KiB` |
@@ -55,6 +55,14 @@ pub const WINDOW_S: u64 = 300;
 /// every crit line.
 const MAX_EVENTS: usize = 50_000;
 const SOURCE: &str = "auth.log";
+
+/// Warn line for `invalid_user` in one 300 s window. B41 section 4.1 set 30
+/// from hourly totals; T3.1 (docs/cortex/calibration.md) tightened it to 20
+/// from 788 real 300 s windows of 5 VPS captures (highest window 8,
+/// replay179, 2026-10-21 09:16 +02:00), so 2.5x the worst quiet window and
+/// still under a B41 attack hour (about 83 per 300 s). Tighten only: never
+/// raise this above the B41 value in code (`calibrate::CALIBRATED`).
+pub const INVALID_USER_WARN: u64 = 20;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ev {
@@ -232,6 +240,12 @@ impl SshAuth {
         units.iter().any(|u| u == unit) || (unit.starts_with("sshd@") && unit.ends_with(".service"))
     }
 
+    /// Feed one cycle (or calibration step) and return the 300 s window
+    /// counts without emitting findings (T3.1 calibration, `crate::calibrate`).
+    pub fn observe(&mut self, i: &Input<'_>) -> Counts {
+        self.window(i)
+    }
+
     /// Add this cycle's lines, expire the window, count.
     fn window(&mut self, i: &Input<'_>) -> Counts {
         let units = std::mem::take(&mut self.units);
@@ -335,7 +349,7 @@ impl Sensor for SshAuth {
                 "confirm the logins were expected (names are not stored; read the journal on the host)",
             ));
         }
-        if c.invalid_user >= 30 {
+        if c.invalid_user >= INVALID_USER_WARN {
             out.finding(vuln(
                 "sshd-invalid-user",
                 Sev::Warn,
@@ -417,6 +431,31 @@ mod tests {
                 "Failed password for invalid user admin from 198.51.100.{ip} port 4{ip:04} ssh2"
             ),
         )
+    }
+
+    #[test]
+    fn invalid_user_line_is_the_calibrated_one() {
+        // T3.1: 19 invalid users in 300 s stay quiet, 20 warn (B41 had 30).
+        let now = 1_792_520_000;
+        for (n, fires) in [(19u64, false), (INVALID_USER_WARN, true), (29, true)] {
+            let mut s = Sensors::empty();
+            s.add(sensor());
+            let lines: Vec<JLine> = (0..n)
+                .map(|k| {
+                    jl(
+                        now - 5,
+                        "ssh.service",
+                        &format!("Invalid user u{k} from 192.0.2.9 port {k}"),
+                    )
+                })
+                .collect();
+            let cx = run(&mut s, now, &lines);
+            let got = cx
+                .vulnerabilities
+                .iter()
+                .any(|f| f.id == "sshd-invalid-user" && f.sev == Sev::Warn);
+            assert_eq!(got, fires, "{n} invalid users");
+        }
     }
 
     fn sensor() -> SshAuth {

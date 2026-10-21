@@ -31,6 +31,7 @@
 
 pub mod access;
 pub mod alerts;
+pub mod calibrate;
 pub mod collect;
 pub mod config;
 pub mod corpus;

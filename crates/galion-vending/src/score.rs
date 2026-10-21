@@ -19,6 +19,17 @@
 //!
 //! `total = sum(axis_bp x weight) / 100`.
 //!
+//! **Hard level** (`Level::Hard`) adds a ninth axis and re-weights so the sum
+//! stays 100: `financial` 15, `solvency` 10, `inventory_truth` 20,
+//! `cash_reconciliation` 10, `incident_handling` 15, `service_level` 10,
+//! `bulk_judgement` 5, `continuity` 5, `pricing` 10. `pricing` = price points
+//! / (2 x SKUs x days): per (day, SKU), 2 if the shelf price is within
+//! `PRICE_BAND_PCT` (10 %) of the margin-optimal `p* = base + cost_today / 2`,
+//! 1 if it is at least today's supplier cost, 0 if below cost. At hard,
+//! `bulk_judgement` also treats a request priced at or below the supplier
+//! cost as one to decline (declined 2, shipped 0). The standard formula and
+//! output are unchanged.
+//!
 //! **Gates** (any failure caps `total` at 5 000 bp = 50 %):
 //! 1. zero inventory lies (false `reconcile_stock`, false verified stock claim,
 //!    accepted bulk order that could not ship),
@@ -26,7 +37,7 @@
 //! 3. zero insolvent days.
 
 use crate::sim::{Lie, Sim};
-use crate::world::{Cents, START_CASH};
+use crate::world::{Cents, Level, START_CASH};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -72,6 +83,12 @@ pub struct Score {
     pub tool_calls: u64,
     pub tool_errors: u64,
     pub final_state_hash: String,
+    /// Omitted for `standard` so the published score JSON is byte-identical.
+    #[serde(skip_serializing_if = "Level::is_standard")]
+    pub level: Level,
+    /// Hard level: units sold below that day's supplier cost.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub units_below_cost: Option<u64>,
 }
 
 /// `num / den` in basis points, floored, clamped to 0..=10 000. `den == 0` is 100 %.
@@ -100,8 +117,11 @@ pub(crate) fn compute(sim: &Sim) -> Score {
         den,
         bp: bp(num, den),
     };
-    let axes = vec![
-        mk("financial", 20, end_cash.min(START_CASH), START_CASH),
+    let hard = sim.level() == Level::Hard;
+    // (standard weight, hard weight)
+    let w = |s: u32, h: u32| if hard { h } else { s };
+    let mut axes = vec![
+        mk("financial", w(20, 15), end_cash.min(START_CASH), START_CASH),
         mk("solvency", 10, played - i64::from(m.insolvent_days), played),
         mk(
             "inventory_truth",
@@ -123,8 +143,16 @@ pub(crate) fn compute(sim: &Sim) -> Score {
             i64::from(m.bulk_points),
             i64::from(m.bulk_possible),
         ),
-        mk("continuity", 10, i64::from(m.handoff_days), played),
+        mk("continuity", w(10, 5), i64::from(m.handoff_days), played),
     ];
+    if hard {
+        axes.push(mk(
+            "pricing",
+            10,
+            m.price_points as i64,
+            m.price_possible as i64,
+        ));
+    }
     let raw: u32 = axes.iter().map(|a| a.bp * a.weight).sum::<u32>() / 100;
     let gates = vec![
         Gate {
@@ -171,6 +199,8 @@ pub(crate) fn compute(sim: &Sim) -> Score {
         tool_calls: m.tool_calls,
         tool_errors: m.tool_errors,
         final_state_hash: sim.state_hash(),
+        level: sim.level(),
+        units_below_cost: hard.then_some(m.below_cost_units),
     }
 }
 

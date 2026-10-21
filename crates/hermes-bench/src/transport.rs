@@ -84,6 +84,17 @@ impl VendingInProcess {
             galion_vending::http::Server::new(seed, days, log)?,
         )))
     }
+
+    pub fn with_level(
+        seed: u64,
+        days: u32,
+        level: galion_vending::world::Level,
+        log: Option<std::path::PathBuf>,
+    ) -> std::io::Result<Self> {
+        Ok(VendingInProcess(Mutex::new(
+            galion_vending::http::Server::with_level(seed, days, level, log)?,
+        )))
+    }
 }
 
 impl Transport for VendingInProcess {

@@ -5,6 +5,7 @@
 //!
 //! Line kinds:
 //! - `{"t":"header","crate":"galion-vending","format":1,"seed":..,"days":..}`
+//!   (standard level; unchanged), or format 2 with `"level":"hard"`
 //! - `{"t":"call","day":..,"call":{tool,args},"ok":bool,"result"|"error":..}`
 //! - `{"t":"day_end","day":..,"state_hash":".."}` (fsync'd)
 //!
@@ -16,12 +17,16 @@
 
 use crate::sim::Sim;
 use crate::tools::{ToolCall, ToolError, ToolOk};
+use crate::world::Level;
 use serde_json::{json, Value};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
+/// Header format for standard runs (unchanged since the first release).
 pub const FORMAT: u64 = 1;
+/// Header format for runs at a non-standard level (carries `level`).
+pub const FORMAT_LEVEL: u64 = 2;
 
 pub struct Journal {
     file: File,
@@ -30,13 +35,17 @@ pub struct Journal {
 
 impl Journal {
     /// Create (truncate) a journal and write the header.
-    pub fn create(path: &Path, seed: u64, days: u32) -> std::io::Result<Self> {
+    pub fn create(path: &Path, seed: u64, days: u32, level: Level) -> std::io::Result<Self> {
         let file = File::create(path)?;
         let mut j = Journal {
             file,
             path: path.to_path_buf(),
         };
-        j.line(&json!({"t": "header", "crate": "galion-vending", "format": FORMAT, "seed": seed, "days": days}));
+        if level.is_standard() {
+            j.line(&json!({"t": "header", "crate": "galion-vending", "format": FORMAT, "seed": seed, "days": days}));
+        } else {
+            j.line(&json!({"t": "header", "crate": "galion-vending", "format": FORMAT_LEVEL, "seed": seed, "days": days, "level": level}));
+        }
         j.file.sync_data()?;
         Ok(j)
     }
@@ -74,10 +83,15 @@ impl Journal {
     }
 }
 
-/// New simulation that journals to `path`.
+/// New standard simulation that journals to `path`.
 pub fn create(path: &Path, seed: u64, days: u32) -> std::io::Result<Sim> {
-    let mut sim = Sim::new(seed, days);
-    sim.attach(Journal::create(path, seed, days)?);
+    create_level(path, seed, days, Level::Standard)
+}
+
+/// New simulation at `level` that journals to `path`.
+pub fn create_level(path: &Path, seed: u64, days: u32, level: Level) -> std::io::Result<Sim> {
+    let mut sim = Sim::with_level(seed, days, level);
+    sim.attach(Journal::create(path, seed, days, level)?);
     Ok(sim)
 }
 
@@ -129,16 +143,26 @@ pub fn replay(path: &Path) -> Result<(Sim, Vec<String>), ResumeError> {
         .ok_or_else(|| ResumeError::Format("empty".into()))??;
     let header: Value =
         serde_json::from_str(&header_line).map_err(|e| ResumeError::Format(e.to_string()))?;
-    if header["t"] != "header" || header["format"] != FORMAT {
+    if header["t"] != "header" {
         return Err(ResumeError::Format("missing or unknown header".into()));
     }
+    let level = if header["format"] == FORMAT {
+        Level::Standard
+    } else if header["format"] == FORMAT_LEVEL {
+        header["level"]
+            .as_str()
+            .and_then(Level::parse)
+            .ok_or_else(|| ResumeError::Format("missing or unknown level".into()))?
+    } else {
+        return Err(ResumeError::Format("missing or unknown header".into()));
+    };
     let seed = header["seed"]
         .as_u64()
         .ok_or_else(|| ResumeError::Format("seed".into()))?;
     let days = header["days"]
         .as_u64()
         .ok_or_else(|| ResumeError::Format("days".into()))? as u32;
-    let mut sim = Sim::new(seed, days);
+    let mut sim = Sim::with_level(seed, days, level);
     let mut kept = vec![header_line];
     let mut day_buf: Vec<String> = Vec::new();
     let mut calls: Vec<ToolCall> = Vec::new();

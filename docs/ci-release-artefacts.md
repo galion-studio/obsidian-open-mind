@@ -30,6 +30,7 @@ galion-release package --target T --tag vX.Y.Z --out DIR --bin-dir D [--bin-dir 
 galion-release sums DIR
 galion-release verify DIR
 galion-release rehearse DIR --work DIR [--expect-version X.Y.Z] [--qemu-dir DIR]
+                        [--expect-commit SHA] [--expect-built TIME] [--help-timeout SECS] [--tsv FILE]
 ```
 
 Release gate per binary (same rules as `ucpu-gate.sh static size`, read in
@@ -49,6 +50,16 @@ offender and exits 1; nothing is written.
   version = the tag without `v` and pre-release suffix. So a tag that does not
   match the workspace version (e.g. `v0.1.1` while Cargo says 0.1.0) fails
   the release before anything is signed.
+* `rehearse` extra checks (S5-T3, slot 228, `src/rehearsal.rs`):
+  * binding: a `--version` line with `(commit X, built Y)` must carry
+    `--expect-commit` / `--expect-built` (release.yml passes
+    `$GALION_BUILD_COMMIT` / `$GALION_BUILD_TIME`); all stamps in one release
+    must agree; every target must ship the same binaries with the same
+    `--version` line (parity).
+  * non-binding, printed: `--help` run per binary (`ok` / `nonzero` /
+    `silent` / `TIMEOUT` = ignored the flag and kept running), binaries above
+    90 % of the size budget, count of binaries without provenance stamp.
+  * `--tsv FILE` writes the full table (12 columns).
 * Default exclude (test helpers, not product): `gaia-dummy`,
   `galion-bench-mock`, `hermes-mock-model` (D-216-2).
 

@@ -69,9 +69,12 @@ enroll status       -- GET /openmind/node/whoami   (Bearer omn1_...) --> 200 / 4
 | `HERMES_RS_ENROLL_STORE` | `$HERMES_HOME/rs-enroll.json` | mode 600, atomic writes |
 | `HERMES_RS_ENROLL_MAX_PENDING` | 8 | design §3 `max_pending` |
 | `HERMES_RS_ENROLL_NONCE_TTL` | 900 | design §3; must be >= 840 (600 s payload life + 2 x 120 s skew) |
-| `HERMES_RS_ENROLL_PENDING_TTL` | 3600 | how long an unapproved request waits for the owner |
+| `HERMES_RS_ENROLL_PENDING_TTL` | 900 (was 3600; swarm/omnode-enroll) | how long an unapproved request waits for the owner; then it is recorded as expired |
 | `HERMES_RS_ENROLL_CRED_TTL` | 2592000 | credential lifetime (30 days) |
 | `HERMES_RS_ENROLL_RATE_PER_MIN` | 20 | public POSTs (enroll + claim) per minute, all sources together |
+| `HERMES_RS_ENROLL_TUNNELS` | 8 (max 32) | open device tunnels (swarm/omnode-enroll, docs/omnode-enroll.md) |
+| `HERMES_RS_ENROLL_TUNNEL_PING` | 15 (max 300) | seconds between signed ping challenges on a tunnel |
+| `HERMES_RS_ENROLL_TUNNEL_LIFE` | 3600 (min 10) | tunnel session length; the device reconnects |
 
 ## Fail closed
 

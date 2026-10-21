@@ -1,0 +1,158 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# GALION_REAL=1 cargo test -p hermes-gateway --test real_omnode_enroll -- --nocapture (box, 2026-10-21 17:35:05-17:37:15 +02:00); cargo build noise removed
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.72s
+
+running 1 test
+== 0. build 2026-10-21T17:35:36+02:00
+test real_omnode_enroll has been running for over 60 seconds
+  phone binary: /workspace/swarm/target/omnode-enroll/tmp/omnode-target/aarch64-unknown-linux-musl/release/omnode (1342856 bytes) /workspace/swarm/target/omnode-enroll/tmp/omnode-target/aarch64-unknown-linux-musl/release/omnode: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, stripped
+  PASS aarch64 phone binary is a static AArch64 ELF: true
+== 1. laptop omnode (x86_64): pair, owner approves by code, tunnel 2026-10-21T17:37:06+02:00
+  PASS laptop shows its CODE: true
+  PASS code is XXXX-XXXX: true
+  PASS QR is printed in the terminal: true
+  PASS new device key, mode 600: true
+  owner> hermes-gateway enroll pending
+    CODE YKKH-B76X  omn-9ee06073ed94  SHA256:9ee0-6073-ed94-56e7-ce6b-25d4-ce10-bb94  linux 8 cores 16002 MB  caps cpu,sandbox,voice-client  waiting 0 s  (times out 2026-10-21T17:52:06+02:00)
+    compare CODE and fingerprint with the device screen, then: hermes-gateway enroll approve CODE (or reject CODE)
+  PASS owner pending exit: 0
+  PASS owner sees the same code and device: true
+  PASS approve with a wrong code: 1
+  PASS owner approve CODE (typed lower case): 0
+  PASS approve answer says approved: true
+  PASS laptop: tunnel UP: true
+  PASS credential file mode: 600
+  PASS token never printed by omnode: true
+  PASS laptop omnode listening sockets: 0
+  PASS laptop omnode outbound connections to hermes: 1
+  PASS owner devices: tunnel connected: true
+  PASS owner devices: tunnel verified (device key): true
+  PASS owner devices: no token or hash listed: true
+  owner> hermes-gateway enroll ping omn-9ee06073ed94
+    { "ok": true, "device_id": "omn-9ee06073ed94", "session": "cee65da065486733", "id": "paa9f2598", "rtt_ms": 60 }
+  PASS owner ping over the tunnel exit: 0
+  PASS ping has a round-trip time: true
+  PASS laptop answered the challenge: true
+  PASS pings flow: true
+== 2. refusal, timeout, signature/expiry/replay 2026-10-21T17:37:08+02:00
+  PASS refused: CODE shown: true
+  PASS owner reject CODE: 0
+  PASS refused device exit code: Some(4)
+  PASS refused device is told: true
+  PASS timeout: CODE shown: true
+  PASS unapproved device exit code (3 s window): Some(5)
+  PASS timed-out device is told: true
+  PASS owner can not approve after the timeout: true
+  PASS owner list shows it as expired: true
+  PASS dry-run document: true
+  PASS tampered payload: 400 true
+  PASS fresh payload: 202
+  PASS same payload replayed: 409 nonce already used
+  PASS expired payload: 400 true
+  PASS tunnel without a credential: 401
+  PASS owner route without the key: 401
+== 3. phone build (aarch64 musl, qemu-aarch64, curl transport) 2026-10-21T17:37:12+02:00
+  PASS phone: CODE shown: true
+  PASS owner approves the phone: 0
+  PASS phone: tunnel UP: true
+  PASS phone credential mode: 600
+  PASS owner ping to the phone: 0
+    phone ping: { "ok": true, "device_id": "omn-a34e70006476", "session": "c3ba45c0b25de798", "id": "p3c8b99f7", "rtt_ms": 67 }
+  PASS phone (qemu) listening sockets: 0
+  phone transcript:
+    | new device key created in /tmp/omnode-enroll-real-7a18a4e3/phone/state (mode 600, never leaves this device)
+    | omnode pair: asking Hermes at http://127.0.0.1:22000/openmind/enroll to enroll this device
+    | warning: enroll URL is plain http; use https for real enrollment
+    | 
+    | (QR: signed short form, 246 chars: device id, public key, nonce)
+    | 
+    |   CODE         GH4Q-KT5Y
+    |   device       omn-a34e70006476
+    |   fingerprint  SHA256:a34e-7000-6476-edb3-fb09-ac0f-7b9c-70d1
+    |   approve by   2026-10-21T17:52:12+02:00
+    | 
+    | The owner approves on the Hermes host with:  hermes-gateway enroll approve GH4Q-KT5Y
+    | (or refuses with: hermes-gateway enroll reject GH4Q-KT5Y). Waiting for the owner...
+    |   2026-10-21T17:37:12+02:00 status: approved (HTTP 200)
+    | approved: scopes ["cpu","sandbox","voice-client"] until 2026-11-20T16:37:12+01:00; credential stored in /tmp/omnode-enroll-real-7a18a4e3/phone/state/hermes-credential.json (mode 600, never printed)
+    | 2026-10-21T17:37:12+02:00 tunnel: connected to http://127.0.0.1:22000/openmind/node/tunnel (session c3ba45c0b25de798, ping every 1 s); proving the device key
+    | 2026-10-21T17:37:13+02:00 tunnel: UP: Hermes verified the device key (session c3ba45c0b25de798); outbound only, nothing listens on this device
+    | 2026-10-21T17:37:13+02:00 tunnel: answered challenge p3c8b99f7 from Hermes (signed)
+== 4. restart keeps the device; tunnel reconnects; revoke closes it 2026-10-21T17:37:13+02:00
+  PASS laptop notices the restart: true
+  PASS laptop tunnel back UP after restart (backoff reconnect): true
+  PASS device still active after restart: true
+  PASS owner revoke: 0
+  PASS laptop exit after revoke: Some(6)
+  PASS laptop is told it was revoked: true
+  PASS `omnode tunnel` after revoke exit: Some(2)
+  laptop transcript:
+    | new device key created in /tmp/omnode-enroll-real-7a18a4e3/laptop/state (mode 600, never leaves this device)
+    | omnode pair: asking Hermes at http://127.0.0.1:22000/openmind/enroll to enroll this device
+    | warning: enroll URL is plain http; use https for real enrollment
+    | 
+    | (QR: signed short form, 246 chars: device id, public key, nonce)
+    | 
+    |   CODE         YKKH-B76X
+    |   device       omn-9ee06073ed94
+    |   fingerprint  SHA256:9ee0-6073-ed94-56e7-ce6b-25d4-ce10-bb94
+    |   approve by   2026-10-21T17:52:06+02:00
+    | 
+    | The owner approves on the Hermes host with:  hermes-gateway enroll approve YKKH-B76X
+    | (or refuses with: hermes-gateway enroll reject YKKH-B76X). Waiting for the owner...
+    |   2026-10-21T17:37:06+02:00 status: approved (HTTP 200)
+    | approved: scopes ["cpu","sandbox","voice-client"] until 2026-11-20T16:37:06+01:00; credential stored in /tmp/omnode-enroll-real-7a18a4e3/laptop/state/hermes-credential.json (mode 600, never printed)
+    | 2026-10-21T17:37:06+02:00 tunnel: connected to http://127.0.0.1:22000/openmind/node/tunnel (session cee65da065486733, ping every 1 s); proving the device key
+    | 2026-10-21T17:37:06+02:00 tunnel: UP: Hermes verified the device key (session cee65da065486733); outbound only, nothing listens on this device
+    | 2026-10-21T17:37:07+02:00 tunnel: answered challenge paa9f2598 from Hermes (signed)
+    | 2026-10-21T17:37:07+02:00 tunnel: ping 1 at 2026-10-21T17:37:07+02:00
+    | 2026-10-21T17:37:08+02:00 tunnel: ping 2 at 2026-10-21T17:37:08+02:00
+    | 2026-10-21T17:37:09+02:00 tunnel: ping 3 at 2026-10-21T17:37:09+02:00
+    | 2026-10-21T17:37:10+02:00 tunnel: ping 4 at 2026-10-21T17:37:10+02:00
+    | 2026-10-21T17:37:11+02:00 tunnel: ping 5 at 2026-10-21T17:37:11+02:00
+    | 2026-10-21T17:37:12+02:00 tunnel: ping 6 at 2026-10-21T17:37:12+02:00
+    | 2026-10-21T17:37:13+02:00 tunnel: connection lost: stream ended; retry in 1 s
+    | 2026-10-21T17:37:14+02:00 tunnel: connected to http://127.0.0.1:22000/openmind/node/tunnel (session 319aa2fc8d6a8545, ping every 1 s); proving the device key
+    | 2026-10-21T17:37:14+02:00 tunnel: UP: Hermes verified the device key (session 319aa2fc8d6a8545); outbound only, nothing listens on this device
+    | 2026-10-21T17:37:14+02:00 tunnel: Hermes refused this device: credential revoked or expired
+    | omnode: tunnel refused: credential revoked or expired; pair again
+== 5. teardown 2026-10-21T17:37:14+02:00
+  PASS port 22000 free after teardown: true
+  PASS port 22001 free after teardown: true
+  PASS hermes 22000 log has no token: true
+  hermes 22000 log (enroll lines):
+    2026-10-21T17:37:06+02:00 hermes-gateway enroll on: http://127.0.0.1:22000/openmind/enroll store /tmp/omnode-enroll-real-7a18a4e3/hermes-22000/rs-enroll.json
+    2026-10-21T17:37:06+02:00 hermes-gateway enroll: pending omn-9ee06073ed94 SHA256:9ee0-6073-ed94-56e7-ce6b-25d4-ce10-bb94 code YKKH-B76X caps=["cpu", "sandbox", "voice-client"] (owner: approve or reject)
+    2026-10-21T17:37:06+02:00 hermes-gateway enroll: approved omn-9ee06073ed94 by owner scopes=["cpu", "sandbox", "voice-client"] denied=[]
+    2026-10-21T17:37:06+02:00 hermes-gateway enroll: credential issued to omn-9ee06073ed94 (any earlier one replaced)
+    2026-10-21T17:37:06+02:00 hermes-gateway enroll: tunnel open: omn-9ee06073ed94 session cee65da065486733
+    2026-10-21T17:37:06+02:00 hermes-gateway enroll: tunnel verified: omn-9ee06073ed94 session cee65da065486733 (device key)
+    2026-10-21T17:37:07+02:00 hermes-gateway enroll: ping omn-9ee06073ed94 cee65da065486733 paa9f2598: signed answer in 60 ms
+    2026-10-21T17:37:08+02:00 hermes-gateway enroll: pending omn-35d6c964e3d3 SHA256:35d6-c964-e3d3-c964-57ca-49ba-5a51-97e3 code W7EJ-HCSD caps=["cpu", "sandbox", "voice-client"] (owner: approve or reject)
+    2026-10-21T17:37:08+02:00 hermes-gateway enroll: request from omn-35d6c964e3d3 is now rejected (2026-10-21T17:37:08+02:00)
+    2026-10-21T17:37:12+02:00 hermes-gateway enroll: refused payload: signature does not verify
+    2026-10-21T17:37:12+02:00 hermes-gateway enroll: pending omn-1e17275d4bde SHA256:1e17-275d-4bde-bf50-2fd8-2d31-b3d5-334e code X3SC-KJV5 caps=["cpu", "sandbox", "voice-client"] (owner: approve or reject)
+    2026-10-21T17:37:12+02:00 hermes-gateway enroll: replayed nonce from omn-1e17275d4bde
+    2026-10-21T17:37:12+02:00 hermes-gateway enroll: refused payload: payload expired at 2026-10-21T17:30:32+02:00
+    2026-10-21T17:37:12+02:00 hermes-gateway enroll: pending omn-a34e70006476 SHA256:a34e-7000-6476-edb3-fb09-ac0f-7b9c-70d1 code GH4Q-KT5Y caps=["cpu", "sandbox", "voice-client"] (owner: approve or reject)
+    2026-10-21T17:37:12+02:00 hermes-gateway enroll: approved omn-a34e70006476 by owner scopes=["cpu", "sandbox", "voice-client"] denied=[]
+    2026-10-21T17:37:12+02:00 hermes-gateway enroll: credential issued to omn-a34e70006476 (any earlier one replaced)
+    2026-10-21T17:37:12+02:00 hermes-gateway enroll: tunnel open: omn-a34e70006476 session c3ba45c0b25de798
+    2026-10-21T17:37:12+02:00 hermes-gateway enroll: tunnel verified: omn-a34e70006476 session c3ba45c0b25de798 (device key)
+    2026-10-21T17:37:13+02:00 hermes-gateway enroll: ping omn-a34e70006476 c3ba45c0b25de798 p3c8b99f7: signed answer in 67 ms
+    2026-10-21T17:37:13+02:00 hermes-gateway enroll on: http://127.0.0.1:22000/openmind/enroll store /tmp/omnode-enroll-real-7a18a4e3/hermes-22000/rs-enroll.json
+    2026-10-21T17:37:14+02:00 hermes-gateway enroll: tunnel open: omn-9ee06073ed94 session 319aa2fc8d6a8545
+    2026-10-21T17:37:14+02:00 hermes-gateway enroll: tunnel verified: omn-9ee06073ed94 session 319aa2fc8d6a8545 (device key)
+    2026-10-21T17:37:14+02:00 hermes-gateway enroll: revoked omn-9ee06073ed94 by owner
+    2026-10-21T17:37:14+02:00 hermes-gateway enroll: tunnel closed: omn-9ee06073ed94 session 319aa2fc8d6a8545 after 0 s: credential revoked or expired
+  PASS hermes 22001 log has no token: true
+  hermes 22001 log (enroll lines):
+    2026-10-21T17:37:06+02:00 hermes-gateway enroll on: http://127.0.0.1:22001/openmind/enroll store /tmp/omnode-enroll-real-7a18a4e3/hermes-22001/rs-enroll.json
+    2026-10-21T17:37:09+02:00 hermes-gateway enroll: pending omn-3ba42528f6e6 SHA256:3ba4-2528-f6e6-f2eb-cc18-9f66-af9b-e332 code JCJJ-4TFA caps=["cpu", "sandbox", "voice-client"] (owner: approve or reject)
+    2026-10-21T17:37:12+02:00 hermes-gateway enroll: request from omn-3ba42528f6e6 is now expired (2026-10-21T17:37:12+02:00)
+== RESULT 55 passed, 0 failed 2026-10-21T17:37:15+02:00
+test real_omnode_enroll ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 98.43s
+

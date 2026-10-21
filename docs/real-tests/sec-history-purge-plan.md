@@ -53,3 +53,26 @@ this branch. Outputs are counts, paths and object ids only.
 
 Scratch dir and the target dir `/workspace/swarm/target/sec-history-purge-plan`
 removed after the run.
+
+## Re-verification by the resume agent (2026-10-21 05:07 to 05:10 CEST +02:00)
+
+The first slot-126 agent was stopped by the request limit after committing
+e07f877 (unpushed). The resume agent re-ran every check from scratch in
+`/workspace/swarm/scratch/purge-verify-126` (deleted afterwards):
+
+| Check | Result |
+|---|---|
+| tool tests (sec-runbooks c5fc269) | 15 + 2 + 3 passed, 0 failed, 1 ignored |
+| tool real test (`GALION_REAL=1`, release) | 1 passed, 15.1 s |
+| fresh union mirror | 146 refs (141 heads incl. 114 worktree swarm/* heads, 5 bundle-only), 477 commits, 64 merges; grew by 7 commits since 04:46 from new wave-4 branches |
+| path scan | 96 paths, 93 blob ids (contrib 45, dist 11, edge 6, stack 34); path list **identical** to `docs/security/history-purge-affected-paths.txt` (diff empty); 0.99 s, 9 MB RSS |
+| tips | 146 of 146 ref tips contain listed paths; main 85 |
+| rehearsal rewrite | REWRITE OK, 2.56 s, 25 MB RSS; 90 old blobs gone, 3 shared (same 3 ids as before); commit map 477 lines |
+| verify / cross-check / fsck | VERIFY OK exit 0; plain-git cross-check 0 lines; `git fsck --full` clean |
+| structure | refs/commits/merges 146/477/64 before and after; size 20 MB -> 8.1 MB; source mirror `for-each-ref` sha256 unchanged |
+| gitleaks 8.30.1 (`--redact=100`) | before: 3 findings, same fixture lines 3/4/7 (f3468ce); after: the same 3 on the rewritten commit (0e9c9fc); no new finding |
+| VPS read-only (05:09 CEST) | nerve `/state` 200 13,138 B (cortex still not live); 8642/8650/8091 `/health` 200; `tuner-quick` and `cloudflared` active (SEC-5 open); `/opt/galion/openmind` at 2f5a730 (read only); archive bundle 0600 root 10,190,817 B |
+
+Conclusion: the plan's numbers hold; new branches add commits but no new
+purge-list paths. Step 5 of the plan ("expect about 96 paths / 93 blobs,
+more if branches were added") is confirmed.

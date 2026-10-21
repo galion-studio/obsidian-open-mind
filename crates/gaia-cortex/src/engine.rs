@@ -79,7 +79,7 @@ pub struct Cortex {
 }
 
 pub fn now_secs() -> u64 {
-    std::time::SystemTime::now()
+    std::time::SystemTime::now() // repo-check: allow (unix seconds; every printed time goes through zagreb_time::from_unix)
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)

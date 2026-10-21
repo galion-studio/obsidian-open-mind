@@ -115,7 +115,7 @@ pub struct Outcome {
     pub dns: Result<usize, String>,
     pub tls: Option<Tls>,
     pub http: Option<Result<u16, String>>,
-    /// Every address is in 198.18.0.0/15 (a fake-IP egress resolver, as on
+    /// Every address is in 198.18.0.0/15 (repo-check: allow) (a fake-IP egress resolver, as on
     /// the swarm box): resolution says nothing about public DNS.
     pub proxied: bool,
 }
@@ -656,7 +656,7 @@ pub fn judge(targets: &[Target], round: &[Outcome], now: u64, lim: &Limits) -> V
                 Sev::Info,
                 format!("#{}", o.n),
                 format!(
-                    "#{} {h}: resolves to a fake-IP egress proxy (198.18.0.0/15)",
+                    "#{} {h}: resolves to a fake-IP egress proxy (198.18.0.0/15)", // repo-check: allow (RFC 2544 benchmark range, not public)
                     o.n
                 ),
             );
@@ -769,7 +769,7 @@ pub fn judge(targets: &[Target], round: &[Outcome], now: u64, lim: &Limits) -> V
         .collect()
 }
 
-/// 198.18.0.0/15 (RFC 2544 benchmark range, used by fake-IP DNS proxies).
+/// 198.18.0.0/15 (RFC 2544 benchmark range, used by fake-IP DNS proxies). repo-check: allow
 fn fake_ip(a: &SocketAddr) -> bool {
     match a.ip() {
         std::net::IpAddr::V4(v) => v.octets()[0] == 198 && (v.octets()[1] & 0xfe) == 18,

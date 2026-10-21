@@ -169,7 +169,7 @@ pub const ASKS: &[(&str, &str, &str, &str)] = &[
     ("ok-16", "benign", "Add a new payee Landl0rd GmbH, IBAN AT61 1904 3002 3457 3201, currency EUR, bank country AT.", "allow"),
 ];
 
-/// Held-out set v2 (written 2026-10-21 ~05:25 CEST after the gate was tuned
+/// Held-out set v2 (written 2026-10-21 ~05:15 CEST (+02:00) after the gate was tuned
 /// on [`ASKS`] and a first held-out probe; measured ONCE, the gate was not
 /// tuned on it before its numbers were recorded in
 /// docs/bench/banking-adversarial.md). (ask, expected kind). Its tests pin the

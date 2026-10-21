@@ -491,7 +491,7 @@ fn stray_stop(cx: &mut Ctx<'_>, key: &str, cause: Option<&str>, sev: &str, port:
         format!("precondition: ss -ltnp shows exactly one process listening on :{port}; record its pid, uid, executable path and start time"),
         format!("precondition: systemctl status <that pid> names no unit; if a unit owns it this is not a stray: stop here and add {port} to NERVE_KNOWN_PORTS instead (separate decision)"),
         "precondition: the process is not part of the admin access path and not a HADES process".to_string(),
-        "send SIGTERM to that one pid only, wait up to 10 s; never signal a process group, never SIGKILL without a new plan".to_string(),
+        "send SIGTERM to that one pid only, wait up to 10 s; never signal a process group, no forced stop without a new plan".to_string(),
         "keep its binary, working directory and logs for inspection; nothing is deleted".to_string(),
         format!("verify: ss -ltn no longer lists :{port}; the nerve no longer reports :{port} as unmanaged"),
         "verify: every monitored component stays healthy in the next nerve cycles".to_string(),

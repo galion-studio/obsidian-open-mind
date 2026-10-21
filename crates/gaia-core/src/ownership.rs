@@ -118,6 +118,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("galion-backup", S(System::Survival), "pending Slavik: periodic backup (SQLite snapshots, files tar, SHA256SUMS, rotation), the data part of galion-deploy backup; same system as its galion-backup unit in UNITS; alternatives healer/DEMETER or release-artifacts/HEPHAESTUS"),
     c("galion-bench", S(System::EcosystemCensus), "pending Slavik: shared mock-only benchmark harness and 0-100 scorecards for B1/B2/B3; alternative: a new bench system"),
     c("galion-boot", S(System::BootUnits), "boot/keep replacement and systemd unit renderer"),
+    c("galion-chatterbox", S(System::SpeechIo), "pending Slavik: Chatterbox TTS (T3, S3Gen, HiFT, voice cloning) on candle, CPU only; the mouth behind galion-voice-serve, speech like galion-voice-cpu/openmind-speech; came in with voice-rust via candle-zip-fix"),
     c("galion-common", S(System::ZagrebClock), "pending Slavik: shared std-only helpers (SHA-256, hex, base64, JSON, Zagreb time, small HTTP/1.1 server/client); nearest system is the Zagreb clock it carries; alternative: core"),
     c("galion-deploy", S(System::DeploySwitch), "pending Slavik: backup -> atomic install -> restart -> health -> automatic rollback for one unit (replaces deploy/foundation/galion-deploy); executes, unlike the plan-only switch scripts; alternative rollback/HADES"),
     c("galion-desk", S(System::GalionDesk), "operator desk endpoint (:8646)"),
@@ -339,10 +340,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} has no system", r.name));
             assert_eq!(r.role.function(), Some(s.function()));
         }
-        // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3.
+        // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3,
+        // galion-chatterbox from voice-rust via candle-zip-fix (slot 154).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            51
+            52
         );
     }
 
@@ -376,6 +378,7 @@ mod tests {
                 "gaia-live",
                 "galion-backup",
                 "galion-bench",
+                "galion-chatterbox",
                 "galion-common",
                 "galion-deploy",
                 "galion-guard",

@@ -139,6 +139,44 @@ Nerve `127.0.0.1:8670/state` answered (alerts: cloudflared request-flood
 warn incident, galion-one mouth 503); the cortex is deployed in dry-run;
 nothing in this slot touched either.
 
+## Recheck at HEAD and the RSS rule
+
+HEAD recheck 20:12:08-20:12:56 (`SOAK_KILLS=30`, glibc): flock, compaction
+hammer (30 kills, 450 compactions, 0 lost), kill9 (30 kills, 0 lost) and
+torn tail passed; the glibc soak failed the RSS ratio once (r3 20,156 vs r1
+9,416 KiB, bound 18,220). Same arena effect as above, so the RSS bound is
+now enforced on static builds and only reported on dynamic glibc
+(`SOAK_RSS_STRICT=1` enforces it there too); peak < 512 MiB and the no-loss
+checks are always enforced. After that change (20:13-20:14): glibc soak
+PASS (bound reported "ok", not enforced), static musl soak PASS (enforced:
+full 7,048 -> 7,104 KiB, drained 5,264 -> 5,564 KiB; SIGKILL at 5,030
+acks: 0 lost, 0 resurrected, 8,774 records replayed in 73 ms).
+
+## Owner decisions (not decided here)
+
+- **D-206-1 glibc RSS growth.** Only builds linked against glibc show it
+  (box/dev; the VPS runs the static musl build). Options: (a) leave it,
+  musl only in production; (b) `MALLOC_ARENA_MAX=2` in any glibc unit
+  (measured plateau ~22 MB); (c) a small fixed worker-thread pool instead of
+  one thread per connection (code change, also caps thread churn);
+  (d) `mallopt(M_ARENA_MAX)` via FFI at start-up on glibc only.
+- **D-206-2 per-agent `budget_blocked`** is still process-local (also noted
+  by slot 161). Options: (a) accept as an observability number; (b) carry
+  it in the sidecar (needs a variable-size format, the 512-byte slots do
+  not fit many agents); (c) log it at compaction only.
+- **D-206-3 complete last line with a bad CRC** is cut as a torn tail
+  rather than refused. SIGKILL cannot produce it (0 such lines in 340
+  kills); a disk bit flip on the last record can, and that record would be
+  dropped silently (logged as `truncated_bytes`). Options: (a) keep;
+  (b) refuse to start when the cut part ends with a newline; (c) start but
+  raise a nerve-visible flag.
+- **D-206-4 deploy.** The live VPS build eec2d99 lacks fixes 1-3. Merging
+  this branch and redeploying POSEIDON is the owner's call (main merge and
+  live deploy are out of scope here).
+- **D-206-5 merge order.** This branch merges slot 161's eec2d99 into
+  integration-5 0d68f46; merging both into main is fine in either order
+  (eec2d99 is an ancestor of this branch).
+
 ## Gates
 
 See the slot 206 DONE line in /workspace/swarm/CALL-RECORD.md for fmt,

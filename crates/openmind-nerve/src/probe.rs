@@ -170,7 +170,14 @@ pub fn parse_cloudflared_metrics(text: &str) -> TunnelMetrics {
         let (Some(k), Some(v)) = (it.next(), it.next()) else {
             continue;
         };
-        let val = v.parse::<f64>().ok().map(|f| f as u64);
+        // Counters and gauges are never negative, NaN or infinite; such a
+        // token (or one past u64) is "unknown", not 0 or u64::MAX (T3.1 fuzz
+        // find: `inf` became 18446744073709551615 requests).
+        let val = v
+            .parse::<f64>()
+            .ok()
+            .filter(|f| f.is_finite() && *f >= 0.0 && *f < 18_446_744_073_709_551_616.0)
+            .map(|f| f as u64);
         match k {
             "cloudflared_tunnel_ha_connections" => m.ha_connections = val,
             "cloudflared_tunnel_total_requests" => m.total_requests = val,

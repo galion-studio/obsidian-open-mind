@@ -51,7 +51,15 @@ pub struct Req {
     pub body: String,
 }
 
-/// Read one request (head <= 8 KiB, body <= MAX_BODY).
+/// Largest accepted request head, the blank line (`\r\n\r\n`) included.
+pub const MAX_HEAD: usize = 8192;
+
+/// Read one request (head <= [`MAX_HEAD`] bytes, body <= MAX_BODY).
+///
+/// The head limit is judged on the head itself, not on how much happened
+/// to arrive in one `read`: before T3.1 (slot 212 fuzz find) a head of
+/// 8193..10240 bytes was accepted when it came in large segments and
+/// refused with 431 when it came in small ones.
 pub fn read_req(s: &mut impl Read) -> Result<Req, (u16, &'static str)> {
     let mut buf = Vec::with_capacity(1024);
     let mut chunk = [0u8; 2048];
@@ -60,11 +68,17 @@ pub fn read_req(s: &mut impl Read) -> Result<Req, (u16, &'static str)> {
         if n == 0 {
             return Err((400, "incomplete request"));
         }
+        // Rescan only the new bytes (plus 3 for a terminator split across reads).
+        let from = buf.len().saturating_sub(3);
         buf.extend_from_slice(&chunk[..n]);
-        if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+        if let Some(p) = buf[from..].windows(4).position(|w| w == b"\r\n\r\n") {
+            let p = from + p;
+            if p + 4 > MAX_HEAD {
+                return Err((431, "headers too large"));
+            }
             break p;
         }
-        if buf.len() > 8192 {
+        if buf.len() >= MAX_HEAD {
             return Err((431, "headers too large"));
         }
     };

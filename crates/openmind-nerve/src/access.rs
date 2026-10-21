@@ -77,7 +77,8 @@ pub fn parse_line(line: &str, now: u64) -> Option<Hit> {
                 x.as_u64()
                     .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
             })
-            .unwrap_or(0) as u16;
+            .and_then(|n| u16::try_from(n).ok())
+            .unwrap_or(0);
         return Some(Hit {
             t,
             ip: s(&["ip", "remote_addr", "client_ip", "client", "remote_ip"]).unwrap_or_default(),

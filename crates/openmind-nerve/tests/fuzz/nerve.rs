@@ -704,7 +704,15 @@ fn gen_signal(rng: &mut Rng) -> Result<u64, String> {
     ensure(s.name == clean(&name, 64) && s.msg == clean(&msg, 300), || {
         "name/msg not cleaned as documented".into()
     })?;
-    ensure(s.value == value.as_f64(), || "value changed".into())?;
+    // serde_json without its `float_roundtrip` feature may be 1 ULP off on
+    // big floats (owner decision D-212-3); allow that, nothing more.
+    let close = match (s.value, value.as_f64()) {
+        (Some(a), Some(b)) => a == b || ((a - b).abs() <= b.abs() * 4.0 * f64::EPSILON),
+        (a, b) => a == b,
+    };
+    ensure(close, || {
+        format!("value changed: sent {value} got {:?}", s.value)
+    })?;
     Ok(fnv(kind))
 }
 

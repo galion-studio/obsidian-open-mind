@@ -128,9 +128,72 @@ fn nerve_fuzz_all_summary() {
 
 // ------------------------------------------------- regressions (fuzz finds)
 
+
+/// Find 1 (read_req): a head of 8193..10240 bytes was accepted when it
+/// arrived in one 2 KiB-aligned burst and refused (431) when it came in
+/// small TCP segments. Now the limit is on the head itself, both ways.
 #[test]
-fn regress_placeholder_seed_heads() {
-    // Heads just under the limit are accepted at every segmentation.
-    let ok = nerve::big_head(8192);
-    nerve::check_http_bytes(ok.as_bytes()).unwrap();
+fn regress_read_req_head_limit_is_segmentation_independent() {
+    use openmind_nerve::server::{read_req, MAX_HEAD};
+    for total in [MAX_HEAD - 1, MAX_HEAD, MAX_HEAD + 1, MAX_HEAD + 5, 10_000, 10_240] {
+        let raw = nerve::big_head(total);
+        nerve::check_http_bytes(raw.as_bytes()).unwrap();
+        let r = read_req(&mut raw.as_bytes());
+        if total <= MAX_HEAD {
+            assert_eq!(r.ok().map(|q| q.body), Some("{}".to_string()), "{total}");
+        } else {
+            assert_eq!(r.err().map(|e| e.0), Some(431), "{total}");
+        }
+    }
+}
+
+/// Find 2 (cloudflared metrics): `inf`, `1e20` became u64::MAX and `-1` /
+/// `NaN` became 0 requests; such values are "unknown" (None) now.
+#[test]
+fn regress_cloudflared_metrics_reject_non_finite_and_negative() {
+    use openmind_nerve::probe::parse_cloudflared_metrics as p;
+    for bad in ["+Inf", "inf", "NaN", "-1", "-0.5", "1e20", "18446744073709551616"] {
+        let m = p(&format!(
+            "cloudflared_tunnel_total_requests {bad}\ncloudflared_tunnel_request_errors {bad}\ncloudflared_tunnel_ha_connections {bad}\n"
+        ));
+        assert_eq!(
+            (m.total_requests, m.request_errors, m.ha_connections),
+            (None, None, None),
+            "{bad}"
+        );
+    }
+    let m = p("cloudflared_tunnel_total_requests 1.4565376e+07\ncloudflared_tunnel_ha_connections 4\ncloudflared_tunnel_request_errors 0\n");
+    assert_eq!(
+        (m.total_requests, m.ha_connections, m.request_errors),
+        (Some(14_565_376), Some(4), Some(0))
+    );
+}
+
+/// Find 3 (access JSON lines): `"status":70000` wrapped to 4464 (`as u16`);
+/// a status that does not fit is 0 (unknown) now.
+#[test]
+fn regress_access_status_does_not_wrap() {
+    use openmind_nerve::access::parse_line;
+    let h = parse_line(r#"{"ts":1792514105,"path":"/","status":70000}"#, 0).unwrap();
+    assert_eq!(h.status, 0);
+    let h = parse_line(r#"{"ts":1792514105,"path":"/","status":"65536"}"#, 0).unwrap();
+    assert_eq!(h.status, 0);
+    let h = parse_line(r#"{"ts":1792514105,"path":"/","status":503}"#, 0).unwrap();
+    assert_eq!(h.status, 503);
+}
+
+/// Deep JSON at serde_json's nesting limit on the server's 256 KiB
+/// connection-thread stack: answered, no stack overflow (debug and release).
+#[test]
+fn regress_deep_json_fits_server_stack() {
+    for depth in [1, 64, 126, 127, 128, 129, 200, 4096] {
+        for obj in [false, true] {
+            let (s, e) = nerve::deep_on_server_stack(depth, obj).unwrap();
+            if depth < 120 {
+                assert!(s && e, "depth {depth} obj {obj}");
+            } else if depth > 130 {
+                assert!(!s && !e, "depth {depth} obj {obj} should hit the recursion limit");
+            }
+        }
+    }
 }

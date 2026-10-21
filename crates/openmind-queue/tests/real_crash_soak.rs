@@ -611,9 +611,9 @@ fn kill_loop(name: &str, port: u16, compact_min: u64, hammer: bool) {
     let errlog = dir.join("server.err");
     let addr = format!("127.0.0.1:{port}");
     let cm = compact_min.to_string();
-    let extra = ["--compact-min", cm.as_str(), "--max-depth", "400"];
+    let extra = ["--compact-min", cm.as_str(), "--max-depth", "60"];
     let cfg = Config {
-        max_depth: 400,
+        max_depth: 60,
         ..Config::default()
     };
     eprintln!(

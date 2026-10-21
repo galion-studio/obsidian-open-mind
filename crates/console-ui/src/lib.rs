@@ -27,6 +27,7 @@ pub mod json;
 pub mod layout;
 pub mod overview;
 pub mod pages;
+pub mod port3;
 pub mod rooms;
 
 use client::Forward;
@@ -50,6 +51,11 @@ pub const PORTED: &[&str] = &[
     "/data",
     "/soon",
     "/console",
+    // console-port-3 (wave 4 slot 137): 3rd fifth, alphabetical, of the 17
+    // routes still in TypeScript at 669dc18.
+    "/instances",
+    "/keys",
+    "/markers",
 ];
 
 /// Largest form body accepted (pairing code or a command name).
@@ -297,7 +303,8 @@ impl Ui {
             p if p.starts_with("/_ui/") => return Reply::text(404, "Not Found\n"),
             _ => {}
         }
-        let post_ok = req.path == "/agents" && req.method == "POST";
+        let post_ok = (req.path == "/agents" || port3::POST_ROUTES.contains(&req.path))
+            && req.method == "POST";
         if req.method != "GET" && req.method != "HEAD" && !post_ok {
             let mut r = Reply::text(405, "Method Not Allowed\n");
             r.headers.push(("Allow".into(), "GET, HEAD".into()));
@@ -321,6 +328,7 @@ impl Ui {
             }
             "/domains" | "/repos" | "/docs" | "/cloudflare" | "/pack" | "/chill" | "/jupyter"
             | "/data" => self.read_room(req),
+            "/instances" | "/keys" | "/markers" => self.port3_room(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);

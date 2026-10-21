@@ -8,8 +8,12 @@
 pub mod agents;
 pub mod catalog;
 pub mod gate;
+pub mod instances;
+pub mod keys;
+pub mod markers;
 pub mod not_ported;
 pub mod overview;
+pub mod p3;
 pub mod services;
 pub mod status;
 

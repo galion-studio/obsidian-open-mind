@@ -301,6 +301,40 @@ const LANDING: &str = r#"
 .ov-foot a{display:inline-block;min-height:1.5rem}
 "#;
 
+/// console-port-3 rooms (`/instances`, `/keys`, `/markers`). Kept apart (and
+/// prefixed `p3-`) so the five console-port branches do not edit the same lines.
+const PORT3: &str = r#"
+.p3-sec{margin-top:1.5rem;min-width:0}
+.p3-sec h2{font-size:13px;font-weight:400;color:var(--c-subtle);margin:0}
+.p3-h{border-bottom:1px solid var(--c-line);padding-bottom:.5rem}
+.p3-refresh a{font-size:13px;color:var(--c-link)}
+.p3-bad{color:var(--c-offline)}
+.p3-list{display:flex;flex-direction:column;margin-top:.5rem;min-width:0}
+.p3-card{border-bottom:1px solid var(--c-line);padding:.75rem 0;min-width:0}
+.p3-top{display:flex;align-items:center;justify-content:space-between;gap:1rem;min-width:0;min-height:2.75rem}
+.p3-name{color:var(--c-fg);font-size:15px;min-width:0}
+.p3-sub{margin-top:.25rem;font-size:13px;color:var(--c-muted);overflow-wrap:anywhere}
+.p3-pct{font-family:var(--mono);font-size:13px;color:var(--c-fg)}
+.p3-bar{display:block;width:100%;height:.375rem;margin-top:.5rem;-webkit-appearance:none;appearance:none;border:0;background:var(--c-line);color:var(--c-fg)}
+.p3-bar::-webkit-progress-bar{background:var(--c-line)}
+.p3-bar::-webkit-progress-value{background:var(--c-fg)}
+.p3-bar::-moz-progress-bar{background:var(--c-fg)}
+.p3-term{margin:0;max-height:16rem;overflow:auto;white-space:pre-wrap;word-break:break-all;border-bottom:1px solid var(--c-line);padding:.75rem 0;font-family:var(--mono);font-size:13px;line-height:1.6;color:var(--c-muted)}
+.p3-copy{margin-top:1.25rem;border-bottom:1px solid var(--c-line);padding-bottom:1rem;min-width:0}
+.p3-pre{margin:.5rem 0 0;overflow:auto;white-space:pre-wrap;word-break:break-all;font-family:var(--mono);font-size:13px;line-height:1.6;color:var(--c-muted);user-select:all;-webkit-user-select:all}
+.p3-mint{display:flex;flex-direction:column;margin-top:1rem}
+.p3-field{display:flex;align-items:center;justify-content:space-between;gap:1rem;min-height:2.75rem;border-bottom:1px solid var(--c-line);font-size:15px}
+.p3-field input{flex:1;min-width:0;height:2.75rem;border:0;background:transparent;color:var(--c-fg);text-align:right;font:inherit}
+.p3-scopes{display:flex;flex-wrap:wrap;gap:.25rem 1.25rem;border:0;border-bottom:1px solid var(--c-line);margin:0;padding:.5rem 0}
+.p3-scopes label{display:inline-flex;align-items:center;gap:.375rem;min-height:2.5rem;font-size:14px;color:var(--c-fg)}
+.p3-fresh{border-bottom:1px solid var(--c-line);padding:.75rem 0;min-width:0}
+.p3-key{display:flex;align-items:center;justify-content:space-between;gap:1rem;min-height:2.75rem;border-bottom:1px solid var(--c-line);padding:.5rem 0;min-width:0}
+.p3-kn{display:flex;flex-direction:column;min-width:0}
+.p3-mk{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.75rem;border-bottom:1px solid var(--c-line);padding:.75rem 0;min-width:0}
+.p3-mkl{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;min-width:0}
+.p3-note{font-size:14px;overflow-wrap:anywhere;min-width:0}
+"#;
+
 /// The whole sheet.
 pub fn sheet() -> String {
     let mut out = String::with_capacity(RULES.len() + 1024);
@@ -322,6 +356,7 @@ pub fn sheet() -> String {
     for line in RULES
         .lines()
         .chain(LANDING.lines())
+        .chain(PORT3.lines())
         .filter(|l| !l.trim().is_empty())
     {
         out.push_str(line.trim());
@@ -342,7 +377,7 @@ pub fn fnv64(data: &[u8]) -> u64 {
 
 /// Class names defined in [`RULES`] (for the "every emitted class exists" test).
 pub fn defined_classes() -> Vec<String> {
-    let all = format!("{RULES}{LANDING}");
+    let all = format!("{RULES}{LANDING}{PORT3}");
     let mut out = Vec::new();
     let b = all.as_bytes();
     let mut i = 0;

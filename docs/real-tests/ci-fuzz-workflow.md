@@ -87,6 +87,7 @@ re-checked first, no unbounded growth; cap 512 files x 8 KiB).
 * `cargo fmt --check`: ok.
 * `cargo clippy --locked --workspace --all-targets --exclude openmind-sandbox --exclude cgroup-detect -- -D warnings`: ok (19:00).
 * `cargo test --release -p galion-guard`: 51 + 3 + 1 + 9 tests, 0 failed.
-* Workspace test: see the slot 202 DONE line in CALL-RECORD (numbers).
+* `cargo test --locked --workspace --exclude openmind-sandbox --exclude cgroup-detect` (19:07-19:09): 266 suites, 1229 passed, 0 failed, 6 ignored.
+* Cross targets for galion-guard + galion-common: release build x86_64-unknown-linux-musl and aarch64-unknown-linux-musl (rust-lld) ok; `cargo check` aarch64-linux-android and armv7-unknown-linux-musleabihf ok (19:10).
 * `actionlint` 1.7.12 on `.github/workflows/fuzz.yml`: 0 findings.
 * `scripts/no-python.sh`: ok. `scripts/spdx-scan.sh`: 506 scanned, 0 missing.

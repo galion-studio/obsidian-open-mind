@@ -65,3 +65,17 @@ as slot 145's per-shell zig wrapper build), armv7 1,817,228 B, x86_64 musl
   qemu answered the same status/platform/version/implementation fields.
 * The probe wrote the nerve response to a VPS temp file `/tmp/.s156n` to count
   it and deleted it in the same command (no secrets in it). No service touched.
+
+## Re-verification after restart (2026-10-21, +02:00)
+The first agent was interrupted at 07:31 before pushing; a new executor
+re-checked commit 2c444ff unchanged:
+
+| time (+02:00) | what | result |
+|---|---|---|
+| 07:57 | `cargo fmt --all --check`; `cargo clippy --workspace --all-targets --exclude openmind-sandbox --exclude cgroup-detect --exclude hermes-tools -- -D warnings` | ok; ok |
+| 07:58-08:08 | `cargo test --workspace --exclude openmind-sandbox --exclude cgroup-detect --exclude hermes-tools` | 1 failure in `room` `default_and_fixture_do_not_open_a_socket` (counts the process's open sockets while the parallel `http::tests::server_over_a_real_socket` holds 2; crate untouched by this branch); `-p room --lib` alone: 30/30 ok |
+| 08:05-08:15 | same with `--no-fail-fast` | 204 suites, **966 passed, 0 failed, 3 ignored** (hermes-tools now excluded locally per the 07:54 swarm rule, as it once ran the sandbox on the box; the 07:17 run with it was 978) |
+| 08:15 | `GALION_REAL=1 GALION_REAL_FULL=1 ... --test real_xtask_cross` | **2 passed**; negative control exit 101 (no C cross compiler); 27/27 bins aarch64 (e_machine 183) and armv7 (40), static; qemu openmind-memory capture+search hit=true on 20260/20261, hermes-gateway --mock /health 200 + 40,960 B SQLite state DB on 20262; no listener left on :2026x |
+| 08:15 | `scripts/no-python.sh`; `scripts/ucpu-gate.sh grep`; `cargo run -p repo-check` | ok; ok; PASS (0 errors, 29 warnings) |
+| 08:16 | clean shell `cargo xtask cross aarch64-linux-android check -j 2 --workspace --all-targets` | ok 30.8 s |
+| 08:16:28-08:16:30 | VPS read-only: `uname -m`; nerve `GET :8670/state`; hermes-rs `GET :8642/health`; `systemctl is-active hermes-rs galion-nerve` | x86_64, no qemu; nerve 200 13,091 B (cortex still not deployed); hermes-rs health same fields as our aarch64 build; active, active. Nothing written or changed on the VPS |

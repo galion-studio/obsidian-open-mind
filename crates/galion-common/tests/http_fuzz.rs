@@ -35,6 +35,11 @@ impl Rng {
 }
 
 fn iters(default: usize) -> usize {
+    // Miri interprets every step (~1000x slower), so its default is 1/100th
+    // of the normal count (min 20). GALION_FUZZ_ITERS still overrides it
+    // (forward it with -Zmiri-env-forward=GALION_FUZZ_ITERS). Test-only.
+    #[cfg(miri)]
+    let default = (default / 100).max(20);
     std::env::var("GALION_FUZZ_ITERS")
         .ok()
         .and_then(|v| v.parse().ok())

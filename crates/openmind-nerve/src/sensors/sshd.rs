@@ -58,7 +58,7 @@ const SOURCE: &str = "auth.log";
 
 /// Warn line for `invalid_user` in one 300 s window. B41 section 4.1 set 30
 /// from hourly totals; T3.1 (docs/cortex/calibration.md) tightened it to 20
-/// from 788 real 300 s windows of 5 VPS captures (highest window 8,
+/// from 933 real 300 s windows of 6 VPS captures (highest window 8,
 /// replay179, 2026-10-21 09:16 +02:00), so 2.5x the worst quiet window and
 /// still under a B41 attack hour (about 83 per 300 s). Tighten only: never
 /// raise this above the B41 value in code (`calibrate::CALIBRATED`).

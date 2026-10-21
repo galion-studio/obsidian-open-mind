@@ -15,7 +15,7 @@ use crate::util::kib;
 
 /// A service above this resident size (KiB) gets the info `memory-heavy` finding.
 /// Was 512 MiB; T3.1 (docs/cortex/calibration.md) tightened it to 256 MiB from
-/// 20 real VPS snapshots: the console holds 600 MiB-1.27 GiB, every other
+/// 21 real VPS snapshots: the console holds 600 MiB-1.27 GiB, every other
 /// service at most 29.8 MiB (cloudflared), so 256 MiB is 8.6x the second
 /// largest and still flags only the console. Tighten only (`calibrate::CALIBRATED`).
 pub const MEMORY_HEAVY_KIB: u64 = 256 * 1024;

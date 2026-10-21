@@ -52,7 +52,7 @@ pub const CALIBRATED: &[Calibrated] = &[
         name: "sshd invalid_user warn (per 300 s)",
         original: 30.0,
         current: crate::sensors::sshd::INVALID_USER_WARN as f64,
-        basis: "tightened: highest real 300 s window 8 (replay179), 788 windows",
+        basis: "tightened: highest real 300 s window 8 (replay179), 933 windows of 6 VPS captures",
     },
     Calibrated {
         name: "components memory-heavy (KiB)",
@@ -64,7 +64,7 @@ pub const CALIBRATED: &[Calibrated] = &[
         name: "edge-rate per-host floor (req/s, NERVE_DDOS_MIN_RPS)",
         original: 10.0,
         current: 10.0,
-        basis: "kept: a floor of 8 or lower turns one real dead-origin burst (replay158) into 2 episodes (a flap)",
+        basis: "kept: a floor of 8 or lower turns real dead-origin bursts (replay158, replay207) into 2 hot episodes (a flap)",
     },
 ];
 
@@ -222,7 +222,8 @@ pub fn calibrate_dir(name: &str, dir: &Path) -> Result<Report, String> {
         let mut i = crate::cortex::Input::new(now, &[], &logs);
         i.journal = new;
         let c = ssh.observe(&i);
-        let whole = now >= first + WINDOW_S;
+        // A journal shorter than one window counts once, at its last step.
+        let whole = now >= first + WINDOW_S || now >= last;
         if whole {
             for (k, v) in sshd_keys(&c) {
                 sshd_series.entry(k).or_default().push(v as f64);
@@ -439,7 +440,11 @@ mod tests {
         assert!(f(6.0).hot_steps > 0 && f(6.0).episodes == 1, "{:?}", f(6.0));
         assert_eq!(f(6.0).flood_steps, 0);
         // No flood at any floor: 3 req/s is under min_requests (300 per minute).
-        assert!(f(3.0).hot_steps > 0 && f(3.0).flood_steps == 0, "{:?}", f(3.0));
+        assert!(
+            f(3.0).hot_steps > 0 && f(3.0).flood_steps == 0,
+            "{:?}",
+            f(3.0)
+        );
         // 3 refused failures/s for 120 s: 360 in 300 s = 72/min at the peak.
         assert!(
             (r.dead_origin_per_min.max - 72.0).abs() < 1e-9,

@@ -1,0 +1,1189 @@
+{
+  "about": "T3.1 threshold calibration (slot 207, docs/cortex/calibration.md): what `openmind-nerve calibrate` measures on every live capture, counts only (no addresses, names or hostnames). Checked by tests/calibration.rs; CALIBRATION_BLESS=1 rewrites it.",
+  "captures": {
+    "replay1": {
+      "cloudflared_errors_300s": {
+        "max": 174.0,
+        "min": 82.0,
+        "n": 179,
+        "p50": 114.0,
+        "p95": 166.0
+      },
+      "dead_origin_failed_per_min_300s": {
+        "max": 17.4,
+        "min": 8.2,
+        "n": 179,
+        "p50": 11.4,
+        "p95": 16.6
+      },
+      "edge": {
+        "data_threshold_at_peak": 0.0,
+        "floors": [
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 10.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 8.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 6.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 5.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 4.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 3.0
+          }
+        ],
+        "host_streams": 14,
+        "requests_60s": {
+          "max": 26.0,
+          "min": 0.0,
+          "n": 210,
+          "p50": 4.0,
+          "p95": 16.0
+        },
+        "rps_60s": {
+          "max": 0.43,
+          "min": 0.0,
+          "n": 210,
+          "p50": 0.07,
+          "p95": 0.27
+        }
+      },
+      "journal_lines": 853,
+      "mem_kb_max": {
+        "cloudflared": 28416,
+        "console": 614508,
+        "galion-desk": 724,
+        "galion-health": 480,
+        "galion-nerve": 3496,
+        "galion-one": 1332,
+        "hermes-rs": 4488,
+        "link-watch-rs": 364,
+        "openmind-memory": 3128,
+        "tuner": 348,
+        "tuner-quick": 18880
+      },
+      "name": "replay1",
+      "span_s": 2085,
+      "ssh_lines": 0,
+      "sshd_300s": {
+        "accepted_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_other": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_root": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "distinct_fail_sources": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "failed_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "invalid_user": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "max_auth_attempts": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "preauth_other": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "steps": 210
+    },
+    "replay158": {
+      "cloudflared_errors_300s": {
+        "max": 800.0,
+        "min": 80.0,
+        "n": 151,
+        "p50": 134.0,
+        "p95": 800.0
+      },
+      "dead_origin_failed_per_min_300s": {
+        "max": 80.0,
+        "min": 8.0,
+        "n": 151,
+        "p50": 13.4,
+        "p95": 80.0
+      },
+      "edge": {
+        "data_threshold_at_peak": 0.5,
+        "floors": [
+          {
+            "episodes": 1,
+            "flood_steps": 0,
+            "hot_steps": 6,
+            "min_rps": 10.0
+          },
+          {
+            "episodes": 2,
+            "flood_steps": 0,
+            "hot_steps": 10,
+            "min_rps": 8.0
+          },
+          {
+            "episodes": 2,
+            "flood_steps": 0,
+            "hot_steps": 11,
+            "min_rps": 6.0
+          },
+          {
+            "episodes": 2,
+            "flood_steps": 6,
+            "hot_steps": 12,
+            "min_rps": 5.0
+          },
+          {
+            "episodes": 2,
+            "flood_steps": 6,
+            "hot_steps": 12,
+            "min_rps": 4.0
+          },
+          {
+            "episodes": 2,
+            "flood_steps": 6,
+            "hot_steps": 12,
+            "min_rps": 3.0
+          }
+        ],
+        "host_streams": 16,
+        "requests_60s": {
+          "max": 358.0,
+          "min": 0.0,
+          "n": 182,
+          "p50": 4.0,
+          "p95": 262.0
+        },
+        "rps_60s": {
+          "max": 5.97,
+          "min": 0.0,
+          "n": 182,
+          "p50": 0.07,
+          "p95": 4.37
+        }
+      },
+      "journal_lines": 2434,
+      "mem_kb_max": {
+        "cloudflared": 28336,
+        "console": 1278052,
+        "galion-desk": 720,
+        "galion-health": 480,
+        "galion-nerve": 3496,
+        "galion-one": 1296,
+        "hermes-rs": 4732,
+        "link-watch-rs": 364,
+        "openmind-memory": 3128,
+        "tuner": 312,
+        "tuner-quick": 20060
+      },
+      "name": "replay158",
+      "span_s": 1799,
+      "ssh_lines": 537,
+      "sshd_300s": {
+        "accepted_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_other": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_root": {
+          "max": 64.0,
+          "min": 2.0,
+          "n": 151,
+          "p50": 19.0,
+          "p95": 58.0
+        },
+        "distinct_fail_sources": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "failed_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "invalid_user": {
+          "max": 2.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 2.0
+        },
+        "max_auth_attempts": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "preauth_other": {
+          "max": 2.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 2.0
+        }
+      },
+      "steps": 182
+    },
+    "replay179": {
+      "cloudflared_errors_300s": {
+        "max": 596.0,
+        "min": 80.0,
+        "n": 150,
+        "p50": 90.0,
+        "p95": 592.0
+      },
+      "dead_origin_failed_per_min_300s": {
+        "max": 59.6,
+        "min": 8.0,
+        "n": 150,
+        "p50": 9.0,
+        "p95": 59.2
+      },
+      "edge": {
+        "data_threshold_at_peak": 0.0,
+        "floors": [
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 10.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 8.0
+          },
+          {
+            "episodes": 1,
+            "flood_steps": 0,
+            "hot_steps": 6,
+            "min_rps": 6.0
+          },
+          {
+            "episodes": 1,
+            "flood_steps": 0,
+            "hot_steps": 6,
+            "min_rps": 5.0
+          },
+          {
+            "episodes": 1,
+            "flood_steps": 0,
+            "hot_steps": 6,
+            "min_rps": 4.0
+          },
+          {
+            "episodes": 1,
+            "flood_steps": 0,
+            "hot_steps": 6,
+            "min_rps": 3.0
+          }
+        ],
+        "host_streams": 8,
+        "requests_60s": {
+          "max": 225.0,
+          "min": 0.0,
+          "n": 181,
+          "p50": 4.0,
+          "p95": 18.0
+        },
+        "rps_60s": {
+          "max": 3.75,
+          "min": 0.0,
+          "n": 181,
+          "p50": 0.07,
+          "p95": 0.3
+        }
+      },
+      "journal_lines": 1355,
+      "mem_kb_max": {
+        "cloudflared": 23864,
+        "console": 1242880,
+        "galion-desk": 720,
+        "galion-health": 480,
+        "galion-nerve": 3508,
+        "galion-one": 948,
+        "hermes-rs": 4752,
+        "link-watch-rs": 364,
+        "openmind-memory": 3128,
+        "tuner": 316,
+        "tuner-quick": 20388
+      },
+      "name": "replay179",
+      "span_s": 1791,
+      "ssh_lines": 307,
+      "sshd_300s": {
+        "accepted_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_other": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_root": {
+          "max": 22.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 4.0,
+          "p95": 20.0
+        },
+        "distinct_fail_sources": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "failed_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "invalid_user": {
+          "max": 8.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 8.0
+        },
+        "max_auth_attempts": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "preauth_other": {
+          "max": 94.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 3.0,
+          "p95": 92.0
+        }
+      },
+      "steps": 181
+    },
+    "replay186": {
+      "cloudflared_errors_300s": {
+        "max": 168.0,
+        "min": 76.0,
+        "n": 181,
+        "p50": 84.0,
+        "p95": 166.0
+      },
+      "dead_origin_failed_per_min_300s": {
+        "max": 16.8,
+        "min": 7.6,
+        "n": 181,
+        "p50": 8.4,
+        "p95": 16.6
+      },
+      "edge": {
+        "data_threshold_at_peak": 0.0,
+        "floors": [
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 10.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 8.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 6.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 5.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 4.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 3.0
+          }
+        ],
+        "host_streams": 13,
+        "requests_60s": {
+          "max": 24.0,
+          "min": 0.0,
+          "n": 212,
+          "p50": 4.0,
+          "p95": 18.0
+        },
+        "rps_60s": {
+          "max": 0.4,
+          "min": 0.0,
+          "n": 212,
+          "p50": 0.07,
+          "p95": 0.3
+        }
+      },
+      "journal_lines": 852,
+      "mem_kb_max": {
+        "cloudflared": 25452,
+        "console": 1258364,
+        "galion-desk": 720,
+        "galion-health": 484,
+        "galion-nerve": 5508,
+        "galion-one": 976,
+        "hermes-rs": 3472,
+        "link-watch-rs": 372,
+        "openmind-memory": 2640,
+        "tuner": 312,
+        "tuner-quick": 19932
+      },
+      "name": "replay186",
+      "span_s": 2097,
+      "ssh_lines": 152,
+      "sshd_300s": {
+        "accepted_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 181,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_other": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 181,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_root": {
+          "max": 6.0,
+          "min": 0.0,
+          "n": 181,
+          "p50": 0.0,
+          "p95": 4.0
+        },
+        "distinct_fail_sources": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 181,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "failed_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 181,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "invalid_user": {
+          "max": 2.0,
+          "min": 0.0,
+          "n": 181,
+          "p50": 0.0,
+          "p95": 2.0
+        },
+        "max_auth_attempts": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 181,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "preauth_other": {
+          "max": 5.0,
+          "min": 1.0,
+          "n": 181,
+          "p50": 2.0,
+          "p95": 5.0
+        }
+      },
+      "steps": 212
+    },
+    "replay192": {
+      "cloudflared_errors_300s": {
+        "max": 510.0,
+        "min": 78.0,
+        "n": 150,
+        "p50": 84.0,
+        "p95": 510.0
+      },
+      "dead_origin_failed_per_min_300s": {
+        "max": 51.0,
+        "min": 7.8,
+        "n": 150,
+        "p50": 8.4,
+        "p95": 51.0
+      },
+      "edge": {
+        "data_threshold_at_peak": 0.5,
+        "floors": [
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 10.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 8.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 6.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 5.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 4.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 3.0
+          }
+        ],
+        "host_streams": 12,
+        "requests_60s": {
+          "max": 138.0,
+          "min": 0.0,
+          "n": 181,
+          "p50": 4.0,
+          "p95": 72.0
+        },
+        "rps_60s": {
+          "max": 2.3,
+          "min": 0.0,
+          "n": 181,
+          "p50": 0.07,
+          "p95": 1.2
+        }
+      },
+      "journal_lines": 1414,
+      "mem_kb_max": {
+        "cloudflared": 29832,
+        "console": 1260348,
+        "galion-desk": 720,
+        "galion-health": 480,
+        "galion-nerve": 5764,
+        "galion-one": 1004,
+        "hermes-rs": 3512,
+        "link-watch-rs": 364,
+        "openmind-memory": 2640,
+        "tuner": 312,
+        "tuner-quick": 19884
+      },
+      "name": "replay192",
+      "span_s": 1795,
+      "ssh_lines": 163,
+      "sshd_300s": {
+        "accepted_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_other": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_root": {
+          "max": 6.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 3.0
+        },
+        "distinct_fail_sources": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "failed_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "invalid_user": {
+          "max": 3.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 1.0,
+          "p95": 3.0
+        },
+        "max_auth_attempts": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "preauth_other": {
+          "max": 7.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 3.0,
+          "p95": 6.0
+        }
+      },
+      "steps": 181
+    },
+    "replay193": {
+      "cloudflared_errors_300s": {
+        "max": 164.0,
+        "min": 76.0,
+        "n": 151,
+        "p50": 88.0,
+        "p95": 158.0
+      },
+      "dead_origin_failed_per_min_300s": {
+        "max": 16.4,
+        "min": 7.6,
+        "n": 151,
+        "p50": 8.8,
+        "p95": 15.8
+      },
+      "edge": {
+        "data_threshold_at_peak": 0.0,
+        "floors": [
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 10.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 8.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 6.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 5.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 4.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 3.0
+          }
+        ],
+        "host_streams": 16,
+        "requests_60s": {
+          "max": 20.0,
+          "min": 0.0,
+          "n": 182,
+          "p50": 4.0,
+          "p95": 13.0
+        },
+        "rps_60s": {
+          "max": 0.33,
+          "min": 0.0,
+          "n": 182,
+          "p50": 0.07,
+          "p95": 0.22
+        }
+      },
+      "journal_lines": 1237,
+      "mem_kb_max": {
+        "cloudflared": 25392,
+        "console": 1261344,
+        "galion-desk": 720,
+        "galion-health": 480,
+        "galion-nerve": 5772,
+        "galion-one": 7208,
+        "hermes-rs": 3532,
+        "link-watch-rs": 364,
+        "openmind-memory": 2640,
+        "tuner": 312,
+        "tuner-quick": 19848
+      },
+      "name": "replay193",
+      "span_s": 1795,
+      "ssh_lines": 181,
+      "sshd_300s": {
+        "accepted_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_other": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_root": {
+          "max": 9.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 2.0,
+          "p95": 9.0
+        },
+        "distinct_fail_sources": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "failed_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "invalid_user": {
+          "max": 1.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 1.0
+        },
+        "max_auth_attempts": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "preauth_other": {
+          "max": 2.0,
+          "min": 0.0,
+          "n": 151,
+          "p50": 0.0,
+          "p95": 2.0
+        }
+      },
+      "steps": 182
+    },
+    "replay200": {
+      "cloudflared_errors_300s": {
+        "max": 372.0,
+        "min": 76.0,
+        "n": 179,
+        "p50": 86.0,
+        "p95": 368.0
+      },
+      "dead_origin_failed_per_min_300s": {
+        "max": 37.2,
+        "min": 7.6,
+        "n": 179,
+        "p50": 8.6,
+        "p95": 36.8
+      },
+      "edge": {
+        "data_threshold_at_peak": 0.0,
+        "floors": [
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 10.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 8.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 6.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 5.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 4.0
+          },
+          {
+            "episodes": 0,
+            "flood_steps": 0,
+            "hot_steps": 0,
+            "min_rps": 3.0
+          }
+        ],
+        "host_streams": 11,
+        "requests_60s": {
+          "max": 136.0,
+          "min": 0.0,
+          "n": 210,
+          "p50": 4.0,
+          "p95": 81.0
+        },
+        "rps_60s": {
+          "max": 2.27,
+          "min": 0.0,
+          "n": 210,
+          "p50": 0.07,
+          "p95": 1.35
+        }
+      },
+      "journal_lines": 1200,
+      "mem_kb_max": {
+        "cloudflared": 24392,
+        "console": 1268680,
+        "galion-desk": 720,
+        "galion-health": 476,
+        "galion-nerve": 2392,
+        "galion-one": 352,
+        "hermes-rs": 824,
+        "link-watch-rs": 368,
+        "openmind-memory": 2640,
+        "tuner": 312,
+        "tuner-quick": 19008
+      },
+      "name": "replay200",
+      "span_s": 2082,
+      "ssh_lines": 0,
+      "sshd_300s": {
+        "accepted_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_other": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_root": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "distinct_fail_sources": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "failed_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "invalid_user": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "max_auth_attempts": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "preauth_other": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 179,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "steps": 210
+    },
+    "replay207": {
+      "cloudflared_errors_300s": {
+        "max": 1230.0,
+        "min": 76.0,
+        "n": 150,
+        "p50": 132.0,
+        "p95": 692.0
+      },
+      "dead_origin_failed_per_min_300s": {
+        "max": 123.0,
+        "min": 7.6,
+        "n": 150,
+        "p50": 13.2,
+        "p95": 69.2
+      },
+      "edge": {
+        "data_threshold_at_peak": 0.0,
+        "floors": [
+          {
+            "episodes": 1,
+            "flood_steps": 0,
+            "hot_steps": 3,
+            "min_rps": 10.0
+          },
+          {
+            "episodes": 2,
+            "flood_steps": 0,
+            "hot_steps": 11,
+            "min_rps": 8.0
+          },
+          {
+            "episodes": 2,
+            "flood_steps": 0,
+            "hot_steps": 12,
+            "min_rps": 6.0
+          },
+          {
+            "episodes": 2,
+            "flood_steps": 3,
+            "hot_steps": 12,
+            "min_rps": 5.0
+          },
+          {
+            "episodes": 2,
+            "flood_steps": 3,
+            "hot_steps": 12,
+            "min_rps": 4.0
+          },
+          {
+            "episodes": 2,
+            "flood_steps": 3,
+            "hot_steps": 12,
+            "min_rps": 3.0
+          }
+        ],
+        "host_streams": 10,
+        "requests_60s": {
+          "max": 305.0,
+          "min": 0.0,
+          "n": 181,
+          "p50": 4.0,
+          "p95": 260.0
+        },
+        "rps_60s": {
+          "max": 5.08,
+          "min": 0.0,
+          "n": 181,
+          "p50": 0.07,
+          "p95": 4.33
+        }
+      },
+      "journal_lines": 2309,
+      "mem_kb_max": {
+        "cloudflared": 25052,
+        "console": 1268944,
+        "galion-desk": 720,
+        "galion-health": 480,
+        "galion-nerve": 2628,
+        "galion-one": 348,
+        "hermes-rs": 828,
+        "link-watch-rs": 360,
+        "openmind-memory": 2640,
+        "tuner": 312,
+        "tuner-quick": 18852
+      },
+      "name": "replay207",
+      "span_s": 1796,
+      "ssh_lines": 109,
+      "sshd_300s": {
+        "accepted_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_other": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "accepted_publickey_root": {
+          "max": 8.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 1.0,
+          "p95": 6.0
+        },
+        "distinct_fail_sources": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "failed_password": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "invalid_user": {
+          "max": 1.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "max_auth_attempts": {
+          "max": 0.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "preauth_other": {
+          "max": 1.0,
+          "min": 0.0,
+          "n": 150,
+          "p50": 0.0,
+          "p95": 1.0
+        }
+      },
+      "steps": 181
+    }
+  }
+}

@@ -30,7 +30,7 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -667,5 +667,180 @@ fn real_t237_backfill_and_incident_lifetime() {
     drop(comp_b);
     cortex.kill9();
     drop(nerve_b);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// GET-only TCP proxy: forwards requests whose first line starts with `GET `
+/// to `upstream`, answers anything else `403` without contacting it. Lets a
+/// box cortex watch the live VPS nerve (through an ssh `-L` tunnel) without
+/// any state-changing request reaching it (no alert POSTs, no action POSTs).
+fn get_only_proxy(listen: u16, upstream: u16, stop: Arc<AtomicBool>, blocked: Arc<AtomicU64>) {
+    let l = TcpListener::bind(("127.0.0.1", listen)).expect("proxy bind");
+    l.set_nonblocking(true).unwrap();
+    std::thread::spawn(move || {
+        while !stop.load(Ordering::SeqCst) {
+            let Ok((mut down, _)) = l.accept() else {
+                std::thread::sleep(Duration::from_millis(30));
+                continue;
+            };
+            let _ = down.set_nonblocking(false);
+            let blocked = blocked.clone();
+            std::thread::spawn(move || {
+                let _ = down.set_read_timeout(Some(Duration::from_secs(5)));
+                let mut first = [0u8; 4];
+                if down.read_exact(&mut first).is_err() {
+                    return;
+                }
+                if &first != b"GET " {
+                    blocked.fetch_add(1, Ordering::SeqCst);
+                    let _ = down.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\nContent-Length: 46\r\nConnection: close\r\n\r\n{\"ok\":false,\"error\":\"read-only shadow (t237)\"}");
+                    return;
+                }
+                let _ = down.set_read_timeout(None);
+                let Ok(mut up) = TcpStream::connect(("127.0.0.1", upstream)) else {
+                    return;
+                };
+                if up.write_all(&first).is_err() {
+                    return;
+                }
+                let (mut d2, mut u2) = (down.try_clone().unwrap(), up.try_clone().unwrap());
+                std::thread::spawn(move || {
+                    let _ = std::io::copy(&mut d2, &mut u2);
+                    let _ = u2.shutdown(std::net::Shutdown::Write);
+                });
+                let _ = std::io::copy(&mut up, &mut down);
+                let _ = down.shutdown(std::net::Shutdown::Both);
+            });
+        }
+    });
+}
+
+/// Read-only shadow against the LIVE nerve: `GALION_REAL=1` +
+/// `GALION_T237_LIVE_PORT=<local end of ssh -L ...:127.0.0.1:8670>`. The new
+/// cortex (dry-run, LLM off) starts behind the GET-only proxy, must backfill
+/// every incident the live nerve has open, and no POST may pass. One stream
+/// slot of the nerve's 4 is used for `GALION_T237_LIVE_SECS` (default 60).
+#[test]
+fn real_t237_live_nerve_shadow_read_only() {
+    if std::env::var("GALION_REAL").as_deref() != Ok("1") {
+        return;
+    }
+    let Some(up) = std::env::var("GALION_T237_LIVE_PORT")
+        .ok()
+        .and_then(|p| p.parse::<u16>().ok())
+    else {
+        eprintln!("skipped: GALION_T237_LIVE_PORT not set");
+        return;
+    };
+    const PROXY: u16 = 21076;
+    const SHADOW: u16 = 21078;
+    let secs: u64 = std::env::var("GALION_T237_LIVE_SECS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(60);
+    let stop = Arc::new(AtomicBool::new(false));
+    let blocked = Arc::new(AtomicU64::new(0));
+    get_only_proxy(PROXY, up, stop.clone(), blocked.clone());
+    let live = get(PROXY, "/incidents");
+    let nstats = get(PROXY, "/stats");
+    assert!(
+        live["open"].is_array(),
+        "live nerve /incidents via tunnel: {live}"
+    );
+    assert!(
+        n(&nstats, "streams") < 4,
+        "live nerve stream slots full: {nstats}"
+    );
+    let live_open: Vec<(String, String, String)> = live["open"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| {
+            (
+                i["cause"].as_str().unwrap_or("").to_string(),
+                i["id"].as_str().unwrap_or("").to_string(),
+                i["opened"].as_str().unwrap_or("").to_string(),
+            )
+        })
+        .collect();
+    log(format!(
+        "live nerve: seq {} streams {} open {live_open:?}",
+        n(&nstats, "seq"),
+        n(&nstats, "streams")
+    ));
+    let dir = std::env::temp_dir().join(format!("cortex-t237-live-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let data = dir.join("data");
+    let child = Command::new(env!("CARGO_BIN_EXE_gaia-cortex"))
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("CORTEX_LISTEN", format!("127.0.0.1:{SHADOW}"))
+        .env("CORTEX_NERVE_URL", format!("http://127.0.0.1:{PROXY}"))
+        .env("CORTEX_DATA_DIR", &data)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(std::fs::File::create(dir.join("cortex.log")).unwrap())
+        .spawn()
+        .expect("spawn shadow cortex");
+    let mut cx = Proc { child };
+    wait_until("shadow cortex /health", 20, || {
+        http(SHADOW, "GET", "/health", "").0 == 200
+    });
+    let t = Instant::now();
+    wait_until("shadow cortex holds every live nerve incident", 30, || {
+        live_open
+            .iter()
+            .all(|(c, _, _)| cortex_open(SHADOW, &format!("nerve-incident:{c}")).is_some())
+    });
+    let ms = t.elapsed().as_millis() as u64;
+    log(format!(
+        "shadow cortex pid {} backfilled {} live nerve incident(s) in {ms} ms",
+        cx.pid(),
+        live_open.len()
+    ));
+    std::thread::sleep(Duration::from_secs(secs));
+    let inc = get(SHADOW, "/incidents");
+    let st = get(SHADOW, "/stats");
+    let live2 = get(PROXY, "/incidents");
+    let now_open: Vec<String> = live2["open"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|i| i["cause"].as_str().map(str::to_string))
+        .collect();
+    let shadow_open: Vec<String> = inc["open"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|i| i["cause"].as_str().map(str::to_string))
+        .collect();
+    log(format!(
+        "after {secs} s: live nerve open {now_open:?}; shadow cortex open {shadow_open:?}; nerve_incidents {}; stats events_in {} batches {} backfilled {} reconciled {} duplicate {} decisions {} actions_requested {} actions_executed {} alerts_to_nerve {}; proxy blocked {} POST(s)",
+        inc["nerve_incidents"], n(&st, "events_in"), n(&st, "batches"), n(&st, "nerve_incidents_backfilled"), n(&st, "nerve_incidents_reconciled"),
+        n(&st, "nerve_incidents_duplicate"), n(&st, "decisions"), n(&st, "actions_requested"), n(&st, "actions_executed"), n(&st, "alerts_to_nerve"),
+        blocked.load(Ordering::SeqCst)
+    ));
+    for c in &now_open {
+        assert!(
+            shadow_open.contains(&format!("nerve-incident:{c}")),
+            "live {c} missing in shadow: {inc}"
+        );
+    }
+    assert_eq!(n(&st, "actions_executed"), 0);
+    assert_eq!(
+        n(&st, "alerts_to_nerve"),
+        0,
+        "no alert reached the live nerve"
+    );
+    assert_eq!(n(&st, "llm_calls"), 0);
+    if let Ok(p) = std::env::var("GALION_T237_LIVE_OUT") {
+        let _ = std::fs::write(p, serde_json::to_string_pretty(&json!({
+            "live_open_at_start": live_open, "backfill_ms": ms, "secs": secs, "live_open_end": now_open,
+            "shadow_open_end": shadow_open, "shadow_incidents": inc, "shadow_stats": st, "proxy_blocked_posts": blocked.load(Ordering::SeqCst),
+        })).unwrap());
+    }
+    cx.kill9();
+    stop.store(true, Ordering::SeqCst);
     let _ = std::fs::remove_dir_all(&dir);
 }

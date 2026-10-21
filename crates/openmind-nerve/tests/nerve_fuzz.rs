@@ -196,8 +196,12 @@ fn regress_access_status_does_not_wrap() {
     assert_eq!(h.status, 503);
 }
 
-/// Deep JSON at serde_json's nesting limit on the server's 256 KiB
-/// connection-thread stack: answered, no stack overflow (debug and release).
+/// Find 5 (stack): deep JSON at serde_json's nesting limit overflowed the
+/// 256 KiB connection-thread stack (process abort) in the debug build with
+/// the workspace feature set (serde_json `preserve_order`); found by the
+/// workspace test run. On [`server::CONN_STACK`] (512 KiB) it is answered in
+/// every build. Run this under `--workspace` / `--features
+/// serde_json/preserve_order` too.
 #[test]
 fn regress_deep_json_fits_server_stack() {
     for depth in [1, 64, 126, 127, 128, 129, 200, 4096] {
@@ -235,4 +239,32 @@ fn regress_event_big_number_within_ulps() {
     let got: serde_json::Value = serde_json::from_str(&e.data_json()).unwrap();
     let sent = serde_json::json!([118446744073709551616.0f64]);
     assert!(nerve::json_close(&sent, &got), "{sent} vs {got}");
+}
+
+/// Stack-headroom probe (not a gate): parse the deepest accepted and the
+/// first refused nesting on a thread of `NERVE_PROBE_STACK_KB` KiB. A stack
+/// overflow aborts the process, so the recorded runs call it once per size
+/// from a shell loop and read the exit status.
+#[test]
+#[ignore]
+fn probe_deep_json_stack_kb() {
+    let kb: usize = std::env::var("NERVE_PROBE_STACK_KB")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(256);
+    for depth in [126, 127, 128, 129, 4096] {
+        for obj in [false, true] {
+            let body = nerve::deep_json(depth, obj);
+            std::thread::Builder::new()
+                .stack_size(kb * 1024)
+                .spawn(move || {
+                    let _ = openmind_nerve::hub::parse_signal(&body, 0);
+                    let _ = openmind_nerve::server::event_from(&body).map(|e| e.data_json());
+                })
+                .unwrap()
+                .join()
+                .unwrap();
+        }
+    }
+    eprintln!("stack {kb} KiB: ok");
 }

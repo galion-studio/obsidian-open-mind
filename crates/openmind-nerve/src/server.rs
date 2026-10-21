@@ -36,6 +36,13 @@ use std::time::Duration;
 
 const MAX_CONNS: usize = 16;
 const MAX_EVENTS_TAIL: usize = 1000;
+/// Stack of one connection thread. serde_json parses up to 128 nested
+/// levels recursively; measured need for that (T3.1, slot 212): release
+/// 64-96 KiB, debug 256-384 KiB with serde_json `preserve_order` (the
+/// workspace feature set). 256 KiB overflowed (process abort) in the debug
+/// workspace build; 512 KiB covers every build. Pages are only touched
+/// when used, so the 16 threads cost no more RSS than before.
+pub const CONN_STACK: usize = 512 * 1024;
 
 /// The JSONL event log behind `POST /event` / `GET /events`.
 pub struct EventLog {
@@ -508,7 +515,7 @@ pub fn serve(listener: TcpListener, sh: Arc<Mutex<Shared>>, ev: Option<Arc<Mutex
         active.fetch_add(1, Ordering::SeqCst);
         let (a, sh, ev) = (active.clone(), sh.clone(), ev.clone());
         let spawned = std::thread::Builder::new()
-            .stack_size(256 * 1024)
+            .stack_size(CONN_STACK)
             .spawn(move || {
                 match read_req(&mut s) {
                     Ok(r) => {

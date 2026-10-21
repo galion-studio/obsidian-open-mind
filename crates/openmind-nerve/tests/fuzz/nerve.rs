@@ -7,7 +7,7 @@
 //! `server::read_req` (segmentation invariance), journald JSON, cloudflared
 //! Prometheus metrics, cloudflared / zerolog log lines and access-log lines,
 //! plus generative round trips and a deep-JSON check on the server's
-//! 256 KiB connection-thread stack.
+//! connection-thread stack ([`server::CONN_STACK`]).
 
 use super::{ensure, fnv, Gen, Rng, Target};
 use openmind_nerve::access;
@@ -847,7 +847,7 @@ fn civil(z: i64) -> (i64, u32, u32) {
 }
 
 /// Deeply nested JSON (up to and past serde_json's 128 limit) through the
-/// /signal and /event parsers on a thread with the server's 256 KiB stack:
+/// /signal and /event parsers on a thread with the server's connection stack:
 /// must answer (Ok or Err), never overflow the stack.
 pub fn deep_json(depth: usize, obj: bool) -> String {
     let (open, close) = if obj { ("{\"a\":", "}") } else { ("[", "]") };
@@ -861,7 +861,7 @@ pub fn deep_json(depth: usize, obj: bool) -> String {
 pub fn deep_on_server_stack(depth: usize, obj: bool) -> Result<(bool, bool), String> {
     let body = deep_json(depth, obj);
     std::thread::Builder::new()
-        .stack_size(256 * 1024)
+        .stack_size(server::CONN_STACK)
         .spawn(move || {
             let s = parse_signal(&body, NOW).is_ok();
             let e = server::event_from(&body)

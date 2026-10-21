@@ -122,7 +122,13 @@ its env to `GALION_FUZZ_*`) is decision D-202-3. Its step-summary grep needs
 `^(ss-ltn|proc-net-tcp|…|TOTAL)`; the simplest is to make it also print one
 `fuzz-summary target=cortex …` line.
 
-## Find from the first weekly-budget run (fixed on this branch)
+## Finds from the weekly-budget runs (fixed on this branch)
+
+Three box runs at the 600 s budget hit the "invented address" oracle; the
+fourth (fix in place) ran the full 600 s clean. Details and numbers:
+`docs/real-tests/ci-fuzz-workflow.md`.
+
+### Find 1 (parser, fixed in f042e5c)
 
 Box run 2026-10-21 17:40:33-17:49:41 +02:00, 600 s budget, warm corpus (112
 files), seed 1792597233379690538, failed after 548 s:
@@ -136,3 +142,36 @@ fails without the fix and passes with it. Impact is low: sshd itself writes
 the address field (attacker-chosen usernames cannot place text there; the
 existing `" from "` checks still stop user injection), so real logs never
 contain such a token; fail2ban's stock regex has the same prefix behaviour.
+
+### Find 2 (oracle gap, test-only fix)
+
+Box run 2026-10-21 18:07:31 +02:00, seed 1792598853241971466, failed after
+3.5 s: `… from ::1:2:3:4:5:6:7,:81.00.0.1 port 4013` gave 0:1:2:3:4:5:6:7.
+The filter ends an address at `,` by design, and `::1:2:3:4:5:6:7` *is* in
+the line; the oracle's token split did not know `,`. Fix (21b2496): the
+oracle also splits on `,`. Parser unchanged.
+
+### Find 3 (parser, fixed)
+
+Box run 2026-10-21 18:51:10 +02:00, seed 1792601469964599518, failed after
+0.1 s: `… from ::1:2:3:4:5:6:7:t1.rom …` gave 0:1:2:3:4:5:6:7. Find 1's fix
+rejected `:` + hex/`:`/`.` only; a letter slipped through. Fix (37e9042,
+stricter only): an IPv6 match followed by `:` must have whitespace or the
+end of the line after that colon (`2001:db8::7: 11: Bye` still matches).
+IPv4 is unchanged (an IPv4 prefix is always literally in the line, so it
+never invents a victim). Tests `ipv6_run_with_colon_tail_is_not_truncated`
+(unit) and `weekly_finds_replay` (fuzz_parser) fail on 21b2496's filter and
+pass on 37e9042.
+
+## Owner decisions (Slavik)
+
+* D-202-1: keep 60 s per target on every PR (2 parallel jobs, ~2-3 min wall
+  each incl. build) or run the smoke only on PRs touching `crates/galion-common`
+  / `crates/galion-guard`.
+* D-202-2: weekly finds open no issue automatically (the workflow has
+  `contents: read` only); a failed scheduled run is the signal. Want an
+  issue-opening step (needs `issues: write`)?
+* D-202-3: cortex-t52-fuzz env names `CORTEX_FUZZ_*` vs `GALION_FUZZ_*` and
+  its in-memory corpus (see above).
+* D-202-4: IPv6 `:` tail strictness (find 3) is stricter than fail2ban's stock
+  regex; accept it for galion-guard.

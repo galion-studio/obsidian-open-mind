@@ -225,6 +225,10 @@ fn real_auth() {
         &["--allow-remote", "--token-file", ts],
     );
     assert!(TcpStream::connect("127.0.0.1:20754").is_err());
+    // The serve start-up self-check authenticated (no 401 at start).
+    let st0 = stats(&lan);
+    assert_eq!(st0["auth"]["verdicts"]["missing"], 0, "{st0}");
+    assert_eq!(st0["auth"]["verdicts"]["token"], 2, "{st0}");
     let o = cli(&["get", "/healthz", "--addr", &lan], None);
     assert_eq!(o.status.code(), Some(1));
     assert!(out(&o).starts_with("401 "), "{}", out(&o));
@@ -306,6 +310,9 @@ fn real_auth() {
     assert_eq!(st["stats"]["acked"], 5, "{st}");
     assert_eq!(st["depth"]["ready"], 0, "refused submits leaked: {st}");
     assert!(!st.to_string().contains(SECRET));
+    // missing = CLI get without token + worker "evil"; invalid = burst + 1 CLI.
+    assert_eq!(st["auth"]["verdicts"]["missing"], 2, "{st}");
+    assert_eq!(st["auth"]["verdicts"]["invalid"], 601, "{st}");
     log(&format!(
         "burst 600 wrong tokens: 401 x{n401} in {} ms; stats auth {}",
         burst.as_millis(),

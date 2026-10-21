@@ -152,6 +152,10 @@ fn serve(a: &Args) -> Result<(), String> {
         ..server::Options::default()
     };
     let data = opts.data.clone();
+    if a.get("token-file").is_some() {
+        // The start-up self-check below must authenticate on a LAN bind.
+        load_client_token(a)?;
+    }
     let h = server::start(opts).map_err(|e| format!("start: {e}"))?;
     let stats = call(&h.addr.to_string(), "GET", "/stats", None)
         .ok()

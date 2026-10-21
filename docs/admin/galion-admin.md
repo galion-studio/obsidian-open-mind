@@ -68,6 +68,16 @@ Limits of the chain: it is tamper-*evident*, not tamper-proof. Someone with the 
 rewrite the whole file consistently, and dropping the newest lines is only visible against a head
 hash remembered elsewhere (D-A2).
 
+### Gold-image verification (slot 204)
+
+`galion-admin image verify DIR --key PUBFILE [--json]` checks a signed gold image (format:
+[docs/galion-os/gold-image-format.md](../galion-os/gold-image-format.md)): Ed25519 signature in
+the hades-gate key format first, then size, mode and SHA-256 of every listed file; unlisted
+files, symlinks and special files fail. Read-only; exit 0 ok, 4 failed/rejected, 1 key or I/O
+error. Each run adds an `image.verify` audit record. The builder side (keygen, manifest, sign)
+is `examples/gold_image.rs` and is not shipped on the device. Evidence:
+[docs/real-tests/galion-os-image-format.md](../real-tests/galion-os-image-format.md).
+
 ### Not in this skeleton
 
 * **No `su`/root path at all**: the binary exits 3 if run as uid 0 (D-A1).

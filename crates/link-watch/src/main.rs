@@ -311,6 +311,7 @@ fn model_from_tags(body: &[u8]) -> String {
 }
 
 fn main() {
+    galion_common::build_info::exit_if_version("link-watch", env!("CARGO_PKG_VERSION"));
     if std::env::args()
         .nth(1)
         .is_some_and(|a| a == "--help" || a == "-h")

@@ -9,6 +9,7 @@
 //! - `GET /api/v1/incidents`  open + recently resolved incidents
 //! - `GET /api/v1/cortex`     vulnerabilities, bleeding, ddos, exposure
 //! - `GET /api/v1/ddos`       per-stream request-rate verdicts
+//! - `GET /api/v1/cortex/events` the cortex B33 event feed, JSONL (see [`crate::feed`])
 //! - `GET /api/v1/self-eval`  the scored report (`.md` for markdown)
 //! - `GET /api/v1/signals` `/api/v1/alerts` `/api/v1/audit`
 //! - `POST /api/v1/signal`    push one signal (nerve-client wire format)
@@ -25,7 +26,7 @@ use crate::access::Hit;
 use crate::engine::Shared;
 use crate::hub::{parse_signal, Signal, MAX_BODY};
 use crate::util::now_secs;
-use crate::{read_all, Event, Writer};
+use crate::{read_lossy, Event, Writer};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -36,6 +37,13 @@ use std::time::Duration;
 
 const MAX_CONNS: usize = 16;
 const MAX_EVENTS_TAIL: usize = 1000;
+/// Stack of one connection thread. serde_json parses up to 128 nested
+/// levels recursively; measured need for that (T3.1, slot 212): release
+/// 64-96 KiB, debug 256-384 KiB with serde_json `preserve_order` (the
+/// workspace feature set). 256 KiB overflowed (process abort) in the debug
+/// workspace build; 512 KiB covers every build. Pages are only touched
+/// when used, so the 16 threads cost no more RSS than before.
+pub const CONN_STACK: usize = 512 * 1024;
 
 /// The JSONL event log behind `POST /event` / `GET /events`.
 pub struct EventLog {
@@ -51,7 +59,15 @@ pub struct Req {
     pub body: String,
 }
 
-/// Read one request (head <= 8 KiB, body <= MAX_BODY).
+/// Largest accepted request head, the blank line (`\r\n\r\n`) included.
+pub const MAX_HEAD: usize = 8192;
+
+/// Read one request (head <= [`MAX_HEAD`] bytes, body <= MAX_BODY).
+///
+/// The head limit is judged on the head itself, not on how much happened
+/// to arrive in one `read`: before T3.1 (slot 212 fuzz find) a head of
+/// 8193..10240 bytes was accepted when it came in large segments and
+/// refused with 431 when it came in small ones.
 pub fn read_req(s: &mut impl Read) -> Result<Req, (u16, &'static str)> {
     let mut buf = Vec::with_capacity(1024);
     let mut chunk = [0u8; 2048];
@@ -60,11 +76,17 @@ pub fn read_req(s: &mut impl Read) -> Result<Req, (u16, &'static str)> {
         if n == 0 {
             return Err((400, "incomplete request"));
         }
+        // Rescan only the new bytes (plus 3 for a terminator split across reads).
+        let from = buf.len().saturating_sub(3);
         buf.extend_from_slice(&chunk[..n]);
-        if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+        if let Some(p) = buf[from..].windows(4).position(|w| w == b"\r\n\r\n") {
+            let p = from + p;
+            if p + 4 > MAX_HEAD {
+                return Err((431, "headers too large"));
+            }
             break p;
         }
-        if buf.len() > 8192 {
+        if buf.len() >= MAX_HEAD {
             return Err((431, "headers too large"));
         }
     };
@@ -116,13 +138,16 @@ fn reason(code: u16) -> &'static str {
     }
 }
 
+/// One `write_all` per reply: `write!` on the raw socket sent the status
+/// line in several small segments (T3.6: clients that read once saw
+/// `HTTP/1.1 ` without a code).
 fn write_resp(s: &mut TcpStream, code: u16, ctype: &str, body: &str) {
-    let _ = write!(
-        s,
+    let msg = format!(
         "HTTP/1.1 {code} {}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n{body}",
         reason(code),
         body.len()
     );
+    let _ = s.write_all(msg.as_bytes());
 }
 
 /// `n` from `n=N`, clamped to 1..=1000 (default 50).
@@ -203,6 +228,67 @@ pub fn route(
         .filter(|r| !r.is_empty())
         .unwrap_or(&req.path);
     let api = req.path.starts_with("/api/v1/");
+    let evt_hub = || sh.lock().unwrap_or_else(|e| e.into_inner()).evt.clone();
+    match (req.method.as_str(), p) {
+        ("GET", "/inventory" | "/stats" | "/evt" | "/escalations" | "/actions")
+        | ("POST", "/actions") => {
+            let Some(h) = evt_hub() else {
+                return (
+                    404,
+                    j,
+                    r#"{"ok":false,"error":"event mode off (NERVE_MODE=event)"}"#.into(),
+                );
+            };
+            return match (req.method.as_str(), p) {
+                ("GET", "/inventory") => {
+                    let inv = h.lock().inventory.clone();
+                    if inv.is_null() {
+                        (503, j, r#"{"ok":false,"warming_up":true}"#.into())
+                    } else {
+                        (200, j, inv.to_string())
+                    }
+                }
+                ("GET", "/stats") => (200, j, h.stats_json(now_secs()).to_string()),
+                ("GET", "/evt") => {
+                    let since = crate::evt::stream::query_u64(&req.query, "since").unwrap_or(0);
+                    let n = tail_n(&req.query);
+                    let min = crate::evt::stream::query_str(&req.query, "min")
+                        .and_then(crate::evt::Severity::parse)
+                        .unwrap_or(crate::evt::Severity::Info);
+                    let v: Vec<_> = h
+                        .since(since, crate::evt::RING)
+                        .into_iter()
+                        .filter(|e| e.severity >= min)
+                        .collect();
+                    let from = if since == 0 {
+                        v.len().saturating_sub(n)
+                    } else {
+                        0
+                    };
+                    (
+                        200,
+                        j,
+                        serde_json::to_string(&v[from..v.len().min(from + n)]).unwrap_or_default(),
+                    )
+                }
+                ("GET", "/escalations") => (
+                    200,
+                    j,
+                    Value::Array(h.lock().escalations.iter().cloned().collect()).to_string(),
+                ),
+                ("GET", "/actions") => (
+                    200,
+                    j,
+                    Value::Array(h.lock().action_log.iter().cloned().collect()).to_string(),
+                ),
+                _ => {
+                    let (c, v) = h.action(&req.body);
+                    (c, j, v.to_string())
+                }
+            };
+        }
+        _ => {}
+    }
     match (req.method.as_str(), p) {
         ("POST", "/event") => {
             let Some(ev) = ev else {
@@ -224,6 +310,9 @@ pub fn route(
                             if let Some(s) = event_signal(&e, now_secs()) {
                                 let _ = sh.lock().unwrap_or_else(|x| x.into_inner()).hub.ingest(s);
                             }
+                            if let Some(h) = evt_hub() {
+                                h.submit(crate::evt::from_http_event(&e));
+                            }
                             (200, j, format!("{{\"ok\":true,\"appended\":{n}}}"))
                         }
                         Err(e) => (
@@ -242,8 +331,11 @@ pub fn route(
             };
             let path = ev.lock().unwrap_or_else(|x| x.into_inner()).path.clone();
             let n = tail_n(&req.query);
-            match read_all(&path) {
-                Ok(all) => {
+            match read_lossy(&path) {
+                Ok((all, skipped)) => {
+                    if skipped > 0 {
+                        eprintln!("<4>openmind-nerve: GET /events skipped {skipped} unreadable line(s) in {}", path.display());
+                    }
                     let from = all.len().saturating_sub(n);
                     (
                         200,
@@ -271,6 +363,11 @@ pub fn route(
                 ("GET", "/incidents") => (200, j, g.state["incidents"].to_string()),
                 ("GET", "/cortex") => (200, j, g.state["cortex"].to_string()),
                 ("GET", "/ddos") => (200, j, g.state["cortex"]["ddos"].to_string()),
+                ("GET", "/cortex/events") => {
+                    let (ct, body) =
+                        crate::feed::render(&g.state, crate::feed::Query::parse(&req.query));
+                    (200, ct, body)
+                }
                 ("GET", "/self-eval") | ("GET", "/self-eval.json") => {
                     (200, j, g.report.to_string())
                 }
@@ -291,10 +388,15 @@ pub fn route(
                 }
                 ("GET", "/") if !api => (200, "text/html; charset=utf-8", dashboard(&g.state)),
                 ("POST", "/signal") => match parse_signal(&req.body, now_secs()) {
-                    Ok(s) => match g.hub.ingest(s) {
-                        Ok(()) => (202, j, r#"{"ok":true}"#.into()),
-                        Err(e) => (429, j, json!({"ok": false, "error": e}).to_string()),
-                    },
+                    Ok(s) => {
+                        if let (Some(h), true) = (g.evt.clone(), s.kind == "error") {
+                            h.submit(crate::evt::from_signal(&s));
+                        }
+                        match g.hub.ingest(s) {
+                            Ok(()) => (202, j, r#"{"ok":true}"#.into()),
+                            Err(e) => (429, j, json!({"ok": false, "error": e}).to_string()),
+                        }
+                    }
                     Err(e) => (400, j, json!({"ok": false, "error": e}).to_string()),
                 },
                 (_, "/signal") => (405, j, r#"{"error":"POST only"}"#.into()),
@@ -428,7 +530,7 @@ pub fn dashboard(state: &Value) -> String {
     }
     let sys = &state["system"];
     format!(
-        "<!doctype html><html><head><meta charset=utf-8><meta http-equiv=refresh content=15><title>openmind-nerve</title>\
+        "<!doctype html><html><head><meta charset=utf-8><meta http-equiv=refresh content=15><title>galion-nerve (openmind-nerve)</title>\
 <style>body{{font:13px system-ui;background:#0f1115;color:#ddd;margin:1.5em}}table{{border-collapse:collapse}}td,th{{padding:3px 8px;text-align:left;border-bottom:1px solid #222;vertical-align:top}}\
 tr.healthy b{{color:#4c4}}tr.degrading b{{color:#ec4}}tr.failing-soon b{{color:#f84}}tr.failing b{{color:#f44}}tr.absent{{color:#777}}a{{color:#8af}}\
 li.critical b,li.flood b,li.error b{{color:#f44}}li.warn b,li.elevated b{{color:#ec4}}li.normal b,li.info b{{color:#4c4}}small{{color:#999}}.score{{font-size:22px}}</style></head><body>\
@@ -488,9 +590,23 @@ pub fn serve(listener: TcpListener, sh: Arc<Mutex<Shared>>, ev: Option<Arc<Mutex
         active.fetch_add(1, Ordering::SeqCst);
         let (a, sh, ev) = (active.clone(), sh.clone(), ev.clone());
         let spawned = std::thread::Builder::new()
-            .stack_size(256 * 1024)
+            .stack_size(CONN_STACK)
             .spawn(move || {
                 match read_req(&mut s) {
+                    Ok(r)
+                        if r.method == "GET"
+                            && matches!(
+                                r.path.as_str(),
+                                "/events/stream" | "/api/v1/events/stream"
+                            )
+                            && sh.lock().unwrap_or_else(|e| e.into_inner()).evt.is_some() =>
+                    {
+                        let h = sh.lock().unwrap_or_else(|e| e.into_inner()).evt.clone();
+                        record_hit(&sh, &ip, &r.path, 200);
+                        if let Some(h) = h {
+                            crate::evt::stream::serve(s, h, &r.query);
+                        }
+                    }
                     Ok(r) => {
                         let (c, t, b) = route(&r, &sh, &ev);
                         write_resp(&mut s, c, t, &b);
@@ -551,6 +667,8 @@ mod tests {
             "/api/v1/incidents",
             "/api/v1/cortex",
             "/api/v1/ddos",
+            "/api/v1/cortex/events",
+            "/cortex/events",
             "/api/v1/self-eval",
             "/state",
             "/healthz",
@@ -621,6 +739,15 @@ mod tests {
         assert_eq!(tail_n("n=5000"), 1000);
         assert_eq!(tail_n(""), 50);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dashboard_names_galion_nerve_before_the_first_cycle() {
+        // T3.6: galion-realtest's live probe wants Contains("galion-nerve") on `/`.
+        // The live build's <title> is `galion-nerve`; before the first cycle
+        // (state null) there is no component row, so the title must carry it.
+        let h = dashboard(&Value::Null);
+        assert!(h.contains("<title>galion-nerve"), "{h}");
     }
 
     #[test]

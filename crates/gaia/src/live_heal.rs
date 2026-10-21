@@ -28,7 +28,7 @@
 
 use crate::{booted, send};
 use gaia_core::{Json, Outcome, System, Verb};
-use gaia_live::heal::{self, Ledger, TestTarget};
+use gaia_live::heal::{self, Budget, TestTarget};
 use gaia_live::nerve;
 use hades_gate::approval::{Approver, Verdict};
 use hades_gate::config::Config;
@@ -48,7 +48,13 @@ pub const SOURCE: &str = "gaia-live";
 pub const ADMIN_ALPHA: &str = "owner";
 
 /// First line of every signed heal plan (bump on any format change).
-pub const PLAN_HEADER: &str = "gaia heal-apply plan v1 (box test service)";
+///
+/// v2 (integration-3): every line starts with a hades-gate
+/// `safety::PLAN_VERBS` verb and uses only its plan punctuation, so the S3.1
+/// allow-list (hades-redteam e6ceca7) admits the plan without being loosened.
+/// v1 started lines with `gaia`/`service`/`probe`/`start`/`at` and JSON-quoted
+/// the argv, which that allow-list refuses.
+pub const PLAN_HEADER: &str = "record gaia heal-apply plan v2 (box test service)";
 
 /// Longest token file read.
 const MAX_TOKEN_FILE: u64 = 4096;
@@ -84,34 +90,47 @@ pub struct HealCfg {
 pub struct HealTick {
     pub exit: u8,
     pub report: Json,
+    /// hades-gate decision code when the tick reached the approval step with
+    /// a token question (`approved`, `no-token`, `replayed`, `forged`, ...).
+    pub approval_code: Option<String>,
+    /// A restart was spawned (and recorded in both ledgers).
+    pub spawned: bool,
 }
 
 /// The exact plan the admin signs for one restart of `t`. Deterministic: the
 /// same target always gives the same bytes (joined with `\n` by
 /// [`hades_gate::adapter::gaia_plan_bytes`]), so `gaia heal-plan` and
-/// `gaia heal-tick` agree on the hash. The start command is JSON-quoted so
-/// argument boundaries are part of what is signed.
+/// `gaia heal-tick` agree on the hash. Argument boundaries are part of what is
+/// signed: the argument count, then one numbered line per argument. An
+/// argument with a shell metacharacter makes the plan unapprovable (fail
+/// closed), which is the intent for a box test service.
 #[must_use]
 pub fn heal_plan(t: &TestTarget) -> Vec<String> {
-    let argv = serde_json::to_string(&t.argv).unwrap_or_default();
-    vec![
+    let mut plan = vec![
         PLAN_HEADER.to_string(),
         format!(
-            "service {} on 127.0.0.1:{} (box test ports {}-{} only)",
+            "restart box test service {} on 127.0.0.1:{} (box test ports {}-{} only)",
             t.name,
             t.port,
             heal::TEST_PORTS.start(),
             heal::TEST_PORTS.end()
         ),
-        format!("probe GET {} must answer status ok", t.health_path),
-        format!("start {argv} detached in its own process group, stdin closed, no shell"),
+        format!("verify GET {} answers status ok", t.health_path),
         format!(
-            "at most {} restarts of {} per rolling hour",
-            heal::MAX_RESTARTS_PER_HOUR,
-            t.name
+            "restart with argument count {}, detached in its own process group, stdin closed, no shell",
+            t.argv.len()
         ),
-        "record the result on the nerve".to_string(),
-    ]
+    ];
+    for (i, arg) in t.argv.iter().enumerate() {
+        plan.push(format!("verify argument {i} is {arg}"));
+    }
+    plan.push(format!(
+        "keep at most {} restarts of {} per rolling hour",
+        heal::MAX_RESTARTS_PER_HOUR,
+        t.name
+    ));
+    plan.push("record the result on the nerve".to_string());
+    plan
 }
 
 /// SHA-256 (hex) of the plan bytes for `t`.
@@ -122,8 +141,12 @@ pub fn heal_plan_sha256(t: &TestTarget) -> String {
     )))
 }
 
-fn load_approver(config: &Path) -> Result<Approver, String> {
-    Approver::from_config(&Config::load(config)?)
+/// Load the gate: the approver and the path of the global restart ledger
+/// (next to hades-gate's replay ledger; see [`heal::global_ledger_path`]).
+fn load_gate(config: &Path) -> Result<(Approver, PathBuf), String> {
+    let c = Config::load(config)?;
+    let global = heal::global_ledger_path(&c.ledger);
+    Ok((Approver::from_config(&c)?, global))
 }
 
 /// Read one token (trimmed). No file means no token (dry-run).
@@ -171,6 +194,16 @@ fn nerve_post(cfg: &HealCfg, kind: &str, sev: &str, data: serde_json::Value) -> 
     nerve::post(cfg.nerve, SOURCE, kind, sev, data)
 }
 
+/// Post one event as `gaia-live` to the tick's nerve (used by the loop).
+pub fn nerve_event(
+    cfg: &HealCfg,
+    kind: &str,
+    sev: &str,
+    data: serde_json::Value,
+) -> Result<(), String> {
+    nerve_post(cfg, kind, sev, data)
+}
+
 /// Record a refusal on the nerve (best effort) and build the result.
 fn refuse(cfg: &HealCfg, steps: Vec<Json>, stage: &str, why: &str, probe_id: &str) -> HealTick {
     refuse_with(cfg, steps, stage, why, probe_id, json!({}))
@@ -191,10 +224,16 @@ fn refuse_with(
             d.insert(k.clone(), v.clone());
         }
     }
+    let approval_code = data
+        .get("code")
+        .and_then(|c| c.as_str())
+        .map(str::to_string);
     let posted = nerve_post(cfg, "gaia.heal.refused", "warn", data);
     HealTick {
         exit: exit::REFUSED,
         report: result(cfg, steps, "refused", why, posted.err()),
+        approval_code,
+        spawned: false,
     }
 }
 
@@ -205,6 +244,7 @@ fn capped(
     retry: u64,
     probe_id: &str,
     plan_sha: &str,
+    budget: &Budget,
 ) -> HealTick {
     let t = &cfg.target;
     let why = format!(
@@ -214,17 +254,22 @@ fn capped(
     );
     steps.push(step(
         "cap",
-        Json::obj().with("ok", false).with("retry_after_s", retry),
+        Json::obj()
+            .with("ok", false)
+            .with("retry_after_s", retry)
+            .with("global_ledger", budget.global_path().display().to_string()),
     ));
     let posted = nerve_post(
         cfg,
         "gaia.heal.capped",
         "error",
-        json!({"service": t.name, "port": t.port, "restarts_last_hour": heal::MAX_RESTARTS_PER_HOUR, "cap": heal::MAX_RESTARTS_PER_HOUR, "retry_after_s": retry, "probe_id": probe_id, "plan_sha256": plan_sha, "token_consumed": false}),
+        json!({"service": t.name, "port": t.port, "restarts_last_hour": heal::MAX_RESTARTS_PER_HOUR, "cap": heal::MAX_RESTARTS_PER_HOUR, "retry_after_s": retry, "probe_id": probe_id, "plan_sha256": plan_sha, "token_consumed": false, "global_ledger": budget.global_path().display().to_string()}),
     );
     HealTick {
         exit: exit::CAPPED,
         report: result(cfg, steps, "capped", &why, posted.err()),
+        approval_code: None,
+        spawned: false,
     }
 }
 
@@ -308,6 +353,8 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
         return Ok(HealTick {
             exit: exit::OK,
             report: result(cfg, steps, "healthy", "service is up; nothing to do", None),
+            approval_code: None,
+            spawned: false,
         });
     }
 
@@ -364,7 +411,7 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
             )
             .with("plan_sha256", plan_sha.as_str()),
     ));
-    let approver = match load_approver(&cfg.hades_config) {
+    let (approver, global_ledger) = match load_gate(&cfg.hades_config) {
         Ok(a) => a,
         Err(e) => {
             let why = format!("hades-gate unavailable, failing closed: {e}");
@@ -404,8 +451,10 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
     // The cap is checked before the token is consumed, so a capped tick does
     // not burn the admin's approval. A disabled gate or an unsafe plan skips
     // this: hades-gate refuses (and audits) those first, whatever the cap.
-    let ledger = Ledger::new(&cfg.state_dir);
-    let history = ledger
+    // The budget is the --state ledger plus the global ledger next to
+    // hades-gate's replay ledger, so a new --state dir cannot reset it.
+    let budget = Budget::new(&cfg.state_dir, &global_ledger);
+    let history = budget
         .history(&t.name)
         .map_err(|e| format!("ledger: {e}"))?;
     let now = heal::epoch_now();
@@ -413,7 +462,7 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
         approver.is_disabled() || hades_gate::safety::review(&t.name, &plan_bytes).is_err();
     if !admin_first {
         if let Err(retry) = heal::cap_check(&history, now) {
-            return Ok(capped(cfg, steps, retry, &probe_id, &plan_sha));
+            return Ok(capped(cfg, steps, retry, &probe_id, &plan_sha, &budget));
         }
     }
     let verdict = hades_gate::adapter::check_gaia(
@@ -493,17 +542,24 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
         }),
     )?;
 
-    // 5. Healer apply: one restart, inside the cap.
+    // 5. Healer apply: one restart, inside the cap. The budget lock is held
+    //    from this re-read until the restart is recorded, so two ticks or
+    //    loops on one service cannot both spend the last restart.
+    let budget_lock = budget.lock().map_err(|e| format!("ledger lock: {e}"))?;
+    let history = budget
+        .history(&t.name)
+        .map_err(|e| format!("ledger: {e}"))?;
     let used = match heal::cap_check(&history, now) {
         Ok(used) => used,
-        Err(retry) => return Ok(capped(cfg, steps, retry, &probe_id, &plan_sha)),
+        Err(retry) => return Ok(capped(cfg, steps, retry, &probe_id, &plan_sha, &budget)),
     };
     steps.push(step(
         "cap",
         Json::obj()
             .with("ok", true)
             .with("restarts_last_hour_before", used)
-            .with("cap", heal::MAX_RESTARTS_PER_HOUR),
+            .with("cap", heal::MAX_RESTARTS_PER_HOUR)
+            .with("global_ledger", budget.global_path().display().to_string()),
     ));
     let log = cfg.state_dir.join(format!("{}.log", t.name));
     let spawned = heal::spawn_detached(&t.argv, &log);
@@ -519,9 +575,10 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
             0,
         ),
         Ok(pid) => {
-            ledger
+            budget
                 .record(&t.name, now, pid)
                 .map_err(|e| format!("ledger: {e}"))?;
+            drop(budget_lock);
             let (ok, tries) = heal::wait_up(t, cfg.wait);
             if ok {
                 (
@@ -581,6 +638,8 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
     Ok(HealTick {
         exit: exit_code,
         report: result(cfg, steps, outcome, &detail, None),
+        approval_code: Some("approved".to_string()),
+        spawned: pid.is_some(),
     })
 }
 

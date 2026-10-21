@@ -13,6 +13,8 @@
 //!   ptrace <pid>       PTRACE_ATTACH / PTRACE_SEIZE a process outside
 //!   kill <pid>         signal a process outside the sandbox
 //!   seebystander <re>  look for another process in /proc
+//!   procpeek <pid>     which /proc/<pid> files of a process outside are
+//!                      readable (names and sizes only, never contents)
 //!   mount              try to mount a fresh proc / remount / bind
 //!   setuid <binary>    run a setuid-root binary and report euid
 //!   write <path>       create a file outside the workdir
@@ -123,6 +125,42 @@ fn main() {
                 Some(s) => out("seebystander", true, s),
                 None => out("seebystander", false, "bystander not visible in /proc"),
             }
+        }
+        "procpeek" => {
+            // What the host /proc gives away about one process outside: only
+            // file names and byte counts are printed, never contents.
+            let pid = arg(1);
+            let pids = std::fs::read_dir("/proc")
+                .map(|rd| {
+                    rd.flatten()
+                        .filter(|e| {
+                            e.file_name()
+                                .to_string_lossy()
+                                .bytes()
+                                .all(|b| b.is_ascii_digit())
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            let mut open = vec![];
+            for f in ["cmdline", "status", "environ", "maps", "stat"] {
+                if let Ok(b) = std::fs::read(format!("/proc/{pid}/{f}")) {
+                    open.push(format!("{f}={}B", b.len()));
+                }
+            }
+            if let Ok(rd) = std::fs::read_dir(format!("/proc/{pid}/fd")) {
+                open.push(format!("fd={}", rd.count()));
+            }
+            let self_ok = std::fs::read_link("/proc/self/exe").is_ok();
+            let escaped = !open.is_empty();
+            out(
+                "procpeek",
+                escaped,
+                format!(
+                    "pid_dirs={pids} self_exe={self_ok} readable=[{}]",
+                    open.join(",")
+                ),
+            );
         }
         "mount" => {
             use std::ffi::CString;

@@ -4,9 +4,14 @@
 
 # Tuner cutover plan (first single-service cutover)
 
-- Status: **PREPARED, NOT EXECUTED. Needs Slavik's approval.** Nothing has been copied to the VPS, and no unit was restarted or edited.
+- Status (refreshed 2026-10-21 17:30 CEST (+02:00), wave-4 slot 203): **EXECUTED 2026-10-21 04:32:32 CEST (+02:00)** with the Rust galion-deploy, following [../ops/cutover-tuner-nerve.md](../ops/cutover-tuner-nerve.md).
+  `/opt/galion/tuner/bin/tuner` `ecad72a4…3c91` → `89c7fcbcb54c510887dafd8c67b255f05d00595af598fe65f022e204c0ef2b12` (source integration-4 42de672e1e4b39a2c44e290195feb01a17df992e). A mistaken rollback at 04:32:10 was redeployed at 04:32:32.
+  Approved by Mate 04:22 (Slavik auto-accept 20 Oct). Record: `swarm/vps-deploy-20261021@d9bd8295935d2620587aaed68e4b1b52f6ea72b9:docs/ops/deploy-2026-10-21.md`; index [README.md](README.md) §2 C2.
+  At 17:22 the unit was active since 04:32:32 with NRestarts 0, the exe sha256 matched, and `/health` returned 200. Rollback: `/opt/galion/rust/bin/galion-deploy tuner /var/backups/galion/deploy/tuner-20261021-043232+0200.bin http://127.0.0.1:8650/health`.
+  The sections below are the 2026-10-20 plan, kept as written; `tuner.galion.app` still has no DNS record.
+- Original status (2026-10-20): PREPARED, NOT EXECUTED. Needs Slavik's approval. Nothing has been copied to the VPS, and no unit was restarted or edited.
 - Prepared: 2026-10-20 19:10 CEST (+02:00) by swarm slot 07, branch `swarm/tuner-cutover` (based on GitHub main 13a296ce).
-- Evidence: `docs/real-tests/tuner-cutover.md`. Re-run with `scripts/real/tuner-cutover.sh`.
+- Evidence: `docs/real-tests/tuner-cutover.md`. Re-run with `crates/galion-realtest/tests/real_sh_tuner_cutover.rs`.
 - If the cutover runs on or after 2026-10-25 03:00, timestamps are CET (+01:00).
 
 ## 1. What runs as the tuner today (read-only probes, 2026-10-20 18:51–19:08 CEST)
@@ -26,7 +31,7 @@
 
 ## 2. What will replace it
 
-The `tuner` crate from main, with this branch's additions. Served behaviour is **byte-for-byte identical** to live on all 21 routes of `scripts/real/tuner-requests.txt`, diffed against the live 8650 on 2026-10-20 at 19:06 and 19:07 CEST. HEAD and non-GET responses are derived from the live source and tested hermetically.
+The `tuner` crate from main, with this branch's additions. Served behaviour is **byte-for-byte identical** to live on all 21 routes of `crates/tuner/tests/fixtures/requests.txt`, diffed against the live 8650 on 2026-10-20 at 19:06 and 19:07 CEST. HEAD and non-GET responses are derived from the live source and tested hermetically.
 
 Differences from the live binary (none of them changes a served byte):
 1. `tuner --version` prints `tuner 0.1.0` and exits 0 **without binding**. galion-deploy runs `"$NEW" --version` before it installs. The old binary ignores arguments and would start serving, and with 8650 free that would hang the deploy. Today it fails only because 8650 is busy.
@@ -44,11 +49,11 @@ Differences from the live binary (none of them changes a served byte):
 | `tuner-x86_64-unknown-linux-musl` | 459,176 | `47a17df2234fdd5c741f13e9403228e1d4f4dc5f73ac7b41e7996d5e3c511370` | **the one to deploy** (VPS is x86_64). Static, no interpreter. RSS 304 KB on the box. |
 | `tuner-aarch64-unknown-linux-musl` | 412,104 | `0aca8af615620766c8dbeb4eca9ad9439473d6c0049c88613193c6d59f180b75` | Static. 21/21 routes identical under qemu-aarch64. For Pi/phone nodes, not the VPS. |
 
-Build: `nice -n 10 cargo build --release --locked -p tuner --target <triple>` with `CARGO_TARGET_<TRIPLE>_LINKER=rust-lld`, cargo 1.99.1, profile `opt-level=z, lto, codegen-units=1, panic=abort, strip`. The build is **reproducible**: a second build from a different source path and target dir gave the same two sha256s. SOURCE-OF-TRUTH rule 6 says deploys come from a merged main commit, so after Slavik merges this branch, rebuild from that main commit (`scripts/real/tuner-cutover.sh` does it) and deploy only if the sha256 is still `47a17df2…`. If the merge changed the tuner crate, the sha will differ. Use the new sha, and re-run the script first.
+Build: `nice -n 10 cargo build --release --locked -p tuner --target <triple>` with `CARGO_TARGET_<TRIPLE>_LINKER=rust-lld`, cargo 1.99.1, profile `opt-level=z, lto, codegen-units=1, panic=abort, strip`. The build is **reproducible**: a second build from a different source path and target dir gave the same two sha256s. SOURCE-OF-TRUTH rule 6 says deploys come from a merged main commit, so after Slavik merges this branch, rebuild from that main commit (`crates/galion-realtest/tests/real_sh_tuner_cutover.rs` does it) and deploy only if the sha256 is still `47a17df2…`. If the merge changed the tuner crate, the sha will differ. Use the new sha, and re-run the script first.
 
-## 3. The cutover (for Slavik; nothing below has been run)
+## 3. The cutover (2026-10-20 plan; executed 2026-10-21 04:32 via galion-deploy, see Status at the top)
 
-### 3.1 Copy the binary (needs approval; not done)
+### 3.1 Copy the binary (needs approval; done 2026-10-21 04:30 as /var/tmp/galion-cutover staging, see Status)
 
 Use a scratch dir that is **not** the `/opt/galion/openmind` working copy:
 
@@ -93,7 +98,7 @@ ssh slavik-vps '
   journalctl -u tuner -n 3 --no-pager -o cat                          # "tuner 127.0.0.1:8650 serving /opt/galion/tuner/www"
   curl -s -m 3 http://127.0.0.1:8660/status.json | grep -o "\"tuner\"[^}]*}"   # ok:true
 '
-LIVE=1 scripts/real/tuner-cutover.sh    # on the box: all 21 routes vs the now-new live 8650, expect 21/21 IDENTICAL
+GALION_REAL=1 GALION_REAL_VPS=1 cargo test -p galion-realtest --test real_sh_tuner_cutover -- --nocapture # on the box: all 21 routes vs the now-new live 8650, expect 21/21 IDENTICAL
 ```
 
 The fixtures in `crates/tuner/tests/fixtures/live/` are the old binary's bytes. After the switch, the full route diff against live is the strongest check. It is read-only GETs.
@@ -119,7 +124,8 @@ Go only when every box is ticked:
 
 - [ ] **Approval:** Slavik approves *this one* service (tuner, 8650), and records it in `docs/cutover-approval.md` (today it says `tuner | no`).
 - [ ] **Merged:** `swarm/tuner-cutover` is merged to main through a PR with the self-eval gate green (fmt, clippy `-D warnings`, tests, no-python).
-- [ ] **Rebuilt from main:** `scripts/real/tuner-cutover.sh` on the merged main commit reports 21/21 IDENTICAL against live 8650 and 3/3 real tests passed, and the x86_64 sha256 is recorded (expected `47a17df2…1370` if the crate is unchanged by the merge).
+- Note 2026-10-21: on integration-2 the strict galion-common parser answers the 2 malformed rows `bare-get` / `no-version` with 400, so expect 19 IDENTICAL + 2 KNOWN-DIFF until the owner decides; see docs/real-tests/realscript-port-3.md.
+- [ ] **Rebuilt from main:** `crates/galion-realtest/tests/real_sh_tuner_cutover.rs` on the merged main commit reports 21/21 IDENTICAL against live 8650 and 3/3 real tests passed, and the x86_64 sha256 is recorded (expected `47a17df2…1370` if the crate is unchanged by the merge).
 - [ ] **Copied and verified:** the binary is in `/var/tmp/galion-cutover/` on the VPS and `sha256sum -c` is OK (step 3.1, needs approval).
 - [ ] **Preflight green (3.2):** the live binary sha is still `ecad72a4…dd25`, `tuner` is active, `/health` is 200, `--version` prints `tuner 0.1.0`, and `--check` exits 0.
 - [ ] **Window:** not during `galion-backup.timer` (runs about every 6 h; the next run was 20:21 CEST on 2026-10-20; check `systemctl list-timers galion-backup.timer`).
@@ -135,3 +141,7 @@ Go only when every box is ticked:
 - The live tuner runs as root with only `NoNewPrivileges`. A later unit hardening (`DynamicUser=yes`, `ProtectSystem=strict`, `ReadOnlyPaths=/opt/galion/tuner/www`) would be a unit change with its own approval.
 - One thread per connection with a 5 s read timeout, the same as live. It is fine behind loopback and a tunnel; a connection cap would be a behaviour change and is left out on purpose.
 - `deploy/staged/tuner.service` still names a working-copy path. Fix it, or delete it in a follow-up.
+
+## 8. Box rehearsal (2026-10-20, swarm/deploy-sim)
+
+Every step of sections 3 and 4 was rehearsed on the box with the real old and new binaries, a systemd-shaped supervisor and galion-deploy's real code: `docs/cutover/tuner-rehearsal.md` (21/21 checks, downtime 2–3 ms per swap or rollback). Four rules come out of it and apply on top of this plan: (1) use the L2 manual rollback only while the unit is active, and if it is down use the last resort, because the live galion-deploy waits forever for `--version` and the old tuner ignores it and serves; (2) add `systemctl reset-failed tuner` before every manual restart; (3) after any non-zero galion-deploy exit, check `is-active` and the sha, because exit 1 is ambiguous; (4) run galion-deploy under `nohup` with a log file.

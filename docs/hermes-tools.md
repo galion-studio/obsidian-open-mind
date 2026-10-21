@@ -55,6 +55,10 @@ Refusals get a `refused` line with the reason, and the model gets back `{"error"
   fs 128 MiB), swap 0, group OOM kill, `pids.max` (cargo 256) and **`cpu.max`** (new on this
   branch in openmind-sandbox: `cgroup_cpu_pct`, cargo 100 % of one CPU by default). If the
   controller is missing, the run fails closed.
+- Total worktree cap (row 151 + D-WDQ2, accepted 2026-10-21): every run sees the worktree on a
+  private 512 MiB tmpfs; writes past it fail with ENOSPC, changes are copied back after the run,
+  a copy back that did not finish (host disk full) makes the tool call fail with an
+  "INCOMPLETE" note (partial files are kept, D-WDQ3). Memory caps above grow by the cap.
 
 ## Configuration (environment only; no Hermes config.yaml key)
 | variable | default | meaning |
@@ -73,6 +77,8 @@ Refusals get a `refused` line with the reason, and the model gets back `{"error"
 | `HERMES_RS_CODING_MAX_CALLS` | 200 | tool calls per session |
 | `HERMES_RS_CODING_MAX_READ` / `_MAX_WRITE` | 256 KiB / 512 KiB | file caps |
 | `HERMES_RS_CODING_DENY` / `_HIDE` | empty | extra `:`-separated denied worktree roots / hidden dirs |
+| `HERMES_RS_CODING_WORKDIR_MB` | 512 | total worktree cap per tool run in MiB (private tmpfs over the worktree, copied in and back; ENOSPC past it). `0`/`off` = no cap, else 16-4096. Added on top of each run's cgroup memory.max. See docs/sandbox/workdir-quota.md (D-WDQ2, accepted 2026-10-21) |
+| `HERMES_RS_CODING_WORKDIR_INODES` | 0 | inode cap of that tmpfs (0 = one per 16 KiB) |
 | `HERMES_RS_CODING_ALLOW_NO_LANDLOCK` | unset | `1` lets the tools start on a kernel without Landlock (not recommended) |
 | `HERMES_RS_PROVIDER_LOOPBACK_ONLY` | unset | **new in hermes-rs**: `1` makes the curl provider refuse any non-loopback URL. Used by every test here |
 

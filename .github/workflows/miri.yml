@@ -1,0 +1,84 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# miri: undefined-behaviour check of the pure-logic crates (security S2.4,
+# docs/security/sec-miri-pure.md; owner decision D-M1, Mate 2026-10-21 17:04 +02:00).
+#   miri-short  every push, ~3 min wall: pass 1 (isolation, Stacked Borrows) minus the
+#               two slow targets (galion-common nist B.3 and time_vs_chrono), split in
+#               three parallel shards (one Miri run serially is ~5 min on the box).
+#   miri-full   nightly schedule, ~25 min on the box: the whole pass 1, slow targets included.
+# Both commands and their box timings: docs/real-tests/ci-miri-schedule.md.
+# The skip list is checked by crates/galion-realtest/tests/miri_workflow.rs.
+# Read-only: no secrets, no publishing, no network beyond toolchain and crates.
+name: miri
+
+on:
+  push:
+  schedule:
+    # 00:17 on GitHub's cron clock = 02:17 +02:00 (summer) / 01:17 +01:00 (winter) in Zagreb.
+    - cron: '17 0 * * *'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: run the full ~25 min pass instead of the short one
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: miri-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  TZ: Europe/Zagreb
+  # Dated nightly: the one sec-miri-pure ran on (rustc 07e526db9, miri 0.1.0).
+  MIRI_TOOLCHAIN: nightly-2026-10-20
+  MIRI_CRATES: -p galion-common -p hades-gate -p openmind-schema
+  # Short run only: the six tests of galion-common's nist and time_vs_chrono targets.
+  MIRI_SHORT_SKIP: --exact --skip fips_180_2_appendix_b --skip nist_additional_vectors --skip old_copies_agree --skip every_switch_1996_to_2100 --skip coarse_sweep_and_labels --skip stamp_checks_agree
+
+jobs:
+  miri-short:
+    name: miri short ${{ matrix.shard }} (pass 1 minus nist + time_vs_chrono)
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.full)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: common-lib
+            targets: -p galion-common --lib
+          - shard: common-tests
+            targets: -p galion-common --test *
+          - shard: gate-schema
+            targets: -p hades-gate -p openmind-schema
+    env:
+      MIRI_TARGETS: ${{ matrix.targets }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: nightly-2026-10-20
+          components: miri, rust-src
+      - run: cargo +"$MIRI_TOOLCHAIN" miri setup
+      # set -f: the * in --test * is cargo's target glob, not a shell glob.
+      - run: set -f; cargo +"$MIRI_TOOLCHAIN" miri test --locked $MIRI_TARGETS -- $MIRI_SHORT_SKIP
+
+  miri-full:
+    name: miri full (pass 1, nightly)
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.full)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: nightly-2026-10-20
+          components: miri, rust-src
+      - run: cargo +"$MIRI_TOOLCHAIN" miri setup
+      - run: cargo +"$MIRI_TOOLCHAIN" miri test --locked $MIRI_CRATES

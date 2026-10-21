@@ -10,9 +10,16 @@
 //!       loop + loopback API (default 127.0.0.1:8670 / NERVE_ADDR). `--log`
 //!       (or NERVE_EVENT_LOG) enables the JSONL event log behind POST /event
 //!       and GET /events (swarm/gaia-live's `openmind-nerve serve` API).
+//!   openmind-nerve serve --mode event   (or NERVE_MODE=event): event-driven mode,
+//!       see `docs/nerve-event-contract.md`; NERVE_EVT_* env (evt::EvtConfig)
 //!   openmind-nerve once [--md]        one observe-only cycle; prints the self-eval
 //!   openmind-nerve replay DIR [--md | --state]
 //!       run a read-only capture of a live host through the same pipeline
+//!   openmind-nerve replay DIR --reflex [--stretch N] [--worst-case] [--log]
+//!       the same replay with reflexes on, forced dry-run (nothing executed);
+//!       prints the T3.2 verdict (exit 1 on any cloudflared restart or rollback)
+//!   openmind-nerve reflex-audit
+//!       allowlist / never-touch audit of this config's reflex targets (exit 1 on a violation)
 //!   openmind-nerve --version
 //!
 //! Env: NERVE_ADDR, NERVE_INTERVAL (30), NERVE_DATA_DIR (/var/lib/galion-nerve),
@@ -22,11 +29,15 @@
 //! NERVE_COMPONENTS (JSON table), NERVE_SYSTEMD (1), NERVE_JOURNAL (1),
 //! NERVE_ACCESS_LOGS (name=path[@component],...), NERVE_KNOWN_PORTS,
 //! NERVE_PUBLIC_OK_PORTS (22), NERVE_LISTEN_SCOPE (lo-hi), NERVE_DDOS_MIN_RPS (10),
-//! NERVE_DDOS_MIN_REQUESTS (300), NERVE_LOADING_GRACE (900), NERVE_EVENT_LOG.
+//! NERVE_DDOS_MIN_REQUESTS (300), NERVE_LOADING_GRACE (900), NERVE_EVENT_LOG,
+//! NERVE_SENSORS_OFF (cortex sensor names, comma-separated), NERVE_EDGE_HOSTS (1; 0 = no
+//! per-hostname edge streams), NERVE_EDGE_HOSTS_MAX (32).
 //! Runtime dry-run switch: `echo live > $NERVE_DATA_DIR/mode` or `echo dry-run > ...`.
 
 use openmind_nerve::config::Config;
 use openmind_nerve::engine::Engine;
+use openmind_nerve::evt::runtime::Runtime;
+use openmind_nerve::evt::{escalate, EvtConfig, Hub};
 use openmind_nerve::server::EventLog;
 use openmind_nerve::Writer;
 use std::net::TcpListener;
@@ -35,7 +46,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state] | --version]";
+const USAGE: &str = "usage: openmind-nerve [serve [--mode event] [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state|--reflex [--stretch N] [--worst-case] [--log]] | reflex-audit | --version]";
 
 fn opt(args: &[String], k: &str) -> Option<String> {
     args.iter()
@@ -86,6 +97,55 @@ fn main() -> ExitCode {
             e.alerts.to_journal = false;
             e.cycle();
             print_report(&e, &args)
+        }
+        "reflex-audit" => match openmind_nerve::config::specs_for(&cfg) {
+            Ok(specs) => {
+                let a = openmind_nerve::reflex_audit::allowlist_audit(&specs);
+                println!("{}", serde_json::to_string_pretty(&a).unwrap_or_default());
+                if a["pass"] == true {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::from(1)
+                }
+            }
+            Err(err) => {
+                eprintln!("openmind-nerve reflex-audit: {err}");
+                ExitCode::from(2)
+            }
+        },
+        "replay" if args.iter().any(|a| a == "--reflex") => {
+            let Some(dir) = args.get(1).filter(|a| !a.starts_with("--")) else {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            };
+            let opts = openmind_nerve::reflex_audit::DryOpts {
+                stretch: opt(&args, "--stretch")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0)
+                    .min(10_000),
+                worst_case: args.iter().any(|a| a == "--worst-case"),
+            };
+            match openmind_nerve::reflex_audit::dry_replay(&PathBuf::from(dir), cfg, &opts) {
+                Ok(r) => {
+                    for n in &r.out.notes {
+                        eprintln!("replay: {n}");
+                    }
+                    let mut v = r.verdict.clone();
+                    if args.iter().any(|a| a == "--log") {
+                        v["log"] = serde_json::Value::from(r.log.clone());
+                    }
+                    println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                    if r.verdict["pass"] == true {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::from(1)
+                    }
+                }
+                Err(err) => {
+                    eprintln!("openmind-nerve replay: {err}");
+                    ExitCode::from(2)
+                }
+            }
         }
         "replay" => {
             let Some(dir) = args.get(1).filter(|a| !a.starts_with("--")) else {
@@ -184,6 +244,32 @@ fn serve(cfg: Config, args: &[String]) -> ExitCode {
         ev.as_ref().map(|x| x.lock().map(|l| l.path.display().to_string()).unwrap_or_default()).unwrap_or_else(|| "off".into()),
         e.comps.len()
     );
+    let event_mode = opt(args, "--mode")
+        .or_else(|| std::env::var("NERVE_MODE").ok())
+        .is_some_and(|m| m.trim() == "event");
+    let mut evt_parts = None;
+    if event_mode {
+        let ecfg = match EvtConfig::from_env(&|k| std::env::var(k).ok(), e.cfg.data_dir.clone()) {
+            Ok(c) => c,
+            Err(err) => {
+                eprintln!("<3>openmind-nerve: event config: {err}");
+                return ExitCode::from(2);
+            }
+        };
+        let hub = Arc::new(Hub::new(ecfg.dedupe_s));
+        hub.actions
+            .lock()
+            .unwrap_or_else(|x| x.into_inner())
+            .live_enabled = ecfg.actions_live;
+        e.shared.lock().unwrap_or_else(|x| x.into_inner()).evt = Some(hub.clone());
+        eprintln!(
+            "<6>openmind-nerve event mode: heartbeat={}s debounce={}s max_wait={}s dedupe={}s escalate={:?} paid_llm={} actions={}",
+            ecfg.heartbeat_s, ecfg.debounce_s, ecfg.max_wait_s, ecfg.dedupe_s, ecfg.escalate.mode, ecfg.escalate.enabled(),
+            if ecfg.actions_live { "live" } else { "dry-run" }
+        );
+        evt_parts = Some((ecfg, hub));
+    }
+    let ev_rt = ev.clone();
     let sh = e.shared.clone();
     if std::thread::Builder::new()
         .name("nerve-http".into())
@@ -193,6 +279,15 @@ fn serve(cfg: Config, args: &[String]) -> ExitCode {
         eprintln!("<3>openmind-nerve: cannot start http thread");
         return ExitCode::from(1);
     }
+    if let Some((ecfg, hub)) = evt_parts {
+        let esc = escalate::build(&ecfg.escalate, Some(ecfg.data_dir.clone()));
+        let mut rt = Runtime::new(ecfg, hub, esc);
+        rt.evlog = ev_rt;
+        rt.start_sources();
+        rt.run(&mut e);
+        return ExitCode::SUCCESS;
+    }
+    let _ = ev_rt;
     let mut last_mode = e.mode();
     let mut last_sys = String::new();
     loop {

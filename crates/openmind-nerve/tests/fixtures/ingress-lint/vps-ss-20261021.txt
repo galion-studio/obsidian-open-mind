@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# ss -ltn on the VPS, 2026-10-21 08:12:06 +02:00 (read-only; no process names, no peers).
+State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess
+LISTEN 0      4096      127.0.0.54:53         0.0.0.0:*          
+LISTEN 0      4096       127.0.0.1:20241      0.0.0.0:*          
+LISTEN 0      4096       127.0.0.1:20242      0.0.0.0:*          
+LISTEN 0      4096   127.0.0.53%lo:53         0.0.0.0:*          
+LISTEN 0      128        127.0.0.1:8672       0.0.0.0:*          
+LISTEN 0      128        127.0.0.1:8660       0.0.0.0:*          
+LISTEN 0      128        127.0.0.1:8670       0.0.0.0:*          
+LISTEN 0      128        127.0.0.1:8671       0.0.0.0:*          
+LISTEN 0      128        127.0.0.1:8642       0.0.0.0:*          
+LISTEN 0      128        127.0.0.1:8646       0.0.0.0:*          
+LISTEN 0      128        127.0.0.1:8650       0.0.0.0:*          
+LISTEN 0      128        127.0.0.1:8420       0.0.0.0:*          
+LISTEN 0      100        127.0.0.1:25         0.0.0.0:*          
+LISTEN 0      511        127.0.0.1:8080       0.0.0.0:*          
+LISTEN 0      128        127.0.0.1:8091       0.0.0.0:*          
+LISTEN 0      128        127.0.0.1:8002       0.0.0.0:*          
+LISTEN 0      4096               *:22               *:*          
+LISTEN 0      100            [::1]:25            [::]:*          

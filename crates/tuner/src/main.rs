@@ -20,6 +20,7 @@ use std::time::Duration;
 use tuner::cli::{self, Action};
 
 fn main() -> ExitCode {
+    galion_common::build_info::exit_if_version("tuner", env!("CARGO_PKG_VERSION"));
     let args: Vec<String> = std::env::args().skip(1).collect();
     let action = match cli::parse_args(&args) {
         Ok(action) => action,

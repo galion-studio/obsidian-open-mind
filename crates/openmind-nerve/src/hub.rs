@@ -161,6 +161,82 @@ impl Hub {
     }
 }
 
+const PUSH_WINDOW: &str = "the last 2 min";
+
+/// Where a pushed source belongs: (correlation group, component name).
+pub type SourceMap<'a> = &'a dyn Fn(&str) -> (String, String);
+
+impl Hub {
+    /// Pushed signals since `since` (the engine passes now - 120 s) as incident signals (the service told us,
+    /// rather than a probe finding out):
+    ///
+    /// - `error` (e.g. `http_5xx`) -> Error, cause = the component's group;
+    /// - event `slow_request` -> Warn, cause = the group (latency is the
+    ///   component's own story);
+    /// - event `spend_cap` -> Warn, cause `spend-cap:<group>` (a budget stop,
+    ///   not a fault: kept apart from 5xx);
+    /// - event `conn_cap` -> Warn, cause = the group;
+    /// - event `started` -> Info (shown inside an incident, never opens one);
+    /// - heartbeat with `dropped=N>0` -> Info.
+    pub fn incident_signals(&self, since: u64, map: SourceMap) -> Vec<crate::incident::Signal> {
+        use crate::incident::{Sev, Signal as ISig};
+        let mut out = vec![];
+        let mut names: Vec<&String> = self.sources.keys().collect();
+        names.sort();
+        for n in names {
+            let st = &self.sources[n];
+            let (group, comp) = map(n);
+            let new: Vec<&Signal> = st.recent.iter().filter(|s| s.t >= since).collect();
+            let mut push = |cause: String, sev: Sev, filt: &dyn Fn(&Signal) -> bool, what: &str| {
+                let hits: Vec<&&Signal> = new.iter().filter(|s| filt(s)).collect();
+                if let Some(last) = hits.last() {
+                    out.push(ISig::new(
+                        &cause,
+                        &comp,
+                        sev,
+                        format!(
+                            "pushed {} {what} in {PUSH_WINDOW}; last: {}",
+                            hits.len(),
+                            last.msg
+                        ),
+                    ));
+                }
+            };
+            push(
+                group.clone(),
+                Sev::Error,
+                &|s| s.kind == "error",
+                "error(s)",
+            );
+            push(
+                group.clone(),
+                Sev::Warn,
+                &|s| s.kind == "event" && s.name == "slow_request",
+                "slow request(s)",
+            );
+            push(
+                format!("spend-cap:{group}"),
+                Sev::Warn,
+                &|s| s.kind == "event" && s.name == "spend_cap",
+                "spend-cap hit report(s)",
+            );
+            push(
+                group.clone(),
+                Sev::Warn,
+                &|s| s.kind == "event" && s.name == "conn_cap",
+                "connection-cap hit report(s)",
+            );
+            push(
+                group.clone(),
+                Sev::Info,
+                &|s| s.kind == "event" && s.name == "started",
+                "start(s)",
+            );
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -215,5 +291,48 @@ mod tests {
         assert!(h.errors_since("m", 0) > 0);
         assert_eq!(h.sources["m"].recent.len(), PER_SOURCE_KEEP);
         assert_eq!(h.sources["m"].metrics.get("n"), Some(&1.0));
+    }
+
+    #[test]
+    fn pushed_events_become_incident_signals() {
+        use crate::incident::Sev;
+        let mut h = Hub::default();
+        let mk = |t, kind: &str, name: &str, msg: &str| Signal {
+            t,
+            source: "hermes-rs".into(),
+            kind: kind.into(),
+            name: name.into(),
+            value: None,
+            msg: msg.into(),
+        };
+        h.ingest(mk(90, "error", "http_5xx", "old")).unwrap();
+        h.ingest(mk(100, "event", "started", "listening")).unwrap();
+        h.ingest(mk(101, "error", "http_5xx", "POST /x -> 502"))
+            .unwrap();
+        h.ingest(mk(102, "event", "slow_request", "GET /y in 1500 ms"))
+            .unwrap();
+        h.ingest(mk(
+            103,
+            "event",
+            "spend_cap",
+            "daily provider call cap reached (3 of 3)",
+        ))
+        .unwrap();
+        let map = |s: &str| (format!("g-{s}"), s.to_string());
+        let v = h.incident_signals(100, &map);
+        let find = |c: &str, sev: Sev| v.iter().find(|s| s.cause == c && s.sev == sev).cloned();
+        let e = find("g-hermes-rs", Sev::Error).unwrap();
+        assert!(
+            e.msg.contains("1 error(s)") && e.msg.contains("502"),
+            "{}",
+            e.msg
+        );
+        assert!(find("g-hermes-rs", Sev::Warn).unwrap().msg.contains("slow"));
+        assert!(find("spend-cap:g-hermes-rs", Sev::Warn)
+            .unwrap()
+            .msg
+            .contains("call cap"));
+        assert!(find("g-hermes-rs", Sev::Info).is_some());
+        assert!(h.incident_signals(200, &map).is_empty());
     }
 }

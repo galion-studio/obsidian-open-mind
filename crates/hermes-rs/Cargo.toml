@@ -20,4 +20,9 @@ sqlite = ["dep:rusqlite"]
 galion-common = { path = "../galion-common" }
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
 openmind-persona = { path = "../openmind-persona" }
+nerve-client = { path = "../nerve-client" }
 rusqlite = { version = "0.32", default-features = false, features = ["bundled"], optional = true }
+# Device enrollment (src/enroll): Ed25519 strict verify, SHA-256, OS randomness.
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
+sha2 = { version = "0.10", default-features = false, features = ["std"] }
+getrandom = "0.2"

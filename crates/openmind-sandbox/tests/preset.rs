@@ -127,7 +127,8 @@ fn assert_contract(preset: Preset, dir: &Path) {
         vec![
             "/root".to_string(),
             "/home".to_string(),
-            "/run/secrets".to_string()
+            "/run/secrets".to_string(),
+            "/opt/galion".to_string()
         ]
     );
     let dir_text = dir.to_str().unwrap();
@@ -155,6 +156,8 @@ fn assert_read_only(policy: &SandboxPolicy) {
     assert_eq!(policy.mem_bytes, 268_435_456);
     assert_eq!(policy.nofile, 64);
     assert_eq!(policy.fsize_bytes, 1_048_576);
+    assert_eq!(policy.workdir_tmpfs_bytes, 67_108_864);
+    assert_eq!(policy.workdir_tmpfs_inode_cap(), 4096);
     assert_eq!(policy.output_cap, 65_536);
     assert!(!policy.net);
     assert!(policy.require_net_isolation);
@@ -170,6 +173,9 @@ fn assert_build(policy: &SandboxPolicy, dir_text: &str) {
     assert_eq!(policy.mem_bytes, 1_073_741_824);
     assert_eq!(policy.nofile, 1024);
     assert_eq!(policy.fsize_bytes, 536_870_912);
+    assert_eq!(policy.workdir_tmpfs_bytes, 536_870_912);
+    assert_eq!(policy.workdir_tmpfs_inode_cap(), 32_768);
+    assert!(policy.workdir_tmpfs_bytes < policy.cgroup_mem_bytes);
     assert_eq!(policy.output_cap, 262_144);
     assert!(!policy.net);
     assert!(policy.require_net_isolation);
@@ -193,6 +199,8 @@ fn assert_net(policy: &SandboxPolicy) {
     assert_eq!(policy.mem_bytes, 268_435_456);
     assert_eq!(policy.nofile, 64);
     assert_eq!(policy.fsize_bytes, 33_554_432);
+    assert_eq!(policy.workdir_tmpfs_bytes, 67_108_864);
+    assert!(policy.workdir_tmpfs_bytes > policy.fsize_bytes);
     assert_eq!(policy.output_cap, 262_144);
     assert!(policy.net);
     assert!(!policy.require_net_isolation);
@@ -278,4 +286,110 @@ fn preset_does_not_spawn_unshare_or_write_outside_temp_dir() {
     drop(dir);
     assert!(!path.exists(), "temp dir was not deleted");
     assert!(!leak.exists());
+}
+
+/// The data files and the compiled presets agree on the work dir cap, and
+/// the cap is on for every shipped tool preset (row 151, S9b gap).
+#[test]
+fn workdir_tmpfs_cap_matches_toml_and_is_on_for_every_preset() {
+    let key = |text: &str, k: &str| -> u64 {
+        text.lines()
+            .find_map(|l| l.strip_prefix(&format!("{k} = ")))
+            .and_then(|v| v.split('#').next())
+            .map(|v| v.trim().parse().unwrap())
+            .unwrap_or_else(|| panic!("{k} missing"))
+    };
+    let dir = TempDir::new();
+    for (preset, path) in Preset::all().iter().zip(toml_files()) {
+        assert!(path.ends_with(format!("{}.toml", preset.name())));
+        let text = fs::read_to_string(&path).unwrap();
+        let p = preset.policy(dir.path());
+        assert_eq!(
+            key(&text, "workdir_tmpfs_bytes"),
+            p.workdir_tmpfs_bytes,
+            "{}",
+            preset.name()
+        );
+        assert_eq!(
+            key(&text, "workdir_tmpfs_inodes"),
+            p.workdir_tmpfs_inodes,
+            "{}",
+            preset.name()
+        );
+        assert!(
+            p.workdir_tmpfs_bytes > 0,
+            "{} has no work dir cap",
+            preset.name()
+        );
+        assert!(
+            p.workdir_tmpfs_bytes >= p.fsize_bytes,
+            "{}: one maximal file must fit",
+            preset.name()
+        );
+    }
+    // The bare policy keeps the old behaviour (opt-in only).
+    let bare = SandboxPolicy::new(dir.path());
+    assert_eq!(bare.workdir_tmpfs_bytes, 0);
+    assert_eq!(bare.workdir_tmpfs_inode_cap(), 1024);
+}
+
+/// S8 fix (VPS 2026-10-21): every tool preset hides the live deployment tree,
+/// and the shipped TOML files say the same as the Rust presets.
+#[test]
+fn tool_presets_hide_opt_galion_and_match_toml() {
+    let dir = std::env::temp_dir().join("om-sand2-not-created");
+    // Paths from the VPS S8 list that the old preset left to unix permissions.
+    let live = [
+        "/opt/galion/galion-light/publish/obsidian/link.env",
+        "/opt/galion/galion-light/secrets",
+        "/opt/galion/hermes/.env",
+        "/opt/galion/galion-src/galion-backend/.env",
+        "/opt/galion/from-grok-build/root/galion-secrets/cloudflare.read.env",
+        "/opt/galion/openmind",
+    ];
+    let files = toml_files();
+    for preset in Preset::all() {
+        let policy = preset.policy(&dir);
+        let hide = &policy.hide_paths;
+        assert!(
+            hide.iter().any(|h| h == Path::new("/opt/galion")),
+            "{} does not hide /opt/galion",
+            preset.name()
+        );
+        for path in live {
+            assert!(
+                hide.iter().any(|h| Path::new(path).starts_with(h)),
+                "{} leaves {path} visible",
+                preset.name()
+            );
+        }
+        // No read root sits under /opt/galion, so the hide is never skipped
+        // as "needed" by the preset itself.
+        for root in &policy.fs_read {
+            assert!(
+                !root.starts_with("/opt/galion"),
+                "{} reads {}",
+                preset.name(),
+                root.display()
+            );
+        }
+        let file = files
+            .iter()
+            .find(|p| p.file_stem().and_then(|s| s.to_str()) == Some(preset.name()))
+            .unwrap();
+        let text = fs::read_to_string(file).unwrap();
+        let line = text
+            .lines()
+            .find(|l| l.starts_with("hide_paths = "))
+            .unwrap();
+        let want = format!(
+            "hide_paths = [{}]",
+            hide.iter()
+                .map(|h| format!("\"{}\"", h.display()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        assert_eq!(line, want, "{} TOML and Rust differ", preset.name());
+    }
+    assert!(!dir.exists());
 }

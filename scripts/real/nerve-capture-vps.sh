@@ -3,7 +3,7 @@
 # Copyright (c) 3000 Galion / galion-studio
 #
 # READ-ONLY capture of the live VPS nerve and its inputs, for
-# `openmind-nerve replay DIR`. Only HTTP GETs on loopback, `ss -ltn` and
+# `openmind-nerve replay DIR`. Only HTTP GETs on loopback, `ss -ltnp` and
 # `journalctl` reads run on the VPS; every byte is streamed back over ssh
 # stdout, nothing is written on the VPS, nothing is restarted.
 # usage: scripts/real/nerve-capture-vps.sh OUTDIR [SNAPSHOTS=3] [GAP_S=35]
@@ -21,7 +21,7 @@ done
 "${S[@]}" 'curl -s -m 10 http://127.0.0.1:8670/self-eval.md' > "$out/live-self-eval.md.txt"
 "${S[@]}" 'curl -s -m 10 http://127.0.0.1:8660/status.json' > "$out/health_status.json"
 "${S[@]}" 'curl -s -m 5 http://127.0.0.1:8002/health' > "$out/body-8002.json"
-"${S[@]}" 'ss -ltn' > "$out/ss.txt"
+"${S[@]}" 'ss -ltnp' > "$out/ss.txt"  # -p: process names for the ownership map
 "${S[@]}" 'journalctl --since "-35min" --no-pager -q -o json --output-fields=MESSAGE,PRIORITY,_SYSTEMD_UNIT,UNIT -u cloudflared -u galion-one -u openmind-memory -u hermes-rs -u link-watch-rs -u galion-desk -u tuner -u console -u galion-health -u tuner-quick' > "$out/journal.jsonl"
 "${S[@]}" 'for x in 8091/health 8002/health 8642/health 8420/health 8646/health 8650/health 8080/ 8660/status.json 8670/ 8670/health; do printf "%s " $x; curl -s -m 5 -o /dev/null -w "%{http_code}\n" http://127.0.0.1:$x; done' > "$out/probes.txt"
 date '+captured %Y-%m-%d %H:%M:%S %Z (%:z)' > "$out/CAPTURED"

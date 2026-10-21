@@ -82,3 +82,5 @@ The same tree was copied to another path and built with another `CARGO_TARGET_DI
 - `cargo test --workspace`: ok, 506 passed, 0 failed (123 test binaries)
 - `cargo check -p tuner --all-targets` for `armv7-unknown-linux-musleabihf` and `aarch64-linux-android`: ok
 - `scripts/no-python.sh`: ok
+
+> **2026-10-21 (realscript-port-3):** the shell driver for this evidence was ported to Rust and deleted; re-run with the matching test in `crates/galion-realtest/tests/` (see `docs/real-tests/realscript-port-3.md`).

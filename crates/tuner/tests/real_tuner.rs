@@ -4,7 +4,7 @@
 
 //! Real-life test of the tuner binary on loopback ports 19071-19073 (swarm
 //! slot 07). Runs only with `GALION_REAL=1`. `TUNER_REAL_BIN` names the binary
-//! (the release musl build in `scripts/real/tuner-cutover.sh`); without it the
+//! (the release musl build in `crates/galion-realtest/tests/real_sh_tuner_cutover.rs`); without it the
 //! test-profile binary is used. Every route of the matrix is sent over real TCP
 //! and diffed byte-for-byte against the live VPS fixtures. Never binds 8650.
 
@@ -88,8 +88,7 @@ fn real_binary_matches_live_on_every_route() {
         return;
     }
     let _kid = start(PORT_SERVE);
-    let text =
-        fs::read_to_string(manifest().join("../../scripts/real/tuner-requests.txt")).unwrap();
+    let text = fs::read_to_string(manifest().join("tests/fixtures/requests.txt")).unwrap();
     let mut n = 0;
     for line in text
         .lines()

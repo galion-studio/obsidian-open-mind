@@ -1,0 +1,62 @@
+{
+  "batches": 0,
+  "config": {
+    "actions_live": false,
+    "certs": [],
+    "cycle_debounce_s": 5,
+    "cycle_min_gap_s": 60,
+    "debounce_s": 30,
+    "dedupe_s": 600,
+    "disk": [
+      "/"
+    ],
+    "escalate": {
+      "budget_usd": 0.0,
+      "calls_per_hour": 4,
+      "endpoint_host": null,
+      "key_env": null,
+      "max_tokens": 400,
+      "mode": "delegate",
+      "model": null,
+      "paid_enabled": false
+    },
+    "escalate_min": "high",
+    "heartbeat_s": 900,
+    "journal": true,
+    "max_wait_s": 120,
+    "pidfd": true,
+    "watch": []
+  },
+  "deduped": 0,
+  "engine_cycles_last_hour": 4,
+  "engine_cycles_total": 17,
+  "escalation_refused": 0,
+  "escalations_last_hour": 0,
+  "escalations_per_hour_avg": 0.0,
+  "escalations_total": 0,
+  "last_wake": "2026-10-21T22:46:57+02:00",
+  "llm_calls": 0,
+  "llm_usd": 0.0,
+  "mode": "event",
+  "published_by_severity": {
+    "high": 1,
+    "info": 19,
+    "medium": 11
+  },
+  "ring": 31,
+  "seq": 31,
+  "source_errors": {},
+  "started": "2026-10-21T19:16:57+02:00",
+  "streams": 1,
+  "uptime_s": 13130,
+  "wakes_by": {
+    "deferred-cycle": 2,
+    "heartbeat": 14,
+    "http": 4,
+    "journal": 2,
+    "pidfd": 1
+  },
+  "wakes_last_hour": 4,
+  "wakes_per_hour_avg": 6.31,
+  "wakes_total": 23
+}

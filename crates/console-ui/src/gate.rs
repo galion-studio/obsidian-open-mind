@@ -1,0 +1,174 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
+// Copyright (c) 3000 Galion / galion-studio
+
+//! The phone/host gate for pages, ported from console-ide `src/start.ts`
+//! (phone middleware) and `src/lib/host.ts` (live tree, 2026-10-20).
+//!
+//! Pages are decided here, before any data is fetched:
+//!
+//! 1. a host that is not a console host gets the quiet "Soon" page
+//!    (`developer.galion.app` gets the links page);
+//! 2. `/` on a console host redirects to `/console`;
+//! 3. a loopback host is let through **only when the TCP peer is loopback
+//!    too** (the TSX trusted the Host header alone);
+//! 4. any other console host must present the admin cookie; the cookie is
+//!    checked by the API upstream (`GET /api/v1/admin` -> `{"you":true}`),
+//!    so this process never reads the device store under /root;
+//! 5. anything else gets the pairing page. Upstream errors fail closed.
+
+/// Hosts where the console renders (console-ide `CONSOLE_HOSTS`). The TSX list
+/// also carried the two server IPs literally; here they come from
+/// `--console-host` (the unit passes them), so no public IP is in the code.
+pub const CONSOLE_HOSTS: &[&str] = &[
+    "console.galion.app",
+    "console.galion.studio",
+    "dashboard.galion.studio",
+    "ip51.vs5.titanaxe.com",
+    "ip50.vp3.titanaxe.com",
+];
+
+/// `normalizeHost`: drop the port, trim, lower-case, drop `www.`.
+pub fn normalize_host(host: &str) -> String {
+    let h = host
+        .split(':')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_lowercase();
+    h.strip_prefix("www.").map(str::to_string).unwrap_or(h)
+}
+
+pub fn is_loopback_host(bare: &str) -> bool {
+    bare == "localhost" || bare.starts_with("127.")
+}
+
+/// `isConsoleHost`. `extra` is the machine's public IP when known (the TSX
+/// read `/workspace/galion-light/state/machine.json`; here it is a flag).
+pub fn is_console_host(host: &str, extra: &[String]) -> bool {
+    let h = normalize_host(host);
+    if h.is_empty() {
+        return false;
+    }
+    CONSOLE_HOSTS.contains(&h.as_str())
+        || h.starts_with("console.")
+        || h.starts_with("dashboard.")
+        || h.contains("runpod.net")
+        || is_loopback_host(&h)
+        || h.ends_with(".local")
+        || extra.iter().any(|x| x.eq_ignore_ascii_case(&h))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Decision {
+    /// Not a console host: quiet page (`links` for developer.galion.app).
+    Soon { links: bool },
+    /// `/` on a console host.
+    RedirectConsole,
+    /// Render the page.
+    Allow,
+    /// Need the admin cookie; ask the upstream.
+    AskUpstream,
+}
+
+/// First, local part of the decision (no I/O).
+pub fn decide(host: &str, path: &str, peer_loopback: bool, extra: &[String]) -> Decision {
+    if !is_console_host(host, extra) {
+        return Decision::Soon {
+            links: normalize_host(host) == "developer.galion.app",
+        };
+    }
+    if path == "/" || path.is_empty() {
+        return Decision::RedirectConsole;
+    }
+    if is_loopback_host(&normalize_host(host)) && peer_loopback {
+        return Decision::Allow;
+    }
+    Decision::AskUpstream
+}
+
+/// Only the admin cookie is forwarded to the upstream for gate checks and
+/// data calls; other cookies (analytics, auth experiments) stay here.
+pub fn admin_cookie(cookie_header: Option<&str>) -> Option<String> {
+    let h = cookie_header?;
+    h.split(';')
+        .map(str::trim)
+        .find(|p| p.starts_with("galion_admin="))
+        .map(str::to_string)
+}
+
+/// Read a cookie value by name.
+pub fn cookie(cookie_header: Option<&str>, name: &str) -> Option<String> {
+    cookie_header?.split(';').map(str::trim).find_map(|p| {
+        let (k, v) = p.split_once('=')?;
+        (k == name).then(|| v.to_string())
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hosts() {
+        assert_eq!(
+            normalize_host("WWW.Console.Galion.App:443"),
+            "console.galion.app"
+        );
+        for h in [
+            "console.galion.app",
+            "console.anything.example",
+            "dashboard.galion.studio",
+            "127.0.0.1:19370",
+            "localhost",
+            "pod-1.proxy.runpod.net",
+            "box.local",
+        ] {
+            assert!(is_console_host(h, &[]), "{h}");
+        }
+        for h in ["galion.app", "developer.galion.app", "", "evil.com"] {
+            assert!(!is_console_host(h, &[]), "{h}");
+        }
+        assert!(is_console_host("203.0.113.7", &["203.0.113.7".into()]));
+        assert!(!is_console_host("203.0.113.7", &[]));
+    }
+
+    #[test]
+    fn decisions() {
+        assert_eq!(
+            decide("galion.app", "/status", true, &[]),
+            Decision::Soon { links: false }
+        );
+        assert_eq!(
+            decide("developer.galion.app", "/x", true, &[]),
+            Decision::Soon { links: true }
+        );
+        assert_eq!(
+            decide("console.galion.app", "/", false, &[]),
+            Decision::RedirectConsole
+        );
+        assert_eq!(
+            decide("127.0.0.1:8080", "/agents", true, &[]),
+            Decision::Allow
+        );
+        // Spoofed loopback Host from a non-loopback peer must still pair.
+        assert_eq!(
+            decide("127.0.0.1", "/agents", false, &[]),
+            Decision::AskUpstream
+        );
+        // cloudflared connects from loopback but carries the public Host.
+        assert_eq!(
+            decide("console.galion.app", "/agents", true, &[]),
+            Decision::AskUpstream
+        );
+    }
+
+    #[test]
+    fn cookies() {
+        let h = Some("a=1; galion_admin=tok%2B; galion_theme=light");
+        assert_eq!(admin_cookie(h).as_deref(), Some("galion_admin=tok%2B"));
+        assert_eq!(cookie(h, "galion_theme").as_deref(), Some("light"));
+        assert_eq!(admin_cookie(Some("x_galion_admin=1")), None);
+        assert_eq!(cookie(None, "a"), None);
+    }
+}

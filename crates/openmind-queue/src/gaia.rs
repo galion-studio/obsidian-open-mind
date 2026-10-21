@@ -5,13 +5,16 @@
 //!
 //! The Gaia design (ws/gaia `gaia/docs/gaia-design.md` section 4.2) gives
 //! POSEIDON four systems: `vram-pool`, `quotas`, `queues`, `budget-caps`.
-//! `gaia-core` is not on main yet (it is on ws/gaia and being landed by
-//! another branch), so this module does not depend on it. It speaks the same
-//! vocabulary instead: the system names, the verbs (`status`, `run`, `plan`,
-//! `execute`) and the outcomes (`done`, `dry-run`, `refused`, `rejected`),
-//! and returns a report with the same fields as `gaia_core::Report`
-//! (summary plus integer metrics). A `gaia-poseidon` adapter can forward a
-//! `Directive` here in a few lines once gaia-core lands.
+//! This crate does not depend on `gaia-core` (that would be a cycle:
+//! `gaia-poseidon` depends on both). It publishes the wire contract instead,
+//! as constants: [`FUNCTION`], [`SYSTEMS`], [`VERBS`], [`DISPATCH_VERBS`] and
+//! [`OUTCOMES`], and returns a [`GaiaReport`] with the same fields as
+//! `gaia_core::Report` (summary, integer metrics, dry-run flag). The real
+//! consumer is `gaia_poseidon::contract`: its tests check every constant here
+//! against the `gaia-core` enums at compile and test time and parse every
+//! system x verb answer of [`dispatch`] through the same strict parser the
+//! live adapter uses, so a drift on either side fails the build instead of
+//! silently mis-mapping an outcome.
 //!
 //! Gaia dispatch never mutates the queue. Work is submitted through the
 //! queue API; caps and quotas are set by the operator. Gaia gets status and
@@ -29,6 +32,17 @@ pub const REGISTRY_ROW: (&str, &str, &str) = (
     FUNCTION,
     "Durable job queue, quotas, hard-stop spend caps (numbers only), VRAM pool routing GPU -> LAN -> CPU. Never spends.",
 );
+
+/// The Gaia verbs (`gaia_core::Verb::name` spellings).
+pub const VERBS: [&str; 4] = ["status", "run", "plan", "execute"];
+
+/// The verbs [`dispatch`] can answer with `done` or `dry-run`. Every other
+/// verb is refused here (Gaia submits work through `POST /jobs`).
+pub const DISPATCH_VERBS: [&str; 2] = ["status", "plan"];
+
+/// Outcomes a [`GaiaReport`] may carry (`gaia_core::Outcome::name`
+/// spellings; `contained` is GAIA's own and never comes from here).
+pub const OUTCOMES: [&str; 4] = ["done", "dry-run", "refused", "rejected"];
 
 /// The four POSEIDON systems and what this crate implements for each.
 pub const SYSTEMS: [(&str, &str); 4] = [
@@ -98,7 +112,7 @@ pub fn dispatch(e: &Engine, system: &str, verb: &str, payload: &str) -> GaiaRepo
         rep.summary = format!("{system} is not a POSEIDON system");
         return rep;
     }
-    if !["status", "run", "plan", "execute"].contains(&verb) {
+    if !VERBS.contains(&verb) {
         rep.outcome = "rejected";
         rep.summary = format!("unknown verb {verb}");
         return rep;
@@ -173,6 +187,9 @@ pub fn dispatch(e: &Engine, system: &str, verb: &str, payload: &str) -> GaiaRepo
             rep.outcome = "dry-run";
             let gb: u32 = payload.trim().parse().unwrap_or(0);
             if gb == 0 {
+                // Nothing was planned: not a dry run (kept consistent with
+                // `outcome` so a strict reader never sees rejected + dry_run).
+                rep.dry_run = false;
                 rep.outcome = "rejected";
                 rep.summary = "payload must be the GB needed, e.g. 40".into();
             } else {
@@ -247,6 +264,27 @@ mod tests {
         let r = dispatch(&e, "vram-pool", "plan", "48");
         assert!(r.summary.contains("fits no approved device"));
         assert_eq!(e.vram.used("gpu0"), 0);
+    }
+
+    #[test]
+    fn every_answer_stays_inside_the_published_contract() {
+        let e = engine();
+        for (s, _) in SYSTEMS {
+            for v in VERBS {
+                for p in ["", "16", "48", "x"] {
+                    let r = dispatch(&e, s, v, p);
+                    assert!(OUTCOMES.contains(&r.outcome), "{s} {v}: {}", r.outcome);
+                    assert_eq!(r.dry_run, r.outcome == "dry-run", "{s} {v} {p}");
+                    assert_eq!(
+                        (r.function, r.system.as_str(), r.verb.as_str()),
+                        (FUNCTION, s, v)
+                    );
+                    if !DISPATCH_VERBS.contains(&v) {
+                        assert_eq!(r.outcome, "refused", "{s} {v} must stay read-only");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

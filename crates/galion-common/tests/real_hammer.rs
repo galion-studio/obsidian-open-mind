@@ -4,8 +4,9 @@
 //! Real-life hammer against running services (gated: `GALION_REAL=1`).
 //!
 //! `GALION_REAL_TARGETS` is a comma list of `name=host:port`, e.g.
-//! `tuner=127.0.0.1:19160,origin=127.0.0.1:19161`. `scripts/real/common.sh`
-//! builds the release binaries, starts them, runs this and tears down.
+//! `tuner=127.0.0.1:19160,origin=127.0.0.1:19161`. `real_common.rs` (tuner,
+//! galion-origin) and `real_migrate.rs` (hermes, memory, desk, room) build the
+//! release binaries, start them, call [`hammer`] and tear down.
 //! Each target gets: sequential and concurrent GETs (latency), malformed
 //! requests, oversized heads/bodies, a slowloris wave larger than the
 //! connection cap, and a final health check. Output is a plain report.
@@ -109,7 +110,7 @@ fn malformed() -> Vec<Vec<u8>> {
     v
 }
 
-fn hammer(name: &str, addr: SocketAddr) {
+pub(crate) fn hammer(name: &str, addr: SocketAddr) {
     // 1. sequential
     let mut lat = Vec::new();
     let mut ok = 0;
@@ -257,6 +258,10 @@ fn hammer(name: &str, addr: SocketAddr) {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "real-life test: TCP connections to running services (network), not run under Miri"
+)]
 fn real_hammer() {
     let Some(targets) = targets() else {
         eprintln!("skipped: set GALION_REAL=1 and GALION_REAL_TARGETS");

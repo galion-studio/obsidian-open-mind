@@ -8,7 +8,9 @@
 //
 // The HTTP fetch is injected so tests never touch the network. The API key is
 // read from the process env var OPENROUTER_API_KEY at call time only and is
-// handed to curl through stdin, never argv, and never logged.
+// handed to curl through stdin, never argv, and never logged. A loopback
+// http:// base (OPENROUTER_BASE_URL) is fetched in-process instead (std only,
+// http_plain.rs), so tests and local proxies need no curl.
 
 use std::fs;
 use std::io::Write;
@@ -64,15 +66,30 @@ pub fn refresh(
     Ok(n)
 }
 
-/// Real fetcher: curl, key via stdin config so it never shows in argv.
-pub fn curl_fetch(url: &str) -> Result<String, String> {
+/// Real fetcher. `http://` on loopback (a local proxy or stand-in) is
+/// fetched in-process with std (http_plain.rs), no subprocess; anything else
+/// (the default https://openrouter.ai) still goes through curl, key via stdin
+/// config so it never shows in argv.
+pub fn live_fetch(url: &str) -> Result<String, String> {
     let key = api_key();
     let key = key.trim();
     if key.is_empty() {
         return Err("no OpenRouter key (OPENROUTER_API_KEY or OPENROUTER_KEY_FILE); keeping the stale cache".into());
     }
-    if key.contains('"') || key.contains('\n') {
+    if key.contains('"') || key.contains('\n') || key.contains('\r') {
         return Err("OPENROUTER_API_KEY has unusable characters".into());
+    }
+    if url.starts_with("http://") {
+        let auth = format!("Bearer {key}");
+        let (code, body) = crate::http_plain::get(
+            url,
+            &[("Authorization", auth.as_str())],
+            std::time::Duration::from_secs(20),
+        )?;
+        if !(200..300).contains(&code) {
+            return Err(format!("fetch failed (HTTP {code})"));
+        }
+        return String::from_utf8(body).map_err(|_| "response not utf-8".to_string());
     }
     let mut child = Command::new("curl")
         .args(["-sS", "--fail", "--max-time", "20", "-K", "-", url])
@@ -191,7 +208,7 @@ pub fn refresh_live(out: &Path) -> Outcome {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let o = LIVE.run(now, &curl_fetch, out);
+    let o = LIVE.run(now, &live_fetch, out);
     if let Outcome::Failed(n) = o {
         eprintln!(
             "models: refresh failed ({n} in a row), next try in {} s",

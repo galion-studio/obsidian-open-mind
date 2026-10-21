@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# live console-ide working-tree route list, read about 2026-10-20T20:30+02:00 from src/routeTree.gen.ts (uncommitted files). Use only with a build of a committed live rev.
+page /
+page /soon
+page /status
+page /agents
+page /analytics
+page /arena
+page /bank
+page /cache
+page /chill
+page /cloudflare
+page /console
+page /context
+page /data
+page /docs
+page /domains
+page /gateway
+page /guardian
+page /hermes
+page /instances
+page /jupyter
+page /keys
+page /markers
+page /memory
+page /mesh
+page /node
+page /pack
+page /repos
+page /security
+page /services
+page /session
+page /md/$name
+redirect / /console

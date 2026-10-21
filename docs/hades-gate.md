@@ -19,7 +19,7 @@ Dry-run by default and always: an approval is a decision (`WouldApply`), nothing
 
 ## Admin-safety rule (beats any token)
 
-Checked before the token. Refuses destructive commands, secret exposure, admin account/login/access changes (passwd, usermod, sudoers, authorized_keys, sshd, firewall, chmod/chown, reboot), plans that cannot be read (non-ASCII, `$(...)`, backticks, `eval`, base64), and protected targets (hades itself, admin, root, ssh, secrets, galion-control, ...). Deliberately over-cautious.
+Checked before the token. Refuses destructive commands, secret exposure, admin account/login/access changes (passwd, usermod, sudoers, authorized_keys, sshd, firewall, chmod/chown, reboot), plans that cannot be read (non-ASCII, `$(...)`, backticks, `eval`, base64), and protected targets (hades itself, admin, root, ssh, secrets, galion-control, ...). Deliberately over-cautious. Since S3.1 (2026-10-20, `docs/security/hades-redteam.md`) the deny-list is backed by an allow-list: plans may only use letters, digits, whitespace and `/ . - _ : , ( ) ;`, every statement (line or `;` part) must start with a verb from `safety::PLAN_VERBS` (`apply append keep operator read record restart switch take verify`), and a target must be a plain service name (`A-Z a-z 0-9 . _ - @ :`, no `..`).
 
 ## The admin can always stop or disable HADES
 
@@ -54,3 +54,5 @@ Config (flat TOML subset): `admin_pubkey`, `ledger`, `disable_file` (all require
 Real-life test: docs/real-tests/gaia-hades-tokens.md, scripts/real/gaia-hades-tokens.sh.
 
 Real-life test: docs/real-tests/hades-approval.md. Dependencies: docs/third-party/hades-approval.md.
+
+Key custody (keygen on the owner device, public key only on the host, rotation, disable-file revocation, loss/compromise runbooks, gold-image key D-IF1): docs/security/hades-key-custody.md (slot 215, 2026-10-21).

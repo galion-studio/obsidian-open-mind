@@ -531,3 +531,63 @@ fn cli_parse_keeps_start_argv_separate() {
     no_gate.drain(10..12);
     assert!(parse_cli(&no_gate).is_err(), "needs --hades-config");
 }
+
+/// S3.1: the 3/h budget is global. Three restarts recorded in the global
+/// ledger (next to hades-gate's replay ledger) cap a tick whose `--state`
+/// dir is brand new, and the admin's token is not consumed.
+#[test]
+fn a_new_state_dir_cannot_reset_the_global_budget() {
+    let (nerve, log) = fake_nerve();
+    let (mut c, g) = cfg("global-cap", nerve, free_test_port());
+    let global = gaia_live::heal::global_ledger_path(&g.dir.join("ledger.jsonl"));
+    assert_eq!(global, g.dir.join("gaia-restarts.jsonl"));
+    let gl = Ledger::at(global.clone());
+    let now = unix_now();
+    for i in 0..3 {
+        gl.record_synced("gaia-dummy", now - 120 + i, 4242).unwrap();
+    }
+    let tok = g.mint(&c.target);
+    with_token(&mut c, &tok);
+    c.state_dir = c.state_dir.join("fresh-never-used");
+    assert!(!c.state_dir.exists());
+    let r = heal_tick(&c).unwrap();
+    assert_eq!(r.exit, exit::CAPPED, "{}", r.report.pretty());
+    assert!(!r.spawned);
+    assert_eq!(r.approval_code, None);
+    assert_eq!(kinds(&log), vec!["service.probe", "gaia.heal.capped"]);
+    assert_eq!(last(&log)["data"]["token_consumed"], false);
+    assert_eq!(
+        last(&log)["data"]["global_ledger"],
+        global.display().to_string()
+    );
+    assert_eq!(g.consumed(), 0);
+    assert!(
+        !c.state_dir.join("restarts.jsonl").exists(),
+        "the fresh state ledger is empty, the cap came from the global one"
+    );
+}
+
+/// A corrupt global ledger fails closed: the tick errors before any token
+/// is consumed or anything is started.
+#[test]
+fn a_corrupt_global_ledger_fails_closed() {
+    let (nerve, _log) = fake_nerve();
+    let (mut c, g) = cfg("global-corrupt", nerve, free_test_port());
+    std::fs::write(g.dir.join("gaia-restarts.jsonl"), "{\"service\":\"gaia-du").unwrap();
+    let tok = g.mint(&c.target);
+    with_token(&mut c, &tok);
+    let e = heal_tick(&c).unwrap_err();
+    assert!(e.starts_with("ledger:"), "{e}");
+    assert_eq!(g.consumed(), 0);
+}
+
+/// Refusals carry the hades-gate code for the loop's token bookkeeping.
+#[test]
+fn refusals_report_their_approval_code() {
+    let (nerve, _log) = fake_nerve();
+    let (c, _g) = cfg("code-no-token", nerve, free_test_port());
+    let r = heal_tick(&c).unwrap();
+    assert_eq!(r.exit, exit::REFUSED, "{}", r.report.pretty());
+    assert_eq!(r.approval_code.as_deref(), Some("no-token"));
+    assert!(!r.spawned);
+}

@@ -47,6 +47,8 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | Crate | Kind | System | Function | Why |
 |---|---|---|---|---|
 | `cgroup-detect` | system | quotas | POSEIDON | read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS) |
+| `console-static` | system | console | HEPHAESTUS | pending Slavik: Rust console static server (console-route-31, main-staging 2026-10-21) |
+| `console-ui` | system | console | HEPHAESTUS | pending Slavik: Rust console rooms replacing the old SPA (console-port-1..5, main-staging 2026-10-21) |
 | `desk-hermes` | system | hermes-agents | ARTEMIS | Hermes mind snap for the desk: the agent population view |
 | `gaia` | core | (none) | GAIA | the gaia CLI: wires GAIA core to the nine functions; dry-run only |
 | `gaia-aether` | function | (none) | AETHER | AETHER function crate |
@@ -61,6 +63,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `gaia-minerva` | function | (none) | MINERVA | MINERVA function crate |
 | `gaia-poseidon` | function | (none) | POSEIDON | POSEIDON function crate |
 | `galion-boot` | system | boot-units | DEMETER | boot/keep replacement and systemd unit renderer |
+| `galion-chatterbox` | system | speech-io | AETHER | pending Slavik: Chatterbox TTS (T3, S3Gen, HiFT, voice cloning) on candle, CPU only; the mouth behind galion-voice-serve, speech like galion-voice-cpu/openmind-speech; came in with voice-rust via candle-zip-fix |
 | `galion-common` | system | zagreb-clock | AETHER | pending Slavik: shared std-only helpers (SHA-256, hex, base64, JSON, Zagreb time, small HTTP/1.1 server/client); nearest system is the Zagreb clock it carries; alternative: core |
 | `galion-desk` | system | galion-desk | HEPHAESTUS | operator desk endpoint (:8646) |
 | `galion-one` | system | galion-one | ELEUTHIA | Galion One, the persona the stack embodies (:8091, :8002) |
@@ -86,6 +89,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `openmind-mcp-stack` | system | stack-schema | APOLLO | stdio MCP stack_status: serves knowledge about the stack (was MINERVA) |
 | `openmind-memory` | system | memory-gateway | APOLLO | memory store and gateway (:8420) |
 | `openmind-nerve` | system | nerve | AETHER | nerve event archive: the signal lines are AETHER (was APOLLO) |
+| `tunnel-lint` | system | nerve | AETHER | pending Slavik: read-only cloudflared ingress lint (tunnel-audit d35ef73), used by the nerve ingress-lint sensor |
 | `openmind-persona` | system | persona-plex | ELEUTHIA | persona TOML documents |
 | `openmind-provider` | system | vram-pool | POSEIDON | compute provider registry, approval state, GPU/LAN/CPU fallback and route (was HEPHAESTUS) |
 | `openmind-queue` | system | queues | POSEIDON | pending Slavik (S2 A/B): durable job queue, quotas, spend caps (numbers only), VRAM routing; the crate declares POSEIDON (option A) |
@@ -118,9 +122,33 @@ integration-1 brought 7 crates the registry did not know; `every_workspace_crate
 | Crate | Placed at | Pending? | Alternatives |
 |---|---|---|---|
 | `gaia-live` | core (owns no system) | yes | guardian-watchdog / MINERVA (read-only health), healer / DEMETER (heal path). Core follows the gaia-land note above, but widens "only gaia and gaia-core are core". |
+| `galion-chatterbox` | speech-io / AETHER | yes | voice-relay / AETHER (it serves the legacy mouth API through galion-voice-serve). Arrived with voice-rust inside candle-zip-fix (slot 154). |
 | `galion-common` | zagreb-clock / AETHER | yes | core; it is shared plumbing (SHA-256, base64, JSON, Zagreb time, HTTP/1.1) with no natural system. |
 | `galion-realtest` | repo-check / MINERVA | yes | cargo-build / HEPHAESTUS. |
 | `galion-voice-cpu` | speech-io / AETHER | no | Same place as `openmind-speech` (STT/TTS on CPU). |
 | `hermes-tools` | terminal / HEPHAESTUS | yes | hermes-agents / ARTEMIS. It runs through openmind-sandbox (terminal). |
 | `nerve-client` | nerve / AETHER | no | Same system as `openmind-nerve`. |
 | `openmind-queue` | queues / POSEIDON | yes (S2 A/B) | Under option B (VPS GAIA-4: no POSEIDON) it would move to HEPHAESTUS with the vram-pool crates. The crate itself declares POSEIDON. |
+
+## integration-3 rows (2026-10-21, all pending Slavik)
+
+integration-3 brings 10 more crates (rust-ports, deploy-rust, health-land and the bench-hermes family). `every_workspace_crate_is_mapped` failed on exactly these after the merges; one row each, every one a judgement call (`"pending_slavik": true`). Counts: 63 crates, 51 system crates, 29 systems with a crate.
+
+| Crate | Placed at | Alternatives |
+|---|---|---|
+| `bench-banking` | ecosystem-census / ARTEMIS | a new `bench` system (wave-4 slot 129 adds a bench sector to hermes-core) |
+| `bench-scoreboard` | ecosystem-census / ARTEMIS | teacher-docs / APOLLO, or a new bench system |
+| `galion-backup` | survival / DEMETER | healer / DEMETER, release-artifacts / HEPHAESTUS. Same system as its `galion-backup` unit in `UNITS`. |
+| `galion-bench` | ecosystem-census / ARTEMIS | a new bench system |
+| `galion-deploy` | deploy-switch / HEPHAESTUS | rollback / HADES (it does roll back automatically, and unlike `deploy/switch.sh` it executes) |
+| `galion-guard` | guardian-watchdog / MINERVA | tunnels / AETHER |
+| `galion-health` | guardian-watchdog / MINERVA | guardian-tick / DEMETER, alerting / MINERVA. Same system as its `galion-health` unit in `UNITS`. |
+| `galion-vending` | ecosystem-census / ARTEMIS | a new bench system |
+| `galion-wallstreet` | ecosystem-census / ARTEMIS | a new bench system |
+| `hermes-bench` | hermes-agents / ARTEMIS | ecosystem-census / ARTEMIS, a new bench system |
+
+The six benchmark crates sit next to `galleon-arena` (which already scores the agent population) until Slavik decides whether benchmarks get their own system.
+
+## candle-zip-rebase row (2026-10-21 07:45 CEST +02:00, pending Slavik)
+
+swarm/candle-zip-rebase merges candle-zip-fix a4f49b5 onto integration-4 42de672. candle-zip-fix sits on voice-rust, so the merge also brings the `galion-chatterbox` crate, and `every_workspace_crate_is_mapped` failed on it. One row, a judgement call (`"pending_slavik": true`): speech-io / AETHER, next to `galion-voice-cpu` and `openmind-speech`; alternative voice-relay / AETHER. Counts: 64 crates, 52 system crates, 29 systems with a crate (speech-io already had one).

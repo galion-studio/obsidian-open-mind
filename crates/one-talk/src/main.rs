@@ -14,6 +14,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    galion_common::build_info::exit_if_version("one-talk", env!("CARGO_PKG_VERSION"));
     if env::args().len() != 1 {
         eprintln!("usage: one-talk");
         eprintln!("prints the warm lock path and helper JSON shapes; dials nothing");

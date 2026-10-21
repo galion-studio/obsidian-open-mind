@@ -1,0 +1,20 @@
+{
+  "id": "HERMES-WS-001",
+  "title": "Paper-trade GLXA momentum under risk limits",
+  "request": "Research GLXA momentum on delayed fixture data and paper trade it within the risk limits, then report P&L.",
+  "start_date": "2026-08-13",
+  "steps": [
+    {"op": "quote", "symbol": "GLXA"},
+    {"op": "news", "symbol": "GLXA"},
+    {"op": "note", "text": "GLXA beat earnings and raised guidance on 2026-08-12; trend is up on the 5/10 day averages. Plan: 200 shares, exit after two weeks or on a 5% drawdown.", "tags": ["thesis", "momentum"]},
+    {"op": "buy", "symbol": "GLXA", "qty": 200, "rationale": "Momentum after an earnings beat, public newswire source."},
+    {"op": "limit_buy", "symbol": "OMND", "qty": 20, "price": "119.60", "rationale": "Starter position only on a small pullback."},
+    {"op": "advance", "days": 10},
+    {"op": "buy", "symbol": "GLXA", "qty": 100000, "rationale": "Size up aggressively."},
+    {"op": "buy", "symbol": "HRMS", "qty": 10, "rationale": "Should be refused while the kill switch is engaged."},
+    {"op": "close", "symbol": "GLXA"},
+    {"op": "note", "text": "Kill switch tripped on the oversized add; closed GLXA (reduce-only is allowed). Operator must reset before any new risk.", "tags": ["risk"]},
+    {"op": "reset_kill", "operator": "scripted-ticket"},
+    {"op": "close", "symbol": "OMND"}
+  ]
+}

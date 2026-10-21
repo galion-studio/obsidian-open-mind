@@ -68,13 +68,50 @@ pub struct CodingConfig {
     pub author_name: String,
     pub author_email: String,
     /// Extra directories covered by an empty tmpfs inside the sandbox
-    /// (`HERMES_HOME` and `HERMES_RS_CODING_HIDE`), on top of /root, /home
-    /// and /run/secrets. Landlock already denies reads outside the roots.
+    /// (`HERMES_HOME` and `HERMES_RS_CODING_HIDE`), on top of /root, /home,
+    /// /run/secrets and /opt/galion. Landlock already denies reads outside
+    /// the roots.
     pub hide: Vec<PathBuf>,
+    /// Total size cap of the worktree during one tool run, in MiB
+    /// (`HERMES_RS_CODING_WORKDIR_MB`, default 512, 0 = off). openmind-sandbox
+    /// mounts a private tmpfs of this size over the worktree, copies the
+    /// worktree in, and copies changes back after the run: a tool writing
+    /// past it gets ENOSPC. Same number for fs, git and cargo (one worktree).
+    pub workdir_quota_mb: u64,
+    /// Inode cap of that tmpfs (`HERMES_RS_CODING_WORKDIR_INODES`, 0 = MiB * 64,
+    /// i.e. one per 16 KiB, the openmind-sandbox default).
+    pub workdir_quota_inodes: u64,
 }
 
 fn truthy(v: &str) -> bool {
     matches!(v, "1" | "true" | "yes" | "on")
+}
+
+/// Default worktree cap in MiB: the openmind-sandbox `build_tool` preset's
+/// `workdir_tmpfs_bytes` (D-WDQ1/D-WDQ2, accepted 2026-10-21).
+pub const WORKDIR_QUOTA_MB_DEFAULT: u64 = 512;
+/// Smallest and largest accepted non-zero cap.
+pub const WORKDIR_QUOTA_MB_MIN: u64 = 16;
+pub const WORKDIR_QUOTA_MB_MAX: u64 = 4096;
+
+/// `HERMES_RS_CODING_WORKDIR_MB`: unset = 512, `0`/`off` = no cap, else
+/// 16..=4096.
+pub fn quota_mb(v: Option<String>) -> Result<u64, String> {
+    let Some(v) = v else {
+        return Ok(WORKDIR_QUOTA_MB_DEFAULT);
+    };
+    if matches!(v.as_str(), "0" | "off") {
+        return Ok(0);
+    }
+    let n: u64 = v
+        .parse()
+        .map_err(|_| format!("bad HERMES_RS_CODING_WORKDIR_MB: {v}"))?;
+    if !(WORKDIR_QUOTA_MB_MIN..=WORKDIR_QUOTA_MB_MAX).contains(&n) {
+        return Err(format!(
+            "HERMES_RS_CODING_WORKDIR_MB={n} is outside {WORKDIR_QUOTA_MB_MIN}..={WORKDIR_QUOTA_MB_MAX} (0 = off)"
+        ));
+    }
+    Ok(n)
 }
 
 /// A branch name we accept for commits. Never main/master, never an option.
@@ -254,6 +291,8 @@ impl CodingConfig {
             fs_timeout_s: num("HERMES_RS_CODING_FS_TIMEOUT", 10, 2, 60)?,
             max_read_bytes: num("HERMES_RS_CODING_MAX_READ", 256 * 1024, 1024, 1 << 20)?,
             max_write_bytes: num("HERMES_RS_CODING_MAX_WRITE", 512 * 1024, 1024, 4 << 20)?,
+            workdir_quota_mb: quota_mb(get("HERMES_RS_CODING_WORKDIR_MB"))?,
+            workdir_quota_inodes: num("HERMES_RS_CODING_WORKDIR_INODES", 0, 0, 4_000_000)?,
             author_name: get("HERMES_RS_CODING_AUTHOR").unwrap_or_else(|| "hermes-rs".into()),
             author_email: get("HERMES_RS_CODING_EMAIL")
                 .unwrap_or_else(|| "hermes-rs@galion.invalid".into()),

@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Reference side of the spike: creates the fixture databases with real SQLite
+# (rusqlite 0.32 `bundled`, the same engine openmind-memory and hermes-rs
+# ship today, host build only) and verifies, again with real SQLite, the
+# files the pure-Rust engine wrote. Not a workspace member.
+[package]
+name = "sqlite-pure-spike-fixtures"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[dependencies]
+rusqlite = { version = "0.32", default-features = false, features = ["bundled"] }

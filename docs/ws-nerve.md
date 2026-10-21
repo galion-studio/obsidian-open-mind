@@ -27,8 +27,11 @@ API: `GET /` (HTML dashboard, refresh 15 s), `GET /state` (JSON system state),
 `GET /audit`, `GET /signals`, `GET /healthz`, `POST /signal`.
 
 Files: `/var/lib/galion-nerve/state.json` (every cycle),
-`self-eval/latest.{json,md}` + `self-eval-<stamp>.json` (first cycle, then
-every 20 cycles = 10 min; newest 96 kept), `alerts.json` (last 200),
+`self-eval/latest.{json,md}` + `self-eval-<YYYYMMDDTHHMMSS+HHMM>.json`, Zagreb
+wall clock with its offset so the October fold hour cannot overwrite itself
+(first cycle, then
+every 20 cycles = 10 min; newest 96 kept, by instant; legacy offset-less
+names by mtime), `alerts.json` (last 200),
 `audit.jsonl` (every reflex decision), `reflex.json` (restart budgets, survive
 nerve restarts), `mode` (runtime dry-run switch).
 
@@ -255,3 +258,17 @@ Differences:
 - the event log is optional (POST /event returns 404 without `--log`/`NERVE_EVENT_LOG`);
 - `/health` has extra fields (system, score, cycle);
 - the request body cap is 8 KiB instead of 64 KiB.
+
+## swarm/nerve-wiring (2026-10-20 CEST +02:00): services push, ports have owners
+
+- Ported ws/nerve a63b730: `hermes-rs` and `openmind-memory` push started,
+  heartbeat (RSS + client queue counters), `http_5xx`, `slow_request`
+  (`NERVE_SLOW_MS`, 1000), `conn_cap` and, from hermes, `spend_cap`.
+  `nerve-client` now uses a bounded queue with one worker. It never blocks, and
+  drop-on-full is counted. It is a no-op without `NERVE_URL`.
+- Pushed events from the last 120 s become incident signals (`spend-cap:<group>`
+  is its own cause).
+- `owners.rs`: the port ownership map. The five VPS listeners with no unit
+  (8431-8433, 8652, 8653) report as "unknown owner" with the process taken from /proc.
+- The cortex lists each open incident's owning Gaia function(s).
+- Evidence is in [`docs/real-tests/nerve-wiring.md`](real-tests/nerve-wiring.md).

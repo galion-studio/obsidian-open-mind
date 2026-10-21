@@ -65,7 +65,15 @@ fn start(data: &std::path::Path) -> Queue {
         .spawn()
         .expect("start release openmind-queue (build it first)");
     for _ in 0..50 {
-        if std::net::TcpStream::connect(QUEUE).is_ok() {
+        // Ready = the queue's own CLI gets 200 from /healthz (not just a bind).
+        let ok = Command::new(bin("openmind-queue"))
+            .args(["get", "/healthz", "--addr", QUEUE])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
             return Queue(child);
         }
         std::thread::sleep(Duration::from_millis(100));
@@ -82,7 +90,12 @@ fn op(args: &[&str]) -> Value {
         .args(["--addr", QUEUE])
         .output()
         .unwrap();
-    assert!(out.status.success(), "operator {args:?}");
+    assert!(
+        out.status.success(),
+        "operator {args:?}: {} {}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
     let s = String::from_utf8_lossy(&out.stdout);
     s.find('{')
         .and_then(|i| serde_json::from_str(s[i..].trim()).ok())
@@ -148,6 +161,7 @@ fn a_real_queue_every_system_and_verb() {
                 let want = match v {
                     Verb::Status if s == System::Queues && p == "16" => Outcome::Done, // job 16 not live
                     Verb::Status => Outcome::Done,
+                    Verb::Plan if s == System::VramPool && p.is_empty() => Outcome::Rejected, // needs GB
                     Verb::Plan => Outcome::DryRun,
                     _ => Outcome::Refused,
                 };
@@ -204,7 +218,7 @@ fn a_real_queue_every_system_and_verb() {
     assert_eq!((r.outcome, r.metric_value("live")), (Outcome::Done, Some(1)), "{}", r.summary);
     g.tick();
     assert_eq!(state(&g), Lifecycle::Running);
-    let js = g.function_json(FunctionId::COMPUTE).unwrap().to_string();
+    let js = g.function_json(FunctionId::COMPUTE).unwrap().compact();
     assert!(js.contains("\"contract\":\"ok\""), "{js}");
     println!("A restart: job {live} survived, POSEIDON terraforming again; state {js}");
     let _ = std::fs::remove_dir_all(&dir);

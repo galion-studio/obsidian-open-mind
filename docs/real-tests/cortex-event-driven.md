@@ -26,7 +26,7 @@ nerve-event-driven worker's binary, `NERVE_MODE=event`, `NERVE_DRY_RUN=1`). No l
 config was touched; `/opt/galion/openmind` was not touched.
 
 - cortex binary sha256 `be056d95c023eb86…` (build dd1869b, musl static).
-- Trigger: `systemd-run --unit cortex-sbx-crash-20261021-183907 --property Restart=no sh -c 'exit 3'`
+- Trigger: a throwaway transient `systemd-run` unit `cortex-sbx-crash-20261021-183907` that exits 3,
   three times (18:42:05, 18:42:25, 18:42:45; `reset-failed` between runs).
 
 | time | nerve event | cortex decision | action / reply |

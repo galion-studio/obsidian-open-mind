@@ -49,6 +49,8 @@ meaning = "Every interaction (voice, chat, agent report, UI) must leave Slavik w
 rust_only = "Rust only for everything, no exceptions. No Python or other languages; non-Rust components are rewritten as proper Rust implementations, not quick ports."
 # Set by Slavik (relayed by Mate) 2026-10-21 04:30 CEST (+02:00).
 sandbox_vps_only = "The sandbox (openmind-sandbox, cgroup-detect, real_escape / real_sh_sandbox and any sandboxed tool run) is RUN only on the VPS, never on the development machine (Grok Bot box). Binaries may be built on the box, but every sandbox test and run happens on the VPS as an ordinary non-root user in a throwaway test folder (/var/tmp/sandbox-test-<ts>), never in /opt/galion/openmind, and is cleaned up afterwards (folder, processes, cgroups, temp user). Local cargo test runs exclude openmind-sandbox and cgroup-detect."
+# Set by Slavik (relayed by Mate) 2026-10-21 04:38 CEST (+02:00).
+no_skip_extensive_testing = "Every agent must test its work extensively before finishing. No agent may skip its assigned task, or mark it done, without running the tests and reporting the real numbers. Results must be verified against real data on the real server (the VPS), not mocks or paper runs; mocks may supplement but never replace the real-server check. The new Rust infrastructure must be observed in real time through the nerve (127.0.0.1:8670 /state on the VPS) and, once deployed, the cortex; until the cortex is live, say so and use the nerve. Real-server checks stay inside each task's VPS permissions (read-only unless the task says otherwise), never print or copy secrets, and sandbox runs follow sandbox_vps_only."
 
 [non_rust_on_vps]
 # Read-only inventory 2026-10-20 20:43 CEST (+02:00). Flagged for replacement.

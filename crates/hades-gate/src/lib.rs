@@ -36,7 +36,7 @@ pub mod safety;
 /// Signed approval tokens.
 pub mod token;
 
-pub use approval::{Approver, Refusal, Request, Verdict};
+pub use approval::{Approver, Audit, Decided, Refusal, Request, Verdict};
 
 /// The only operating mode. There is no apply mode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]

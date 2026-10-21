@@ -17,6 +17,24 @@ Dry-run by default and always: an approval is a decision (`WouldApply`), nothing
 * **Scoped:** exact action kind, exact target service and SHA-256 of the exact plan bytes.
 * **Single use:** the nonce is consumed in an append-only JSONL ledger, under `flock`, with `fsync` before the approval is returned. Any ledger error fails closed. The ledger stores no token string.
 
+## Ledger failures are loud (2026-10-21, slot 125, `docs/security/hades-ledger-fail.md`)
+
+Every decision reports whether its ledger line was written (`Approver::approve_audited` → `Decided { verdict, audit }`;
+`adapter::check_gaia_audited`). A failed write never changes a verdict (a refusal stays a refusal, a dry-run grants
+nothing, an approval whose consume fails is refused), but it is now visible:
+
+| surface | healthy | ledger failing |
+|---|---|---|
+| `check` exit | 0 dry-run / approved, 2 refused | 3 dry-run not audited, 2 refused (as before) |
+| JSON (`check`, `/v1/approve`) | `"audit":"written"` | `"audit":"failed"`, `"audit_error":"ledger unavailable (..): failing closed"` |
+| `/v1/approve` HTTP | 200 / 403 | 503 dry-run not audited, 403 refused |
+| stderr = journal | - | one line per decision: `hades-gate: ledger unavailable (<io kind>): failing closed; decision ..` |
+| `status` / `GET /health` | exit 0 / 200, `ledger.ok:true` | exit 3 / 503, `ledger.error`; `/health` also 503 once after unwritten decisions (full disk) |
+
+The stderr wording is what the cortex `hades` sensor (`hades-ledger-failing`, swarm/cortex-s2-d f3468ce) already matches
+in hades* unit journals. The ledger scan also refuses a non-regular file (a ledger pointing at `/dev/full` or a FIFO
+used to hang reading forever).
+
 ## Admin-safety rule (beats any token)
 
 Checked before the token. Refuses destructive commands, secret exposure, admin account/login/access changes (passwd, usermod, sudoers, authorized_keys, sshd, firewall, chmod/chown, reboot), plans that cannot be read (non-ASCII, `$(...)`, backticks, `eval`, base64), and protected targets (hades itself, admin, root, ssh, secrets, galion-control, ...). Deliberately over-cautious. Since S3.1 (2026-10-20, `docs/security/hades-redteam.md`) the deny-list is backed by an allow-list: plans may only use letters, digits, whitespace and `/ . - _ : , ( ) ;`, every statement (line or `;` part) must start with a verb from `safety::PLAN_VERBS` (`apply append keep operator read record restart switch take verify`), and a target must be a plain service name (`A-Z a-z 0-9 . _ - @ :`, no `..`).

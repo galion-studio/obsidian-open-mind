@@ -97,6 +97,34 @@ impl Refusal {
     }
 }
 
+/// Whether the ledger line for a decision was written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Audit {
+    /// Written and fsynced.
+    Written,
+    /// Not written, or the ledger is failing closed. The text of
+    /// [`LedgerError::reason`] starts with `ledger unavailable` or
+    /// `ledger corrupt`, the strings the cortex `hades` sensor matches.
+    Failed(LedgerError),
+}
+
+impl Audit {
+    /// `true` when the ledger line was written.
+    #[must_use]
+    pub const fn ok(&self) -> bool {
+        matches!(self, Self::Written)
+    }
+}
+
+/// Outcome of [`Approver::approve_audited`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Decided {
+    /// The decision.
+    pub verdict: Verdict,
+    /// Whether it reached the ledger.
+    pub audit: Audit,
+}
+
 /// The approval gate with a real admin key.
 #[derive(Debug, Clone)]
 pub struct Approver {
@@ -178,31 +206,61 @@ impl Approver {
         crate::keys::fingerprint(&self.admin)
     }
 
-    /// Decide one request at Unix time `now`. Refusals are written to the
-    /// ledger as audit lines (best effort); approvals are written before they
-    /// are returned (mandatory, fsynced).
+    /// Decide one request at Unix time `now`. Same as
+    /// [`Approver::approve_audited`] without the audit outcome.
+    ///
+    /// Prefer [`Approver::approve_audited`] in anything that runs as a service:
+    /// a refusal whose audit line cannot be written is otherwise invisible
+    /// (finding 4 of cortex-s2-d, fixed 2026-10-21).
     #[must_use]
     pub fn approve(&self, req: Request<'_>, now: u64) -> Verdict {
+        self.approve_audited(req, now).verdict
+    }
+
+    /// Decide one request at Unix time `now` and report whether its ledger
+    /// line was written.
+    ///
+    /// Approvals are written before they are returned (mandatory, fsynced): a
+    /// failed write turns them into [`Refusal::Ledger`]. Refusals and dry-runs
+    /// are then written as audit lines; if that write fails the verdict stands
+    /// (a refusal stays a refusal, a dry-run grants nothing) but
+    /// [`Decided::audit`] is [`Audit::Failed`], so the caller can make the
+    /// failure loud. A refusal because the ledger itself failed is
+    /// [`Audit::Failed`] too, even when its audit line happened to land: the
+    /// gate cannot approve anything while that holds.
+    #[must_use]
+    pub fn approve_audited(&self, req: Request<'_>, now: u64) -> Decided {
         let verdict = self.decide(req, now);
-        match &verdict {
-            Verdict::Approved(_) => {}
-            Verdict::DryRun => {
-                let _ = self
-                    .ledger
-                    .note("dry-run", req.action, req.target, "no token", "", now);
+        let noted = match &verdict {
+            Verdict::Approved(_) => Ok(()),
+            Verdict::DryRun => self
+                .ledger
+                .note("dry-run", req.action, req.target, "no token", "", now),
+            Verdict::Refused(r) => self.ledger.note(
+                "refused",
+                req.action,
+                req.target,
+                &r.reason(),
+                req.token,
+                now,
+            ),
+        };
+        let audit = match (&verdict, noted) {
+            (Verdict::Refused(Refusal::Ledger(e)), _) if *e != LedgerError::Replayed => {
+                Audit::Failed(e.clone())
             }
-            Verdict::Refused(r) => {
-                let _ = self.ledger.note(
-                    "refused",
-                    req.action,
-                    req.target,
-                    &r.reason(),
-                    req.token,
-                    now,
-                );
-            }
-        }
-        verdict
+            (_, Ok(())) => Audit::Written,
+            (_, Err(e)) => Audit::Failed(e),
+        };
+        Decided { verdict, audit }
+    }
+
+    /// Read-only ledger probe (see [`Ledger::health`]). Writes nothing.
+    ///
+    /// # Errors
+    /// The ledger error; while it holds, no approval can pass.
+    pub fn ledger_health(&self) -> Result<crate::ledger::LedgerHealth, LedgerError> {
+        self.ledger.health()
     }
 
     fn decide(&self, req: Request<'_>, now: u64) -> Verdict {

@@ -1,0 +1,43 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# STAGED galion-guard config for the VPS: the same jail as
+# /etc/fail2ban/jail.d/galion-sshd.local (probed 2026-10-20 20:45 +02:00).
+# Install path: /etc/galion-guard/guard.toml (mode 0600, root).
+
+[guard]
+# "dry-run" = shadow mode next to fail2ban: detect and log, write the nft
+# scripts it would run to dry_run_log, touch no firewall. Switch to "nft" at
+# cutover (after fail2ban is stopped).
+backend = "dry-run"
+dry_run_log = "/var/lib/galion-guard/dry-run.nft"
+nft = "/usr/sbin/nft"
+table = "galion-guard"
+state = "/var/lib/galion-guard/state.json"
+socket = "/run/galion-guard/control.sock"
+ignoreself = true
+save_every = 30
+
+[sshd]
+source = "journal"
+journalctl = "/usr/bin/journalctl"
+# fail2ban: _SYSTEMD_UNIT=sshd.service + _COMM=sshd. The unit on this host is
+# ssh.service; sshd-session covers OpenSSH >= 9.8.
+journal_match = ["_SYSTEMD_UNIT=sshd.service", "+", "_SYSTEMD_UNIT=ssh.service", "+", "_COMM=sshd", "+", "_COMM=sshd-session"]
+maxretry = 5
+findtime = "10m"
+bantime = "1h"
+bantime_increment = true
+bantime_factor = 1.0
+# fail2ban runs with no cap (a 6th ban is 32 h, a 10th 21 d). Recommended: "1w".
+bantime_maxtime = ""
+purge_age = "1d"
+# Not in fail2ban: an address that logged in with a key in the last 24 h is
+# never banned (and is unbanned when it logs in). Set "0" for strict parity.
+protect_accepted = "24h"
+# BEFORE INSTALL: append the owner's address from galion-sshd.local
+# (deliberately not written into the repo), e.g. ["127.0.0.1/8", "::1", "<owner>"].
+ignoreip = ["127.0.0.1/8", "::1"]
+ports = [22]
+blocktype = "reject"

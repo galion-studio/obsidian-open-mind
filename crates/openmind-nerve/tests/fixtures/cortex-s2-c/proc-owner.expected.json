@@ -1,0 +1,43 @@
+[
+  {
+    "component": "host",
+    "evidence": [
+      "127.0.0.1:8654 user slavik (uid 1001) pid 5150 exe /home/slavik/build/openmind-memory (deleted); expected root,galion",
+      "0.0.0.0:8655 user slavik (uid 1001) pid 5151 exe /usr/bin/node; expected root,galion",
+      "::1:8664 user root (uid 0) pid ? exe ?; expected galion"
+    ],
+    "fix": "run it under its unit's User= (or add the user to NERVE_PROC_OWNER_USERS/PORTS if intended); stopping a stray is an owner-approved HADES plan (T4.2)",
+    "id": "stray-owner",
+    "incident_cause": null,
+    "kind": "vulnerability",
+    "severity": "error",
+    "source": "",
+    "title": "3 listener(s) run as an unexpected user: :8654 (uid 1001) :8655 (uid 1001) :8664 (uid 0)"
+  },
+  {
+    "component": "host",
+    "evidence": [
+      "127.0.0.1:8654 pid 5150 user slavik exe /home/slavik/build/openmind-memory (deleted)"
+    ],
+    "fix": "the process runs code no longer on disk (old build, unpatched, unauditable): restart its unit onto the installed binary (owner approval)",
+    "id": "deleted-binary",
+    "incident_cause": null,
+    "kind": "vulnerability",
+    "severity": "error",
+    "source": "",
+    "title": "1 listener(s) run a deleted binary: :8654"
+  },
+  {
+    "component": "host",
+    "evidence": [
+      ":8664"
+    ],
+    "fix": "expected when the nerve is not root; the live unit runs as root",
+    "id": "proc-owner-unresolved",
+    "incident_cause": null,
+    "kind": "vulnerability",
+    "severity": "info",
+    "source": "",
+    "title": "1 listener(s) without a readable owning process (socket uid used)"
+  }
+]

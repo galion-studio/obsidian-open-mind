@@ -32,6 +32,7 @@
 //! - [`alerts`]: journald + alerts.json.
 //! - [`evt`]: event-driven mode (`NERVE_MODE=event`): kernel-blocking sources,
 //!   dedupe/debounce, delegated escalation, inventory, NDJSON stream, actions.
+//! - [`feed`]: the cortex B33 event feed (`GET /api/v1/cortex/events`).
 //! - [`engine`]: the loop; [`server`]: the loopback JSON API and dashboard;
 //!   [`replay`]: run captured live data through the same pipeline.
 
@@ -42,6 +43,7 @@ pub mod config;
 pub mod cortex;
 pub mod engine;
 pub mod evt;
+pub mod feed;
 pub mod hub;
 pub mod incident;
 pub mod logscan;

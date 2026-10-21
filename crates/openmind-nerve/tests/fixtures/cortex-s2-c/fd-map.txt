@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# inode pid euid exe   (what /proc/<pid>/fd, status and exe would give; synthetic, VPS-like)
+7101 811 0 /opt/galion/bin/openmind-memory
+7102 812 998 /opt/galion/bin/hermes-rs
+7105 812 998 /opt/galion/bin/hermes-rs
+7103 5150 1001 /home/slavik/build/openmind-memory (deleted)
+7104 5151 1001 /usr/bin/node

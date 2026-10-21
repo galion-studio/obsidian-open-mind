@@ -70,6 +70,7 @@ with no new env behaves exactly like e536446). Run order fixes signal order and 
 | `proc-owner` | sensors/proc_owner.rs | T2.8, cortex-s2-c dbec5c9 | `NERVE_PROC_OWNER_USERS` | `stray-owner`, `deleted-binary`, `proc-owner-unresolved` (vulnerability) | - | `/proc/net/tcp*`, `/proc/<pid>/{fd,status,exe}`, `/etc/passwd` |
 | `surface` | sensors/surface.rs | T2.9, cortex-s2-c dbec5c9 | `NERVE_SURFACE_TARGETS` | `surface-dns`, `surface-tls-expired`, `surface-tls-expiring`, `surface-tls-fail`, `surface-http-down`, `surface-http-status`, info `surface-tls-unread`/`surface-note` (bleeding, cause `edge`) | - | DNS, TLS 1.2 cert read, HTTP GET on a background thread every 300 s |
 | `hades` | sensors/hades.rs | T2.13, cortex-s2-d f3468ce | `NERVE_HADES_LEDGER`, `_DISABLE_FILE`, `_AUDIT` or `NERVE_HADES=1` | `hades-off`, `hades-ledger-failing`, `hades-refusal-burst`, `hades-safety-refusals`, `hades-token-abuse`, `hades-unapprovable-actions`, `sandbox-escape-attempts`, `sandbox-not-enforced` | `hades`, `sandbox` | ledger/audit JSONL tails, disable file; `input.journal` units `hades*` (also in replay) |
+| `ingress-lint` | sensors/ingress_lint.rs | T2.6, cortex-t26-ingresslint (reuses `crates/tunnel-lint` from tunnel-audit-2 988e47f) | `NERVE_INGRESS_LINT_CONFIG` (path to a redacted COPY of config.yml; paths in a `cloudflared` dir, `.json`/`.pem` and credentials-like text are refused) | `ingress-closed-<port>` (warn; error when the cloudflared journal window has refused dials to that port), `ingress-invalid-origin`, `ingress-no-catch-all` (error), `ingress-shadowed` (warn), `ingress-config` (warn), info `ingress-lint-no-listeners` (bleeding, cause `edge`); `ingress-config-refused` (vulnerability, error) | - (the `edge` sensor already signals failing traffic; cause `edge` avoids double scoring) | the config copy only, re-read on size/mtime/inode change, max 256 KiB; open/closed from `input.listeners` (no dials); `input.logs.dead_origins`; `NERVE_INGRESS_LINT_COMPONENT` (default `cloudflared`) |
 
 Also merged from cortex-s2-d: `src/feed.rs`, `GET /api/v1/cortex/events` (B33 JSONL, counts/ids only; see
 docs/cortex/hades-sensor-and-feed.md).
@@ -81,7 +82,7 @@ whose daemon is `sshd.service` / `sshd@*.service` needs that unit added to the l
 skipped when no component has a unit or `NERVE_JOURNAL=0`.
 
 New dependencies from the merged branches: `semver` 1 (cortex-s2-a, MIT OR Apache-2.0), `toml` (dev, workspace),
-`galion-common` (path, cortex-s2-b). Details in docs/third-party/cortex-s2-{a,b,c,d}.md.
+`galion-common` (path, cortex-s2-b). Details in docs/third-party/cortex-s2-{a,b,c,d}.md. T2.6 adds `tunnel-lint` (path crate, zero dependencies; docs/third-party/cortex-t26-ingresslint.md).
 
 ## Adding an S2 sensor
 
@@ -105,7 +106,7 @@ New dependencies from the merged branches: `semver` 1 (cortex-s2-a, MIT OR Apach
 | T2.3 secrets mode bits | `live` stat | API ready, **Slavik approval** pending |
 | T2.4 RustSec advisories | own files | **merged (T2.0)** |
 | T2.5 source-vs-live drift | own files, comps units | **merged (T2.0)** |
-| T2.6 tunnel ingress lint | own config read | ready after tunnel-audit lands |
+| T2.6 tunnel ingress lint | own config read (copy) + `input.listeners` | **done** in `swarm/cortex-t26-ingresslint` (on cortex-t20-merge ee75f75; not yet in an integration branch) |
 | T2.7 per-port connection rate | stateful `&mut self`, /proc/net/tcp when `live` | **merged (T2.0)** |
 | T2.8 stray process owner | `input.listeners` + /proc when `live` | **merged (T2.0)** |
 | T2.9 public DNS/TLS/HTTP | network GETs when `live` (keep under budget: cache/rotate) | **merged (T2.0)** |

@@ -30,8 +30,19 @@ pub struct Config {
     pub coalesce_ms: u64,
     /// Same unit, same rule: one decision per this many seconds.
     pub decision_cooldown_s: u64,
-    /// Cortex-side restart cap per unit per hour (the nerve has its own).
+    /// Cortex-side restart cap per unit per hour. Default 2 = the nerve
+    /// executor cap; the nerve applies its cap only to executed restarts,
+    /// so this is what bounds a dry-run (simulated) restart loop.
     pub restarts_per_unit_hour: u32,
+    /// Cortex-side restart cap per hour, all units together (default 6 =
+    /// the nerve executor's total cap), applied in every mode.
+    pub restarts_total_hour: u32,
+    /// Re-read the nerve ring (`GET /evt`) every N seconds for the failure
+    /// events decided on in the last `flap_window_s`, to count the repeats
+    /// the nerve folds into them (its dedupe window, 600 s on the VPS,
+    /// hides a crash loop from the stream). Only while such an event is
+    /// watched: idle = no calls. 0 = off. Needs `nerve_url` + `nerve_stream`.
+    pub repeat_poll_s: u64,
     /// Failures of one unit within `flap_window_s` that open the circuit.
     pub flap_failures: u32,
     pub flap_window_s: u64,
@@ -61,7 +72,9 @@ impl Default for Config {
             actions: "dry-run".into(),
             coalesce_ms: 1500,
             decision_cooldown_s: 120,
-            restarts_per_unit_hour: 3,
+            restarts_per_unit_hour: nerve_cortex_contract::NERVE_RESTARTS_PER_UNIT_HOUR,
+            restarts_total_hour: nerve_cortex_contract::NERVE_RESTARTS_TOTAL_HOUR,
+            repeat_poll_s: 30,
             flap_failures: 3,
             flap_window_s: 900,
             circuit_open_s: 3600,
@@ -167,6 +180,9 @@ impl Config {
         if let Some(v) = get("CORTEX_NERVE_STREAM") {
             c.nerve_stream = v != "0" && v != "false";
         }
+        if let Some(v) = get("CORTEX_REPEAT_POLL_S").and_then(|v| v.parse().ok()) {
+            c.repeat_poll_s = v;
+        }
         if let Some(v) = get("CORTEX_OUTBOX") {
             c.outbox = Some(v.into());
         }
@@ -219,6 +235,10 @@ impl Config {
             }
         }
         self.coalesce_ms = self.coalesce_ms.min(60_000);
+        // At most one ring read per second; never more than one per window.
+        if self.repeat_poll_s > 0 {
+            self.repeat_poll_s = self.repeat_poll_s.clamp(1, self.flap_window_s.max(1));
+        }
         Ok(())
     }
 }

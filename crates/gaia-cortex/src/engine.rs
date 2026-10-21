@@ -55,6 +55,8 @@ pub struct Stats {
     pub actions_unknown: u64,
     /// Nerve restarts seen by the stream subscriber (seq went back / new instance).
     pub nerve_restarts: u64,
+    /// Repeat events from the nerve ring (folded duplicates, slot 235).
+    pub events_repeat: u64,
     pub alerts: u64,
     pub alerts_to_nerve: u64,
     pub escalations: u64,
@@ -76,6 +78,9 @@ pub struct Cortex {
     pub outbox: Option<std::path::PathBuf>,
     pub escalations: Escalations,
     pub stats: Stats,
+    /// Re-reads the nerve ring for folded repeats (set by `serve` when
+    /// `repeat_poll_s` > 0 and the stream is on).
+    pub repeats: Option<Arc<crate::repeat::RepeatWatch>>,
     seen: HashSet<u64>,
     seen_order: VecDeque<u64>,
     last_said: BTreeMap<(String, &'static str), u64>,
@@ -102,6 +107,7 @@ impl Cortex {
             &cfg.restart_allow,
             Limits {
                 restarts_per_unit_hour: cfg.restarts_per_unit_hour,
+                restarts_total_hour: cfg.restarts_total_hour,
                 flap_failures: cfg.flap_failures.max(1),
                 flap_window_s: cfg.flap_window_s,
                 circuit_open_s: cfg.circuit_open_s,
@@ -116,6 +122,7 @@ impl Cortex {
             alerts: Jsonl::new(file("alerts.jsonl")),
             outbox: cfg.outbox.clone(),
             escalations: Escalations::new(file("escalations.jsonl")),
+            repeats: None,
             stats: Stats {
                 started: ts(now_secs()),
                 ..Stats::default()
@@ -140,6 +147,9 @@ impl Cortex {
         self.stats.nerve_restarts += 1;
         self.seen.clear();
         self.seen_order.clear();
+        if let Some(w) = &self.repeats {
+            w.clear();
+        }
     }
 
     /// Dedupe and drop our own echoes. Returns the events worth deciding on.
@@ -186,6 +196,13 @@ impl Cortex {
             }
         });
         self.stats.last_batch = Some(ts(now));
+        for e in &evs {
+            if e.repeat_of().is_some() {
+                self.stats.events_repeat += 1;
+            } else if let Some(w) = &self.repeats {
+                w.arm(e, now);
+            }
+        }
         // Subjects.
         let mut subjects: BTreeMap<String, Subject> = BTreeMap::new();
         for e in evs {
@@ -365,7 +382,8 @@ impl Cortex {
             "outcome": match &v.outcome { Outcome::Restart(u) => format!("restart:{u}"), Outcome::None => "none".into() },
             "decided_by": match decided_by { DecidedBy::Rules => "rules", DecidedBy::LlmAdvisor => "llm-advisor" },
             "dry_run": self.cfg.dry_run(), "action": action, "alert": v.alert, "escalate": v.escalate,
-            "llm": llm, "events": s.events.len(), "kinds": kinds,
+            "llm": llm, "events": s.events.len(), "failures": s.failures(), "kinds": kinds,
+            "repeat_of": s.events.iter().filter_map(Event::repeat_of).collect::<Vec<_>>(),
         });
         self.decisions.push(d.clone());
         if v.alert {
@@ -430,7 +448,11 @@ impl Cortex {
             "actions_requested": s.actions_requested, "actions_simulated": s.actions_simulated,
             "actions_executed": s.actions_executed, "actions_refused": s.actions_refused,
             "actions_rate_limited": s.actions_rate_limited, "actions_circuit_open": s.actions_circuit_open, "actions_failed": s.actions_failed,
-            "actions_unknown": s.actions_unknown, "nerve_restarts": s.nerve_restarts,
+            "actions_unknown": s.actions_unknown, "nerve_restarts": s.nerve_restarts, "events_repeat": s.events_repeat,
+            "restarts_last_hour": self.rules.restarts_last_hour(now_secs()),
+            "caps": {"per_unit_hour": self.rules.limits.restarts_per_unit_hour, "total_hour": self.rules.limits.restarts_total_hour,
+                     "flap_failures": self.rules.limits.flap_failures, "flap_window_s": self.rules.limits.flap_window_s},
+            "repeat_watch": self.repeats.as_ref().map(|w| w.to_json(self.cfg.repeat_poll_s)),
             "alerts": s.alerts, "alerts_to_nerve": s.alerts_to_nerve, "escalations": s.escalations,
             "escalations_open": self.escalations.open.len(),
             "llm_calls": s.llm_calls, "llm_refused": s.llm_refused, "llm_skipped_disabled": s.llm_skipped_disabled,

@@ -13,6 +13,7 @@ pub mod engine;
 pub mod guard;
 pub mod llm;
 pub mod nerve;
+pub mod repeat;
 pub mod rules;
 pub mod server;
 pub mod sink;

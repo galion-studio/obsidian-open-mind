@@ -11,7 +11,8 @@
 //!
 //! Env: CORTEX_CONFIG, CORTEX_LISTEN, CORTEX_SOCKET, CORTEX_DATA_DIR, CORTEX_NERVE_URL,
 //! CORTEX_PULL_EVERY_S (0 = off), CORTEX_ACTIONS (dry-run|live), CORTEX_COALESCE_MS,
-//! CORTEX_OUTBOX, CORTEX_LLM_ENABLED (default off).
+//! CORTEX_OUTBOX, CORTEX_LLM_ENABLED (default off), CORTEX_REPEAT_POLL_S (default 30, 0 = off:
+//! re-read the nerve ring for repeats it folded into watched failure events).
 
 use gaia_cortex::config::Config;
 use gaia_cortex::engine::{now_secs, run_decider};
@@ -99,14 +100,16 @@ fn serve_main(cfg: Config) -> ExitCode {
         }
     };
     let coalesce = Duration::from_millis(cfg.coalesce_ms);
-    let (socket, pull_every, nerve_url, stream) = (
+    let (socket, pull_every, nerve_url, stream, repeat_poll, flap_window) = (
         cfg.socket.clone(),
         cfg.pull_every_s,
         cfg.nerve_url.clone(),
         cfg.nerve_stream,
+        cfg.repeat_poll_s,
+        cfg.flap_window_s,
     );
     eprintln!(
-        "gaia-cortex: listening {} mode {} llm {} (feature {}) nerve {} stream {} pull {}s",
+        "gaia-cortex: listening {} mode {} llm {} (feature {}) nerve {} stream {} pull {}s repeat-poll {}s",
         cfg.listen,
         if cfg.dry_run() { "dry-run" } else { "live" },
         if cfg.llm.enabled {
@@ -121,7 +124,8 @@ fn serve_main(cfg: Config) -> ExitCode {
         },
         nerve_url.as_deref().unwrap_or("none"),
         stream,
-        pull_every
+        pull_every,
+        repeat_poll
     );
     let cx = Arc::new(Mutex::new(gaia_cortex::build(cfg)));
     let (tx, rx) = channel::<Vec<Event>>();
@@ -141,6 +145,19 @@ fn serve_main(cfg: Config) -> ExitCode {
             .as_deref()
             .and_then(gaia_cortex::config::nerve_cortex_addr)
         {
+            if repeat_poll > 0 {
+                let w = Arc::new(gaia_cortex::repeat::RepeatWatch::new(flap_window));
+                cx.lock().unwrap_or_else(|e| e.into_inner()).repeats = Some(w.clone());
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    gaia_cortex::repeat::run_poller(
+                        w,
+                        addr,
+                        Duration::from_secs(repeat_poll),
+                        &|v| tx.send(v).is_ok(),
+                    )
+                });
+            }
             let (tx, cx) = (tx.clone(), cx.clone());
             std::thread::spawn(move || subscribe(addr, tx, cx));
         }

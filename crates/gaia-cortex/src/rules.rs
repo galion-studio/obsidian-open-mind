@@ -8,10 +8,11 @@
 //! |---|---|---|
 //! | `R0-stack-wide` | the correlator folded 3+ hard-failing subjects into `stack-wide` | alert + escalate, never act (host/network problem) |
 //! | `R1-protected` | unit/host/path is protected ([`crate::guard`]) | alert only, never act |
-//! | `R2-circuit-open` | unit failed `flap_failures` times in `flap_window_s`, or the nerve reported its breaker open / cap hit | open circuit, alert + escalate once; no action while open |
+//! | `R2-circuit-open` | unit failed `flap_failures` times in `flap_window_s` (an event counts its nerve `count`; repeats the nerve folds are re-read by [`crate::repeat`]), or the nerve reported its breaker open / cap hit | open circuit, alert + escalate once; no action while open |
 //! | `R2-start-limit` | systemd hit the start limit (`unit.start_limit`) | open circuit, alert + escalate |
 //! | `R3-known-crash` | crash / OOM / `failed` state of a restart-allowed unit | restart via the nerve (dry-run by default) |
-//! | `R3-cap` | ... but the cortex hourly cap for the unit is used up | open circuit, alert + escalate |
+//! | `R3-cap` | ... but the cortex hourly cap for the unit is used up (default 2 = the nerve executor cap, applied in dry-run too) | open circuit, alert + escalate |
+//! | `R3-cap-total` | ... but restarts asked for all units in the last hour reached `restarts_total_hour` (default 6 = the nerve cap) | alert + escalate, no circuit |
 //! | `R3b-systemd-restarting` | failure with `unit.restart_scheduled` (systemd restarts it itself) | alert, no extra action (failure still counts toward flapping) |
 //! | `R4-unknown-unit` | failure of a unit no rule may restart | alert + escalate |
 //! | `R5-recovered` | unit back to `active` / info state change | nothing (incident quiets) |
@@ -92,9 +93,17 @@ impl Subject {
     }
 
     /// Distinct failures in this burst: crash + `failed` state + OOM of the
-    /// same failure count once, two crash events count twice.
+    /// same failure count once, two crash events count twice. Each event
+    /// counts its [`Event::occurrences`]: the duplicates the nerve folded
+    /// into it (`count`), or the new ones a repeat event reports.
     pub fn failures(&self) -> u32 {
-        let c = |f: &dyn Fn(&Event) -> bool| self.events.iter().filter(|e| f(e)).count() as u32;
+        let c = |f: &dyn Fn(&Event) -> bool| {
+            self.events
+                .iter()
+                .filter(|e| f(e))
+                .map(Event::occurrences)
+                .fold(0u32, u32::saturating_add)
+        };
         let crash = c(&|e| e.kind() == EventKind::UnitCrash);
         let failed = c(&|e| e.kind() == EventKind::UnitState && e.to_state() == Some("failed"));
         let oom = c(&|e| e.kind() == EventKind::Oom && e.unit().is_some());
@@ -139,6 +148,8 @@ pub struct UnitBook {
 #[derive(Debug, Clone)]
 pub struct Limits {
     pub restarts_per_unit_hour: u32,
+    /// All units together, per hour (the nerve executor's total cap).
+    pub restarts_total_hour: u32,
     pub flap_failures: u32,
     pub flap_window_s: u64,
     pub circuit_open_s: u64,
@@ -196,6 +207,20 @@ impl Rules {
         let esc = !b.circuit_escalated;
         b.circuit_escalated = true;
         esc
+    }
+
+    /// Restarts asked (simulated, executed or unknown) in the last hour,
+    /// all units together.
+    pub fn restarts_last_hour(&self, now: u64) -> u32 {
+        self.books
+            .values()
+            .map(|b| {
+                b.restarts
+                    .iter()
+                    .filter(|t| now.saturating_sub(**t) <= 3600)
+                    .count() as u32
+            })
+            .sum()
     }
 
     /// Record that a restart was asked (counts toward the hourly cap).
@@ -300,7 +325,9 @@ impl Rules {
             if fails > 0 {
                 let w = self.limits.flap_window_s;
                 let b = self.books.entry(u.clone()).or_default();
-                for _ in 0..fails {
+                // A long crash loop folded by the nerve can report thousands
+                // of repeats; the window only needs to reach the flap limit.
+                for _ in 0..fails.min(1024) {
                     b.failures.push_back(now);
                 }
                 while b
@@ -360,6 +387,20 @@ impl Rules {
                         ),
                     );
                     return if esc { v.escalate() } else { v.alert() };
+                }
+                let total = self.restarts_last_hour(now);
+                if total >= self.limits.restarts_total_hour {
+                    // Not a property of this unit: no circuit, the decision
+                    // cooldown keeps it to one alert per subject.
+                    return Verdict::new(
+                        "R3-cap-total",
+                        sev.max(Sev::Error),
+                        format!(
+                            "{u} failed; {total} restarts asked in the last hour across all units (cap {}); no action, human needed",
+                            self.limits.restarts_total_hour
+                        ),
+                    )
+                    .escalate();
                 }
                 let what = match lead_kind {
                     EventKind::Oom => "OOM kill",

@@ -223,6 +223,9 @@ fn start_cortex(dir: &Path, port: u16, nerve_port: u16, tag: &str) -> Proc {
         .env("CORTEX_NERVE_URL", format!("http://127.0.0.1:{nerve_port}"))
         .env("CORTEX_DATA_DIR", &data)
         .env("CORTEX_COALESCE_MS", "500")
+        // T5.1 keeps the pre-slot-235 transport (no ring re-read) so its S2a
+        // still records finding F1; real_flap_dedupe.rs is the before/after.
+        .env("CORTEX_REPEAT_POLL_S", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(stderr)

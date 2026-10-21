@@ -57,6 +57,21 @@ pub const CONTRACT_VERSION: u32 = 1;
 
 /// Nerve (event mode): NDJSON event stream.
 pub const NERVE_STREAM_PATH: &str = "/events/stream";
+/// Nerve (event mode): ring events after `since` WITH their current `count`
+/// (`GET /evt?since=SEQ&n=N`, at most 1000 per call). The stream sends each
+/// event once, when it is first published; later duplicates the nerve folds
+/// into it only raise its `count` in the ring. The cortex re-reads the ring
+/// for the failure events it decided on, so a crash loop inside the nerve's
+/// dedupe window still reaches the flap rule (slot 235, T5.1 finding F1).
+pub const NERVE_RING_PATH: &str = "/evt";
+/// `data` field of a cortex-made repeat event: `{"of_seq", "total", "new"}`.
+pub const REPEAT_FIELD: &str = "repeat";
+/// Nerve executor caps (`evt::actions::PER_UNIT_PER_HOUR` / `TOTAL_PER_HOUR`
+/// on `swarm/nerve-event-driven` bb287cc). The nerve applies them only to
+/// EXECUTED restarts, so a dry-run nerve never says `rate-limited`; the
+/// cortex applies the same numbers itself in every mode.
+pub const NERVE_RESTARTS_PER_UNIT_HOUR: u32 = 2;
+pub const NERVE_RESTARTS_TOTAL_HOUR: u32 = 6;
 /// Nerve (polling mode): tail of the JSONL event log (`?n=N`).
 pub const NERVE_EVENTS_PATH: &str = "/events";
 /// Nerve: append one event (cortex alerts land here).
@@ -313,6 +328,23 @@ impl Event {
     /// Threshold subject: `data.metric`, else `data.path` (disk/cert crossings).
     pub fn metric(&self) -> Option<&str> {
         self.data_str("metric").or_else(|| self.data_str("path"))
+    }
+
+    /// How many occurrences this event stands for: the nerve's `count`
+    /// (duplicates it folded into the event inside its dedupe window, 1 =
+    /// itself), at least 1. A cortex repeat event (see [`REPEAT_FIELD`])
+    /// carries only the NEW occurrences in `count`.
+    pub fn occurrences(&self) -> u32 {
+        self.count.unwrap_or(1).max(1)
+    }
+
+    /// `data.repeat.of_seq` when this is a cortex-made repeat event (the
+    /// nerve folded more occurrences into an event already decided on).
+    pub fn repeat_of(&self) -> Option<u64> {
+        self.data
+            .get(REPEAT_FIELD)
+            .and_then(|r| r.get("of_seq"))
+            .and_then(Value::as_u64)
     }
 
     /// Nerve sequence number (top-level, else `data.seq`).

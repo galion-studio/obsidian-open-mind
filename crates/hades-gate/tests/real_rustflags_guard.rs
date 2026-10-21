@@ -54,6 +54,8 @@ enum Want {
 
 struct Case {
     name: &'static str,
+    /// Run cargo from outside the repo with --manifest-path (no .cargo/config.toml found).
+    outside: bool,
     env: Vec<(String, String)>,
     extra: Vec<String>,
     want: Want,
@@ -63,48 +65,56 @@ fn cases(target: &str) -> Vec<Case> {
     let e = |k: &str, v: &str| vec![(k.to_string(), v.to_string())];
     let mut v = vec![
         Case {
+            outside: false,
             name: "normal",
             env: vec![],
             extra: vec![],
             want: Want::Pass,
         },
         Case {
+            outside: false,
             name: "rustflags-empty",
             env: e("RUSTFLAGS", ""),
             extra: vec![],
             want: Want::GuardFail,
         },
         Case {
+            outside: false,
             name: "rustflags-debuginfo",
             env: e("RUSTFLAGS", "-C debuginfo=0"),
             extra: vec![],
             want: Want::GuardFail,
         },
         Case {
+            outside: false,
             name: "rustflags-keeps-cfg",
             env: e("RUSTFLAGS", SERIAL),
             extra: vec![],
             want: Want::Pass,
         },
         Case {
+            outside: false,
             name: "rustflags-debuginfo-keeps-cfg",
             env: e("RUSTFLAGS", &format!("-C debuginfo=0 {SERIAL}")),
             extra: vec![],
             want: Want::Pass,
         },
         Case {
+            outside: false,
             name: "encoded-rustflags-empty",
             env: e("CARGO_ENCODED_RUSTFLAGS", ""),
             extra: vec![],
             want: Want::GuardFail,
         },
         Case {
+            outside: false,
             name: "target-rustflags-env",
             env: e(&tvar(target), "-C debuginfo=0"),
             extra: vec![],
             want: Want::GuardFail,
         },
         Case {
+            outside: false,
             name: "target-rustflags-config",
             env: vec![],
             extra: vec![
@@ -114,9 +124,19 @@ fn cases(target: &str) -> Vec<Case> {
             want: Want::GuardFail,
         },
     ];
+    // Built from outside the repo: cargo never finds the workspace
+    // .cargo/config.toml (config is looked up from the cwd, not the manifest).
+    v.push(Case {
+        outside: true,
+        name: "outside-cwd-manifest-path",
+        env: vec![],
+        extra: vec![],
+        want: Want::GuardFail,
+    });
     if target.starts_with("x86_64") {
         // Explicit SIMD request: dalek accepts it on x86_64; the guard must not.
         v.push(Case {
+            outside: false,
             name: "rustflags-simd",
             env: e("RUSTFLAGS", "--cfg curve25519_dalek_backend=\"simd\""),
             extra: vec![],
@@ -134,7 +154,7 @@ fn dalek_backend(out: &str) -> Option<String> {
         })
         .filter_map(|l| l.split("curve25519_dalek_backend=").nth(1))
         .map(|s| s.trim().trim_matches('"').to_string())
-        .last()
+        .next_back()
 }
 
 fn run_case(target: &str, c: &Case, n: &mut (u32, u32)) {
@@ -142,22 +162,32 @@ fn run_case(target: &str, c: &Case, n: &mut (u32, u32)) {
     let _ = std::fs::remove_dir_all(&dir);
     let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
     let mut cmd = Command::new(cargo);
-    cmd.current_dir(workspace())
-        .args([
-            "check",
-            "-vv",
-            "--offline",
-            "--locked",
-            "-j",
-            "2",
-            "-p",
-            "hades-gate",
-            "--lib",
-        ])
-        .args(["--target", target])
-        .args(&c.extra)
-        .env("CARGO_TARGET_DIR", &dir)
-        .env("CARGO_INCREMENTAL", "0");
+    // temp_dir is outside the repo, so no .cargo/config.toml above it.
+    let outside_dir =
+        std::env::temp_dir().join(format!("hades-guard-outside-{}", std::process::id()));
+    std::fs::create_dir_all(&outside_dir).unwrap();
+    if c.outside {
+        cmd.current_dir(&outside_dir)
+            .arg("check")
+            .arg("--manifest-path")
+            .arg(workspace().join("Cargo.toml"));
+    } else {
+        cmd.current_dir(workspace()).arg("check");
+    }
+    cmd.args([
+        "-vv",
+        "--offline",
+        "--locked",
+        "-j",
+        "2",
+        "-p",
+        "hades-gate",
+        "--lib",
+    ])
+    .args(["--target", target])
+    .args(&c.extra)
+    .env("CARGO_TARGET_DIR", &dir)
+    .env("CARGO_INCREMENTAL", "0");
     for k in [
         "RUSTFLAGS",
         "CARGO_ENCODED_RUSTFLAGS",
@@ -217,6 +247,7 @@ fn run_case(target: &str, c: &Case, n: &mut (u32, u32)) {
         println!("  guard_named_vars={named}");
     }
     let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&outside_dir);
 }
 
 #[test]

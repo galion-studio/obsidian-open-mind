@@ -35,6 +35,11 @@ pub enum Kind {
     Gaia,
     /// galion-nerve itself.
     SelfNerve,
+    /// A systemd timer (`x.timer`) and the oneshot service it starts
+    /// (`x.service`): the timer must be active, the last run must have
+    /// succeeded and finished within `max_age_s`. Observe-only: a timer is
+    /// never hard-down (no reflex acts on it).
+    Timer,
 }
 
 /// One monitored component.
@@ -60,6 +65,9 @@ pub struct Spec {
     pub note: &'static str,
     /// Correlation group: signals of one group are one incident.
     pub group: &'static str,
+    /// Timer kind: the last run must have finished within this many seconds
+    /// (0 = no age check).
+    pub max_age_s: u64,
 }
 
 const fn svc(
@@ -85,6 +93,7 @@ const fn svc(
         expected: true,
         note: "",
         group: name,
+        max_age_s: 0,
     }
 }
 
@@ -120,6 +129,40 @@ pub fn default_specs(voice_unit: Option<String>, voice_port: Option<u16>) -> Vec
             note: "tuner quick tunnel (transient unit); never restarted: its trycloudflare URL would change",
             group: "edge",
             ..svc("tuner-quick", "tuner-quick.service", None, "", "AETHER", "tunnels", 0)
+        },
+        // T2.3 (slot 200): observe-only specs for the rest of the live VPS
+        // stack (`ss -ltn` + `systemctl` read-only, 2026-10-21 17:55 +02:00).
+        // restarts_per_hour 0 and critical false: the nerve reports them and
+        // never restarts or rolls them back; none of these units is in the
+        // reflex allowlist (reflex::ALLOW is unchanged).
+        Spec {
+            critical: false,
+            note: "POSEIDON work queue (leases, DLQ, spend caps); observe-only",
+            ..svc("openmind-queue", "openmind-queue.service", Some(19120), "/healthz", "POSEIDON", "queues", 0)
+        },
+        Spec {
+            critical: false,
+            note: "Galion One growth prototype (static, mock data), routed at one.galion.app/tanga/; observe-only",
+            ..svc("tanga-proto", "tanga-proto.service", Some(8671), "/tanga/", "ELEUTHIA", "galion-one", 0)
+        },
+        Spec {
+            critical: false,
+            note: "galion-nerve SHADOW (observe-only build, reflex off); never restarted by the nerve",
+            ..svc("galion-nerve-shadow", "galion-nerve-shadow.service", Some(8672), "/healthz", "AETHER", "nerve", 0)
+        },
+        Spec {
+            kind: Kind::Timer,
+            critical: false,
+            // OnCalendar 00/6:17 + RandomizedDelaySec 5 min: two missed runs + 1 h.
+            max_age_s: 13 * 3600,
+            note: "backup every 6 h (galion-backup.timer -> galion-backup.service oneshot); observe-only",
+            ..svc("galion-backup", "galion-backup.timer", None, "", "DEMETER", "survival", 0)
+        },
+        Spec {
+            expected: false,
+            critical: false,
+            note: "HADES admin approval gate (dry-run, never executes); not installed on the VPS yet",
+            ..svc("hades-gate", "hades-gate.service", None, "", "HADES", "teardown", 0)
         },
     ];
     let vu: &'static str = Box::leak(
@@ -241,6 +284,11 @@ pub fn parse_access_logs(s: &str) -> Vec<AccessLog> {
         .collect()
 }
 
+/// Default `NERVE_KNOWN_PORTS`: listeners on the VPS that are expected but
+/// are not (or not only) a component health port. Matches the live VPS
+/// `ss -ltn` of 2026-10-21 17:55 +02:00 together with the component table.
+pub const KNOWN_PORTS_VPS: &str = "25,53,8670,8671,8672,18800,20241,20242";
+
 fn ports(s: &str) -> Vec<u16> {
     s.split([',', ' '])
         .filter_map(|p| p.trim().parse().ok())
@@ -298,9 +346,11 @@ impl Config {
             journal: flag("NERVE_JOURNAL", true),
             systemd: flag("NERVE_SYSTEMD", true),
             access_logs: parse_access_logs(&get("NERVE_ACCESS_LOGS").unwrap_or_default()),
-            // 8670 nerve, 8671 tanga-serve, 20241/20242 cloudflared metrics, 25 postfix, 53 resolved.
+            // 25 postfix, 53 resolved, 8670 nerve, 8671 tanga-serve, 8672 nerve
+            // shadow, 18800 forge-link (box ssh reverse tunnel behind
+            // forge.galion.studio), 20241/20242 cloudflared metrics.
             known_ports: ports(
-                &get("NERVE_KNOWN_PORTS").unwrap_or_else(|| "25,53,8670,8671,20241,20242".into()),
+                &get("NERVE_KNOWN_PORTS").unwrap_or_else(|| KNOWN_PORTS_VPS.into()),
             ),
             public_ok_ports: ports(&get("NERVE_PUBLIC_OK_PORTS").unwrap_or_else(|| "22".into())),
             ddos_min_rps: get("NERVE_DDOS_MIN_RPS")
@@ -336,9 +386,10 @@ fn leak(s: &str) -> &'static str {
 /// ```
 ///
 /// Keys: name (required), unit, port, path ("/health"), metrics_port, kind
-/// (service|tunnel), gaia ("AETHER"), system, group (name), critical (true),
+/// (service|tunnel|timer), gaia ("AETHER"), system, group (name), critical (true),
 /// expected (true), restarts_per_hour (0: file-defined components are never
-/// restarted unless asked), note. The host and the nerve itself are added
+/// restarted unless asked), note, max_age_s (timer: last-run age
+/// limit in seconds, 0 = none). The host and the nerve itself are added
 /// when the file does not list them.
 pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
     let v: serde_json::Value =
@@ -359,7 +410,12 @@ pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
         let kind = match s("kind").unwrap_or("service") {
             "service" => Kind::Service,
             "tunnel" => Kind::Tunnel,
-            other => return Err(format!("components[{i}]: kind {other:?} (service|tunnel)")),
+            "timer" => Kind::Timer,
+            other => {
+                return Err(format!(
+                    "components[{i}]: kind {other:?} (service|tunnel|timer)"
+                ))
+            }
         };
         let b = |k: &str, d: bool| c.get(k).and_then(|x| x.as_bool()).unwrap_or(d);
         out.push(Spec {
@@ -382,6 +438,7 @@ pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
             expected: b("expected", true),
             note: leak(s("note").unwrap_or("")),
             group: leak(s("group").unwrap_or(name)),
+            max_age_s: c.get("max_age_s").and_then(|x| x.as_u64()).unwrap_or(0),
         });
     }
     let base = default_specs(None, None);
@@ -401,7 +458,15 @@ pub fn specs_for(cfg: &Config) -> Result<Vec<Spec>, String> {
         Some(p) => {
             parse_specs(&std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?)
         }
-        None => Ok(default_specs(cfg.voice_unit.clone(), cfg.voice_port)),
+        None => {
+            // A nerve never probes its own port as a component: on the shadow
+            // (8672) the shadow is "galion-nerve" (self), not a second entry.
+            let own = cfg.addr.port();
+            Ok(default_specs(cfg.voice_unit.clone(), cfg.voice_port)
+                .into_iter()
+                .filter(|s| s.kind == Kind::SelfNerve || s.port != Some(own))
+                .collect())
+        }
     }
 }
 
@@ -472,7 +537,10 @@ mod file_tests {
         assert_eq!(a[0].component.as_deref(), Some("tuner"));
         assert_eq!(a[1].component, None);
         let c = Config::from_env(&|_| None).unwrap();
-        assert_eq!(c.known_ports, vec![25, 53, 8670, 8671, 20241, 20242]);
+        assert_eq!(
+            c.known_ports,
+            vec![25, 53, 8670, 8671, 8672, 18800, 20241, 20242]
+        );
         assert!(c.reflex && c.journal);
     }
 }

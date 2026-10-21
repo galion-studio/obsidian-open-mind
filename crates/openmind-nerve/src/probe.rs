@@ -103,6 +103,89 @@ pub fn systemd_units(units: &[&str]) -> Result<HashMap<String, UnitInfo>, String
     Ok(units.iter().map(|u| u.to_string()).zip(parsed).collect())
 }
 
+/// The service a timer starts: `x.timer` -> `x.service`.
+pub fn timer_service(timer_unit: &str) -> Option<String> {
+    timer_unit
+        .strip_suffix(".timer")
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("{s}.service"))
+}
+
+/// Last run of a timer's oneshot service (T2.3).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LastRun {
+    pub unit: String,
+    pub active: String,
+    pub result: String,
+    pub exit_status: Option<i64>,
+    /// Unix seconds of the last `ExecStart` exit; `None` = never ran (or
+    /// systemd too old for `--timestamp=unix`).
+    pub finished: Option<u64>,
+}
+
+pub const RUN_PROPS: &str = "Id,LoadState,ActiveState,Result,ExecMainStatus,ExecMainExitTimestamp";
+
+/// Parse `systemctl show --timestamp=unix -p RUN_PROPS a b` output.
+pub fn parse_last_runs(out: &str) -> Vec<LastRun> {
+    let mut v = Vec::new();
+    for block in out.split("\n\n") {
+        if block.trim().is_empty() {
+            continue;
+        }
+        let mut r = LastRun::default();
+        for line in block.lines() {
+            let Some((k, val)) = line.split_once('=') else {
+                continue;
+            };
+            match k {
+                "Id" => r.unit = val.into(),
+                "ActiveState" => r.active = val.into(),
+                "Result" => r.result = val.into(),
+                "ExecMainStatus" => r.exit_status = val.parse().ok(),
+                "ExecMainExitTimestamp" => {
+                    r.finished = val
+                        .strip_prefix('@')
+                        .and_then(|x| x.parse().ok())
+                        .filter(|x| *x > 0)
+                }
+                _ => {}
+            }
+        }
+        v.push(r);
+    }
+    v
+}
+
+/// One read-only `systemctl show --timestamp=unix` call for the services
+/// behind the timers. Keyed by service name.
+pub fn last_runs(services: &[&str]) -> Result<HashMap<String, LastRun>, String> {
+    if services.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut args = vec!["show", "--no-pager", "--timestamp=unix", "-p", RUN_PROPS];
+    args.extend_from_slice(services);
+    let o = run("systemctl", &args, Duration::from_secs(10)).ok_or("systemctl show timed out")?;
+    let parsed = parse_last_runs(&o.stdout);
+    if parsed.len() != services.len() {
+        return Err(format!(
+            "systemctl show (last runs) returned {} blocks for {} units (exit {})",
+            parsed.len(),
+            services.len(),
+            o.code
+        ));
+    }
+    Ok(services.iter().map(|u| u.to_string()).zip(parsed).collect())
+}
+
+impl LastRun {
+    /// Sample `extra.last_run` (also what a replay reads back).
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({"unit": self.unit, "active": self.active, "result": self.result,
+            "exit_status": self.exit_status, "finished_unix": self.finished,
+            "finished": self.finished.map(crate::util::ts)})
+    }
+}
+
 /// VmRSS of a process in KiB from /proc/<pid>/status.
 pub fn proc_rss_kb(pid: u32) -> Option<u64> {
     let s = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;

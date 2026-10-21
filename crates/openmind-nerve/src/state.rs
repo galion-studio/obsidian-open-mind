@@ -288,6 +288,39 @@ impl CompState {
                 }
             }
         }
+        if spec.kind == Kind::Timer {
+            // Observe-only (T2.3): a timer is never hard-down, so no reflex
+            // and no consecutive-down count can come from it.
+            hard = false;
+            if let Some(lr) = s.extra.get("last_run").filter(|v| v.is_object()) {
+                let unit = lr["unit"].as_str().unwrap_or("service");
+                let active = lr["active"].as_str().unwrap_or("");
+                let result = lr["result"].as_str().unwrap_or("");
+                if active == "failed" || !(result.is_empty() || result == "success") {
+                    bump(
+                        sev,
+                        format!(
+                            "last run of {unit} failed (result {result}, exit {})",
+                            lr["exit_status"]
+                        ),
+                        &mut st,
+                    );
+                }
+                if let Some(f) = lr["finished_unix"].as_u64() {
+                    if spec.max_age_s > 0 && active != "activating" && now > f + spec.max_age_s {
+                        bump(
+                            sev,
+                            format!(
+                                "last run of {unit} finished {} ago (limit {})",
+                                crate::cortex::dur(now - f),
+                                crate::cortex::dur(spec.max_age_s)
+                            ),
+                            &mut st,
+                        );
+                    }
+                }
+            }
+        }
         let r1h = self.restarts_1h(now);
         if r1h >= 3 {
             bump(

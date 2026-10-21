@@ -56,7 +56,14 @@ fn real_wav_in_text_out_and_text_in_wav_out() {
     }
     let result = std::panic::catch_unwind(|| {
         assert!(up, "service did not start");
-        let (code, body) = http("GET", "/health", "text/plain", b"");
+        // /health is 503 "loading" until the models are loaded (since 1b9fd06),
+        // so wait for 200 instead of asserting on the first probe.
+        let t = Instant::now();
+        let (mut code, mut body) = http("GET", "/health", "text/plain", b"");
+        while code == 503 && t.elapsed() < Duration::from_secs(120) {
+            std::thread::sleep(Duration::from_millis(250));
+            (code, body) = http("GET", "/health", "text/plain", b"");
+        }
         assert_eq!(code, 200, "{}", String::from_utf8_lossy(&body));
         let wav = std::fs::read(format!("{models}/whisper-tiny.en/samples_jfk.wav")).unwrap();
         let (code, body) = http("POST", "/v1/audio/transcriptions", "audio/wav", &wav);

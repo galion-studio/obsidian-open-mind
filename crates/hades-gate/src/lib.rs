@@ -35,6 +35,8 @@ pub mod ledger;
 pub mod safety;
 /// Signed approval tokens.
 pub mod token;
+/// Option B prototype: typed, signed plan steps.
+pub mod typed;
 
 pub use approval::{Approver, Refusal, Request, Verdict};
 

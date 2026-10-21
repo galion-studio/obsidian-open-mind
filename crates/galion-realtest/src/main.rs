@@ -11,9 +11,12 @@ use std::process::{Command, ExitCode};
 const USAGE: &str = "usage:
   galion-realtest stack [--repo DIR] [--bin-dir DIR] [--build] [--jobs N]
                         [--base-port N] [--out DIR] [--known-failures FILE]
-                        [--with-nerve]
-      Boot the whole stack on the box (ports BASE..BASE+51, default 19500),
+                        [--with-nerve] [--with-gaia]
+      Boot the whole stack on the box (ports BASE..BASE+53, default 19500),
       run every scenario, tear down, write junit.xml + report.md.
+      --with-gaia adds openmind-queue and the Gaia scenarios (heal-tick
+      plan-only, hades-gate token refusals, POSEIDON submit/refuse); the
+      heal-tick target must be a Gaia test port, so keep BASE in 19000-19946.
   galion-realtest live  [--ssh-host HOST] [--no-ssh] [--no-public] [--out DIR]
       READ-ONLY: GET-only probes of the live VPS over ssh (default host
       slavik-vps) and of the public endpoints. Never writes or restarts.
@@ -26,7 +29,13 @@ struct Opts {
 
 impl Opts {
     fn parse(argv: &[String]) -> Result<Opts, String> {
-        let bools = ["--build", "--with-nerve", "--no-ssh", "--no-public"];
+        let bools = [
+            "--build",
+            "--with-nerve",
+            "--with-gaia",
+            "--no-ssh",
+            "--no-public",
+        ];
         let mut o = Opts {
             flags: vec![],
             vals: vec![],
@@ -146,7 +155,14 @@ fn cmd_stack(o: &Opts) -> Result<bool, String> {
     );
     if o.flag("--build") {
         let jobs: u32 = o.get("--jobs").unwrap_or("4").parse().unwrap_or(4);
-        let line = stack::build(&repo, jobs)?;
+        let mut extra: Vec<&str> = Vec::new();
+        if o.flag("--with-nerve") {
+            extra.push("openmind-nerve");
+        }
+        if o.flag("--with-gaia") {
+            extra.extend_from_slice(stack::GAIA_BINS);
+        }
+        let line = stack::build(&repo, jobs, &extra)?;
         pre.push_str(&format!("- Build: `{line}`\n"));
     }
     let bins = stack::locate(o.get("--bin-dir").map(Path::new), &repo);
@@ -176,7 +192,13 @@ fn cmd_stack(o: &Opts) -> Result<bool, String> {
         "galion-realtest: booting the stack on 127.0.0.1:{base}.. (out {})",
         out.display()
     );
-    let mut st = stack::Stack::up(bins, &out, base, o.flag("--with-nerve"))?;
+    let mut st = stack::Stack::up(
+        bins,
+        &out,
+        base,
+        o.flag("--with-nerve"),
+        o.flag("--with-gaia"),
+    )?;
     let mut suites = scenarios::all(&mut st);
     let mut td = Suite::new("teardown", "galion-realtest");
     let down = st.down();

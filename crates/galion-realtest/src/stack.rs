@@ -30,7 +30,11 @@ pub mod off {
     pub const STUB: u16 = 40;
     pub const NERVE: u16 = 50;
     pub const NERVE_VOICE: u16 = 51;
-    pub const MAX: u16 = 51;
+    /// Gaia heal-tick target: never bound, so it always probes "down".
+    pub const GAIA_HEAL: u16 = 52;
+    /// openmind-queue (POSEIDON) under the supervisor (`--with-gaia`).
+    pub const QUEUE: u16 = 53;
+    pub const MAX: u16 = 53;
 }
 
 /// Binaries the box stack needs. `openmind-nerve`/`galion-nerve` is optional.
@@ -45,6 +49,8 @@ pub const REQUIRED: &[&str] = &[
     "persona-plex-relay",
 ];
 pub const NERVE_BINS: &[&str] = &["openmind-nerve", "galion-nerve"];
+/// Binaries the Gaia scenarios need (`--with-gaia`).
+pub const GAIA_BINS: &[&str] = &["gaia", "hades-gate", "openmind-queue"];
 
 #[derive(Debug, Clone)]
 pub struct Bins {
@@ -61,6 +67,9 @@ impl Bins {
     pub fn missing(&self) -> Vec<&'static str> {
         REQUIRED.iter().copied().filter(|b| !self.has(b)).collect()
     }
+    pub fn gaia_missing(&self) -> Vec<&'static str> {
+        GAIA_BINS.iter().copied().filter(|b| !self.has(b)).collect()
+    }
     pub fn nerve(&self) -> Option<PathBuf> {
         NERVE_BINS
             .iter()
@@ -70,13 +79,13 @@ impl Bins {
 }
 
 /// Run `cargo build --release` for the stack binaries (CPU-polite).
-pub fn build(repo: &Path, jobs: u32) -> Result<String, String> {
+pub fn build(repo: &Path, jobs: u32, extra: &[&str]) -> Result<String, String> {
     let mut args: Vec<String> = ["-n", "10", "cargo", "build", "--release", "--locked", "-j"]
         .iter()
         .map(|s| s.to_string())
         .collect();
     args.push(jobs.to_string());
-    for b in REQUIRED {
+    for b in REQUIRED.iter().chain(extra) {
         args.push("-p".into());
         args.push((*b).into());
     }
@@ -198,6 +207,8 @@ pub struct Stack {
     /// Random per-run fixture memory key (lives in an env file, never logged).
     pub mem_key: String,
     pub nerve: bool,
+    /// Gaia scenarios enabled (`--with-gaia` and every [`GAIA_BINS`] present).
+    pub gaia: bool,
     sup: Option<Child>,
     pub boot_ms: u128,
     /// Readiness time per service (ms since supervisor start), None = never.
@@ -221,7 +232,13 @@ impl Stack {
     }
 
     /// Write fixtures and start the stub plus the supervisor.
-    pub fn up(bins: Bins, out: &Path, base: u16, with_nerve: bool) -> Result<Stack, String> {
+    pub fn up(
+        bins: Bins,
+        out: &Path,
+        base: u16,
+        with_nerve: bool,
+        with_gaia: bool,
+    ) -> Result<Stack, String> {
         let fx = out.join("fixture");
         if fx.file_name().is_some_and(|n| n == "fixture") && fx.exists() {
             fs::remove_dir_all(&fx).map_err(|e| format!("clean {}: {e}", fx.display()))?;
@@ -242,6 +259,8 @@ impl Stack {
             "relay",
             "guardian",
             "nerve",
+            "gaia",
+            "queue",
         ] {
             fs::create_dir_all(fx.join(d)).map_err(|e| format!("mkdir {d}: {e}"))?;
         }
@@ -401,6 +420,8 @@ impl Stack {
                         ("NERVE_VOICE_UNIT", "realtest-none.service".into()),
                         ("NERVE_VOICE_PORT", (base + off::NERVE_VOICE).to_string()),
                         ("NERVE_DISK_PATH", p("")),
+                        // Enables POST /event + GET /events (Gaia heal-tick events).
+                        ("NERVE_EVENT_LOG", p("nerve/events.jsonl")),
                     ]),
                     env_files: vec![],
                     restart_sec: 2,
@@ -410,6 +431,24 @@ impl Stack {
             }
             _ => false,
         };
+        let gaia = with_gaia && bins.gaia_missing().is_empty();
+        if gaia {
+            svcs.push(Svc {
+                name: "openmind-queue".into(),
+                argv: vec![
+                    bin("openmind-queue"),
+                    "serve".into(),
+                    "--bind".into(),
+                    a(off::QUEUE),
+                    "--data".into(),
+                    p("queue"),
+                ],
+                env: vec![],
+                env_files: vec![],
+                restart_sec: 2,
+                health: Some((base + off::QUEUE, "/healthz".into())),
+            });
+        }
         // Every service also gets a private HOME and the Zagreb TZ.
         for s in &mut svcs {
             s.env.push(("HOME".into(), p("home")));
@@ -446,6 +485,7 @@ impl Stack {
             pair_code,
             mem_key,
             nerve,
+            gaia,
             sup: Some(sup),
             boot_ms: 0,
             ready: Vec::new(),
@@ -588,6 +628,9 @@ mod tests {
     #[test]
     fn port_layout_fits_the_full_stack_range() {
         const { assert!(19500 + off::MAX <= 19599) };
+        // At the default base the never-bound heal target is a Gaia test port.
+        const { assert!(19500 + off::GAIA_HEAL >= 19000 && 19500 + off::GAIA_HEAL <= 19999) };
+        const { assert!(off::GAIA_HEAL != off::QUEUE && off::QUEUE <= off::MAX) };
     }
 
     #[test]

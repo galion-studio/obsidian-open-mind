@@ -864,6 +864,9 @@ pub fn all(st: &mut Stack) -> Vec<Suite> {
         link_watch(st),
         desk(st),
         voice_relay(st),
+        crate::gaia::heal_tick(st),
+        crate::gaia::hades_refusals(st),
+        crate::gaia::poseidon(st),
         guardian_heal(st),
         heal_request(st),
     ]

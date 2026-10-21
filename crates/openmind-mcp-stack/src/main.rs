@@ -17,6 +17,7 @@ use std::io::{self, BufRead, Write};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    galion_common::flags::early("openmind-mcp-stack", env!("CARGO_PKG_VERSION"), "usage: openmind-mcp-stack [CRATE]...\nread-only MCP stub on stdio: JSON-RPC lines in, one response line out; exits at EOF. No port, no spawn.\n", || StackServer::new(std::iter::empty::<&str>()).map(|_| "config none (crate names are arguments; stdio only)".to_string()).map_err(|e| e.to_string()));
     let server = match StackServer::new(env::args().skip(1)) {
         Ok(server) => server,
         Err(err) => {

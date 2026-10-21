@@ -53,7 +53,67 @@ fn open_store(cfg: &Config) -> Result<Arc<dyn SessionStore>, String> {
     Ok(Arc::new(hermes_rs::session::Layered { primary, legacy }))
 }
 
+const USAGE: &str = "usage: hermes-gateway [--mock] [--check-config]\n  \
+no arguments    load $HERMES_HOME/config.yaml + env, start the API server\n  \
+--mock          offline mock provider (no network, no spend)\n  \
+--check-config  load the config, print a summary, exit (does not bind)\n\
+env: HERMES_HOME, HERMES_RS_HOST, HERMES_RS_PORT, HERMES_RS_STATE_DB, API_SERVER_KEY (never printed)\n";
+
+fn summary(cfg: &Config) -> String {
+    format!(
+        "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={}",
+        cfg.home.display(),
+        cfg.host,
+        cfg.port,
+        cfg.default_model,
+        cfg.model_routes.keys().collect::<Vec<_>>(),
+        cfg.aliases.keys().collect::<Vec<_>>(),
+        cfg.delegation.max_children,
+        cfg.delegation.max_depth,
+        cfg.max_concurrent_runs,
+        cfg.context_length,
+        cfg.mcp_servers.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+        cfg.cron_enabled
+    )
+}
+
+/// `--check`: config + env only. No store is opened, no MCP server or coding
+/// preflight is started, no provider is contacted, nothing binds. The API key
+/// is reported as present/long enough, never printed.
+fn check() -> Result<String, String> {
+    let cfg = Config::load(&env).map_err(|e| format!("config error: {e}"))?;
+    let mut r = summary(&cfg);
+    r.push('\n');
+    let home_ok = galion_common::flags::path_exists(&mut r, "home", &cfg.home, true);
+    galion_common::flags::line(
+        &mut r,
+        "state_db",
+        format!(
+            "{} ({})",
+            cfg.state_db.display(),
+            if cfg.state_db.exists() { "exists" } else { "absent, would be created at start" }
+        ),
+    );
+    let key_ok = cfg.api_key(&env).is_some_and(|k| k.len() >= 16);
+    galion_common::flags::line(
+        &mut r,
+        "api_key",
+        if key_ok { "set (>= 16 chars)" } else { "MISSING or shorter than 16 chars" },
+    );
+    galion_common::flags::bind_addr(&mut r, "bind", &format!("{}:{}", cfg.host, cfg.port))?;
+    if !home_ok {
+        return Err(format!("{r}HERMES_HOME {} is not a directory", cfg.home.display()));
+    }
+    if !key_ok {
+        return Err(format!("{r}API_SERVER_KEY missing or shorter than 16 chars (start would refuse)"));
+    }
+    Ok(r)
+}
+
 fn main() {
+    // First thing: --version/--help/--check never run the startup checks
+    // (config, store, MCP discovery, coding preflight) and never bind.
+    galion_common::flags::early("hermes-gateway", env!("CARGO_PKG_VERSION"), USAGE, check);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mock = args.iter().any(|a| a == "--mock");
     let cfg = match Config::load(&env) {
@@ -64,21 +124,7 @@ fn main() {
         }
     };
     if args.iter().any(|a| a == "--check-config") {
-        println!(
-            "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={}",
-            cfg.home.display(),
-            cfg.host,
-            cfg.port,
-            cfg.default_model,
-            cfg.model_routes.keys().collect::<Vec<_>>(),
-            cfg.aliases.keys().collect::<Vec<_>>(),
-            cfg.delegation.max_children,
-            cfg.delegation.max_depth,
-            cfg.max_concurrent_runs,
-            cfg.context_length,
-            cfg.mcp_servers.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
-            cfg.cron_enabled
-        );
+        println!("{}", summary(&cfg));
         return;
     }
     let api_key = cfg.api_key(&env);

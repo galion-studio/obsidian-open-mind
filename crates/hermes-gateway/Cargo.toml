@@ -21,5 +21,6 @@ coding = ["dep:hermes-tools"]
 
 [dependencies]
 hermes-rs = { path = "../hermes-rs", default-features = false }
+galion-common = { path = "../galion-common" }
 hermes-tools = { path = "../hermes-tools", optional = true }
 serde_json = { workspace = true }

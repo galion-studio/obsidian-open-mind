@@ -20,6 +20,7 @@
 //! * `--help` / `-h` as the ONLY argument: print the usage and exit 0.
 //! * `--check` as the ONLY argument: run the binary's check closure, print
 //!   its report and `check ok` (exit 0) or `check failed: ...` (exit 1).
+//!   A multi-line `Err` is "report lines, then the reason on the last line".
 //!   The closure only resolves settings and reads files; it must never bind,
 //!   connect, spawn or write.
 //!
@@ -84,7 +85,11 @@ where
         Early::Check => {
             let (mut report, code, tail) = match check() {
                 Ok(r) => (r, 0, String::from("check ok")),
-                Err(e) => (String::new(), 1, format!("check failed: {e}")),
+                Err(e) => match e.rsplit_once('\n') {
+                    // A multi-line error is "report lines, then the reason".
+                    Some((rep, why)) => (rep.to_string(), 1, format!("check failed: {why}")),
+                    None => (String::new(), 1, format!("check failed: {e}")),
+                },
             };
             if !report.is_empty() && !report.ends_with('\n') {
                 report.push('\n');
@@ -185,6 +190,8 @@ mod tests {
         assert_eq!((o.as_str(), c), ("bind a:1\nx check ok\n", 0));
         let (o, c) = render(Early::Check, "x", "1.0", "u", || Err("no root".into()));
         assert_eq!((o.as_str(), c), ("x check failed: no root\n", 1));
+        let (o, c) = render(Early::Check, "x", "1.0", "u", || Err("bind a:1\nno root".into()));
+        assert_eq!((o.as_str(), c), ("bind a:1\nx check failed: no root\n", 1));
     }
 
     #[test]

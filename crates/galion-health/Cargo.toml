@@ -9,4 +9,5 @@ license.workspace = true
 description = "Loopback health dashboard: polls service ports + systemd states, serves HTML/JSON. std only."
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 zagreb-time = { path = "../zagreb-time" }

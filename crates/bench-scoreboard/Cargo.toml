@@ -9,5 +9,6 @@ license.workspace = true
 description = "Renders docs/bench/SCOREBOARD.md from the B1/B2/B3 galion-bench score JSONs; missing scores stay PENDING."
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 galion-bench = { path = "../galion-bench" }
 serde_json = { workspace = true }

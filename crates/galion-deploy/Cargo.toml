@@ -11,6 +11,7 @@ publish = false
 
 # std only: no dependencies, not even libc (the four libc calls are declared in src/sys.rs).
 [dependencies]
+galion-common = { path = "../galion-common" }
 
 [[bin]]
 name = "galion-deploy"

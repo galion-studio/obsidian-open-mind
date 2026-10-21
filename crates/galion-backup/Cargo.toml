@@ -13,6 +13,7 @@ name = "galion-backup"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 # Same pin/features as openmind-memory (already in Cargo.lock).
 rusqlite = { version = "0.32", default-features = false, features = ["bundled", "backup"] }
 # Pure-Rust deflate for the .tar.gz (no SIMD feature). gzip framing + CRC32 are ours.

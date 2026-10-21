@@ -12,6 +12,7 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    galion_common::flags::early("openmind-discovery", env!("CARGO_PKG_VERSION"), USAGE, || { let mut r = String::new(); let reg = std::path::Path::new("discovery-providers.json"); let state = if reg.is_file() { "exists" } else { "absent" }; galion_common::flags::line(&mut r, "default_registry", format!("{} ({state})", reg.display())); Ok(r) });
     match run(env::args().skip(1).collect()) {
         Ok(CliOut::Help) => {
             print!("{USAGE}");

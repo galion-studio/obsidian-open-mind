@@ -17,7 +17,26 @@ fn die(m: &str) -> ! {
     std::process::exit(1)
 }
 
+const USAGE: &str = "usage: galion-backup run | snapshot <src> <dst> | verify <db> | schema <db> | migrate-baseline <db> <ver> <name>\n\
+env (run): GALION_BACKUP_DEST, GALION_BACKUP_KEEP, GALION_BACKUP_MINFREE_KB\n";
+
+/// `--check`: parse the `run` env; never opens a DB, never writes.
+fn check() -> Result<String, String> {
+    use galion_common::flags::line;
+    let o = backup::Opts::from_env()?;
+    let mut r = String::new();
+    let state = if o.dest.is_dir() { "exists" } else { "absent, run would create it" };
+    line(&mut r, "dest", format!("{} ({state})", o.dest.display()));
+    line(&mut r, "keep", o.keep);
+    match o.minfree_kb {
+        Some(k) => line(&mut r, "minfree_kb", k),
+        None => return Err(format!("{r}GALION_BACKUP_MINFREE_KB is not an integer")),
+    }
+    Ok(r)
+}
+
 fn main() {
+    galion_common::flags::early("galion-backup", env!("CARGO_PKG_VERSION"), USAGE, check);
     let a: Vec<String> = std::env::args().collect();
     match a.get(1).map(|s| s.as_str()) {
         Some("run") if a.len() == 2 => {

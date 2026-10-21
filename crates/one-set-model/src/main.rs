@@ -11,6 +11,7 @@ use std::path::Path;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    galion_common::flags::early("one-set-model", env!("CARGO_PKG_VERSION"), "usage: one-set-model <plan|action> <vendor/model> <modes-file>\nprints the JSON object that would be written; does not write the file\n", || Ok("config none (arguments only; never writes)".into()));
     let args: Vec<String> = env::args().skip(1).collect();
     if args.len() != 3 {
         eprintln!("usage: one-set-model <plan|action> <vendor/model> <modes-file>");

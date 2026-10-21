@@ -195,7 +195,30 @@ tr.ok td:first-child{{color:#4c4}}tr.bad td{{color:#f55}}</style></head><body><h
 <table><tr><th>service</th><th>unit</th><th>state</th><th>port</th><th>http</th><th>latency</th></tr>{rows}</table></body></html>", rs.len())
 }
 
+const USAGE: &str = "usage: galion-health [--once]\n  \
+no arguments  serve the status page on GALION_HEALTH_ADDR (default 127.0.0.1:8660)\n  \
+--once        run every check once, print JSON, exit 0 all ok / 1 otherwise\n\
+env: GALION_HEALTH_ADDR, GALION_HEALTH_CHECKS (name|unit|port|path;...), GALION_LOG_FORMAT=json|kv\n";
+
+/// `--check`: parse the address and the check list; never probes, never binds.
+fn check() -> Result<String, String> {
+    let mut r = String::new();
+    let addr = std::env::var("GALION_HEALTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8660".into());
+    galion_common::flags::bind_addr(&mut r, "bind", &addr)?;
+    let spec = std::env::var("GALION_HEALTH_CHECKS").unwrap_or_else(|_| DEFAULT_CHECKS.into());
+    let entries = spec.split(';').filter(|e| !e.trim().is_empty()).count();
+    let checks = parse(&spec);
+    for c in &checks {
+        r.push_str(&format!("check {} unit={} port={} path={}\n", c.name, c.unit, c.port, c.path));
+    }
+    if checks.len() != entries {
+        return Err(format!("{r}{} of {entries} check entries are malformed (name|unit|port|path)", entries - checks.len()));
+    }
+    Ok(r)
+}
+
 fn main() {
+    galion_common::flags::early("galion-health", env!("CARGO_PKG_VERSION"), USAGE, check);
     let addr = std::env::var("GALION_HEALTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8660".into());
     let checks =
         parse(&std::env::var("GALION_HEALTH_CHECKS").unwrap_or_else(|_| DEFAULT_CHECKS.into()));

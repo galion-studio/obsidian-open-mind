@@ -383,7 +383,29 @@ fn classify_main(argv: &[String]) -> Result<(), (i32, String)> {
     Ok(())
 }
 
+const USAGE: &str = "usage: guardian-tick [--probes FILE] [--out PATH] [--suggest] [--jsonl PATH]\n       \
+guardian-tick heal --probes F [--state DIR] [--allow UNIT]... [--nerve P] [--cap N] [--out P]\n       \
+guardian-tick classify --status-json F [--probes F] [--out P]\n\
+env: GUARDIAN_PROBES (probe file), GUARDIAN_JSONL\n";
+
+/// `--check`: read and parse the probe file from GUARDIAN_PROBES; runs no probe.
+fn check() -> Result<String, String> {
+    let mut r = String::new();
+    let pf = std::env::var("GUARDIAN_PROBES")
+        .ok()
+        .filter(|p| !p.is_empty())
+        .ok_or("no probe file (GUARDIAN_PROBES unset)")?;
+    if !galion_common::flags::path_exists(&mut r, "probes", Path::new(&pf), false) {
+        return Err(format!("{r}probe file {pf} missing"));
+    }
+    let text = std::fs::read_to_string(&pf).map_err(|e| format!("{r}{pf}: {e}"))?;
+    let specs = parse_probes(&text).map_err(|e| format!("{r}{pf}: {e}"))?;
+    galion_common::flags::line(&mut r, "probe_count", specs.len());
+    Ok(r)
+}
+
 fn main() {
+    galion_common::flags::early("guardian-tick", env!("CARGO_PKG_VERSION"), USAGE, check);
     if let Err((code, msg)) = real_main() {
         eprintln!("guardian-tick: {msg}");
         std::process::exit(code);

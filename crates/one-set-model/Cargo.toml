@@ -13,6 +13,7 @@ name = "one-set-model"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 serde_json = { workspace = true }
 
 [dev-dependencies]

@@ -13,6 +13,7 @@ name = "openmind-discovery"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 openmind-provider = { path = "../openmind-provider" }

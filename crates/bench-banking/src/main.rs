@@ -17,12 +17,15 @@ fn flag(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
+const USAGE: &str = "usage: bench-banking mock --port N | axis <id> --mock URL | score --mock URL --out DIR [--sha SHA]\n";
+
 fn usage() -> ExitCode {
-    eprintln!("usage: bench-banking mock --port N | axis <id> --mock URL | score --mock URL --out DIR [--sha SHA]");
+    eprint!("{USAGE}");
     ExitCode::from(2)
 }
 
 fn main() -> ExitCode {
+    galion_common::flags::early("bench-banking", env!("CARGO_PKG_VERSION"), USAGE, || Ok("config none (arguments only; mock binds only with `mock --port`)".into()));
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("mock") => {

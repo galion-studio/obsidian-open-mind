@@ -9,6 +9,7 @@ license.workspace = true
 description = "B1 banking benchmark: a local Revolut-shaped mock bank, a local-only client, a draft-only Hermes tool layer and the per-axis scorer. Never talks to a live bank."
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 serde_json = { workspace = true, features = ["preserve_order"] }
 zagreb-time = { path = "../zagreb-time" }
 # Shared harness (swarm/bench-harness ea8315c): Scorecard for the score file;

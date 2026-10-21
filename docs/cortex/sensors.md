@@ -25,6 +25,10 @@ Finding::new(FindingKind::Bleeding, "id", Sev::Warn, "component", "title")
 f.to_nerve_event(now)           // one B33 NerveEvent (serde-identical to openmind_schema::NerveEvent)
 cortex.nerve_events(now)        // B41 rule: one event per (source, kind), highest severity wins
 
+// Cause key (T3.2, docs/cortex/correlation.md): give a finding the cause of the incident it belongs to
+// (`edge`, `ssh-flood`, a component group). It then joins that incident as a member (listed in
+// `correlation.findings`, charged once, at least its own points) instead of a separate deduction.
+
 // Input (cortex.rs): read-only view of one cycle; build with Input::new(now, comps, logs) in tests
 now, comps, logs, listeners, ddos, known_ports, public_ok_ports, listen_scope, own_port, loading_grace_s,
 journal   // NEW: journal lines new this cycle (all collected units)

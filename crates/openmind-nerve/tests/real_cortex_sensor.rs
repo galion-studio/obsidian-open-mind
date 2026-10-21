@@ -8,7 +8,7 @@
 //! 1. `openmind-nerve replay fixtures/cortex-replay` (the real binary) gives
 //!    the pre-trait golden verdict (kind/source keys aside), and the live
 //!    capture `/workspace/swarm/nerve-capture/replay1` (or `$CORTEX_REPLAY_DIR`)
-//!    still scores 61/D when present.
+//!    scores 56/D when present (61/D before the T3.2 member floor).
 //! 2. `openmind-nerve serve` on 127.0.0.1:19430 with a live service (:19431),
 //!    a dead one (:19432) and a stray listener (:19433): the `listeners`
 //!    sensor reports it as a B33 event, then the finding clears when the
@@ -156,10 +156,10 @@ fn real_cortex_sensors_on_the_box() {
         let r: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(
             (r["score"].as_u64(), r["grade"].as_str()),
-            (Some(61), Some("D")),
-            "replay1 verdict changed"
+            (Some(56), Some("D")),
+            "replay1 verdict changed (56/D since the T3.2 scanner member floor, 61/D before)"
         );
-        eprintln!("replay1 live capture: score 61 grade D (unchanged)");
+        eprintln!("replay1 live capture: score 56 grade D (61 before the T3.2 member floor)");
     } else {
         eprintln!("replay1 live capture not on this box: skipped");
     }

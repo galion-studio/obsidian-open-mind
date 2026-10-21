@@ -12,7 +12,7 @@
 //!    `ddos:edge-cloudflared` incident. `NERVE_EDGE_HOSTS=0` removes all of it.
 //! 2. The live VPS capture `/workspace/swarm/nerve-capture/replay1` (or
 //!    `$CORTEX_REPLAY_DIR`): its real cloudflared lines become per-host
-//!    streams, all normal, verdict still 61/D.
+//!    streams, all normal, verdict 56/D (61/D before the T3.2 member floor).
 //! 3. `openmind-nerve serve` on 127.0.0.1:19770: `edge-rate` is registered
 //!    and `/api/v1/state` shows `edge_hosts`; with `NERVE_SENSORS_OFF=edge-rate`
 //!    on :19771 the feeder is off too (`edge_hosts` null).
@@ -231,11 +231,11 @@ fn real_edge_rate_on_the_box() {
         assert!(r["cortex"]["ddos"]["findings"].is_null());
         assert_eq!(
             (r["score"].as_u64(), r["grade"].as_str()),
-            (Some(61), Some("D")),
+            (Some(56), Some("D")), // 61/D before the T3.2 scanner member floor
             "replay1 verdict changed"
         );
         let total: u64 = hs.iter().map(|h| h.2).sum();
-        eprintln!("replay1 live capture ({el:?}): {} host streams, {total} failed requests, all normal, score 61 grade D (unchanged)", hs.len());
+        eprintln!("replay1 live capture ({el:?}): {} host streams, {total} failed requests, all normal, score 56 grade D (61 before T3.2)", hs.len());
         for h in &hs {
             eprintln!("  {} {} total={}", h.0, h.1, h.2);
         }

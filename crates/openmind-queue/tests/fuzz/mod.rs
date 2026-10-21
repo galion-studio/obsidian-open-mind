@@ -195,8 +195,9 @@ pub fn budget(name: &str, default_seed: u64, default_iters: u64) -> Budget {
 }
 
 fn fxhash(s: &str) -> u64 {
-    s.bytes()
-        .fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
+    s.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
+    })
 }
 
 /// Run `case` until the budget is spent. `case` gets the rng and returns

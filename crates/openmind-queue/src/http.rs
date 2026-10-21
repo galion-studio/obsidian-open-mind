@@ -56,6 +56,7 @@ pub fn read_request<R: Read>(r: R) -> io::Result<Request> {
         return Err(bad("not HTTP/1.x"));
     }
     let mut len = 0usize;
+    let mut seen_len = false;
     loop {
         let mut h = String::new();
         let n = br.read_line(&mut h)?;
@@ -73,7 +74,19 @@ pub fn read_request<R: Read>(r: R) -> io::Result<Request> {
         if let Some((k, v)) = h.split_once(':') {
             let k = k.trim().to_ascii_lowercase();
             if k == "content-length" {
-                len = v.trim().parse().map_err(|_| bad("bad content-length"))?;
+                // RFC 9112 6.3: Content-Length is 1*DIGIT (`usize::from_str`
+                // also took "+5"), and differing duplicates are a framing
+                // error, not "last one wins" (slot 221 fuzz find).
+                let v = v.trim();
+                if v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit()) {
+                    return Err(bad("bad content-length"));
+                }
+                let n: usize = v.parse().map_err(|_| bad("bad content-length"))?;
+                if seen_len && n != len {
+                    return Err(bad("conflicting content-length"));
+                }
+                seen_len = true;
+                len = n;
                 if len > MAX_BODY {
                     return Err(bad("body too large"));
                 }

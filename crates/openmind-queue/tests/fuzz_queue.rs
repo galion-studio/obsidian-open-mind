@@ -77,7 +77,9 @@ const JSON_TOKENS: &[&[u8]] = &[
 fn spec(r: &mut Rng) -> JobSpec {
     JobSpec {
         queue: r.pick(&["default", "q", "gpu"]).to_string(),
-        agent: r.pick(&["a", "b", "anon", "*"]).to_string(),
+        // not "*": the door (`valid_name`) refuses it, and a job owned by
+        // agent "*" aliases the global scope in compaction (D-221-3)
+        agent: r.pick(&["a", "b", "anon"]).to_string(),
         kind: r.pick(&["echo", "job", "llm"]).to_string(),
         priority: match r.below(4) {
             0 => i32::MAX,
@@ -85,10 +87,18 @@ fn spec(r: &mut Rng) -> JobSpec {
             _ => r.below(10) as i32 - 5,
         },
         max_attempts: r.below(4) as u32,
-        cost: if r.chance(3) { r.edgy_u64() } else { r.below(5) as u64 },
+        cost: if r.chance(3) {
+            r.edgy_u64()
+        } else {
+            r.below(5) as u64
+        },
         lease_ms: if r.chance(4) { r.edgy_u64() } else { 1000 },
         payload: "p".repeat(r.below(8)),
-        vram_gb: if r.chance(3) { r.edgy_u32() } else { r.below(3) as u32 * 8 },
+        vram_gb: if r.chance(3) {
+            r.edgy_u32()
+        } else {
+            r.below(3) as u32 * 8
+        },
         cpu_fallback: r.chance(2),
     }
 }
@@ -100,7 +110,11 @@ fn device(r: &mut Rng) -> Device {
         vram_gb: if r.chance(3) { r.edgy_u32() } else { 24 },
         provider: String::new(),
         cents_per_hour: if r.chance(3) { r.edgy_u64() } else { 50 },
-        state: *r.pick(&[DeviceState::Approved, DeviceState::Planned, DeviceState::Rejected]),
+        state: *r.pick(&[
+            DeviceState::Approved,
+            DeviceState::Planned,
+            DeviceState::Rejected,
+        ]),
         healthy: r.chance(2),
     }
 }
@@ -113,17 +127,36 @@ fn honest_records(r: &mut Rng) -> Vec<Record> {
         e.apply(&rec);
         out.push(rec);
     };
-    push(&mut e, Record::Cap { scope: GLOBAL.into(), cap: Some(1000) }, &mut out);
-    push(&mut e, Record::Quota { agent: "a".into(), max_pending: 9, max_inflight: 3 }, &mut out);
-    push(&mut e, Record::Device(Device {
-        id: "g1".into(),
-        kind: DeviceKind::Gpu,
-        vram_gb: 24,
-        provider: String::new(),
-        cents_per_hour: 40,
-        state: DeviceState::Approved,
-        healthy: true,
-    }), &mut out);
+    push(
+        &mut e,
+        Record::Cap {
+            scope: GLOBAL.into(),
+            cap: Some(1000),
+        },
+        &mut out,
+    );
+    push(
+        &mut e,
+        Record::Quota {
+            agent: "a".into(),
+            max_pending: 9,
+            max_inflight: 3,
+        },
+        &mut out,
+    );
+    push(
+        &mut e,
+        Record::Device(Device {
+            id: "g1".into(),
+            kind: DeviceKind::Gpu,
+            vram_gb: 24,
+            provider: String::new(),
+            cents_per_hour: 40,
+            state: DeviceState::Approved,
+            healthy: true,
+        }),
+        &mut out,
+    );
     let mut now = 1_000_000u64;
     for i in 0..(3 + r.below(6)) {
         let s = JobSpec {
@@ -266,10 +299,18 @@ fn fuzz_store_open() {
             (Err(()), Err(e)) if e.kind() == std::io::ErrorKind::InvalidData => Ok(()),
             (Ok((wr, end)), Ok((mut st, gr, rep))) => {
                 if wr != gr {
-                    return Err(format!("records differ: oracle {} store {}", wr.len(), gr.len()));
+                    return Err(format!(
+                        "records differ: oracle {} store {}",
+                        wr.len(),
+                        gr.len()
+                    ));
                 }
                 if rep.truncated_bytes != (buf.len() - end) as u64 {
-                    return Err(format!("truncated {} want {}", rep.truncated_bytes, buf.len() - end));
+                    return Err(format!(
+                        "truncated {} want {}",
+                        rep.truncated_bytes,
+                        buf.len() - end
+                    ));
                 }
                 let len = fs::metadata(&log).map_err(|e| e.to_string())?.len();
                 if len != end as u64 {
@@ -277,7 +318,8 @@ fn fuzz_store_open() {
                 }
                 // the store stays usable: one more record survives a reopen
                 let extra = Record::Next { id: 7, token: 7 };
-                st.append(std::slice::from_ref(&extra)).map_err(|e| e.to_string())?;
+                st.append(std::slice::from_ref(&extra))
+                    .map_err(|e| e.to_string())?;
                 drop(st);
                 let (_s, again, rep2) = Store::open(&dir).map_err(|e| e.to_string())?;
                 if again.len() != gr.len() + 1 || rep2.truncated_bytes != 0 {
@@ -302,10 +344,22 @@ fn fuzz_store_open() {
 }
 
 fn hostile_record(r: &mut Rng) -> Record {
-    let id = if r.chance(5) { r.edgy_u64() } else { 1 + r.below(4) as u64 };
-    let token = if r.chance(5) { r.edgy_u64() } else { r.below(5) as u64 };
+    let id = if r.chance(5) {
+        r.edgy_u64()
+    } else {
+        1 + r.below(4) as u64
+    };
+    let token = if r.chance(5) {
+        r.edgy_u64()
+    } else {
+        r.below(5) as u64
+    };
     match r.below(14) {
-        0..=2 => Record::Enqueue { id, now: r.edgy_u64(), spec: spec(r) },
+        0..=2 => Record::Enqueue {
+            id,
+            now: r.edgy_u64(),
+            spec: spec(r),
+        },
         3 | 4 => Record::Lease {
             id,
             token,
@@ -314,20 +368,39 @@ fn hostile_record(r: &mut Rng) -> Record {
             reserved: r.edgy_u64(),
             device: r.pick(&["", "cpu", "g1", "zz"]).to_string(),
         },
-        5 => Record::Extend { id, token, deadline: r.edgy_u64() },
-        6 => Record::Ack { id, token, charge: r.edgy_u64() },
+        5 => Record::Extend {
+            id,
+            token,
+            deadline: r.edgy_u64(),
+        },
+        6 => Record::Ack {
+            id,
+            token,
+            charge: r.edgy_u64(),
+        },
         7 => Record::Fail {
             id,
             token,
             charge: r.edgy_u64(),
-            retry_at: if r.chance(2) { None } else { Some(r.edgy_u64()) },
+            retry_at: if r.chance(2) {
+                None
+            } else {
+                Some(r.edgy_u64())
+            },
             expired: r.chance(2),
             error: "e".into(),
         },
-        8 => Record::Redrive { id, now: r.edgy_u64() },
+        8 => Record::Redrive {
+            id,
+            now: r.edgy_u64(),
+        },
         9 => Record::Cap {
             scope: r.pick(&["*", "a", "b"]).to_string(),
-            cap: if r.chance(2) { None } else { Some(r.edgy_u64()) },
+            cap: if r.chance(2) {
+                None
+            } else {
+                Some(r.edgy_u64())
+            },
         },
         10 => Record::Quota {
             agent: r.pick(&["*", "a", "b"]).to_string(),
@@ -341,7 +414,12 @@ fn hostile_record(r: &mut Rng) -> Record {
                 id,
                 spec: s,
                 created_ms: 0,
-                state: *r.pick(&[JobState::Ready, JobState::Delayed, JobState::Leased, JobState::Dead]),
+                state: *r.pick(&[
+                    JobState::Ready,
+                    JobState::Delayed,
+                    JobState::Leased,
+                    JobState::Dead,
+                ]),
                 attempts: r.edgy_u32(),
                 ready_at: r.edgy_u64(),
                 token,
@@ -353,8 +431,14 @@ fn hostile_record(r: &mut Rng) -> Record {
             }))
         }
         _ => match r.below(3) {
-            0 => Record::Spent { scope: r.pick(&["*", "a"]).to_string(), spent: r.edgy_u64() },
-            1 => Record::Next { id: r.edgy_u64(), token: r.edgy_u64() },
+            0 => Record::Spent {
+                scope: r.pick(&["*", "a"]).to_string(),
+                spent: r.edgy_u64(),
+            },
+            1 => Record::Next {
+                id: r.edgy_u64(),
+                token: r.edgy_u64(),
+            },
             _ => Record::Counters(Stats {
                 enqueued: r.edgy_u64(),
                 stale_acks: r.edgy_u64(),
@@ -406,7 +490,16 @@ fn fuzz_replay_hostile() {
         let _ = e2.depth();
         let snap2 = e2.snapshot();
         if snap != snap2 {
-            return Err("snapshot of a replayed snapshot differs".into());
+            let i = snap
+                .iter()
+                .zip(&snap2)
+                .position(|(a, b)| a != b)
+                .unwrap_or(snap.len().min(snap2.len()));
+            return Err(format!(
+                "snapshot of a replayed snapshot differs at {i}: {:?} vs {:?}",
+                snap.get(i),
+                snap2.get(i)
+            ));
         }
         Ok(())
     });
@@ -424,11 +517,19 @@ const BODY_CORPUS: &[&str] = &[
 fn check_engine(e: &Engine, caps: &[(String, u64)]) -> Result<(), String> {
     let (ready, delayed, leased, dead) = e.depth();
     if ready + delayed + leased + dead != e.live_jobs() {
-        return Err(format!("depth {ready}+{delayed}+{leased}+{dead} != jobs {}", e.live_jobs()));
+        return Err(format!(
+            "depth {ready}+{delayed}+{leased}+{dead} != jobs {}",
+            e.live_jobs()
+        ));
     }
     for (scope, cap) in caps {
-        let b = if scope == GLOBAL { e.global().clone() } else {
-            e.agents().get(scope).map(|a| a.budget.clone()).unwrap_or_default()
+        let b = if scope == GLOBAL {
+            e.global().clone()
+        } else {
+            e.agents()
+                .get(scope)
+                .map(|a| a.budget.clone())
+                .unwrap_or_default()
         };
         if b.spent.checked_add(b.reserved).is_none_or(|t| t > *cap) {
             return Err(format!(
@@ -440,13 +541,18 @@ fn check_engine(e: &Engine, caps: &[(String, u64)]) -> Result<(), String> {
     let mut reserved = 0u64;
     let mut inflight: std::collections::BTreeMap<&str, u32> = Default::default();
     for a in e.agents().values() {
-        reserved = reserved.checked_add(a.budget.reserved).ok_or("agent reserved sum overflows")?;
+        reserved = reserved
+            .checked_add(a.budget.reserved)
+            .ok_or("agent reserved sum overflows")?;
     }
     for (n, a) in e.agents() {
         inflight.insert(n.as_str(), a.inflight);
     }
     if reserved != e.global().reserved {
-        return Err(format!("sum of agent reservations {reserved} != global {}", e.global().reserved));
+        return Err(format!(
+            "sum of agent reservations {reserved} != global {}",
+            e.global().reserved
+        ));
     }
     let snap = e.snapshot();
     let mut e2 = Engine::new(Config::default());
@@ -457,7 +563,11 @@ fn check_engine(e: &Engine, caps: &[(String, u64)]) -> Result<(), String> {
         return Err("compaction is not a fixed point".into());
     }
     if e2.global() != e.global() {
-        return Err(format!("global budget after compaction {:?} != {:?}", e2.global(), e.global()));
+        return Err(format!(
+            "global budget after compaction {:?} != {:?}",
+            e2.global(),
+            e.global()
+        ));
     }
     for (n, a) in e.agents() {
         let b = e2.agents().get(n).cloned().unwrap_or_default();
@@ -479,14 +589,24 @@ fn fuzz_job_body() {
         });
         let mut caps = Vec::new();
         if r.chance(2) {
-            let c = if r.chance(3) { r.edgy_u64() } else { 10 + r.below(20) as u64 };
-            let rec = Record::Cap { scope: GLOBAL.into(), cap: Some(c) };
+            let c = if r.chance(3) {
+                r.edgy_u64()
+            } else {
+                10 + r.below(20) as u64
+            };
+            let rec = Record::Cap {
+                scope: GLOBAL.into(),
+                cap: Some(c),
+            };
             e.apply(&rec);
             caps.push((GLOBAL.to_string(), c));
         }
         if r.chance(2) {
             let c = r.below(15) as u64;
-            e.apply(&Record::Cap { scope: "a".into(), cap: Some(c) });
+            e.apply(&Record::Cap {
+                scope: "a".into(),
+                cap: Some(c),
+            });
             caps.push(("a".to_string(), c));
         }
         if r.chance(2) {
@@ -515,7 +635,12 @@ fn fuzz_job_body() {
                     }
                 }
                 3 => {
-                    if let Ok(rec) = e.lease(r.pick(&["default", "q", "gpu"]), "w", now, r.edgy_u64() % 1000) {
+                    if let Ok(rec) = e.lease(
+                        r.pick(&["default", "q", "gpu"]),
+                        "w",
+                        now,
+                        r.edgy_u64() % 1000,
+                    ) {
                         if let Record::Lease { id, token, .. } = &rec {
                             leases.push((*id, *token));
                         }
@@ -524,7 +649,11 @@ fn fuzz_job_body() {
                 }
                 4 if !leases.is_empty() => {
                     let (id, tok) = leases.swap_remove(r.below(leases.len()));
-                    let actual = if r.chance(2) { None } else { Some(r.edgy_u64()) };
+                    let actual = if r.chance(2) {
+                        None
+                    } else {
+                        Some(r.edgy_u64())
+                    };
                     if let Ok(rec) = e.ack(id, tok, actual) {
                         e.apply(&rec);
                     }
@@ -601,7 +730,11 @@ fn fuzz_sidecar() {
             b
         };
         if r.chance(3) {
-            buf = mutate(r, &buf, &[b"\"seq\":", b"\n", b"\0\0\0\0", b"18446744073709551615"]);
+            buf = mutate(
+                r,
+                &buf,
+                &[b"\"seq\":", b"\n", b"\0\0\0\0", b"18446744073709551615"],
+            );
         }
         last.extend_from_slice(&buf);
         fs::write(&path, &buf).map_err(|e| e.to_string())?;
@@ -614,14 +747,20 @@ fn fuzz_sidecar() {
         }
         // whatever was there, the next save is what the next open restores
         let next = refusals(r);
-        let want_write = rep.restored != Some(next);
+        // with nothing restored the in-memory value is all zeros
+        let want_write = rep.restored.unwrap_or_default() != next;
         let wrote = s.save(&next).map_err(|e| format!("save failed: {e}"))?;
         if wrote != want_write {
             return Err(format!("save wrote={wrote}, expected {want_write}"));
         }
         drop(s);
         let (_s, rep2) = Sidecar::open(&dir).map_err(|e| e.to_string())?;
-        if rep2.restored != Some(next) {
+        let want = if rep.restored.is_none() && !wrote {
+            None
+        } else {
+            Some(next)
+        };
+        if rep2.restored != want {
             return Err(format!(
                 "saved {next:?} (after seq {}) but reopen restored {:?} at seq {}",
                 rep.seq, rep2.restored, rep2.seq
@@ -696,7 +835,10 @@ fn fuzz_http_request() {
             let lens = declared_lengths(&raw);
             // RFC 9112 6.3: Content-Length is 1*DIGIT, and differing
             // duplicates are an unrecoverable framing error.
-            if lens.iter().any(|v| v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit())) {
+            if lens
+                .iter()
+                .any(|v| v.is_empty() || !v.bytes().all(|b| b.is_ascii_digit()))
+            {
                 return Err(format!("non-digit Content-Length accepted: {lens:?}"));
             }
             let mut uniq: Vec<u64> = lens.iter().filter_map(|v| v.parse().ok()).collect();
@@ -708,7 +850,10 @@ fn fuzz_http_request() {
             }
             let want = uniq.first().copied().unwrap_or(0);
             if req.body.len() as u64 != want {
-                return Err(format!("body {} bytes, Content-Length {want}", req.body.len()));
+                return Err(format!(
+                    "body {} bytes, Content-Length {want}",
+                    req.body.len()
+                ));
             }
         }
         Ok(())

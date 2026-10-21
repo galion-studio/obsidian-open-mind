@@ -184,7 +184,8 @@ impl VramPool {
     }
 
     pub fn hold(&mut self, id: &str, gb: u32) {
-        *self.used.entry(id.to_string()).or_default() += u64::from(gb);
+        let u = self.used.entry(id.to_string()).or_default();
+        *u = u.saturating_add(u64::from(gb));
     }
 
     pub fn unhold(&mut self, id: &str, gb: u32) {
@@ -223,6 +224,10 @@ impl VramPool {
             .unwrap_or(0)
     }
 
+    /// Sums saturate: `cents_per_hour` is any u64 a client sends to
+    /// `POST /vram/devices`, and two devices near u64::MAX overflowed
+    /// (`/stats` panicked in debug, wrapped to a wrong price in release;
+    /// slot 221 fuzz find).
     pub fn summary(&self) -> Summary {
         let mut s = Summary {
             goal_gb: VRAM_GOAL_GB,
@@ -233,21 +238,23 @@ impl VramPool {
             let gb = u64::from(d.vram_gb);
             match d.state {
                 DeviceState::Approved => {
-                    s.approved_gb += gb;
-                    s.approved_cents_per_hour += d.cents_per_hour;
+                    s.approved_gb = s.approved_gb.saturating_add(gb);
+                    s.approved_cents_per_hour =
+                        s.approved_cents_per_hour.saturating_add(d.cents_per_hour);
                     if d.routable() {
-                        s.routable_devices += 1;
-                        s.free_gb += self.free(&d.id);
+                        s.routable_devices += 1; // bounded by the device count
+                        s.free_gb = s.free_gb.saturating_add(self.free(&d.id));
                     }
                 }
                 DeviceState::Planned => {
-                    s.planned_gb += gb;
-                    s.planned_cents_per_hour += d.cents_per_hour;
+                    s.planned_gb = s.planned_gb.saturating_add(gb);
+                    s.planned_cents_per_hour =
+                        s.planned_cents_per_hour.saturating_add(d.cents_per_hour);
                 }
                 DeviceState::Rejected => {}
             }
         }
-        s.used_gb = self.used.values().sum();
+        s.used_gb = self.used.values().fold(0u64, |t, u| t.saturating_add(*u));
         s.gap_gb = VRAM_GOAL_GB.saturating_sub(s.approved_gb);
         s
     }

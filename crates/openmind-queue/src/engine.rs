@@ -25,6 +25,14 @@ pub const MONEY_WORDS: &[&str] = &[
     "revolut", "payment", "transfer", "iban", "withdraw", "payout", "purchase",
 ];
 
+/// Largest `cost` a job may reserve per attempt (2^40 spend units).
+/// Reservations are summed per agent and globally; with unbounded costs
+/// two jobs near u64::MAX overflowed the sum, which saturated, so the
+/// releases left a wrong `reserved` and compaction rebuilt a different
+/// one (slot 221 fuzz find). With this bound the sum stays exact for up
+/// to 2^24 leased jobs, far above any `max_depth` in use.
+pub const MAX_COST: u64 = 1 << 40;
+
 /// The scope name used for the global (all agents) budget.
 pub const GLOBAL: &str = "*";
 
@@ -310,12 +318,15 @@ impl Budget {
     pub fn fits(&self, cost: u64) -> bool {
         match self.cap {
             None => true,
-            Some(cap) => {
-                self.spent
-                    .saturating_add(self.reserved)
-                    .saturating_add(cost)
-                    <= cap
-            }
+            // Checked, not saturating: with a cap of u64::MAX a saturated
+            // sum (spent 1 + cost u64::MAX = u64::MAX) passed `<= cap` and
+            // let spent + reserved cross it (slot 221 fuzz find). A sum
+            // that overflows u64 never fits.
+            Some(cap) => self
+                .spent
+                .checked_add(self.reserved)
+                .and_then(|t| t.checked_add(cost))
+                .is_some_and(|t| t <= cap),
         }
     }
     pub fn remaining(&self) -> Option<u64> {
@@ -416,7 +427,11 @@ impl Engine {
     /// (ready, delayed, leased, dead) counts.
     pub fn depth(&self) -> (usize, usize, usize, usize) {
         let ready = self.ready.values().map(|s| s.len()).sum();
-        let dead = self.jobs.len() - ready - self.delayed.len() - self.leased.len();
+        // Saturating: a replayed log is outside our control (slot 221 fuzz).
+        let dead = self
+            .jobs
+            .len()
+            .saturating_sub(ready + self.delayed.len() + self.leased.len());
         (ready, self.delayed.len(), self.leased.len(), dead)
     }
     pub fn quota_of(&self, agent: &str) -> (u32, u32) {
@@ -461,18 +476,32 @@ impl Engine {
         if spec.payload.len() > 64 * 1024 {
             return Err(Refusal::BadRequest("payload over 64 KiB".into()));
         }
+        if spec.cost > MAX_COST {
+            return Err(Refusal::BadRequest(format!(
+                "cost {} is over the per-job limit {MAX_COST}",
+                spec.cost
+            )));
+        }
         if spec.max_attempts == 0 {
             spec.max_attempts = self.cfg.default_max_attempts.max(1);
         }
         if spec.lease_ms == 0 {
             spec.lease_ms = self.cfg.default_lease_ms;
         }
-        let live = self.jobs.len() - self.dead_count();
+        let live = self.jobs.len().saturating_sub(self.dead_count());
         if live >= self.cfg.max_depth {
-            self.stats.backpressure_refusals += 1;
+            self.stats.backpressure_refusals = self.stats.backpressure_refusals.saturating_add(1);
             return Err(Refusal::Full(format!(
                 "queue depth {live} is at max_depth {}",
                 self.cfg.max_depth
+            )));
+        }
+        // `next_id` saturates at u64::MAX (only a damaged log gets it there);
+        // never answer 201 for an id the next apply would ignore (slot 221).
+        if self.jobs.contains_key(&self.next_id) {
+            return Err(Refusal::Full(format!(
+                "job id {} is still in use (id space exhausted)",
+                self.next_id
             )));
         }
         if spec.vram_gb > 0 && !spec.cpu_fallback && !self.vram.can_ever_fit(spec.vram_gb) {
@@ -485,7 +514,7 @@ impl Engine {
         let (max_pending, _) = self.quota_of(&spec.agent);
         let pending = self.agents.get(&spec.agent).map_or(0, |a| a.pending);
         if pending >= max_pending {
-            self.stats.quota_refusals += 1;
+            self.stats.quota_refusals = self.stats.quota_refusals.saturating_add(1);
             return Err(Refusal::Quota(format!(
                 "agent {} has {pending} pending jobs (max_pending {max_pending})",
                 spec.agent
@@ -500,8 +529,8 @@ impl Engine {
             .unwrap_or_default();
         for (scope, b) in [(spec.agent.as_str(), &ab), (GLOBAL, &self.global)] {
             if let Some(cap) = b.cap {
-                if b.spent.saturating_add(spec.cost) > cap {
-                    self.stats.budget_refusals += 1;
+                if b.spent.checked_add(spec.cost).is_none_or(|t| t > cap) {
+                    self.stats.budget_refusals = self.stats.budget_refusals.saturating_add(1);
                     return Err(Refusal::Budget(format!(
                         "budget {scope}: spent {} + cost {} > cap {cap}",
                         b.spent, spec.cost
@@ -584,12 +613,12 @@ impl Engine {
         }
         for b in blocked {
             if let Some(a) = self.agents.get_mut(&b) {
-                a.budget_blocked += 1;
+                a.budget_blocked = a.budget_blocked.saturating_add(1);
             }
         }
         let Some((id, device)) = pick else {
             if miss == Miss::BudgetStopped {
-                self.stats.budget_refusals += 1;
+                self.stats.budget_refusals = self.stats.budget_refusals.saturating_add(1);
             }
             return Err(miss);
         };
@@ -612,11 +641,11 @@ impl Engine {
     fn current(&mut self, id: u64, token: u64) -> Result<&Job, Refusal> {
         match self.jobs.get(&id) {
             None => {
-                self.stats.stale_acks += 1;
+                self.stats.stale_acks = self.stats.stale_acks.saturating_add(1);
                 Err(Refusal::NotFound)
             }
             Some(j) if j.state != JobState::Leased || j.token != token => {
-                self.stats.stale_acks += 1;
+                self.stats.stale_acks = self.stats.stale_acks.saturating_add(1);
                 Err(Refusal::Stale)
             }
             Some(j) => Ok(j),
@@ -629,7 +658,7 @@ impl Engine {
         let reserved = self.current(id, token)?.reserved;
         let charge = match actual {
             Some(a) if a > reserved => {
-                self.stats.charge_clamped += 1;
+                self.stats.charge_clamped = self.stats.charge_clamped.saturating_add(1);
                 reserved
             }
             Some(a) => a,
@@ -769,6 +798,13 @@ impl Engine {
     pub fn apply(&mut self, r: &Record) {
         match r {
             Record::Enqueue { id, now, spec } => {
+                // Ids are unique: the server never reissues one. A second
+                // record for a live id (only a damaged or hand-edited log
+                // has one) is ignored, first one wins; indexing it again
+                // left a stale index entry that panicked `lease` (slot 221).
+                if self.jobs.contains_key(id) {
+                    return;
+                }
                 let j = Job {
                     id: *id,
                     spec: spec.clone(),
@@ -784,10 +820,11 @@ impl Engine {
                     device: String::new(),
                 };
                 self.index(&j);
-                self.agent(&spec.agent).pending += 1;
+                let a = self.agent(&spec.agent);
+                a.pending = a.pending.saturating_add(1);
                 self.jobs.insert(*id, j);
-                self.next_id = self.next_id.max(id + 1);
-                self.stats.enqueued += 1;
+                self.next_id = self.next_id.max(id.saturating_add(1));
+                self.stats.enqueued = self.stats.enqueued.saturating_add(1);
             }
             Record::Lease {
                 id,
@@ -805,28 +842,28 @@ impl Engine {
                 }
                 self.unindex(&j);
                 j.state = JobState::Leased;
-                j.attempts += 1;
+                j.attempts = j.attempts.saturating_add(1);
                 j.token = *token;
                 j.worker = worker.clone();
                 j.deadline = *deadline;
                 j.reserved = *reserved;
                 j.device = device.clone();
                 if j.device == CPU {
-                    self.stats.vram_offloaded += 1;
+                    self.stats.vram_offloaded = self.stats.vram_offloaded.saturating_add(1);
                 }
                 self.hold_vram(&j);
                 self.index(&j);
                 let a = self.agent(&j.spec.agent);
                 a.pending = a.pending.saturating_sub(1);
-                a.inflight += 1;
-                a.budget.reserved += reserved;
-                self.global.reserved += reserved;
-                self.stats.delivered += 1;
+                a.inflight = a.inflight.saturating_add(1);
+                a.budget.reserved = a.budget.reserved.saturating_add(*reserved);
+                self.global.reserved = self.global.reserved.saturating_add(*reserved);
+                self.stats.delivered = self.stats.delivered.saturating_add(1);
                 if j.attempts > 1 {
-                    self.stats.redelivered += 1;
+                    self.stats.redelivered = self.stats.redelivered.saturating_add(1);
                 }
                 self.jobs.insert(*id, j);
-                self.next_token = self.next_token.max(token + 1);
+                self.next_token = self.next_token.max(token.saturating_add(1));
             }
             Record::Extend {
                 id,
@@ -855,7 +892,7 @@ impl Engine {
                 self.release(&j.spec.agent, j.reserved, *charge);
                 self.drop_vram(&j);
                 self.jobs.remove(id);
-                self.stats.acked += 1;
+                self.stats.acked = self.stats.acked.saturating_add(1);
             }
             Record::Fail {
                 id,
@@ -878,19 +915,20 @@ impl Engine {
                 j.reserved = 0;
                 j.last_error = error.clone();
                 if *expired {
-                    self.stats.expired += 1;
+                    self.stats.expired = self.stats.expired.saturating_add(1);
                 } else {
-                    self.stats.nacked += 1;
+                    self.stats.nacked = self.stats.nacked.saturating_add(1);
                 }
                 match retry_at {
                     Some(at) => {
                         j.state = JobState::Delayed;
                         j.ready_at = *at;
-                        self.agent(&j.spec.agent).pending += 1;
+                        let a = self.agent(&j.spec.agent);
+                        a.pending = a.pending.saturating_add(1);
                     }
                     None => {
                         j.state = JobState::Dead;
-                        self.stats.dead += 1;
+                        self.stats.dead = self.stats.dead.saturating_add(1);
                     }
                 }
                 self.index(&j);
@@ -907,9 +945,10 @@ impl Engine {
                 j.attempts = 0;
                 j.ready_at = *now;
                 self.index(&j);
-                self.agent(&j.spec.agent).pending += 1;
+                let a = self.agent(&j.spec.agent);
+                a.pending = a.pending.saturating_add(1);
                 self.jobs.insert(*id, j);
-                self.stats.redriven += 1;
+                self.stats.redriven = self.stats.redriven.saturating_add(1);
             }
             Record::Cap { scope, cap } => {
                 if scope == GLOBAL {
@@ -936,22 +975,25 @@ impl Engine {
             }
             Record::Snapshot(j) => {
                 let j = (**j).clone();
+                if self.jobs.contains_key(&j.id) {
+                    return; // duplicate id: first one wins (see Enqueue)
+                }
                 self.index(&j);
                 let a = self.agent(&j.spec.agent);
                 match j.state {
-                    JobState::Ready | JobState::Delayed => a.pending += 1,
+                    JobState::Ready | JobState::Delayed => a.pending = a.pending.saturating_add(1),
                     JobState::Leased => {
-                        a.inflight += 1;
-                        a.budget.reserved += j.reserved;
+                        a.inflight = a.inflight.saturating_add(1);
+                        a.budget.reserved = a.budget.reserved.saturating_add(j.reserved);
                     }
                     JobState::Dead => {}
                 }
                 if j.state == JobState::Leased {
-                    self.global.reserved += j.reserved;
+                    self.global.reserved = self.global.reserved.saturating_add(j.reserved);
                     self.hold_vram(&j);
                 }
-                self.next_id = self.next_id.max(j.id + 1);
-                self.next_token = self.next_token.max(j.token + 1);
+                self.next_id = self.next_id.max(j.id.saturating_add(1));
+                self.next_token = self.next_token.max(j.token.saturating_add(1));
                 self.jobs.insert(j.id, j);
             }
             Record::Spent { scope, spent } => {

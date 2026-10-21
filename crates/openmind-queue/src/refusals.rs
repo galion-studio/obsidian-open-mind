@@ -39,6 +39,13 @@ pub const FILE: &str = "refusals.dat";
 /// Bytes per slot. The JSON line is ~200 bytes even with every counter at
 /// `u64::MAX`, so 512 leaves plenty of room.
 pub const SLOT: usize = 512;
+/// A restored sequence number above this is rebased to 1/2 on open. One
+/// save per changed refusal count never gets near it; only damage or a
+/// crafted file does. Without the rebase a slot at `u64::MAX` overflowed
+/// the next save (debug panic) or wrapped it to seq 0 in release, so the
+/// stale slot won every later open and the counters silently stopped
+/// persisting (slot 221 fuzz find).
+pub const REBASE_AT: u64 = 1 << 62;
 
 /// The process-local counters, as persisted.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -172,19 +179,40 @@ impl Sidecar {
         let (seq, last) = best.unwrap_or_default();
         rep.restored = best.map(|b| b.1);
         rep.seq = seq;
-        Ok((
-            Sidecar {
-                path,
-                file,
-                seq,
-                last,
-                dirty: false,
-                writes: 0,
-                write_errors: 0,
-                syncs: 0,
-            },
-            rep,
-        ))
+        let mut sc = Sidecar {
+            path,
+            file,
+            seq,
+            last,
+            dirty: false,
+            writes: 0,
+            write_errors: 0,
+            syncs: 0,
+        };
+        if seq > REBASE_AT {
+            sc.rebase();
+        }
+        Ok((sc, rep))
+    }
+
+    /// Rewrite the restored value as seq 2 (slot 0), then seq 1 (slot 1).
+    /// Both writes carry the same value, so a torn write at any point
+    /// still opens to that value. On a write error the old seq is kept
+    /// (counted in `write_errors`; `save` saturates instead of wrapping).
+    fn rebase(&mut self) {
+        for (seq, off) in [(2u64, 0u64), (1, SLOT as u64)] {
+            if self
+                .file
+                .write_all_at(&encode_slot(seq, &self.last), off)
+                .is_err()
+            {
+                self.write_errors += 1;
+                return;
+            }
+        }
+        self.seq = 2;
+        self.dirty = true;
+        self.writes += 2;
     }
 
     pub fn file_path(&self) -> &Path {
@@ -202,7 +230,7 @@ impl Sidecar {
         if *c == self.last {
             return Ok(false);
         }
-        let seq = self.seq + 1;
+        let seq = self.seq.saturating_add(1);
         let slot = encode_slot(seq, c);
         let off = (seq % 2) * SLOT as u64;
         if let Err(e) = self.file.write_all_at(&slot, off) {

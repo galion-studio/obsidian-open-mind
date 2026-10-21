@@ -437,6 +437,7 @@ struct LoopReport {
     restart_ms_max: u128,
     restart_ms_sum: u128,
     lost: usize,
+    fence_checks: u64,
     resurrected: usize,
     max_rss_kib: u64,
     final_stats: Value,
@@ -690,35 +691,62 @@ fn kill_loop(name: &str, port: u16, compact_min: u64, hammer: bool) {
         assert_eq!(rep.lost, 0, "lost jobs after kill {k}");
         assert_eq!(rep.resurrected, 0, "resurrected acks after kill {k}");
         // fencing: the next token must be above every token handed out
-        // before the kill (probe through a throwaway queue)
-        let probe = json!({"queue":"probe","agent":"probe","payload":"fence"});
-        let (c, pj) = call(&addr, "POST", "/jobs", Some(probe));
-        assert_eq!(c, 201);
-        let (_, pl) = call(
+        // before the kill. Lease a real job; if none is leasable, push a
+        // probe job through its own queue (unless the queue is full).
+        let mut fence = call(
             &addr,
             "POST",
             "/lease",
-            Some(json!({"worker":"fence","queue":"probe"})),
-        );
-        let tok = pl["token"].as_u64().unwrap();
-        assert!(
-            tok > max_token_before,
-            "token {tok} not above {max_token_before} after restart"
-        );
-        let (c, _) = call(
-            &addr,
-            "POST",
-            &format!("/jobs/{}/ack", pj["id"]),
-            Some(json!({"token": tok})),
-        );
-        assert_eq!(c, 200);
-        {
-            // the probe counts toward the ledger as an enqueue + ack
+            Some(json!({"worker":"fence","wait_ms":0})),
+        )
+        .1;
+        if !fence["id"].is_u64() {
+            let probe = json!({"queue":"probe","agent":"probe","payload":"fence"});
+            let (c, pj) = call(&addr, "POST", "/jobs", Some(probe));
+            if c == 201 {
+                s.led
+                    .lock()
+                    .unwrap()
+                    .enq
+                    .insert(pj["id"].as_u64().unwrap(), ("probe".into(), 0));
+                fence = call(
+                    &addr,
+                    "POST",
+                    "/lease",
+                    Some(json!({"worker":"fence","queue":"probe"})),
+                )
+                .1;
+            } else {
+                assert_eq!(c, 503, "{pj}");
+                s.led.lock().unwrap().seen_backpressure += 1;
+            }
+        }
+        if let Some(id) = fence["id"].as_u64() {
+            let tok = fence["token"].as_u64().unwrap();
+            assert!(
+                tok > max_token_before,
+                "token {tok} not above {max_token_before} after restart"
+            );
+            let (c, a) = call(
+                &addr,
+                "POST",
+                &format!("/jobs/{id}/ack"),
+                Some(json!({"token": tok})),
+            );
+            assert_eq!(c, 200);
+            let spec = &fence["job"]["spec"];
             let mut l = s.led.lock().unwrap();
-            let id = pj["id"].as_u64().unwrap();
-            l.enq.insert(id, ("probe".into(), 0));
-            l.acked.insert(id, 0);
+            l.leased.insert(
+                id,
+                (
+                    spec["agent"].as_str().unwrap().to_string(),
+                    spec["cost"].as_u64().unwrap(),
+                ),
+            );
+            l.acked.insert(id, a["charged"].as_u64().unwrap());
             l.acked_since_check.push(id);
+            l.max_token = l.max_token.max(tok);
+            rep.fence_checks += 1;
         }
         prev = Some(stats_of(&srv.stats()));
         if k % 10 == 9 {
@@ -764,17 +792,23 @@ fn kill_loop(name: &str, port: u16, compact_min: u64, hammer: bool) {
     srv.kill9();
     let err = std::fs::read_to_string(&errlog).unwrap_or_default();
     eprintln!(
-        "{} {name}: RESULT kills {} in {:.1} s, ops {}, enq_ok {}, acked {}, ack_ambiguous {} (applied {}), enq_ambiguous {}, lease_ambiguous {}, compactions {} (errors {}), truncated_bytes {}, restart max {} ms avg {} ms, max RSS {} KiB, lost {}, resurrected {}, server stderr lines {}\n  final {}",
+        "{} {name}: RESULT kills {} in {:.1} s, ops {}, enq_ok {}, acked {}, ack_ambiguous {} (applied {}), enq_ambiguous {}, lease_ambiguous {}, compactions {} (errors {}), truncated_bytes {}, restart max {} ms avg {} ms, max RSS {} KiB, lost {}, resurrected {}, fence checks {}, server stderr lines {}\n  final {}",
         stamp(), rep.kills, t_all.elapsed().as_secs_f64(), rep.ops, rep.enq_ok, rep.acked, rep.ack_ambiguous,
         rep.ack_ambiguous_applied, rep.enq_ambiguous, rep.lease_ambiguous, rep.compactions, rep.compaction_errors,
         rep.truncated_bytes, rep.restart_ms_max, rep.restart_ms_sum / u128::from(rep.kills.max(1)), rep.max_rss_kib,
-        rep.lost, rep.resurrected, err.lines().count(), rep.final_stats
+        rep.lost, rep.resurrected, rep.fence_checks, err.lines().count(), rep.final_stats
     );
     assert_eq!(rep.lost, 0);
     assert_eq!(rep.resurrected, 0);
     assert_eq!(rep.compaction_errors, 0, "compaction errors: {err}");
     assert!(rep.compactions > 0, "no compaction happened under load");
     assert!(rep.acked > 100, "too little work done: {}", rep.acked);
+    assert!(
+        rep.fence_checks * 2 >= rep.kills,
+        "token fencing checked after only {} of {} kills",
+        rep.fence_checks,
+        rep.kills
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

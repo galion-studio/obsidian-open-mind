@@ -13,13 +13,17 @@ pub mod cache;
 pub mod catalog;
 pub mod context;
 pub mod gate;
-pub mod jsfmt;
 pub mod gateway;
 pub mod guardian;
 pub mod hermes;
+pub mod instances;
+pub mod jsfmt;
+pub mod keys;
+pub mod markers;
 pub mod not_ported;
 pub mod overview;
 pub mod p2;
+pub mod p3;
 pub mod services;
 pub mod status;
 

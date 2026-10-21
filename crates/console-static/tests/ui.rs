@@ -152,6 +152,11 @@ fn answer(mut s: TcpStream, log: Log) {
         ("GET", "/api/v3/guardian/status") if !cookie.contains("galion_admin=bad") => (200, "application/json", String::new(), GUARDIAN.into()),
         ("GET", "/api/v3/guardian/status") => (401, "application/json", String::new(), "{\"error\":\"phone required\"}".into()),
         ("GET", p) if p.starts_with("/api/hermes/") => (200, "application/json", String::new(), hermes_fake(p).into()),
+        // console-port-3 rooms (/instances, /keys, /markers).
+        ("GET", "/api/v1/instances") => (200, "application/json", String::new(), r#"{"nodes":[{"name":"This phone","state":"online"}],"parts":[{"name":"Front","state":"online"}],"link":{}}"#.into()),
+        ("GET", "/api/v1/laptop") => (200, "application/json", String::new(), r#"{"connected":false,"jobs":[],"lines":[]}"#.into()),
+        ("GET", "/api/v1/keys") => (200, "application/json", String::new(), r#"{"ok":true,"keys":[]}"#.into()),
+        ("GET", "/api/v1/markers") => (200, "application/json", String::new(), r#"{"count":0,"cap":42,"items":[]}"#.into()),
         ("POST", "/api/v1/command") => (200, "application/json", String::new(), "{\"ok\":true,\"data\":{\"cmd\":\"health\",\"note\":\"undefined fine\"}}".into()),
         _ => (404, "text/plain", String::new(), "nope".into()),
     };

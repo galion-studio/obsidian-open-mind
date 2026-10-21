@@ -1314,7 +1314,11 @@ fn f7_nerve_partial_faults() {
     let tick1: Value = r
         .out
         .lines()
-        .find_map(|l| serde_json::from_str::<Value>(l).ok().filter(|v| v["tick"] == 1))
+        .find_map(|l| {
+            serde_json::from_str::<Value>(l)
+                .ok()
+                .filter(|v| v["tick"] == 1)
+        })
         .expect("tick 1 line");
     assert_eq!(tick1["exit"], 2, "{tick1}");
     assert_eq!(tick1["spawned"], true, "{tick1}");

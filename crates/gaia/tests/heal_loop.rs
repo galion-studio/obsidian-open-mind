@@ -414,7 +414,10 @@ fn unrecorded() -> HealTick {
         exit: gaia::live_heal::exit::UNRECORDED,
         report: Json::obj()
             .with("outcome", "restarted")
-            .with("detail", "restart 1/3 this hour; health verified; result NOT recorded on the nerve")
+            .with(
+                "detail",
+                "restart 1/3 this hour; health verified; result NOT recorded on the nerve",
+            )
             .with("nerve_error", "nerve POST gaia.heal.applied: HTTP 500"),
         approval_code: Some("approved".into()),
         spawned: true,
@@ -477,7 +480,10 @@ fn unrecorded_restarts_count_toward_max_errors() {
     let r = heal_loop::run_with(&c, &mut out, &mut |_| Ok(unrecorded()));
     assert_eq!((r.stop, r.exit), (Stop::Errors, EXIT_ERRORS));
     let s = sv(&r.summary);
-    assert_eq!((s["ticks"].as_u64(), s["restarts"].as_u64()), (Some(2), Some(2)));
+    assert_eq!(
+        (s["ticks"].as_u64(), s["restarts"].as_u64()),
+        (Some(2), Some(2))
+    );
 }
 
 #[test]

@@ -18,7 +18,9 @@
 //!   non-port number). A live port is never allowed inside a band. A new
 //!   file fails this test until it is registered.
 
-use gaia_live::heal::{check_target, is_live_port, is_test_port, TestTarget, LIVE_PORTS, TEST_PORTS};
+use gaia_live::heal::{
+    check_target, is_live_port, is_test_port, TestTarget, LIVE_PORTS, TEST_PORTS,
+};
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
@@ -48,49 +50,172 @@ const LIVE_IN_BAND: &[u16] = &[19120, 20241, 20242];
 
 const REGISTRY: &[Entry] = &[
     // gaia tests
-    Entry { file: "gaia/tests/commands.rs", slots: &[], values: &[] },
-    Entry { file: "gaia/tests/heal_decisions.rs", slots: &[175], values: &[] },
-    Entry { file: "gaia/tests/heal_loop.rs", slots: &[160], values: LIVE_IN_BAND },
-    Entry { file: "gaia/tests/heal_tick.rs", slots: &[23], values: &[] },
-    Entry { file: "gaia/tests/live.rs", slots: &[], values: &[] },
-    Entry { file: "gaia/tests/real_cli.rs", slots: &[1], values: &[] },
-    Entry { file: "gaia/tests/real_gaia_decisions.rs", slots: &[175], values: &[] },
-    Entry { file: "gaia/tests/real_gaia_faults.rs", slots: &[189, 199], values: &[] },
-    Entry { file: "gaia/tests/real_gaia_live.rs", slots: &[23], values: &[] },
-    Entry { file: "gaia/tests/real_gaia_loop.rs", slots: &[160], values: &[] },
-    Entry { file: "gaia/tests/real_gaia_poseidon.rs", slots: &[24], values: &[] },
-    Entry { file: "gaia/tests/scenario.rs", slots: &[], values: &[] },
-    Entry { file: "gaia/tests/tokens.rs", slots: &[175], values: &[] },
+    Entry {
+        file: "gaia/tests/commands.rs",
+        slots: &[],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/heal_decisions.rs",
+        slots: &[175],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/heal_loop.rs",
+        slots: &[160],
+        values: LIVE_IN_BAND,
+    },
+    Entry {
+        file: "gaia/tests/heal_tick.rs",
+        slots: &[23],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/live.rs",
+        slots: &[],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/real_cli.rs",
+        slots: &[1],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/real_gaia_decisions.rs",
+        slots: &[175],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/real_gaia_faults.rs",
+        slots: &[189, 199],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/real_gaia_live.rs",
+        slots: &[23],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/real_gaia_loop.rs",
+        slots: &[160],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/real_gaia_poseidon.rs",
+        slots: &[24],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/scenario.rs",
+        slots: &[],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/tests/tokens.rs",
+        slots: &[175],
+        values: &[],
+    },
     // gaia-live tests
-    Entry { file: "gaia-live/tests/decisions.rs", slots: &[], values: &[] },
+    Entry {
+        file: "gaia-live/tests/decisions.rs",
+        slots: &[],
+        values: &[],
+    },
     // 19240 / 21000: just outside the allowed / test range, proven refused;
     // 19000/19999: the old whole band, proven refused (holds 19120).
-    Entry { file: "gaia-live/tests/heal.rs", slots: &[23, 199], values: &[19000, 19120, 19240, 19999, 20241, 20242, 21000, 21009] },
-    Entry { file: "gaia-live/tests/json_strict.rs", slots: &[], values: &[] },
-    Entry { file: "gaia-live/tests/live.rs", slots: &[], values: &[] },
-    Entry { file: "gaia-live/tests/port_bands.rs", slots: &[], values: &[18000, 19000, 19120, 19700, 20241, 20242, 21999] },
+    Entry {
+        file: "gaia-live/tests/heal.rs",
+        slots: &[23, 199],
+        values: &[
+            19000, 19120, 19240, 19999, 20241, 20242, 20999, 21000, 21009,
+        ],
+    },
+    Entry {
+        file: "gaia-live/tests/json_strict.rs",
+        slots: &[],
+        values: &[],
+    },
+    Entry {
+        file: "gaia-live/tests/live.rs",
+        slots: &[],
+        values: &[],
+    },
+    Entry {
+        file: "gaia-live/tests/port_bands.rs",
+        slots: &[],
+        values: &[], // the registry itself: not scanned (self-test below)
+    },
     // gaia src (unit tests and defaults)
-    Entry { file: "gaia/src/heal_loop.rs", slots: &[], values: &[] },
-    Entry { file: "gaia/src/lib.rs", slots: &[], values: &[] },
-    Entry { file: "gaia/src/live_heal.rs", slots: &[], values: &[] },
-    Entry { file: "gaia/src/main.rs", slots: &[], values: &[19000, 20999] },
-    Entry { file: "gaia/src/poseidon.rs", slots: &[24], values: &[] },
-    Entry { file: "gaia/src/tokens.rs", slots: &[], values: &[] },
+    Entry {
+        file: "gaia/src/heal_loop.rs",
+        slots: &[],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/src/lib.rs",
+        slots: &[],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/src/live_heal.rs",
+        slots: &[],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/src/main.rs",
+        slots: &[],
+        values: &[19000, 20999],
+    },
+    Entry {
+        file: "gaia/src/poseidon.rs",
+        slots: &[24],
+        values: &[],
+    },
+    Entry {
+        file: "gaia/src/tokens.rs",
+        slots: &[],
+        values: &[],
+    },
     // view.rs names the live cloudflared metrics ports to describe them.
-    Entry { file: "gaia/src/view.rs", slots: &[], values: &[20241, 20242] },
-    Entry { file: "gaia/src/bin/gaia-dummy.rs", slots: &[], values: &[19000, 20999] },
+    Entry {
+        file: "gaia/src/view.rs",
+        slots: &[],
+        values: &[20241, 20242],
+    },
+    Entry {
+        file: "gaia/src/bin/gaia-dummy.rs",
+        slots: &[],
+        values: &[19000, 20999],
+    },
     // gaia-live src: the band and the live list themselves.
-    Entry { file: "gaia-live/src/heal.rs", slots: &[], values: &[18800, 19000, 19120, 20241, 20242, 20999] },
-    Entry { file: "gaia-live/src/lib.rs", slots: &[], values: &[19000, 20999] },
-    Entry { file: "gaia-live/src/nerve.rs", slots: &[], values: &[] },
+    Entry {
+        file: "gaia-live/src/heal.rs",
+        slots: &[],
+        values: &[18800, 19000, 19120, 20241, 20242, 20999],
+    },
+    Entry {
+        file: "gaia-live/src/lib.rs",
+        slots: &[],
+        values: &[19000, 20999],
+    },
+    Entry {
+        file: "gaia-live/src/nerve.rs",
+        slots: &[],
+        values: &[],
+    },
 ];
 
 fn crates_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
 }
 
 fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         if p.is_dir() {
@@ -103,12 +228,37 @@ fn rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// `line` without a trailing `// ...` comment (a `//` inside a string
+/// literal, e.g. `"http://127.0.0.1:20300"`, is kept).
+fn code_part(line: &str) -> &str {
+    let b = line.as_bytes();
+    let (mut in_str, mut esc) = (false, false);
+    for i in 0..b.len() {
+        let c = b[i];
+        if in_str {
+            if esc {
+                esc = false;
+            } else if c == b'\\' {
+                esc = true;
+            } else if c == b'"' {
+                in_str = false;
+            }
+        } else if c == b'"' {
+            in_str = true;
+        } else if c == b'/' && b.get(i + 1) == Some(&b'/') {
+            return &line[..i];
+        }
+    }
+    line
+}
+
 /// 5-digit numbers 18000..=21999 in code lines (comment lines skipped),
 /// with their line numbers. Digits glued to letters/digits/`-` dates are
 /// not numbers (`2026-10-21`, `0x19120`).
 fn numbers(src: &str) -> Vec<(usize, u16)> {
     let mut v = Vec::new();
-    for (i, line) in src.lines().enumerate() {
+    for (i, full) in src.lines().enumerate() {
+        let line = code_part(full);
         let t = line.trim_start();
         if t.starts_with("//") {
             continue;
@@ -122,7 +272,8 @@ fn numbers(src: &str) -> Vec<(usize, u16)> {
                     j += 1;
                 }
                 let before = if s > 0 { b[s - 1] } else { b' ' };
-                let glued_before = before.is_ascii_alphanumeric() || before == b'_' || before == b'.';
+                let glued_before =
+                    before.is_ascii_alphanumeric() || before == b'_' || before == b'.';
                 if !glued_before && j - s == 5 {
                     let n: u32 = line[s..j].parse().unwrap();
                     if (18000..=21999).contains(&n) {
@@ -139,12 +290,16 @@ fn numbers(src: &str) -> Vec<(usize, u16)> {
 
 #[test]
 fn live_list_is_sorted_unique_and_complete() {
-    assert!(LIVE_PORTS.windows(2).all(|w| w[0] < w[1]), "LIVE_PORTS must be sorted and unique");
+    assert!(
+        LIVE_PORTS.windows(2).all(|w| w[0] < w[1]),
+        "LIVE_PORTS must be sorted and unique"
+    );
     // vps-baseline.md (2026-10-21 11:23 +02:00) listeners and tunnel origins,
     // plus the slot-199 read-only `ss -ltn` (17:57 +02:00).
     for p in [
-        22u16, 25, 53, 3004, 3005, 3010, 3011, 3020, 4001, 4003, 4004, 4020, 4042, 4060, 4444, 8002,
-        8080, 8091, 8420, 8642, 8646, 8650, 8660, 8670, 8671, 8672, 18800, 19120, 20241, 20242,
+        22u16, 25, 53, 3004, 3005, 3010, 3011, 3020, 4001, 4003, 4004, 4020, 4042, 4060, 4444,
+        8002, 8080, 8091, 8420, 8642, 8646, 8650, 8660, 8670, 8671, 8672, 18800, 19120, 20241,
+        20242,
     ] {
         assert!(is_live_port(p), "{p} missing from LIVE_PORTS");
     }
@@ -156,10 +311,17 @@ fn no_test_port_is_live() {
     for p in TEST_PORTS {
         if is_test_port(p) {
             test_ports += 1;
-            assert!(!LIVE_PORTS.contains(&p), "test port {p} is in the live list");
+            assert!(
+                !LIVE_PORTS.contains(&p),
+                "test port {p} is in the live list"
+            );
         }
     }
-    let live_inside: Vec<u16> = LIVE_PORTS.iter().copied().filter(|p| TEST_PORTS.contains(p)).collect();
+    let live_inside: Vec<u16> = LIVE_PORTS
+        .iter()
+        .copied()
+        .filter(|p| TEST_PORTS.contains(p))
+        .collect();
     assert_eq!(live_inside, LIVE_IN_BAND, "live ports inside the test band");
     assert_eq!(test_ports, 2000 - LIVE_IN_BAND.len() as u32);
     let prog = ["/bin/true", "/usr/bin/true"]
@@ -173,7 +335,10 @@ fn no_test_port_is_live() {
             health_path: "/health".into(),
             argv: vec![prog.into(), "--port".into(), p.to_string()],
         };
-        assert!(check_target(&t, &(p..=p)).is_err(), "live port {p} accepted as a target");
+        assert!(
+            check_target(&t, &(p..=p)).is_err(),
+            "live port {p} accepted as a target"
+        );
     }
 }
 
@@ -205,36 +370,65 @@ fn every_gaia_test_port_is_in_its_slot_band_and_never_live() {
         rs_files(&root.join(d), &mut files);
     }
     files.sort();
-    assert!(files.len() >= REGISTRY.len(), "scanned {} files", files.len());
+    assert!(
+        files.len() >= REGISTRY.len(),
+        "scanned {} files",
+        files.len()
+    );
     let mut bad = Vec::new();
     let mut checked = 0usize;
     for f in &files {
-        let rel = f.strip_prefix(&root).unwrap().to_string_lossy().replace('\\', "/");
+        let rel = f
+            .strip_prefix(&root)
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
         let Some(e) = REGISTRY.iter().find(|e| e.file == rel) else {
-            bad.push(format!("{rel}: not in REGISTRY (add it with its slot band)"));
+            bad.push(format!(
+                "{rel}: not in REGISTRY (add it with its slot band)"
+            ));
             continue;
         };
+        if rel == "gaia-live/tests/port_bands.rs" {
+            continue;
+        }
         let src = std::fs::read_to_string(f).unwrap();
         for (line, n) in numbers(&src) {
             checked += 1;
             let in_band = e.slots.iter().any(|s| band(*s).contains(&n));
             if in_band && is_live_port(n) {
-                bad.push(format!("{rel}:{line}: {n} is a live VPS port inside a slot band"));
+                bad.push(format!(
+                    "{rel}:{line}: {n} is a live VPS port inside a slot band"
+                ));
             } else if !in_band && !e.values.contains(&n) {
                 bad.push(format!(
                     "{rel}:{line}: {n} is outside slot band(s) {:?} and not a listed value",
                     e.slots
                 ));
             } else if is_live_port(n) && !e.values.contains(&n) {
-                bad.push(format!("{rel}:{line}: live VPS port {n} used without being listed"));
+                bad.push(format!(
+                    "{rel}:{line}: live VPS port {n} used without being listed"
+                ));
             }
         }
     }
     for e in REGISTRY {
-        assert!(root.join(e.file).is_file(), "REGISTRY names missing file {}", e.file);
+        assert!(
+            root.join(e.file).is_file(),
+            "REGISTRY names missing file {}",
+            e.file
+        );
     }
-    assert!(bad.is_empty(), "{} port problems:\n{}", bad.len(), bad.join("\n"));
-    assert!(checked > 50, "only {checked} numbers checked; scanner broken?");
+    assert!(
+        bad.is_empty(),
+        "{} port problems:\n{}",
+        bad.len(),
+        bad.join("\n")
+    );
+    assert!(
+        checked > 50,
+        "only {checked} numbers checked; scanner broken?"
+    );
 }
 
 #[test]

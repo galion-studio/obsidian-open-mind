@@ -170,11 +170,7 @@ pub fn check_target(t: &TestTarget, allowed: &RangeInclusive<u16>) -> Result<(),
             TEST_PORTS.end()
         ));
     }
-    if let Some(live) = LIVE_PORTS
-        .iter()
-        .copied()
-        .find(|p| allowed.contains(p))
-    {
+    if let Some(live) = LIVE_PORTS.iter().copied().find(|p| allowed.contains(p)) {
         return Err(format!(
             "allowed range {}-{} contains live VPS port {live}; test ranges must not include live ports",
             allowed.start(),

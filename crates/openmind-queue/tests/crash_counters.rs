@@ -135,3 +135,60 @@ fn refusal_counters_budgets_caps_quotas_survive_restart_and_compaction() {
     h.stop();
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Slot 206: a compaction that fails after the change was synced must not
+/// turn that change into an error (the client would retry and enqueue or
+/// charge twice). Compaction is made to fail by putting a directory where
+/// `queue.log.tmp` goes. Loopback 127.0.0.1:20769.
+#[test]
+fn failed_compaction_does_not_fail_a_durable_change() {
+    const A2: &str = "127.0.0.1:20769";
+    let c2 = |m: &str, p: &str, b: Option<Value>| -> (u16, Value) {
+        let body = b.map(|v| v.to_string());
+        let (c, s) = http::request(A2, m, p, body.as_deref(), Duration::from_secs(10)).unwrap();
+        (c, serde_json::from_str(&s).unwrap_or(Value::Null))
+    };
+    let dir = std::env::temp_dir().join(format!("poseidon-206-compactfail-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("queue.log.tmp")).unwrap();
+    let opts = server::Options {
+        bind: A2.into(),
+        data: dir.clone(),
+        compact_min: 4,
+        ..server::Options::default()
+    };
+    let h = server::start(opts.clone()).unwrap();
+    // enqueue + lease + ack cycles: once the log has more than 4x
+    // (live + 16) lines every commit tries (and fails) to compact
+    for _ in 0..40 {
+        let (c, v) = c2("POST", "/jobs", Some(json!({})));
+        assert_eq!(c, 201, "a durable enqueue was answered {c} {v}");
+        let (_, l) = c2("POST", "/lease", Some(json!({"worker":"w"})));
+        let (c, _) = c2(
+            "POST",
+            &format!("/jobs/{}/ack", l["id"]),
+            Some(json!({"token": l["token"]})),
+        );
+        assert_eq!(c, 200);
+    }
+    let (_, st) = c2("GET", "/stats", None);
+    assert!(
+        st["store"]["compaction_errors"].as_u64().unwrap() > 0,
+        "{st}"
+    );
+    assert_eq!(st["store"]["compactions"], 0);
+    assert_eq!(st["stats"]["enqueued"], 40);
+    // the explicit admin call still reports the failure
+    assert_eq!(c2("POST", "/admin/compact", None).0, 500);
+    h.stop();
+    // everything answered is in the log
+    std::fs::remove_dir(dir.join("queue.log.tmp")).unwrap();
+    let h = server::start(opts).unwrap();
+    let (_, st) = c2("GET", "/stats", None);
+    assert_eq!(st["stats"]["enqueued"], 40);
+    assert_eq!(st["stats"]["acked"], 40);
+    // and compaction works again once the obstacle is gone
+    assert_eq!(c2("POST", "/admin/compact", None).0, 200);
+    h.stop();
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -301,6 +301,28 @@ const LANDING: &str = r#"
 .ov-foot a{display:inline-block;min-height:1.5rem}
 "#;
 
+/// Rules for the console-port-1 rooms (`/analytics`, `/arena`, `/bank`,
+/// `/cache`). Kept apart so the other port slots append their own blocks.
+const PORT1: &str = r#"
+.tabs{display:flex;flex-wrap:wrap;gap:0 1rem;margin-top:1rem}
+.tabs a{display:inline-flex;align-items:center;min-height:2.75rem;font-size:.875rem;color:var(--c-muted);text-decoration:none}
+.tabs a[aria-current=page]{color:var(--c-fg)}
+.arena .who{display:flex;flex-direction:column;min-width:0;flex:1}
+.arena .ans{margin-top:.25rem;white-space:pre-wrap;font-size:13px;line-height:1.4}
+.score{color:var(--c-accent);font-variant-numeric:tabular-nums}
+.rows li.cash{justify-content:flex-start;gap:.25rem .75rem}
+.amt{width:7rem;flex-shrink:0;text-align:right;font-size:12px;color:var(--c-muted)}
+.rows li.cash>span:last-child:not(:first-child){text-align:left}
+.road{margin:.75rem 0 0;padding:0;list-style:none;border-left:1px solid var(--c-line)}
+.road li{position:relative;padding:.75rem 0 .75rem 1rem;min-width:0;font-size:13px}
+.road li::before{content:"";position:absolute;left:-3px;top:1rem;width:.375rem;height:.375rem;background:var(--c-fg)}
+.rows li.stack{display:block}
+.rows li.disk{flex-wrap:nowrap;justify-content:flex-start}
+.disk meter{flex:1;min-width:2rem;height:.375rem}
+.fg{color:var(--c-fg)}
+.page header .k a{gap:.375rem;font-size:11px;color:var(--c-muted)}
+"#;
+
 /// The whole sheet.
 pub fn sheet() -> String {
     let mut out = String::with_capacity(RULES.len() + 1024);
@@ -322,6 +344,7 @@ pub fn sheet() -> String {
     for line in RULES
         .lines()
         .chain(LANDING.lines())
+        .chain(PORT1.lines())
         .filter(|l| !l.trim().is_empty())
     {
         out.push_str(line.trim());
@@ -342,7 +365,7 @@ pub fn fnv64(data: &[u8]) -> u64 {
 
 /// Class names defined in [`RULES`] (for the "every emitted class exists" test).
 pub fn defined_classes() -> Vec<String> {
-    let all = format!("{RULES}{LANDING}");
+    let all = format!("{RULES}{LANDING}{PORT1}");
     let mut out = Vec::new();
     let b = all.as_bytes();
     let mut i = 0;

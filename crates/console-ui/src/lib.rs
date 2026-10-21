@@ -50,7 +50,21 @@ pub const PORTED: &[&str] = &[
     "/data",
     "/soon",
     "/console",
+    // console-port-1 (wave 4 slot 135): the first fifth, alphabetical, of the
+    // 17 routes still in TypeScript at 669dc18.
+    "/analytics",
+    "/arena",
+    "/bank",
+    "/cache",
 ];
+
+/// Ported pages the pre-built SPA keeps while a fallback is configured,
+/// because the Rust page is not yet a full replacement (owner decisions in
+/// docs/console-port-1.md): `/arena` reads the board but does not breed,
+/// stop or promote (Breed is a paid run); `/bank` needs a `/api/v1/bank`
+/// the console API does not serve yet. Without a fallback the Rust page
+/// answers.
+pub const SPA_FIRST: &[&str] = &["/arena", "/bank"];
 
 /// Largest form body accepted (pairing code or a command name).
 pub const MAX_FORM: usize = 4096;
@@ -63,6 +77,9 @@ pub struct UiConfig {
     pub pulse: Option<SocketAddr>,
     /// Extra hosts treated as console hosts (the machine's public IP).
     pub extra_hosts: Vec<String>,
+    /// galion-desk (`GET /desk`, live on 127.0.0.1:8646), loopback; `None`
+    /// leaves `/cache` on its empty state.
+    pub desk: Option<SocketAddr>,
 }
 
 /// One request, already parsed and path-sanitised by the front.
@@ -145,6 +162,15 @@ pub struct Ui {
     css_etag: String,
 }
 
+/// The TanStack console answers a path it has no route for with
+/// `500 {"error":"Only HTML requests are supported here"}` when the request
+/// asks for JSON (live 2026-10-21); that is a 404 for our purposes.
+fn no_route(status: u16, body: &[u8]) -> bool {
+    status == 404
+        || (status == 500
+            && String::from_utf8_lossy(body).contains("Only HTML requests are supported here"))
+}
+
 /// `back=` targets must be one of our own page paths (no open redirect).
 fn safe_back(back: &str) -> &str {
     let known = PORTED.contains(&back)
@@ -178,7 +204,7 @@ impl Ui {
     /// room is (unported rooms get a "not in Rust yet" page).
     pub fn owns(&self, path: &str, spa_fallback: bool) -> bool {
         path.starts_with("/_ui/")
-            || PORTED.contains(&path)
+            || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
     }
@@ -321,6 +347,7 @@ impl Ui {
             }
             "/domains" | "/repos" | "/docs" | "/cloudflare" | "/pack" | "/chill" | "/jupyter"
             | "/data" => self.read_room(req),
+            "/analytics" | "/arena" | "/bank" | "/cache" => self.port1_room(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);
@@ -557,6 +584,92 @@ impl Ui {
         Reply::html(200, layout::console(&f, origin, &body))
     }
 
+    /// GET JSON with the reason when it fails: `Err(Some(status))` for a
+    /// non-200 answer, `Err(None)` for no answer or a body that is not JSON.
+    fn get_json_why(
+        &self,
+        addr: SocketAddr,
+        path: &str,
+        fwd: &Forward,
+    ) -> Result<Value, Option<u16>> {
+        let r = client::call(addr, "GET", path, fwd, None).map_err(|_| None)?;
+        if r.status != 200 {
+            return Err(Some(if no_route(r.status, &r.body) {
+                404
+            } else {
+                r.status
+            }));
+        }
+        json::parse(&r.body).map_err(|_| None)
+    }
+
+    /// galion-desk `GET /desk` (the `/cache` room's data).
+    fn desk(&self) -> Option<Value> {
+        let addr = self.cfg.desk?;
+        let fwd = Forward {
+            host: addr.to_string(),
+            ..Forward::default()
+        };
+        self.get_json(addr, "/desk", &fwd)
+    }
+
+    /// console-port-1 rooms: `/analytics`, `/arena`, `/bank`, `/cache`
+    /// (pages `analytics`, `arena`, `bank`, `cache`). GET only; the origin dot
+    /// and the room's one data source are read in parallel.
+    fn port1_room(&self, req: &Request<'_>) -> Reply {
+        let fwd = self.forward(req);
+        let up = self.cfg.upstream;
+        let api = match req.path {
+            "/analytics" => Some("/api/v1/analytics"),
+            "/arena" => Some("/api/arena"),
+            "/bank" => Some("/api/v1/bank"),
+            _ => None,
+        };
+        let (origin, got, desk) = std::thread::scope(|s| {
+            let o = s.spawn(|| self.origin(&fwd));
+            let g = s.spawn(|| api.map(|p| self.get_json_why(up, p, &fwd)));
+            let d = s.spawn(|| {
+                if req.path == "/cache" {
+                    self.desk()
+                } else {
+                    None
+                }
+            });
+            (
+                o.join().unwrap_or(Origin::Down),
+                g.join().ok().flatten(),
+                d.join().ok().flatten(),
+            )
+        });
+        let got = got.unwrap_or(Err(None));
+        let body = match req.path {
+            "/analytics" => {
+                let q = html::form_pairs(req.query);
+                let board = html::form_get(&q, "board").unwrap_or("");
+                let miss = match &got {
+                    Err(Some(c)) => pages::analytics::Miss::Status(*c),
+                    _ => pages::analytics::Miss::Down,
+                };
+                pages::analytics::body(got.as_ref().map_err(|_| miss), board)
+            }
+            "/arena" => pages::arena::body(got.as_ref().ok()),
+            "/bank" => {
+                let miss = match &got {
+                    Err(Some(c)) => pages::bank::Miss::Status(*c),
+                    _ => pages::bank::Miss::Down,
+                };
+                pages::bank::body(got.as_ref().map_err(|_| miss))
+            }
+            _ => pages::cache::body(desk.as_ref()),
+        };
+        let title = format!(
+            "Galion Console · {}",
+            rooms::exact(req.path).map(|r| r.label).unwrap_or("Console")
+        );
+        let f = self.frame(req, &title);
+        Reply::html(200, layout::console(&f, origin, &body))
+    }
+
     fn agents(&self, req: &Request<'_>) -> Reply {
         let fwd = self.forward(req);
         let mut note = String::new();
@@ -601,6 +714,17 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tanstack_no_route_is_a_404() {
+        assert!(no_route(404, b""));
+        assert!(no_route(
+            500,
+            br#"{"error":"Only HTML requests are supported here"}"#
+        ));
+        assert!(!no_route(500, b"{\"error\":\"boom\"}"));
+        assert!(!no_route(401, b""));
+    }
 
     #[test]
     fn back_targets_are_ours() {
@@ -657,6 +781,24 @@ mod tests {
         all.push_str(&pages::catalog::repos(None));
         all.push_str(&pages::gate::coming_soon("galion.app"));
         all.push_str(&pages::overview::body(PORTED.len() + 1));
+        let snap = json::parse(br#"{"health":{"score":1,"status":"ok"},"services":[{"id":"a","port":1,"ok":true,"ms":1}],"nerve":{"events":["e"]},"edge":[{"host":"h","code":200,"ms":1}],"defence":[{"service":"g","status":"ok","ms":1}],"cortex":{"cores":1},"agents":{"hermes":{"last":[1],"avg":1}},"systems":[{"id":"s","ok":true,"note":"n"}],"infrastructure":{"gpu":{"name":"g"}}}"#).unwrap();
+        for b in pages::analytics::BOARDS {
+            all.push_str(&pages::analytics::body(Ok(&snap), b));
+        }
+        all.push_str(&pages::analytics::body(
+            Err(pages::analytics::Miss::Status(401)),
+            "",
+        ));
+        let arena = json::parse(br#"{"spend":{"cap_usd":2,"spent_usd":0,"generations":0,"max_generations":3},"champion":{"id":"c"},"error":"x","rows":[{"id":"r","answer":"a","mutation":"m"}]}"#).unwrap();
+        all.push_str(&pages::arena::body(Some(&arena)));
+        all.push_str(&pages::arena::body(None));
+        let bank =
+            json::parse(br#"{"purses":[{"name":"n","usd":1,"note":"x"}],"note":"y"}"#).unwrap();
+        all.push_str(&pages::bank::body(Ok(&bank)));
+        all.push_str(&pages::bank::body(Err(pages::bank::Miss::Status(404))));
+        let desk = json::parse(br#"{"mindpack":{"cache":{"read":1},"cached":[{"id":"c"}],"stores":[{"name":"s","n":1,"bytes":1}],"models":[{"name":"m"}],"recent":[{"name":"f","at":1,"bytes":1}]}}"#).unwrap();
+        all.push_str(&pages::cache::body(Some(&desk)));
+        all.push_str(&pages::cache::body(None));
         let none = Frame {
             light: None,
             ..f.clone()

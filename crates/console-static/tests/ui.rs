@@ -561,7 +561,13 @@ fn read_rooms_render_get_only() {
         .filter_map(|r| r.to)
         .filter(|p| !console_ui::PORTED.contains(p))
         .collect();
-    assert_eq!(not_ported.len(), 16, "{not_ported:?}");
+    // 28 in-console rooms; every one is either ported or says so.
+    let ported_rooms = console_ui::rooms::ROOMS
+        .iter()
+        .filter_map(|r| r.to)
+        .filter(|p| console_ui::PORTED.contains(p))
+        .count();
+    assert_eq!(not_ported.len() + ported_rooms, 28, "{not_ported:?}");
     for p in not_ported {
         let r = get(a, p, "127.0.0.1", "");
         assert_eq!(r.code, 200, "{p}");

@@ -6,8 +6,13 @@
 //! so it can be tested without a network.
 
 pub mod agents;
+pub mod analytics;
+pub mod arena;
+pub mod bank;
+pub mod cache;
 pub mod catalog;
 pub mod gate;
+pub mod jsfmt;
 pub mod not_ported;
 pub mod overview;
 pub mod services;

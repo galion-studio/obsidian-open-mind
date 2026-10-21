@@ -26,8 +26,12 @@
 
 mod cli;
 mod host;
+mod http_plain;
+mod inflate;
 mod json;
 mod models_refresh;
+mod pdf_crypt;
+mod pdf_text;
 mod persona;
 mod probe;
 mod services;
@@ -1533,14 +1537,19 @@ fn look_image(bytes: &[u8]) -> String {
 }
 
 fn pdf_clip(bytes: &[u8]) -> String {
-    // Optional pdftotext with a timeout and a private temp file (host.rs).
+    // Built-in pure-Rust reader by default (pdf_text.rs); pdftotext only when
+    // ONE_PDF_TEXT asks for it (host.rs `pdf_engine`).
+    let engine = host::pdf_engine(std::env::var("ONE_PDF_TEXT").ok().as_deref());
     let setting = std::env::var("ONE_PDFTOTEXT").ok();
-    let Some(text) = host::pdf_first_page(
+    let (text, by) = host::pdf_text(
         bytes,
+        engine,
         setting.as_deref(),
         &std::env::temp_dir(),
         host::PDF_TIMEOUT,
-    ) else {
+    );
+    note(format!("pdf text by {by}"));
+    let Some(text) = text else {
         return String::new();
     };
     text.chars()

@@ -14,17 +14,20 @@
 //   value is the binary to run, unset means `nvidia-smi` from PATH. A missing
 //   binary, a non-zero exit, unparsable output or a run longer than
 //   `GPU_TIMEOUT` all give `None` (no GPU), never a panic and never a hang.
-// * PDF text: `pdftotext` (poppler) stays, optional the same way
-//   (`ONE_PDFTOTEXT`), with a timeout and a private temp file. The pure-Rust
-//   options were checked (2026-10-20): lopdf 0.45 (MIT) hard-depends on
-//   `aes`/`sha2`/`md-5`/`rand`/`getrandom` for PDF encryption, and RustCrypto
-//   `aes`/`sha2` pick AES-NI / SHA-NI intrinsics at run time via
-//   `cpufeatures` (the no-SIMD rule), plus ~20 crates; pdf-extract 0.12
-//   (MIT) sits on lopdf. Neither fits, see docs/third-party/one-hardening.md.
-// * HTTPS edge probes keep `curl` (main.rs `load_edge`, models_refresh.rs):
-//   a pure-Rust TLS client means rustls, whose crypto providers are ring
-//   (assembly) or aws-lc-rs (C + assembly); the RustCrypto provider is
-//   experimental and again SIMD-dispatching. curl absent means code 0.
+// * PDF text: the built-in pure-Rust reader (pdf_text.rs, inflate.rs, pdf_crypt.rs, std
+//   only, no crates, no SIMD/asm) replaced the `pdftotext` subprocess
+//   (swarm/one-no-shellout, 2026-10-21). `ONE_PDF_TEXT` picks the engine
+//   (`rust` default, `rust+pdftotext`, `pdftotext`, `off`); `ONE_PDFTOTEXT`
+//   still names the poppler binary for the two modes that use it, which keep
+//   the timeout and the private temp file. lopdf 0.45 / pdf-extract 0.12
+//   were rejected on 2026-10-20 (RustCrypto deps that pick AES-NI/SHA-NI at
+//   run time, ~20 crates); see docs/third-party/one-no-shellout.md.
+// * `curl`: the HTTPS edge probes (main.rs `load_edge`) and the default
+//   `https://` OpenRouter model list keep it. Pure-Rust TLS works (rustls +
+//   rustls-rustcrypto, spike in docs/one-no-shellout.md) but needs ~60 crates,
+//   an alpha provider and force-soft cfgs to avoid AES-NI/SHA-NI/AVX; owner
+//   decision. A loopback `http://` OpenRouter base (local proxy or stand-in)
+//   is fetched in-process by http_plain.rs, no curl. curl absent = code 0.
 
 use std::fs;
 use std::io::Read;
@@ -204,6 +207,97 @@ pub fn pdf_first_page(
     Some(String::from_utf8_lossy(&out?).into_owned())
 }
 
+/// Which PDF text engine runs (`ONE_PDF_TEXT`):
+/// * unset, blank, `rust`: the built-in pure-Rust reader only (pdf_text.rs),
+///   no subprocess at all;
+/// * `rust+pdftotext` (or `fallback`): Rust first, `pdftotext` only when the
+///   Rust reader finds no text (encrypted file, CID font without ToUnicode);
+/// * `pdftotext`: the old behaviour, subprocess only;
+/// * `off`/`0`/`none`/`false`: no PDF text.
+///
+/// Unknown values mean `rust` (the safe choice: nothing gets executed).
+/// `ONE_PDFTOTEXT` still names the binary (and `off` there disables it).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PdfEngine {
+    Rust,
+    RustThenPdftotext,
+    Pdftotext,
+    Off,
+}
+
+pub fn pdf_engine(setting: Option<&str>) -> PdfEngine {
+    match setting
+        .map(|s| s.trim().to_ascii_lowercase())
+        .as_deref()
+        .unwrap_or("")
+    {
+        "rust+pdftotext" | "fallback" => PdfEngine::RustThenPdftotext,
+        "pdftotext" => PdfEngine::Pdftotext,
+        "off" | "0" | "none" | "false" => PdfEngine::Off,
+        _ => PdfEngine::Rust,
+    }
+}
+
+/// The built-in reader on a worker thread, given at most `timeout` (its own
+/// caps bound the work; the timeout is a second fence).
+pub fn pdf_first_page_rust(bytes: &[u8], timeout: Duration) -> Option<String> {
+    let owned = bytes.to_vec();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .name("pdf-text".into())
+        .spawn(move || {
+            let _ = tx.send(crate::pdf_text::first_page_text(
+                &owned,
+                crate::pdf_text::DEFAULT_LIMITS,
+            ));
+        })
+        .ok()?;
+    match rx.recv_timeout(timeout).ok()? {
+        crate::pdf_text::Outcome::Text(t) => Some(t),
+        _ => None,
+    }
+}
+
+/// First-page text by the chosen engine; also says which engine produced
+/// it ("rust", "pdftotext" or "none").
+pub fn pdf_text(
+    bytes: &[u8],
+    engine: PdfEngine,
+    pdftotext: Option<&str>,
+    tmp_dir: &std::path::Path,
+    timeout: Duration,
+) -> (Option<String>, &'static str) {
+    let nonempty = |t: Option<String>| t.filter(|s| !s.trim().is_empty());
+    match engine {
+        PdfEngine::Off => (None, "none"),
+        PdfEngine::Rust => match nonempty(pdf_first_page_rust(bytes, timeout)) {
+            Some(t) => (Some(t), "rust"),
+            None => (None, "none"),
+        },
+        PdfEngine::Pdftotext => {
+            match nonempty(pdf_first_page(bytes, pdftotext, tmp_dir, timeout)) {
+                Some(t) => (Some(t), "pdftotext"),
+                None => (None, "none"),
+            }
+        }
+        PdfEngine::RustThenPdftotext => {
+            if let Some(t) = nonempty(pdf_first_page_rust(bytes, timeout)) {
+                return (Some(t), "rust");
+            }
+            match nonempty(pdf_first_page(bytes, pdftotext, tmp_dir, timeout)) {
+                Some(t) => (Some(t), "pdftotext"),
+                None => (None, "none"),
+            }
+        }
+    }
+}
+
+/// Tests that write a helper script and then run it share this lock: a
+/// fork in a parallel test can briefly hold the script open for writing,
+/// which makes exec fail with ETXTBSY ("Text file busy").
+#[cfg(test)]
+pub(crate) static EXEC_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,6 +400,9 @@ mod fake_smi_tests {
 
     #[test]
     fn fake_nvidia_smi_is_read_and_a_hung_one_is_killed() {
+        let _exec = super::EXEC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let Some(good) = script("good", "echo 'Fake GPU, 512, 8192, 42'") else {
             eprintln!("SKIP: no /bin/sh");
             return;
@@ -364,6 +461,9 @@ mod pdf_tests {
 
     #[test]
     fn pdftotext_off_or_missing_is_none_and_leaves_no_file() {
+        let _exec = super::EXEC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let dir = scratch("off");
         assert_eq!(
             pdf_first_page(&tiny_pdf(), Some("off"), &dir, PDF_TIMEOUT),
@@ -388,6 +488,9 @@ mod pdf_tests {
 
     #[test]
     fn real_pdftotext_reads_page_one_when_installed() {
+        let _exec = super::EXEC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if Command::new("pdftotext").arg("-v").output().is_err() {
             eprintln!("SKIP: pdftotext not installed");
             return;
@@ -408,6 +511,9 @@ mod pdf_tests {
 
     #[test]
     fn chatty_helper_does_not_stall_on_a_full_pipe() {
+        let _exec = super::EXEC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if !std::path::Path::new("/bin/sh").exists() {
             eprintln!("SKIP: no /bin/sh");
             return;
@@ -420,5 +526,92 @@ mod pdf_tests {
         )
         .unwrap();
         assert_eq!(out.len(), 1_048_576);
+    }
+
+    #[test]
+    fn engine_setting_parses_and_unknown_means_rust() {
+        assert_eq!(pdf_engine(None), PdfEngine::Rust);
+        assert_eq!(pdf_engine(Some(" ")), PdfEngine::Rust);
+        assert_eq!(pdf_engine(Some("RUST")), PdfEngine::Rust);
+        assert_eq!(
+            pdf_engine(Some("rust+pdftotext")),
+            PdfEngine::RustThenPdftotext
+        );
+        assert_eq!(pdf_engine(Some("fallback")), PdfEngine::RustThenPdftotext);
+        assert_eq!(pdf_engine(Some("pdftotext")), PdfEngine::Pdftotext);
+        for off in ["off", "0", "none", "FALSE"] {
+            assert_eq!(pdf_engine(Some(off)), PdfEngine::Off);
+        }
+        assert_eq!(pdf_engine(Some("/bin/sh -c evil")), PdfEngine::Rust);
+    }
+
+    #[test]
+    fn rust_engine_needs_no_binary_and_fallback_runs_only_when_needed() {
+        let _exec = super::EXEC_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("engine");
+        let marker = dir.join("ran");
+        let fake = dir.join("fake-pdftotext");
+        fs::write(
+            &fake,
+            format!(
+                "#!/bin/sh\ntouch '{}'\necho 'from the fake pdftotext'\n",
+                marker.display()
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&fake, fs::Permissions::from_mode(0o700)).unwrap();
+        let fake_s = fake.to_string_lossy().into_owned();
+        let t = Duration::from_secs(5);
+        // Rust: text, binary never run (even when one is configured).
+        let (txt, by) = pdf_text(&tiny_pdf(), PdfEngine::Rust, Some(&fake_s), &dir, t);
+        assert_eq!((txt.as_deref(), by), (Some("Hello Galion One"), "rust"));
+        // Fallback mode, Rust succeeds: still no subprocess.
+        let (_, by) = pdf_text(
+            &tiny_pdf(),
+            PdfEngine::RustThenPdftotext,
+            Some(&fake_s),
+            &dir,
+            t,
+        );
+        assert_eq!(by, "rust");
+        assert!(!marker.exists(), "pdftotext ran although Rust had the text");
+        // Fallback mode, password-protected file: the binary runs.
+        let locked = fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/pdf/gs-userpw.pdf"
+        ))
+        .unwrap();
+        let (_, by) = pdf_text(&locked, PdfEngine::Rust, Some(&fake_s), &dir, t);
+        assert_eq!(by, "none");
+        let (txt, by) = pdf_text(
+            &locked,
+            PdfEngine::RustThenPdftotext,
+            Some(&fake_s),
+            &dir,
+            t,
+        );
+        assert_eq!(
+            (txt.as_deref().map(str::trim), by),
+            (Some("from the fake pdftotext"), "pdftotext")
+        );
+        assert!(marker.exists());
+        // Off: nothing, no subprocess.
+        fs::remove_file(&marker).unwrap();
+        assert_eq!(
+            pdf_text(&tiny_pdf(), PdfEngine::Off, Some(&fake_s), &dir, t),
+            (None, "none")
+        );
+        assert!(!marker.exists());
+        // Only the fake script and nothing else (temp PDFs removed).
+        let left: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        assert_eq!(left, vec![std::ffi::OsString::from("fake-pdftotext")]);
+        let _ = fs::remove_dir_all(&dir);
     }
 }

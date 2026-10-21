@@ -35,6 +35,10 @@ Recorded 2026-10-20 20:50 CEST (+02:00). Nothing here is deployed.
      of the fixed shared `/tmp/galion-one-page.pdf`.
    - `curl`: kept for the HTTPS edge probes and the OpenRouter model list
      (pure-Rust TLS needs ring/aws-lc assembly). Already absent-safe.
+   - *Update 2026-10-21 (swarm/one-no-shellout):* `pdftotext` is replaced by
+     a built-in std-only reader (default `ONE_PDF_TEXT=rust`) and a loopback
+     `http://` OpenRouter base no longer needs curl; HTTPS still uses curl.
+     See docs/one-no-shellout.md.
 3. **A failed pairing never creates the store.** Before: `POST /pair` with no
    device store wrote a fresh `admin-device.json` (`fails:1`) into the
    secrets dir. Now: no store (or an unreadable one) answers `{"error":"no"}`
@@ -55,3 +59,4 @@ same as config/voice/galion-one-voice.toml on swarm/settings-snapshot).
 | `ONE_CONSOLE_PATH` | `/` | path the console pulse GETs |
 | `ONE_NVIDIA_SMI` | `nvidia-smi` | GPU query binary, or `off` |
 | `ONE_PDFTOTEXT` | `pdftotext` | PDF text binary, or `off` |
+| `ONE_PDF_TEXT` | `rust` | PDF engine: `rust`, `rust+pdftotext`, `pdftotext`, `off` (swarm/one-no-shellout) |

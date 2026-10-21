@@ -77,6 +77,7 @@ GALION_REAL=1 NERVE_DST_SSH=root@<vps> NERVE_DST_SSH_KEY=<key path> \
 | 07:09:24-07:11:27 | 96 files kept, 3 new `self-eval-20261021T0710{06,11,16}+0200.json`, `/self-eval` 07:10:16+02:00 score 100 pass | 07:10:05/35, 07:11:05 +02:00, 15 components, system degrading | ts 02:35:00+01:00, score 85, causes {galion-one} | score 85, causes {galion-one} |
 | 07:18:59-07:21:06 | 96 kept, 3 new (07:19:46/51/56+02:00) | 07:19:35, 07:20:05, 07:21:05 | score 60, causes {ddos:edge-cloudflared, galion-one} | identical |
 | 07:21:35-07:23:03 | 96 kept, 3 new (07:21:42/47/52+02:00) | 07:21:35, 07:22:05, 07:22:35 | score 80, findings {memory-heavy-console, stuck-loading-galion-one-mouth}, causes {edge, galion-one} | identical |
+| 07:56:55-08:02:11 (restart agent, HEAD 23dcf4c) | 96 kept, 3 new (08:00:51/56, 08:01:01+02:00), `/self-eval` 08:01:01+02:00 score 100 pass | 08:00:35, 08:01:35, 08:02:05, 15 components, system degrading | ts 02:35:00+01:00, score 80, findings {memory-heavy-console, stuck-loading-galion-one-mouth}, causes {edge, galion-one}, 141 snapshots 02:25+02:00..02:35+01:00 | identical (score 80, 2 findings, same causes) |
 
 Run 2's `ddos:edge-cloudflared` came from the harness, not from the VPS. Cycling
 3 snapshots made the cumulative tunnel counter go backwards every third cycle,
@@ -113,3 +114,19 @@ at 07:23 (read-only GET).
 3. Reflex budgets and alert dedup use the real clock (`now_secs()`), not the cycle's `now`. This is
    harmless live and in replays (reflexes and alerts off), but a fake-clock run with reflexes on would
    mix two clocks.
+
+## Restart re-verification (2026-10-21 07:54-08:02 +02:00)
+
+The first agent was interrupted at 07:35 with one uncommitted change: two
+`// repo-check: allow` markers on the `SystemTime::now()` uses in
+`tests/real_dst_clock.rs`. Committed as 23dcf4c. `repo-check` on the branch:
+the two `utc` warnings from this branch are gone (33 -> 31 warnings); the 3
+remaining `hosts` errors (`sensors/surface.rs` 198.18.0.0, the RFC 2544 benchmark
+range) are already on the base ee75f75 and not from this slot.
+Re-run: fmt ok; clippy `-p openmind-nerve --all-targets -D warnings` ok;
+`openmind-nerve` all tests: lib 115, dst_clock_replay 5, writer 12, cortex replays
+3+3+4, real_* 9 (ungated, gate skips) = 151 passed, 0 failed; real test row 4 above, 2/2.
+Live after the run (08:02 +02:00, read-only `systemctl show`): galion-nerve MainPID
+1466797 NRestarts 0 active, shadow MainPID 4008991 NRestarts 0 active (unchanged);
+live self-eval dir still old offset-less names (98 entries, newest
+`self-eval-20261021T075435.json`). No listeners left on 20270-20279.

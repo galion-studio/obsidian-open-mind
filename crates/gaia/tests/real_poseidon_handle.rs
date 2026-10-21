@@ -108,7 +108,7 @@ fn money_view() -> Value {
     let st = &s["stats"];
     serde_json::json!({
         "global": s["global"], "agents": s["agents"], "leased": s["depth"]["leased"],
-        "acked": st["acked"], "leases": st["leased"], "enqueued": st["enqueued"],
+        "acked": st["acked"], "delivered": st["delivered"], "enqueued": st["enqueued"],
     })
 }
 

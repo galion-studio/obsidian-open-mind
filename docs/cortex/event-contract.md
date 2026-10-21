@@ -59,13 +59,18 @@ fields are optional and `unit` / `seq` fall back to `data.unit` / `data.seq`.
 | # | transport | idle cost | default |
 |---|---|---|---|
 | 1 | **subscribe** `GET <nerve>/events/stream?since=SEQ` (held open, NDJSON) | 0: the cortex blocks in `read()`; the nerve writes one keepalive line per 5 min | on when `nerve_url` is set |
-| 2 | push `POST <cortex>/v1/events` (one object, JSON array or NDJSON, max 1000) | 0 | always on |
+| 2 | push `POST <cortex>/v1/events` (one object, JSON array or NDJSON, max 1000; extra items are counted `invalid`, not silently dropped) | 0 | always on |
 | 3 | unix socket (`socket` / `CORTEX_SOCKET`), NDJSON lines | 0 | off |
 | 4 | pull `GET <nerve>/events?n=200` every `pull_every_s` (polling nerve only) | one loopback GET per tick | off |
 | 5 | file `gaia-cortex replay FILE` | n/a | CLI |
 
 Reconnect: backoff 1 s -> 60 s, resume with `since=<last seq>` (the nerve
-replays from its ring, or sends `stream.gap`). A nerve without
+replays from its ring, or sends `stream.gap`). Before every (re)connect the cortex
+reads the nerve's `GET /stats` (`started`, `seq`): a different `started` or a
+`seq` below the cursor means the nerve restarted (its seq starts at 1 again),
+so the cortex resumes from `since=0` and forgets the old seq fingerprints
+(T5.1 chaos S8; before the fix the cortex was blind to the new nerve until
+its seq passed the old cursor). A nerve without
 `/events/stream` (404, polling mode) is retried every 10 min only.
 
 ## 2. cortex -> nerve: action requests
@@ -92,6 +97,11 @@ replays from its ring, or sends `stream.gap`). A nerve without
   cortex simulates a dry-run request locally and refuses a live one.
 - A dry-run request answered `executed`/`failed` is treated as a contract
   violation (refused + escalated).
+- Request written but no reply (read timeout, reset; a hung or slow nerve):
+  decision `action.by = "unknown"` (dry-run: status `simulated`; live:
+  `failed`). It counts toward the cortex cap and is escalated, never
+  retried: in the T5.1 hung-nerve run the nerve logged the request after
+  SIGCONT. Only a refused connect is `by = "local"` (never delivered).
 - `refused`, `rate-limited`, `failed` and `circuit-open` escalate to a human.
 
 ## 3. cortex -> nerve: alerts
@@ -103,6 +113,9 @@ They appear on the stream and are dropped on ingest by kind.
 
 `GET /health`, `/stats`, `/incidents`, `/decisions?n=`, `/alerts?n=`,
 `/escalations`; `POST /v1/events`, `POST /escalations/ack?id=`.
+`/health` never waits for the decider: while a decision is in progress it
+answers from the last snapshot with `busy: true` (the other GETs still wait
+for the engine lock; see `docs/real-tests/cortex-t51-chaos.md`).
 
 ## 5. Proposed for the nerve worker (optional, non-breaking)
 

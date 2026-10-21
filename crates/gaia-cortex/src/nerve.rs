@@ -18,7 +18,7 @@
 //! one is refused: the cortex never runs a command.
 
 use crate::config::nerve_cortex_addr;
-use galion_common::http::{send, ClientRequest};
+use galion_common::http::{send, ClientError, ClientRequest};
 use nerve_cortex_contract::{
     parse_events, ActionRequest, ActionResult, ActionStatus, Event, NERVE_ACTIONS_PATH,
     NERVE_EVENTS_PATH, NERVE_EVENT_POST_PATH, NERVE_STREAM_PATH,
@@ -31,7 +31,10 @@ use std::time::Duration;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Outcome {
     pub status: ActionStatus,
-    /// `nerve` = the nerve answered; `local` = simulated/refused by the cortex.
+    /// `nerve` = the nerve answered; `local` = simulated/refused by the cortex
+    /// (the request never reached the nerve); `unknown` = the request was
+    /// sent but no reply came back (hung or slow nerve, T5.1 chaos S7): the
+    /// nerve may still run it, so it counts toward the cap and is escalated.
     pub by: &'static str,
     pub reason: String,
 }
@@ -59,6 +62,32 @@ fn local(req: &ActionRequest, why: &str) -> Outcome {
             status: ActionStatus::Refused,
             by: "local",
             reason: format!("live action needs the nerve /actions endpoint ({why}); the cortex never runs commands"),
+        }
+    }
+}
+
+/// The request was written to the nerve but its reply was lost (read
+/// timeout, reset, bad reply). The nerve may still act on it later (seen in
+/// the T5.1 hung-nerve run: the nerve logged the request after SIGCONT), so
+/// this is never reported as "not run".
+fn lost_reply(req: &ActionRequest, why: &str) -> Outcome {
+    if req.dry_run {
+        Outcome {
+            status: ActionStatus::Simulated,
+            by: "unknown",
+            reason: format!(
+                "dry-run: request to restart {} sent, no nerve reply ({why}); the nerve may still log it",
+                req.unit
+            ),
+        }
+    } else {
+        Outcome {
+            status: ActionStatus::Failed,
+            by: "unknown",
+            reason: format!(
+                "restart {} sent, no nerve reply ({why}): outcome UNKNOWN, counted toward the cap, escalated, not retried",
+                req.unit
+            ),
         }
     }
 }
@@ -94,11 +123,9 @@ impl HttpNerve {
         })
     }
 
-    fn post(&self, path: &str, body: &str) -> Result<(u16, String), String> {
+    fn post(&self, path: &str, body: &str) -> Result<(u16, String), ClientError> {
         let req = ClientRequest::post(path, &self.host, "application/json", body.as_bytes());
-        send(self.addr, &req, self.timeout, 256 * 1024)
-            .map(|r| (r.status, r.text()))
-            .map_err(|e| format!("{e:?}"))
+        send(self.addr, &req, self.timeout, 256 * 1024).map(|r| (r.status, r.text()))
     }
 }
 
@@ -144,7 +171,12 @@ impl NerveLink for HttpNerve {
         let body = serde_json::to_string(req).unwrap_or_default();
         match self.post(NERVE_ACTIONS_PATH, &body) {
             Ok((code, text)) => read_action_reply(req, code, &text),
-            Err(e) => local(req, &format!("nerve unreachable: {e}")),
+            // Not connected: the nerve never saw it.
+            Err(e @ ClientError::Connect(_)) | Err(e @ ClientError::Invalid(_)) => {
+                local(req, &format!("nerve unreachable: {e}"))
+            }
+            // Written (or partly written): the nerve may have it.
+            Err(e) => lost_reply(req, &e.to_string()),
         }
     }
 
@@ -257,5 +289,122 @@ pub fn stream_once(
             }
             Err(e) => return StreamEnd::Io(format!("read: {e}")),
         }
+    }
+}
+
+/// Which nerve process answers on `addr`: `(started, seq)` from the
+/// event-mode nerve's `GET /stats`. `None` for a nerve without `/stats`
+/// (polling mode) or when it does not answer in `timeout`.
+///
+/// Used on every stream (re)connect: the nerve's `seq` starts again at 1
+/// after a restart, so resuming with the old `since` would silently skip
+/// the new nerve's first events (T5.1 chaos S8).
+pub fn nerve_instance(addr: SocketAddr, timeout: Duration) -> Option<(String, u64)> {
+    let host = addr.to_string();
+    let req = ClientRequest::get("/stats", &host);
+    let r = send(addr, &req, timeout, 256 * 1024).ok()?;
+    if r.status != 200 {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(&r.text()).ok()?;
+    let started = v.get("started")?.as_str()?.to_string();
+    let seq = v.get("seq")?.as_u64()?;
+    Some((started, seq))
+}
+
+/// Resume point after a (re)connect. `known` is the nerve instance seen on
+/// the previous connection, `now` the one answering now. Returns the
+/// `since` to use and whether the nerve restarted in between.
+pub fn resume_since(
+    since: Option<u64>,
+    known: Option<&str>,
+    now: Option<(&str, u64)>,
+) -> (Option<u64>, bool) {
+    let Some((started, seq)) = now else {
+        return (since, false);
+    };
+    let restarted = known.is_some_and(|k| k != started) || since.is_some_and(|s| seq < s);
+    if restarted {
+        // Everything in the new nerve's ring is new to us.
+        (Some(0), true)
+    } else {
+        (since, false)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resume_after_nerve_restart() {
+        // first connect: nothing known
+        assert_eq!(resume_since(None, None, Some(("t1", 5))), (None, false));
+        // same nerve, further along
+        assert_eq!(
+            resume_since(Some(70), Some("t1"), Some(("t1", 75))),
+            (Some(70), false)
+        );
+        // new nerve: seq went back
+        assert_eq!(
+            resume_since(Some(70), Some("t1"), Some(("t1", 12))),
+            (Some(0), true)
+        );
+        // new nerve that already published more than we had seen
+        assert_eq!(
+            resume_since(Some(70), Some("t1"), Some(("t2", 90))),
+            (Some(0), true)
+        );
+        // nerve without /stats: keep the cursor
+        assert_eq!(resume_since(Some(70), Some("t1"), None), (Some(70), false));
+    }
+
+    fn req(dry: bool) -> ActionRequest {
+        ActionRequest {
+            v: nerve_cortex_contract::CONTRACT_VERSION,
+            request_id: "dec-1-inc-1".into(),
+            source: nerve_cortex_contract::CORTEX_SOURCE.into(),
+            ts: "t".into(),
+            incident: "inc-1".into(),
+            action: nerve_cortex_contract::ActionKind::Restart,
+            unit: "tuner.service".into(),
+            dry_run: dry,
+            rule: "R3-known-crash".into(),
+            decided_by: nerve_cortex_contract::DecidedBy::Rules,
+            reason: "x".into(),
+        }
+    }
+
+    #[test]
+    fn lost_reply_is_unknown_not_refused() {
+        let o = lost_reply(&req(false), "read: timed out");
+        assert_eq!(o.by, "unknown");
+        assert_eq!(o.status, ActionStatus::Failed);
+        assert!(o.reason.contains("UNKNOWN"));
+        let o = lost_reply(&req(true), "read: timed out");
+        assert_eq!((o.by, o.status), ("unknown", ActionStatus::Simulated));
+        let o = local(&req(false), "connect refused");
+        assert_eq!((o.by, o.status), ("local", ActionStatus::Refused));
+    }
+
+    #[test]
+    fn hung_nerve_reply_is_unknown() {
+        // A listener that accepts and never answers (a SIGSTOPped nerve).
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let hold = std::thread::spawn(move || {
+            let s = l.accept();
+            std::thread::sleep(Duration::from_millis(800));
+            drop(s);
+        });
+        let mut n = HttpNerve::new(&format!("http://{addr}")).unwrap();
+        n.timeout = Duration::from_millis(300);
+        let o = n.request_action(&req(false));
+        assert_eq!(o.by, "unknown", "{o:?}");
+        assert_eq!(o.status, ActionStatus::Failed);
+        let _ = hold.join();
+        // nothing listening: never delivered
+        let o = n.request_action(&req(false));
+        assert_eq!(o.by, "local", "{o:?}");
     }
 }

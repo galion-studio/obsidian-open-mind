@@ -407,7 +407,9 @@ impl Event {
 }
 
 /// Parse a push body: one JSON event, a JSON array of events, or NDJSON.
-/// Each item is parsed and validated on its own; at most [`MAX_BATCH`].
+/// Each item is parsed and validated on its own; at most [`MAX_BATCH`]
+/// are accepted, every item beyond that is an `Err` (so the sender sees
+/// `invalid > 0` instead of a silent cut; T5.1 chaos S5).
 pub fn parse_events(body: &str) -> Vec<Result<Event, String>> {
     let t = body.trim();
     if t.is_empty() {
@@ -418,9 +420,14 @@ pub fn parse_events(body: &str) -> Vec<Result<Event, String>> {
         e.validate()?;
         Ok(e)
     };
+    let over = |i: usize| Err(format!("item {} over the batch limit {MAX_BATCH}", i + 1));
     if t.starts_with('[') {
         return match serde_json::from_str::<Vec<Value>>(t) {
-            Ok(vs) => vs.into_iter().take(MAX_BATCH).map(one).collect(),
+            Ok(vs) => vs
+                .into_iter()
+                .enumerate()
+                .map(|(i, v)| if i < MAX_BATCH { one(v) } else { over(i) })
+                .collect(),
             Err(e) => vec![Err(format!("json array: {e}"))],
         };
     }
@@ -429,8 +436,11 @@ pub fn parse_events(body: &str) -> Vec<Result<Event, String>> {
     }
     t.lines()
         .filter(|l| !l.trim().is_empty())
-        .take(MAX_BATCH)
-        .map(|l| {
+        .enumerate()
+        .map(|(i, l)| {
+            if i >= MAX_BATCH {
+                return over(i);
+            }
             serde_json::from_str::<Value>(l)
                 .map_err(|e| format!("ndjson line: {e}"))
                 .and_then(one)
@@ -647,6 +657,27 @@ mod tests {
         assert_eq!(r.len(), 3);
         assert!(r[2].is_err());
         assert!(parse_events(r#"{"source":"","kind":"x","severity":"info"}"#)[0].is_err());
+    }
+
+    #[test]
+    fn over_batch_items_are_reported_not_dropped() {
+        let arr: Vec<Value> = (0..1500)
+            .map(|i| json!({"source": "s", "kind": "unit.failed", "severity": "high", "unit": "tuner.service", "seq": i + 1}))
+            .collect();
+        let r = parse_events(&Value::Array(arr).to_string());
+        assert_eq!(r.len(), 1500);
+        assert_eq!(r.iter().filter(|x| x.is_ok()).count(), MAX_BATCH);
+        assert!(r[MAX_BATCH].as_ref().unwrap_err().contains("batch limit"));
+        let nd: String = (0..1200)
+            .map(|i| {
+                format!(
+                    "{{\"source\":\"s\",\"kind\":\"k\",\"severity\":\"warn\",\"seq\":{}}}\n",
+                    i + 1
+                )
+            })
+            .collect();
+        let r = parse_events(&nd);
+        assert_eq!(r.iter().filter(|x| x.is_err()).count(), 200);
     }
 
     #[test]

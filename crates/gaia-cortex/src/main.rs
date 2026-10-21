@@ -165,8 +165,8 @@ fn serve_main(cfg: Config) -> ExitCode {
             .as_deref()
             .and_then(gaia_cortex::config::nerve_cortex_addr)
         {
-            let tx = tx.clone();
-            std::thread::spawn(move || subscribe(addr, tx));
+            let (tx, cx) = (tx.clone(), cx.clone());
+            std::thread::spawn(move || subscribe(addr, tx, cx));
         }
     }
     if pull_every > 0 {
@@ -261,11 +261,40 @@ fn pull_loop(mut n: gaia_cortex::nerve::HttpNerve, tx: Sender<Vec<Event>>, every
 /// nerve is quiet (zero work); reconnects with backoff, resuming from the
 /// last seq. A nerve without `/events/stream` (polling mode, 404) is
 /// retried every 10 min only.
-fn subscribe(addr: std::net::SocketAddr, tx: Sender<Vec<Event>>) {
-    use gaia_cortex::nerve::{stream_once, StreamEnd};
+///
+/// On every (re)connect the nerve instance is checked first (`GET /stats`:
+/// `started`, `seq`). A restarted nerve numbers its events from 1 again, so
+/// the old cursor would skip them and the old seq fingerprints would drop
+/// them as duplicates: the cursor goes back to 0 and the engine forgets the
+/// old fingerprints (T5.1 chaos S8).
+fn subscribe(
+    addr: std::net::SocketAddr,
+    tx: Sender<Vec<Event>>,
+    cx: Arc<Mutex<gaia_cortex::engine::Cortex>>,
+) {
+    use gaia_cortex::nerve::{nerve_instance, resume_since, stream_once, StreamEnd};
     let mut since: Option<u64> = None;
+    let mut instance: Option<String> = None;
     let mut backoff = Duration::from_secs(1);
     loop {
+        let now = nerve_instance(addr, Duration::from_secs(3));
+        let (s, restarted) = resume_since(
+            since,
+            instance.as_deref(),
+            now.as_ref().map(|(st, q)| (st.as_str(), *q)),
+        );
+        if restarted {
+            eprintln!(
+                "gaia-cortex: nerve restarted (was {instance:?} at seq {since:?}, now {now:?}); resuming from its first event"
+            );
+            cx.lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .nerve_restarted();
+        }
+        since = s;
+        if let Some((st, _)) = now {
+            instance = Some(st);
+        }
         let started = std::time::Instant::now();
         let mut got = 0u64;
         let end = stream_once(addr, &mut since, Duration::from_secs(11 * 60), &mut |e| {

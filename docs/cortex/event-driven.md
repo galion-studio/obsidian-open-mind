@@ -142,3 +142,12 @@ effective config. Listen and nerve URL must be loopback.
 3. Prove dry-run decisions against reality, then Mate decides on live
    (`actions=live` + nerve `NERVE_EVT_ACTIONS=live` + reflex live).
 4. Advisor: only after a separate approval (feature build + key wiring).
+
+## Chaos (T5.1, 2026-10-21 +02:00)
+
+`crates/gaia-cortex/tests/real_t51_chaos.rs` (`GALION_REAL=1`,
+`GALION_NERVE_BIN`) runs the release cortex against the real event-mode
+nerve on box ports 20970-20979: unit kill, restart loop, protected pieces,
+grouping, malformed bursts, slow and hung nerve, nerve restart mid-incident,
+LLM advisor off. Results, findings and the fixes they led to:
+[../real-tests/cortex-t51-chaos.md](../real-tests/cortex-t51-chaos.md).

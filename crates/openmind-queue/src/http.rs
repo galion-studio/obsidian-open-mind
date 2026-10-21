@@ -19,6 +19,8 @@ pub struct Request {
     /// Path without the query string.
     pub path: String,
     pub query: String,
+    /// Raw `Authorization` header value, if any. Never log it.
+    pub authorization: Option<String>,
     pub body: Vec<u8>,
 }
 
@@ -56,6 +58,7 @@ pub fn read_request<R: Read>(r: R) -> io::Result<Request> {
         return Err(bad("not HTTP/1.x"));
     }
     let mut len = 0usize;
+    let mut authorization = None;
     loop {
         let mut h = String::new();
         let n = br.read_line(&mut h)?;
@@ -77,6 +80,11 @@ pub fn read_request<R: Read>(r: R) -> io::Result<Request> {
                 if len > MAX_BODY {
                     return Err(bad("body too large"));
                 }
+            } else if k == "authorization" {
+                if authorization.is_some() {
+                    return Err(bad("duplicate authorization header"));
+                }
+                authorization = Some(v.trim().to_string());
             } else if k == "transfer-encoding" {
                 return Err(bad("transfer-encoding not supported"));
             }
@@ -92,6 +100,7 @@ pub fn read_request<R: Read>(r: R) -> io::Result<Request> {
         method,
         path,
         query,
+        authorization,
         body,
     })
 }
@@ -102,6 +111,7 @@ pub fn reason(code: u16) -> &'static str {
         201 => "Created",
         204 => "No Content",
         400 => "Bad Request",
+        401 => "Unauthorized",
         402 => "Payment Required",
         403 => "Forbidden",
         404 => "Not Found",
@@ -117,8 +127,13 @@ pub fn reason(code: u16) -> &'static str {
 
 /// Write a JSON response and close.
 pub fn write_response<W: Write>(mut w: W, code: u16, body: &str) -> io::Result<()> {
+    let extra = if code == 401 {
+        "WWW-Authenticate: Bearer realm=\"poseidon\"\r\n"
+    } else {
+        ""
+    };
     let head = format!(
-        "HTTP/1.1 {code} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {code} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{extra}Connection: close\r\n\r\n",
         reason(code),
         body.len()
     );
@@ -135,6 +150,19 @@ pub fn request(
     body: Option<&str>,
     timeout: Duration,
 ) -> io::Result<(u16, String)> {
+    request_auth(addr, method, path, body, None, timeout)
+}
+
+/// Like [`request`], optionally sending `Authorization: Bearer <token>`.
+/// The token is written to the socket only, never logged.
+pub fn request_auth(
+    addr: &str,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    bearer: Option<&[u8]>,
+    timeout: Duration,
+) -> io::Result<(u16, String)> {
     let sa = addr
         .to_socket_addrs()?
         .next()
@@ -143,11 +171,22 @@ pub fn request(
     s.set_read_timeout(Some(timeout))?;
     s.set_write_timeout(Some(timeout))?;
     let b = body.unwrap_or("");
-    let req = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {addr}\r\nUser-Agent: openmind-queue\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
+    let head = format!(
+        "{method} {path} HTTP/1.1\r\nHost: {addr}\r\nUser-Agent: openmind-queue\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
         b.len()
     );
-    s.write_all(req.as_bytes())?;
+    let mut req = Vec::with_capacity(head.len() + b.len() + 64);
+    req.extend_from_slice(head.as_bytes());
+    if let Some(t) = bearer {
+        req.extend_from_slice(b"Authorization: Bearer ");
+        req.extend_from_slice(t);
+        req.extend_from_slice(b"\r\n");
+    }
+    req.extend_from_slice(b"Connection: close\r\n\r\n");
+    req.extend_from_slice(b.as_bytes());
+    let sent = s.write_all(&req);
+    req.iter_mut().for_each(|x| *x = 0);
+    sent?;
     let mut raw = Vec::new();
     s.take((MAX_HEADER + MAX_BODY) as u64)
         .read_to_end(&mut raw)?;
@@ -232,6 +271,30 @@ mod tests {
         let mut out = Vec::new();
         write_response(&mut out, 201, "{\"id\":1}").unwrap();
         assert_eq!(parse_response(&out).unwrap(), (201, "{\"id\":1}".into()));
+    }
+
+    #[test]
+    fn authorization_header() {
+        let raw = b"GET /stats HTTP/1.1\r\nauthorization:  Bearer xyz \r\n\r\n";
+        let r = read_request(&raw[..]).unwrap();
+        assert_eq!(r.authorization.as_deref(), Some("Bearer xyz"));
+        let none = read_request(&b"GET / HTTP/1.1\r\n\r\n"[..]).unwrap();
+        assert_eq!(none.authorization, None);
+        let dup = b"GET / HTTP/1.1\r\nAuthorization: Bearer a\r\nAuthorization: Bearer b\r\n\r\n";
+        assert!(read_request(&dup[..]).is_err());
+    }
+
+    #[test]
+    fn unauthorized_has_challenge() {
+        let mut out = Vec::new();
+        write_response(&mut out, 401, "{}").unwrap();
+        let s = String::from_utf8(out.clone()).unwrap();
+        assert!(s.starts_with("HTTP/1.1 401 Unauthorized\r\n"), "{s}");
+        assert!(s.contains("WWW-Authenticate: Bearer realm=\"poseidon\"\r\n"));
+        assert_eq!(parse_response(&out).unwrap().0, 401);
+        let mut ok = Vec::new();
+        write_response(&mut ok, 200, "{}").unwrap();
+        assert!(!String::from_utf8(ok).unwrap().contains("WWW-Authenticate"));
     }
 
     #[test]

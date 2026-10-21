@@ -13,10 +13,13 @@
 //!   least 1500 GB of VRAM. It is a model only: it never spends anything.
 //! * [`gaia`]: how these map onto the four POSEIDON systems.
 //! * [`http`], [`server`]: a small std-only HTTP/1.1 service and client.
+//! * [`auth`]: bearer-token auth for non-loopback peers (shared secret in a
+//!   mode-0600 file); loopback needs no token unless configured.
 //!
 //! Spend is tracked as integers only. Nothing here calls a paid API, moves
 //! money or talks to a GPU provider.
 
+pub mod auth;
 pub mod engine;
 pub mod gaia;
 pub mod http;

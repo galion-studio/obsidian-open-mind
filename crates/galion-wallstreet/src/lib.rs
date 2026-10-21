@@ -20,10 +20,12 @@
 //! [`news`] (event tagging), [`compliance`], [`report`], [`ticket`] (scripted
 //! Hermes tickets), [`score`] (the scoreboard), [`http`].
 
+pub mod adversarial;
 pub mod backtest;
 pub mod broker;
 pub mod compliance;
 pub mod http;
+pub mod intent;
 pub mod market;
 pub mod money;
 pub mod news;

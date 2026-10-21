@@ -3,14 +3,24 @@
 
 //! Compliance screen for requests, ticket text and order rationales.
 //!
-//! Deterministic phrase rules, no model. A refusal always names the category,
-//! the reason, and a safe alternative the requester can actually do next.
-//! Talking *about* the rules ("what counts as insider trading?") is allowed;
-//! acting on insider framing, tips, manipulation or live money is not.
+//! Deterministic, no model. Two layers:
+//! 1. the v1 phrase rules below, now matched on de-obfuscated text
+//!    (leetspeak, homoglyphs, zero-width, spaced letters; see [`crate::intent`]);
+//! 2. the intent layer ([`crate::intent::detect`]): combinations of concepts
+//!    (private source + event + trade, promotion + exit, orders meant to be
+//!    cancelled, trades with oneself, trading ahead of a client, ...), so a
+//!    reworded insider tip or pump-and-dump ask is refused without its phrase.
+//!
+//! A refusal always names the category, the reason, and a safe alternative the
+//! requester can actually do next. Talking *about* the rules ("explain what a
+//! pump and dump is") is allowed when it names no symbol and carries no
+//! operational cue; acting on insider framing, tips, manipulation or live money
+//! is not. [`screen_phrases`] keeps the v1 behaviour for before/after numbers.
 
-use serde::Serialize;
+use crate::intent::{self, Text};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Category {
     InsiderInformation,
@@ -153,21 +163,60 @@ fn normalise(s: &str) -> String {
     lower.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Screen one piece of text.
-pub fn screen(text: &str) -> Verdict {
+fn refuse(cat: Category, matched: String) -> Verdict {
+    let (_, _, reason, alt) = RULES
+        .iter()
+        .find(|r| r.0 == cat)
+        .expect("every category has a rule");
+    Verdict::Refuse {
+        category: cat,
+        code: cat.code(),
+        matched,
+        reason: (*reason).to_string(),
+        alternative: (*alt).to_string(),
+    }
+}
+
+/// v1 screen (phrase substrings on lower-cased text), kept unchanged so the
+/// adversarial scoreboard can show what the intent layer adds.
+pub fn screen_phrases(text: &str) -> Verdict {
     let t = normalise(text);
-    for (cat, phrases, reason, alt) in RULES {
+    for (cat, phrases, _, _) in RULES {
         if let Some(p) = phrases.iter().find(|p| t.contains(*p)) {
-            return Verdict::Refuse {
-                category: *cat,
-                code: cat.code(),
-                matched: (*p).to_string(),
-                reason: (*reason).to_string(),
-                alternative: (*alt).to_string(),
-            };
+            return refuse(*cat, (*p).to_string());
         }
     }
     Verdict::Allow
+}
+
+/// Topic categories a pure question about the rules may name.
+fn topic(cat: Category) -> bool {
+    matches!(
+        cat,
+        Category::InsiderInformation | Category::MarketManipulation | Category::StockTip
+    )
+}
+
+/// Screen one piece of text: phrase rules on de-obfuscated text, then the
+/// intent layer. An educational question skips topic phrases and intent hits.
+pub fn screen(text: &str) -> Verdict {
+    let t = Text::new(text);
+    let edu = intent::educational(&t);
+    for (cat, phrases, _, _) in RULES {
+        if edu && topic(*cat) {
+            continue;
+        }
+        if let Some(p) = phrases.iter().find(|p| t.phrase(p)) {
+            return refuse(*cat, (*p).to_string());
+        }
+    }
+    if edu {
+        return Verdict::Allow;
+    }
+    match intent::detect(&t) {
+        Some(h) => refuse(h.category, format!("intent:{}:{}", h.rule, h.evidence)),
+        None => Verdict::Allow,
+    }
 }
 
 /// The labelled corpus the scoreboard runs: (text, expected category or None).

@@ -196,50 +196,6 @@ pub enum Record {
     },
     /// Counters carried across compaction.
     Counters(Stats),
-    /// Refusal counters as absolute values (slot 206). Refusals change no
-    /// job state, so before this record they lived only in memory and a
-    /// crash or restart reset them. `blocked` holds only the agents whose
-    /// `budget_blocked` changed since the last tally written.
-    Tally(Tally),
-}
-
-/// The refusal counters that no job record carries: written as a
-/// [`Record::Tally`] before the refused client is answered.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct Tally {
-    pub budget_refusals: u64,
-    pub quota_refusals: u64,
-    pub stale_acks: u64,
-    pub charge_clamped: u64,
-    pub backpressure_refusals: u64,
-    /// Per-agent `budget_blocked`.
-    pub blocked: BTreeMap<String, u64>,
-}
-
-impl Tally {
-    /// What must be written to move a log that holds `self` to `now`:
-    /// `None` when nothing changed, else `now` with only changed agents.
-    pub fn delta_to(&self, now: &Tally) -> Option<Tally> {
-        let blocked: BTreeMap<String, u64> = now
-            .blocked
-            .iter()
-            .filter(|(k, v)| self.blocked.get(*k) != Some(*v))
-            .map(|(k, v)| (k.clone(), *v))
-            .collect();
-        let same = self.budget_refusals == now.budget_refusals
-            && self.quota_refusals == now.quota_refusals
-            && self.stale_acks == now.stale_acks
-            && self.charge_clamped == now.charge_clamped
-            && self.backpressure_refusals == now.backpressure_refusals;
-        if same && blocked.is_empty() {
-            return None;
-        }
-        Some(Tally {
-            blocked,
-            ..now.clone()
-        })
-    }
 }
 
 /// Why a decide method refused.
@@ -378,8 +334,8 @@ pub struct Agent {
     pub budget_blocked: u64,
 }
 
-/// Counters, rebuilt by replay. The refusal counters are carried by
-/// [`Record::Tally`] (before slot 206 they were process-local).
+/// Counters, rebuilt by replay (except the refusal counters, which are
+/// process-local).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Stats {
@@ -1008,33 +964,6 @@ impl Engine {
                 self.next_token = self.next_token.max(*token);
             }
             Record::Counters(s) => self.stats = s.clone(),
-            Record::Tally(t) => {
-                self.stats.budget_refusals = t.budget_refusals;
-                self.stats.quota_refusals = t.quota_refusals;
-                self.stats.stale_acks = t.stale_acks;
-                self.stats.charge_clamped = t.charge_clamped;
-                self.stats.backpressure_refusals = t.backpressure_refusals;
-                for (name, n) in &t.blocked {
-                    self.agent(name).budget_blocked = *n;
-                }
-            }
-        }
-    }
-
-    /// The refusal counters as they stand (see [`Record::Tally`]).
-    pub fn tally(&self) -> Tally {
-        Tally {
-            budget_refusals: self.stats.budget_refusals,
-            quota_refusals: self.stats.quota_refusals,
-            stale_acks: self.stats.stale_acks,
-            charge_clamped: self.stats.charge_clamped,
-            backpressure_refusals: self.stats.backpressure_refusals,
-            blocked: self
-                .agents
-                .iter()
-                .filter(|(_, a)| a.budget_blocked > 0)
-                .map(|(n, a)| (n.clone(), a.budget_blocked))
-                .collect(),
         }
     }
 
@@ -1047,7 +976,6 @@ impl Engine {
             },
             Record::Counters(self.stats.clone()),
         ];
-        out.push(Record::Tally(self.tally()));
         if let Some((p, f)) = self.default_quota {
             out.push(Record::Quota {
                 agent: GLOBAL.into(),

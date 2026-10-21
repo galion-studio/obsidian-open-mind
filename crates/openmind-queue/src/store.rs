@@ -4,8 +4,7 @@
 //! The durable log behind the engine.
 //!
 //! One file, `queue.log`, one record per line: `<crc32 as 8 hex> <json>\n`.
-//! Every append is flushed with `sync_data` before the client is answered
-//! (except [`Record::Tally`] counter lines, see [`Store::append_unsynced`]).
+//! Every append is flushed with `sync_data` before the client is answered.
 //!
 //! Opening the log replays it. A torn tail (the last line cut short or
 //! failing its checksum, which is what a crash mid-write leaves) is cut off
@@ -166,18 +165,6 @@ impl Store {
     /// Append records and sync. On failure the file is cut back to where it
     /// was, so a failed write never leaves a half line in the middle.
     pub fn append(&mut self, recs: &[Record]) -> io::Result<()> {
-        self.append_with(recs, true)
-    }
-
-    /// Like [`Store::append`] but without `sync_data`: the line reaches the
-    /// page cache, so it survives a process crash (kill -9) but not a power
-    /// loss, and the next synced append makes it durable too. Used only for
-    /// [`Record::Tally`] counter lines, so a refusal flood costs no fsyncs.
-    pub fn append_unsynced(&mut self, recs: &[Record]) -> io::Result<()> {
-        self.append_with(recs, false)
-    }
-
-    fn append_with(&mut self, recs: &[Record], sync: bool) -> io::Result<()> {
         if recs.is_empty() {
             return Ok(());
         }
@@ -186,13 +173,10 @@ impl Store {
             out.push_str(&encode(r));
         }
         let before = self.file.seek(SeekFrom::End(0))?;
-        let res = self.file.write_all(out.as_bytes()).and_then(|_| {
-            if sync {
-                self.file.sync_data()
-            } else {
-                Ok(())
-            }
-        });
+        let res = self
+            .file
+            .write_all(out.as_bytes())
+            .and_then(|_| self.file.sync_data());
         if let Err(e) = res {
             let _ = self.file.set_len(before);
             let _ = self.file.seek(SeekFrom::End(0));

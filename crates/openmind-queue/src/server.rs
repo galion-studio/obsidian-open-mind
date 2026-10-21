@@ -10,7 +10,7 @@
 //! The ticker sleeps on a condvar until the next deadline (at most 1 s), so
 //! an idle server uses no CPU.
 
-use crate::engine::{Config, Engine, Job, JobSpec, Miss, Record, Refusal, Tally, GLOBAL};
+use crate::engine::{Config, Engine, Job, JobSpec, Miss, Record, Refusal, GLOBAL};
 use crate::store::{OpenReport, Store};
 use crate::vram::{Device, ProviderView, VramPool};
 use crate::{gaia, http, now_ms, zagreb_ms};
@@ -66,8 +66,6 @@ struct State {
     compactions: u64,
     /// Compactions that failed (the change itself was durable; see `commit`).
     compaction_errors: u64,
-    /// The refusal counters as last written to the log.
-    tally: Tally,
 }
 
 struct Shared {
@@ -115,22 +113,14 @@ fn lock(s: &Shared) -> MutexGuard<'_, State> {
     s.st.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// Write `recs` (plus any changed refusal counters) and apply them.
+/// Write `recs` and apply them.
 ///
 /// Once the append has synced the change is durable and applied, so a
 /// failed compaction afterwards is logged and counted, not returned: before
 /// slot 206 it turned into a 500 for a change that had in fact happened,
 /// and a client retrying that would enqueue or charge twice.
 fn commit(st: &mut State, recs: &[Record], compact_min: u64) -> io::Result<()> {
-    let now_tally = st.engine.tally();
-    let delta = st.tally.delta_to(&now_tally);
-    let mut all: Vec<Record> = Vec::with_capacity(recs.len() + 1);
-    if let Some(d) = delta {
-        all.push(Record::Tally(d));
-    }
-    all.extend_from_slice(recs);
-    st.store.append(&all)?;
-    st.tally = now_tally;
+    st.store.append(recs)?;
     for r in recs {
         st.engine.apply(r);
     }
@@ -147,18 +137,6 @@ fn commit(st: &mut State, recs: &[Record], compact_min: u64) -> io::Result<()> {
                 );
             }
         }
-    }
-    Ok(())
-}
-
-/// Persist refusal counters that changed while handling a request, before
-/// the client is answered (unsynced: survives kill -9, see
-/// [`Store::append_unsynced`]).
-fn flush_tally(st: &mut State) -> io::Result<()> {
-    let now_tally = st.engine.tally();
-    if let Some(d) = st.tally.delta_to(&now_tally) {
-        st.store.append_unsynced(&[Record::Tally(d)])?;
-        st.tally = now_tally;
     }
     Ok(())
 }
@@ -190,9 +168,7 @@ pub fn start(opts: Options) -> io::Result<Handle> {
         providers,
         compactions: 0,
         compaction_errors: 0,
-        tally: Tally::default(),
     };
-    st.tally = st.engine.tally();
     let sync: Vec<Record> = st
         .engine
         .vram
@@ -284,16 +260,6 @@ fn handle_conn(stream: TcpStream, s: &Shared) {
         Ok(req) => route(s, &req),
         Err(e) => (400, json!({"error":"bad_request","detail":e.to_string()})),
     };
-    // A refusal bumps a counter but writes no job record: persist it before
-    // answering, so a crash right after the answer cannot lose it. The
-    // counters are advisory: a failed write is logged and retried with the
-    // next request, it never turns a done change into an error.
-    if let Err(e) = flush_tally(&mut lock(s)) {
-        eprintln!(
-            "{} poseidon: refusal counter write failed: {e}",
-            zagreb_ms(now_ms())
-        );
-    }
     let _ = http::write_response(&stream, code, &body.to_string());
 }
 

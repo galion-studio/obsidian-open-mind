@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
-//! In-process auth tests for POSEIDON (Gaia S4.1, slot 205, ports
-//! 20750-20751): start-up refusals, loopback unchanged, and 401 for
+//! In-process auth tests for POSEIDON (Gaia S4.1, slot 205, ports 20750-20752;
+//! no fixed IP): start-up refusals, loopback unchanged, and 401 for
 //! unauthenticated non-loopback peers on a real non-loopback test bind
 //! (the box's own LAN-side address, found without sending any packet).
 
@@ -75,7 +75,7 @@ fn startup_refusals() {
     };
     // Non-loopback without --allow-remote: refused (unchanged).
     let e = server::start(server::Options {
-        bind: "0.0.0.0:20750".into(),
+        bind: "0.0.0.0:20752".into(),
         ..base.clone()
     })
     .err()
@@ -83,7 +83,7 @@ fn startup_refusals() {
     assert!(e.to_string().contains("--allow-remote"), "{e}");
     // --allow-remote alone is no longer enough.
     let e = server::start(server::Options {
-        bind: "0.0.0.0:20750".into(),
+        bind: "0.0.0.0:20752".into(),
         allow_remote: true,
         ..base.clone()
     })
@@ -93,7 +93,7 @@ fn startup_refusals() {
     assert!(e.to_string().contains("--token-file"), "{e}");
     // token-on-loopback without a secret: refused.
     let e = server::start(server::Options {
-        bind: "127.0.0.1:20750".into(),
+        bind: "127.0.0.1:20752".into(),
         token_on_loopback: true,
         ..base.clone()
     })
@@ -104,7 +104,7 @@ fn startup_refusals() {
     for mode in [0o644, 0o640, 0o606] {
         let f = token_file(&d, mode);
         let e = server::start(server::Options {
-            bind: "127.0.0.1:20750".into(),
+            bind: "127.0.0.1:20752".into(),
             token_file: Some(f),
             ..base.clone()
         })
@@ -115,13 +115,13 @@ fn startup_refusals() {
     }
     // Missing token file: refused.
     assert!(server::start(server::Options {
-        bind: "127.0.0.1:20750".into(),
+        bind: "127.0.0.1:20752".into(),
         token_file: Some(d.join("absent")),
         ..base.clone()
     })
     .is_err());
     // Nothing bound after the refusals.
-    assert!(TcpStream::connect("127.0.0.1:20750").is_err());
+    assert!(TcpStream::connect("127.0.0.1:20752").is_err());
     std::fs::remove_dir_all(&d).unwrap();
 }
 
@@ -185,7 +185,11 @@ fn loopback_unchanged_and_lan_needs_token() {
         ("POST", "/jobs", r#"{"kind":"echo"}"#),
         ("POST", "/lease", r#"{"worker":"x"}"#),
         ("POST", "/caps", r#"{"scope":"*","cap":1}"#),
-        ("POST", "/quotas", r#"{"agent":"a","max_pending":1,"max_inflight":1}"#),
+        (
+            "POST",
+            "/quotas",
+            r#"{"agent":"a","max_pending":1,"max_inflight":1}"#,
+        ),
         ("POST", "/admin/compact", ""),
         ("DELETE", "/vram/devices/x", ""),
         ("GET", "/nope", ""),
@@ -222,7 +226,10 @@ fn loopback_unchanged_and_lan_needs_token() {
     // Nothing the refused requests asked for happened.
     let (c, st) = call(&lan, "GET", "/stats", None, Some(SECRET));
     assert_eq!(c, 200, "{st}");
-    assert_eq!(st["depth"]["ready"], 0, "a refused POST /jobs leaked through");
+    assert_eq!(
+        st["depth"]["ready"], 0,
+        "a refused POST /jobs leaked through"
+    );
     assert_eq!(st["global"]["cap"], Value::Null);
     assert_eq!(st["auth"]["verdicts"]["token"], 1);
     let rej = st["auth"]["verdicts"]["missing"].as_u64().unwrap()
@@ -231,9 +238,21 @@ fn loopback_unchanged_and_lan_needs_token() {
     assert!(!st.to_string().contains(SECRET));
 
     // With the token, the full job cycle works from the LAN address.
-    let (c, _) = call(&lan, "POST", "/jobs", Some(json!({"kind":"echo"})), Some(SECRET));
+    let (c, _) = call(
+        &lan,
+        "POST",
+        "/jobs",
+        Some(json!({"kind":"echo"})),
+        Some(SECRET),
+    );
     assert_eq!(c, 201);
-    let (_, l) = call(&lan, "POST", "/lease", Some(json!({"worker":"w"})), Some(SECRET));
+    let (_, l) = call(
+        &lan,
+        "POST",
+        "/lease",
+        Some(json!({"worker":"w"})),
+        Some(SECRET),
+    );
     let (c, _) = call(
         &lan,
         "POST",

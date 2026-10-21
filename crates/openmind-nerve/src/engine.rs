@@ -324,8 +324,12 @@ impl Engine {
                 )
             })
             .collect();
+        // T3.2: the findings join the incidents that score them.
+        let members = self.cortex.members();
         self.incidents
-            .update(now, sigs, &|cause, ss| explain(cause, ss, &comps_snapshot));
+            .update_with(now, sigs, &members, &|cause, ss| {
+                explain(cause, ss, &comps_snapshot)
+            });
         self.cortex.attach_owners(&mut self.incidents, &self.comps);
         // Reflexes.
         if self.reflexes_enabled {
@@ -834,6 +838,54 @@ pub fn self_eval_prune(mut files: Vec<(String, u64)>, keep: usize) -> Vec<String
     files.into_iter().take(n).map(|f| f.0).collect()
 }
 
+/// One markdown line for an incident's T3.2 `correlation` section, or
+/// None when nothing beyond its own signals made it (no member findings,
+/// no folded signals). Starts with `- correlated:`.
+pub fn correlated_md(c: &Value) -> Option<String> {
+    let arr = |k: &str| c[k].as_array().cloned().unwrap_or_default();
+    let (fs, fo) = (arr("findings"), arr("folded"));
+    if fs.is_empty() && fo.is_empty() {
+        return None;
+    }
+    let s = |v: &Value| v.as_str().unwrap_or("").replace('|', "/");
+    let mut parts = vec![format!(
+        "rules {}",
+        arr("rules").iter().map(s).collect::<Vec<_>>().join(" + ")
+    )];
+    if !fs.is_empty() {
+        parts.push(format!(
+            "sensors {}; findings {}",
+            arr("sensors").iter().map(s).collect::<Vec<_>>().join(", "),
+            fs.iter()
+                .map(|f| format!("{} ({})", s(&f["finding"]), s(&f["severity"])))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !fo.is_empty() {
+        parts.push(format!(
+            "folded {}",
+            fo.iter()
+                .map(|f| format!(
+                    "{} from `{}` ({})",
+                    s(&f["component"]),
+                    s(&f["from"]),
+                    s(&f["rule"])
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if let Some(w) = c["worst_finding"].as_object() {
+        parts.push(format!(
+            "worst finding {} ({})",
+            s(&w["finding"]),
+            s(&w["severity"])
+        ));
+    }
+    Some(format!("- correlated: {}\n", parts.join("; ")))
+}
+
 /// Words for an incident cause: title, why it matters, the next step.
 pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static str)]) -> Explain {
     let top = ss
@@ -907,6 +959,29 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
         };
     }
     match cause {
+        // T3.2: the sshd flood, the auth-log bleed it writes and the disk
+        // signals that bleed explains (incident::RULE_SSH_DISK).
+        crate::incident::SSH_FLOOD => {
+            let flood = ss
+                .iter()
+                .filter(|s| s.component == "host")
+                .max_by_key(|s| s.sev)
+                .map(|s| s.msg.as_str())
+                .unwrap_or(top);
+            let disk: Vec<&str> = names.iter().copied().filter(|n| *n != "host").collect();
+            Explain {
+                title: format!("ssh flood: {}", short(flood)),
+                why: format!(
+                    "every failed ssh attempt is a line in the auth log, so the credential flood and the disk it eats are one incident (cortex findings sshd-credential-flood and sshd-auth-log-growth){}",
+                    if disk.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; disk signal(s) of {} folded in while the auth log grows", disk.join(", "))
+                    }
+                ),
+                next: "password auth stays off; check logrotate for the auth log and what else fills the disk; a ban or edge rate limit is a HADES plan (owner approval), never a nerve action".into(),
+            }
+        }
         "edge" => Explain {
             title: format!("edge: {}", short(top)),
             why: "public hostnames answer with Cloudflare error pages; every failed request is a visitor or bot turned away, and the error counters hide real faults".into(),
@@ -1048,6 +1123,10 @@ pub fn render_md(r: &Value) -> String {
                 txt(&sg["component"]),
                 txt(&sg["msg"])
             ));
+        }
+        // T3.2: which sensors and folded signals made this one incident.
+        if let Some(line) = correlated_md(&i["correlation"]) {
+            s.push_str(&line);
         }
         s.push('\n');
     }

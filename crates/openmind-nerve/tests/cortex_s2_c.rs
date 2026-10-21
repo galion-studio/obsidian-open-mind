@@ -19,7 +19,8 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-#[allow(dead_code)] // only `canon` and `drop_edge_hosts` are used here
+#[allow(dead_code)]
+// only `canon`, `drop_edge_hosts`, `drop_correlation` and `t32_delta` are used here
 mod support;
 
 fn fx() -> PathBuf {
@@ -162,12 +163,14 @@ fn replay_with_both_sensors_on_keeps_the_golden() {
     support::strip_nerve_wiring(&mut got);
     // T2.12 additive `edge-host:*` streams postdate the golden (cortex-merge-all).
     support::drop_edge_hosts(&mut got);
+    support::drop_correlation(&mut got);
     let mut want: Value = serde_json::from_str(
         &std::fs::read_to_string(fx().join("cortex-replay.expected.json")).unwrap(),
     )
     .unwrap();
     support::canon(&mut want);
     support::strip_empty_last(&mut want);
+    support::t32_delta(&mut want); // T3.2 member floor: scanner 5 -> 10, score 21 -> 16
     assert_eq!(got, want, "replay must not read the host or the network");
     let _ = std::fs::remove_dir_all(&dir);
 }

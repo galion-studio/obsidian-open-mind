@@ -18,6 +18,7 @@ use openmind_schema::NerveEvent;
 use serde_json::Value;
 use std::path::PathBuf;
 
+#[allow(dead_code)] // shared golden helpers; each test uses a subset
 mod support;
 
 fn fixture() -> PathBuf {
@@ -41,15 +42,22 @@ fn replay_matches_the_pre_trait_build() {
     .unwrap();
     support::canon(&mut want);
     support::strip_empty_last(&mut want);
+    support::t32_delta(&mut want); // T3.2 member floor: scanner 5 -> 10, score 21 -> 16
     let mut got = sh.report.clone();
     // T2.12 edge-host streams are additive (checked in edge_host_streams_from_the_journal).
     support::drop_edge_hosts(&mut got);
+    // T3.2 incident `correlation` sections are additive (checked in correlation_on_the_golden_fixture).
+    support::drop_correlation(&mut got);
     support::canon(&mut got);
     support::strip_nerve_wiring(&mut got);
     assert_eq!(got, want, "report differs from the pre-trait golden");
     assert_eq!(
-        support::drop_edge_hosts_md(&support::strip_nerve_wiring_md(&sh.report_md)),
-        support::strip_nerve_wiring_md(&support::expected_md(&fixture())),
+        support::drop_correlation_md(&support::drop_edge_hosts_md(
+            &support::strip_nerve_wiring_md(&sh.report_md),
+        )),
+        support::t32_delta_md(&support::strip_nerve_wiring_md(&support::expected_md(
+            &fixture()
+        ))),
         "markdown differs from the pre-trait golden"
     );
     assert_eq!(
@@ -58,7 +66,7 @@ fn replay_matches_the_pre_trait_build() {
             want["grade"].as_str(),
             want["pass"].as_bool()
         ),
-        (Some(21), Some("F"), Some(false))
+        (Some(16), Some("F"), Some(false))
     );
 }
 
@@ -179,9 +187,9 @@ fn nerve_wiring_additions_are_present() {
         md.contains(":8652 unknown owner (documented: no unit owns it)"),
         "{md}"
     );
-    }
+}
 
-    #[test]
+#[test]
 /// The `/api/v1/state` `cortex_events` of the replay fixture, pinned (slot
 /// 105): `top` is `{id, component, cause, evidence_n}` only. Before this
 /// golden, `top.title` carried "port 9999 listens on <bind address>" and the

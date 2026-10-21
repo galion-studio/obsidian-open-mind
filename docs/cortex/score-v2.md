@@ -52,3 +52,11 @@ The new ddos weights (15/10/4) and "an uncovered error-level ddos finding blocks
 Alternatives: (a) keep as is; (b) ddos = vulnerability weights (10/4) and never block; (c) block only at
 critical. Recommendation: (a), because an untracked active flood is worse than a static exposure and every
 sensor that wants incident-level weight can still emit a `Signal`.
+
+## T3.2 update (2026-10-21 09:30 +02:00, swarm/cortex-t32-correlate)
+
+Covered findings are now listed on their incident (`correlation.findings`, see docs/cortex/correlation.md)
+and the incident costs at least what its worst member would cost uncovered (member floor; a member that
+would block `pass` alone still blocks). Golden fixture 21/F -> 16/F and replay1 61/D -> 56/D, both from the
+scanner incident (warn, 5) whose member `scanner-probes-console` is an error vulnerability (10). Owner
+decision D-T32-2 in correlation.md.

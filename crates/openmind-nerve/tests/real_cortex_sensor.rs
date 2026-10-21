@@ -8,7 +8,7 @@
 //! 1. `openmind-nerve replay fixtures/cortex-replay` (the real binary) gives
 //!    the pre-trait golden verdict (kind/source keys aside), and the live
 //!    capture `/workspace/swarm/nerve-capture/replay1` (or `$CORTEX_REPLAY_DIR`)
-//!    still scores 61/D when present.
+//!    scores 56/D when present (61/D before the T3.2 member floor).
 //! 2. `openmind-nerve serve` on 127.0.0.1:19430 with a live service (:19431),
 //!    a dead one (:19432) and a stray listener (:19433): the `listeners`
 //!    sensor reports it as a B33 event, then the finding clears when the
@@ -24,6 +24,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+#[allow(dead_code)] // shared golden helpers; each test uses a subset
 mod support;
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
@@ -130,15 +131,20 @@ fn real_cortex_sensors_on_the_box() {
     let mut got: Value = serde_json::from_str(&out).unwrap();
     assert!(got["cortex"]["vulnerabilities"][0]["kind"].is_string());
     support::drop_edge_hosts(&mut got); // T2.12 additive streams (tests/real_edge_rate.rs)
+    support::drop_correlation(&mut got); // T3.2 additive incident `correlation`
     support::canon(&mut got);
     let mut want: Value = serde_json::from_str(
         &std::fs::read_to_string(fx.join("cortex-replay.expected.json")).unwrap(),
     )
     .unwrap();
     support::canon(&mut want);
+    support::t32_delta(&mut want); // T3.2 member floor: scanner 5 -> 10, score 21 -> 16
     assert_eq!(got, want);
     let (_, md) = replay(&fx.join("cortex-replay"), &dir.join("replay-data"), true);
-    assert_eq!(support::drop_edge_hosts_md(&md), support::expected_md(&fx));
+    assert_eq!(
+        support::drop_correlation_md(&support::drop_edge_hosts_md(&md)),
+        support::t32_delta_md(&support::expected_md(&fx))
+    );
     eprintln!(
         "replay fixture: score {} grade {} pass {} (= pre-trait golden)",
         want["score"], want["grade"], want["pass"]
@@ -150,10 +156,10 @@ fn real_cortex_sensors_on_the_box() {
         let r: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(
             (r["score"].as_u64(), r["grade"].as_str()),
-            (Some(61), Some("D")),
-            "replay1 verdict changed"
+            (Some(56), Some("D")),
+            "replay1 verdict changed (56/D since the T3.2 scanner member floor, 61/D before)"
         );
-        eprintln!("replay1 live capture: score 61 grade D (unchanged)");
+        eprintln!("replay1 live capture: score 56 grade D (61 before the T3.2 member floor)");
     } else {
         eprintln!("replay1 live capture not on this box: skipped");
     }

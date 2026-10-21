@@ -235,6 +235,9 @@ struct Ledger {
     acked: BTreeMap<u64, u64>,
     /// Acks sent with no answer, not yet resolved.
     ack_pending: BTreeSet<u64>,
+    /// What a lease said about its job: id -> (agent, cost). Covers jobs
+    /// whose enqueue answer was lost but which were durable anyway.
+    leased: BTreeMap<u64, (String, u64)>,
     ack_ambiguous_total: u64,
     acked_since_check: Vec<u64>,
     lease_ambiguous: u64,
@@ -328,7 +331,14 @@ fn worker(s: Arc<Shared>, seed: u64, wid: usize) {
         };
         let (id, token) = match o {
             Out::Done(200, v) if v["id"].is_u64() => {
-                (v["id"].as_u64().unwrap(), v["token"].as_u64().unwrap())
+                let id = v["id"].as_u64().unwrap();
+                let spec = &v["job"]["spec"];
+                let info = (
+                    spec["agent"].as_str().unwrap_or_default().to_string(),
+                    spec["cost"].as_u64().unwrap_or(0),
+                );
+                s.led.lock().unwrap().leased.insert(id, info);
+                (id, v["token"].as_u64().unwrap())
             }
             Out::Done(200, v) => {
                 if v["miss"] == "budget_hard_stop" {
@@ -443,7 +453,12 @@ fn verify(
     for id in pending {
         let (c, _) = call(&srv.addr, "GET", &format!("/jobs/{id}"), None);
         if c == 404 {
-            let cost = l.enq.get(&id).map(|e| e.1).unwrap_or(0);
+            let cost = l
+                .leased
+                .get(&id)
+                .or(l.enq.get(&id))
+                .map(|e| e.1)
+                .unwrap_or(0);
             l.acked.insert(id, cost);
             l.acked_since_check.push(id);
             rep.ack_ambiguous_applied += 1;
@@ -496,7 +511,12 @@ fn verify(
     // 4. spend: exact per agent, global = sum, tight cap never crossed
     let mut want: BTreeMap<String, u64> = BTreeMap::new();
     for (id, ch) in &l.acked {
-        let agent = l.enq.get(id).map(|e| e.0.clone()).unwrap_or_default();
+        let agent = l
+            .leased
+            .get(id)
+            .or(l.enq.get(id))
+            .map(|e| e.0.clone())
+            .unwrap_or_default();
         *want.entry(agent).or_default() += ch;
     }
     let mut global = 0;

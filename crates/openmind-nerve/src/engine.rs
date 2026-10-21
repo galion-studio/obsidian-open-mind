@@ -48,6 +48,8 @@ pub struct Shared {
     pub audit: Value,
     /// Request streams; the HTTP server records its own requests here.
     pub detector: Detector,
+    /// Event mode hub (`NERVE_MODE=event`); None in the polling mode.
+    pub evt: Option<Arc<crate::evt::Hub>>,
 }
 
 pub struct Engine {

@@ -22,6 +22,8 @@
 //! - [`cortex`]: vulnerabilities, where the stack is "bleeding", DDoS: the
 //!   contract ([`cortex::Input`], [`cortex::Finding`] as B33/B41 events).
 //! - [`sensors`]: the cortex detectors, one file per [`sensors::Sensor`].
+//! - [`owners`]: port ownership map ("unknown owner" + process from /proc);
+//!   the cortex also names the owning Gaia function of each incident.
 //! - [`score`]: the explained self-eval score.
 //! - [`reflex`]: allowlisted, rate-limited auto-remediation with an audit log.
 //! - [`alerts`]: journald + alerts.json.
@@ -37,6 +39,7 @@ pub mod engine;
 pub mod hub;
 pub mod incident;
 pub mod logscan;
+pub mod owners;
 pub mod probe;
 pub mod reflex;
 pub mod replay;

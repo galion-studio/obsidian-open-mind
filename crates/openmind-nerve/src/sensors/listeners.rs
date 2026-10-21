@@ -9,8 +9,9 @@
 use super::{Sensor, Sink};
 use crate::cortex::{Finding, FindingKind, Input};
 use crate::incident::Sev;
+use crate::owners::ProcInfo;
 use crate::probe::Listener;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
 /// Built-in sensor `listeners`.
@@ -52,9 +53,11 @@ impl Sensor for Listeners {
                         .with_fix("bind it to 127.0.0.1 and publish through the tunnel, or firewall it (owner approval)"),
                     );
                 }
-            } else if !spec_ports.contains(&l.port)
-                && !i.known_ports.contains(&l.port)
-                && l.port != i.own_port
+            } else if l.port != i.own_port
+                && (i.owners.unowned.contains(&l.port)
+                    || (!spec_ports.contains(&l.port)
+                        && !i.known_ports.contains(&l.port)
+                        && !i.owners.is_owned(l.port)))
             {
                 unmanaged.push(l);
             }
@@ -75,15 +78,45 @@ impl Sensor for Listeners {
                         ports.iter().map(|p| format!(":{p}")).collect::<Vec<_>>().join(" ")
                     ),
                 )
-                .with_evidence(vec![
-                    "not a component health/metrics port and not in NERVE_KNOWN_PORTS".into(),
-                    "typical cause: manual shadow/test processes left running (no unit, no restart policy, no patching)".into(),
-                ])
+                .with_evidence({
+                    let mut ev: Vec<String> = ports
+                        .iter()
+                        .map(|p| {
+                            let o = i.owners.lookup(*p, i.procs);
+                            format!(
+                                ":{p} {}{} -- {}",
+                                o.owner,
+                                if o.documented_unowned { " (documented: no unit owns it)" } else { "" },
+                                o.process
+                                    .as_ref()
+                                    .map(ProcInfo::describe)
+                                    .unwrap_or_else(|| "process not readable from /proc".into())
+                            )
+                        })
+                        .collect();
+                    ev.push("not a component health/metrics port and not in NERVE_KNOWN_PORTS".into());
+                    ev.push("typical cause: manual shadow/test processes left running (no unit, no restart policy, no patching)".into());
+                    ev
+                })
                 .with_fix("identify the owners (ss -ltnp), then stop them or give them a unit (owner approval; the nerve never kills processes)"),
             );
         }
+        let ownership: Vec<Value> = ls
+            .iter()
+            .filter(|l| in_scope(l.port))
+            .map(|l| l.port)
+            .collect::<BTreeSet<u16>>()
+            .into_iter()
+            .map(|p| {
+                if p == i.own_port {
+                    json!({"port": p, "owner": "galion-nerve (self)", "gaia": "AETHER", "documented_unowned": false})
+                } else {
+                    i.owners.lookup(p, i.procs).to_json()
+                }
+            })
+            .collect();
         out.exposure(
-            json!({"public_expected": public_ok, "unmanaged_ports": ports,
+            json!({"public_expected": public_ok, "unmanaged_ports": ports, "ownership": ownership,
                             "listeners_judged": ls.iter().filter(|l| in_scope(l.port)).count()}),
         );
     }

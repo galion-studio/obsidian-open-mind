@@ -814,6 +814,11 @@ pub fn serve(listener: TcpListener, limits: Limits, handler: Arc<Handler>) -> io
     serve_connections(listener, limits, busy_bytes(), conn)
 }
 
+/// Called on the accept thread each time a connection is refused at the cap
+/// (before the 503 is written). Must be cheap and never block: it runs on the
+/// accept loop.
+pub type BusyHook = dyn Fn() + Send + Sync;
+
 /// The bounded accept loop under [`serve`]: one thread per connection up to
 /// `limits.max_connections`; over the cap `busy` is written (200 ms write
 /// timeout) and the socket closed, without spawning anything.
@@ -822,6 +827,18 @@ pub fn serve_connections(
     limits: Limits,
     busy: Vec<u8>,
     conn: Arc<ConnHandler>,
+) -> io::Result<()> {
+    serve_connections_with(listener, limits, busy, conn, None)
+}
+
+/// [`serve_connections`] plus an optional [`BusyHook`] run on every refusal
+/// at the connection cap (used to report cap hits, e.g. to the nerve).
+pub fn serve_connections_with(
+    listener: TcpListener,
+    limits: Limits,
+    busy: Vec<u8>,
+    conn: Arc<ConnHandler>,
+    on_busy: Option<Arc<BusyHook>>,
 ) -> io::Result<()> {
     let limits = Arc::new(limits);
     let live = Arc::new(AtomicUsize::new(0));
@@ -836,6 +853,9 @@ pub fn serve_connections(
             }
         };
         if live.load(Ordering::SeqCst) >= limits.max_connections {
+            if let Some(h) = &on_busy {
+                h();
+            }
             reject_busy(s, &busy);
             continue;
         }
@@ -1404,5 +1424,46 @@ mod tests {
             d.feed(b"0\r\nX-Long-Trailer: aaaaaaaa\r\n"),
             Err(Error::HeadTooLarge)
         );
+    }
+
+    #[test]
+    fn busy_hook_runs_on_each_cap_refusal() {
+        use std::io::Read;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::mpsc;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let h2 = hits.clone();
+        let (release_tx, release_rx) = mpsc::channel::<()>();
+        let release_rx = std::sync::Mutex::new(release_rx);
+        let (held_tx, held_rx) = mpsc::channel::<()>();
+        let held_tx = std::sync::Mutex::new(held_tx);
+        let conn: std::sync::Arc<super::ConnHandler> =
+            std::sync::Arc::new(move |_s: std::net::TcpStream, _l: &super::Limits| {
+                let _ = held_tx.lock().unwrap().send(());
+                let _ = release_rx.lock().unwrap().recv();
+            });
+        let limits = super::Limits {
+            max_connections: 1,
+            ..super::Limits::default()
+        };
+        let on_busy: std::sync::Arc<super::BusyHook> = std::sync::Arc::new(move || {
+            h2.fetch_add(1, Ordering::SeqCst);
+        });
+        std::thread::spawn(move || {
+            super::serve_connections_with(listener, limits, b"BUSY".to_vec(), conn, Some(on_busy))
+        });
+        let _first = std::net::TcpStream::connect(addr).unwrap();
+        held_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        for n in 1..=3 {
+            let mut s = std::net::TcpStream::connect(addr).unwrap();
+            s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut got = Vec::new();
+            let _ = s.read_to_end(&mut got);
+            assert_eq!(got, b"BUSY");
+            assert_eq!(hits.load(Ordering::SeqCst), n);
+        }
+        let _ = release_tx.send(());
     }
 }

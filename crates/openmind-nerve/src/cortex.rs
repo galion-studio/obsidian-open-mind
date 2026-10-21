@@ -27,13 +27,15 @@
 //! [`Sensor`]: crate::sensors::Sensor
 
 use crate::access::DdosVerdict;
+use crate::incident::Correlator;
 use crate::incident::{Sev, Signal};
 use crate::logscan::LogInsights;
+use crate::owners::{OwnerMap, ProcInfo};
 use crate::probe::{JLine, Listener};
 use crate::state::{CompState, Status};
 use crate::util::ts;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// B41 finding kind (docs/cortex.md section 2): which of the three
 /// main.md section 3 questions a finding answers.
@@ -192,6 +194,10 @@ pub struct Input<'a> {
     /// the host itself (files, commands, /proc) must do nothing when false,
     /// so replays stay deterministic and never read the box.
     pub live: bool,
+    /// Port ownership map ([`crate::owners`]).
+    pub owners: &'a OwnerMap,
+    /// Holders of unowned listeners (from /proc or `ss -ltnp`).
+    pub procs: &'a BTreeMap<u16, ProcInfo>,
 }
 
 impl<'a> Input<'a> {
@@ -211,6 +217,8 @@ impl<'a> Input<'a> {
             loading_grace_s: 900,
             journal: &[],
             live: false,
+            owners: &crate::owners::EMPTY,
+            procs: &crate::owners::NO_PROCS,
         }
     }
 }
@@ -227,6 +235,10 @@ pub struct Cortex {
     pub ddos_findings: Vec<Finding>,
     pub signals: Vec<Signal>,
     pub exposure: Value,
+    /// Open incidents with their owning Gaia function(s) ([`Cortex::attach_owners`]).
+    pub incident_owners: Vec<Value>,
+    /// component -> Gaia function, for findings.
+    pub gaia_of: BTreeMap<String, String>,
 }
 
 impl Cortex {
@@ -236,13 +248,14 @@ impl Cortex {
             ddos["findings"] = self
                 .ddos_findings
                 .iter()
-                .map(Finding::to_json)
+                .map(|f| self.finding_json(f))
                 .collect::<Vec<_>>()
                 .into();
         }
         json!({
-            "vulnerabilities": self.vulnerabilities.iter().map(Finding::to_json).collect::<Vec<_>>(),
-            "bleeding": self.bleeding.iter().map(Finding::to_json).collect::<Vec<_>>(),
+            "vulnerabilities": self.vulnerabilities.iter().map(|f| self.finding_json(f)).collect::<Vec<_>>(),
+            "bleeding": self.bleeding.iter().map(|f| self.finding_json(f)).collect::<Vec<_>>(),
+            "incidents": self.incident_owners,
             "ddos": ddos,
             "exposure": self.exposure,
         })
@@ -285,6 +298,56 @@ impl Cortex {
                                      "top": ev["data"]}}));
         }
         out
+    }
+
+    fn finding_json(&self, f: &Finding) -> Value {
+        let mut v = f.to_json();
+        v["gaia"] = json!(self.gaia_of.get(&f.component));
+        v
+    }
+
+    /// After correlation: name the owning Gaia function(s) of every open
+    /// incident. A component maps to its spec's function; signals from
+    /// components the table does not know (the host, an unknown pushed
+    /// source) are listed as "unknown". Also tags each incident itself.
+    pub fn attach_owners(&mut self, inc: &mut Correlator, comps: &[CompState]) {
+        self.gaia_of = comps
+            .iter()
+            .map(|c| (c.spec.name.to_string(), c.spec.gaia.to_string()))
+            .collect();
+        let sys: BTreeMap<&str, &str> = comps
+            .iter()
+            .map(|c| (c.spec.name, c.spec.gaia_system))
+            .collect();
+        for i in inc.open.values_mut() {
+            i.owners = i
+                .components
+                .iter()
+                .map(|c| {
+                    (
+                        c.clone(),
+                        self.gaia_of
+                            .get(c)
+                            .cloned()
+                            .unwrap_or_else(|| "unknown".into()),
+                    )
+                })
+                .collect();
+        }
+        self.incident_owners = inc
+            .open_sorted()
+            .iter()
+            .map(|i| {
+                let fns: BTreeSet<&String> = i.owners.values().collect();
+                json!({
+                    "id": i.id, "cause": i.cause, "title": i.title, "severity": i.sev.as_str(),
+                    "gaia": fns,
+                    "owners": i.owners.iter().map(|(c, g)| json!({
+                        "component": c, "gaia": g, "system": sys.get(c.as_str()),
+                    })).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
     }
 }
 
@@ -417,7 +480,15 @@ mod tests {
             msg: format!("Z ERR Request failed error=\"dial tcp [::1]:{}: connect: connection refused\" dest=https://{}/ ip=1.1.1.1", if k % 2 == 0 { 4001 } else { 3011 }, if k % 2 == 0 { "galion.studio" } else { "merlinelement.com" }) }).chain([ // repo-check: allow (test fixture address, never dialled)
             JLine { t: now - 60, unit: "console.service".into(), prio: 6, msg: "The request id \"/x/.git/config\" is outside of Vite serving allow list.".into() }]).collect();
         let li = crate::logscan::insights(&lines);
-        let ls = crate::probe::parse_ss("LISTEN 0 1 127.0.0.1:8652 0.0.0.0:*\nLISTEN 0 1 127.0.0.1:8420 0.0.0.0:*\nLISTEN 0 1 *:22 *:*\nLISTEN 0 1 127.0.0.1:20241 0.0.0.0:*\n");
+        let ss_text = "LISTEN 0 1 127.0.0.1:8652 0.0.0.0:* users:((\"hermes-gateway\",pid=1395619,fd=4))\nLISTEN 0 1 127.0.0.1:8431 0.0.0.0:* users:((\"openmind-memory\",pid=1375169,fd=6))\nLISTEN 0 1 127.0.0.1:8420 0.0.0.0:*\nLISTEN 0 1 *:22 *:*\nLISTEN 0 1 127.0.0.1:20241 0.0.0.0:*\n";
+        let ls = crate::probe::parse_ss(ss_text);
+        let procs = crate::owners::parse_ss_procs(ss_text);
+        let om = OwnerMap::build(
+            &default_specs(None, None),
+            &[20241],
+            &[],
+            &crate::owners::VPS_UNOWNED_PORTS,
+        );
         let cx = analyse(&Input {
             now,
             comps: &cs,
@@ -431,10 +502,37 @@ mod tests {
             loading_grace_s: 900,
             journal: &[],
             live: false,
+            owners: &om,
+            procs: &procs,
         });
         let ids: Vec<&str> = cx.vulnerabilities.iter().map(|f| f.id.as_str()).collect();
         assert!(ids.contains(&"unmanaged-listeners"), "{ids:?}");
         assert!(cx.vulnerabilities.iter().any(|f| f.title.contains(":8652")));
+        let um = cx
+            .vulnerabilities
+            .iter()
+            .find(|f| f.id == "unmanaged-listeners")
+            .unwrap();
+        assert!(um.title.contains(":8431 :8652"), "{}", um.title);
+        assert!(
+            um.evidence
+                .iter()
+                .any(|e| e.starts_with(":8652 unknown owner")
+                    && e.contains("hermes-gateway (pid 1395619)")),
+            "{:?}",
+            um.evidence
+        );
+        let own = cx.exposure["ownership"].as_array().unwrap();
+        let o8652 = own.iter().find(|o| o["port"] == 8652).unwrap();
+        assert_eq!(
+            (o8652["owner"].as_str(), o8652["process"].as_str()),
+            (Some("unknown owner"), Some("hermes-gateway"))
+        );
+        let o8420 = own.iter().find(|o| o["port"] == 8420).unwrap();
+        assert_eq!(
+            (o8420["owner"].as_str(), o8420["gaia"].as_str()),
+            (Some("openmind-memory"), Some("APOLLO"))
+        );
         assert!(ids.contains(&"scanner-probes-console"), "{ids:?}");
         assert_eq!(
             cx.vulnerabilities

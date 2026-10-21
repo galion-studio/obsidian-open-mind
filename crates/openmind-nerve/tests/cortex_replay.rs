@@ -5,7 +5,11 @@
 //! No-behaviour-change gate for the `Sensor` trait (cortex plan T1.2):
 //! replaying `fixtures/cortex-replay` must give exactly the report and
 //! markdown the pre-trait build (integration-1 8fd26f6) gave, apart from the
-//! two additive finding keys `kind` and `source`. Also checks the B33/B41
+//! two additive finding keys `kind` and `source` and the documented,
+//! additive nerve-wiring changes (owners / Gaia functions on findings and
+//! incidents, the port ownership map, owner evidence lines, no empty
+//! `(last: )`; see `support::strip_nerve_wiring`), which
+//! `nerve_wiring_additions_are_present` checks positively. Also checks the B33/B41
 //! event contract against `openmind_schema::NerveEvent`.
 
 use openmind_nerve::config::Config;
@@ -36,12 +40,14 @@ fn replay_matches_the_pre_trait_build() {
     )
     .unwrap();
     support::canon(&mut want);
+    support::strip_empty_last(&mut want);
     let mut got = sh.report.clone();
     support::canon(&mut got);
+    support::strip_nerve_wiring(&mut got);
     assert_eq!(got, want, "report differs from the pre-trait golden");
     assert_eq!(
-        sh.report_md,
-        support::expected_md(&fixture()),
+        support::strip_nerve_wiring_md(&sh.report_md),
+        support::strip_nerve_wiring_md(&support::expected_md(&fixture())),
         "markdown differs from the pre-trait golden"
     );
     assert_eq!(
@@ -125,4 +131,43 @@ fn findings_are_valid_b33_nerve_events() {
     // B41: counts and tokens, never evidence lines (hostnames, addresses).
     let all = serde_json::to_string(&evs).unwrap();
     assert!(!all.contains("example.test"), "{all}");
+}
+
+/// The nerve-wiring additions the pre-trait gate strips must really be there
+/// (rebase of nerve-wiring-2 d97dab9 onto integration-4 42de672).
+#[test]
+fn nerve_wiring_additions_are_present() {
+    let out = run();
+    let sh = out.engine.shared.lock().unwrap();
+    let r = &sh.report;
+    let own = r
+        .pointer("/cortex/exposure/ownership")
+        .and_then(Value::as_array)
+        .expect("exposure.ownership");
+    let row = |p: u64| {
+        own.iter()
+            .find(|o| o["port"].as_u64() == Some(p))
+            .unwrap_or_else(|| panic!(":{p} missing from {own:?}"))
+    };
+    assert_eq!(row(8420)["owner"], "openmind-memory");
+    assert_eq!(row(8420)["gaia"], "APOLLO");
+    for p in [8652, 8653] {
+        assert_eq!(row(p)["owner"], "unknown owner");
+        assert_eq!(row(p)["documented_unowned"], true);
+    }
+    assert_eq!(row(9999)["documented_unowned"], false);
+    let s = r.to_string();
+    assert!(!s.contains("(last: )"), "empty last-error suffix is back");
+    let inc = r["incidents"].as_array().expect("incidents");
+    assert!(!inc.is_empty());
+    assert!(
+        inc.iter()
+            .all(|i| i.get("owners").is_some() && i.get("gaia").is_some()),
+        "{inc:?}"
+    );
+    let md = &sh.report_md;
+    assert!(
+        md.contains(":8652 unknown owner (documented: no unit owns it)"),
+        "{md}"
+    );
 }

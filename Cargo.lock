@@ -954,6 +954,7 @@ name = "hermes-rs"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
  "openmind-persona",
  "rusqlite",
  "serde_json",
@@ -1200,6 +1201,7 @@ name = "openmind-memory"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
  "rusqlite",
  "serde",
  "serde_json",

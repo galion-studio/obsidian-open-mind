@@ -398,10 +398,13 @@ impl CompState {
                 &mut st,
             );
         } else if errs >= th.errors_warn_5m {
-            let last = s.last_error.clone().unwrap_or_default();
+            let last = match s.last_error.as_deref() {
+                Some(l) if !l.is_empty() => format!(" (last: {l})"),
+                _ => String::new(),
+            };
             bump(
                 Status::Degrading,
-                format!("{errs} errors in 5 min (last: {last})"),
+                format!("{errs} errors in 5 min{last}"),
                 &mut st,
             );
         }

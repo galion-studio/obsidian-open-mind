@@ -26,6 +26,15 @@ fn main() {
         cfg.read_only
     ));
     let app = Arc::new(App::new(Engine::new(cfg)));
+    // NERVE push (no-op unless NERVE_URL is set; never blocks: bounded queue,
+    // drop-on-full counted): started, heartbeat, 5xx errors, slow requests,
+    // connection-cap hits (http.rs).
+    nerve_client::event(
+        "openmind-memory",
+        "started",
+        &format!("listening on {addr}"),
+    );
+    nerve_client::start_heartbeat("openmind-memory", 60);
     let listener = match TcpListener::bind(&addr) {
         Ok(l) => l,
         Err(e) => {
@@ -37,7 +46,17 @@ fn main() {
         listener,
         max_body,
         max_conns,
-        Arc::new(move |req| app.handle(req)),
+        Arc::new(move |req: http::Request| {
+            let what = format!(
+                "{} {}",
+                req.method,
+                req.path.split('?').next().unwrap_or("")
+            );
+            let t0 = std::time::Instant::now();
+            let resp = app.handle(req);
+            nerve_client::observe_request("openmind-memory", &what, resp.status, t0.elapsed());
+            resp
+        }),
     );
 }
 

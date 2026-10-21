@@ -72,3 +72,30 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
 Real-life tests: `GALION_REAL=1 cargo test -p openmind-nerve --test real_box`,
 `scripts/real/nerve.sh`, `scripts/real/nerve-capture-vps.sh` (read-only);
 results in [`docs/real-tests/nerve.md`](../../docs/real-tests/nerve.md).
+
+## Pushed events, port ownership, incident owners (swarm/nerve-wiring)
+
+- **Pushed events -> incidents.** `hermes-rs` and `openmind-memory` push
+  through `nerve-client` (bounded queue, never blocks a request; drops are
+  counted and reported in the heartbeat). Pushed signals from the last 120 s become incident
+  signals. `error` (`http_5xx`) is an Error, `slow_request` and `conn_cap`
+  are Warn in the component's group, `spend_cap` is Warn under its own cause
+  `spend-cap:<group>` ("spend cap hit (provider calls refused)"), and
+  `started` is Info.
+- **Port ownership** (`owners.rs`): every judged listener gets an owner, its
+  Gaia function and, for ports nobody owns, the holding process (from
+  `/proc`: pid, `comm`, cgroup unit/scope; in a replay, from `ss -ltnp`).
+  `NERVE_UNOWNED_PORTS` (default `8431,8432,8433,8652,8653`, the VPS
+  listeners with no unit) always report as **"unknown owner"**.
+  `NERVE_PORT_OWNERS=port=name[@GAIA],...` adds owners. See `GET
+  /api/v1/cortex` -> `exposure.ownership` and the `unmanaged-listeners`
+  evidence.
+- **Incident owners**: every incident has `gaia` (its set of functions)
+  and `owners` (component -> function, "unknown" when not in the table).
+  `cortex.incidents` lists the open incidents with their owning Gaia
+  function(s) and systems. Every cortex finding carries its `gaia` too.
+
+Real-life test (Rust only; ports 19710-19719):
+`GALION_REAL=1 cargo test -p openmind-nerve --test real_wiring -- --nocapture`
+(`N_REQ`, default 300; `NERVE_WIRING_BIN_DIR` to reuse release binaries). Results
+are in [`docs/real-tests/nerve-wiring.md`](../../docs/real-tests/nerve-wiring.md).

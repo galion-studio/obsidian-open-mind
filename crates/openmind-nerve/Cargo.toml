@@ -21,6 +21,7 @@ serde_json = { workspace = true }
 semver = "1"
 zagreb-time = { path = "../zagreb-time" }
 galion-common = { path = "../galion-common" }
+tunnel-lint = { path = "../tunnel-lint" }
 
 [dev-dependencies]
 zagreb-time = { path = "../zagreb-time" }

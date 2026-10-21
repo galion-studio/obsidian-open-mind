@@ -239,3 +239,44 @@ fn default_escalation_is_a_zero_spend_handoff() {
         assert!(egress::check_path(p).is_ok(), "{p}");
     }
 }
+
+#[test]
+fn surface_probe_never_resolves_an_llm_target() {
+    use openmind_nerve::sensors::surface::{check, Limits, Target};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let calls = std::sync::Arc::new(AtomicUsize::new(0));
+    let c2 = calls.clone();
+    let resolve = move |_: &str, _: u16| -> Result<Vec<std::net::SocketAddr>, String> {
+        c2.fetch_add(1, Ordering::SeqCst);
+        Ok(vec!["127.0.0.1:9".parse().unwrap()])
+    };
+    for (i, t) in [
+        "https://openrouter.ai/",
+        "https://api.OpenRouter.ai/api/v1/models",
+        "https://api.example.test/v1/chat/completions",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let t = Target::parse(i + 1, t).unwrap_or_else(|| panic!("parse {t}"));
+        let o = check(&t, &Limits::default(), &resolve);
+        assert!(
+            o.dns.as_ref().unwrap_err().contains("egress guard"),
+            "{:?}",
+            o.dns
+        );
+        assert!(o.tls.is_none() && o.http.is_none());
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "no DNS, no connect");
+    // An ordinary edge target still reaches the resolver.
+    let t = Target::parse(9, "http://edge.example.test/health").unwrap();
+    let _ = check(
+        &t,
+        &Limits {
+            timeout: Duration::from_millis(200),
+            ..Limits::default()
+        },
+        &resolve,
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}

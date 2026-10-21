@@ -11,8 +11,8 @@
 //! | GET | `/v1/status` | | book view (journaled as a `status` call) |
 //! | POST | `/v1/call` | a `ToolCall` JSON | `{"ok":true,"result":..}` or `{"ok":false,"error":..}` |
 //! | GET | `/v1/score` | | score of the live session so far |
-//! | POST | `/v1/reset` | `?seed=N&days=M` | starts a fresh session (journal restarts) |
-//! | GET | `/v1/bench` | `?seed=N&days=M` | scripted-operator run on a scratch sim |
+//! | POST | `/v1/reset` | `?seed=N&days=M[&level=standard|hard]` | starts a fresh session (journal restarts) |
+//! | GET | `/v1/bench` | `?seed=N&days=M[&level=standard|hard]` | scripted-operator run on a scratch sim |
 //! | POST | `/v1/shutdown` | | stops the server |
 //!
 //! Binds 127.0.0.1 by default. Nothing here touches money or the network
@@ -21,7 +21,7 @@
 use crate::journal;
 use crate::sim::Sim;
 use crate::tools::{tool_specs, ToolCall};
-use crate::world::{BENCH_SEED, DEFAULT_DAYS};
+use crate::world::{Level, BENCH_SEED, DEFAULT_DAYS};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -43,17 +43,36 @@ fn query(path: &str, key: &str) -> Option<u64> {
     })
 }
 
-fn new_sim(seed: u64, days: u32, log: &Option<PathBuf>) -> std::io::Result<Sim> {
+fn query_level(path: &str) -> Result<Level, String> {
+    let Some(q) = path.split_once('?').map(|p| p.1) else {
+        return Ok(Level::Standard);
+    };
+    match q.split('&').find_map(|kv| kv.strip_prefix("level=")) {
+        None => Ok(Level::Standard),
+        Some(v) => Level::parse(v).ok_or_else(|| format!("unknown level '{v}' (standard|hard)")),
+    }
+}
+
+fn new_sim(seed: u64, days: u32, level: Level, log: &Option<PathBuf>) -> std::io::Result<Sim> {
     match log {
-        Some(p) => journal::create(p, seed, days),
-        None => Ok(Sim::new(seed, days)),
+        Some(p) => journal::create_level(p, seed, days, level),
+        None => Ok(Sim::with_level(seed, days, level)),
     }
 }
 
 impl Server {
     pub fn new(seed: u64, days: u32, log: Option<PathBuf>) -> std::io::Result<Self> {
+        Self::with_level(seed, days, Level::Standard, log)
+    }
+
+    pub fn with_level(
+        seed: u64,
+        days: u32,
+        level: Level,
+        log: Option<PathBuf>,
+    ) -> std::io::Result<Self> {
         Ok(Server {
-            sim: new_sim(seed, days, &log)?,
+            sim: new_sim(seed, days, level, &log)?,
             log,
         })
     }
@@ -65,7 +84,8 @@ impl Server {
             ("GET", "/health") => (
                 200,
                 json!({"ok": true, "crate": "galion-vending", "version": env!("CARGO_PKG_VERSION"),
-                       "seed": self.sim.seed(), "day": self.sim.day(), "finished": self.sim.finished()}),
+                       "seed": self.sim.seed(), "day": self.sim.day(), "finished": self.sim.finished(),
+                       "level": self.sim.level()}),
                 false,
             ),
             ("GET", "/v1/tools") => (200, tool_specs(), false),
@@ -82,12 +102,16 @@ impl Server {
             ("POST", "/v1/reset") => {
                 let seed = query(path, "seed").unwrap_or(BENCH_SEED);
                 let days = query(path, "days").map_or(DEFAULT_DAYS, |d| d as u32);
-                match new_sim(seed, days, &self.log) {
+                let level = match query_level(path) {
+                    Ok(l) => l,
+                    Err(e) => return (400, json!({"ok": false, "error": e}), false),
+                };
+                match new_sim(seed, days, level, &self.log) {
                     Ok(s) => {
                         self.sim = s;
                         (
                             200,
-                            json!({"ok": true, "seed": seed, "days": self.sim.days()}),
+                            json!({"ok": true, "seed": seed, "days": self.sim.days(), "level": level}),
                             false,
                         )
                     }
@@ -97,7 +121,10 @@ impl Server {
             ("GET", "/v1/bench") => {
                 let seed = query(path, "seed").unwrap_or(BENCH_SEED);
                 let days = query(path, "days").map_or(DEFAULT_DAYS, |d| d as u32);
-                (200, json!(crate::bench(seed, days)), false)
+                match query_level(path) {
+                    Ok(level) => (200, json!(crate::bench_level(seed, days, level)), false),
+                    Err(e) => (400, json!({"ok": false, "error": e}), false),
+                }
             }
             ("POST", "/v1/shutdown") => (200, json!({"ok": true, "stopping": true}), true),
             _ => (404, json!({"ok": false, "error": "not found"}), false),

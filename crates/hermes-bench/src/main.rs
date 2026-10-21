@@ -33,7 +33,7 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 }
 
 fn usage(msg: &str) -> ExitCode {
-    eprintln!("hermes-bench: {msg}\nusage: hermes-bench run --bench banking|wallstreet|vending|all [--agent scripted|mock-llm|live] [--bank-url URL] [--ws-url URL] [--vend-url URL --vend-log PATH] [--seed N] [--days N] [--max-shifts N] [--llm-port P] [--out DIR] [--sha SHA] | tools | scoreboard --dir DIR --sha SHA [--agent A] [--out FILE]");
+    eprintln!("hermes-bench: {msg}\nusage: hermes-bench run --bench banking|wallstreet|vending|all [--agent scripted|mock-llm|live] [--bank-url URL] [--ws-url URL] [--vend-url URL --vend-log PATH] [--seed N] [--days N] [--level standard|hard] [--max-shifts N] [--llm-port P] [--out DIR] [--sha SHA] | tools | scoreboard --dir DIR --sha SHA [--agent A] [--out FILE]");
     ExitCode::from(2)
 }
 
@@ -73,6 +73,11 @@ fn run(args: &[String]) -> ExitCode {
     let num = |k: &str, d: u64| flag(args, k).and_then(|v| v.parse().ok()).unwrap_or(d);
     let seed = num("--seed", 42);
     let days = num("--days", 30) as u32;
+    let vend_level = match flag(args, "--level").as_deref() {
+        None | Some("standard") => galion_vending::world::Level::Standard,
+        Some("hard") => galion_vending::world::Level::Hard,
+        Some(_) => return usage("bad --level (standard|hard)"),
+    };
     let tmp_log =
         std::env::temp_dir().join(format!("hermes-bench-vend-{}.jsonl", std::process::id()));
     let mut _mock_keep = None;
@@ -102,7 +107,7 @@ fn run(args: &[String]) -> ExitCode {
             Ok(t) => (Arc::new(t), flag(args, "--vend-log").map(PathBuf::from)),
             Err(e) => return usage(&e),
         },
-        None => match VendingInProcess::new(seed, days, Some(tmp_log.clone())) {
+        None => match VendingInProcess::with_level(seed, days, vend_level, Some(tmp_log.clone())) {
             Ok(t) => (Arc::new(t), Some(tmp_log.clone())),
             Err(e) => return usage(&format!("vending sim: {e}")),
         },
@@ -122,6 +127,7 @@ fn run(args: &[String]) -> ExitCode {
         vend_log,
         seed,
         days,
+        vend_level,
     };
     let which: Vec<&str> = match bench.as_str() {
         "all" => vec!["banking", "wallstreet", "vending"],
@@ -145,15 +151,21 @@ fn run(args: &[String]) -> ExitCode {
         };
         let pct = v["pct"].as_u64().unwrap_or(0);
         all_100 &= pct == 100;
+        // A hard B3 run gets its own file name; the published standard files stay.
+        let label = if w == "vending" && !vend_level.is_standard() {
+            "vending-hard"
+        } else {
+            w
+        };
         println!(
-            "{w} [{}] via Hermes: {pct}%  {}",
+            "{label} [{}] via Hermes: {pct}%  {}",
             agent.name(),
             summary(w, &v)
         );
         if let Some(d) = &out_dir {
             if let Err(e) = std::fs::create_dir_all(d).and_then(|_| {
                 std::fs::write(
-                    score_file(d, w, agent.name()),
+                    score_file(d, label, agent.name()),
                     serde_json::to_string_pretty(&v).unwrap_or_default() + "\n",
                 )
             }) {

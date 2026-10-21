@@ -54,6 +54,8 @@ pub struct Backends {
     pub vend_log: Option<PathBuf>,
     pub seed: u64,
     pub days: u32,
+    /// B3 scenario level (`standard` keeps the published run unchanged).
+    pub vend_level: galion_vending::world::Level,
 }
 
 pub struct Opts {
@@ -200,18 +202,22 @@ pub fn run_wallstreet(b: &Backends, o: &Opts) -> Result<Value, String> {
 
 pub fn run_vending(b: &Backends, o: &Opts) -> Result<Value, String> {
     let (mk, _llm, info) = sessions(o, vending::shift_factory)?;
-    let reset = format!("/v1/reset?seed={}&days={}", b.seed, b.days);
+    let hard = !b.vend_level.is_standard();
+    let mut reset = format!("/v1/reset?seed={}&days={}", b.seed, b.days);
+    if hard {
+        reset.push_str("&level=hard");
+    }
     match b.vend.send("POST", &reset, Some("")) {
         Ok((200, _)) => {}
         other => return Err(format!("vending reset failed: {other:?}")),
     }
-    let session = mk(vending::registry(b.vend.clone()), vending::SYSTEM);
+    let session = mk(vending::registry(b.vend.clone()), &vending::system(hard));
     let r = vending::run(&session, b.vend.as_ref(), o.max_shifts)?;
     let replay = match &b.vend_log {
         Some(p) => Some(vending::replay_score(p)?),
         None => None,
     };
-    let reference = vending::reference(b.seed, b.days);
+    let reference = vending::reference_level(b.seed, b.days, b.vend_level);
     // Published score = offline replay of the durable log when available.
     let published = replay.clone().unwrap_or_else(|| r.score.clone());
     let card = vending::card(&published);
@@ -223,6 +229,9 @@ pub fn run_vending(b: &Backends, o: &Opts) -> Result<Value, String> {
     );
     v["seed"] = json!(b.seed);
     v["days"] = json!(b.days);
+    if hard {
+        v["level"] = json!(b.vend_level);
+    }
     v["shifts"] = json!(r.shifts);
     v["hermes_tool_calls"] = json!(r.tool_calls);
     v["model_api_calls"] = json!(r.api_calls);

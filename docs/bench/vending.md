@@ -103,3 +103,9 @@ GALION_REAL=1 cargo test --release -p galion-vending --test real_vending -- --no
 - Hermes itself is not wired (workstream H). The tool sketch is ready. A real Hermes run on seed 42 is the actual benchmark; the scripted operator only proves that 100 % is reachable honestly.
 - Pricing is scored only through profit and fill rate. The scripted operator keeps base prices, so there is headroom for a smarter Hermes, but no axis rewards it beyond the cap.
 - `fixtures/vending-supplier.jsonl` (galion-bench MockServer) mirrors the sim's catalog for an HTTP-shaped supplier adapter. The sim does not call it.
+
+## Hard level (added 2026-10-21 05:05 CEST (+02:00), slot 133)
+`--level hard` adds a second, independent event layer (bigger and more thefts, short deliveries on every line,
+silent fridge faults, bigger drawer gaps, announced 3-day supplier delays, a 200-300 % cost shock, loss-leader bulk
+requests) and a ninth score axis, `pricing`. Everything above (the standard level) is unchanged byte for byte. See
+`docs/bench/vending-hard.md`.

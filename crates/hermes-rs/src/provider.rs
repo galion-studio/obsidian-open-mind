@@ -550,6 +550,11 @@ pub struct MockProvider {
     pub behaviour: Box<MockFn>,
     pub calls: Mutex<Vec<(Target, ChatRequest)>>,
     pub delay_ms: u64,
+    /// Most calls kept in `calls` (tests read them). `usize::MAX` by default;
+    /// the long-running `--mock` gateway sets 0, otherwise every chat request
+    /// is cloned into `calls` forever (about 9-15 kB per chat: the stray
+    /// VPS mock gateways grew to 30-53 MB this way, docs/ops/vps-strays.md).
+    pub record_limit: usize,
 }
 
 impl MockProvider {
@@ -558,7 +563,14 @@ impl MockProvider {
             behaviour: Box::new(f),
             calls: Mutex::new(Vec::new()),
             delay_ms: 0,
+            record_limit: usize::MAX,
         }
+    }
+
+    /// Keep at most `n` calls in `calls` (0 = record nothing).
+    pub fn with_record_limit(mut self, n: usize) -> Self {
+        self.record_limit = n;
+        self
     }
 
     /// Echo the last user line. `delegate_task: <goal>[|<goal>]` makes it call
@@ -642,8 +654,12 @@ impl Provider for MockProvider {
         cancel: &AtomicBool,
         sink: &mut dyn FnMut(StreamEvent),
     ) -> Result<ChatResult, String> {
-        if let Ok(mut c) = self.calls.lock() {
-            c.push((target.clone(), req.clone()));
+        if self.record_limit > 0 {
+            if let Ok(mut c) = self.calls.lock() {
+                if c.len() < self.record_limit {
+                    c.push((target.clone(), req.clone()));
+                }
+            }
         }
         if self.delay_ms > 0 {
             std::thread::sleep(std::time::Duration::from_millis(self.delay_ms));
@@ -819,5 +835,29 @@ platforms:
     #[test]
     fn curl_quote_escapes() {
         assert_eq!(curl_quote("a\"b\\c\nd"), "\"a\\\"b\\\\c\\nd\"");
+    }
+
+    #[test]
+    fn mock_record_limit_bounds_calls() {
+        let t = Target {
+            provider: "mock".into(),
+            base_url: String::new(),
+            model: "m".into(),
+            requested: "m".into(),
+            key_env: None,
+            inline_key: None,
+        };
+        let req = ChatRequest {
+            messages: vec![serde_json::json!({"role": "user", "content": "ping"})],
+            ..Default::default()
+        };
+        let stop = AtomicBool::new(false);
+        for (limit, want) in [(usize::MAX, 5), (2, 2), (0, 0)] {
+            let m = MockProvider::echo().with_record_limit(limit);
+            for _ in 0..5 {
+                m.chat(&t, &req, &stop, &mut |_| {}).unwrap();
+            }
+            assert_eq!(m.calls.lock().unwrap().len(), want, "limit {limit}");
+        }
     }
 }

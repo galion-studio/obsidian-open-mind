@@ -81,7 +81,8 @@ fn main() {
     let api_key = cfg.api_key(&env);
     let cfg = Arc::new(cfg);
     let provider: Arc<dyn Provider> = if mock {
-        Arc::new(MockProvider::echo())
+        // Record nothing: a long-running mock must not keep every request.
+        Arc::new(MockProvider::echo().with_record_limit(0))
     } else {
         Arc::new(CurlProvider::new(Arc::new(|k: &str| std::env::var(k).ok())))
     };

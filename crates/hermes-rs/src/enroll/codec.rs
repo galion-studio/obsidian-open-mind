@@ -5,7 +5,7 @@
 //! without serde derive on purpose: it keeps hermes-gateway under the 2 MiB
 //! release budget (scripts/size-budget.sh), and every reader stays explicit.
 
-use super::{Credential, Device, Flag, Pending, State};
+use super::{Credential, Device, Flag, Outcome, Pending, State};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 
@@ -54,7 +54,8 @@ fn strs(o: &Map<String, Value>, k: &str) -> R<Vec<String>> {
         .ok_or_else(|| format!("`{k}` is not a list of strings"))
 }
 
-const PENDING: [&str; 12] = [
+const PENDING: [&str; 13] = [
+    "code",
     "device_id",
     "public_key",
     "fingerprint",
@@ -86,7 +87,31 @@ const DEVICE: [&str; 14] = [
     "revoked_by",
 ];
 const FLAG: [&str; 3] = ["at", "device_id", "reason"];
-const STATE: [&str; 5] = ["v", "nonces", "pending", "devices", "flags"];
+const STATE: [&str; 6] = ["v", "nonces", "pending", "devices", "flags", "outcomes"];
+const OUTCOME: [&str; 6] = ["device_id", "public_key", "fingerprint", "status", "at", "until_unix"];
+
+/// Like [`obj`], but the fields in `optional` may be missing (stores written
+/// by an older build). Unknown fields are still refused.
+fn obj_opt<'a>(
+    v: &'a Value,
+    what: &str,
+    keys: &[&str],
+    optional: &[&str],
+) -> R<&'a Map<String, Value>> {
+    let o = v
+        .as_object()
+        .ok_or_else(|| format!("{what}: not an object"))?;
+    if let Some(k) = o.keys().find(|k| !keys.contains(&k.as_str())) {
+        return Err(format!("{what}: unknown field `{k}`"));
+    }
+    if let Some(k) = keys
+        .iter()
+        .find(|k| !o.contains_key(**k) && !optional.contains(k))
+    {
+        return Err(format!("{what}: missing field `{k}`"));
+    }
+    Ok(o)
+}
 
 impl Pending {
     pub fn to_json(&self) -> Value {
@@ -96,10 +121,11 @@ impl Pending {
             "cores": self.cores, "ram_mb": self.ram_mb, "claimed_platform": self.claimed_platform,
             "claimed_network_trusted": self.claimed_network_trusted,
             "requested_at": self.requested_at, "requested_unix": self.requested_unix,
+            "code": self.code,
         })
     }
     fn from_json(v: &Value) -> R<Pending> {
-        let o = obj(v, "pending", &PENDING)?;
+        let o = obj_opt(v, "pending", &PENDING, &["code"])?;
         Ok(Pending {
             device_id: st(o, "device_id")?,
             public_key: st(o, "public_key")?,
@@ -115,6 +141,10 @@ impl Pending {
                 .ok_or("`claimed_network_trusted` is not a bool")?,
             requested_at: st(o, "requested_at")?,
             requested_unix: int(o, "requested_unix")?,
+            code: match o.get("code") {
+                None => String::new(),
+                Some(_) => st(o, "code")?,
+            },
         })
     }
 }
@@ -196,10 +226,11 @@ impl State {
             "pending": self.pending.iter().map(Pending::to_json).collect::<Vec<_>>(),
             "devices": devices,
             "flags": self.flags.iter().map(Flag::to_json).collect::<Vec<_>>(),
+            "outcomes": self.outcomes.iter().map(Outcome::to_json).collect::<Vec<_>>(),
         })
     }
     pub fn from_json(v: &Value) -> R<State> {
-        let o = obj(v, "store", &STATE)?;
+        let o = obj_opt(v, "store", &STATE, &["outcomes"])?;
         let ver = o["v"].as_u64().ok_or("`v` is not a number")?;
         let mut nonces = BTreeMap::new();
         for (k, t) in o["nonces"].as_object().ok_or("`nonces` is not an object")? {
@@ -232,6 +263,35 @@ impl State {
                 .iter()
                 .map(Flag::from_json)
                 .collect::<R<_>>()?,
+            outcomes: match o.get("outcomes") {
+                None => Vec::new(),
+                Some(_) => list("outcomes")?
+                    .iter()
+                    .map(Outcome::from_json)
+                    .collect::<R<_>>()?,
+            },
+        })
+    }
+}
+
+impl Outcome {
+    pub fn to_json(&self) -> Value {
+        json!({"device_id": self.device_id, "public_key": self.public_key, "fingerprint": self.fingerprint,
+               "status": self.status, "at": self.at, "until_unix": self.until_unix})
+    }
+    fn from_json(v: &Value) -> R<Outcome> {
+        let o = obj(v, "outcome", &OUTCOME)?;
+        let status = st(o, "status")?;
+        if !matches!(status.as_str(), "rejected" | "expired") {
+            return Err(format!("outcome: unknown status `{status}`"));
+        }
+        Ok(Outcome {
+            device_id: st(o, "device_id")?,
+            public_key: st(o, "public_key")?,
+            fingerprint: st(o, "fingerprint")?,
+            status,
+            at: st(o, "at")?,
+            until_unix: int(o, "until_unix")?,
         })
     }
 }

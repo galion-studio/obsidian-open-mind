@@ -146,7 +146,7 @@ impl Gateway {
             };
             // Owner routes need the gateway key; fail closed when none is set.
             let owner = self.key_ok() && self.check_auth(&req).is_none();
-            return e.handle(&req, owner, crate::time::now_secs());
+            return e.route(&req, owner, crate::time::now_secs());
         }
         if m == "GET" && (path == "/health" || path == "/v1/health") {
             return Response::json(

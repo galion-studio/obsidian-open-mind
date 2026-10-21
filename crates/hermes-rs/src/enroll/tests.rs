@@ -99,6 +99,9 @@ fn cfg(dir: &Path) -> EnrollCfg {
         pending_ttl: 3600,
         cred_ttl: 86_400,
         rate_per_min: 1000,
+        tunnel_ping: 1,
+        max_tunnels: 2,
+        tunnel_life: 3600,
     }
 }
 
@@ -629,4 +632,511 @@ fn zagreb_strings_match_omnode() {
         crate::time::zagreb_rfc3339(1_798_113_600),
         "2026-12-24T13:00:00+01:00"
     );
+}
+
+// ------------------------------------------------ omnode-enroll additions
+
+impl Dev {
+    fn status(&self, ts: i64) -> Value {
+        let sig = hex(&self
+            .key
+            .sign(status_canonical(&self.id(), ts, URL).as_bytes())
+            .to_bytes());
+        json!({"device_id": self.id(), "ts": ts, "signature": sig})
+    }
+    fn code(&self, nonce: &str) -> String {
+        pairing_code(&hex(self.key.verifying_key().as_bytes()), nonce)
+    }
+    fn answer(&self, session: &str, id: &str, challenge: &str) -> Value {
+        let sig = hex(&self
+            .key
+            .sign(tunnel_canonical(&self.id(), session, id, challenge, URL).as_bytes())
+            .to_bytes());
+        json!({"session": session, "id": id, "signature": sig})
+    }
+}
+
+fn poll(e: &Enroll, d: &Dev, now: i64) -> (u16, Value) {
+    status_body(e.handle(&post("/openmind/enroll/status", &d.status(now)), false, now))
+}
+
+#[test]
+fn pairing_code_shape_and_normalising() {
+    let d = Dev::new(40);
+    let c = d.code(&n(1));
+    assert_eq!(c.len(), 9);
+    assert_eq!(&c[4..5], "-");
+    assert!(c
+        .chars()
+        .all(|ch| ch == '-' || CODE_ALPHABET.contains(&(ch as u8))));
+    // stable for the same (key, nonce), different for another nonce
+    assert_eq!(c, d.code(&n(1)));
+    assert_ne!(c, d.code(&n(2)));
+    assert_eq!(normalize_code(&c.to_lowercase()), Some(c.clone()));
+    assert_eq!(normalize_code(&c.replace('-', " ")), Some(c.clone()));
+    assert_eq!(normalize_code("o0il-ABCD").as_deref(), Some("0011-ABCD"));
+    for bad in ["", "ABC", "ABCD-EFGH-J", "ABCD-EFGU", "ABCD_EFGH", "ÄBCD-EFGH"] {
+        assert_eq!(normalize_code(bad), None, "{bad}");
+    }
+    // pinned vector: omnode computes the same string (edge/openmind-node tests)
+    assert_eq!(pairing_code(&"11".repeat(32), &"22".repeat(12)), "J820-7XVQ");
+}
+
+#[test]
+fn approve_by_code_then_claim_and_status() {
+    let dir = tmp("code");
+    let e = Enroll::open(cfg(&dir)).unwrap();
+    let d = Dev::new(41);
+    let (s, b) = status_body(e.handle(
+        &post(ENROLL_PATH, &d.doc(&n(1), NOW, &["cpu"])),
+        false,
+        NOW,
+    ));
+    assert_eq!(s, 202);
+    let code = d.code(&n(1));
+    assert_eq!(b["code"], json!(code));
+    assert_eq!(b["pending_expires_unix"], json!(NOW + 3600));
+    // pending: status poll says so and claim gives no token
+    let (s, b) = poll(&e, &d, NOW + 1);
+    assert_eq!((s, b["status"].as_str().unwrap()), (202, "pending"));
+    assert_eq!(b["code"], json!(code));
+    // the owner list shows the code and the fingerprint
+    let (s, b) = status_body(e.handle(&get("/openmind/enroll/pending", "", None), true, NOW));
+    assert_eq!(s, 200);
+    assert_eq!(b["pending"][0]["code"], json!(code));
+    assert_eq!(b["pending"][0]["fingerprint"], json!(d.fp()));
+    // owner routes stay closed without the key, also for code approval
+    let ap = json!({"code": code.to_lowercase()});
+    assert_eq!(
+        e.handle(&post("/openmind/enroll/approve", &ap), false, NOW).status(),
+        401
+    );
+    // wrong code, malformed code, code + wrong fingerprint
+    let (s, _) = status_body(e.handle(
+        &post("/openmind/enroll/approve", &json!({"code": "0000-0000"})),
+        true,
+        NOW,
+    ));
+    assert_eq!(s, 404);
+    let (s, _) = status_body(e.handle(
+        &post("/openmind/enroll/approve", &json!({"code": "nope"})),
+        true,
+        NOW,
+    ));
+    assert_eq!(s, 400);
+    let (s, _) = status_body(e.handle(
+        &post(
+            "/openmind/enroll/approve",
+            &json!({"code": code, "fingerprint": "SHA256:0000"}),
+        ),
+        true,
+        NOW,
+    ));
+    assert_eq!(s, 409);
+    // right code (lower case, as typed)
+    let (s, b) = status_body(e.handle(&post("/openmind/enroll/approve", &ap), true, NOW + 2));
+    assert_eq!((s, b["status"].as_str().unwrap()), (200, "approved"), "{b}");
+    let (s, b) = poll(&e, &d, NOW + 3);
+    assert_eq!((s, b["status"].as_str().unwrap()), (200, "approved"));
+    assert_eq!(b["credential"], json!(false));
+    let (s, b) = status_body(e.handle(
+        &post("/openmind/enroll/claim", &d.claim(&n(2), NOW + 4)),
+        false,
+        NOW + 4,
+    ));
+    assert_eq!(s, 200, "{b}");
+    assert!(b["token"].as_str().unwrap().starts_with(TOKEN_PREFIX));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn status_poll_is_signed_and_writes_nothing() {
+    let dir = tmp("status");
+    let e = Enroll::open(cfg(&dir)).unwrap();
+    let d = Dev::new(42);
+    let other = Dev::new(43);
+    assert_eq!(
+        e.handle(&post(ENROLL_PATH, &d.doc(&n(1), NOW, &["cpu"])), false, NOW)
+            .status(),
+        202
+    );
+    let before = std::fs::read(&e.cfg.store).unwrap();
+    // unknown device
+    assert_eq!(poll(&e, &other, NOW).0, 403);
+    // signed by another key
+    let mut forged = other.status(NOW);
+    forged["device_id"] = json!(d.id());
+    assert_eq!(
+        status_body(e.handle(&post("/openmind/enroll/status", &forged), false, NOW)).0,
+        401
+    );
+    // stale timestamp, unknown field
+    assert_eq!(poll(&e, &d, NOW).0, 202);
+    let (s, _) = status_body(e.handle(
+        &post("/openmind/enroll/status", &d.status(NOW - 500)),
+        false,
+        NOW,
+    ));
+    assert_eq!(s, 400);
+    let mut x = d.status(NOW);
+    x["token"] = json!("x");
+    assert_eq!(
+        status_body(e.handle(&post("/openmind/enroll/status", &x), false, NOW)).0,
+        400
+    );
+    // never a store write, never a token
+    assert_eq!(std::fs::read(&e.cfg.store).unwrap(), before);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn owner_refusal_is_told_to_the_device() {
+    let dir = tmp("reject");
+    let e = Enroll::open(cfg(&dir)).unwrap();
+    let d = Dev::new(44);
+    assert_eq!(
+        e.handle(&post(ENROLL_PATH, &d.doc(&n(1), NOW, &["cpu"])), false, NOW)
+            .status(),
+        202
+    );
+    // reject needs the key
+    let rj = json!({"code": d.code(&n(1))});
+    assert_eq!(
+        e.handle(&post("/openmind/enroll/reject", &rj), false, NOW).status(),
+        401
+    );
+    let (s, b) = status_body(e.handle(&post("/openmind/enroll/reject", &rj), true, NOW + 1));
+    assert_eq!((s, b["status"].as_str().unwrap()), (200, "rejected"));
+    // device: status and claim both say rejected (not "not enrolled")
+    let (s, b) = poll(&e, &d, NOW + 2);
+    assert_eq!((s, b["status"].as_str().unwrap()), (403, "rejected"));
+    let (s, b) = status_body(e.handle(
+        &post("/openmind/enroll/claim", &d.claim(&n(2), NOW + 3)),
+        false,
+        NOW + 3,
+    ));
+    assert_eq!((s, b["status"].as_str().unwrap()), (403, "rejected"));
+    assert!(b.get("token").is_none());
+    // a refused request can not be approved afterwards
+    let (s, _) = status_body(e.handle(&post("/openmind/enroll/approve", &rj), true, NOW + 4));
+    assert_eq!(s, 404);
+    // the outcome survives a restart (same persistence as the rest)
+    drop(e);
+    let e = Enroll::open(cfg(&dir)).unwrap();
+    assert_eq!(poll(&e, &d, NOW + 5).1["status"], json!("rejected"));
+    let (_, b) = status_body(e.handle(&get("/openmind/enroll/pending", "", None), true, NOW + 5));
+    assert_eq!(b["recent"][0]["status"], json!("rejected"));
+    // a fresh request starts over (new nonce, new code)
+    assert_eq!(
+        e.handle(&post(ENROLL_PATH, &d.doc(&n(3), NOW + 6, &["cpu"])), false, NOW + 6)
+            .status(),
+        202
+    );
+    assert_eq!(poll(&e, &d, NOW + 7).1["status"], json!("pending"));
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn unanswered_request_times_out() {
+    let dir = tmp("timeout");
+    let c = EnrollCfg {
+        pending_ttl: 60,
+        ..cfg(&dir)
+    };
+    let e = Enroll::open(c).unwrap();
+    let d = Dev::new(45);
+    assert_eq!(
+        e.handle(&post(ENROLL_PATH, &d.doc(&n(1), NOW, &["cpu"])), false, NOW)
+            .status(),
+        202
+    );
+    assert_eq!(poll(&e, &d, NOW + 59).1["status"], json!("pending"));
+    // at the TTL: expired for the device, gone from the owner list
+    let (s, b) = poll(&e, &d, NOW + 60);
+    assert_eq!((s, b["status"].as_str().unwrap()), (410, "expired"));
+    let (_, b) = status_body(e.handle(&get("/openmind/enroll/pending", "", None), true, NOW + 61));
+    assert_eq!(b["pending"].as_array().unwrap().len(), 0);
+    assert_eq!(b["recent"][0]["status"], json!("expired"));
+    // the owner can no longer approve it
+    let (s, _) = status_body(e.handle(
+        &post(
+            "/openmind/enroll/approve",
+            &json!({"device_id": d.id(), "fingerprint": d.fp()}),
+        ),
+        true,
+        NOW + 62,
+    ));
+    assert_eq!(s, 404);
+    // claim says expired (410) and writes the outcome to the store
+    let (s, b) = status_body(e.handle(
+        &post("/openmind/enroll/claim", &d.claim(&n(2), NOW + 63)),
+        false,
+        NOW + 63,
+    ));
+    assert_eq!((s, b["status"].as_str().unwrap()), (410, "expired"));
+    let disk = std::fs::read_to_string(&e.cfg.store).unwrap();
+    assert!(disk.contains("\"expired\""), "{disk}");
+    // outcomes are forgotten after OUTCOME_TTL
+    assert_eq!(poll(&e, &d, NOW + 63 + OUTCOME_TTL + 1).0, 403);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn old_store_without_outcomes_or_codes_still_opens() {
+    let dir = tmp("compat");
+    let c = cfg(&dir);
+    let d = Dev::new(46);
+    let p = json!({"device_id": d.id(), "public_key": hex(d.key.verifying_key().as_bytes()),
+        "fingerprint": d.fp(), "capabilities": ["cpu"], "network_hash": null, "arch": "x86_64",
+        "cores": 4, "ram_mb": 2048, "claimed_platform": "linux", "claimed_network_trusted": false,
+        "requested_at": "2026-10-18T20:00:00+02:00", "requested_unix": NOW});
+    let old = json!({"v": 1, "nonces": {}, "pending": [p], "devices": {}, "flags": []});
+    write_atomic(&c.store, old.to_string().as_bytes()).unwrap();
+    let e = Enroll::open(c.clone()).unwrap();
+    assert_eq!(e.snapshot().pending[0].code, "");
+    // no code: approval by code finds nothing, by fingerprint still works
+    let (s, _) = status_body(e.handle(
+        &post("/openmind/enroll/approve", &json!({"code": d.code(&n(1))})),
+        true,
+        NOW,
+    ));
+    assert_eq!(s, 404);
+    let (s, _) = status_body(e.handle(
+        &post(
+            "/openmind/enroll/approve",
+            &json!({"device_id": d.id(), "fingerprint": d.fp()}),
+        ),
+        true,
+        NOW,
+    ));
+    assert_eq!(s, 200);
+    // a bad outcome status in the store is refused (fail closed)
+    let bad = json!({"v": 1, "nonces": {}, "pending": [], "devices": {}, "flags": [],
+        "outcomes": [{"device_id": "x", "public_key": "y", "fingerprint": "z", "status": "approved",
+                      "at": "a", "until_unix": 1}]});
+    write_atomic(&c.store, bad.to_string().as_bytes()).unwrap();
+    assert!(Enroll::open(c).is_err());
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A `Write` that hands every chunk to the test thread.
+struct Pipe(std::sync::mpsc::Sender<Vec<u8>>);
+impl std::io::Write for Pipe {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .send(b.to_vec())
+            .map_err(|_| std::io::Error::from(std::io::ErrorKind::BrokenPipe))?;
+        Ok(b.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Start the tunnel stream in a thread; returns a frame reader.
+struct Frames {
+    rx: std::sync::mpsc::Receiver<Vec<u8>>,
+    buf: String,
+    th: Option<std::thread::JoinHandle<()>>,
+}
+impl Frames {
+    fn open(e: &Arc<Enroll>, token: &str) -> Result<Frames, (u16, Value)> {
+        let r = e.route(
+            &get(TUNNEL_PATH, "", Some(token)),
+            false,
+            crate::time::now_secs(),
+        );
+        let Response::Stream { status, writer, .. } = r else {
+            return Err(status_body(r));
+        };
+        assert_eq!(status, 200);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let th = std::thread::spawn(move || {
+            let mut p = Pipe(tx);
+            let mut w = crate::http::SseWriter::new(&mut p);
+            writer(&mut w);
+        });
+        Ok(Frames {
+            rx,
+            buf: String::new(),
+            th: Some(th),
+        })
+    }
+    /// Next (event, data) within 10 s.
+    fn next(&mut self) -> Option<(String, Value)> {
+        loop {
+            if let Some(i) = self.buf.find("\n\n") {
+                let frame: String = self.buf.drain(..i + 2).collect();
+                let mut ev = String::new();
+                let mut data = Value::Null;
+                for l in frame.lines() {
+                    if let Some(x) = l.strip_prefix("event: ") {
+                        ev = x.into();
+                    } else if let Some(x) = l.strip_prefix("data: ") {
+                        data = serde_json::from_str(x).unwrap();
+                    }
+                }
+                return Some((ev, data));
+            }
+            let chunk = self.rx.recv_timeout(std::time::Duration::from_secs(10)).ok()?;
+            self.buf.push_str(&String::from_utf8_lossy(&chunk));
+        }
+    }
+    fn until(&mut self, want: &str) -> Value {
+        loop {
+            let (ev, d) = self.next().unwrap_or_else(|| panic!("no {want} frame"));
+            if ev == want {
+                return d;
+            }
+            assert_ne!(ev, "bye", "unexpected bye while waiting for {want}: {d}");
+        }
+    }
+    fn join(mut self) {
+        self.th.take().unwrap().join().unwrap();
+    }
+}
+
+fn answer(e: &Enroll, token: &str, body: &Value) -> (u16, Value) {
+    let mut r = post("/openmind/node/tunnel/answer", body);
+    r.headers
+        .push(("authorization".into(), format!("Bearer {token}")));
+    status_body(e.handle(&r, false, crate::time::now_secs()))
+}
+
+#[test]
+fn tunnel_hello_proof_ping_replace_and_revoke() {
+    let dir = tmp("tunnel");
+    let now = crate::time::now_secs();
+    let e = Arc::new(Enroll::open(EnrollCfg {
+        url: URL.into(),
+        ..cfg(&dir)
+    })
+    .unwrap());
+    let d = Dev::new(47);
+    let tok = enrolled_at(&e, &d, 1, now);
+    // no / wrong credential: 401, no stream
+    assert_eq!(Frames::open(&e, "omn1_nope").err().unwrap().0, 401);
+    // open: hello with a challenge
+    let mut f = Frames::open(&e, &tok).ok().unwrap();
+    let hello = f.until("hello");
+    let session = hello["session"].as_str().unwrap().to_string();
+    let ch = hello["challenge"].as_str().unwrap().to_string();
+    assert_eq!(hello["device_id"], json!(d.id()));
+    // owner ping before the proof: refused
+    let (s, _) = status_body(e.handle(
+        &post("/openmind/enroll/ping", &json!({"device_id": d.id()})),
+        true,
+        now,
+    ));
+    assert_eq!(s, 409);
+    // a wrong-key answer is refused; the right one verifies; a replay is refused
+    let other = Dev::new(48);
+    let (s, _) = answer(&e, &tok, &other.answer(&session, "hello", &ch));
+    assert_eq!(s, 401);
+    // the bad hello answer closed this tunnel; reconnect
+    assert_eq!(f.until_bye(), "hello answer did not verify");
+    f.join();
+    let mut f = Frames::open(&e, &tok).ok().unwrap();
+    let hello = f.until("hello");
+    let session = hello["session"].as_str().unwrap().to_string();
+    let ch = hello["challenge"].as_str().unwrap().to_string();
+    let (s, b) = answer(&e, &tok, &d.answer(&session, "hello", &ch));
+    assert_eq!(s, 200, "{b}");
+    assert_eq!(answer(&e, &tok, &d.answer(&session, "hello", &ch)).0, 409);
+    assert_eq!(f.until("ready")["verified"], json!(true));
+    assert!(f.until("ping")["n"].as_u64().unwrap() >= 1);
+    // owner sees the tunnel
+    let (_, b) = status_body(e.handle(&get("/openmind/enroll/devices", "", None), true, now));
+    assert_eq!(b["devices"][0]["tunnel"]["connected"], json!(true));
+    assert_eq!(b["devices"][0]["tunnel"]["verified"], json!(true));
+    // owner ping: challenge goes down the stream, the device signs it
+    let e2 = e.clone();
+    let id = d.id();
+    let pinger = std::thread::spawn(move || {
+        status_body(e2.handle(
+            &post("/openmind/enroll/ping", &json!({"device_id": id})),
+            true,
+            crate::time::now_secs(),
+        ))
+    });
+    let c = f.until("challenge");
+    let (s, _) = answer(
+        &e,
+        &tok,
+        &d.answer(&session, c["id"].as_str().unwrap(), c["challenge"].as_str().unwrap()),
+    );
+    assert_eq!(s, 200);
+    let (s, b) = pinger.join().unwrap();
+    assert_eq!(s, 200, "{b}");
+    assert!(b["rtt_ms"].as_u64().is_some());
+    // a second tunnel from the same device replaces the first
+    let mut f2 = Frames::open(&e, &tok).ok().unwrap();
+    f2.until("hello");
+    assert_eq!(f.until_bye(), "replaced by a newer tunnel");
+    f.join();
+    // max_tunnels = 2 in cfg(): a third device is refused while two are open
+    let d3 = Dev::new(49);
+    let d4 = Dev::new(50);
+    let t3 = enrolled_at(&e, &d3, 10, now);
+    let t4 = enrolled_at(&e, &d4, 20, now);
+    let mut f3 = Frames::open(&e, &t3).ok().unwrap();
+    f3.until("hello");
+    assert_eq!(Frames::open(&e, &t4).err().unwrap().0, 503);
+    // revoke: the open stream says bye at once, the credential is dead
+    let (s, _) = status_body(e.handle(
+        &post("/openmind/enroll/revoke", &json!({"device_id": d.id()})),
+        true,
+        now,
+    ));
+    assert_eq!(s, 200);
+    assert_eq!(f2.until_bye(), "credential revoked or expired");
+    f2.join();
+    assert_eq!(Frames::open(&e, &tok).err().unwrap().0, 401);
+    // the hello deadline is enforced (checked without waiting 30 s: the
+    // constant is what the loop compares against)
+    assert_eq!(PROOF_DEADLINE, 30);
+    let (s, _) = status_body(e.handle(
+        &post("/openmind/enroll/revoke", &json!({"device_id": d3.id()})),
+        true,
+        now,
+    ));
+    assert_eq!(s, 200);
+    assert_eq!(f3.until_bye(), "credential revoked or expired");
+    f3.join();
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+impl Frames {
+    fn until_bye(&mut self) -> String {
+        loop {
+            let (ev, d) = self.next().expect("no bye frame");
+            if ev == "bye" {
+                return d["reason"].as_str().unwrap().to_string();
+            }
+        }
+    }
+}
+
+/// [`enrolled`] at a real clock time (the tunnel checks credentials with
+/// the wall clock).
+fn enrolled_at(e: &Enroll, d: &Dev, base: u8, now: i64) -> String {
+    let (s, _) = status_body(e.handle(
+        &post(ENROLL_PATH, &d.doc(&n(base), now, &["cpu"])),
+        false,
+        now,
+    ));
+    assert_eq!(s, 202);
+    let (s, _) = status_body(e.handle(
+        &post("/openmind/enroll/approve", &json!({"code": d.code(&n(base))})),
+        true,
+        now,
+    ));
+    assert_eq!(s, 200);
+    let (s, b) = status_body(e.handle(
+        &post("/openmind/enroll/claim", &d.claim(&n(base + 1), now)),
+        false,
+        now,
+    ));
+    assert_eq!(s, 200, "{b}");
+    b["token"].as_str().unwrap().to_string()
 }

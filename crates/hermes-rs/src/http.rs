@@ -123,6 +123,7 @@ fn reason(code: u16) -> &'static str {
         405 => "Method Not Allowed",
         408 => "Request Timeout",
         409 => "Conflict",
+        410 => "Gone",
         413 => "Payload Too Large",
         415 => "Unsupported Media Type",
         429 => "Too Many Requests",
@@ -130,6 +131,7 @@ fn reason(code: u16) -> &'static str {
         502 => "Bad Gateway",
         501 => "Not Implemented",
         503 => "Service Unavailable",
+        504 => "Gateway Timeout",
         505 => "HTTP Version Not Supported",
         _ => "Status",
     }

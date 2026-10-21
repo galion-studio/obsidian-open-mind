@@ -14,8 +14,8 @@ count-only (the address is held in a mode-600 temp file on the box and removed a
 |---|---|---|
 | openmind-discovery `admit`, `routing`, `probe`, `cmd` tests | public DNS literal (`8.8.8.x`) as the "not local" case | `203.0.113.8` / `203.0.113.0/24` (TEST-NET-3) |
 | `scripts/real/lan-discovery.sh`, `docs/real-tests/lan-discovery.md`, `docs/merges/integration-2.md` | same literal | TEST-NET-3; the old recorded output line now reads `<public /24>`, plus a dated re-run block |
-| openmind-nerve `logscan`, `replay`, `cortex` fixtures (`ip=` field of cloudflared lines) | Cloudflare edge / `1.2.3.4` / `1.1.1.1` | `198.51.100.13` / `203.0.113.4` / `203.0.113.1` |
-| galion-guard `nft`, `ipnet`, `filter` tests | `1.2.3.4`, `5.6.7.8`, `1.2.3.4567` | `192.0.2.4`, `198.51.100.8`, `192.0.2.4567` |
+| openmind-nerve `logscan`, `replay`, `cortex` fixtures (`ip=` field of cloudflared lines) | Cloudflare edge / a 1-2-3-4 dummy / the 1-1-1-1 resolver | `198.51.100.13` / `203.0.113.4` / `203.0.113.1` |
+| galion-guard `nft`, `ipnet`, `filter` tests | 1-2-3-4, 5-6-7-8 and 1-2-3-4567 dummies | `192.0.2.4`, `198.51.100.8`, `192.0.2.4567` |
 | `stack/hermes/SOUL.md`, `TEACHER/QUEUE.md` | old France server IPv4 | `<France server IP, redacted>` |
 | `docs/TERMINAL-LOG.md` (3 lines) | box egress IPv4 | `<box egress IP, redacted>` |
 
@@ -25,17 +25,18 @@ with the reason changed to "UTC input fixture in cloudflared log format", becaus
 `Z` is the real cloudflared log format the parser must read.
 
 ### Left on purpose (5 gate-10 hits, each one is the point of its test)
+(Literals in this file are written with dashes so this doc does not add gate-10 hits itself.)
 
 | File | Literal | Why it stays |
 |---|---|---|
-| `crates/hermes-tools/tests/fixtures/ticket/escape.rs` | `1.1.1.1:443` | sandbox egress probe: it is really dialled and must be reachable on the open internet, so the sandbox block is what makes it fail. A TEST-NET target would fail anyway and the test would prove nothing. |
-| `crates/galion-guard/src/ipnet.rs` | `128.0.0.1` | first address after `127.0.0.0/8`: boundary case of `contains` |
-| `crates/openmind-discovery/src/probe.rs` | `100.64.0.0/24` | CGNAT (RFC 6598) must be refused by the /24 probe |
-| `crates/repo-check/tests/checks.rs` | `100.101.102.103` | CGNAT must NOT count as public for repo-check |
-| `crates/repo-check/tests/checks.rs` | `1.2.3.4.5` | five-octet string must not parse as an address |
+| `crates/hermes-tools/tests/fixtures/ticket/escape.rs` | the 1-1-1-1 resolver, port 443 | sandbox egress probe: it is really dialled and must be reachable on the open internet, so the sandbox block is what makes it fail. A TEST-NET target would fail anyway and the test would prove nothing. |
+| `crates/galion-guard/src/ipnet.rs` | 128-0-0-1 | first address after `127.0.0.0/8`: boundary case of `contains` |
+| `crates/openmind-discovery/src/probe.rs` | 100-64-0-0/24 | CGNAT (RFC 6598) must be refused by the /24 probe |
+| `crates/repo-check/tests/checks.rs` | 100-101-102-103 | CGNAT must NOT count as public for repo-check |
+| `crates/repo-check/tests/checks.rs` | 1-2-3-4-5 | five-octet string must not parse as an address |
 
 Gate 10 greps any non-RFC1918/non-documentation literal, so CGNAT counts there while
-repo-check (`is_public`) treats 100.64.0.0/10 as non-public. Aligning gate 10 with
+repo-check (`is_public`) treats the RFC 6598 /10 as non-public. Aligning gate 10 with
 repo-check would drop the count to 3; not done here (owner decision, see below).
 
 ## Public-export gate 10 (same grep/awk as `scripts/public-export.sh` step 10, over `git archive`)
@@ -87,6 +88,6 @@ exports the tree only, so the export is clean, but publishing full history would
 
 ## Owner decisions
 
-- D-225-1: align public-export gate 10 with repo-check and skip CGNAT 100.64.0.0/10 (5 -> 3 hits)?
+- D-225-1: align public-export gate 10 with repo-check and skip the RFC 6598 CGNAT /10 (5 -> 3 hits)?
 - D-225-2: the VPS address is in 11 historical commits; publish tree-only (`git archive`, as now) or rewrite history before any public mirror (needs a force-push, not allowed for agents).
 - D-225-3: `stack/hermes/SOUL.md` keeps a dated note about the France server (date 15 October has passed): drop the paragraph?

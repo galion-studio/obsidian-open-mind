@@ -499,8 +499,16 @@ impl<T: Transport> QueueAdapter<T> {
                                         r = r.metric(&format!("{k}:{name}"), n);
                                     }
                                 }
-                                if a.get("budget_blocked").and_then(Value::as_bool) == Some(true) {
-                                    r = r.metric(&format!("blocked:{name}"), 1);
+                                // `budget_blocked` is the queue's u64 count of
+                                // lease-time budget blocks (engine.rs); an older
+                                // reader matched it as a bool and never fired.
+                                let blocked = match a.get("budget_blocked") {
+                                    Some(Value::Bool(true)) => 1,
+                                    Some(v) => int(v).unwrap_or(0),
+                                    None => 0,
+                                };
+                                if blocked > 0 {
+                                    r = r.metric(&format!("blocked:{name}"), blocked);
                                 }
                             }
                         }

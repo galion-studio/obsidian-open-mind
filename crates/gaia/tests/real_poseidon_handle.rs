@@ -266,6 +266,27 @@ fn a_real_queue_every_system_and_verb() {
         r.summary
     );
 
+    // Lease-time budget block: the operator lowers the cap under spent +
+    // cost; the operator's worker cannot lease job `live`; POSEIDON reports
+    // the queue's u64 counter (the old reader matched it as a bool).
+    op(&["post", "/caps", r#"{"scope":"agent-a","cap":35}"#]);
+    op(&[
+        "worker",
+        "--worker",
+        "rt-w2",
+        "--max-jobs",
+        "1",
+        "--idle-exit-ms",
+        "600",
+    ]);
+    let r = go(&mut g, System::BudgetCaps, Verb::Status, "");
+    let blocked = r.metric_value("blocked:agent-a").unwrap_or(0);
+    assert!(blocked >= 1, "{:?}", r.metrics);
+    println!(
+        "A lease-time budget block: blocked:agent-a={blocked}, spent:agent-a={:?}",
+        r.metric_value("spent:agent-a")
+    );
+
     // kill -9: refused, degraded, one bus event.
     let _ = q.0.kill();
     let _ = q.0.wait();

@@ -170,7 +170,7 @@ fn cfg(tag: &str, nerve: SocketAddr, port: u16) -> (HealCfg, Gate) {
             health_path: "/health".into(),
             argv: vec![prog(), "--port".into(), port.to_string()],
         },
-        allowed: 19000..=19999,
+        allowed: 19230..=19239,
         nerve,
         state_dir: d.join("state"),
         hades_config: gate.config.clone(),
@@ -199,10 +199,10 @@ fn with_token(c: &mut HealCfg, token: &str) {
     c.token_file = Some(p);
 }
 
-/// A port in 19000-19999 with nothing listening (slot 23's range first).
+/// A port in slot 23's band 19230-19239 with nothing listening (19236-19239;
+/// 19233/19234 belong to real_gaia_live).
 fn free_test_port() -> u16 {
-    (19236..=19239)
-        .chain(19900..=19999)
+    (19236..=19239u16)
         .find(|p| {
             TcpListener::bind(("127.0.0.1", *p)).is_ok()
                 && std::net::TcpStream::connect(("127.0.0.1", *p)).is_err()
@@ -264,8 +264,8 @@ fn forged_tampered_wrong_scope_expired_are_refused_and_never_logged() {
     let plan = heal_plan(&t);
     let now = unix_now();
     let mut other_port = t.clone();
-    other_port.argv[2] = "19999".into();
-    other_port.port = 19999;
+    other_port.argv[2] = "19235".into();
+    other_port.port = 19235;
     // A second, attacker-held key pair.
     let evil = tmp("bad-evil");
     hades_gate::keys::generate(&evil.join("evil.seed"), &evil.join("evil.pub")).unwrap();
@@ -508,11 +508,11 @@ fn cli_parse_keeps_start_argv_separate() {
         "--service",
         "gaia-dummy",
         "--port",
-        "19032",
+        "19232",
         "--allow-ports",
-        "19030-19039",
+        "19230-19239",
         "--nerve",
-        "127.0.0.1:19031",
+        "127.0.0.1:19231",
         "--state",
         "/tmp/s",
         "--hades-config",
@@ -522,12 +522,12 @@ fn cli_parse_keeps_start_argv_separate() {
         "--",
         "/x/gaia-dummy",
         "--port",
-        "19032",
+        "19232",
     ];
     let c = parse_cli(&a).unwrap();
-    assert_eq!(c.target.port, 19032);
-    assert_eq!(c.target.argv, vec!["/x/gaia-dummy", "--port", "19032"]);
-    assert_eq!(c.allowed, 19030..=19039);
+    assert_eq!(c.target.port, 19232);
+    assert_eq!(c.target.argv, vec!["/x/gaia-dummy", "--port", "19232"]);
+    assert_eq!(c.allowed, 19230..=19239);
     assert_eq!(c.token_file, Some(PathBuf::from("/tmp/t")));
     assert!(parse_cli(&a[..14]).is_err(), "needs --");
     let mut no_gate = a.to_vec();

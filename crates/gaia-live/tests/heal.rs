@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Guards of the M2 apply path: scope, restart cap, ledger. (Approval is
+//! Guards of the M2 apply path: scope, restart cap, ledger. Ports: slot 23's
+//! band 19230-19239 (nothing is bound here; 19240 is a value just outside).
+//! (Approval is
 //! hades-gate's signed tokens now; see crates/gaia/tests/heal_tick.rs.)
 
 use gaia_live::heal::*;
@@ -39,19 +41,19 @@ fn ok_argv(port: u16) -> Vec<String> {
 
 #[test]
 fn scope_accepts_a_box_test_service() {
-    check_target(&target(19032, ok_argv(19032)), &(19030..=19039)).unwrap();
+    check_target(&target(19232, ok_argv(19232)), &(19230..=19239)).unwrap();
 }
 
 #[test]
 fn scope_refuses_live_stack_ports_and_wide_ranges() {
     for live in [8080u16, 8091, 8002, 8420, 8642, 8646, 8650, 8670] {
-        let e = check_target(&target(live, ok_argv(live)), &(19030..=19039)).unwrap_err();
+        let e = check_target(&target(live, ok_argv(live)), &(19230..=19239)).unwrap_err();
         assert!(e.contains("outside the allowed"), "{live}: {e}");
         // Even an operator range that includes the live port is refused.
         let e = check_target(&target(live, ok_argv(live)), &(1..=65535)).unwrap_err();
         assert!(e.contains("outside the test range"), "{live}: {e}");
     }
-    let e = check_target(&target(19040, ok_argv(19040)), &(19030..=19039)).unwrap_err();
+    let e = check_target(&target(19240, ok_argv(19240)), &(19230..=19239)).unwrap_err();
     assert!(e.contains("outside the allowed"), "{e}");
 }
 
@@ -70,39 +72,39 @@ fn scope_refuses_service_managers_shells_and_strangers() {
         "/usr/bin/python3",
         "/usr/bin/env",
     ] {
-        let t = target(19032, vec![bad.into(), "restart".into(), "19032".into()]);
-        let e = check_target(&t, &(19030..=19039)).unwrap_err();
+        let t = target(19232, vec![bad.into(), "restart".into(), "19232".into()]);
+        let e = check_target(&t, &(19230..=19239)).unwrap_err();
         assert!(e.contains("forbidden"), "{bad}: {e}");
     }
     let rel = target(
-        19032,
-        vec!["gaia-dummy".into(), "--port".into(), "19032".into()],
+        19232,
+        vec!["gaia-dummy".into(), "--port".into(), "19232".into()],
     );
-    assert!(check_target(&rel, &(19030..=19039))
+    assert!(check_target(&rel, &(19230..=19239))
         .unwrap_err()
         .contains("absolute"));
     let missing = target(
-        19032,
-        vec!["/nonexistent/gaia-dummy".into(), "19032".into()],
+        19232,
+        vec!["/nonexistent/gaia-dummy".into(), "19232".into()],
     );
-    assert!(check_target(&missing, &(19030..=19039))
+    assert!(check_target(&missing, &(19230..=19239))
         .unwrap_err()
         .contains("does not exist"));
-    let other_port = target(19032, vec![prog(), "--port".into(), "8420".into()]);
-    assert!(check_target(&other_port, &(19030..=19039))
+    let other_port = target(19232, vec![prog(), "--port".into(), "8420".into()]);
+    assert!(check_target(&other_port, &(19230..=19239))
         .unwrap_err()
         .contains("does not name the target port"));
-    let empty = target(19032, vec![]);
-    assert!(check_target(&empty, &(19030..=19039)).is_err());
-    let mut bad_name = target(19032, ok_argv(19032));
+    let empty = target(19232, vec![]);
+    assert!(check_target(&empty, &(19230..=19239)).is_err());
+    let mut bad_name = target(19232, ok_argv(19232));
     bad_name.name = "x; rm -rf /".into();
-    assert!(check_target(&bad_name, &(19030..=19039)).is_err());
+    assert!(check_target(&bad_name, &(19230..=19239)).is_err());
 }
 
 #[test]
 fn range_parse() {
-    assert_eq!(parse_range("19030-19039").unwrap(), 19030..=19039);
-    assert_eq!(parse_range("19032").unwrap(), 19032..=19032);
+    assert_eq!(parse_range("19230-19239").unwrap(), 19230..=19239);
+    assert_eq!(parse_range("19232").unwrap(), 19232..=19232);
     assert!(parse_range("a-b").is_err());
 }
 
@@ -256,4 +258,24 @@ fn concurrent_recorders_never_tear_lines() {
     }
     let all = Ledger::at(g).entries("svc").unwrap();
     assert_eq!(all.len(), 200);
+}
+
+/// D-FI4 (slot 199): live VPS ports inside the test band are never test
+/// ports, as a target or inside an operator range.
+#[test]
+fn scope_refuses_live_ports_inside_the_test_band() {
+    for live in [19120u16, 20241, 20242] {
+        assert!(TEST_PORTS.contains(&live), "{live} is inside the band");
+        assert!(is_live_port(live) && !is_test_port(live), "{live}");
+        let e = check_target(&target(live, ok_argv(live)), &(live..=live)).unwrap_err();
+        assert!(e.contains(&format!("live VPS port {live}")), "{live}: {e}");
+    }
+    // The old whole band (19000-19999) holds POSEIDON 19120: refused now.
+    let e = check_target(&target(19232, ok_argv(19232)), &(19000..=19999)).unwrap_err();
+    assert!(e.contains("live VPS port 19120"), "{e}");
+    // A wave-4 slot band (slot 199: 20690-20699) is accepted.
+    check_target(&target(20690, ok_argv(20690)), &(20690..=20699)).unwrap();
+    // Above the band stays refused.
+    let e = check_target(&target(21000, ok_argv(21000)), &(21000..=21009)).unwrap_err();
+    assert!(e.contains("outside the test range 19000-20999"), "{e}");
 }

@@ -7,8 +7,14 @@
 # (cosign keyless also writes to the public Rekor log, so it must not run while
 # private). Turning it on is the owner's call (RELEASE-CHECKLIST.md).
 # release: runs only on a v* tag, and only after the full self-eval gate passes.
-# Builds release binaries, generates a CycloneDX SBOM, signs every artifact with
-# Sigstore cosign (keyless, GitHub OIDC), and creates the GitHub Release.
+# Builds every release binary as a static musl executable for both tier-1
+# targets (x86_64 + aarch64, rust-lld; zig cc for the bundled SQLite), packages
+# them per target with the Rust tool crates/galion-release (static / stripped /
+# machine / 2 MiB checks, deterministic tar.gz + MANIFEST), rehearses every
+# binary with --version (aarch64 under qemu-user), writes and re-verifies
+# SHA256SUMS, generates a CycloneDX SBOM, signs every artifact with Sigstore
+# cosign (keyless, GitHub OIDC), and creates the GitHub Release.
+# Box rehearsal of these steps: docs/ci-release-artefacts.md.
 name: release
 
 on:
@@ -24,36 +30,53 @@ jobs:
     uses: ./.github/workflows/self-eval.yml
 
   release:
-    name: build, SBOM, sign, publish release
+    name: build, package, rehearse, SBOM, sign, publish release
     needs: self-eval
     if: github.event.repository.private == false && vars.RELEASE_ENABLED == 'true' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write   # create the GitHub Release
       id-token: write   # cosign keyless signing via OIDC
     env:
       CARGO_TERM_COLOR: always
+      UCPU_TIER1: x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+      UCPU_JOBS: 4
+      UCPU_NICE: 0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
 
-      - name: build release binaries
-        run: cargo build --release --workspace --locked
+      - name: install qemu-user-static and zig cc (pinned, checksum-verified)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q qemu-user-static
+          echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
 
-      - name: package
+      - name: build provenance (commit, Zagreb commit time, SOURCE_DATE_EPOCH)
         run: |
           set -eu
-          name="obsidian-open-mind-${GITHUB_REF_NAME}-x86_64-linux"
-          mkdir -p "dist/$name"
-          for b in galion-one galion-desk room desk-hermes link-watch; do
-            [ -f "target/release/$b" ] && cp "target/release/$b" "dist/$name/"
+          ct=$(git log -1 --format=%ct)
+          {
+            echo "SOURCE_DATE_EPOCH=$ct"
+            echo "GALION_BUILD_COMMIT=$(git rev-parse --short=12 HEAD)"
+            echo "GALION_BUILD_TIME=$(TZ=Europe/Zagreb date -d "@$ct" +%Y-%m-%dT%H:%M:%S%:z)"
+          } >> "$GITHUB_ENV"
+
+      - name: build static musl release binaries (workspace + omnode, both targets)
+        run: scripts/ucpu-gate.sh build static size
+
+      - name: package per target (galion-release)
+        run: |
+          set -eu
+          cargo build --release --locked -p galion-release
+          for t in $UCPU_TIER1; do
+            target/release/galion-release package --target "$t" --tag "$GITHUB_REF_NAME" --out dist \
+              --bin-dir "target/$t/release" --bin-dir "target/omnode/$t/release" \
+              --extra LICENSE --extra README.md
           done
-          cp LICENSE README.md "dist/$name/"
-          tar -C dist -czf "dist/$name.tar.gz" "$name"
-          rm -rf "dist/$name"
-          (cd dist && sha256sum ./*.tar.gz > SHA256SUMS)
 
       - name: SBOM (CycloneDX JSON)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
@@ -63,6 +86,13 @@ jobs:
           output-file: dist/obsidian-open-mind-${{ github.ref_name }}.cdx.json
           upload-artifact: false
           upload-release-assets: false
+
+      - name: SHA256SUMS, verify, rehearse (--version natively and under qemu-aarch64)
+        run: |
+          set -eu
+          target/release/galion-release sums dist
+          (cd dist && sha256sum -c SHA256SUMS)
+          target/release/galion-release rehearse dist --work "$RUNNER_TEMP/rehearse"
 
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
@@ -81,4 +111,4 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" dist/* \
             --title "$GITHUB_REF_NAME" \
-            --notes "Built by release.yml after self-eval passed. Verify with: cosign verify-blob --bundle <file>.sigstore.json --certificate-identity-regexp 'https://github.com/galion-studio/obsidian-open-mind/' --certificate-oidc-issuer https://token.actions.githubusercontent.com <file>"
+            --notes "Built by release.yml after self-eval passed. Static musl binaries for x86_64 and aarch64 Linux (one tar.gz per target, MANIFEST inside), SHA256SUMS, CycloneDX SBOM. Verify with: sha256sum -c SHA256SUMS; cosign verify-blob --bundle <file>.sigstore.json --certificate-identity-regexp 'https://github.com/galion-studio/obsidian-open-mind/' --certificate-oidc-issuer https://token.actions.githubusercontent.com <file>"

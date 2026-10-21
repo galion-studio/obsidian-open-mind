@@ -18,6 +18,11 @@ fn die(m: &str) -> ! {
 }
 
 fn main() {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("galion-backup {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let a: Vec<String> = std::env::args().collect();
     match a.get(1).map(|s| s.as_str()) {
         Some("run") if a.len() == 2 => {

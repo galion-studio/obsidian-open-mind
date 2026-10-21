@@ -44,6 +44,11 @@ fn score_file(dir: &Path, bench: &str, agent: &str) -> PathBuf {
 }
 
 fn main() -> ExitCode {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("hermes-bench {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("run") => run(&args),

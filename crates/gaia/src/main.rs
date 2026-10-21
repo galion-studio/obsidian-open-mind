@@ -52,6 +52,11 @@ fn usage() -> String {
 }
 
 fn main() -> ExitCode {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("gaia {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let compact = args.iter().any(|a| a == "--compact");
     let args: Vec<&str> = args

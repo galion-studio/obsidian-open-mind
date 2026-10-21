@@ -384,6 +384,11 @@ fn classify_main(argv: &[String]) -> Result<(), (i32, String)> {
 }
 
 fn main() {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("guardian-tick {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     if let Err((code, msg)) = real_main() {
         eprintln!("guardian-tick: {msg}");
         std::process::exit(code);

@@ -96,6 +96,11 @@ fn load_config(
 }
 
 fn main() -> ExitCode {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("persona-plex-relay {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let no_flags = std::env::args().nth(1).is_none();
     let path = match config_path() {
         Ok(p) => p,

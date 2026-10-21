@@ -56,6 +56,11 @@ fn print(v: &impl serde::Serialize) {
 }
 
 fn main() -> ExitCode {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("galion-vending {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let mut argv = std::env::args().skip(1);
     let cmd = argv.next().unwrap_or_default();
     let a = match parse(argv) {

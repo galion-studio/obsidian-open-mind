@@ -9,6 +9,11 @@ use bench_scoreboard::{parse_score, render, Entry, BENCHES};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("bench-scoreboard {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let mut entries: [Option<Entry>; 3] = [None, None, None];
     let mut out: Option<String> = None;
     let mut args = std::env::args().skip(1);

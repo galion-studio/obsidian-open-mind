@@ -98,6 +98,11 @@ impl Args {
 }
 
 fn main() -> ExitCode {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("omnode {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let code = real_main();
     if std::env::var_os("OMNODE_PRINT_RSS").is_some() {
         if let Some(kb) = util::vm_hwm_kb() {

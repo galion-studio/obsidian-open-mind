@@ -12,6 +12,11 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("openmind-discovery {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     match run(env::args().skip(1).collect()) {
         Ok(CliOut::Help) => {
             print!("{USAGE}");

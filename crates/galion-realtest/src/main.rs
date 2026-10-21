@@ -235,6 +235,11 @@ fn cmd_live(o: &Opts) -> Result<bool, String> {
 }
 
 fn main() -> ExitCode {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("galion-realtest {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = argv.first() else {
         eprintln!("{USAGE}");

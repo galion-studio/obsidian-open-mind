@@ -73,6 +73,11 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
 }
 
 fn main() -> ExitCode {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("repo-check {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let opts = match parse_args(std::env::args().skip(1)) {
         Ok(o) => o,
         Err(e) => {

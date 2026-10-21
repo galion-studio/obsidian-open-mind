@@ -88,6 +88,11 @@ fn open_store(cfg: &Config) -> Result<Arc<dyn SessionStore>, String> {
 }
 
 fn main() {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("hermes-gateway {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mock = args.iter().any(|a| a == "--mock");
     let cfg = match Config::load(&env) {

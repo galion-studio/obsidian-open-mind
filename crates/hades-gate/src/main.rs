@@ -33,6 +33,11 @@ use hades_gate::{keys, safety};
 const USAGE: &str = "usage: hades-gate <check|serve|status|disable|enable|keygen|mint|plan-hash> [--flags]  (see crate docs)";
 
 fn main() {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("hades-gate {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match run(&args) {
         Ok(code) => code,

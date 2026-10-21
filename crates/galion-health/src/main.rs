@@ -196,6 +196,11 @@ tr.ok td:first-child{{color:#4c4}}tr.bad td{{color:#f55}}</style></head><body><h
 }
 
 fn main() {
+    // `--version` / `-V` first: no config, bind or I/O (release rehearsal, slot 216).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("galion-health {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     let addr = std::env::var("GALION_HEALTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8660".into());
     let checks =
         parse(&std::env::var("GALION_HEALTH_CHECKS").unwrap_or_else(|_| DEFAULT_CHECKS.into()));

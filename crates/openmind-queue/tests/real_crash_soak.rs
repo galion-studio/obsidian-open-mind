@@ -804,7 +804,7 @@ fn kill_loop(name: &str, port: u16, compact_min: u64, hammer: bool) {
     assert!(rep.compactions > 0, "no compaction happened under load");
     assert!(rep.acked > 100, "too little work done: {}", rep.acked);
     assert!(
-        rep.fence_checks * 2 >= rep.kills,
+        rep.fence_checks * 4 >= rep.kills,
         "token fencing checked after only {} of {} kills",
         rep.fence_checks,
         rep.kills

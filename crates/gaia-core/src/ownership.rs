@@ -121,6 +121,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("galion-common", S(System::ZagrebClock), "pending Slavik: shared std-only helpers (SHA-256, hex, base64, JSON, Zagreb time, small HTTP/1.1 server/client); nearest system is the Zagreb clock it carries; alternative: core"),
     c("galion-deploy", S(System::DeploySwitch), "pending Slavik: backup -> atomic install -> restart -> health -> automatic rollback for one unit (replaces deploy/foundation/galion-deploy); executes, unlike the plan-only switch scripts; alternative rollback/HADES"),
     c("galion-desk", S(System::GalionDesk), "operator desk endpoint (:8646)"),
+    c("galion-flight", S(System::DeploySwitch), "pending Slavik: read-only pre/postflight go/no-go checks per service (GET/stat/sha256/status reads, one read per check, no loops); the gate around galion-deploy; alternative release-artifacts/HEPHAESTUS or rollback/HADES"),
     c("galion-guard", S(System::GuardianWatchdog), "pending Slavik: Rust SSH ban daemon replacing the fail2ban sshd jail (nft timeout sets); security watch like one-defence; alternative tunnels/AETHER"),
     c("galion-health", S(System::GuardianWatchdog), "pending Slavik: loopback health dashboard polling service ports and systemd states (nerve T1.2a); same system as its galion-health unit in UNITS; alternatives guardian-tick/DEMETER or alerting/MINERVA"),
     c("galion-one", S(System::GalionOne), "Galion One, the persona the stack embodies (:8091, :8002)"),
@@ -339,10 +340,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} has no system", r.name));
             assert_eq!(r.role.function(), Some(s.function()));
         }
-        // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3.
+        // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3,
+        // 1 from slot 195 (galion-flight).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            51
+            52
         );
     }
 
@@ -378,6 +380,7 @@ mod tests {
                 "galion-bench",
                 "galion-common",
                 "galion-deploy",
+                "galion-flight",
                 "galion-guard",
                 "galion-health",
                 "galion-realtest",

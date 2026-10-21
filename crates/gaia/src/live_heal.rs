@@ -29,7 +29,7 @@
 use crate::{booted, send};
 use gaia_core::{Json, Outcome, System, Verb};
 use gaia_live::heal::{self, Budget, TestTarget};
-use gaia_live::nerve;
+use gaia_live::nerve::{self, NerveRestarts};
 use hades_gate::approval::{Approver, Verdict};
 use hades_gate::config::Config;
 use hades_gate::token::{plan_hash, to_hex, Claims};
@@ -70,6 +70,10 @@ pub mod exit {
     pub const CAPPED: u8 = 5;
     /// Restarted, but it did not come back up in time (or spawn failed).
     pub const APPLY_FAILED: u8 = 6;
+    /// The service holds its port but does not answer (hung). Report-only
+    /// (decision D-L4, accepted 2026-10-21): a `gaia.heal.hung` event goes to
+    /// the nerve; nothing is restarted, killed or stopped, no token is used.
+    pub const HUNG: u8 = 8;
 }
 
 #[derive(Clone, Debug)]
@@ -238,6 +242,8 @@ fn refuse_with(
 }
 
 /// The restart cap is spent: record it and stop (no token is consumed).
+/// `gaia_n` is Gaia's own restarts in the window, `nr` the nerve's (D-L2).
+#[allow(clippy::too_many_arguments)]
 fn capped(
     cfg: &HealCfg,
     mut steps: Vec<Json>,
@@ -245,32 +251,117 @@ fn capped(
     probe_id: &str,
     plan_sha: &str,
     budget: &Budget,
+    gaia_n: usize,
+    nr: &NerveRestarts,
+    token_consumed: bool,
 ) -> HealTick {
     let t = &cfg.target;
-    let why = format!(
-        "restart cap reached: {} restarts of {} in the last hour; next allowed in {retry} s",
-        heal::MAX_RESTARTS_PER_HOUR,
-        t.name
-    );
+    let total = gaia_n.saturating_add(nr.count);
+    let why = if nr.count > 0 {
+        format!(
+            "restart cap reached: {gaia_n} Gaia + {} nerve restarts of {} in the last hour (combined cap {}); next allowed in at most {retry} s",
+            nr.count,
+            t.name,
+            heal::MAX_RESTARTS_PER_HOUR
+        )
+    } else {
+        format!(
+            "restart cap reached: {total} restarts of {} in the last hour (cap {}); next allowed in {retry} s",
+            t.name,
+            heal::MAX_RESTARTS_PER_HOUR
+        )
+    };
     steps.push(step(
         "cap",
         Json::obj()
             .with("ok", false)
             .with("retry_after_s", retry)
+            .with("gaia_restarts_last_hour", gaia_n as u64)
+            .with("nerve_restarts_last_hour", nr.count as u64)
+            .with("nerve", nerve::to_gaia_json(&nr.to_value()))
             .with("global_ledger", budget.global_path().display().to_string()),
     ));
     let posted = nerve_post(
         cfg,
         "gaia.heal.capped",
         "error",
-        json!({"service": t.name, "port": t.port, "restarts_last_hour": heal::MAX_RESTARTS_PER_HOUR, "cap": heal::MAX_RESTARTS_PER_HOUR, "retry_after_s": retry, "probe_id": probe_id, "plan_sha256": plan_sha, "token_consumed": false, "global_ledger": budget.global_path().display().to_string()}),
+        json!({"service": t.name, "port": t.port, "restarts_last_hour": total,
+               "gaia_restarts_last_hour": gaia_n, "nerve_restarts_last_hour": nr.count,
+               "nerve": nr.to_value(), "cap": heal::MAX_RESTARTS_PER_HOUR, "combined": true,
+               "retry_after_s": retry, "probe_id": probe_id, "plan_sha256": plan_sha,
+               "token_consumed": token_consumed, "global_ledger": budget.global_path().display().to_string()}),
     );
     HealTick {
         exit: exit::CAPPED,
         report: result(cfg, steps, "capped", &why, posted.err()),
-        approval_code: None,
+        approval_code: token_consumed.then(|| "approved".to_string()),
         spawned: false,
     }
+}
+
+/// The nerve's restarts of the target, read fresh from `GET /state`. An
+/// unreachable nerve or an unreadable `/state` is a setup error: the tick
+/// fails closed before (or instead of) the restart.
+fn nerve_restarts(cfg: &HealCfg) -> Result<NerveRestarts, String> {
+    nerve::restarts(cfg.nerve, &cfg.target.name)
+        .map_err(|e| format!("nerve restart count (D-L2): {e}"))
+}
+
+/// Hung service (D-L4, accepted 2026-10-21): report it to the nerve with the
+/// evidence and stop. Nothing is restarted, killed or stopped; no token is
+/// read or consumed; the restart budget is untouched.
+fn hung(
+    cfg: &HealCfg,
+    mut steps: Vec<Json>,
+    probe_id: &str,
+    probes: &[String],
+) -> Result<HealTick, String> {
+    let t = &cfg.target;
+    let listeners = heal::listener_pids(t.port);
+    // Which of those Gaia started itself (from the restart ledgers), so an
+    // operator can tell a Gaia restart that hung from a foreign process.
+    let mut recorded = Vec::new();
+    let state_only = Budget::new(
+        &cfg.state_dir,
+        Path::new("/nonexistent/gaia-restarts.jsonl"),
+    );
+    let budget = Config::load(&cfg.hades_config)
+        .map(|c| Budget::new(&cfg.state_dir, &heal::global_ledger_path(&c.ledger)))
+        .unwrap_or(state_only);
+    if let Ok(p) = heal::recorded_pids(&budget, &t.name) {
+        recorded = p;
+    }
+    let gaia_started: Vec<u32> = listeners
+        .iter()
+        .copied()
+        .filter(|p| recorded.contains(p))
+        .collect();
+    let evidence = json!({
+        "service": t.name, "port": t.port, "probe_id": probe_id,
+        "health_path": t.health_path, "probes": probes,
+        "read_timeout_ms": 1000, "connect": "ok",
+        "listener_pids": listeners, "gaia_started_pids": gaia_started,
+        "action": "report-only", "restart": false, "kill": false, "stop": false,
+        "token_consumed": false, "handed_to": "nerve/operator",
+        "decision": "D-L4 accepted 2026-10-21: hung services are reported, never killed",
+    });
+    steps.push(step(
+        "hung",
+        nerve::to_gaia_json(&evidence).with("at_zagreb", zagreb_time::now_rfc3339()),
+    ));
+    nerve_post(cfg, "gaia.heal.hung", "error", evidence)?;
+    let why = format!(
+        "{} on 127.0.0.1:{} holds its port but does not answer ({}); reported to the nerve, not restarted or killed (D-L4)",
+        t.name,
+        t.port,
+        probes.last().map(String::as_str).unwrap_or("?")
+    );
+    Ok(HealTick {
+        exit: exit::HUNG,
+        report: result(cfg, steps, "hung", &why, None),
+        approval_code: None,
+        spawned: false,
+    })
 }
 
 fn result(
@@ -376,6 +467,38 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
     g.signal("nerve:service.probe", &body);
     steps.push(step("nerve-in", nerve::to_gaia_json(ev)));
 
+    // 2b. Hung (D-L4): connected but no answer means a process holds the
+    //     port. A restart cannot take the port and Gaia never kills, so the
+    //     tick confirms with a second probe and reports it, nothing more.
+    if heal::hung_detail(&detail) {
+        std::thread::sleep(Duration::from_millis(300));
+        let again = gaia_live::probe(&heal::test_probe(t), &o);
+        let detail2 = again
+            .http
+            .as_ref()
+            .map(|h| h.detail.clone())
+            .unwrap_or_default();
+        if again.state == gaia_live::State::Up {
+            steps.push(step("reprobe", again.to_json()));
+            return Ok(HealTick {
+                exit: exit::OK,
+                report: result(
+                    cfg,
+                    steps,
+                    "healthy",
+                    "slow answer, up on the confirming probe; nothing to do",
+                    None,
+                ),
+                approval_code: None,
+                spawned: false,
+            });
+        }
+        if heal::hung_detail(&detail2) {
+            return hung(cfg, steps, &probe_id, &[detail.clone(), detail2]);
+        }
+        steps.push(step("reprobe", again.to_json()));
+    }
+
     // 3. DEMETER: heal-dry and a guardian-tick health cycle.
     let healer = send(&mut g, System::Healer, Verb::Plan, 50, &body, None);
     let gtick = send(&mut g, System::GuardianTick, Verb::Run, 50, &body, None);
@@ -460,9 +583,15 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
     let now = heal::epoch_now();
     let admin_first =
         approver.is_disabled() || hades_gate::safety::review(&t.name, &plan_bytes).is_err();
+    // D-L2: the nerve's own restarts of this service count too, so the
+    // combined Gaia + nerve total stays at 3 per rolling hour.
     if !admin_first {
-        if let Err(retry) = heal::cap_check(&history, now) {
-            return Ok(capped(cfg, steps, retry, &probe_id, &plan_sha, &budget));
+        let nr = nerve_restarts(cfg)?;
+        if let Err(retry) = heal::cap_check_combined(&history, nr.count, now) {
+            let gaia_n = heal::recent_count(&history, now);
+            return Ok(capped(
+                cfg, steps, retry, &probe_id, &plan_sha, &budget, gaia_n, &nr, false,
+            ));
         }
     }
     let verdict = hades_gate::adapter::check_gaia(
@@ -549,15 +678,25 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
     let history = budget
         .history(&t.name)
         .map_err(|e| format!("ledger: {e}"))?;
-    let used = match heal::cap_check(&history, now) {
+    // Fresh nerve count under the lock (fail closed if it is unreadable now).
+    let nr = nerve_restarts(cfg)?;
+    let gaia_n = heal::recent_count(&history, now);
+    let used = match heal::cap_check_combined(&history, nr.count, now) {
         Ok(used) => used,
-        Err(retry) => return Ok(capped(cfg, steps, retry, &probe_id, &plan_sha, &budget)),
+        Err(retry) => {
+            return Ok(capped(
+                cfg, steps, retry, &probe_id, &plan_sha, &budget, gaia_n, &nr, true,
+            ))
+        }
     };
     steps.push(step(
         "cap",
         Json::obj()
             .with("ok", true)
             .with("restarts_last_hour_before", used)
+            .with("gaia_restarts_last_hour_before", gaia_n as u64)
+            .with("nerve_restarts_last_hour", nr.count as u64)
+            .with("nerve", nerve::to_gaia_json(&nr.to_value()))
             .with("cap", heal::MAX_RESTARTS_PER_HOUR)
             .with("global_ledger", budget.global_path().display().to_string()),
     ));
@@ -625,6 +764,7 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
         json!({
             "service": t.name, "port": t.port, "action": "restart", "pid": pid,
             "health_verified": verified, "restarts_last_hour": restarts_now,
+            "gaia_restarts_last_hour": gaia_n + usize::from(pid.is_some()), "nerve_restarts_last_hour": nr.count,
             "cap": heal::MAX_RESTARTS_PER_HOUR, "approved_by": alpha,
             "nonce": nonce, "plan_sha256": plan_sha,
             "hades_directive": exec.directive_id, "probe_id": probe_id, "spawn_error": spawn_error,
@@ -736,4 +876,59 @@ pub fn heal_plan_cli(args: &[&str]) -> Result<Json, String> {
         )
         .with("admin_safety", safety)
         .with("out", flag(own, "--out")))
+}
+
+/// `gaia nerve-restarts (--nerve 127.0.0.1:N | --state-file F) --service S
+/// [--service S2 ...]`: read-only view of decision D-L2. For each service:
+/// the restarts the nerve reports in the last hour and how many of the
+/// combined 3 per hour that leaves for Gaia (Gaia's own ledger not counted
+/// here). `--state-file` reads a saved `GET /state` capture.
+pub fn nerve_restarts_cli(args: &[&str]) -> Result<Json, String> {
+    let state = match (flag(args, "--nerve"), flag(args, "--state-file")) {
+        (Some(n), None) => nerve::state(n.parse().map_err(|e| format!("--nerve: {e}"))?)?,
+        (None, Some(f)) => {
+            let mut buf = Vec::new();
+            std::fs::File::open(f)
+                .and_then(|h| h.take(4 * 1024 * 1024).read_to_end(&mut buf))
+                .map_err(|e| format!("{f}: {}", e.kind()))?;
+            serde_json::from_slice(&buf).map_err(|e| format!("{f}: {e}"))?
+        }
+        _ => return Err("nerve-restarts needs --nerve ADDR or --state-file F".into()),
+    };
+    let services: Vec<&str> = args
+        .windows(2)
+        .filter(|w| w[0] == "--service")
+        .map(|w| w[1])
+        .collect();
+    if services.is_empty() {
+        return Err("nerve-restarts needs --service NAME".into());
+    }
+    let mut rows = Vec::new();
+    for s in services {
+        let r = nerve::restarts_for(&state, s)?;
+        let left = heal::MAX_RESTARTS_PER_HOUR.saturating_sub(r.count) as u64;
+        rows.push(
+            nerve::to_gaia_json(&r.to_value())
+                .with("service", s)
+                .with("combined_cap", heal::MAX_RESTARTS_PER_HOUR as u64)
+                .with("left_for_gaia", left),
+        );
+    }
+    Ok(Json::obj()
+        .with(
+            "decision",
+            "D-L2 accepted 2026-10-21: Gaia + nerve restarts <= 3 per service per rolling hour",
+        )
+        .with(
+            "nerve_cycle",
+            state.get("cycle").and_then(serde_json::Value::as_u64),
+        )
+        .with(
+            "nerve_ts",
+            state
+                .get("ts")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string),
+        )
+        .with("services", Json::Arr(rows)))
 }

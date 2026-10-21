@@ -1,0 +1,191 @@
+{
+  "components": [
+    {
+      "n_restarts_systemd": 0,
+      "name": "openmind-memory",
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": "openmind-memory.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "hermes-rs",
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": "hermes-rs.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "link-watch-rs",
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": "link-watch-rs.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "galion-desk",
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": "galion-desk.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "tuner",
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": "tuner.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "galion-one",
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": "galion-one.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "galion-one-mouth",
+      "reflex_restarts_per_hour": 0,
+      "restarts_1h": 0,
+      "status": "degrading",
+      "unit": null
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "console",
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": "console.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "galion-health",
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": "galion-health.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "cloudflared",
+      "reflex_restarts_per_hour": 1,
+      "restarts_1h": 0,
+      "status": "degrading",
+      "unit": "cloudflared.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "tuner-quick",
+      "reflex_restarts_per_hour": 0,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": "tuner-quick.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "voice-worker",
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "status": "absent",
+      "unit": "galion-voice.service"
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "gaia",
+      "reflex_restarts_per_hour": 0,
+      "restarts_1h": 0,
+      "status": "absent",
+      "unit": null
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "lxc-host",
+      "reflex_restarts_per_hour": 0,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": null
+    },
+    {
+      "n_restarts_systemd": 0,
+      "name": "galion-nerve",
+      "reflex_restarts_per_hour": 0,
+      "restarts_1h": 0,
+      "status": "healthy",
+      "unit": null
+    }
+  ],
+  "cycle": 6941,
+  "interval_s": 30,
+  "reflex": {
+    "budgets": {
+      "cloudflared.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "console.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "galion-desk.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "galion-health.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "galion-one.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "galion-voice.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "hermes-rs.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "link-watch-rs.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "openmind-memory.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "tuner.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      }
+    },
+    "limits": {
+      "cloudflared_per_hour": 1,
+      "fail_cycles": 3,
+      "max_actions_per_cycle": 2,
+      "restarts_per_hour_default": 3,
+      "rollback_per_unit_per_day": 1
+    },
+    "recent": [],
+    "scaling": "single LXC: restarts/rollback only, no scaling"
+  },
+  "ts": "2026-10-21T08:25:05+02:00",
+  "version": "0.1.0"
+}

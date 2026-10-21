@@ -150,6 +150,15 @@ fn real_kill_detect_plan_signed_approve_restart_cap_and_nerve() {
     let mut guard = Kill(vec![nerve, first], vec![]);
     wait_port(19233);
     wait_port(PORT);
+    // D-L2 (slot 175): ticks read the nerve's /state; wait for its first cycle.
+    let t_state = std::time::Instant::now();
+    while !get("/state").contains("\"components\":[") {
+        assert!(
+            t_state.elapsed() < Duration::from_secs(30),
+            "nerve /state never got components"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
 
     let tick = |token: Option<&Path>| {
         let mut cmd = Command::new(gaia);

@@ -30,6 +30,11 @@
 //!   `expired`, `forged`, `malformed`, `wrong-scope`, `lifetime`,
 //!   `token-file`) the file is renamed to `*.tok.spent` / `*.tok.refused`
 //!   so the next tick takes the next one. Token contents are never printed.
+//!   A token whose signed expiry has passed is renamed `*.tok.expired`
+//!   before the tick (D-L3, `gaia tokens`), so it is never offered.
+//! * **Hung** services (D-L4) come back as outcome `hung` (exit 8): the
+//!   tick reported them to the nerve; the loop goes on, restarting nothing.
+//! * **Combined cap** (D-L2): every tick counts the nerve's own restarts.
 //!
 //! * **Reaping.** Restarted test services are children of the loop; the
 //!   loop reaps the ones that exited (`waitpid` WNOHANG, never a signal) so
@@ -239,6 +244,7 @@ pub fn run_with(
     let mut outcomes: std::collections::BTreeMap<String, u64> = Default::default();
     let mut tokens_spent = 0u64;
     let mut tokens_refused = 0u64;
+    let mut tokens_expired = 0u64;
     let mut sleeps: Vec<u64> = Vec::new();
     let mut last_error: Option<String> = None;
     let mut reaped = 0u64;
@@ -261,7 +267,15 @@ pub fn run_with(
         }
         ticks += 1;
         let mut tc = cfg.tick.clone();
-        let token = cfg.token_dir.as_deref().and_then(next_token);
+        // D-L3: expired tokens are moved aside (*.tok.expired) before use.
+        let token = match cfg.token_dir.as_deref() {
+            Some(d) => {
+                let (t, moved) = crate::tokens::next_live(d, hades_gate::approval::unix_now());
+                tokens_expired += moved;
+                t
+            }
+            None => None,
+        };
         if cfg.token_dir.is_some() {
             tc.token_file = token.clone();
         }
@@ -374,6 +388,7 @@ pub fn run_with(
         .with("outcomes", outcome_json)
         .with("tokens_spent", tokens_spent)
         .with("tokens_refused", tokens_refused)
+        .with("tokens_expired", tokens_expired)
         .with("interval_ms", cfg.interval.as_millis() as u64)
         .with("jitter_ms", cfg.jitter.as_millis() as u64)
         .with("seeded", cfg.seed.is_some())

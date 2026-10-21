@@ -49,6 +49,9 @@ fn fake_nerve() -> (SocketAddr, Log) {
             r.read_exact(&mut body).unwrap();
             let resp = if first.starts_with("GET /health") {
                 r#"{"status":"ok"}"#.to_string()
+            } else if first.starts_with("GET /state") {
+                // D-L2: the nerve watches no box test service (count 0).
+                r#"{"cycle":1,"components":[],"reflex":{"budgets":{}}}"#.to_string()
             } else if first.starts_with("POST /event") {
                 let mut v: Value = serde_json::from_slice(&body).unwrap();
                 v["ts"] = Value::from("2026-10-20T19:00:00+02:00");

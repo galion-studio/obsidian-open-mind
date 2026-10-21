@@ -458,3 +458,125 @@ impl Budget {
         self.state.record(service, epoch_s, pid)
     }
 }
+
+// ------------------------------------- combined Gaia + nerve cap (D-L2)
+
+/// [`cap_check`] with the nerve's own restarts of the service in the last
+/// hour added (decision D-L2, accepted 2026-10-21): the combined total stays
+/// at [`MAX_RESTARTS_PER_HOUR`]. `Ok(used)` is Gaia's plus the nerve's count.
+///
+/// The nerve only reports a count, not times, so when it contributes the
+/// retry hint is an upper bound: the moment enough of Gaia's own restarts
+/// leave the window, or the whole window when Gaia has none to wait for.
+/// Every tick re-reads the nerve, so the cap lifts as soon as the nerve's
+/// count drops.
+pub fn cap_check_combined(history: &[u64], nerve: usize, now: u64) -> Result<usize, u64> {
+    let mut recent: Vec<u64> = history
+        .iter()
+        .copied()
+        .filter(|t| *t <= now && now - *t < WINDOW_S)
+        .collect();
+    recent.sort_unstable();
+    let total = recent.len().saturating_add(nerve);
+    if total < MAX_RESTARTS_PER_HOUR {
+        return Ok(total);
+    }
+    // Gaia may still use `MAX - nerve` slots; it must wait for its own
+    // restarts beyond that to age out.
+    let gaia_slots = MAX_RESTARTS_PER_HOUR.saturating_sub(nerve);
+    if gaia_slots == 0 || recent.len() < gaia_slots {
+        return Err(WINDOW_S);
+    }
+    let oldest = recent[recent.len() - gaia_slots];
+    Err(WINDOW_S - (now - oldest))
+}
+
+// ------------------------------------------- hung service (D-L4, report)
+
+/// True when an HTTP probe detail means "connected, asked, no answer": the
+/// port is held by a process that does not respond (hung), as opposed to
+/// nothing listening (`connect: ConnectionRefused`) or a wrong answer.
+#[must_use]
+pub fn hung_detail(detail: &str) -> bool {
+    // `io::ErrorKind` Display ("operation would block", "timed out") or
+    // Debug ("WouldBlock", "TimedOut") text, or the probe's own deadline.
+    let timed_out = |s: &str| {
+        let s = s.to_ascii_lowercase();
+        [
+            "would block",
+            "wouldblock",
+            "timed out",
+            "timedout",
+            "deadline",
+        ]
+        .iter()
+        .any(|k| s.contains(k))
+    };
+    (detail.starts_with("read: ") || detail.starts_with("write: ")) && timed_out(detail)
+}
+
+/// Pids (visible to this user) holding a listening TCP socket on
+/// 127.0.0.1/0.0.0.0/[::] `port`, from `/proc/net/tcp{,6}` and
+/// `/proc/<pid>/fd` (read-only; nothing is signalled). Evidence for a
+/// `gaia.heal.hung` event; empty when the owner is not visible.
+#[must_use]
+pub fn listener_pids(port: u16) -> Vec<u32> {
+    let want = format!(":{port:04X}");
+    let mut inodes = Vec::new();
+    for f in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let Ok(text) = fs::read_to_string(f) else {
+            continue;
+        };
+        for l in text.lines().skip(1) {
+            let c: Vec<&str> = l.split_whitespace().collect();
+            // local_address rem_address st ... inode at index 9; 0A = LISTEN.
+            if c.len() > 9 && c[1].ends_with(&want) && c[3] == "0A" {
+                inodes.push(format!("socket:[{}]", c[9]));
+            }
+        }
+    }
+    if inodes.is_empty() {
+        return vec![];
+    }
+    let mut pids = Vec::new();
+    let Ok(procs) = fs::read_dir("/proc") else {
+        return pids;
+    };
+    for p in procs.flatten() {
+        let Some(pid) = p.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Ok(fds) = fs::read_dir(p.path().join("fd")) else {
+            continue;
+        };
+        if fds.flatten().any(|fd| {
+            fs::read_link(fd.path())
+                .ok()
+                .and_then(|t| t.to_str().map(|s| inodes.iter().any(|i| i == s)))
+                .unwrap_or(false)
+        }) {
+            pids.push(pid);
+        }
+    }
+    pids.sort_unstable();
+    pids
+}
+
+/// Pids Gaia recorded as restarts of `service` (both ledgers).
+pub fn recorded_pids(budget: &Budget, service: &str) -> io::Result<Vec<u32>> {
+    let mut all = budget.global.entries(service)?;
+    all.extend(budget.state.entries(service)?);
+    let mut pids: Vec<u32> = all.into_iter().filter_map(|r| r.pid).collect();
+    pids.sort_unstable();
+    pids.dedup();
+    Ok(pids)
+}
+
+/// Gaia's own restarts of a service inside the rolling window.
+#[must_use]
+pub fn recent_count(history: &[u64], now: u64) -> usize {
+    history
+        .iter()
+        .filter(|t| **t <= now && now - **t < WINDOW_S)
+        .count()
+}

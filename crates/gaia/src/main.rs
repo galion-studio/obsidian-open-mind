@@ -26,7 +26,11 @@ const USAGE_HEAD: &str = "usage: gaia <command> [options]
                                  hades-gate check (disable, admin safety, Ed25519 token scoped to
                                  heal-apply + service + plan hash, expiry, single use) ->
                                  restart (max 3 per service per hour) -> nerve event;
-                                 exit 0 ok, 4 refused, 5 capped, 6 apply failed
+                                 exit 0 ok, 4 refused, 5 capped, 6 apply failed, 8 hung (reported, never killed)
+                                 D-L2: the nerve's restarts (GET /state restarts_1h / reflex live_1h) count
+                                 toward the 3/h cap; an unreadable /state fails closed
+                                 D-L4: a service that holds its port but never answers -> gaia.heal.hung
+                                 event on the nerve, no restart, no kill, no token used
   heal-tick --loop [--interval-ms 30000] [--jitter-ms 0] [--max-ticks N] [--max-runtime-s S]
             [--max-restarts R] [--max-errors 5] [--stop-file F] [--token-dir D] [--seed N] ...heal-tick flags... -- CMD
                                  S3.1 supervised loop: one heal-tick per interval + random jitter (monotonic
@@ -35,6 +39,19 @@ const USAGE_HEAD: &str = "usage: gaia <command> [options]
                                  --token-dir: pre-minted single-use tokens (*.tok), used ones renamed .spent;
                                  the 3/h cap is GLOBAL (gaia-restarts.jsonl next to hades-gate's replay
                                  ledger), a new --state dir does not reset it; one JSON line per tick
+                                 expired *.tok files are renamed .tok.expired before use
+  nerve-restarts (--nerve 127.0.0.1:N | --state-file F) --service S [--service S2 ...]
+                                 READ-ONLY D-L2 view: nerve restarts in the last hour per service and how
+                                 many of the combined 3/h that leaves for Gaia
+  tokens request --token-dir D [--count 3] [--ttl-s 900] --service NAME --port P --allow-ports A-B -- CMD
+                                 D-L3: ask the admin for a small batch (1-3) of short-lived (<=3600 s)
+                                 single-use heal-apply tokens; refuses past 3 live tokens in D;
+                                 no standing grant, no HADES mode change
+  tokens mint --request R --seed S
+                                 ADMIN SIDE ONLY (needs the admin seed): mint the batch as 0600 *.tok
+  tokens status --token-dir D [--hades-config C] [--prune]
+                                 state, expiry (Zagreb), signature and ledger state per token file;
+                                 never prints a token; --prune renames expired ones .tok.expired
   heal-plan --service NAME --port P --allow-ports A-B [--health /health] [--out F] -- /abs/start/cmd ARGS...
                                  print the exact heal-apply plan and its SHA-256 for `hades-gate mint`;
                                  --out writes the plan bytes to a new file
@@ -116,6 +133,8 @@ fn main() -> ExitCode {
             },
         },
         Some("heal-plan") => gaia::live_heal::heal_plan_cli(&args[1..]),
+        Some("nerve-restarts") => gaia::live_heal::nerve_restarts_cli(&args[1..]),
+        Some("tokens") => gaia::tokens::cli(&args[1..]).map(|v| gaia_live::nerve::to_gaia_json(&v)),
         Some("status") => Ok(gaia::status()),
         Some("tick") => match opt("--n").map(str::parse::<u64>) {
             None => Ok(gaia::tick(10)),

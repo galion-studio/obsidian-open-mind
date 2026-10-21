@@ -4,17 +4,18 @@
 //! REAL test (GALION_REAL=1) of the S3.1 supervised loop, box only.
 //!
 //! Real processes: `openmind-nerve serve` (GAIA_NERVE_BIN) on
-//! 127.0.0.1:20300 (wave-4 slot 160 range 20300-20309) and three
-//! `gaia-dummy` fault services on 127.0.0.1:19601-19603. The dummies sit in
-//! 19600-19609 because the heal apply path only ever touches 19000-19999
+//! 127.0.0.1:20752 (wave-4 slot 175 range 20750-20759; slot 160 used 20300)
+//! and three `gaia-dummy` fault services on 127.0.0.1:19755-19757. The
+//! dummies sit in 19750-19759 because the heal apply path only ever touches 19000-19999
 //! (`gaia_live::heal::TEST_PORTS`, a safety guard this test does not widen).
 //!
 //! Three `gaia heal-tick --loop` processes run at once, sharing one
 //! hades-gate (one replay ledger, one global restart ledger), each with its
 //! own `--state` dir and a dir of five pre-minted single-use tokens:
-//! * hang  (accepts, never answers): probe times out, every restart fails
-//!   (the hung process keeps the port; Gaia never signals it): 3 x
-//!   `gaia.heal.failed`, then `gaia.heal.capped` with no token consumed;
+//! * hang  (accepts, never answers): since D-L4 (accepted 2026-10-21) the
+//!   tick confirms the hang with a second probe and posts `gaia.heal.hung`
+//!   with the listener pid; no restart, no kill, no token consumed (before
+//!   slot 175 it burned 3 tokens on restarts that could never take the port);
 //! * flap  (every instance exits after 1.2 s): 3 x `gaia.heal.applied`,
 //!   then capped;
 //! * crash (the first instance exits once): 1 x applied, then healthy.
@@ -22,7 +23,7 @@
 //! Then: no zombies under the loops, the stop file ends all three, a
 //! one-shot tick and a fourth loop with brand-new `--state` dirs are still
 //! capped by the global ledger (tokens not consumed), the replay ledger has
-//! exactly 7 consumed tokens, no token text reaches the nerve, every stamp
+//! exactly 4 consumed tokens, no token text reaches the nerve, every stamp
 //! is Europe/Zagreb, and teardown leaves no process and no open port.
 //!
 //! Run: `GALION_REAL=1 GAIA_NERVE_BIN=$T/release/openmind-nerve cargo test
@@ -39,13 +40,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const NERVE: &str = "127.0.0.1:20300";
-const NERVE_PORT: u16 = 20300;
-const ALLOW: &str = "19600-19609";
+const NERVE: &str = "127.0.0.1:20752";
+const NERVE_PORT: u16 = 20752;
+const ALLOW: &str = "19750-19759";
 const SVCS: [(&str, u16); 3] = [
-    ("dummy-hang", 19601),
-    ("dummy-flap", 19602),
-    ("dummy-crash", 19603),
+    ("dummy-hang", 19755),
+    ("dummy-flap", 19756),
+    ("dummy-crash", 19757),
 ];
 
 fn stamp() -> String {
@@ -285,6 +286,20 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
     };
     wait_port(NERVE_PORT);
     eprintln!("nerve GET /health: {}", http_get(NERVE_PORT, "/health"));
+    // D-L2: ticks read the nerve's /state; wait for its first cycle.
+    let t_state = Instant::now();
+    while serde_json::from_str::<Value>(&http_get(NERVE_PORT, "/state"))
+        .ok()
+        .and_then(|s| s.get("components").map(Value::is_array))
+        != Some(true)
+    {
+        assert!(
+            t_state.elapsed() < Duration::from_secs(30),
+            "nerve /state never got components"
+        );
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    eprintln!("nerve /state has components after {:?}", t_state.elapsed());
     for t in &targets {
         let c = Command::new(&t.argv[0])
             .args(&t.argv[1..])
@@ -367,8 +382,8 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
                     && e["data"]["state"] == "up"
             })
             .count();
-        count(ev, "dummy-hang", "gaia.heal.failed") == 3
-            && count(ev, "dummy-hang", "gaia.heal.capped") >= 2
+        count(ev, "dummy-hang", "gaia.heal.hung") >= 3
+            && count(ev, "dummy-hang", "gaia.heal.failed") == 0
             && count(ev, "dummy-flap", "gaia.heal.applied") == 3
             && count(ev, "dummy-flap", "gaia.heal.capped") >= 2
             && count(ev, "dummy-crash", "gaia.heal.applied") == 1
@@ -478,10 +493,35 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
         eprintln!("{name}: first tick durations ms {first_ms:?}");
     }
     let by = |n: &str| &summaries.iter().find(|s| s.0 == n).unwrap().1;
-    assert_eq!(by("dummy-hang")["tokens_spent"], 3);
-    assert_eq!(by("dummy-hang")["restarts"], 3);
-    assert_eq!(by("dummy-hang")["outcomes"]["restarted"], Value::Null);
-    assert_eq!(by("dummy-hang")["outcomes"]["apply-failed"], 3);
+    // D-L4: the hang is reported every tick, never restarted or killed.
+    assert_eq!(by("dummy-hang")["tokens_spent"], 0);
+    assert_eq!(by("dummy-hang")["restarts"], 0);
+    assert_eq!(by("dummy-hang")["outcomes"]["apply-failed"], Value::Null);
+    assert!(by("dummy-hang")["outcomes"]["hung"].as_u64().unwrap() >= 3);
+    let hang_pid = g.kids[1].id();
+    let all_ev = events(&nerve_log);
+    let hung_ev: Vec<&Value> = all_ev
+        .iter()
+        .filter(|e| e["kind"] == "gaia.heal.hung")
+        .collect();
+    for e in &hung_ev {
+        assert_eq!(
+            e["data"]["listener_pids"],
+            serde_json::json!([hang_pid]),
+            "{e}"
+        );
+        assert_eq!(e["data"]["kill"], false);
+        assert_eq!(e["data"]["token_consumed"], false);
+    }
+    eprintln!(
+        "hang: {} gaia.heal.hung events, listener pid {hang_pid} (the hung dummy), still alive: {}",
+        hung_ev.len(),
+        std::path::Path::new(&format!("/proc/{hang_pid}")).exists()
+    );
+    assert!(
+        std::path::Path::new(&format!("/proc/{hang_pid}")).exists(),
+        "Gaia must never kill the hung service"
+    );
     assert_eq!(by("dummy-flap")["tokens_spent"], 3);
     assert_eq!(by("dummy-flap")["outcomes"]["restarted"], 3);
     assert_eq!(by("dummy-crash")["tokens_spent"], 1);
@@ -498,7 +538,11 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
                     .is_some_and(|x| x == "tok")
             })
             .count();
-        let want = if name == "dummy-crash" { 4 } else { 2 };
+        let want = match name.as_str() {
+            "dummy-crash" => 4,
+            "dummy-hang" => 5,
+            _ => 2,
+        };
         assert_eq!(left, want, "{name} unused tokens");
     }
     let consumed = || {
@@ -507,9 +551,9 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
             .matches("\"event\":\"consumed\"")
             .count()
     };
-    assert_eq!(consumed(), 7);
+    assert_eq!(consumed(), 4);
     let global = std::fs::read_to_string(dir.join("gate/gaia-restarts.jsonl")).unwrap();
-    assert_eq!(global.lines().count(), 7, "{global}");
+    assert_eq!(global.lines().count(), 4, "{global}");
 
     // A brand-new --state dir cannot reset the budget: one-shot tick for the
     // (now down) flap service with a fresh token -> capped, token kept.
@@ -533,7 +577,7 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
     assert_eq!(out.status.code(), Some(5), "{text}");
     assert!(text.contains("\"outcome\":\"capped\""), "{text}");
     assert!(!dir.join("state-brand-new/restarts.jsonl").exists());
-    assert_eq!(consumed(), 7, "capped tick must not consume the token");
+    assert_eq!(consumed(), 4, "capped tick must not consume the token");
     eprintln!(
         "[{}] one-shot heal-tick with a new --state dir: exit 5 capped, token not consumed",
         stamp()
@@ -554,7 +598,7 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
     assert_eq!(last["result"]["stop"], "max-ticks");
     assert_eq!(last["result"]["outcomes"]["capped"], 3, "{text}");
     assert_eq!(last["result"]["restarts"], 0);
-    assert_eq!(consumed(), 7);
+    assert_eq!(consumed(), 4);
     eprintln!(
         "[{}] second flap loop on a new --state dir: outcomes {} (no restart, no token)",
         stamp(),
@@ -567,8 +611,13 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
     assert_eq!(kinds("gaia.loop.started"), 4);
     assert_eq!(kinds("gaia.loop.stopped"), 4);
     assert_eq!(kinds("gaia.heal.applied"), 4);
-    assert_eq!(kinds("gaia.heal.failed"), 3);
-    assert_eq!(kinds("gaia.heal.approved"), 7);
+    assert_eq!(
+        kinds("gaia.heal.failed"),
+        0,
+        "D-L4: a hang is never restarted"
+    );
+    assert_eq!(kinds("gaia.heal.approved"), 4);
+    assert!(kinds("gaia.heal.hung") >= 3);
     let raw = std::fs::read_to_string(&nerve_log).unwrap();
     for t in &targets {
         for e in std::fs::read_dir(dir.join(format!("tok-{}", t.name)))
@@ -613,7 +662,7 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
         assert!(!open(p), "port {p} still open after teardown");
     }
     eprintln!(
-        "[{}] teardown: 0 dummies, ports 20300 + 19601-19603 closed",
+        "[{}] teardown: 0 dummies, ports 20752 + 19755-19757 closed",
         stamp()
     );
     let _ = std::fs::remove_dir_all(&dir);

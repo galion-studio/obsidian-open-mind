@@ -7,6 +7,7 @@
 pub mod heal_loop;
 pub mod live_heal;
 pub mod poseidon;
+pub mod tokens;
 pub mod view;
 
 use gaia_core::{Directive, FunctionId, Gaia, Json, Lifecycle, Outcome, Report, System, Verb};

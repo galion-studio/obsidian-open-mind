@@ -277,6 +277,7 @@ fn real_route31_hermes_rust_first_against_live_vps() {
         pulse: None,
         extra_hosts: vec![],
         desk: None,
+        files: Default::default(), // main-staging: console-port-4 field
     });
     let fallbacks = ui.spa_fallbacks(true);
     let mut rust = Vec::new();

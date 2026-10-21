@@ -156,6 +156,7 @@ fn start() -> (SocketAddr, Log, console_ui::Ui) {
         pulse: None,
         extra_hosts: vec![],
         desk: None,
+        files: Default::default(), // main-staging: console-port-4 field
     });
     (addr, log, ui)
 }
@@ -284,7 +285,9 @@ fn every_live_route_goes_where_spa_fallbacks_says() {
     let expect: Vec<&str> = LIVE_SRC_ROUTES
         .iter()
         .copied()
-        .filter(|p| *p != "/" && !console_ui::PORTED.contains(p))
+        .filter(|p| {
+            *p != "/" && (!console_ui::PORTED.contains(p) || console_ui::SPA_FIRST.contains(p))
+        }) // main-staging: console-port-merge keeps /arena, /bank SPA-first
         .collect();
     assert_eq!(fallbacks, expect);
     let mut rust = 0;
@@ -301,10 +304,16 @@ fn every_live_route_goes_where_spa_fallbacks_says() {
                 !r.body.to_ascii_lowercase().contains("<script"),
                 "{p}: Rust page has a script"
             );
-            assert!(matches!(r.code, 200 | 302), "{p}: {}", r.code);
+            // main-staging: /md/user (console-port-4) is 404 when no host files are configured.
+            let ok = matches!(r.code, 200 | 302) || (*p == "/md/user" && r.code == 404);
+            assert!(ok, "{p}: {}", r.code);
         }
     }
-    assert_eq!(rust, console_ui::PORTED.len() + 1, "PORTED + /");
+    assert_eq!(
+        rust,
+        console_ui::PORTED.len() + 1 - console_ui::SPA_FIRST.len(),
+        "PORTED - SPA_FIRST + /"
+    );
     assert_eq!(rust + fallbacks.len(), 31);
 }
 

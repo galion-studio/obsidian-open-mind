@@ -315,6 +315,7 @@ mod tests {
             pulse: None,
             extra_hosts: vec![],
             desk: None,
+            files: crate::port4::HostFiles::default(), // main-staging: console-port-4 field
         })
     }
 
@@ -349,25 +350,10 @@ mod tests {
         // 13 live-src routes are still the SPA's (ported on console-port-1,
         // -3, -4, -5; merged in console-port-merge).
         let spa = ui.spa_fallbacks(true);
-        assert_eq!(
-            spa,
-            [
-                "/analytics",
-                "/arena",
-                "/bank",
-                "/cache",
-                "/instances",
-                "/keys",
-                "/markers",
-                "/md/user",
-                "/memory",
-                "/mesh",
-                "/node",
-                "/security",
-                "/session",
-            ]
-        );
-        assert_eq!(spa.len() + PORTED.len() + 1, 31);
+        // main-staging: with console-port-merge every room is ported; only the
+        // SPA_FIRST rooms (/arena, /bank: writes held) stay with the SPA.
+        assert_eq!(spa, ["/arena", "/bank"]);
+        assert_eq!(spa.len() + PORTED.len() + 1 - crate::SPA_FIRST.len(), 31);
         assert!(!spa.contains(&"/hermes"));
     }
 }

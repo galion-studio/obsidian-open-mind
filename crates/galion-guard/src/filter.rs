@@ -294,6 +294,16 @@ impl SshdFilter {
                 if !matches!(next, None | Some(' ' | '\t' | ']' | ')' | ':' | ',')) {
                     continue;
                 }
+                // An IPv6 run followed by `:` and more address characters is
+                // one longer, invalid token: "::1:2:3:4:5:6:7:81.0.0.1" must not
+                // yield 0:1:2:3:4:5:6:7 (found by the weekly fuzz run, slot 202,
+                // 2026-10-21 17:49 +02:00). `1.2.3.4: 11:` style tails still match.
+                if c.name("ip6").is_some() && next == Some(':') {
+                    let after = content[h.end() + 1..].chars().next();
+                    if matches!(after, Some(a) if a.is_ascii_hexdigit() || a == ':' || a == '.') {
+                        continue;
+                    }
+                }
             }
             let host = host_of(&c);
             return Some(Match {
@@ -360,6 +370,27 @@ mod tests {
         let r = m("ip50 sshd[1234]: Invalid user  from 203.0.113.7 port 51234").unwrap();
         assert_eq!(r.rule, 5);
         assert_eq!(r.user, None);
+    }
+
+    /// Weekly fuzz find (slot 202, 2026-10-21 17:49 +02:00, seed
+    /// 1792597233379690538): an over-long IPv6 run must not be cut to a
+    /// valid-looking prefix; a real IPv6 address with a port still matches.
+    #[test]
+    fn ipv6_run_with_colon_tail_is_not_truncated() {
+        let bad = m("ip50 sshd[1017]: Failed publickey for invalid user Invalidpublvckey fr inialid user Invalid usid user Invalid us\u{181}er b from ::1:2:3:4:5:6:7:81.00.0.1 port 4013");
+        assert!(
+            !matches!(bad.as_ref().and_then(|x| x.host.clone()), Some(Host::Ip(_))),
+            "{bad:?}"
+        );
+        assert_eq!(
+            m("h sshd[1]: Failed publickey for invalid user b from 2001:db8::7 port 4013 ssh2")
+                .and_then(|x| x.host),
+            ip("2001:db8::7")
+        );
+        assert_eq!(
+            m("h sshd[1]: Invalid user b from 2001:db8::7 port 22").and_then(|x| x.host),
+            ip("2001:db8::7")
+        );
     }
 
     #[test]

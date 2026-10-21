@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-box"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Galion OS sandbox launcher prototype: rootless user/mount/pid/net namespaces, coexists with the host OS"
+publish = false
+
+[dependencies]
+libc = "0.2"
+
+[[test]]
+name = "real_vps"
+path = "tests/real_vps.rs"

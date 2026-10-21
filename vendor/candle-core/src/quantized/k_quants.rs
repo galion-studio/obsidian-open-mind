@@ -238,15 +238,6 @@ impl GgmlType for BlockQ4_0 {
     // https://github.com/ggerganov/llama.cpp/blob/b5ffb2849d23afe73647f68eec7b68187af09be6/ggml.c#L2361C10-L2361C122
     #[allow(unreachable_code)]
     fn vec_dot(n: usize, xs: &[Self], ys: &[Self::VecDotType]) -> f32 {
-        #[cfg(target_feature = "avx2")]
-        return super::avx::vec_dot_q4_0_q8_0(n, xs, ys);
-
-        #[cfg(target_feature = "neon")]
-        return super::neon::vec_dot_q4_0_q8_0(n, xs, ys);
-
-        #[cfg(target_feature = "simd128")]
-        return super::simd128::vec_dot_q4_0_q8_0(n, xs, ys);
-
         Self::vec_dot_unopt(n, xs, ys)
     }
 
@@ -647,15 +638,6 @@ impl GgmlType for BlockQ8_0 {
 
     #[allow(unreachable_code)]
     fn vec_dot(n: usize, xs: &[Self], ys: &[Self::VecDotType]) -> f32 {
-        #[cfg(target_feature = "avx2")]
-        return super::avx::vec_dot_q8_0_q8_0(n, xs, ys);
-
-        #[cfg(target_feature = "neon")]
-        return super::neon::vec_dot_q8_0_q8_0(n, xs, ys);
-
-        #[cfg(target_feature = "simd128")]
-        return super::simd128::vec_dot_q8_0_q8_0(n, xs, ys);
-
         Self::vec_dot_unopt(n, xs, ys)
     }
 
@@ -752,15 +734,6 @@ impl GgmlType for BlockQ2K {
 
     #[allow(unreachable_code)]
     fn vec_dot(n: usize, xs: &[Self], ys: &[Self::VecDotType]) -> f32 {
-        #[cfg(target_feature = "avx2")]
-        return super::avx::vec_dot_q2k_q8k(n, xs, ys);
-
-        #[cfg(target_feature = "neon")]
-        return super::neon::vec_dot_q2k_q8k(n, xs, ys);
-
-        #[cfg(target_feature = "simd128")]
-        return super::simd128::vec_dot_q2k_q8k(n, xs, ys);
-
         Self::vec_dot_unopt(n, xs, ys)
     }
 
@@ -985,12 +958,6 @@ impl GgmlType for BlockQ3K {
 
     #[allow(unreachable_code)]
     fn vec_dot(n: usize, xs: &[Self], ys: &[Self::VecDotType]) -> f32 {
-        #[cfg(target_feature = "avx2")]
-        return super::avx::vec_dot_q3k_q8k(n, xs, ys);
-
-        #[cfg(target_feature = "neon")]
-        return super::neon::vec_dot_q3k_q8k(n, xs, ys);
-
         Self::vec_dot_unopt(n, xs, ys)
     }
 
@@ -1357,15 +1324,6 @@ impl GgmlType for BlockQ4K {
 
     #[allow(unreachable_code)]
     fn vec_dot(n: usize, xs: &[Self], ys: &[Self::VecDotType]) -> f32 {
-        #[cfg(target_feature = "avx2")]
-        return super::avx::vec_dot_q4k_q8k(n, xs, ys);
-
-        #[cfg(target_feature = "neon")]
-        return super::neon::vec_dot_q4k_q8k(n, xs, ys);
-
-        #[cfg(target_feature = "simd128")]
-        return super::simd128::vec_dot_q4k_q8k(n, xs, ys);
-
         Self::vec_dot_unopt(n, xs, ys)
     }
 
@@ -1614,12 +1572,6 @@ impl GgmlType for BlockQ5K {
 
     #[allow(unreachable_code)]
     fn vec_dot(n: usize, xs: &[Self], ys: &[Self::VecDotType]) -> f32 {
-        #[cfg(target_feature = "avx2")]
-        return super::avx::vec_dot_q5k_q8k(n, xs, ys);
-
-        #[cfg(target_feature = "neon")]
-        return super::neon::vec_dot_q5k_q8k(n, xs, ys);
-
         Self::vec_dot_unopt(n, xs, ys)
     }
 
@@ -1915,15 +1867,6 @@ impl GgmlType for BlockQ6K {
 
     #[allow(unreachable_code)]
     fn vec_dot(n: usize, xs: &[Self], ys: &[Self::VecDotType]) -> f32 {
-        #[cfg(target_feature = "avx2")]
-        return super::avx::vec_dot_q6k_q8k(n, xs, ys);
-
-        #[cfg(target_feature = "neon")]
-        return super::neon::vec_dot_q6k_q8k(n, xs, ys);
-
-        #[cfg(target_feature = "simd128")]
-        return super::simd128::vec_dot_q6k_q8k(n, xs, ys);
-
         Self::vec_dot_unopt(n, xs, ys)
     }
 
@@ -2180,15 +2123,6 @@ impl GgmlType for BlockQ8K {
 
     #[allow(unreachable_code)]
     fn vec_dot(n: usize, xs: &[Self], ys: &[Self::VecDotType]) -> f32 {
-        #[cfg(target_feature = "avx2")]
-        return super::avx::vec_dot_q8k_q8k(n, xs, ys);
-
-        #[cfg(target_feature = "neon")]
-        return super::neon::vec_dot_q8k_q8k(n, xs, ys);
-
-        #[cfg(target_feature = "simd128")]
-        return super::simd128::vec_dot_q8k_q8k(n, xs, ys);
-
         Self::vec_dot_unopt(n, xs, ys)
     }
 

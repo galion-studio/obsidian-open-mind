@@ -20,6 +20,21 @@ Modified 2026-10-21 by Grok Bot for galion-studio (swarm/candle-zip-fix), only s
    2775d95f…b747) were missing from the first commit because the repo `.gitignore` ignores `*.pt`; added 2026-10-21
    (swarm/candle-zip-rebase) with a `!vendor/candle-core/tests/*.pt` exception, so `tests/pth_tests.rs` runs.
 
+6. SIMD kernels removed (2026-10-21, swarm/int5-candle-repocheck, slot 211), so the copy obeys the project's
+   no-SIMD rule (UNIVERSAL-CPU.md) and passes `repo-check` (`portable`) and `scripts/ucpu-gate.sh grep`
+   without any exclusion for `vendor/`:
+   - deleted `src/cpu/{avx,neon,simd128}.rs` and `src/quantized/{avx,neon,simd128}.rs` (all `core::arch`
+     intrinsics; upstream compiled NEON into every aarch64 build because NEON is on by default there);
+   - `src/cpu/mod.rs`: dropped the `mod`/`use` lines and the SIMD variants of `vec_dot_f32`, `vec_sum`,
+     `vec_dot_f16`, `vec_dot_bf16`; the upstream portable variants are kept with their bodies unchanged;
+   - `src/quantized/k_quants.rs`: dropped the 22 `#[cfg(target_feature = ...)] return super::<simd>::...;`
+     early returns in 7 `vec_dot` functions, so each always calls its upstream `vec_dot_unopt`;
+   - `src/quantized/mod.rs`: dropped the three `mod` lines;
+   - `src/utils.rs`: `with_avx`, `with_neon`, `with_simd128`, `with_f16c` return `false`.
+   On x86_64 musl (no AVX2 in the baseline target) this is the code upstream already compiled, so x86_64
+   results are unchanged; on aarch64 the scalar paths replace NEON (same maths, slower). To re-sync with a new
+   upstream release, repeat these deletions.
+
 Each source change carries a `galion candle-zip-fix` comment. Nothing else differs from the published crate.
 Remove this directory and the `[patch.crates-io]` entry in the workspace `Cargo.toml` once a candle release
 requires zip >= 9 (as of 2026-10-21 neither 0.9.2, 0.10.x, 0.11.0 nor upstream main does).

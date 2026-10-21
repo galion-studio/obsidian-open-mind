@@ -28,18 +28,21 @@ pub fn metal_is_available() -> bool {
     cfg!(feature = "metal")
 }
 
+// galion candle-zip-fix (int5-candle-repocheck): the SIMD kernels are removed from this vendored copy
+// (UNIVERSAL-CPU.md), so these report `false` on every target. f16c: Galion builds never set
+// CPU feature codegen flags (scripts/ucpu-gate.sh, repo-check `portable`), so it is never compiled in.
 pub fn with_avx() -> bool {
-    cfg!(target_feature = "avx2")
+    false
 }
 
 pub fn with_neon() -> bool {
-    cfg!(target_feature = "neon")
+    false
 }
 
 pub fn with_simd128() -> bool {
-    cfg!(target_feature = "simd128")
+    false
 }
 
 pub fn with_f16c() -> bool {
-    cfg!(target_feature = "f16c")
+    false
 }

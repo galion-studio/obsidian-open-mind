@@ -343,3 +343,43 @@ fn hostile_snapshot_is_bounded() {
     let junk = json!({"open": [{"id": 5, "cause": "x"}, {"cause": "y"}, {"id": "", "cause": "z"}]});
     assert!(cx.backfill(&junk, 1).is_empty());
 }
+
+#[test]
+fn sticky_max_is_off_by_default_and_resolves_stale_when_set() {
+    // default: a unit whose recovery never arrives stays open
+    let mut cx = cortex();
+    cx.process(vec![failed("postfix.service")], 1_000);
+    cx.process(vec![failed("other.service")], 1_000 + 30 * 86_400);
+    assert!(open_of(&cx, "unit:postfix.service").is_some());
+    // opt-in: resolved as stale after incident_sticky_max_s of its own silence
+    let d = std::env::temp_dir().join(format!("gaia-cortex-237-stale-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    let mut cx = gaia_cortex::build(Config {
+        data_dir: d,
+        incident_sticky_max_s: 3_600,
+        ..Config::default()
+    });
+    cx.process(vec![failed("postfix.service")], 1_000);
+    let id = open_of(&cx, "unit:postfix.service").unwrap()["id"].clone();
+    cx.process(vec![failed("other.service")], 4_000);
+    assert!(open_of(&cx, "unit:postfix.service").is_some());
+    cx.process(vec![failed("third.service")], 4_600);
+    assert!(open_of(&cx, "unit:postfix.service").is_none());
+    assert_eq!(resolved_of(&cx, &id).unwrap()["resolved_by"], "stale");
+    assert_eq!(cx.stats_json()["incidents_resolved_stale"], 1);
+}
+
+#[test]
+fn env_knobs_are_read_and_clamped() {
+    let env = |k: &str| match k {
+        "CORTEX_INCIDENT_QUIET_S" => Some("0".to_string()),
+        "CORTEX_INCIDENT_STICKY_MAX_S" => Some("7200".to_string()),
+        _ => None,
+    };
+    let c = Config::load(None, &env).unwrap();
+    assert_eq!(c.incident_quiet_s, 1, "clamped to >= 1");
+    assert_eq!(c.incident_sticky_max_s, 7_200);
+    let d = Config::default();
+    assert_eq!((d.incident_quiet_s, d.incident_sticky_max_s), (1_800, 0));
+}

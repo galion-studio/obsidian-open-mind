@@ -120,6 +120,8 @@ pub struct Stats {
     /// one-shot subject stayed quiet for `incident_quiet_s`.
     pub incidents_resolved_cleared: u64,
     pub incidents_resolved_expired: u64,
+    /// Sticky subjects past `incident_sticky_max_s` (off by default).
+    pub incidents_resolved_stale: u64,
     pub alerts: u64,
     pub alerts_to_nerve: u64,
     pub escalations: u64,
@@ -477,18 +479,25 @@ impl Cortex {
                 }
             }
         }
-        let quiet = self.cfg.incident_quiet_s;
-        let expired: Vec<String> = self
+        let (quiet, max) = (self.cfg.incident_quiet_s, self.cfg.incident_sticky_max_s);
+        let expired: Vec<(String, &'static str)> = self
             .active
             .iter()
-            .filter(|(k, a)| {
-                !a.sticky && !subjects.contains_key(*k) && now.saturating_sub(a.last) >= quiet
+            .filter(|(k, _)| !updated.contains(*k))
+            .filter_map(|(k, a)| {
+                let age = now.saturating_sub(a.last);
+                if !a.sticky && age >= quiet {
+                    Some((k.clone(), "expired"))
+                } else if a.sticky && max > 0 && age >= max {
+                    Some((k.clone(), "stale"))
+                } else {
+                    None
+                }
             })
-            .map(|(k, _)| k.clone())
             .collect();
-        for k in expired {
+        for (k, why) in expired {
             if let Some(a) = self.active.remove(&k) {
-                ended.push((a.cause, "expired"));
+                ended.push((a.cause, why));
             }
         }
         // Grouping of this burst (decisions: stack-wide = 3+ subjects failing
@@ -598,6 +607,7 @@ impl Cortex {
                 }
                 match why {
                     "cleared" => self.stats.incidents_resolved_cleared += 1,
+                    "stale" => self.stats.incidents_resolved_stale += 1,
                     _ => self.stats.incidents_resolved_expired += 1,
                 }
                 self.note_resolved(id, why);
@@ -816,7 +826,7 @@ impl Cortex {
             "nerve_incidents_known": self.nerve_incs.len(), "nerve_incidents_backfilled": s.nerve_incidents_backfilled,
             "nerve_incidents_reconciled": s.nerve_incidents_reconciled, "nerve_incidents_duplicate": s.nerve_incidents_duplicate,
             "nerve_incidents_remapped": s.nerve_incidents_remapped, "subjects_active": self.active.len(),
-            "incidents_resolved_cleared": s.incidents_resolved_cleared, "incidents_resolved_expired": s.incidents_resolved_expired,
+            "incidents_resolved_cleared": s.incidents_resolved_cleared, "incidents_resolved_expired": s.incidents_resolved_expired, "incidents_resolved_stale": s.incidents_resolved_stale,
             "alerts": s.alerts, "alerts_to_nerve": s.alerts_to_nerve, "escalations": s.escalations,
             "escalations_open": self.escalations.open.len(),
             "llm_calls": s.llm_calls, "llm_refused": s.llm_refused, "llm_skipped_disabled": s.llm_skipped_disabled,
@@ -848,7 +858,7 @@ impl Cortex {
             self.active
                 .iter()
                 .map(|(k, a)| json!({"subject": k, "severity": a.sig.sev.as_str(), "last": ts(a.last), "sticky": a.sticky,
-                                     "expires": if a.sticky { Value::Null } else { json!(ts(a.last + self.cfg.incident_quiet_s)) },
+                                     "expires": match (a.sticky, self.cfg.incident_sticky_max_s) { (false, _) => json!(ts(a.last + self.cfg.incident_quiet_s)), (true, 0) => Value::Null, (true, m) => json!(ts(a.last + m)) },
                                      "quiet_s": now.saturating_sub(a.last)}))
                 .collect(),
         );

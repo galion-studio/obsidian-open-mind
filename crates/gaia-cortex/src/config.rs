@@ -36,6 +36,12 @@ pub struct Config {
     /// incidents and thresholds resolve only when their own signal clears
     /// (T5.1 F3: never because other subjects had bursts).
     pub incident_quiet_s: u64,
+    /// Units, nerve incidents and thresholds whose own "cleared" event never
+    /// comes (the nerve publishes start/stop only for lifecycle-tracked
+    /// groups; a postfix or ssh recovery never reaches the cortex) resolve as
+    /// `stale` after this many seconds without an event of their own.
+    /// 0 (default) = never: they wait for their own signal.
+    pub incident_sticky_max_s: u64,
     /// Cortex-side restart cap per unit per hour (the nerve has its own).
     pub restarts_per_unit_hour: u32,
     /// Failures of one unit within `flap_window_s` that open the circuit.
@@ -68,6 +74,7 @@ impl Default for Config {
             coalesce_ms: 1500,
             decision_cooldown_s: 120,
             incident_quiet_s: 1800,
+            incident_sticky_max_s: 0,
             restarts_per_unit_hour: 3,
             flap_failures: 3,
             flap_window_s: 900,
@@ -173,6 +180,9 @@ impl Config {
         }
         if let Some(v) = get("CORTEX_INCIDENT_QUIET_S").and_then(|v| v.parse().ok()) {
             c.incident_quiet_s = v;
+        }
+        if let Some(v) = get("CORTEX_INCIDENT_STICKY_MAX_S").and_then(|v| v.parse().ok()) {
+            c.incident_sticky_max_s = v;
         }
         if let Some(v) = get("CORTEX_NERVE_STREAM") {
             c.nerve_stream = v != "0" && v != "false";

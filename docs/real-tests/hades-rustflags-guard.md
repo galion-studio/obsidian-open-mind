@@ -50,7 +50,7 @@ All failing cases exit 101 with
   CLI + HTTP round trip on 127.0.0.1:20790 (port override added in this branch; default stays 19021).
 * `GALION_REAL=1 HADES_REDTEAM_PORT=20791 real_redteam` 1/1 (20:30:27): 82 attack plans → 82 × 403 admin-safety.
   (A first run at 20:30:22 forgot the port override and used the test's default
-  19380 for ~0.4 s; no conflict, nothing else listening there.)
+  19380 (slot 38 band) for ~0.4 s; its bind succeeded, so no other process held it.)
 
 ## Built x86_64 musl release binary on this branch
 

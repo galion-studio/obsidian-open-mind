@@ -68,8 +68,9 @@ pub struct CodingConfig {
     pub author_name: String,
     pub author_email: String,
     /// Extra directories covered by an empty tmpfs inside the sandbox
-    /// (`HERMES_HOME` and `HERMES_RS_CODING_HIDE`), on top of /root, /home
-    /// and /run/secrets. Landlock already denies reads outside the roots.
+    /// (`HERMES_HOME` and `HERMES_RS_CODING_HIDE`), on top of /root, /home,
+    /// /run/secrets and /opt/galion. Landlock already denies reads outside
+    /// the roots.
     pub hide: Vec<PathBuf>,
     /// Total size cap of the worktree during one tool run, in MiB
     /// (`HERMES_RS_CODING_WORKDIR_MB`, default 512, 0 = off). openmind-sandbox

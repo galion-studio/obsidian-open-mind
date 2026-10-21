@@ -400,14 +400,14 @@ fn every_gaia_test_port_is_in_its_slot_band_and_never_live() {
                 bad.push(format!(
                     "{rel}:{line}: {n} is a live VPS port inside a slot band"
                 ));
+            } else if is_live_port(n) && !e.values.contains(&n) {
+                bad.push(format!(
+                    "{rel}:{line}: live VPS port {n} used without being listed"
+                ));
             } else if !in_band && !e.values.contains(&n) {
                 bad.push(format!(
                     "{rel}:{line}: {n} is outside slot band(s) {:?} and not a listed value",
                     e.slots
-                ));
-            } else if is_live_port(n) && !e.values.contains(&n) {
-                bad.push(format!(
-                    "{rel}:{line}: live VPS port {n} used without being listed"
                 ));
             }
         }

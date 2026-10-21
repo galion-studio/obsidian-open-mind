@@ -123,6 +123,7 @@ fn answer(mut s: TcpStream, log: Log) {
         ("GET", "/api/v1/cloudflare") => (200, "application/json", String::new(), CLOUDFLARE.into()),
         ("GET", "/api/v1/pack") => (200, "application/json", String::new(), PACK.into()),
         ("GET", "/api/v1/ledger") => (200, "application/json", String::new(), LEDGER.into()),
+        ("GET", "/api/mesh") => (200, "application/json", String::new(), "{\"ok\":true,\"phase\":\"idle\",\"score\":[\"SCOPE 1\"]}".into()),
         ("POST", "/api/v1/command") => (200, "application/json", String::new(), "{\"ok\":true,\"data\":{\"cmd\":\"health\",\"note\":\"undefined fine\"}}".into()),
         _ => (404, "text/plain", String::new(), "nope".into()),
     };
@@ -541,7 +542,11 @@ fn theme_css_and_fail_closed() {
 /// remaining rooms say "Not in Rust yet".
 #[test]
 fn read_rooms_render_get_only() {
-    let (a, log) = start(&[]);
+    let (a, log) = start(&[
+        // console-port-4: /md/user needs a readable file.
+        "--user-md",
+        concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"),
+    ]);
     for p in console_ui::PORTED {
         let r = get(a, p, "127.0.0.1", "");
         assert_eq!(r.code, 200, "{p}: {}", r.head);
@@ -561,7 +566,7 @@ fn read_rooms_render_get_only() {
         .filter_map(|r| r.to)
         .filter(|p| !console_ui::PORTED.contains(p))
         .collect();
-    assert_eq!(not_ported.len(), 16, "{not_ported:?}");
+    assert_eq!(not_ported.len(), 14, "{not_ported:?}");
     for p in not_ported {
         let r = get(a, p, "127.0.0.1", "");
         assert_eq!(r.code, 200, "{p}");

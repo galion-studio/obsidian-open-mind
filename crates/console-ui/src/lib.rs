@@ -27,6 +27,7 @@ pub mod json;
 pub mod layout;
 pub mod overview;
 pub mod pages;
+pub mod port4;
 pub mod rooms;
 
 use client::Forward;
@@ -50,6 +51,11 @@ pub const PORTED: &[&str] = &[
     "/data",
     "/soon",
     "/console",
+    // console-port-4 (wave 4 slot 138): 4th fifth, alphabetical, of the 17
+    // routes still in TypeScript at 669dc18 (`/md/user` stands for `/md/$name`).
+    "/md/user",
+    "/memory",
+    "/mesh",
 ];
 
 /// Largest form body accepted (pairing code or a command name).
@@ -63,6 +69,8 @@ pub struct UiConfig {
     pub pulse: Option<SocketAddr>,
     /// Extra hosts treated as console hosts (the machine's public IP).
     pub extra_hosts: Vec<String>,
+    /// Host files read by `/memory` and `/md/*` (console-port-4).
+    pub files: port4::HostFiles,
 }
 
 /// One request, already parsed and path-sanitised by the front.
@@ -179,6 +187,7 @@ impl Ui {
     pub fn owns(&self, path: &str, spa_fallback: bool) -> bool {
         path.starts_with("/_ui/")
             || PORTED.contains(&path)
+            || port4::owns(path)
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
     }
@@ -321,6 +330,8 @@ impl Ui {
             }
             "/domains" | "/repos" | "/docs" | "/cloudflare" | "/pack" | "/chill" | "/jupyter"
             | "/data" => self.read_room(req),
+            "/memory" | "/mesh" => self.port4_room(req),
+            p if port4::owns(p) => self.port4_room(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);

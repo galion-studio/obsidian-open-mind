@@ -8,8 +8,12 @@
 pub mod agents;
 pub mod catalog;
 pub mod gate;
+pub mod md;
+pub mod memory;
+pub mod mesh;
 pub mod not_ported;
 pub mod overview;
+pub mod p4;
 pub mod services;
 pub mod status;
 

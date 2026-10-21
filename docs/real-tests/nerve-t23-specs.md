@@ -16,7 +16,7 @@ Branch `swarm/nerve-t23-specs`, base aa77864 (live nerve build) + slot 186 c1a9b
   `Kind::Timer`: `galion-backup.timer` + last run of `galion-backup.service`,
   stale after 13 h, never hard-down), `hades-gate` (HADES; absent on the VPS today,
   reported as info, not a coverage error).
-- Known-port list = live VPS `ss -ltn` (20 listeners, all with an owner);
+- Known-port list = live VPS `ss -ltn` (21 listeners incl. 8674 gaia-cortex, all with an owner);
   overridable with `NERVE_KNOWN_PORTS`.
 - `replay` reads capture files `systemctl-show.txt`, `systemctl-runs.txt`,
   `http.txt` (captured HTTP `000` = probe down).
@@ -51,11 +51,25 @@ Branch `swarm/nerve-t23-specs`, base aa77864 (live nerve build) + slot 186 c1a9b
 Live ports seen (owner): 22 sshd, 25 postfix, 53 systemd-resolved, 8002
 galion-one-mouth, 8080 console, 8091 galion-one, 8420 openmind-memory, 8642 hermes-rs,
 8646 galion-desk, 8650 tuner, 8660 galion-health, 8670 galion-nerve, 8671 tanga-proto,
-8672 galion-nerve-shadow, 18800 forge-link, 19120 openmind-queue, 20241 cloudflared,
+8672 galion-nerve-shadow, 8674 gaia-cortex (since 19:02), 18800 forge-link, 19120 openmind-queue, 20241 cloudflared,
 20242 tuner-quick (+ loopback duplicates).
 
-Cortex is not live yet; real-time observation was through the live nerve
-(127.0.0.1:8670 `/state`, 3 GETs 31 s apart).
+Cortex was not live during the 18:59 run; real-time observation was through the live nerve
+(127.0.0.1:8670 `/state`, 3 GETs 31 s apart). By the 19:43 re-run `gaia-cortex.service`
+(event-driven, dry-run actions) was live on 127.0.0.1:8674 (GET / 200).
+
+## Re-run at HEAD (retry 4) — 2026-10-21 19:40 .. 19:46 +02:00
+
+- 19:40:39 .. 19:42:24 at 75ed64a: **2 passed, 1 failed**. The VPS capture found a new live
+  listener `127.0.0.1:8674` (`gaia-cortex`, deployed 19:02) that no component or known port
+  owned: `unmanaged_ports [8674]`. Real finding, not a test bug.
+- Fix 92b0f3d: 8674 added to `KNOWN_PORTS_VPS` and the owner labels (`gaia-cortex`, no Gaia
+  function assigned). Observe-only, no spec, reflex allowlist unchanged.
+- 19:43:46 .. 19:45:44 at 92b0f3d: **3 passed, 0 failed** (105.4 s). Corpus: 55 replay rows,
+  restarts/cloudflared/rollbacks/holds/limited **0** in every row. VPS capture replay200 80/B,
+  21 listeners judged, unmanaged `[]`, unknown-owner `[]`; the 5 new specs as above (queue,
+  tanga, shadow, backup healthy; hades-gate absent). Negative control unchanged (0 reflex actions).
+- Live nerve GET /state 19:46: cycle 3 (restarted shortly before), dry-run, 76/C.
 
 ## Gates
 
@@ -69,5 +83,7 @@ No new dependencies (no `docs/third-party/` entry needed).
 - D-200-1: hades-gate spec stays `absent` (info) until HADES is installed on the VPS;
   should it become a coverage error after install?
 - D-200-2: galion-backup staleness limit 13 h (timer every 6 h, 2 missed runs + slack).
+- D-200-4: 8674 gaia-cortex is a known port only (no nerve health spec); add an observe-only
+  cortex spec and pick its Gaia function?
 - D-200-3: deploying this build changes the live score (new healthy components count,
   e.g. 66/D -> 70/C); goldens already reflect it.

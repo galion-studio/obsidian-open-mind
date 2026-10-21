@@ -66,6 +66,15 @@ const MUST_REFUSE: &[&str] = &[
     "container-getty@2",
     "user@0",
     "user-runtime-dir@0",
+    "emergency",
+    "rescue",
+    "initrd-cleanup",
+    "kmod-static-nodes",
+    "modprobe@loop",
+    "rc-local",
+    "apt-daily-upgrade",
+    "ovsdb-server",
+    "ua-reboot-cmds",
 ];
 
 /// Live Galion units that must still pass the safety rule.

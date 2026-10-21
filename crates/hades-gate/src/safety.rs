@@ -389,6 +389,20 @@ const PROTECTED_TARGETS: &[&str] = &[
     "getty",
     "polkit",
     "polkitd",
+    // Second pass after the live VPS run (20:43 +02:00): units whose restart
+    // drops to a rescue shell, re-runs boot or kernel steps, or upgrades
+    // packages (sshd included).
+    "emergency",
+    "rescue",
+    "initrd",
+    "kmod",
+    "modprobe",
+    "rc-local",
+    "apt",
+    "reboot",
+    "shutdown",
+    "poweroff",
+    "halt",
 ];
 
 /// Owner never-unroute list (D-T42-4, Mate 2026-10-21 17:04 +02:00): the VPS
@@ -414,6 +428,9 @@ pub const NEVER_UNROUTE_TARGETS: &[(&str, &str)] = &[
     ("netplan", "never-unroute: vps"),
     ("networking", "never-unroute: vps"),
     ("hostname", "never-unroute: vps"),
+    ("ovsdb", "never-unroute: vps"),
+    ("ovs", "never-unroute: vps"),
+    ("openvswitch", "never-unroute: vps"),
     ("dns", "never-unroute: dns"),
     ("ns", "never-unroute: dns"),
     ("nameserver", "never-unroute: dns"),

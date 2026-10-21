@@ -94,7 +94,10 @@ New dependencies from the merged branches: `semver` 1 (cortex-s2-a, MIT OR Apach
    (see `cortex_sensors[].us`; cycle must stay < 50 ms, RSS < 8 MiB with all sensors on).
 4. Tests: unit test with `Input::new` + `Sensors::empty().add(X)` + `run`; a fixture; a GALION_REAL=1 test in your
    slot range (pattern: `crates/openmind-nerve/tests/real_cortex_sensor.rs`).
-5. A ddos-kind finding is not scored by itself until T3.3: emit a `Signal` with it if it must count.
+5. Score v2 (T3.3, `src/score.rs`): a finding costs points on its own (ddos crit/error/warn 15/10/4, vuln 10/4,
+   bleeding 8/3) unless an open incident with the same `cause` (or an absorbing `ddos:<stream>` / `stack-wide`
+   incident listing its component) already scores it; uncovered findings sharing a `cause` are one deduction.
+   Emit a `Signal` with the same cause when it should open an incident; set `with_cause` so it is not counted twice.
 
 ## S2 tasks this unblocks
 

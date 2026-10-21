@@ -124,3 +124,22 @@ integration-1 brought 7 crates the registry did not know; `every_workspace_crate
 | `hermes-tools` | terminal / HEPHAESTUS | yes | hermes-agents / ARTEMIS. It runs through openmind-sandbox (terminal). |
 | `nerve-client` | nerve / AETHER | no | Same system as `openmind-nerve`. |
 | `openmind-queue` | queues / POSEIDON | yes (S2 A/B) | Under option B (VPS GAIA-4: no POSEIDON) it would move to HEPHAESTUS with the vram-pool crates. The crate itself declares POSEIDON. |
+
+## integration-3 rows (2026-10-21, all pending Slavik)
+
+integration-3 brings 10 more crates (rust-ports, deploy-rust, health-land and the bench-hermes family). `every_workspace_crate_is_mapped` failed on exactly these after the merges; one row each, every one a judgement call (`"pending_slavik": true`). Counts: 63 crates, 51 system crates, 29 systems with a crate.
+
+| Crate | Placed at | Alternatives |
+|---|---|---|
+| `bench-banking` | ecosystem-census / ARTEMIS | a new `bench` system (wave-4 slot 129 adds a bench sector to hermes-core) |
+| `bench-scoreboard` | ecosystem-census / ARTEMIS | teacher-docs / APOLLO, or a new bench system |
+| `galion-backup` | survival / DEMETER | healer / DEMETER, release-artifacts / HEPHAESTUS. Same system as its `galion-backup` unit in `UNITS`. |
+| `galion-bench` | ecosystem-census / ARTEMIS | a new bench system |
+| `galion-deploy` | deploy-switch / HEPHAESTUS | rollback / HADES (it does roll back automatically, and unlike `deploy/switch.sh` it executes) |
+| `galion-guard` | guardian-watchdog / MINERVA | tunnels / AETHER |
+| `galion-health` | guardian-watchdog / MINERVA | guardian-tick / DEMETER, alerting / MINERVA. Same system as its `galion-health` unit in `UNITS`. |
+| `galion-vending` | ecosystem-census / ARTEMIS | a new bench system |
+| `galion-wallstreet` | ecosystem-census / ARTEMIS | a new bench system |
+| `hermes-bench` | hermes-agents / ARTEMIS | ecosystem-census / ARTEMIS, a new bench system |
+
+The six benchmark crates sit next to `galleon-arena` (which already scores the agent population) until Slavik decides whether benchmarks get their own system.

@@ -149,5 +149,5 @@ Two nerve JSONL lines exactly as they are on disk (`nerve.jsonl`):
 - This is a **test-service** path. It has no unit for live services, and wiring it to a live service needs the owner's approval (docs/cutover-approval.md).
 - The approval token is a per-run random **test** token in a mode-600 file. It is not the hard-coded `"approved-test"` of hades-gate, and hades-gate is not used here. A real Alpha credential (a signature or key) is still open work.
 - DEMETER's simulated heal-dry reads GAIA's model vitals, so it reports 0 suggestions. The live suggestion comes from the probe and is passed as the HADES payload.
-- One tick is one run of `gaia heal-tick`. There is no daemon or timer loop yet. A guardian-tick timer would call it.
-- The restart cap ledger is local to `--state DIR`, so a different state dir gets a fresh budget.
+- One tick is one run of `gaia heal-tick`. ~~There is no daemon or timer loop yet.~~ Since Gaia S3.1 (swarm/gaia-tick-loop, 2026-10-21) `gaia heal-tick --loop` runs it supervised (interval, jitter, budget); see docs/gaia-heal-loop.md. No unit or timer is installed.
+- ~~The restart cap ledger is local to `--state DIR`, so a different state dir gets a fresh budget.~~ Since S3.1 the cap also reads a global ledger (`gaia-restarts.jsonl` next to hades-gate's replay ledger), so a new `--state` dir no longer resets it (docs/real-tests/gaia-tick-loop.md).

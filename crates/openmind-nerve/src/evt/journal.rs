@@ -162,6 +162,7 @@ pub fn parse_entry(v: &Value) -> Option<NerveEvent> {
 }
 
 /// What the source thread sends to the runtime.
+#[allow(clippy::large_enum_variant)] // main-staging: one Msg per event on a channel; boxing would add an allocation per event
 pub enum Msg {
     Event(NerveEvent),
     /// Source down / restarting (counted, published as nerve.source).

@@ -33,6 +33,7 @@
 | openmind-llama | Parse llama.cpp llama-server fixture bodies for /health and /v1/models. No sockets and no GPU. |
 | openmind-mcp-stack | Read-only stdio MCP stub. initialize and tools/list for stack_status. Fixture JSON only. No sockets. |
 | openmind-memory | Fixture-backed memory store and search for the Hermes gateway subset. |
+| openmind-compact | Model-free deterministic context compaction (SimHash dedup, anchors, BM25 + recency under a token budget); library + bench CLI, not wired live. |
 | openmind-nerve | Append-only JSONL nerve log: Europe/Zagreb timestamps, size rotation, caller-supplied path. |
 | openmind-origin | Pure function that builds an HTTP 302 redirect. Location comes from the caller; the default is /. The body is empty. No listener. |
 | openmind-provider | ComputeProvider trait and a JSON registry of approval state (Pending, Approved, Rejected). |

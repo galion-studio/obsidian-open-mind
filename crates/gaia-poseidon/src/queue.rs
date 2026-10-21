@@ -693,7 +693,17 @@ mod tests {
                 });
             }
             Ok(if self.answers.is_empty() {
-                (200, "{}".into())
+                if p == "/gaia/dispatch" {
+                    // An on-contract echo, like the real queue's dispatch.
+                    let req: Value = serde_json::from_str(b.unwrap_or("{}")).unwrap();
+                    let plan = req["verb"] == "plan";
+                    let ans = json!({"function": "POSEIDON", "system": req["system"],
+                        "verb": req["verb"], "outcome": if plan { "dry-run" } else { "done" },
+                        "dry_run": plan, "summary": "fake", "metrics": []});
+                    (200, ans.to_string())
+                } else {
+                    (200, "{}".into())
+                }
             } else {
                 self.answers.remove(0)
             })
@@ -858,7 +868,7 @@ mod tests {
         assert_eq!(r.metric_value("cost"), Some(5));
         let mut a = adapter(vec![(
             200,
-            r#"{"function":"POSEIDON","outcome":"done","summary":"1 ready","metrics":[["ready",1],["dead",0]]}"#,
+            r#"{"function":"POSEIDON","system":"queues","verb":"status","outcome":"done","dry_run":false,"summary":"1 ready","metrics":[["ready",1],["dead",0]]}"#,
         )]);
         let r = a.handle(&Directive::new(1, System::Queues, Verb::Status));
         assert_eq!(r.outcome, Outcome::Done);
@@ -906,7 +916,8 @@ mod tests {
         a.transport.impostor = true;
         for s in System::COMPUTE {
             for v in [Verb::Status, Verb::Plan, Verb::Run] {
-                let r = a.handle(&Directive::new(1, s, v).payload(r#"{"agent":"a"}"#));
+                let p = if v == Verb::Run { r#"{"agent":"a"}"# } else { "" };
+                let r = a.handle(&Directive::new(1, s, v).payload(p));
                 assert_eq!(r.outcome, Outcome::Refused, "{s} {v:?}");
             }
         }

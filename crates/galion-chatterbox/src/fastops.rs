@@ -422,6 +422,42 @@ pub fn conv1d(
     Tensor::from_vec(y, (b, cout, lout), x.device())
 }
 
+/// Snake activation `x + sin^2(alpha x) / (alpha + 1e-9)` with one alpha per
+/// channel of a (B, C, T) tensor; rows in parallel, libm `sin` (exact as the
+/// candle formulation, just multi-threaded and in one pass).
+pub struct Snake(pub Vec<f32>);
+
+impl CustomOp1 for Snake {
+    fn name(&self) -> &'static str {
+        "fast-snake"
+    }
+    fn cpu_fwd(&self, s: &CpuStorage, l: &Layout) -> Result<(CpuStorage, Shape)> {
+        let src = f32_slice(s, l, self.name())?;
+        let (_, c, t) = l.shape().dims3()?;
+        if c != self.0.len() {
+            candle_core::bail!("snake: {c} channels vs {} alphas", self.0.len());
+        }
+        let mut dst = vec![0f32; src.len()];
+        dst.par_chunks_mut(t.max(1))
+            .zip(src.par_chunks(t.max(1)))
+            .enumerate()
+            .for_each(|(row, (d, s))| {
+                let a = self.0[row % c];
+                let inv = 1.0 / (a + 1e-9);
+                for (y, x) in d.iter_mut().zip(s) {
+                    let v = (a * x).sin();
+                    *y = x + v * v * inv;
+                }
+            });
+        Ok((CpuStorage::F32(dst), l.shape().clone()))
+    }
+}
+
+pub fn snake(x: &Tensor, alpha: &Tensor) -> Result<Tensor> {
+    let a = alpha.flatten_all()?.to_vec1::<f32>()?;
+    x.contiguous()?.apply_op1_no_bwd(&Snake(a))
+}
+
 /// Layer norm over the channel dim of a (B, C, T) tensor, written back as
 /// (B, C, T): the same as `ln(x.transpose(1, 2)).transpose(1, 2)` without the
 /// two strided copies.
@@ -645,6 +681,12 @@ mod tests {
             assert_eq!(got.dims(), want.dims());
             close(&got, &want, 1e-4);
         }
+        let alpha = Tensor::randn(1f32, 0.5, 7, &dev).unwrap().abs().unwrap();
+        close(
+            &snake(&x, &alpha).unwrap(),
+            &crate::nnx::snake_reference(&x, &alpha).unwrap(),
+            1e-5,
+        );
         // Channel layer norm == layer norm over the transposed tensor.
         let w = Tensor::randn(1f32, 0.3, 7, &dev).unwrap();
         let b = Tensor::randn(0f32, 0.3, 7, &dev).unwrap();

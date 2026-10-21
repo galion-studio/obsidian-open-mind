@@ -214,7 +214,13 @@ pub fn mish_reference(x: &Tensor) -> Result<Tensor> {
 }
 
 /// Snake: x + 1/alpha * sin^2(alpha * x), alpha per channel, x: (B, C, T).
+/// Runs on the multi-threaded kernel ([`crate::fastops::snake`]).
 pub fn snake(x: &Tensor, alpha: &Tensor) -> Result<Tensor> {
+    crate::fastops::snake(x, alpha)
+}
+
+/// Snake with candle ops (the original formulation; kept for tests).
+pub fn snake_reference(x: &Tensor, alpha: &Tensor) -> Result<Tensor> {
     let a = alpha.reshape((1, (), 1))?;
     let s = x.broadcast_mul(&a)?.sin()?.sqr()?;
     x + s.broadcast_div(&a.affine(1.0, 1e-9)?)?

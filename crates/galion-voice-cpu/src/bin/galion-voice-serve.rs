@@ -5,7 +5,7 @@
 //!
 //! usage: galion-voice-serve [--bind ADDR] [--models DIR] [--stt NAME|none]
 //!        [--tts kitten|chatterbox|none] [--voices DIR] [--flow-steps N]
-//!        [--prompt-seconds S] [--seed N] [--worker]
+//!        [--prompt-seconds S] [--t3-weights q8|f32] [--seed N] [--worker]
 //!
 //! * `--bind` / `GALION_VOICE_BIND` (default 127.0.0.1:8003)
 //! * `--models` / `GALION_VOICE_MODELS` (default /var/lib/galion/voice-models),
@@ -20,6 +20,9 @@
 //!   `jarvis.wav` reference clips for Chatterbox.
 //! * `--flow-steps` (default 10) and `--prompt-seconds` (default 10): the
 //!   Chatterbox speed/quality knobs (the reference values are 10 and 10).
+//! * `--t3-weights` / `GALION_VOICE_T3_WEIGHTS`: `q8` (default; int8 T3
+//!   weights, 0.6 GB instead of 2.1 GB, ~3x faster token decoding) or `f32`
+//!   (the checkpoint numerics). See docs/voice-speed.md.
 //! * `--worker`: instead of HTTP, speak the legacy `worker.py` frame protocol
 //!   on stdin/stdout (Chatterbox only).
 //!
@@ -58,6 +61,7 @@ struct Opts {
     voices: Option<PathBuf>,
     flow_steps: usize,
     prompt_seconds: f32,
+    t3_weights: String,
     seed: Option<u64>,
 }
 
@@ -144,6 +148,7 @@ fn chatterbox_engine(o: &Opts) -> Result<galion_voice_cpu::chatterbox_tts::Chatt
     let mut cfg = ChatterboxConfig {
         voices_dir: o.voices.clone(),
         prompt_seconds: o.prompt_seconds,
+        t3_weights: galion_voice_cpu::chatterbox_tts::T3Weights::parse(&o.t3_weights)?,
         ..Default::default()
     };
     cfg.options.flow_steps = o.flow_steps;
@@ -277,7 +282,7 @@ fn main() {
         println!(
             "usage: galion-voice-serve [--bind ADDR] [--models DIR] [--stt NAME|none] \
              [--tts kitten|chatterbox|none] [--voices DIR] [--flow-steps N] \
-             [--prompt-seconds S] [--seed N] [--worker]"
+             [--prompt-seconds S] [--t3-weights q8|f32] [--seed N] [--worker]"
         );
         return;
     }
@@ -307,6 +312,7 @@ fn main() {
         .parse()
         .unwrap_or(10.0f32)
         .clamp(1.0, 10.0),
+        t3_weights: arg(&args, "--t3-weights", "GALION_VOICE_T3_WEIGHTS", "q8"),
         seed: arg(&args, "--seed", "GALION_VOICE_SEED", "").parse().ok(),
     };
     if args.iter().any(|a| a == "--worker") {

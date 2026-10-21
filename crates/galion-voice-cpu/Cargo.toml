@@ -49,3 +49,7 @@ required-features = ["whisper", "chatterbox"]
 [[test]]
 name = "real_voice_rust"
 required-features = ["whisper", "chatterbox"]
+
+[[test]]
+name = "real_voice_speed"
+required-features = ["whisper", "chatterbox"]

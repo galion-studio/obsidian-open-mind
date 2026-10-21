@@ -15,7 +15,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use galion_chatterbox::conds::Conditionals;
-use galion_chatterbox::{Chatterbox, GenerateOptions};
+pub use galion_chatterbox::T3Weights;
+use galion_chatterbox::{Chatterbox, GenerateOptions, LoadOptions};
 
 use crate::stt::TextToSpeech;
 
@@ -30,6 +31,9 @@ pub struct ChatterboxConfig {
     pub options: GenerateOptions,
     /// Cap on the S3Gen reference prompt in seconds (reference: 10).
     pub prompt_seconds: f32,
+    /// T3 weight storage (voice-speed): int8 (default, ~3x faster decode)
+    /// or the checkpoint f32.
+    pub t3_weights: T3Weights,
 }
 
 impl Default for ChatterboxConfig {
@@ -38,6 +42,7 @@ impl Default for ChatterboxConfig {
             voices_dir: None,
             options: GenerateOptions::default(),
             prompt_seconds: 10.0,
+            t3_weights: T3Weights::default(),
         }
     }
 }
@@ -125,8 +130,17 @@ pub fn to_pcm16(samples: &[f32]) -> Vec<i16> {
 impl ChatterboxTts {
     pub fn load(dir: &Path, cfg: &ChatterboxConfig) -> Result<Self, String> {
         let t = Instant::now();
-        let model = Chatterbox::load(dir)?;
-        let mut notes = vec![format!("model loaded in {} ms", t.elapsed().as_millis())];
+        let model = Chatterbox::load_with(
+            dir,
+            &LoadOptions {
+                t3_weights: cfg.t3_weights,
+            },
+        )?;
+        let mut notes = vec![format!(
+            "model loaded in {} ms (t3 weights {})",
+            t.elapsed().as_millis(),
+            cfg.t3_weights.as_str()
+        )];
         let mut voices = Vec::new();
         for name in LEGACY_VOICES {
             let clip = cfg

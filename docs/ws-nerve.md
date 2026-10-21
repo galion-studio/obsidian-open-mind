@@ -27,8 +27,11 @@ API: `GET /` (HTML dashboard, refresh 15 s), `GET /state` (JSON system state),
 `GET /audit`, `GET /signals`, `GET /healthz`, `POST /signal`.
 
 Files: `/var/lib/galion-nerve/state.json` (every cycle),
-`self-eval/latest.{json,md}` + `self-eval-<stamp>.json` (first cycle, then
-every 20 cycles = 10 min; newest 96 kept), `alerts.json` (last 200),
+`self-eval/latest.{json,md}` + `self-eval-<YYYYMMDDTHHMMSS+HHMM>.json`, Zagreb
+wall clock with its offset so the October fold hour cannot overwrite itself
+(first cycle, then
+every 20 cycles = 10 min; newest 96 kept, by instant; legacy offset-less
+names by mtime), `alerts.json` (last 200),
 `audit.jsonl` (every reflex decision), `reflex.json` (restart budgets, survive
 nerve restarts), `mode` (runtime dry-run switch).
 

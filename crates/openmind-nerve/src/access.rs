@@ -209,6 +209,16 @@ impl Stream {
         }
     }
 
+    /// Kept buckets: (count, first bucket start, last bucket start), unix
+    /// seconds. Read-only view for tests and the DST replay (slot 157).
+    pub fn window(&self) -> (usize, u64, u64) {
+        (
+            self.buckets.len(),
+            self.buckets.front().map_or(0, |b| b.start),
+            self.buckets.back().map_or(0, |b| b.start),
+        )
+    }
+
     fn bucket(&mut self, t: u64) -> Option<&mut Bucket> {
         let start = t - t % BUCKET_S;
         if self.first_seen == 0 || start < self.first_seen {

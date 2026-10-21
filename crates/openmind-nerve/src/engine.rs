@@ -676,7 +676,6 @@ impl Engine {
 
     fn write_report(&self, r: &Value, md: &str) {
         let dir = self.cfg.data_dir.join("self-eval");
-        let stamp = r["ts"].as_str().unwrap_or("").replace([':', '-'], "");
         let _ = write_atomic(
             &dir.join("latest.json"),
             serde_json::to_string_pretty(r)
@@ -685,26 +684,31 @@ impl Engine {
         );
         let _ = write_atomic(&dir.join("latest.md"), md.as_bytes());
         let _ = write_atomic(
-            &dir.join(format!(
-                "self-eval-{}.json",
-                stamp.chars().take(15).collect::<String>()
-            )),
+            &dir.join(self_eval_file_name(r["ts"].as_str().unwrap_or(""))),
             r.to_string().as_bytes(),
         );
-        // Keep the newest 96 timestamped reports (~16 h at the default cadence).
+        // Keep the newest SELF_EVAL_KEEP timestamped reports (~16 h at the
+        // default cadence), newest by instant, not by name (DST fold).
         if let Ok(rd) = std::fs::read_dir(&dir) {
-            let mut v: Vec<_> = rd
+            let v: Vec<(String, u64)> = rd
                 .flatten()
-                .map(|e| e.path())
-                .filter(|p| {
-                    p.file_name()
-                        .is_some_and(|n| n.to_string_lossy().starts_with("self-eval-"))
+                .filter_map(|e| {
+                    let n = e.file_name().to_string_lossy().into_owned();
+                    if !n.starts_with("self-eval-") {
+                        return None;
+                    }
+                    let mtime = e
+                        .metadata()
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    Some((n, mtime))
                 })
                 .collect();
-            v.sort();
-            let n = v.len().saturating_sub(96);
-            for p in v.into_iter().take(n) {
-                let _ = std::fs::remove_file(p);
+            for n in self_eval_prune(v, SELF_EVAL_KEEP) {
+                let _ = std::fs::remove_file(dir.join(n));
             }
         }
         eprintln!(
@@ -718,6 +722,58 @@ impl Engine {
             r["system"]
         );
     }
+}
+
+/// Timestamped self-eval reports kept in `self-eval/` (~16 h at 10 min).
+pub const SELF_EVAL_KEEP: usize = 96;
+
+/// File name for the timestamped self-eval report written at `stamp`
+/// (Europe/Zagreb RFC 3339, e.g. `2026-10-25T02:34:35+02:00`):
+/// `self-eval-20261025T023435+0200.json`.
+///
+/// The offset is part of the name. Without it the hour 02:00-02:59 on the
+/// last Sunday of October (CEST +02:00, then again as CET +01:00) maps to the
+/// same names twice and the CET reports overwrote the CEST ones (six reports
+/// lost per year at the default 10 min cadence; slot 157, 2026-10-21).
+pub fn self_eval_file_name(stamp: &str) -> String {
+    format!("self-eval-{}.json", stamp.replace([':', '-'], ""))
+}
+
+/// The instant a `self-eval-*.json` name stands for: the offset form
+/// (`self-eval-20261025T023435+0200.json`) parses exactly; the legacy
+/// offset-less form (`self-eval-20261025T023435.json`, ambiguous inside the
+/// October fold) has no instant and returns `None`.
+pub fn self_eval_file_instant(name: &str) -> Option<u64> {
+    let c = name.strip_prefix("self-eval-")?.strip_suffix(".json")?;
+    if c.len() != 20 || c.as_bytes().get(8) != Some(&b'T') {
+        return None;
+    }
+    let iso = format!(
+        "{}-{}-{}T{}:{}:{}{}",
+        c.get(0..4)?,
+        c.get(4..6)?,
+        c.get(6..8)?,
+        c.get(9..11)?,
+        c.get(11..13)?,
+        c.get(13..15)?,
+        c.get(15..20)?
+    );
+    crate::util::parse_rfc3339(&iso)
+}
+
+/// Which `self-eval-*` files to delete so the newest `keep` remain. Order is
+/// by instant: the name's own instant when it carries an offset, else the
+/// file's mtime (legacy names), ties by name. Never by name alone: inside the
+/// October fold `...T020435+0100` is an hour later than `...T023435+0200`
+/// but sorts before it.
+pub fn self_eval_prune(mut files: Vec<(String, u64)>, keep: usize) -> Vec<String> {
+    files.sort_by(|a, b| {
+        let ka = self_eval_file_instant(&a.0).unwrap_or(a.1);
+        let kb = self_eval_file_instant(&b.0).unwrap_or(b.1);
+        ka.cmp(&kb).then_with(|| a.0.cmp(&b.0))
+    });
+    let n = files.len().saturating_sub(keep);
+    files.into_iter().take(n).map(|f| f.0).collect()
 }
 
 /// Words for an incident cause: title, why it matters, the next step.
@@ -1036,6 +1092,64 @@ pub fn render_md(r: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 2026-10-25T02:00:00+02:00 Zagreb (one hour
+    /// before the fall-back to CET).
+    const FOLD_START: u64 = 1_792_886_400;
+
+    #[test]
+    fn self_eval_names_are_unique_across_the_october_fold() {
+        // Every 10 min from 01:04:35+02:00 to 04:04:35+01:00: four hours of
+        // instants, the 02:xx hour twice.
+        let ts: Vec<u64> = (0..25).map(|k| FOLD_START - 3600 + 275 + k * 600).collect();
+        let names: Vec<String> = ts
+            .iter()
+            .map(|t| self_eval_file_name(&crate::util::ts(*t)))
+            .collect();
+        let uniq: std::collections::BTreeSet<&String> = names.iter().collect();
+        assert_eq!(uniq.len(), names.len(), "{names:?}");
+        assert!(names.contains(&"self-eval-20261025T020435+0200.json".to_string()));
+        assert!(names.contains(&"self-eval-20261025T020435+0100.json".to_string()));
+        for (n, t) in names.iter().zip(&ts) {
+            assert_eq!(self_eval_file_instant(n), Some(*t), "{n}");
+        }
+        // The old 15-char name collided on exactly the six 02:x4:35 reports.
+        let old: std::collections::BTreeSet<String> = ts
+            .iter()
+            .map(|t| {
+                crate::util::ts(*t)
+                    .replace([':', '-'], "")
+                    .chars()
+                    .take(15)
+                    .collect()
+            })
+            .collect();
+        assert_eq!(ts.len() - old.len(), 6);
+    }
+
+    #[test]
+    fn self_eval_prune_keeps_the_newest_by_instant() {
+        let a = "self-eval-20261025T023435+0200.json"; // CEST, first pass
+        let b = "self-eval-20261025T020435+0100.json"; // CET, 30 min after a
+        let c = "self-eval-20261025T025435+0100.json";
+        assert_eq!(self_eval_file_instant(a), Some(FOLD_START + 2075));
+        assert_eq!(self_eval_file_instant(b), Some(FOLD_START + 2075 + 1800));
+        // By name b < c < a; by instant a < b < c.
+        let files = vec![(c.to_string(), 0), (a.to_string(), 0), (b.to_string(), 0)];
+        assert_eq!(self_eval_prune(files.clone(), 2), vec![a.to_string()]);
+        assert_eq!(
+            self_eval_prune(files.clone(), 1),
+            vec![a.to_string(), b.to_string()]
+        );
+        assert!(self_eval_prune(files, 3).is_empty());
+        // Legacy offset-less names fall back to their mtime.
+        let legacy = "self-eval-20261021T065435.json";
+        assert_eq!(self_eval_file_instant(legacy), None);
+        let files = vec![(legacy.to_string(), 1_792_558_475), (a.to_string(), 0)];
+        assert_eq!(self_eval_prune(files, 1), vec![legacy.to_string()]);
+        assert_eq!(self_eval_file_instant("self-eval-garbage+0100.json"), None);
+        assert_eq!(self_eval_file_instant("latest.json"), None);
+    }
 
     #[test]
     fn md_renders_report_shape() {

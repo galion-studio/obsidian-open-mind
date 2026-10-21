@@ -741,6 +741,41 @@ fn real_cortex_t44_end_to_end_on_the_box() {
         "stray was touched"
     );
 
+    // Real VPS plans (optional, box copy of a live capture run through
+    // `openmind-nerve plans`): with a valid token each, the executor still
+    // runs none of them here (other families, or units it does not own).
+    if let Ok(path) = std::env::var("NERVE_T44_LIVE_PLANS") {
+        let live: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let ps = live["plans"].as_array().cloned().unwrap_or_default();
+        eprintln!("live VPS plans from {path}: {}", ps.len());
+        for (n, p) in ps.iter().enumerate() {
+            let t = p["target"].as_str().unwrap();
+            assert_eq!(
+                safety::review(t, plan_text(p).as_bytes()),
+                Ok(()),
+                "{}",
+                p["id"]
+            );
+            let tok = mint(
+                &dir,
+                &seed,
+                "heal-apply",
+                t,
+                &plan_text(p),
+                &format!("live{n}"),
+            );
+            let before = ex.dummy.pid();
+            let out = ex.apply(p, &tok);
+            eprintln!("  live {:<34} -> {out:?}", p["id"].as_str().unwrap());
+            assert!(
+                matches!(&out, Outcome::Refused(c) if c == "executor:family" || c == "executor:unknown-unit"),
+                "{out:?}"
+            );
+            assert_eq!(ex.dummy.pid(), before);
+            log.push((format!("live {}", p["id"]), out));
+        }
+    }
+
     // 4. The real approval: applied once.
     eprintln!("approved path:");
     let t_apply = Instant::now();

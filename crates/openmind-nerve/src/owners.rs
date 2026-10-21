@@ -120,6 +120,21 @@ pub fn parse_owners(s: &str) -> Vec<(u16, Entry)> {
         .collect()
 }
 
+/// Galion's own loopback services that are not nerve components (no
+/// health contract, no reflex restarts) but must never be reported as
+/// unmanaged/stray listeners. Read-only `ss -ltnp` + `/proc/<pid>/cgroup` on
+/// the VPS, 2026-10-22 01:08 +02:00 (slot 238, D-T44-2): 8672
+/// galion-nerve-shadow.service, 8674 gaia-cortex.service, 19120
+/// openmind-queue.service. Always merged (independent of
+/// `NERVE_KNOWN_PORTS`); `NERVE_UNOWNED_PORTS` or `NERVE_PORT_OWNERS` still
+/// override. Not listed: :18800 is `sshd` in a `session-*.scope` (a manual
+/// ssh port forward, no unit), so it stays a stray (D-233-3, owner's call).
+pub const OWN_SERVICES: [(u16, &str, Option<&str>); 3] = [
+    (8672, "galion-nerve-shadow", Some("AETHER")),
+    (8674, "gaia-cortex", Some("AETHER")),
+    (19120, "openmind-queue", Some("POSEIDON")),
+];
+
 /// Labels for the built-in known infrastructure ports.
 const KNOWN_LABELS: [(u16, &str, Option<&str>); 7] = [
     (22, "sshd", None),
@@ -132,9 +147,19 @@ const KNOWN_LABELS: [(u16, &str, Option<&str>); 7] = [
 ];
 
 impl OwnerMap {
-    /// Component ports first, then known labels, then `extra` (overrides).
+    /// Own services ([`OWN_SERVICES`]) first, then known labels, then component
+    /// ports, then `extra` (overrides); `unowned` wins over all.
     pub fn build(specs: &[Spec], known: &[u16], extra: &[(u16, Entry)], unowned: &[u16]) -> Self {
         let mut m = OwnerMap::default();
+        for (p, owner, gaia) in OWN_SERVICES {
+            m.owned.insert(
+                p,
+                Entry {
+                    owner: owner.to_string(),
+                    gaia: gaia.map(str::to_string),
+                },
+            );
+        }
         for &p in known {
             let (owner, gaia) = KNOWN_LABELS
                 .iter()
@@ -377,6 +402,25 @@ mod tests {
         };
         assert!(p.describe().contains("by hand"));
         assert_eq!(p.to_json()["manual"], true);
+    }
+
+    #[test]
+    fn own_services_are_owned_unless_documented_unowned() {
+        // Even with no known ports and no components (NERVE_KNOWN_PORTS set).
+        let m = OwnerMap::build(&[], &[], &[], &[]);
+        for (p, name, gaia) in OWN_SERVICES {
+            let o = m.lookup(p, &NO_PROCS);
+            assert!(m.is_owned(p), "{p}");
+            assert_eq!((o.owner.as_str(), o.gaia.as_deref()), (name, gaia));
+        }
+        // :18800 (sshd ssh forward) is not an own service.
+        assert!(!m.is_owned(18800));
+        // NERVE_PORT_OWNERS relabels, NERVE_UNOWNED_PORTS wins.
+        let m = OwnerMap::build(&[], &[], &parse_owners("19120=queue-v2@POSEIDON"), &[8674]);
+        assert_eq!(m.lookup(19120, &NO_PROCS).owner, "queue-v2");
+        assert!(!m.is_owned(8674));
+        assert!(m.lookup(8674, &NO_PROCS).documented_unowned);
+        assert!(m.is_owned(8672));
     }
 
     #[test]

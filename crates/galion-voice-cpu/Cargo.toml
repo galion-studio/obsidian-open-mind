@@ -2,7 +2,7 @@
 # Copyright (c) 3000 Galion / galion-studio
 #
 # Galion voice: on-device CPU pipeline (M2 spike). STT via candle (pure Rust,
-# CPU only, no cuda/metal/mkl/accelerate features, no CPU-specific codegen flags).
+# CPU only, no cuda/metal/mkl/accelerate features, no CPU-pinning build flags).
 
 [package]
 name = "galion-voice-cpu"
@@ -18,9 +18,12 @@ default = []
 whisper = ["dep:candle-core", "dep:candle-nn", "dep:serde_json", "dep:serde", "dep:num-traits"]
 # KittenTTS nano via candle (same deps as whisper, no new crates).
 kitten = ["dep:candle-core", "dep:candle-nn"]
+# Chatterbox (the legacy GPU mouth) on CPU through galion-chatterbox.
+chatterbox = ["dep:galion-chatterbox"]
 
 [dependencies]
 galion-voice-core = { path = "../galion-voice-core" }
+galion-chatterbox = { path = "../galion-chatterbox", optional = true }
 candle-core = { version = "0.9", default-features = false, optional = true }
 candle-nn = { version = "0.9", default-features = false, optional = true }
 serde_json = { workspace = true, optional = true }
@@ -38,3 +41,11 @@ required-features = ["kitten"]
 [[test]]
 name = "real_voice_serve"
 required-features = ["whisper", "kitten"]
+
+[[test]]
+name = "real_chatterbox"
+required-features = ["whisper", "chatterbox"]
+
+[[test]]
+name = "real_voice_rust"
+required-features = ["whisper", "chatterbox"]

@@ -66,10 +66,11 @@ protected-hosts 60312ac, t53 55f07ff, t52 c2f7cda).
 |---|---|---|
 | R0-stack-wide | 3+ subjects hard-failing in one burst (correlator `stack-wide`) | alert + escalate, no action (host/network problem) |
 | R1-protected | unit/host/path protected (below) | **alert only, never act** |
-| R2-circuit-open | `flap_failures` (3) failures in `flap_window_s` (900 s), or failure while open | open circuit for `circuit_open_s` (3600 s), escalate once, no action |
+| R2-circuit-open | `flap_failures` (3) failures in `flap_window_s` (900 s), counting every occurrence the nerve folded (`count`, repeat watch), or failure while open | open circuit for `circuit_open_s` (3600 s), escalate once, no action |
 | R2-start-limit | `unit.start_limit` | circuit + escalate |
 | R3-known-crash | crash / OOM / failed state of a restart-allowed unit | restart request to the nerve (dry-run) |
-| R3-cap | ... cortex cap `restarts_per_unit_hour` (3) used | circuit + escalate |
+| R3-cap | ... cortex cap `restarts_per_unit_hour` (2 = the nerve executor cap) used, in every mode | circuit + escalate |
+| R3-cap-total | ... `restarts_total_hour` (6 = the nerve total cap) restarts asked for all units in the last hour | escalate, no circuit, no action |
 | R3b-systemd-restarting | failure + `unit.restart_scheduled` | alert, no extra restart (counts toward flapping) |
 | R4-unknown-unit | failure of a unit not on the restart allowlist | alert + escalate |
 | R5-recovered | unit active again / lifecycle info | nothing |
@@ -83,7 +84,7 @@ protected-hosts 60312ac, t53 55f07ff, t52 c2f7cda).
 Duplicate alerts for the same subject+rule within `decision_cooldown_s`
 (120 s) are suppressed (counted in `decisions_suppressed`). Restart
 decisions are never suppressed by the cooldown; they are bounded by the
-cortex cap, the circuit, and the nerve's own caps (2/unit/h, 6/h total).
+cortex caps (2/unit/h, 6/h total: the same numbers as the nerve's own caps, which the nerve applies only to EXECUTED restarts, so in dry-run the cortex caps are the only ones; slot 235) and the circuit.
 
 ## Safety constraints (Mate, 2026-10-21) and where they live
 

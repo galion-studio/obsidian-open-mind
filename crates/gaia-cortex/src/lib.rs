@@ -15,6 +15,7 @@ pub mod guard;
 pub mod handoff;
 pub mod llm;
 pub mod nerve;
+pub mod repeat;
 pub mod rules;
 pub mod server;
 pub mod sink;

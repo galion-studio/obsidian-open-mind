@@ -242,6 +242,9 @@ fn start_cortex(dir: &Path, port: u16, nerve_port: u16, tag: &str) -> Proc {
         .env("CORTEX_NERVE_URL", format!("http://127.0.0.1:{nerve_port}"))
         .env("CORTEX_DATA_DIR", &data)
         .env("CORTEX_COALESCE_MS", "500")
+        // T5.1 keeps the pre-slot-235 transport (no ring re-read) so its S2a
+        // still records finding F1; real_flap_dedupe.rs is the before/after.
+        .env("CORTEX_REPEAT_POLL_S", "0")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(stderr)
@@ -1010,7 +1013,10 @@ fn chaos_t51_real_cortex_and_nerve() {
         "restart loop opens the cortex circuit: {rules:?}"
     );
     let desk_acts = dd.iter().filter(|d| !d["action"].is_null()).count();
-    assert!(desk_acts <= 3, "cortex cap 3/unit/h: {desk_acts}");
+    assert!(
+        desk_acts <= 3,
+        "cortex cap (2/unit/h since slot 235): {desk_acts}"
+    );
     let esc = get(cortex_port(), "/escalations");
     assert!(
         esc["open"].as_array().is_some_and(|a| a

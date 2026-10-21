@@ -12,9 +12,11 @@
 //!
 //! Every process goes through `openmind_sandbox::run` (no network, read-only
 //! root, Landlock, rlimits, wall timeout, optional per-run cgroup with
-//! memory.max / pids.max / cpu.max). Every decision is written to a JSON
-//! Lines audit log before the run. The hermes spend caps are checked before
-//! every tool call, on top of the agent loop's check before every model call.
+//! memory.max / pids.max / cpu.max, and a total worktree cap: a private
+//! size-limited tmpfs, 512 MiB by default, `HERMES_RS_CODING_WORKDIR_MB`).
+//! Every decision is written to a JSON Lines audit log before the run. The
+//! hermes spend caps are checked before every tool call, on top of the agent
+//! loop's check before every model call.
 //!
 //! Off by default: nothing is registered unless `HERMES_RS_CODING_WORKTREE`
 //! is set. See docs/hermes-tools.md.
@@ -63,6 +65,39 @@ pub fn preflight(cfg: &mut CodingConfig, spend: &SpendCfg) -> Result<Vec<String>
         if f.landlock_abi < 4 {
             return Err("neither a network namespace nor Landlock TCP deny is available".into());
         }
+    }
+    if cfg.workdir_quota_mb > 0 {
+        if !f.userns {
+            return Err(format!(
+                "the worktree cap (HERMES_RS_CODING_WORKDIR_MB={}) needs user, mount and pid namespaces, which this kernel does not allow unprivileged; set HERMES_RS_CODING_WORKDIR_MB=0 to run without a total worktree cap",
+                cfg.workdir_quota_mb
+            ));
+        }
+        let limit = cfg.workdir_quota_mb << 20;
+        let inodes = exec::policy(cfg, exec::Kind::Fs).workdir_tmpfs_inode_cap();
+        let fp = exec::footprint(&cfg.worktree, limit, inodes);
+        if fp.bytes > limit || fp.entries > inodes {
+            return Err(format!(
+                "worktree {} needs at least {} MiB / {} entries on the tmpfs, over the worktree cap {} MiB / {} entries (every tool call would fail closed); raise HERMES_RS_CODING_WORKDIR_MB / _INODES",
+                cfg.worktree.display(),
+                fp.bytes.div_ceil(1 << 20),
+                fp.entries,
+                cfg.workdir_quota_mb,
+                inodes
+            ));
+        }
+        notes.push(format!(
+            "worktree cap {} MiB / {} entries (private tmpfs per run, copied in and back); worktree now ~{} MiB / {} entries",
+            cfg.workdir_quota_mb,
+            inodes,
+            fp.bytes.div_ceil(1 << 20),
+            fp.entries
+        ));
+    } else {
+        notes.push(
+            "HERMES_RS_CODING_WORKDIR_MB=0: no total worktree cap (RLIMIT_FSIZE caps single files only)"
+                .into(),
+        );
     }
     if cfg.cgroup_delegate {
         let gw_mem = std::env::var("HERMES_RS_CODING_GATEWAY_MEM_MB")

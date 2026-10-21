@@ -71,17 +71,50 @@ build-tool was 1 GiB in the interrupted first attempt (07:15); lowered to
 still fit in the 1 GiB run cgroup. `deploy/sandbox/presets/*.toml` carry the
 same numbers (checked by `tests/preset.rs`).
 
-## hermes-tools
-`crates/hermes-tools/src/exec.rs` sets `workdir_tmpfs_bytes = 0` for its
-coding tools: their work dir is a whole git worktree (sources, `.git`,
-`target/`), so the copy in/out would cost a full tree copy per tool call and a
-worktree above the cap would fail closed. They keep their per-file caps and
-the cgroup. A worktree-level quota for Hermes is owner decision D-WDQ2.
+## hermes-tools (D-WDQ2, accepted 2026-10-21: cap ON)
+Branch `swarm/hermes-tools-quota` (slot 151 follow-up) turns the cap on for
+Hermes's coding tools. `crates/hermes-tools/src/exec.rs` sets
+`workdir_tmpfs_bytes = HERMES_RS_CODING_WORKDIR_MB` MiB (default **512 MiB**,
+`0`/`off` = no cap, else 16..=4096) and `workdir_tmpfs_inodes =
+HERMES_RS_CODING_WORKDIR_INODES` (0 = one per 16 KiB, 32768 at 512 MiB) for
+all three kinds of run.
+- Why 512 MiB: the cargo tool runs on `Preset::build_tool()`, the coding
+  preset, whose cap is 512 MiB (D-WDQ1). fs_read/fs_write/git run on
+  `Preset::read_only_tool()` (64 MiB), but all three work on the same
+  worktree and a worktree bigger than the cap fails every run closed, so a
+  64 MiB cap for fs/git would refuse reads and commits on a worktree that
+  cargo can build. One cap per worktree, the coding preset's number
+  (`tests/workdir_quota.rs` checks it stays equal to the build-tool preset).
+  `CARGO_TARGET_DIR` is outside the worktree (an `fs_write` root), so build
+  output does not count toward the cap (and is not capped by it).
+- Memory: tmpfs pages are charged to the per-run cgroup, so the cap is added
+  on top of each kind's own `memory.max` (fs 128 + 512, git 256 + 512, cargo
+  2048 + 512 MiB): a full worktree ends in ENOSPC, never in an OOM kill.
+  RLIMIT_AS is unchanged (tmpfs pages are not address space).
+- Startup (`preflight`) refuses when the cap is on but user namespaces are
+  not available, and when the worktree (files rounded to 4 KiB pages,
+  entries) is already over the cap; the startup note prints the cap and the
+  current worktree size.
+- Cost: every tool call copies the worktree into the tmpfs and the changes
+  back (a git commit is 4-5 runs). Measured on the VPS in
+  `docs/real-tests/hermes-tools-quota.md`.
+- git runs with `core.checkStat=minimal`, `core.trustctime=false` (fresh
+  inodes/ctimes on every copy would otherwise make each call rewrite the
+  index) and `gc.auto=0` (a gc deletes loose objects, and deletions are not
+  copied back).
+- Hermes has no delete tool, so "deletions are not propagated" does not
+  change tool behaviour; git's lock-file renames end as a changed file.
 
-## Owner decisions
-- D-WDQ1: preset caps (64 MiB / 64 MiB / 512 MiB) OK, or other numbers?
-- D-WDQ2: Hermes coding tools: keep the cap off (now), or a cap with a
-  bigger size and the copy cost accepted, or a different mechanism (e.g. a
-  project quota / per-worktree loop fs prepared by root)?
-- D-WDQ3: partial copy back on host ENOSPC leaves partial files; keep
-  (reported via `out_complete`) or roll back what was written?
+## Owner decisions (accepted 2026-10-21 08:23 +02:00, Slavik via Mate)
+- D-WDQ1: preset caps 64 MiB / 64 MiB / 512 MiB — **accepted 2026-10-21**,
+  unchanged.
+- D-WDQ2: Hermes coding tools get the cap — **accepted 2026-10-21**,
+  implemented on `swarm/hermes-tools-quota` (512 MiB, see above).
+- D-WDQ3: partial copy back on host ENOSPC — **accepted 2026-10-21**: slot
+  151's default is kept: partial files stay on the host (no rollback), the
+  run reports `out_complete = false` + errno. Rationale: a rollback needs
+  the old content kept somewhere on the same full disk, and the copy back
+  only touches new/changed entries. Callers must check it: hermes-tools now
+  treats an incomplete copy back as a failed tool call (`exec::ok` is false)
+  and tells the model what reached the host ("worktree copy back is
+  INCOMPLETE: ... partial files may be left there").

@@ -12,6 +12,7 @@
 
 use crate::auth::{self, Policy, Verdict};
 use crate::engine::{Config, Engine, Job, JobSpec, Miss, Record, Refusal, GLOBAL};
+use crate::refusals::{Refusals, Sidecar, SidecarReport};
 use crate::store::{OpenReport, Store};
 use crate::vram::{Device, ProviderView, VramPool};
 use crate::{gaia, http, now_ms, zagreb_ms};
@@ -74,6 +75,9 @@ struct State {
     started_ms: u64,
     providers: ProviderRows,
     compactions: u64,
+    /// Refusal counters across `kill -9` (see [`crate::refusals`]).
+    sidecar: Sidecar,
+    sidecar_opened: SidecarReport,
 }
 
 struct Shared {
@@ -141,6 +145,20 @@ fn lock(s: &Shared) -> MutexGuard<'_, State> {
     s.st.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// Write the refusal counters to the sidecar if they changed. Called before
+/// a response is written, so a refusal the client saw is never lost to a
+/// process crash. A write error is logged and counted, never fatal: the
+/// counters are observability, not queue state.
+fn persist_refusals(st: &mut State) {
+    let c = Refusals::of(&st.engine.stats);
+    if let Err(e) = st.sidecar.save(&c) {
+        eprintln!(
+            "{} poseidon: refusal sidecar write failed: {e}",
+            zagreb_ms(now_ms())
+        );
+    }
+}
+
 fn commit(st: &mut State, recs: &[Record], compact_min: u64) -> io::Result<()> {
     st.store.append(recs)?;
     for r in recs {
@@ -193,6 +211,19 @@ pub fn start(opts: Options) -> io::Result<Handle> {
     for r in &recs {
         engine.apply(r);
     }
+    let (sidecar, sidecar_opened) = Sidecar::open(&opts.data)?;
+    if let Some(c) = &sidecar_opened.restored {
+        c.restore_into(&mut engine.stats);
+    }
+    if sidecar_opened.bad_slots > 0 {
+        eprintln!(
+            "{} poseidon: {} damaged slot(s) in {}; restored seq {}",
+            zagreb_ms(now_ms()),
+            sidecar_opened.bad_slots,
+            sidecar.file_path().display(),
+            sidecar_opened.seq
+        );
+    }
     let providers = load_providers(&opts.providers)?;
     let mut st = State {
         engine,
@@ -201,7 +232,12 @@ pub fn start(opts: Options) -> io::Result<Handle> {
         started_ms: now_ms(),
         providers,
         compactions: 0,
+        sidecar,
+        sidecar_opened,
     };
+    // Carry counters that only the log held (an older data directory whose
+    // last compaction wrote them) into the sidecar right away.
+    persist_refusals(&mut st);
     let sync: Vec<Record> = st
         .engine
         .vram
@@ -247,6 +283,13 @@ fn ticker(s: Arc<Shared>) {
             if let Err(e) = commit(&mut g, &due, cm) {
                 eprintln!("{} poseidon: expiry write failed: {e}", zagreb_ms(now));
             }
+        }
+        // Power-loss window for the refusal counters: at most one tick.
+        if let Err(e) = g.sidecar.sync() {
+            eprintln!(
+                "{} poseidon: refusal sidecar sync failed: {e}",
+                zagreb_ms(now)
+            );
         }
         let before = g.engine.depth().0;
         g.engine.promote(now);
@@ -310,6 +353,7 @@ fn handle_conn(stream: TcpStream, s: &Shared) {
         }
         Err(e) => (400, json!({"error":"bad_request","detail":e.to_string()})),
     };
+    persist_refusals(&mut lock(s));
     let _ = http::write_response(&stream, code, &body.to_string());
 }
 
@@ -439,6 +483,11 @@ fn stats_json(st: &State) -> Value {
         "vram": e.vram.summary(),
         "store": {"lines": st.store.lines(), "replayed": st.opened.records,
                   "truncated_bytes": st.opened.truncated_bytes, "compactions": st.compactions},
+        "refusals_sidecar": {"file": crate::refusals::FILE, "seq": st.sidecar.seq(),
+                  "restored_seq": st.sidecar_opened.seq, "restored": st.sidecar_opened.restored.is_some(),
+                  "fresh": st.sidecar_opened.fresh, "bad_slots": st.sidecar_opened.bad_slots,
+                  "writes": st.sidecar.writes, "write_errors": st.sidecar.write_errors,
+                  "syncs": st.sidecar.syncs},
         "load": gaia::load(e),
     })
 }

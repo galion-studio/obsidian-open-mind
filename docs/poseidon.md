@@ -28,6 +28,7 @@ One crate, one binary `openmind-queue` (about 0.75 MB, x86_64 musl-able):
 | --- | --- |
 | `engine` | Event-sourced queue state machine: named queues, priority (higher first, FIFO within a priority), leases with visibility timeout and fencing tokens, heartbeat `extend`, retries with exponential backoff, dead-letter queue and redrive, per-agent quotas (`max_pending`, `max_inflight`), backpressure at `max_depth` (503), spend caps per agent and global that hard-stop (reserve at lease, charge at ack, over-reports clamped to the reservation; a worker that dies is charged its whole reservation), money-word job kinds refused (403), VRAM routing at lease time. |
 | `store` | Append-only log `queue.log`, one `crc32 json` line per record, `sync_data` before every answer, torn-tail repair on open, refusal to start on mid-file corruption, atomic compaction (tmp + rename + dir fsync), `flock` on `queue.lock` against two servers on one directory. |
+| `refusals` | `refusals.dat` sidecar: the refusal counters across `kill -9` (two alternating crc-checked slots, written before the answer, synced by the ticker within ~1 s). See Limits. |
 | `vram` | Device registry (`gpu`, `lan`, `remote`; `planned`/`approved`/`rejected`; healthy), best-fit placement GPU -> LAN -> remote, CPU offload when the job allows it, capacity summary against the 1500 GB goal (approved, planned, used, gap, cents/hour as numbers). A priced device cannot be approved by hand: it needs an approved `openmind-provider` row (the owner). |
 | `gaia` | Gaia vocabulary without a gaia-core dependency (gaia-core is not on main): `FUNCTION = "POSEIDON"`, the four systems, verbs `status`/`run`/`plan`/`execute`, outcomes `done`/`dry-run`/`refused`/`rejected`, report = summary + integer metrics, load 0..100 for `Health::ok`. Dispatch is read-only. |
 | `http`, `server` | std-only HTTP/1.1 (Content-Length bodies, 1 MiB cap, connection cap 256), loopback bind by default (non-loopback needs `--allow-remote` AND `--token-file`, see Auth below), a ticker thread that sleeps on a condvar until the next deadline (max 1 s, no busy loop). |
@@ -37,7 +38,7 @@ One crate, one binary `openmind-queue` (about 0.75 MB, x86_64 musl-able):
 | Method and path | Body / result |
 | --- | --- |
 | `GET /healthz` | `{ok, function, service, version, time}` |
-| `GET /stats` | depth, counters, budgets per agent, VRAM summary, store info, load |
+| `GET /stats` | depth, counters, budgets per agent, VRAM summary, store info, `refusals_sidecar` (seq, restored, bad_slots, writes, syncs), load |
 | `POST /jobs` | `{queue, agent, kind, priority, max_attempts, cost, lease_ms, payload, vram_gb, cpu_fallback}` (all optional) -> 201 `{id}`; 400 bad, 402 budget, 403 money, 429 quota, 503 backpressure or vram_unavailable |
 | `GET /jobs/{id}` | live job (acked jobs are not kept) |
 | `POST /lease` | `{queue, worker, lease_ms, wait_ms<=30000}` -> `{id, token, device, job}` or `{id:null, miss: empty / budget_hard_stop / quota_inflight / vram_held}` |
@@ -88,8 +89,38 @@ a read-only GET to loopback `http://` URLs only).
 
 ## Limits and known gaps
 
-- Process-local refusal counters (`quota_refusals`, `budget_refusals`,
-  `stale_acks`) are only persisted at compaction; a `kill -9` resets them.
+- Refusal counters (`quota_refusals`, `budget_refusals`,
+  `backpressure_refusals`, `stale_acks`, `charge_clamped`) change no queue
+  state, so no log record carries them. Since swarm/poseidon-refusal-persist
+  (2026-10-21) they live in `refusals.dat` next to the log: two 512-byte
+  slots, each one `crc32 json` line with a sequence number, written
+  alternately with one positioned write **before** the response is sent;
+  opening takes the valid slot with the highest sequence. Guarantees and
+  limits:
+  - `kill -9` / any process crash: nothing lost. Every refusal a client saw
+    answered is counted after the restart (real test: 100 SIGKILL rounds,
+    25 of them mid-burst with 4 clients at tens of thousands of refusals
+    per second, plus 20 kills right after single 429/402 answers; 0 lost).
+  - Power loss / kernel crash: the sidecar is `sync_data`'d by the ticker
+    at most ~1 s after a change, so up to ~1 s of refusal counts can be
+    lost. Job state is unaffected (the log is synced before every answer).
+  - A torn sidecar write damages only the slot being written; the other
+    slot (one step older) is used and the next change repairs it. Both
+    slots damaged: the server still starts, falls back to the counters of
+    the last compaction (`Counters` record), logs it and shows
+    `refusals_sidecar.bad_slots` in `GET /stats`. A damaged sidecar never
+    blocks start-up, because these are observability numbers, not queue
+    state. Restore takes the larger of log and sidecar per field (the
+    counters only grow).
+  - Deleting `refusals.dat` falls back to the last compaction's values.
+  - An older binary ignores `refusals.dat`, so rolling back is safe (it
+    just goes back to the old reset-on-crash behaviour).
+  - Not persisted: per-agent `budget_blocked` (lease-time skip count per
+    agent in `GET /stats` `agents`); it still resets on a crash.
+  - Existing behaviour, unchanged: one `POST /lease` with `wait_ms > 0`
+    that stays budget-stopped bumps `budget_refusals` once per wake-up
+    (up to ~30 per call), so that counter counts lease evaluations, not
+    calls.
   Job state, budgets, caps, quotas and devices are always durable.
 - Auth is one shared bearer secret (no per-worker identity, no rotation
   without restart, plain HTTP so the token is visible on the wire: LAN only

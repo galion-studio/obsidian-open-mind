@@ -254,3 +254,70 @@ fn drift_is_detected() {
         "{d:?}"
     );
 }
+
+/// Positive control for the no-flap check, through the real engine: a
+/// capture where hermes-rs fails 4 snapshots, recovers 4, fails 4 again
+/// (30 s apart) must be reported as a flap; the same capture failing once
+/// (onset, then recovery held) must not.
+#[test]
+fn a_flapping_capture_is_caught() {
+    use openmind_nerve::config::Config;
+    use openmind_nerve::corpus::run;
+    let tpl: Value = serde_json::from_str(
+        &std::fs::read_to_string(here().join("fixtures/cortex-replay/state-0.json")).unwrap(),
+    )
+    .unwrap();
+    let make = |tag: &str, failing: &dyn Fn(usize) -> bool| -> PathBuf {
+        let d = scratch(&format!("flap-{tag}"));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        for k in 0..12usize {
+            let mut v = tpl.clone();
+            let secs = 5 + 30 * k;
+            v["ts"] = Value::from(format!(
+                "2026-10-20T19:{:02}:{:02}+02:00",
+                5 + secs / 60,
+                secs % 60
+            ));
+            for c in v["components"].as_array_mut().unwrap() {
+                if c["name"] == "hermes-rs" && failing(k) {
+                    c["status"] = Value::from("failing");
+                    c["unit_state"] = Value::from("failed");
+                    c["http"] = Value::Null;
+                }
+            }
+            std::fs::write(d.join(format!("state-{k:02}.json")), v.to_string()).unwrap();
+        }
+        d
+    };
+    let data = scratch("flap-data");
+    let dd = data.display().to_string();
+    let cfg = || Config::from_env(&|k| (k == "NERVE_DATA_DIR").then(|| dd.clone())).unwrap();
+    let flapping = make("on", &|k| k < 4 || k >= 8);
+    let r = run(&flapping, cfg(), &|_| None, 20).unwrap();
+    let f: Vec<String> = r["flaps"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.as_str().unwrap().to_string())
+        .collect();
+    eprintln!("flapping capture: timeline {} flaps {f:?}", r["timeline"]);
+    assert!(
+        f.iter().any(|x| x.contains("hermes-rs")),
+        "hermes-rs fail/recover/fail must be a flap: {f:?}"
+    );
+    let once = make("once", &|k| k < 4);
+    let r = run(&once, cfg(), &|_| None, 20).unwrap();
+    eprintln!(
+        "fail-once capture: timeline {} flaps {}",
+        r["timeline"], r["flaps"]
+    );
+    assert_eq!(
+        r["flaps"],
+        serde_json::json!([]),
+        "one outage is not a flap"
+    );
+    for d in [flapping, once, data] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}

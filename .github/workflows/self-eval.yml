@@ -64,6 +64,21 @@ jobs:
           toolchain: stable
       - run: cargo test --workspace --locked
 
+  # Cortex T5.3: replay every committed capture against its expected verdict
+  # (crates/openmind-nerve/tests/replay-corpus/), fail on drift or on a
+  # verdict that flaps over the capture plus 20 quiet hold cycles. The live
+  # VPS captures stay on the box; CI replays the committed fixtures.
+  replay-corpus:
+    name: cortex replay corpus (drift + 20-cycle no-flap)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+      - run: cargo xtask replay-corpus
+
   omnode:
     name: omnode (edge/openmind-node, own workspace)
     runs-on: ubuntu-latest

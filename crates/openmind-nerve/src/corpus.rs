@@ -407,7 +407,7 @@ fn walk(path: &str, a: &Value, b: &Value, out: &mut Vec<String>) {
                 out.push(format!("{path}: new {new:?}"));
             }
             if xs == ys && x != y {
-                out.push(format!("{path}: order changed"));
+                out.push(format!("{path}: order or count changed"));
             }
         }
         (Value::Array(x), Value::Array(y)) => {

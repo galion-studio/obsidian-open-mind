@@ -25,3 +25,8 @@ LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLI
 # replaces this list; crates/hades-gate/tests/simd_free.rs fails if it does.
 [build]
 rustflags = ["--cfg", "curve25519_dalek_backend=\"serial\""]
+
+# `cargo xtask <task>`: the Rust CI task runner (crates/xtask, docs/ci.md).
+# Every .github/workflows step calls one of its subcommands.
+[alias]
+xtask = "run --locked --quiet -p xtask --"

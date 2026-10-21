@@ -94,6 +94,33 @@ pub fn mouth_client_target(env: Env) -> SocketAddr {
     dial_addr(&mouth_bind(env)).unwrap_or_else(|| default_addr(DEFAULT_MOUTH_BIND))
 }
 
+pub const DEFAULT_CONSOLE: &str = "127.0.0.1:8080";
+
+/// Console pulse target (`console` in /api/v1/awake and analytics).
+/// `ONE_CONSOLE` is `host:port` (default today's `127.0.0.1:8080`), or `off`
+/// (also `0`, `none`, `false`) to drop the console pulse on a box that has no
+/// console. An unparsable value falls back to the default, like the other
+/// probe targets. `ONE_CONSOLE_PATH` is the path to GET (default `/`; a value
+/// not starting with `/` is ignored).
+pub fn console_target(env: Env) -> Option<(SocketAddr, String)> {
+    let raw = env("ONE_CONSOLE").unwrap_or_default();
+    let raw = raw.trim();
+    if matches!(
+        raw.to_ascii_lowercase().as_str(),
+        "off" | "0" | "none" | "false"
+    ) {
+        return None;
+    }
+    let addr = dial_addr(raw).unwrap_or_else(|| default_addr(DEFAULT_CONSOLE));
+    let path = match env("ONE_CONSOLE_PATH") {
+        Some(p) if p.trim().starts_with('/') && !p.trim().contains(char::is_whitespace) => {
+            p.trim().to_string()
+        }
+        _ => "/".to_string(),
+    };
+    Some((addr, path))
+}
+
 /// True when `addr` is somebody else's mouth (POST its `/synthesize`).
 /// False for today's loopback :8002 and for our own mouth listen address.
 /// Memory gateway probe target: `GALION_MEMORY` (`host:port`) when it parses,
@@ -235,5 +262,32 @@ mod tests {
         let env = env_from(&[("ONE_BIND", "nope")]);
         assert_eq!(one_bind(&env), "nope");
         assert_eq!(one_probe_target(&env), sa("127.0.0.1:8091"));
+    }
+
+    #[test]
+    fn console_target_defaults_moves_and_switches_off() {
+        let env = env_from(&[]);
+        assert_eq!(
+            console_target(&env),
+            Some((sa("127.0.0.1:8080"), "/".to_string()))
+        );
+        let moved = env_from(&[
+            ("ONE_CONSOLE", "127.0.0.1:19293"),
+            ("ONE_CONSOLE_PATH", "/health"),
+        ]);
+        assert_eq!(
+            console_target(&moved),
+            Some((sa("127.0.0.1:19293"), "/health".to_string()))
+        );
+        for off in ["off", "OFF", " 0 ", "none", "false"] {
+            assert_eq!(console_target(&env_from(&[("ONE_CONSOLE", off)])), None);
+        }
+        let junk = env_from(&[("ONE_CONSOLE", "junk"), ("ONE_CONSOLE_PATH", "health")]);
+        assert_eq!(
+            console_target(&junk),
+            Some((sa("127.0.0.1:8080"), "/".to_string()))
+        );
+        let wild = env_from(&[("ONE_CONSOLE", "0.0.0.0:19293")]);
+        assert_eq!(console_target(&wild).unwrap().0, sa("127.0.0.1:19293"));
     }
 }

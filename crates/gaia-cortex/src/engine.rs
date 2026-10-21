@@ -149,8 +149,9 @@ pub struct Cortex {
     seq: u64,
     /// Last non-info signal per subject that has not cleared yet (F3).
     active: BTreeMap<String, Active>,
-    /// Nerve incident id -> nerve cause, for every open nerve incident the
-    /// cortex knows (`incident.resolved` carries only the id).
+    /// Nerve cause -> the nerve's short incident id (or the cause itself
+    /// when only the stream named it), for every open nerve incident the
+    /// cortex holds.
     nerve_incs: BTreeMap<String, String>,
     /// Why recent cortex incidents resolved (id -> cleared / expired /
     /// quiet), newest last.
@@ -252,54 +253,59 @@ impl Cortex {
         out
     }
 
-    /// Nerve engine incidents: remember id -> cause, give `incident.resolved`
-    /// (which carries only the id) its cause so it lands on the same
-    /// subject, drop an `incident.opened` the cortex already holds (stream
-    /// replay after a backfill, or the reverse), and follow a nerve restart's
-    /// new id for a cause that is still open without alerting again.
+    /// Nerve engine incidents. The nerve keeps one open incident per cause
+    /// and its stream names it by cause: bb287cc publishes
+    /// `incident.opened {"id": <cause>, "cause": <cause>, ...}` and
+    /// `incident.resolved {"id": <cause>}` (no `cause` field), while
+    /// `GET /incidents` shows the short id (`inc-d7320b38`). The cause is
+    /// therefore the identity here: `incident.resolved` gets its `cause`
+    /// filled in so it lands on the same subject as the opened one, and an
+    /// `incident.opened` for a cause the cortex already holds (stream replay
+    /// after a backfill, a restarted nerve's warm-up) is dropped.
     fn track_nerve_incident(&mut self, mut e: Event) -> Option<Event> {
         if e.kind() != EventKind::NerveIncident {
             return Some(e);
         }
-        let Some(id) = data_str(&e, "id").map(str::to_string) else {
+        let id = data_str(&e, "id").map(str::to_string);
+        let cause = data_str(&e, "cause").map(str::to_string).or_else(|| {
+            // `id` is the cause on the stream; a short id from a snapshot
+            // is mapped back.
+            let id = id.as_deref()?;
+            Some(
+                self.nerve_incs
+                    .iter()
+                    .find(|(_, i)| i.as_str() == id)
+                    .map(|(c, _)| c.clone())
+                    .unwrap_or_else(|| id.to_string()),
+            )
+        });
+        let Some(cause) = cause else {
             return Some(e);
         };
-        let resolved = e.kind.ends_with("resolved");
-        if resolved {
-            let cause = match data_str(&e, "cause") {
-                Some(c) => Some(c.to_string()),
-                None => self.nerve_incs.get(&id).cloned(),
-            };
-            self.nerve_incs.remove(&id);
-            if let (Some(c), Some(o)) = (cause, e.data.as_object_mut()) {
-                o.entry("cause").or_insert(Value::String(c));
-            }
+        if let Some(o) = e.data.as_object_mut() {
+            o.entry("cause")
+                .or_insert_with(|| Value::String(cause.clone()));
+        }
+        if e.kind.ends_with("resolved") {
+            self.nerve_incs.remove(&cause);
             return Some(e);
         }
-        if self.nerve_incs.contains_key(&id) {
+        if self.nerve_incs.contains_key(&cause) {
             if e.kind.ends_with("opened") {
                 self.stats.nerve_incidents_duplicate += 1;
                 return None;
             }
             return Some(e);
         }
-        let Some(cause) = data_str(&e, "cause").map(str::to_string) else {
-            return Some(e);
-        };
-        let old: Vec<String> = self
-            .nerve_incs
-            .iter()
-            .filter(|(_, c)| **c == cause)
-            .map(|(i, _)| i.clone())
-            .collect();
-        self.nerve_incs.insert(id, cause);
-        if !old.is_empty() {
-            for o in old {
-                self.nerve_incs.remove(&o);
-            }
-            self.stats.nerve_incidents_remapped += 1;
-            return None;
-        }
+        // Short id when known (backfill), else whatever the stream called it.
+        let shown = e
+            .data
+            .get("nerve_id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or(id)
+            .unwrap_or_else(|| cause.clone());
+        self.nerve_incs.insert(cause, shown);
         Some(e)
     }
 
@@ -307,60 +313,54 @@ impl Cortex {
     /// incidents (`snapshot` = the nerve's `GET /incidents`), read on every
     /// stream (re)connect:
     ///
-    /// - an open nerve incident the cortex does not know -> a synthetic
-    ///   `incident.opened` (`data.backfill = true`), decided by R11 like a
-    ///   streamed one (warn/error alert, critical escalate, never an action);
-    /// - a nerve incident the cortex holds open that the nerve no longer has
-    ///   open (resolved while the stream was down, or a restarted nerve that
-    ///   no longer sees it) -> a synthetic `incident.resolved`.
+    /// - an open nerve incident whose cause the cortex does not hold -> a
+    ///   synthetic `incident.opened` (`data.backfill = true`), decided by R11
+    ///   like a streamed one (warn/error alert, critical escalate, never an
+    ///   action);
+    /// - a cause the cortex holds open that the nerve no longer has open
+    ///   (resolved while the stream was down, or a restarted nerve that no
+    ///   longer sees it) -> a synthetic `incident.resolved`.
     ///
     /// New incidents are not recorded here: the events go through
     /// [`Cortex::admit`] like any other, so a streamed copy of the same
-    /// incident is dropped by id. Only a new id for a cause the cortex already
-    /// holds (restarted nerve) is followed here, silently.
+    /// incident is dropped by cause. A held cause that the nerve now shows
+    /// under another short id (restarted nerve) is followed silently.
     pub fn backfill(&mut self, snapshot: &Value, now: u64) -> Vec<Event> {
         let Some(open) = snapshot.get("open").and_then(Value::as_array) else {
             return vec![];
         };
+        let clip = |s: &str, n: usize| {
+            s.chars()
+                .filter(|c| !c.is_control())
+                .take(n)
+                .collect::<String>()
+        };
         let mut out = vec![];
         let mut causes: HashSet<String> = HashSet::new();
-        let mut ids: HashSet<String> = HashSet::new();
         for i in open.iter().take(512) {
-            let (Some(id), Some(cause)) = (
-                i.get("id")
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty()),
-                i.get("cause")
-                    .and_then(Value::as_str)
-                    .filter(|s| !s.is_empty()),
-            ) else {
+            let Some(cause) = i
+                .get("cause")
+                .and_then(Value::as_str)
+                .filter(|s| !s.is_empty())
+            else {
                 continue;
             };
-            let clip = |s: &str, n: usize| {
-                s.chars()
-                    .filter(|c| !c.is_control())
-                    .take(n)
-                    .collect::<String>()
-            };
-            let (id, cause) = (clip(id, 64), clip(cause, 120));
-            ids.insert(id.clone());
-            causes.insert(cause.clone());
-            if self.nerve_incs.contains_key(&id) {
+            let cause = clip(cause, 120);
+            let id = i
+                .get("id")
+                .and_then(Value::as_str)
+                .map(|s| clip(s, 64))
+                .unwrap_or_default();
+            if !causes.insert(cause.clone()) {
                 continue;
             }
-            // Same cause under an older id (the nerve restarted): follow it.
-            let old: Vec<String> = self
-                .nerve_incs
-                .iter()
-                .filter(|(_, c)| **c == cause)
-                .map(|(i, _)| i.clone())
-                .collect();
-            if !old.is_empty() {
-                for o in old {
-                    self.nerve_incs.remove(&o);
+            if let Some(held) = self.nerve_incs.get_mut(&cause) {
+                if !id.is_empty() && *held != id {
+                    if held.starts_with("inc-") {
+                        self.stats.nerve_incidents_remapped += 1;
+                    }
+                    *held = id;
                 }
-                self.nerve_incs.insert(id, cause);
-                self.stats.nerve_incidents_remapped += 1;
                 continue;
             }
             let sev = i.get("severity").and_then(Value::as_str).unwrap_or("warn");
@@ -375,7 +375,7 @@ impl Cortex {
                 "incident.opened",
                 sev,
                 json!({
-                    "id": id, "cause": cause, "backfill": true,
+                    "id": cause, "cause": cause, "nerve_id": id, "backfill": true,
                     "components": i.get("components").cloned().unwrap_or(Value::Null),
                     "opened": i.get("opened").cloned().unwrap_or(Value::Null),
                 }),
@@ -388,15 +388,15 @@ impl Cortex {
         let gone: Vec<(String, String)> = self
             .nerve_incs
             .iter()
-            .filter(|(i, c)| !ids.contains(*i) && !causes.contains(*c))
-            .map(|(i, c)| (i.clone(), c.clone()))
+            .filter(|(c, _)| !causes.contains(*c))
+            .map(|(c, i)| (c.clone(), i.clone()))
             .collect();
-        for (id, cause) in gone {
+        for (cause, id) in gone {
             let mut ev = Event::new(
                 "nerve",
                 "incident.resolved",
                 "info",
-                json!({"id": id, "cause": cause, "backfill": true}),
+                json!({"id": cause, "cause": cause, "nerve_id": id, "backfill": true}),
             );
             ev.ts = ts(now);
             self.stats.nerve_incidents_reconciled += 1;

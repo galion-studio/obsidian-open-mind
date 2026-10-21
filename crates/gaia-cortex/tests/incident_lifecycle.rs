@@ -302,8 +302,8 @@ fn reconnect_reconciles_dropped_and_follows_restarted_ids() {
     assert_eq!(st["nerve_incidents_remapped"], 1);
     assert_eq!(st["nerve_incidents_reconciled"], 1);
     assert_eq!(
-        cx.incidents_json()["nerve_incidents"]["inc-b2"],
-        "galion-one"
+        cx.incidents_json()["nerve_incidents"]["galion-one"],
+        "inc-b2"
     );
     // the new nerve's own replayed opened for inc-b2: dropped, no second alert
     let d = cx.process(
@@ -340,7 +340,7 @@ fn hostile_snapshot_is_bounded() {
     let evs = cx.backfill(&json!({"open": many}), 1);
     assert_eq!(evs.len(), 512);
     assert!(!evs[0].data["cause"].as_str().unwrap().contains('\u{1}'));
-    let junk = json!({"open": [{"id": 5, "cause": "x"}, {"cause": "y"}, {"id": "", "cause": "z"}]});
+    let junk = json!({"open": [{"id": "inc-5", "cause": 5}, {"id": "inc-6"}, {"id": "inc-7", "cause": ""}]});
     assert!(cx.backfill(&junk, 1).is_empty());
 }
 
@@ -382,4 +382,68 @@ fn env_knobs_are_read_and_clamped() {
     assert_eq!(c.incident_sticky_max_s, 7_200);
     let d = Config::default();
     assert_eq!((d.incident_quiet_s, d.incident_sticky_max_s), (1_800, 0));
+}
+
+/// The exact shapes bb287cc publishes (seen in the real run, 2026-10-22):
+/// opened `{"id": <cause>, "cause": <cause>, ...}`, resolved `{"id": <cause>}`,
+/// while `GET /incidents` carries the short `inc-...` id.
+#[test]
+fn bb287cc_shapes_stream_id_is_the_cause() {
+    let mut cx = cortex();
+    let evs = cx.backfill(&snapshot(&[("inc-d7320b38", "galion-one", "error")]), 1_000);
+    cx.process(evs, 1_000);
+    assert_eq!(
+        cx.incidents_json()["nerve_incidents"]["galion-one"],
+        "inc-d7320b38"
+    );
+    // the stream's own copy (replay): same cause -> dropped
+    let d = cx.process(
+        vec![nerve_ev(
+            "incident.opened",
+            "high",
+            1,
+            json!({"id": "galion-one", "cause": "galion-one", "components": ["galion-one-mouth"]}),
+        )],
+        1_010,
+    );
+    assert!(d.is_empty(), "{d:?}");
+    // a streamed incident the cortex sees live
+    cx.process(
+        vec![nerve_ev(
+            "incident.opened",
+            "high",
+            2,
+            json!({"id": "edge", "cause": "edge", "components": ["cloudflared"]}),
+        )],
+        1_020,
+    );
+    assert_eq!(cx.incidents_json()["nerve_incidents"]["edge"], "edge");
+    // a later snapshot teaches its short id without re-alerting or remapping
+    assert!(cx
+        .backfill(
+            &snapshot(&[
+                ("inc-d7320b38", "galion-one", "error"),
+                ("inc-a763c076", "edge", "error")
+            ]),
+            1_030
+        )
+        .is_empty());
+    assert_eq!(
+        cx.incidents_json()["nerve_incidents"]["edge"],
+        "inc-a763c076"
+    );
+    assert_eq!(cx.stats_json()["nerve_incidents_remapped"], 0);
+    // resolved with only {"id": <cause>}
+    let d = cx.process(
+        vec![nerve_ev(
+            "incident.resolved",
+            "info",
+            3,
+            json!({"id": "galion-one"}),
+        )],
+        1_100,
+    );
+    assert_eq!(d[0]["subject"], "nerve-incident:galion-one", "{d:?}");
+    assert!(open_of(&cx, "nerve-incident:galion-one").is_none());
+    assert!(open_of(&cx, "nerve-incident:edge").is_some());
 }

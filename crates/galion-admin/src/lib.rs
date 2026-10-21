@@ -3,7 +3,8 @@
 //! galion-admin: Galion OS L1 admin CLI skeleton (device-independent; Linux and Android).
 //!
 //! Commands: sandbox start/stop/status/probe (through the `galion-box` launcher), tunnel status
-//! (loopback reachability only), audit tail/verify (hash-chained local log). No `su`, no root:
+//! (loopback reachability only), audit tail/verify (hash-chained local log), image verify (signed
+//! gold image, docs/galion-os/gold-image-format.md). No `su`, no root:
 //! the binary refuses to run as uid 0.
 
 pub mod audit;

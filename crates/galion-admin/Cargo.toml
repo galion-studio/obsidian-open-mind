@@ -5,7 +5,7 @@ name = "galion-admin"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
-description = "Galion OS L1 admin CLI skeleton: sandbox start/stop via galion-box, tunnel status, hash-chained audit log"
+description = "Galion OS L1 admin CLI skeleton: sandbox start/stop via galion-box, tunnel status, hash-chained audit log, signed gold-image verification"
 publish = false
 
 [dependencies]

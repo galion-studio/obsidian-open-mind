@@ -1164,34 +1164,55 @@ fn real_soak_10k() {
         *phase.lock().unwrap() = "drain";
         let t1 = Instant::now();
         let acked = Arc::new(Mutex::new(BTreeSet::new()));
+        // acks sent with no answer (the kill cut them): applied or not
+        let ack_amb: Arc<Mutex<BTreeSet<u64>>> = Arc::new(Mutex::new(BTreeSet::new()));
+        let inflight = Arc::new(AtomicUsize::new(0));
         let kill_at = if round == 1 { jobs / 2 } else { u64::MAX };
         let draining = Arc::new(AtomicBool::new(true));
         let paused = Arc::new(AtomicBool::new(false));
         let hs: Vec<_> = (0..8)
             .map(|w| {
-                let (addr, acked, draining, paused) = (
+                let (addr, acked, ack_amb, inflight, draining, paused) = (
                     addr.clone(),
                     acked.clone(),
+                    ack_amb.clone(),
+                    inflight.clone(),
                     draining.clone(),
                     paused.clone(),
                 );
+                // run one request unless paused; the killer waits for
+                // inflight == 0, so nothing reaches the restarted server
+                // before the no-loss check
+                let gate = move |f: &mut dyn FnMut() -> Out| -> Option<Out> {
+                    inflight.fetch_add(1, Ordering::SeqCst);
+                    let o = if paused.load(Ordering::SeqCst) {
+                        None
+                    } else {
+                        Some(f())
+                    };
+                    inflight.fetch_sub(1, Ordering::SeqCst);
+                    o
+                };
                 thread::spawn(move || {
                     while draining.load(Ordering::SeqCst) {
-                        if paused.load(Ordering::SeqCst) {
-                            thread::sleep(Duration::from_millis(5));
-                            continue;
-                        }
                         let body = json!({"worker": format!("s{w}"), "wait_ms": 200});
-                        let Out::Done(200, l) = req(&addr, "POST", "/lease", Some(&body)) else {
+                        let Some(Out::Done(200, l)) =
+                            gate(&mut || req(&addr, "POST", "/lease", Some(&body)))
+                        else {
                             thread::sleep(Duration::from_millis(5));
                             continue;
                         };
                         let Some(id) = l["id"].as_u64() else { continue };
                         let p = format!("/jobs/{id}/ack");
-                        if let Out::Done(200, _) =
-                            req(&addr, "POST", &p, Some(&json!({"token": l["token"]})))
-                        {
-                            acked.lock().unwrap().insert(id);
+                        let tok = json!({"token": l["token"]});
+                        match gate(&mut || req(&addr, "POST", &p, Some(&tok))) {
+                            Some(Out::Done(200, _)) => {
+                                acked.lock().unwrap().insert(id);
+                            }
+                            Some(Out::Ambiguous) => {
+                                ack_amb.lock().unwrap().insert(id);
+                            }
+                            _ => {} // refused connection or paused: job stays leased (live)
                         }
                     }
                 })
@@ -1201,11 +1222,18 @@ fn real_soak_10k() {
             let n = acked.lock().unwrap().len() as u64;
             if n >= kill_at && kill_row.is_null() {
                 // SIGKILL mid-drain, then a full no-loss check
-                paused.store(true, Ordering::SeqCst);
                 let s = srv.lock().unwrap().take().unwrap();
                 let rss_before = rss_kib(s.pid).0;
                 s.kill9();
-                thread::sleep(Duration::from_millis(300)); // let in-flight requests fail
+                paused.store(true, Ordering::SeqCst);
+                let q0 = Instant::now();
+                while inflight.load(Ordering::SeqCst) > 0 {
+                    assert!(
+                        q0.elapsed() < Duration::from_secs(15),
+                        "soak workers did not quiesce"
+                    );
+                    thread::sleep(Duration::from_millis(2));
+                }
                 let log_bytes = std::fs::metadata(data.join("queue.log"))
                     .map(|m| m.len())
                     .unwrap_or(0);
@@ -1213,13 +1241,19 @@ fn real_soak_10k() {
                 pid.store(u64::from(ns.pid), Ordering::SeqCst);
                 let st = ns.stats();
                 let done = acked.lock().unwrap().clone();
+                let amb = ack_amb.lock().unwrap().clone();
                 let all = ids.lock().unwrap().clone();
                 let mut lost = 0;
                 let mut live = 0;
+                let mut amb_applied = 0;
                 for id in all.iter().filter(|i| !done.contains(i)) {
                     match call(&addr, "GET", &format!("/jobs/{id}"), None).0 {
                         200 => live += 1,
-                        _ => lost += 1,
+                        404 if amb.contains(id) => amb_applied += 1,
+                        _ => {
+                            lost += 1;
+                            eprintln!("LOST job {id}");
+                        }
                     }
                 }
                 let mut resurrected = 0;
@@ -1230,6 +1264,7 @@ fn real_soak_10k() {
                 }
                 let rss_after = rss_kib(ns.pid).0;
                 kill_row = json!({"round": round + 1, "acked_before_kill": done.len(), "live_after": live,
+                    "ack_unanswered": amb.len(), "ack_unanswered_applied": amb_applied,
                     "lost": lost, "resurrected": resurrected, "replayed_records": st["store"]["replayed"],
                     "log_bytes": log_bytes, "restart_ms": took.as_millis() as u64,
                     "rss_kib_before_kill": rss_before, "rss_kib_after_replay": rss_after,

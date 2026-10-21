@@ -7,9 +7,10 @@
 //! Nothing under test is mocked: the real registry (config/hermes/sectors.toml),
 //! the real plans (/workspace/swarm/plans or HERMES_PLANS_DIR), the real
 //! hades-gate verifier with a throwaway admin key made here, the real JSONL
-//! ledger, the real governor and the real loopback HTTP server on 19380. The
-//! only stand-in is the model provider (offline mock), because OpenRouter
-//! returns 402 and no credit may be spent.
+//! ledger, the real governor and the real loopback HTTP server on 19380 (or
+//! HERMES_REAL_PORT). The
+//! only stand-in is the model provider (offline mock), because no paid model
+//! call is approved and no credit may be spent.
 //!
 //!   GALION_REAL=1 cargo test -p hermes-core --release --test real_hermes -- --nocapture
 //!
@@ -24,8 +25,20 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const PORT: u16 = 19380;
-const PORT_REFUSED: u16 = 19381;
+/// Default ports; a swarm slot overrides them with HERMES_REAL_PORT (status API)
+/// and HERMES_REAL_PORT_REFUSED (the 0.0.0.0 bind that must be refused) so
+/// the test stays inside the slot's assigned port range.
+const DEFAULT_PORT: u16 = 19380;
+const DEFAULT_PORT_REFUSED: u16 = 19381;
+
+fn port_from_env(var: &str, default: u16) -> u16 {
+    match std::env::var(var) {
+        Ok(v) => v
+            .parse()
+            .unwrap_or_else(|_| panic!("{var} must be a port number, got {v:?}")),
+        Err(_) => default,
+    }
+}
 
 struct Env {
     dir: PathBuf,
@@ -463,7 +476,8 @@ fn hermes_real_life() {
     assert_eq!(code, 3);
     assert_eq!(v["decision"]["code"], "replayed");
 
-    step("R7", "status API on 127.0.0.1:19380");
+    let port = port_from_env("HERMES_REAL_PORT", DEFAULT_PORT);
+    step("R7", &format!("status API on 127.0.0.1:{port}"));
     let (code, _) = hermes(
         &env,
         "main",
@@ -472,7 +486,7 @@ fn hermes_real_life() {
             "--host",
             "0.0.0.0",
             "--port",
-            &PORT_REFUSED.to_string(),
+            &port_from_env("HERMES_REAL_PORT_REFUSED", DEFAULT_PORT_REFUSED).to_string(),
         ],
     );
     eprintln!("  serve --host 0.0.0.0 -> exit {code} (refused, loopback only)");
@@ -484,13 +498,13 @@ fn hermes_real_life() {
         .arg(&env.plans)
         .arg("--state")
         .arg(env.dir.join("cap24"))
-        .args(["serve", "--port", &PORT.to_string()])
+        .args(["serve", "--port", &port.to_string()])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
     let server = Killer(child);
-    let addr: SocketAddr = format!("127.0.0.1:{PORT}").parse().unwrap();
+    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
     let up = Instant::now();
     while http::get(&addr, "/health").is_err() {
         assert!(

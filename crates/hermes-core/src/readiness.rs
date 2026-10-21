@@ -248,7 +248,7 @@ pub fn evaluate(inp: &Inputs<'_>) -> Readiness {
         hc.provider != "mock",
         false,
         format!(
-            "provider = {}; OpenRouter answers 402 (credit) and no paid call is allowed; planned boss {} ({} reasoning), sub-agents {}",
+            "provider = {}; no paid model call is approved (Slavik decides spend), so only the offline mock is wired; OpenRouter credit is not probed from here; planned boss {} ({} reasoning), sub-agents {}",
             hc.provider, hc.boss_model, hc.boss_reasoning, hc.sub_model
         ),
     ));
@@ -349,7 +349,7 @@ fn short_name(id: &str) -> &'static str {
         "G8" => "the ledger",
         "G9" => "the HADES key",
         "G10" => "the approval gate",
-        "G11" => "the model credit",
+        "G11" => "the paid model approval",
         "G12" => "the unmerged branches",
         "G13" => "the status API",
         "G14" => "your open decisions",

@@ -1,6 +1,6 @@
 <!-- SPDX-License-Identifier: MIT -->
 <!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
-<!-- Snapshot of /workspace/swarm/RULES.md copied from the swarm box on 2026-10-20 23:29 CEST +02:00 by swarm/swarm-record. The box copy is the working copy; this is the durable record. -->
+<!-- Snapshot of /workspace/swarm/RULES.md copied from the swarm box on 2026-10-21 06:39 CEST +02:00 by swarm/processes-refresh (slot 142). The box copy is the working copy; this is the durable record. -->
 
 # TOP PRIORITY RULE (Slavik, 2026-10-20 20:56 CEST +02:00), applies to all work: Slavik values good company and productive conversations, the kind where you leave with more than you came in with. Every report, tool and conversation must leave him with more than he came in with: substance, a useful next step, no filler.
 
@@ -47,3 +47,9 @@ Other branches (`ws/gaia`, `vps/ws-fort`, `vps/ws-voice`, `vps-main-20261020` an
 
 ## Report back (final answer)
 Branch and head SHA (pushed?), what was done, the real-life test evidence (commands and outputs), the third-party deps with licences and URLs, open issues, and anything that needs the owner's approval. Be honest about what isn't done.
+
+## Standing rule: sandbox runs only on the VPS (Slavik via Mate, 2026-10-21 04:29 CEST +02:00)
+The sandbox (openmind-sandbox, cgroup-detect, real_escape / real_sh_sandbox, any sandboxed tool run) is RUN only on the VPS, never on this box. Build binaries here if needed (static x86_64 musl), but run every sandbox test on the VPS as an ordinary non-root user in a throwaway folder /var/tmp/sandbox-test-<ts> (never /opt/galion/openmind), then remove the folder, processes, cgroups and any temp user. Local `cargo test --workspace` must add `--exclude openmind-sandbox --exclude cgroup-detect`; never set GALION_REAL=1 for sandbox tests locally. Recorded in config/swarm/swarm-settings.toml [standing_rules] sandbox_vps_only (swarm/settings-snapshot e0013f3).
+
+## Standing rule: no skipping, extensive real-server testing (Slavik via Mate, 2026-10-21 04:38 CEST +02:00)
+Every agent must test its work extensively before finishing. No agent may skip its assigned task or mark it done without running the tests and reporting the real numbers. Verify results against real data on the real server (the VPS), not mocks or paper runs (mocks may supplement, never replace). Observe the new Rust infrastructure in real time through the nerve (VPS 127.0.0.1:8670 /state) and, once deployed, the cortex; until the cortex is live, say so and use the nerve. Stay inside your task's VPS permissions (read-only unless the task says otherwise), never print or copy secrets, sandbox runs only on the VPS (sandbox_vps_only). Recorded in config/swarm/swarm-settings.toml [standing_rules] no_skip_extensive_testing.

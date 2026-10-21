@@ -22,6 +22,13 @@ fn main() -> ExitCode {
         println!("openmind-mcp-stack {}", env!("CARGO_PKG_VERSION"));
         std::process::exit(0);
     }
+    // `--help` / `-h`: usage only, not read as a crate name (release rehearsal, slot 228).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--help" | "-h")) {
+        println!(
+            "usage: openmind-mcp-stack [CRATE]...  (read-only MCP stub: JSON-RPC lines on stdin, one reply line each on stdout; no port, no spawn)"
+        );
+        std::process::exit(0);
+    }
     let server = match StackServer::new(env::args().skip(1)) {
         Ok(server) => server,
         Err(err) => {

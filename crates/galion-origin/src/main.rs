@@ -13,6 +13,13 @@ use std::time::Instant;
 
 fn main() {
     galion_common::build_info::exit_if_version("galion-origin", env!("CARGO_PKG_VERSION"));
+    // `--help` / `-h`: usage only, never bind (release rehearsal, slot 228).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--help" | "-h")) {
+        println!(
+            "usage: galion-origin  (serve; env ORIGIN_ADDR default 127.0.0.1:8655, ORIGIN_ROOT, ORIGIN_GRINDER_ROOT, ORIGIN_CONSOLE_URL)"
+        );
+        std::process::exit(0);
+    }
     let cfg = Arc::new(Config::from_env());
     let l = match TcpListener::bind(&cfg.addr) {
         Ok(l) => l,

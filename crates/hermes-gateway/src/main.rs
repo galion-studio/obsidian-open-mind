@@ -93,6 +93,13 @@ fn main() {
         println!("hermes-gateway {}", env!("CARGO_PKG_VERSION"));
         std::process::exit(0);
     }
+    // `--help` / `-h`: usage only, no config load or bind (release rehearsal, slot 228).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--help" | "-h")) {
+        println!(
+            "usage: hermes-gateway [--mock] [--check-config]  (serve; config from env, API_SERVER_KEY >= 16 chars required)"
+        );
+        std::process::exit(0);
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mock = args.iter().any(|a| a == "--mock");
     let cfg = match Config::load(&env) {

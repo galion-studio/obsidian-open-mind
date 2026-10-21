@@ -201,6 +201,13 @@ fn main() {
         println!("galion-health {}", env!("CARGO_PKG_VERSION"));
         std::process::exit(0);
     }
+    // `--help` / `-h`: usage only, never bind (release rehearsal, slot 228).
+    if matches!(std::env::args().nth(1).as_deref(), Some("--help" | "-h")) {
+        println!(
+            "usage: galion-health [--once]  (serve on $GALION_HEALTH_ADDR, default 127.0.0.1:8660; --once: one JSON check run, exit 0/1)\nenv: GALION_HEALTH_ADDR, GALION_HEALTH_CHECKS, GALION_LOG_FORMAT"
+        );
+        std::process::exit(0);
+    }
     let addr = std::env::var("GALION_HEALTH_ADDR").unwrap_or_else(|_| "127.0.0.1:8660".into());
     let checks =
         parse(&std::env::var("GALION_HEALTH_CHECKS").unwrap_or_else(|_| DEFAULT_CHECKS.into()));

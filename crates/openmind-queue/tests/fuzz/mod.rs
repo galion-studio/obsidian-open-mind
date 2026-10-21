@@ -177,7 +177,7 @@ pub fn budget(name: &str, default_seed: u64, default_iters: u64) -> Budget {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or_else(|| {
             if secs.is_some() {
-                std::time::SystemTime::now()
+                std::time::SystemTime::now() // repo-check: allow (PRNG seed, not a time)
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_nanos() as u64)
                     .unwrap_or(default_seed)

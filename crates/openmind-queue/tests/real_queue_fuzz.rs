@@ -8,6 +8,7 @@
 //! 127.0.0.1:20911 (slot 221 range 20910-20919). The release profile has
 //! `panic = "abort"`, so any panic reachable from the wire kills the
 //! process; the test checks it never does.
+//! `POSEIDON_RUNNER=qemu-aarch64` runs a cross-built binary under qemu-user.
 //!
 //! 1. Wire fuzz: `REAL_FUZZ_CASES` (default 3000) mutated requests from a
 //!    corpus of real API calls over real TCP, the write side shut after
@@ -67,7 +68,16 @@ fn start(data: &Path) -> Srv {
         TcpStream::connect(ADDR).is_err(),
         "something is already listening on {ADDR}"
     );
-    let mut child = Command::new(bin())
+    // POSEIDON_RUNNER (e.g. `qemu-aarch64`) runs a cross-built binary
+    let mut cmd = match std::env::var("POSEIDON_RUNNER") {
+        Ok(r) if !r.is_empty() => {
+            let mut c = Command::new(r);
+            c.arg(bin());
+            c
+        }
+        _ => Command::new(bin()),
+    };
+    let mut child = cmd
         .args(["serve", "--bind", ADDR, "--data"])
         .arg(data)
         .stdout(Stdio::null())

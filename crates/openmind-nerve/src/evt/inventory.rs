@@ -149,6 +149,13 @@ pub fn classify_proc(p: &ProcRow) -> &'static str {
     let c = p.comm.as_str();
     if p.ppid == 2 || p.pid == 2 {
         "kernel"
+    } else if a.contains("sandbox")
+        || a.contains("-sbx")
+        || p.user.starts_with("sbx")
+        || c == "runuser"
+    {
+        // sandbox runs (incl. a sandboxed nerve or cortex) are never the stack
+        "sandbox"
     } else if a.contains("openmind-nerve") || a.contains("galion-nerve") {
         "nerve"
     } else if a.contains("cortex") {
@@ -157,8 +164,6 @@ pub fn classify_proc(p: &ProcRow) -> &'static str {
         "hermes"
     } else if a.contains("console-ide") || c == "galion-desk" {
         "console"
-    } else if a.contains("sandbox") || p.user.starts_with("sbx") {
-        "sandbox"
     } else if a.contains("galion-os") {
         "galion-os"
     } else if a.contains("/swarm/") || a.contains("slot-") {
@@ -433,6 +438,8 @@ LISTEN 0 4096 [::1]:25 [::]:*"#;
  718450       1 root           100 hermes-gateway- /opt/galion/rust/bin/hermes-gateway-aa77864
     248       1 root           100 sshd sshd: /usr/sbin/sshd -D [listener] 0 of 10-100 startups
  611846       1 root           100 cloudflared /usr/local/bin/cloudflared tunnel --no-autoupdate --config x run
+ 741761       1 root            10 runuser runuser -u sbxc -- /var/tmp/sandbox-test-x/cortex serve
+ 739208       1 sbxevt1+       10 openmind-nerve- /var/tmp/sandbox-test-x/openmind-nerve-evt serve
  720043  719995 root             1 bash bash -c ss -tlnp";
     const UNITS: &str = "cloudflared.service loaded active running Cloudflare tunnel
 galion-nerve.service loaded active running galion-nerve: Galion self-eval
@@ -453,7 +460,7 @@ galion-backup.service loaded inactive dead Galion snapshot backup";
         );
         assert!(ports[6].procs.is_empty());
         let procs = parse_ps(PS);
-        assert_eq!(procs.len(), 9);
+        assert_eq!(procs.len(), 11);
         let units = parse_units(UNITS);
         assert_eq!(units.len(), 8);
         let s = Snapshot {
@@ -502,6 +509,11 @@ galion-backup.service loaded inactive dead Galion snapshot backup";
                 && pids.contains(&4008991)
         );
         assert!(!pids.contains(&606906) && !pids.contains(&248));
+        assert!(
+            !pids.contains(&741761) && !pids.contains(&739208),
+            "sandbox processes are not stack pidfd targets"
+        );
+        assert_eq!(j["counts"]["sandbox"]["processes"], 2);
         assert!(s.fingerprint().contains("port:127.0.0.1:19120"));
     }
 }

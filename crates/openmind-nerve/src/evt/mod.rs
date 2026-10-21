@@ -178,7 +178,7 @@ pub fn classify_unit(u: &str) -> &'static str {
         || b.is_empty()
     {
         "transient"
-    } else if b.starts_with("sbx") || has("sandbox") {
+    } else if b.starts_with("sbx") || has("-sbx") || has("sandbox") {
         "sandbox"
     } else if has("cortex") {
         "cortex"
@@ -605,6 +605,14 @@ mod tests {
         assert_eq!(classify_unit("cloudflared.service"), "infra");
         assert_eq!(classify_unit("galion-os-image.service"), "galion-os");
         assert_eq!(classify_unit("cortex-advisor.service"), "cortex");
+        // another worker's sandbox crash unit seen live on the VPS 2026-10-21 18:39 +02:00
+        assert_eq!(
+            classify_unit("cortex-sbx-crash-20261021-183907.service"),
+            "sandbox"
+        );
+        assert!(!lifecycle_tracked(
+            "cortex-sbx-crash-20261021-183907.service"
+        ));
         assert_eq!(classify_unit("motd-news.service"), "other");
         assert!(lifecycle_tracked("tuner-quick.service"));
         assert!(!lifecycle_tracked("sysstat-collect.service"));

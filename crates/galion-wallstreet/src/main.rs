@@ -7,12 +7,13 @@
 //!   galion-wallstreet ticket <file.json> [--md]
 //!   galion-wallstreet backtest
 //!   galion-wallstreet score [--md]
+//!   galion-wallstreet adv [--md]      (B2 adversarial compliance set)
 //!   galion-wallstreet screen "<text>"
 
-use galion_wallstreet::{backtest, compliance, http, report, score, ticket};
+use galion_wallstreet::{adversarial, backtest, compliance, http, report, score, ticket};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: galion-wallstreet serve [--bind ADDR] | ticket FILE [--md] | backtest | score [--md] | screen TEXT";
+const USAGE: &str = "usage: galion-wallstreet serve [--bind ADDR] | ticket FILE [--md] | backtest | score [--md] | adv [--md] | screen TEXT";
 
 fn score_md(s: &score::Scoreboard) -> String {
     let mut o = format!(
@@ -101,6 +102,19 @@ fn main() -> ExitCode {
                 println!("{}", serde_json::to_string_pretty(&s).unwrap_or_default());
             }
             if s.percent == 100 {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(1)
+            }
+        }
+        Some("adv") => {
+            let b = adversarial::run();
+            if flag("--md") {
+                print!("{}", adversarial::markdown(&b));
+            } else {
+                println!("{}", serde_json::to_string_pretty(&b).unwrap_or_default());
+            }
+            if b.percent == 100 {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::from(1)

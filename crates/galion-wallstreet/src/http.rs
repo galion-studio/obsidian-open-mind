@@ -6,7 +6,7 @@
 
 use crate::broker::{OrderRequest, PaperBroker, Side};
 use crate::money::parse_cents;
-use crate::{backtest, compliance, news, report, score, ticket};
+use crate::{adversarial, backtest, compliance, news, report, score, ticket};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -98,6 +98,7 @@ pub fn route(state: &Mutex<PaperBroker>, method: &str, target: &str, body: &str)
         }
         ("GET", "/backtest") => j(200, json!(backtest::reference())),
         ("GET", "/score") => j(200, json!(score::run())),
+        ("GET", "/adversarial") => j(200, json!(adversarial::run())),
         ("POST", "/order") => {
             let v = match body_json(body) {
                 Ok(v) => v,
@@ -224,9 +225,9 @@ pub fn route(state: &Mutex<PaperBroker>, method: &str, target: &str, body: &str)
         (
             _,
             "/health" | "/universe" | "/quote" | "/account" | "/positions" | "/orders" | "/fills"
-            | "/news" | "/report" | "/report.md" | "/backtest" | "/score" | "/order" | "/cancel"
-            | "/close" | "/advance" | "/kill" | "/kill/reset" | "/reset" | "/compliance/check"
-            | "/ticket",
+            | "/news" | "/report" | "/report.md" | "/backtest" | "/score" | "/adversarial"
+            | "/order" | "/cancel" | "/close" | "/advance" | "/kill" | "/kill/reset" | "/reset"
+            | "/compliance/check" | "/ticket",
         ) => err(405, "method_not_allowed", path),
         _ => err(404, "not_found", path),
     }
@@ -329,6 +330,10 @@ mod tests {
         assert_eq!(route(&st, "POST", "/kill/reset", "{}").status, 400);
         assert_eq!(route(&st, "GET", "/order", "").status, 405);
         assert_eq!(route(&st, "GET", "/nope", "").status, 404);
+        let r = route(&st, "GET", "/adversarial", "");
+        assert_eq!(r.status, 200);
+        assert!(r.body.contains("B2 wallstreet adversarial"));
+        assert_eq!(route(&st, "POST", "/adversarial", "{}").status, 405);
         assert_eq!(route(&st, "POST", "/order", "{bad").status, 400);
     }
 }

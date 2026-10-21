@@ -901,7 +901,6 @@ fn real_cortex_t44_end_to_end_on_the_box() {
     stop.store(true, Ordering::Relaxed);
     h_relay.join().unwrap();
     h_stray.join().unwrap();
-    drop(ex);
     drop(dummy);
     let _ = std::fs::remove_dir_all(&dir);
 }

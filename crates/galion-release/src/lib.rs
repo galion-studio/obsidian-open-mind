@@ -19,6 +19,7 @@
 
 pub mod elf;
 pub mod gzip;
+pub mod rehearsal;
 pub mod sha256;
 pub mod tar;
 

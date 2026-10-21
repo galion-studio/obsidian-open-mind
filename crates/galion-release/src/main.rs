@@ -4,6 +4,7 @@
 //! galion-release CLI (release.yml calls this; no shell packaging logic).
 
 use galion_release as r;
+use galion_release::rehearsal as rh;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
@@ -15,7 +16,10 @@ const USAGE: &str = "usage:
   galion-release sums DIR            write DIR/SHA256SUMS (sha256sum format)
   galion-release verify DIR          re-hash SHA256SUMS and open + check every archive
   galion-release rehearse DIR --work DIR [--expect-version X.Y.Z] [--qemu-dir DIR] [--timeout SECS]
-                                     verify, extract, run every binary with --version
+                         [--expect-commit SHA] [--expect-built TIME] [--help-timeout SECS] [--tsv FILE]
+                                     verify, extract, run every binary with --version (binding:
+                                     version, stamps, cross-target parity); --help-timeout also
+                                     runs --help (non-binding, recorded)
   galion-release --version
 defaults: --name obsidian-open-mind, --budget 2097152, --mtime $SOURCE_DATE_EPOCH or 0,
           excludes test helpers gaia-dummy galion-bench-mock hermes-mock-model.
@@ -145,51 +149,125 @@ fn run(a: &[String]) -> Res {
             println!("verify: {} files in {} OK", v.files, r::SUMS);
             Ok(())
         }
-        "rehearse" => {
-            let p = parse(
-                rest,
-                &[
-                    "--work",
-                    "--expect-version",
-                    "--qemu-dir",
-                    "--timeout",
-                    "--budget",
-                ],
-                &[],
-            )?;
-            let d = p.dir()?;
-            let work = PathBuf::from(p.need("--work")?);
-            let v = r::verify(&d, p.num("--budget", r::SIZE_BUDGET)?).map_err(|e| (1, e))?;
-            let q = p.one("--qemu-dir").map(PathBuf::from);
-            let t = Duration::from_secs(p.num("--timeout", 30)?);
-            let runs = r::rehearse(&v, &work, p.one("--expect-version"), q.as_deref(), t)
-                .map_err(|e| (1, e))?;
-            println!("result\ttarget\tbinary\tbytes\tbudget%\trunner\tms\t--version");
-            let mut bad = 0;
-            for x in &runs {
-                if !x.ok {
-                    bad += 1;
-                }
-                println!(
-                    "{}\t{}\t{}\t{}\t{:.1}\t{}\t{}\t{}",
-                    if x.ok { "PASS" } else { "FAIL" },
-                    x.target,
-                    x.name,
-                    x.size,
-                    x.size as f64 * 100.0 / r::SIZE_BUDGET as f64,
-                    x.runner,
-                    x.millis,
-                    x.line
-                );
-            }
-            println!("rehearse: {} runs, {} failed", runs.len(), bad);
-            if bad > 0 {
-                return Err((1, format!("{bad} binaries failed --version")));
-            }
-            Ok(())
-        }
+        "rehearse" => rehearse_cmd(rest),
         other => Err(usage(&format!("unknown command {other}"))),
     }
+}
+
+fn rehearse_cmd(rest: &[String]) -> Res {
+    let p = parse(
+        rest,
+        &[
+            "--work",
+            "--expect-version",
+            "--expect-commit",
+            "--expect-built",
+            "--qemu-dir",
+            "--timeout",
+            "--help-timeout",
+            "--budget",
+            "--tsv",
+        ],
+        &[],
+    )?;
+    let d = p.dir()?;
+    let work = PathBuf::from(p.need("--work")?);
+    let budget = p.num("--budget", r::SIZE_BUDGET)?;
+    let v = r::verify(&d, budget).map_err(|e| (1, e))?;
+    let q = p.one("--qemu-dir").map(PathBuf::from);
+    let help = match p.one("--help-timeout") {
+        None => None,
+        Some(_) => Some(Duration::from_secs(p.num("--help-timeout", 3)?)),
+    };
+    let o = rh::Opts {
+        expect_version: p.one("--expect-version"),
+        expect_commit: p.one("--expect-commit"),
+        expect_built: p.one("--expect-built"),
+        qemu_dir: q.as_deref(),
+        timeout: Duration::from_secs(p.num("--timeout", 30)?),
+        help,
+    };
+    let rep = rh::rehearse_full(&v, &work, &o).map_err(|e| (1, e))?;
+    let mut tsv = String::from(
+        "result\ttarget\tbinary\tbytes\tbudget%\trunner\tms\t--version\tstamp\t--help\thelp_ms\thelp_line\n",
+    );
+    for c in &rep.checks {
+        let x = &c.run;
+        let (hk, hm, hl) = match &c.help {
+            Some(h) => (h.kind.as_str(), h.millis.to_string(), h.line.as_str()),
+            None => ("-", "-".into(), ""),
+        };
+        let mut line = x.line.clone();
+        for pr in &c.problems {
+            line.push_str(&format!(" [FAIL: {pr}]"));
+        }
+        tsv.push_str(&format!(
+            "{}\t{}\t{}\t{}\t{:.1}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            if c.ok() { "PASS" } else { "FAIL" },
+            x.target,
+            x.name,
+            x.size,
+            x.size as f64 * 100.0 / budget as f64,
+            x.runner,
+            x.millis,
+            line,
+            if c.stamp.is_some() { "stamped" } else { "none" },
+            hk,
+            hm,
+            hl
+        ));
+    }
+    print!("{tsv}");
+    if let Some(f) = p.one("--tsv") {
+        std::fs::write(f, &tsv).map_err(|e| (1, format!("{f}: {e}")))?;
+    }
+    let bad_runs = rep.checks.iter().filter(|c| !c.ok()).count();
+    let (st, un) = rep.stamped();
+    let commits: std::collections::BTreeSet<&str> = rep
+        .checks
+        .iter()
+        .filter_map(|c| c.stamp.as_ref().map(|s| s.commit.as_str()))
+        .collect();
+    println!(
+        "stamps: {st} stamped ({}), {un} without provenance (non-binding)",
+        commits.into_iter().collect::<Vec<_>>().join(" ")
+    );
+    if rep.parity.is_empty() {
+        println!("parity: ok (same binaries and --version lines on every target)");
+    }
+    for pr in &rep.parity {
+        println!("parity: FAIL {pr}");
+    }
+    if help.is_some() {
+        let hc: Vec<String> = rep
+            .help_counts()
+            .iter()
+            .map(|(k, n)| format!("{n} {k}"))
+            .collect();
+        println!("--help: {} (non-binding)", hc.join(", "));
+    }
+    for (t, n, pct) in rep.headroom(budget) {
+        println!(
+            "headroom: {n} on {t} at {pct:.1}% of the budget (> {}%, non-binding)",
+            rh::HEADROOM_PCT
+        );
+    }
+    println!(
+        "rehearse: {} runs, {} failed, {} parity problems",
+        rep.checks.len(),
+        bad_runs,
+        rep.parity.len()
+    );
+    if rep.failed() > 0 {
+        return Err((
+            1,
+            format!(
+                "{bad_runs} binaries failed, {} parity problems",
+                rep.parity.len()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 fn package(rest: &[String]) -> Res {

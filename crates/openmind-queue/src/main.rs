@@ -53,7 +53,9 @@ fn load_client_token(a: &Args) -> Result<(), String> {
         .filter(|p| !p.is_empty());
     let tok = match path {
         None => None,
-        Some(p) => Some(auth::load_secret_file(std::path::Path::new(&p)).map_err(|e| e.to_string())?),
+        Some(p) => {
+            Some(auth::load_secret_file(std::path::Path::new(&p)).map_err(|e| e.to_string())?)
+        }
     };
     let _ = CLIENT_TOKEN.set(tok);
     Ok(())
@@ -103,7 +105,10 @@ impl Args {
 }
 
 fn call(addr: &str, method: &str, path: &str, body: Option<&str>) -> Result<(u16, String), String> {
-    let tok = CLIENT_TOKEN.get().and_then(|t| t.as_ref()).map(|s| s.expose());
+    let tok = CLIENT_TOKEN
+        .get()
+        .and_then(|t| t.as_ref())
+        .map(|s| s.expose());
     http::request_auth(addr, method, path, body, tok, Duration::from_secs(40))
         .map_err(|e| format!("{method} {path} at {addr}: {e}"))
 }

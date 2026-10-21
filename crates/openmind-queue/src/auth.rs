@@ -63,7 +63,7 @@ impl Secret {
 impl Drop for Secret {
     fn drop(&mut self) {
         for b in self.0.iter_mut() {
-                        *b = 0;
+            *b = 0;
             std::hint::black_box(&*b);
         }
     }
@@ -299,8 +299,14 @@ mod tests {
         let p = pol(false);
         assert_eq!(p.check(lan(), None), Verdict::Missing);
         assert_eq!(p.check(lan(), Some("Bearer nope")), Verdict::Invalid);
-        assert_eq!(p.check(lan(), Some(&format!("Basic {S}"))), Verdict::Missing);
-        assert_eq!(p.check(lan(), Some(&format!("Bearer {S}x"))), Verdict::Invalid);
+        assert_eq!(
+            p.check(lan(), Some(&format!("Basic {S}"))),
+            Verdict::Missing
+        );
+        assert_eq!(
+            p.check(lan(), Some(&format!("Bearer {S}x"))),
+            Verdict::Invalid
+        );
         assert_eq!(p.check(lan(), Some(&format!("Bearer {S}"))), Verdict::Token);
         // Unknown peer address counts as remote.
         assert_eq!(p.check(None, None), Verdict::Missing);
@@ -310,7 +316,10 @@ mod tests {
     fn no_secret_fails_closed_for_remote() {
         let p = Policy::default();
         assert_eq!(p.check(lan(), None), Verdict::NoSecret);
-        assert_eq!(p.check(lan(), Some(&format!("Bearer {S}"))), Verdict::NoSecret);
+        assert_eq!(
+            p.check(lan(), Some(&format!("Bearer {S}"))),
+            Verdict::NoSecret
+        );
         assert_eq!(p.check(None, None), Verdict::NoSecret);
         assert!(!Verdict::NoSecret.allowed());
     }
@@ -343,7 +352,13 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let f = dir.join("token");
         fs::write(&f, format!("{S}\n")).unwrap();
-        for (mode, ok) in [(0o600, true), (0o400, true), (0o640, false), (0o604, false), (0o644, false)] {
+        for (mode, ok) in [
+            (0o600, true),
+            (0o400, true),
+            (0o640, false),
+            (0o604, false),
+            (0o644, false),
+        ] {
             fs::set_permissions(&f, fs::Permissions::from_mode(mode)).unwrap();
             let r = load_secret_file(&f);
             assert_eq!(r.is_ok(), ok, "mode {mode:o}: {:?}", r.err());

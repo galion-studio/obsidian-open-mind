@@ -22,6 +22,7 @@ LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLI
 # curve25519-dalek (via ed25519-dalek in crates/hades-gate) would otherwise
 # compile its AVX2 SIMD backend on x86_64. Project rule: no SIMD. "serial"
 # is the portable pure-Rust backend on every target. A RUSTFLAGS env var
-# replaces this list; crates/hades-gate/tests/simd_free.rs fails if it does.
+# replaces this list; crates/hades-gate/build.rs then fails the build (Gaia
+# S5.4, docs/hades-rustflags-guard.md) and tests/simd_free.rs fails too.
 [build]
 rustflags = ["--cfg", "curve25519_dalek_backend=\"serial\""]

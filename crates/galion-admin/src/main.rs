@@ -4,6 +4,7 @@ use galion_admin::audit::{self, Verdict};
 use galion_admin::cli::{self, Cmd, Global, USAGE};
 use galion_admin::sandbox::{self, Paths};
 use galion_admin::tunnel;
+use galion_admin::{image, json};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -93,6 +94,116 @@ fn audit_tail(p: &Path, n: usize, json: bool, follow: bool, secs: Option<u64>) -
             }
         }
     }
+}
+
+fn image_verify(g: &Global, dir: &Path, key: &Path, json: bool) -> i32 {
+    let started = Instant::now();
+    let vk = match image::load_public(key) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("galion-admin: image verify: {e}");
+            return 1;
+        }
+    };
+    match std::fs::symlink_metadata(dir) {
+        Ok(m) if m.is_dir() => {}
+        Ok(_) => {
+            eprintln!("galion-admin: image verify: {}: not a directory", dir.display());
+            return 1;
+        }
+        Err(e) => {
+            eprintln!("galion-admin: image verify: {}: {}", dir.display(), e.kind());
+            return 1;
+        }
+    }
+    let res = image::verify(dir, &vk);
+    let ms = started.elapsed().as_millis();
+    let (code, target, result, detail) = match &res {
+        Ok(r) => {
+            let m = &r.manifest;
+            let head = format!(
+                "{} {} {} commit {}, {} files, {} bytes, key {}, manifest {}",
+                m.get("name"),
+                m.get("version"),
+                m.get("arch"),
+                m.get("build.commit"),
+                m.files.len(),
+                m.total_bytes(),
+                r.key,
+                &image::to_hex(&r.manifest_sha256)[..16]
+            );
+            if json {
+                let probs: Vec<String> = r
+                    .problems
+                    .iter()
+                    .map(|p| {
+                        format!(
+                            "{{\"code\":\"{}\",\"path\":\"{}\",\"detail\":\"{}\"}}",
+                            p.code(),
+                            json::escape(p.path()),
+                            json::escape(&p.detail())
+                        )
+                    })
+                    .collect();
+                println!(
+                    "{{\"ok\":{},\"name\":\"{}\",\"version\":\"{}\",\"arch\":\"{}\",\"commit\":\"{}\",\"built\":\"{}\",\"files\":{},\"bytes\":{},\"bytes_hashed\":{},\"key\":\"{}\",\"manifest_sha256\":\"{}\",\"ms\":{},\"problems\":[{}]}}",
+                    r.ok(),
+                    m.get("name"),
+                    m.get("version"),
+                    m.get("arch"),
+                    m.get("build.commit"),
+                    m.get("build.time"),
+                    m.files.len(),
+                    m.total_bytes(),
+                    r.bytes_hashed,
+                    r.key,
+                    image::to_hex(&r.manifest_sha256),
+                    ms,
+                    probs.join(",")
+                );
+            } else if r.ok() {
+                println!("image ok: {head} ({ms} ms)");
+            } else {
+                println!("image FAILED: {} problem(s) in {head}", r.problems.len());
+                for p in &r.problems {
+                    println!("  {:<12} {}  ({})", p.code(), p.path(), p.detail());
+                }
+            }
+            (
+                if r.ok() { 0 } else { 4 },
+                m.get("name").to_string(),
+                if r.ok() { "ok" } else { "failed" },
+                format!(
+                    "files={} bytes={} problems={} manifest={} key={}",
+                    m.files.len(),
+                    m.total_bytes(),
+                    r.problems.len(),
+                    &image::to_hex(&r.manifest_sha256)[..16],
+                    r.key
+                ),
+            )
+        }
+        Err(rej) => {
+            if json {
+                println!(
+                    "{{\"ok\":false,\"rejected\":\"{}\",\"ms\":{ms}}}",
+                    json::escape(&rej.to_string())
+                );
+            } else {
+                println!("image REJECTED: {rej}");
+            }
+            (4, String::new(), "rejected", rej.to_string())
+        }
+    };
+    // Best effort, like tunnel status: a missing or unusable state dir never changes the verdict.
+    if let Ok(root) = state_dir(g) {
+        let root = abs(root);
+        if sandbox::ensure_private_dir(&root).is_ok() {
+            let p = Paths { root };
+            let _ = audit::append(&p.audit(), "image.verify", &target, result, &detail);
+        }
+    }
+    code
 }
 
 fn run(g: Global, cmd: Cmd) -> Result<i32, String> {
@@ -222,6 +333,7 @@ fn run(g: Global, cmd: Cmd) -> Result<i32, String> {
                 }
             }
         }
+        Cmd::ImageVerify { dir, key, json } => Ok(image_verify(&g, &dir, &key, json)),
         Cmd::Supervise {
             name,
             cmd,

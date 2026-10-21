@@ -10,6 +10,16 @@ publish = false
 
 [dependencies]
 libc = "0.2"
+# Gold-image signatures (`image verify`). Same crates, versions and features as hades-gate in
+# the openmind repo: no default features (no precomputed tables, no rand), portable SHA-256
+# ("force-soft": no SHA-NI/NEON intrinsics, no asm). See docs/third-party/galion-os-image-format.md.
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "zeroize"] }
+sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
+zeroize = { version = "1", default-features = false }
+
+[lints.rust]
+# .cargo/config.toml selects the serial curve25519 backend; tests/simd_free.rs checks it.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(curve25519_dalek_backend, values("serial", "fiat", "simd"))'] }
 
 [[example]]
 name = "fake_box"
@@ -22,3 +32,15 @@ path = "tests/real_cli.rs"
 [[test]]
 name = "real_vps"
 path = "tests/real_vps.rs"
+
+[[example]]
+name = "gold_image"
+path = "examples/gold_image.rs"
+
+[[test]]
+name = "real_image"
+path = "tests/real_image.rs"
+
+[[test]]
+name = "simd_free"
+path = "tests/simd_free.rs"

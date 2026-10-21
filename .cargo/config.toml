@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Workspace-wide cargo settings (same choices as the openmind repo's .cargo/config.toml).
+#
+# curve25519-dalek (via ed25519-dalek, used by `galion-admin image verify`) would otherwise
+# compile its AVX2 SIMD backend on x86_64. Project rule: no SIMD. "serial" is the portable
+# pure-Rust backend on every target. A RUSTFLAGS env var replaces this list;
+# crates/galion-admin/tests/simd_free.rs fails if that happens.
+[build]
+rustflags = ["--cfg", "curve25519_dalek_backend=\"serial\""]
+
+# Static cross builds link with the bundled rust-lld (no cross gcc needed).
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+
+[target.armv7-unknown-linux-musleabihf]
+linker = "rust-lld"

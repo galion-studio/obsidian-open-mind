@@ -8,6 +8,7 @@
 
 pub mod audit;
 pub mod cli;
+pub mod image;
 pub mod json;
 pub mod sandbox;
 pub mod sha256;

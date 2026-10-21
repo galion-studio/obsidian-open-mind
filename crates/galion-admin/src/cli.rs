@@ -27,11 +27,17 @@ COMMANDS:
                              (default STATE/tunnel.conf, lines `name = 127.0.0.1:PORT`)
   audit tail [-n N] [--json] [--follow] [--follow-secs N]
   audit verify               check the hash chain; prints the head hash to pin elsewhere
+  image verify DIR --key PUBFILE [--json]
+                             check a gold image: Ed25519 signature (hades-gate key format
+                             `ed25519-pub <hex>`), then every listed file's size, mode and
+                             SHA-256; unlisted files, symlinks and special files fail.
+                             Read-only; docs/galion-os/gold-image-format.md
   version | help
 
 STATE DIR: --state, else $GALION_ADMIN_HOME, else $HOME/.galion-admin (created 0700).
 GALION-BOX: --box, else $GALION_BOX, else `galion-box` on PATH.
-EXIT: 0 ok, 1 error, 2 usage, 3 refused (root), 4 not running / tunnel down / audit broken.
+EXIT: 0 ok, 1 error, 2 usage, 3 refused (root),
+      4 not running / tunnel down / audit broken / image verification failed.
 ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -56,6 +62,11 @@ pub enum Cmd {
         follow_secs: Option<u64>,
     },
     AuditVerify,
+    ImageVerify {
+        dir: PathBuf,
+        key: PathBuf,
+        json: bool,
+    },
     Supervise {
         name: String,
         cmd: String,
@@ -177,6 +188,7 @@ pub fn parse(args: &[String]) -> Result<(Global, Cmd), String> {
             }
         }
         ["audit", "verify"] => Cmd::AuditVerify,
+        ["image", "verify", tail @ ..] => parse_image_verify(tail)?,
         ["__supervise", name, cmd, box_bin, ..] => Cmd::Supervise {
             name: name.to_string(),
             cmd: cmd.to_string(),
@@ -191,6 +203,25 @@ pub fn parse(args: &[String]) -> Result<(Global, Cmd), String> {
         }
     };
     Ok((g, cmd))
+}
+
+fn parse_image_verify(tail: &[&str]) -> Result<Cmd, String> {
+    let (mut dir, mut key, mut json) = (None, None, false);
+    let mut it = tail.iter();
+    while let Some(x) = it.next() {
+        match *x {
+            "--key" => key = Some(PathBuf::from(it.next().ok_or("--key needs PUBFILE")?)),
+            "--json" => json = true,
+            o if o.starts_with("--") => return Err(format!("image verify: unknown option {o:?}")),
+            d if dir.is_none() => dir = Some(PathBuf::from(d)),
+            d => return Err(format!("image verify: unexpected argument {d:?}")),
+        }
+    }
+    Ok(Cmd::ImageVerify {
+        dir: dir.ok_or("image verify needs DIR")?,
+        key: key.ok_or("image verify needs --key PUBFILE (no default key: pin it explicitly)")?,
+        json,
+    })
 }
 
 fn parse_start(a: &[String]) -> Result<StartOpts, String> {
@@ -334,6 +365,31 @@ mod tests {
             }
         );
         assert!(parse(&v("audit tail -n x")).is_err());
+    }
+
+    #[test]
+    fn image_verify_parsing() {
+        assert_eq!(
+            parse(&v("image verify /img --key /k.pub --json")).unwrap().1,
+            Cmd::ImageVerify {
+                dir: "/img".into(),
+                key: "/k.pub".into(),
+                json: true
+            }
+        );
+        assert_eq!(
+            parse(&v("image verify --key /k.pub /img")).unwrap().1,
+            Cmd::ImageVerify {
+                dir: "/img".into(),
+                key: "/k.pub".into(),
+                json: false
+            }
+        );
+        assert!(parse(&v("image verify /img")).is_err(), "no key");
+        assert!(parse(&v("image verify --key /k")).is_err(), "no dir");
+        assert!(parse(&v("image verify /a /b --key /k")).is_err());
+        assert!(parse(&v("image verify /a --key")).is_err());
+        assert!(parse(&v("image verify /a --key /k --force")).is_err());
     }
 
     #[test]

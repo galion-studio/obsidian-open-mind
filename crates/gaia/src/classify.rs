@@ -375,7 +375,22 @@ pub fn classify(inp: &Inputs) -> Json {
                 ),
             );
         }
-        if cclass == Class::Warn && g == Class::Ok && matches!(nclass, Class::Ok | Class::Unknown) {
+        if g == Class::Ok && nclass == Class::Ok && !n_inc.is_empty() {
+            push(
+                &mut findings,
+                "info",
+                "nerve-incident-on-healthy",
+                format!(
+                    "the nerve has open incident(s) {} for it while its component row and Gaia say healthy",
+                    n_inc.join(", ")
+                ),
+            );
+        }
+        if cclass == Class::Warn
+            && g == Class::Ok
+            && matches!(nclass, Class::Ok | Class::Unknown)
+            && n_inc.is_empty()
+        {
             push(
                 &mut findings,
                 "info",

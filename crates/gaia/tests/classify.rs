@@ -446,3 +446,39 @@ fn cortex_only_alarm_on_healthy_unit_is_a_disagreement() {
     assert_eq!(h["agree"], false);
     assert_eq!(kinds(&j, "hermes-rs"), vec!["cortex-disagree".to_string()]);
 }
+
+#[test]
+fn nerve_incident_on_healthy_unit_mirrored_by_cortex() {
+    // Live 2026-10-21 23:11: nerve inc-0b674249 (cause hermes-rs) is open
+    // while the hermes-rs row says healthy; the cortex mirrors it.
+    let mut inp = live_inputs();
+    inp.probes.push(r(
+        "hermes-rs",
+        Some("hermes-rs.service"),
+        System::HermesAgents,
+        State::Up,
+    ));
+    if let Ok(n) = inp.nerve_state.as_mut() {
+        n["components"].as_array_mut().unwrap().push(comp(
+            "hermes-rs",
+            Some("hermes-rs.service"),
+            "healthy",
+            "ARTEMIS",
+            "hermes-agents",
+            0,
+        ));
+        n["incidents"]["open"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id": "inc-nh", "cause": "hermes-rs", "components": ["hermes-rs"]}));
+    }
+    inp.cortex_incidents = Ok(json!({"open": [
+        {"id": "inc-h", "severity": "warn", "components": ["nerve-incident:hermes-rs"]}
+    ]}));
+    let j = run(&inp);
+    assert_eq!(
+        kinds(&j, "hermes-rs"),
+        vec!["nerve-incident-on-healthy".to_string()],
+        "cortex agrees with the nerve incident: no cortex-disagree, no cortex-missed"
+    );
+}

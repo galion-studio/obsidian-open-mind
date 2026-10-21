@@ -33,7 +33,7 @@
 //! `SOAK_ROUNDS` (3). Results go to stderr (run with --nocapture).
 
 use openmind_queue::engine::{Config, Engine, Stats};
-use openmind_queue::{http, store};
+use openmind_queue::{http, refusals, store};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::ErrorKind;
@@ -591,7 +591,13 @@ fn verify(
     *prev = Some(stats.clone());
     // 6. the restarted server equals an independent replay of the log the
     // killed process left
-    let (eng, _) = replay_file(log_copy, cfg.clone());
+    // (job state from queue.log; refusal counters from refusals.dat, the
+    // way the server restores them: per-field max)
+    let (mut eng, _) = replay_file(&log_copy.join("queue.log"), cfg.clone());
+    let (_, side) = refusals::Sidecar::open(log_copy).unwrap();
+    if let Some(c) = side.restored {
+        c.restore_into(&mut eng.stats);
+    }
     assert_eq!(
         eng.stats, stats,
         "binary stats != library replay of the dead process's log"
@@ -661,7 +667,7 @@ fn kill_loop(name: &str, port: u16, compact_min: u64, hammer: bool) {
     let mut rng = Rng::new(seed ^ 0xABCD);
     let mut rep = LoopReport::default();
     let mut prev: Option<Stats> = None;
-    let log_copy = dir.join("log-at-kill");
+    let log_copy = dir.join("at-kill");
     let t_all = Instant::now();
     for k in 0..kills {
         thread::sleep(Duration::from_millis(rng.range(150, 650)));
@@ -680,7 +686,7 @@ fn kill_loop(name: &str, port: u16, compact_min: u64, hammer: bool) {
             );
             thread::sleep(Duration::from_millis(2));
         }
-        std::fs::copy(data.join("queue.log"), &log_copy).unwrap();
+        snapshot_at_kill(&data, &log_copy);
         let (n, took) = start(&addr, &data, &extra, &errlog);
         srv = n;
         rep.kills += 1;
@@ -769,7 +775,7 @@ fn kill_loop(name: &str, port: u16, compact_min: u64, hammer: bool) {
     rep.compaction_errors += fin["store"]["compaction_errors"].as_u64().unwrap_or(0);
     srv.kill9();
     s.paused.store(true, Ordering::SeqCst);
-    std::fs::copy(data.join("queue.log"), &log_copy).unwrap();
+    snapshot_at_kill(&data, &log_copy);
     let (srv, _) = start(&addr, &data, &extra, &errlog);
     verify(&s, &srv, &mut prev, &cfg, &log_copy, &mut rep);
     let all_acked: Vec<u64> = s.led.lock().unwrap().acked.keys().copied().collect();
@@ -1348,4 +1354,15 @@ fn real_soak_10k() {
         "mid-drain kill did not run"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Copy what a killed server left (log + refusal sidecar) for an
+/// independent replay.
+fn snapshot_at_kill(data: &Path, to: &Path) {
+    let _ = std::fs::remove_dir_all(to);
+    std::fs::create_dir_all(to).unwrap();
+    std::fs::copy(data.join("queue.log"), to.join("queue.log")).unwrap();
+    if data.join(refusals::FILE).exists() {
+        std::fs::copy(data.join(refusals::FILE), to.join(refusals::FILE)).unwrap();
+    }
 }

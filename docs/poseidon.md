@@ -39,7 +39,7 @@ One crate, one binary `openmind-queue` (about 0.75 MB, x86_64 musl-able):
 | --- | --- |
 | `GET /healthz` | `{ok, function, service, version, time}` |
 | `GET /stats` | depth, counters, budgets per agent, VRAM summary, store info, `refusals_sidecar` (seq, restored, bad_slots, writes, syncs), load |
-| `POST /jobs` | `{queue, agent, kind, priority, max_attempts, cost, lease_ms, payload, vram_gb, cpu_fallback}` (all optional) -> 201 `{id}`; 400 bad, 402 budget, 403 money, 429 quota, 503 backpressure or vram_unavailable |
+| `POST /jobs` | `{queue, agent, kind, priority, max_attempts, cost, lease_ms, payload, vram_gb, cpu_fallback}` (all optional) -> 201 `{id}`; 400 bad (incl. `cost` over `MAX_COST` = 2^40), 402 budget, 403 money, 429 quota, 503 backpressure or vram_unavailable |
 | `GET /jobs/{id}` | live job (acked jobs are not kept) |
 | `POST /lease` | `{queue, worker, lease_ms, wait_ms<=30000}` -> `{id, token, device, job}` or `{id:null, miss: empty / budget_hard_stop / quota_inflight / vram_held}` |
 | `POST /jobs/{id}/ack` | `{token, cost?}` -> `{charged}`; 409 stale token, 404 gone |
@@ -134,3 +134,50 @@ a read-only GET to loopback `http://` URLs only).
   ws/gaia design has POSEIDON. Row for this crate in the ws/gaia scheme:
   `openmind-queue -> POSEIDON` (`gaia::REGISTRY_ROW`). Reconciling the two
   nine-function lists is an owner/GAIA decision.
+
+## Fuzzing (slot 221, gaia-queue-fuzz)
+
+Std-only mutation/property targets in `crates/openmind-queue/tests/`
+(`fuzz/mod.rs` harness, `fuzz_queue.rs` targets, `fuzz_finds.rs`
+regressions, `real_queue_fuzz.rs` real binary). `cargo test` runs a short
+fixed-seed pass; `GALION_FUZZ_SECS=N` runs each target N seconds with a
+printed seed, `GALION_FUZZ_SEED` reproduces a find. Targets: `queue.log`
+line decode, whole-file `Store::open` against an independent oracle,
+hostile CRC-valid replay through `Engine::apply`, `POST /jobs` bodies
+through the decide/apply loop (hard stop, depth, compaction fixed point),
+`refusals.dat` open/save, and the HTTP request parser. The auth header
+parser (slot 205) is not covered: `swarm/poseidon-auth` does not merge
+cleanly onto this base (conflict in this file), so the row's "else skip"
+applied.
+
+Finds fixed (each with a regression test that fails on b71a909):
+
+1. Duplicate job id in the log (two `enqueue` or `snapshot` records for
+   one id) left a stale ready-index entry. After the ack, `POST /lease`
+   panicked on `jobs[&id]`; the release build (`panic = "abort"`) died
+   with SIGABRT, and `/stats` showed `dead` = 18446744073709551615.
+   Replay now ignores a second record for a live id (first one wins), and
+   `depth()` saturates.
+2. `id + 1`, `token + 1` and every counter `+= 1` in `apply` overflowed
+   on edge values (debug panic, release wrap). Now saturating; a
+   saturated `next_id` that is still in use makes enqueue answer 503
+   instead of reusing a live id.
+3. `cost` near u64::MAX (from any `POST /jobs`) overflowed the reservation
+   sums; saturating sums then released to a wrong `reserved` and
+   compaction rebuilt a different one. `cost` is now limited to
+   `MAX_COST` = 2^40 per attempt (400 above it); the sums stay exact for
+   up to 2^24 leased jobs.
+4. `Budget::fits` saturated: with `cap = u64::MAX`, `spent 1 + cost
+   u64::MAX` compared equal to the cap and passed. Now a checked sum; an
+   overflowing sum never fits. Same at the enqueue door.
+5. `GET /stats` VRAM summary summed `cents_per_hour` (any u64 a client
+   sends to `POST /vram/devices`) with `+=`: debug panic, release wrapped
+   to a wrong price. Now saturating.
+6. A CRC-valid `refusals.dat` slot at seq u64::MAX overflowed the next
+   save (debug) or wrapped it to seq 0 (release), so the stale slot won
+   every later open and refusal counts stopped persisting. A restored
+   seq above 2^62 is rebased on open (same value written as seq 2, then
+   seq 1, so a torn write still opens to it).
+7. HTTP: differing duplicate `Content-Length` was "last one wins" and
+   `+5` parsed as 5. Both are now 400 (RFC 9112 6.3); equal duplicates
+   are still accepted.

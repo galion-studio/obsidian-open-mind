@@ -34,7 +34,7 @@ impl Rng {
         (self.next() % n.max(1) as u64) as usize
     }
     pub fn chance(&mut self, one_in: u64) -> bool {
-        self.next() % one_in.max(1) == 0
+        self.next().is_multiple_of(one_in.max(1))
     }
     pub fn pick<'a, T>(&mut self, xs: &'a [T]) -> &'a T {
         &xs[self.below(xs.len())]

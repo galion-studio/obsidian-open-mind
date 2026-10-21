@@ -175,10 +175,9 @@ fn honest_records(r: &mut Rng) -> Vec<Record> {
     }
     for _ in 0..4 {
         now += 10;
-        if let Ok(Record::Lease { id, token, .. }) = e.lease("q", "w", now, 50).map(|x| {
+        if let Ok(Record::Lease { id, token, .. }) = e.lease("q", "w", now, 50).inspect(|x| {
             out.push(x.clone());
-            e.apply(&x);
-            x
+            e.apply(x);
         }) {
             let rec = match r.below(3) {
                 0 => e.ack(id, token, Some(1)),

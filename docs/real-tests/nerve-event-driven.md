@@ -96,7 +96,7 @@ deduped 8, LLM calls 0. `/health` 200 throughout. NDJSON
 |---|---|---|
 | wakes/h | 120 (every 30 s, each a full probe cycle) | idle floor 4/h (heartbeat); measured 61/h avg over this window **with** 9 synthetic wakes and a neighbour's crash loop; 7 wakes in 15.6 min without the synthetic ones (= 27/h, all caused by real events) |
 | full probe cycles/h | 120 | 5 in 15.6 min (start, heartbeat, 3 event-triggered) |
-| escalations/h | n/a (no LLM) | 2 in 15.6 min: 1 real (cortex sandbox crash unit; after fix 5e... classified sandbox = low = 0), 1 synthetic; idle = 0 |
+| escalations/h | n/a (no LLM) | 2 in 15.6 min: 1 real (cortex sandbox crash unit; after the bda2fb7 fix it is group sandbox = low = 0), 1 synthetic; idle = 0 |
 
 Fix from this run: units/processes named `*-sbx-*`, run by `sbx*` users or
 `runuser` are group `sandbox` (low severity, not lifecycle-tracked, not pidfd

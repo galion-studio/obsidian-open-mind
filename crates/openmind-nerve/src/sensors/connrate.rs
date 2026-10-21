@@ -27,6 +27,13 @@
 //!   port, else `port-<n>`). Unset or empty: sensor off.
 //! - `NERVE_CONNRATE_RATES=warn,high,crit` (per second; each clamped to the
 //!   B41 value: B41 says tighten, never loosen).
+//! - `NERVE_CONNRATE_FORMULA=identity|b41flow|max` (slot 178, off by default):
+//!   which rate drives the severity. `identity` (default, unset or unknown) is
+//!   the new-identity count above, unchanged. `b41flow` is the corrected B41
+//!   count formula [`b41_flow_rate`]: the ESTAB+TIME-WAIT delta per interval
+//!   plus the TIME-WAIT entries that aged out in it (Linux holds TIME-WAIT for
+//!   [`TIME_WAIT_S`]), so a steady load no longer reads ~0. `max` takes the
+//!   larger of the two. Non-default modes add one evidence line with both.
 //!
 //! Output: one finding `conn-rate-<port>` per port over warn, kind bleeding,
 //! B33 source = the port label (B41 uses `memory-gateway`). Titles and events
@@ -41,6 +48,59 @@ use std::hash::{Hash, Hasher};
 
 /// B41 section 4.3 memory-gateway thresholds, new connections per second.
 pub const B41_RATES: [f64; 3] = [1.0, 10.0, 50.0];
+
+/// Linux `TCP_TIMEWAIT_LEN` (fixed at 60 s in the kernel, not a sysctl).
+pub const TIME_WAIT_S: f64 = 60.0;
+
+/// Which rate drives the conn-rate severity (`NERVE_CONNRATE_FORMULA`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Formula {
+    /// New connection identities per second (default, cortex-s2-b behaviour).
+    #[default]
+    Identity,
+    /// Corrected B41 count formula, see [`b41_flow_rate`].
+    B41Flow,
+    /// The larger of the two.
+    Max,
+}
+
+impl Formula {
+    /// `identity` / `b41flow` (also `flow`, `b41-flow`) / `max`; anything
+    /// else (or unset) is the default `identity`, so the env can only opt in.
+    pub fn parse(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "b41flow" | "b41-flow" | "flow" => Formula::B41Flow,
+            "max" => Formula::Max,
+            _ => Formula::Identity,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Formula::Identity => "identity",
+            Formula::B41Flow => "b41flow",
+            Formula::Max => "max",
+        }
+    }
+}
+
+/// Corrected B41 rate from counts only (no identities): new connections per
+/// second over `dt_s` = (ESTAB+TIME-WAIT delta + TIME-WAIT entries that aged
+/// out during the interval) / `dt_s`. The aged-out part is estimated as
+/// `prev_time_wait * min(dt_s, 60) / 60` (TIME-WAIT lasts [`TIME_WAIT_S`];
+/// under a steady load its entries are spread evenly over that window).
+///
+/// B41 3.2 step 2 used the delta alone, which is ~0 under any steady load:
+/// arrivals and TIME-WAIT expiries cancel. Never negative; 0 when `dt_s` is 0.
+pub fn b41_flow_rate(prev_estab_tw: u32, prev_time_wait: u32, cur_estab_tw: u32, dt_s: u64) -> f64 {
+    if dt_s == 0 {
+        return 0.0;
+    }
+    let dt = dt_s as f64;
+    let delta = cur_estab_tw as f64 - prev_estab_tw as f64;
+    let aged_out = prev_time_wait as f64 * dt.min(TIME_WAIT_S) / TIME_WAIT_S;
+    ((delta + aged_out) / dt).max(0.0)
+}
 
 /// Where the socket tables come from: the live `/proc` or a test/fixture.
 pub type TableReader = Box<dyn FnMut() -> Option<String> + Send>;
@@ -129,6 +189,7 @@ struct Prev {
     at: u64,
     conns: HashSet<u64>,
     estab_tw: u32,
+    time_wait: u32,
 }
 
 /// Sensor `conn-rate`.
@@ -136,6 +197,7 @@ pub struct ConnRate {
     /// Watched ports and their explicit labels (None: derive from comps).
     ports: Vec<(u16, Option<String>)>,
     rates: [f64; 3],
+    formula: Formula,
     reader: TableReader,
     prev: BTreeMap<u16, Prev>,
     /// Cycles where the table could not be read (shown in a finding).
@@ -148,6 +210,7 @@ impl ConnRate {
         ConnRate {
             ports,
             rates: B41_RATES,
+            formula: Formula::Identity,
             reader,
             prev: BTreeMap::new(),
             read_failures: 0,
@@ -177,7 +240,21 @@ impl ConnRate {
                 s = s.with_rates([v[0], v[1], v[2]]);
             }
         }
+        if let Some(f) = env("NERVE_CONNRATE_FORMULA") {
+            s = s.with_formula(Formula::parse(&f));
+        }
         Some(s)
+    }
+
+    /// Pick the rate formula (default [`Formula::Identity`]).
+    pub fn with_formula(mut self, f: Formula) -> Self {
+        self.formula = f;
+        self
+    }
+
+    /// The rate formula in use.
+    pub fn formula(&self) -> Formula {
+        self.formula
     }
 
     /// Current thresholds (warn, high, crit).
@@ -245,6 +322,7 @@ impl Sensor for ConnRate {
                     at: i.now,
                     conns: cur.conns.clone(),
                     estab_tw,
+                    time_wait: cur.time_wait,
                 },
             );
             let Some(prev) = prev else { continue }; // first cycle: baseline
@@ -253,8 +331,25 @@ impl Sensor for ConnRate {
                 continue;
             }
             let new = cur.conns.difference(&prev.conns).count();
-            let rate = new as f64 / dt as f64;
+            let id_rate = new as f64 / dt as f64;
             let growth = estab_tw.saturating_sub(prev.estab_tw) as f64 / dt as f64;
+            let flow = b41_flow_rate(prev.estab_tw, prev.time_wait, estab_tw, dt);
+            let rate = match self.formula {
+                Formula::Identity => id_rate,
+                Formula::B41Flow => flow,
+                Formula::Max => id_rate.max(flow),
+            };
+            // Count shown in the title: exact identities, or the estimate.
+            let exact = match self.formula {
+                Formula::Identity => true,
+                Formula::B41Flow => false,
+                Formula::Max => id_rate >= flow,
+            };
+            let shown = if exact {
+                new
+            } else {
+                (rate * dt as f64).round() as usize
+            };
             let sev = if rate >= self.rates[2] {
                 Sev::Critical
             } else if rate >= self.rates[1] {
@@ -279,9 +374,9 @@ impl Sensor for ConnRate {
                     format!("conn-rate-{port}"),
                     sev,
                     comp.unwrap_or_else(|| "host".into()),
-                    format!("port {port}: {rate:.1} new connections/s over {dt} s ({new} new)"),
+                    format!("port {port}: {rate:.1} new connections/s over {dt} s ({shown} new)"),
                 )
-                .with_evidence(vec![
+                .with_evidence(evidence_lines(vec![
                     format!("new_connections={new} window_s={dt} rate_per_s={rate:.2}"),
                     format!(
                         "estab={} time_wait={} (b41 estab+time_wait growth {growth:.2}/s)",
@@ -291,13 +386,25 @@ impl Sensor for ConnRate {
                         "thresholds warn/high/crit {}/{}/{} per s (B41 4.3)",
                         self.rates[0], self.rates[1], self.rates[2]
                     ),
-                ])
+                ], self.formula, id_rate, flow))
                 .with_fix("loopback port: a local client is looping (probe/retry storm); find it with `ss -tnp` (read-only) and fix its interval; the nerve never kills or restarts it")
                 .with_cause(format!("conn-rate:{port}"))
                 .with_source(label),
             );
         }
     }
+}
+
+/// The three cortex-s2-b evidence lines; non-default formulas add a fourth
+/// with both rates, so the default output stays byte-identical.
+fn evidence_lines(mut v: Vec<String>, f: Formula, id_rate: f64, flow: f64) -> Vec<String> {
+    if f != Formula::Identity {
+        v.push(format!(
+            "formula={} identity_rate={id_rate:.2}/s b41flow_rate={flow:.2}/s (estab+time_wait delta + time_wait aged out over {TIME_WAIT_S} s)",
+            f.name()
+        ));
+    }
+    v
 }
 
 #[cfg(test)]
@@ -493,5 +600,163 @@ mod tests {
                 vec![],
             ]
         );
+    }
+    // ---- slot 178 cortex-connrate-fix: corrected B41 flow formula ----
+
+    #[test]
+    fn b41_flow_rate_math() {
+        // Steady 10/s: 600 in TIME-WAIT (60 s x 10/s), flat. Old B41 delta
+        // = 0; aged out in 30 s = 300 -> 10/s.
+        assert_eq!(b41_flow_rate(600, 600, 600, 30), 10.0);
+        // dt 0: no rate.
+        assert_eq!(b41_flow_rate(600, 600, 600, 0), 0.0);
+        // Ramp-up from idle: delta alone, 300 in 30 s.
+        assert_eq!(b41_flow_rate(0, 0, 300, 30), 10.0);
+        // Load stopped: pool drains, never negative.
+        assert_eq!(b41_flow_rate(600, 600, 0, 30), 0.0);
+        // Long-lived ESTAB only, unchanged: 0.
+        assert_eq!(b41_flow_rate(5, 0, 5, 30), 0.0);
+        // dt > 60 s: at most the whole previous pool aged out (lower bound).
+        assert_eq!(b41_flow_rate(600, 600, 600, 120), 5.0);
+    }
+
+    #[test]
+    fn formula_parse_is_opt_in() {
+        assert_eq!(Formula::default(), Formula::Identity);
+        assert_eq!(Formula::parse("b41flow"), Formula::B41Flow);
+        assert_eq!(Formula::parse(" FLOW "), Formula::B41Flow);
+        assert_eq!(Formula::parse("b41-flow"), Formula::B41Flow);
+        assert_eq!(Formula::parse("max"), Formula::Max);
+        assert_eq!(Formula::parse(""), Formula::Identity);
+        assert_eq!(
+            Formula::parse("b41"),
+            Formula::Identity,
+            "unknown -> default"
+        );
+        let mk = |v: Option<&str>| {
+            ConnRate::from_env(&move |k: &str| match k {
+                "NERVE_CONNRATE_PORTS" => Some("8642".into()),
+                "NERVE_CONNRATE_FORMULA" => v.map(String::from),
+                _ => None,
+            })
+            .unwrap()
+            .formula()
+        };
+        assert_eq!(mk(None), Formula::Identity, "off by default");
+        assert_eq!(mk(Some("b41flow")), Formula::B41Flow);
+        assert_eq!(mk(Some("max")), Formula::Max);
+    }
+
+    /// Steady 10/s: 600 TIME-WAIT flat, 300 replaced per 30 s cycle.
+    fn steady(formula: Option<Formula>) -> Vec<crate::cortex::Finding> {
+        let mut c = ConnRate::new(
+            vec![(8642, Some("hermes-rs".into()))],
+            feed(vec![
+                Some(conns(8642, 10000, 600, 0x06)),
+                Some(conns(8642, 10300, 600, 0x06)),
+            ]),
+        );
+        if let Some(f) = formula {
+            c = c.with_formula(f);
+        }
+        let mut s = Sensors::empty();
+        s.add(c);
+        assert!(run(&mut s, 1000).bleeding.is_empty());
+        run(&mut s, 1030).bleeding
+    }
+
+    #[test]
+    fn steady_load_b41flow_reads_the_real_rate() {
+        // Default: unchanged cortex-s2-b output (3 evidence lines).
+        let d = steady(None);
+        assert_eq!(d.len(), 1);
+        assert_eq!(d[0].sev, Sev::Error);
+        assert_eq!(
+            d[0].title,
+            "port 8642: 10.0 new connections/s over 30 s (300 new)"
+        );
+        assert_eq!(d[0].evidence.len(), 3, "{:?}", d[0].evidence);
+        assert!(d[0].evidence[1].contains("growth 0.00/s"));
+        // b41flow: same verdict from counts only; 4th evidence line.
+        let f = steady(Some(Formula::B41Flow));
+        assert_eq!(f.len(), 1);
+        assert_eq!(f[0].sev, Sev::Error);
+        assert_eq!(
+            f[0].title,
+            "port 8642: 10.0 new connections/s over 30 s (300 new)"
+        );
+        assert_eq!(f[0].evidence.len(), 4);
+        assert_eq!(
+            f[0].evidence[3],
+            "formula=b41flow identity_rate=10.00/s b41flow_rate=10.00/s (estab+time_wait delta + time_wait aged out over 60 s)"
+        );
+        let m = steady(Some(Formula::Max));
+        assert_eq!(m[0].sev, Sev::Error);
+        assert!(m[0].evidence[3].starts_with("formula=max "));
+    }
+
+    /// Replay of a READ-ONLY VPS sample (3 reads of /proc/net/tcp + tcp6,
+    /// 30 s apart, 2026-10-21T09:24:42+02:00; rows for the watched ports
+    /// only, all loopback, uid/inode zeroed): tests/fixtures/conn-rate-vps.
+    #[test]
+    fn replay_vps_sample_b41_vs_identity_vs_flow() {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/conn-rate-vps");
+        let t: Vec<String> = (0..3)
+            .map(|k| std::fs::read_to_string(dir.join(format!("tcp-{k}.txt"))).expect("fixture"))
+            .collect();
+        let ports = [8642u16, 8091, 8420, 8646, 8650];
+        let m: Vec<_> = t.iter().map(|x| parse_tables(x, &ports)).collect();
+        let mut rows = vec![];
+        for p in ports {
+            for k in 0..2 {
+                let (a, b) = (&m[k][&p], &m[k + 1][&p]);
+                let new = b.conns.difference(&a.conns).count();
+                let id = new as f64 / 30.0;
+                let (ea, eb) = (a.estab + a.time_wait, b.estab + b.time_wait);
+                let old = eb.saturating_sub(ea) as f64 / 30.0;
+                let flow = b41_flow_rate(ea, a.time_wait, eb, 30);
+                eprintln!("VPS :{p} w{k}: estab+tw {ea}->{eb}; identity {id:.2}/s; b41 old {old:.2}/s; b41flow {flow:.2}/s");
+                rows.push((p, k, id, old, flow));
+            }
+        }
+        // hermes-rs :8642 under its steady ~1.4-1.7/s probe load: the old B41
+        // delta reads ~0, the corrected flow tracks the identity count.
+        for &(p, _, id, old, flow) in rows.iter().filter(|r| r.0 == 8642 || r.0 == 8091) {
+            assert!(id >= 1.0, ":{p} identity {id}");
+            assert!(old <= 0.2, ":{p} old B41 delta should read ~0, got {old}");
+            assert!(
+                (flow - id).abs() / id <= 0.25,
+                ":{p} flow {flow} vs identity {id}"
+            );
+        }
+        // Sensor end to end over the same sample, flow mode, B41 thresholds.
+        let run_mode = |f: Formula| {
+            let mut s = Sensors::empty();
+            s.add(
+                ConnRate::new(
+                    vec![
+                        (8642, Some("hermes-rs".into())),
+                        (8420, Some("memory-gateway".into())),
+                    ],
+                    feed(t.iter().cloned().map(Some).collect()),
+                )
+                .with_formula(f),
+            );
+            (0..3u64)
+                .map(|k| {
+                    run(&mut s, 1_792_567_482 + 30 * k)
+                        .bleeding
+                        .iter()
+                        .map(|f| (f.id.clone(), f.sev))
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        let warn8642 = vec![("conn-rate-8642".to_string(), Sev::Warn)];
+        let want = vec![vec![], warn8642.clone(), warn8642];
+        assert_eq!(run_mode(Formula::Identity), want);
+        assert_eq!(run_mode(Formula::B41Flow), want);
+        assert_eq!(run_mode(Formula::Max), want);
     }
 }

@@ -73,6 +73,9 @@ const BINS: &[(&str, &str)] = &[
     ("tuner", "tuner"),
 ];
 
+/// (flag, env label, env, allowed exit codes).
+type Case<'a> = (&'a str, &'a str, &'a [(String, String)], &'a [i32]);
+
 const LIMIT: Duration = Duration::from_millis(100);
 
 struct Run {
@@ -102,7 +105,10 @@ fn run(bin: &Path, args: &[&str], env: &[(String, String)], cwd: &Path) -> Run {
         if start.elapsed() > Duration::from_secs(5) {
             let _ = child.kill();
             let _ = child.wait();
-            panic!("{} {args:?} still running after 5 s (served instead of exiting?)", bin.display());
+            panic!(
+                "{} {args:?} still running after 5 s (served instead of exiting?)",
+                bin.display()
+            );
         }
         std::thread::sleep(Duration::from_millis(1));
     }
@@ -121,8 +127,17 @@ fn listeners() -> BTreeSet<String> {
         .lines()
         .map(|l| {
             let f: Vec<&str> = l.split_whitespace().collect();
-            let users = f.iter().find(|x| x.starts_with("users:")).copied().unwrap_or("");
-            format!("{} {} {}", f.first().copied().unwrap_or(""), f.get(4).copied().unwrap_or(""), users)
+            let users = f
+                .iter()
+                .find(|x| x.starts_with("users:"))
+                .copied()
+                .unwrap_or("");
+            format!(
+                "{} {} {}",
+                f.first().copied().unwrap_or(""),
+                f.get(4).copied().unwrap_or(""),
+                users
+            )
         })
         .collect()
 }
@@ -143,7 +158,11 @@ fn strace_violations(trace: &str) -> Vec<String> {
         // "PID name(args) = ret" (with -f); resumed/unfinished lines too.
         let body = l.split_once(' ').map_or(l, |(_, r)| r).trim_start();
         let name = body.split('(').next().unwrap_or("");
-        let name = name.trim_start_matches("<... ").split_whitespace().next().unwrap_or("");
+        let name = name
+            .trim_start_matches("<... ")
+            .split_whitespace()
+            .next()
+            .unwrap_or("");
         match name {
             "execve" => {
                 execs += 1;
@@ -153,7 +172,10 @@ fn strace_violations(trace: &str) -> Vec<String> {
             }
             "exit" | "exit_group" | "+++" | "---" => {}
             "openat" | "open" => {
-                if ["O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC"].iter().any(|f| body.contains(f)) {
+                if ["O_WRONLY", "O_RDWR", "O_CREAT", "O_TRUNC"]
+                    .iter()
+                    .any(|f| body.contains(f))
+                {
                     bad.push(l.to_string());
                 }
             }
@@ -182,12 +204,19 @@ fn strace(bin: &Path, args: &[&str], env: &[(String, String)], cwd: &Path, out: 
         .stderr(Stdio::null())
         .status()
         .expect("strace");
-    assert!(status.code().is_some(), "strace {}: {status:?}", bin.display());
+    assert!(
+        status.code().is_some(),
+        "strace {}: {status:?}",
+        bin.display()
+    );
     std::fs::read_to_string(out).unwrap_or_default()
 }
 
 fn kv(pairs: &[(&str, String)]) -> Vec<(String, String)> {
-    pairs.iter().map(|(k, v)| ((*k).to_string(), v.clone())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| ((*k).to_string(), v.clone()))
+        .collect()
 }
 
 /// Environment under which `--check` must pass (temp dirs, slot ports that
@@ -200,41 +229,77 @@ fn pass_env(bin: &str, t: &Path, root: &Path) -> Vec<(String, String)> {
             ("HERMES_RS_PORT", "20640".into()),
             ("API_SERVER_KEY", FAKE_KEY.into()),
         ]),
-        "desk-hermes" => kv(&[("HERMES_HOME", p("hermes")), ("HERMES_STATE_DB", p("hermes/state.db"))]),
-        "galion-deploy" => kv(&[("GALION_DEPLOY_BACKUP_DIR", p("deploy-backups")), ("SKIP_DATA_BACKUP", "1".into())]),
+        "desk-hermes" => kv(&[
+            ("HERMES_HOME", p("hermes")),
+            ("HERMES_STATE_DB", p("hermes/state.db")),
+        ]),
+        "galion-deploy" => kv(&[
+            ("GALION_DEPLOY_BACKUP_DIR", p("deploy-backups")),
+            ("SKIP_DATA_BACKUP", "1".into()),
+        ]),
         "galion-backup" => kv(&[("GALION_BACKUP_DEST", p("backup-dest"))]),
         "galion-health" => kv(&[("GALION_HEALTH_ADDR", "127.0.0.1:20641".into())]),
         "guardian-tick" => kv(&[("GUARDIAN_PROBES", p("probes.toml"))]),
         "one-defence" => kv(&[("ONE_DEFENCE_DB", p("defence.db"))]),
         "galion-desk" => kv(&[("DESK_BIND", "127.0.0.1:20642".into())]),
-        "galion-origin" => kv(&[("ORIGIN_ADDR", "127.0.0.1:20643".into()), ("ORIGIN_ROOT", p(""))]),
-        "room" => kv(&[("ROOM_BIND", "127.0.0.1:20644".into()), ("ROOM_ROOT", p(""))]),
+        "galion-origin" => kv(&[
+            ("ORIGIN_ADDR", "127.0.0.1:20643".into()),
+            ("ORIGIN_ROOT", p("")),
+        ]),
+        "room" => kv(&[
+            ("ROOM_BIND", "127.0.0.1:20644".into()),
+            ("ROOM_ROOT", p("")),
+        ]),
         "openmind-memory" => kv(&[
             ("OPENMIND_MEMORY_HOST", "127.0.0.1".into()),
             ("OPENMIND_MEMORY_PORT", "20645".into()),
             ("OPENMIND_MEMORY_DATA_DIR", p("memory")),
         ]),
-        "openmind-nerve" => kv(&[("NERVE_ADDR", "127.0.0.1:20646".into()), ("NERVE_DATA_DIR", p("nerve"))]),
-        "galion-voice-serve" => kv(&[("GALION_VOICE_BIND", "127.0.0.1:20647".into()), ("GALION_VOICE_MODELS", p("models"))]),
-        "galion-one" => kv(&[("ONE_BIND", "127.0.0.1:20648".into()), ("ONE_MOUTH_BIND", "127.0.0.1:20649".into())]),
+        "openmind-nerve" => kv(&[
+            ("NERVE_ADDR", "127.0.0.1:20646".into()),
+            ("NERVE_DATA_DIR", p("nerve")),
+        ]),
+        "galion-voice-serve" => kv(&[
+            ("GALION_VOICE_BIND", "127.0.0.1:20647".into()),
+            ("GALION_VOICE_MODELS", p("models")),
+        ]),
+        "galion-one" => kv(&[
+            ("ONE_BIND", "127.0.0.1:20648".into()),
+            ("ONE_MOUTH_BIND", "127.0.0.1:20649".into()),
+        ]),
         "galion-wallstreet" => kv(&[("WALLSTREET_BIND", "127.0.0.1:20649".into())]),
         "tuner" => kv(&[
             ("TUNER_ADDR", "127.0.0.1:20640".into()),
-            ("TUNER_ROOT", root.join("crates/tuner/www").display().to_string()),
+            (
+                "TUNER_ROOT",
+                root.join("crates/tuner/www").display().to_string(),
+            ),
         ]),
         _ => Vec::new(),
     }
 }
 
 fn fixture(t: &Path) {
-    for d in ["hermes", "deploy-backups", "backup-dest", "memory", "nerve", "models", "badhermes"] {
+    for d in [
+        "hermes",
+        "deploy-backups",
+        "backup-dest",
+        "memory",
+        "nerve",
+        "models",
+        "badhermes",
+    ] {
         std::fs::create_dir_all(t.join(d)).expect("mkdir");
     }
     std::fs::write(t.join("hermes/state.db"), b"").expect("state.db");
     std::fs::write(t.join("defence.db"), b"").expect("defence.db");
     std::fs::write(t.join("probes.toml"), "[[probe]]\nkind = \"mem\"\n").expect("probes");
     // Unreadable as YAML for hermes-rs, plus a non-numeric port.
-    std::fs::write(t.join("badhermes/config.yaml"), "model: [unclosed\n  - : :\n").expect("bad yaml");
+    std::fs::write(
+        t.join("badhermes/config.yaml"),
+        "model: [unclosed\n  - : :\n",
+    )
+    .expect("bad yaml");
 }
 
 #[test]
@@ -243,11 +308,16 @@ fn every_binary_flags_are_instant_and_never_bind() {
         eprintln!("skipped: set GALION_REAL=1");
         return;
     }
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().expect("root");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .expect("root");
     let bin_dir = match std::env::var("GALION_REAL_BIN_DIR") {
         Ok(d) => PathBuf::from(d),
         Err(_) => {
-            let target = std::env::var("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|_| root.join("target"));
+            let target = std::env::var("CARGO_TARGET_DIR")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| root.join("target"));
             let mut build = Command::new(env!("CARGO"));
             build
                 .current_dir(&root)
@@ -273,12 +343,14 @@ fn every_binary_flags_are_instant_and_never_bind() {
     let mut failures: Vec<String> = Vec::new();
     let mut rows = 0;
     let mut worst = Duration::ZERO;
-    eprintln!("binary | flag | env | exit | runs (ms) | strace syscalls flagged | first stdout line");
+    eprintln!(
+        "binary | flag | env | exit | runs (ms) | strace syscalls flagged | first stdout line"
+    );
     for (_, name) in BINS {
         let bin = bin_dir.join(name);
         assert!(bin.is_file(), "missing {}", bin.display());
         let pe = pass_env(name, &t, &root);
-        let cases: [(&str, &str, &[(String, String)], &[i32]); 4] = [
+        let cases: [Case<'_>; 4] = [
             ("--version", "empty", &[], &[0]),
             ("--help", "empty", &[], &[0]),
             ("--check", "pass", &pe, &[0]),
@@ -294,15 +366,28 @@ fn every_binary_flags_are_instant_and_never_bind() {
                 worst = worst.max(r.took);
                 code = r.code;
                 if !r.code.is_some_and(|c| allowed.contains(&c)) {
-                    failures.push(format!("{name} {flag} ({env_name} env): exit {:?}, stdout {:?}", r.code, r.stdout));
+                    failures.push(format!(
+                        "{name} {flag} ({env_name} env): exit {:?}, stdout {:?}",
+                        r.code, r.stdout
+                    ));
                 }
                 if r.took >= LIMIT {
-                    failures.push(format!("{name} {flag} ({env_name} env): {:?} >= 100 ms", r.took));
+                    failures.push(format!(
+                        "{name} {flag} ({env_name} env): {:?} >= 100 ms",
+                        r.took
+                    ));
                 }
                 if flag == "--version" {
-                    let want = format!("{name} {} (commit {STAMP_COMMIT}, built {STAMP_TIME})", env!("CARGO_PKG_VERSION"));
-                    if std::env::var("GALION_REAL_BIN_DIR").is_err() && r.stdout.trim_end() != want {
-                        failures.push(format!("{name} --version: {:?} != {want:?}", r.stdout.trim_end()));
+                    let want = format!(
+                        "{name} {} (commit {STAMP_COMMIT}, built {STAMP_TIME})",
+                        env!("CARGO_PKG_VERSION")
+                    );
+                    if std::env::var("GALION_REAL_BIN_DIR").is_err() && r.stdout.trim_end() != want
+                    {
+                        failures.push(format!(
+                            "{name} --version: {:?} != {want:?}",
+                            r.stdout.trim_end()
+                        ));
                     }
                 }
                 first = r.stdout.lines().next().unwrap_or("").to_string();
@@ -312,8 +397,15 @@ fn every_binary_flags_are_instant_and_never_bind() {
             if !bad.is_empty() {
                 failures.push(format!("{name} {flag} ({env_name} env) syscalls: {bad:?}"));
             }
-            let ms: Vec<String> = times.iter().map(|d| format!("{:.1}", d.as_secs_f64() * 1000.0)).collect();
-            eprintln!("{name} | {flag} | {env_name} | {code:?} | {} | {} | {first}", ms.join("/"), bad.len());
+            let ms: Vec<String> = times
+                .iter()
+                .map(|d| format!("{:.1}", d.as_secs_f64() * 1000.0))
+                .collect();
+            eprintln!(
+                "{name} | {flag} | {env_name} | {code:?} | {} | {} | {first}",
+                ms.join("/"),
+                bad.len()
+            );
             rows += 1;
         }
         // No listener owned by this binary appeared, nothing on the slot ports.
@@ -326,34 +418,119 @@ fn every_binary_flags_are_instant_and_never_bind() {
     }
 
     // hermes-gateway with a broken config: flags still answer, start refuses.
-    let bad_env = kv(&[("HERMES_HOME", t.join("badhermes").display().to_string()), ("HERMES_RS_PORT", "notaport".into())]);
+    let bad_env = kv(&[
+        ("HERMES_HOME", t.join("badhermes").display().to_string()),
+        ("HERMES_RS_PORT", "notaport".into()),
+    ]);
     let hg = bin_dir.join("hermes-gateway");
     for flag in ["--version", "--help"] {
         let r = run(&hg, &[flag], &bad_env, &cwd);
-        let trace = strace(&hg, &[flag], &bad_env, &cwd, &traces.join(format!("hermes-gateway{flag}-broken.trace")));
+        let trace = strace(
+            &hg,
+            &[flag],
+            &bad_env,
+            &cwd,
+            &traces.join(format!("hermes-gateway{flag}-broken.trace")),
+        );
         let opened = trace.lines().any(|l| l.contains("config.yaml"));
-        eprintln!("hermes-gateway | {flag} | broken config | {:?} | {:.1} | config.yaml opened={opened}", r.code, r.took.as_secs_f64() * 1000.0);
+        eprintln!(
+            "hermes-gateway | {flag} | broken config | {:?} | {:.1} | config.yaml opened={opened}",
+            r.code,
+            r.took.as_secs_f64() * 1000.0
+        );
         if r.code != Some(0) || opened || r.took >= LIMIT {
-            failures.push(format!("hermes-gateway {flag} with broken config: exit {:?} opened={opened} {:?}", r.code, r.took));
+            failures.push(format!(
+                "hermes-gateway {flag} with broken config: exit {:?} opened={opened} {:?}",
+                r.code, r.took
+            ));
         }
     }
     let r = run(&hg, &["--check"], &bad_env, &cwd);
-    eprintln!("hermes-gateway | --check | broken config | {:?} | {}", r.code, r.stdout.trim_end());
+    eprintln!(
+        "hermes-gateway | --check | broken config | {:?} | {}",
+        r.code,
+        r.stdout.trim_end()
+    );
     if r.code != Some(1) {
-        failures.push(format!("hermes-gateway --check with broken config: exit {:?}", r.code));
+        failures.push(format!(
+            "hermes-gateway --check with broken config: exit {:?}",
+            r.code
+        ));
     }
     let r = run(&hg, &[], &bad_env, &cwd);
-    eprintln!("hermes-gateway | (start) | broken config | {:?} | {:.1} ms", r.code, r.took.as_secs_f64() * 1000.0);
+    eprintln!(
+        "hermes-gateway | (start) | broken config | {:?} | {:.1} ms",
+        r.code,
+        r.took.as_secs_f64() * 1000.0
+    );
     if r.code != Some(2) {
-        failures.push(format!("hermes-gateway start with broken config: exit {:?} (want 2)", r.code));
+        failures.push(format!(
+            "hermes-gateway start with broken config: exit {:?} (want 2)",
+            r.code
+        ));
     }
+
+    // Positive controls: the harness really sees binds. (1) A real tuner start
+    // on a non-local address fails in bind(), which strace must show. (2) A
+    // real tuner start on 20640 must show up in ss as owned by "tuner".
+    let tuner = bin_dir.join("tuner");
+    let www = root.join("crates/tuner/www").display().to_string();
+    let ctl_env = kv(&[
+        ("TUNER_ADDR", "192.0.2.1:20640".into()),
+        ("TUNER_ROOT", www.clone()),
+    ]);
+    let trace = strace(
+        &tuner,
+        &[],
+        &ctl_env,
+        &cwd,
+        &traces.join("control-tuner-start.trace"),
+    );
+    let saw_bind = trace.lines().any(|l| l.contains("bind("));
+    eprintln!("control | tuner start on 192.0.2.1:20640 under strace | bind( seen={saw_bind}");
+    if !saw_bind || strace_violations(&trace).is_empty() {
+        failures.push("control: strace did not see the bind of a real start".into());
+    }
+    let mut child = Command::new(&tuner)
+        .env_clear()
+        .env("TUNER_ADDR", "127.0.0.1:20640")
+        .env("TUNER_ROOT", &www)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("tuner");
+    let start = Instant::now();
+    let mut seen = None;
+    while start.elapsed() < Duration::from_secs(5) {
+        if let Some(l) = listeners()
+            .into_iter()
+            .find(|l| slot_port(l) && l.contains("((\"tuner\""))
+        {
+            seen = Some(l);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    eprintln!("control | tuner start on 127.0.0.1:20640 | ss saw {seen:?}");
+    if seen.is_none() {
+        failures.push("control: ss did not see a real tuner listener on 20640".into());
+    }
+    std::thread::sleep(Duration::from_millis(50));
 
     for l in listeners().difference(&before) {
         if slot_port(l) {
             failures.push(format!("slot port still bound at the end: {l}"));
         }
     }
-    eprintln!("{} binaries, {rows} flag runs x3 + strace, worst {:.1} ms, failures {}", BINS.len(), worst.as_secs_f64() * 1000.0, failures.len());
+    eprintln!(
+        "{} binaries, {rows} flag runs x3 + strace, worst {:.1} ms, failures {}",
+        BINS.len(),
+        worst.as_secs_f64() * 1000.0,
+        failures.len()
+    );
     let _ = std::fs::remove_dir_all(&t);
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

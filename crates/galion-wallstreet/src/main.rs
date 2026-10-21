@@ -31,19 +31,51 @@ fn score_md(s: &score::Scoreboard) -> String {
     o
 }
 
-fn main() -> ExitCode {
-    galion_common::flags::early(
-        "galion-wallstreet",
-        env!("CARGO_PKG_VERSION"),
-        USAGE,
-        || {
-            let mut r = String::new();
+/// `--version` / `--help` / `--check` (ops S2.2), never binding. Same output as
+/// `galion_common::flags`, kept local because this paper-only crate pins its
+/// dependency list to serde, serde_json and zagreb-time (no network client
+/// anywhere in its tree; galion-common carries an HTTP client).
+fn early_flags() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let commit = option_env!("GALION_BUILD_COMMIT").unwrap_or("unknown");
+    let built = option_env!("GALION_BUILD_TIME").unwrap_or("unknown");
+    let first = args.first().map(String::as_str);
+    if matches!(first, Some("--version" | "-V")) {
+        println!(
+            "galion-wallstreet {} (commit {commit}, built {built})",
+            env!("CARGO_PKG_VERSION")
+        );
+        std::process::exit(0);
+    }
+    if args.len() != 1 {
+        return;
+    }
+    match first {
+        Some("--help" | "-h") => {
+            println!("{USAGE}");
+            print!("common flags (never bind, connect, spawn or write):\n  --version, -V  print the version line and exit 0\n  --help, -h     print this help and exit 0\n  --check        resolve settings, check the files they name, print a report; exit 0 ok, 1 not ok\n");
+            std::process::exit(0);
+        }
+        Some("--check") => {
             let bind =
                 std::env::var("WALLSTREET_BIND").unwrap_or_else(|_| "127.0.0.1:19520".into());
-            galion_common::flags::bind_addr(&mut r, "serve_bind", &bind)?;
-            Ok(r)
-        },
-    );
+            println!("serve_bind {bind}");
+            let ok = bind
+                .rsplit_once(':')
+                .is_some_and(|(h, p)| !h.is_empty() && p.parse::<u16>().is_ok());
+            if ok {
+                println!("galion-wallstreet check ok");
+                std::process::exit(0);
+            }
+            println!("galion-wallstreet check failed: serve_bind {bind}: expected host:port");
+            std::process::exit(1);
+        }
+        _ => {}
+    }
+}
+
+fn main() -> ExitCode {
+    early_flags();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |f: &str| args.iter().any(|a| a == f);
     match args.first().map(String::as_str) {

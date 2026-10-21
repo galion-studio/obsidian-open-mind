@@ -696,7 +696,6 @@ name = "galion-wallstreet"
 version = "0.1.0"
 dependencies = [
  "galion-bench",
- "galion-common",
  "serde",
  "serde_json",
  "zagreb-time",

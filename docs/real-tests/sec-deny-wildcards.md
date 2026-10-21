@@ -64,7 +64,7 @@ The aarch64 musl repo-check binary under qemu-aarch64-static on this tree
 - `cargo test --workspace --exclude openmind-sandbox --exclude cgroup-detect`:
   1229 passed, 0 failed, 6 ignored (267 suites). Sandbox crates not run
   locally (sandbox_vps_only); this slot changes only their manifests.
-- `scripts/no-python.sh`: ok. repo-check on the tree: PASS, 0 errors.
+- `scripts/no-python.sh`: ok. repo-check (all 9 checks) on this branch 18:56 +02:00: 1385 files, 0 errors, 47 `utc` warnings (pre-existing, same 47 on the base) -> PASS. Same binary on base 42de672: 62 `publish` errors -> FAIL (negative control).
 - Release builds: x86_64-unknown-linux-musl workspace ok (2 m 05 s);
   aarch64-unknown-linux-musl workspace ok with
   `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld` and

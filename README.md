@@ -125,9 +125,9 @@ How the parts fit:
 
 Requirements:
 
-- A Rust toolchain with Cargo, installed with [rustup](https://rustup.rs/). The workspace does
-  not pin a version yet (no `rust-version`, no `rust-toolchain.toml`); it is developed on
-  current stable.
+- A Rust toolchain with Cargo, installed with [rustup](https://rustup.rs/). The compiler is pinned:
+  `rust-toolchain.toml` selects Rust 1.99.1 (rustup installs it on first use) and the workspace
+  `rust-version` is 1.99. See `docs/toolchain-pin.md`.
 - Linux. No Python, no Node and no system services are needed to build or test.
 
 ```sh

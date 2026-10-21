@@ -172,7 +172,8 @@ fn real_release_rehearsal() {
         eprintln!("tar -tzvf {t}:\n{listing}");
         let mut n: Vec<String> = listing
             .lines()
-            .filter_map(|x| x.split('/').nth(1).map(str::to_string))
+            .filter_map(|x| x.split_whitespace().last())
+            .filter_map(|p| p.split_once('/').map(|(_, n)| n.to_string()))
             .filter(|x| !x.is_empty())
             .collect();
         n.sort();
@@ -233,6 +234,8 @@ fn real_release_rehearsal() {
     assert!(!qemu.is_empty());
     let www = tmp("www");
     let state = tmp("nerve-state");
+    // The nerve watches only the tuner started next to it (dry-run default).
+    let comps = state.join("components.json");
     for (i, t) in TARGETS.iter().enumerate() {
         let dir = work.join(format!("obsidian-open-mind-{}-{t}", tag()));
         let spawn = |exe: &str| {
@@ -251,6 +254,7 @@ fn real_release_rehearsal() {
         };
         let tp = base + i as u16 * 2;
         let np = tp + 1;
+        fs::write(&comps, format!(r#"[{{"name":"tuner","port":{tp}}}]"#)).unwrap();
         let _tuner = Kill(
             spawn("tuner")
                 .env("TUNER_ADDR", format!("127.0.0.1:{tp}"))
@@ -260,8 +264,16 @@ fn real_release_rehearsal() {
         );
         let _nerve = Kill(
             spawn("openmind-nerve")
+                .arg("serve")
                 .env("NERVE_ADDR", format!("127.0.0.1:{np}"))
-                .env("NERVE_STATE_DIR", &state)
+                .env("NERVE_DATA_DIR", state.join(t))
+                .env("NERVE_COMPONENTS", &comps)
+                .env("NERVE_INTERVAL", "5")
+                .env("NERVE_SYSTEMD", "0")
+                .env("NERVE_JOURNAL", "0")
+                .env("NERVE_GALION_HEALTH_PORT", "0")
+                .env("NERVE_REFLEX", "0")
+                .env("NERVE_LISTEN_SCOPE", format!("{tp}-{np}"))
                 .spawn()
                 .unwrap(),
         );

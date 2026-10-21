@@ -286,8 +286,9 @@ pub fn parse_access_logs(s: &str) -> Vec<AccessLog> {
 
 /// Default `NERVE_KNOWN_PORTS`: listeners on the VPS that are expected but
 /// are not (or not only) a component health port. Matches the live VPS
-/// `ss -ltn` of 2026-10-21 17:55 +02:00 together with the component table.
-pub const KNOWN_PORTS_VPS: &str = "25,53,8670,8671,8672,18800,20241,20242";
+/// `ss -ltn` of 2026-10-21 17:55 +02:00 together with the component table,
+/// plus 8674 gaia-cortex (deployed 2026-10-21 19:02 +02:00, seen 19:42).
+pub const KNOWN_PORTS_VPS: &str = "25,53,8670,8671,8672,8674,18800,20241,20242";
 
 fn ports(s: &str) -> Vec<u16> {
     s.split([',', ' '])
@@ -347,7 +348,7 @@ impl Config {
             systemd: flag("NERVE_SYSTEMD", true),
             access_logs: parse_access_logs(&get("NERVE_ACCESS_LOGS").unwrap_or_default()),
             // 25 postfix, 53 resolved, 8670 nerve, 8671 tanga-serve, 8672 nerve
-            // shadow, 18800 forge-link (box ssh reverse tunnel behind
+            // shadow, 8674 gaia-cortex, 18800 forge-link (box ssh reverse tunnel behind
             // forge.galion.studio), 20241/20242 cloudflared metrics.
             known_ports: ports(&get("NERVE_KNOWN_PORTS").unwrap_or_else(|| KNOWN_PORTS_VPS.into())),
             public_ok_ports: ports(&get("NERVE_PUBLIC_OK_PORTS").unwrap_or_else(|| "22".into())),
@@ -537,7 +538,7 @@ mod file_tests {
         let c = Config::from_env(&|_| None).unwrap();
         assert_eq!(
             c.known_ports,
-            vec![25, 53, 8670, 8671, 8672, 18800, 20241, 20242]
+            vec![25, 53, 8670, 8671, 8672, 8674, 18800, 20241, 20242]
         );
         assert!(c.reflex && c.journal);
     }
@@ -547,10 +548,10 @@ mod file_tests {
 mod t23_tests {
     use super::*;
 
-    /// Live VPS `ss -ltn` ports, 2026-10-21 17:55 +02:00 (read-only).
-    const LIVE_PORTS: [u16; 18] = [
-        22, 25, 53, 8002, 8080, 8091, 8420, 8642, 8646, 8650, 8660, 8670, 8671, 8672, 18800, 19120,
-        20241, 20242,
+    /// Live VPS `ss -ltn` ports, 2026-10-21 17:55 +02:00 + 8674 (19:42) (read-only).
+    const LIVE_PORTS: [u16; 19] = [
+        22, 25, 53, 8002, 8080, 8091, 8420, 8642, 8646, 8650, 8660, 8670, 8671, 8672, 8674, 18800,
+        19120, 20241, 20242,
     ];
 
     #[test]

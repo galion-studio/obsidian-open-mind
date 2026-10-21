@@ -3,6 +3,8 @@
 
 //! chatterbox-say MODEL_DIR "text" OUT.wav [--ref voice.wav] [--seed N]
 //! [--steps N] [--exaggeration X] [--cfg X]
+//! [--t3 q8|f32] [--prompt-seconds S]
+//! CHATTERBOX_PROF=1 prints where the time went.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -24,11 +26,20 @@ fn main() {
             .cloned()
     };
     let t = Instant::now();
-    let m = Chatterbox::load(&PathBuf::from(&args[0])).unwrap_or_else(|e| {
+    let lo = galion_chatterbox::LoadOptions {
+        t3_weights: flag("--t3")
+            .map(|s| galion_chatterbox::T3Weights::parse(&s).expect("--t3"))
+            .unwrap_or_default(),
+    };
+    let m = Chatterbox::load_with(&PathBuf::from(&args[0]), &lo).unwrap_or_else(|e| {
         eprintln!("load: {e}");
         std::process::exit(1)
     });
-    eprintln!("loaded in {} ms", t.elapsed().as_millis());
+    eprintln!(
+        "loaded in {} ms (t3 weights {})",
+        t.elapsed().as_millis(),
+        lo.t3_weights.as_str()
+    );
     let mut o = GenerateOptions {
         seed: flag("--seed").and_then(|s| s.parse().ok()),
         ..Default::default()
@@ -61,6 +72,10 @@ fn main() {
         }
         None => m.builtin.clone(),
     };
+    let conds = match flag("--prompt-seconds").and_then(|s| s.parse::<f32>().ok()) {
+        Some(s) => conds.with_gen_prompt_limit(s),
+        None => conds,
+    };
     let t = Instant::now();
     let (wav, tm) = m.generate(&args[1], &conds, &o).unwrap_or_else(|e| {
         eprintln!("generate: {e}");
@@ -72,5 +87,8 @@ fn main() {
         "{} speech tokens, audio {:.2} s, wall {:.2} s (t3 {} ms, flow {} ms, hift {} ms), RTF {:.2}",
         tm.speech_tokens, secs, wall, tm.t3_ms, tm.flow_ms, tm.hift_ms, wall / secs.max(1e-3)
     );
+    if galion_chatterbox::prof::enabled() {
+        eprint!("{}", galion_chatterbox::prof::report());
+    }
     std::fs::write(&args[2], galion_chatterbox::wav::encode_pcm16(&wav, 24000)).expect("write");
 }

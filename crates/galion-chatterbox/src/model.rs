@@ -13,6 +13,7 @@ use crate::campplus::CamPlus;
 use crate::conds::Conditionals;
 use crate::flow::Flow;
 use crate::hift::HiFT;
+use crate::qlinear::T3Weights;
 use crate::rng::Rng;
 use crate::s3tok::S3Tokenizer;
 use crate::t3::{SampleOptions, T3};
@@ -77,10 +78,24 @@ pub struct Chatterbox {
     pub tokenizer: EnTokenizer,
     /// Built-in voice from conds.pt.
     pub builtin: Conditionals,
+    /// How T3 holds its weights.
+    pub t3_weights: T3Weights,
+}
+
+/// Load-time choices (voice-speed).
+#[derive(Clone, Debug, Default)]
+pub struct LoadOptions {
+    /// T3 weight storage: int8 (default, fast) or the checkpoint f32.
+    pub t3_weights: T3Weights,
 }
 
 impl Chatterbox {
+    /// Load with the default [`LoadOptions`] (int8 T3).
     pub fn load(dir: &Path) -> crate::Result<Self> {
+        Self::load_with(dir, &LoadOptions::default())
+    }
+
+    pub fn load_with(dir: &Path, opts: &LoadOptions) -> crate::Result<Self> {
         for f in MODEL_FILES {
             if !dir.join(f).is_file() {
                 return Err(format!("missing {}", dir.join(f).display()));
@@ -89,7 +104,7 @@ impl Chatterbox {
         let dev = Device::Cpu;
         let t3vb =
             crate::nnx::load_vb(&[dir.join("t3_cfg.safetensors")], &dev).map_err(crate::e)?;
-        let t3 = T3::load(t3vb, 8192).map_err(crate::e)?;
+        let t3 = T3::load(t3vb, 8192, opts.t3_weights).map_err(crate::e)?;
         let s3 = crate::nnx::load_vb(&[dir.join("s3gen.safetensors")], &dev).map_err(crate::e)?;
         let flow = Flow::load(s3.pp("flow")).map_err(crate::e)?;
         let hift = HiFT::load(s3.pp("mel2wav")).map_err(crate::e)?;
@@ -103,6 +118,7 @@ impl Chatterbox {
         let builtin = Conditionals::load_pt(&dir.join("conds.pt"))?;
         Ok(Chatterbox {
             t3,
+            t3_weights: opts.t3_weights,
             flow,
             hift,
             ve,

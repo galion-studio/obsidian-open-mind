@@ -22,10 +22,13 @@
 pub mod campplus;
 pub mod conds;
 pub mod dsp;
+pub mod fastops;
 pub mod flow;
 pub mod hift;
 pub mod model;
 pub mod nnx;
+pub mod prof;
+pub mod qlinear;
 pub mod rng;
 pub mod s3tok;
 pub mod t3;
@@ -33,7 +36,8 @@ pub mod text;
 pub mod ve;
 pub mod wav;
 
-pub use model::{Chatterbox, GenerateOptions};
+pub use model::{Chatterbox, GenerateOptions, LoadOptions};
+pub use qlinear::T3Weights;
 
 /// Output sample rate of S3Gen / HiFT.
 pub const S3GEN_SR: u32 = 24_000;

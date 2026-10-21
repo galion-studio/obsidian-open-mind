@@ -12,7 +12,8 @@
 use candle_core::{Device, Module, Result, Tensor};
 use candle_nn::{Embedding, LayerNorm, Linear, VarBuilder};
 
-use crate::nnx::{heads, layer_norm, leaky_relu, linear, merge_heads, mish, sdpa, Conv1d};
+use crate::fastops::{attention_qkv, gelu_erf, silu, softmax_scaled, ChannelLayerNorm};
+use crate::nnx::{heads, layer_norm, leaky_relu, linear, merge_heads, mish, Conv1d};
 use crate::rng::Rng;
 
 const D_MODEL: usize = 512;
@@ -84,8 +85,8 @@ impl RelAttn {
         let p = p.broadcast_as((b, N_HEAD, 2 * t - 1, D_K))?.contiguous()?;
         let bd = qv.matmul(&p.t()?.contiguous()?)?; // (b,h,t,2t-1)
         let bd = rel_shift(&bd)?;
-        let s = ((ac + bd)? / (D_K as f64).sqrt())?;
-        let a = candle_nn::ops::softmax_last_dim(&s)?.matmul(&v)?;
+        let s = (ac + bd)?;
+        let a = softmax_scaled(&s, 1.0 / (D_K as f32).sqrt())?.matmul(&v)?;
         self.out.forward(&merge_heads(&a)?)
     }
 }
@@ -110,7 +111,7 @@ impl ConformerLayer {
     }
     fn forward(&self, x: &Tensor, pos: &Tensor) -> Result<Tensor> {
         let x = (x + self.attn.forward(&self.norm_mha.forward(x)?, pos)?)?;
-        let h = self.w1.forward(&self.norm_ff.forward(&x)?)?.silu()?;
+        let h = silu(&self.w1.forward(&self.norm_ff.forward(&x)?)?)?;
         x + self.w2.forward(&h)?
     }
 }
@@ -193,20 +194,29 @@ impl Encoder {
 
 struct CausalBlock {
     conv: Conv1d,
-    ln: LayerNorm,
+    ln: ChannelLayerNorm,
 }
 
 impl CausalBlock {
     fn load(vb: &VarBuilder, dim_out: usize) -> Result<Self> {
         Ok(CausalBlock {
             conv: Conv1d::load(&vb.pp("block.0"), true, 1, 1, 2, 0)?,
-            ln: layer_norm(&vb.pp("block.2"), dim_out, 1e-5)?,
+            ln: {
+                let l = vb.pp("block.2");
+                ChannelLayerNorm::from_tensors(
+                    &l.get(dim_out, "weight")?,
+                    &l.get(dim_out, "bias")?,
+                    1e-5,
+                )?
+            },
         })
     }
-    fn forward(&self, x: &Tensor, mask: &Tensor) -> Result<Tensor> {
-        let h = self.conv.forward(&x.broadcast_mul(mask)?)?;
-        let h = self.ln.forward(&h.transpose(1, 2)?)?.transpose(1, 2)?;
-        mish(&h)?.broadcast_mul(mask)
+    // The reference multiplies by the padding mask before and after; at
+    // inference the batch is one utterance (+ its CFG copy) of one length,
+    // so the mask is all ones and those products are skipped (voice-speed).
+    fn forward(&self, x: &Tensor) -> Result<Tensor> {
+        let h = self.conv.forward(x)?;
+        mish(&self.ln.forward(&h)?)
     }
 }
 
@@ -226,20 +236,20 @@ impl Resnet {
             res: Conv1d::load(&vb.pp("res_conv"), true, 1, 1, 0, 0)?,
         })
     }
-    fn forward(&self, x: &Tensor, mask: &Tensor, temb: &Tensor) -> Result<Tensor> {
-        let h = self.b1.forward(x, mask)?;
+    fn forward(&self, x: &Tensor, temb: &Tensor) -> Result<Tensor> {
+        let _p = crate::prof::span("flow.resnet");
+        let h = self.b1.forward(x)?;
         let t = self.mlp.forward(&mish(temb)?)?.unsqueeze(2)?;
         let h = h.broadcast_add(&t)?;
-        let h = self.b2.forward(&h, mask)?;
-        h + self.res.forward(&x.broadcast_mul(mask)?)?
+        let h = self.b2.forward(&h)?;
+        h + self.res.forward(x)?
     }
 }
 
 struct TBlock {
     norm1: LayerNorm,
-    q: Linear,
-    k: Linear,
-    v: Linear,
+    /// to_q, to_k, to_v stacked (256 -> 1536, no bias).
+    qkv: Linear,
     out: Linear,
     norm3: LayerNorm,
     ff1: Linear,
@@ -251,9 +261,17 @@ impl TBlock {
         let a = vb.pp("attn1");
         Ok(TBlock {
             norm1: layer_norm(&vb.pp("norm1"), 256, 1e-5)?,
-            q: linear(&a.pp("to_q"), 256, 512, false)?,
-            k: linear(&a.pp("to_k"), 256, 512, false)?,
-            v: linear(&a.pp("to_v"), 256, 512, false)?,
+            qkv: Linear::new(
+                Tensor::cat(
+                    &[
+                        a.pp("to_q").get((512, 256), "weight")?,
+                        a.pp("to_k").get((512, 256), "weight")?,
+                        a.pp("to_v").get((512, 256), "weight")?,
+                    ],
+                    0,
+                )?,
+                None,
+            ),
             out: linear(&a.pp("to_out.0"), 512, 256, true)?,
             norm3: layer_norm(&vb.pp("norm3"), 256, 1e-5)?,
             ff1: linear(&vb.pp("ff.net.0.proj"), 256, 1024, true)?,
@@ -262,13 +280,13 @@ impl TBlock {
     }
     /// x: (B, T, 256)
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
+        let p = crate::prof::span("flow.tblock.attn");
         let h = self.norm1.forward(x)?;
-        let q = heads(&self.q.forward(&h)?, 8)?;
-        let k = heads(&self.k.forward(&h)?, 8)?;
-        let v = heads(&self.v.forward(&h)?, 8)?;
-        let a = sdpa(&q, &k, &v, 1.0 / 8.0, None)?;
-        let x = (x + self.out.forward(&merge_heads(&a)?)?)?;
-        let h = self.ff1.forward(&self.norm3.forward(&x)?)?.gelu_erf()?;
+        let a = attention_qkv(&self.qkv.forward(&h)?, 8, 64, 1.0 / 8.0)?;
+        let x = (x + self.out.forward(&a)?)?;
+        drop(p);
+        let _p = crate::prof::span("flow.tblock.ff");
+        let h = gelu_erf(&self.ff1.forward(&self.norm3.forward(&x)?)?)?;
         x + self.ff2.forward(&h)?
     }
 }
@@ -293,15 +311,15 @@ impl Stage {
             },
         })
     }
-    fn forward(&self, x: &Tensor, mask: &Tensor, temb: &Tensor) -> Result<(Tensor, Tensor)> {
-        let x = self.resnet.forward(x, mask, temb)?;
+    fn forward(&self, x: &Tensor, temb: &Tensor) -> Result<(Tensor, Tensor)> {
+        let x = self.resnet.forward(x, temb)?;
         let mut h = x.transpose(1, 2)?.contiguous()?;
         for b in &self.tblocks {
             h = b.forward(&h)?;
         }
         let skip = h.transpose(1, 2)?.contiguous()?;
         let out = match &self.post {
-            Some(c) => c.forward(&skip.broadcast_mul(mask)?)?,
+            Some(c) => c.forward(&skip)?,
             None => skip.clone(),
         };
         Ok((skip, out))
@@ -345,11 +363,11 @@ impl Estimator {
         })
     }
 
-    /// x, mu, cond: (B, 80, T); spks (B, 80); t scalar; mask (B, 1, T).
+    /// x, mu, cond: (B, 80, T); spks (B, 80); t scalar. No padding mask: all
+    /// rows have the same length (see [`CausalBlock::forward`]).
     fn forward(
         &self,
         x: &Tensor,
-        mask: &Tensor,
         mu: &Tensor,
         t: f32,
         spks: &Tensor,
@@ -362,16 +380,14 @@ impl Estimator {
         let temb = temb.broadcast_as((b, 1024))?.contiguous()?;
         let s = spks.unsqueeze(2)?.broadcast_as((b, 80, tt))?;
         let h = Tensor::cat(&[x, mu, &s.contiguous()?, cond], 1)?;
-        let (skip, mut h) = self.down.forward(&h, mask, &temb)?;
+        let (skip, mut h) = self.down.forward(&h, &temb)?;
         for m in &self.mids {
-            h = m.forward(&h, mask, &temb)?.1;
+            h = m.forward(&h, &temb)?.1;
         }
         let h = Tensor::cat(&[&h.narrow(2, 0, skip.dim(2)?)?, &skip], 1)?;
-        let (_, h) = self.up.forward(&h, mask, &temb)?;
-        let h = self.final_block.forward(&h, mask)?;
-        self.final_proj
-            .forward(&h.broadcast_mul(mask)?)?
-            .broadcast_mul(mask)
+        let (_, h) = self.up.forward(&h, &temb)?;
+        let h = self.final_block.forward(&h)?;
+        self.final_proj.forward(&h)
     }
 }
 
@@ -423,7 +439,9 @@ impl Flow {
         all.extend_from_slice(tokens);
         let ids = Tensor::new(all.as_slice(), dev)?.unsqueeze(0)?;
         let x = self.input_embedding.forward(&ids)?;
+        let p = crate::prof::span("flow.encoder");
         let h = self.encoder.forward(&x)?;
+        drop(p);
         let mu = self
             .encoder_proj
             .forward(&h)?
@@ -439,7 +457,6 @@ impl Flow {
             }
         }
         let cond = Tensor::from_vec(condv, (1, 80, t_all), dev)?;
-        let mask = Tensor::ones((2, 1, t_all), candle_core::DType::F32, dev)?;
         let mut x = Tensor::from_vec(rng.normals(80 * t_all), (1, 80, t_all), dev)?;
         let mu_in = Tensor::cat(&[&mu, &mu.zeros_like()?], 0)?;
         let spk_in = Tensor::cat(&[&spks, &spks.zeros_like()?], 0)?;
@@ -452,10 +469,11 @@ impl Flow {
             .collect();
         for w in ts.windows(2) {
             let (t, r) = (w[0], w[1]);
+            let _p = crate::prof::span("flow.step");
             let x_in = Tensor::cat(&[&x, &x], 0)?;
             let d = self
                 .estimator
-                .forward(&x_in, &mask, &mu_in, t, &spk_in, &cond_in)?;
+                .forward(&x_in, &mu_in, t, &spk_in, &cond_in)?;
             let dc = d.narrow(0, 0, 1)?;
             let du = d.narrow(0, 1, 1)?;
             let dxdt = ((dc * 1.7)? - (du * 0.7)?)?;

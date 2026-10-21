@@ -109,6 +109,17 @@ impl Conv1d {
     }
 
     pub fn forward(&self, x: &Tensor) -> Result<Tensor> {
+        if self.stride == 1 {
+            // voice-speed: one gemm per tap, no im2col buffer.
+            return crate::fastops::conv1d(
+                x,
+                &self.w,
+                self.b.as_ref(),
+                self.dilation,
+                self.pad_l,
+                self.pad_r,
+            );
+        }
         let x = if self.pad_l == self.pad_r {
             x.conv1d(&self.w, self.pad_l, self.stride, self.dilation, 1)?
         } else {
@@ -191,7 +202,13 @@ impl BatchNorm {
     }
 }
 
+/// Mish on the fast multi-threaded kernel ([`crate::fastops`]).
 pub fn mish(x: &Tensor) -> Result<Tensor> {
+    crate::fastops::mish(x)
+}
+
+/// Mish with candle ops (the original formulation; kept for tests).
+pub fn mish_reference(x: &Tensor) -> Result<Tensor> {
     // softplus(x) = ln(1 + e^x); overflow to +inf still gives tanh(inf) = 1.
     x * x.exp()?.affine(1.0, 1.0)?.log()?.tanh()?
 }
@@ -222,11 +239,12 @@ pub fn sdpa(
     scale: f64,
     bias: Option<&Tensor>,
 ) -> Result<Tensor> {
-    let mut s = (q.contiguous()?.matmul(&k.t()?.contiguous()?)? * scale)?;
-    if let Some(b) = bias {
-        s = s.broadcast_add(b)?;
-    }
-    let p = candle_nn::ops::softmax_last_dim(&s)?;
+    let s = q.contiguous()?.matmul(&k.t()?.contiguous()?)?;
+    // Scale folded into the multi-threaded softmax when there is no bias.
+    let p = match bias {
+        Some(b) => crate::fastops::softmax_scaled(&(s * scale)?.broadcast_add(b)?, 1.0)?,
+        None => crate::fastops::softmax_scaled(&s, scale as f32)?,
+    };
     p.matmul(&v.contiguous()?)
 }
 

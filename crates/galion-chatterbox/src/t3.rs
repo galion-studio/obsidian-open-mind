@@ -10,9 +10,11 @@
 //! repetition penalty, temperature, min-p and top-p.
 
 use candle_core::{Device, Module, Result, Tensor};
-use candle_nn::{kv_cache::KvCache, Embedding, LayerNorm, Linear, RmsNorm, VarBuilder};
+use candle_nn::{Embedding, LayerNorm, Linear, RmsNorm, VarBuilder};
+use rayon::prelude::*;
 
 use crate::nnx::{heads, layer_norm, linear, merge_heads, sdpa};
+use crate::qlinear::{Proj, T3Weights};
 use crate::rng::Rng;
 
 pub const START_TEXT: u32 = 255;
@@ -30,14 +32,13 @@ const INTER: usize = 4096;
 
 struct Layer {
     ln1: RmsNorm,
-    q: Linear,
-    k: Linear,
-    v: Linear,
-    o: Linear,
+    /// q, k and v stacked (1024 -> 3072).
+    qkv: Proj,
+    o: Proj,
     ln2: RmsNorm,
-    gate: Linear,
-    up: Linear,
-    down: Linear,
+    /// gate and up stacked (1024 -> 8192).
+    gate_up: Proj,
+    down: Proj,
 }
 
 struct Perceiver {
@@ -109,12 +110,14 @@ pub struct T3 {
     speech_emb: Embedding,
     text_pos: Tensor,
     speech_pos: Tensor,
-    speech_head: Linear,
+    speech_head: Proj,
     spkr_enc: Linear,
     emotion_fc: Linear,
     perceiver: Perceiver,
-    cos: Tensor,
-    sin: Tensor,
+    /// RoPE tables, (max_pos, 32) row-major.
+    rope_cos: Vec<f32>,
+    rope_sin: Vec<f32>,
+    max_pos: usize,
     dev: Device,
 }
 
@@ -140,7 +143,9 @@ fn llama3_inv_freq() -> Vec<f32> {
 }
 
 impl T3 {
-    pub fn load(vb: VarBuilder, max_pos: usize) -> Result<Self> {
+    /// `weights` picks f32 or int8 storage for the transformer projections
+    /// and the speech head (see [`crate::qlinear`]).
+    pub fn load(vb: VarBuilder, max_pos: usize, weights: T3Weights) -> Result<Self> {
         let dev = vb.device().clone();
         let t = vb.pp("tfmr");
         let mut layers = Vec::with_capacity(N_LAYERS);
@@ -148,16 +153,24 @@ impl T3 {
             let l = t.pp(format!("layers.{i}"));
             let a = l.pp("self_attn");
             let m = l.pp("mlp");
+            let lin = |p: &str, i: usize, o: usize| linear(&a.pp(p), i, o, false);
+            let mlp = |p: &str, i: usize, o: usize| linear(&m.pp(p), i, o, false);
+            let (q, k, v) = (
+                lin("q_proj", HIDDEN, HIDDEN)?,
+                lin("k_proj", HIDDEN, HIDDEN)?,
+                lin("v_proj", HIDDEN, HIDDEN)?,
+            );
+            let (gate, up) = (
+                mlp("gate_proj", HIDDEN, INTER)?,
+                mlp("up_proj", HIDDEN, INTER)?,
+            );
             layers.push(Layer {
                 ln1: candle_nn::rms_norm(HIDDEN, 1e-5, l.pp("input_layernorm"))?,
-                q: linear(&a.pp("q_proj"), HIDDEN, HIDDEN, false)?,
-                k: linear(&a.pp("k_proj"), HIDDEN, HIDDEN, false)?,
-                v: linear(&a.pp("v_proj"), HIDDEN, HIDDEN, false)?,
-                o: linear(&a.pp("o_proj"), HIDDEN, HIDDEN, false)?,
+                qkv: Proj::new(&[&q, &k, &v], weights)?,
+                o: Proj::new(&[&lin("o_proj", HIDDEN, HIDDEN)?], weights)?,
                 ln2: candle_nn::rms_norm(HIDDEN, 1e-5, l.pp("post_attention_layernorm"))?,
-                gate: linear(&m.pp("gate_proj"), HIDDEN, INTER, false)?,
-                up: linear(&m.pp("up_proj"), HIDDEN, INTER, false)?,
-                down: linear(&m.pp("down_proj"), INTER, HIDDEN, false)?,
+                gate_up: Proj::new(&[&gate, &up], weights)?,
+                down: Proj::new(&[&mlp("down_proj", INTER, HIDDEN)?], weights)?,
             });
         }
         let c = vb.pp("cond_enc");
@@ -180,7 +193,10 @@ impl T3 {
                 .pp("speech_pos_emb")
                 .pp("emb")
                 .get((4100, HIDDEN), "weight")?,
-            speech_head: linear(&vb.pp("speech_head"), HIDDEN, SPEECH_VOCAB, false)?,
+            speech_head: Proj::new(
+                &[&linear(&vb.pp("speech_head"), HIDDEN, SPEECH_VOCAB, false)?],
+                weights,
+            )?,
             spkr_enc: linear(&c.pp("spkr_enc"), 256, HIDDEN, true)?,
             emotion_fc: linear(&c.pp("emotion_adv_fc"), 1, HIDDEN, false)?,
             perceiver: Perceiver {
@@ -191,8 +207,9 @@ impl T3 {
                 to_v: linear(&p.pp("attn").pp("to_v"), HIDDEN, HIDDEN, true)?,
                 proj: linear(&p.pp("attn").pp("proj_out"), HIDDEN, HIDDEN, true)?,
             },
-            cos: freqs.cos()?.contiguous()?,
-            sin: freqs.sin()?.contiguous()?,
+            rope_cos: freqs.cos()?.flatten_all()?.to_vec1()?,
+            rope_sin: freqs.sin()?.flatten_all()?.to_vec1()?,
+            max_pos,
             dev,
         })
     }
@@ -220,41 +237,41 @@ impl T3 {
         Tensor::cat(&parts, 1)
     }
 
-    fn block(&self, x: &Tensor, pos: usize, caches: &mut [KvCache]) -> Result<Tensor> {
-        let (b, t, _) = x.dims3()?;
-        let cos = self.cos.narrow(0, pos, t)?;
-        let sin = self.sin.narrow(0, pos, t)?;
-        let mask = if t > 1 {
-            let total = pos + t;
-            let m: Vec<f32> = (0..t)
-                .flat_map(|i| {
-                    (0..total).map(move |j| if j > pos + i { f32::NEG_INFINITY } else { 0.0 })
-                })
-                .collect();
-            Some(Tensor::from_vec(m, (1, 1, t, total), &self.dev)?)
+    fn block(&self, x: &Tensor, pos: usize, caches: &mut [KvStore]) -> Result<Tensor> {
+        let _p = crate::prof::span(if x.dim(1)? > 1 {
+            "t3.prefill"
         } else {
-            None
-        };
+            "t3.decode_step"
+        });
+        let (b, t, _) = x.dims3()?;
         let mut x = x.clone();
         for (l, cache) in self.layers.iter().zip(caches.iter_mut()) {
+            let p = crate::prof::span("t3.l.qkv");
             let h = l.ln1.forward(&x)?;
-            let q = heads(&l.q.forward(&h)?, N_HEADS)?;
-            let k = heads(&l.k.forward(&h)?, N_HEADS)?;
-            let v = heads(&l.v.forward(&h)?, N_HEADS)?;
-            let q = candle_nn::rotary_emb::rope(&q, &cos, &sin)?;
-            let k = candle_nn::rotary_emb::rope(&k, &cos, &sin)?;
-            let (k, v) = cache.append(&k, &v)?;
-            let a = sdpa(&q, &k, &v, 1.0 / (HEAD_DIM as f64).sqrt(), mask.as_ref())?;
-            let a = merge_heads(&a)?.reshape((b, t, HIDDEN))?;
+            let qkv = l.qkv.forward(&h)?;
+            drop(p);
+            let p = crate::prof::span("t3.l.attn");
+            let qkv = qkv.flatten_all()?.to_vec1::<f32>()?;
+            let a = cache.attend(&qkv, b, t, pos, &self.rope_cos, &self.rope_sin);
+            let a = Tensor::from_vec(a, (b, t, HIDDEN), &self.dev)?;
+            drop(p);
+            let p = crate::prof::span("t3.l.o");
             x = (x + l.o.forward(&a)?)?;
+            drop(p);
+            let p = crate::prof::span("t3.l.gate_up");
             let h = l.ln2.forward(&x)?;
-            let m = (l.gate.forward(&h)?.silu()? * l.up.forward(&h)?)?;
+            let gu = l.gate_up.forward(&h)?;
+            drop(p);
+            let _p = crate::prof::span("t3.l.down");
+            let gate = crate::fastops::silu(&gu.narrow(2, 0, INTER)?)?;
+            let m = (gate * gu.narrow(2, INTER, INTER)?)?;
             x = (x + l.down.forward(&m)?)?;
         }
         Ok(x)
     }
 
     fn logits_last(&self, h: &Tensor) -> Result<Vec<Vec<f32>>> {
+        let _p = crate::prof::span("t3.logits");
         let t = h.dim(1)?;
         let last = h.narrow(1, t - 1, 1)?;
         let last = self.norm.forward(&last)?;
@@ -296,10 +313,12 @@ impl T3 {
         let x = Tensor::cat(&rows, 0)?;
         let prefill = x.dim(1)?;
         let max_len = prefill + o.max_new_tokens + 2;
-        if max_len > self.cos.dim(0)? {
+        if max_len > self.max_pos {
             candle_core::bail!("sequence too long for RoPE table ({max_len})");
         }
-        let mut caches: Vec<KvCache> = (0..N_LAYERS).map(|_| KvCache::new(2, max_len)).collect();
+        let mut caches: Vec<KvStore> = (0..N_LAYERS)
+            .map(|_| KvStore::with_capacity(bsz, prefill + 256))
+            .collect();
         let h = self.block(&x, 0, &mut caches)?;
         let mut logits = self.logits_last(&h)?;
         let mut generated: Vec<u32> = vec![START_SPEECH];
@@ -315,7 +334,9 @@ impl T3 {
             } else {
                 logits[0].clone()
             };
+            let _p = crate::prof::span("t3.sample");
             let next = sample(&mut l, &generated, o, rng) as u32;
+            drop(_p);
             generated.push(next);
             if next == STOP_SPEECH {
                 break;
@@ -336,6 +357,122 @@ impl T3 {
     /// Text/speech token ids helper for tests.
     pub fn device(&self) -> &Device {
         &self.dev
+    }
+}
+
+/// Key/value cache of one T3 layer plus its attention (voice-speed).
+///
+/// Layout `[position][batch][head * 64]`, so appending a step is a push at the
+/// end. Attention for the decode step (one query per row) and the causal
+/// prefill runs as plain Rust over (batch, query, head) in parallel; with
+/// candle it was ~25 small ops per layer and 64 single-row gemm calls, which
+/// cost more than the int8 projections themselves.
+pub struct KvStore {
+    k: Vec<f32>,
+    v: Vec<f32>,
+    len: usize,
+}
+
+impl KvStore {
+    pub fn with_capacity(rows: usize, positions: usize) -> Self {
+        KvStore {
+            k: Vec::with_capacity(rows * positions * HIDDEN),
+            v: Vec::with_capacity(rows * positions * HIDDEN),
+            len: 0,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// `qkv`: (b, t, 3 * 1024) row-major for positions `pos .. pos + t`.
+    /// Applies RoPE to q and k, appends k and v, and returns the attention
+    /// output (b, t, 1024) with heads already merged.
+    pub fn attend(
+        &mut self,
+        qkv: &[f32],
+        b: usize,
+        t: usize,
+        pos: usize,
+        cos: &[f32],
+        sin: &[f32],
+    ) -> Vec<f32> {
+        const HALF: usize = HEAD_DIM / 2;
+        let row = 3 * HIDDEN;
+        let rope = |x: &mut [f32], p: usize| {
+            let (c, s) = (
+                &cos[p * HALF..(p + 1) * HALF],
+                &sin[p * HALF..(p + 1) * HALF],
+            );
+            for h in x.as_chunks_mut::<HEAD_DIM>().0 {
+                let (x1, x2) = h.split_at_mut(HALF);
+                for i in 0..HALF {
+                    let (a, bb) = (x1[i], x2[i]);
+                    x1[i] = a * c[i] - bb * s[i];
+                    x2[i] = bb * c[i] + a * s[i];
+                }
+            }
+        };
+        debug_assert_eq!(self.len, pos);
+        // Append k (rotated) and v for every new position, batch-major inside.
+        for ti in 0..t {
+            for bi in 0..b {
+                let r = &qkv[(bi * t + ti) * row..(bi * t + ti + 1) * row];
+                let start = self.k.len();
+                self.k.extend_from_slice(&r[HIDDEN..2 * HIDDEN]);
+                rope(&mut self.k[start..], pos + ti);
+                self.v.extend_from_slice(&r[2 * HIDDEN..]);
+            }
+        }
+        self.len += t;
+        let stride = b * HIDDEN;
+        let scale = 1.0 / (HEAD_DIM as f32).sqrt();
+        let (keys, vals) = (&self.k, &self.v);
+        let mut out = vec![0f32; b * t * HIDDEN];
+        out.par_chunks_mut(HEAD_DIM)
+            .enumerate()
+            .for_each(|(idx, o)| {
+                let (bt, h) = (idx / N_HEADS, idx % N_HEADS);
+                let (bi, ti) = (bt / t, bt % t);
+                let r = (bi * t + ti) * row;
+                let mut q = [0f32; HEAD_DIM];
+                q.copy_from_slice(&qkv[r + h * HEAD_DIM..r + (h + 1) * HEAD_DIM]);
+                rope(&mut q, pos + ti);
+                let n = pos + ti + 1; // causal: keys 0 ..= pos + ti
+                let off = bi * HIDDEN + h * HEAD_DIM;
+                let mut s: Vec<f32> = (0..n)
+                    .map(|j| {
+                        let kj = &keys[j * stride + off..j * stride + off + HEAD_DIM];
+                        let mut acc = [0f32; 8];
+                        for (a, c) in q.as_chunks::<8>().0.iter().zip(kj.as_chunks::<8>().0) {
+                            for i in 0..8 {
+                                acc[i] += a[i] * c[i];
+                            }
+                        }
+                        acc.iter().sum::<f32>() * scale
+                    })
+                    .collect();
+                let m = s.iter().fold(f32::NEG_INFINITY, |a, &v| a.max(v));
+                let mut sum = 0f32;
+                for v in s.iter_mut() {
+                    *v = crate::fastops::exp_f(*v - m);
+                    sum += *v;
+                }
+                let inv = 1.0 / sum;
+                for (j, p) in s.iter().enumerate() {
+                    let vj = &vals[j * stride + off..j * stride + off + HEAD_DIM];
+                    let w = p * inv;
+                    for (y, v) in o.iter_mut().zip(vj) {
+                        *y += w * v;
+                    }
+                }
+            });
+        out
     }
 }
 
@@ -423,6 +560,83 @@ pub fn drop_invalid(tokens: &[u32]) -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The reference attention with candle ops: heads, RoPE, causal sdpa.
+    fn candle_attention(qkv: &Tensor, pos_all: usize, cos: &Tensor, sin: &Tensor) -> Tensor {
+        let (b, t, _) = qkv.dims3().unwrap();
+        let part = |i: usize| {
+            heads(
+                &qkv.narrow(2, i * HIDDEN, HIDDEN)
+                    .unwrap()
+                    .contiguous()
+                    .unwrap(),
+                N_HEADS,
+            )
+            .unwrap()
+        };
+        let c = cos.narrow(0, 0, pos_all).unwrap();
+        let s = sin.narrow(0, 0, pos_all).unwrap();
+        let q = candle_nn::rotary_emb::rope(&part(0), &c, &s).unwrap();
+        let k = candle_nn::rotary_emb::rope(&part(1), &c, &s).unwrap();
+        let m: Vec<f32> = (0..t)
+            .flat_map(|i| (0..t).map(move |j| if j > i { f32::NEG_INFINITY } else { 0.0 }))
+            .collect();
+        let mask = Tensor::from_vec(m, (1, 1, t, t), &Device::Cpu).unwrap();
+        let a = sdpa(&q, &k, &part(2), 0.125, Some(&mask)).unwrap();
+        merge_heads(&a).unwrap().reshape((b, t, HIDDEN)).unwrap()
+    }
+
+    #[test]
+    fn kv_store_attention_matches_candle() {
+        let dev = Device::Cpu;
+        let (b, t) = (2usize, 6usize);
+        let qkv = Tensor::randn(0f32, 1.0, (b, t, 3 * HIDDEN), &dev).unwrap();
+        let inv = Tensor::from_vec(llama3_inv_freq(), (1, HEAD_DIM / 2), &dev).unwrap();
+        let pos: Vec<f32> = (0..16).map(|i| i as f32).collect();
+        let freqs = Tensor::from_vec(pos, (16, 1), &dev)
+            .unwrap()
+            .broadcast_mul(&inv)
+            .unwrap();
+        let (cos, sin) = (freqs.cos().unwrap(), freqs.sin().unwrap());
+        let (cv, sv): (Vec<f32>, Vec<f32>) = (
+            cos.flatten_all().unwrap().to_vec1().unwrap(),
+            sin.flatten_all().unwrap().to_vec1().unwrap(),
+        );
+        let want = candle_attention(&qkv, t, &cos, &sin);
+        // Prefill 4 positions, then decode the last 2 one at a time.
+        let mut kv = KvStore::with_capacity(b, 2);
+        let pre = qkv.narrow(1, 0, 4).unwrap().contiguous().unwrap();
+        let mut got = vec![Tensor::from_vec(
+            kv.attend(
+                &pre.flatten_all().unwrap().to_vec1().unwrap(),
+                b,
+                4,
+                0,
+                &cv,
+                &sv,
+            ),
+            (b, 4, HIDDEN),
+            &dev,
+        )
+        .unwrap()];
+        for p in 4..t {
+            let step = qkv.narrow(1, p, 1).unwrap().contiguous().unwrap();
+            let o = kv.attend(
+                &step.flatten_all().unwrap().to_vec1().unwrap(),
+                b,
+                1,
+                p,
+                &cv,
+                &sv,
+            );
+            got.push(Tensor::from_vec(o, (b, 1, HIDDEN), &dev).unwrap());
+        }
+        assert_eq!(kv.len(), t);
+        let got = Tensor::cat(&got, 1).unwrap();
+        let d = (got - want).unwrap().abs().unwrap().flatten_all().unwrap();
+        let d = d.max(0).unwrap().to_scalar::<f32>().unwrap();
+        assert!(d < 1e-4, "max diff {d}");
+    }
 
     #[test]
     fn rope_scaling_bounds() {

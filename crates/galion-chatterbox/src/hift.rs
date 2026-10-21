@@ -60,8 +60,17 @@ impl ResBlock {
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
         let mut x = x.clone();
         for i in 0..self.c1.len() {
-            let h = self.c1[i].forward(&snake(&x, &self.a1[i])?)?;
-            let h = self.c2[i].forward(&snake(&h, &self.a2[i])?)?;
+            let p = crate::prof::span("hift.snake");
+            let s1 = snake(&x, &self.a1[i])?;
+            drop(p);
+            let p = crate::prof::span("hift.resconv");
+            let h = self.c1[i].forward(&s1)?;
+            drop(p);
+            let p = crate::prof::span("hift.snake");
+            let s2 = snake(&h, &self.a2[i])?;
+            drop(p);
+            let _p = crate::prof::span("hift.resconv");
+            let h = self.c2[i].forward(&s2)?;
             x = (x + h)?;
         }
         Ok(x)
@@ -260,13 +269,17 @@ impl HiFT {
 
     /// mel (1, 80, T) -> 24 kHz samples (T * 480).
     pub fn inference(&self, mel: &Tensor, rng: &mut Rng) -> Result<Vec<f32>> {
+        let p = crate::prof::span("hift.f0_source_stft");
         let f0 = self.f0(mel)?;
         let s = self.source(&f0, rng)?;
         let s_stft = self.source_stft(&s)?;
+        drop(p);
         let mut x = self.conv_pre.forward(mel)?;
         for i in 0..3 {
             x = leaky_relu(&x, 0.1)?;
+            let p = crate::prof::span("hift.ups");
             x = self.ups[i].forward(&x)?;
+            drop(p);
             if i == 2 {
                 // ReflectionPad1d((1, 0)).
                 let t = x.dim(2)?;
@@ -292,6 +305,7 @@ impl HiFT {
             .sin()?
             .flatten_all()?
             .to_vec1::<f32>()?;
+        let _p = crate::prof::span("hift.istft");
         let y = Self::istft(&mag, &phase, frames);
         Ok(y.into_iter().map(|v| v.clamp(-0.99, 0.99)).collect())
     }

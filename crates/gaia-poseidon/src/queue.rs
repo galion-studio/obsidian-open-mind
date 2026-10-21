@@ -19,6 +19,7 @@
 //! fallback to the stand-in: if the queue is unreachable the directive is
 //! refused and GAIA sees POSEIDON degraded.
 
+use crate::contract::{self, Violation};
 use crate::Poseidon;
 use gaia_core::{Directive, Health, Json, Outcome, Report, System, Verb};
 use serde_json::{json, Value};
@@ -32,6 +33,18 @@ pub const ENV_ADDR: &str = "GAIA_POSEIDON_QUEUE";
 /// Integrity GAIA sees while the queue cannot be reached (below
 /// `Health::DEGRADE_BELOW`, so POSEIDON shows as degraded).
 pub const UNREACHABLE_INTEGRITY: u8 = 30;
+
+/// Integrity while the program on the configured port is not
+/// `openmind-queue` (POSEIDON), or its last answer broke the contract.
+pub const OFF_CONTRACT_INTEGRITY: u8 = 20;
+
+/// Something GAIA should hear about on the bus, taken by
+/// `Poseidon::handle` after each directive.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Event {
+    pub topic: &'static str,
+    pub body: String,
+}
 
 /// Where the queue is and how long to wait for it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,6 +138,12 @@ pub struct QueueAdapter<T: Transport = Http> {
     calls: u64,
     submitted: u64,
     refusals: u64,
+    /// Version from a verified `GET /healthz` (identity handshake).
+    identity: Option<String>,
+    /// The last contract violation, until the next good answer.
+    off_contract: Option<String>,
+    violations: u64,
+    events: Vec<Event>,
 }
 
 impl QueueAdapter<Http> {
@@ -158,6 +177,10 @@ impl<T: Transport> QueueAdapter<T> {
             calls: 0,
             submitted: 0,
             refusals: 0,
+            identity: None,
+            off_contract: None,
+            violations: 0,
+            events: Vec::new(),
         }
     }
 
@@ -183,21 +206,97 @@ impl<T: Transport> QueueAdapter<T> {
                 "adapter refuses {method} {path}: not on the read/submit allow-list"
             ));
         }
+        if path != "/healthz" {
+            self.ensure_identity()?;
+        }
+        self.raw_call(method, path, body)
+    }
+
+    fn raw_call(
+        &mut self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<(u16, Value), String> {
         self.calls += 1;
         let b = body.map(|v| v.to_string());
         match self.transport.call(method, path, b.as_deref()) {
             Ok((code, s)) => {
                 self.reachable = Some(true);
-                self.last_error = None;
+                if self.off_contract.is_none() {
+                    self.last_error = None;
+                }
                 Ok((code, serde_json::from_str(&s).unwrap_or(Value::Null)))
             }
             Err(e) => {
                 let msg = format!("openmind-queue unreachable at {}: {e}", self.addr);
+                if self.reachable != Some(false) {
+                    self.events.push(Event {
+                        topic: "poseidon-unreachable",
+                        body: msg.clone(),
+                    });
+                }
                 self.reachable = Some(false);
+                // Whatever answers next on this port must prove itself again.
+                self.identity = None;
                 self.last_error = Some(msg.clone());
                 Err(msg)
             }
         }
+    }
+
+    /// Identity handshake: the first call (and the first after an outage or
+    /// a reset) checks that `GET /healthz` names `openmind-queue` serving
+    /// POSEIDON. Nothing else is sent to an unverified port.
+    fn ensure_identity(&mut self) -> Result<(), String> {
+        if self.identity.is_some() {
+            return Ok(());
+        }
+        let (code, v) = self.raw_call("GET", "/healthz", None)?;
+        match contract::check_identity(code, &v) {
+            Ok(version) => {
+                self.identity = Some(version);
+                self.clear_violation();
+                Ok(())
+            }
+            Err(viol) => Err(self.record_violation(viol)),
+        }
+    }
+
+    fn record_violation(&mut self, v: Violation) -> String {
+        let msg = format!("{v} (openmind-queue at {})", self.addr);
+        self.violations += 1;
+        if self.off_contract.as_deref() != Some(msg.as_str()) {
+            self.events.push(Event {
+                topic: "poseidon-off-contract",
+                body: msg.clone(),
+            });
+        }
+        self.off_contract = Some(msg.clone());
+        self.last_error = Some(msg.clone());
+        msg
+    }
+
+    fn clear_violation(&mut self) {
+        if self.off_contract.take().is_some() {
+            self.last_error = None;
+        }
+    }
+
+    /// Bus events since the last call (unreachable, off-contract, spend-cap
+    /// hard stops). `Poseidon::handle` forwards them to GAIA.
+    pub fn take_events(&mut self) -> Vec<Event> {
+        std::mem::take(&mut self.events)
+    }
+
+    /// Version of the verified queue, once the handshake passed.
+    pub fn identity(&self) -> Option<&str> {
+        self.identity.as_deref()
+    }
+
+    /// Contract violations seen so far.
+    pub fn violations(&self) -> u64 {
+        self.violations
     }
 
     /// Refresh the cached load from `GET /gaia/status`.
@@ -221,6 +320,8 @@ impl<T: Transport> QueueAdapter<T> {
         let mut h = Health::ok(self.load);
         if self.reachable == Some(false) {
             h.integrity = UNREACHABLE_INTEGRITY;
+        } else if self.off_contract.is_some() {
+            h.integrity = OFF_CONTRACT_INTEGRITY;
         }
         h
     }
@@ -242,6 +343,9 @@ impl<T: Transport> QueueAdapter<T> {
             .with("submitted", self.submitted)
             .with("refusals", self.refusals)
             .with("last_error", self.last_error.clone())
+            .with("identity", self.identity.clone())
+            .with("contract", if self.off_contract.is_some() { "violated" } else { "ok" })
+            .with("violations", self.violations)
             .with("budget", "read-only via Gaia (never spends)")
     }
 
@@ -250,6 +354,9 @@ impl<T: Transport> QueueAdapter<T> {
         self.reachable = None;
         self.load = 0;
         self.last_error = None;
+        self.identity = None;
+        self.off_contract = None;
+        self.events.clear();
     }
 
     /// Handle one directive aimed at a compute system.
@@ -278,22 +385,37 @@ impl<T: Transport> QueueAdapter<T> {
             (System::Queues, Verb::Run | Verb::Execute) => self.submit(d),
             (System::Queues, Verb::Status) if !d.payload.trim().is_empty() => self.inspect(d),
             (_, Verb::Status) => self.status(d),
-            (_, Verb::Plan) => self.remote_dispatch(d, "plan"),
+            (_, Verb::Plan) => self.remote_dispatch(d, Verb::Plan),
             (s, _) => Ok(Report::for_directive(d, Outcome::Refused).summary(format!(
                 "{s} {}: read-only through Gaia; caps, quotas and VRAM devices are set by the operator on openmind-queue, and Gaia never spends budget",
                 d.verb.name()
             ))),
         };
         out.unwrap_or_else(|e| {
+            let kind = if e.starts_with("contract violation") {
+                "off_contract"
+            } else {
+                "unreachable"
+            };
             Report::for_directive(d, Outcome::Refused)
                 .summary(format!("{e}; nothing done (no fallback to the stand-in)"))
-                .metric("unreachable", 1)
+                .metric(kind, 1)
         })
     }
 
-    /// `POST /gaia/dispatch` and translate the queue's Gaia report.
-    fn remote_dispatch(&mut self, d: &Directive, verb: &str) -> Result<Report, String> {
-        let body = json!({"system": d.target.name(), "verb": verb, "payload": d.payload});
+    /// `POST /gaia/dispatch` (verbs `status` and `plan` only) and parse the
+    /// answer through the strict contract parser.
+    fn remote_dispatch(&mut self, d: &Directive, verb: Verb) -> Result<Report, String> {
+        if !contract::dispatchable(verb) {
+            // Unreachable by construction; kept as a hard guard.
+            return Err(format!(
+                "adapter refuses to dispatch verb {}: the queue's Gaia dispatch is read-only",
+                verb.name()
+            ));
+        }
+        let system = contract::wire_system(d.target)
+            .ok_or_else(|| format!("{} is not served by openmind-queue", d.target))?;
+        let body = json!({"system": system, "verb": contract::wire_verb(verb), "payload": d.payload});
         let (code, v) = self.call("POST", "/gaia/dispatch", Some(body))?;
         if code != 200 {
             return Ok(Report::for_directive(d, Outcome::Rejected)
@@ -303,27 +425,17 @@ impl<T: Transport> QueueAdapter<T> {
                 ))
                 .metric("http_status", i64::from(code)));
         }
-        let outcome = match v.get("outcome").and_then(Value::as_str) {
-            Some("done") => Outcome::Done,
-            Some("dry-run") => Outcome::DryRun,
-            Some("refused") => Outcome::Refused,
-            _ => Outcome::Rejected,
-        };
-        let mut r = Report::for_directive(d, outcome).summary(text(&v, "summary"));
-        if let Some(ms) = v.get("metrics").and_then(Value::as_array) {
-            for m in ms {
-                if let (Some(k), Some(n)) =
-                    (m.get(0).and_then(Value::as_str), m.get(1).and_then(int))
-                {
-                    r = r.metric(k, n);
-                }
+        match contract::parse_dispatch(d, verb, &v) {
+            Ok(r) => {
+                self.clear_violation();
+                Ok(r)
             }
+            Err(viol) => Err(self.record_violation(viol)),
         }
-        Ok(r)
     }
 
     fn status(&mut self, d: &Directive) -> Result<Report, String> {
-        let mut r = self.remote_dispatch(d, "status")?;
+        let mut r = self.remote_dispatch(d, Verb::Status)?;
         match d.target {
             System::VramPool => {
                 let (code, v) = self.call("GET", "/vram", None)?;
@@ -507,6 +619,7 @@ impl<T: Transport> QueueAdapter<T> {
                     .summary(format!("unknown job field {k:?}")));
             }
         }
+        let agent = text(&spec, "agent");
         let (code, v) = self.call("POST", "/jobs", Some(spec))?;
         if code == 201 {
             self.submitted += 1;
@@ -522,6 +635,12 @@ impl<T: Transport> QueueAdapter<T> {
         }
         let err = text(&v, "error");
         let detail = text(&v, "detail");
+        if err == "budget_hard_stop" {
+            self.events.push(Event {
+                topic: "budget-hard-stop",
+                body: format!("agent {agent:?}: {detail}"),
+            });
+        }
         let outcome = match code {
             402 | 403 | 429 | 503 => Outcome::Refused,
             _ => Outcome::Rejected,
@@ -553,13 +672,25 @@ mod tests {
         calls: Vec<(String, String, Option<String>)>,
         answers: Vec<(u16, String)>,
         down: bool,
+        /// Answer `/healthz` as some other program.
+        impostor: bool,
     }
+
+    const HEALTHZ: &str =
+        r#"{"ok":true,"function":"POSEIDON","service":"openmind-queue","version":"0.1.0"}"#;
 
     impl Transport for Fake {
         fn call(&mut self, m: &str, p: &str, b: Option<&str>) -> io::Result<(u16, String)> {
             self.calls.push((m.into(), p.into(), b.map(String::from)));
             if self.down {
                 return Err(io::Error::new(io::ErrorKind::ConnectionRefused, "refused"));
+            }
+            if p == "/healthz" {
+                return Ok(if self.impostor {
+                    (200, r#"{"ok":true,"service":"galion-one"}"#.into())
+                } else {
+                    (200, HEALTHZ.into())
+                });
             }
             Ok(if self.answers.is_empty() {
                 (200, "{}".into())
@@ -700,7 +831,8 @@ mod tests {
             );
             assert_eq!(r.outcome, outcome, "{code}");
             assert!(r.summary.contains(word), "{}", r.summary);
-            assert_eq!(a.transport().calls[0].1, "/jobs");
+            assert_eq!(a.transport().calls[0].1, "/healthz");
+            assert_eq!(a.transport().calls[1].1, "/jobs");
         }
     }
 
@@ -749,5 +881,106 @@ mod tests {
         assert!(QueueConfig::new("[::1]:19240").is_ok());
         assert!(QueueConfig::new("10.0.0.5:19240").is_err());
         assert!(QueueConfig::new("nonsense").is_err());
+    }
+
+    #[test]
+    fn identity_handshake_once_then_cached() {
+        let mut a = adapter(vec![]);
+        for _ in 0..3 {
+            let _ = a.handle(&Directive::new(1, System::Queues, Verb::Status));
+        }
+        let hz = a
+            .transport()
+            .calls
+            .iter()
+            .filter(|c| c.1 == "/healthz")
+            .count();
+        assert_eq!(hz, 1);
+        assert_eq!(a.transport().calls[0].1, "/healthz");
+        assert_eq!(a.identity(), Some("0.1.0"));
+    }
+
+    #[test]
+    fn impostor_on_the_port_gets_nothing_but_healthz() {
+        let mut a = adapter(vec![]);
+        a.transport.impostor = true;
+        for s in System::COMPUTE {
+            for v in [Verb::Status, Verb::Plan, Verb::Run] {
+                let r = a.handle(&Directive::new(1, s, v).payload(r#"{"agent":"a"}"#));
+                assert_eq!(r.outcome, Outcome::Refused, "{s} {v:?}");
+            }
+        }
+        assert!(a.transport().calls.iter().all(|c| c.1 == "/healthz"));
+        assert!(a.violations() > 0);
+        assert_eq!(a.health().integrity, OFF_CONTRACT_INTEGRITY);
+        let ev = a.take_events();
+        assert_eq!(ev.len(), 1, "one event per distinct violation: {ev:?}");
+        assert_eq!(ev[0].topic, "poseidon-off-contract");
+        let r = a.handle(&Directive::new(9, System::Queues, Verb::Status));
+        assert_eq!(r.metric_value("off_contract"), Some(1));
+        // The right program comes back: handshake passes, health recovers.
+        a.transport.impostor = false;
+        let r = a.handle(&Directive::new(10, System::Queues, Verb::Status));
+        assert_eq!(r.outcome, Outcome::Done, "{}", r.summary);
+        assert!(a.health().integrity >= Health::DEGRADE_BELOW);
+    }
+
+    #[test]
+    fn off_contract_dispatch_answer_is_refused_and_degrades() {
+        let mut a = adapter(vec![(
+            200,
+            r#"{"function":"POSEIDON","system":"queues","verb":"status","outcome":"maybe","summary":""}"#,
+        )]);
+        let r = a.handle(&Directive::new(1, System::Queues, Verb::Status));
+        assert_eq!(r.outcome, Outcome::Refused);
+        assert_eq!(r.metric_value("off_contract"), Some(1));
+        assert!(r.summary.contains("unknown outcome"), "{}", r.summary);
+        assert!(a.health().integrity < Health::DEGRADE_BELOW);
+        assert_eq!(a.take_events()[0].topic, "poseidon-off-contract");
+    }
+
+    #[test]
+    fn plan_answer_keeps_dry_run_flag() {
+        let mut a = adapter(vec![(
+            200,
+            r#"{"function":"POSEIDON","system":"vram-pool","verb":"plan","outcome":"dry-run","dry_run":true,"summary":"16 GB would go to device gpu0 (no spend)","metrics":[["free_gb_on_device",24]]}"#,
+        )]);
+        let r = a.handle(&Directive::new(1, System::VramPool, Verb::Plan).payload("16"));
+        assert_eq!(r.outcome, Outcome::DryRun);
+        assert!(r.dry_run, "GAIA judges destructive work by dry_run");
+        assert_eq!(r.metric_value("free_gb_on_device"), Some(24));
+    }
+
+    #[test]
+    fn outage_events_once_and_rehandshake_after() {
+        let mut a = adapter(vec![]);
+        let _ = a.handle(&Directive::new(1, System::Queues, Verb::Status));
+        assert!(a.identity().is_some());
+        a.transport.down = true;
+        for _ in 0..3 {
+            let _ = a.handle(&Directive::new(2, System::Queues, Verb::Status));
+        }
+        let ev = a.take_events();
+        assert_eq!(ev.len(), 1, "{ev:?}");
+        assert_eq!(ev[0].topic, "poseidon-unreachable");
+        assert!(a.identity().is_none());
+        a.transport.down = false;
+        let n = a.transport().calls.len();
+        let _ = a.handle(&Directive::new(3, System::Queues, Verb::Status));
+        assert_eq!(a.transport().calls[n].1, "/healthz");
+    }
+
+    #[test]
+    fn budget_hard_stop_is_an_event() {
+        let mut a = adapter(vec![(
+            402,
+            r#"{"error":"budget_hard_stop","detail":"budget a: spent 90 + cost 20 > cap 100"}"#,
+        )]);
+        let _ = a.handle(
+            &Directive::new(1, System::Queues, Verb::Run).payload(r#"{"agent":"a","cost":20}"#),
+        );
+        let ev = a.take_events();
+        assert_eq!(ev[0].topic, "budget-hard-stop");
+        assert!(ev[0].body.contains("cap 100"));
     }
 }

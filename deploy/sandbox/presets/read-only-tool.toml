@@ -36,4 +36,4 @@ fs_read = [
 fs_write = []
 namespaces = true
 ro_root = true
-hide_paths = ["/root", "/home", "/run/secrets"]
+hide_paths = ["/root", "/home", "/run/secrets", "/opt/galion"]

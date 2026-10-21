@@ -55,7 +55,7 @@ The runner should also append the real `HOME` to `hide_paths` when that director
 - No argv key and no command string. A preset cannot mutate the system because it cannot run anything.
 - `fs_write` is empty. Host paths are not opened for writes.
 - `ro_root` and `landlock` and `namespaces` are on. Ask for the closed tree even when this kernel can only apply part of it.
-- `hide_paths` is `/root`, `/home`, and `/run/secrets`.
+- `hide_paths` is `/root`, `/home`, `/run/secrets`, and `/opt/galion` (the live deployment tree; added 2026-10-21 after the VPS S8 finding, see `docs/real-tests/sandbox-hide-galion.md`). A tool whose workdir, write root, read root, or program is under `/opt/galion` keeps it visible, and the outcome reports `hide_home` as not enforced with the reason.
 - `HOME` and `TMPDIR` are set to the workdir so tools do not use the real home or the host `/tmp`.
 - Allowlists are names only. Nothing in these files is a credential, a key, or a proxy URL.
 - These files are not referenced by a service unit. Nothing was installed or enabled.

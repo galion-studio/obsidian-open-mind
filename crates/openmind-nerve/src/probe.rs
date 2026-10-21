@@ -764,3 +764,29 @@ mod more_tests {
         assert!(listeners().is_some());
     }
 }
+
+#[cfg(test)]
+mod t23_tests {
+    use super::*;
+
+    #[test]
+    fn last_runs_parse_unix_timestamps() {
+        // systemd 255 `systemctl show --timestamp=unix` (VPS, 2026-10-21 17:55 +02:00).
+        let out = "Id=galion-backup.service\nLoadState=loaded\nActiveState=inactive\nResult=success\nExecMainStatus=0\nExecMainExitTimestamp=@1792585072\n\nId=x.service\nLoadState=loaded\nActiveState=inactive\nResult=success\nExecMainStatus=0\nExecMainExitTimestamp=\n";
+        let v = parse_last_runs(out);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].unit, "galion-backup.service");
+        assert_eq!(v[0].finished, Some(1_792_585_072));
+        assert_eq!(v[0].exit_status, Some(0));
+        assert_eq!(v[1].finished, None);
+        // Old systemd without --timestamp=unix prints a date: not parsed.
+        let old = parse_last_runs("Id=a.service\nExecMainExitTimestamp=Wed 2026-10-21 12:17:52 UTC\n");
+        assert_eq!(old[0].finished, None);
+        assert_eq!(timer_service("galion-backup.timer").as_deref(), Some("galion-backup.service"));
+        assert_eq!(timer_service("x.service"), None);
+        assert_eq!(timer_service(".timer"), None);
+        let j = v[0].to_json();
+        assert_eq!(j["finished_unix"], 1_792_585_072u64);
+        assert!(j["finished"].as_str().unwrap().ends_with("+02:00"));
+    }
+}

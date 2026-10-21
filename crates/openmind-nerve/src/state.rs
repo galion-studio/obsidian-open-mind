@@ -736,3 +736,98 @@ mod tiny_tests {
         assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
     }
 }
+
+#[cfg(test)]
+mod t23_timer_tests {
+    use super::*;
+    use crate::config::default_specs;
+
+    fn backup() -> CompState {
+        CompState::new(
+            default_specs(None, None)
+                .into_iter()
+                .find(|s| s.name == "galion-backup")
+                .unwrap(),
+        )
+    }
+
+    fn sample(t: u64, active: &str, run: Value) -> Sample {
+        Sample {
+            t,
+            present: true,
+            unit_active: Some(active.into()),
+            unit_sub: Some("waiting".into()),
+            extra: json!({ "last_run": run }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn timer_ok_failed_stale_and_never_hard_down() {
+        let th = Thresholds::default();
+        let now = 1_792_600_000u64;
+        let ok = json!({"unit": "galion-backup.service", "active": "inactive", "result": "success", "exit_status": 0, "finished_unix": now - 3600});
+        let mut c = backup();
+        c.push(sample(now, "active", ok.clone()), &th);
+        assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
+        // Last run failed: degrading (critical false), never hard-down.
+        let failed = json!({"unit": "galion-backup.service", "active": "failed", "result": "exit-code", "exit_status": 1, "finished_unix": now - 60});
+        let mut c = backup();
+        c.push(sample(now, "active", failed), &th);
+        assert_eq!(c.status, Status::Degrading);
+        assert!(c.reasons[0].contains("failed (result exit-code, exit 1)"), "{:?}", c.reasons);
+        assert!(!c.hard_down);
+        // Stale: last run 14 h ago, limit 13 h.
+        let stale = json!({"unit": "galion-backup.service", "active": "inactive", "result": "success", "exit_status": 0, "finished_unix": now - 14 * 3600});
+        let mut c = backup();
+        c.push(sample(now, "active", stale), &th);
+        assert_eq!(c.status, Status::Degrading);
+        assert!(c.reasons.iter().any(|r| r.contains("finished")), "{:?}", c.reasons);
+        // Timer stopped: degrading, still never hard-down (no reflex, no count).
+        let mut c = backup();
+        for k in 0..5 {
+            c.push(sample(now + k * 30, "inactive", ok.clone()), &th);
+        }
+        assert_eq!(c.status, Status::Degrading);
+        assert!(!c.hard_down);
+        assert_eq!(c.consecutive_down, 0);
+        // Running right now: an old finish time is not "stale".
+        let running = json!({"unit": "galion-backup.service", "active": "activating", "result": "success", "finished_unix": now - 20 * 3600});
+        let mut c = backup();
+        c.push(sample(now, "active", running), &th);
+        assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
+        // No finished run known (fresh boot): no judgement.
+        let never = json!({"unit": "galion-backup.service", "active": "inactive", "result": "success", "finished_unix": null});
+        let mut c = backup();
+        c.push(sample(now, "active", never), &th);
+        assert_eq!(c.status, Status::Healthy);
+    }
+
+    #[test]
+    fn new_service_specs_degrade_but_are_never_hard_down() {
+        let th = Thresholds::default();
+        for n in ["openmind-queue", "tanga-proto", "galion-nerve-shadow"] {
+            let sp = default_specs(None, None)
+                .into_iter()
+                .find(|s| s.name == n)
+                .unwrap();
+            let mut c = CompState::new(sp);
+            for k in 0..5 {
+                c.push(
+                    Sample {
+                        t: 1_792_600_000 + k * 30,
+                        present: true,
+                        unit_active: Some("failed".into()),
+                        probe_error: Some("connection refused".into()),
+                        ..Default::default()
+                    },
+                    &th,
+                );
+            }
+            assert_eq!(c.status, Status::Degrading, "{n}");
+            // "unit failed" sets hard_down (reflex input), but the reflex
+            // never acts: restarts_per_hour 0 (see reflex t23 test).
+            assert_eq!(c.spec.restarts_per_hour, 0, "{n}");
+        }
+    }
+}

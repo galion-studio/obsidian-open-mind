@@ -607,6 +607,27 @@ mod tests {
     }
 
     #[test]
+    fn t23_observe_only_specs_never_get_a_decision() {
+        // Slot 200: the five T2.3 specs, hard-down for 10 cycles, with a
+        // deploy backup and galion-deploy present (worst case): no decision.
+        let d = tmp("t23");
+        let bk = d.join("backups");
+        std::fs::create_dir_all(&bk).unwrap();
+        let dep = d.join("galion-deploy");
+        std::fs::write(&dep, "").unwrap();
+        let mut r = Reflex::new(d.clone(), true, 1);
+        r.deploy_bin = dep;
+        r.deploy_backups = bk.clone();
+        for n in ["openmind-queue", "tanga-proto", "galion-nerve-shadow", "galion-backup", "hades-gate"] {
+            std::fs::write(bk.join(format!("{n}-20261021-170000+0200.bin")), "").unwrap();
+            let c = down_comp(n, 10, "failed", "exit-code", "enabled");
+            assert_eq!(r.decide(&c, 1300, false), Decision::None, "{n}");
+            assert!(permitted(c.spec.unit.unwrap()).is_err(), "{n}: not in ALLOW");
+        }
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
     fn waits_for_fail_cycles_then_rate_limits() {
         let d = tmp("rl");
         let mut r = Reflex::new(d.clone(), true, 3);

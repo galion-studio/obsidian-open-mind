@@ -544,3 +544,79 @@ mod file_tests {
         assert!(c.reflex && c.journal);
     }
 }
+
+#[cfg(test)]
+mod t23_tests {
+    use super::*;
+
+    /// Live VPS `ss -ltn` ports, 2026-10-21 17:55 +02:00 (read-only).
+    const LIVE_PORTS: [u16; 18] = [
+        22, 25, 53, 8002, 8080, 8091, 8420, 8642, 8646, 8650, 8660, 8670, 8671, 8672, 18800,
+        19120, 20241, 20242,
+    ];
+
+    #[test]
+    fn t23_specs_are_observe_only() {
+        let s = default_specs(None, None);
+        let find = |n: &str| s.iter().find(|x| x.name == n).unwrap();
+        for (n, unit, port, path, gaia) in [
+            ("openmind-queue", "openmind-queue.service", Some(19120), "/healthz", "POSEIDON"),
+            ("tanga-proto", "tanga-proto.service", Some(8671), "/tanga/", "ELEUTHIA"),
+            ("galion-nerve-shadow", "galion-nerve-shadow.service", Some(8672), "/healthz", "AETHER"),
+            ("galion-backup", "galion-backup.timer", None, "", "DEMETER"),
+            ("hades-gate", "hades-gate.service", None, "", "HADES"),
+        ] {
+            let x = find(n);
+            assert_eq!(x.unit, Some(unit), "{n}");
+            assert_eq!(x.port, port, "{n}");
+            assert_eq!(x.path, path, "{n}");
+            assert_eq!(x.gaia, gaia, "{n}");
+            assert_eq!(x.restarts_per_hour, 0, "{n}: observe-only");
+            assert!(!x.critical, "{n}: never hard-down on a probe");
+            assert!(
+                !crate::reflex::ALLOW.contains(&unit),
+                "{n}: {unit} must not be in the reflex allowlist"
+            );
+        }
+        assert_eq!(find("galion-backup").kind, Kind::Timer);
+        assert_eq!(find("galion-backup").max_age_s, 13 * 3600);
+        assert!(!find("hades-gate").expected);
+        assert_eq!(crate::reflex::ALLOW.len(), 10, "allowlist unchanged");
+    }
+
+    #[test]
+    fn known_ports_cover_the_live_vps() {
+        let c = Config::from_env(&|_| None).unwrap();
+        let specs = specs_for(&c).unwrap();
+        let om = crate::owners::OwnerMap::for_config(&specs, &c);
+        for p in LIVE_PORTS {
+            assert!(om.is_owned(p), "live port {p} has no owner");
+        }
+        let no = std::collections::BTreeMap::new();
+        assert_eq!(om.lookup(19120, &no).owner, "openmind-queue");
+        assert_eq!(om.lookup(8671, &no).owner, "tanga-proto");
+        assert_eq!(om.lookup(8672, &no).owner, "galion-nerve-shadow");
+        assert!(om.lookup(18800, &no).owner.starts_with("forge-link"));
+        // The old documented-unowned ports still report as unknown owner.
+        assert!(!om.is_owned(8652));
+    }
+
+    #[test]
+    fn shadow_does_not_list_itself() {
+        let c = Config::from_env(&|k| (k == "NERVE_ADDR").then(|| "127.0.0.1:8672".into())).unwrap();
+        let s = specs_for(&c).unwrap();
+        assert!(!s.iter().any(|x| x.name == "galion-nerve-shadow"));
+        assert!(s.iter().any(|x| x.name == "galion-nerve"));
+        let main = specs_for(&Config::from_env(&|_| None).unwrap()).unwrap();
+        assert_eq!(main.len(), s.len() + 1);
+    }
+
+    #[test]
+    fn timer_kind_from_a_components_file() {
+        let s = parse_specs(r#"[{"name":"bk","unit":"bk.timer","kind":"timer","max_age_s":3600}]"#).unwrap();
+        assert_eq!(s[0].kind, Kind::Timer);
+        assert_eq!(s[0].max_age_s, 3600);
+        assert_eq!(s[0].restarts_per_hour, 0);
+        assert!(parse_specs(r#"[{"name":"bk","kind":"cron"}]"#).is_err());
+    }
+}

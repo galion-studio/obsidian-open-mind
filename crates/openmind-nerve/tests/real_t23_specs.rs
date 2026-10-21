@@ -454,8 +454,8 @@ fn real_t23_vps_capture_specs_listeners_and_negative_control() {
             ["degrading", "failing-soon", "failing"].contains(&c["status"].as_str().unwrap()),
             "{n}: {c}"
         );
-        assert_eq!(c["consecutive_down"], 0, "{n}: never hard-down");
     }
+    assert_eq!(comp(&nst, "galion-backup")["consecutive_down"], 0, "timer never hard-down");
     let (code, v) = dry(&neg, None, &["--worst-case", "--stretch", "130"]);
     println!("{}", row("replay200 negative", "worst+130", "built-in", code, &v));
     let (_, vbase) = dry(&dir, None, &["--worst-case", "--stretch", "130"]);

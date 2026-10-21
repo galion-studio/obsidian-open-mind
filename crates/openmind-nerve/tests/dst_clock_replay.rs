@@ -174,8 +174,44 @@ fn samples(t: u64, f: &Faults, k: u64) -> std::collections::HashMap<String, Samp
             ..Default::default()
         },
     );
+    // T2.3 (slot 200) observe-only services, healthy as on the VPS.
+    for (i, name) in ["openmind-queue", "tanga-proto", "galion-nerve-shadow"]
+        .iter()
+        .enumerate()
+    {
+        let i = 40 + i as u64;
+        m.insert(
+            name.to_string(),
+            Sample {
+                t,
+                present: true,
+                unit_active: Some("active".into()),
+                unit_sub: Some("running".into()),
+                http_code: Some(200),
+                latency_ms: Some(1 + noise(t, i, 2)),
+                mem_kb: Some(4_000 + noise(t, i, 50)),
+                pid: 3000 + i as u32,
+                active_enter: 6_000_000 + i,
+                extra: json!({}),
+                ..Default::default()
+            },
+        );
+    }
+    // galion-backup.timer: waiting, last run 6 h-ish ago at most (wall clock).
+    m.insert(
+        "galion-backup".into(),
+        Sample {
+            t,
+            present: true,
+            unit_active: Some("active".into()),
+            unit_sub: Some("waiting".into()),
+            extra: json!({"last_run": {"unit": "galion-backup.service", "active": "inactive",
+                "result": "success", "exit_status": 0, "finished_unix": t - t % 21_600}}),
+            ..Default::default()
+        },
+    );
     // Not deployed on the VPS: absent, as the live probes report them.
-    for name in ["voice-worker", "gaia"] {
+    for name in ["voice-worker", "gaia", "hades-gate"] {
         m.insert(
             name.to_string(),
             Sample {

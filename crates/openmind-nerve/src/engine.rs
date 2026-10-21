@@ -540,12 +540,18 @@ impl Engine {
         let mut self_warns = vec![];
         for c in &self.comps {
             if c.hist.is_empty() {
-                add(
-                    "coverage",
-                    "error",
-                    c.spec.name,
-                    "no sample this cycle".into(),
-                );
+                // A replay marks components its capture does not name as absent
+                // (T2.3): reported, not an error. A live cycle always samples.
+                if c.status == crate::state::Status::Absent {
+                    add("coverage", "info", c.spec.name, c.reasons.join("; "));
+                } else {
+                    add(
+                        "coverage",
+                        "error",
+                        c.spec.name,
+                        "no sample this cycle".into(),
+                    );
+                }
                 continue;
             }
             if c.status != Status::Healthy {

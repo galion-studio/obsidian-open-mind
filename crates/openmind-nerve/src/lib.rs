@@ -26,6 +26,8 @@
 //! - [`reflex`]: allowlisted, rate-limited auto-remediation with an audit log.
 //! - [`alerts`]: journald + alerts.json.
 //! - [`feed`]: the cortex B33 event feed (`GET /api/v1/cortex/events`).
+//! - [`plans`]: HADES plan templates per fix family from cortex incidents
+//!   (T4.2; text only, `GET /api/v1/cortex/plans`, never executed).
 //! - [`engine`]: the loop; [`server`]: the loopback JSON API and dashboard;
 //!   [`replay`]: run captured live data through the same pipeline.
 
@@ -39,6 +41,7 @@ pub mod feed;
 pub mod hub;
 pub mod incident;
 pub mod logscan;
+pub mod plans;
 pub mod probe;
 pub mod reflex;
 pub mod replay;

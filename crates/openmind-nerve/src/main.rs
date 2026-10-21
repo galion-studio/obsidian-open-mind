@@ -11,8 +11,11 @@
 //!       (or NERVE_EVENT_LOG) enables the JSONL event log behind POST /event
 //!       and GET /events (swarm/gaia-live's `openmind-nerve serve` API).
 //!   openmind-nerve once [--md]        one observe-only cycle; prints the self-eval
-//!   openmind-nerve replay DIR [--md | --state]
+//!   openmind-nerve replay DIR [--md | --state | --plans]
 //!       run a read-only capture of a live host through the same pipeline
+//!   openmind-nerve plans STATE.json|-
+//!       HADES plan templates (T4.2) for a saved `/api/v1/state` JSON (text only,
+//!       nothing is run; exit 0, or 2 on unreadable input)
 //!   openmind-nerve --version
 //!
 //! Env: NERVE_ADDR, NERVE_INTERVAL (30), NERVE_DATA_DIR (/var/lib/galion-nerve),
@@ -37,7 +40,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state] | --version]";
+const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state|--plans] | plans STATE.json|- | --version]";
 
 fn opt(args: &[String], k: &str) -> Option<String> {
     args.iter()
@@ -56,6 +59,9 @@ fn main() -> ExitCode {
     if args.iter().any(|a| a == "-h" || a == "--help") {
         println!("{USAGE}");
         return ExitCode::SUCCESS;
+    }
+    if cmd == "plans" {
+        return plans_cmd(args.get(1).map(String::as_str));
     }
     let listen = opt(&args, "--listen");
     let env = |k: &str| {
@@ -115,8 +121,43 @@ fn main() -> ExitCode {
     }
 }
 
+/// `plans FILE|-`: read a state JSON, print its plan templates. Reads one
+/// file (or stdin); runs nothing.
+fn plans_cmd(path: Option<&str>) -> ExitCode {
+    use std::io::Read;
+    let mut s = String::new();
+    let read = match path {
+        None => {
+            eprintln!("{USAGE}");
+            return ExitCode::from(2);
+        }
+        Some("-") => std::io::stdin().read_to_string(&mut s).map(|_| ()),
+        Some(p) => std::fs::read_to_string(p).map(|t| s = t),
+    };
+    let state: serde_json::Value = match read
+        .map_err(|e| e.to_string())
+        .and_then(|_| serde_json::from_str(&s).map_err(|e| e.to_string()))
+    {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("openmind-nerve plans: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let p = openmind_nerve::plans::from_state(&state).to_json();
+    println!("{}", serde_json::to_string_pretty(&p).unwrap_or_default());
+    ExitCode::SUCCESS
+}
+
 fn print_report(e: &Engine, args: &[String]) -> ExitCode {
     let sh = e.shared.lock().unwrap_or_else(|x| x.into_inner());
+    if args.iter().any(|a| a == "--plans") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&sh.state["cortex_plans"]).unwrap_or_default()
+        );
+        return ExitCode::SUCCESS;
+    }
     if args.iter().any(|a| a == "--md") {
         print!("{}", sh.report_md);
     } else if args.iter().any(|a| a == "--state") {

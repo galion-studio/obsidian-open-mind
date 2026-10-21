@@ -448,7 +448,7 @@ impl Engine {
             .as_ref()
             .map(Score::to_json)
             .unwrap_or(Value::Null);
-        json!({
+        let mut st = json!({
             "tool": "openmind-nerve",
             "service": "galion-nerve",
             "version": env!("CARGO_PKG_VERSION"),
@@ -477,7 +477,10 @@ impl Engine {
             "alerts": {"recent": self.alerts.recent.iter().rev().take(10).collect::<Vec<_>>(), "external": self.alerts.ext_status},
             "probe_errors": self.probe_errors,
             "probes_skipped": self.skipped,
-        })
+        });
+        // T4.2: HADES plan templates, text only; never executed here.
+        st["cortex_plans"] = crate::plans::from_state(&st).to_json();
+        st
     }
 
     /// The self-eval: findings in repo-check's shape (check, level,

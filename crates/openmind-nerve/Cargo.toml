@@ -23,6 +23,8 @@ zagreb-time = { path = "../zagreb-time" }
 galion-common = { path = "../galion-common" }
 
 [dev-dependencies]
+# T4.2 tests: every plan template must pass the real hades-gate admin-safety review.
+hades-gate = { path = "../hades-gate" }
 zagreb-time = { path = "../zagreb-time" }
 openmind-schema = { path = "../openmind-schema" }
 toml = { workspace = true }

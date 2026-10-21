@@ -50,3 +50,12 @@ Deploy files: `deploy/gaia-cortex/` (`86-hermes-boss.conf`,
   paid calls (claim happens before any call). The cortex saw the failed unit
   and handed it off (R4-unknown-unit): the chain worked end to end on a real
   failure. Fixed: claimed files stay under `<inbox>/{processing,done,refused,failed}`.
+- 23:08 c5cae88: the `.path` trigger-rate window survived `reset-failed`;
+  window changed to `TriggerLimitIntervalSec=600`, `TriggerLimitBurst=12`
+  (daemon-reload resets it). Self-test ticket `hoff-selftest-1` (synthetic,
+  labelled) -> one call, model `anthropic/claude-opus-5.5` via alias `boss`,
+  cost $0.0410, Hermes total $1.1825 of $20, proposal written to
+  `/var/lib/gaia-hermes-handoff/proposals/hoff-selftest-1.md`, status
+  `awaiting-mate-approval`, notify `no-channel-configured`. The cortex, restarted
+  with persisted handoff state, deduplicated the repeat R4 escalation
+  (`handoffs_duplicate: 1`).

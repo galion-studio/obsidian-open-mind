@@ -8,8 +8,8 @@ Description=Gaia cortex -> Hermes boss handoff inbox watcher
 [Path]
 PathExistsGlob=/var/lib/gaia-cortex/hermes-inbox/*.json
 Unit=gaia-hermes-handoff.service
-TriggerLimitIntervalSec=3600
-TriggerLimitBurst=24
+TriggerLimitIntervalSec=600
+TriggerLimitBurst=12
 
 [Install]
 WantedBy=paths.target

@@ -114,7 +114,8 @@ impl Writer {
             ));
         }
         let path = path.as_ref().to_path_buf();
-        let file = open_append(&path)?;
+        let mut file = open_append(&path)?;
+        heal_torn_tail(&path, &mut file)?;
         Ok(Self {
             path,
             max_bytes,
@@ -209,6 +210,29 @@ struct Line<'a> {
     data: &'a Value,
 }
 
+/// Like [`read_all`], but a line that is not a nerve event (a torn last line
+/// after a crash, or a foreign JSONL format appended to the same file) is
+/// skipped and counted instead of failing the whole read. Used by
+/// `GET /events`, so one bad line cannot turn gaia-live's tail into HTTP 500.
+pub fn read_lossy(path: &Path) -> io::Result<(Vec<Event>, usize)> {
+    let text = fs::read_to_string(path)?;
+    let mut events = Vec::new();
+    let mut skipped = 0;
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        match serde_json::from_str::<RawLine>(line) {
+            Ok(raw) => events.push(Event {
+                ts: raw.ts,
+                source: raw.source,
+                kind: raw.kind,
+                severity: raw.severity,
+                data: raw.data,
+            }),
+            Err(_) => skipped += 1,
+        }
+    }
+    Ok((events, skipped))
+}
+
 #[derive(Deserialize)]
 struct RawLine {
     ts: String,
@@ -230,6 +254,26 @@ fn encode(ts: &str, event: &Event) -> io::Result<Vec<u8>> {
         serde_json::to_vec(&line).map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
     bytes.push(b'\n');
     Ok(bytes)
+}
+
+/// A crash mid-append can leave the file without its final newline. The
+/// next event would then be glued onto the torn line and both lost; end the
+/// torn line first so only the torn fragment is unreadable (T3.6 B5).
+fn heal_torn_tail(path: &Path, file: &mut File) -> io::Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    let len = file.metadata()?.len();
+    if len == 0 {
+        return Ok(());
+    }
+    let mut r = File::open(path)?;
+    r.seek(SeekFrom::Start(len - 1))?;
+    let mut last = [0u8; 1];
+    r.read_exact(&mut last)?;
+    if last[0] != b'\n' {
+        file.write_all(b"\n")?;
+        file.flush()?;
+    }
+    Ok(())
 }
 
 fn open_append(path: &Path) -> io::Result<File> {

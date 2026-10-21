@@ -39,12 +39,15 @@ pub const DEFAULT_SLOW_MS: u64 = 1000;
 pub struct Counters {
     /// Accepted into the queue.
     pub queued: AtomicU64,
-    /// Delivered (the nerve answered).
+    /// Delivered: the nerve answered with a 2xx status.
     pub sent: AtomicU64,
     /// Dropped because the queue was full (or the worker is gone).
     pub dropped: AtomicU64,
     /// Taken from the queue but the POST failed (nerve down or slow).
     pub failed: AtomicU64,
+    /// The nerve answered but refused the signal (non-2xx, e.g. 429 per-source
+    /// rate limit or 400 bad body). Not a delivery; no back-off (the nerve is up).
+    pub rejected: AtomicU64,
 }
 
 /// A snapshot of [`Counters`].
@@ -54,6 +57,7 @@ pub struct Stats {
     pub sent: u64,
     pub dropped: u64,
     pub failed: u64,
+    pub rejected: u64,
 }
 
 impl Counters {
@@ -63,6 +67,7 @@ impl Counters {
             sent: self.sent.load(Ordering::Relaxed),
             dropped: self.dropped.load(Ordering::Relaxed),
             failed: self.failed.load(Ordering::Relaxed),
+            rejected: self.rejected.load(Ordering::Relaxed),
         }
     }
 }
@@ -112,9 +117,13 @@ fn worker(addr: SocketAddr, rx: Receiver<String>, c: Arc<Counters>) {
             continue;
         }
         match post(addr, &body) {
-            Ok(()) => {
+            Ok(code) if (200..300).contains(&code) => {
                 down_until = None;
                 c.sent.fetch_add(1, Ordering::Relaxed);
+            }
+            Ok(_) => {
+                down_until = None;
+                c.rejected.fetch_add(1, Ordering::Relaxed);
             }
             Err(_) => {
                 down_until = Some(Instant::now() + Duration::from_secs(2));
@@ -122,6 +131,19 @@ fn worker(addr: SocketAddr, rx: Receiver<String>, c: Arc<Counters>) {
             }
         }
     }
+}
+
+/// Status code from the first bytes of an HTTP reply (`HTTP/1.x NNN ...`); 0 if absent.
+pub fn status_of(head: &[u8]) -> u16 {
+    let s = String::from_utf8_lossy(head);
+    let line = s.lines().next().unwrap_or("");
+    if !line.starts_with("HTTP/") {
+        return 0;
+    }
+    line.split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0)
 }
 
 /// Parse `http://host:port[/...]` into a loopback socket address. Non-loopback
@@ -198,7 +220,8 @@ pub fn body(source: &str, kind: &str, name: &str, value: Option<f64>, msg: &str)
     )
 }
 
-fn post(addr: SocketAddr, body: &str) -> std::io::Result<()> {
+/// POST one body; the HTTP status of the reply (0 when it has no status line).
+fn post(addr: SocketAddr, body: &str) -> std::io::Result<u16> {
     let mut s = TcpStream::connect_timeout(&addr, TIMEOUT)?;
     s.set_write_timeout(Some(TIMEOUT))?;
     s.set_read_timeout(Some(TIMEOUT))?;
@@ -207,12 +230,20 @@ fn post(addr: SocketAddr, body: &str) -> std::io::Result<()> {
         "POST /signal HTTP/1.0\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
         body.len()
     )?;
+    // The status line can arrive in pieces (the nerve writes its reply with
+    // several small writes): read until a newline, 64 bytes or EOF.
     let mut b = [0u8; 64];
-    let n = s.read(&mut b)?;
+    let mut n = 0;
+    while n < b.len() && !b[..n].contains(&b'\n') {
+        match s.read(&mut b[n..])? {
+            0 => break,
+            k => n += k,
+        }
+    }
     if n == 0 {
         return Err(std::io::Error::other("empty reply"));
     }
-    Ok(())
+    Ok(status_of(&b[..n]))
 }
 
 /// Queue one signal. Returns immediately; no-op when disabled, counted drop
@@ -331,8 +362,8 @@ pub fn start_heartbeat(source: &'static str, secs: u64) {
                 "rss_kb",
                 rss,
                 &format!(
-                    "queued={} sent={} dropped={} failed={}",
-                    st.queued, st.sent, st.dropped, st.failed
+                    "queued={} sent={} dropped={} failed={} rejected={}",
+                    st.queued, st.sent, st.dropped, st.failed, st.rejected
                 ),
             );
             send(
@@ -401,7 +432,10 @@ mod tests {
             let _ = s.write_all(b"HTTP/1.0 202 Accepted\r\n\r\n");
             got
         });
-        post(addr, &body("t", "heartbeat", "", None, "")).unwrap();
+        assert_eq!(
+            post(addr, &body("t", "heartbeat", "", None, "")).unwrap(),
+            202
+        );
         let got = h.join().unwrap();
         assert!(got.starts_with("POST /signal HTTP/1.0"));
         assert!(got.contains(r#""kind":"heartbeat""#));
@@ -474,6 +508,46 @@ mod tests {
         }
         let s = c.counters.snapshot();
         assert_eq!((s.failed, s.sent), (5, 0));
+    }
+
+    #[test]
+    fn status_of_reads_the_status_line() {
+        assert_eq!(status_of(b"HTTP/1.1 202 Accepted\r\n"), 202);
+        assert_eq!(status_of(b"HTTP/1.0 429 Too Many"), 429);
+        assert_eq!(status_of(b"HTTP/1.1"), 0);
+        assert_eq!(status_of(b"garbage 200"), 0);
+        assert_eq!(status_of(b""), 0);
+    }
+
+    #[test]
+    fn non_2xx_reply_is_rejected_not_sent() {
+        // T3.6: a 429 (per-source rate limit) or 400 used to count as `sent`.
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let h = std::thread::spawn(move || {
+            for reply in [
+                &b"HTTP/1.1 429 Too Many Requests\r\n\r\n"[..],
+                b"HTTP/1.1 400 Bad Request\r\n\r\n",
+                b"HTTP/1.1 202 Accepted\r\n\r\n",
+            ] {
+                let (mut s, _) = l.accept().unwrap();
+                let _ = read_req(&mut s);
+                let _ = s.write_all(reply);
+            }
+        });
+        let c = Client::start(addr, 8).unwrap();
+        for i in 0..3 {
+            assert!(c.push(body("t", "event", &format!("e{i}"), None, "")));
+        }
+        h.join().unwrap();
+        let t = Instant::now();
+        while c.counters.snapshot().sent + c.counters.snapshot().rejected < 3
+            && t.elapsed() < Duration::from_secs(5)
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let s = c.counters.snapshot();
+        assert_eq!((s.sent, s.rejected, s.failed), (1, 2, 0), "{s:?}");
     }
 
     #[test]

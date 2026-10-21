@@ -21,7 +21,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const PORT: u16 = 20160;
+/// Base port; default 20160 (slot 146). Override with `SERDE_ORDER_PORT`
+/// (slot 240 ran it on 21100-21102).
+fn port() -> u16 {
+    std::env::var("SERDE_ORDER_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20160)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -104,7 +111,7 @@ fn real_cargo_resolves_preserve_order_for_every_member() {
 }
 
 fn get(path: &str) -> Option<(u16, String)> {
-    let addr = format!("127.0.0.1:{PORT}").parse().ok()?;
+    let addr = format!("127.0.0.1:{}", port()).parse().ok()?;
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).ok()?;
     let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
     write!(s, "GET {path} HTTP/1.0\r\nHost: x\r\n\r\n").ok()?;
@@ -190,13 +197,13 @@ fn real_nerve_built_alone_keeps_source_order() {
     let comps = dir.join("components.json");
     std::fs::write(
         &comps,
-        format!(r#"[{{"name":"dead-svc","port":{}}}]"#, PORT + 1),
+        format!(r#"[{{"name":"dead-svc","port":{}}}]"#, port() + 1),
     )
     .unwrap();
     let _nerve = Kill(
         Command::new(&bin)
             .arg("serve")
-            .env("NERVE_ADDR", format!("127.0.0.1:{PORT}"))
+            .env("NERVE_ADDR", format!("127.0.0.1:{}", port()))
             .env("NERVE_INTERVAL", "5")
             .env("NERVE_DATA_DIR", dir.join("data"))
             .env("NERVE_COMPONENTS", &comps)
@@ -204,7 +211,7 @@ fn real_nerve_built_alone_keeps_source_order() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", format!("{}-{}", PORT, PORT + 2))
+            .env("NERVE_LISTEN_SCOPE", format!("{}-{}", port(), port() + 2))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -239,5 +246,9 @@ fn real_nerve_built_alone_keeps_source_order() {
     );
     drop(_nerve);
     let _ = std::fs::remove_dir_all(&dir);
-    assert!(get("/healthz").is_none(), "nerve still listening on {PORT}");
+    assert!(
+        get("/healthz").is_none(),
+        "nerve still listening on {}",
+        port()
+    );
 }

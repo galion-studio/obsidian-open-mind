@@ -163,7 +163,9 @@ pub fn parse_entry(v: &Value) -> Option<NerveEvent> {
 
 /// What the source thread sends to the runtime.
 pub enum Msg {
-    Event(NerveEvent),
+    /// Boxed: with serde_json preserve_order (pinned workspace-wide) a
+    /// NerveEvent is 272+ bytes, so clippy::large_enum_variant fires.
+    Event(Box<NerveEvent>),
     /// Source down / restarting (counted, published as nerve.source).
     Source(String, String),
 }
@@ -201,7 +203,7 @@ impl JournalSource {
                                 continue;
                             };
                             if let Some(ev) = parse_entry(&v) {
-                                if !send(Msg::Event(ev)) {
+                                if !send(Msg::Event(Box::new(ev))) {
                                     return;
                                 }
                             }
@@ -249,7 +251,7 @@ impl JournalSource {
                                 backoff = 5;
                             }
                             if let Some(ev) = parse_entry(&v) {
-                                if !send(Msg::Event(ev)) {
+                                if !send(Msg::Event(Box::new(ev))) {
                                     return;
                                 }
                             }

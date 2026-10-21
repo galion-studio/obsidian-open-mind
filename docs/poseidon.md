@@ -92,6 +92,36 @@ a read-only GET to loopback `http://` URLs only).
     (up to ~30 per call), so that counter counts lease evaluations, not
     calls.
   Job state, budgets, caps, quotas and devices are always durable.
+- Crash and soak behaviour (slot 206, `tests/real_crash_soak.rs`, real
+  release binary, see `docs/real-tests/poseidon-crash-soak.md`):
+  - `kill -9` at random moments under full load (producers, workers acking,
+    deliberate stale acks, quota / budget / backpressure refusals) and with
+    compaction running under that load: 0 lost jobs, 0 resurrected acks,
+    exact ack and spend totals, caps and quotas intact, refusal counters
+    never go backwards, lease tokens stay fenced, and the restarted server
+    equals an independent replay of `queue.log` + `refusals.dat`.
+  - Torn tail: any cut, garbage, half line or 4 KiB zero block at the end
+    is cut back to the last complete line and the log keeps working. A
+    complete last line with a bad checksum is treated the same way (cut,
+    not refused); a `kill -9` cannot produce one, a disk bit flip can.
+  - Two servers on one data dir: the second exits 2 with "in use by another
+    process", binds nothing and does not touch the log; a SIGKILL frees the
+    lock at once.
+  - A failed compaction no longer turns a change that was already synced
+    into a 500 (a retrying client would have enqueued or charged twice);
+    it is logged and counted as `store.compaction_errors` in `GET /stats`.
+    After the rename the snapshot's own handle becomes the log handle, so
+    no later step can leave appends going to the old, unlinked file.
+  - The HTTP client treats a body shorter than `Content-Length` as an
+    error: a server killed between head and body used to leave "201" with
+    no id, which a client took as an answer. The server now writes head
+    and body in one write.
+  - Memory: live heap is flat across 10k-job rounds (counting allocator,
+    `tests/heap_rounds.rs`). The static musl build (the deploy target)
+    holds 7.0 MB RSS with 10,000 live jobs and 5.4 MB drained, flat over
+    10 rounds (100,000 jobs). A glibc build grows ~5 MB per round
+    (thread-per-connection plus glibc per-thread arenas, memory the
+    allocator keeps); `MALLOC_ARENA_MAX=2` makes it plateau at ~22 MB.
 - No authentication: loopback only by default. Putting it on a LAN needs a
   token layer first.
 - One mutex for the whole engine and an fsync per write: fine for agent-scale

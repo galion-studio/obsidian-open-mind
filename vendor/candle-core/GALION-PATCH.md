@@ -16,6 +16,10 @@ Modified 2026-10-21 by Grok Bot for galion-studio (swarm/candle-zip-fix), only s
 4. Removed the upstream Python test-data generators `tests/npy.py`, `tests/pth.py` (repo rule: no Python files;
    the generated fixtures `tests/test.npz`, `tests/*.pt`, `tests/*.pth` are kept).
 
+5. `tests/test.pt`, `tests/test_with_key.pt` (byte-identical to the published crate: sha256 2bc164fa…fe25 and
+   2775d95f…b747) were missing from the first commit because the repo `.gitignore` ignores `*.pt`; added 2026-10-21
+   (swarm/candle-zip-rebase) with a `!vendor/candle-core/tests/*.pt` exception, so `tests/pth_tests.rs` runs.
+
 Each source change carries a `galion candle-zip-fix` comment. Nothing else differs from the published crate.
 Remove this directory and the `[patch.crates-io]` entry in the workspace `Cargo.toml` once a candle release
 requires zip >= 9 (as of 2026-10-21 neither 0.9.2, 0.10.x, 0.11.0 nor upstream main does).

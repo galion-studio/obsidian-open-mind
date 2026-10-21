@@ -45,6 +45,8 @@ Root keys are the policy. `name` and `schema` live in comments so a strict decod
 | `namespaces` | `namespaces` | Try an unprivileged user namespace, plus pid, mount, and (when `net` is false) an empty net namespace. |
 | `ro_root` | `ro_root` | In a mount namespace, the tree is read-only except the workdir and `fs_write`. |
 | `hide_paths` | `hide_paths` | Directories covered by an empty read-only tmpfs. Missing paths are skipped. A path that contains the workdir, a write root, a read root, or the program is kept visible and reported. |
+| `workdir_tmpfs_bytes` | `workdir_tmpfs_bytes` | Total work dir cap in bytes (0 = off). A private tmpfs with this `size=` is mounted over the work dir inside the sandbox mount namespace; the host work dir is copied in first and every change is copied back after the run. Writes past the cap fail with ENOSPC. tmpfs pages are memory and count toward the run cgroup. See `docs/sandbox/workdir-quota.md`. |
+| `workdir_tmpfs_inodes` | `workdir_tmpfs_inodes` | Inode cap of that tmpfs (0 = bytes / 16 KiB, at least 1024). Also bounds how many entries are copied back. |
 
 `fs_read` matches `SandboxPolicy::new`: `/usr`, `/bin`, `/sbin`, `/lib`, `/lib64`, `/etc`, `/proc`, `/dev/zero`, `/dev/urandom`, `/dev/random`.
 
@@ -56,11 +58,12 @@ The runner should also append the real `HOME` to `hide_paths` when that director
 - `fs_write` is empty. Host paths are not opened for writes.
 - `ro_root` and `landlock` and `namespaces` are on. Ask for the closed tree even when this kernel can only apply part of it.
 - `hide_paths` is `/root`, `/home`, and `/run/secrets`.
+- `workdir_tmpfs_bytes` is on in every preset: the work dir is a private, size-limited tmpfs (copied in and back), so a tool cannot fill the host disk.
 - `HOME` and `TMPDIR` are set to the workdir so tools do not use the real home or the host `/tmp`.
 - Allowlists are names only. Nothing in these files is a credential, a key, or a proxy URL.
 - These files are not referenced by a service unit. Nothing was installed or enabled.
 
-"Read-only" has one limit in the current crate: the workdir stays writable, and `fs_write` cannot name a negative path. `fsize_bytes` caps a single file. It does not make the workdir immutable. Changing that would mean editing the crate, which this ticket does not do.
+"Read-only" has one limit in the current crate: the workdir stays writable, and `fs_write` cannot name a negative path. `fsize_bytes` caps a single file. `workdir_tmpfs_bytes` (row 151) caps the whole work dir: 64 MiB in read-only-tool and net-tool, 512 MiB in build-tool. Neither makes the workdir immutable.
 
 On a host where the mount namespace or Landlock did not apply, writes outside the workdir are not blocked. The outcome says so. `require_net_isolation = true` is the fail-closed case, and it covers network only.
 
@@ -68,7 +71,7 @@ On a host where the mount namespace or Landlock did not apply, writes outside th
 
 File: `deploy/sandbox/presets/read-only-tool.toml`.
 
-For a short inspection tool: list, read, or print inside the closed tree. Network is denied and must actually be isolated, or the run fails. Limits are tight: 15 s wall, 5 CPU seconds, 256 MiB address space, 64 open files, 1 MiB file size, 64 KiB of captured output per stream.
+For a short inspection tool: list, read, or print inside the closed tree. Network is denied and must actually be isolated, or the run fails. Limits are tight: 15 s wall, 5 CPU seconds, 256 MiB address space, 64 open files, 1 MiB file size, 64 MiB total work dir, 64 KiB of captured output per stream.
 
 Environment copied from the parent: `PATH`, `LANG`, `LC_ALL`, `TZ`. Nothing else. `HOME` and `TMPDIR` point at the workdir.
 
@@ -80,7 +83,7 @@ File: `deploy/sandbox/presets/build-tool.toml`.
 
 For a compiler or similar tool whose outputs stay inside the workdir. Network is denied and must be isolated, so the run cannot fetch dependencies. Caches and vendored sources have to already sit inside the workdir (or on the `fs_read` list, which this file does not extend past the system paths).
 
-Limits: 600 s wall, 300 CPU seconds, 1 GiB address space, 1024 open files, 512 MiB file size, 256 KiB captured output per stream. One GiB is a low-end cap. A caller who needs more changes the number for that run. The shipped file stays at 1 GiB.
+Limits: 600 s wall, 300 CPU seconds, 1 GiB address space, 1024 open files, 512 MiB file size, 512 MiB total work dir (sources, `.cargo` and `target` together; a work dir already larger fails closed), 256 KiB captured output per stream. One GiB is a low-end cap. A caller who needs more changes the number for that run. The shipped file stays at 1 GiB.
 
 Extra environment, still inside the workdir:
 

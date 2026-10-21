@@ -164,7 +164,27 @@ fn sb(wd: &Path, p: &SandboxPolicy, args: &[&str], show_layers: bool) -> Outcome
     if let Some(c) = &o.cgroup {
         println!("CGROUP pids_max_hits={} oom_kills={} mem_max_hits={} mem_peak={} ({} MiB) pids_peak={} removed={}", c.pids_max_hits, c.oom_kills, c.mem_max_hits, c.mem_peak, c.mem_peak / MIB, c.pids_peak, c.removed);
     }
+    if let Some(q) = &o.workdir_quota {
+        println!("WDQ limit={} MiB inodes={} in={}B/{} entries used={} B ({} MiB) copied_out={} complete={} out={}B/{} entries unchanged={} skipped={} errno={}", q.limit_bytes / MIB, q.limit_inodes, q.in_bytes, q.in_entries, q.used_bytes, q.used_bytes / MIB, q.copied_out, q.out_complete, q.out_bytes, q.out_entries, q.out_unchanged, q.out_skipped, q.errno);
+    } else if p.workdir_tmpfs_bytes > 0 {
+        println!("WDQ none: {:?}", o.layer("workdir_quota"));
+    }
     o
+}
+
+/// Total bytes of the fill-*.bin files the host sees in `wd` (after the
+/// copy back), deleting them afterwards.
+fn fill_total(wd: &Path, delete: bool) -> u64 {
+    let mut tot = 0;
+    for e in std::fs::read_dir(wd).into_iter().flatten().flatten() {
+        if e.file_name().to_string_lossy().starts_with("fill-") {
+            tot += e.metadata().map(|m| m.len()).unwrap_or(0);
+            if delete {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+    tot
 }
 
 /// Live (non-zombie) processes matching a predicate on (cmdline, cwd).
@@ -709,8 +729,10 @@ fn s9_disk(c: &mut Ctx) {
     let cg = c.cg.clone();
     let wa = c.wd("s9a-fsize");
     let wb = c.wd("s9b-many");
+    let wd = c.wd("s9d-cap256");
+    let we = c.wd("s9e-cap-vs-memcg");
     let tm = c.base.join("w").join("s9c-tmpfs");
-    let mut s = c.scen("S9", "disk filling the workdir", "a: one 64 MiB file under RLIMIT_FSIZE 16 MiB -> SIGXFSZ kill (or EFBIG when SIGXFSZ is ignored), file stops at exactly 16 MiB; b: 32 x 8 MiB files -> all written (no total quota in openmind-sandbox: GAP); c: same on a 32 MiB tmpfs workdir -> ENOSPC at ~32 MiB");
+    let mut s = c.scen("S9", "disk filling the workdir", "a: one 64 MiB file under RLIMIT_FSIZE 16 MiB -> EFBIG at exactly 16 MiB, file copied back; b: 32 x 8 MiB = 256 MiB under the shipped preset (64 MiB work dir tmpfs) -> ENOSPC at the 64 MiB cap, host work dir gets <= 64 MiB back (S9b gap closed); c: cap off on a 32 MiB host tmpfs -> ENOSPC at ~32 MiB (old path), c2: 64 MiB cap over that 32 MiB host fs -> tool stops at the cap, copy back reports ENOSPC; d: 256 MiB cap, 320 MiB write -> ENOSPC at the 256 MiB limit, <= 256 MiB copied back; e: 256 MiB cap under a 128 MiB memory cgroup -> tmpfs pages are charged, measured");
     let mut p = pol(&wa);
     p.fsize_bytes = 16 * MIB;
     p.wall_timeout = Duration::from_secs(20);
@@ -726,7 +748,10 @@ fn s9_disk(c: &mut Ctx) {
             o.status
         ),
     );
-    s.check(sz == 16 * MIB, format!("a: file size {sz} bytes"));
+    s.check(
+        sz == 16 * MIB,
+        format!("a: file size {sz} bytes (copied back)"),
+    );
     let _ = std::fs::remove_file(wa.join("fill-000.bin"));
     // b
     let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -738,7 +763,6 @@ fn s9_disk(c: &mut Ctx) {
         "b: free on the workdir fs before {} MiB",
         free / MIB
     ));
-    let mut gap = false;
     if free > 4096 * MIB {
         let mut p = pol(&wb);
         p.fsize_bytes = 16 * MIB;
@@ -746,34 +770,50 @@ fn s9_disk(c: &mut Ctx) {
         p.cpu_secs = 60;
         p.cgroup_parent = cg.clone();
         p.cgroup_mem_bytes = 128 * MIB;
+        s.check(
+            p.workdir_tmpfs_bytes == 64 * MIB,
+            format!("b: shipped preset cap {} MiB", p.workdir_tmpfs_bytes / MIB),
+        );
         let t = Instant::now();
         let o = sb(&wb, &p, &["fill", "8", "32"], false);
-        let tot: u64 = std::fs::read_dir(&wb)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| e.file_name().to_string_lossy().starts_with("fill-"))
-            .map(|e| e.metadata().map(|m| m.len()).unwrap_or(0))
-            .sum();
+        let ms = t.elapsed().as_millis();
+        let out = o.stdout_str();
+        let tot = fill_total(&wb, true);
         s.check(
             o.status == Status::Exited(0),
             format!("b: status {:?}", o.status),
         );
+        s.check(
+            out.contains("RESULT fill stop") && out.contains("No space left"),
+            "b: ENOSPC inside the sandbox",
+        );
+        let stop: u64 = field(&out, "RESULT fill stop", "total_mib")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        s.check(
+            (60..=64).contains(&stop),
+            format!("b: tool stopped at {stop} MiB of 256 (cap 64)"),
+        );
+        s.check(
+            (60 * MIB..=64 * MIB).contains(&tot),
+            format!("b: host work dir got {} MiB back ({tot} B)", tot / MIB),
+        );
+        let q = o.workdir_quota.clone().unwrap_or_default();
+        s.check(
+            o.enforced("workdir_quota") && q.copied_out && q.out_complete,
+            format!(
+                "b: workdir_quota enforced, copy back complete ({} B, {} entries, errno {})",
+                q.out_bytes, q.out_entries, q.errno
+            ),
+        );
         s.note(format!(
-            "b: {} MiB written in {} ms, no quota stopped it",
-            tot / MIB,
-            t.elapsed().as_millis()
+            "b: 256 MiB asked, {stop} MiB written, {} MiB on the host, {ms} ms (gap closed)",
+            tot / MIB
         ));
-        gap = tot == 256 * MIB;
-        for e in std::fs::read_dir(&wb).into_iter().flatten().flatten() {
-            if e.file_name().to_string_lossy().starts_with("fill-") {
-                let _ = std::fs::remove_file(e.path());
-            }
-        }
     } else {
         s.check(false, "b: skipped, less than 4 GiB free");
     }
-    // c
+    // c: the old path (cap off) and the cap over a smaller host fs
     let mi = std::fs::read_to_string("/proc/self/mountinfo").unwrap_or_default();
     let tms = tm.to_string_lossy().to_string();
     if mi
@@ -784,20 +824,126 @@ fn s9_disk(c: &mut Ctx) {
         let mut p = pol(&wc);
         p.fsize_bytes = 16 * MIB;
         p.wall_timeout = Duration::from_secs(30);
+        p.workdir_tmpfs_bytes = 0;
         let o = sb(&wc, &p, &["fill", "8", "10"], false);
         let out = o.stdout_str();
         s.check(
             out.contains("RESULT fill stop") && out.contains("No space left"),
-            "c: ENOSPC on the 32 MiB tmpfs",
+            "c: cap off: ENOSPC on the 32 MiB host tmpfs",
+        );
+        s.check(
+            !o.enforced("workdir_quota") && o.workdir_quota.is_none(),
+            "c: cap off is reported NotEnforced",
         );
         let tot = field(&out, "RESULT fill stop", "total_mib").unwrap_or_default();
         s.note(format!("c: stopped at {tot} MiB"));
+        fill_total(&wc, true);
+        // c2: a 64 MiB cap is bigger than the 32 MiB host fs under it
+        let mut p = pol(&wc);
+        p.fsize_bytes = 16 * MIB;
+        p.wall_timeout = Duration::from_secs(30);
+        let o = sb(&wc, &p, &["fill", "8", "10"], false);
+        let out = o.stdout_str();
+        let stop: u64 = field(&out, "RESULT fill stop", "total_mib")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+        let q = o.workdir_quota.clone().unwrap_or_default();
+        let host = fill_total(&wc, true);
+        s.check(
+            (60..=64).contains(&stop),
+            format!("c2: tool stopped at the 64 MiB cap ({stop} MiB)"),
+        );
+        s.check(
+            q.copied_out && !q.out_complete && q.errno == libc::ENOSPC,
+            format!(
+                "c2: copy back hit the full host fs: complete={} errno={}",
+                q.out_complete, q.errno
+            ),
+        );
+        s.note(format!(
+            "c2: host fs smaller than the cap: {} MiB of {stop} MiB came back, reported as errno {} (a caller must check out_complete)",
+            host / MIB,
+            q.errno
+        ));
     } else {
         s.check(false, "c: no tmpfs mounted at the s9c dir");
     }
-    if gap && s.bad.is_empty() {
-        s.note("GAP: openmind-sandbox has only RLIMIT_FSIZE (per file); total workdir size is unbounded unless the caller gives it a size-limited fs");
-        return s.end("PASS+GAP");
+    // d: the row-151 proof: a 256 MiB cap, 320 MiB asked
+    let mut p = pol(&wd);
+    p.workdir_tmpfs_bytes = 256 * MIB;
+    p.fsize_bytes = 64 * MIB;
+    p.wall_timeout = Duration::from_secs(90);
+    p.cpu_secs = 60;
+    p.cgroup_parent = cg.clone();
+    p.cgroup_mem_bytes = 512 * MIB;
+    let t = Instant::now();
+    let o = sb(&wd, &p, &["fill", "8", "40"], false);
+    let ms = t.elapsed().as_millis();
+    let out = o.stdout_str();
+    let stop: u64 = field(&out, "RESULT fill stop", "total_mib")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    let tot = fill_total(&wd, true);
+    let q = o.workdir_quota.clone().unwrap_or_default();
+    s.check(
+        o.status == Status::Exited(0) && out.contains("No space left"),
+        format!("d: ENOSPC, status {:?}", o.status),
+    );
+    s.check(
+        (250..=256).contains(&stop),
+        format!("d: stopped at {stop} MiB of 320 asked (cap 256)"),
+    );
+    s.check(
+        (250 * MIB..=256 * MIB).contains(&q.used_bytes),
+        format!("d: tmpfs used {} B at the end", q.used_bytes),
+    );
+    s.check(
+        q.out_complete && (250 * MIB..=256 * MIB).contains(&tot),
+        format!(
+            "d: {} MiB copied back ({tot} B), complete {}",
+            tot / MIB,
+            q.out_complete
+        ),
+    );
+    if let Some(cs) = &o.cgroup {
+        s.note(format!(
+            "d: memory.peak {} MiB (tmpfs pages are charged to the run cgroup)",
+            cs.mem_peak / MIB
+        ));
+    }
+    s.note(format!(
+        "d: 320 MiB asked, ENOSPC at {stop} MiB, {} MiB on the host, {ms} ms",
+        tot / MIB
+    ));
+    // e: cap larger than the memory cgroup
+    if cg.is_some() {
+        let mut p = pol(&we);
+        p.workdir_tmpfs_bytes = 256 * MIB;
+        p.fsize_bytes = 64 * MIB;
+        p.wall_timeout = Duration::from_secs(60);
+        p.cpu_secs = 60;
+        p.cgroup_parent = cg.clone();
+        p.cgroup_mem_bytes = 128 * MIB;
+        let o = sb(&we, &p, &["fill", "8", "40"], false);
+        let out = o.stdout_str();
+        let stop = field(&out, "RESULT fill stop", "total_mib").unwrap_or_else(|| "-".into());
+        let last_w = out
+            .lines()
+            .rfind(|l| l.starts_with("W "))
+            .unwrap_or("W 0")
+            .to_string();
+        let tot = fill_total(&we, true);
+        let oom = o.cgroup.as_ref().map(|c| c.oom_kills).unwrap_or(0);
+        s.check(
+            tot <= 128 * MIB,
+            format!("e: host got {} MiB back (<= memory.max 128 MiB)", tot / MIB),
+        );
+        s.note(format!(
+            "e: cap 256 MiB under memory.max 128 MiB: status {:?}, oom_kills {oom}, stop {stop}, last progress '{last_w}', copy back {:?}, host {} MiB",
+            o.status,
+            o.workdir_quota.as_ref().map(|q| (q.copied_out, q.out_complete, q.errno)),
+            tot / MIB
+        ));
     }
     s.end("PASS");
 }

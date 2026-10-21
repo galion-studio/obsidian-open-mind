@@ -20,6 +20,12 @@
 //!   group OOM kill) under a delegated parent. The whole cgroup is killed
 //!   with `cgroup.kill` at the end, so even processes that left the process
 //!   group with their own `setsid` die.
+//! - optionally a total size cap for the work dir (`workdir_tmpfs_bytes`):
+//!   a private, size-limited tmpfs is mounted over the work dir inside the
+//!   sandbox mount namespace (no host root needed). The host work dir is
+//!   copied in before the command starts and every change is copied back
+//!   after it ends, so writes past the cap fail with ENOSPC instead of
+//!   filling the host disk.
 //!
 //! Linux and Android (Termux) only. No seccomp, no root needed, libc only.
 //! Kernel features that a seccomp filter might kill us for (Android apps run
@@ -31,7 +37,7 @@
 //! spawned (and the process group it created with `setsid`).
 //!
 //! Not a hard security boundary against a determined attacker (no seccomp,
-//! no disk quota). It keeps agent tool runs bounded and contained.
+//! no disk quota outside the opt-in work dir tmpfs). It keeps agent tool runs bounded and contained.
 
 use std::ffi::CString;
 use std::io::Read;
@@ -45,16 +51,18 @@ use std::time::{Duration, Instant};
 
 mod cgroup;
 mod preset;
+mod treecopy;
 pub use preset::Preset;
 
 /// Default maximum bytes kept per output stream.
 pub const OUTPUT_CAP: usize = 64 * 1024;
 
 /// Layer names, in report order.
-pub const LAYERS: [&str; 15] = [
+pub const LAYERS: [&str; 16] = [
     "rlimits",
     "env",
     "workdir",
+    "workdir_quota",
     "no_new_privs",
     "userns",
     "net",
@@ -123,6 +131,19 @@ pub struct SandboxPolicy {
     /// full core, 200 = two). 0 leaves `cpu.max` alone. When set and the
     /// parent does not delegate the `cpu` controller, the run fails closed.
     pub cgroup_cpu_pct: u32,
+    /// Total size cap of the work dir in bytes (0 = off; RLIMIT_FSIZE then
+    /// caps single files only). When set, a private tmpfs with `size=` this
+    /// value is mounted over the work dir inside the sandbox mount namespace.
+    /// The host work dir is copied in first (a work dir already larger than
+    /// the cap fails the run closed), and after the command ends every new or
+    /// changed file, directory and symlink is copied back (deletions are not;
+    /// nothing is copied back when the run is killed at the wall timeout).
+    /// tmpfs pages are memory: under a per-run cgroup they count toward
+    /// `cgroup_mem_bytes`.
+    pub workdir_tmpfs_bytes: u64,
+    /// Inode cap of that tmpfs (0 = `workdir_tmpfs_bytes` / 16 KiB, at least
+    /// 1024). Also bounds how many entries are copied back.
+    pub workdir_tmpfs_inodes: u64,
 }
 
 impl SandboxPolicy {
@@ -171,6 +192,17 @@ impl SandboxPolicy {
             cgroup_pids_max: 64,
             cgroup_mem_bytes: 256 * 1024 * 1024,
             cgroup_cpu_pct: 0,
+            workdir_tmpfs_bytes: 0,
+            workdir_tmpfs_inodes: 0,
+        }
+    }
+
+    /// Inode cap actually used for the work dir tmpfs.
+    pub fn workdir_tmpfs_inode_cap(&self) -> u64 {
+        if self.workdir_tmpfs_inodes > 0 {
+            self.workdir_tmpfs_inodes
+        } else {
+            (self.workdir_tmpfs_bytes / (16 * 1024)).max(1024)
         }
     }
 }
@@ -209,6 +241,40 @@ pub struct Outcome {
     pub enforced: Vec<(String, Enforcement)>,
     /// Counters of the per-run cgroup, when one was used.
     pub cgroup: Option<CgroupStats>,
+    /// What the work dir tmpfs saw, when one was mounted.
+    pub workdir_quota: Option<WorkdirQuota>,
+}
+
+/// Counters of the private work dir tmpfs (`workdir_tmpfs_bytes`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WorkdirQuota {
+    /// tmpfs `size=` in bytes.
+    pub limit_bytes: u64,
+    /// tmpfs `nr_inodes=`.
+    pub limit_inodes: u64,
+    /// Bytes copied from the host work dir before the command ran.
+    pub in_bytes: u64,
+    /// Files, directories and symlinks copied in.
+    pub in_entries: u64,
+    /// Special files (FIFOs, sockets, devices) not copied in.
+    pub in_skipped: u64,
+    /// Bytes in use on the tmpfs when the command ended (statfs).
+    pub used_bytes: u64,
+    /// The copy back ran (false: the supervisor was killed, e.g. at the wall
+    /// timeout, and nothing was copied back).
+    pub copied_out: bool,
+    /// The copy back finished without an error.
+    pub out_complete: bool,
+    /// Bytes written back to the host work dir.
+    pub out_bytes: u64,
+    /// Entries created or rewritten in the host work dir.
+    pub out_entries: u64,
+    /// Entries the host already had unchanged (same size and mtime).
+    pub out_unchanged: u64,
+    /// Entries not copied back (special files, host entry of another type).
+    pub out_skipped: u64,
+    /// errno of the copy failure (0 = none).
+    pub errno: i32,
 }
 
 /// What the per-run cgroup saw, read just before it was removed.
@@ -247,6 +313,9 @@ impl Outcome {
 
 // ---- syscall numbers (asm-generic numbering, same on x86_64 and aarch64) ----
 const SYS_MOUNT_SETATTR: libc::c_long = 442;
+// open_tree(2): same number on every Linux arch (new-style syscall table).
+const SYS_OPEN_TREE: libc::c_long = 428;
+const OPEN_TREE_CLONE: libc::c_uint = 1;
 const SYS_LL_CREATE: libc::c_long = 444;
 const SYS_LL_ADD: libc::c_long = 445;
 const SYS_LL_RESTRICT: libc::c_long = 446;
@@ -412,6 +481,8 @@ struct Landlock {
     net: bool,
     /// Rights to grant on a freshly mounted private /proc (0 = none).
     proc_acc: u64,
+    /// Rights of the work dir, granted again on a work dir tmpfs.
+    wd_acc: u64,
 }
 
 impl Landlock {
@@ -455,6 +526,7 @@ impl Landlock {
             } else {
                 0
             },
+            wd_acc: handled,
         };
         let mut roots: Vec<(PathBuf, u64)> = vec![];
         for r in &policy.fs_read {
@@ -493,7 +565,22 @@ impl Landlock {
     /// Async-signal-safe: syscalls only, no allocation. Runs after fork.
     /// `new_proc`: a private /proc was mounted after the rules were prepared;
     /// the old /proc rule points at the host proc, so add one for the new one.
-    fn apply(&self, new_proc: bool) -> std::io::Result<()> {
+    /// `wd_fd`: open fd of a work dir tmpfs mounted after the rules were
+    /// prepared (-1 = none); it gets the work dir rights explicitly.
+    fn apply(&self, new_proc: bool, wd_fd: i32) -> std::io::Result<()> {
+        if wd_fd >= 0 {
+            let rule = LlPathBeneath {
+                allowed_access: self.wd_acc,
+                parent_fd: wd_fd,
+            };
+            // SAFETY: valid packed struct; type 1 = PATH_BENEATH.
+            let r = unsafe {
+                libc::syscall(SYS_LL_ADD, self.ruleset_fd, 1u32, &rule as *const _, 0u32)
+            };
+            if r != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+        }
         if new_proc && self.proc_acc != 0 {
             // SAFETY: open of a constant path; the fd is passed to the kernel only.
             let pfd = unsafe { libc::open(c"/proc".as_ptr(), libc::O_PATH | libc::O_CLOEXEC) };
@@ -696,6 +783,7 @@ fn fail(msg: String, start: Instant, enforced: Vec<(String, Enforcement)>) -> Ou
         error: Some(msg),
         enforced,
         cgroup: None,
+        workdir_quota: None,
     }
 }
 
@@ -715,10 +803,59 @@ const B_CAPS: u16 = 1 << 11;
 const B_UIDMAP: u16 = 1 << 12;
 const B_FDS: u16 = 1 << 13;
 const B_CGROUP: u16 = 1 << 14;
+const B_WDQ: u16 = 1 << 15;
 // Private errno values the pre-exec code hands to `spawn` to fail closed with
 // a precise message (execve itself never returns these two).
 const E_UIDMAP: i32 = libc::ENOTRECOVERABLE;
 const E_CGROUP: i32 = libc::ESTALE;
+const E_WDQ: i32 = libc::ENOTUNIQ;
+// Work dir tmpfs report, written by the pre-exec child (copy in failed) or by
+// the PID-namespace supervisor (after the copy back): 11 x u64, one write.
+const WDQ_MAGIC: u64 = 0x5744_5131_3531_0001;
+const WDQ_IN_FAILED: u64 = 1;
+const WDQ_OUT_DONE: u64 = 2;
+const WDQ_WORDS: usize = 11;
+
+/// Async-signal-safe: one write of the fixed report.
+fn wdq_report(
+    fd: i32,
+    phase: u64,
+    errno: i32,
+    i: &treecopy::Stats,
+    used: u64,
+    o: &treecopy::Stats,
+) {
+    if fd < 0 {
+        return;
+    }
+    let w: [u64; WDQ_WORDS] = [
+        WDQ_MAGIC,
+        phase,
+        errno as u64,
+        i.bytes,
+        i.entries,
+        i.skipped,
+        used,
+        o.bytes,
+        o.entries,
+        o.unchanged,
+        o.skipped,
+    ];
+    // SAFETY: writing a stack array of the size passed (< PIPE_BUF: atomic).
+    unsafe { libc::write(fd, w.as_ptr().cast(), std::mem::size_of_val(&w)) };
+}
+
+/// Read the report left in the pipe (non-blocking; None when there is none).
+fn wdq_read(fd: i32) -> Option<[u64; WDQ_WORDS]> {
+    let mut w = [0u64; WDQ_WORDS];
+    // SAFETY: fcntl/read on our own pipe end into a stack array.
+    let n = unsafe {
+        let fl = libc::fcntl(fd, libc::F_GETFL);
+        libc::fcntl(fd, libc::F_SETFL, fl | libc::O_NONBLOCK);
+        libc::read(fd, w.as_mut_ptr().cast(), std::mem::size_of_val(&w))
+    };
+    (n == std::mem::size_of_val(&w) as isize && w[0] == WDQ_MAGIC).then_some(w)
+}
 const SYS_CLOSE_RANGE: libc::c_long = 436;
 const CLOSE_RANGE_CLOEXEC: libc::c_uint = 1 << 2;
 
@@ -795,9 +932,19 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     if !policy.net {
         full |= libc::CLONE_NEWNET;
     }
-    if policy.ro_root || !policy.hide_paths.is_empty() {
+    let wdq = policy.workdir_tmpfs_bytes;
+    let wdq_inodes = policy.workdir_tmpfs_inode_cap();
+    if policy.ro_root || !policy.hide_paths.is_empty() || wdq > 0 {
         full |= libc::CLONE_NEWNS;
     }
+    // tmpfs options and the copy buffer, prepared before the fork.
+    let wdq_opts =
+        CString::new(format!("size={wdq},nr_inodes={wdq_inodes},mode=700")).unwrap_or_default();
+    let mut wdq_buf: Vec<u8> = if wdq > 0 {
+        vec![0u8; treecopy::BUF]
+    } else {
+        vec![]
+    };
     let mut attempts: [libc::c_int; 5] = [0; 5];
     if want_ns {
         attempts[0] = full;
@@ -906,6 +1053,28 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         return fail("pipe2 failed".into(), start, enforced);
     }
     let (rfd, wfd) = (fds[0], fds[1]);
+    // Work dir tmpfs report pipe (only when a tmpfs is wanted).
+    let (qr, qw) = if wdq > 0 {
+        let mut q = [0i32; 2];
+        // SAFETY: valid array of two fds.
+        if unsafe { libc::pipe2(q.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
+            // SAFETY: closing the status pipe created above.
+            unsafe {
+                libc::close(rfd);
+                libc::close(wfd);
+            }
+            if let Some(l) = &ll {
+                l.close();
+            }
+            if let Some(c) = &cg {
+                c.finish();
+            }
+            return fail("pipe2 failed".into(), start, enforced);
+        }
+        (q[0], q[1])
+    } else {
+        (-1, -1)
+    };
 
     let mut c = Command::new(prog);
     c.args(args)
@@ -942,6 +1111,9 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     unsafe {
         c.pre_exec(move || {
             let mut bits: u16 = 0;
+            // Work dir tmpfs: host dir fd, tmpfs root fd, copy-in counters.
+            let (mut wd_host, mut wd_tmp) = (-1i32, -1i32);
+            let mut wd_in = treecopy::Stats::default();
             // Join the per-run cgroup first, so every process created below
             // (the PID-namespace supervisor, PID 1, its children) is inside.
             if let Some(p) = &cg_procs {
@@ -978,9 +1150,8 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             setrl(libc::RLIMIT_CPU, cpu)?;
             setrl(libc::RLIMIT_AS, mem)?;
             setrl(libc::RLIMIT_CORE, 0)?;
-            if fsize > 0 {
-                setrl(libc::RLIMIT_FSIZE, fsize)?;
-            }
+            // RLIMIT_FSIZE is set after the mounts: copying the host work dir
+            // into its tmpfs may write input files larger than the limit.
             if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
@@ -1038,6 +1209,84 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                 if hid {
                     bits |= B_HIDE;
                 }
+                // Work dir size cap: a private tmpfs over the work dir. Only
+                // with a PID namespace, whose supervisor copies the result
+                // back; the host dir stays reachable through `wd_host` only.
+                if wdq > 0 && got & libc::CLONE_NEWPID != 0 {
+                    // The host dir fd the supervisor copies back through.
+                    // With ro_root the whole tree goes read-only below, and
+                    // the host dir mount ends up under the tmpfs, so the
+                    // re-enabled write bind never reaches it (EROFS on copy
+                    // back, VPS run 08:03). A detached clone of its mount
+                    // (open_tree, same kernel family as mount_setattr) is
+                    // outside the tree: it keeps its own rw flag and is
+                    // reachable only through this fd.
+                    let host = if can_ro {
+                        let t = libc::syscall(
+                            SYS_OPEN_TREE,
+                            libc::AT_FDCWD,
+                            workdir_c.as_ptr(),
+                            OPEN_TREE_CLONE | AT_RECURSIVE | libc::O_CLOEXEC as libc::c_uint,
+                        ) as i32;
+                        if t < 0 {
+                            -1
+                        } else {
+                            let d = libc::openat(
+                                t,
+                                c".".as_ptr(),
+                                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+                            );
+                            libc::close(t);
+                            d
+                        }
+                    } else {
+                        libc::open(
+                            workdir_c.as_ptr(),
+                            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+                        )
+                    };
+                    if host < 0 {
+                        let e = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+                        let z = treecopy::Stats::default();
+                        wdq_report(qw, WDQ_IN_FAILED, e, &z, 0, &z);
+                        return Err(std::io::Error::from_raw_os_error(E_WDQ));
+                    }
+                    if libc::mount(
+                        c"none".as_ptr(),
+                        workdir_c.as_ptr(),
+                        c"tmpfs".as_ptr(),
+                        libc::MS_NOSUID | libc::MS_NODEV,
+                        wdq_opts.as_ptr().cast(),
+                    ) == 0
+                    {
+                        let tmp = libc::open(
+                            workdir_c.as_ptr(),
+                            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+                        );
+                        let mut w = treecopy::Walk::new(
+                            treecopy::Mode::In,
+                            u64::MAX,
+                            u64::MAX,
+                            &mut wdq_buf[..],
+                        );
+                        let r = if tmp < 0 {
+                            Err(std::io::Error::last_os_error().raw_os_error().unwrap_or(0))
+                        } else {
+                            w.copy_dir(host, tmp, 0)
+                        };
+                        if let Err(e) = r {
+                            let z = treecopy::Stats::default();
+                            wdq_report(qw, WDQ_IN_FAILED, e, &w.stats, 0, &z);
+                            return Err(std::io::Error::from_raw_os_error(E_WDQ));
+                        }
+                        wd_in = w.stats;
+                        wd_host = host;
+                        wd_tmp = tmp;
+                        bits |= B_WDQ;
+                    } else {
+                        libc::close(host);
+                    }
+                }
                 if can_ro {
                     let mut ok = true;
                     for b in &binds {
@@ -1064,6 +1313,9 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             if bits & B_MNTNS != 0 && libc::chdir(workdir_c.as_ptr()) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
+            if fsize > 0 {
+                setrl(libc::RLIMIT_FSIZE, fsize)?;
+            }
 
             if got & libc::CLONE_NEWPID != 0 {
                 let child = libc::fork();
@@ -1075,7 +1327,9 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                     // stdio (incl. std's exec-error pipe and our status pipe),
                     // wait, and pass on the exit status or signal.
                     for fd in 3..max_fd {
-                        libc::close(fd);
+                        if fd != wd_host && fd != wd_tmp && fd != qw {
+                            libc::close(fd);
+                        }
                     }
                     let mut st = 0;
                     loop {
@@ -1085,6 +1339,30 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                         if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
                             libc::_exit(127);
                         }
+                    }
+                    if bits & B_WDQ != 0 {
+                        // PID 1 is gone, so is every process of its namespace:
+                        // nothing writes the tmpfs any more. Copy back within
+                        // the tmpfs size, never more (sparse files included).
+                        libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
+                        let mut sv: libc::statvfs = std::mem::zeroed();
+                        let used = if libc::fstatvfs(wd_tmp, &mut sv) == 0 {
+                            (sv.f_blocks as u64).saturating_sub(sv.f_bfree as u64)
+                                * sv.f_frsize as u64
+                        } else {
+                            0
+                        };
+                        let mut w = treecopy::Walk::new(
+                            treecopy::Mode::Out,
+                            wdq,
+                            wdq_inodes,
+                            &mut wdq_buf[..],
+                        );
+                        let e = match w.copy_dir(wd_tmp, wd_host, 0) {
+                            Ok(()) => 0,
+                            Err(e) => e,
+                        };
+                        wdq_report(qw, WDQ_OUT_DONE, e, &wd_in, used, &w.stats);
                     }
                     if libc::WIFEXITED(st) {
                         libc::_exit(libc::WEXITSTATUS(st));
@@ -1114,7 +1392,7 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             }
 
             if let Some(l) = &llown {
-                l.apply(bits & B_PROC != 0)?;
+                l.apply(bits & B_PROC != 0, wd_tmp)?;
                 bits |= B_LANDLOCK;
                 if l.net {
                     bits |= B_LL_NET;
@@ -1152,6 +1430,16 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         n == 2
     };
     let bits = if got_bits { u16::from_le_bytes(b) } else { 0 };
+    if qw >= 0 {
+        // SAFETY: our copy of the report pipe's write end.
+        unsafe { libc::close(qw) };
+    }
+    let close_qr = || {
+        if qr >= 0 {
+            // SAFETY: our read end of the report pipe, closed once.
+            unsafe { libc::close(qr) };
+        }
+    };
     let mut child = match spawned {
         Ok(ch) => ch,
         Err(e) => {
@@ -1164,9 +1452,18 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                 "user namespace entered but the uid/gid map could not be written; refusing to run as the overflow uid".to_string()
             } else if e.raw_os_error() == Some(E_CGROUP) {
                 "could not join the per-run cgroup (the caller must live inside the same delegated subtree)".to_string()
+            } else if e.raw_os_error() == Some(E_WDQ) {
+                let r = wdq_read(qr).unwrap_or_default();
+                format!(
+                    "work dir tmpfs: copying the work dir in failed ({}; {} bytes, {} entries copied); a work dir larger than workdir_tmpfs_bytes={wdq} / nr_inodes={wdq_inodes} cannot run under this cap",
+                    std::io::Error::from_raw_os_error(r[2] as i32),
+                    r[3],
+                    r[4]
+                )
             } else {
                 format!("spawn {prog}: {e}")
             };
+            close_qr();
             cg_fail(&cg);
             return fail(msg, start, enforced);
         }
@@ -1194,6 +1491,19 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     );
     set(&mut enforced, "env", Enforcement::Enforced);
     set(&mut enforced, "workdir", Enforcement::Enforced);
+    set(
+        &mut enforced,
+        "workdir_quota",
+        if wdq == 0 {
+            ne("disabled by policy (workdir_tmpfs_bytes = 0); RLIMIT_FSIZE caps single files only")
+        } else if bits & B_WDQ != 0 {
+            Enforcement::Enforced
+        } else if bits & B_MNTNS == 0 || bits & B_PIDNS == 0 {
+            ne("needs mount + pid namespaces; the work dir has no total size cap")
+        } else {
+            ne("tmpfs mount refused; the work dir has no total size cap")
+        },
+    );
     set(
         &mut enforced,
         "no_new_privs",
@@ -1232,7 +1542,7 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         },
     );
     set(&mut enforced, "pidns", en(bits & B_PIDNS != 0, ns_why));
-    let mnt_why = if !(policy.ro_root || !policy.hide_paths.is_empty()) {
+    let mnt_why = if !(policy.ro_root || !policy.hide_paths.is_empty() || wdq > 0) {
         "not requested by policy"
     } else {
         ns_why
@@ -1364,6 +1674,26 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         }
     };
     let cgroup = cg.as_ref().map(cgroup::RunCgroup::finish);
+    let workdir_quota = (bits & B_WDQ != 0).then(|| {
+        let r = wdq_read(qr).filter(|r| r[1] == WDQ_OUT_DONE);
+        let w = r.unwrap_or_default();
+        WorkdirQuota {
+            limit_bytes: wdq,
+            limit_inodes: wdq_inodes,
+            in_bytes: w[3],
+            in_entries: w[4],
+            in_skipped: w[5],
+            used_bytes: w[6],
+            copied_out: r.is_some(),
+            out_complete: r.is_some() && w[2] == 0,
+            out_bytes: w[7],
+            out_entries: w[8],
+            out_unchanged: w[9],
+            out_skipped: w[10],
+            errno: w[2] as i32,
+        }
+    });
+    close_qr();
     let (stdout, stdout_truncated) = out_h.and_then(|h| h.join().ok()).unwrap_or_default();
     let (stderr, stderr_truncated) = err_h.and_then(|h| h.join().ok()).unwrap_or_default();
     let status = match status {
@@ -1385,5 +1715,6 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         error,
         enforced,
         cgroup,
+        workdir_quota,
     }
 }

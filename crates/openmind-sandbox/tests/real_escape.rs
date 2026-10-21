@@ -48,8 +48,11 @@ fn escape_bin() -> PathBuf {
 }
 
 fn workdir(name: &str) -> PathBuf {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-out/escape")
+    let p = std::env::var("GALION_REAL_BASE")
+        .map(|b| PathBuf::from(b).join("escape"))
+        .unwrap_or_else(|_| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/escape")
+        })
         .join(name);
     std::fs::create_dir_all(&p).unwrap();
     p.canonicalize().unwrap()

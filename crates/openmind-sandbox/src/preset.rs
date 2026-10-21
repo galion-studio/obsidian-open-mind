@@ -67,6 +67,8 @@ pub struct Preset {
     namespaces: bool,
     ro_root: bool,
     hide_paths: &'static [&'static str],
+    workdir_tmpfs_bytes: u64,
+    workdir_tmpfs_inodes: u64,
 }
 
 impl Preset {
@@ -90,6 +92,9 @@ impl Preset {
             namespaces: true,
             ro_root: true,
             hide_paths: HIDE,
+            // Total work dir cap: a private 64 MiB tmpfs (ENOSPC past it).
+            workdir_tmpfs_bytes: 64 * 1024 * 1024,
+            workdir_tmpfs_inodes: 0,
         }
     }
 
@@ -115,6 +120,11 @@ impl Preset {
             nofile: 1024,
             fsize_bytes: 512 * 1024 * 1024,
             output_cap: 256 * 1024,
+            // Sources + target dir together. tmpfs pages are memory and are
+            // charged to the run cgroup (mem 1 GiB): half of it is left for
+            // the compiler (VPS q9/S9e: a full tmpfs at memory.max is an OOM
+            // kill of the whole run, supervisor included, nothing copied back).
+            workdir_tmpfs_bytes: 512 * 1024 * 1024,
             ..Self::base()
         }
     }
@@ -199,6 +209,8 @@ impl Preset {
             cgroup_pids_max: 64,
             cgroup_mem_bytes: self.mem_bytes,
             cgroup_cpu_pct: 0,
+            workdir_tmpfs_bytes: self.workdir_tmpfs_bytes,
+            workdir_tmpfs_inodes: self.workdir_tmpfs_inodes,
         }
     }
 }

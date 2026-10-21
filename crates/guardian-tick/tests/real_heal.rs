@@ -8,7 +8,7 @@
 //! to a marker file, so we can count real executions. Shows: detection, the
 //! dry-run (no --allow), 3 applied restarts, then the reflex cap.
 //! The full start/kill/restart of real dummy processes is
-//! scripts/real/survival-heal.sh.
+//! crates/galion-realtest/tests/real_sh_survival_heal.rs.
 
 use std::net::TcpListener;
 use std::process::Command;

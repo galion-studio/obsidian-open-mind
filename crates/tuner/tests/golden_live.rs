@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Hermetic parity: every request in `scripts/real/tuner-requests.txt` run
+//! Hermetic parity: every request in `crates/tuner/tests/fixtures/requests.txt` run
 //! through `tuner::respond` with the bundled www must give the exact bytes the
 //! live tuner on the VPS gave (`tests/fixtures/live/<name>.http`). No network.
 
@@ -36,7 +36,7 @@ fn unescape(fmt: &str) -> Vec<u8> {
 }
 
 fn matrix() -> Vec<(String, Vec<u8>)> {
-    let path = manifest().join("../../scripts/real/tuner-requests.txt");
+    let path = manifest().join("tests/fixtures/requests.txt");
     let text = fs::read_to_string(&path).expect("request matrix");
     text.lines()
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))

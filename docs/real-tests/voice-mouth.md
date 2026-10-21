@@ -90,3 +90,5 @@ x86_64 and aarch64 musl release builds OK (rust-lld): galion-voice-serve 1,840,6
 separate), galion-one 822,824 / 732,680 B. `cargo check` OK on aarch64-linux-android and
 armv7-unknown-linux-musleabihf (galion-voice-cpu with whisper+kitten, galion-one, openmind-speech).
 aarch64 speed is not measured (no aarch64 device on the box).
+
+> **2026-10-21 (realscript-port-3):** the shell driver for this evidence was ported to Rust and deleted; re-run with the matching test in `crates/galion-realtest/tests/` (see `docs/real-tests/realscript-port-3.md`).

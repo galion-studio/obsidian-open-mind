@@ -1,0 +1,622 @@
+# realscript-port-3 real run, started 2026-10-21T03:33:41+02:00 on the box (8 vCPU), base integration-2 df42e0f
+# GALION_REAL=1 GALION_REAL_VPS=1 GALION_REAL_BIN_DIR=$CARGO_TARGET_DIR/release cargo test -p galion-realtest -- --nocapture --test-threads 1
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.87s
+     Running unittests src/lib.rs (/workspace/swarm/target/realscript-port-3/debug/deps/galion_realtest-5395b2e93f424568)
+
+running 11 tests
+test http::tests::parses_content_length_and_chunked ... ok
+test http::tests::stub_never_serves_model_calls ... ok
+test http::tests::stub_round_trip_on_slot_port ... ok
+test live::tests::hidden_bodies_are_not_recorded ... ok
+test live::tests::parses_curl_blocks_and_redirect_chains ... ok
+test live::tests::script_is_get_only_and_writes_nothing ... ok
+test report::tests::junit_counts_and_escapes ... ok
+test report::tests::known_failures_downgrade_and_flag_fixed ... ok
+test sha256::tests::known_vectors ... ok
+test stack::tests::boot_toml_escapes_and_has_health ... ok
+test stack::tests::port_layout_fits_the_full_stack_range ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/galion-ccwrap.rs (/workspace/swarm/target/realscript-port-3/debug/deps/galion_ccwrap-947b835504f79f7c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (/workspace/swarm/target/realscript-port-3/debug/deps/galion_realtest-5d1edebea11d30fb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/real_sh_room.rs (/workspace/swarm/target/realscript-port-3/debug/deps/real_sh_room-4b3709282bbe0b4f)
+
+running 1 test
+test real_sh_room ... [2026-10-21T03:33:43+02:00] tools: unshare=true strace=true nsenter=true curl=true; user+net namespaces: ok
+[2026-10-21T03:33:43+02:00] binary /workspace/swarm/target/realscript-port-3/release/room: 375032 bytes, x86-64, ELF interpreter: yes (dynamic)
+[2026-10-21T03:33:43+02:00] session 1: host loopback 127.0.0.1:19840
+[2026-10-21T03:33:43+02:00]   stderr: room: 21 objects room: listening on 127.0.0.1:19840 
+  PASS health 
+  PASS objects listed, secret hidden 2200 bytes, 21 objects
+  PASS read guide 
+  PASS read secret held 404
+  PASS read symlink escape held 404
+  PASS read /etc/passwd held 404
+  PASS bad escape answered (old decoder panicked) 404
+  PASS POST refused 405
+  PASS health after hostile requests 
+  PASS session 1 teardown pid 3471961 gone, :19840 closed
+[2026-10-21T03:33:43+02:00] session 2: private network namespace on 127.0.0.1:19841
+  PASS lo up inside the namespace 
+[2026-10-21T03:33:43+02:00]   stderr: room: 21 objects room: listening on 127.0.0.1:19841 
+  PASS netns room listening 
+  PASS host cannot reach the netns listener :19841 refused on the host
+  PASS curl inside the namespace answers ok ok
+  PASS only lo inside the namespace ["lo"]
+  PASS session 2 teardown pids 3471973,3471971 gone
+[2026-10-21T03:33:43+02:00] session 3: no-flag page under strace in an empty netns
+  PASS page printed with zero network syscalls page 2201 bytes, network syscalls 0
+  PASS control: --listen shows socket/bind/listen ["socket(", "bind(", "listen("]
+  PASS no leftover room processes []
+[2026-10-21T03:33:44+02:00] real_sh_room: 19 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.36s
+
+     Running tests/real_sh_sandbox.rs (/workspace/swarm/target/realscript-port-3/debug/deps/real_sh_sandbox-03a9c9f30e80eae6)
+
+running 1 test
+test real_sh_sandbox ... [2026-10-21T03:33:44+02:00] suite binary: /workspace/swarm/target/realscript-port-3/release/deps/real_escape-0592593494bdd822
+[2026-10-21T03:33:44+02:00] delegated cgroup /sys/fs/cgroup/om-sandbox-real-3471994 (+cpu +memory +pids), setuid helper ready
+[2026-10-21T03:33:44+02:00] run as uid 1000 inside /sys/fs/cgroup/om-sandbox-real-3471994/runner
+
+running 1 test
+--- ["tcp", "42601"] -> Exited(0)
+stdout: RESULT tcp CONTAINED Permission denied (os error 13)
+RESULT tcp-internet CONTAINED Permission denied (os error 13)
+
+stderr: 
+--- ["udp", "50438"] -> Exited(0)
+stdout: RESULT udp CONTAINED Network is unreachable (os error 101)
+
+stderr: 
+--- ["ptrace", "3472059"] -> Exited(0)
+stdout: RESULT ptrace CONTAINED pid 3472059: No such process (os error 3)
+
+stderr: 
+--- ["kill", "3472059"] -> Exited(0)
+stdout: RESULT kill CONTAINED pid 3472059: No such process (os error 3)
+
+stderr: 
+--- ["seebystander", "sleep 30"] -> Exited(0)
+stdout: RESULT seebystander CONTAINED bystander not visible in /proc
+
+stderr: 
+--- ["mount"] -> Exited(0)
+stdout: RESULT mount CONTAINED mount proc: Operation not permitted (os error 1)
+RESULT remount-root CONTAINED remount /: Operation not permitted (os error 1)
+
+stderr: 
+--- ["setuid", "/tmp/om-sandbox-suid-3471994-1792546424455941588/suid-id"] -> Exited(0)
+stdout: RESULT setuid CONTAINED /tmp/om-sandbox-suid-3471994-1792546424455941588/suid-id -> uid 1000 (setuid ignored under no_new_privs)
+
+stderr: 
+--- ["read", "/workspace/swarm/wt/realscript-port-3/target/test-out/escape/secretdir/key"] -> Exited(0)
+stdout: RESULT read CONTAINED /workspace/swarm/wt/realscript-port-3/target/test-out/escape/secretdir/key: No such file or directory (os error 2)
+
+stderr: 
+--- ["write", "/workspace/swarm/wt/realscript-port-3/target/test-out/escape/escaped-marker"] -> Exited(0)
+stdout: RESULT write CONTAINED /workspace/swarm/wt/realscript-port-3/target/test-out/escape/escaped-marker: Read-only file system (os error 30)
+
+stderr: 
+--- ["forkbomb"] -> Exited(0)
+stdout: RESULT forkbomb CONTAINED stopped after 22 forks: Resource temporarily unavailable (os error 11)
+
+stderr: 
+--- ["membomb", "1024"] -> Signaled(9)
+stdout: 
+stderr: 
+--- ["setsid-orphan", "3133"] -> Exited(0)
+stdout: RESULT setsid-orphan CONTAINED spawned detached sleeper (pid in ns 2)
+
+stderr: 
+test real_escape ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.62s
+
+[2026-10-21T03:33:46+02:00] real_escape exit: exit status: 0
+[2026-10-21T03:33:46+02:00] teardown: cgroup /sys/fs/cgroup/om-sandbox-real-3471994 removed: true
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.11s
+
+     Running tests/real_sh_survival_heal.rs (/workspace/swarm/target/realscript-port-3/debug/deps/real_sh_survival_heal-57ce61d63cba7783)
+
+running 1 test
+test real_sh_survival_heal ... [2026-10-21T03:33:46+02:00] start dummies (run dir /tmp/survival-heal-real-3472146-1792546426557950188)
+  PASS both dummies listening 
+[2026-10-21T03:33:46+02:00] tick 0: both up (dry-run)
+guardian-tick heal 2026-10-21T03:33:46+02:00 mode=dry-run cap=3/h
+  classify dummy-healthy          healthy  status 200
+  classify dummy-dies             healthy  status 200
+  plan     dummy-healthy          observe          unit=dummy-healthy reason=healthy
+  plan     dummy-dies             observe          unit=dummy-dies reason=healthy
+  PASS tick 0 dry-run, both healthy 
+[2026-10-21T03:33:50+02:00] tick 1: dummy-dies has died -> detection + plan, DRY-RUN (no --allow)
+guardian-tick heal 2026-10-21T03:33:50+02:00 mode=dry-run cap=3/h
+  classify dummy-healthy          healthy  status 200
+  classify dummy-dies             down     connect: Connection refused (os error 111)
+  plan     dummy-healthy          observe          unit=dummy-healthy reason=healthy
+  plan     dummy-dies             restart          unit=dummy-dies reason=restart 1 of 3 this hour
+  action   dummy-dies             mode=dry-run unit=dummy-dies result=would restart via command (not in --allow)
+  PASS death detected 
+  PASS dry-run does not act 
+[2026-10-21T03:33:50+02:00] tick apply-1: --allow dummy-dies
+guardian-tick heal 2026-10-21T03:33:50+02:00 mode=apply-allowlisted cap=3/h
+  classify dummy-healthy          healthy  status 200
+  classify dummy-dies             down     connect: Connection refused (os error 111)
+  plan     dummy-healthy          observe          unit=dummy-healthy reason=healthy
+  plan     dummy-dies             restart          unit=dummy-dies reason=restart 1 of 3 this hour
+  action   dummy-dies             mode=apply unit=dummy-dies result=restarted via command verify_ok=true (status 200)
+  PASS apply-1 restarted a new process, verified healthy pid Some(3472243)
+[2026-10-21T03:33:55+02:00] tick apply-2: --allow dummy-dies
+guardian-tick heal 2026-10-21T03:33:55+02:00 mode=apply-allowlisted cap=3/h
+  classify dummy-healthy          healthy  status 200
+  classify dummy-dies             down     connect: Connection refused (os error 111)
+  plan     dummy-healthy          observe          unit=dummy-healthy reason=healthy
+  plan     dummy-dies             restart          unit=dummy-dies reason=restart 2 of 3 this hour
+  action   dummy-dies             mode=apply unit=dummy-dies result=restarted via command verify_ok=true (status 200)
+  PASS apply-2 restarted a new process, verified healthy pid Some(3472313)
+[2026-10-21T03:34:00+02:00] tick apply-3: --allow dummy-dies
+guardian-tick heal 2026-10-21T03:34:00+02:00 mode=apply-allowlisted cap=3/h
+  classify dummy-healthy          healthy  status 200
+  classify dummy-dies             down     connect: Connection refused (os error 111)
+  plan     dummy-healthy          observe          unit=dummy-healthy reason=healthy
+  plan     dummy-dies             restart          unit=dummy-dies reason=restart 3 of 3 this hour
+  action   dummy-dies             mode=apply unit=dummy-dies result=restarted via command verify_ok=true (status 200)
+  PASS apply-3 restarted a new process, verified healthy pid Some(3472397)
+[2026-10-21T03:34:05+02:00] tick apply-4: --allow dummy-dies (expect cap-reached, no restart)
+guardian-tick heal 2026-10-21T03:34:05+02:00 mode=apply-allowlisted cap=3/h
+  classify dummy-healthy          healthy  status 200
+  classify dummy-dies             down     connect: Connection refused (os error 111)
+  plan     dummy-healthy          observe          unit=dummy-healthy reason=healthy
+  plan     dummy-dies             cap-reached      unit=dummy-dies reason=reflex cap 3/3 restarts in the last hour
+  action   dummy-dies             mode=held unit=dummy-dies result=reflex cap 3/3 restarts in the last hour
+  PASS apply-4 cap reached 
+  PASS no fourth restart 
+  PASS healthy dummy untouched 
+[2026-10-21T03:34:05+02:00] incident store: 9 lines; nerve: 6 lines
+{"kind":"opened","service":"dummy-dies","class":"down","severity":"high","detail":"connect: Connection refused (os error 111)","ts":"2026-10-21T03:33:50+02:00","unix":1792546430}
+{"kind":"restart","service":"dummy-dies","unit":"dummy-dies","mode":"dry-run","n":1,"cap":3,"result":"would restart via command (not in --allow)","ts":"2026-10-21T03:33:50+02:00","unix":1792546430}
+{"kind":"restart","service":"dummy-dies","unit":"dummy-dies","mode":"apply","n":1,"cap":3,"result":"restarted via command","ts":"2026-10-21T03:33:50+02:00","unix":1792546430}
+{"kind":"verify","service":"dummy-dies","unit":"dummy-dies","ok":true,"detail":"status 200","ts":"2026-10-21T03:33:51+02:00","unix":1792546431}
+{"kind":"restart","service":"dummy-dies","unit":"dummy-dies","mode":"apply","n":2,"cap":3,"result":"restarted via command","ts":"2026-10-21T03:33:55+02:00","unix":1792546435}
+{"kind":"verify","service":"dummy-dies","unit":"dummy-dies","ok":true,"detail":"status 200","ts":"2026-10-21T03:33:56+02:00","unix":1792546436}
+{"kind":"restart","service":"dummy-dies","unit":"dummy-dies","mode":"apply","n":3,"cap":3,"result":"restarted via command","ts":"2026-10-21T03:34:00+02:00","unix":1792546440}
+{"kind":"verify","service":"dummy-dies","unit":"dummy-dies","ok":true,"detail":"status 200","ts":"2026-10-21T03:34:01+02:00","unix":1792546441}
+{"kind":"cap-hit","service":"dummy-dies","unit":"dummy-dies","used":3,"cap":3,"ts":"2026-10-21T03:34:05+02:00","unix":1792546445}
+{"ts":"2026-10-21T03:33:50+02:00","source":"guardian-tick","kind":"incident-opened","severity":"crit","data":{"service":"dummy-dies","class":"down","detail":"connect: Connection refused (os error 111)"}}
+{"ts":"2026-10-21T03:33:50+02:00","source":"guardian-tick","kind":"heal-restart","severity":"warn","data":{"service":"dummy-dies","unit":"dummy-dies","mode":"dry-run","n":1,"cap":3,"result":"would restart via command (not in --allow)"}}
+{"ts":"2026-10-21T03:33:50+02:00","source":"guardian-tick","kind":"heal-restart","severity":"warn","data":{"service":"dummy-dies","unit":"dummy-dies","mode":"apply","n":1,"cap":3,"result":"restarted via command"}}
+{"ts":"2026-10-21T03:33:55+02:00","source":"guardian-tick","kind":"heal-restart","severity":"warn","data":{"service":"dummy-dies","unit":"dummy-dies","mode":"apply","n":2,"cap":3,"result":"restarted via command"}}
+{"ts":"2026-10-21T03:34:00+02:00","source":"guardian-tick","kind":"heal-restart","severity":"warn","data":{"service":"dummy-dies","unit":"dummy-dies","mode":"apply","n":3,"cap":3,"result":"restarted via command"}}
+{"ts":"2026-10-21T03:34:05+02:00","source":"guardian-tick","kind":"heal-cap-hit","severity":"crit","data":{"service":"dummy-dies","unit":"dummy-dies","used":3,"cap":3,"text":"operator needed"}}
+  PASS incident store has cap-hit 
+  PASS nerve has heal-cap-hit 
+  PASS Zagreb stamps, no UTC Z 
+  PASS no UTC Z stamps 
+[2026-10-21T03:34:05+02:00] classify over captured live status.json: /workspace/swarm/wt/realscript-port-3/docs/real-tests/captures/vps-8660-status-20261020.json
+guardian-tick classify 2026-10-21T03:34:05+02:00 source_checked_at=2026-10-20T18:51:23+02:00 source_ok=true mode=classify-only (nothing applied)
+  classify openmind-memory        healthy  unit=openmind-memory.service state=active port=8420 http=200
+  classify hermes-rs              healthy  unit=hermes-rs.service state=active port=8642 http=200
+  classify link-watch-rs          healthy  unit=link-watch-rs.service state=active port=0 http=-
+  classify galion-desk            healthy  unit=galion-desk.service state=active port=8646 http=200
+  classify tuner                  healthy  unit=tuner.service state=active port=8650 http=200
+  classify tuner-quick            healthy  unit=tuner-quick.service state=active port=0 http=-
+  classify one                    healthy  unit=- state=n/a port=8091 http=200
+  classify console                healthy  unit=console.service state=active port=8080 http=302
+  classify cloudflared            healthy  unit=cloudflared.service state=active port=20241 http=200
+  classify journald               healthy  unit=systemd-journald.service state=active port=0 http=-
+  classify ssh                    healthy  unit=ssh.service state=active port=22 http=tcp-open
+  classify galion-backup.timer    healthy  unit=galion-backup.timer state=active port=0 http=-
+  plan     openmind-memory        observe          unit=openmind-memory.service reason=healthy
+  plan     hermes-rs              observe          unit=hermes-rs.service reason=healthy
+  plan     link-watch-rs          observe          unit=link-watch-rs.service reason=healthy
+  plan     galion-desk            observe          unit=galion-desk.service reason=healthy
+  plan     tuner                  observe          unit=tuner.service reason=healthy
+  plan     tuner-quick            observe          unit=tuner-quick.service reason=healthy
+  plan     one                    observe          unit=- reason=healthy
+  plan     console                observe          unit=console.service reason=healthy
+  plan     cloudflared            observe          unit=cloudflared.service reason=healthy
+  plan     journald               observe          unit=systemd-journald.service reason=healthy
+  plan     ssh                    observe          unit=ssh.service reason=healthy
+  plan     galion-backup.timer    observe          unit=galion-backup.timer reason=healthy
+  PASS classify over live capture 
+  PASS teardown both ports closed
+[2026-10-21T03:34:05+02:00] real_sh_survival_heal: 16 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.73s
+
+     Running tests/real_sh_tuner_cutover.rs (/workspace/swarm/target/realscript-port-3/debug/deps/real_sh_tuner_cutover-f39af7cfb9713d43)
+
+running 1 test
+test real_sh_tuner_cutover ...   PASS tuner-x86_64-unknown-linux-musl static x86-64 471688 bytes, x86-64, interp: 0
+  PASS tuner-aarch64-unknown-linux-musl static AArch64 423808 bytes, AArch64, interp: 0
+SHA256SUMS (/workspace/swarm/target/realscript-port-3/artifacts/tuner):
+2e02a770e342e5883348866934dd066a6d9702f45d92c9df8f8ee3ff17859040  tuner-x86_64-unknown-linux-musl
+20d080ddf84d57f76d3acfb474d9ffd8a38ff5d59443d0c89c00a473a65a7b56  tuner-aarch64-unknown-linux-musl
+[2026-10-21T03:34:05+02:00] version: tuner 0.1.0
+  PASS --check bind 127.0.0.1:8650
+ok /workspace/swarm/wt/realscript-port-3/crates/tuner/www/index.html 2356 bytes
+ok /workspace/swarm/wt/realscript-port-3/crates/tuner/www/app.js 4570 bytes
+ok /workspace/swarm/wt/realscript-port-3/crates/tuner/www/pitch.js 4266 bytes
+ok /workspace/swarm/wt/realscript-port-3/crates/tuner/www/style.css 2737 bytes
+  PASS listening 
+[2026-10-21T03:34:05+02:00] started pid 3472484: tuner 127.0.0.1:19844 serving /workspace/swarm/wt/realscript-port-3/crates/tuner/www VmRSS 356 kB
+[2026-10-21T03:34:05+02:00] live capture: ssh -W 127.0.0.1:8650 slavik-vps (GET only, read-only)
+route                status                         box    live result
+root                 200 OK                        2700    2700 IDENTICAL
+index                200 OK                        2700    2700 IDENTICAL
+app-js               200 OK                        4920    4920 IDENTICAL
+pitch-js             200 OK                        4616    4616 IDENTICAL
+style-css            200 OK                        3080    3080 IDENTICAL
+health               200 OK                         335     335 IDENTICAL
+health-query         200 OK                         335     335 IDENTICAL
+root-query           200 OK                        2700    2700 IDENTICAL
+index-query          200 OK                        2700    2700 IDENTICAL
+nope                 404 Not Found                  334     334 IDENTICAL
+health-upper         404 Not Found                  334     334 IDENTICAL
+double-slash         404 Not Found                  334     334 IDENTICAL
+app-js-slash         404 Not Found                  334     334 IDENTICAL
+traversal            404 Not Found                  334     334 IDENTICAL
+encoded-traversal    404 Not Found                  334     334 IDENTICAL
+test-js              404 Not Found                  334     334 IDENTICAL
+src-main             404 Not Found                  334     334 IDENTICAL
+favicon              404 Not Found                  334     334 IDENTICAL
+http10               200 OK                         335     335 IDENTICAL
+bare-get             400 Bad Request                120    2700 KNOWN-DIFF
+no-version           400 Bad Request                120     335 KNOWN-DIFF
+  PASS every route byte-identical routes 21, identical 19, known-diff 2, diff 0 (against live VPS 8650)
+  PASS stopped, port closed 
+[2026-10-21T03:35:05+02:00] next: GALION_REAL=1 TUNER_REAL_BIN=/workspace/swarm/target/realscript-port-3/artifacts/tuner/tuner-x86_64-unknown-linux-musl cargo test -p tuner --test real_tuner
+[2026-10-21T03:35:05+02:00] real_sh_tuner_cutover: 6 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 60.50s
+
+     Running tests/real_sh_ucpu.rs (/workspace/swarm/target/realscript-port-3/debug/deps/real_sh_ucpu-4cce597f3870dabb)
+
+running 1 test
+test real_sh_ucpu ... [2026-10-21T03:35:05+02:00] === aarch64-unknown-linux-musl under qemu-aarch64-static (ports 19845-19849)
+    galion-one         738128 bytes  machine=AArch64  interp=false dynamic=false
+  PASS aarch64-unknown-linux-musl galion-one static AArch64 
+    tuner              423808 bytes  machine=AArch64  interp=false dynamic=false
+  PASS aarch64-unknown-linux-musl tuner static AArch64 
+    openmind-memory   1621112 bytes  machine=AArch64  interp=false dynamic=false
+  PASS aarch64-unknown-linux-musl openmind-memory static AArch64 
+    hermes-gateway    1847408 bytes  machine=AArch64  interp=false dynamic=false
+  PASS aarch64-unknown-linux-musl hermes-gateway static AArch64 
+  PASS aarch64-unknown-linux-musl: listening on 19845 
+  PASS aarch64-unknown-linux-musl: listening on 19847 
+  PASS aarch64-unknown-linux-musl: listening on 19848 
+  PASS aarch64-unknown-linux-musl: listening on 19849 
+    GET :19845/health -> HTTP 200 ok 
+  PASS aarch64-unknown-linux-musl galion-one /health (wanted "ok")
+    GET :19845/me -> HTTP 200 {"you":false}
+  PASS aarch64-unknown-linux-musl galion-one /me (wanted "{")
+    GET :19847/health -> HTTP 200 {"ok":true} 
+  PASS aarch64-unknown-linux-musl tuner /health (wanted "\"ok\":true")
+    GET :19847/ -> HTTP 200 <!doctype html><title>tuner ucpu</title> 
+  PASS aarch64-unknown-linux-musl tuner / (wanted "tuner ucpu")
+    GET :19848/health -> HTTP 200 {"status":"ok","version":"0.1.0","uptime":0,"stores":{"vectorStore":true,"embeddingService":false},"services":{"timerScanner":null,"pipelineWorker":null,"stateB
+  PASS aarch64-unknown-linux-musl memory /health (wanted "status")
+    POST :19848/capture -> HTTP 200 {"l0_recorded":2,"scheduler_notified":false}
+  PASS aarch64-unknown-linux-musl memory /capture (SQLite write) (wanted "")
+    POST :19848/search/conversations -> HTTP 200 {"results":"Found 1 matching message(s):\n\n---\n**[user]** Session: ucpu-aarch64-unknown-linux-musl [2026-10-21T01:35:06.046Z] (score: 0.000)\n\nucpu emulated 
+  PASS aarch64-unknown-linux-musl memory /search/conversations (SQLite read) (wanted "emulated")
+    GET :19849/health -> HTTP 200 {"status":"ok","platform":"hermes-agent","version":"0.21.4","implementation":"hermes-rs","implementation_version":"0.1.0"}
+  PASS aarch64-unknown-linux-musl hermes-gateway /health (wanted "ok")
+    GET :19849/v1/models -> HTTP 200 {"object":"list","data":[{"id":"hermes-agent","object":"model","created":1792546506,"owned_by":"hermes","permission":[],"root":"hermes-agent","parent":null}]}
+  PASS aarch64-unknown-linux-musl hermes-gateway /v1/models (wanted "\"data\"")
+    POST :19849/v1/chat/completions -> HTTP 200 {"id":"chatcmpl-1815752f42ba952d","object":"chat.completion","created":1792546506,"model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"
+  PASS aarch64-unknown-linux-musl hermes-gateway /v1/chat/completions (mock, SQLite session) (wanted "\"choices\"")
+    pid 3474028 galion-one VmRSS 16376 kB
+    pid 3474029 tuner VmRSS 12216 kB
+    pid 3474030 openmind-memory VmRSS 20812 kB
+    pid 3474031 hermes-gateway VmRSS 19476 kB
+  PASS aarch64-unknown-linux-musl: all ports closed after stop 
+[2026-10-21T03:35:06+02:00] === armv7-unknown-linux-musleabihf under qemu-arm-static (ports 19845-19849)
+    galion-one         716356 bytes  machine=ARM  interp=false dynamic=false
+  PASS armv7-unknown-linux-musleabihf galion-one static ARM 
+    tuner              393772 bytes  machine=ARM  interp=false dynamic=false
+  PASS armv7-unknown-linux-musleabihf tuner static ARM 
+    openmind-memory   1585740 bytes  machine=ARM  interp=false dynamic=false
+  PASS armv7-unknown-linux-musleabihf openmind-memory static ARM 
+    hermes-gateway    1817412 bytes  machine=ARM  interp=false dynamic=false
+  PASS armv7-unknown-linux-musleabihf hermes-gateway static ARM 
+  PASS armv7-unknown-linux-musleabihf: listening on 19845 
+  PASS armv7-unknown-linux-musleabihf: listening on 19847 
+  PASS armv7-unknown-linux-musleabihf: listening on 19848 
+  PASS armv7-unknown-linux-musleabihf: listening on 19849 
+    GET :19845/health -> HTTP 200 ok 
+  PASS armv7-unknown-linux-musleabihf galion-one /health (wanted "ok")
+    GET :19845/me -> HTTP 200 {"you":false}
+  PASS armv7-unknown-linux-musleabihf galion-one /me (wanted "{")
+    GET :19847/health -> HTTP 200 {"ok":true} 
+  PASS armv7-unknown-linux-musleabihf tuner /health (wanted "\"ok\":true")
+    GET :19847/ -> HTTP 200 <!doctype html><title>tuner ucpu</title> 
+  PASS armv7-unknown-linux-musleabihf tuner / (wanted "tuner ucpu")
+    GET :19848/health -> HTTP 200 {"status":"ok","version":"0.1.0","uptime":0,"stores":{"vectorStore":true,"embeddingService":false},"services":{"timerScanner":null,"pipelineWorker":null,"stateB
+  PASS armv7-unknown-linux-musleabihf memory /health (wanted "status")
+    POST :19848/capture -> HTTP 200 {"l0_recorded":2,"scheduler_notified":false}
+  PASS armv7-unknown-linux-musleabihf memory /capture (SQLite write) (wanted "")
+    POST :19848/search/conversations -> HTTP 200 {"results":"Found 1 matching message(s):\n\n---\n**[user]** Session: ucpu-armv7-unknown-linux-musleabihf [2026-10-21T01:35:06.381Z] (score: 0.000)\n\nucpu emula
+  PASS armv7-unknown-linux-musleabihf memory /search/conversations (SQLite read) (wanted "emulated")
+    GET :19849/health -> HTTP 200 {"status":"ok","platform":"hermes-agent","version":"0.21.4","implementation":"hermes-rs","implementation_version":"0.1.0"}
+  PASS armv7-unknown-linux-musleabihf hermes-gateway /health (wanted "ok")
+    GET :19849/v1/models -> HTTP 200 {"object":"list","data":[{"id":"hermes-agent","object":"model","created":1792546506,"owned_by":"hermes","permission":[],"root":"hermes-agent","parent":null}]}
+  PASS armv7-unknown-linux-musleabihf hermes-gateway /v1/models (wanted "\"data\"")
+    POST :19849/v1/chat/completions -> HTTP 200 {"id":"chatcmpl-385f913e57f8afa7","object":"chat.completion","created":1792546506,"model":"mock","choices":[{"index":0,"message":{"role":"assistant","content":"
+  PASS armv7-unknown-linux-musleabihf hermes-gateway /v1/chat/completions (mock, SQLite session) (wanted "\"choices\"")
+    pid 3474103 galion-one VmRSS 14328 kB
+    pid 3474104 tuner VmRSS 11444 kB
+    pid 3474105 openmind-memory VmRSS 18020 kB
+    pid 3474106 hermes-gateway VmRSS 16496 kB
+  PASS armv7-unknown-linux-musleabihf: all ports closed after stop 
+[2026-10-21T03:35:06+02:00] real_sh_ucpu: 38 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+     Running tests/real_sh_voice_mouth.rs (/workspace/swarm/target/realscript-port-3/debug/deps/real_sh_voice_mouth-c7b1c50da2067073)
+
+running 1 test
+test real_sh_voice_mouth ... [2026-10-21T03:35:06+02:00] 8 CPUs, load 0.62 0.75 0.56
+  PASS t1: voice up 
+## RAYON_NUM_THREADS=1
+health: {"ok":true,"status":"ok","provider":"galion-voice-cpu","device":"cpu","stt":"whisper-tiny.en","tts":"kitten-tts-nano-0.8","voices":["bella","bruno","hugo","jasper","kiki","leo","luna","rosie"],"stt_missing":"","tts_missing":"","rss_kb":229684,"hwm_kb":305216} -> 200
+  PASS t1: health ok 
+stt #1 (11.0 s JFK WAV): {"text":"And so my fellow Americans ask not what your country can do for you, ask what you can do for your country.","audio_s":11.00,"ms":2540,"cpu_ms":2910} -> 200 2.542s
+  PASS t1: stt #1 
+stt #2 (11.0 s JFK WAV): {"text":"And so my fellow Americans ask not what your country can do for you, ask what you can do for your country.","audio_s":11.00,"ms":2539,"cpu_ms":2880} -> 200 2.541s
+  PASS t1: stt #2 
+stt #3 (11.0 s JFK WAV): {"text":"And so my fellow Americans ask not what your country can do for you, ask what you can do for your country.","audio_s":11.00,"ms":2484,"cpu_ms":2850} -> 200 2.486s
+  PASS t1: stt #3 
+tts #1: 200 280044 B 3.072s audio 5.83 s, wall 3071 ms, cpu 3070 ms
+  PASS t1: tts #1 RIFF WAV 
+tts #2: 200 280044 B 2.967s audio 5.83 s, wall 2965 ms, cpu 2960 ms
+  PASS t1: tts #2 RIFF WAV 
+round trip /v1/voice: 200 436044 B 7.355s stt 2600 ms, tts 4752 ms, reply audio 9.08 s, cpu 7680 ms
+transcript header: And so my fellow Americans ask not what your country can do for you, ask what you can do for your country.
+  PASS t1: round trip 
+process: VmHWM 442960 kB VmRSS 335948 kB
+  PASS t1: teardown 
+  PASS t4: voice up 
+## RAYON_NUM_THREADS=4
+health: {"ok":true,"status":"ok","provider":"galion-voice-cpu","device":"cpu","stt":"whisper-tiny.en","tts":"kitten-tts-nano-0.8","voices":["bella","bruno","hugo","jasper","kiki","leo","luna","rosie"],"stt_missing":"","tts_missing":"","rss_kb":229720,"hwm_kb":305248} -> 200
+  PASS t4: health ok 
+stt #1 (11.0 s JFK WAV): {"text":"And so my fellow Americans ask not what your country can do for you, ask what you can do for your country.","audio_s":11.00,"ms":1530,"cpu_ms":3410} -> 200 1.532s
+  PASS t4: stt #1 
+stt #2 (11.0 s JFK WAV): {"text":"And so my fellow Americans ask not what your country can do for you, ask what you can do for your country.","audio_s":11.00,"ms":1485,"cpu_ms":3370} -> 200 1.487s
+  PASS t4: stt #2 
+stt #3 (11.0 s JFK WAV): {"text":"And so my fellow Americans ask not what your country can do for you, ask what you can do for your country.","audio_s":11.00,"ms":1600,"cpu_ms":3560} -> 200 1.602s
+  PASS t4: stt #3 
+tts #1: 200 280044 B 2.839s audio 5.83 s, wall 2837 ms, cpu 3390 ms
+  PASS t4: tts #1 RIFF WAV 
+tts #2: 200 280044 B 2.685s audio 5.83 s, wall 2683 ms, cpu 3220 ms
+  PASS t4: tts #2 RIFF WAV 
+round trip /v1/voice: 200 436044 B 5.838s stt 1601 ms, tts 4233 ms, reply audio 9.08 s, cpu 8600 ms
+transcript header: And so my fellow Americans ask not what your country can do for you, ask what you can do for your country.
+  PASS t4: round trip 
+process: VmHWM 448636 kB VmRSS 341700 kB
+  PASS galion-one mouth up 
+## galion-one with GALION_MOUTH=127.0.0.1:19840
+mouth /health: {"ok":true,"status":"ok","provider":"galion-voice-cpu","device":"cpu","stt":"whisper-tiny.en","tts":"kitten-tts-nano-0.8","voices":["bella","bruno","hugo","jasper","kiki","leo","luna","rosie"],"stt_missing":"","tts_missing":"","rss_kb":341708,"hwm_kb":448636} -> 200
+  PASS mouth /health proxied 200 
+mouth /synthesize: 200 215644 B 2.094s
+  PASS mouth /synthesize RIFF WAV 
+  PASS galion-one stopped 
+## galion-one without GALION_MOUTH (the live configuration)
+mouth /health: {"ok":false,"status":"unavailable","provider":"unavailable","loaded":false,"reason":"no speech backend configured; set GALION_MOUTH to a galion-voice-serve address"} -> 503
+  PASS no GALION_MOUTH: honest 503 
+  PASS t4: teardown 
+  PASS no galion-voice-serve left []
+[2026-10-21T03:35:46+02:00] real_sh_voice_mouth: 24 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.10s
+
+     Running tests/real_stack.rs (/workspace/swarm/target/realscript-port-3/debug/deps/real_stack-0be2da6a988a336b)
+
+running 2 tests
+test real_box_stack ... galion-realtest: booting the stack on 127.0.0.1:19500.. (out /workspace/swarm/target/realscript-port-3/release/../realtest/cargo-test)
+PASS        stack-boot                               galion-boot
+PASS        one-pairing                              galion-one
+PASS        one-fail-closed-missing-store            galion-one
+PASS        one-fail-closed-empty-store              galion-one
+PASS        memory-save-search                       openmind-memory
+SKIP        nerve-ingest                             openmind-nerve
+PASS        tuner                                    tuner
+PASS        link-watch                               link-watch
+PASS        desk                                     galion-desk
+PASS        voice-relay-contract                     persona-plex-relay
+PASS        guardian-tick-heal                       guardian-tick
+PASS        heal-request                             galion-boot
+PASS        teardown                                 galion-realtest
+reports: /workspace/swarm/target/realscript-port-3/release/../realtest/cargo-test/junit.xml /workspace/swarm/target/realscript-port-3/release/../realtest/cargo-test/report.md
+ok
+test real_live_probe_read_only ... PASS        live-vps:galion-one                      galion-one
+KNOWN-FAIL  live-vps:galion-one-mouth                galion-one-mouth
+    KNOWN-FAIL mouth-health: want HTTP [200]; got HTTP 503 application/json body "{\"ok\":false,\"status\":\"loading\",\"provider\":\"local\",\"model\":\"chatterbox\",\"loaded\":false}"
+PASS        live-vps:openmind-memory                 openmind-memory
+PASS        live-vps:hermes-rs                       hermes-rs
+PASS        live-vps:galion-desk                     galion-desk
+PASS        live-vps:tuner                           tuner
+PASS        live-vps:galion-health                   galion-health
+PASS        live-vps:galion-nerve                    galion-nerve
+PASS        live-vps:tanga-serve                     tanga-serve
+PASS        live-vps:console                         console
+PASS        live-vps:cloudflared                     cloudflared
+KNOWN-FAIL  live-vps:units                           systemd
+    KNOWN-FAIL link-watch.service: is-active: inactive
+PASS        live-vps:ports                           listeners
+PASS        live-public:public                       public
+reports: /workspace/swarm/target/realscript-port-3/realtest/live/junit.xml /workspace/swarm/target/realscript-port-3/realtest/live/report.md
+# galion-realtest: live probe
+
+Written 2026-10-21T03:36:04+02:00 (Europe/Zagreb).
+
+Mode: **live probe, READ-ONLY**. Only HTTP GET, `systemctl is-active` and `ss -ltnH`; no POST, no file written on the VPS, nothing restarted.
+
+- VPS probes over `ssh slavik-vps sh -s` (script: GET-only curl, `systemctl is-active`, `ss -ltnH`), one batch in 3032 ms.
+- Public probes from the box with `curl` GET (no cookies, so they also check that One fails closed to strangers), one batch in 3569 ms.
+
+## Summary
+
+Checks: 43 total, 41 pass, 0 FAIL, 2 known-fail, 0 skipped.
+
+| Scenario | Service | Verdict | Pass | Fail | Time (ms) | Started |
+|---|---|---|---|---|---|---|
+| live-vps:galion-one | galion-one | **PASS** | 3 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:galion-one-mouth | galion-one-mouth | **KNOWN-FAIL** | 0 | 1 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:openmind-memory | openmind-memory | **PASS** | 2 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:hermes-rs | hermes-rs | **PASS** | 1 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:galion-desk | galion-desk | **PASS** | 1 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:tuner | tuner | **PASS** | 1 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:galion-health | galion-health | **PASS** | 1 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:galion-nerve | galion-nerve | **PASS** | 2 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:tanga-serve | tanga-serve | **PASS** | 1 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:console | console | **PASS** | 2 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:cloudflared | cloudflared | **PASS** | 1 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:units | systemd | **KNOWN-FAIL** | 9 | 1 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-vps:ports | listeners | **PASS** | 11 | 0 | 0 | 2026-10-21T03:36:01+02:00 |
+| live-public:public | public | **PASS** | 6 | 0 | 0 | 2026-10-21T03:36:04+02:00 |
+
+## Checks
+
+### live-vps:galion-one (galion-one)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| one-health | PASS | 0 | HTTP 200 text/plain body "ok" |
+| one-me-unpaired | PASS | 0 | HTTP 200 application/json body "{\"you\":false}" |
+| one-session-unpaired-401 | PASS | 0 | HTTP 401 application/json (16 body bytes, not recorded) |
+
+### live-vps:galion-one-mouth (galion-one-mouth)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| mouth-health | KNOWN-FAIL | 0 | want HTTP [200]; got HTTP 503 application/json body "{\"ok\":false,\"status\":\"loading\",\"provider\":\"local\",\"model\":\"chatterbox\",\"loaded\":false}" |
+
+### live-vps:openmind-memory (openmind-memory)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| memory-health | PASS | 0 | HTTP 200 application/json (278 body bytes, not recorded) |
+| memory-impl | PASS | 0 | HTTP 200 application/json (278 body bytes, not recorded) |
+
+### live-vps:hermes-rs (hermes-rs)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| hermes-health | PASS | 0 | HTTP 200 application/json; charset=utf-8 body "{\"status\":\"ok\",\"platform\":\"hermes-agent\",\"version\":\"0.21.4\",\"implementation\":\"hermes-rs\",\"implementa" |
+
+### live-vps:galion-desk (galion-desk)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| desk-health | PASS | 0 | HTTP 200 application/json body "{\"ok\":true}" |
+
+### live-vps:tuner (tuner)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| tuner-health | PASS | 0 | HTTP 200 application/json body "{\"ok\":true}" |
+
+### live-vps:galion-health (galion-health)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| galion-health-status | PASS | 0 | HTTP 200 application/json (1394 body bytes, not recorded) |
+
+### live-vps:galion-nerve (galion-nerve)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| nerve-healthz | PASS | 0 | HTTP 200 text/plain body "ok" |
+| nerve-dashboard | PASS | 0 | HTTP 200 text/html; charset=utf-8 (3901 body bytes, not recorded) |
+
+### live-vps:tanga-serve (tanga-serve)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| tanga-page | PASS | 0 | HTTP 200 text/html; charset=utf-8 (3694 body bytes, not recorded) |
+
+### live-vps:console (console)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| console-root | PASS | 0 | HTTP 302  (0 body bytes, not recorded) |
+| console-health-404-until-switch | PASS | 0 | HTTP 404 text/html; charset=utf-8 (2928 body bytes, not recorded) |
+
+### live-vps:cloudflared (cloudflared)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| cloudflared-ready | PASS | 0 | HTTP 200 text/plain; charset=utf-8 (88 body bytes, not recorded) |
+
+### live-vps:units (systemd)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| galion-one.service | PASS | 0 | active |
+| galion-desk.service | PASS | 0 | active |
+| tuner.service | PASS | 0 | active |
+| openmind-memory.service | PASS | 0 | active |
+| hermes-rs.service | PASS | 0 | active |
+| galion-nerve.service | PASS | 0 | active |
+| galion-health.service | PASS | 0 | active |
+| cloudflared.service | PASS | 0 | active |
+| console.service | PASS | 0 | active |
+| link-watch.service | KNOWN-FAIL | 0 | is-active: inactive |
+
+### live-vps:ports (listeners)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| listen:8091 | PASS | 0 | 127.0.0.1:8091 |
+| listen:8002 | PASS | 0 | 127.0.0.1:8002 |
+| listen:8420 | PASS | 0 | 127.0.0.1:8420 |
+| listen:8642 | PASS | 0 | 127.0.0.1:8642 |
+| listen:8646 | PASS | 0 | 127.0.0.1:8646 |
+| listen:8650 | PASS | 0 | 127.0.0.1:8650 |
+| listen:8660 | PASS | 0 | 127.0.0.1:8660 |
+| listen:8670 | PASS | 0 | 127.0.0.1:8670 |
+| listen:8671 | PASS | 0 | 127.0.0.1:8671 |
+| listen:8080 | PASS | 0 | 127.0.0.1:8080 |
+| listen:20241 | PASS | 0 | 127.0.0.1:20241 |
+
+### live-public:public (public)
+
+| Check | Result | ms | Detail |
+|---|---|---|---|
+| one.galion.app/health | PASS | 0 | HTTP 200 text/plain body "ok" |
+| one.galion.app/ | PASS | 0 | HTTP 200 text/html; charset=utf-8 (3522 body bytes, not recorded) |
+| one.galion.app/me (unpaired) | PASS | 0 | HTTP 200 application/json body "{\"you\":false}" |
+| one.galion.app/session (unpaired 401) | PASS | 0 | HTTP 401 application/json (16 body bytes, not recorded) |
+| one.galion.app/api/v1/analytics (unpaired 401) | PASS | 0 | HTTP 401 application/json (16 body bytes, not recorded) |
+| one.galion.app/tanga/ | PASS | 0 | HTTP 200 text/html; charset=utf-8 (3250 body bytes, not recorded) |
+
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 18.07s
+
+   Doc-tests galion_realtest
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+# finished 2026-10-21T03:36:04+02:00

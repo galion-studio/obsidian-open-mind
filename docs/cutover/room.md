@@ -48,7 +48,7 @@ On the **box**, never on the VPS:
 git -C <clone> checkout <merged-main-sha>    # must contain this branch
 export PATH=/workspace/swarm/bin:$PATH CARGO_TARGET_DIR=/workspace/swarm/target/room
 nice -n 10 cargo build --release --locked -p room -j 4 --target x86_64-unknown-linux-musl
-scripts/real/room.sh                          # must end with "leftover room processes: none"
+GALION_REAL=1 cargo test --release -p galion-realtest --test real_sh_room -- --nocapture # must end with "leftover room processes: none"
 sha256sum $CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/room
 ```
 Then on the VPS, as the operator, with the approval quoted in the log:
@@ -97,7 +97,7 @@ Also re-read the neighbours once, so the switch is shown to touch nothing else:
 Go only if **every** box is true:
 - [ ] Slavik approved room by name (not "a candidate").
 - [ ] This branch is merged to `main` and CI is green (fmt, clippy -D warnings, test, musl tier-1, repo-check, no-Python).
-- [ ] `scripts/real/room.sh` passes on the box against the exact binary to be copied (sha256 recorded).
+- [ ] `crates/galion-realtest/tests/real_sh_room.rs` passes on the box against the exact binary to be copied (sha256 recorded).
 - [ ] The decision on exposure is written down: room stays loopback-only. No tunnel or ingress route to :4020 without a separate approval, because `/api/read` serves `.md`/`.txt` from `/workspace/galion-src` and `/workspace/galion-light/docs`.
 - [ ] Someone checked `/workspace/galion-src` and `/workspace/galion-light/docs` on the VPS for sensitive `.md`/`.txt` files whose names avoid the filter (`secret`, `.env`, `token`, `id_ed25519`). The name filter is a guard, not a classifier.
 - [ ] `systemd-analyze security room.service` is reviewed, and the hardening lines do not stop room from reading `/workspace`.

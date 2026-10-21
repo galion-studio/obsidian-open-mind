@@ -69,3 +69,5 @@ Stability: I ran it 3 more times in a row (`flake1..3`), and every run exited 0.
 ## 5. Honesty notes
 - Before the harness existed, one manual exploratory probe on the VPS used `curl -o /tmp/.rh-probe-body` and removed that file right after (one tiny temp file in /tmp). The harness itself writes nothing on the VPS; its script is pinned GET-only by a unit test.
 - The live checks show 0 ms per check because they are judged after one batch. The batch time is in the report header.
+
+> **2026-10-21 (realscript-port-3):** the shell driver for this evidence was ported to Rust and deleted; re-run with the matching test in `crates/galion-realtest/tests/` (see `docs/real-tests/realscript-port-3.md`).

@@ -13,7 +13,7 @@
 //!
 //! Ignored by default (needs the real build + a reachable localhost). Run it
 //! with `GALION_REAL=1 cargo test -p openmind-sandbox --test real_escape --
-//!  --ignored`, or via `scripts/real/sandbox.sh`. The cgroup checks only run
+//!  --ignored`, or via `crates/galion-realtest/tests/real_sh_sandbox.rs`. The cgroup checks only run
 //! when `GALION_REAL_CGROUP_PARENT` points at a delegated cgroup v2 dir the
 //! caller may create children in (the script sets one up as root).
 

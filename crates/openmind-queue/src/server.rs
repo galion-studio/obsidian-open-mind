@@ -285,11 +285,15 @@ fn handle_conn(stream: TcpStream, s: &Shared) {
         Err(e) => (400, json!({"error":"bad_request","detail":e.to_string()})),
     };
     // A refusal bumps a counter but writes no job record: persist it before
-    // answering, so a crash right after the answer cannot lose it.
-    let (code, body) = match flush_tally(&mut lock(s)) {
-        Ok(()) => (code, body),
-        Err(e) => io_err(e),
-    };
+    // answering, so a crash right after the answer cannot lose it. The
+    // counters are advisory: a failed write is logged and retried with the
+    // next request, it never turns a done change into an error.
+    if let Err(e) = flush_tally(&mut lock(s)) {
+        eprintln!(
+            "{} poseidon: refusal counter write failed: {e}",
+            zagreb_ms(now_ms())
+        );
+    }
     let _ = http::write_response(&stream, code, &body.to_string());
 }
 

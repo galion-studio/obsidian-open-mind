@@ -1,0 +1,236 @@
+$ galion-flight postflight nerve --target local --pid 1585759 --no-public --set unit= --set port=20650 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve --set sha256=b4207a364ca39dbdec7164ff79f02cb4867dda4a1561f8db70406551227ed4d6 --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=/healthz 200 exact:ok --set get=/state 200 json:service=galion-nerve --set get=/state 200 json:mode=dry-run
+galion-flight postflight nerve target=box at 2026-10-21T16:07:46+02:00
+PASS exe.running — pid 1585759 runs /workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve (want /workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve)
+PASS exe.running-sha256 — b4207a36… (want b4207a36…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve b4207a36… (want b4207a36…)
+PASS exe.stat — 1023952 B mode 755 1000:1000 mtime 2026-10-21T15:59:38+02:00 (want mode 755 1000:1000)
+PASS port.listen 20650 — LISTEN
+PASS http.get :20650/healthz — HTTP 200, body = "ok"
+PASS http.get :20650/state — HTTP 200, json service = "galion-nerve"
+PASS http.get :20650/state — HTTP 200, json mode = "dry-run"
+RESULT GO nerve postflight: 8 pass, 0 fail, 0 skip
+$ galion-flight postflight nerve --target local --pid 1585759 --no-public --set unit= --set port=20650 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve --set sha256=b4207a364ca39dbdec7164ff79f02cb4867dda4a1561f8db70406551227ed4d6 --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=/healthz 200 exact:ok --set get=/state 200 json:service=galion-nerve --set get=/state 200 json:mode=dry-run --set sha256=0000000000000000000000000000000000000000000000000000000000000000
+galion-flight postflight nerve target=box at 2026-10-21T16:07:46+02:00
+PASS exe.running — pid 1585759 runs /workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve (want /workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve)
+FAIL exe.running-sha256 — b4207a36… (want 00000000…)
+FAIL exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve b4207a36… (want 00000000…)
+PASS exe.stat — 1023952 B mode 755 1000:1000 mtime 2026-10-21T15:59:38+02:00 (want mode 755 1000:1000)
+PASS port.listen 20650 — LISTEN
+PASS http.get :20650/healthz — HTTP 200, body = "ok"
+PASS http.get :20650/state — HTTP 200, json service = "galion-nerve"
+PASS http.get :20650/state — HTTP 200, json mode = "dry-run"
+RESULT NO-GO nerve postflight: 6 pass, 2 fail, 0 skip (fail: exe.running-sha256; exe.file-sha256)
+$ galion-flight postflight nerve --target local --pid 1585759 --no-public --set unit= --set port=20650 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve --set sha256=b4207a364ca39dbdec7164ff79f02cb4867dda4a1561f8db70406551227ed4d6 --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=/healthz 200 exact:ok --set get=/state 200 json:service=galion-nerve --set get=/state 200 json:mode=dry-run --set get=:20650 /flight-nope 200 exact:x
+galion-flight postflight nerve target=box at 2026-10-21T16:07:46+02:00
+PASS exe.running — pid 1585759 runs /workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve (want /workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve)
+PASS exe.running-sha256 — b4207a36… (want b4207a36…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve b4207a36… (want b4207a36…)
+PASS exe.stat — 1023952 B mode 755 1000:1000 mtime 2026-10-21T15:59:38+02:00 (want mode 755 1000:1000)
+PASS port.listen 20650 — LISTEN
+PASS http.get :20650/healthz — HTTP 200, body = "ok"
+PASS http.get :20650/state — HTTP 200, json service = "galion-nerve"
+PASS http.get :20650/state — HTTP 200, json mode = "dry-run"
+FAIL http.get :20650/flight-nope — HTTP 404 (10 B), want [200]
+RESULT NO-GO nerve postflight: 8 pass, 1 fail, 0 skip (fail: http.get :20650/flight-nope)
+$ galion-flight postflight memory --target local --pid 1585760 --no-public --set unit= --set port=20651 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/openmind-memory --set sha256=f76cbd99cfe5a2b2fa9596d132217820c96abaf86ef857ecc4584ccab6e941fa --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve=
+galion-flight postflight memory target=box at 2026-10-21T16:07:46+02:00
+PASS exe.running — pid 1585760 runs /workspace/swarm/target/vps-preflight-scripts/release/openmind-memory (want /workspace/swarm/target/vps-preflight-scripts/release/openmind-memory)
+PASS exe.running-sha256 — f76cbd99… (want f76cbd99…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/openmind-memory f76cbd99… (want f76cbd99…)
+PASS exe.stat — 1531816 B mode 755 1000:1000 mtime 2026-10-21T15:59:44+02:00 (want mode 755 1000:1000)
+PASS port.listen 20651 — LISTEN
+PASS http.get :20651/health — HTTP 200, json status = "ok"
+RESULT GO memory postflight: 6 pass, 0 fail, 0 skip
+$ galion-flight postflight memory --target local --pid 1585760 --no-public --set unit= --set port=20651 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/openmind-memory --set sha256=f76cbd99cfe5a2b2fa9596d132217820c96abaf86ef857ecc4584ccab6e941fa --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set sha256=0000000000000000000000000000000000000000000000000000000000000000
+galion-flight postflight memory target=box at 2026-10-21T16:07:46+02:00
+PASS exe.running — pid 1585760 runs /workspace/swarm/target/vps-preflight-scripts/release/openmind-memory (want /workspace/swarm/target/vps-preflight-scripts/release/openmind-memory)
+FAIL exe.running-sha256 — f76cbd99… (want 00000000…)
+FAIL exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/openmind-memory f76cbd99… (want 00000000…)
+PASS exe.stat — 1531816 B mode 755 1000:1000 mtime 2026-10-21T15:59:44+02:00 (want mode 755 1000:1000)
+PASS port.listen 20651 — LISTEN
+PASS http.get :20651/health — HTTP 200, json status = "ok"
+RESULT NO-GO memory postflight: 4 pass, 2 fail, 0 skip (fail: exe.running-sha256; exe.file-sha256)
+$ galion-flight postflight memory --target local --pid 1585760 --no-public --set unit= --set port=20651 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/openmind-memory --set sha256=f76cbd99cfe5a2b2fa9596d132217820c96abaf86ef857ecc4584ccab6e941fa --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=:20651 /flight-nope 200 exact:x
+galion-flight postflight memory target=box at 2026-10-21T16:07:46+02:00
+PASS exe.running — pid 1585760 runs /workspace/swarm/target/vps-preflight-scripts/release/openmind-memory (want /workspace/swarm/target/vps-preflight-scripts/release/openmind-memory)
+PASS exe.running-sha256 — f76cbd99… (want f76cbd99…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/openmind-memory f76cbd99… (want f76cbd99…)
+PASS exe.stat — 1531816 B mode 755 1000:1000 mtime 2026-10-21T15:59:44+02:00 (want mode 755 1000:1000)
+PASS port.listen 20651 — LISTEN
+FAIL http.get :20651/flight-nope — HTTP 401 (46 B), want [200]
+RESULT NO-GO memory postflight: 5 pass, 1 fail, 0 skip (fail: http.get :20651/flight-nope)
+$ galion-flight postflight hermes-rs --target local --pid 1585761 --no-public --set unit= --set port=20652 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway --set sha256=cb3664bc6335ab51cf240eebf04bfb6df28ef761e52a69a96398fb4865fa025e --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve=
+galion-flight postflight hermes-rs target=box at 2026-10-21T16:07:47+02:00
+PASS exe.running — pid 1585761 runs /workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway (want /workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway)
+PASS exe.running-sha256 — cb3664bc… (want cb3664bc…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway cb3664bc… (want cb3664bc…)
+PASS exe.stat — 1678952 B mode 755 1000:1000 mtime 2026-10-21T16:00:07+02:00 (want mode 755 1000:1000)
+PASS port.listen 20652 — LISTEN
+PASS http.get :20652/health — HTTP 200, json status = "ok"
+PASS http.get :20652/health — HTTP 200, json implementation = "hermes-rs"
+RESULT GO hermes-rs postflight: 7 pass, 0 fail, 0 skip
+$ galion-flight postflight hermes-rs --target local --pid 1585761 --no-public --set unit= --set port=20652 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway --set sha256=cb3664bc6335ab51cf240eebf04bfb6df28ef761e52a69a96398fb4865fa025e --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set sha256=0000000000000000000000000000000000000000000000000000000000000000
+galion-flight postflight hermes-rs target=box at 2026-10-21T16:07:47+02:00
+PASS exe.running — pid 1585761 runs /workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway (want /workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway)
+FAIL exe.running-sha256 — cb3664bc… (want 00000000…)
+FAIL exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway cb3664bc… (want 00000000…)
+PASS exe.stat — 1678952 B mode 755 1000:1000 mtime 2026-10-21T16:00:07+02:00 (want mode 755 1000:1000)
+PASS port.listen 20652 — LISTEN
+PASS http.get :20652/health — HTTP 200, json status = "ok"
+PASS http.get :20652/health — HTTP 200, json implementation = "hermes-rs"
+RESULT NO-GO hermes-rs postflight: 5 pass, 2 fail, 0 skip (fail: exe.running-sha256; exe.file-sha256)
+$ galion-flight postflight hermes-rs --target local --pid 1585761 --no-public --set unit= --set port=20652 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway --set sha256=cb3664bc6335ab51cf240eebf04bfb6df28ef761e52a69a96398fb4865fa025e --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=:20652 /flight-nope 200 exact:x
+galion-flight postflight hermes-rs target=box at 2026-10-21T16:07:47+02:00
+PASS exe.running — pid 1585761 runs /workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway (want /workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway)
+PASS exe.running-sha256 — cb3664bc… (want cb3664bc…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway cb3664bc… (want cb3664bc…)
+PASS exe.stat — 1678952 B mode 755 1000:1000 mtime 2026-10-21T16:00:07+02:00 (want mode 755 1000:1000)
+PASS port.listen 20652 — LISTEN
+FAIL http.get :20652/flight-nope — HTTP 401 (121 B), want [200]
+RESULT NO-GO hermes-rs postflight: 5 pass, 1 fail, 0 skip (fail: http.get :20652/flight-nope)
+$ galion-flight postflight galion-one --target local --pid 1585763 --no-public --set unit= --set port=20653 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/galion-one --set sha256=b449c63fd7c57f96ed908776abe39e5e2b09c07172737666ffc138536d2016ba --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=/health 200 exact:ok --set get=:20659 /health 503 json:status=unavailable
+galion-flight postflight galion-one target=box at 2026-10-21T16:07:47+02:00
+PASS exe.running — pid 1585763 runs /workspace/swarm/target/vps-preflight-scripts/release/galion-one (want /workspace/swarm/target/vps-preflight-scripts/release/galion-one)
+PASS exe.running-sha256 — b449c63f… (want b449c63f…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/galion-one b449c63f… (want b449c63f…)
+PASS exe.stat — 698864 B mode 755 1000:1000 mtime 2026-10-21T15:59:48+02:00 (want mode 755 1000:1000)
+PASS port.listen 20653 — LISTEN
+PASS http.get :20653/health — HTTP 200, body = "ok"
+PASS http.get :20659/health — HTTP 503, json status = "unavailable"
+SKIP public.get https://one.galion.app/health — public checks off (--no-public)
+RESULT GO galion-one postflight: 7 pass, 0 fail, 1 skip
+$ galion-flight postflight galion-one --target local --pid 1585763 --no-public --set unit= --set port=20653 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/galion-one --set sha256=b449c63fd7c57f96ed908776abe39e5e2b09c07172737666ffc138536d2016ba --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=/health 200 exact:ok --set get=:20659 /health 503 json:status=unavailable --set sha256=0000000000000000000000000000000000000000000000000000000000000000
+galion-flight postflight galion-one target=box at 2026-10-21T16:07:47+02:00
+PASS exe.running — pid 1585763 runs /workspace/swarm/target/vps-preflight-scripts/release/galion-one (want /workspace/swarm/target/vps-preflight-scripts/release/galion-one)
+FAIL exe.running-sha256 — b449c63f… (want 00000000…)
+FAIL exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/galion-one b449c63f… (want 00000000…)
+PASS exe.stat — 698864 B mode 755 1000:1000 mtime 2026-10-21T15:59:48+02:00 (want mode 755 1000:1000)
+PASS port.listen 20653 — LISTEN
+PASS http.get :20653/health — HTTP 200, body = "ok"
+PASS http.get :20659/health — HTTP 503, json status = "unavailable"
+SKIP public.get https://one.galion.app/health — public checks off (--no-public)
+RESULT NO-GO galion-one postflight: 5 pass, 2 fail, 1 skip (fail: exe.running-sha256; exe.file-sha256)
+$ galion-flight postflight galion-one --target local --pid 1585763 --no-public --set unit= --set port=20653 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/galion-one --set sha256=b449c63fd7c57f96ed908776abe39e5e2b09c07172737666ffc138536d2016ba --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=/health 200 exact:ok --set get=:20659 /health 503 json:status=unavailable --set get=:20653 /flight-nope 200 exact:x
+galion-flight postflight galion-one target=box at 2026-10-21T16:07:47+02:00
+PASS exe.running — pid 1585763 runs /workspace/swarm/target/vps-preflight-scripts/release/galion-one (want /workspace/swarm/target/vps-preflight-scripts/release/galion-one)
+PASS exe.running-sha256 — b449c63f… (want b449c63f…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/galion-one b449c63f… (want b449c63f…)
+PASS exe.stat — 698864 B mode 755 1000:1000 mtime 2026-10-21T15:59:48+02:00 (want mode 755 1000:1000)
+PASS port.listen 20653 — LISTEN
+PASS http.get :20653/health — HTTP 200, body = "ok"
+PASS http.get :20659/health — HTTP 503, json status = "unavailable"
+FAIL http.get :20653/flight-nope — HTTP 404 (10 B), want [200]
+SKIP public.get https://one.galion.app/health — public checks off (--no-public)
+RESULT NO-GO galion-one postflight: 7 pass, 1 fail, 1 skip (fail: http.get :20653/flight-nope)
+$ galion-flight postflight tuner --target local --pid 1585765 --no-public --set unit= --set port=20654 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/tuner --set sha256=a1bcc4fd80795b7e5f984d11622a8c615e8d6da0fe22c28db8b585428d669484 --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve=
+galion-flight postflight tuner target=box at 2026-10-21T16:07:47+02:00
+PASS exe.running — pid 1585765 runs /workspace/swarm/target/vps-preflight-scripts/release/tuner (want /workspace/swarm/target/vps-preflight-scripts/release/tuner)
+PASS exe.running-sha256 — a1bcc4fd… (want a1bcc4fd…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/tuner a1bcc4fd… (want a1bcc4fd…)
+PASS exe.stat — 358272 B mode 755 1000:1000 mtime 2026-10-21T15:59:31+02:00 (want mode 755 1000:1000)
+PASS port.listen 20654 — LISTEN
+PASS http.get :20654/health — HTTP 200, body = "{\"ok\":true}"
+PASS http.get :20654/ — HTTP 200, body (55 B) contains "<html"
+RESULT GO tuner postflight: 7 pass, 0 fail, 0 skip
+$ galion-flight postflight tuner --target local --pid 1585765 --no-public --set unit= --set port=20654 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/tuner --set sha256=a1bcc4fd80795b7e5f984d11622a8c615e8d6da0fe22c28db8b585428d669484 --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set sha256=0000000000000000000000000000000000000000000000000000000000000000
+galion-flight postflight tuner target=box at 2026-10-21T16:07:47+02:00
+PASS exe.running — pid 1585765 runs /workspace/swarm/target/vps-preflight-scripts/release/tuner (want /workspace/swarm/target/vps-preflight-scripts/release/tuner)
+FAIL exe.running-sha256 — a1bcc4fd… (want 00000000…)
+FAIL exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/tuner a1bcc4fd… (want 00000000…)
+PASS exe.stat — 358272 B mode 755 1000:1000 mtime 2026-10-21T15:59:31+02:00 (want mode 755 1000:1000)
+PASS port.listen 20654 — LISTEN
+PASS http.get :20654/health — HTTP 200, body = "{\"ok\":true}"
+PASS http.get :20654/ — HTTP 200, body (55 B) contains "<html"
+RESULT NO-GO tuner postflight: 5 pass, 2 fail, 0 skip (fail: exe.running-sha256; exe.file-sha256)
+$ galion-flight postflight tuner --target local --pid 1585765 --no-public --set unit= --set port=20654 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/tuner --set sha256=a1bcc4fd80795b7e5f984d11622a8c615e8d6da0fe22c28db8b585428d669484 --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=:20654 /flight-nope 200 exact:x
+galion-flight postflight tuner target=box at 2026-10-21T16:07:47+02:00
+PASS exe.running — pid 1585765 runs /workspace/swarm/target/vps-preflight-scripts/release/tuner (want /workspace/swarm/target/vps-preflight-scripts/release/tuner)
+PASS exe.running-sha256 — a1bcc4fd… (want a1bcc4fd…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/tuner a1bcc4fd… (want a1bcc4fd…)
+PASS exe.stat — 358272 B mode 755 1000:1000 mtime 2026-10-21T15:59:31+02:00 (want mode 755 1000:1000)
+PASS port.listen 20654 — LISTEN
+FAIL http.get :20654/flight-nope — HTTP 404 (10 B), want [200]
+RESULT NO-GO tuner postflight: 5 pass, 1 fail, 0 skip (fail: http.get :20654/flight-nope)
+$ galion-flight postflight galion-one --target local --pid 1585763 --no-public --set unit= --set port=20653 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/galion-one --set sha256=b449c63fd7c57f96ed908776abe39e5e2b09c07172737666ffc138536d2016ba --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=/health 200 exact:ok --set get=:20659 /health 503 json:status=loading
+galion-flight postflight galion-one target=box at 2026-10-21T16:07:47+02:00
+PASS exe.running — pid 1585763 runs /workspace/swarm/target/vps-preflight-scripts/release/galion-one (want /workspace/swarm/target/vps-preflight-scripts/release/galion-one)
+PASS exe.running-sha256 — b449c63f… (want b449c63f…)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/galion-one b449c63f… (want b449c63f…)
+PASS exe.stat — 698864 B mode 755 1000:1000 mtime 2026-10-21T15:59:48+02:00 (want mode 755 1000:1000)
+PASS port.listen 20653 — LISTEN
+PASS http.get :20653/health — HTTP 200, body = "ok"
+FAIL http.get :20659/health — HTTP 503, json status = "unavailable", want "loading"
+SKIP public.get https://one.galion.app/health — public checks off (--no-public)
+RESULT NO-GO galion-one postflight: 6 pass, 1 fail, 1 skip (fail: http.get :20659/health)
+$ galion-flight postflight cloudflared --target local --pid 1585757 --no-public --set unit= --set also_unit= --set port=20655 --set exe= --set sha256= --set mode= --set owner= --set dropins=- --set nerve= --set get=/ready 200 any --set get=:20656 /ready 200 any
+galion-flight postflight cloudflared target=box at 2026-10-21T16:07:47+02:00
+PASS port.listen 20655 — LISTEN
+PASS http.get :20655/ready — HTTP 200, 60 B
+PASS http.get :20656/ready — HTTP 200, 60 B
+SKIP public.get https://one.galion.app/health — public checks off (--no-public)
+SKIP public.get https://galion.app/ — public checks off (--no-public)
+RESULT GO cloudflared postflight: 3 pass, 0 fail, 2 skip
+$ galion-flight postflight nerve --target local --pid 1585759 --no-public --set unit= --set port=20650 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve --set sha256=b4207a364ca39dbdec7164ff79f02cb4867dda4a1561f8db70406551227ed4d6 --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=/healthz 200 exact:ok --set get=/state 200 json:service=galion-nerve --set get=/state 200 json:mode=dry-run
+galion-flight postflight nerve target=box at 2026-10-21T16:07:47+02:00
+FAIL exe.running — readlink: No such file or directory (os error 2)
+FAIL exe.running-sha256 — open: No such file or directory (os error 2)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/openmind-nerve b4207a36… (want b4207a36…)
+PASS exe.stat — 1023952 B mode 755 1000:1000 mtime 2026-10-21T15:59:38+02:00 (want mode 755 1000:1000)
+FAIL port.listen 20650 — nothing listening
+FAIL http.get :20650/healthz — HTTP 0 (0 B), want [200]
+FAIL http.get :20650/state — HTTP 0 (0 B), want [200]
+FAIL http.get :20650/state — HTTP 0 (0 B), want [200]
+RESULT NO-GO nerve postflight: 2 pass, 6 fail, 0 skip (fail: exe.running; exe.running-sha256; port.listen 20650; http.get :20650/healthz; http.get :20650/state; http.get :20650/state)
+$ galion-flight postflight memory --target local --pid 1585760 --no-public --set unit= --set port=20651 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/openmind-memory --set sha256=f76cbd99cfe5a2b2fa9596d132217820c96abaf86ef857ecc4584ccab6e941fa --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve=
+galion-flight postflight memory target=box at 2026-10-21T16:07:48+02:00
+FAIL exe.running — readlink: No such file or directory (os error 2)
+FAIL exe.running-sha256 — open: No such file or directory (os error 2)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/openmind-memory f76cbd99… (want f76cbd99…)
+PASS exe.stat — 1531816 B mode 755 1000:1000 mtime 2026-10-21T15:59:44+02:00 (want mode 755 1000:1000)
+FAIL port.listen 20651 — nothing listening
+FAIL http.get :20651/health — HTTP 0 (0 B), want [200]
+RESULT NO-GO memory postflight: 2 pass, 4 fail, 0 skip (fail: exe.running; exe.running-sha256; port.listen 20651; http.get :20651/health)
+$ galion-flight postflight hermes-rs --target local --pid 1585761 --no-public --set unit= --set port=20652 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway --set sha256=cb3664bc6335ab51cf240eebf04bfb6df28ef761e52a69a96398fb4865fa025e --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve=
+galion-flight postflight hermes-rs target=box at 2026-10-21T16:07:48+02:00
+FAIL exe.running — readlink: No such file or directory (os error 2)
+FAIL exe.running-sha256 — open: No such file or directory (os error 2)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/hermes-gateway cb3664bc… (want cb3664bc…)
+PASS exe.stat — 1678952 B mode 755 1000:1000 mtime 2026-10-21T16:00:07+02:00 (want mode 755 1000:1000)
+FAIL port.listen 20652 — nothing listening
+FAIL http.get :20652/health — HTTP 0 (0 B), want [200]
+FAIL http.get :20652/health — HTTP 0 (0 B), want [200]
+RESULT NO-GO hermes-rs postflight: 2 pass, 5 fail, 0 skip (fail: exe.running; exe.running-sha256; port.listen 20652; http.get :20652/health; http.get :20652/health)
+$ galion-flight postflight galion-one --target local --pid 1585763 --no-public --set unit= --set port=20653 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/galion-one --set sha256=b449c63fd7c57f96ed908776abe39e5e2b09c07172737666ffc138536d2016ba --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve= --set get=/health 200 exact:ok --set get=:20659 /health 503 json:status=unavailable
+galion-flight postflight galion-one target=box at 2026-10-21T16:07:48+02:00
+FAIL exe.running — readlink: No such file or directory (os error 2)
+FAIL exe.running-sha256 — open: No such file or directory (os error 2)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/galion-one b449c63f… (want b449c63f…)
+PASS exe.stat — 698864 B mode 755 1000:1000 mtime 2026-10-21T15:59:48+02:00 (want mode 755 1000:1000)
+FAIL port.listen 20653 — nothing listening
+FAIL http.get :20653/health — HTTP 0 (0 B), want [200]
+FAIL http.get :20659/health — HTTP 0 (0 B), want [503]
+SKIP public.get https://one.galion.app/health — public checks off (--no-public)
+RESULT NO-GO galion-one postflight: 2 pass, 5 fail, 1 skip (fail: exe.running; exe.running-sha256; port.listen 20653; http.get :20653/health; http.get :20659/health)
+$ galion-flight postflight tuner --target local --pid 1585765 --no-public --set unit= --set port=20654 --set exe=/workspace/swarm/target/vps-preflight-scripts/release/tuner --set sha256=a1bcc4fd80795b7e5f984d11622a8c615e8d6da0fe22c28db8b585428d669484 --set mode=755 --set owner=1000:1000 --set dropins=- --set nerve=
+galion-flight postflight tuner target=box at 2026-10-21T16:07:48+02:00
+FAIL exe.running — readlink: No such file or directory (os error 2)
+FAIL exe.running-sha256 — open: No such file or directory (os error 2)
+PASS exe.file-sha256 — /workspace/swarm/target/vps-preflight-scripts/release/tuner a1bcc4fd… (want a1bcc4fd…)
+PASS exe.stat — 358272 B mode 755 1000:1000 mtime 2026-10-21T15:59:31+02:00 (want mode 755 1000:1000)
+FAIL port.listen 20654 — nothing listening
+FAIL http.get :20654/health — HTTP 0 (0 B), want [200]
+FAIL http.get :20654/ — HTTP 0 (0 B), want [200]
+RESULT NO-GO tuner postflight: 2 pass, 5 fail, 0 skip (fail: exe.running; exe.running-sha256; port.listen 20654; http.get :20654/health; http.get :20654/)
+SUMMARY
+nerve: GO
+memory: GO
+hermes-rs: GO
+galion-one: GO
+tuner: GO
+galion-one live mouth body (loading) vs 42de672 box (unavailable): NO-GO caught
+cloudflared (stand-in): GO, body not shown
+nerve killed: NO-GO (6 fails)
+memory killed: NO-GO (4 fails)
+hermes-rs killed: NO-GO (5 fails)
+galion-one killed: NO-GO (5 fails)
+tuner killed: NO-GO (5 fails)

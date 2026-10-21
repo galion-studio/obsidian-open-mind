@@ -1,0 +1,431 @@
+$ galion-flight preflight nerve --host slavik-vps --show-commands
+galion-flight preflight nerve target=vps:slavik-vps at 2026-10-21T16:08:03+02:00
+PASS unit.state galion-nerve.service — active/running result=success
+PASS unit.restarts galion-nerve.service — NRestarts 0 (max 0)
+PASS unit.enabled galion-nerve.service — UnitFileState enabled (want enabled)
+PASS unit.dropins galion-nerve.service — drop-ins [50-rust-bin.conf 60-nerve-eventlog.conf] (want [50-rust-bin.conf 60-nerve-eventlog.conf])
+PASS exe.running — pid 87026 runs /opt/galion/rust/bin/openmind-nerve-aa77864 (want /opt/galion/rust/bin/openmind-nerve-aa77864)
+PASS exe.running-sha256 — f0994b6d… (want f0994b6d…)
+PASS exe.file-sha256 — /opt/galion/rust/bin/openmind-nerve-aa77864 f0994b6d… (want f0994b6d…)
+PASS exe.stat — 1213216 B mode 755 root:root mtime 2026-10-21T09:41:20+02:00 (want mode 755 root:root)
+PASS port.listen 8670 — LISTEN
+PASS http.get :8670/healthz — HTTP 200, body = "ok"
+PASS http.get :8670/state — HTTP 200, json service = "galion-nerve"
+PASS http.get :8670/state — HTTP 200, json mode = "live"
+PASS nerve.view galion-nerve — healthy (cycle 769, since 2026-10-21T09:43:54+02:00; accept healthy)
+PASS file.sha256 /opt/galion/rust/bin/galion-nerve — 3b150dea… (want 3b150dea…)
+PASS file.sha256 /opt/galion/rust/bin/galion-deploy — 2a60e1ac… (want 2a60e1ac…)
+PASS file.exists /var/backups/galion-nerve.service-20261021-094354 — mode 644 root:root
+PASS timer.quiet galion-backup.timer — next 2026-10-21T20:21:43+02:00 in 15220 s (need > 300 s)
+PASS disk.free /opt/galion — 76142 MiB free (need 2048)
+RESULT GO nerve preflight: 18 pass, 0 fail, 0 skip
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'galion-nerve.service'
+SENT readlink '/proc/87026/exe'
+SENT sha256sum '/proc/87026/exe'
+SENT sha256sum '/opt/galion/rust/bin/openmind-nerve-aa77864'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/rust/bin/openmind-nerve-aa77864'
+SENT ss -ltnH 'sport = :8670'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/healthz'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT sha256sum '/opt/galion/rust/bin/galion-nerve'
+SENT sha256sum '/opt/galion/rust/bin/galion-deploy'
+SENT stat -c '%s %a %U:%G %Y' '/var/backups/galion-nerve.service-20261021-094354'
+SENT systemctl show --timestamp=unix -p NextElapseUSecRealtime 'galion-backup.timer'
+SENT stat -f -c '%a %S' '/opt/galion'
+$ galion-flight preflight memory --host slavik-vps --show-commands
+galion-flight preflight memory target=vps:slavik-vps at 2026-10-21T16:08:12+02:00
+PASS unit.state openmind-memory.service — active/running result=success
+PASS unit.restarts openmind-memory.service — NRestarts 0 (max 0)
+PASS unit.enabled openmind-memory.service — UnitFileState enabled (want enabled)
+PASS unit.dropins openmind-memory.service — drop-ins [50-rust-bin.conf 60-nerve-url.conf] (want [50-rust-bin.conf 60-nerve-url.conf])
+PASS exe.running — pid 88565 runs /opt/galion/rust/bin/openmind-memory-aa77864 (want /opt/galion/rust/bin/openmind-memory-aa77864)
+PASS exe.running-sha256 — 18e35ab4… (want 18e35ab4…)
+PASS exe.file-sha256 — /opt/galion/rust/bin/openmind-memory-aa77864 18e35ab4… (want 18e35ab4…)
+PASS exe.stat — 1702640 B mode 755 root:root mtime 2026-10-21T09:41:26+02:00 (want mode 755 root:root)
+PASS port.listen 8420 — LISTEN
+PASS http.get :8420/health — HTTP 200, json status = "ok"
+PASS nerve.view openmind-memory — healthy (cycle 769, since 2026-10-21T10:46:24+02:00; accept healthy)
+PASS file.sha256 /opt/galion/rust/bin/openmind-memory — 473ae4a3… (want 473ae4a3…)
+PASS file.sha256 /opt/galion/rust/bin/galion-deploy — 2a60e1ac… (want 2a60e1ac…)
+PASS file.exists /var/backups/openmind-memory.service-20261021-094509 — mode 644 root:root
+PASS timer.quiet galion-backup.timer — next 2026-10-21T20:21:43+02:00 in 15211 s (need > 300 s)
+PASS disk.free /opt/galion — 76142 MiB free (need 2048)
+RESULT GO memory preflight: 16 pass, 0 fail, 0 skip
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'openmind-memory.service'
+SENT readlink '/proc/88565/exe'
+SENT sha256sum '/proc/88565/exe'
+SENT sha256sum '/opt/galion/rust/bin/openmind-memory-aa77864'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/rust/bin/openmind-memory-aa77864'
+SENT ss -ltnH 'sport = :8420'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8420/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT sha256sum '/opt/galion/rust/bin/openmind-memory'
+SENT sha256sum '/opt/galion/rust/bin/galion-deploy'
+SENT stat -c '%s %a %U:%G %Y' '/var/backups/openmind-memory.service-20261021-094509'
+SENT systemctl show --timestamp=unix -p NextElapseUSecRealtime 'galion-backup.timer'
+SENT stat -f -c '%a %S' '/opt/galion'
+$ galion-flight preflight hermes-rs --host slavik-vps --show-commands
+galion-flight preflight hermes-rs target=vps:slavik-vps at 2026-10-21T16:08:20+02:00
+PASS unit.state hermes-rs.service — active/running result=success
+PASS unit.restarts hermes-rs.service — NRestarts 0 (max 0)
+PASS unit.enabled hermes-rs.service — UnitFileState enabled (want enabled)
+PASS unit.dropins hermes-rs.service — drop-ins [50-rust-bin.conf 60-nerve-url.conf] (want [50-rust-bin.conf 60-nerve-url.conf])
+PASS exe.running — pid 89484 runs /opt/galion/rust/bin/hermes-gateway-aa77864 (want /opt/galion/rust/bin/hermes-gateway-aa77864)
+PASS exe.running-sha256 — eb691b29… (want eb691b29…)
+PASS exe.file-sha256 — /opt/galion/rust/bin/hermes-gateway-aa77864 eb691b29… (want eb691b29…)
+PASS exe.stat — 1841904 B mode 755 root:root mtime 2026-10-21T09:41:31+02:00 (want mode 755 root:root)
+PASS port.listen 8642 — LISTEN
+PASS http.get :8642/health — HTTP 200, json status = "ok"
+PASS http.get :8642/health — HTTP 200, json implementation = "hermes-rs"
+PASS nerve.view hermes-rs — healthy (cycle 770, since 2026-10-21T15:37:24+02:00; accept healthy)
+PASS file.sha256 /opt/galion/rust/bin/hermes-gateway — cd344b16… (want cd344b16…)
+PASS file.sha256 /opt/galion/rust/bin/galion-deploy — 2a60e1ac… (want 2a60e1ac…)
+PASS file.exists /var/backups/hermes-rs.service-20261021-094621 — mode 644 root:root
+PASS timer.quiet galion-backup.timer — next 2026-10-21T20:21:43+02:00 in 15203 s (need > 300 s)
+PASS disk.free /opt/galion — 76142 MiB free (need 2048)
+RESULT GO hermes-rs preflight: 17 pass, 0 fail, 0 skip
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'hermes-rs.service'
+SENT readlink '/proc/89484/exe'
+SENT sha256sum '/proc/89484/exe'
+SENT sha256sum '/opt/galion/rust/bin/hermes-gateway-aa77864'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/rust/bin/hermes-gateway-aa77864'
+SENT ss -ltnH 'sport = :8642'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8642/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8642/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT sha256sum '/opt/galion/rust/bin/hermes-gateway'
+SENT sha256sum '/opt/galion/rust/bin/galion-deploy'
+SENT stat -c '%s %a %U:%G %Y' '/var/backups/hermes-rs.service-20261021-094621'
+SENT systemctl show --timestamp=unix -p NextElapseUSecRealtime 'galion-backup.timer'
+SENT stat -f -c '%a %S' '/opt/galion'
+$ galion-flight preflight galion-one --host slavik-vps --show-commands
+galion-flight preflight galion-one target=vps:slavik-vps at 2026-10-21T16:08:28+02:00
+PASS unit.state galion-one.service — active/running result=success
+PASS unit.restarts galion-one.service — NRestarts 0 (max 0)
+PASS unit.enabled galion-one.service — UnitFileState enabled (want enabled)
+PASS unit.dropins galion-one.service — drop-ins [50-rust-bin.conf] (want [50-rust-bin.conf])
+PASS exe.running — pid 29782 runs /opt/galion/rust/bin/galion-one (want /opt/galion/rust/bin/galion-one)
+PASS exe.running-sha256 — 24cb4976… (want 24cb4976…)
+PASS exe.file-sha256 — /opt/galion/rust/bin/galion-one 24cb4976… (want 24cb4976…)
+PASS exe.stat — 963904 B mode 755 root:root mtime 2026-10-21T08:39:10+02:00 (want mode 755 root:root)
+PASS port.listen 8091 — LISTEN
+PASS http.get :8091/health — HTTP 200, body = "ok"
+PASS http.get :8002/health — HTTP 503, json status = "loading"
+PASS nerve.view galion-one — healthy (cycle 770, since 2026-10-21T09:43:54+02:00; accept healthy)
+PASS file.sha256 /var/backups/galion-one-20261021/galion-one.old — 090c15d0… (want 090c15d0…)
+PASS file.sha256 /opt/galion/rust/bin/galion-deploy — 2a60e1ac… (want 2a60e1ac…)
+PASS timer.quiet galion-backup.timer — next 2026-10-21T20:21:43+02:00 in 15195 s (need > 300 s)
+PASS disk.free /opt/galion — 76142 MiB free (need 2048)
+PASS public.get https://one.galion.app/health — HTTP 200, body = "ok"
+RESULT GO galion-one preflight: 17 pass, 0 fail, 0 skip
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'galion-one.service'
+SENT readlink '/proc/29782/exe'
+SENT sha256sum '/proc/29782/exe'
+SENT sha256sum '/opt/galion/rust/bin/galion-one'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/rust/bin/galion-one'
+SENT ss -ltnH 'sport = :8091'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8091/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8002/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT sha256sum '/var/backups/galion-one-20261021/galion-one.old'
+SENT sha256sum '/opt/galion/rust/bin/galion-deploy'
+SENT systemctl show --timestamp=unix -p NextElapseUSecRealtime 'galion-backup.timer'
+SENT stat -f -c '%a %S' '/opt/galion'
+$ galion-flight preflight tuner --host slavik-vps --show-commands
+galion-flight preflight tuner target=vps:slavik-vps at 2026-10-21T16:08:36+02:00
+PASS unit.state tuner.service — active/running result=success
+PASS unit.restarts tuner.service — NRestarts 0 (max 0)
+PASS unit.enabled tuner.service — UnitFileState enabled (want enabled)
+PASS unit.dropins tuner.service — drop-ins [] (want [])
+PASS exe.running — pid 4004553 runs /opt/galion/tuner/bin/tuner (want /opt/galion/tuner/bin/tuner)
+PASS exe.running-sha256 — 89c7fcbc… (want 89c7fcbc…)
+PASS exe.file-sha256 — /opt/galion/tuner/bin/tuner 89c7fcbc… (want 89c7fcbc…)
+PASS exe.stat — 480032 B mode 755 root:root mtime 2026-10-21T04:32:32+02:00 (want mode 755 root:root)
+PASS port.listen 8650 — LISTEN
+PASS http.get :8650/health — HTTP 200, body = "{\"ok\":true}"
+PASS http.get :8650/ — HTTP 200, body (2356 B) contains "<html"
+PASS nerve.view tuner — healthy (cycle 770, since 2026-10-21T09:43:54+02:00; accept healthy)
+PASS file.sha256 /var/backups/galion/deploy/tuner-20261021-043232+0200.bin — ecad72a4… (want ecad72a4…)
+PASS file.sha256 /opt/galion/rust/bin/galion-deploy — 2a60e1ac… (want 2a60e1ac…)
+PASS timer.quiet galion-backup.timer — next 2026-10-21T20:21:43+02:00 in 15187 s (need > 300 s)
+PASS disk.free /opt/galion — 76142 MiB free (need 2048)
+RESULT GO tuner preflight: 16 pass, 0 fail, 0 skip
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'tuner.service'
+SENT readlink '/proc/4004553/exe'
+SENT sha256sum '/proc/4004553/exe'
+SENT sha256sum '/opt/galion/tuner/bin/tuner'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/tuner/bin/tuner'
+SENT ss -ltnH 'sport = :8650'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8650/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8650/'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT sha256sum '/var/backups/galion/deploy/tuner-20261021-043232+0200.bin'
+SENT sha256sum '/opt/galion/rust/bin/galion-deploy'
+SENT systemctl show --timestamp=unix -p NextElapseUSecRealtime 'galion-backup.timer'
+SENT stat -f -c '%a %S' '/opt/galion'
+$ galion-flight preflight cloudflared --host slavik-vps --show-commands
+galion-flight preflight cloudflared target=vps:slavik-vps at 2026-10-21T16:08:43+02:00
+PASS unit.state cloudflared.service — active/running result=success
+PASS unit.restarts cloudflared.service — NRestarts 0 (max 0)
+PASS unit.enabled cloudflared.service — UnitFileState enabled (want enabled)
+PASS unit.dropins cloudflared.service — drop-ins [] (want [])
+PASS exe.running — pid 22835 runs /opt/galion/tooling/bin/cloudflared (want /opt/galion/tooling/bin/cloudflared)
+PASS exe.running-sha256 — 03f1f25d… (want 03f1f25d…)
+PASS exe.file-sha256 — /opt/galion/tooling/bin/cloudflared 03f1f25d… (want 03f1f25d…)
+PASS exe.stat — 39838488 B mode 775 root:root mtime 2026-09-21T23:16:58+02:00 (want mode 775 root:root)
+PASS port.listen 20241 — LISTEN
+PASS http.get :20241/ready — HTTP 200, 88 B
+PASS http.get :20242/ready — HTTP 200, 88 B
+FAIL nerve.view cloudflared — failing-soon (cycle 770, since 2026-10-21T09:43:54+02:00; accept healthy)
+PASS unit.state tuner-quick.service — active/running result=success
+PASS unit.restarts tuner-quick.service — NRestarts 0
+PASS file.sha256 /opt/galion/galion-src/galion-infrastructure/cloudflared/config.yml — e3825ce4… (want e3825ce4…)
+PASS file.sha256 /opt/galion/rust/bin/galion-deploy — 2a60e1ac… (want 2a60e1ac…)
+PASS file.exists /var/backups/cloudflared-config-20261021-063215.yml — mode 600 root:root
+PASS timer.quiet galion-backup.timer — next 2026-10-21T20:21:43+02:00 in 15180 s (need > 300 s)
+PASS disk.free /opt/galion — 76142 MiB free (need 2048)
+PASS public.get https://one.galion.app/health — HTTP 200, body = "ok"
+PASS public.get https://galion.app/ — HTTP 200, 206340 B
+RESULT NO-GO cloudflared preflight: 20 pass, 1 fail, 0 skip (fail: nerve.view cloudflared)
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'cloudflared.service'
+SENT readlink '/proc/22835/exe'
+SENT sha256sum '/proc/22835/exe'
+SENT sha256sum '/opt/galion/tooling/bin/cloudflared'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/tooling/bin/cloudflared'
+SENT ss -ltnH 'sport = :20241'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:20241/ready'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:20242/ready'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'tuner-quick.service'
+SENT sha256sum '/opt/galion/galion-src/galion-infrastructure/cloudflared/config.yml'
+SENT sha256sum '/opt/galion/rust/bin/galion-deploy'
+SENT stat -c '%s %a %U:%G %Y' '/var/backups/cloudflared-config-20261021-063215.yml'
+SENT systemctl show --timestamp=unix -p NextElapseUSecRealtime 'galion-backup.timer'
+SENT stat -f -c '%a %S' '/opt/galion'
+$ galion-flight postflight nerve --host slavik-vps --show-commands
+galion-flight postflight nerve target=vps:slavik-vps at 2026-10-21T16:08:54+02:00
+PASS unit.state galion-nerve.service — active/running result=success
+PASS unit.restarts galion-nerve.service — NRestarts 0 (max 0)
+PASS unit.enabled galion-nerve.service — UnitFileState enabled (want enabled)
+PASS unit.dropins galion-nerve.service — drop-ins [50-rust-bin.conf 60-nerve-eventlog.conf] (want [50-rust-bin.conf 60-nerve-eventlog.conf])
+PASS exe.running — pid 87026 runs /opt/galion/rust/bin/openmind-nerve-aa77864 (want /opt/galion/rust/bin/openmind-nerve-aa77864)
+PASS exe.running-sha256 — f0994b6d… (want f0994b6d…)
+PASS exe.file-sha256 — /opt/galion/rust/bin/openmind-nerve-aa77864 f0994b6d… (want f0994b6d…)
+PASS exe.stat — 1213216 B mode 755 root:root mtime 2026-10-21T09:41:20+02:00 (want mode 755 root:root)
+PASS port.listen 8670 — LISTEN
+PASS http.get :8670/healthz — HTTP 200, body = "ok"
+PASS http.get :8670/state — HTTP 200, json service = "galion-nerve"
+PASS http.get :8670/state — HTTP 200, json mode = "live"
+PASS nerve.view galion-nerve — healthy (cycle 771, since 2026-10-21T09:43:54+02:00; accept healthy)
+RESULT GO nerve postflight: 13 pass, 0 fail, 0 skip
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'galion-nerve.service'
+SENT readlink '/proc/87026/exe'
+SENT sha256sum '/proc/87026/exe'
+SENT sha256sum '/opt/galion/rust/bin/openmind-nerve-aa77864'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/rust/bin/openmind-nerve-aa77864'
+SENT ss -ltnH 'sport = :8670'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/healthz'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+$ galion-flight postflight memory --host slavik-vps --show-commands
+galion-flight postflight memory target=vps:slavik-vps at 2026-10-21T16:09:01+02:00
+PASS unit.state openmind-memory.service — active/running result=success
+PASS unit.restarts openmind-memory.service — NRestarts 0 (max 0)
+PASS unit.enabled openmind-memory.service — UnitFileState enabled (want enabled)
+PASS unit.dropins openmind-memory.service — drop-ins [50-rust-bin.conf 60-nerve-url.conf] (want [50-rust-bin.conf 60-nerve-url.conf])
+PASS exe.running — pid 88565 runs /opt/galion/rust/bin/openmind-memory-aa77864 (want /opt/galion/rust/bin/openmind-memory-aa77864)
+PASS exe.running-sha256 — 18e35ab4… (want 18e35ab4…)
+PASS exe.file-sha256 — /opt/galion/rust/bin/openmind-memory-aa77864 18e35ab4… (want 18e35ab4…)
+PASS exe.stat — 1702640 B mode 755 root:root mtime 2026-10-21T09:41:26+02:00 (want mode 755 root:root)
+PASS port.listen 8420 — LISTEN
+PASS http.get :8420/health — HTTP 200, json status = "ok"
+PASS nerve.view openmind-memory — healthy (cycle 771, since 2026-10-21T10:46:24+02:00; accept healthy)
+RESULT GO memory postflight: 11 pass, 0 fail, 0 skip
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'openmind-memory.service'
+SENT readlink '/proc/88565/exe'
+SENT sha256sum '/proc/88565/exe'
+SENT sha256sum '/opt/galion/rust/bin/openmind-memory-aa77864'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/rust/bin/openmind-memory-aa77864'
+SENT ss -ltnH 'sport = :8420'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8420/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+$ galion-flight postflight hermes-rs --host slavik-vps --show-commands
+galion-flight postflight hermes-rs target=vps:slavik-vps at 2026-10-21T16:09:06+02:00
+PASS unit.state hermes-rs.service — active/running result=success
+PASS unit.restarts hermes-rs.service — NRestarts 0 (max 0)
+PASS unit.enabled hermes-rs.service — UnitFileState enabled (want enabled)
+PASS unit.dropins hermes-rs.service — drop-ins [50-rust-bin.conf 60-nerve-url.conf] (want [50-rust-bin.conf 60-nerve-url.conf])
+PASS exe.running — pid 89484 runs /opt/galion/rust/bin/hermes-gateway-aa77864 (want /opt/galion/rust/bin/hermes-gateway-aa77864)
+PASS exe.running-sha256 — eb691b29… (want eb691b29…)
+PASS exe.file-sha256 — /opt/galion/rust/bin/hermes-gateway-aa77864 eb691b29… (want eb691b29…)
+PASS exe.stat — 1841904 B mode 755 root:root mtime 2026-10-21T09:41:31+02:00 (want mode 755 root:root)
+PASS port.listen 8642 — LISTEN
+PASS http.get :8642/health — HTTP 200, json status = "ok"
+PASS http.get :8642/health — HTTP 200, json implementation = "hermes-rs"
+PASS nerve.view hermes-rs — healthy (cycle 771, since 2026-10-21T15:37:24+02:00; accept healthy)
+RESULT GO hermes-rs postflight: 12 pass, 0 fail, 0 skip
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'hermes-rs.service'
+SENT readlink '/proc/89484/exe'
+SENT sha256sum '/proc/89484/exe'
+SENT sha256sum '/opt/galion/rust/bin/hermes-gateway-aa77864'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/rust/bin/hermes-gateway-aa77864'
+SENT ss -ltnH 'sport = :8642'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8642/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8642/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+$ galion-flight postflight galion-one --host slavik-vps --show-commands
+galion-flight postflight galion-one target=vps:slavik-vps at 2026-10-21T16:09:12+02:00
+PASS unit.state galion-one.service — active/running result=success
+PASS unit.restarts galion-one.service — NRestarts 0 (max 0)
+PASS unit.enabled galion-one.service — UnitFileState enabled (want enabled)
+PASS unit.dropins galion-one.service — drop-ins [50-rust-bin.conf] (want [50-rust-bin.conf])
+PASS exe.running — pid 29782 runs /opt/galion/rust/bin/galion-one (want /opt/galion/rust/bin/galion-one)
+PASS exe.running-sha256 — 24cb4976… (want 24cb4976…)
+PASS exe.file-sha256 — /opt/galion/rust/bin/galion-one 24cb4976… (want 24cb4976…)
+PASS exe.stat — 963904 B mode 755 root:root mtime 2026-10-21T08:39:10+02:00 (want mode 755 root:root)
+PASS port.listen 8091 — LISTEN
+PASS http.get :8091/health — HTTP 200, body = "ok"
+PASS http.get :8002/health — HTTP 503, json status = "loading"
+PASS nerve.view galion-one — healthy (cycle 771, since 2026-10-21T09:43:54+02:00; accept healthy)
+PASS public.get https://one.galion.app/health — HTTP 200, body = "ok"
+RESULT GO galion-one postflight: 13 pass, 0 fail, 0 skip
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'galion-one.service'
+SENT readlink '/proc/29782/exe'
+SENT sha256sum '/proc/29782/exe'
+SENT sha256sum '/opt/galion/rust/bin/galion-one'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/rust/bin/galion-one'
+SENT ss -ltnH 'sport = :8091'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8091/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8002/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+$ galion-flight postflight tuner --host slavik-vps --show-commands
+galion-flight postflight tuner target=vps:slavik-vps at 2026-10-21T16:09:19+02:00
+PASS unit.state tuner.service — active/running result=success
+PASS unit.restarts tuner.service — NRestarts 0 (max 0)
+PASS unit.enabled tuner.service — UnitFileState enabled (want enabled)
+PASS unit.dropins tuner.service — drop-ins [] (want [])
+PASS exe.running — pid 4004553 runs /opt/galion/tuner/bin/tuner (want /opt/galion/tuner/bin/tuner)
+PASS exe.running-sha256 — 89c7fcbc… (want 89c7fcbc…)
+PASS exe.file-sha256 — /opt/galion/tuner/bin/tuner 89c7fcbc… (want 89c7fcbc…)
+PASS exe.stat — 480032 B mode 755 root:root mtime 2026-10-21T04:32:32+02:00 (want mode 755 root:root)
+PASS port.listen 8650 — LISTEN
+PASS http.get :8650/health — HTTP 200, body = "{\"ok\":true}"
+PASS http.get :8650/ — HTTP 200, body (2356 B) contains "<html"
+PASS nerve.view tuner — healthy (cycle 771, since 2026-10-21T09:43:54+02:00; accept healthy)
+RESULT GO tuner postflight: 12 pass, 0 fail, 0 skip
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'tuner.service'
+SENT readlink '/proc/4004553/exe'
+SENT sha256sum '/proc/4004553/exe'
+SENT sha256sum '/opt/galion/tuner/bin/tuner'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/tuner/bin/tuner'
+SENT ss -ltnH 'sport = :8650'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8650/health'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8650/'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+$ galion-flight postflight cloudflared --host slavik-vps --show-commands
+galion-flight postflight cloudflared target=vps:slavik-vps at 2026-10-21T16:09:25+02:00
+PASS unit.state cloudflared.service — active/running result=success
+PASS unit.restarts cloudflared.service — NRestarts 0 (max 0)
+PASS unit.enabled cloudflared.service — UnitFileState enabled (want enabled)
+PASS unit.dropins cloudflared.service — drop-ins [] (want [])
+PASS exe.running — pid 22835 runs /opt/galion/tooling/bin/cloudflared (want /opt/galion/tooling/bin/cloudflared)
+PASS exe.running-sha256 — 03f1f25d… (want 03f1f25d…)
+PASS exe.file-sha256 — /opt/galion/tooling/bin/cloudflared 03f1f25d… (want 03f1f25d…)
+PASS exe.stat — 39838488 B mode 775 root:root mtime 2026-09-21T23:16:58+02:00 (want mode 775 root:root)
+PASS port.listen 20241 — LISTEN
+PASS http.get :20241/ready — HTTP 200, 88 B
+PASS http.get :20242/ready — HTTP 200, 88 B
+FAIL nerve.view cloudflared — failing-soon (cycle 772, since 2026-10-21T09:43:54+02:00; accept healthy)
+PASS unit.state tuner-quick.service — active/running result=success
+PASS unit.restarts tuner-quick.service — NRestarts 0
+PASS public.get https://one.galion.app/health — HTTP 200, body = "ok"
+PASS public.get https://galion.app/ — HTTP 200, 206340 B
+RESULT NO-GO cloudflared postflight: 15 pass, 1 fail, 0 skip (fail: nerve.view cloudflared)
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'cloudflared.service'
+SENT readlink '/proc/22835/exe'
+SENT sha256sum '/proc/22835/exe'
+SENT sha256sum '/opt/galion/tooling/bin/cloudflared'
+SENT stat -c '%s %a %U:%G %Y' '/opt/galion/tooling/bin/cloudflared'
+SENT ss -ltnH 'sport = :20241'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:20241/ready'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:20242/ready'
+SENT curl -sS -m 5 --max-filesize 4194304 -w '\n%{http_code}' 'http://127.0.0.1:8670/state'
+SENT systemctl show --timestamp=unix -p ActiveState -p SubState -p Result -p NRestarts -p MainPID -p ExecMainStartTimestamp -p DropInPaths -p UnitFileState 'tuner-quick.service'
+$ galion-flight preflight nerve --host slavik-vps --set sha256=0000000000000000000000000000000000000000000000000000000000000000
+galion-flight preflight nerve target=vps:slavik-vps at 2026-10-21T16:09:33+02:00
+PASS unit.state galion-nerve.service — active/running result=success
+PASS unit.restarts galion-nerve.service — NRestarts 0 (max 0)
+PASS unit.enabled galion-nerve.service — UnitFileState enabled (want enabled)
+PASS unit.dropins galion-nerve.service — drop-ins [50-rust-bin.conf 60-nerve-eventlog.conf] (want [50-rust-bin.conf 60-nerve-eventlog.conf])
+PASS exe.running — pid 87026 runs /opt/galion/rust/bin/openmind-nerve-aa77864 (want /opt/galion/rust/bin/openmind-nerve-aa77864)
+FAIL exe.running-sha256 — f0994b6d… (want 00000000…)
+FAIL exe.file-sha256 — /opt/galion/rust/bin/openmind-nerve-aa77864 f0994b6d… (want 00000000…)
+PASS exe.stat — 1213216 B mode 755 root:root mtime 2026-10-21T09:41:20+02:00 (want mode 755 root:root)
+PASS port.listen 8670 — LISTEN
+PASS http.get :8670/healthz — HTTP 200, body = "ok"
+PASS http.get :8670/state — HTTP 200, json service = "galion-nerve"
+PASS http.get :8670/state — HTTP 200, json mode = "live"
+PASS nerve.view galion-nerve — healthy (cycle 772, since 2026-10-21T09:43:54+02:00; accept healthy)
+PASS file.sha256 /opt/galion/rust/bin/galion-nerve — 3b150dea… (want 3b150dea…)
+PASS file.sha256 /opt/galion/rust/bin/galion-deploy — 2a60e1ac… (want 2a60e1ac…)
+PASS file.exists /var/backups/galion-nerve.service-20261021-094354 — mode 644 root:root
+PASS timer.quiet galion-backup.timer — next 2026-10-21T20:21:43+02:00 in 15130 s (need > 300 s)
+PASS disk.free /opt/galion — 76142 MiB free (need 2048)
+RESULT NO-GO nerve preflight: 16 pass, 2 fail, 0 skip (fail: exe.running-sha256; exe.file-sha256)
+$ galion-flight preflight tuner --host slavik-vps --set quiet_timer=galion-backup.timer 999999
+galion-flight preflight tuner target=vps:slavik-vps at 2026-10-21T16:09:42+02:00
+PASS unit.state tuner.service — active/running result=success
+PASS unit.restarts tuner.service — NRestarts 0 (max 0)
+PASS unit.enabled tuner.service — UnitFileState enabled (want enabled)
+PASS unit.dropins tuner.service — drop-ins [] (want [])
+PASS exe.running — pid 4004553 runs /opt/galion/tuner/bin/tuner (want /opt/galion/tuner/bin/tuner)
+PASS exe.running-sha256 — 89c7fcbc… (want 89c7fcbc…)
+PASS exe.file-sha256 — /opt/galion/tuner/bin/tuner 89c7fcbc… (want 89c7fcbc…)
+PASS exe.stat — 480032 B mode 755 root:root mtime 2026-10-21T04:32:32+02:00 (want mode 755 root:root)
+PASS port.listen 8650 — LISTEN
+PASS http.get :8650/health — HTTP 200, body = "{\"ok\":true}"
+PASS http.get :8650/ — HTTP 200, body (2356 B) contains "<html"
+PASS nerve.view tuner — healthy (cycle 772, since 2026-10-21T09:43:54+02:00; accept healthy)
+PASS file.sha256 /var/backups/galion/deploy/tuner-20261021-043232+0200.bin — ecad72a4… (want ecad72a4…)
+PASS file.sha256 /opt/galion/rust/bin/galion-deploy — 2a60e1ac… (want 2a60e1ac…)
+FAIL timer.quiet galion-backup.timer — next 2026-10-21T20:21:43+02:00 in 15121 s (need > 999999 s)
+PASS disk.free /opt/galion — 76142 MiB free (need 2048)
+RESULT NO-GO tuner preflight: 15 pass, 1 fail, 0 skip (fail: timer.quiet galion-backup.timer)
+$ galion-flight postflight memory --host slavik-vps --since-unix 4102444800
+galion-flight postflight memory target=vps:slavik-vps at 2026-10-21T16:09:49+02:00
+PASS unit.state openmind-memory.service — active/running result=success
+PASS unit.restarts openmind-memory.service — NRestarts 0 (max 0)
+PASS unit.enabled openmind-memory.service — UnitFileState enabled (want enabled)
+PASS unit.dropins openmind-memory.service — drop-ins [50-rust-bin.conf 60-nerve-url.conf] (want [50-rust-bin.conf 60-nerve-url.conf])
+FAIL unit.restarted openmind-memory.service — started 2026-10-21T09:45:26+02:00 (since 2100-01-01T01:00:00+01:00)
+PASS exe.running — pid 88565 runs /opt/galion/rust/bin/openmind-memory-aa77864 (want /opt/galion/rust/bin/openmind-memory-aa77864)
+PASS exe.running-sha256 — 18e35ab4… (want 18e35ab4…)
+PASS exe.file-sha256 — /opt/galion/rust/bin/openmind-memory-aa77864 18e35ab4… (want 18e35ab4…)
+PASS exe.stat — 1702640 B mode 755 root:root mtime 2026-10-21T09:41:26+02:00 (want mode 755 root:root)
+PASS port.listen 8420 — LISTEN
+PASS http.get :8420/health — HTTP 200, json status = "ok"
+PASS nerve.view openmind-memory — healthy (cycle 772, since 2026-10-21T10:46:24+02:00; accept healthy)
+RESULT NO-GO memory postflight: 11 pass, 1 fail, 0 skip (fail: unit.restarted openmind-memory.service)
+$ galion-flight preflight nope --host slavik-vps
+galion-flight list | --version | --help
+$ galion-flight preflight nerve --set exe=/opt/x;id
+galion-flight list | --version | --help
+SUMMARY
+preflight nerve: exit 0, 18 checks, 15 remote reads, 8705 ms, fails []
+preflight memory: exit 0, 16 checks, 13 remote reads, 7738 ms, fails []
+preflight hermes-rs: exit 0, 17 checks, 14 remote reads, 8093 ms, fails []
+preflight galion-one: exit 0, 17 checks, 13 remote reads, 8218 ms, fails []
+preflight tuner: exit 0, 16 checks, 13 remote reads, 7528 ms, fails []
+preflight cloudflared: exit 1, 21 checks, 15 remote reads, 10331 ms, fails ["nerve.view cloudflared"]
+postflight nerve: exit 0, 13 checks, 10 remote reads, 6767 ms, fails []
+postflight memory: exit 0, 11 checks, 8 remote reads, 5733 ms, fails []
+postflight hermes-rs: exit 0, 12 checks, 9 remote reads, 6169 ms, fails []
+postflight galion-one: exit 0, 13 checks, 9 remote reads, 6878 ms, fails []
+postflight tuner: exit 0, 12 checks, 9 remote reads, 5893 ms, fails []
+postflight cloudflared: exit 1, 16 checks, 10 remote reads, 7879 ms, fails ["nerve.view cloudflared"]
+nerve wrong sha: NO-GO
+tuner backup due within window: NO-GO
+memory not restarted since T: NO-GO

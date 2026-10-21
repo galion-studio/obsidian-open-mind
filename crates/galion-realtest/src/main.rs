@@ -160,7 +160,7 @@ fn cmd_stack(o: &Opts) -> Result<bool, String> {
             extra.push("openmind-nerve");
         }
         if o.flag("--with-gaia") {
-            extra.extend_from_slice(stack::GAIA_BINS);
+            extra.extend_from_slice(stack::GAIA_PKGS);
         }
         let line = stack::build(&repo, jobs, &extra)?;
         pre.push_str(&format!("- Build: `{line}`\n"));

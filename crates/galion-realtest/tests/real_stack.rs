@@ -4,10 +4,13 @@
 //! Real-life test: boots the whole stack from release binaries and runs every
 //! scenario. Gated: runs only with `GALION_REAL=1` and needs the release
 //! binaries (`cargo build --release -p galion-boot -p galion-one ...`, or
-//! `scripts/real/real-harness.sh`). Ports 19500-19551 (override the base with
+//! `scripts/real/real-harness.sh`). Ports 19500-19553 (override the base with
 //! `REALTEST_BASE_PORT`). Mirrors `.github/workflows/realtest.yml`: when an
 //! `openmind-nerve` release binary is present the stack runs `--with-nerve`
-//! and the nerve-ingest suite must actually run (no skip).
+//! and the nerve-ingest suite must actually run (no skip); when `gaia`,
+//! `gaia-dummy`, `hades-gate` and `openmind-queue` are present too it adds
+//! `--with-gaia` and the three Gaia suites must run in full. Ports
+//! BASE..BASE+53.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -29,10 +32,17 @@ fn real_box_stack() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     let out = release_dir().join("../realtest/cargo-test");
     let with_nerve = release_dir().join("openmind-nerve").is_file();
+    let with_gaia = with_nerve
+        && galion_realtest::stack::GAIA_BINS
+            .iter()
+            .all(|b| release_dir().join(b).is_file());
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_galion-realtest"));
     cmd.arg("stack");
     if with_nerve {
         cmd.arg("--with-nerve");
+    }
+    if with_gaia {
+        cmd.arg("--with-gaia");
     }
     if let Ok(p) = std::env::var("REALTEST_BASE_PORT") {
         cmd.arg("--base-port").arg(p);
@@ -58,6 +68,19 @@ fn real_box_stack() {
             nerve.contains("name=\"ingest-signal-202\"") && !nerve.contains("<skipped"),
             "nerve-ingest must run, not skip, with --with-nerve"
         );
+    }
+    if with_gaia {
+        for suite in ["gaia-heal-tick", "gaia-hades-refusals", "gaia-poseidon"] {
+            let body = junit
+                .split(&format!("<testsuite name=\"{suite}\""))
+                .nth(1)
+                .and_then(|s| s.split("</testsuite>").next())
+                .unwrap_or_else(|| panic!("{suite} suite in junit.xml"));
+            assert!(
+                !body.contains("<skipped") && body.matches("<testcase").count() >= 8,
+                "{suite} must run all its checks with --with-gaia"
+            );
+        }
     }
     assert!(std::fs::read_to_string(out.join("report.md"))
         .unwrap()

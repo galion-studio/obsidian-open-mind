@@ -111,6 +111,8 @@ struct Heal {
     state: PathBuf,
     dir: PathBuf,
     argv: Vec<String>,
+    /// The release `hades-gate` binary.
+    hg: PathBuf,
 }
 
 impl Heal {
@@ -122,9 +124,14 @@ impl Heal {
             nerve: st.addr(off::NERVE),
             state: st.path("gaia/heal-state"),
             dir: st.path("gaia"),
-            // A real, absolute, allowed program: the stack's own tuner
-            // binary. It is never started (no token is ever valid here).
-            argv: vec![st.bins.path("tuner").to_string_lossy().into_owned()],
+            hg: st.bins.path("hades-gate"),
+            // Gaia's own box test service; it is never started here (no
+            // token reaching heal-tick is ever valid), so the port stays closed.
+            argv: vec![
+                st.bins.path("gaia-dummy").to_string_lossy().into_owned(),
+                "--port".into(),
+                port.to_string(),
+            ],
         }
     }
 
@@ -135,11 +142,21 @@ impl Heal {
         a.extend(s(&["--allow-ports", allow, "--nerve", &self.nerve]));
         a.push("--state".into());
         a.push(self.state.to_string_lossy().into_owned());
+        // Extra flags first: gaia takes the first occurrence of a flag.
         a.extend_from_slice(extra);
+        a.push("--hades-config".into());
+        a.push(p(&self.cfg()));
         a.extend(s(&["--wait-ms", "500"]));
         a.push("--".into());
-        a.extend(self.argv.iter().cloned());
+        a.extend(self.argv_for(port));
         a
+    }
+
+    /// The start command naming `port` (heal-tick requires that).
+    fn argv_for(&self, port: u16) -> Vec<String> {
+        let mut v = self.argv.clone();
+        v[2] = port.to_string();
+        v
     }
 
     fn tick(&self, st: &Stack, extra: &[String]) -> Result<(i32, Value, Ran), String> {
@@ -362,21 +379,17 @@ pub fn heal_tick(st: &Stack) -> Suite {
         ("scope-forbidden-program-refused", {
             let mut a = h.tick_args(HEAL_SVC, h.port, &h.allow, &[]);
             let n = a.len();
-            a[n - 1] = "/usr/bin/systemctl".into();
+            a[n - 3] = "/usr/bin/systemctl".into();
             a
         }),
         ("scope-relative-program-refused", {
             let mut a = h.tick_args(HEAL_SVC, h.port, &h.allow, &[]);
             let n = a.len();
-            a[n - 1] = "tuner".into();
+            a[n - 3] = "gaia-dummy".into();
             a
         }),
     ];
-    for (name, mut args) in scope_cases {
-        // heal-tick needs --hades-config even when the scope guard refuses.
-        let at = args.iter().position(|x| x == "--wait-ms").unwrap_or(0);
-        args.insert(at, p(&h.cfg()));
-        args.insert(at, "--hades-config".into());
+    for (name, args) in scope_cases {
         su.check(name, || {
             let (c, r, raw) = gaia(st, &args)?;
             let first = r["steps"][0]["step"].as_str().unwrap_or("");
@@ -412,6 +425,9 @@ fn setup_gate(st: &Stack, h: &Heal) -> Result<String, String> {
     let hg = st.bins.path("hades-gate");
     let gate = h.path("gate");
     let _ = fs::remove_dir_all(&gate);
+    for f in ["admin.seed", "evil.seed"] {
+        let _ = fs::remove_file(h.path(f));
+    }
     fs::create_dir_all(&gate).map_err(|e| e.to_string())?;
     let mut fp = String::new();
     for who in ["admin", "evil"] {
@@ -464,7 +480,6 @@ fn setup_gate(st: &Stack, h: &Heal) -> Result<String, String> {
 
 /// Mint one token with the real `hades-gate mint` into a new 0600 file.
 fn mint(
-    st: &Stack,
     h: &Heal,
     seed: &str,
     action: &str,
@@ -489,7 +504,7 @@ fn mint(
         &p(&file),
     ]);
     a.extend(s(timing));
-    let r = run(&st.bins.path("hades-gate"), &a)?;
+    let r = run(&h.hg, &a)?;
     if r.code != 0 {
         return Err(format!("mint {out}: exit {} {}", r.code, short(&r.stderr)));
     }
@@ -564,7 +579,6 @@ pub fn hades_refusals(st: &Stack) -> Suite {
             "forged-token-refused",
             Box::new(|| {
                 mint(
-                    st,
                     &h,
                     "evil.seed",
                     "heal-apply",
@@ -581,7 +595,6 @@ pub fn hades_refusals(st: &Stack) -> Suite {
             "wrong-target-refused",
             Box::new(|| {
                 mint(
-                    st,
                     &h,
                     "admin.seed",
                     "heal-apply",
@@ -598,7 +611,6 @@ pub fn hades_refusals(st: &Stack) -> Suite {
             "wrong-plan-refused",
             Box::new(|| {
                 mint(
-                    st,
                     &h,
                     "admin.seed",
                     "heal-apply",
@@ -614,17 +626,7 @@ pub fn hades_refusals(st: &Stack) -> Suite {
         (
             "wrong-action-refused",
             Box::new(|| {
-                mint(
-                    st,
-                    &h,
-                    "admin.seed",
-                    "deploy",
-                    HEAL_SVC,
-                    &plan,
-                    &[],
-                    "t-action",
-                )
-                .map(Some)
+                mint(&h, "admin.seed", "deploy", HEAL_SVC, &plan, &[], "t-action").map(Some)
             }),
             "wrong-scope",
         ),
@@ -638,7 +640,6 @@ pub fn hades_refusals(st: &Stack) -> Suite {
                     - 600)
                     .to_string();
                 mint(
-                    st,
                     &h,
                     "admin.seed",
                     "heal-apply",
@@ -712,7 +713,6 @@ pub fn hades_refusals(st: &Stack) -> Suite {
     // Replayed: the admin's own check consumes a valid token first.
     su.check("replayed-token-refused", || {
         let tok = mint(
-            st,
             &h,
             "admin.seed",
             "heal-apply",
@@ -723,7 +723,7 @@ pub fn hades_refusals(st: &Stack) -> Suite {
         )?;
         tokens_seen.push(fs::read_to_string(&tok).unwrap_or_default().trim().into());
         let (hc, hv) = hades_check(st, &h, &plan, &tok)?;
-        if hc != 0 || hv["decision"] != "Approved" {
+        if hc != 0 || hv["decision"] != "WouldApply" || hv["approved"].is_null() {
             return Err(format!("hades-gate check did not approve: {hc} {hv}"));
         }
         let (c, r, raw) = h.tick(st, &s(&["--hades-config", &cfg, "--token-file", &p(&tok)]))?;
@@ -742,7 +742,7 @@ pub fn hades_refusals(st: &Stack) -> Suite {
 
     // Disabled gate: refused first, and the valid token is NOT consumed.
     su.check("disabled-gate-refused-token-not-burned", || {
-        let tok = mint(st, &h, "admin.seed", "heal-apply", HEAL_SVC, &plan, &[], "t-disabled")?;
+        let tok = mint(&h, "admin.seed", "heal-apply", HEAL_SVC, &plan, &[], "t-disabled")?;
         tokens_seen.push(fs::read_to_string(&tok).unwrap_or_default().trim().into());
         let hg = st.bins.path("hades-gate");
         let d = run(&hg, &s(&["disable", "--config", &cfg]))?;
@@ -765,7 +765,7 @@ pub fn hades_refusals(st: &Stack) -> Suite {
         // Proof the refusal did not consume it: the admin's own check (not
         // heal-tick, so nothing restarts) approves and consumes it now.
         let (hc, hv) = hades_check(st, &h, &plan, &tok)?;
-        if hc != 0 || hv["decision"] != "Approved" {
+        if hc != 0 || hv["decision"] != "WouldApply" || hv["approved"].is_null() {
             return Err(format!("token was burned by the refusal: {hc} {hv}"));
         }
         Ok("exit 4 disabled; after enable the same token still approves in hades-gate check (not burned), then consumed".into())
@@ -774,9 +774,6 @@ pub fn hades_refusals(st: &Stack) -> Suite {
     // Admin safety: a plan with a shell metacharacter is unapprovable.
     su.check("admin-safety-refused", || {
         let mut a = h.tick_args(HEAL_SVC, h.port, &h.allow, &[]);
-        let at = a.iter().position(|x| x == "--wait-ms").unwrap_or(0);
-        a.insert(at, cfg.clone());
-        a.insert(at, "--hades-config".into());
         a.push("x;id".into());
         let (c, r, raw) = gaia(st, &a)?;
         outputs.push_str(&raw.stdout);
@@ -833,13 +830,20 @@ pub fn hades_refusals(st: &Stack) -> Suite {
             .iter()
             .filter(|k| !k.is_empty() && t.contains(k.as_str()))
             .count();
-        if refused < refused_codes.len().saturating_sub(1) || leaked != 0 {
+        // The empty token file never reaches the gate; every other refusal is
+        // audited once. Only the admin's two `hades-gate check` runs consume.
+        let gated = refused_codes
+            .iter()
+            .filter(|(_, c)| c != "token-file")
+            .count();
+        let consumed = t.lines().filter(|l| l.contains("\"consumed\"")).count();
+        if refused != gated || consumed != 2 || leaked != 0 {
             return Err(format!(
-                "ledger: {refused} refused lines, {leaked} raw tokens"
+                "ledger: {refused} refused (want {gated}), {consumed} consumed (want 2), {leaked} raw tokens"
             ));
         }
         Ok(format!(
-            "{} ledger lines, {refused} refused, no raw token text",
+            "{} ledger lines: {refused} refused (one per gated refusal), {consumed} consumed (both by the admin's hades-gate check, none by heal-tick), no raw token text",
             t.lines().count()
         ))
     });
@@ -868,7 +872,19 @@ pub fn hades_refusals(st: &Stack) -> Suite {
             _ => Ok(format!("127.0.0.1:{} closed, no restart recorded", h.port)),
         }
     });
-    for f in ["admin.seed", "evil.seed"] {
+    for f in [
+        "admin.seed",
+        "evil.seed",
+        "t-forged",
+        "t-target",
+        "t-plan",
+        "t-action",
+        "t-expired",
+        "t-malformed",
+        "t-empty",
+        "t-replay",
+        "t-disabled",
+    ] {
         let _ = fs::remove_file(h.path(f));
     }
     su
@@ -995,4 +1011,56 @@ pub fn poseidon(st: &Stack) -> Suite {
     });
     su.log_tail = st.log_tail("openmind-queue", 5);
     su
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn probe_id_and_codes_come_from_the_report() {
+        let r = json!({"steps": [
+            {"step": "scope", "detail": {"ok": true}},
+            {"step": "probe", "detail": {"probe_id": "rt-heal-1-2"}},
+            {"step": "approval", "detail": {"code": "forged"}},
+        ]});
+        assert_eq!(probe_id(&r).as_deref(), Some("rt-heal-1-2"));
+        assert_eq!(approval_code(&r), "forged");
+        assert_eq!(probe_id(&json!({"steps": []})), None);
+        assert_eq!(approval_code(&json!({})), "");
+    }
+
+    #[test]
+    fn by_probe_matches_kind_and_probe_id_only() {
+        let ev = vec![
+            json!({"kind": "service.probe", "data": {"probe_id": "a"}}),
+            json!({"kind": "gaia.heal.refused", "data": {"probe_id": "a"}}),
+            json!({"kind": "gaia.heal.refused", "data": {"probe_id": "b"}}),
+        ];
+        assert_eq!(by_probe(&ev, "gaia.heal.refused", "a").len(), 1);
+        assert_eq!(by_probe(&ev, "service.probe", "b").len(), 0);
+    }
+
+    #[test]
+    fn tick_args_name_the_port_and_keep_extra_flags_first() {
+        let h = Heal {
+            port: 19552,
+            allow: "19552-19552".into(),
+            nerve: "127.0.0.1:19550".into(),
+            state: PathBuf::from("/fx/gaia/heal-state"),
+            dir: PathBuf::from("/fx/gaia"),
+            argv: vec!["/b/gaia-dummy".into(), "--port".into(), "19552".into()],
+            hg: PathBuf::from("/b/hades-gate"),
+        };
+        let a = h.tick_args("tuner", 19520, "19520-19520", &s(&["--hades-config", "/x"]));
+        let cfg = a.iter().position(|x| x == "--hades-config").unwrap();
+        assert_eq!(a[cfg + 1], "/x", "extra flags win (first occurrence)");
+        let dash = a.iter().position(|x| x == "--").unwrap();
+        assert_eq!(&a[dash + 1..], ["/b/gaia-dummy", "--port", "19520"]);
+        assert!(
+            !a.iter().any(|x| x == "--token-file"),
+            "no token by default"
+        );
+    }
 }

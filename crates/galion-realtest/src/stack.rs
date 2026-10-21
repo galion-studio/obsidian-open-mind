@@ -50,7 +50,9 @@ pub const REQUIRED: &[&str] = &[
 ];
 pub const NERVE_BINS: &[&str] = &["openmind-nerve", "galion-nerve"];
 /// Binaries the Gaia scenarios need (`--with-gaia`).
-pub const GAIA_BINS: &[&str] = &["gaia", "hades-gate", "openmind-queue"];
+pub const GAIA_BINS: &[&str] = &["gaia", "gaia-dummy", "hades-gate", "openmind-queue"];
+/// Cargo packages that build [`GAIA_BINS`] (`gaia-dummy` comes with `gaia`).
+pub const GAIA_PKGS: &[&str] = &["gaia", "hades-gate", "openmind-queue"];
 
 #[derive(Debug, Clone)]
 pub struct Bins {

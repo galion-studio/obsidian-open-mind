@@ -2,9 +2,11 @@
 # SPDX-FileCopyrightText: 3000 Galion / galion-studio
 #
 # realtest: boots the WHOLE stack from release binaries on the runner
-# (loopback ports 19500-19551, fixture configs, no secrets, no network
+# (loopback ports 19500-19553, fixture configs, no secrets, no network
 # beyond the toolchain and crates) and runs the galion-realtest scenarios,
-# including the openmind-nerve ingest suite (--with-nerve, ports 19550-19551).
+# including the openmind-nerve ingest suite (--with-nerve, ports 19550-19551)
+# and the Gaia suites (--with-gaia: heal-tick plan-only, hades-gate token
+# refusals, POSEIDON submit/refuse; never-bound heal target 19552, queue 19553).
 # The live probe is NOT run here: it needs ssh to the VPS and stays manual.
 name: realtest
 
@@ -39,9 +41,10 @@ jobs:
           -p galion-boot -p galion-one -p openmind-memory -p tuner -p galion-desk
           -p link-watch -p guardian-tick -p persona-plex-relay
           -p openmind-nerve
+          -p gaia -p hades-gate -p openmind-queue
       - name: run scenarios
         run: >
-          target/release/galion-realtest stack --with-nerve
+          target/release/galion-realtest stack --with-nerve --with-gaia
           --bin-dir target/release --out target/realtest/ci
       - name: job summary
         if: always()

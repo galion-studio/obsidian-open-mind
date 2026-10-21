@@ -7,7 +7,20 @@
 //! research/LLM path. The nerve/cortex only observe. So:
 //!
 //! - [`LLM_ENABLED`] is `false` at compile time and nothing reads an env var
-//!   to turn it on; there is no LLM client in this crate.
+//!   to turn it on: the built-in client ([`crate::util::http`]) has no LLM
+//!   path. The one direct LLM client in the crate is the optional event-mode
+//!   `openai` escalator (`NERVE_EVT_ESCALATE=openai`, off by default, own
+//!   budget caps); [`crate::evt::escalate::endpoint_allowed`] refuses
+//!   OpenRouter (same [`FORBIDDEN`] list) and the Hermes gateway for it.
+//! - Handoff, not a call (Mate t217, 2026-10-21 22:50 +02:00): incidents reach
+//!   Hermes only through the cortex. The default escalation (`delegate`)
+//!   publishes an `escalation.batch` event on the nerve stream / B33 feed;
+//!   the cortex hands unresolved incidents to the Hermes boss through its
+//!   file inbox, and `gaia-cortex hermes-dispatch` (outside this crate)
+//!   makes the one Hermes call under the $20 ceiling. Hermes owns the only
+//!   OpenRouter path. [`HANDOFF_PATHS`] stay allowed for that.
+//! - [`GUARD_FILES`]: the only source files allowed to name OpenRouter (to
+//!   refuse it); `tests/no_openrouter.rs` scans every other file.
 //! - [`check_addr`]: the built-in HTTP client talks to loopback only.
 //! - [`check_path`]: even on loopback it never calls an LLM / paid endpoint
 //!   (chat completions, runs, responses), so it cannot spend through
@@ -36,6 +49,19 @@ pub const LLM_PATHS: &[&str] = &[
     "/api/chat",
     "/api/v1/chat",
     "/api/generate",
+];
+
+/// Source files (relative to `src/`) that may name OpenRouter, only to refuse it.
+pub const GUARD_FILES: &[&str] = &["egress.rs", "evt/escalate.rs"];
+
+/// Nerve-side handoff channels to the cortex (and from there to Hermes):
+/// never refused by [`check_path`].
+pub const HANDOFF_PATHS: &[&str] = &[
+    "/event",
+    "/signal",
+    "/events",
+    "/escalations",
+    "/api/v1/cortex/events",
 ];
 
 /// Only external URL prefix the nerve may hand to a helper process.
@@ -154,6 +180,14 @@ mod tests {
             "/api/v1/state",
         ] {
             assert!(check_path(p).is_ok(), "{p}");
+        }
+    }
+
+    #[test]
+    fn handoff_paths_stay_allowed() {
+        for p in HANDOFF_PATHS {
+            assert!(check_path(p).is_ok(), "{p}");
+            assert!(!mentions_forbidden(p), "{p}");
         }
     }
 

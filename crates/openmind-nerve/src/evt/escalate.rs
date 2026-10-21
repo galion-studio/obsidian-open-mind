@@ -83,7 +83,8 @@ pub fn endpoint_allowed(url: &str) -> Result<(), String> {
         i += 1;
     }
     let low = dec.to_ascii_lowercase();
-    if contains_ci(low.as_bytes(), b"openrouter") {
+    // One list with the crate-wide egress guard (openrouter.ai, openrouter).
+    if crate::egress::mentions_forbidden(&low) || contains_ci(low.as_bytes(), b"openrouter") {
         return Err("refused: OpenRouter endpoints are forbidden for the nerve (user rule)".into());
     }
     let rest = low

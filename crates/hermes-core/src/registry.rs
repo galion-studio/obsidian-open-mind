@@ -438,7 +438,7 @@ gaia_systems = ["teacher-docs"]
         );
         assert_eq!(r.hermes.concurrency_cap, 16);
         let tasks: usize = r.sectors.iter().map(|s| s.planner_tasks).sum();
-        assert_eq!(tasks, 208, "200 swarm-plan tasks + 8 bench runs");
+        assert_eq!(tasks, 212, "200 swarm-plan tasks + 12 bench tasks");
         let bench = r.sector("bench").unwrap();
         assert!(bench.plan_builtin);
         assert_eq!(bench.gaia_functions, ["ARTEMIS"]);

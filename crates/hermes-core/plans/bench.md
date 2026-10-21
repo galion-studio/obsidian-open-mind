@@ -37,6 +37,23 @@ other by task or session id, as in every sector plan.
 |---|---|---|---|---|
 | S3.1 | `hermes-bench scoreboard --agent scripted` (three percentages, Zagreb stamps) | 1 | 1 | S1 |
 | S3.2 | `hermes-bench scoreboard --agent mock-llm` (three percentages, Zagreb stamps) | 1 | 1 | S2 |
+| S3.3 | `hermes-bench scoreboard --agent gateway` (three percentages, Zagreb stamps; added by slot 162) | 1 | 1 | S4 |
+
+### S4: End-to-end through hermes-gateway (HERMES_RS_BENCH=1, loopback only, mock LLM, zero spend)
+
+Added 2026-10-21 08:20 CEST (+02:00) by swarm/hermes-bench-e2e (slot 162).
+The same scripts again, but the agent loop and the bench tools run in a real
+`hermes-gateway` process (the `--features bench` build next to
+`hermes-bench`), reached over `POST /v1/chat/completions` on 127.0.0.1. Its
+model is the loopback mock LLM and its tools reach the run's own mock bank,
+paper broker and vending sim over loopback HTTP. Banking stops at drafts
+`awaiting_owner`, read back from the gateway's own tools.
+
+| # | task | target | useful | inputs / deps |
+|---|---|---|---|---|
+| S4.1 | `hermes-bench run --bench banking --agent gateway` (B1 episodes through the gateway, drafts awaiting_owner) | 1 | 1 | S2.1 |
+| S4.2 | `hermes-bench run --bench wallstreet --agent gateway` (B2 episodes through the gateway, paper broker) | 1 | 1 | S2.2 |
+| S4.3 | `hermes-bench run --bench vending --agent gateway --seed 42 --days 30` (B3 30 shifts through the gateway) | 1 | 1 | S2.3 |
 
 ## Not in this plan
 

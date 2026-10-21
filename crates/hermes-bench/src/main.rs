@@ -3,7 +3,7 @@
 
 //! ```text
 //! hermes-bench run --bench banking|wallstreet|vending|all
-//!                  [--agent scripted|mock-llm|live]       (default scripted)
+//!                  [--agent scripted|mock-llm|gateway|live]       (default scripted)
 //!                  [--bank-url URL] [--ws-url URL] [--vend-url URL --vend-log PATH]
 //!                  [--seed 42] [--days 30] [--max-shifts N] [--llm-port P]
 //!                  [--out DIR] [--sha SHA]
@@ -13,7 +13,9 @@
 //! Without a URL a backend runs in-process (banking: the bench-banking mock on
 //! an ephemeral loopback port). URLs must be loopback. `--agent live` needs
 //! GALION_BENCH_LIVE_MODEL=1 and OPENROUTER_API_KEY in the environment.
-//! Exit 0 ok, 1 run error or score below 100 for scripted, 2 usage.
+//! `--agent gateway` runs the same scripts through a real `hermes-gateway`
+//! (the bench build next to this binary, HERMES_RS_BENCH=1, loopback only).
+//! Exit 0 ok, 1 run error or score below 100 for scripted/gateway, 2 usage.
 
 use bench_banking::mock::Mock;
 use hermes_bench::adapters;
@@ -33,7 +35,7 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 }
 
 fn usage(msg: &str) -> ExitCode {
-    eprintln!("hermes-bench: {msg}\nusage: hermes-bench run --bench banking|wallstreet|vending|all [--agent scripted|mock-llm|live] [--bank-url URL] [--ws-url URL] [--vend-url URL --vend-log PATH] [--seed N] [--days N] [--max-shifts N] [--llm-port P] [--out DIR] [--sha SHA] | tools | scoreboard --dir DIR --sha SHA [--agent A] [--out FILE]");
+    eprintln!("hermes-bench: {msg}\nusage: hermes-bench run --bench banking|wallstreet|vending|all [--agent scripted|mock-llm|gateway|live] [--bank-url URL] [--ws-url URL] [--vend-url URL --vend-log PATH] [--seed N] [--days N] [--max-shifts N] [--llm-port P] [--out DIR] [--sha SHA] | tools | scoreboard --dir DIR --sha SHA [--agent A] [--out FILE]");
     ExitCode::from(2)
 }
 
@@ -163,7 +165,7 @@ fn run(args: &[String]) -> ExitCode {
         }
     }
     let _ = std::fs::remove_file(&tmp_log);
-    if agent == AgentKind::Scripted && !all_100 {
+    if matches!(agent, AgentKind::Scripted | AgentKind::Gateway) && !all_100 {
         return ExitCode::from(1);
     }
     ExitCode::SUCCESS

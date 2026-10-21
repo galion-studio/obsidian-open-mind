@@ -172,13 +172,13 @@ fn full_matrix_runs_in_dependency_order_under_the_sector_cap() {
     .unwrap();
     assert_eq!(
         (b.done, b.failed, b.blocked, b.refused),
-        (8, 0, 0, 0),
+        (12, 0, 0, 0),
         "{b:#?}"
     );
     assert_eq!(b.cap, 3);
     assert!(b.peak <= 3 && b.peak >= 2, "peak {}", b.peak);
     assert!(fake.active.lock().unwrap().1 <= 3);
-    assert!(b.all_100("scripted") && b.all_100("mock-llm"));
+    assert!(b.all_100("scripted") && b.all_100("mock-llm") && b.all_100("gateway"));
     assert!(
         hermes_core::report::spoken_ok(&b.spoken).is_ok(),
         "{}",
@@ -198,15 +198,17 @@ fn full_matrix_runs_in_dependency_order_under_the_sector_cap() {
         let s = span(&format!("--bench {bn} --agent scripted"));
         let m = span(&format!("--bench {bn} --agent mock-llm"));
         assert!(m.0 >= s.1, "{bn}: mock-llm started before scripted ended");
+        let g = span(&format!("--bench {bn} --agent gateway"));
+        assert!(g.0 >= m.1, "{bn}: gateway started before mock-llm ended");
         let sb = span("scoreboard --dir");
         assert!(sb.0 >= s.1);
     }
-    assert_eq!(calls.len(), 8);
+    assert_eq!(calls.len(), 12);
     // The ledger shows every state change and replays into Done.
     let rep = ledger::read_all(&lp).unwrap();
     assert!(rep.sound());
     let kinds = |k: &str| rep.events.iter().filter(|e| e.kind == k).count();
-    assert_eq!((kinds("dispatched"), kinds("completed")), (8, 8));
+    assert_eq!((kinds("dispatched"), kinds("completed")), (12, 12));
     drop(l);
     let h2 = hermes(Some(&lp));
     for rt in h2.tasks.values() {
@@ -228,7 +230,7 @@ fn full_matrix_runs_in_dependency_order_under_the_sector_cap() {
     .unwrap();
     assert_eq!(again.done, 0);
     assert!(again.rows.iter().all(|r| r.outcome == "already-done"));
-    assert_eq!(fake.calls.lock().unwrap().len(), 8, "nothing re-executed");
+    assert_eq!(fake.calls.lock().unwrap().len(), 12, "nothing re-executed");
     // Save / load round trip; the no-op run does not replace last.json.
     let saved = bench::save(&dir, &mut b).unwrap();
     assert_eq!(saved, bench::last_path(&dir));
@@ -259,7 +261,7 @@ fn a_crash_is_retried_then_completes() {
         &cfg(&dir.join("out")),
     )
     .unwrap();
-    assert_eq!((b.done, b.failed, b.retries), (8, 0, 1), "{b:#?}");
+    assert_eq!((b.done, b.failed, b.retries), (12, 0, 1), "{b:#?}");
     assert_eq!(row(&b, "S1.2").attempts, 2);
     let rep = ledger::read_all(&lp).unwrap();
     let kinds: Vec<&str> = rep
@@ -303,14 +305,14 @@ fn a_persistent_failure_fails_and_blocks_its_dependents() {
     .unwrap();
     assert_eq!(row(&b, "S1.1").outcome, "failed");
     assert_eq!(row(&b, "S1.1").attempts, 2, "max_error_attempts = 2");
-    for k in ["S2.1", "S3.1", "S3.2"] {
+    for k in ["S2.1", "S4.1", "S3.1", "S3.2", "S3.3"] {
         assert_eq!(row(&b, k).outcome, "blocked", "{k}");
         assert_eq!(row(&b, k).attempts, 0, "{k} never ran");
     }
-    for k in ["S1.2", "S1.3", "S2.2", "S2.3"] {
+    for k in ["S1.2", "S1.3", "S2.2", "S2.3", "S4.2", "S4.3"] {
         assert_eq!(row(&b, k).outcome, "done", "{k}");
     }
-    assert_eq!((b.done, b.failed, b.blocked), (4, 1, 3));
+    assert_eq!((b.done, b.failed, b.blocked), (6, 1, 5));
     let (ok, ev) = bench::readiness(&h, &Gate::closed("test"), Some(&b));
     assert!(!ok);
     assert!(
@@ -347,6 +349,49 @@ fn a_scripted_score_below_100_fails_the_gate_entry() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// Slot 162: the gateway end-to-end runs must score 100% too, and a plan
+/// without them fails G16.
+#[test]
+fn a_gateway_score_below_100_fails_the_gate_entry() {
+    let dir = tmp("gwpct");
+    let (mut l, _) = Ledger::open(&dir.join("ledger.jsonl")).unwrap();
+    let h = hermes(None);
+    let mut fake = Fake::default();
+    fake.pct
+        .insert("--bench banking --agent gateway".into(), 88);
+    let b = bench::run(
+        &h,
+        &Gate::closed("test"),
+        &mut l,
+        &RetryPolicy(h.reg.retry.clone()),
+        Arc::new(fake),
+        &cfg(&dir.join("out")),
+    )
+    .unwrap();
+    assert_eq!(row(&b, "S4.1").pct, Some(88));
+    assert!(b.all_100("scripted") && !b.all_100("gateway"));
+    let (ok, ev) = bench::readiness(&h, &Gate::closed("test"), Some(&b));
+    assert!(
+        !ok && ev.contains("banking/gateway 88%")
+            && ev.contains("a gateway run is not done at 100%"),
+        "{ev}"
+    );
+    assert!(ev.contains("gateway e2e runs 3/3"), "{ev}");
+    // the whitelist takes the gateway agent but still no flag that points it elsewhere
+    assert!(
+        Spec::parse_command("hermes-bench run --bench vending --agent gateway --seed 7").is_ok()
+    );
+    for bad in [
+        "hermes-bench run --bench banking --agent gateway --bank-url http://127.0.0.1:1",
+        "hermes-bench run --bench banking --agent gateway --llm-port 20321",
+        "hermes-bench run --bench banking --agent gateway --out /tmp/x",
+        "hermes-bench run --bench banking --agent gateway --agent live",
+    ] {
+        assert!(Spec::parse_command(bad).is_err(), "{bad}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn operator_intake_of_a_live_run_is_refused_and_never_executed() {
     let dir = tmp("intake");
@@ -373,7 +418,7 @@ fn operator_intake_of_a_live_run_is_refused_and_never_executed() {
     let fake = Arc::new(Fake::default());
     let mut c = cfg(&dir.join("out"));
     let keys: Vec<String> = bench::matrix(&h).into_iter().map(|(k, _)| k).collect();
-    assert_eq!(keys.len(), 11, "{keys:?}");
+    assert_eq!(keys.len(), 15, "{keys:?}");
     let intake: Vec<&String> = keys.iter().filter(|k| !k.contains(":S")).collect();
     c.only = intake.iter().map(|k| (*k).clone()).collect();
     let b = bench::run(
@@ -470,19 +515,19 @@ fn only_full_runs_become_last_and_carry_earlier_scores_forward() {
     )
     .unwrap();
     drop(l);
-    assert_eq!((first.done, first.failed, first.blocked), (6, 1, 1));
+    assert_eq!((first.done, first.failed, first.blocked), (8, 1, 3));
     assert_eq!(
         bench::save(&state, &mut first).unwrap(),
         bench::last_path(&state)
     );
     let (ok, ev) = bench::readiness(&h, &gate, bench::load_last(&state).unwrap().as_ref());
     assert!(
-        !ok && ev.contains("left undone: bench:S2.3, bench:S3.2"),
+        !ok && ev.contains("left undone: bench:S2.3, bench:S3.2, bench:S3.3, bench:S4.3"),
         "{ev}"
     );
 
     // Run 2 (full, no rerun): only the failed and blocked rows execute; the
-    // six done rows come back already-done and keep run 1's scores.
+    // eight done rows come back already-done and keep run 1's scores.
     let h = hermes(Some(&lp));
     let (mut l, _) = Ledger::open(&lp).unwrap();
     let calls_before = fake.calls.lock().unwrap().len();
@@ -496,8 +541,8 @@ fn only_full_runs_become_last_and_carry_earlier_scores_forward() {
     )
     .unwrap();
     drop(l);
-    assert_eq!(fake.calls.lock().unwrap().len() - calls_before, 2);
-    assert_eq!((second.done, second.failed, second.blocked), (2, 0, 0));
+    assert_eq!(fake.calls.lock().unwrap().len() - calls_before, 4);
+    assert_eq!((second.done, second.failed, second.blocked), (4, 0, 0));
     assert!(!second.all_100("scripted"), "no pct before the carry");
     assert_eq!(
         bench::save(&state, &mut second).unwrap(),
@@ -508,7 +553,7 @@ fn only_full_runs_become_last_and_carry_earlier_scores_forward() {
     let s11 = row(&last, "S1.1");
     assert_eq!((s11.outcome.as_str(), s11.pct), ("already-done", Some(100)));
     assert!(s11.detail.contains(&first.run), "{}", s11.detail);
-    assert!(last.all_100("scripted") && last.all_100("mock-llm"));
+    assert!(last.all_100("scripted") && last.all_100("mock-llm") && last.all_100("gateway"));
     assert!(
         last.spoken.contains("every scripted run scored"),
         "{}",

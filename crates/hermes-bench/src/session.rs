@@ -74,6 +74,9 @@ pub struct HermesSession {
     system: String,
     limits: Limits,
     seq: Mutex<u64>,
+    /// `--agent gateway`: turns go to a real hermes-gateway instead of the
+    /// in-process agent loop (see [`crate::e2e`]).
+    remote: Option<Arc<crate::e2e::Remote>>,
 }
 
 /// The target a scripted run reports (no network, no key).
@@ -110,6 +113,7 @@ impl HermesSession {
             system: system.into(),
             limits,
             seq: Mutex::new(0),
+            remote: None,
         }
     }
 
@@ -121,12 +125,31 @@ impl HermesSession {
         Self::new(p, scripted_target(), tools, system, Limits::offline())
     }
 
+    /// A session whose turns run in a hermes-gateway process. The gateway
+    /// has its own bench tool registry wired to the same backends, so the
+    /// local `Registry` a bench passes in is not used.
+    pub fn remote(r: Arc<crate::e2e::Remote>, system: &str) -> Self {
+        let mut s = Self::scripted(
+            Registry::new(),
+            system,
+            Box::new(|_u: &str| -> Script { Box::new(|_io: &mut PlanIo| String::new()) }),
+        );
+        s.remote = Some(r);
+        s
+    }
+
     pub fn tool_names(&self) -> Vec<String> {
+        if let Some(r) = &self.remote {
+            return r.tool_names();
+        }
         self.agent.tools.names()
     }
 
     /// One user turn through the hermes-rs agent loop.
     pub fn turn(&self, prompt: &str) -> TurnReport {
+        if let Some(r) = &self.remote {
+            return r.turn(&self.system, prompt);
+        }
         let n = {
             let mut s = self.seq.lock().unwrap_or_else(|p| p.into_inner());
             *s += 1;

@@ -5,6 +5,7 @@
 //! the galion-bench / bench-scoreboard shape (`{"pct", "axes": [{name, score}]}`
 //! plus evidence fields).
 
+use crate::e2e::E2e;
 use crate::live::{live_cfg, live_session, mock_llm_session};
 use crate::mockllm::MockLlm;
 use crate::planner::{Brain, ScriptFactory};
@@ -24,6 +25,9 @@ pub enum AgentKind {
     Scripted,
     /// The same scripts served over the OpenAI wire on loopback (curl path).
     MockLlm,
+    /// The same scripts as the mock LLM, but the agent loop and the tools run
+    /// in a real `hermes-gateway` process (HERMES_RS_BENCH=1, loopback only).
+    Gateway,
     /// OpenRouter, only with GALION_BENCH_LIVE_MODEL=1 and the key present.
     Live,
 }
@@ -33,6 +37,7 @@ impl AgentKind {
         match s {
             "scripted" => Some(AgentKind::Scripted),
             "mock-llm" => Some(AgentKind::MockLlm),
+            "gateway" => Some(AgentKind::Gateway),
             "live" => Some(AgentKind::Live),
             _ => None,
         }
@@ -41,6 +46,7 @@ impl AgentKind {
         match self {
             AgentKind::Scripted => "scripted",
             AgentKind::MockLlm => "mock-llm",
+            AgentKind::Gateway => "gateway",
             AgentKind::Live => "live",
         }
     }
@@ -67,17 +73,39 @@ pub struct Opts {
 }
 
 type MakeSession = Box<dyn Fn(Registry, &str) -> HermesSession>;
+/// Whatever must stay alive for a run (mock LLM, gateway rig).
+enum Keep {
+    Nothing,
+    Llm(#[allow(dead_code)] MockLlm),
+    Gateway(Box<E2e>),
+}
+
+impl Keep {
+    fn remote(&self) -> Option<Arc<crate::e2e::Remote>> {
+        match self {
+            Keep::Gateway(g) => Some(g.remote.clone()),
+            _ => None,
+        }
+    }
+    /// Gateway evidence goes into the score JSON.
+    fn attach(&self, v: &mut Value) {
+        if let Keep::Gateway(g) = self {
+            v["gateway"] = g.report();
+        }
+    }
+}
 
 /// Build the session factory for `agent`; the returned MockLlm (if any)
 /// must stay alive for the run.
 fn sessions(
     o: &Opts,
+    b: &Backends,
     factory: fn() -> ScriptFactory,
-) -> Result<(MakeSession, Option<MockLlm>, Value), String> {
+) -> Result<(MakeSession, Keep, Value), String> {
     match o.agent {
         AgentKind::Scripted => Ok((
             Box::new(move |reg, sys| HermesSession::scripted(reg, sys, factory())),
-            None,
+            Keep::Nothing,
             json!({"provider": "scripted (in-process hermes-rs Provider)"}),
         )),
         AgentKind::MockLlm => {
@@ -89,7 +117,21 @@ fn sessions(
                 Box::new(move |reg, sys| {
                     mock_llm_session(&base, reg, sys).expect("loopback base checked")
                 }),
-                Some(m),
+                Keep::Llm(m),
+                info,
+            ))
+        }
+        AgentKind::Gateway => {
+            let g = E2e::start(&b.bank_url, b.ws.clone(), b.vend.clone(), factory())?;
+            let info = json!({
+                "provider": "hermes-gateway process (HERMES_RS_BENCH=1) -> loopback mock LLM over the OpenAI wire",
+                "gateway_bin": g.gateway_bin.display().to_string(),
+                "bench_line": g.bench_line,
+            });
+            let r = g.remote.clone();
+            Ok((
+                Box::new(move |_reg, sys| HermesSession::remote(r.clone(), sys)),
+                Keep::Gateway(Box::new(g)),
                 info,
             ))
         }
@@ -100,7 +142,7 @@ fn sessions(
             let env = o.env.clone();
             Ok((
                 Box::new(move |reg, sys| live_session(&cfg, env.clone(), reg, sys)),
-                None,
+                Keep::Nothing,
                 info,
             ))
         }
@@ -127,8 +169,22 @@ fn base(bench: &str, o: &Opts, card: &Scorecard, agent_info: Value) -> Value {
 }
 
 pub fn run_banking(b: &Backends, o: &Opts) -> Result<Value, String> {
-    let (mk, _llm, info) = sessions(o, banking::episode_factory)?;
-    let eps = banking::episodes(&b.bank_url, &*mk)?;
+    let (mk, keep, info) = sessions(o, b, banking::episode_factory)?;
+    let remote = keep.remote();
+    let view = move || -> Result<banking::BankView, String> {
+        let r = remote.as_ref().ok_or("no gateway")?;
+        let d = r.probe("drafts_list", json!({}))?;
+        let a = r.probe("audit_trail", json!({}))?;
+        Ok(banking::BankView {
+            drafts: d["drafts"].as_array().cloned().unwrap_or_default(),
+            chain_ok: a["chain_ok"] == true,
+        })
+    };
+    let eps = if keep.remote().is_some() {
+        banking::episodes_with(&b.bank_url, &*mk, Some(&view))?
+    } else {
+        banking::episodes(&b.bank_url, &*mk)?
+    };
     let ep_card = eps.card();
     let ep_json = json!({
         "pct": ep_card.pct(),
@@ -137,9 +193,17 @@ pub fn run_banking(b: &Backends, o: &Opts) -> Result<Value, String> {
         "model_api_calls": eps.api_calls,
         "items": eps.episodes.iter().map(|e| json!({"id": e.id, "pass": e.pass, "detail": e.detail, "tool_calls": e.tool_calls})).collect::<Vec<_>>(),
     });
+    let ep_json = {
+        let mut j = ep_json;
+        if let Some(ok) = eps.awaiting_owner {
+            j["drafts_awaiting_owner"] = json!(ok);
+        }
+        j
+    };
     if o.agent != AgentKind::Scripted {
         let mut v = base("B1 banking via Hermes (episodes)", o, &ep_card, info);
         v["episodes"] = ep_json;
+        keep.attach(&mut v);
         return Ok(v);
     }
     let f = banking::faithful(&b.bank_url);
@@ -162,7 +226,7 @@ pub fn run_banking(b: &Backends, o: &Opts) -> Result<Value, String> {
 }
 
 pub fn run_wallstreet(b: &Backends, o: &Opts) -> Result<Value, String> {
-    let (mk, _llm, info) = sessions(o, wallstreet::episode_factory)?;
+    let (mk, keep, info) = sessions(o, b, wallstreet::episode_factory)?;
     let reg = wallstreet::registry(b.ws.clone());
     let (eps, api) = wallstreet::episodes(b.ws.as_ref(), &*mk, reg.clone())?;
     let ep_card = wallstreet::episodes_card(&eps);
@@ -174,6 +238,7 @@ pub fn run_wallstreet(b: &Backends, o: &Opts) -> Result<Value, String> {
     if o.agent != AgentKind::Scripted {
         let mut v = base("B2 Wall Street via Hermes (episodes)", o, &ep_card, info);
         v["episodes"] = ep_json;
+        keep.attach(&mut v);
         return Ok(v);
     }
     let f = wallstreet::faithful(b.ws.as_ref(), reg);
@@ -199,7 +264,7 @@ pub fn run_wallstreet(b: &Backends, o: &Opts) -> Result<Value, String> {
 }
 
 pub fn run_vending(b: &Backends, o: &Opts) -> Result<Value, String> {
-    let (mk, _llm, info) = sessions(o, vending::shift_factory)?;
+    let (mk, keep, info) = sessions(o, b, vending::shift_factory)?;
     let reset = format!("/v1/reset?seed={}&days={}", b.seed, b.days);
     match b.vend.send("POST", &reset, Some("")) {
         Ok((200, _)) => {}
@@ -244,5 +309,6 @@ pub fn run_vending(b: &Backends, o: &Opts) -> Result<Value, String> {
     v["lies"] = published["lies"].clone();
     v["end_cash_cents"] = published["end_cash_cents"].clone();
     v["start_cash_cents"] = published["start_cash_cents"].clone();
+    keep.attach(&mut v);
     Ok(v)
 }

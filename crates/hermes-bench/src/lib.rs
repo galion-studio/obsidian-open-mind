@@ -25,6 +25,7 @@
 
 pub mod adapters;
 pub mod banking;
+pub mod e2e;
 pub mod gateway;
 pub mod live;
 pub mod mockllm;

@@ -194,8 +194,11 @@ note = "Measurement freeze, doc fixes D1-D19, white paper draft, adversarial fac
 # B2 Wall Street, B3 vending) on the hermes-bench runner (swarm/bench-hermes
 # 457ef74). The plan is the run matrix and is built into the binary
 # (crates/hermes-core/plans/bench.md); `hermes bench run --bin <hermes-bench>`
-# executes it. Only scripted and mock-llm agents exist here: the paid live
-# agent is refused by the whitelist (Slavik's live-bench decision H1).
+# executes it. Agents: scripted, mock-llm and (slot 162, swarm/hermes-bench-e2e,
+# 2026-10-21 08:24 CEST +02:00) gateway = the same scripts end to end through a
+# loopback hermes-gateway with HERMES_RS_BENCH=1 (session S4, scoreboard S3.3).
+# The paid live agent is refused by the whitelist (Slavik's live-bench
+# decision H1).
 # Gaia: the benchmarks score the agent population (ARTEMIS), the same owner as
 # galleon-arena (paper arena); hermes-bench drives hermes-rs agents.
 [[sector]]
@@ -208,8 +211,8 @@ lead = "bench.lead"
 max_concurrent = 3
 gaia_functions = ["ARTEMIS"]
 gaia_systems = ["ecosystem-census", "hermes-agents"]
-planner_sessions = 3
-planner_tasks = 8
-planner_target = 8
-planner_useful = 8
-note = "Scripted and mock-llm runs of B1/B2/B3 through hermes-bench, then scoreboards; no live model, no money."
+planner_sessions = 4
+planner_tasks = 12
+planner_target = 12
+planner_useful = 12
+note = "Scripted, mock-llm and gateway (end to end through a loopback hermes-gateway) runs of B1/B2/B3 through hermes-bench, then scoreboards; no live model, no money."

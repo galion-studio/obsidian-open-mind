@@ -65,6 +65,11 @@ C cross-compiler for bundled SQLite; that problem predates this branch (slot 117
 passes on aarch64-linux-android and armv7-unknown-linux-musleabihf (`--no-default-features`).
 The armv7 gnueabihf target is not installed on the box.
 
+## Used by the bench sector (slot 162)
+`hermes-bench run --agent gateway` (hermes-core bench plan S4) starts this bench build as a
+loopback child and runs B1/B2/B3 end to end through `POST /v1/chat/completions`; see
+`docs/hermes-bench-sector.md` section 6 and `docs/real-tests/hermes-bench-e2e.md`.
+
 ## Owner decisions (not decided here)
 | # | Decision | Options | Evidence / note |
 |---|---|---|---|

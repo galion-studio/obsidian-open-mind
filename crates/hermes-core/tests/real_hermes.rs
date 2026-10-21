@@ -182,7 +182,7 @@ fn hermes_real_life() {
         sum("gated_tasks"),
         v["gaia_systems_covered"]
     );
-    // Seven swarm sectors plus bench (built-in plan: 3 sessions, 8 runs).
+    // Seven swarm sectors plus bench (built-in plan: 4 sessions, 12 tasks).
     assert_eq!(sectors.len(), 8);
     for s in sectors {
         for k in ["sessions", "tasks", "target", "useful"] {
@@ -194,10 +194,10 @@ fn hermes_real_life() {
             assert_eq!(parsed, &s["planner"][k], "{} {k} vs planner", s["id"]);
         }
     }
-    assert_eq!((sum("sessions"), sum("tasks")), (47 + 3, 200 + 8));
+    assert_eq!((sum("sessions"), sum("tasks")), (47 + 4, 200 + 12));
     assert_eq!(
         (sum("target_agents"), sum("useful_agents")),
-        (645 + 8, 407 + 8)
+        (645 + 12, 407 + 12)
     );
 
     step(

@@ -13,8 +13,9 @@
 //!   carries the exact `hermes-bench` command between backticks.
 //! * [`Spec::parse_command`] turns that command into a [`Spec`] through a
 //!   whitelist: `run --bench banking|wallstreet|vending --agent
-//!   scripted|mock-llm [--seed N] [--days N] [--max-shifts N]` and
-//!   `scoreboard --agent scripted|mock-llm`. The `live` agent (OpenRouter,
+//!   scripted|mock-llm|gateway [--seed N] [--days N] [--max-shifts N]` and
+//!   `scoreboard --agent scripted|mock-llm|gateway` (`gateway` = end to end
+//!   through a loopback hermes-gateway with HERMES_RS_BENCH=1, slot 162). The `live` agent (OpenRouter,
 //!   paid) and every backend URL flag are refused, so no plan row and no
 //!   operator intake can reach a paid model, a non-loopback backend or money.
 //! * [`run`] dispatches the bench tasks through the [`Governor`] (bench
@@ -49,7 +50,10 @@ pub const PLAN: &str = include_str!("../plans/bench.md");
 /// Benchmarks `hermes-bench run --bench` accepts here.
 pub const BENCHES: [&str; 3] = ["banking", "wallstreet", "vending"];
 /// Agents Hermes may run. `live` (OpenRouter) is deliberately absent.
-pub const AGENTS: [&str; 2] = ["scripted", "mock-llm"];
+pub const AGENTS: [&str; 3] = ["scripted", "mock-llm", "gateway"];
+/// Agents whose runs are deterministic scripts and must score 100% for G16
+/// (`gateway` = the same scripts end to end through a hermes-gateway process).
+pub const MUST_BE_100: [&str; 2] = ["scripted", "gateway"];
 
 /// A plan compiled into the binary, by file name.
 pub fn builtin_plan(name: &str) -> Option<&'static str> {
@@ -82,7 +86,9 @@ fn agent_ok(v: &str) -> Result<String, String> {
     if AGENTS.contains(&v) {
         Ok(v.to_string())
     } else {
-        Err(format!("agent {v:?} is not one of scripted, mock-llm"))
+        Err(format!(
+            "agent {v:?} is not one of scripted, mock-llm, gateway"
+        ))
     }
 }
 
@@ -943,7 +949,9 @@ pub fn matrix(h: &Hermes) -> Vec<(String, Result<Spec, String>)> {
 /// Passes when the bench sector is registered with its built-in plan, every
 /// bench task parses to an offline command the gate lets through, the
 /// whitelist refuses the paid `live` agent and backend URLs, and the last
-/// recorded run completed every plan task with every scripted run at 100%.
+/// recorded run completed every plan task with every scripted run and every
+/// gateway end-to-end run at 100%, and the plan has a gateway run for each
+/// benchmark.
 pub fn readiness(h: &Hermes, gate: &Gate, last: Option<&BenchRun>) -> (bool, String) {
     let mut why = Vec::new();
     let Some(sector) = h.reg.sector(SECTOR) else {
@@ -991,6 +999,21 @@ pub fn readiness(h: &Hermes, gate: &Gate, last: Option<&BenchRun>) -> (bool, Str
         .iter()
         .filter(|(_, s)| matches!(s, Ok(Spec::Run { .. })))
         .count();
+    let gw_benches: Vec<&str> = BENCHES
+        .iter()
+        .filter(|b| {
+            m.iter().any(|(_, s)| {
+                matches!(s, Ok(Spec::Run { bench, agent, .. }) if bench == *b && agent == "gateway")
+            })
+        })
+        .copied()
+        .collect();
+    if gw_benches.len() != BENCHES.len() {
+        why.push(format!(
+            "plan has gateway end-to-end runs for {} of 3 benchmarks",
+            gw_benches.len()
+        ));
+    }
     let last_text = match last {
         None => {
             why.push("no bench run recorded yet (hermes bench run)".into());
@@ -1012,8 +1035,10 @@ pub fn readiness(h: &Hermes, gate: &Gate, last: Option<&BenchRun>) -> (bool, Str
             if !missing.is_empty() {
                 why.push(format!("last run left undone: {}", missing.join(", ")));
             }
-            if !b.all_100("scripted") {
-                why.push("last run: a scripted run is not done at 100%".into());
+            for a in MUST_BE_100 {
+                if !b.all_100(a) {
+                    why.push(format!("last run: a {a} run is not done at 100%"));
+                }
             }
             let pcts: Vec<String> = b
                 .rows
@@ -1042,10 +1067,11 @@ pub fn readiness(h: &Hermes, gate: &Gate, last: Option<&BenchRun>) -> (bool, Str
         }
     };
     let evidence = format!(
-        "bench sector cap {}, built-in plan {} tasks ({runs} runs, {} scoreboards), whitelist refuses live agent and backend URLs; {last_text}{}",
+        "bench sector cap {}, built-in plan {} tasks ({runs} runs, {} scoreboards), gateway e2e runs {}/3, whitelist refuses live agent and backend URLs; {last_text}{}",
         sector.max_concurrent,
         ntasks,
         m.len() - runs - bad.len(),
+        gw_benches.len(),
         if why.is_empty() {
             String::new()
         } else {
@@ -1152,10 +1178,10 @@ mod tests {
     }
 
     #[test]
-    fn builtin_plan_parses_into_eight_offline_runs() {
+    fn builtin_plan_parses_into_twelve_offline_runs() {
         let p = crate::plan::parse(SECTOR, PLAN);
-        assert_eq!(p.sessions.len(), 3);
-        assert_eq!(p.tasks.len(), 8);
+        assert_eq!(p.sessions.len(), 4);
+        assert_eq!(p.tasks.len(), 12);
         assert!(p.cycles.is_empty());
         for t in &p.tasks {
             let s = Spec::parse_title(&t.title).unwrap_or_else(|e| panic!("{}: {e}", t.key));
@@ -1172,6 +1198,17 @@ mod tests {
             get("bench:S3.2").deps,
             ["bench:S2.1", "bench:S2.2", "bench:S2.3"]
         );
+        assert_eq!(get("bench:S4.3").deps, ["bench:S2.3"]);
+        assert_eq!(
+            get("bench:S3.3").deps,
+            ["bench:S4.1", "bench:S4.2", "bench:S4.3"]
+        );
+        let gw = p
+            .tasks
+            .iter()
+            .filter(|t| Spec::parse_title(&t.title).is_ok_and(|s| s.agent() == "gateway"))
+            .count();
+        assert_eq!(gw, 4, "3 gateway runs + 1 gateway scoreboard");
         assert_eq!(builtin_plan("bench.md"), Some(PLAN));
         assert_eq!(builtin_plan("gaia.md"), None);
     }

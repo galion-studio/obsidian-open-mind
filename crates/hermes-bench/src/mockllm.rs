@@ -30,6 +30,9 @@ pub struct Seen {
 pub struct MockLlm {
     pub port: u16,
     pub seen: Arc<Mutex<Seen>>,
+    /// The full message list of every finished turn (the request on which
+    /// the brain answered `Done`), for runs whose agent loop is remote.
+    pub transcripts: Arc<Mutex<Vec<Vec<Value>>>>,
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -41,19 +44,21 @@ impl MockLlm {
         let port = l.local_addr()?.port();
         let seen = Arc::new(Mutex::new(Seen::default()));
         let stop = Arc::new(AtomicBool::new(false));
-        let (s2, st2) = (seen.clone(), stop.clone());
+        let transcripts = Arc::new(Mutex::new(Vec::new()));
+        let (s2, st2, tr2) = (seen.clone(), stop.clone(), transcripts.clone());
         let thread = std::thread::spawn(move || {
             for conn in l.incoming() {
                 if st2.load(Ordering::SeqCst) {
                     break;
                 }
                 let Ok(c) = conn else { continue };
-                let _ = handle(c, &brain, &s2);
+                let _ = handle(c, &brain, &s2, &tr2);
             }
         });
         Ok(MockLlm {
             port,
             seen,
+            transcripts,
             stop,
             thread: Some(thread),
         })
@@ -80,7 +85,12 @@ impl Drop for MockLlm {
     }
 }
 
-fn handle(mut s: TcpStream, brain: &Brain, seen: &Mutex<Seen>) -> std::io::Result<()> {
+fn handle(
+    mut s: TcpStream,
+    brain: &Brain,
+    seen: &Mutex<Seen>,
+    transcripts: &Mutex<Vec<Vec<Value>>>,
+) -> std::io::Result<()> {
     s.set_read_timeout(Some(Duration::from_secs(30)))?;
     let mut r = BufReader::new(s.try_clone()?);
     let mut line = String::new();
@@ -112,7 +122,7 @@ fn handle(mut s: TcpStream, brain: &Brain, seen: &Mutex<Seen>) -> std::io::Resul
         let mut buf = vec![0u8; len];
         r.read_exact(&mut buf)?;
         match serde_json::from_slice::<Value>(&buf) {
-            Ok(req) => (200, complete(&req, brain, seen, auth)),
+            Ok(req) => (200, complete(&req, brain, seen, transcripts, auth)),
             Err(e) => (400, json!({"error": {"message": e.to_string()}})),
         }
     };
@@ -125,7 +135,13 @@ fn handle(mut s: TcpStream, brain: &Brain, seen: &Mutex<Seen>) -> std::io::Resul
     s.flush()
 }
 
-fn complete(req: &Value, brain: &Brain, seen: &Mutex<Seen>, auth: bool) -> Value {
+fn complete(
+    req: &Value,
+    brain: &Brain,
+    seen: &Mutex<Seen>,
+    transcripts: &Mutex<Vec<Vec<Value>>>,
+    auth: bool,
+) -> Value {
     {
         let mut sn = seen.lock().unwrap_or_else(|p| p.into_inner());
         sn.requests += 1;
@@ -152,7 +168,14 @@ fn complete(req: &Value, brain: &Brain, seen: &Mutex<Seen>, auth: bool) -> Value
                 "function": {"name": tool, "arguments": args.to_string()}}]}),
             "tool_calls",
         ),
-        Step::Done(text) => (json!({"role": "assistant", "content": text}), "stop"),
+        Step::Done(text) => {
+            let mut t = transcripts.lock().unwrap_or_else(|p| p.into_inner());
+            if t.len() >= 64 {
+                t.remove(0);
+            }
+            t.push(msgs.clone());
+            (json!({"role": "assistant", "content": text}), "stop")
+        }
     };
     json!({
         "id": "mockllm", "object": "chat.completion", "model": req["model"],

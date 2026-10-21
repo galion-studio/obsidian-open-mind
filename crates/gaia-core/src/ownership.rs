@@ -343,9 +343,10 @@ mod tests {
         }
         // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3,
         // galion-chatterbox from voice-rust via candle-zip-fix (slot 154).
+        // galion-release (release-artifacts, slot 216).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            52
+            53
         );
     }
 

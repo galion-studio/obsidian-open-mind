@@ -120,7 +120,7 @@ mod tests {
         let six = Net::parse("2001:db8::/32").unwrap();
         assert!(six.contains("2001:db8:1::5".parse().unwrap()));
         assert!(!six.contains("2001:db9::5".parse().unwrap()));
-        assert!(Net::parse("1.2.3.4/33").is_err()); // repo-check: allow (test fixture address, never dialled)
+        assert!(Net::parse("192.0.2.4/33").is_err());
         assert!(Net::parse("nope").is_err());
         assert_eq!(Net::parse("0.0.0.0/0").unwrap().prefix, 0);
     }

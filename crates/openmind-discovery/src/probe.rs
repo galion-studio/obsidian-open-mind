@@ -227,7 +227,7 @@ mod tests {
         assert!(Net24::parse("10.1.2.0/24").is_ok());
         assert!(Net24::parse("172.16.9.0/24").is_ok());
         assert!(Net24::parse("169.254.3.0/24").is_ok());
-        assert!(Net24::parse("8.8.8.0/24").is_err()); // repo-check: allow (test fixture address, never dialled)
+        assert!(Net24::parse("203.0.113.0/24").is_err());
         assert!(Net24::parse("100.64.0.0/24").is_err());
         assert!(Net24::parse("10.0.0.0/16").is_err());
         assert!(Net24::parse("10.0.0.0").is_err());

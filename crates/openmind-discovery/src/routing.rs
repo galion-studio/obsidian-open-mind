@@ -535,7 +535,7 @@ mod tests {
     #[test]
     fn operator_rows_must_be_local_http() {
         assert!(operator_row("cpu-local", Kind::CpuLocal, "http://127.0.0.1:19311").is_ok());
-        assert!(operator_row("cpu-local", Kind::CpuLocal, "http://8.8.8.8:80").is_err()); // repo-check: allow (test fixture address, never dialled)
+        assert!(operator_row("cpu-local", Kind::CpuLocal, "http://203.0.113.8:80").is_err());
         assert!(operator_row("cpu-local", Kind::CpuLocal, "tcp://127.0.0.1:1").is_err());
         assert!(operator_row("cpu-local", Kind::CpuLocal, "http://localhost:1").is_err());
         let r = operator_row("gpu-0", Kind::Gpu, "http://10.0.0.5:8080/v1").unwrap();

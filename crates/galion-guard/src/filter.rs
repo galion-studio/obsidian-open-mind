@@ -288,7 +288,7 @@ impl SshdFilter {
             }
             // Hardening (stricter than fail2ban): an address must end at a
             // token boundary, so "2001:db8::Failed" never yields 2001:db8::fa
-            // and "1.2.3.4567" never yields 1.2.3.456.
+            // and "192.0.2.4567" never yields 192.0.2.456.
             if let Some(h) = c.name("ip4").or_else(|| c.name("ip6")) {
                 let next = content[h.end()..].chars().next();
                 if !matches!(next, None | Some(' ' | '\t' | ']' | ')' | ':' | ',')) {
@@ -447,7 +447,7 @@ mod tests {
             "h sshd[1]: Failed password for x from 2001:db8::Failed password for 66 r 66 port 1",
         );
         assert!(!matches!(r.and_then(|r| r.host), Some(Host::Ip(_))));
-        assert!(m("h sshd[1]: Invalid user a from 1.2.3.4567 port 1")
+        assert!(m("h sshd[1]: Invalid user a from 192.0.2.4567 port 1")
             .is_none_or(|r| !matches!(r.host, Some(Host::Ip(_)))));
         let r = m("h sshd[1]: Received disconnect from 2001:db8::1: 11: Bye [preauth]");
         assert!(r.is_none() || matches!(r.unwrap().host, Some(Host::Ip(_))));

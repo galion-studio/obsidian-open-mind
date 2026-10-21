@@ -67,7 +67,7 @@ every subcommand is kept.
   Negative check: deleting the `nerve-client` row makes the guard fail with
   `crates not mapped ...: ["nerve-client"]`; restored, 3/3 pass.
 - **F2 (862beb5)**: repo-check `hosts` error on lan-routing's new test line
-  `crates/openmind-discovery/src/routing.rs:538` (`http://8.8.8.8:80`, a reject
+  `crates/openmind-discovery/src/routing.rs:538` (`http://203.0.113.8:80` since slot 225, earlier a public DNS literal; a reject
   case, never dialled). Added the same `// repo-check: allow (test fixture
   address, never dialled)` marker integration-1 used for admit/cmd/probe.
 

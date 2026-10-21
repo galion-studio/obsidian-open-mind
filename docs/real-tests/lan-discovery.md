@@ -31,7 +31,7 @@ a legacy-unicast reply (RFC 6762 6.7). The probe touched only 127.0.0.1
 6. `find --no-mdns --probe 127.0.0.0/24 --probe-hosts 1-1 --rate 10`: 4 attempts in
    300 ms, 3 open; the two announced ports map to the **same** rows (not
    duplicates), the probe-only port 19113 becomes a new **pending** row.
-7. `--probe 8.8.8.0/24` refused before any socket (exit 2).
+7. `--probe 203.0.113.0/24` (TEST-NET-3) refused before any socket (exit 2).
 8. Every approvals-log line has a `+02:00` timestamp; the script fails on any `Z`.
 9. All started processes (announcer, 3 stubs) exit or are killed by the script's trap.
 
@@ -72,7 +72,14 @@ galion-gaia-real is pending; only an approved device can join (run approve first
 {"probe":{"attempts":4,"elapsed_ms":300,"hosts":"1-1","net":"127.0.0.0/24","open":3,"ports":["galion:19111","exo:19112","ollama:19113","llamacpp:19114"],"rate_per_s":10},"devices":[{"provider_id":"galion-gaia-real","status":"known","approval":"approved","endpoint":"http://127.0.0.1:19111","verified":true},{"provider_id":"exo-gaia-real","status":"known","approval":"pending","endpoint":"http://127.0.0.1:19112","verified":true},{"provider_id":"ollama-127-0-0-1-19113","status":"new","approval":"pending","endpoint":"http://127.0.0.1:19113","verified":true}]}
 
 == 2026-10-20T19:24:12+02:00  probe of a public /24 is refused before any socket
-refusing to probe 8.8.8.0: only loopback, RFC 1918 and link-local /24s are allowed
+refusing to probe <public /24>: only loopback, RFC 1918 and link-local /24s are allowed
+
+== 2026-10-21T23:50:21+02:00  re-run by slot 225 (sec-testnet-fixtures), release build, no registry written
+(the 2026-10-20 run above used a public /24; the fixture is now TEST-NET-3. Same refusal,
+same exit code for TEST-NET-1/2/3 and the old public /24, so the test is not weakened.)
+refusing to probe 203.0.113.0: only loopback, RFC 1918 and link-local /24s are allowed   (exit 2)
+refusing to probe 198.51.100.0: only loopback, RFC 1918 and link-local /24s are allowed  (exit 2)
+refusing to probe 192.0.2.0: only loopback, RFC 1918 and link-local /24s are allowed     (exit 2)
 
 == 2026-10-20T19:24:12+02:00  final registry
 {"id":"exo-gaia-real","approval":"pending","health":"unknown"}

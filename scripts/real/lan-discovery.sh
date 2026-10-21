@@ -98,7 +98,7 @@ echo "$OUT" | jq -c '{probe, devices: [.devices[] | {provider_id, status, approv
 [ "$(echo "$OUT" | jq -r '[.devices[] | select(.status=="new" and .approval=="pending")] | length')" = 1 ] || fail "expected 1 new pending probe row"
 
 step "probe of a public /24 is refused before any socket"
-if "$BIN" find --no-mdns --probe 8.8.8.0/24 --registry "$REG" 2>"$WORK/refuse.err"; then fail "public probe accepted"; fi
+if "$BIN" find --no-mdns --probe 203.0.113.0/24 --registry "$REG" 2>"$WORK/refuse.err"; then fail "public probe accepted"; fi
 head -1 "$WORK/refuse.err"
 
 step "final registry"

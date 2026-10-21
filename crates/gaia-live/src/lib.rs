@@ -307,14 +307,10 @@ pub fn http_get(host: &str, c: &HttpCheck, o: &Opts) -> HttpOutcome {
             )
         }
         Expect::JsonOk => {
-            let squeezed: String = body.chars().filter(|c| !c.is_whitespace()).collect();
-            let good = squeezed.contains("\"status\":\"ok\"") || squeezed.contains("\"ok\":true");
+            let verdict = json_ok(body);
             (
-                two && good,
-                format!(
-                    "HTTP {code}, {}",
-                    if good { "status ok" } else { "status not ok" }
-                ),
+                two && verdict == JsonVerdict::Ok,
+                format!("HTTP {code}, {}", verdict.text()),
             )
         }
     };
@@ -336,6 +332,52 @@ fn complete(buf: &[u8]) -> bool {
         .find_map(|l| l.strip_prefix("content-length:"))
         .and_then(|v| v.trim().parse::<usize>().ok())
         .is_some_and(|n| buf.len() >= end + 4 + n)
+}
+
+/// How a health body reads under [`Expect::JsonOk`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum JsonVerdict {
+    /// A JSON object whose top-level `status` is the string "ok" or whose
+    /// top-level `ok` is `true`.
+    Ok,
+    /// Valid JSON, but not that.
+    NotOk,
+    /// Not one complete JSON value (truncated, text, HTML, empty).
+    NotJson,
+}
+
+impl JsonVerdict {
+    #[must_use]
+    pub fn text(self) -> &'static str {
+        match self {
+            JsonVerdict::Ok => "status ok",
+            JsonVerdict::NotOk => "status not ok",
+            JsonVerdict::NotJson => "status not ok (body is not JSON)",
+        }
+    }
+}
+
+/// Strict health-body check (gaia-fault-inject, 2026-10-21). The body must
+/// parse as ONE JSON value, that value must be an object, and its top-level
+/// `status` must be the string "ok" (or top-level `ok` must be `true`).
+/// The old rule looked for the substring `"status":"ok"` after removing all
+/// whitespace, so a truncated `{"status":"ok"`, a nested
+/// `{"status":"down","x":{"status":"ok"}}`, plain text or HTML containing
+/// it, or `{"status":"o k"}` all read as healthy (fail open).
+#[must_use]
+pub fn json_ok(body: &str) -> JsonVerdict {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(body.trim()) else {
+        return JsonVerdict::NotJson;
+    };
+    let good = v.as_object().is_some_and(|o| {
+        o.get("status").and_then(serde_json::Value::as_str) == Some("ok")
+            || o.get("ok").and_then(serde_json::Value::as_bool) == Some(true)
+    });
+    if good {
+        JsonVerdict::Ok
+    } else {
+        JsonVerdict::NotOk
+    }
 }
 
 /// `systemctl is-active UNIT` (read-only query). None when systemctl is

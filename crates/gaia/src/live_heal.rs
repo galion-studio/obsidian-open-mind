@@ -391,6 +391,15 @@ fn step(name: &str, j: Json) -> Json {
 /// One heal tick. `Err` only for setup problems (nerve unreachable, state
 /// directory unusable); every policy decision is an `Ok` with an exit code.
 pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
+    heal_tick_at(cfg, None)
+}
+
+/// [`heal_tick`] with an explicit wall clock for the restart cap, the token
+/// check and the ledger record (`None` = the system clock). For in-process
+/// fault tests only (e.g. the 2026-10-25 CEST -> CET switch,
+/// gaia-fault-inject); the `gaia` binary never takes a clock from its
+/// arguments or environment, so nobody can move the cap window from outside.
+pub fn heal_tick_at(cfg: &HealCfg, clock: Option<u64>) -> Result<HealTick, String> {
     let t = &cfg.target;
     let mut steps = Vec::new();
     let probe_id = format!("{}-{}-{}", t.name, heal::epoch_now(), std::process::id());
@@ -580,7 +589,7 @@ pub fn heal_tick(cfg: &HealCfg) -> Result<HealTick, String> {
     let history = budget
         .history(&t.name)
         .map_err(|e| format!("ledger: {e}"))?;
-    let now = heal::epoch_now();
+    let now = clock.unwrap_or_else(heal::epoch_now);
     let admin_first =
         approver.is_disabled() || hades_gate::safety::review(&t.name, &plan_bytes).is_err();
     // D-L2: the nerve's own restarts of this service count too, so the

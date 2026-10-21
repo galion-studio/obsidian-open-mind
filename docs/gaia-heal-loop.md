@@ -88,3 +88,12 @@ gaia tokens status --token-dir D [--hades-config C] [--prune]                   
 1. **D-L2b, per-unit nerve limits.** The nerve's own limit is lower for some units: `cloudflared_per_hour: 1`, and `reflex_restarts_per_hour: 0` for units it never restarts (tuner-quick, galion-one-mouth). The combined cap here is a flat 3. The 08:44 CEST VPS read shows `cloudflared` with `restarts_1h: 1`, so Gaia would see 2 left. Today this cannot matter, because Gaia's apply path refuses everything outside 127.0.0.1:19000-19999. Before Gaia ever heals live units, decide whether the cap per unit should be `min(3, reflex_restarts_per_hour)` (and what 0 means).
 2. **D-L1 revisit trigger.** D-L2 and D-L3 are now implemented, but the cortex is still not live (`/api/v1/cortex` 404 on the VPS at 08:41 CEST), so D-L1 stays "no install".
 3. **Token custody.** `gaia tokens mint` must run where the admin seed lives (not the VPS). Who mints, from which machine, and how the batch reaches the token dir are still open, and still admin acts.
+
+## Gaia S3.2: fault injection (slot 189, 2026-10-21)
+`crates/gaia/tests/real_gaia_faults.rs` (GALION_REAL=1) runs hang, slow
+/health, 8 bad-JSON bodies, flapping with two loops, stolen port (503 and
+hung thief), real nerve down and back, nerve partial faults, the 2026-10-25
+CEST -> CET switch on a fake clock (`live_heal::heal_tick_at`), corrupt
+ledgers and a disabled gate. The 3-per-hour budget and fail-closed held in
+all of them. `/health` JSON is now checked strictly (`gaia_live::json_ok`).
+Matrix, findings and decisions D-FI1..D-FI6: [gaia-fault-inject.md](gaia-fault-inject.md).

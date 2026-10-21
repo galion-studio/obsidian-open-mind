@@ -45,6 +45,7 @@ does the whole script in-process:
 | `tar -C / --exclude='*.db' '*.db-wal' '*.db-shm' '.backup' -cf files.tar ...` (exit 1 tolerated) | own GNU-format tar writer: same members in the same (readdir) order, same headers; **byte-identical files.tar** in the parity test |
 | `find . -type f ! -name SHA256SUMS \| sort -z \| xargs -0 sha256sum > SHA256SUMS` | own SHA-256, same lines, C-locale order; byte-identical |
 | `tar -czf DEST/.galion-STAMP.tar.gz.part`; `chmod 0600`; `mv` | own tar + gzip (miniz_oxide deflate level 6); 0600; atomic rename |
+| (none) | optional `GALION_BACKUP_GZIP_LEVEL` 0-9, default 6; invalid -> exit 1 before anything is written (swarm/backup-perf) |
 | `ls -1t galion-*.tar.gz \| tail -n +KEEP+1 \| xargs rm -f` | mtime (ns) newest first, ties by name, same glob; same survivors |
 | `du -k`, `kept=$(ls ... \| wc -l)`, `level=info msg="ok" archive=... size_kb=N kept=K` | `st_blocks` KiB rounded up; same line |
 
@@ -118,3 +119,14 @@ Nothing was installed, restarted or written on the VPS. Proposed cutover:
 * D3 Cross builds need a C compiler for SQLite (rusqlite `bundled`); the box
   has none for aarch64/armv7/android, so the zig-cc stopgap (pending owner
   exception, see common-migrate-2) was used for verification only.
+
+## Performance (swarm/backup-perf, 2026-10-21 03:47 +02:00)
+
+On a VPS-sized fake tree (46 MB SQLite, 1845 files.tar members, bash
+3.46 s / 2.55 s CPU vs ~3 s / 2.5 s on the VPS), level 6: Rust gnu +15 %
+wall / +18 % CPU, Rust musl +25 % / +31 %. Memory: one 5.8-7.4 MiB
+process vs 14-19 bash processes peaking at 10.2 MiB together. The CPU gap is
+miniz_oxide vs GNU gzip plus pure-Rust SHA-256 vs SHA-NI. The CRC-32 is now
+slicing-by-8 (4.5x faster). `GALION_BACKUP_GZIP_LEVEL=5` gives -36 % CPU vs
+bash for +6 % archive size. Details, raw numbers and owner decisions B1/B2:
+`docs/real-tests/backup-perf.md`.

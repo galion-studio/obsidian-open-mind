@@ -23,6 +23,11 @@
 //! - localStorage (threads, mode, seen marks): server-side history only.
 //!
 //! The gateway's bind address is not shown (only whether it is loopback).
+//!
+//! Rust-first since console-route-31 (wave 4 slot 170): no longer in
+//! `port2::SPA_FIRST`, so a configured SPA fallback (`--root`) does not take
+//! this room; POST is 405, the `/api/hermes/*` proxy for the old SPA is
+//! untouched.
 
 use super::p2::{clip, compact, js_num, num, stamp, text, zone_label};
 use crate::html::{esc, url_enc};
@@ -280,7 +285,7 @@ pub fn body(v: &View<'_>) -> String {
     }
     out.push_str("</ul>");
     out.push_str(
-        "<p class=\"note\">Asking, runs, the mic and the guard switches are not on this page yet: they wait on Slavik's JavaScript ruling and the paid-model decision (H1). The Hermes gateway is unchanged.</p>",
+        "<p class=\"note\">Asking, runs, the mic and the guard switches are not on this page yet: they wait on Slavik's JavaScript ruling and the paid-model decision (H1). The Hermes gateway is unchanged; this read-only room is served from Rust even when the old console is installed.</p>",
     );
 
     if let Some((id, t)) = v.thread {

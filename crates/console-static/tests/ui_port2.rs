@@ -451,16 +451,16 @@ fn rooms_are_gated() {
 }
 
 #[test]
-fn spa_fallback_keeps_hermes() {
+fn spa_fallback_serves_rust_hermes() {
     let ui = console_ui::Ui::new(console_ui::UiConfig {
         upstream: "127.0.0.1:9".parse().unwrap(),
         pulse: None,
         extra_hosts: vec![],
         desk: None,
     });
-    assert!(!ui.owns("/hermes", true), "SPA keeps the full Hermes room");
+    assert!(ui.owns("/hermes", true), "console-route-31: Rust-first");
     assert!(ui.owns("/hermes", false));
-    for p in ["/context", "/gateway", "/guardian"] {
+    for p in ["/context", "/gateway", "/guardian", "/hermes"] {
         assert!(ui.owns(p, true), "{p}");
     }
 }

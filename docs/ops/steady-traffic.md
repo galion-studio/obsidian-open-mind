@@ -74,9 +74,10 @@ every 5 s and 5 `curl` processes every 15 s. That is negligible for a 16 GB box.
 
 Side finding (not in scope, read-only): cloudflared reports
 `cloudflared_tunnel_request_errors` 55858 out of 94031 total requests since it started
-(≈59 %). Many ingress rules point at localhost ports that have no listener (for example 4000,
-4001 and 3010 were not in the listening list checked for this slot). This is worth a separate
-ingress clean-up item.
+(≈59 %). Checked live at 03:09 CEST: of the 25 ingress origins, only 8671, 8080, 8650
+and 8091 have a listener. The other 21 (for example 3010, 4000, 4001, 7681, 8000, 8889) do not, so
+requests to galion.app, galion.studio, adriaticpadel.com and similar hostnames fail at the
+origin. This is worth a separate ingress clean-up or decision item.
 
 ## Proposals (owner decision, nothing applied)
 

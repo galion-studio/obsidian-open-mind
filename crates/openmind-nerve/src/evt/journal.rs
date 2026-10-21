@@ -162,9 +162,6 @@ pub fn parse_entry(v: &Value) -> Option<NerveEvent> {
 }
 
 /// What the source thread sends to the runtime.
-// Workspace-wide feature unification grows NerveEvent past the lint limit;
-// one channel message per event, so no per-event Box allocation.
-#[allow(clippy::large_enum_variant)]
 pub enum Msg {
     Event(NerveEvent),
     /// Source down / restarting (counted, published as nerve.source).

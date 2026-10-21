@@ -20,7 +20,7 @@ report.
 
 | Pass | MIRIFLAGS | Test args | Passed | Failed | Ignored |
 |---|---|---|---|---|---|
-| 1 isolation (Stacked Borrows) | (none) | | 60 | 0 | 38 (FS/net/clock/real, all with a reason) |
+| 1 isolation (Stacked Borrows) | (none) | | 60 | 0 | 36 (FS/net/clock/real, all with a reason) |
 | 2 FS + net | `-Zmiri-disable-isolation` (+ `-Zmiri-ignore-leaks` for galion-common) | `--include-ignored` (approval: `--skip concurrent_consumers_approve_exactly_once`) | 81 | 0 | 1 skipped |
 | 2b live captures | `-Zmiri-disable-isolation`, `GALION_MIRI_CAPTURE=<dir>` | `--nocapture` | 2 | 0 | 0 |
 | 3 Tree Borrows | `-Zmiri-tree-borrows` | | 28 | 0 | 9 |
@@ -33,7 +33,7 @@ Per target (pass 1 / pass 2):
 | galion-common http_fuzz | 4 / 0 / 2 | 6 / 0 / 0 (real TCP: garbage server + slowloris) |
 | galion-common nist | 3 / 0 / 0 (FIPS 180-2 B.3 one million `a`, 421 s wall) | - |
 | galion-common time_vs_chrono | 3 / 0 / 0 (1108 s wall) | - |
-| galion-common real_common, real_hammer, real_migrate, real_version | 0 / 0 / 5 | not run (process spawn / release builds) |
+| galion-common real_common, real_hammer, real_migrate, real_version | 0 / 0 / 6 | not run (process spawn / release builds) |
 | hades-gate lib (token, safety, config) | 17 / 0 / 0 | 17 / 0 / 0 |
 | hades-gate approval (ledger + gate) | 0 / 0 / 12 | 11 / 0 / 0, 1 skipped |
 | hades-gate decide | 4 / 0 / 1 | 5 / 0 / 0 |
@@ -58,8 +58,8 @@ redteam 3/0, galion-common http_fuzz 4/0/2.
    the native run covers it (passes). Uncontended `flock` in the other ledger
    tests works under Miri.
 2. **Directory fsync** - `Ledger::open` syncs the parent directory only when it
-   creates the ledger file; Miri cannot fsync a directory fd (seen by the first
-   run of this slot, 14:0x +02:00; not re-measured after the workaround). Under
+   creates the ledger file; Miri cannot fsync a directory fd (seen by this
+   slot's first run, before 14:27 +02:00; not re-measured after the workaround). Under
    `cfg(miri)` only, `tests/approval.rs` creates the empty ledger first, so
    scan, flock, append and file fsync still run.
 3. **`/proc` reads** - `decide` reads `/proc/self/task`; Miri warns that `/proc`

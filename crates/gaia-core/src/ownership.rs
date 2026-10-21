@@ -102,6 +102,8 @@ pub const CRATES: &[CrateOwner] = &[
     c("bench-banking", S(System::EcosystemCensus), "pending Slavik: B1 banking benchmark on a local Revolut-shaped mock (draft-only, no money moves); scores the agent population like galleon-arena; alternative: a new bench system (hermes-core-bench-sector, wave-4 slot 129)"),
     c("bench-scoreboard", S(System::EcosystemCensus), "pending Slavik: renders docs/bench/SCOREBOARD.md from the B1/B2/B3 score JSONs; alternative: teacher-docs/APOLLO or a new bench system"),
     c("cgroup-detect", S(System::Quotas), "read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS)"),
+    c("console-static", S(System::Console), "pending Slavik: Rust console static server, console-route-31 (main-staging 2026-10-21)"),
+    c("console-ui", S(System::Console), "pending Slavik: Rust console rooms replacing the old SPA, console-port-1..5 (main-staging 2026-10-21)"),
     c("desk-hermes", S(System::HermesAgents), "Hermes mind snap for the desk: the agent population view"),
     c("gaia", Core, "the gaia CLI: wires GAIA core to the nine functions; dry-run only"),
     c("gaia-aether", F(FunctionId::Aether), "AETHER function crate"),
@@ -344,9 +346,10 @@ mod tests {
         // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3,
         // galion-chatterbox from voice-rust via candle-zip-fix (slot 154).
         // tunnel-lint from tunnel-audit (main-staging 2026-10-21).
+        // console-static, console-ui from the console pair (main-staging 2026-10-21).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            53
+            55
         );
     }
 
@@ -377,6 +380,8 @@ mod tests {
             [
                 "bench-banking",
                 "bench-scoreboard",
+                "console-static",
+                "console-ui",
                 "gaia-live",
                 "galion-backup",
                 "galion-bench",

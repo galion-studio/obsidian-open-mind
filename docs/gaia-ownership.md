@@ -47,6 +47,8 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | Crate | Kind | System | Function | Why |
 |---|---|---|---|---|
 | `cgroup-detect` | system | quotas | POSEIDON | read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS) |
+| `console-static` | system | console | HEPHAESTUS | pending Slavik: Rust console static server (console-route-31, main-staging 2026-10-21) |
+| `console-ui` | system | console | HEPHAESTUS | pending Slavik: Rust console rooms replacing the old SPA (console-port-1..5, main-staging 2026-10-21) |
 | `desk-hermes` | system | hermes-agents | ARTEMIS | Hermes mind snap for the desk: the agent population view |
 | `gaia` | core | (none) | GAIA | the gaia CLI: wires GAIA core to the nine functions; dry-run only |
 | `gaia-aether` | function | (none) | AETHER | AETHER function crate |

@@ -2187,7 +2187,7 @@ mod tests {
 
     #[test]
     fn lzw_pdf_spec_example_and_long_roundtrip() {
-        // ISO 32000-1, 7.4.4.2 example: "-----A---B" -> 80 0B 60 50 22 0C 0C 85 01
+        // ISO 32000-1, 7.4.4.2 example: "-----A---B" -> 80 0B 60 50 22 0C 0C 85 01 // repo-check: allow (ISO 32000-1 section number, not an address)
         let out = lzw(
             &[0x80, 0x0b, 0x60, 0x50, 0x22, 0x0c, 0x0c, 0x85, 0x01],
             1000,

@@ -96,7 +96,7 @@ fn real_serve_writes_offset_named_self_evals_and_prunes_legacy() {
     let se = dir.join("data/self-eval");
     std::fs::create_dir_all(&se).unwrap();
     // 100 legacy files, one per 10 min ending a day ago, as the live VPS has.
-    let day_ago = SystemTime::now() - Duration::from_secs(86_400);
+    let day_ago = SystemTime::now() - Duration::from_secs(86_400); // repo-check: allow (feeds zagreb-time / file mtimes)
     for i in 0..100u64 {
         let t = day_ago - Duration::from_secs(600 * (100 - i));
         let secs = t.duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
@@ -148,7 +148,7 @@ fn real_serve_writes_offset_named_self_evals_and_prunes_legacy() {
     eprintln!("self-eval files: {} total, new: {fresh:?}", names.len());
     assert!(fresh.len() >= 2, "{names:?}");
     assert_eq!(names.len(), 96, "retention keeps 96");
-    let now = SystemTime::now()
+    let now = SystemTime::now() // repo-check: allow (feeds zagreb-time)
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap()
         .as_secs();

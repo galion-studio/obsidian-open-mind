@@ -780,9 +780,13 @@ mod t23_tests {
         assert_eq!(v[0].exit_status, Some(0));
         assert_eq!(v[1].finished, None);
         // Old systemd without --timestamp=unix prints a date: not parsed.
-        let old = parse_last_runs("Id=a.service\nExecMainExitTimestamp=Wed 2026-10-21 12:17:52 UTC\n");
+        let old =
+            parse_last_runs("Id=a.service\nExecMainExitTimestamp=Wed 2026-10-21 12:17:52 UTC\n");
         assert_eq!(old[0].finished, None);
-        assert_eq!(timer_service("galion-backup.timer").as_deref(), Some("galion-backup.service"));
+        assert_eq!(
+            timer_service("galion-backup.timer").as_deref(),
+            Some("galion-backup.service")
+        );
         assert_eq!(timer_service("x.service"), None);
         assert_eq!(timer_service(".timer"), None);
         let j = v[0].to_json();

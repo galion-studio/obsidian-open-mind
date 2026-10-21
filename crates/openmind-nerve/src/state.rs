@@ -775,14 +775,22 @@ mod t23_timer_tests {
         let mut c = backup();
         c.push(sample(now, "active", failed), &th);
         assert_eq!(c.status, Status::Degrading);
-        assert!(c.reasons[0].contains("failed (result exit-code, exit 1)"), "{:?}", c.reasons);
+        assert!(
+            c.reasons[0].contains("failed (result exit-code, exit 1)"),
+            "{:?}",
+            c.reasons
+        );
         assert!(!c.hard_down);
         // Stale: last run 14 h ago, limit 13 h.
         let stale = json!({"unit": "galion-backup.service", "active": "inactive", "result": "success", "exit_status": 0, "finished_unix": now - 14 * 3600});
         let mut c = backup();
         c.push(sample(now, "active", stale), &th);
         assert_eq!(c.status, Status::Degrading);
-        assert!(c.reasons.iter().any(|r| r.contains("finished")), "{:?}", c.reasons);
+        assert!(
+            c.reasons.iter().any(|r| r.contains("finished")),
+            "{:?}",
+            c.reasons
+        );
         // Timer stopped: degrading, still never hard-down (no reflex, no count).
         let mut c = backup();
         for k in 0..5 {

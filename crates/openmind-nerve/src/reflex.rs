@@ -618,11 +618,20 @@ mod tests {
         let mut r = Reflex::new(d.clone(), true, 1);
         r.deploy_bin = dep;
         r.deploy_backups = bk.clone();
-        for n in ["openmind-queue", "tanga-proto", "galion-nerve-shadow", "galion-backup", "hades-gate"] {
+        for n in [
+            "openmind-queue",
+            "tanga-proto",
+            "galion-nerve-shadow",
+            "galion-backup",
+            "hades-gate",
+        ] {
             std::fs::write(bk.join(format!("{n}-20261021-170000+0200.bin")), "").unwrap();
             let c = down_comp(n, 10, "failed", "exit-code", "enabled");
             assert_eq!(r.decide(&c, 1300, false), Decision::None, "{n}");
-            assert!(permitted(c.spec.unit.unwrap()).is_err(), "{n}: not in ALLOW");
+            assert!(
+                permitted(c.spec.unit.unwrap()).is_err(),
+                "{n}: not in ALLOW"
+            );
         }
         let _ = std::fs::remove_dir_all(d);
     }

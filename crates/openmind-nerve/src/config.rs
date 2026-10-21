@@ -349,9 +349,7 @@ impl Config {
             // 25 postfix, 53 resolved, 8670 nerve, 8671 tanga-serve, 8672 nerve
             // shadow, 18800 forge-link (box ssh reverse tunnel behind
             // forge.galion.studio), 20241/20242 cloudflared metrics.
-            known_ports: ports(
-                &get("NERVE_KNOWN_PORTS").unwrap_or_else(|| KNOWN_PORTS_VPS.into()),
-            ),
+            known_ports: ports(&get("NERVE_KNOWN_PORTS").unwrap_or_else(|| KNOWN_PORTS_VPS.into())),
             public_ok_ports: ports(&get("NERVE_PUBLIC_OK_PORTS").unwrap_or_else(|| "22".into())),
             ddos_min_rps: get("NERVE_DDOS_MIN_RPS")
                 .and_then(|v| v.parse().ok())
@@ -551,8 +549,8 @@ mod t23_tests {
 
     /// Live VPS `ss -ltn` ports, 2026-10-21 17:55 +02:00 (read-only).
     const LIVE_PORTS: [u16; 18] = [
-        22, 25, 53, 8002, 8080, 8091, 8420, 8642, 8646, 8650, 8660, 8670, 8671, 8672, 18800,
-        19120, 20241, 20242,
+        22, 25, 53, 8002, 8080, 8091, 8420, 8642, 8646, 8650, 8660, 8670, 8671, 8672, 18800, 19120,
+        20241, 20242,
     ];
 
     #[test]
@@ -560,9 +558,27 @@ mod t23_tests {
         let s = default_specs(None, None);
         let find = |n: &str| s.iter().find(|x| x.name == n).unwrap();
         for (n, unit, port, path, gaia) in [
-            ("openmind-queue", "openmind-queue.service", Some(19120), "/healthz", "POSEIDON"),
-            ("tanga-proto", "tanga-proto.service", Some(8671), "/tanga/", "ELEUTHIA"),
-            ("galion-nerve-shadow", "galion-nerve-shadow.service", Some(8672), "/healthz", "AETHER"),
+            (
+                "openmind-queue",
+                "openmind-queue.service",
+                Some(19120),
+                "/healthz",
+                "POSEIDON",
+            ),
+            (
+                "tanga-proto",
+                "tanga-proto.service",
+                Some(8671),
+                "/tanga/",
+                "ELEUTHIA",
+            ),
+            (
+                "galion-nerve-shadow",
+                "galion-nerve-shadow.service",
+                Some(8672),
+                "/healthz",
+                "AETHER",
+            ),
             ("galion-backup", "galion-backup.timer", None, "", "DEMETER"),
             ("hades-gate", "hades-gate.service", None, "", "HADES"),
         ] {
@@ -603,7 +619,8 @@ mod t23_tests {
 
     #[test]
     fn shadow_does_not_list_itself() {
-        let c = Config::from_env(&|k| (k == "NERVE_ADDR").then(|| "127.0.0.1:8672".into())).unwrap();
+        let c =
+            Config::from_env(&|k| (k == "NERVE_ADDR").then(|| "127.0.0.1:8672".into())).unwrap();
         let s = specs_for(&c).unwrap();
         assert!(!s.iter().any(|x| x.name == "galion-nerve-shadow"));
         assert!(s.iter().any(|x| x.name == "galion-nerve"));
@@ -613,7 +630,8 @@ mod t23_tests {
 
     #[test]
     fn timer_kind_from_a_components_file() {
-        let s = parse_specs(r#"[{"name":"bk","unit":"bk.timer","kind":"timer","max_age_s":3600}]"#).unwrap();
+        let s = parse_specs(r#"[{"name":"bk","unit":"bk.timer","kind":"timer","max_age_s":3600}]"#)
+            .unwrap();
         assert_eq!(s[0].kind, Kind::Timer);
         assert_eq!(s[0].max_age_s, 3600);
         assert_eq!(s[0].restarts_per_hour, 0);

@@ -138,7 +138,11 @@ fn missing_sample(
         s.mem_kb = i.memory_current.map(|b| b / 1024);
     }
     if s.present {
-        s.http_code = code;
+        // curl prints 000 when nothing answered: probe down, not "HTTP 0".
+        match code {
+            Some(0) => s.probe_error = Some("no response (captured 000)".into()),
+            c => s.http_code = c,
+        }
         if spec.kind == Kind::Timer {
             if let Some(r) = spec
                 .unit
@@ -560,6 +564,55 @@ mod tests {
         );
         assert!(r["score"].as_u64().unwrap() < 70);
         assert_eq!(r["system"], "degraded");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod t23_tests {
+    use super::*;
+
+    #[test]
+    fn capture_files_fill_components_the_snapshot_lacks() {
+        let dir = std::env::temp_dir().join(format!("nerve-replay-t23-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("state-1.json"),
+            json!({"ts": "2026-10-21T18:00:00+02:00", "components": [], "probe_errors": []})
+                .to_string(),
+        )
+        .unwrap();
+        std::fs::write(dir.join("systemctl-show.txt"), "Id=tanga-proto.service\nLoadState=loaded\nActiveState=active\nSubState=running\nResult=success\nUnitFileState=enabled\nMainPID=7\nNRestarts=0\n\nId=galion-backup.timer\nLoadState=loaded\nActiveState=active\nSubState=waiting\nResult=success\nUnitFileState=enabled\nMainPID=0\nNRestarts=0\n").unwrap();
+        std::fs::write(dir.join("systemctl-runs.txt"), "Id=galion-backup.service\nLoadState=loaded\nActiveState=inactive\nResult=success\nExecMainStatus=0\nExecMainExitTimestamp=@1792576800\n").unwrap();
+        std::fs::write(dir.join("http.txt"), "8671 200\n19120 000\n").unwrap();
+        let d = dir.display().to_string();
+        let cfg = Config::from_env(&|k| (k == "NERVE_DATA_DIR").then(|| d.clone())).unwrap();
+        let out = replay_dir(&dir, cfg).unwrap();
+        let st = |n: &str| {
+            let c = out.engine.comps.iter().find(|c| c.spec.name == n).unwrap();
+            (c.status, c.reasons.clone())
+        };
+        assert_eq!(
+            st("tanga-proto").0,
+            Status::Healthy,
+            "{:?}",
+            st("tanga-proto")
+        );
+        assert_eq!(
+            st("galion-backup").0,
+            Status::Healthy,
+            "{:?}",
+            st("galion-backup")
+        );
+        let q = st("openmind-queue");
+        assert_eq!(q.0, Status::Degrading, "{q:?}");
+        assert!(q.1[0].contains("captured 000"), "{q:?}");
+        assert_eq!(st("galion-nerve-shadow").0, Status::Absent);
+        assert_eq!(
+            st("galion-nerve-shadow").1,
+            vec!["absent: not in this capture".to_string()]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

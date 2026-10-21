@@ -91,11 +91,13 @@ fn table_file(dir: &Path, name: &str, specs: &[Spec]) -> PathBuf {
     let rows: Vec<Value> = specs
         .iter()
         .filter_map(|s| {
-            Some(json!({"name": s.name, "unit": s.unit, "port": s.port, "path": s.path,
+            Some(
+                json!({"name": s.name, "unit": s.unit, "port": s.port, "path": s.path,
                 "metrics_port": s.metrics_port, "kind": kind(s.kind)?, "gaia": s.gaia,
                 "system": s.gaia_system, "group": s.group, "critical": s.critical,
                 "expected": s.expected, "restarts_per_hour": s.restarts_per_hour,
-                "note": s.note, "max_age_s": s.max_age_s}))
+                "note": s.note, "max_age_s": s.max_age_s}),
+            )
         })
         .collect();
     let f = dir.join(name);
@@ -110,7 +112,11 @@ fn old_and_new_tables(dir: &Path) -> (PathBuf, PathBuf) {
         .filter(|s| !NEW.contains(&s.name))
         .cloned()
         .collect();
-    assert_eq!(new.len(), old.len() + NEW.len(), "all five T2.3 specs built in");
+    assert_eq!(
+        new.len(),
+        old.len() + NEW.len(),
+        "all five T2.3 specs built in"
+    );
     (
         table_file(dir, "old.json", &old),
         table_file(dir, "new.json", &new),
@@ -142,15 +148,23 @@ fn dry(dir: &Path, table: Option<&Path>, extra: &[&str]) -> (Option<i32>, Value)
 
 /// `openmind-nerve replay DIR --state` with the built-in table.
 fn state(dir: &Path) -> Value {
+    let data = tmp("state-data");
     let o = Command::new(BIN)
         .env_clear()
+        .env("NERVE_DATA_DIR", &data)
         .arg("replay")
         .arg(dir)
         .arg("--state")
         .stderr(Stdio::null())
         .output()
         .expect("replay --state");
-    assert!(o.status.success(), "replay --state failed");
+    let _ = std::fs::remove_dir_all(&data);
+    // Exit 1 = the self-eval does not pass (the live VPS is 61/D); 2 = error.
+    assert!(
+        matches!(o.status.code(), Some(0 | 1)),
+        "replay --state failed: {:?}",
+        o.status
+    );
     serde_json::from_slice(&o.stdout).expect("state json")
 }
 
@@ -224,10 +238,22 @@ fn compare(name: &str, dir: &Path, old: &Path, new: &Path) -> Vec<Value> {
         println!("{}", row(name, mode, "pre-T2.3", co, &vo));
         println!("{}", row(name, mode, "T2.3 file", cn, &vn));
         println!("{}", row(name, mode, "built-in", cb, &vb));
-        assert!(vo.is_object() && vn.is_object() && vb.is_object(), "{name}: no verdict");
+        assert!(
+            vo.is_object() && vn.is_object() && vb.is_object(),
+            "{name}: no verdict"
+        );
         assert_eq!(vo["actions"], vn["actions"], "{name} {mode}: new actions");
-        assert_eq!(vo["actions"], vb["actions"], "{name} {mode}: built-in differs");
-        for k in ["restarts", "cloudflared_restarts", "rollbacks", "holds", "rate_limited"] {
+        assert_eq!(
+            vo["actions"], vb["actions"],
+            "{name} {mode}: built-in differs"
+        );
+        for k in [
+            "restarts",
+            "cloudflared_restarts",
+            "rollbacks",
+            "holds",
+            "rate_limited",
+        ] {
             assert_eq!(vo[k], vn[k], "{name} {mode}: {k}");
             assert_eq!(vo[k], vb[k], "{name} {mode}: {k} (built-in)");
         }
@@ -236,8 +262,10 @@ fn compare(name: &str, dir: &Path, old: &Path, new: &Path) -> Vec<Value> {
         assert_eq!(vn["rollbacks"], 0, "{name}");
         no_new_unit_actions(name, &vn);
         no_new_unit_actions(name, &vb);
-        out.push(json!({"capture": name, "mode": mode, "old": vo["actions"], "new": vn["actions"],
-            "score_old": vo["score"], "score_new": vn["score"], "score_builtin": vb["score"]}));
+        out.push(
+            json!({"capture": name, "mode": mode, "old": vo["actions"], "new": vn["actions"],
+            "score_old": vo["score"], "score_new": vn["score"], "score_builtin": vb["score"]}),
+        );
     }
     out
 }
@@ -300,7 +328,10 @@ fn vps_capture() -> PathBuf {
     let out = String::from_utf8_lossy(&o.stdout).into_owned();
     let mut blocks: Vec<(String, String)> = vec![];
     for l in out.lines() {
-        if let Some(k) = l.strip_prefix('#').filter(|k| k.chars().all(|c| c.is_ascii_uppercase())) {
+        if let Some(k) = l
+            .strip_prefix('#')
+            .filter(|k| k.chars().all(|c| c.is_ascii_uppercase()))
+        {
             blocks.push((k.to_string(), String::new()));
         } else if let Some(b) = blocks.last_mut() {
             b.1.push_str(l);
@@ -327,7 +358,10 @@ fn vps_capture() -> PathBuf {
         ("HTTP", "http.txt"),
         ("JOURNAL", "journal.jsonl"),
     ] {
-        let b = blocks.iter().find(|b| b.0 == k).unwrap_or_else(|| panic!("no {k}"));
+        let b = blocks
+            .iter()
+            .find(|b| b.0 == k)
+            .unwrap_or_else(|| panic!("no {k}"));
         std::fs::write(dir.join(f), &b.1).unwrap();
     }
     std::fs::write(
@@ -357,7 +391,9 @@ fn real_t23_vps_capture_specs_listeners_and_negative_control() {
     println!("== {} VPS capture {}", stamp(), dir.display());
     println!(
         "{}",
-        std::fs::read_to_string(dir.join("http.txt")).unwrap().trim()
+        std::fs::read_to_string(dir.join("http.txt"))
+            .unwrap()
+            .trim()
     );
     let st = state(&dir);
     println!(
@@ -395,7 +431,11 @@ fn real_t23_vps_capture_specs_listeners_and_negative_control() {
     // Known-port list matches the live VPS: every listener has an owner.
     let ss = std::fs::read_to_string(dir.join("ss.txt")).unwrap();
     let mut unknown = vec![];
-    for x in st["cortex"]["vulnerabilities"].as_array().into_iter().flatten() {
+    for x in st["cortex"]["vulnerabilities"]
+        .as_array()
+        .into_iter()
+        .flatten()
+    {
         if x["id"] == "unmanaged-listeners" || x.to_string().contains("unknown owner") {
             unknown.push(x["title"].clone());
         }
@@ -419,7 +459,10 @@ fn real_t23_vps_capture_specs_listeners_and_negative_control() {
     );
     for o in &owners {
         println!("    :{} -> {}", o["port"], o["owner"]);
-        assert_ne!(o["owner"], "unknown owner", "live listener without owner: {o}");
+        assert_ne!(
+            o["owner"], "unknown owner",
+            "live listener without owner: {o}"
+        );
     }
     assert!(unknown.is_empty(), "unknown-owner findings: {unknown:?}");
 
@@ -447,7 +490,12 @@ fn real_t23_vps_capture_specs_listeners_and_negative_control() {
     .unwrap();
     std::fs::write(neg.join("http.txt"), "19120 000\n8671 503\n8672 000\n").unwrap();
     let nst = state(&neg);
-    for n in ["openmind-queue", "tanga-proto", "galion-nerve-shadow", "galion-backup"] {
+    for n in [
+        "openmind-queue",
+        "tanga-proto",
+        "galion-nerve-shadow",
+        "galion-backup",
+    ] {
         let c = comp(&nst, n);
         println!("  negative {n}: {} {:?}", c["status"], c["reasons"]);
         assert!(
@@ -455,11 +503,21 @@ fn real_t23_vps_capture_specs_listeners_and_negative_control() {
             "{n}: {c}"
         );
     }
-    assert_eq!(comp(&nst, "galion-backup")["consecutive_down"], 0, "timer never hard-down");
+    assert_eq!(
+        comp(&nst, "galion-backup")["consecutive_down"],
+        0,
+        "timer never hard-down"
+    );
     let (code, v) = dry(&neg, None, &["--worst-case", "--stretch", "130"]);
-    println!("{}", row("replay200 negative", "worst+130", "built-in", code, &v));
+    println!(
+        "{}",
+        row("replay200 negative", "worst+130", "built-in", code, &v)
+    );
     let (_, vbase) = dry(&dir, None, &["--worst-case", "--stretch", "130"]);
-    assert_eq!(v["actions"], vbase["actions"], "broken new specs caused actions");
+    assert_eq!(
+        v["actions"], vbase["actions"],
+        "broken new specs caused actions"
+    );
     no_new_unit_actions("negative", &v);
     assert_eq!(v["rollbacks"], 0);
     let _ = std::fs::remove_dir_all(&neg);
@@ -509,7 +567,12 @@ fn sibling_bin(name: &str) -> PathBuf {
 fn queue(data: &Path) -> Kill {
     Kill(
         Command::new(sibling_bin("openmind-queue"))
-            .args(["serve", "--bind", &format!("127.0.0.1:{QUEUE_PORT}"), "--data"])
+            .args([
+                "serve",
+                "--bind",
+                &format!("127.0.0.1:{QUEUE_PORT}"),
+                "--data",
+            ])
             .arg(data)
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -521,12 +584,14 @@ fn queue(data: &Path) -> Kill {
 fn wait_cycle(min: u64, pred: &dyn Fn(&Value) -> bool) -> Value {
     let t = Instant::now();
     loop {
-        if let Some(v) =
-            get(PORT, "/state").filter(|v| v["cycle"].as_u64() >= Some(min) && pred(v))
+        if let Some(v) = get(PORT, "/state").filter(|v| v["cycle"].as_u64() >= Some(min) && pred(v))
         {
             return v;
         }
-        assert!(t.elapsed() < Duration::from_secs(90), "timeout waiting for /state");
+        assert!(
+            t.elapsed() < Duration::from_secs(90),
+            "timeout waiting for /state"
+        );
         std::thread::sleep(Duration::from_millis(500));
     }
 }
@@ -596,7 +661,8 @@ fn real_t23_box_serve_observes_queue_and_shadow() {
             .expect("serve"),
     );
     let st = wait_cycle(2, &|v| {
-        status_of(v, "openmind-queue") == "healthy" && status_of(v, "galion-nerve-shadow") == "healthy"
+        status_of(v, "openmind-queue") == "healthy"
+            && status_of(v, "galion-nerve-shadow") == "healthy"
     });
     println!(
         "box {} :{PORT} cycle {} mode {}: queue {} http {}, shadow {} http {}, backup {}, tanga {} {:?}, hades-gate {}",

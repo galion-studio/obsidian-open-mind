@@ -128,7 +128,11 @@ const KNOWN_LABELS: [(u16, &str, Option<&str>); 9] = [
     (8670, "galion-nerve", Some("AETHER")),
     (8671, "tanga-serve", Some("ELEUTHIA")),
     (8672, "galion-nerve-shadow", Some("AETHER")),
-    (18800, "forge-link (box ssh reverse tunnel, forge.galion.studio)", None),
+    (
+        18800,
+        "forge-link (box ssh reverse tunnel, forge.galion.studio)",
+        None,
+    ),
     (20241, "cloudflared metrics", Some("AETHER")),
     (20242, "tuner-quick metrics", Some("AETHER")),
 ];

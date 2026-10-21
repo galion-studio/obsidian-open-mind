@@ -39,21 +39,8 @@ jobs:
         with:
           toolchain: stable
 
-      - name: build release binaries
-        run: cargo build --release --workspace --locked
-
-      - name: package
-        run: |
-          set -eu
-          name="obsidian-open-mind-${GITHUB_REF_NAME}-x86_64-linux"
-          mkdir -p "dist/$name"
-          for b in galion-one galion-desk room desk-hermes link-watch; do
-            [ -f "target/release/$b" ] && cp "target/release/$b" "dist/$name/"
-          done
-          cp LICENSE README.md "dist/$name/"
-          tar -C dist -czf "dist/$name.tar.gz" "$name"
-          rm -rf "dist/$name"
-          (cd dist && sha256sum ./*.tar.gz > SHA256SUMS)
+      - name: release build + tarball + SHA256SUMS (dist/)
+        run: cargo xtask package
 
       - name: SBOM (CycloneDX JSON)
         uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
@@ -67,18 +54,9 @@ jobs:
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 
       - name: sign artifacts (keyless)
-        run: |
-          set -eu
-          cd dist
-          for f in *.tar.gz *.cdx.json SHA256SUMS; do
-            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f"
-          done
-          ls -l
+        run: cargo xtask sign
 
       - name: create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "$GITHUB_REF_NAME" \
-            --notes "Built by release.yml after self-eval passed. Verify with: cosign verify-blob --bundle <file>.sigstore.json --certificate-identity-regexp 'https://github.com/galion-studio/obsidian-open-mind/' --certificate-oidc-issuer https://token.actions.githubusercontent.com <file>"
+        run: cargo xtask gh-release

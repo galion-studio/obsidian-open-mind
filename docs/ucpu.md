@@ -38,7 +38,7 @@ hermes-rs), one-defence and openmind-memory. The gate writes small wrappers in
 
 The wrapper drops cc-rs's `--target=<rust triple>` and passes zig's own
 `-target`. No aarch64/arm gcc and no NDK are needed for the gate.
-`scripts/install-zig.sh` installs the pinned zig 0.15.2 (sha256-checked) for CI.
+`cargo xtask install zig` (or `cargo xtask ucpu --zig ...`) installs the pinned zig 0.15.2 (sha256-checked) for CI; the pin lives in crates/xtask/src/tools.rs (it replaced `scripts/install-zig.sh`).
 
 ### Android: what a real link needs (NDK)
 

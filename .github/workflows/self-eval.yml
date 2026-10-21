@@ -7,6 +7,8 @@
 # license, no-Python, CJK, Zagreb timestamps) and ws/side's repo-check job.
 # Read-only: no secrets, no publishing, no network beyond toolchain/crates
 # and the checksum-verified gitleaks binary. Also callable from release.yml.
+# Every step is `cargo xtask <task>` (crates/xtask, docs/ci.md): the same
+# command runs locally, and the YAML only lists checkout, toolchain, task.
 name: self-eval
 
 on:
@@ -38,8 +40,7 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
-      - run: cargo fmt --all -- --check
-      - run: cargo fmt --manifest-path edge/openmind-node/Cargo.toml --all -- --check
+      - run: cargo xtask fmt
 
   clippy:
     name: cargo clippy -D warnings
@@ -51,7 +52,7 @@ jobs:
         with:
           toolchain: stable
           components: clippy
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo xtask clippy
 
   test:
     name: cargo test
@@ -62,7 +63,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
-      - run: cargo test --workspace --locked
+      - run: cargo xtask test
 
   omnode:
     name: omnode (edge/openmind-node, own workspace)
@@ -74,8 +75,7 @@ jobs:
         with:
           toolchain: stable
           components: clippy
-      - run: cargo clippy --manifest-path edge/openmind-node/Cargo.toml --all-targets --locked -- -D warnings
-      - run: cargo test --manifest-path edge/openmind-node/Cargo.toml --locked
+      - run: cargo xtask omnode
 
   # Universal-CPU gate (UNIVERSAL-CPU.md, UCPU-1): scripts/ucpu-gate.sh.
   # Tier 1: release build of EVERY binary (workspace + omnode) as static musl,
@@ -101,10 +101,8 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
           components: clippy
-      - name: install zig cc (pinned, checksum-verified)
-        run: echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
-      - name: ucpu-gate grep build static size clippy
-        run: scripts/ucpu-gate.sh grep build static size clippy
+      - name: pinned zig + ucpu-gate grep build static size clippy
+        run: cargo xtask ucpu --zig grep build static size clippy
 
   # Tier 2: cargo check (all targets) for armv7 and aarch64-android. Android's
   # bundled SQLite compiles against zig's musl headers: check never links.
@@ -127,9 +125,8 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
-      - name: install zig cc (pinned, checksum-verified)
-        run: echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
-      - run: scripts/ucpu-gate.sh check
+      - name: pinned zig + ucpu-gate check
+        run: cargo xtask ucpu --zig check
 
   # Real run: aarch64 + armv7 static binaries of galion-one, tuner,
   # openmind-memory and hermes-gateway (--mock) under qemu-user, probed over
@@ -146,11 +143,8 @@ jobs:
         with:
           toolchain: stable
           targets: aarch64-unknown-linux-musl, armv7-unknown-linux-musleabihf
-      - name: install qemu-user-static and zig cc
-        run: |
-          sudo apt-get update -q && sudo apt-get install -y -q qemu-user-static
-          echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
-      - run: scripts/real/ucpu.sh
+      - name: qemu-user-static (apt) + pinned zig + qemu-user real run
+        run: cargo xtask ucpu-qemu --apt-qemu
 
   repo-check:
     name: repo-check self-eval
@@ -158,20 +152,14 @@ jobs:
     timeout-minutes: 15
     env:
       CARGO_TERM_COLOR: never
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
           targets: x86_64-unknown-linux-musl
-      - name: build repo-check (portable musl)
-        run: cargo build --release --locked -p repo-check --target x86_64-unknown-linux-musl
-      - name: self-eval
-        run: |
-          bin=target/x86_64-unknown-linux-musl/release/repo-check
-          "$bin" --json --copyright "3000 Galion / galion-studio" > self-eval.json || true
-          "$bin" --copyright "3000 Galion / galion-studio"
+      - name: build repo-check (portable musl), write self-eval.json, report
+        run: cargo xtask self-eval
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -179,30 +167,19 @@ jobs:
           path: self-eval.json
           retention-days: 14
 
+  # The four text gates below are std-only Rust (crates/xtask/src/checks.rs),
+  # ported 1:1 from the inline bash they replace.
   no-python:
     name: no Python (files or shebangs)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
       - name: fail on any *.py file or python shebang
-        run: |
-          set -eu
-          bad=0
-          if git ls-files '*.py' '*.pyc' '*.pyw' | grep -q .; then
-            echo "::error::Python files are not allowed in this repository:"
-            git ls-files '*.py' '*.pyc' '*.pyw'
-            bad=1
-          fi
-          while IFS= read -r f; do
-            [ -f "$f" ] || continue
-            if head -n 1 -- "$f" | grep -aqE '^#!.*python'; then
-              echo "::error file=$f::python shebang"
-              bad=1
-            fi
-          done < <(git ls-files)
-          [ "$bad" = 0 ] && echo "ok: no Python files, no python shebangs"
-          exit "$bad"
+        run: cargo xtask no-python
 
   cjk-scan:
     name: no CJK characters
@@ -210,15 +187,11 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
       - name: scan tracked text for Han, Hiragana, Katakana, Hangul
-        run: |
-          set -eu
-          if git ls-files -z | xargs -0 grep -InP \
-            '[\x{2E80}-\x{2EFF}\x{3000}-\x{303F}\x{3040}-\x{30FF}\x{3400}-\x{4DBF}\x{4E00}-\x{9FFF}\x{AC00}-\x{D7AF}\x{F900}-\x{FAFF}]' ; then
-            echo "::error::Stray CJK characters found. Remove them."
-            exit 1
-          fi
-          echo "ok: no CJK characters"
+        run: cargo xtask cjk
 
   zagreb-timestamps:
     name: Zagreb timestamps (best effort, warning only)
@@ -227,39 +200,25 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
       - name: warn on ISO timestamps ending in Z (UTC) in tracked text
-        run: |
-          set -u
-          hits=$(git ls-files -z -- ':!*.lock' ':!.github/workflows/*' | xargs -0 grep -InE '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?(\.[0-9]+)?Z\b' || true)
-          if [ -n "$hits" ]; then
-            echo "$hits" | while IFS= read -r l; do echo "::warning::UTC-style timestamp (use Europe/Zagreb with offset): $l"; done
-          else
-            echo "ok: no Z-suffixed timestamps"
-          fi
+        run: cargo xtask zagreb-ts
 
   gitleaks:
     name: gitleaks secret scan
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    env:
-      GITLEAKS_VERSION: 8.30.1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
-      - name: install gitleaks (checksum-verified binary)
-        run: |
-          set -eu
-          base="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}"
-          tgz="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          curl -sSfLO "$base/$tgz"
-          curl -sSfL "$base/gitleaks_${GITLEAKS_VERSION}_checksums.txt" -o checksums.txt
-          grep " $tgz\$" checksums.txt | sha256sum -c -
-          tar xzf "$tgz" gitleaks
-          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
-          rm -f "$tgz" checksums.txt gitleaks
-      - name: scan full git history (values redacted in output)
-        run: gitleaks git --redact --no-banner --verbose .
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+      - name: pinned gitleaks (sha256-verified), full history, values redacted
+        run: cargo xtask gitleaks
 
   license:
     name: license check (MIT)
@@ -267,15 +226,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
       - name: LICENSE present and MIT; workspace declares MIT; crate copies identical
-        run: |
-          set -eu
-          test -f LICENSE || { echo "::error::LICENSE missing"; exit 1; }
-          head -n 1 LICENSE | grep -qx 'MIT License' || { echo "::error::LICENSE is not the MIT text"; exit 1; }
-          grep -qx 'Copyright (c) 3000 Galion / galion-studio' LICENSE || { echo "::error::LICENSE copyright line changed"; exit 1; }
-          grep -q 'Permission is hereby granted, free of charge' LICENSE || { echo "::error::MIT grant text missing"; exit 1; }
-          grep -qE '^license *= *"MIT"' Cargo.toml || { echo "::error::Cargo.toml [workspace.package] license is not MIT"; exit 1; }
-          for l in crates/*/LICENSE edge/*/LICENSE; do
-            cmp -s LICENSE "$l" || { echo "::error file=$l::differs from root LICENSE"; exit 1; }
-          done
-          echo "ok: MIT"
+        run: cargo xtask license

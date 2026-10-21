@@ -3,7 +3,7 @@
 - DESK-ID: openmind.B44
 - Generated: 2026-10-19T16:29:19+02:00 (Europe/Zagreb, `TZ=Europe/Zagreb date -Iseconds`)
 - Repo: /opt/galion/openmind
-- Script: `scripts/sbom.sh`
+- Tool: `cargo xtask sbom` (crates/xtask/src/sbom.rs). It replaced `scripts/sbom.sh` (bash + jq) on 2026-10-21 (swarm/ci-workflow-rust); same rule, same report, same JSON (verified identical on the 153-package graph, docs/real-tests/ci-workflow-rust.md).
 - SBOM path: `dist/sbom-cargo.json` (default mode only)
 - Draft CI: `.github/workflows/sbom.yml` (not pushed)
 
@@ -44,17 +44,17 @@ Default mode, from the repo root:
 nice -n 19 cargo metadata --format-version 1 --offline
 ```
 
-jq writes `dist/sbom-cargo.json`. The script does not run `cargo install`. It does not use Python.
+`cargo xtask sbom` first runs `cargo fetch --locked` (fills the cache, never rewrites `Cargo.lock`), then writes `dist/sbom-cargo.json`. No `cargo install`, no jq, no Python.
 
 Default mode was not run for this ticket. `Cargo.lock` was being restored by other agents. The license check was tested with `--check` on fixture JSON under `/tmp`. That path does not run cargo and does not write `dist/sbom-cargo.json`.
 
 ```
-scripts/sbom.sh --check FILE
+cargo xtask sbom --check FILE
 ```
 
 ## Draft workflow
 
-`.github/workflows/sbom.yml` is a draft. It is `workflow_dispatch` only. It is not committed and not pushed. The job runs `cargo fetch --locked` to fill the runner cache (not `cargo install`, and `--locked` must not rewrite `Cargo.lock`), then `bash scripts/sbom.sh`.
+`.github/workflows/sbom.yml` is a draft. It is `workflow_dispatch` only. It is not committed and not pushed. The job runs `cargo fetch --locked` to fill the runner cache (not `cargo install`, and `--locked` must not rewrite `Cargo.lock`), then `cargo metadata`; both now happen in the single step `cargo xtask sbom`.
 
 ## Fixture test
 

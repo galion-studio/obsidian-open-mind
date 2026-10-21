@@ -3,10 +3,9 @@
 # Cargo SBOM and license allowlist.
 # workflow_dispatch only, so this file does nothing until it is
 # intentionally pushed and someone starts it by hand.
-# scripts/sbom.sh always runs:
-#   cargo metadata --format-version 1 --offline
-# The fetch step only fills the runner cache. It is not `cargo install`.
-# `cargo fetch --locked` must not rewrite Cargo.lock.
+# `cargo xtask sbom` (crates/xtask/src/sbom.rs) runs `cargo fetch --locked`
+# (fills the cache, never rewrites Cargo.lock), then
+# `cargo metadata --format-version 1 --offline`.
 name: sbom (draft)
 
 on:
@@ -25,11 +24,8 @@ jobs:
         with:
           toolchain: stable
 
-      - name: fill the cargo cache without rewriting Cargo.lock
-        run: cargo fetch --locked
-
-      - name: write dist/sbom-cargo.json and check the allowlist
-        run: bash scripts/sbom.sh
+      - name: cargo fetch --locked, write dist/sbom-cargo.json, check the allowlist
+        run: cargo xtask sbom
 
       - name: upload sbom-cargo.json
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

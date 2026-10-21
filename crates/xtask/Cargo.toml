@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "CI task runner (cargo xtask): every GitHub Actions step calls one subcommand. Std plus serde_json and zagreb-time; shells out only to cargo, git, curl, tar, sha256sum and the pinned scanners."
+
+[dependencies]
+serde_json = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }

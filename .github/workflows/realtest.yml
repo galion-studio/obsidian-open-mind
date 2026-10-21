@@ -32,16 +32,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
-      - name: build release binaries
-        run: >
-          cargo build --release --locked -p galion-realtest
-          -p galion-boot -p galion-one -p openmind-memory -p tuner -p galion-desk
-          -p link-watch -p guardian-tick -p persona-plex-relay
-      - name: run scenarios
-        run: target/release/galion-realtest stack --bin-dir target/release --out target/realtest/ci
-      - name: job summary
-        if: always()
-        run: test -f target/realtest/ci/report.md && cat target/realtest/ci/report.md >> "$GITHUB_STEP_SUMMARY" || true
+      - name: build the stack and run the scenarios (report also goes to the job summary)
+        run: cargo xtask realtest --out target/realtest/ci
       - name: upload reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

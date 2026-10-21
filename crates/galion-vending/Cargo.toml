@@ -12,6 +12,7 @@ name = "galion-vending"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

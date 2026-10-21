@@ -13,6 +13,7 @@ name = "one-defence"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 # Bundled SQLite: this host has libsqlite3.so.0 but no headers and no pkg-config,
 # so libsqlite3-sys cannot link the system library. default-features = false
 # keeps the build to the bundled amalgamation only. The database is still

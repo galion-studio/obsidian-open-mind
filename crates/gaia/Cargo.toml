@@ -18,6 +18,7 @@ name = "gaia-dummy"
 path = "src/bin/gaia-dummy.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 gaia-core = { path = "../gaia-core" }
 gaia-hades = { path = "../gaia-hades" }
 gaia-minerva = { path = "../gaia-minerva" }

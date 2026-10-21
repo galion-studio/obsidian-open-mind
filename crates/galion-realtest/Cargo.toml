@@ -16,5 +16,6 @@ name = "galion-realtest"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 serde_json = { workspace = true }
 zagreb-time = { path = "../zagreb-time" }

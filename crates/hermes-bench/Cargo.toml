@@ -13,6 +13,7 @@ name = "hermes-bench"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 serde_json = { workspace = true, features = ["preserve_order"] }
 # default-features = false: no bundled SQLite (C) build; the bench needs no session DB.
 hermes-rs = { path = "../hermes-rs", default-features = false }

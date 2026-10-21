@@ -118,6 +118,7 @@ fn try_main() -> Result<(), Exit> {
 }
 
 fn main() -> ExitCode {
+    galion_common::flags::early("one-defence", env!("CARGO_PKG_VERSION"), USAGE, || { let mut r = String::new(); let db = default_db(); if galion_common::flags::path_exists(&mut r, "db", &db, false) { Ok(r) } else { Err(format!("{r}defence DB missing (ONE_DEFENCE_DB)")) } });
     match try_main() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {

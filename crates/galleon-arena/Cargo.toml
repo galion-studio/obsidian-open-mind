@@ -13,3 +13,4 @@ name = "galleon-arena"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }

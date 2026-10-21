@@ -51,11 +51,14 @@ fn parse(mut it: impl Iterator<Item = String>) -> Result<Args, String> {
     Ok(a)
 }
 
+const VENDING_USAGE: &str = "usage: galion-vending run [--seed N] [--days N] [--log PATH] [--stop-after DAY]\n       galion-vending resume --log PATH | replay --log PATH | tools | schedule [--seed N] [--days N] | bench\n       galion-vending serve [--port P] [--bind ADDR] [--seed N] [--days N] [--log PATH]\n";
+
 fn print(v: &impl serde::Serialize) {
     println!("{}", serde_json::to_string_pretty(v).unwrap_or_default());
 }
 
 fn main() -> ExitCode {
+    galion_common::flags::early("galion-vending", env!("CARGO_PKG_VERSION"), VENDING_USAGE, || Ok("config none (arguments only; serve default bind 127.0.0.1:19530)".into()));
     let mut argv = std::env::args().skip(1);
     let cmd = argv.next().unwrap_or_default();
     let a = match parse(argv) {

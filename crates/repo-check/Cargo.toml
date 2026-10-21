@@ -9,4 +9,5 @@ license.workspace = true
 description = "Repo self-evaluation lint: LICENSE, SPDX headers, CJK, no Python, Zagreb time, secret shapes, hard-coded hosts, portable (universal CPU) code. Std only plus zagreb-time."
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 zagreb-time = { path = "../zagreb-time" }

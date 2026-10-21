@@ -52,6 +52,7 @@ fn usage() -> String {
 }
 
 fn main() -> ExitCode {
+    galion_common::flags::early("gaia", env!("CARGO_PKG_VERSION"), &usage(), || Ok("config none (arguments only)".into()));
     let args: Vec<String> = std::env::args().skip(1).collect();
     let compact = args.iter().any(|a| a == "--compact");
     let args: Vec<&str> = args

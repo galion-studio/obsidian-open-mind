@@ -18,6 +18,7 @@ name = "persona-plex-relay"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 zagreb-time = { path = "../zagreb-time" }
 galion-voice-core = { path = "../galion-voice-core" }
 opus-pure = { version = "0.2.2", default-features = false, optional = true }

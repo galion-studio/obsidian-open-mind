@@ -20,6 +20,7 @@ whisper = ["dep:candle-core", "dep:candle-nn", "dep:serde_json", "dep:serde", "d
 kitten = ["dep:candle-core", "dep:candle-nn"]
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 galion-voice-core = { path = "../galion-voice-core" }
 candle-core = { version = "0.9", default-features = false, optional = true }
 candle-nn = { version = "0.9", default-features = false, optional = true }

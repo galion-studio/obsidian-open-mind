@@ -104,7 +104,29 @@ fn load_tts(_: &std::path::Path, e: &mut Engines) {
     e.tts_missing = "built without the kitten feature".into();
 }
 
+const USAGE: &str = "usage: galion-voice-serve [--bind ADDR] [--models DIR]\nenv: GALION_VOICE_BIND (default 127.0.0.1:8003), GALION_VOICE_MODELS (default /var/lib/galion/voice-models)\n";
+
+/// `--check`: bind address and model layout only; loads no model, never binds.
+fn check() -> Result<String, String> {
+    use galion_common::flags::{bind_addr, line, path_exists};
+    let mut r = String::new();
+    let none: Vec<String> = Vec::new();
+    bind_addr(&mut r, "bind", &arg(&none, "--bind", "GALION_VOICE_BIND", "127.0.0.1:8003"))?;
+    let models = PathBuf::from(arg(&none, "--models", "GALION_VOICE_MODELS", "/var/lib/galion/voice-models"));
+    let ok = path_exists(&mut r, "models", &models, true);
+    for d in ["whisper-tiny.en", "kitten-tts-nano", "cmudict"] {
+        path_exists(&mut r, "model", &models.join(d), true);
+    }
+    line(&mut r, "features", format!("whisper={} kitten={}", cfg!(feature = "whisper"), cfg!(feature = "kitten")));
+    if ok {
+        Ok(r)
+    } else {
+        Err(format!("{r}models dir missing (/health would answer 503)"))
+    }
+}
+
 fn main() {
+    galion_common::flags::early("galion-voice-serve", env!("CARGO_PKG_VERSION"), USAGE, check);
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "-h" || a == "--help") {
         println!("usage: galion-voice-serve [--bind ADDR] [--models DIR]");

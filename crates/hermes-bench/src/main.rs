@@ -32,8 +32,10 @@ fn flag(args: &[String], name: &str) -> Option<String> {
         .cloned()
 }
 
+const HERMES_BENCH_USAGE: &str = "usage: hermes-bench run --bench banking|wallstreet|vending|all [--agent scripted|mock-llm|live] [--bank-url URL] [--ws-url URL] [--vend-url URL --vend-log PATH] [--seed N] [--days N] [--max-shifts N] [--llm-port P] [--out DIR] [--sha SHA] | tools | scoreboard --dir DIR --sha SHA [--agent A] [--out FILE]\n";
+
 fn usage(msg: &str) -> ExitCode {
-    eprintln!("hermes-bench: {msg}\nusage: hermes-bench run --bench banking|wallstreet|vending|all [--agent scripted|mock-llm|live] [--bank-url URL] [--ws-url URL] [--vend-url URL --vend-log PATH] [--seed N] [--days N] [--max-shifts N] [--llm-port P] [--out DIR] [--sha SHA] | tools | scoreboard --dir DIR --sha SHA [--agent A] [--out FILE]");
+    eprint!("hermes-bench: {msg}\n{HERMES_BENCH_USAGE}");
     ExitCode::from(2)
 }
 
@@ -44,6 +46,7 @@ fn score_file(dir: &Path, bench: &str, agent: &str) -> PathBuf {
 }
 
 fn main() -> ExitCode {
+    galion_common::flags::early("hermes-bench", env!("CARGO_PKG_VERSION"), HERMES_BENCH_USAGE, || Ok("config none (arguments only; the live agent is off unless --agent live)".into()));
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("run") => run(&args),

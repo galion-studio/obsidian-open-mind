@@ -96,6 +96,7 @@ fn load_config(
 }
 
 fn main() -> ExitCode {
+    galion_common::flags::early("persona-plex-relay", env!("CARGO_PKG_VERSION"), "usage: persona-plex-relay [--config PATH]  (scaffold: prints plan, starts nothing)\nenv: PERSONA_PLEX_RELAY_CONFIG (default persona-plex-relay.toml)\n", || { let mut r = String::new(); let p = config_path_from(&[], std::env::var("PERSONA_PLEX_RELAY_CONFIG").ok().as_deref())?; let state = if std::path::Path::new(&p).is_file() { "exists" } else { "absent, no-flag run prints the default plan" }; galion_common::flags::line(&mut r, "config", format!("{p} ({state})")); Ok(r) });
     let no_flags = std::env::args().nth(1).is_none();
     let path = match config_path() {
         Ok(p) => p,

@@ -32,6 +32,7 @@ fn score_md(s: &score::Scoreboard) -> String {
 }
 
 fn main() -> ExitCode {
+    galion_common::flags::early("galion-wallstreet", env!("CARGO_PKG_VERSION"), USAGE, || { let mut r = String::new(); let bind = std::env::var("WALLSTREET_BIND").unwrap_or_else(|_| "127.0.0.1:19520".into()); galion_common::flags::bind_addr(&mut r, "serve_bind", &bind)?; Ok(r) });
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |f: &str| args.iter().any(|a| a == f);
     match args.first().map(String::as_str) {

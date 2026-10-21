@@ -13,6 +13,7 @@ name = "hades-gate"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 zagreb-time = { path = "../zagreb-time" }
 serde_json = { workspace = true }
 # Ed25519 verify/sign. No default features: no precomputed tables ("fast"),

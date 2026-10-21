@@ -61,6 +61,7 @@ name = "bench-banking"
 version = "0.1.0"
 dependencies = [
  "galion-bench",
+ "galion-common",
  "serde_json",
  "zagreb-time",
 ]
@@ -70,6 +71,7 @@ name = "bench-scoreboard"
 version = "0.1.0"
 dependencies = [
  "galion-bench",
+ "galion-common",
  "serde_json",
 ]
 
@@ -473,6 +475,7 @@ dependencies = [
  "gaia-live",
  "gaia-minerva",
  "gaia-poseidon",
+ "galion-common",
  "hades-gate",
  "serde_json",
  "zagreb-time",
@@ -564,6 +567,7 @@ dependencies = [
 name = "galion-backup"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "libc",
  "miniz_oxide",
  "rusqlite",
@@ -602,6 +606,9 @@ dependencies = [
 [[package]]
 name = "galion-deploy"
 version = "0.1.0"
+dependencies = [
+ "galion-common",
+]
 
 [[package]]
 name = "galion-desk"
@@ -628,6 +635,7 @@ dependencies = [
 name = "galion-health"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "zagreb-time",
 ]
 
@@ -649,6 +657,7 @@ dependencies = [
 name = "galion-realtest"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "serde_json",
  "zagreb-time",
 ]
@@ -658,6 +667,7 @@ name = "galion-vending"
 version = "0.1.0"
 dependencies = [
  "galion-bench",
+ "galion-common",
  "serde",
  "serde_json",
  "zagreb-time",
@@ -673,6 +683,7 @@ version = "0.1.0"
 dependencies = [
  "candle-core",
  "candle-nn",
+ "galion-common",
  "galion-voice-core",
  "num-traits",
  "serde",
@@ -684,6 +695,7 @@ name = "galion-wallstreet"
 version = "0.1.0"
 dependencies = [
  "galion-bench",
+ "galion-common",
  "serde",
  "serde_json",
  "zagreb-time",
@@ -692,6 +704,9 @@ dependencies = [
 [[package]]
 name = "galleon-arena"
 version = "0.1.0"
+dependencies = [
+ "galion-common",
+]
 
 [[package]]
 name = "gemm"
@@ -849,6 +864,7 @@ dependencies = [
 name = "guardian-tick"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "openmind-nerve",
  "openmind-survival",
  "serde",
@@ -862,6 +878,7 @@ name = "hades-gate"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "galion-common",
  "serde_json",
  "sha2",
  "zagreb-time",
@@ -933,6 +950,7 @@ dependencies = [
  "bench-banking",
  "bench-scoreboard",
  "galion-bench",
+ "galion-common",
  "galion-vending",
  "galion-wallstreet",
  "hermes-rs",
@@ -944,6 +962,7 @@ dependencies = [
 name = "hermes-gateway"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "hermes-rs",
  "hermes-tools",
  "serde_json",
@@ -1134,6 +1153,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 name = "one-defence"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "rusqlite",
  "serde",
  "serde_json",
@@ -1143,6 +1163,7 @@ dependencies = [
 name = "one-set-model"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "serde_json",
 ]
 
@@ -1166,6 +1187,7 @@ dependencies = [
 name = "openmind-discovery"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "openmind-provider",
  "serde",
  "serde_json",
@@ -1191,6 +1213,7 @@ dependencies = [
 name = "openmind-mcp-stack"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "serde_json",
  "zagreb-time",
 ]
@@ -1294,6 +1317,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 name = "persona-plex-relay"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "galion-voice-core",
  "opus-pure",
  "zagreb-time",
@@ -1511,6 +1535,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "repo-check"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "zagreb-time",
 ]
 

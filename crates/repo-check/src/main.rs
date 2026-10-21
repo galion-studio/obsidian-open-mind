@@ -73,6 +73,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
 }
 
 fn main() -> ExitCode {
+    galion_common::flags::early("repo-check", env!("CARGO_PKG_VERSION"), USAGE, || Ok("config none (arguments only; read-only tree scan)".into()));
     let opts = match parse_args(std::env::args().skip(1)) {
         Ok(o) => o,
         Err(e) => {

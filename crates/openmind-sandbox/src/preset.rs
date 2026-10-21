@@ -25,7 +25,14 @@ const FS_READ: &[&str] = &[
     "/dev/random",
 ];
 
-const HIDE: &[&str] = &["/root", "/home", "/run/secrets"];
+/// Directories covered by an empty read-only tmpfs in every tool preset.
+///
+/// `/opt/galion` holds the live deployment (checkouts, Hermes state, publish
+/// dirs). On the VPS a world-readable `.env` under it was readable from the
+/// sandbox (S8, swarm/sandbox-real-problems 334c633), so tools never see it.
+/// A tool whose workdir, write root, read root or program lies under
+/// `/opt/galion` keeps it visible, and the outcome reports that (`hide_home`).
+const HIDE: &[&str] = &["/root", "/home", "/run/secrets", "/opt/galion"];
 
 const ALLOW_RO: &[&str] = &["PATH", "LANG", "LC_ALL", "TZ"];
 const ALLOW_BUILD: &[&str] = &["PATH", "LANG", "LC_ALL", "TZ", "TERM"];

@@ -653,18 +653,22 @@ fn s8_secrets(c: &mut Ctx) {
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
         .collect();
-    let mut s = c.scen("S8", "task trying to read secrets: galion-light/secrets, /root, /root/galion-secrets, .env files, /etc/shadow, service /proc/<pid>/environ", "every path CONTAINED or HIDDEN (never ESCAPED) with the shipped preset AND with hide_paths emptied (unix permissions alone); third run = proposed fix (preset + hide /opt/galion) must make every path unreadable, templates included");
+    let mut s = c.scen("S8", "task trying to read secrets: galion-light/secrets, /root, /root/galion-secrets, .env files, /etc/shadow, service /proc/<pid>/environ", "shipped preset (hides /opt/galion since sandbox-hide-galion): 0 of N paths readable, templates included; the two baselines (preset without /opt/galion, hide_paths emptied) are measured to show what the fix closes");
     s.note(format!("{} paths", paths.len()));
     let mut args = vec!["secrets"];
     args.extend(paths.iter().map(String::as_str));
-    // preset as shipped; hide_paths emptied (unix permissions alone); and the
-    // proposed fix: the preset plus /opt/galion hidden
-    let mut fixed = false;
-    for v in ["preset", "nohide", "preset+hide-opt-galion"] {
+    let galion = PathBuf::from("/opt/galion");
+    s.check(
+        pol(&wd).hide_paths.contains(&galion),
+        "preset: shipped read-only-tool hides /opt/galion",
+    );
+    // The shipped preset is judged. The two baselines are only measured:
+    // the old preset (before the fix) and unix permissions alone.
+    for v in ["preset", "preset-before-fix", "nohide"] {
         let mut p = pol(&wd);
         match v {
+            "preset-before-fix" => p.hide_paths.retain(|h| h != &galion),
             "nohide" => p.hide_paths.clear(),
-            "preset+hide-opt-galion" => p.hide_paths.push(PathBuf::from("/opt/galion")),
             _ => {}
         }
         let o = sb(&wd, &p, &args, false);
@@ -678,49 +682,34 @@ fn s8_secrets(c: &mut Ctx) {
             .filter(|l| l.contains(" ESCAPED"))
             .copied()
             .collect();
-        // *.env.example files are templates kept world-readable on purpose:
-        // reported, not failed. Every other readable path is a FAIL.
+        // *.env.example files are templates kept world-readable on purpose.
         let (tpl, esc): (Vec<&str>, Vec<&str>) = esc_all.iter().partition(|l| {
             l.split_whitespace()
                 .nth(2)
                 .is_some_and(|p| p.ends_with(".example"))
         });
-        s.note(format!(
-            "{v}: {} world-readable .env.example templates readable (not secrets)",
-            tpl.len()
-        ));
-        s.check(
-            res.len() == paths.len(),
-            format!("{v}: {} of {} paths judged", res.len(), paths.len()),
-        );
-        s.check(
-            esc.is_empty(),
-            format!(
-                "{v}: {} non-template ESCAPED {:?}",
-                esc.len(),
-                esc.iter()
-                    .map(|l| l.split_whitespace().nth(2).unwrap_or(""))
-                    .collect::<Vec<_>>()
-            ),
-        );
-        if v == "preset+hide-opt-galion" {
-            fixed = esc_all.is_empty();
-            s.check(
-                fixed,
-                format!(
-                    "{v}: {} readable at all (templates included)",
-                    esc_all.len()
-                ),
-            );
-        }
+        let names: Vec<&str> = esc
+            .iter()
+            .map(|l| l.split_whitespace().nth(2).unwrap_or(""))
+            .collect();
         let hidden = res.iter().filter(|l| l.contains(" HIDDEN")).count();
-        s.note(format!(
-            "{v}: {} contained, {hidden} hidden",
+        let line = format!(
+            "{v}: {} readable of {} ({} non-template {names:?}, {} .env.example templates); {} contained, {hidden} hidden",
+            esc_all.len(),
+            paths.len(),
+            esc.len(),
+            tpl.len(),
             res.len() - esc_all.len() - hidden
-        ));
-    }
-    if fixed {
-        s.note("proposed fix (hide /opt/galion in tool presets) closes every readable path");
+        );
+        if v == "preset" {
+            s.check(
+                res.len() == paths.len(),
+                format!("{v}: {} of {} paths judged", res.len(), paths.len()),
+            );
+            s.check(esc_all.is_empty() && !res.is_empty(), line);
+        } else {
+            s.note(format!("baseline {line}"));
+        }
     }
     s.end("PASS");
 }

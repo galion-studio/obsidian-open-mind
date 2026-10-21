@@ -1,7 +1,9 @@
 [workspace]
 resolver = "2"
 # crates/one-defence (read-only port of galion-light/one/defence.py) joins via this glob.
-members = ["crates/*"]
+# xtask/ is the host-only `cargo xtask` helper (slot 156); it sits outside
+# crates/ so the Gaia ownership registry (crates/* only) is unchanged.
+members = ["crates/*", "xtask"]
 # contrib/grokbot is a vendored, read-only material dump with its own package.
 # It is not part of the OpenMind workspace.
 exclude = ["contrib"]

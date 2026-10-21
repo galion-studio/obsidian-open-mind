@@ -40,9 +40,18 @@ rustflags = ["--cfg", "curve25519_dalek_backend=\"serial\""]
 # touch [build] rustflags above (target.<triple>.rustflags would replace them).
 # C code (bundled SQLite in desk-hermes, hermes-rs, hermes-gateway,
 # one-defence, openmind-memory) still needs a C cross compiler for these
-# targets: see docs/toolchain-aarch64.md (zig cc, as in scripts/ucpu-gate.sh).
+# targets. Slot 156 (sqlite-aarch64-cc, 2026-10-21 CEST +02:00): use
+#   cargo xtask cross aarch64-unknown-linux-musl            (or armv7-..., x86_64-..., aarch64-linux-android check)
+# from any shell. The Rust xtask (xtask/) finds zig, points CC_<triple> /
+# AR_<triple> at itself (zig cc wrapper mode) and runs cargo; no shell
+# wrapper, no per-shell exports. Plain `cargo build --target ...` still works
+# for Rust-only crates. See docs/toolchain-aarch64.md.
 [target.aarch64-unknown-linux-musl]
 linker = "rust-lld"
 
 [target.armv7-unknown-linux-musleabihf]
 linker = "rust-lld"
+
+# `cargo xtask <task>`: host-only Rust build helper in xtask/ (slot 156).
+[alias]
+xtask = "run --quiet --package xtask --bin xtask --"

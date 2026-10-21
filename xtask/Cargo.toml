@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Host-only build helper (`cargo xtask ...`, alias in .cargo/config.toml).
+# Never shipped, no dependencies. Slot 156 sqlite-aarch64-cc.
+[package]
+name = "xtask"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+publish = false
+default-run = "xtask"
+
+[dependencies]

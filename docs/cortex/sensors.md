@@ -113,7 +113,7 @@ New dependencies from the merged branches: `semver` 1 (cortex-s2-a, MIT OR Apach
 | T2.9 public DNS/TLS/HTTP | network GETs when `live` (keep under budget: cache/rotate) | **merged (T2.0)** |
 | T2.10 Gaia `/event` feed | event JSONL via its own env; `Sev::parse`, `FindingKind::parse` | outbound B33 feed `/api/v1/cortex/events` merged (T2.0); inbound `/event` sensor **merged (cortex-merge-all)**: `event-feed` (swarm/cortex-event-ingest 7a55e6c) |
 | T2.11 POSEIDON budget bleed | after nerve-wiring lands | API ready, blocked on nerve-wiring |
-| T2.12 per-hostname edge rate | `input.journal` (cloudflared `dest=`) | ready (feeding the access.rs detector itself needs engine.rs: T2.0) |
+| T2.12 per-hostname edge rate | `input.journal` (cloudflared `dest=`) | **merged (cortex-merge-all)**, from `swarm/cortex-t212-edgerate` 9a48217: sensor `edge-rate` (registered after `event-feed`) + engine.rs feeder hook ([edge-rate.md](edge-rate.md)) |
 | T2.13 hades/sandbox misbehaviour | `input.journal` | **merged (T2.0)** |
 | T2.15 push wiring | nerve-client/hub.rs (nerve-wiring) | not a sensor; unaffected |
 

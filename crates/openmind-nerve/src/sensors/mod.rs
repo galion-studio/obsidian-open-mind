@@ -38,6 +38,7 @@ pub mod connrate;
 pub mod ddos;
 pub mod drift;
 pub mod edge;
+pub mod edgerate;
 pub mod event_feed;
 pub mod hades;
 pub mod listeners;
@@ -170,6 +171,7 @@ impl Sensors {
         s.add_opt(surface::Surface::from_env(env));
         s.add_opt(hades::Hades::from_env(env));
         s.add_opt(event_feed::EventFeed::from_env(env));
+        s.add_opt(edgerate::EdgeRate::from_env(env));
         let off: Vec<String> = env("NERVE_SENSORS_OFF")
             .unwrap_or_default()
             .split(',')
@@ -301,10 +303,20 @@ mod tests {
             Sensors::builtin().names(),
             ["listeners", "scanners", "edge", "components", "ddos"]
         );
+        // Registered S2 sensors run after the built-ins.
         assert_eq!(
             Sensors::from_env(&|_| None).names(),
-            Sensors::builtin().names()
+            [
+                "listeners",
+                "scanners",
+                "edge",
+                "components",
+                "ddos",
+                "edge-rate"
+            ]
         );
+        let off = |k: &str| (k == "NERVE_EDGE_HOSTS").then(|| "0".to_string());
+        assert_eq!(Sensors::from_env(&off).names(), Sensors::builtin().names());
     }
 
     #[test]
@@ -312,7 +324,7 @@ mod tests {
         let env = |k: &str| (k == "NERVE_SENSORS_OFF").then(|| " edge, ddos ,nope".to_string());
         assert_eq!(
             Sensors::from_env(&env).names(),
-            ["listeners", "scanners", "components"]
+            ["listeners", "scanners", "components", "edge-rate"]
         );
     }
 

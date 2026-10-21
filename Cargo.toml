@@ -62,6 +62,11 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.galion-voice-cpu]
 opt-level = 3
+# This package owns the galion-voice-serve binary. With a package override
+# on the binary's own package, cargo 1.99 links it with strip=debuginfo
+# (measured: rustc -C strip=debuginfo, .symtab kept), not the profile's
+# strip = true, so the size gate and release.yml refused it (slot 216).
+strip = true
 
 # RUSTSEC-2026-0367/0368/0369: no candle release (0.9.2..0.11.0, nor upstream main) allows zip >= 9.
 # vendor/candle-core is candle-core 0.9.2 unchanged except its zip requirement (7.2 -> 9.0.5).

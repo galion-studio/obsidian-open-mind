@@ -486,7 +486,7 @@ fn bystander(marker: &str) -> std::process::Child {
         .spawn()
         .unwrap()
 }
-const PEEK: &str = "n=0; e=0; for d in /proc/[0-9]*; do tr '\\0' ' ' < $d/cmdline 2>/dev/null | grep -q 'sleep 318[1]' && n=$((n+1)); tr '\\0' '\\n' < $d/environ 2>/dev/null | grep -q '^R191_CANARY=c19[1]' && e=$((e+1)); done; echo seen=$n; echo env_seen=$e; echo entries=$(ls /proc | wc -l); [ -e /proc/self ] && echo self=yes || echo self=no";
+const PEEK: &str = "n=0; e=0; for d in /proc/[0-9]*; do tr '\\0' ' ' < $d/cmdline 2>/dev/null | grep -q 'sleep 318[1]' && n=$((n+1)); tr '\\0' '\\n' < $d/environ 2>/dev/null | grep -q '^R191_CANARY=c19[1]' && e=$((e+1)); done; echo seen=$n; echo env_seen=$e; echo entries=$(ls /proc | wc -l); [ -e /proc/self ] && echo self=yes || echo self=no; echo names=$(ls /proc | grep -v '^[0-9]' | head -12 | tr '\\n' ,); echo meminfo=$(head -c 9 /proc/meminfo 2>&1 | head -c 60)";
 fn num(o: &Outcome, key: &str) -> i64 {
     status_field(o, key).parse().unwrap_or(-1)
 }
@@ -508,7 +508,7 @@ fn r1_proc_never_shows_host_processes_by_default() {
     assert_ne!(o.proc_view, ProcView::Host);
     assert_eq!(num(&o, "seen="), 0, "host process visible: {o:?}");
     assert_eq!(num(&o, "env_seen="), 0, "host environ readable: {o:?}");
-    if let ProcView::Masked { static_files } = o.proc_view {
+    if let ProcView::Masked { static_files, .. } = o.proc_view {
         assert_eq!(num(&o, "entries="), static_files as i64, "{o:?}");
         assert_eq!(status_field(&o, "self="), "no");
     }
@@ -590,7 +590,7 @@ fn r4_mask_keeps_workdir_ro_root_and_hide() {
         assert_eq!(status_field(&o, "hidden="), "0", "{o:?}");
     }
     assert_eq!(status_field(&o, "pwd="), p.workdir.to_str().unwrap());
-    if let ProcView::Masked { static_files } = o.proc_view {
+    if let ProcView::Masked { static_files, .. } = o.proc_view {
         if static_files == 6 {
             assert_eq!(status_field(&o, "meminfo="), "MemTotal:", "{o:?}");
         }

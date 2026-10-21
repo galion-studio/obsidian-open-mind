@@ -400,13 +400,29 @@ pub fn net(decoy_tcp: u16, decoy_udp: u16) -> i32 {
         Ok(it) => println!("RESULT net resolve ESCAPED {} addrs", it.count()),
         Err(e) => println!("RESULT net resolve CONTAINED {e}"),
     }
-    let dev = std::fs::read_to_string("/proc/net/dev").unwrap_or_default();
-    let ifs: Vec<&str> = dev
+    let dev = std::fs::read_to_string("/proc/net/dev").ok();
+    let mut ifs: Vec<String> = dev
+        .as_deref()
+        .unwrap_or_default()
         .lines()
         .skip(2)
         .filter_map(|l| l.split(':').next())
-        .map(|s| s.trim())
+        .map(|s| s.trim().to_string())
         .collect();
+    if dev.is_none() {
+        // No /proc/net (the /proc mask of slot 191 has no pid dirs): ask the
+        // kernel for the interface names of this netns directly.
+        for idx in 1..64u32 {
+            let mut buf = [0 as libc::c_char; libc::IF_NAMESIZE];
+            // SAFETY: buf is IF_NAMESIZE long, as if_indextoname requires.
+            let p = unsafe { libc::if_indextoname(idx, buf.as_mut_ptr()) };
+            if !p.is_null() {
+                // SAFETY: if_indextoname wrote a NUL-terminated name into buf.
+                let n = unsafe { std::ffi::CStr::from_ptr(p) };
+                ifs.push(n.to_string_lossy().into_owned());
+            }
+        }
+    }
     println!("RESULT net interfaces {} {:?}", ifs.len(), ifs);
     0
 }

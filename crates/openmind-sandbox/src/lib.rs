@@ -162,7 +162,9 @@ pub enum ProcFallback {
     Host,
     /// Replace /proc with a read-only tmpfs that holds only a few static,
     /// container-scoped files (cpuinfo, meminfo, stat, loadavg, uptime,
-    /// version) when they can be cloned. No pid directories, so no
+    /// version): a live clone of the host file when the kernel and LSM allow
+    /// it, else a snapshot of its content read by the caller just before
+    /// the run (at most 64 KiB each). No pid directories, so no
     /// `/proc/self`: a tool that needs it fails instead of seeing the host.
     /// The view is built in a recursive copy of the sandbox's mount tree and
     /// entered with pivot_root, because AppArmor in LXC refuses a mount on
@@ -181,8 +183,9 @@ pub enum ProcView {
     Private,
     /// A fresh proc with `subset=pid` (only the sandbox's pid directories).
     PidOnly,
-    /// The host /proc behind a read-only tmpfs with `static_files` files.
-    Masked { static_files: u32 },
+    /// The host /proc behind a read-only tmpfs with `static_files` files,
+    /// `live_files` of them live clones of the host file, the rest snapshots.
+    Masked { static_files: u32, live_files: u32 },
     /// The host /proc (every host process visible).
     Host,
 }
@@ -856,8 +859,10 @@ const B_PROC_PIDONLY: u32 = 1 << 16;
 const B_PROC_MASK: u32 = 1 << 17;
 // Bits 18..23: errno (clamped to 1..63) of a /proc mask that failed cleanly.
 const PROC_MASK_ERR_SHIFT: u32 = 18;
-// Bits 24..31: how many static files the /proc mask kept.
+// Bits 24..27: how many static files the /proc mask kept; bits 28..31: how
+// many of them are live clones (the rest are snapshots).
 const PROC_MASK_SHIFT: u32 = 24;
+const PROC_MASK_LIVE_SHIFT: u32 = 28;
 // Private errno values the pre-exec code hands to `spawn` to fail closed with
 // a precise message (execve itself never returns these two).
 const E_UIDMAP: i32 = libc::ENOTRECOVERABLE;
@@ -947,6 +952,10 @@ struct ProcMaskPaths {
     proc_dir: CString,
     /// (host /proc file, its place in the mask).
     statics: Vec<(CString, CString)>,
+    /// Content of each static file, read by the caller before the fork (a
+    /// read from inside the new namespaces fails for most lxcfs files: VPS
+    /// run 2026-10-21 14:10), used when the file cannot be cloned as a mount.
+    snap: Vec<Vec<u8>>,
 }
 
 impl ProcMaskPaths {
@@ -968,6 +977,14 @@ impl ProcMaskPaths {
             inner: cstr(Path::new(&inner))?,
             proc_dir: cstr(&proc_dir)?,
             statics,
+            snap: PROC_MASK_STATIC
+                .iter()
+                .map(|n| {
+                    let mut v = std::fs::read(Path::new("/proc").join(n)).unwrap_or_default();
+                    v.truncate(64 * 1024);
+                    v
+                })
+                .collect(),
         })
     }
 }
@@ -982,12 +999,13 @@ impl ProcMaskPaths {
 /// read-only tmpfs over the copy's `/proc` with a few cloned static files,
 /// then `pivot_root` into the copy and the old root detached.
 ///
-/// Ok(n): mask in place with n static files. Err((errno, clean)): not in
-/// place; `clean` = every step was undone and the host view is unchanged.
+/// Ok((n, live)): mask in place with n static files, `live` of them
+/// clones. Err((errno, clean)): not in place; `clean` = every step was
+/// undone and the host view is unchanged.
 ///
 /// # Safety
 /// Only async-signal-safe raw syscalls on data prepared before the fork.
-unsafe fn proc_mask(m: &ProcMaskPaths) -> Result<u32, (i32, bool)> {
+unsafe fn proc_mask(m: &ProcMaskPaths) -> Result<(u32, u32), (i32, bool)> {
     let errno = || {
         std::io::Error::last_os_error()
             .raw_os_error()
@@ -1004,7 +1022,7 @@ unsafe fn proc_mask(m: &ProcMaskPaths) -> Result<u32, (i32, bool)> {
     {
         return Err((errno(), true));
     }
-    let undo = |e: i32, rec: bool| -> Result<u32, (i32, bool)> {
+    let undo = |e: i32, rec: bool| -> Result<(u32, u32), (i32, bool)> {
         let mut clean = true;
         if rec {
             clean &= libc::umount2(m.root.as_ptr(), libc::MNT_DETACH) == 0;
@@ -1052,7 +1070,7 @@ unsafe fn proc_mask(m: &ProcMaskPaths) -> Result<u32, (i32, bool)> {
         m.proc_dir.as_ptr(),
         c"tmpfs".as_ptr(),
         fl,
-        c"size=16k,nr_inodes=32,mode=755".as_ptr().cast(),
+        c"size=512k,nr_inodes=32,mode=755".as_ptr().cast(),
     ) != 0
     {
         let e = errno();
@@ -1060,10 +1078,8 @@ unsafe fn proc_mask(m: &ProcMaskPaths) -> Result<u32, (i32, bool)> {
         return undo(e, true);
     }
     let mut kept = 0u32;
+    let mut live = 0u32;
     for (i, (_, dst)) in m.statics.iter().enumerate() {
-        if fds[i] < 0 {
-            continue;
-        }
         let f = libc::open(
             dst.as_ptr(),
             libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY | libc::O_CLOEXEC,
@@ -1072,16 +1088,29 @@ unsafe fn proc_mask(m: &ProcMaskPaths) -> Result<u32, (i32, bool)> {
         if f < 0 {
             continue;
         }
-        libc::close(f);
-        if libc::syscall(
-            SYS_MOVE_MOUNT,
-            fds[i],
-            c"".as_ptr(),
-            libc::AT_FDCWD,
-            dst.as_ptr(),
-            MOVE_MOUNT_F_EMPTY_PATH,
-        ) == 0
+        // Live view: the cloned mount of the host file (lxcfs keeps it
+        // container-scoped). Else the snapshot the caller took before the
+        // fork (AppArmor in LXC refuses most binds from /proc).
+        if fds[i] >= 0
+            && libc::syscall(
+                SYS_MOVE_MOUNT,
+                fds[i],
+                c"".as_ptr(),
+                libc::AT_FDCWD,
+                dst.as_ptr(),
+                MOVE_MOUNT_F_EMPTY_PATH,
+            ) == 0
         {
+            libc::close(f);
+            kept += 1;
+            live += 1;
+            continue;
+        }
+        let snap = &m.snap[i];
+        let ok = !snap.is_empty()
+            && libc::write(f, snap.as_ptr().cast(), snap.len()) == snap.len() as isize;
+        libc::close(f);
+        if ok {
             kept += 1;
         } else {
             libc::unlink(dst.as_ptr());
@@ -1114,7 +1143,7 @@ unsafe fn proc_mask(m: &ProcMaskPaths) -> Result<u32, (i32, bool)> {
     if libc::chdir(c"/".as_ptr()) != 0 {
         return Err((errno(), false));
     }
-    Ok(kept)
+    Ok((kept, live))
 }
 
 /// Run `cmd` (program + args) under `policy`. Never panics on bad input;
@@ -1651,8 +1680,10 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                         bits |= B_PROC_PIDONLY;
                     } else if let Some(m) = &proc_mask_paths {
                         match proc_mask(m) {
-                            Ok(n) => {
-                                bits |= B_PROC_MASK | (n.min(255) << PROC_MASK_SHIFT);
+                            Ok((n, live)) => {
+                                bits |= B_PROC_MASK
+                                    | (n.min(15) << PROC_MASK_SHIFT)
+                                    | (live.min(15) << PROC_MASK_LIVE_SHIFT);
                                 if libc::chdir(workdir_c.as_ptr()) != 0 {
                                     return Err(std::io::Error::last_os_error());
                                 }
@@ -1881,7 +1912,8 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         ProcView::PidOnly
     } else if bits & B_PROC_MASK != 0 {
         ProcView::Masked {
-            static_files: bits >> PROC_MASK_SHIFT,
+            static_files: (bits >> PROC_MASK_SHIFT) & 15,
+            live_files: bits >> PROC_MASK_LIVE_SHIFT,
         }
     } else {
         ProcView::Host
@@ -2066,8 +2098,12 @@ mod proc_mask_tests {
         // errno 1..63 in bits 18..23 and a count up to 255 in 24..31 never
         // touch a layer bit.
         let all_layers = B_WDQ | B_PROC_PIDONLY | B_PROC_MASK | (B_WDQ - 1);
-        let fields = (63u32 << PROC_MASK_ERR_SHIFT) | (255u32 << PROC_MASK_SHIFT);
+        let fields = (63u32 << PROC_MASK_ERR_SHIFT)
+            | (15u32 << PROC_MASK_SHIFT)
+            | (15u32 << PROC_MASK_LIVE_SHIFT);
         assert_eq!(all_layers & fields, 0);
-        assert_eq!((fields >> PROC_MASK_SHIFT) & 255, 255);
+        assert_eq!((fields >> PROC_MASK_SHIFT) & 15, 15);
+        assert_eq!(fields >> PROC_MASK_LIVE_SHIFT, 15);
+        assert!(PROC_MASK_STATIC.len() < 16);
     }
 }

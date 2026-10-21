@@ -613,6 +613,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-flight"
+version = "0.1.0"
+dependencies = [
+ "galion-common",
+ "serde_json",
+]
+
+[[package]]
 name = "galion-guard"
 version = "0.1.0"
 dependencies = [

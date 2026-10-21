@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+[package]
+name = "galion-flight"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Read-only pre/postflight go/no-go checks per service (GET, stat, sha256, status reads only; one read per check, no loops, no POST)."
+
+[[bin]]
+name = "galion-flight"
+path = "src/main.rs"
+
+[dependencies]
+galion-common = { path = "../galion-common" }
+serde_json = { workspace = true }

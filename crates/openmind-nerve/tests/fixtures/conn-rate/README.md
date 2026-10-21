@@ -14,3 +14,6 @@ Generated 2026-10-20 23:30 CEST (+02:00) with a bash `printf` loop (no Python).
 Expected (`connrate::tests::replay_fixture`): cycle 0 baseline, no finding; cycle 1 `conn-rate-8420` high
 (300 new / 30 s = 10/s, while the B41 ESTAB+TIME-WAIT growth is 0/s) and `conn-rate-8002` warn (30 / 30 s = 1/s);
 cycle 2 nothing new, both clear.
+
+See also `../conn-rate-vps/` (slot 178): a redacted read-only VPS sample used by
+`connrate::tests::replay_vps_sample_b41_vs_identity_vs_flow`.

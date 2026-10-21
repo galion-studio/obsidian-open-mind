@@ -125,8 +125,15 @@ fn vps_compare() {
         let (x, y) = (&a[&p], &b[&p]);
         let new = y.conns.difference(&x.conns).count();
         let growth = (y.estab + y.time_wait) as f64 - (x.estab + x.time_wait) as f64;
+        // Slot 178: the corrected B41 count formula (NERVE_CONNRATE_FORMULA=b41flow).
+        let flow = connrate::b41_flow_rate(
+            x.estab + x.time_wait,
+            x.time_wait,
+            y.estab + y.time_wait,
+            dt.round() as u64,
+        );
         eprintln!(
-            "VPS :{p}: estab {}->{} time_wait {}->{}; new {new} = {:.2}/s; B41 growth {:.2}/s",
+            "VPS :{p}: estab {}->{} time_wait {}->{}; new {new} = {:.2}/s; B41 growth {:.2}/s; b41flow {flow:.2}/s",
             x.estab,
             y.estab,
             x.time_wait,

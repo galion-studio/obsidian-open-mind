@@ -26,11 +26,9 @@
 ### 2.1 Binary
 
 A new `hermes-gateway` built from the approved commit **on aarch64** (the VPS is aarch64;
-the box has no SQLite C cross compiler, so a default-feature aarch64 build must be made
-on an aarch64 host or with the sqlite-aarch64-cc toolchain). Install it **beside** the old one:
+built on the box with zig 0.13.0 as the SQLite C cross compiler, as scripts/ucpu-gate.sh does). Install it **beside** the old one:
 `/opt/galion/rust/bin/hermes-gateway-<sha>`; keep `hermes-gateway-aa77864` for rollback.
-Point `50-rust-bin.conf` `ExecStart=` at the new file. Size: see D4 (x86_64 build is over
-the 2 MiB budget; the aarch64 default build must be measured before deploy).
+Point `50-rust-bin.conf` `ExecStart=` at the new file. Size: aarch64 musl default build (zig CC for SQLite) 2,026,096 bytes, inside the 2 MiB budget; x86_64 is over (D4).
 
 ### 2.2 Unit environment (new drop-in `70-enroll.conf`)
 

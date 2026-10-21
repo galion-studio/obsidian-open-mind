@@ -113,6 +113,9 @@ All 55 checks of run 2:
 | x86_64-unknown-linux-musl release: hermes-gateway, omnode | ok (static-pie) |
 | aarch64-unknown-linux-musl release: omnode; hermes-gateway `--no-default-features` (no SQLite C cross compiler on the box) | ok (static) |
 | `cargo check` aarch64-linux-android, armv7-unknown-linux-musleabihf: omnode; hermes-gateway + hermes-rs `--no-default-features` | ok |
+| `scripts/no-python.sh` | ok |
+| `scripts/spdx-scan.sh` (17:38:56) | 534 scanned, 0 missing |
+| `scripts/ucpu-gate.sh` with zig 0.13.0 (17:48-18:18 +02:00) | RESULT FAIL, **none from this branch**: grep gate 398 hits all in `vendor/candle-core` (integration-5 blocker 0); size: `galion-voice-serve` not stripped (base) and x86_64 `hermes-gateway` 2,293,216 in the workspace build (over, see below); builds x86_64 + aarch64 musl (workspace with SQLite via zig, and omnode) ok, static ok; armv7 + aarch64-android `cargo check` (workspace and omnode) ok |
 
 ## Artefacts (box only, not copied anywhere)
 
@@ -126,7 +129,7 @@ All 55 checks of run 2:
 **Size budget:** hermes-gateway x86_64 musl is **2,177,808 bytes, 80,656 over the 2 MiB budget**.
 The base integration-5 0d68f46 built the same way is 1,968,880 (+208,928). Most of that is
 hermes-enroll-2 (Ed25519 + enroll store, ~167 KB measured on its own base); this branch adds
-about 42 KB (status, outcomes, tunnel, owner CLI). Owner decision D4 in docs/omnode-enroll.md.
+about 42 KB (status, outcomes, tunnel, owner CLI). In the ucpu-gate workspace build (feature unification) x86_64 is 2,293,216. **The deploy target, aarch64 musl with default features (SQLite via zig CC), is 2,026,096 bytes: within budget, 71,056 bytes headroom.** Owner decision D4 in docs/omnode-enroll.md.
 
 ## Read-only VPS probe
 

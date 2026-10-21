@@ -9,15 +9,17 @@
 //! | `R0-stack-wide` | the correlator folded 3+ hard-failing subjects into `stack-wide` | alert + escalate, never act (host/network problem) |
 //! | `R1-protected` | unit/host/path is protected ([`crate::guard`]) | alert only, never act |
 //! | `R2-circuit-open` | unit failed `flap_failures` times in `flap_window_s`, or the nerve reported its breaker open / cap hit | open circuit, alert + escalate once; no action while open |
+//! | `R2-start-limit` | systemd hit the start limit (`unit.start_limit`) | open circuit, alert + escalate |
 //! | `R3-known-crash` | crash / OOM / `failed` state of a restart-allowed unit | restart via the nerve (dry-run by default) |
 //! | `R3-cap` | ... but the cortex hourly cap for the unit is used up | open circuit, alert + escalate |
+//! | `R3b-systemd-restarting` | failure with `unit.restart_scheduled` (systemd restarts it itself) | alert, no extra action (failure still counts toward flapping) |
 //! | `R4-unknown-unit` | failure of a unit no rule may restart | alert + escalate |
 //! | `R5-recovered` | unit back to `active` / info state change | nothing (incident quiets) |
 //! | `R6-task-failed` | task/slot finished with `ok=false` | alert |
 //! | `R7-threshold` | threshold crossed: warn | alert; error+ | alert + escalate (LLM-eligible) |
 //! | `R8-unclassified` | unclassified process: warn | alert; error+ | escalate (LLM-eligible) |
 //! | `R9-process-exit` | process exit: non-zero, warn+ | alert |
-//! | `R10-remediation` | nerve remediation outcome | rate-limited/circuit-open marks the unit, alert |
+//! | `R10-remediation` | nerve `action.result` / `circuit.open` | rate-limited/circuit-open opens the cortex circuit + escalates once; echoes of our own requests are info |
 //! | `R99-default` | anything else: error+ | escalate (LLM-eligible); warn | alert; info | nothing |
 
 use crate::guard::Guard;

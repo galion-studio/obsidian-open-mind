@@ -275,7 +275,10 @@ mod tests {
                     let r = dispatch(&e, s, v, p);
                     assert!(OUTCOMES.contains(&r.outcome), "{s} {v}: {}", r.outcome);
                     assert_eq!(r.dry_run, r.outcome == "dry-run", "{s} {v} {p}");
-                    assert_eq!((r.function, r.system.as_str(), r.verb.as_str()), (FUNCTION, s, v));
+                    assert_eq!(
+                        (r.function, r.system.as_str(), r.verb.as_str()),
+                        (FUNCTION, s, v)
+                    );
                     if !DISPATCH_VERBS.contains(&v) {
                         assert_eq!(r.outcome, "refused", "{s} {v} must stay read-only");
                     }

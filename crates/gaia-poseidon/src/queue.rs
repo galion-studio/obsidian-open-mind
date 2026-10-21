@@ -344,7 +344,14 @@ impl<T: Transport> QueueAdapter<T> {
             .with("refusals", self.refusals)
             .with("last_error", self.last_error.clone())
             .with("identity", self.identity.clone())
-            .with("contract", if self.off_contract.is_some() { "violated" } else { "ok" })
+            .with(
+                "contract",
+                if self.off_contract.is_some() {
+                    "violated"
+                } else {
+                    "ok"
+                },
+            )
             .with("violations", self.violations)
             .with("budget", "read-only via Gaia (never spends)")
     }
@@ -415,7 +422,8 @@ impl<T: Transport> QueueAdapter<T> {
         }
         let system = contract::wire_system(d.target)
             .ok_or_else(|| format!("{} is not served by openmind-queue", d.target))?;
-        let body = json!({"system": system, "verb": contract::wire_verb(verb), "payload": d.payload});
+        let body =
+            json!({"system": system, "verb": contract::wire_verb(verb), "payload": d.payload});
         let (code, v) = self.call("POST", "/gaia/dispatch", Some(body))?;
         if code != 200 {
             return Ok(Report::for_directive(d, Outcome::Rejected)
@@ -916,7 +924,11 @@ mod tests {
         a.transport.impostor = true;
         for s in System::COMPUTE {
             for v in [Verb::Status, Verb::Plan, Verb::Run] {
-                let p = if v == Verb::Run { r#"{"agent":"a"}"# } else { "" };
+                let p = if v == Verb::Run {
+                    r#"{"agent":"a"}"#
+                } else {
+                    ""
+                };
                 let r = a.handle(&Directive::new(1, s, v).payload(p));
                 assert_eq!(r.outcome, Outcome::Refused, "{s} {v:?}");
             }

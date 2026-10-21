@@ -154,8 +154,7 @@ pub fn parse_dispatch(d: &Directive, sent_verb: Verb, v: &Value) -> Result<Repor
         )));
     }
     let raw = s("outcome").unwrap_or("<missing>");
-    let outcome =
-        outcome_from_wire(raw).ok_or_else(|| bad(format!("unknown outcome {raw:?}")))?;
+    let outcome = outcome_from_wire(raw).ok_or_else(|| bad(format!("unknown outcome {raw:?}")))?;
     let dry_run = match o.get("dry_run") {
         Some(Value::Bool(b)) => *b,
         None => outcome == Outcome::DryRun,
@@ -210,7 +209,8 @@ mod tests {
         }
         assert_eq!(wire::SYSTEMS.len(), System::COMPUTE.len());
         for (n, _) in wire::SYSTEMS {
-            let s = System::parse(n).unwrap_or_else(|| panic!("queue system {n} unknown to gaia-core"));
+            let s =
+                System::parse(n).unwrap_or_else(|| panic!("queue system {n} unknown to gaia-core"));
             assert!(s.is_compute(), "{n}");
         }
         assert_eq!(wire_system(System::parse("terminal").unwrap()), None);
@@ -318,7 +318,8 @@ mod tests {
 
     #[test]
     fn identity_must_be_openmind_queue_poseidon() {
-        let good = json!({"ok":true,"function":"POSEIDON","service":"openmind-queue","version":"0.1.0"});
+        let good =
+            json!({"ok":true,"function":"POSEIDON","service":"openmind-queue","version":"0.1.0"});
         assert_eq!(check_identity(200, &good).unwrap(), "0.1.0");
         assert!(check_identity(404, &good).is_err());
         for (k, val) in [

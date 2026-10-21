@@ -116,7 +116,12 @@ fn go(g: &mut Gaia, s: System, v: Verb, p: &str) -> Report {
     let id = g.next_id();
     let d = Directive::new(id, s, v).payload(p);
     let r = g.dispatch(&d);
-    assert_ne!(r.outcome, Outcome::Contained, "{s} {v:?} {p:?}: {}", r.summary);
+    assert_ne!(
+        r.outcome,
+        Outcome::Contained,
+        "{s} {v:?} {p:?}: {}",
+        r.summary
+    );
     assert_eq!(r.function, FunctionId::COMPUTE);
     r
 }
@@ -142,7 +147,11 @@ fn a_real_queue_every_system_and_verb() {
     let _ = std::fs::remove_dir_all(&dir);
     let mut q = start(&dir);
     op(&["post", "/caps", r#"{"scope":"agent-a","cap":50}"#]);
-    op(&["post", "/vram/devices", r#"{"id":"gpu0","kind":"gpu","vram_gb":24,"state":"approved"}"#]);
+    op(&[
+        "post",
+        "/vram/devices",
+        r#"{"id":"gpu0","kind":"gpu","vram_gb":24,"state":"approved"}"#,
+    ]);
 
     let mut g = gaia::poseidon::booted_with_queue(QueueConfig::new(QUEUE).unwrap());
     assert_eq!(state(&g), Lifecycle::Running);
@@ -157,7 +166,11 @@ fn a_real_queue_every_system_and_verb() {
             }
             for p in ["", "16"] {
                 let r = go(&mut g, s, v, p);
-                assert!(!r.summary.contains("contract violation"), "{s} {v:?}: {}", r.summary);
+                assert!(
+                    !r.summary.contains("contract violation"),
+                    "{s} {v:?}: {}",
+                    r.summary
+                );
                 let want = match v {
                     Verb::Status if s == System::Queues && p == "16" => Outcome::Done, // job 16 not live
                     Verb::Status => Outcome::Done,
@@ -167,55 +180,122 @@ fn a_real_queue_every_system_and_verb() {
                 };
                 assert_eq!(r.outcome, want, "{s} {v:?} {p:?}: {}", r.summary);
                 assert_eq!(r.dry_run, want == Outcome::DryRun, "{s} {v:?}");
-                println!("A {s} {} {p:?} -> {} | {}", v.name(), r.outcome.name(), r.summary);
+                println!(
+                    "A {s} {} {p:?} -> {} | {}",
+                    v.name(),
+                    r.outcome.name(),
+                    r.summary
+                );
                 n += 1;
             }
         }
     }
     assert_eq!(n, 28);
     let r = go(&mut g, System::VramPool, Verb::Plan, "48");
-    assert!(r.summary.contains("fits no approved device"), "{}", r.summary);
+    assert!(
+        r.summary.contains("fits no approved device"),
+        "{}",
+        r.summary
+    );
     let r = go(&mut g, System::VramPool, Verb::Plan, "x");
-    assert_eq!((r.outcome, r.dry_run), (Outcome::Rejected, false), "{}", r.summary);
+    assert_eq!(
+        (r.outcome, r.dry_run),
+        (Outcome::Rejected, false),
+        "{}",
+        r.summary
+    );
     let r = go(&mut g, System::VramPool, Verb::Status, "");
     assert!(r.summary.contains("gpu0 24 GB"), "{}", r.summary);
     let r = go(&mut g, System::BudgetCaps, Verb::Status, "");
     assert_eq!(r.metric_value("cap:agent-a"), Some(50), "{}", r.summary);
-    assert_eq!(money_view(), before, "read-only batch moved spend/leases/acks");
+    assert_eq!(
+        money_view(),
+        before,
+        "read-only batch moved spend/leases/acks"
+    );
     println!("A read-only batch: {n} + 4 directives, money view unchanged: {before}");
 
     // Submit, operator worker spends, second submit hits the hard stop.
-    let r = go(&mut g, System::Queues, Verb::Run, r#"{"agent":"agent-a","kind":"echo","cost":30}"#);
+    let r = go(
+        &mut g,
+        System::Queues,
+        Verb::Run,
+        r#"{"agent":"agent-a","kind":"echo","cost":30}"#,
+    );
     assert_eq!(r.outcome, Outcome::Done, "{}", r.summary);
     let id = r.metric_value("job_id").unwrap();
-    op(&["worker", "--worker", "rt-w", "--max-jobs", "1", "--idle-exit-ms", "1000"]);
-    let r = go(&mut g, System::Queues, Verb::Run, r#"{"agent":"agent-a","kind":"echo","cost":30}"#);
-    assert_eq!((r.outcome, r.metric_value("http_status")), (Outcome::Refused, Some(402)), "{}", r.summary);
-    let r = go(&mut g, System::Queues, Verb::Execute, r#"{"agent":"agent-a","kind":"echo","cost":10}"#);
+    op(&[
+        "worker",
+        "--worker",
+        "rt-w",
+        "--max-jobs",
+        "1",
+        "--idle-exit-ms",
+        "1000",
+    ]);
+    let r = go(
+        &mut g,
+        System::Queues,
+        Verb::Run,
+        r#"{"agent":"agent-a","kind":"echo","cost":30}"#,
+    );
+    assert_eq!(
+        (r.outcome, r.metric_value("http_status")),
+        (Outcome::Refused, Some(402)),
+        "{}",
+        r.summary
+    );
+    let r = go(
+        &mut g,
+        System::Queues,
+        Verb::Execute,
+        r#"{"agent":"agent-a","kind":"echo","cost":10}"#,
+    );
     assert_eq!(r.outcome, Outcome::Done, "{}", r.summary);
     let live = r.metric_value("job_id").unwrap();
     assert!(live > id);
-    assert!(topics(&g).contains(&"budget-hard-stop".to_string()), "{:?}", topics(&g));
+    assert!(
+        topics(&g).contains(&"budget-hard-stop".to_string()),
+        "{:?}",
+        topics(&g)
+    );
     let r = go(&mut g, System::Queues, Verb::Status, &format!("job:{live}"));
     assert_eq!(r.metric_value("live"), Some(1), "{}", r.summary);
-    println!("A submit {id} acked by operator worker; hard stop 402; job {live} live: {}", r.summary);
+    println!(
+        "A submit {id} acked by operator worker; hard stop 402; job {live} live: {}",
+        r.summary
+    );
 
     // kill -9: refused, degraded, one bus event.
     let _ = q.0.kill();
     let _ = q.0.wait();
     let r = go(&mut g, System::Queues, Verb::Status, "");
-    assert_eq!((r.outcome, r.metric_value("unreachable")), (Outcome::Refused, Some(1)), "{}", r.summary);
+    assert_eq!(
+        (r.outcome, r.metric_value("unreachable")),
+        (Outcome::Refused, Some(1)),
+        "{}",
+        r.summary
+    );
     let _ = go(&mut g, System::Quotas, Verb::Status, "");
     g.tick();
     assert_eq!(state(&g), Lifecycle::Degraded);
     let t = topics(&g);
-    assert_eq!(t.iter().filter(|x| *x == "poseidon-unreachable").count(), 1, "{t:?}");
+    assert_eq!(
+        t.iter().filter(|x| *x == "poseidon-unreachable").count(),
+        1,
+        "{t:?}"
+    );
     println!("A kill -9: refused unreachable, POSEIDON degraded, events {t:?}");
 
     // Restart on the same data dir: re-handshake, recover, job survived.
     let _q2 = start(&dir);
     let r = go(&mut g, System::Queues, Verb::Status, &format!("{live}"));
-    assert_eq!((r.outcome, r.metric_value("live")), (Outcome::Done, Some(1)), "{}", r.summary);
+    assert_eq!(
+        (r.outcome, r.metric_value("live")),
+        (Outcome::Done, Some(1)),
+        "{}",
+        r.summary
+    );
     g.tick();
     assert_eq!(state(&g), Lifecycle::Running);
     let js = g.function_json(FunctionId::COMPUTE).unwrap().compact();
@@ -266,24 +346,43 @@ fn b_impostor_gets_only_healthz() {
     if !real() {
         return;
     }
-    let seen = serve(IMPOSTOR, |_| r#"{"ok":true,"service":"galion-one","version":"9"}"#.into());
+    let seen = serve(IMPOSTOR, |_| {
+        r#"{"ok":true,"service":"galion-one","version":"9"}"#.into()
+    });
     let mut g = gaia::poseidon::booted_with_queue(QueueConfig::new(IMPOSTOR).unwrap());
     for s in System::COMPUTE {
         for v in [Verb::Status, Verb::Plan] {
             let r = go(&mut g, s, v, "");
-            assert_eq!((r.outcome, r.metric_value("off_contract")), (Outcome::Refused, Some(1)), "{s}: {}", r.summary);
+            assert_eq!(
+                (r.outcome, r.metric_value("off_contract")),
+                (Outcome::Refused, Some(1)),
+                "{s}: {}",
+                r.summary
+            );
         }
     }
-    let r = go(&mut g, System::Queues, Verb::Run, r#"{"agent":"a","cost":1}"#);
+    let r = go(
+        &mut g,
+        System::Queues,
+        Verb::Run,
+        r#"{"agent":"a","cost":1}"#,
+    );
     assert_eq!(r.outcome, Outcome::Refused);
     g.tick();
     assert_eq!(state(&g), Lifecycle::Degraded);
     let lines = seen.lock().unwrap().clone();
     assert!(!lines.is_empty());
-    assert!(lines.iter().all(|l| l.starts_with("GET /healthz ")), "{lines:?}");
+    assert!(
+        lines.iter().all(|l| l.starts_with("GET /healthz ")),
+        "{lines:?}"
+    );
     let t = topics(&g);
     assert_eq!(t, ["poseidon-off-contract"], "{t:?}");
-    println!("B impostor saw {} requests, all GET /healthz; POSEIDON degraded; last: {}", lines.len(), r.summary);
+    println!(
+        "B impostor saw {} requests, all GET /healthz; POSEIDON degraded; last: {}",
+        lines.len(),
+        r.summary
+    );
 }
 
 #[test]
@@ -293,7 +392,8 @@ fn c_lookalike_breaking_the_contract() {
     }
     let seen = serve(LOOKALIKE, |line| {
         if line.starts_with("GET /healthz") {
-            r#"{"ok":true,"function":"POSEIDON","service":"openmind-queue","version":"0.0.0-fake"}"#.into()
+            r#"{"ok":true,"function":"POSEIDON","service":"openmind-queue","version":"0.0.0-fake"}"#
+                .into()
         } else if line.starts_with("GET /gaia/status") {
             r#"{"health":{"load":0}}"#.into()
         } else {
@@ -302,13 +402,25 @@ fn c_lookalike_breaking_the_contract() {
     });
     let mut g = gaia::poseidon::booted_with_queue(QueueConfig::new(LOOKALIKE).unwrap());
     let r = go(&mut g, System::Queues, Verb::Status, "");
-    assert_eq!((r.outcome, r.metric_value("off_contract")), (Outcome::Refused, Some(1)), "{}", r.summary);
-    assert!(r.summary.contains("unknown outcome \"maybe\""), "{}", r.summary);
+    assert_eq!(
+        (r.outcome, r.metric_value("off_contract")),
+        (Outcome::Refused, Some(1)),
+        "{}",
+        r.summary
+    );
+    assert!(
+        r.summary.contains("unknown outcome \"maybe\""),
+        "{}",
+        r.summary
+    );
     // The look-alike answers for queues when asked about vram-pool: caught too.
     let r = go(&mut g, System::VramPool, Verb::Plan, "16");
     assert!(r.summary.contains("contract violation"), "{}", r.summary);
     g.tick();
     assert_eq!(state(&g), Lifecycle::Degraded);
     let n = seen.lock().unwrap().len();
-    println!("C look-alike: {n} requests; refused off-contract; POSEIDON degraded; {}", r.summary);
+    println!(
+        "C look-alike: {n} requests; refused off-contract; POSEIDON degraded; {}",
+        r.summary
+    );
 }

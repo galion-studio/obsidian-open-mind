@@ -30,6 +30,18 @@ pub struct Config {
     pub coalesce_ms: u64,
     /// Same unit, same rule: one decision per this many seconds.
     pub decision_cooldown_s: u64,
+    /// One-shot subjects (process exits, task results, unclassified
+    /// processes, other events) carry no "cleared" signal: their incident
+    /// resolves after this many seconds without a new event. Units, nerve
+    /// incidents and thresholds resolve only when their own signal clears
+    /// (T5.1 F3: never because other subjects had bursts).
+    pub incident_quiet_s: u64,
+    /// Units, nerve incidents and thresholds whose own "cleared" event never
+    /// comes (the nerve publishes start/stop only for lifecycle-tracked
+    /// groups; a postfix or ssh recovery never reaches the cortex) resolve as
+    /// `stale` after this many seconds without an event of their own.
+    /// 0 (default) = never: they wait for their own signal.
+    pub incident_sticky_max_s: u64,
     /// Cortex-side restart cap per unit per hour. Default 2 = the nerve
     /// executor cap; the nerve applies its cap only to executed restarts,
     /// so this is what bounds a dry-run (simulated) restart loop.
@@ -77,6 +89,8 @@ impl Default for Config {
             restarts_per_unit_hour: nerve_cortex_contract::NERVE_RESTARTS_PER_UNIT_HOUR,
             restarts_total_hour: nerve_cortex_contract::NERVE_RESTARTS_TOTAL_HOUR,
             repeat_poll_s: 30,
+            incident_quiet_s: 1800,
+            incident_sticky_max_s: 0,
             flap_failures: 3,
             flap_window_s: 900,
             circuit_open_s: 3600,
@@ -207,6 +221,12 @@ impl Config {
         if let Some(v) = get("CORTEX_COALESCE_MS").and_then(|v| v.parse().ok()) {
             c.coalesce_ms = v;
         }
+        if let Some(v) = get("CORTEX_INCIDENT_QUIET_S").and_then(|v| v.parse().ok()) {
+            c.incident_quiet_s = v;
+        }
+        if let Some(v) = get("CORTEX_INCIDENT_STICKY_MAX_S").and_then(|v| v.parse().ok()) {
+            c.incident_sticky_max_s = v;
+        }
         if let Some(v) = get("CORTEX_NERVE_STREAM") {
             c.nerve_stream = v != "0" && v != "false";
         }
@@ -279,6 +299,7 @@ impl Config {
         if self.repeat_poll_s > 0 {
             self.repeat_poll_s = self.repeat_poll_s.clamp(1, self.flap_window_s.max(1));
         }
+        self.incident_quiet_s = self.incident_quiet_s.clamp(1, 7 * 86_400);
         Ok(())
     }
 }

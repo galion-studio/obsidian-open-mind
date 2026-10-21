@@ -130,7 +130,9 @@ cortex caps (2/unit/h, 6/h total: the same numbers as the nerve's own caps, whic
 JSON file (`--config` / `CORTEX_CONFIG`) + env overrides `CORTEX_LISTEN`,
 `CORTEX_SOCKET`, `CORTEX_DATA_DIR`, `CORTEX_NERVE_URL`, `CORTEX_NERVE_STREAM`,
 `CORTEX_PULL_EVERY_S`, `CORTEX_ACTIONS`, `CORTEX_COALESCE_MS`,
-`CORTEX_OUTBOX`, `CORTEX_LLM_ENABLED`. `gaia-cortex config` prints the
+`CORTEX_OUTBOX`, `CORTEX_INCIDENT_QUIET_S` (one-shot incidents, default
+1800 s), `CORTEX_INCIDENT_STICKY_MAX_S` (default 0 = never),
+`CORTEX_LLM_ENABLED`. `gaia-cortex config` prints the
 effective config. Listen and nerve URL must be loopback.
 
 ## Going live (not done; needs approval)
@@ -163,3 +165,41 @@ evicts the oldest connection still sending its request when all 32 slots
 are taken (`galion-common` `Limits::evict_idle`), so an idle-connection
 flood no longer gives 503s. Before/after p50/p99 numbers:
 [../real-tests/cortex-api-load.md](../real-tests/cortex-api-load.md).
+## Incident lifetime and nerve incident backfill (slot 237, 2026-10-22 +02:00)
+
+- **Backfill on every stream (re)connect.** Before streaming, the cortex
+  reads `GET /stats` (seq) and then `GET /incidents` from the nerve. Every
+  open nerve incident whose cause it does not hold becomes a synthetic
+  `incident.opened` (`data.backfill = true`) decided by R11 (alert,
+  critical = escalate, never an action); every held cause the nerve no longer
+  has open becomes a synthetic `incident.resolved` ("reconciled"). The first
+  stream starts at the seq read before the snapshot, so nothing falls between
+  the two. Fixes the live miss (mouth `inc-d7320b38`, gaia-cortex
+  `inc-5d566881` opened before the cortex started never reached it).
+- **Nerve incidents are keyed by cause.** bb287cc publishes
+  `incident.opened {"id": <cause>, "cause": <cause>}` and
+  `incident.resolved {"id": <cause>}` while `/incidents` shows `inc-...`
+  ids. The cortex fills in `cause` on resolves, drops an `opened` for a cause
+  it holds (replay after backfill, restarted nerve), and follows a restarted
+  nerve's new `inc-...` id without a second alert.
+- **An incident resolves only when its own signal clears** (T5.1 F3). A
+  subject whose last burst was above info stays *active* and is carried into
+  every later burst under the cause it was grouped into (not hard: carried
+  signals never fold into a new `stack-wide`; decisions still use the burst
+  alone). It clears on: unit back to active/running or cleanly
+  inactive/dead; nerve `incident.resolved`; threshold/other info burst. The
+  incident resolves in that burst (`resolved_by: cleared`). One-shot subjects
+  (process exits, tasks, unclassified, other) expire after
+  `incident_quiet_s` of their own silence (`expired`); units, nerve
+  incidents and thresholds never expire unless `incident_sticky_max_s` > 0
+  (`stale`). `/incidents` gains `active`, `nerve_incidents` and per-resolved
+  `resolved_by`; `/stats` gains `nerve_incidents_*`, `subjects_active`,
+  `incidents_resolved_{cleared,expired,stale}`.
+- Known limit: the nerve publishes start/stop only for lifecycle-tracked
+  groups (nerve, cortex, gaia, hermes, console, galion-os, swarm, plus
+  cloudflared, tuner-quick). A failed postfix/ssh unit therefore stays open
+  until `incident_sticky_max_s` (owner decision D-237-2).
+
+Tests: `tests/incident_lifecycle.rs` (11) and the real
+`tests/real_t237_backfill.rs`; record:
+[../real-tests/cortex-incident-backfill.md](../real-tests/cortex-incident-backfill.md).

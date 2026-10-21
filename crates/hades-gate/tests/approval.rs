@@ -290,7 +290,7 @@ fn corrupt_ledger_fails_closed() {
 #[test]
 #[cfg_attr(
     miri,
-    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+    ignore = "threads contend on the ledger flock; Miri does not support a blocking flock (interpreter limit, not UB), so it is skipped in the FS pass too (--skip); covered by the native test run"
 )]
 fn concurrent_consumers_approve_exactly_once() {
     let e = env("race");

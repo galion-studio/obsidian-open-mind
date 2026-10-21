@@ -18,6 +18,6 @@ sqlite = ["dep:rusqlite"]
 
 [dependencies]
 galion-common = { path = "../galion-common" }
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
 openmind-persona = { path = "../openmind-persona" }
 rusqlite = { version = "0.32", default-features = false, features = ["bundled"], optional = true }

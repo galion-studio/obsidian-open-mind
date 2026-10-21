@@ -130,7 +130,9 @@ pub fn apply_file(path: &Path, lane: &str, model: &str) -> Result<Value, SetMode
 /// Pretty JSON plus a trailing newline.
 ///
 /// `set-model.py` uses `json.dumps(..., indent=2)` plus a newline. Key order
-/// here follows `serde_json` (sorted). The JSON value is the same object.
+/// is the document order, like Python: serde_json `preserve_order` is pinned
+/// for the whole workspace (root Cargo.toml, swarm/serde-order-pin), so a
+/// `-p one-set-model` build no longer sorts the keys.
 pub fn render(document: &Value) -> Result<String, serde_json::Error> {
     let mut text = serde_json::to_string_pretty(document)?;
     text.push('\n');

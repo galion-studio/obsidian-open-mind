@@ -19,4 +19,4 @@ path = "src/main.rs"
 openmind-config = { path = "../openmind-config" }
 
 [dev-dependencies]
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml

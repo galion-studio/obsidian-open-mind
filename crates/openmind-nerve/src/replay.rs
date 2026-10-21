@@ -319,7 +319,7 @@ mod tests {
                 "merlinelement.com"
             };
             j.push_str(&json!({"_SYSTEMD_UNIT": "cloudflared.service", "PRIORITY": "6", "__REALTIME_TIMESTAMP": ((t0 + k * 15) * 1_000_000).to_string(),
-                "MESSAGE": format!("2026-10-20T16:40:00Z ERR Request failed error=\"dial tcp [::1]:{port}: connect: connection refused\" dest=https://{host}/ ip=198.51.100.13 type=http")}).to_string());
+                "MESSAGE": format!("2026-10-20T16:40:00Z ERR Request failed error=\"dial tcp [::1]:{port}: connect: connection refused\" dest=https://{host}/ ip=198.51.100.13 type=http")}).to_string()); // repo-check: allow (UTC input fixture in cloudflared log format)
             j.push('\n');
         }
         std::fs::write(dir.join("journal.jsonl"), j).unwrap();

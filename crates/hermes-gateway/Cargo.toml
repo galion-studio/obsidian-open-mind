@@ -12,10 +12,24 @@ description = "hermes-gateway: the Rust Hermes API server binary (shadow of herm
 name = "hermes-gateway"
 path = "src/main.rs"
 
+[[test]]
+name = "real_gateway_bench"
+path = "tests/real_gateway_bench.rs"
+required-features = ["bench"]
+
 [features]
 default = ["sqlite"]
 sqlite = ["hermes-rs/sqlite"]
+# Benchmark tool sets (B1 banking / B2 Wall Street / B3 vending, local
+# mock / paper / sim only), registered at run time only with HERMES_RS_BENCH=1.
+# Off by default: the production build has no bench code at all.
+bench = ["dep:hermes-bench"]
 
 [dependencies]
 hermes-rs = { path = "../hermes-rs", default-features = false }
 serde_json = { workspace = true }
+hermes-bench = { path = "../hermes-bench", optional = true }
+
+[dev-dependencies]
+hermes-bench = { path = "../hermes-bench" }
+bench-banking = { path = "../bench-banking" }

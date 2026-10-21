@@ -16,12 +16,16 @@
 //! * `live`: OpenRouter, only with `GALION_BENCH_LIVE_MODEL=1` and the key in
 //!   the environment (never read or printed here), spend-capped.
 //!
+//! [`gateway`] wires the same registries into hermes-gateway behind
+//! `HERMES_RS_BENCH=1` (decision H4 option b; gateway `bench` feature).
+//!
 //! Everything runs against local mocks / paper / simulation. No tool can move
 //! money: payments, card changes and disputes are drafts; orders are paper;
 //! supplier orders are simulated cents. See `docs/bench/hermes-bench.md`.
 
 pub mod adapters;
 pub mod banking;
+pub mod gateway;
 pub mod live;
 pub mod mockllm;
 pub mod planner;

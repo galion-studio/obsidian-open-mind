@@ -58,5 +58,5 @@ Scores: `hermes-<bench>.<agent>.score.json` (bench-scoreboard compatible), board
 | H1 | Live model run | (a) none; (b) approve one run: model X, USD cap Y via `GALION_BENCH_LIVE_MODEL=1` | path implemented and tested against a loopback mock with a placeholder key; no key on the box |
 | H2 | `ws_kill_reset` | (a) operator-only (today); (b) offer to the model | it resets the paper book; a model should not clear its own audit/kill state |
 | H3 | Vending score for a model | (a) sibling `/v1/score` axes as-is; (b) also require equality with the reference (only meaningful for the scripted agent) | scripted run is equal to reference; live models will diverge legitimately |
-| H4 | Gateway wiring | (a) keep `hermes-bench` standalone; (b) register these registries in hermes-gateway behind `HERMES_RS_BENCH=1` | gateway not touched on this branch |
+| H4 | Gateway wiring | (a) keep `hermes-bench` standalone; (b) register these registries in hermes-gateway behind `HERMES_RS_BENCH=1` | (b) implemented opt-in on `swarm/hermes-gateway-bench` (feature `bench` + env switch, off by default), see `hermes-gateway-bench.md`; not merged, not deployed |
 | H5 | B1 D1–D4 | see `hermes-banking-tools.md` / `hermes-v2-redesign.md` §6 | unchanged here |

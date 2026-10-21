@@ -6,7 +6,8 @@
 //! given), except `status --live`: read-only HTTP GETs to loopback health
 //! endpoints, `systemctl is-active`, and state-file mtimes; `poseidon` and
 //! `dispatch --queue`: loopback HTTP to openmind-queue (budget read-only, never
-//! leases or acks); and `heal-tick`: the hades-gate-approved (signed,
+//! leases or acks); `classify`: the same read-only GETs plus nerve `/state` and cortex
+//! `/health` + `/incidents` (GET only, plan-only heal, no POST); and `heal-tick`: the hades-gate-approved (signed,
 //! single-use token), capped restart of a box-local TEST service
 //! (127.0.0.1:19000-19999 only) with nerve events over loopback.
 
@@ -55,6 +56,15 @@ const USAGE_HEAD: &str = "usage: gaia <command> [options]
   heal-plan --service NAME --port P --allow-ports A-B [--health /health] [--out F] -- /abs/start/cmd ARGS...
                                  print the exact heal-apply plan and its SHA-256 for `hades-gate mint`;
                                  --out writes the plan bytes to a new file
+  classify [--host H] [--port-map R=L,...] [--evidence F] [--no-systemd] [--timeout-ms MS]
+           [--nerve-port P | --nerve-state F] [--cortex-port P] [--cortex-health F] [--cortex-incidents F] [--strict]
+                                 S3.4 READ-ONLY live classification: Gaia's per-unit verdict (status --live probes
+                                 + nerve, cortex, desk, mouth, galion-health, unit-only services) vs the nerve's
+                                 (GET /state) and the cortex's (GET /health, /incidents); every disagreement is a
+                                 finding; heal-tick plan-only per unhealthy unit (scope guard, nerve restarts vs 3/h,
+                                 HADES plan): no apply, no token, no POST. --port-map: ssh -L tunnel ports;
+                                 --evidence: captured `unit NAME STATE` / `file PATH AGE_S|missing` lines;
+                                 --strict exits 3 on any disagreement
   tick [--n N]                   boot and run N ticks (default 10, max 1000)
   simulate-faro [--full-power] [--approve ALPHA]
                                  run the Faro scenario; --full-power drives every system at intensity 100;
@@ -132,6 +142,12 @@ fn main() -> ExitCode {
                 Err(e) => Err(e),
             },
         },
+        Some("classify") => gaia::classify::cli(&args[1..]).map(|(j, disagree)| {
+            if disagree && args.contains(&"--strict") {
+                live_exit = 3;
+            }
+            j
+        }),
         Some("heal-plan") => gaia::live_heal::heal_plan_cli(&args[1..]),
         Some("nerve-restarts") => gaia::live_heal::nerve_restarts_cli(&args[1..]),
         Some("tokens") => gaia::tokens::cli(&args[1..]).map(|v| gaia_live::nerve::to_gaia_json(&v)),

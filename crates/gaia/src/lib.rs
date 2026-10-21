@@ -4,6 +4,7 @@
 //! Gaia: GAIA core wired to its nine subordinate functions, plus the
 //! deterministic scenarios the `gaia` CLI prints.
 
+pub mod classify;
 pub mod heal_loop;
 pub mod live_heal;
 pub mod poseidon;

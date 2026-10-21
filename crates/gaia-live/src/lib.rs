@@ -368,11 +368,72 @@ fn file_age(p: &PathBuf) -> Option<u64> {
 }
 
 pub fn probe(p: &Probe, o: &Opts) -> ProbeResult {
+    probe_with(p, o, &Remote::default())
+}
+
+/// Evidence for a host that is not this one (Gaia S3.4, live classify):
+/// HTTP probes go to `port_map[port]` on `Opts::host` (an ssh `-L` tunnel
+/// to the remote loopback), and unit states / file ages come from a
+/// read-only capture (`systemctl is-active`, `stat`) instead of this host.
+/// Empty maps mean "probe locally", exactly like [`probe`].
+#[derive(Clone, Debug, Default)]
+pub struct Remote {
+    /// Remote port -> local port that forwards to it.
+    pub port_map: std::collections::BTreeMap<u16, u16>,
+    /// Captured `systemctl is-active` answers; `Some` replaces the local query.
+    pub units: Option<std::collections::BTreeMap<String, String>>,
+    /// Captured state-file ages in seconds (`None` value = missing);
+    /// `Some` replaces the local metadata read.
+    pub file_ages: Option<std::collections::BTreeMap<PathBuf, Option<u64>>>,
+}
+
+impl Remote {
+    /// Parse a capture: one fact per line, `unit NAME STATE` or
+    /// `file PATH AGE_S` (`AGE_S` may be `missing`); `#` starts a comment.
+    /// Unknown or malformed lines are an error (a changed capture format
+    /// must not silently turn into "everything up").
+    pub fn parse_evidence(&mut self, text: &str) -> Result<(), String> {
+        for (i, line) in text.lines().enumerate() {
+            let l = line.trim();
+            if l.is_empty() || l.starts_with('#') {
+                continue;
+            }
+            let mut it = l.split_whitespace();
+            match (it.next(), it.next(), it.next(), it.next()) {
+                (Some("unit"), Some(n), Some(s), None) => {
+                    self.units
+                        .get_or_insert_with(Default::default)
+                        .insert(n.to_string(), s.to_string());
+                }
+                (Some("file"), Some(p), Some(a), None) => {
+                    let age = match a {
+                        "missing" => None,
+                        n => Some(n.parse::<u64>().map_err(|_| {
+                            format!("evidence line {}: bad age {n:?}", i + 1)
+                        })?),
+                    };
+                    self.file_ages
+                        .get_or_insert_with(Default::default)
+                        .insert(PathBuf::from(p), age);
+                }
+                _ => return Err(format!("evidence line {}: not `unit N S` or `file P AGE`", i + 1)),
+            }
+        }
+        Ok(())
+    }
+}
+
+/// [`probe`] with remote evidence (see [`Remote`]).
+pub fn probe_with(p: &Probe, o: &Opts, r: &Remote) -> ProbeResult {
     let mut good = 0;
     let mut bad = 0;
     let mut notes = Vec::new();
     let http = p.http.as_ref().map(|c| {
-        let h = http_get(&o.host, c, o);
+        let mut via = c.clone();
+        if let Some(local) = r.port_map.get(&c.port) {
+            via.port = *local;
+        }
+        let h = http_get(&o.host, &via, o);
         if h.ok {
             good += 1;
         } else {
@@ -382,7 +443,11 @@ pub fn probe(p: &Probe, o: &Opts) -> ProbeResult {
         h
     });
     let unit = match (&p.unit, o.systemd) {
-        (Some(u), true) => unit_state(u).map(|s| {
+        (Some(u), true) => match &r.units {
+            Some(m) => Some(m.get(u).cloned().unwrap_or_else(|| "not-captured".into())),
+            None => unit_state(u),
+        }
+        .map(|s| {
             if s == "active" {
                 good += 1;
             } else {
@@ -395,7 +460,11 @@ pub fn probe(p: &Probe, o: &Opts) -> ProbeResult {
     };
     let mut file_age_s = None;
     if let Some((f, max)) = &p.fresh_file {
-        match file_age(f) {
+        let age = match &r.file_ages {
+            Some(m) => m.get(f).copied().flatten(),
+            None => file_age(f),
+        };
+        match age {
             Some(a) => {
                 file_age_s = Some(a);
                 if a <= max.as_secs() {
@@ -433,12 +502,18 @@ pub fn probe(p: &Probe, o: &Opts) -> ProbeResult {
 
 /// Probe everything in parallel (one short-lived thread per probe).
 pub fn probe_all(probes: &[Probe], o: &Opts) -> Vec<ProbeResult> {
+    probe_all_with(probes, o, &Remote::default())
+}
+
+/// [`probe_all`] with remote evidence (see [`Remote`]).
+pub fn probe_all_with(probes: &[Probe], o: &Opts, r: &Remote) -> Vec<ProbeResult> {
     let hs: Vec<_> = probes
         .iter()
         .cloned()
         .map(|p| {
             let o = o.clone();
-            std::thread::spawn(move || probe(&p, &o))
+            let r = r.clone();
+            std::thread::spawn(move || probe_with(&p, &o, &r))
         })
         .collect();
     hs.into_iter()
@@ -455,4 +530,81 @@ pub fn probe_all(probes: &[Probe], o: &Opts) -> Vec<ProbeResult> {
             })
         })
         .collect()
+}
+
+/// Gaia S3.4 (live classify): [`default_probes`] plus every other live
+/// unit the nerve watches on the VPS that Gaia can classify read-only:
+/// the nerve (8670), the cortex (8674), galion-desk (8646), the Galion One
+/// mouth (8002, no unit of its own), galion-health (8660), and the
+/// unit-only services (cloudflared, tuner-quick, openmind-queue). Ports
+/// and units as seen live on 2026-10-21 (docs/real-tests/gaia-live-classify.md).
+pub fn classify_probes() -> Vec<Probe> {
+    let http = |port: u16, path: &str, expect: Expect| {
+        Some(HttpCheck {
+            port,
+            path: path.into(),
+            expect,
+        })
+    };
+    let unit = |u: &str| Some(u.to_string());
+    let mut v = default_probes();
+    v.extend([
+        Probe {
+            name: "galion-nerve".into(),
+            system: System::Nerve,
+            http: http(8670, "/health", Expect::JsonOk),
+            unit: unit("galion-nerve.service"),
+            fresh_file: None,
+        },
+        Probe {
+            name: "gaia-cortex".into(),
+            system: System::GuardianWatchdog,
+            http: http(8674, "/health", Expect::JsonOk),
+            unit: unit("gaia-cortex.service"),
+            fresh_file: None,
+        },
+        Probe {
+            name: "galion-desk".into(),
+            system: System::GalionDesk,
+            http: http(8646, "/health", Expect::JsonOk),
+            unit: unit("galion-desk.service"),
+            fresh_file: None,
+        },
+        Probe {
+            name: "galion-one-mouth".into(),
+            system: System::SpeechIo,
+            http: http(8002, "/health", Expect::JsonOk),
+            unit: None,
+            fresh_file: None,
+        },
+        Probe {
+            name: "galion-health".into(),
+            system: System::GuardianTick,
+            http: http(8660, "/", Expect::Status2xx),
+            unit: unit("galion-health.service"),
+            fresh_file: None,
+        },
+        Probe {
+            name: "cloudflared".into(),
+            system: System::Tunnels,
+            http: None,
+            unit: unit("cloudflared.service"),
+            fresh_file: None,
+        },
+        Probe {
+            name: "tuner-quick".into(),
+            system: System::Tunnels,
+            http: None,
+            unit: unit("tuner-quick.service"),
+            fresh_file: None,
+        },
+        Probe {
+            name: "openmind-queue".into(),
+            system: System::Queues,
+            http: None,
+            unit: unit("openmind-queue.service"),
+            fresh_file: None,
+        },
+    ]);
+    v
 }

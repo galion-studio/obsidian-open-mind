@@ -226,3 +226,16 @@ pub fn restarts_for(state: &Value, service: &str) -> Result<NerveRestarts, Strin
 pub fn restarts(addr: SocketAddr, service: &str) -> Result<NerveRestarts, String> {
     restarts_for(&state(addr)?, service)
 }
+
+/// Read-only `GET path` on a loopback JSON service (the nerve, the cortex):
+/// HTTP 200 and a JSON body, or an error. Gaia S3.4 (live classify) uses it
+/// for the cortex's `/health` and `/incidents`; nothing is sent but a GET.
+pub fn get_json(addr: SocketAddr, path: &str) -> Result<Value, String> {
+    if !path.starts_with('/') || path.chars().any(char::is_whitespace) {
+        return Err(format!("bad path {path:?}"));
+    }
+    match call(addr, "GET", path, "")? {
+        (200, b) => serde_json::from_str::<Value>(&b).map_err(|e| format!("GET {path}: not JSON ({e})")),
+        (c, _) => Err(format!("GET {path}: HTTP {c}")),
+    }
+}

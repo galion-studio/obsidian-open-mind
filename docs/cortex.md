@@ -111,7 +111,7 @@ Policy the counts are compared with, read from `sshd -T` and not changed: `passw
 | crit | `accepted_password >= 1` | Password login is off. One success is a policy break. |
 | high | `accepted_publickey_other >= 5` | A burst of successful non-root logins. |
 | warn | `accepted_publickey_other >= 1` | Any successful non-root login. Names are not stored. |
-| warn | `invalid_user >= 30` | Account enumeration, not the credential flood. |
+| warn | `invalid_user >= 20` (was 30; tightened by T3.1, docs/cortex/calibration.md) | Account enumeration, not the credential flood. |
 | warn | `max_auth_attempts >= 1` | A client passed the three-try cap. |
 
 `accepted_publickey_root` is recorded in `data` and is not a threshold. The desk itself logs in as root with a key. Treating it as an attack would fire on this work.
@@ -165,6 +165,8 @@ Hourly `Failed password` counts, 39 UTC hours, read at `2026-10-19T16:08:18+02:0
 | max hour | 1244 |
 
 The max hour is `2026-10-18T04:00+00:00`, that is `2026-10-18T06:00+02:00`. The next four hours were 982, 759, 684, and 607. Thresholds in section 4.2 sit under that cluster and over the 20 empty hours. They were set from hourly totals. Five-minute peaks inside a moderate hour were not measured. A later collector may tighten the numbers after it has stored real 300-second windows. It must not loosen them in code on this page.
+
+T3.1 update (2026-10-21 +02:00, swarm/cortex-t31-calibrate): 933 real 300-second windows from 6 VPS captures (2026-10-21 08:24 to 19:51 +02:00) were measured with `openmind-nerve calibrate`. Highest `invalid_user` window: 8. `failed_password` and `distinct_fail_sources`: 0 in every window (password auth is off, so these lines never appear). The `invalid_user` warn line was tightened from 30 to 20; the section 4.2 lines stay as they are (no real window to calibrate them on). Details: docs/cortex/calibration.md.
 
 Same file, split read just after that hour table:
 

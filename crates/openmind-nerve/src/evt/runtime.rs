@@ -391,7 +391,6 @@ impl Runtime {
     fn handle(&mut self, inp: Input) -> Option<&'static str> {
         match inp {
             Input::Journal(Msg::Event(e)) => {
-                let e = *e;
                 self.accept(e);
                 Some("journal")
             }
@@ -558,15 +557,15 @@ mod tests {
                 "openmind-memory.service",
                 "galion-one.service",
             ][i % 3];
-            tx.send(Input::Journal(Msg::Event(Box::new(
+            tx.send(Input::Journal(Msg::Event(
                 NerveEvent::new("journal", "unit.exit", Severity::High, "x").unit(u),
-            ))))
+            )))
             .unwrap();
         }
         // a low event never escalates
-        tx.send(Input::Journal(Msg::Event(Box::new(
+        tx.send(Input::Journal(Msg::Event(
             NerveEvent::new("journal", "unit.failed", Severity::Low, "x").unit("run-u1.service"),
-        ))))
+        )))
         .unwrap();
         std::thread::sleep(Duration::from_millis(2600));
         let st = hub.stats_json(now_secs());

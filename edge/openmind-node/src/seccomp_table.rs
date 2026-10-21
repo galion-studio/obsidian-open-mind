@@ -917,6 +917,8 @@ mod tests {
             ("SYS_LL_ADD", "landlock_add_rule"),
             ("SYS_LL_RESTRICT", "landlock_restrict_self"),
             ("SYS_CLOSE_RANGE", "close_range"),
+            ("SYS_OPEN_TREE", "open_tree"), // main-staging: sandbox-hide (open_tree 428)
+            ("SYS_MOVE_MOUNT", "move_mount"), // main-staging: sandbox-hide (move_mount 429)
         ];
         let mut seen = 0;
         for line in SANDBOX_SRC.lines() {

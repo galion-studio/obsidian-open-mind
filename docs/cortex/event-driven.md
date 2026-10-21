@@ -151,3 +151,14 @@ nerve on box ports 20970-20979: unit kill, restart loop, protected pieces,
 grouping, malformed bursts, slow and hung nerve, nerve restart mid-incident,
 LLM advisor off. Results, findings and the fixes they led to:
 [../real-tests/cortex-t51-chaos.md](../real-tests/cortex-t51-chaos.md).
+
+## API under load (slot 236, 2026-10-22 +02:00)
+
+Reads never wait for the decider: every GET answers from a snapshot
+published after each batch when the engine is busy (`busy: true`,
+`snapshot_age_ms`, header `x-cortex-busy: 1`); ingest never takes the engine
+lock; `POST /escalations/ack` waits at most 2 s, then 503. The API server
+evicts the oldest connection still sending its request when all 32 slots
+are taken (`galion-common` `Limits::evict_idle`), so an idle-connection
+flood no longer gives 503s. Before/after p50/p99 numbers:
+[../real-tests/cortex-api-load.md](../real-tests/cortex-api-load.md).

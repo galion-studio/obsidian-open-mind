@@ -438,8 +438,10 @@ pub struct Listener {
 }
 
 fn listener(addr: &str, port: u16) -> Listener {
-    let a = addr.trim_start_matches('[').trim_end_matches(']');
-    let a = a.split('%').next().unwrap_or(a);
+    // Zone first, then brackets: `ss` prints `[::1]%lo` and `127.0.0.53%lo`
+    // (T5.2 fuzz find: the old order left `::1]`, flagged not loopback).
+    let a = addr.split('%').next().unwrap_or(addr);
+    let a = a.trim_start_matches('[').trim_end_matches(']');
     let loopback = a.starts_with("127.") || a == "::1" || a == "localhost";
     Listener {
         addr: a.to_string(),
@@ -475,8 +477,12 @@ fn hex_ipv6(h: &str) -> Option<String> {
         return None;
     }
     let mut words = [0u16; 8];
-    for (i, chunk) in (0..4).map(|i| &h[i * 8..i * 8 + 8]).enumerate() {
-        let n = u32::from_str_radix(chunk, 16).ok()?.to_le_bytes();
+    for i in 0..4 {
+        // `get`, not `[..]`: a 32-byte field with multi-byte UTF-8 must not
+        // panic on a char boundary (T5.2 fuzz find).
+        let n = u32::from_str_radix(h.get(i * 8..i * 8 + 8)?, 16)
+            .ok()?
+            .to_le_bytes();
         words[i * 2] = u16::from_be_bytes([n[0], n[1]]);
         words[i * 2 + 1] = u16::from_be_bytes([n[2], n[3]]);
     }

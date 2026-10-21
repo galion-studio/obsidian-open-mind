@@ -14,9 +14,11 @@ loopback `http://` only.
   queue drops the signal and counts it. After a failed POST the worker
   skips connecting for 2 s (a dead nerve costs one refused connect per 2 s,
   and the queue drains instead of filling up).
-- Counters (`nerve_client::stats()`): `queued`, `sent`, `dropped` (queue
-  full), `failed` (nerve down/hung). The heartbeat carries them to the nerve
-  (`msg: "queued=.. sent=.. dropped=.. failed=.."` + metric
+- Counters (`nerve_client::stats()`): `queued`, `sent` (2xx reply), `dropped` (queue
+  full), `failed` (nerve down/hung), `rejected` (the nerve answered non-2xx,
+  e.g. 429 above 120 signals/min/source; no back-off). The heartbeat carries
+  them to the nerve
+  (`msg: "queued=.. sent=.. dropped=.. failed=.. rejected=.."` + metric
   `nerve_client_dropped`).
 - `NERVE_SLOW_MS` (default 1000): `observe_request` reports slower requests.
 - `NERVE_HEARTBEAT_S` overrides the heartbeat period (min 10 s).

@@ -25,7 +25,7 @@ use crate::access::Hit;
 use crate::engine::Shared;
 use crate::hub::{parse_signal, Signal, MAX_BODY};
 use crate::util::now_secs;
-use crate::{read_all, Event, Writer};
+use crate::{read_lossy, Event, Writer};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -116,13 +116,16 @@ fn reason(code: u16) -> &'static str {
     }
 }
 
+/// One `write_all` per reply: `write!` on the raw socket sent the status
+/// line in several small segments (T3.6: clients that read once saw
+/// `HTTP/1.1 ` without a code).
 fn write_resp(s: &mut TcpStream, code: u16, ctype: &str, body: &str) {
-    let _ = write!(
-        s,
+    let msg = format!(
         "HTTP/1.1 {code} {}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n{body}",
         reason(code),
         body.len()
     );
+    let _ = s.write_all(msg.as_bytes());
 }
 
 /// `n` from `n=N`, clamped to 1..=1000 (default 50).
@@ -242,8 +245,11 @@ pub fn route(
             };
             let path = ev.lock().unwrap_or_else(|x| x.into_inner()).path.clone();
             let n = tail_n(&req.query);
-            match read_all(&path) {
-                Ok(all) => {
+            match read_lossy(&path) {
+                Ok((all, skipped)) => {
+                    if skipped > 0 {
+                        eprintln!("<4>openmind-nerve: GET /events skipped {skipped} unreadable line(s) in {}", path.display());
+                    }
                     let from = all.len().saturating_sub(n);
                     (
                         200,
@@ -428,7 +434,7 @@ pub fn dashboard(state: &Value) -> String {
     }
     let sys = &state["system"];
     format!(
-        "<!doctype html><html><head><meta charset=utf-8><meta http-equiv=refresh content=15><title>openmind-nerve</title>\
+        "<!doctype html><html><head><meta charset=utf-8><meta http-equiv=refresh content=15><title>galion-nerve (openmind-nerve)</title>\
 <style>body{{font:13px system-ui;background:#0f1115;color:#ddd;margin:1.5em}}table{{border-collapse:collapse}}td,th{{padding:3px 8px;text-align:left;border-bottom:1px solid #222;vertical-align:top}}\
 tr.healthy b{{color:#4c4}}tr.degrading b{{color:#ec4}}tr.failing-soon b{{color:#f84}}tr.failing b{{color:#f44}}tr.absent{{color:#777}}a{{color:#8af}}\
 li.critical b,li.flood b,li.error b{{color:#f44}}li.warn b,li.elevated b{{color:#ec4}}li.normal b,li.info b{{color:#4c4}}small{{color:#999}}.score{{font-size:22px}}</style></head><body>\
@@ -621,6 +627,15 @@ mod tests {
         assert_eq!(tail_n("n=5000"), 1000);
         assert_eq!(tail_n(""), 50);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dashboard_names_galion_nerve_before_the_first_cycle() {
+        // T3.6: galion-realtest's live probe wants Contains("galion-nerve") on `/`.
+        // The live build's <title> is `galion-nerve`; before the first cycle
+        // (state null) there is no component row, so the title must carry it.
+        let h = dashboard(&Value::Null);
+        assert!(h.contains("<title>galion-nerve"), "{h}");
     }
 
     #[test]

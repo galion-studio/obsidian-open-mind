@@ -23,3 +23,10 @@ zagreb-time = { path = "../zagreb-time" }
 [dev-dependencies]
 zagreb-time = { path = "../zagreb-time" }
 openmind-schema = { path = "../openmind-schema" }
+# T3.6 consumer compatibility (tests/consumer_compat.rs): the real consumer crates,
+# so their own HTTP clients and contract tables are what is checked. All path
+# crates of this workspace; none depends on openmind-nerve (no cycle).
+nerve-client = { path = "../nerve-client" }
+gaia-live = { path = "../gaia-live" }
+galion-realtest = { path = "../galion-realtest" }
+galion-deploy = { path = "../galion-deploy" }

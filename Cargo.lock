@@ -1212,6 +1212,10 @@ dependencies = [
 name = "openmind-nerve"
 version = "0.1.0"
 dependencies = [
+ "gaia-live",
+ "galion-deploy",
+ "galion-realtest",
+ "nerve-client",
  "openmind-schema",
  "serde",
  "serde_json",

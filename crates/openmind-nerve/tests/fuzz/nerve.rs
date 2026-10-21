@@ -588,10 +588,10 @@ pub fn target_cflog() -> Target {
         name: "cf-log-lines",
         seeds: seeds(
             &[
-                "2026-10-20T16:40:00Z ERR Request failed error=\"dial tcp [::1]:4001: connect: connection refused\" connIndex=0 dest=https://one.example.test/api?x=1 event=0 ip=198.41.200.13 type=http",
-                "2026-10-20T16:40:01Z ERR  error=\"Unable to reach the origin service. The service may be down or it may not be responding to traffic from cloudflared: dial tcp 127.0.0.1:3011: connect: connection refused\" cfRay=8d0000000000-AMS event=1 ingressRule=3 originService=http://localhost:3011",
-                "2026-10-20T16:40:02Z WRN Connection terminated error=\"context canceled\" connIndex=1",
-                "2026-10-20T16:40:03Z INF Registered tunnel connection connIndex=2 location=fra08 protocol=quic",
+                "2026-10-20T16:40:00Z ERR Request failed error=\"dial tcp [::1]:4001: connect: connection refused\" connIndex=0 dest=https://one.example.test/api?x=1 event=0 ip=192.0.2.13 type=http", // repo-check: allow (cloudflared zerolog line as printed, fixture)
+                "2026-10-20T16:40:01Z ERR  error=\"Unable to reach the origin service. The service may be down or it may not be responding to traffic from cloudflared: dial tcp 127.0.0.1:3011: connect: connection refused\" cfRay=8d0000000000-AMS event=1 ingressRule=3 originService=http://localhost:3011", // repo-check: allow (zerolog fixture)
+                "2026-10-20T16:40:02Z WRN Connection terminated error=\"context canceled\" connIndex=1", // repo-check: allow (zerolog fixture)
+                "2026-10-20T16:40:03Z INF Registered tunnel connection connIndex=2 location=fra08 protocol=quic", // repo-check: allow (zerolog fixture)
                 "GET /.env 404 3ms, GET /wp-login.php 404, \"/.git/config\" scanned",
                 "thread 'main' panicked at src/main.rs:1:1",
             ],

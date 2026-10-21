@@ -5,7 +5,6 @@
 // c2f7cda crates/openmind-nerve/tests/fuzz/mod.rs (same repo, same licence),
 // so the live-build lineage (aa77864) and the cortex lineage share one layout.
 
-
 //! A tiny std-only fuzz/property harness for the nerve and cortex parsers (cortex
 //! plan T5.2). No new dependencies, no libFuzzer, no C/C++/asm: a seeded
 //! SplitMix64 generator, a handful of structure-unaware mutators (byte flip,

@@ -23,11 +23,7 @@ pub const NOW: u64 = 1_792_537_200;
 
 const FIX_JOURNAL: &str = include_str!("../fixtures/cortex-replay/journal.jsonl");
 const FIX_ACCESS: &str = include_str!("../fixtures/cortex-replay/access-tuner.log");
-const UNITS: &[&str] = &[
-    "cloudflared.service",
-    "ssh.service",
-    "galion-nerve.service",
-];
+const UNITS: &[&str] = &["cloudflared.service", "ssh.service", "galion-nerve.service"];
 const KINDS: &[&str] = &["heartbeat", "metric", "event", "error"];
 
 /// Extra seed files (real VPS captures) from `CORTEX_FUZZ_SEEDS=<dir>`:
@@ -67,7 +63,9 @@ fn no_ctl(s: &str) -> bool {
 fn check_signal(text: &str) -> Result<u64, String> {
     match parse_signal(text, NOW) {
         Ok(s) => {
-            ensure(text.len() <= MAX_BODY, || "accepted a body over MAX_BODY".into())?;
+            ensure(text.len() <= MAX_BODY, || {
+                "accepted a body over MAX_BODY".into()
+            })?;
             ensure(s.t == NOW, || "ts not assigned by the nerve".into())?;
             ensure(
                 !s.source.is_empty()
@@ -95,7 +93,9 @@ fn check_signal(text: &str) -> Result<u64, String> {
             })?;
             let mut h = Hub::default();
             ensure(h.ingest(s.clone()).is_ok(), || "fresh hub refused".into())?;
-            ensure(h.sources[&s.source].total == 1, || "ingest not counted".into())?;
+            ensure(h.sources[&s.source].total == 1, || {
+                "ingest not counted".into()
+            })?;
             Ok(fnv(&format!(
                 "ok:{}:{}:{}:{}",
                 s.kind,
@@ -269,7 +269,10 @@ pub fn check_http_bytes(b: &[u8]) -> Result<u64, String> {
             ensure(body.len() <= 3 * MAX_BODY, || "body over the cap".into())?;
             let head = b.windows(4).position(|w| w == b"\r\n\r\n");
             ensure(head.is_some_and(|h| h + 4 <= 8192), || {
-                format!("accepted a head of {:?} bytes (> 8192)", head.map(|h| h + 4))
+                format!(
+                    "accepted a head of {:?} bytes (> 8192)",
+                    head.map(|h| h + 4)
+                )
             })?;
             Ok(fnv(&format!("ok:{}:{}", m.len().min(8), body.is_empty())))
         }
@@ -338,7 +341,9 @@ fn check_journal(text: &str) -> Result<u64, String> {
         "more records than lines".into()
     })?;
     for l in all.iter().chain(&some) {
-        ensure(l.msg.chars().count() <= 2000, || "msg over 2000 chars".into())?;
+        ensure(l.msg.chars().count() <= 2000, || {
+            "msg over 2000 chars".into()
+        })?;
     }
     for l in &some {
         ensure(UNITS.contains(&l.unit.as_str()), || {
@@ -447,7 +452,9 @@ fn check_metrics(text: &str) -> Result<u64, String> {
         ("cloudflared_tunnel_request_errors", m.request_errors),
     ] {
         let want = spec_metric(text, k);
-        ensure(got == want, || format!("{k}: parsed {got:?}, spec {want:?}"))?;
+        ensure(got == want, || {
+            format!("{k}: parsed {got:?}, spec {want:?}")
+        })?;
     }
     Ok(fnv(&format!(
         "{}:{}:{}",
@@ -457,7 +464,8 @@ fn check_metrics(text: &str) -> Result<u64, String> {
     )))
 }
 
-const METRICS_SEED: &str = "# HELP cloudflared_tunnel_ha_connections Number of active ha connections\n\
+const METRICS_SEED: &str =
+    "# HELP cloudflared_tunnel_ha_connections Number of active ha connections\n\
 # TYPE cloudflared_tunnel_ha_connections gauge\n\
 cloudflared_tunnel_ha_connections 4\n\
 # HELP cloudflared_tunnel_total_requests Amount of requests proxied through all the tunnels\n\
@@ -554,14 +562,18 @@ fn check_cflog(text: &str) -> Result<u64, String> {
         });
     }
     let ins = logscan::insights(&jl);
-    let failed = jl.iter().filter(|l| l.msg.contains("Request failed")).count();
+    let failed = jl
+        .iter()
+        .filter(|l| l.msg.contains("Request failed"))
+        .count();
     ensure(ins.edge_failures.len() == failed, || {
         "edge_failures != Request failed lines".into()
     })?;
     for (port, d) in &ins.dead_origins {
-        ensure(*port == d.port && d.refusals >= 1 && d.failed_requests >= 1, || {
-            format!("dead origin {port} counts")
-        })?;
+        ensure(
+            *port == d.port && d.refusals >= 1 && d.failed_requests >= 1,
+            || format!("dead origin {port} counts"),
+        )?;
         ensure(d.hosts.len() <= 32 && d.first <= d.last, || {
             format!("dead origin {port} hosts/first/last")
         })?;
@@ -618,15 +630,17 @@ fn check_access(text: &str) -> Result<u64, String> {
     let mut sig = String::new();
     for line in text.lines() {
         let Some(h) = access::parse_line(line, NOW) else {
-            ensure(line.trim().is_empty() || line.trim().starts_with('{'), || {
-                "non-empty CLF line refused".into()
-            })?;
+            ensure(
+                line.trim().is_empty() || line.trim().starts_with('{'),
+                || "non-empty CLF line refused".into(),
+            )?;
             sig.push('-');
             continue;
         };
-        ensure(h.ip.chars().count() <= 64 && h.path.chars().count() <= 200, || {
-            "ip/path over cap".into()
-        })?;
+        ensure(
+            h.ip.chars().count() <= 64 && h.path.chars().count() <= 200,
+            || "ip/path over cap".into(),
+        )?;
         if h.status != 0 {
             ensure(line.contains(&h.status.to_string()), || {
                 format!("status {} not in the line", h.status)
@@ -691,19 +705,21 @@ fn gen_signal(rng: &mut Rng) -> Result<u64, String> {
         1 => json!(rng.next() as i64 as f64 / 7.0),
         _ => json!(rng.below(1_000_000)),
     };
-    let body = json!({"source": src, "kind": kind, "name": name, "msg": msg, "value": value})
-        .to_string();
+    let body =
+        json!({"source": src, "kind": kind, "name": name, "msg": msg, "value": value}).to_string();
     if body.len() > MAX_BODY {
         return Ok(0);
     }
     let s = parse_signal(&body, NOW).map_err(|e| format!("valid signal refused: {e}"))?;
-    let clean = |x: &str, m: usize| -> String {
-        x.chars().filter(|c| !c.is_control()).take(m).collect()
-    };
-    ensure(s.source == src && s.kind == kind, || "source/kind changed".into())?;
-    ensure(s.name == clean(&name, 64) && s.msg == clean(&msg, 300), || {
-        "name/msg not cleaned as documented".into()
+    let clean =
+        |x: &str, m: usize| -> String { x.chars().filter(|c| !c.is_control()).take(m).collect() };
+    ensure(s.source == src && s.kind == kind, || {
+        "source/kind changed".into()
     })?;
+    ensure(
+        s.name == clean(&name, 64) && s.msg == clean(&msg, 300),
+        || "name/msg not cleaned as documented".into(),
+    )?;
     // serde_json without its `float_roundtrip` feature may be 1 ULP off on
     // big floats (owner decision D-212-3); allow that, nothing more.
     let close = match (s.value, value.as_f64()) {
@@ -745,7 +761,9 @@ fn gen_metrics(rng: &mut Rng) -> Result<u64, String> {
     }
     let m = probe::parse_cloudflared_metrics(&text);
     let got = [m.ha_connections, m.total_requests, m.request_errors];
-    ensure(got == want, || format!("metrics {got:?} != {want:?}\n{text}"))?;
+    ensure(got == want, || {
+        format!("metrics {got:?} != {want:?}\n{text}")
+    })?;
     Ok(fnv(&format!("{:?}", want.map(|x| x.is_some()))))
 }
 
@@ -760,13 +778,19 @@ fn gen_http(rng: &mut Rng) -> Result<u64, String> {
         String::new()
     };
     let body_len = rng.below(MAX_BODY + 1);
-    let body: String = (0..body_len).map(|_| *rng.pick(b"{}\":ab ") as char).collect();
+    let body: String = (0..body_len)
+        .map(|_| *rng.pick(b"{}\":ab ") as char)
+        .collect();
     let mut head = format!(
         "{method} {path}{}{query} HTTP/1.1\r\nHost: 127.0.0.1\r\n",
         if query.is_empty() { "" } else { "?" }
     );
     for _ in 0..rng.below(20) {
-        head.push_str(&format!("X-{}: {}\r\n", rand_word(rng, b"abc", 8), rand_word(rng, b"xyz ", 40)));
+        head.push_str(&format!(
+            "X-{}: {}\r\n",
+            rand_word(rng, b"abc", 8),
+            rand_word(rng, b"xyz ", 40)
+        ));
     }
     head.push_str(&format!("Content-Length: {body_len}\r\n\r\n"));
     let raw = format!("{head}{body}");
@@ -774,7 +798,10 @@ fn gen_http(rng: &mut Rng) -> Result<u64, String> {
     for st in [1usize << 20, 2048, 97, 13] {
         let got = read_with(raw.as_bytes(), st);
         ensure(got.as_ref() == Ok(&want), || {
-            format!("valid request misread at segment {st}: {:?}", got.map(|g| (g.0, g.1, g.3.len())))
+            format!(
+                "valid request misread at segment {st}: {:?}",
+                got.map(|g| (g.0, g.1, g.3.len()))
+            )
         })?;
     }
     Ok(fnv(&format!("{}:{}", want.0, want.3.is_empty())))
@@ -853,7 +880,9 @@ fn gen_deep(rng: &mut Rng) -> Result<u64, String> {
     let (s, e) = deep_on_server_stack(depth, obj)?;
     // Within serde_json's limit both parsers accept the body.
     if depth < 120 {
-        ensure(s && e, || format!("depth {depth} obj {obj} refused: {s} {e}"))?;
+        ensure(s && e, || {
+            format!("depth {depth} obj {obj} refused: {s} {e}")
+        })?;
     }
     Ok(fnv(&format!("{s}:{e}")))
 }
@@ -903,7 +932,9 @@ pub fn json_close(a: &Value, b: &Value) -> bool {
         (Value::Number(x), Value::Number(y)) => {
             x == y
                 || match (x.as_f64(), y.as_f64()) {
-                    (Some(p), Some(q)) => (p - q).abs() <= p.abs().max(q.abs()) * 4.0 * f64::EPSILON,
+                    (Some(p), Some(q)) => {
+                        (p - q).abs() <= p.abs().max(q.abs()) * 4.0 * f64::EPSILON
+                    }
                     _ => false,
                 }
         }
@@ -911,7 +942,9 @@ pub fn json_close(a: &Value, b: &Value) -> bool {
             x.len() == y.len() && x.iter().zip(y).all(|(p, q)| json_close(p, q))
         }
         (Value::Object(x), Value::Object(y)) => {
-            x.len() == y.len() && x.iter().all(|(k, p)| y.get(k).is_some_and(|q| json_close(p, q)))
+            x.len() == y.len()
+                && x.iter()
+                    .all(|(k, p)| y.get(k).is_some_and(|q| json_close(p, q)))
         }
         _ => a == b,
     }

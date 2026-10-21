@@ -147,11 +147,16 @@ fn start(dir: &Path) -> Proc {
         .env("NERVE_COMPONENTS", &comps)
         .env("NERVE_EVENT_LOG", dir.join("events.jsonl"))
         .stdout(Stdio::null())
-        .stderr(Stdio::from(std::fs::File::create(dir.join("nerve.log")).unwrap()));
+        .stderr(Stdio::from(
+            std::fs::File::create(dir.join("nerve.log")).unwrap(),
+        ));
     let p = Proc(c.spawn().expect("start openmind-nerve"));
     let t = Instant::now();
     while get("/healthz").0 != Some(200) {
-        assert!(t.elapsed() < Duration::from_secs(10), "nerve did not come up");
+        assert!(
+            t.elapsed() < Duration::from_secs(10),
+            "nerve did not come up"
+        );
         std::thread::sleep(Duration::from_millis(20));
     }
     p
@@ -186,7 +191,11 @@ fn box_binary_under_fuzz() {
     std::fs::create_dir_all(&dir).unwrap();
     dummy();
     let mut p = start(&dir);
-    println!("== box {} nerve :{NERVE} pid {}", zagreb_time::now_rfc3339(), p.0.id());
+    println!(
+        "== box {} nerve :{NERVE} pid {}",
+        zagreb_time::now_rfc3339(),
+        p.0.id()
+    );
     let c0 = cycle();
     let ts = targets();
     let n: usize = std::env::var("NERVE_REAL_FUZZ_N")
@@ -222,7 +231,11 @@ fn box_binary_under_fuzz() {
     for i in 0..n {
         let base = &t.seeds[i % t.seeds.len()];
         let raw = mutate(&mut rng, base, &t.dict, &t.seeds);
-        let seg = if i % 10 == 0 { Some(1 + rng.below(64)) } else { None };
+        let seg = if i % 10 == 0 {
+            Some(1 + rng.below(64))
+        } else {
+            None
+        };
         let (code, _) = send(raw.as_bytes(), seg);
         tally.add(code);
         assert!(
@@ -241,7 +254,10 @@ fn box_binary_under_fuzz() {
             let (a, _) = post("/signal", &body);
             let (b, _) = post("/event", &body);
             println!("deep depth {depth:>4} obj {obj:<5}: /signal {a:?} /event {b:?}");
-            assert!(a.is_some() && b.is_some(), "deep JSON {depth} got no answer");
+            assert!(
+                a.is_some() && b.is_some(),
+                "deep JSON {depth} got no answer"
+            );
         }
     }
     // The head-limit boundary, one write vs 1-byte segments.
@@ -253,14 +269,21 @@ fn box_binary_under_fuzz() {
         println!("head {total} B: one write {one:?}, 1-byte segments {seg:?}, 700-byte segments {seg7:?}");
         assert_eq!(one, seg, "head {total}: outcome depends on segmentation");
         assert_eq!(one, seg7, "head {total}: outcome depends on segmentation");
-        assert_eq!(one, Some(if total <= 8192 { 202 } else { 431 }));
+        // `{}` reaches the /signal parser (400 missing source) when the head fits.
+        assert_eq!(one, Some(if total <= 8192 { 400 } else { 431 }));
     }
     println!("fuzz phase {:.1} s", t0.elapsed().as_secs_f64());
     // Still alive, still serving, still cycling.
-    assert!(p.0.try_wait().unwrap().is_none(), "nerve exited during fuzz");
+    assert!(
+        p.0.try_wait().unwrap().is_none(),
+        "nerve exited during fuzz"
+    );
     let t = Instant::now();
     while cycle() <= c0 {
-        assert!(t.elapsed() < Duration::from_secs(20), "no new cycle after fuzz");
+        assert!(
+            t.elapsed() < Duration::from_secs(20),
+            "no new cycle after fuzz"
+        );
         std::thread::sleep(Duration::from_millis(200));
     }
     assert_eq!(get("/healthz").0, Some(200));
@@ -304,13 +327,24 @@ fn vps_live_parsers() {
     }
     let host = std::env::var("GALION_VPS_SSH").unwrap_or_else(|_| "slavik-vps".into());
     let o = Command::new("ssh")
-        .args(["-o", "BatchMode=yes", "-o", "ConnectTimeout=10", &host, VPS_SCRIPT])
+        .args([
+            "-o",
+            "BatchMode=yes",
+            "-o",
+            "ConnectTimeout=10",
+            &host,
+            VPS_SCRIPT,
+        ])
         .output()
         .expect("ssh");
     let out = String::from_utf8_lossy(&o.stdout).into_owned();
-    println!("== VPS {} read-only (GET + journalctl reads)", zagreb_time::now_rfc3339());
+    println!(
+        "== VPS {} read-only (GET + journalctl reads)",
+        zagreb_time::now_rfc3339()
+    );
     println!("live nerve /healthz: {}", section(&out, "healthz").trim());
-    let st: serde_json::Value = serde_json::from_str(section(&out, "state").trim()).expect("live /state JSON");
+    let st: serde_json::Value =
+        serde_json::from_str(section(&out, "state").trim()).expect("live /state JSON");
     println!(
         "live nerve /state: cycle {} mode {} system {} score {}",
         st["cycle"], st["mode"], st["system"]["status"], st["system"]["score"]
@@ -319,7 +353,11 @@ fn vps_live_parsers() {
     let run = |name: &str, text: &str| {
         let t = ts.iter().find(|t| t.name == name).unwrap();
         let r = (t.check)(text);
-        println!("{name:<14} live input {} lines -> {:?}", text.lines().count(), r.as_ref().map(|_| "ok"));
+        println!(
+            "{name:<14} live input {} lines -> {:?}",
+            text.lines().count(),
+            r.as_ref().map(|_| "ok")
+        );
         assert!(r.is_ok(), "{name} on live data: {r:?}");
     };
     let metrics = section(&out, "metrics");

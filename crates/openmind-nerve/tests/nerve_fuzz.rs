@@ -128,14 +128,20 @@ fn nerve_fuzz_all_summary() {
 
 // ------------------------------------------------- regressions (fuzz finds)
 
-
 /// Find 1 (read_req): a head of 8193..10240 bytes was accepted when it
 /// arrived in one 2 KiB-aligned burst and refused (431) when it came in
 /// small TCP segments. Now the limit is on the head itself, both ways.
 #[test]
 fn regress_read_req_head_limit_is_segmentation_independent() {
     use openmind_nerve::server::{read_req, MAX_HEAD};
-    for total in [MAX_HEAD - 1, MAX_HEAD, MAX_HEAD + 1, MAX_HEAD + 5, 10_000, 10_240] {
+    for total in [
+        MAX_HEAD - 1,
+        MAX_HEAD,
+        MAX_HEAD + 1,
+        MAX_HEAD + 5,
+        10_000,
+        10_240,
+    ] {
         let raw = nerve::big_head(total);
         nerve::check_http_bytes(raw.as_bytes()).unwrap();
         let r = read_req(&mut raw.as_bytes());
@@ -152,7 +158,15 @@ fn regress_read_req_head_limit_is_segmentation_independent() {
 #[test]
 fn regress_cloudflared_metrics_reject_non_finite_and_negative() {
     use openmind_nerve::probe::parse_cloudflared_metrics as p;
-    for bad in ["+Inf", "inf", "NaN", "-1", "-0.5", "1e20", "18446744073709551616"] {
+    for bad in [
+        "+Inf",
+        "inf",
+        "NaN",
+        "-1",
+        "-0.5",
+        "1e20",
+        "18446744073709551616",
+    ] {
         let m = p(&format!(
             "cloudflared_tunnel_total_requests {bad}\ncloudflared_tunnel_request_errors {bad}\ncloudflared_tunnel_ha_connections {bad}\n"
         ));
@@ -192,7 +206,10 @@ fn regress_deep_json_fits_server_stack() {
             if depth < 120 {
                 assert!(s && e, "depth {depth} obj {obj}");
             } else if depth > 130 {
-                assert!(!s && !e, "depth {depth} obj {obj} should hit the recursion limit");
+                assert!(
+                    !s && !e,
+                    "depth {depth} obj {obj} should hit the recursion limit"
+                );
             }
         }
     }

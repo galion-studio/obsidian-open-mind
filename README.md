@@ -6,6 +6,7 @@ Part of PROJECT 42 / Gaia by Galion Studio. *Discover the universe together with
 
 - **Plan:** [docs/plan/PLAN.md](docs/plan/PLAN.md) (merged: Galion OS, phone link, Hermes Rust V2, benchmarks)
 - **Benchmarks:** [docs/plan/benchmarks.md](docs/plan/benchmarks.md) — banking, Wall Street, vending machine; mocks and paper only
+- **Threat model:** [docs/security/threat-model.md](docs/security/threat-model.md) — security / privacy / anonymity, findings F1–F11, owner decisions D-OS1–D-OS7
 - **Sessions log:** [docs/sessions/](docs/sessions/) — every working session is recorded here
 - **License:** MIT ([LICENSE](LICENSE))
 

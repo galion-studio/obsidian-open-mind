@@ -146,6 +146,8 @@ Parallel (do not wait on Phase 0): Hermes V2 mock tools, benchmark crates, gold-
 - [ ] Revolut: scope ≠ authority to spend  
 - [ ] Sandbox: seccomp + cgroup + default-deny net  
 
+Full threat model and test list: [../security/threat-model.md](../security/threat-model.md) (2026-10-21).
+
 ---
 
 ## 9. Risks

@@ -5,7 +5,15 @@
 # Runbook: tuner + galion-nerve cutover with the Rust galion-deploy
 
 Branch `swarm/cutover-prep` (slot 38), on top of `swarm/deploy-rust` 787a54d.
-**Nothing in this file has been run on the VPS.** Every step that changes the VPS
+
+**Status (refreshed 2026-10-21 17:30 CEST (+02:00), wave-4 slot 203):** this runbook was **used for the tuner** on 2026-10-21. The §2 backup ran at 04:31:16,
+galion-deploy went bash → Rust at 04:31:47 and the tuner was deployed at 04:32:32 (a mistaken rollback at 04:32:10 was redeployed). Approved by Mate 04:22 (Slavik auto-accept 20 Oct).
+Record: `swarm/vps-deploy-20261021@d9bd8295935d2620587aaed68e4b1b52f6ea72b9:docs/ops/deploy-2026-10-21.md` ([../cutover/README.md](../cutover/README.md) §2 C1/C2).
+The **nerve was not cut over with this runbook.** It went live at 09:43:54 by an ExecStart drop-in `50-rust-bin.conf` (openmind-nerve aa77864, old binary kept), and reflexes were set to dry-run at 17:08:27 (`70-nerve-dryrun.conf`).
+See [../cutover/nerve.md](../cutover/nerve.md) Status. The text below is the 2026-10-20 plan, kept as written.
+Original line (2026-10-20): Nothing in this file has been run on the VPS.
+
+Every step that changes the VPS
 needs Slavik's approval for that step (`docs/cutover-approval.md`). Times are
 Europe/Zagreb. The per-service detail stays in `docs/cutover/tuner.md` and
 `docs/cutover/nerve.md`. This runbook is the order of operations for doing both

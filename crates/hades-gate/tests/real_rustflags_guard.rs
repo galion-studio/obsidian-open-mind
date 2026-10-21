@@ -206,9 +206,15 @@ fn run_case(target: &str, c: &Case, n: &mut (u32, u32)) {
             println!("    {l}");
         }
     }
-    // Name the overriding env var when cargo lets the build script see it.
-    if c.name == "target-rustflags-env" && guard_hit {
-        println!("  names_target_var={}", err.contains(&tvar(target)));
+    // Which overriding env var the guard could name (cargo hides some of
+    // them from build scripts; then the message lists every source).
+    if guard_hit {
+        let named = err
+            .split("REPLACE the workspace `build.rustflags`: ")
+            .nth(1)
+            .and_then(|s| s.split('.').next())
+            .unwrap_or("-");
+        println!("  guard_named_vars={named}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -230,4 +236,155 @@ fn rustflags_guard_real_cargo() {
     let _ = std::fs::remove_dir_all(base_dir());
     println!("summary pass={} fail={}", n.0, n.1);
     assert_eq!(n.1, 0, "guard cases failed");
+}
+
+/// The `compile_error!` backstop in src/lib.rs, without cargo or build.rs:
+/// plain rustc on lib.rs must print the guard error without the cfg and must
+/// not with it (other errors, e.g. unresolved crates, are expected there).
+#[test]
+fn compile_error_backstop_plain_rustc() {
+    if !enabled() {
+        eprintln!("skip: set GALION_REAL=1");
+        return;
+    }
+    let lib = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
+    let out = base_dir().join("backstop");
+    std::fs::create_dir_all(&out).unwrap();
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".into());
+    let run = |cfg: bool| {
+        let mut cmd = Command::new(&rustc);
+        cmd.args([
+            "--edition=2021",
+            "--crate-type=lib",
+            "--crate-name=hades_gate",
+            "--emit=metadata",
+        ])
+        .arg("--out-dir")
+        .arg(&out)
+        .arg(&lib);
+        if cfg {
+            cmd.args(["--cfg", "curve25519_dalek_backend=\"serial\""]);
+        }
+        let o = cmd.output().expect("spawn rustc");
+        let e = String::from_utf8_lossy(&o.stderr).to_string();
+        (
+            o.status.code(),
+            e.contains("hades-gate: SIMD guard (project rule 1, no SIMD)"),
+        )
+    };
+    let (c1, g1) = run(false);
+    let (c2, g2) = run(true);
+    println!("backstop no-cfg exit={c1:?} guard_msg={g1}; with-cfg exit={c2:?} guard_msg={g2}");
+    let _ = std::fs::remove_dir_all(&out);
+    assert!(g1, "compile_error! backstop did not fire without the cfg");
+    assert!(!g2, "compile_error! backstop fired with the cfg set");
+}
+
+/// Normal release builds still work on both arches: build the real binary
+/// for each target, run `keygen` (Ed25519 via the serial backend) and
+/// `plan-hash` (sha2 force-soft); aarch64 runs under qemu-aarch64 when the
+/// box has it. Plan hashes must match across arches. Throwaway keys only;
+/// the seed never leaves the temp dir and is never printed.
+#[test]
+fn normal_release_binaries_run() {
+    if !enabled() {
+        eprintln!("skip: set GALION_REAL=1");
+        return;
+    }
+    let targets = std::env::var("HADES_GUARD_TARGETS")
+        .unwrap_or_else(|_| "x86_64-unknown-linux-musl,aarch64-unknown-linux-musl".into());
+    let tmp = base_dir().join("run");
+    std::fs::create_dir_all(&tmp).unwrap();
+    let plan = tmp.join("plan.txt");
+    std::fs::write(&plan, b"restart openmind-nerve.service\n").unwrap();
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let mut hashes = Vec::new();
+    for t in targets.split(',').filter(|t| !t.is_empty()) {
+        let dir = base_dir().join("bin").join(t);
+        let mut cmd = Command::new(&cargo);
+        cmd.current_dir(workspace())
+            .args([
+                "build",
+                "--offline",
+                "--locked",
+                "--release",
+                "-j",
+                "2",
+                "-p",
+                "hades-gate",
+            ])
+            .args(["--bin", "hades-gate", "--target", t])
+            .env("CARGO_TARGET_DIR", &dir)
+            .env("CARGO_INCREMENTAL", "0");
+        for k in [
+            "RUSTFLAGS",
+            "CARGO_ENCODED_RUSTFLAGS",
+            "CARGO_BUILD_RUSTFLAGS",
+            "CARGO_BUILD_TARGET",
+        ] {
+            cmd.env_remove(k);
+        }
+        cmd.env_remove(tvar(t));
+        if t.starts_with("aarch64") {
+            cmd.env("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER", "rust-lld");
+        }
+        let o = cmd.output().expect("spawn cargo build");
+        assert!(
+            o.status.success(),
+            "{t}: normal release build failed:\n{}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+        let bin = dir.join(t).join("release/hades-gate");
+        let size = std::fs::metadata(&bin).unwrap().len();
+        let host_arch = std::env::consts::ARCH;
+        let runner: Option<&str> = if t.starts_with(host_arch) {
+            None
+        } else if t.starts_with("aarch64") && Path::new("/usr/bin/qemu-aarch64").exists() {
+            Some("/usr/bin/qemu-aarch64")
+        } else {
+            println!("bin target={t} size={size} run=skipped (no runner)");
+            continue;
+        };
+        let exec = |args: &[&str]| {
+            let mut c = match runner {
+                Some(r) => {
+                    let mut c = Command::new(r);
+                    c.arg(&bin);
+                    c
+                }
+                None => Command::new(&bin),
+            };
+            c.args(args).output().expect("run hades-gate")
+        };
+        let kd = tmp.join(t);
+        std::fs::create_dir_all(&kd).unwrap();
+        let seed = kd.join("admin.seed");
+        let public = kd.join("admin.pub");
+        let k = exec(&[
+            "keygen",
+            "--seed",
+            seed.to_str().unwrap(),
+            "--pub",
+            public.to_str().unwrap(),
+        ]);
+        let kout = String::from_utf8_lossy(&k.stdout).to_string();
+        assert!(
+            k.status.success() && kout.contains("\"ok\":true"),
+            "{t}: keygen failed"
+        );
+        let h = exec(&["plan-hash", "--plan-file", plan.to_str().unwrap()]);
+        assert!(h.status.success(), "{t}: plan-hash failed");
+        let hash = String::from_utf8_lossy(&h.stdout).trim().to_string();
+        println!(
+            "bin target={t} size={size} runner={} keygen=ok plan_hash={hash}",
+            runner.unwrap_or("native")
+        );
+        hashes.push(hash);
+    }
+    let _ = std::fs::remove_dir_all(base_dir());
+    assert!(!hashes.is_empty());
+    assert!(
+        hashes.windows(2).all(|w| w[0] == w[1]),
+        "plan hash differs across arches"
+    );
 }

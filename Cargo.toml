@@ -66,5 +66,9 @@ opt-level = 3
 # RUSTSEC-2026-0367/0368/0369: no candle release (0.9.2..0.11.0, nor upstream main) allows zip >= 9.
 # vendor/candle-core is candle-core 0.9.2 unchanged except its zip requirement (7.2 -> 9.0.5).
 # See docs/security/candle-zip-fix.md. Drop this patch once upstream candle requires zip >= 9.
+# RUSTSEC-2024-0436: `paste` (via gemm/pulp under candle-core) is unmaintained. vendor/paste-pastey is a
+# 20-line shim named `paste` that re-exports the maintained drop-in fork `pastey` 0.2.3 (MIT OR Apache-2.0).
+# See docs/security/deny-paste-replace.md. Drop it once gemm/pulp move off `paste` themselves.
 [patch.crates-io]
 candle-core = { path = "vendor/candle-core" }
+paste = { path = "vendor/paste-pastey" }

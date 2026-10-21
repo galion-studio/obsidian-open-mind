@@ -168,10 +168,17 @@ fn start(addr: &str, data: &Path, extra: &[&str], err_log: &Path) -> (Server, Du
     panic!("server did not come up on {addr}");
 }
 
-impl Server {
-    fn kill9(mut self) {
+impl Drop for Server {
+    /// A failed assertion must not leave a server behind on the port.
+    fn drop(&mut self) {
         let _ = self.child.kill(); // SIGKILL
         let _ = self.child.wait();
+    }
+}
+
+impl Server {
+    fn kill9(self) {
+        drop(self);
     }
     fn stats(&self) -> Value {
         let (c, v) = call(&self.addr, "GET", "/stats", None);

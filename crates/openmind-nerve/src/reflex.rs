@@ -107,6 +107,14 @@ pub struct Reflex {
     rollbacks: HashMap<String, u64>,
     pub recent: VecDeque<Value>,
     pub persist: bool,
+    /// Top-level keys of `reflex.json` this version does not know (written by
+    /// an older or newer nerve). Kept and written back unchanged on save.
+    extra: serde_json::Map<String, Value>,
+    /// `reflex.json` existed but was unreadable: the live restart budget is
+    /// treated as spent until this instant (fail closed, no budget reset).
+    pub budget_unknown_until: u64,
+    /// What happened while loading the state dir (None when clean).
+    pub load_note: Option<String>,
 }
 
 impl Reflex {
@@ -124,6 +132,9 @@ impl Reflex {
             rollbacks: HashMap::new(),
             recent: VecDeque::new(),
             persist: true,
+            extra: serde_json::Map::new(),
+            budget_unknown_until: 0,
+            load_note: None,
         };
         r.load();
         r
@@ -143,38 +154,93 @@ impl Reflex {
     }
 
     fn load(&mut self) {
-        let Ok(s) = std::fs::read_to_string(self.state_path()) else {
-            return;
-        };
-        let Ok(v) = serde_json::from_str::<Value>(&s) else {
-            return;
-        };
-        if let Some(m) = v.get("restarts").and_then(Value::as_object) {
-            for (k, arr) in m {
-                let q: VecDeque<u64> = arr
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_u64)
-                    .collect();
-                self.restarts.insert(k.clone(), q);
+        let path = self.state_path();
+        let s = match std::fs::read(&path) {
+            Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(e) => {
+                self.load_failed(&path, &format!("unreadable: {e}"));
+                return;
             }
-        }
-        if let Some(m) = v.get("rollbacks").and_then(Value::as_object) {
-            for (k, t) in m {
-                if let Some(t) = t.as_u64() {
-                    self.rollbacks.insert(k.clone(), t);
+        };
+        let v = match serde_json::from_str::<Value>(&s) {
+            Ok(Value::Object(m)) => m,
+            Ok(_) => {
+                self.load_failed(&path, "not a JSON object");
+                return;
+            }
+            Err(e) => {
+                self.load_failed(&path, &format!("bad JSON: {e}"));
+                return;
+            }
+        };
+        for (k, val) in v {
+            match k.as_str() {
+                // Timestamps: integers, floats, numeric strings or RFC 3339
+                // (older layouts), a bare number is one restart.
+                "restarts" => {
+                    for (unit, arr) in val.as_object().into_iter().flatten() {
+                        let q: VecDeque<u64> = match arr {
+                            Value::Array(a) => {
+                                a.iter().filter_map(crate::util::json_secs).collect()
+                            }
+                            other => crate::util::json_secs(other).into_iter().collect(),
+                        };
+                        let mut q: Vec<u64> = q.into();
+                        q.sort_unstable();
+                        self.restarts.insert(unit.clone(), q.into());
+                    }
+                }
+                "rollbacks" => {
+                    for (unit, t) in val.as_object().into_iter().flatten() {
+                        if let Some(t) = crate::util::json_secs(t) {
+                            self.rollbacks.insert(unit.clone(), t);
+                        }
+                    }
+                }
+                _ => {
+                    self.extra.insert(k, val);
                 }
             }
         }
+    }
+
+    /// `reflex.json` exists but cannot be used: keep a copy, and treat the
+    /// live restart budget as spent for an hour (the window it covers)
+    /// rather than silently starting from zero.
+    fn load_failed(&mut self, path: &Path, why: &str) {
+        let now = now_secs();
+        let copy = crate::util::quarantine(path, now);
+        self.budget_unknown_until = now + 3600;
+        self.load_note = Some(format!(
+            "{} {why}; copy at {}; live restarts held until {}",
+            path.display(),
+            copy.map(|p| p.display().to_string())
+                .unwrap_or_else(|| "(copy failed)".into()),
+            ts(self.budget_unknown_until)
+        ));
+        eprintln!(
+            "<4>galion-nerve reflex: {}",
+            self.load_note.as_deref().unwrap_or("")
+        );
     }
 
     fn save(&self) {
         if !self.persist {
             return;
         }
-        let v = json!({"restarts": self.restarts, "rollbacks": self.rollbacks});
-        let _ = write_atomic(&self.state_path(), v.to_string().as_bytes());
+        let mut v = self.extra.clone();
+        v.insert("restarts".into(), json!(self.restarts));
+        v.insert("rollbacks".into(), json!(self.rollbacks));
+        let _ = write_atomic(&self.state_path(), Value::Object(v).to_string().as_bytes());
+    }
+
+    /// True when another restart of `unit` fits the hourly budget.
+    pub fn budget_left(&self, unit: &str, now: u64, dry: bool, per_hour: usize) -> bool {
+        if !dry && now < self.budget_unknown_until {
+            return false;
+        }
+        self.used(unit, now, dry) < per_hour
     }
 
     pub fn used(&self, unit: &str, now: u64, dry: bool) -> usize {
@@ -300,7 +366,7 @@ impl Reflex {
             };
         }
         let dry = self.dry_run();
-        if self.used(unit, now, dry) < c.spec.restarts_per_hour as usize {
+        if self.budget_left(unit, now, dry, c.spec.restarts_per_hour as usize) {
             return Decision::Restart {
                 unit: unit.into(),
                 reason,
@@ -309,6 +375,7 @@ impl Reflex {
         let svc = unit.trim_end_matches(".service");
         if self.rollback_enabled
             && down
+            && (dry || now >= self.budget_unknown_until)
             && self.deploy_bin.exists()
             && self.rollbacks.get(unit).is_none_or(|t| *t + 86400 < now)
             && unit != "cloudflared.service"
@@ -645,5 +712,107 @@ mod tests {
         let r = Reflex::new(d.clone(), true, 1);
         assert_eq!(r.used("tuner.service", now, false), 2);
         let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn old_reflex_json_forms_and_unknown_keys_survive() {
+        let d = tmp("t41-old");
+        let now = now_secs();
+        let old = json!({
+            "restarts": {
+                "hermes-rs.service": [now - 7200, now - 600],
+                "galion-one.service": [(now - 300) as f64 + 0.5, ts(now - 900), "junk", null],
+                "cloudflared.service": format!("{}", now - 60),
+            },
+            "rollbacks": {"tuner.service": ts(now - 3600), "console.service": "nope"},
+            "layout": 1,
+            "future": {"x": [1, 2]},
+        });
+        std::fs::write(d.join("reflex.json"), old.to_string()).unwrap();
+        let mut r = Reflex::new(d.clone(), true, 3);
+        r.deploy_bin = d.join("no-deploy");
+        assert!(r.load_note.is_none());
+        assert_eq!(r.used("hermes-rs.service", now, false), 1);
+        assert_eq!(r.used("galion-one.service", now, false), 2);
+        assert_eq!(r.used("cloudflared.service", now, false), 1);
+        assert_eq!(r.rollbacks.get("tuner.service"), Some(&(now - 3600)));
+        assert!(!r.rollbacks.contains_key("console.service"));
+        // A (dry) action saves: unknown keys are written back unchanged.
+        let mut a = quiet_alerts();
+        let c = down_comp("tuner", 3, "failed", "exit-code", "enabled");
+        let dec = r.decide(&c, now, false);
+        assert!(matches!(dec, Decision::Restart { .. }), "{dec:?}");
+        r.execute("tuner", &dec, &mut a);
+        let v: Value =
+            serde_json::from_str(&std::fs::read_to_string(d.join("reflex.json")).unwrap()).unwrap();
+        assert_eq!(v["layout"], 1);
+        assert_eq!(v["future"], json!({"x": [1, 2]}));
+        assert_eq!(
+            v["restarts"]["galion-one.service"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        // Reloading the saved file gives the same budgets (no drift).
+        let r2 = Reflex::new(d.clone(), true, 3);
+        assert_eq!(r2.used("galion-one.service", now, false), 2);
+        assert_eq!(r2.used("hermes-rs.service", now, false), 1);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn corrupt_reflex_json_holds_live_actions_for_an_hour() {
+        let d = tmp("t41-bad");
+        std::fs::write(d.join("reflex.json"), "{\"restarts\": [").unwrap();
+        std::fs::write(d.join("mode"), "live\n").unwrap();
+        let r = Reflex::new(d.clone(), true, 1);
+        let note = r.load_note.clone().unwrap();
+        assert!(
+            note.contains("bad JSON") && note.contains("held until"),
+            "{note}"
+        );
+        let now = now_secs();
+        assert!(r.budget_unknown_until >= now + 3500);
+        // A copy of the damaged file is kept next to it.
+        let copies = std::fs::read_dir(&d)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("reflex.json.corrupt-")
+            })
+            .count();
+        assert_eq!(copies, 1);
+        // Live: no restart and no rollback inside the hour, even with a
+        // recent backup and the deploy tool present.
+        let bk = d.join("backups");
+        std::fs::create_dir_all(&bk).unwrap();
+        std::fs::write(bk.join("tuner-20261018-2200+0200.bin"), b"\x7fELF").unwrap();
+        std::fs::write(d.join("deploy"), b"#!/bin/sh\n").unwrap();
+        let mut r = r;
+        r.deploy_backups = bk;
+        r.deploy_bin = d.join("deploy");
+        let c = down_comp("tuner", 1, "failed", "exit-code", "enabled");
+        assert!(matches!(r.decide(&c, now, false), Decision::Limited { .. }));
+        assert!(!r.budget_left("tuner.service", now, false, 3));
+        // Dry-run budgets are not affected; after the hour live works again.
+        assert!(r.budget_left("tuner.service", now, true, 3));
+        assert!(r.budget_left("tuner.service", now + 3601, false, 3));
+        // A non-object file is treated the same way.
+        std::fs::write(d.join("reflex.json"), "[1,2]").unwrap();
+        let r3 = Reflex::new(d.clone(), true, 1);
+        assert!(r3
+            .load_note
+            .as_deref()
+            .unwrap_or("")
+            .contains("not a JSON object"));
+        // No file at all is a clean first boot, not a hold.
+        let e = tmp("t41-empty");
+        let r4 = Reflex::new(e.clone(), true, 1);
+        assert!(r4.load_note.is_none() && r4.budget_unknown_until == 0);
+        let _ = std::fs::remove_dir_all(d);
+        let _ = std::fs::remove_dir_all(e);
     }
 }

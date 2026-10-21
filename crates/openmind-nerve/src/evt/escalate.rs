@@ -315,18 +315,58 @@ pub type Transport = Box<dyn FnMut(&ChatReq, &str) -> Result<Value, String> + Se
 /// Env var name -> value (production: `std::env::var`).
 pub type KeyLookup = Box<dyn Fn(&str) -> Option<String> + Send>;
 
-/// Persisted spend (survives restarts so the cap is really total).
+/// Persisted spend (survives restarts so the cap is really total). Missing
+/// fields default to zero and unknown fields are kept, so an older or newer
+/// `evt-llm-spend.json` still loads with its total intact.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(default)]
 pub struct Spend {
     pub total_usd: f64,
     pub calls: u64,
     pub refused: u64,
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
+}
+
+/// Load the spend file. Missing file: zero spend. A file that exists but
+/// does not hold a usable spend (bad JSON, a negative or non-numeric total)
+/// is copied aside and reported as `Err`: the caller then refuses paid calls
+/// and never overwrites it, so a damaged file cannot reset the cap to zero.
+pub fn load_spend(p: &std::path::Path, now: u64) -> Result<Spend, String> {
+    let s = match std::fs::read(p) {
+        Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Spend::default()),
+        Err(e) => return Err(format!("{}: unreadable: {e}", p.display())),
+    };
+    let ok = serde_json::from_str::<Value>(&s).ok().and_then(|v| {
+        let t = v.get("total_usd");
+        let total_ok = match t {
+            None => true,
+            Some(t) => t.as_f64().is_some_and(|f| f.is_finite() && f >= 0.0),
+        };
+        if !(v.is_object() && total_ok) {
+            return None;
+        }
+        serde_json::from_value::<Spend>(v).ok()
+    });
+    ok.ok_or_else(|| {
+        let copy = crate::util::quarantine(p, now);
+        format!(
+            "{} is not a usable spend record; copy at {}; paid escalation refused until it is fixed",
+            p.display(),
+            copy.map(|c| c.display().to_string())
+                .unwrap_or_else(|| "(copy failed)".into())
+        )
+    })
 }
 
 pub struct OpenAiCompat {
     pub cfg: EscalateConfig,
     pub spend: Spend,
     pub spend_path: Option<PathBuf>,
+    /// Set when the spend file existed but was unusable: paid calls are
+    /// refused and the file is never overwritten (no silent cap reset).
+    pub spend_error: Option<String>,
     hour: VecDeque<u64>,
     transport: Transport,
     key_lookup: KeyLookup,
@@ -340,15 +380,22 @@ impl OpenAiCompat {
         key_lookup: KeyLookup,
     ) -> Self {
         let spend_path = data_dir.map(|d| d.join("evt-llm-spend.json"));
-        let spend = spend_path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let (spend, spend_error) = match spend_path
+            .as_deref()
+            .map(|p| load_spend(p, crate::util::now_secs()))
+        {
+            None => (Spend::default(), None),
+            Some(Ok(s)) => (s, None),
+            Some(Err(e)) => {
+                eprintln!("<4>galion-nerve escalate: {e}");
+                (Spend::default(), Some(e))
+            }
+        };
         OpenAiCompat {
             cfg,
             spend,
             spend_path,
+            spend_error,
             hour: VecDeque::new(),
             transport,
             key_lookup,
@@ -356,6 +403,9 @@ impl OpenAiCompat {
     }
 
     fn save(&self) {
+        if self.spend_error.is_some() {
+            return;
+        }
         if let Some(p) = &self.spend_path {
             let _ = crate::util::write_atomic(
                 p,
@@ -398,6 +448,9 @@ impl Escalator for OpenAiCompat {
     fn escalate(&mut self, b: &Batch, now: u64) -> Outcome {
         if !self.cfg.enabled() {
             return self.refuse("paid escalation not configured (disabled by default)".into());
+        }
+        if let Some(e) = self.spend_error.clone() {
+            return self.refuse(e);
         }
         let endpoint = self.cfg.endpoint.clone().unwrap_or_default();
         if let Err(e) = endpoint_allowed(&endpoint) {
@@ -674,6 +727,70 @@ mod tests {
             Box::new(|_| Some("k".into())),
         );
         assert!(matches!(e3.escalate(&batch(), 0), Outcome::Refused(r) if r.contains("budget")));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn old_spend_file_keeps_its_total_and_damaged_one_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("nerve-evt-t41-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("evt-llm-spend.json");
+        let never = || -> Transport { Box::new(|_, _| panic!("must not call")) };
+        // Older record: no `refused`, an unknown field.
+        std::fs::write(&p, r#"{"total_usd":0.9995,"calls":3,"seen_by":"old"}"#).unwrap();
+        let mut e = OpenAiCompat::new(
+            cfg(1.0),
+            Some(dir.clone()),
+            never(),
+            Box::new(|_| Some("k".into())),
+        );
+        assert!(e.spend_error.is_none());
+        assert_eq!(e.spend.total_usd, 0.9995);
+        assert!(matches!(e.escalate(&batch(), 0), Outcome::Refused(r) if r.contains("budget cap")));
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v["total_usd"], 0.9995);
+        assert_eq!(v["calls"], 3);
+        assert_eq!(v["refused"], 1);
+        assert_eq!(v["seen_by"], "old", "unknown field kept");
+        // Damaged records: refused, never overwritten, copy kept.
+        for (i, bad) in [
+            "{\"total_usd\":",
+            "[]",
+            "{\"total_usd\":-1}",
+            "{\"total_usd\":\"x\"}",
+        ]
+        .iter()
+        .enumerate()
+        {
+            std::fs::write(&p, bad).unwrap();
+            let mut e = OpenAiCompat::new(
+                cfg(100.0),
+                Some(dir.clone()),
+                never(),
+                Box::new(|_| Some("k".into())),
+            );
+            assert!(e.spend_error.is_some(), "{bad}");
+            let o = e.escalate(&batch(), i as u64);
+            assert!(
+                matches!(&o, Outcome::Refused(r) if r.contains("not a usable spend record")),
+                "{o:?}"
+            );
+            assert_eq!(std::fs::read_to_string(&p).unwrap(), *bad);
+        }
+        let copies = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("evt-llm-spend.json.corrupt-")
+            })
+            .count();
+        assert!(copies >= 1);
+        // Missing file: clean zero.
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(load_spend(&p, 0).unwrap(), Spend::default());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -1,0 +1,352 @@
+[
+  {
+    "component": "galion-one",
+    "key": "incident:inc-80048b3c:error",
+    "msg": "incident inc-80048b3c [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 3.2 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T22:31:58+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-44f4f0ca:error",
+    "msg": "incident inc-44f4f0ca [error]: edge: tunnel routes 8 public hostname(s) to 4 closed origin port(s) :3010 :3011 :4001 :4020: 59.8 failed requests/min over 29 min",
+    "severity": "warn",
+    "ts": "2026-10-21T22:31:58+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: failing-soon: 246 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T22:31:58+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-80048b3c:error",
+    "msg": "incident inc-80048b3c [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 2.8 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T22:01:57+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-44f4f0ca:error",
+    "msg": "incident inc-44f4f0ca [error]: edge: tunnel routes 10 public hostname(s) to 6 closed origin port(s) :3010 :3011 :3020 :4001 :4020 :4060: 56.6 failed requests/min over 29 min",
+    "severity": "warn",
+    "ts": "2026-10-21T22:01:57+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: failing-soon: 324 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T22:01:57+02:00"
+  },
+  {
+    "component": "ddos:edge-cloudflared",
+    "key": "incident:inc-6f69d7bf:critical",
+    "msg": "incident inc-6f69d7bf [critical]: request flood on cloudflared (stream edge-cloudflared)",
+    "severity": "crit",
+    "ts": "2026-10-21T21:46:57+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-80048b3c:error",
+    "msg": "incident inc-80048b3c [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 2.0 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T21:16:58+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-44f4f0ca:error",
+    "msg": "incident inc-44f4f0ca [error]: edge: tunnel routes 10 public hostname(s) to 6 closed origin port(s) :3004 :3005 :3010 :3011 :4001 :4020: 55.2 failed requests/min over 29 min",
+    "severity": "warn",
+    "ts": "2026-10-21T21:16:58+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: failing-soon: 328 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T21:16:58+02:00"
+  },
+  {
+    "component": "ddos:edge-cloudflared",
+    "key": "incident:inc-6f69d7bf:warn",
+    "msg": "incident inc-6f69d7bf [warn]: request flood on cloudflared (stream edge-cloudflared)",
+    "severity": "warn",
+    "ts": "2026-10-21T21:01:59+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-80048b3c:error",
+    "msg": "incident inc-80048b3c [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 1.5 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T20:46:58+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-44f4f0ca:error",
+    "msg": "incident inc-44f4f0ca [error]: edge: tunnel routes 12 public hostname(s) to 8 closed origin port(s) :3004 :3010 :3011 :4001 :4003 :4060 :4444 :8000: 46.8 failed requests/min over 29 min",
+    "severity": "warn",
+    "ts": "2026-10-21T20:46:58+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: failing-soon: 292 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T20:46:58+02:00"
+  },
+  {
+    "component": "ddos:edge-cloudflared",
+    "key": "incident:inc-6f69d7bf:warn",
+    "msg": "incident inc-6f69d7bf [warn]: request flood on cloudflared (stream edge-cloudflared)",
+    "severity": "warn",
+    "ts": "2026-10-21T20:31:59+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-80048b3c:error",
+    "msg": "incident inc-80048b3c [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 1.0 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T20:16:58+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-44f4f0ca:error",
+    "msg": "incident inc-44f4f0ca [error]: edge: tunnel routes 14 public hostname(s) to 9 closed origin port(s) :3004 :3005 :3010 :3011 :3015 :3020 :4001 :4020 :4060: 50.6 failed requests/min over 30 min",
+    "severity": "warn",
+    "ts": "2026-10-21T20:16:58+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: failing-soon: 256 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T20:16:58+02:00"
+  },
+  {
+    "component": "ddos:edge-cloudflared",
+    "key": "incident:inc-34b794af:critical",
+    "msg": "incident inc-34b794af [critical]: request flood on cloudflared (stream edge-cloudflared)",
+    "severity": "crit",
+    "ts": "2026-10-21T20:01:59+02:00"
+  },
+  {
+    "component": "ddos:edge-cloudflared",
+    "key": "incident:inc-34b794af:warn",
+    "msg": "incident inc-34b794af [warn]: request flood on cloudflared (stream edge-cloudflared)",
+    "severity": "warn",
+    "ts": "2026-10-21T19:46:58+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-80048b3c:error",
+    "msg": "incident inc-80048b3c [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 30 min [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T19:46:58+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-44f4f0ca:error",
+    "msg": "incident inc-44f4f0ca [error]: edge: tunnel routes 11 public hostname(s) to 7 closed origin port(s) :3010 :3011 :3020 :4001 :4020 :4060 :5530: 20.1 failed requests/min over 30 min",
+    "severity": "warn",
+    "ts": "2026-10-21T19:46:58+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: failing-soon: 592 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T19:46:58+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-80048b3c:warn",
+    "msg": "incident inc-80048b3c [warn]: galion-one: galion-one-mouth degrading: health probe HTTP 503 [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T19:16:58+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-44f4f0ca:error",
+    "msg": "incident inc-44f4f0ca [error]: edge: tunnel routes 7 public hostname(s) to 5 closed origin port(s) :3011 :3020 :3333 :4001 :4004: 38.1 failed requests/min over 4 min",
+    "severity": "warn",
+    "ts": "2026-10-21T19:16:58+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: failing-soon: 366 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T19:16:58+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-f3c6feaf:error",
+    "msg": "incident inc-f3c6feaf [error]: edge: tunnel routes 14 public hostname(s) to 7 closed origin port(s) :3004 :3005 :3011 :3020 :4001 :4020 :4060: 70.3 failed requests/min over 29 min",
+    "severity": "warn",
+    "ts": "2026-10-21T19:14:59+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: degrading: tunnel origin errors 228/234 requests in 10 min; failing-soon: 368 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T19:14:59+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-2d495581:error",
+    "msg": "incident inc-2d495581 [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 45 min [health body {\"status\":\"loading\",\"model\":\"chatterbox\",\"loaded\":false,\"ok\":false,\"provider\":\"local\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T19:00:29+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-f3c6feaf:error",
+    "msg": "incident inc-f3c6feaf [error]: edge: tunnel routes 14 public hostname(s) to 11 closed origin port(s) :3004 :3005 :3010 :3011 :3020 :3333 :4001 :4020 :4042 :4060 :4444: 49.8 failed requests/min over 29 min",
+    "severity": "warn",
+    "ts": "2026-10-21T18:44:59+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: degrading: tunnel origin errors 438/824 requests in 10 min; failing-soon: 82 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T18:44:59+02:00"
+  },
+  {
+    "component": "ddos:edge-cloudflared",
+    "key": "incident:inc-c823ad24:warn",
+    "msg": "incident inc-c823ad24 [warn]: request flood on cloudflared (stream edge-cloudflared)",
+    "severity": "warn",
+    "ts": "2026-10-21T18:36:59+02:00"
+  },
+  {
+    "component": "ddos:edge-cloudflared",
+    "key": "incident:inc-f86f9fe9:warn",
+    "msg": "incident inc-f86f9fe9 [warn]: request flood on cloudflared (stream edge-cloudflared)",
+    "severity": "warn",
+    "ts": "2026-10-21T18:33:59+02:00"
+  },
+  {
+    "component": "ddos:edge-cloudflared",
+    "key": "incident:inc-218ab3a4:warn",
+    "msg": "incident inc-218ab3a4 [warn]: request flood on cloudflared (stream edge-cloudflared)",
+    "severity": "warn",
+    "ts": "2026-10-21T18:30:29+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-2d495581:error",
+    "msg": "incident inc-2d495581 [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 15 min [health body {\"status\":\"loading\",\"model\":\"chatterbox\",\"loaded\":false,\"ok\":false,\"provider\":\"local\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T18:30:29+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-2d495581:warn",
+    "msg": "incident inc-2d495581 [warn]: galion-one: galion-one-mouth degrading: health probe HTTP 503 [health body {\"status\":\"loading\",\"model\":\"chatterbox\",\"loaded\":false,\"ok\":false,\"provider\":\"local\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T18:14:59+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-f3c6feaf:error",
+    "msg": "incident inc-f3c6feaf [error]: edge: tunnel routes 7 public hostname(s) to 6 closed origin port(s) :3010 :3011 :3020 :3333 :4001 :4020: 16.9 failed requests/min over 4 min",
+    "severity": "warn",
+    "ts": "2026-10-21T18:14:59+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: failing-soon: 160 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T18:14:59+02:00"
+  },
+  {
+    "component": "hermes-rs",
+    "key": "incident:inc-1e77650a:error",
+    "msg": "incident inc-1e77650a [error]: hermes-rs: pushed 2 error(s) in the last 2 min; last: POST /v1/chat/completions -> 502",
+    "severity": "warn",
+    "ts": "2026-10-21T18:14:28+02:00"
+  },
+  {
+    "component": "hermes-rs",
+    "key": "incident:inc-1e77650a:warn",
+    "msg": "incident inc-1e77650a [warn]: hermes-rs: degrading: 1 restart(s) in the last hour",
+    "severity": "warn",
+    "ts": "2026-10-21T18:12:58+02:00"
+  },
+  {
+    "component": "spend-cap:hermes-rs",
+    "key": "incident:inc-b46ccf4e:warn",
+    "msg": "incident inc-b46ccf4e [warn]: hermes-rs: spend cap hit (provider calls refused)",
+    "severity": "warn",
+    "ts": "2026-10-21T18:09:28+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-8401da26:error",
+    "msg": "incident inc-8401da26 [error]: edge: tunnel routes 9 public hostname(s) to 6 closed origin port(s) :3005 :3011 :4001 :4003 :4020 :4060: 32.6 failed requests/min over 29 min",
+    "severity": "warn",
+    "ts": "2026-10-21T18:08:28+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: degrading: 1 restart(s) in the last hour; failing-soon: 84 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T18:08:28+02:00"
+  },
+  {
+    "component": "ddos:edge-cloudflared",
+    "key": "incident:inc-08039a00:warn",
+    "msg": "incident inc-08039a00 [warn]: request flood on cloudflared (stream edge-cloudflared)",
+    "severity": "warn",
+    "ts": "2026-10-21T18:01:28+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-cf2c65b8:error",
+    "msg": "incident inc-cf2c65b8 [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 45 min [health body {\"status\":\"loading\",\"model\":\"chatterbox\",\"loaded\":false,\"ok\":false,\"provider\":\"local\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T17:53:58+02:00"
+  },
+  {
+    "component": "spend-cap:hermes-rs",
+    "key": "incident:inc-b46ccf4e:warn",
+    "msg": "incident inc-b46ccf4e [warn]: hermes-rs: spend cap hit (provider calls refused)",
+    "severity": "warn",
+    "ts": "2026-10-21T17:39:28+02:00"
+  },
+  {
+    "component": "edge",
+    "key": "incident:inc-8401da26:error",
+    "msg": "incident inc-8401da26 [error]: edge: tunnel routes 12 public hostname(s) to 8 closed origin port(s) :3005 :3010 :3011 :3020 :4001 :4060 :4444 :5530: 24.3 failed requests/min over 29 min",
+    "severity": "warn",
+    "ts": "2026-10-21T17:38:28+02:00"
+  },
+  {
+    "component": "cloudflared",
+    "key": "status:cloudflared:failing-soon",
+    "msg": "failing-soon: degrading: tunnel origin errors 444/572 requests in 10 min; degrading: 1 restart(s) in the last hour; failing-soon: 836 errors in 5 min",
+    "severity": "warn",
+    "ts": "2026-10-21T17:38:28+02:00"
+  },
+  {
+    "component": "ddos:edge-cloudflared",
+    "key": "incident:inc-99a00e28:warn",
+    "msg": "incident inc-99a00e28 [warn]: request flood on cloudflared (stream edge-cloudflared)",
+    "severity": "warn",
+    "ts": "2026-10-21T17:35:58+02:00"
+  },
+  {
+    "component": "galion-one",
+    "key": "incident:inc-cf2c65b8:error",
+    "msg": "incident inc-cf2c65b8 [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 15 min [health body {\"status\":\"loading\",\"model\":\"chatterbox\",\"loaded\":false,\"ok\":false,\"provider\":\"local\"}]",
+    "severity": "warn",
+    "ts": "2026-10-21T17:23:58+02:00"
+  }
+]

@@ -456,7 +456,7 @@ impl Engine {
             .as_ref()
             .map(Score::to_json)
             .unwrap_or(Value::Null);
-        json!({
+        let mut st = json!({
             "tool": "openmind-nerve",
             "service": "galion-nerve",
             "version": env!("CARGO_PKG_VERSION"),
@@ -484,7 +484,17 @@ impl Engine {
             "alerts": {"recent": self.alerts.recent.iter().rev().take(10).collect::<Vec<_>>(), "external": self.alerts.ext_status},
             "probe_errors": self.probe_errors,
             "probes_skipped": self.skipped,
-        })
+        });
+        // Only present after a state-dir load problem (keeps old goldens).
+        for (k, n) in [
+            ("reflex", &self.reflex.load_note),
+            ("alerts", &self.alerts.load_note),
+        ] {
+            if let Some(n) = n {
+                st[k]["load_note"] = json!(n);
+            }
+        }
+        st
     }
 
     /// The self-eval: findings in repo-check's shape (check, level,

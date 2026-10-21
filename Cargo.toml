@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+[workspace]
+resolver = "2"
+members = ["crates/galion-admin"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"

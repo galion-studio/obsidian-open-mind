@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-admin"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Galion OS L1 admin CLI skeleton: sandbox start/stop via galion-box, tunnel status, hash-chained audit log"
+publish = false
+
+[dependencies]
+libc = "0.2"
+
+[[example]]
+name = "fake_box"
+path = "examples/fake_box.rs"
+
+[[test]]
+name = "real_cli"
+path = "tests/real_cli.rs"
+
+[[test]]
+name = "real_vps"
+path = "tests/real_vps.rs"

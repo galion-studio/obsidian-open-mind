@@ -11,6 +11,8 @@
     {"name": "live-replay192", "source": "live:replay192", "env": {}, "note": "VPS 2026-10-21 14:48 +02:00 (slot 192)"},
     {"name": "live-replay193", "source": "live:replay193", "env": {}, "note": "VPS 2026-10-21 15:22 +02:00 (slot 193, this corpus)"},
     {"name": "live-replay200", "source": "live:replay200", "env": {}, "note": "VPS 2026-10-21 19:00 +02:00 (slot 200 nerve-t23-specs capture; added by T3.1 slot 207)"},
+    {"name": "live-replay207", "source": "live:replay207", "env": {}, "note": "VPS 2026-10-21 19:51 +02:00 (slot 207 T3.1 capture; live nerve bb287cc in event mode, 1 distinct snapshot)"},
+    {"name": "live-replay207-sshd", "source": "live:replay207", "env": {"NERVE_SSHD": "1"}, "note": "T3.1: replay207 with the sshd sensor on"},
     {"name": "live-replay158-sshd", "source": "live:replay158", "env": {"NERVE_SSHD": "1"}, "note": "T3.1: replay158 with the sshd sensor on (real ssh.service lines; the live nerve runs it off)"},
     {"name": "live-replay179-sshd", "source": "live:replay179", "env": {"NERVE_SSHD": "1"}, "note": "T3.1: replay179 with the sshd sensor on (highest real invalid_user window, 8 per 300 s)"},
     {"name": "live-replay186-sshd", "source": "live:replay186", "env": {"NERVE_SSHD": "1"}, "note": "T3.1: replay186 with the sshd sensor on"},

@@ -275,7 +275,7 @@ impl CompState {
             ) {
                 if let (Some(r0), Some(e0)) = (old.tunnel_requests, old.tunnel_req_errors) {
                     let (dr, de) = (req.saturating_sub(r0), err.saturating_sub(e0));
-                    if dr >= 20 && de * 4 >= dr {
+                    if dr >= 20 && de.saturating_mul(4) >= dr {
                         bump(
                             Status::Degrading,
                             format!(

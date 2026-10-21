@@ -7,9 +7,11 @@ use std::io::BufRead;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use galion_guard::compare::{self, Options as CmpOptions};
 use galion_guard::config::{self, Config, Effective};
 use galion_guard::daemon;
 use galion_guard::engine::{Engine, Event};
+use galion_guard::f2blog::{self, ShadowLog, Zone};
 use galion_guard::filter::SshdFilter;
 use galion_guard::jail::{Jail, Protect};
 use galion_guard::nft::DryRun;
@@ -46,12 +48,19 @@ usage:
   galion-guard stop         [--config PATH]      save state and exit (systemd ExecStop)
   galion-guard check-config [--config PATH]
   galion-guard test-filter  <file|-> [--show]    like fail2ban-regex for the sshd filter
-  galion-guard replay       <file|-> [--config PATH] [--json] [--drain]
-                                                 replay a log with its own timestamps (dry-run)
+  galion-guard replay       <file|-> [--config PATH] [--json] [--drain] [--shadow-log PATH] [--shadow-zone zagreb|utc]
+                                                 replay a log with its own timestamps (dry-run);
+                                                 --shadow-log also writes it in fail2ban format
+  galion-guard compare      <fail2ban.log> <shadow.log> [--fail2ban-zone utc|zagreb] [--shadow-zone zagreb|utc]
+                            [--tolerance SECS] [--since RFC3339] [--until RFC3339] [--mask] [--timeline] [--json]
+                                                 side-by-side report: would galion-guard have done what
+                                                 fail2ban did? exit 0 = parity, 3 = differences
   galion-guard teardown     [--config PATH]      remove the nft table (lifts all bans)
+                                                 (shadow backend: nothing to remove, nft never runs)
   galion-guard version
 
-default config: /etc/galion-guard/guard.toml (missing file = built-in VPS defaults)";
+default config: /etc/galion-guard/guard.toml (missing file = built-in VPS defaults)
+backends: nft | dry-run (logs nft scripts) | shadow (log-only, fail2ban-format log, never touches nft)";
 
 struct Args {
     cmd: String,
@@ -60,6 +69,9 @@ struct Args {
     json: bool,
     show: bool,
     drain: bool,
+    mask: bool,
+    timeline: bool,
+    opt: std::collections::BTreeMap<String, String>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -72,6 +84,9 @@ fn parse_args() -> Result<Args, String> {
         json: false,
         show: false,
         drain: false,
+        mask: false,
+        timeline: false,
+        opt: Default::default(),
     };
     while let Some(x) = it.next() {
         match x.as_str() {
@@ -79,6 +94,13 @@ fn parse_args() -> Result<Args, String> {
             "--json" => a.json = true,
             "--show" => a.show = true,
             "--drain" => a.drain = true,
+            "--mask" => a.mask = true,
+            "--timeline" => a.timeline = true,
+            "--shadow-log" | "--shadow-zone" | "--fail2ban-zone" | "--tolerance" | "--since"
+            | "--until" | "--jail" => {
+                let v = it.next().ok_or(format!("{x} needs a value"))?;
+                a.opt.insert(x.trim_start_matches('-').to_string(), v);
+            }
             _ => a.pos.push(x),
         }
     }
@@ -171,6 +193,11 @@ fn replay(a: &Args) -> Result<(), String> {
     );
     let mut eng = Engine::new(jail, Box::new(DryRun::new(None, None)), None);
     eng.record = true;
+    if let Some(p) = a.opt.get("shadow-log") {
+        let zone = Zone::parse(a.opt.get("shadow-zone").map_or("zagreb", |s| s.as_str()))?;
+        eng.shadow = Some(ShadowLog::new(p.into(), zone));
+        eng.emit_found = true;
+    }
     eng.bsd_offset = e.cfg.sshd.bsd_utc_offset_minutes * 60;
     let wall = now_secs();
     eng.startup(wall)?;
@@ -211,6 +238,16 @@ fn replay(a: &Args) -> Result<(), String> {
             continue;
         }
         match ev {
+            Event::Found { at, ip, logged } => outln!(
+                "{} FOUND {ip} (logged {})",
+                zagreb_time::from_unix(*at),
+                zagreb_time::from_unix(*logged)
+            ),
+            Event::Restored { at, ip, until } => outln!(
+                "{} RESTORED {ip} until {}",
+                zagreb_time::from_unix(*at),
+                zagreb_time::from_unix(*until)
+            ),
             Event::Ban {
                 ip,
                 at,
@@ -251,6 +288,59 @@ fn replay(a: &Args) -> Result<(), String> {
         eng.jail.totals.banned,
         eng.jail.bans().count()
     );
+    Ok(())
+}
+
+fn compare(a: &Args) -> Result<(), String> {
+    let (Some(fp), Some(gp)) = (a.pos.first(), a.pos.get(1)) else {
+        return Err("compare needs <fail2ban.log> <shadow.log>".into());
+    };
+    let read = |p: &str| -> Result<String, String> {
+        let mut s = String::new();
+        let mut r = open_input(p)?;
+        let mut buf = Vec::new();
+        std::io::Read::read_to_end(&mut r, &mut buf).map_err(|e| format!("read {p}: {e}"))?;
+        s.push_str(&String::from_utf8_lossy(&buf));
+        Ok(s)
+    };
+    if fp == "-" && gp == "-" {
+        return Err("only one input can be stdin".into());
+    }
+    let fz = Zone::parse(a.opt.get("fail2ban-zone").map_or("utc", |s| s.as_str()))?;
+    let gz = Zone::parse(a.opt.get("shadow-zone").map_or("zagreb", |s| s.as_str()))?;
+    let jail = a.opt.get("jail").map_or("sshd", |s| s.as_str());
+    let f = f2blog::parse_log(&read(fp)?, fz, jail);
+    let g = f2blog::parse_log(&read(gp)?, gz, jail);
+    let t = |k: &str| -> Result<Option<i64>, String> {
+        a.opt
+            .get(k)
+            .map(|v| timefmt::parse_rfc3339(v).ok_or(format!("--{k}: not RFC 3339: {v}")))
+            .transpose()
+    };
+    let o = CmpOptions {
+        tolerance: a
+            .opt
+            .get("tolerance")
+            .map(|v| {
+                v.parse::<i64>()
+                    .map_err(|_| "--tolerance: seconds".to_string())
+            })
+            .transpose()?
+            .unwrap_or(5)
+            .max(0),
+        since: t("since")?,
+        until: t("until")?,
+        mask: a.mask,
+    };
+    let r = compare::compare(&f, &g, &o);
+    if a.json {
+        outln!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
+    } else {
+        out!("{}", compare::render(&r, a.timeline));
+    }
+    if !r.parity {
+        std::process::exit(3);
+    }
     Ok(())
 }
 
@@ -300,8 +390,13 @@ fn real_main() -> Result<(), String> {
         }
         "test-filter" => test_filter(&a),
         "replay" => replay(&a),
+        "compare" => compare(&a),
         "teardown" => {
             let e = load_config(&a.config)?;
+            if e.cfg.guard.is_shadow() {
+                outln!("shadow backend: no firewall table was ever created; nothing to remove (nft not run)");
+                return Ok(());
+            }
             let mut b = daemon::backend_for(&e)?;
             b.teardown()?;
             outln!("removed table inet {}", e.cfg.guard.table);

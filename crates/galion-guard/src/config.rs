@@ -16,12 +16,18 @@ pub const DEFAULT_PATH: &str = "/etc/galion-guard/guard.toml";
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct Guard {
-    /// "nft" or "dry-run".
+    /// "nft", "dry-run" (logs the nft scripts it would run) or "shadow"
+    /// (log-only: fail2ban-format shadow log, never touches the firewall).
     pub backend: String,
     pub nft: PathBuf,
     pub table: String,
     /// Dry-run backend: append the nft scripts it would run here.
     pub dry_run_log: Option<PathBuf>,
+    /// Shadow backend: fail2ban-format log of what galion-guard would do.
+    /// Default: `shadow.log` next to the state file.
+    pub shadow_log: Option<PathBuf>,
+    /// Zone of the shadow log stamps: "zagreb" (default) or "utc".
+    pub shadow_zone: String,
     pub state: PathBuf,
     pub socket: PathBuf,
     /// fail2ban `ignoreself`: never ban this host's own addresses.
@@ -37,6 +43,8 @@ impl Default for Guard {
             nft: "/usr/sbin/nft".into(),
             table: "galion-guard".into(),
             dry_run_log: None,
+            shadow_log: None,
+            shadow_zone: "zagreb".into(),
             state: "/var/lib/galion-guard/state.json".into(),
             socket: "/run/galion-guard/control.sock".into(),
             ignoreself: true,
@@ -123,6 +131,21 @@ pub struct Effective {
     pub allow: Vec<Net>,
 }
 
+impl Guard {
+    pub fn is_shadow(&self) -> bool {
+        self.backend == "shadow"
+    }
+
+    pub fn shadow_log_path(&self) -> PathBuf {
+        self.shadow_log.clone().unwrap_or_else(|| {
+            self.state
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join("shadow.log")
+        })
+    }
+}
+
 impl Config {
     pub fn load(path: &Path) -> Result<Effective, String> {
         let text =
@@ -137,12 +160,14 @@ impl Config {
 
     pub fn validate(self) -> Result<Effective, String> {
         let s = &self.sshd;
-        if !matches!(self.guard.backend.as_str(), "nft" | "dry-run") {
+        if !matches!(self.guard.backend.as_str(), "nft" | "dry-run" | "shadow") {
             return Err(format!(
-                "guard.backend must be nft or dry-run, not {:?}",
+                "guard.backend must be nft, dry-run or shadow, not {:?}",
                 self.guard.backend
             ));
         }
+        crate::f2blog::Zone::parse(&self.guard.shadow_zone)
+            .map_err(|e| format!("guard.shadow_zone: {e}"))?;
         if !crate::nft::valid_table(&self.guard.table) {
             return Err(format!(
                 "guard.table {:?} is not a valid name",
@@ -285,6 +310,15 @@ mod tests {
         assert!(Config::parse("[guard]\ntable = \"x y\"").is_err());
         assert!(Config::parse("[guard]\nbogus = 1").is_err());
         assert!(Config::parse("[sshd]\nports = []").is_err());
+        let s = Config::parse("[guard]\nbackend = \"shadow\"\nstate = \"/var/lib/g/state.json\"")
+            .unwrap();
+        assert!(s.cfg.guard.is_shadow());
+        assert_eq!(
+            s.cfg.guard.shadow_log_path(),
+            PathBuf::from("/var/lib/g/shadow.log")
+        );
+        assert!(Config::parse("[guard]\nshadow_zone = \"cet\"").is_err());
+        assert!(Config::parse("[guard]\nbackend = \"nft-shadow\"").is_err());
     }
 
     #[test]

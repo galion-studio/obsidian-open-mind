@@ -7,10 +7,14 @@
 # Install path: /etc/galion-guard/guard.toml (mode 0600, root).
 
 [guard]
-# "dry-run" = shadow mode next to fail2ban: detect and log, write the nft
-# scripts it would run to dry_run_log, touch no firewall. Switch to "nft" at
-# cutover (after fail2ban is stopped).
-backend = "dry-run"
+# "shadow" = log-only next to fail2ban: detect, decide and log in fail2ban
+# format to shadow_log, never touch the firewall (no nft is ever run).
+# Compare with: galion-guard compare /var/log/fail2ban.log /var/lib/galion-guard/shadow.log
+# Switch to "nft" at cutover (after fail2ban is stopped), see docs/guard-shadow.md.
+backend = "shadow"
+shadow_log = "/var/lib/galion-guard/shadow.log"
+shadow_zone = "zagreb"
+# Kept for the older "dry-run" backend (logs the nft scripts it would run).
 dry_run_log = "/var/lib/galion-guard/dry-run.nft"
 nft = "/usr/sbin/nft"
 table = "galion-guard"

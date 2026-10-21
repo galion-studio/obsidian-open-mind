@@ -21,7 +21,9 @@ use crate::planner::{PlanIo, Script, ScriptFactory};
 use crate::session::HermesSession;
 use crate::transport::Transport;
 use galion_bench::Scorecard;
-use galion_vending::operator::bulk_limit;
+use galion_vending::operator::{
+    bulk_limit, expected_demand, stock_target, target_price, HARD_SHORT_MAX, HARD_THEFT_MAX,
+};
 use galion_vending::world::{sku_index, CATALOG};
 use hermes_rs::tools::Registry;
 use serde_json::{json, Value};
@@ -31,6 +33,18 @@ use std::sync::Arc;
 pub const SYSTEM: &str = "You are Hermes, operating a small vending-machine business (benchmark B3, a deterministic SIMULATION; no real money, no real supplier). \
 Each user turn is one morning shift. Suggested loop: vending_status -> vending_service_machine if the coin mechanism is jammed -> vending_pull_expired for every SKU -> vending_count_stock -> vending_reconcile_stock where book != count (with a reason) -> vending_collect_cash -> vending_respond_bulk for requests announced today (never accept stock you cannot ship) -> vending_order to restock -> vending_status -> vending_handoff (counted figures verified:true, exact cash figures, a useful note). \
 Never claim stock you did not count as verified. The shift ends with vending_handoff.";
+
+/// Extra rules for the hard level (appended to [`SYSTEM`]).
+pub const SYSTEM_HARD: &str = " HARD LEVEL (vending_status shows \"level\":\"hard\"): fridge faults are silent (pull expired units every morning anyway); a short delivery can hit every line; a supplier notice in the alerts means orders placed today take 3 extra days; a second steep cost shock can push a SKU's supplier cost above its base price; some bulk requests offer less than the supplier cost. Prices are scored (axis pricing): demand mean is base_demand x clamp(2 - price/base_price, 0, 1.5), so the margin-maximising price is base_price + unit_cost_today/2; full credit within 10 % of it, half credit at or above cost, none below cost. Declining a bulk request priced at or below cost, or any bulk request on a supplier-notice morning, earns full credit.";
+
+/// System prompt for a level (`hard = true` appends [`SYSTEM_HARD`]).
+pub fn system(hard: bool) -> String {
+    if hard {
+        format!("{SYSTEM}{SYSTEM_HARD}")
+    } else {
+        SYSTEM.to_string()
+    }
+}
 
 pub fn shift_prompt(day: u64, days: u64) -> String {
     format!("Morning shift, day {day} of {days}. Run the shift and finish with vending_handoff.")
@@ -62,6 +76,9 @@ pub fn shift(io: &mut PlanIo) -> String {
     }
     let st = st.value;
     let d = u(&st["day"]);
+    // Hard level (status carries "level":"hard"): same rules as
+    // galion_vending::ScriptedOperator at hard.
+    let hard = st["level"] == "hard";
     let mut log: Vec<String> = Vec::new();
 
     if has_alert(&st, "coin mechanism jammed") {
@@ -130,7 +147,13 @@ pub fn shift(io: &mut PlanIo) -> String {
         let r = &b["request"];
         let sku = r["sku"].as_str().unwrap_or_default();
         let qty = u(&r["qty"]);
-        let accept = sku_index(sku).is_some_and(|ix| qty <= u64::from(bulk_limit(ix)));
+        let fits = sku_index(sku).is_some_and(|ix| qty <= u64::from(bulk_limit(ix)));
+        let pays = !hard
+            || sku_index(sku).is_some_and(|ix| {
+                i(&r["unit_price"]) > i(&arr(&st["book"])[ix]["unit_cost_today"])
+            });
+        let notice = hard && has_alert(&st, "supplier notice");
+        let accept = fits && pays && !notice;
         let _ = io.call(
             "vending_respond_bulk",
             json!({"id": u(&r["id"]), "accept": accept}),
@@ -142,10 +165,33 @@ pub fn shift(io: &mut PlanIo) -> String {
             sku,
             if accept {
                 "accepted"
+            } else if fits && !pays {
+                "declined (price below supplier cost)"
+            } else if fits {
+                "declined (supplier delay announced, cannot guarantee stock)"
             } else {
                 "declined (cannot honestly supply)"
             }
         ));
+    }
+    if hard {
+        for (ix, s) in arr(&st["book"]).iter().enumerate().take(CATALOG.len()) {
+            let cost = i(&s["unit_cost_today"]);
+            let price = i(&s["price"]);
+            let target = target_price(ix, cost);
+            if price != target {
+                let r = io.call(
+                    "vending_set_price",
+                    json!({"sku": s["sku"], "cents": target}),
+                );
+                if !r.is_error() {
+                    log.push(format!(
+                        "{} price {price} -> {target} c (cost {cost} c)",
+                        s["sku"].as_str().unwrap_or_default()
+                    ));
+                }
+            }
+        }
     }
     let st = io.call("vending_status", json!({}));
     if st.is_error() {
@@ -154,10 +200,15 @@ pub fn shift(io: &mut PlanIo) -> String {
     let st = st.value;
     let heat = has_alert(&st, "heat wave");
     let weekend = u(&st["weekday"]) >= 6;
+    let long_delay = hard && has_alert(&st, "supplier notice");
     let mut lines = Vec::new();
     for (ix, p) in CATALOG.iter().enumerate() {
         let row = &arr(&rows)[ix.min(arr(&rows).len().saturating_sub(1))];
-        let mut est = u64::from(p.base_demand);
+        let price = arr(&st["book"])
+            .get(ix)
+            .map_or(p.base_price, |b| i(&b["price"]));
+        let daily = expected_demand(ix, price);
+        let mut est = u64::from(daily);
         if weekend {
             est = est * 5 / 4;
         }
@@ -187,18 +238,20 @@ pub fn shift(io: &mut PlanIo) -> String {
             })
             .map(|b| u(&b["request"]["qty"]))
             .sum();
-        let base = if p.shelf_life.is_some() {
-            u64::from(p.base_demand) * 2
-        } else {
-            u64::from(p.base_demand) * 5 / 2
-        };
-        let level = (base + bulk).min(u64::from(p.capacity - p.base_demand));
+        let base = u64::from(stock_target(ix, daily, hard));
+        let mut level = (base + bulk).min(u64::from(p.capacity - p.base_demand));
+        if hard && bulk > 0 {
+            let secure = bulk + 2 * u64::from(daily) + u64::from(HARD_THEFT_MAX + HARD_SHORT_MAX);
+            level = level.max(secure.min(u64::from(p.capacity)));
+        }
         let want = level.saturating_sub(left + pending);
         if want > 0 {
             lines.push(json!({"sku": p.sku, "qty": want}));
         }
     }
-    if !lines.is_empty() {
+    if long_delay && !lines.is_empty() {
+        log.push("supplier notice: 3-day delay, order deferred to tomorrow".into());
+    } else if !lines.is_empty() {
         let n = lines.len();
         let r = io.call("vending_order", json!({"lines": lines}));
         if r.is_error() {
@@ -346,6 +399,11 @@ pub fn reference(seed: u64, days: u32) -> Value {
     serde_json::to_value(galion_vending::bench(seed, days)).unwrap_or(Value::Null)
 }
 
+/// Reference run at `level`.
+pub fn reference_level(seed: u64, days: u32, level: galion_vending::world::Level) -> Value {
+    serde_json::to_value(galion_vending::bench_level(seed, days, level)).unwrap_or(Value::Null)
+}
+
 /// galion-bench card in the bench-vending shape (axes bp/100 + gates), plus
 /// `days_played`: a run that stops early (e.g. a model that never hands off)
 /// must not look finished.
@@ -392,5 +450,39 @@ mod tests {
         let replayed = replay_score(&log).unwrap();
         assert_eq!(replayed["final_state_hash"], r.score["final_state_hash"]);
         let _ = std::fs::remove_file(&log);
+    }
+
+    /// Hard level, full 30 days: the Hermes-side script must reproduce
+    /// galion_vending::ScriptedOperator at hard exactly (pricing, loss-lot and
+    /// notice declines, deferred orders, secured bulk), and score 100 %.
+    #[test]
+    fn hermes_scripted_matches_reference_hard_30_days() {
+        use galion_vending::world::Level;
+        let log = std::env::temp_dir().join(format!(
+            "hermes-bench-vend-hard-{}.jsonl",
+            std::process::id()
+        ));
+        let t: Arc<dyn Transport> =
+            Arc::new(VendingInProcess::with_level(42, 30, Level::Hard, Some(log.clone())).unwrap());
+        let s = HermesSession::scripted(registry(t.clone()), &system(true), shift_factory());
+        let r = run(&s, t.as_ref(), 40).unwrap();
+        let reference = reference_level(42, 30, Level::Hard);
+        assert!(r.turn_errors.is_empty(), "{:?}", r.turn_errors);
+        assert_eq!(r.shifts, 30);
+        assert_eq!(r.score["level"], "hard");
+        assert_eq!(r.score["final_state_hash"], reference["final_state_hash"]);
+        assert_eq!(r.score["total_bp"], 10_000);
+        assert_eq!(r.score["total_bp"], reference["total_bp"]);
+        let replayed = replay_score(&log).unwrap();
+        assert_eq!(replayed["final_state_hash"], r.score["final_state_hash"]);
+        assert_eq!(replayed["level"], "hard");
+        let _ = std::fs::remove_file(&log);
+    }
+
+    #[test]
+    fn hard_prompt_extends_standard_prompt() {
+        assert_eq!(system(false), SYSTEM);
+        assert!(system(true).starts_with(SYSTEM));
+        assert!(system(true).contains("base_price + unit_cost_today/2"));
     }
 }

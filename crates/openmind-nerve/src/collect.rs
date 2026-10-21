@@ -106,6 +106,14 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
     let mut errs = vec![];
     let mut skipped = vec![];
     let units: Vec<&str> = specs.iter().filter_map(|s| s.unit).collect();
+    // Timer kind: the oneshot service behind each timer (T2.3).
+    let timer_svcs: Vec<String> = specs
+        .iter()
+        .filter(|s| s.kind == Kind::Timer)
+        .filter_map(|s| s.unit.and_then(probe::timer_service))
+        .collect();
+    let mut journal_units = units.clone();
+    journal_units.extend(timer_svcs.iter().map(String::as_str));
     let infos = if !cfg.systemd {
         skipped.push("systemd (NERVE_SYSTEMD=0)".to_string());
         HashMap::new()
@@ -122,7 +130,7 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
         skipped.push("journald (NERVE_JOURNAL=0 or no units)".to_string());
         vec![]
     } else {
-        match probe::journal_lines(&units, since) {
+        match probe::journal_lines(&journal_units, since) {
             Ok(v) => v,
             Err(e) => {
                 errs.push(format!("journald: {e}"));
@@ -130,7 +138,13 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
             }
         }
     };
-    let journal = probe::journal_counts(&lines, &units);
+    let journal = probe::journal_counts(&lines, &journal_units);
+    let runs: Result<HashMap<String, probe::LastRun>, String> = if !cfg.systemd {
+        Ok(HashMap::new())
+    } else {
+        let refs: Vec<&str> = timer_svcs.iter().map(String::as_str).collect();
+        probe::last_runs(&refs)
+    };
     let health: HashMap<String, bool> = match cfg.health_url_port {
         Some(p) => {
             // Full body (http_probe keeps only 512 bytes).
@@ -265,6 +279,27 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
                     }
                 } else {
                     s.present = false;
+                }
+            }
+            Kind::Timer => {
+                let svc = sp.unit.and_then(probe::timer_service);
+                if let Some(svc) = svc.filter(|_| s.present) {
+                    if let Some(j) = journal.get(svc.as_str()) {
+                        s.journal_errors += j.errors;
+                        s.journal_warnings += j.warnings;
+                        if j.last_error.is_some() {
+                            s.last_error = j.last_error.clone();
+                        }
+                    }
+                    match &runs {
+                        Ok(m) => {
+                            if let Some(r) = m.get(&svc) {
+                                s.extra["last_run"] = r.to_json();
+                            }
+                        }
+                        // Observed, not scored: older systemd has no --timestamp=unix.
+                        Err(e) => s.extra["last_run_unreadable"] = json!(e),
+                    }
                 }
             }
             Kind::SelfNerve => {

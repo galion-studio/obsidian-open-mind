@@ -67,6 +67,8 @@ pub struct Engine {
     skipped: Vec<String>,
     actions_since_report: Vec<Value>,
     pub reflexes_enabled: bool,
+    /// Replay: fixed answer for "is a deploy running" instead of scanning /proc.
+    pub busy_override: Option<bool>,
     pub write_files: bool,
     pub tails: Vec<(Tail, Option<String>)>,
     pub logs: LogInsights,
@@ -145,6 +147,7 @@ impl Engine {
             skipped: vec![],
             actions_since_report: vec![],
             reflexes_enabled: cfg.reflex,
+            busy_override: None,
             write_files: true,
             tails,
             logs: LogInsights::default(),
@@ -313,7 +316,7 @@ impl Engine {
         self.cortex.attach_owners(&mut self.incidents, &self.comps);
         // Reflexes.
         if self.reflexes_enabled {
-            let busy = deploy_in_progress();
+            let busy = self.busy_override.unwrap_or_else(deploy_in_progress);
             let mut acted = 0;
             for i in 0..self.comps.len() {
                 let d = self.reflex.decide(&self.comps[i], now, busy);
@@ -328,7 +331,7 @@ impl Engine {
                 }
                 let name = self.comps[i].spec.name;
                 let before = self.reflex.recent.len();
-                self.reflex.execute(name, &d, &mut self.alerts);
+                self.reflex.execute_at(name, &d, &mut self.alerts, now);
                 if self.reflex.recent.len() > before {
                     if let Some(a) = self.reflex.recent.back() {
                         self.actions_since_report.push(a.clone());
@@ -549,12 +552,18 @@ impl Engine {
         let mut self_warns = vec![];
         for c in &self.comps {
             if c.hist.is_empty() {
-                add(
-                    "coverage",
-                    "error",
-                    c.spec.name,
-                    "no sample this cycle".into(),
-                );
+                // A replay marks components its capture does not name as absent
+                // (T2.3): reported, not an error. A live cycle always samples.
+                if c.status == crate::state::Status::Absent {
+                    add("coverage", "info", c.spec.name, c.reasons.join("; "));
+                } else {
+                    add(
+                        "coverage",
+                        "error",
+                        c.spec.name,
+                        "no sample this cycle".into(),
+                    );
+                }
                 continue;
             }
             if c.status != Status::Healthy {

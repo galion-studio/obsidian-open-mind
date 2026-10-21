@@ -123,6 +123,11 @@ firing: **true**
 | galion-health | DEMETER | healthy | active | 200 | - | 1000 KiB | - | 0 | 0 | - |
 | cloudflared | AETHER | degrading | active | - | - | - | - | 0 | 0 | degrading: tunnel origin errors 30/40 requests in 1 min; degrading: 19 errors in 5 min (last: ) (4 edge conns, 81940 req, 48590 req errors) |
 | tuner-quick | AETHER | healthy | active | - | - | - | - | 0 | 0 | (1 edge conns, 21 req, 0 req errors) |
+| openmind-queue | POSEIDON | absent | - | - | - | - | - | 0 | 0 | absent: not in this capture |
+| tanga-proto | ELEUTHIA | absent | - | - | - | - | - | 0 | 0 | absent: not in this capture |
+| galion-nerve-shadow | AETHER | absent | - | - | - | - | - | 0 | 0 | absent: not in this capture |
+| galion-backup | DEMETER | absent | - | - | - | - | - | 0 | 0 | absent: not in this capture |
+| hades-gate | HADES | absent | - | - | - | - | - | 0 | 0 | absent: not in this capture |
 | voice-worker | AETHER | absent | - | - | - | - | - | 0 | 0 | absent: ws/voice KittenTTS worker; not deployed yet |
 | gaia | GAIA | absent | - | - | - | - | - | 0 | 0 | absent: ws/gaia `gaia status`; absent until the gaia CLI is installed |
 | lxc-host | POSEIDON | healthy | - | - | - | - | - | 0 | 0 | (disk / 25% used (75 KiB free of 100 KiB), RAM 90 KiB available of 100 KiB, load1 0.5) |
@@ -132,16 +137,16 @@ firing: **true**
 
 | function | status | components |
 |---|---|---|
-| AETHER | degrading | galion-one-mouth:degrading, cloudflared:degrading, tuner-quick:healthy, voice-worker:absent, galion-nerve:healthy (nerve: this hub (signals in, state out)) |
+| AETHER | degrading | galion-one-mouth:degrading, cloudflared:degrading, tuner-quick:healthy, galion-nerve-shadow:absent, voice-worker:absent, galion-nerve:healthy (nerve: this hub (signals in, state out)) |
 | APOLLO | healthy | openmind-memory:healthy, link-watch-rs:healthy |
 | ARTEMIS | healthy | hermes-rs:healthy |
-| DEMETER | healthy | tuner:healthy, galion-health:healthy (boot-units: nerve restart reflex) |
-| ELEUTHIA | healthy | galion-one:healthy |
+| DEMETER | healthy | tuner:healthy, galion-health:healthy, galion-backup:absent (boot-units: nerve restart reflex) |
+| ELEUTHIA | healthy | galion-one:healthy, tanga-proto:absent |
 | GAIA | absent | gaia:absent |
-| HADES | no-live-systems | (rollback: nerve rollback reflex via galion-deploy, 1 per unit per day) |
+| HADES | absent | hades-gate:absent (rollback: nerve rollback reflex via galion-deploy, 1 per unit per day) |
 | HEPHAESTUS | degrading | galion-desk:degrading, console:healthy |
 | MINERVA | no-live-systems | (alerting: nerve alerts to journald + alerts.json) |
-| POSEIDON | healthy | lxc-host:healthy |
+| POSEIDON | healthy | openmind-queue:absent, lxc-host:healthy |
 
 ## Findings
 
@@ -162,6 +167,11 @@ firing: **true**
 - info `component` galion-desk: degrading: degrading: 2 restart(s) in the last hour
 - info `component` galion-one-mouth: degrading: degrading: health probe HTTP 503
 - info `component` cloudflared: degrading: degrading: tunnel origin errors 30/40 requests in 1 min; degrading: 19 errors in 5 min (last: )
+- info `coverage` openmind-queue: absent: not in this capture
+- info `coverage` tanga-proto: absent: not in this capture
+- info `coverage` galion-nerve-shadow: absent: not in this capture
+- info `coverage` galion-backup: absent: not in this capture
+- info `coverage` hades-gate: absent: not in this capture
 - info `component` voice-worker: absent: absent: ws/voice KittenTTS worker; not deployed yet
 - info `component` gaia: absent: absent: ws/gaia `gaia status`; absent until the gaia CLI is installed
 - info `push` galion-nerve: no push sources live; all components on pull probes

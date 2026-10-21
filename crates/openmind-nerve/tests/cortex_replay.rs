@@ -189,7 +189,6 @@ fn nerve_wiring_additions_are_present() {
     );
 }
 
-#[test]
 /// The `/api/v1/state` `cortex_events` of the replay fixture, pinned (slot
 /// 105): `top` is `{id, component, cause, evidence_n}` only. Before this
 /// golden, `top.title` carried "port 9999 listens on <bind address>" and the

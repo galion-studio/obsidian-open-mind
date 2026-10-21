@@ -1427,6 +1427,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "binds a TCP socket; Miri isolation has no socket")]
     fn busy_hook_runs_on_each_cap_refusal() {
         use std::io::Read;
         use std::sync::atomic::{AtomicUsize, Ordering};

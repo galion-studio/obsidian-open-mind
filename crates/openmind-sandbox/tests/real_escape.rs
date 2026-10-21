@@ -191,6 +191,21 @@ fn real_escape() {
             says(&o, "seebystander") == Some(false),
             "payload saw a process outside in /proc".into(),
         );
+        eprintln!("proc layer {:?}, view {:?}", o.layer("proc"), o.proc_view);
+        let o = runsb(&p, &["procpeek", &pid.to_string()]);
+        check(
+            says(&o, "procpeek") == Some(false),
+            "payload read /proc/<pid> files of a process outside".into(),
+        );
+        // Control (measured, not judged): the pre-fix host /proc view.
+        let mut ph = p.clone();
+        ph.proc_fallback = openmind_sandbox::ProcFallback::Host;
+        let o = runsb(&ph, &["procpeek", &pid.to_string()]);
+        eprintln!(
+            "CONTROL proc_fallback=Host: view {:?}, procpeek {:?}",
+            o.proc_view,
+            says(&o, "procpeek")
+        );
         check(
             bystander.try_wait().unwrap().is_none(),
             "bystander died".into(),

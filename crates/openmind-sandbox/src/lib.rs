@@ -144,6 +144,50 @@ pub struct SandboxPolicy {
     /// Inode cap of that tmpfs (0 = `workdir_tmpfs_bytes` / 16 KiB, at least
     /// 1024). Also bounds how many entries are copied back.
     pub workdir_tmpfs_inodes: u64,
+    /// What to show at /proc when the kernel refuses a fresh proc mount for
+    /// the PID namespace (unprivileged LXC with lxcfs, see [`ProcFallback`]).
+    pub proc_fallback: ProcFallback,
+}
+
+/// What the sandbox shows at `/proc` when a fresh proc mount for its PID
+/// namespace is refused. In a user namespace the kernel refuses it when the
+/// existing /proc has files mounted over it (`mount_too_revealing`), which is
+/// every LXC container with lxcfs (/proc/cpuinfo, meminfo, stat, ... are FUSE
+/// overmounts). The host /proc, with every process of the host, would then
+/// stay visible.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum ProcFallback {
+    /// Keep the host /proc (the behaviour before this option existed): every
+    /// host process is listed and its `cmdline` and `status` are readable.
+    Host,
+    /// Replace /proc with a read-only tmpfs that holds only a few static,
+    /// container-scoped files (cpuinfo, meminfo, stat, loadavg, uptime,
+    /// version): a live clone of the host file when the kernel and LSM allow
+    /// it, else a snapshot of its content read by the caller just before
+    /// the run (at most 64 KiB each). No pid directories, so no
+    /// `/proc/self`: a tool that needs it fails instead of seeing the host.
+    /// The view is built in a recursive copy of the sandbox's mount tree and
+    /// entered with pivot_root, because AppArmor in LXC refuses a mount on
+    /// `/proc` itself. When the mask cannot be built the run keeps the host
+    /// /proc and the `proc` layer says so.
+    #[default]
+    Mask,
+    /// Fail the run closed instead of running with the host /proc.
+    Refuse,
+}
+
+/// What the command saw at `/proc`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcView {
+    /// A fresh proc of the sandbox's PID namespace.
+    Private,
+    /// A fresh proc with `subset=pid` (only the sandbox's pid directories).
+    PidOnly,
+    /// The host /proc behind a read-only tmpfs with `static_files` files,
+    /// `live_files` of them live clones of the host file, the rest snapshots.
+    Masked { static_files: u32, live_files: u32 },
+    /// The host /proc (every host process visible).
+    Host,
 }
 
 impl SandboxPolicy {
@@ -194,6 +238,7 @@ impl SandboxPolicy {
             cgroup_cpu_pct: 0,
             workdir_tmpfs_bytes: 0,
             workdir_tmpfs_inodes: 0,
+            proc_fallback: ProcFallback::Mask,
         }
     }
 
@@ -243,6 +288,8 @@ pub struct Outcome {
     pub cgroup: Option<CgroupStats>,
     /// What the work dir tmpfs saw, when one was mounted.
     pub workdir_quota: Option<WorkdirQuota>,
+    /// What the command saw at /proc.
+    pub proc_view: ProcView,
 }
 
 /// Counters of the private work dir tmpfs (`workdir_tmpfs_bytes`).
@@ -784,31 +831,44 @@ fn fail(msg: String, start: Instant, enforced: Vec<(String, Enforcement)>) -> Ou
         enforced,
         cgroup: None,
         workdir_quota: None,
+        proc_view: ProcView::Host,
     }
 }
 
 // Status bits written by the process that execs, right before exec.
-const B_RLIMIT: u16 = 1;
-const B_NNP: u16 = 1 << 1;
-const B_USERNS: u16 = 1 << 2;
-const B_NETNS: u16 = 1 << 3;
-const B_PIDNS: u16 = 1 << 4;
-const B_MNTNS: u16 = 1 << 5;
-const B_RO_ROOT: u16 = 1 << 6;
-const B_HIDE: u16 = 1 << 7;
-const B_PROC: u16 = 1 << 8;
-const B_LANDLOCK: u16 = 1 << 9;
-const B_LL_NET: u16 = 1 << 10;
-const B_CAPS: u16 = 1 << 11;
-const B_UIDMAP: u16 = 1 << 12;
-const B_FDS: u16 = 1 << 13;
-const B_CGROUP: u16 = 1 << 14;
-const B_WDQ: u16 = 1 << 15;
+const B_RLIMIT: u32 = 1;
+const B_NNP: u32 = 1 << 1;
+const B_USERNS: u32 = 1 << 2;
+const B_NETNS: u32 = 1 << 3;
+const B_PIDNS: u32 = 1 << 4;
+const B_MNTNS: u32 = 1 << 5;
+const B_RO_ROOT: u32 = 1 << 6;
+const B_HIDE: u32 = 1 << 7;
+const B_PROC: u32 = 1 << 8;
+const B_LANDLOCK: u32 = 1 << 9;
+const B_LL_NET: u32 = 1 << 10;
+const B_CAPS: u32 = 1 << 11;
+const B_UIDMAP: u32 = 1 << 12;
+const B_FDS: u32 = 1 << 13;
+const B_CGROUP: u32 = 1 << 14;
+const B_WDQ: u32 = 1 << 15;
+// A proc mount with `subset=pid` (Linux >= 7.2 allows it in a rootless
+// container whose /proc is overmounted).
+const B_PROC_PIDONLY: u32 = 1 << 16;
+// Host /proc hidden behind a read-only tmpfs (proc_fallback = Mask).
+const B_PROC_MASK: u32 = 1 << 17;
+// Bits 18..23: errno (clamped to 1..63) of a /proc mask that failed cleanly.
+const PROC_MASK_ERR_SHIFT: u32 = 18;
+// Bits 24..27: how many static files the /proc mask kept; bits 28..31: how
+// many of them are live clones (the rest are snapshots).
+const PROC_MASK_SHIFT: u32 = 24;
+const PROC_MASK_LIVE_SHIFT: u32 = 28;
 // Private errno values the pre-exec code hands to `spawn` to fail closed with
 // a precise message (execve itself never returns these two).
 const E_UIDMAP: i32 = libc::ENOTRECOVERABLE;
 const E_CGROUP: i32 = libc::ESTALE;
 const E_WDQ: i32 = libc::ENOTUNIQ;
+const E_PROC: i32 = libc::ENOMEDIUM;
 // Work dir tmpfs report, written by the pre-exec child (copy in failed) or by
 // the PID-namespace supervisor (after the copy back): 11 x u64, one write.
 const WDQ_MAGIC: u64 = 0x5744_5131_3531_0001;
@@ -871,6 +931,219 @@ fn resolve_program(prog: &str, env_path: Option<&std::ffi::OsStr>) -> Option<Pat
         .map(|d| d.join(prog))
         .find(|p| p.is_file())
         .and_then(|p| std::fs::canonicalize(p).ok())
+}
+
+// move_mount(2): same number on every Linux arch (new-style syscall table).
+const SYS_MOVE_MOUNT: libc::c_long = 429;
+const MOVE_MOUNT_F_EMPTY_PATH: libc::c_uint = 0x4;
+
+/// Static /proc files the mask keeps (container-scoped under lxcfs).
+const PROC_MASK_STATIC: [&str; 6] = ["cpuinfo", "meminfo", "stat", "loadavg", "uptime", "version"];
+
+/// Paths for the /proc mask, built before the fork (no allocation after it).
+struct ProcMaskPaths {
+    /// The work dir: a scratch tmpfs goes over it for the copy of the tree.
+    stage: CString,
+    /// `<stage>/r`: the recursive copy of `/` (the new root).
+    root: CString,
+    /// `<stage>/r<stage>`: the scratch tmpfs as seen inside the copy.
+    inner: CString,
+    /// `<stage>/r/proc`: where the mask tmpfs goes.
+    proc_dir: CString,
+    /// (host /proc file, its place in the mask).
+    statics: Vec<(CString, CString)>,
+    /// Content of each static file, read by the caller before the fork (a
+    /// read from inside the new namespaces fails for most lxcfs files: VPS
+    /// run 2026-10-21 14:10), used when the file cannot be cloned as a mount.
+    snap: Vec<Vec<u8>>,
+}
+
+impl ProcMaskPaths {
+    fn new(workdir: &Path) -> Option<Self> {
+        if workdir == Path::new("/") || !workdir.is_absolute() {
+            return None;
+        }
+        let root = workdir.join("r");
+        let mut inner = root.clone().into_os_string();
+        inner.push(workdir.as_os_str());
+        let proc_dir = root.join("proc");
+        let statics = PROC_MASK_STATIC
+            .iter()
+            .filter_map(|n| Some((cstr(&Path::new("/proc").join(n))?, cstr(&proc_dir.join(n))?)))
+            .collect();
+        Some(ProcMaskPaths {
+            stage: cstr(workdir)?,
+            root: cstr(&root)?,
+            inner: cstr(Path::new(&inner))?,
+            proc_dir: cstr(&proc_dir)?,
+            statics,
+            snap: PROC_MASK_STATIC
+                .iter()
+                .map(|n| {
+                    let mut v = std::fs::read(Path::new("/proc").join(n)).unwrap_or_default();
+                    v.truncate(64 * 1024);
+                    v
+                })
+                .collect(),
+        })
+    }
+}
+
+/// Hide the host /proc from this process (PID 1 of the sandbox, still holding
+/// all capabilities of its user namespace) when no fresh proc can be mounted.
+///
+/// A mount on `/proc` itself is refused in an LXC container (AppArmor), but a
+/// mount on the `proc` directory of a copy of the tree is not. So: a scratch
+/// tmpfs over the work dir, a recursive bind of `/` into it, the scratch
+/// tmpfs dropped from the copy (the copy then shows the real work dir), a
+/// read-only tmpfs over the copy's `/proc` with a few cloned static files,
+/// then `pivot_root` into the copy and the old root detached.
+///
+/// Ok((n, live)): mask in place with n static files, `live` of them
+/// clones. Err((errno, clean)): not in place; `clean` = every step was
+/// undone and the host view is unchanged.
+///
+/// # Safety
+/// Only async-signal-safe raw syscalls on data prepared before the fork.
+unsafe fn proc_mask(m: &ProcMaskPaths) -> Result<(u32, u32), (i32, bool)> {
+    let errno = || {
+        std::io::Error::last_os_error()
+            .raw_os_error()
+            .unwrap_or(libc::EIO)
+    };
+    let fl = libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC;
+    if libc::mount(
+        c"none".as_ptr(),
+        m.stage.as_ptr(),
+        c"tmpfs".as_ptr(),
+        fl,
+        c"size=16k,nr_inodes=16,mode=700".as_ptr().cast(),
+    ) != 0
+    {
+        return Err((errno(), true));
+    }
+    let undo = |e: i32, rec: bool| -> Result<(u32, u32), (i32, bool)> {
+        let mut clean = true;
+        if rec {
+            clean &= libc::umount2(m.root.as_ptr(), libc::MNT_DETACH) == 0;
+        }
+        clean &= libc::umount2(m.stage.as_ptr(), libc::MNT_DETACH) == 0;
+        Err((e, clean))
+    };
+    if libc::mkdir(m.root.as_ptr(), 0o700) != 0 {
+        return undo(errno(), false);
+    }
+    if libc::mount(
+        c"/".as_ptr(),
+        m.root.as_ptr(),
+        std::ptr::null(),
+        libc::MS_BIND | libc::MS_REC,
+        std::ptr::null(),
+    ) != 0
+    {
+        return undo(errno(), false);
+    }
+    // The copy holds the scratch tmpfs too; drop it there so the new root
+    // shows the work dir (and its own mounts) underneath.
+    if libc::umount2(m.inner.as_ptr(), libc::MNT_DETACH) != 0 {
+        return undo(errno(), true);
+    }
+    // Clone the static files while the host /proc is still reachable.
+    let mut fds = [-1i32; PROC_MASK_STATIC.len()];
+    for (i, (src, _)) in m.statics.iter().enumerate() {
+        fds[i] = libc::syscall(
+            SYS_OPEN_TREE,
+            libc::AT_FDCWD,
+            src.as_ptr(),
+            OPEN_TREE_CLONE | libc::O_CLOEXEC as libc::c_uint,
+        ) as i32;
+    }
+    let close_fds = |fds: &[i32]| {
+        for &f in fds {
+            if f >= 0 {
+                libc::close(f);
+            }
+        }
+    };
+    if libc::mount(
+        c"none".as_ptr(),
+        m.proc_dir.as_ptr(),
+        c"tmpfs".as_ptr(),
+        fl,
+        c"size=512k,nr_inodes=32,mode=755".as_ptr().cast(),
+    ) != 0
+    {
+        let e = errno();
+        close_fds(&fds);
+        return undo(e, true);
+    }
+    let mut kept = 0u32;
+    let mut live = 0u32;
+    for (i, (_, dst)) in m.statics.iter().enumerate() {
+        let f = libc::open(
+            dst.as_ptr(),
+            libc::O_CREAT | libc::O_EXCL | libc::O_WRONLY | libc::O_CLOEXEC,
+            0o444,
+        );
+        if f < 0 {
+            continue;
+        }
+        // Live view: the cloned mount of the host file (lxcfs keeps it
+        // container-scoped). Else the snapshot the caller took before the
+        // fork (AppArmor in LXC refuses most binds from /proc).
+        if fds[i] >= 0
+            && libc::syscall(
+                SYS_MOVE_MOUNT,
+                fds[i],
+                c"".as_ptr(),
+                libc::AT_FDCWD,
+                dst.as_ptr(),
+                MOVE_MOUNT_F_EMPTY_PATH,
+            ) == 0
+        {
+            libc::close(f);
+            kept += 1;
+            live += 1;
+            continue;
+        }
+        let snap = &m.snap[i];
+        let ok = !snap.is_empty()
+            && libc::write(f, snap.as_ptr().cast(), snap.len()) == snap.len() as isize;
+        libc::close(f);
+        if ok {
+            kept += 1;
+        } else {
+            libc::unlink(dst.as_ptr());
+        }
+    }
+    close_fds(&fds);
+    if libc::mount(
+        std::ptr::null(),
+        m.proc_dir.as_ptr(),
+        std::ptr::null(),
+        libc::MS_REMOUNT | libc::MS_BIND | libc::MS_RDONLY | fl,
+        std::ptr::null(),
+    ) != 0
+    {
+        return undo(errno(), true);
+    }
+    if libc::chdir(m.root.as_ptr()) != 0 {
+        return undo(errno(), true);
+    }
+    if libc::syscall(libc::SYS_pivot_root, c".".as_ptr(), c".".as_ptr()) != 0 {
+        let e = errno();
+        libc::chdir(c"/".as_ptr());
+        return undo(e, true);
+    }
+    // The old root now sits on top of the new one; detach it. From here on
+    // there is no way back: a failure fails the run closed.
+    if libc::umount2(c".".as_ptr(), libc::MNT_DETACH) != 0 {
+        return Err((errno(), false));
+    }
+    if libc::chdir(c"/".as_ptr()) != 0 {
+        return Err((errno(), false));
+    }
+    Ok((kept, live))
 }
 
 /// Run `cmd` (program + args) under `policy`. Never panics on bad input;
@@ -1040,7 +1313,7 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     };
     let cg_procs: Option<CString> = cg.as_ref().map(|c| c.procs.clone());
 
-    // Status pipe: the exec'ing process writes 2 bytes of flags before exec.
+    // Status pipe: the exec'ing process writes 4 bytes of flags before exec.
     let mut fds = [0i32; 2];
     // SAFETY: valid array of two fds.
     if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
@@ -1104,13 +1377,19 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     // cwd is the writable bind, not the (now read-only) mount below it.
     let workdir_c = cstr(&workdir).unwrap_or_default();
     let hide_count = hide.len();
+    let proc_fb = policy.proc_fallback;
+    let proc_mask_paths = if proc_fb == ProcFallback::Mask {
+        ProcMaskPaths::new(&workdir)
+    } else {
+        None
+    };
     // SAFETY: the closure runs between fork and exec and only calls
     // async-signal-safe functions (setsid, setrlimit, prctl, unshare, mount,
     // fork, waitpid, write, close, raw syscalls) on data prepared before the
     // fork. It allocates nothing; errors are errno wrappers.
     unsafe {
         c.pre_exec(move || {
-            let mut bits: u16 = 0;
+            let mut bits: u32 = 0;
             // Work dir tmpfs: host dir fd, tmpfs root fd, copy-in counters.
             let (mut wd_host, mut wd_tmp) = (-1i32, -1i32);
             let mut wd_in = treecopy::Stats::default();
@@ -1378,21 +1657,56 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                 }
                 // PID 1 of the new namespace.
                 bits |= B_PIDNS;
-                if bits & B_MNTNS != 0
-                    && libc::mount(
+                if bits & B_MNTNS != 0 {
+                    let pfl = libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC;
+                    if libc::mount(
                         c"proc".as_ptr(),
                         c"/proc".as_ptr(),
                         c"proc".as_ptr(),
-                        libc::MS_NOSUID | libc::MS_NODEV | libc::MS_NOEXEC,
+                        pfl,
                         std::ptr::null(),
                     ) == 0
-                {
-                    bits |= B_PROC;
+                    {
+                        bits |= B_PROC;
+                    } else if libc::mount(
+                        c"proc".as_ptr(),
+                        c"/proc".as_ptr(),
+                        c"proc".as_ptr(),
+                        pfl,
+                        c"subset=pid".as_ptr().cast(),
+                    ) == 0
+                    {
+                        // Linux >= 7.2: only pid dirs, allowed under overmounts.
+                        bits |= B_PROC_PIDONLY;
+                    } else if let Some(m) = &proc_mask_paths {
+                        match proc_mask(m) {
+                            Ok((n, live)) => {
+                                bits |= B_PROC_MASK
+                                    | (n.min(15) << PROC_MASK_SHIFT)
+                                    | (live.min(15) << PROC_MASK_LIVE_SHIFT);
+                                if libc::chdir(workdir_c.as_ptr()) != 0 {
+                                    return Err(std::io::Error::last_os_error());
+                                }
+                            }
+                            // Not undone: the view is unknown, fail closed.
+                            Err((_, false)) => {
+                                return Err(std::io::Error::from_raw_os_error(E_PROC))
+                            }
+                            Err((e, true)) => {
+                                bits |= (e.clamp(1, 63) as u32) << PROC_MASK_ERR_SHIFT;
+                            }
+                        }
+                    }
                 }
+            }
+            if proc_fb == ProcFallback::Refuse
+                && bits & (B_PROC | B_PROC_PIDONLY | B_PROC_MASK) == 0
+            {
+                return Err(std::io::Error::from_raw_os_error(E_PROC));
             }
 
             if let Some(l) = &llown {
-                l.apply(bits & B_PROC != 0, wd_tmp)?;
+                l.apply(bits & (B_PROC | B_PROC_PIDONLY | B_PROC_MASK) != 0, wd_tmp)?;
                 bits |= B_LANDLOCK;
                 if l.net {
                     bits |= B_LL_NET;
@@ -1405,7 +1719,7 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             setrl(libc::RLIMIT_NOFILE, nofile)?;
             bits |= B_RLIMIT;
             let b = bits.to_le_bytes();
-            libc::write(wfd, b.as_ptr().cast(), 2);
+            libc::write(wfd, b.as_ptr().cast(), 4);
             if require_net && bits & (B_NETNS | B_LL_NET) == 0 {
                 return Err(std::io::Error::from_raw_os_error(libc::EPERM));
             }
@@ -1421,15 +1735,15 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             c.finish();
         }
     };
-    // SAFETY: closing our copy of the write end, then reading at most 2 bytes.
-    let mut b = [0u8; 2];
+    // SAFETY: closing our copy of the write end, then reading at most 4 bytes.
+    let mut b = [0u8; 4];
     let got_bits = unsafe {
         libc::close(wfd);
-        let n = libc::read(rfd, b.as_mut_ptr().cast(), 2);
+        let n = libc::read(rfd, b.as_mut_ptr().cast(), 4);
         libc::close(rfd);
-        n == 2
+        n == 4
     };
-    let bits = if got_bits { u16::from_le_bytes(b) } else { 0 };
+    let bits = if got_bits { u32::from_le_bytes(b) } else { 0 };
     if qw >= 0 {
         // SAFETY: our copy of the report pipe's write end.
         unsafe { libc::close(qw) };
@@ -1450,6 +1764,12 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                 "read-only root applied but the work dir could not be kept writable".to_string()
             } else if e.raw_os_error() == Some(E_UIDMAP) {
                 "user namespace entered but the uid/gid map could not be written; refusing to run as the overflow uid".to_string()
+            } else if e.raw_os_error() == Some(E_PROC) {
+                if proc_fb == ProcFallback::Refuse {
+                    "private /proc required (proc_fallback = Refuse) but the kernel refused a proc mount; refusing to run with the host /proc".to_string()
+                } else {
+                    "/proc mask: pivot_root done but the old root could not be detached; refusing to run".to_string()
+                }
             } else if e.raw_os_error() == Some(E_CGROUP) {
                 "could not join the per-run cgroup (the caller must live inside the same delegated subtree)".to_string()
             } else if e.raw_os_error() == Some(E_WDQ) {
@@ -1585,17 +1905,36 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         ne("tmpfs mount refused")
     };
     set(&mut enforced, "hide_home", hide_state);
+    let mask_err = ((bits >> PROC_MASK_ERR_SHIFT) & 63) as i32;
+    let proc_view = if bits & B_PROC != 0 {
+        ProcView::Private
+    } else if bits & B_PROC_PIDONLY != 0 {
+        ProcView::PidOnly
+    } else if bits & B_PROC_MASK != 0 {
+        ProcView::Masked {
+            static_files: (bits >> PROC_MASK_SHIFT) & 15,
+            live_files: bits >> PROC_MASK_LIVE_SHIFT,
+        }
+    } else {
+        ProcView::Host
+    };
     set(
         &mut enforced,
         "proc",
-        en(
-            bits & B_PROC != 0,
-            if bits & B_PIDNS == 0 || bits & B_MNTNS == 0 {
-                "needs pid + mount namespaces; host /proc stays visible"
-            } else {
-                "proc mount refused (e.g. container with overmounted /proc); host /proc stays visible"
-            },
-        ),
+        if proc_view != ProcView::Host {
+            Enforcement::Enforced
+        } else if bits & B_PIDNS == 0 || bits & B_MNTNS == 0 {
+            ne("needs pid + mount namespaces; host /proc stays visible")
+        } else if proc_fb == ProcFallback::Host {
+            ne("proc mount refused (e.g. container with overmounted /proc) and proc_fallback = Host; host /proc stays visible")
+        } else if mask_err != 0 {
+            Enforcement::NotEnforced(format!(
+                "proc mount refused and the /proc mask failed ({}); host /proc stays visible",
+                std::io::Error::from_raw_os_error(mask_err)
+            ))
+        } else {
+            ne("proc mount refused and no /proc mask possible for this work dir; host /proc stays visible")
+        },
     );
     if ll.is_some() {
         set(
@@ -1716,5 +2055,55 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         enforced,
         cgroup,
         workdir_quota,
+        proc_view,
+    }
+}
+
+#[cfg(test)]
+mod proc_mask_tests {
+    use super::*;
+
+    #[test]
+    fn mask_paths_for_a_work_dir() {
+        let m = ProcMaskPaths::new(Path::new("/var/tmp/x/w")).unwrap();
+        assert_eq!(m.stage.as_bytes(), b"/var/tmp/x/w");
+        assert_eq!(m.root.as_bytes(), b"/var/tmp/x/w/r");
+        assert_eq!(m.inner.as_bytes(), b"/var/tmp/x/w/r/var/tmp/x/w");
+        assert_eq!(m.proc_dir.as_bytes(), b"/var/tmp/x/w/r/proc");
+        assert_eq!(m.statics.len(), PROC_MASK_STATIC.len());
+        assert_eq!(m.statics[1].0.as_bytes(), b"/proc/meminfo");
+        assert_eq!(m.statics[1].1.as_bytes(), b"/var/tmp/x/w/r/proc/meminfo");
+    }
+
+    #[test]
+    fn no_mask_for_root_or_relative_work_dir() {
+        assert!(ProcMaskPaths::new(Path::new("/")).is_none());
+        assert!(ProcMaskPaths::new(Path::new("w")).is_none());
+    }
+
+    #[test]
+    fn mask_is_the_default_everywhere() {
+        assert_eq!(SandboxPolicy::new("/tmp").proc_fallback, ProcFallback::Mask);
+        assert_eq!(ProcFallback::default(), ProcFallback::Mask);
+        for p in Preset::all() {
+            assert_eq!(
+                p.policy(Path::new("/tmp/w")).proc_fallback,
+                ProcFallback::Mask
+            );
+        }
+    }
+
+    #[test]
+    fn status_bits_fit_the_mask_fields() {
+        // errno 1..63 in bits 18..23 and a count up to 255 in 24..31 never
+        // touch a layer bit.
+        let all_layers = B_WDQ | B_PROC_PIDONLY | B_PROC_MASK | (B_WDQ - 1);
+        let fields = (63u32 << PROC_MASK_ERR_SHIFT)
+            | (15u32 << PROC_MASK_SHIFT)
+            | (15u32 << PROC_MASK_LIVE_SHIFT);
+        assert_eq!(all_layers & fields, 0);
+        assert_eq!((fields >> PROC_MASK_SHIFT) & 15, 15);
+        assert_eq!(fields >> PROC_MASK_LIVE_SHIFT, 15);
+        assert!(PROC_MASK_STATIC.len() < 16);
     }
 }

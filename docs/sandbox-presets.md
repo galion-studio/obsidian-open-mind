@@ -111,3 +111,9 @@ Also copied when set: `SSL_CERT_FILE`, `SSL_CERT_DIR` (paths to certificate bund
 Ticket B26 recorded this LXC: user namespaces were usable, Landlock was not in the LSM list, cgroup v2 was not ours to edit. This ticket did not repeat those probes and did not spawn a sandboxed process. `landlock = true` still means "try". A missing Landlock layer is reported, not treated as success.
 
 These presets are not wired into Hermes, omnode, or any unit under `deploy/`.
+
+## /proc (slot 191)
+Every preset sets `proc_fallback = Mask`: where the kernel refuses a private
+proc for the sandbox (LXC with lxcfs, e.g. the VPS), `/proc` is a read-only
+tmpfs with 6 static files and no pid directories instead of the host `/proc`.
+See `docs/sandbox/proc-mask.md`.

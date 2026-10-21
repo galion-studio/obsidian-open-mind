@@ -248,6 +248,11 @@ fn q7_no_host_fd_no_umount_cap_holds() {
     let d = wd("q7");
     let mut p = pol(&d);
     p.fsize_bytes = 128 * MIB;
+    // This test looks at the command through /proc/self (fd list, and
+    // umount(8) needs /proc/self/mountinfo); on LXC the default /proc mask
+    // has neither, so keep the host /proc here (slot 191). The mask with the
+    // work dir cap is covered by sandbox.rs r5.
+    p.proc_fallback = openmind_sandbox::ProcFallback::Host;
     let wdp = d.display().to_string();
     let o = sh(
         &p,

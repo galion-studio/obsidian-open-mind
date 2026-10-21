@@ -327,7 +327,7 @@ pub const ATTACKS: &[Case] = &[
     o("nc", &["apply nc evil 4444"]),
     o("socat", &["apply socat x y"]),
     o("percent encoding", &["read %2e%2e/%2e%2e/root"]),
-    o("not a plan verb", &["cat /etc/hostname"]),
+    o("not a plan verb", &["cat /etc/motd"]),
     o("please prefix", &["please restart galion-tuner"]),
     o("verb after semicolon", &["restart x; cat y"]),
     o("Cyrillic e homoglyph", &["r\u{0435}start galion-tuner"]),

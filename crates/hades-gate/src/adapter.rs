@@ -49,7 +49,13 @@ pub fn check_gaia(
     now: u64,
 ) -> Verdict {
     let Some(action) = gaia_action(system) else {
-        return Verdict::Refused(Refusal::ActionNotApprovable(system.to_owned()));
+        let r = Refusal::ActionNotApprovable(system.to_owned());
+        // Audit it like every other refusal (best effort, token hashed);
+        // before S5.2 these never reached the ledger.
+        let _ = approver
+            .ledger()
+            .note("refused", system, target, &r.reason(), token, now);
+        return Verdict::Refused(r);
     };
     let plan = gaia_plan_bytes(steps);
     approver.approve(

@@ -140,6 +140,15 @@ const PHRASES: &[(&str, Hazard)] = &[
     ("<(", Hazard::Opaque("process substitution")),
     ("\\x", Hazard::Opaque("escaped bytes")),
     (":(){", Hazard::Destructive("fork bomb")),
+    // S5.2 corpus additions (slot 208).
+    (
+        "--remove-source-files",
+        Hazard::Destructive("move and delete"),
+    ),
+    ("--vacuum", Hazard::Destructive("journal vacuum")),
+    ("sysrq", Hazard::Destructive("sysrq trigger")),
+    ("/private", Hazard::SecretExposure("private dir")),
+    (".pgpass", Hazard::SecretExposure(".pgpass")),
 ];
 
 /// Whole words (split on anything that is not `a-z 0-9 _ -`).
@@ -247,6 +256,85 @@ const WORDS: &[(&str, Hazard)] = &[
     ("gawk", Hazard::Opaque("interpreter")),
 ];
 
+/// Secret words that are refused even inside a `-` or `_` compound word (S5.2).
+const SECRET_PARTS: &[&str] = &[
+    "secret",
+    "secrets",
+    "password",
+    "passphrase",
+    "token",
+    "credentials",
+    "key",
+    "keys",
+    "apikey",
+    "privkey",
+    "seed",
+];
+
+/// Whole words added by the S5.2 corpus (slot 208,
+/// docs/security/hades-safety-corpus.md). Checked after [`WORDS`], so a plan
+/// that already hit an older rule keeps its old reason (`sudo mkfs` stays
+/// destructive).
+const LATE_WORDS: &[(&str, Hazard)] = &[
+    ("killall5", Hazard::Destructive("kill every process")),
+    ("kill", Hazard::Destructive("kill")),
+    ("remove", Hazard::Destructive("remove")),
+    ("purge", Hazard::Destructive("purge")),
+    ("prune", Hazard::Destructive("prune")),
+    ("apt", Hazard::Destructive("package change")),
+    ("apt-get", Hazard::Destructive("package change")),
+    ("dpkg", Hazard::Destructive("package change")),
+    ("umount", Hazard::Destructive("unmount")),
+    ("mount", Hazard::Destructive("mount")),
+    ("remount", Hazard::Destructive("mount")),
+    ("swapoff", Hazard::Destructive("swapoff")),
+    ("systemd-run", Hazard::Destructive("transient unit")),
+    ("ln", Hazard::Destructive("link over a file")),
+    ("srm", Hazard::Destructive("srm")),
+    ("chfn", Hazard::AdminAccount("chfn")),
+    ("vipw", Hazard::AdminAccount("vipw")),
+    ("vigr", Hazard::AdminAccount("vigr")),
+    ("newusers", Hazard::AdminAccount("newusers")),
+    ("sudo", Hazard::AdminAccount("privilege change")),
+    ("su", Hazard::AdminAccount("privilege change")),
+    ("doas", Hazard::AdminAccount("privilege change")),
+    ("pkexec", Hazard::AdminAccount("privilege change")),
+    ("runuser", Hazard::AdminAccount("privilege change")),
+    ("ssh-keygen", Hazard::AdminAccount("key generation")),
+    ("nftables", Hazard::AdminAccount("firewall")),
+    ("firewalld", Hazard::AdminAccount("firewall")),
+    ("ipset", Hazard::AdminAccount("firewall")),
+    ("ebtables", Hazard::AdminAccount("firewall")),
+    ("arptables", Hazard::AdminAccount("firewall")),
+    ("conntrack", Hazard::AdminAccount("firewall")),
+    ("fail2ban", Hazard::AdminAccount("intrusion ban")),
+    ("fail2ban-client", Hazard::AdminAccount("intrusion ban")),
+    ("sysctl", Hazard::AdminAccount("kernel setting")),
+    ("modprobe", Hazard::AdminAccount("kernel module")),
+    ("rmmod", Hazard::AdminAccount("kernel module")),
+    ("insmod", Hazard::AdminAccount("kernel module")),
+    ("telinit", Hazard::AdminAccount("runlevel change")),
+    ("timedatectl", Hazard::AdminAccount("clock change")),
+    ("hwclock", Hazard::AdminAccount("clock change")),
+    ("chronyc", Hazard::AdminAccount("clock change")),
+    ("ntpdate", Hazard::AdminAccount("clock change")),
+    ("key", Hazard::SecretExposure("key")),
+    ("keys", Hazard::SecretExposure("key")),
+    ("apikey", Hazard::SecretExposure("api key")),
+    ("privkey", Hazard::SecretExposure("private key")),
+    ("seed", Hazard::SecretExposure("key seed")),
+    ("pem", Hazard::SecretExposure("pem file")),
+    ("bearer", Hazard::SecretExposure("auth header")),
+    ("authorization", Hazard::SecretExposure("auth header")),
+    ("cookie", Hazard::SecretExposure("cookie")),
+    ("cookies", Hazard::SecretExposure("cookie")),
+    ("lua", Hazard::Opaque("interpreter")),
+    ("php", Hazard::Opaque("interpreter")),
+    ("tclsh", Hazard::Opaque("interpreter")),
+    ("uudecode", Hazard::Opaque("encoded payload")),
+    ("uuencode", Hazard::Opaque("encoded payload")),
+];
+
 /// The allow-list (S3.1): every statement of a plan (lines, and `;`-separated
 /// parts of a line) must start with one of these verbs. They are exactly the
 /// leading words of the plans HADES can approve: gaia-hades `plan_for` for
@@ -290,7 +378,178 @@ const PROTECTED_TARGETS: &[&str] = &[
     "credentials",
     "galion-control",
     "systemd-logind",
+    // S5.2 (slot 208): security and console-login units seen on the VPS.
+    "firewalld",
+    "ip6tables",
+    "ipset",
+    "fail2ban",
+    "auditd",
+    "apparmor",
+    "dbus",
+    "getty",
+    "polkit",
+    "polkitd",
 ];
+
+
+/// Owner never-unroute list (D-T42-4, Mate 2026-10-21 17:04 +02:00): the VPS
+/// itself, DNS, the mail server and the backup server are never approvable
+/// targets. Matched against every alphanumeric part of the target name
+/// (`galion-backup.timer` -> `galion`, `backup`, `timer`). The names follow the
+/// nerve list (deploy/nerve/plans-protected-hosts.conf on
+/// swarm/cortex-protected-hosts) plus the VPS units that carry those roles
+/// (read-only `systemctl list-units` on the VPS, 2026-10-21 20:20 +02:00).
+pub const NEVER_UNROUTE_TARGETS: &[(&str, &str)] = &[
+    ("vps", "never-unroute: vps"),
+    ("ip50", "never-unroute: vps"),
+    ("vp3", "never-unroute: vps"),
+    ("titanaxe", "never-unroute: vps"),
+    ("localhost", "never-unroute: vps"),
+    ("localdomain", "never-unroute: vps"),
+    ("systemd", "never-unroute: vps"),
+    ("init", "never-unroute: vps"),
+    ("kernel", "never-unroute: vps"),
+    ("networkd", "never-unroute: vps"),
+    ("networkmanager", "never-unroute: vps"),
+    ("connman", "never-unroute: vps"),
+    ("netplan", "never-unroute: vps"),
+    ("networking", "never-unroute: vps"),
+    ("hostname", "never-unroute: vps"),
+    ("dns", "never-unroute: dns"),
+    ("ns", "never-unroute: dns"),
+    ("nameserver", "never-unroute: dns"),
+    ("resolved", "never-unroute: dns"),
+    ("resolv", "never-unroute: dns"),
+    ("resolvconf", "never-unroute: dns"),
+    ("named", "never-unroute: dns"),
+    ("bind", "never-unroute: dns"),
+    ("bind9", "never-unroute: dns"),
+    ("unbound", "never-unroute: dns"),
+    ("dnsmasq", "never-unroute: dns"),
+    ("coredns", "never-unroute: dns"),
+    ("cloudflare", "never-unroute: dns"),
+    ("mail", "never-unroute: mail"),
+    ("mailserver", "never-unroute: mail"),
+    ("email", "never-unroute: mail"),
+    ("smtp", "never-unroute: mail"),
+    ("smtpd", "never-unroute: mail"),
+    ("postfix", "never-unroute: mail"),
+    ("exim", "never-unroute: mail"),
+    ("exim4", "never-unroute: mail"),
+    ("sendmail", "never-unroute: mail"),
+    ("dovecot", "never-unroute: mail"),
+    ("imap", "never-unroute: mail"),
+    ("opendkim", "never-unroute: mail"),
+    ("dkim", "never-unroute: mail"),
+    ("mx", "never-unroute: mail"),
+    ("mx1", "never-unroute: mail"),
+    ("mx2", "never-unroute: mail"),
+    ("mx3", "never-unroute: mail"),
+    ("zoho", "never-unroute: mail"),
+    ("backup", "never-unroute: backup"),
+    ("backups", "never-unroute: backup"),
+    ("offsite", "never-unroute: backup"),
+    ("restic", "never-unroute: backup"),
+    ("borg", "never-unroute: backup"),
+    ("borgbackup", "never-unroute: backup"),
+    ("rsnapshot", "never-unroute: backup"),
+    ("duplicity", "never-unroute: backup"),
+];
+
+/// The never-unroute names a plan step may not mention (any alphanumeric part
+/// of the plan text), so a plan approved for a benign target cannot change the
+/// VPS identity, DNS, mail or backup either. Ambiguous English words
+/// (`init`, `named`, `bind`, `unbound`, `ns`, `kernel`) are target-only.
+pub const NEVER_UNROUTE_PLAN_WORDS: &[&str] = &[
+    "vps",
+    "ip50",
+    "titanaxe",
+    "localhost",
+    "localdomain",
+    "networkd",
+    "networkmanager",
+    "connman",
+    "netplan",
+    "hostname",
+    "hostnamectl",
+    "dns",
+    "nameserver",
+    "nameservers",
+    "resolved",
+    "resolv",
+    "resolvconf",
+    "resolvectl",
+    "bind9",
+    "dnsmasq",
+    "coredns",
+    "cloudflare",
+    "mail",
+    "mailserver",
+    "email",
+    "smtp",
+    "smtpd",
+    "postfix",
+    "exim",
+    "exim4",
+    "sendmail",
+    "dovecot",
+    "imap",
+    "opendkim",
+    "dkim",
+    "mx",
+    "mx1",
+    "mx2",
+    "mx3",
+    "zoho",
+    "backup",
+    "backups",
+    "offsite",
+    "restic",
+    "borg",
+    "borgbackup",
+    "rsnapshot",
+    "duplicity",
+];
+
+/// Plan phrases that touch the VPS identity or name resolution.
+const NEVER_UNROUTE_PLAN_PHRASES: &[(&str, &str)] = &[
+    ("/etc/hosts", "never-unroute: vps"),
+    ("/etc/resolv", "never-unroute: dns"),
+    ("/var/backups", "never-unroute: backup"),
+];
+
+fn never_unroute_target_hit(lower: &str) -> Option<&'static str> {
+    for part in lower.split(|c: char| !c.is_ascii_alphanumeric()) {
+        if let Some((_, why)) = NEVER_UNROUTE_TARGETS.iter().find(|(p, _)| *p == part) {
+            return Some(why);
+        }
+    }
+    // A target that is an address is the VPS (or a resolver), never a service.
+    if lower.parse::<std::net::IpAddr>().is_ok()
+        || lower.bytes().all(|b| b.is_ascii_digit() || b == b'.')
+    {
+        return Some("never-unroute: vps (address target)");
+    }
+    None
+}
+
+fn never_unroute_plan_hit(folded: &str) -> Option<&'static str> {
+    for (pat, why) in NEVER_UNROUTE_PLAN_PHRASES {
+        if folded.contains(pat) {
+            return Some(why);
+        }
+    }
+    for part in folded.split(|c: char| !c.is_ascii_alphanumeric()) {
+        if NEVER_UNROUTE_PLAN_WORDS.contains(&part) {
+            let why = NEVER_UNROUTE_TARGETS
+                .iter()
+                .find(|(p, _)| *p == part)
+                .map_or("never-unroute", |(_, w)| *w);
+            return Some(why);
+        }
+    }
+    None
+}
 
 /// Check the target and plan against the admin-safety rule.
 ///
@@ -334,6 +593,9 @@ pub fn review_target(target: &str) -> Result<(), Hazard> {
         if lower.contains(multi) {
             return Err(Hazard::ProtectedTarget(multi));
         }
+    }
+    if let Some(why) = never_unroute_target_hit(&lower) {
+        return Err(Hazard::ProtectedTarget(why));
     }
     Ok(())
 }
@@ -391,6 +653,10 @@ pub fn review_plan(plan: &[u8]) -> Result<(), Hazard> {
 
 fn deny_list(text: &str) -> Result<(), Hazard> {
     let folded = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    // Checked first so a never-unroute plan is named as such (S5.2).
+    if let Some(why) = never_unroute_plan_hit(&folded) {
+        return Err(Hazard::ProtectedTarget(why));
+    }
     // `kill ... -1` signals every process the caller can reach.
     let args: Vec<&str> = folded.split(' ').collect();
     if args.contains(&"kill") && args.contains(&"-1") {
@@ -405,6 +671,16 @@ fn deny_list(text: &str) -> Result<(), Hazard> {
         let word = word.trim_matches('-');
         if let Some((_, hazard)) = WORDS.iter().find(|(w, _)| *w == word) {
             return Err(*hazard);
+        }
+    }
+    for word in folded.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+        let word = word.trim_matches('-');
+        if let Some((_, hazard)) = LATE_WORDS.iter().find(|(w, _)| *w == word) {
+            return Err(*hazard);
+        }
+        // `ed25519-seed`, `hades_token`: a secret word hidden in a compound word.
+        if word.split(['-', '_']).any(|p| SECRET_PARTS.contains(&p)) {
+            return Err(Hazard::SecretExposure("secret word in a compound name"));
         }
     }
     // A bare `sh` cannot be a WORDS entry (`deploy/rollback.sh` splits into

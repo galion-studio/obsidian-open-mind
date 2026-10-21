@@ -4,10 +4,10 @@
 //! REAL test (GALION_REAL=1) of the S3.1 supervised loop, box only.
 //!
 //! Real processes: `openmind-nerve serve` (GAIA_NERVE_BIN) on
-//! 127.0.0.1:20752 (wave-4 slot 175 range 20750-20759; slot 160 used 20300)
-//! and three `gaia-dummy` fault services on 127.0.0.1:19755-19757. The
-//! dummies sit in 19750-19759 because the heal apply path only ever touches 19000-19999
-//! (`gaia_live::heal::TEST_PORTS`, a safety guard this test does not widen).
+//! 127.0.0.1:20300 and three `gaia-dummy` fault services on
+//! 127.0.0.1:20301-20303, all in slot 160's band 20300-20309 (slot 199 moved
+//! them back from 20752/19755-19757, D-FI4). The heal apply path refuses
+//! live VPS ports (`gaia_live::heal::LIVE_PORTS`); this test does not widen it.
 //!
 //! Three `gaia heal-tick --loop` processes run at once, sharing one
 //! hades-gate (one replay ledger, one global restart ledger), each with its
@@ -40,13 +40,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const NERVE: &str = "127.0.0.1:20752";
-const NERVE_PORT: u16 = 20752;
-const ALLOW: &str = "19750-19759";
+const NERVE: &str = "127.0.0.1:20300";
+const NERVE_PORT: u16 = 20300;
+const ALLOW: &str = "20301-20309";
 const SVCS: [(&str, u16); 3] = [
-    ("dummy-hang", 19755),
-    ("dummy-flap", 19756),
-    ("dummy-crash", 19757),
+    ("dummy-hang", 20301),
+    ("dummy-flap", 20302),
+    ("dummy-crash", 20303),
 ];
 
 fn stamp() -> String {
@@ -662,7 +662,7 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
         assert!(!open(p), "port {p} still open after teardown");
     }
     eprintln!(
-        "[{}] teardown: 0 dummies, ports 20752 + 19755-19757 closed",
+        "[{}] teardown: 0 dummies, ports 20300 + 20301-20303 closed",
         stamp()
     );
     let _ = std::fs::remove_dir_all(&dir);

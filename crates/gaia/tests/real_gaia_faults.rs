@@ -18,10 +18,10 @@
 //! the nerve, no restart without a consumed signed token, and every setup
 //! fault fails closed (no spawn).
 //!
-//! Ports: nerves on slot 189's 20590-20591. Fault services sit on
-//! 19890-19899 because the heal apply path only ever touches 19000-19999
-//! (`gaia_live::heal::TEST_PORTS`; `gaia-dummy` has the same guard). This
-//! test does not widen that guard (owner decision D-FI4).
+//! Ports (slot 199 moved them, D-FI4): nerves 20590-20591 and fault services
+//! 20592-20599 in slot 189's band 20590-20599; three more fault services
+//! (20690-20692) in slot 199's band 20690-20699. Each tick allows only its
+//! own port; live VPS ports (`gaia_live::heal::LIVE_PORTS`) are refused.
 //!
 //! Run: `GALION_REAL=1 GAIA_NERVE_BIN=$T/release/openmind-nerve cargo test
 //! --release -p gaia --test real_gaia_faults -- --nocapture --test-threads 1`.
@@ -38,18 +38,30 @@ use std::time::{Duration, Instant};
 
 const FAKE: &str = "127.0.0.1:20590";
 const REAL: &str = "127.0.0.1:20591";
-const ALLOW: &str = "19890-19899";
-const P_HANG: u16 = 19890;
-const P_SLOW: u16 = 19891;
-const P_BAD: u16 = 19892;
-const P_FLAP: u16 = 19893;
-const P_STOLEN: u16 = 19894;
-const P_STOLEN_HANG: u16 = 19895;
-const P_NERVE: u16 = 19896;
-const P_DST: u16 = 19897;
-const P_NFAULT: u16 = 19898;
-const P_LEDGER: u16 = 19899;
-const TARGET_PORTS: std::ops::RangeInclusive<u16> = 19890..=19899;
+const P_HANG: u16 = 20592;
+const P_SLOW: u16 = 20593;
+const P_BAD: u16 = 20594;
+const P_FLAP: u16 = 20595;
+const P_STOLEN: u16 = 20596;
+const P_STOLEN_HANG: u16 = 20597;
+const P_NERVE: u16 = 20598;
+const P_DST: u16 = 20599;
+const P_NFAULT: u16 = 20690;
+const P_LEDGER: u16 = 20691;
+const P_UNREC: u16 = 20692;
+const TARGET_PORTS: [u16; 11] = [
+    P_HANG,
+    P_SLOW,
+    P_BAD,
+    P_FLAP,
+    P_STOLEN,
+    P_STOLEN_HANG,
+    P_NERVE,
+    P_DST,
+    P_NFAULT,
+    P_LEDGER,
+    P_UNREC,
+];
 
 fn stamp() -> String {
     zagreb_time::now_rfc3339()
@@ -338,7 +350,7 @@ fn our_dummies() -> Vec<u32> {
         let dummy = args.first().is_some_and(|a| a.ends_with("/gaia-dummy"));
         let ours = args
             .iter()
-            .any(|a| TARGET_PORTS.clone().any(|p| a == &p.to_string()));
+            .any(|a| TARGET_PORTS.iter().any(|p| a == &p.to_string()));
         if dummy && ours && alive(pid) {
             v.push(pid);
         }
@@ -424,7 +436,7 @@ impl Env {
             "--port",
             &port.to_string(),
             "--allow-ports",
-            ALLOW,
+            &format!("{port}-{port}"),
         ]);
         a.push("--".into());
         a.extend(argv.iter().cloned());
@@ -781,7 +793,7 @@ fn f3_bad_json() {
     assert_eq!(gaia_live::heal::listener_pids(P_BAD), vec![holder]);
     let log =
         std::fs::read_to_string(e.dir.join("state-badjson/fi-badjson.log")).unwrap_or_default();
-    let bind_fail = log.matches("bind 127.0.0.1:19892").count();
+    let bind_fail = log.matches(&format!("bind 127.0.0.1:{P_BAD}")).count();
     assert_eq!(bind_fail, 3, "{log}");
     evidence(
         "F3 badjson",
@@ -1226,12 +1238,16 @@ fn f7_nerve_partial_faults() {
         &["--token-file", tok.to_str().unwrap()],
     );
     assert_eq!(r.code, 2, "{} {}", r.out, r.err);
+    let res_f = result(&r);
+    assert_eq!(res_f["outcome"], "restarted", "{res_f}");
+    assert!(res_f["nerve_error"].is_string(), "{res_f}");
+    assert!(r.err.contains("not recorded on the nerve"), "{}", r.err);
     assert!(open(P_NFAULT), "the restart itself happened");
     assert_eq!(e.global(svc).len(), 1, "and it is in the global ledger");
     evidence(
         "F7 nerve-fault",
         format!(
-            "(f) POST gaia.heal.applied 500 -> exit 2 {:?} but service up and global ledger 1",
+            "(f) POST gaia.heal.applied 500 -> exit 2 (Ok report, outcome restarted, nerve_error set) {:?}; service up, global ledger 1",
             r.err.lines().next().unwrap_or("")
         ),
     );
@@ -1253,6 +1269,70 @@ fn f7_nerve_partial_faults() {
     assert_eq!(cap["detail"]["gaia_restarts_last_hour_before"], 1, "{cap}");
     assert_eq!(e.global(svc).len(), 2);
     evidence("F7 nerve-fault", "next tick counts the unreported restart: cap step gaia_restarts_last_hour_before 1 -> restart 2/3".into());
+    // (g) D-FI3 bug fix (slot 199): the same fault under `--loop`. Before
+    //     the fix that tick was an Err, so the loop's `restarts` stayed 0 and
+    //     `--max-restarts 1` did not stop it; now the restart counts, its
+    //     token is retired as spent, and the tick is still an error tick.
+    let svc_u = "fi-unrec";
+    let argv_u = e.argv(P_UNREC, &[]);
+    let du = e.tok_dir(svc_u);
+    e.batch(&du, svc_u, P_UNREC, &argv_u, 2, 900);
+    e.fake.faults().post_fail_kind = Some("gaia.heal.applied".into());
+    let mut a = e.loop_args(
+        FAKE,
+        svc_u,
+        "state-unrec",
+        P_UNREC,
+        &argv_u,
+        &[
+            "--interval-ms",
+            "200",
+            "--max-ticks",
+            "4",
+            "--max-restarts",
+            "1",
+            "--token-dir",
+        ],
+    );
+    a.insert(
+        a.iter().position(|x| x == "--token-dir").unwrap() + 1,
+        du.display().to_string(),
+    );
+    let r = gaia(&a);
+    e.fake.reset();
+    assert_eq!(r.code, 0, "{} {}", r.out, r.err);
+    let sum = result(&r);
+    assert_eq!(sum["stop"], "max-restarts", "{sum}");
+    assert_eq!(sum["ticks"], 1, "{sum}");
+    assert_eq!(sum["restarts"], 1, "{sum}");
+    assert_eq!(sum["errors_total"], 1, "{sum}");
+    assert_eq!(sum["tokens_spent"], 1, "{sum}");
+    assert!(sum["last_error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("not recorded on the nerve"));
+    let tick1: Value = r
+        .out
+        .lines()
+        .find_map(|l| serde_json::from_str::<Value>(l).ok().filter(|v| v["tick"] == 1))
+        .expect("tick 1 line");
+    assert_eq!(tick1["exit"], 2, "{tick1}");
+    assert_eq!(tick1["spawned"], true, "{tick1}");
+    assert_eq!(tick1["token_moved"], "spent", "{tick1}");
+    assert!(tick1["nerve_error"].is_string(), "{tick1}");
+    assert!(open(P_UNREC), "the restart itself happened");
+    assert_eq!(e.global(svc_u).len(), 1);
+    assert_eq!(e.consumed(svc_u), 1);
+    evidence(
+        "F7 nerve-fault",
+        format!(
+            "(g) --loop --max-restarts 1 with POST gaia.heal.applied 500: stop {} after {} tick, restarts {}, errors_total {}, tokens_spent {}, tick 1 exit {} spawned {} token_moved {}; global ledger 1, consumed 1 (D-FI3 counter bug fixed, slot 199)",
+            sum["stop"], sum["ticks"], sum["restarts"], sum["errors_total"], sum["tokens_spent"],
+            tick1["exit"], tick1["spawned"], tick1["token_moved"]
+        ),
+    );
+    sweep();
+    wait_closed(P_UNREC, 5);
     kids.0.clear();
     drop(kids);
     sweep();
@@ -1281,7 +1361,7 @@ fn f8_dst_fake_clock() {
             health_path: "/health".into(),
             argv: argv.clone(),
         },
-        allowed: 19890..=19899,
+        allowed: P_DST..=P_DST,
         nerve: FAKE.parse().unwrap(),
         state_dir: e.dir.join("state-dst"),
         hades_config: PathBuf::from(&e.config),
@@ -1542,7 +1622,7 @@ fn z_teardown_clean() {
     assert!(!all.contains("hades1."), "token text reached the nerve");
     evidence(
         "teardown",
-        format!("0 dummies, 19890-19899 + 20591 closed (20590 is this test's thread); fake nerve {n} events, {gets} /state GETs; no token text in events"),
+        format!("0 dummies, 20592-20599 + 20690-20692 + 20591 closed (20590 is this test's thread); fake nerve {n} events, {gets} /state GETs; no token text in events"),
     );
     let done = DONE.load(std::sync::atomic::Ordering::SeqCst);
     if done == SCENARIOS {

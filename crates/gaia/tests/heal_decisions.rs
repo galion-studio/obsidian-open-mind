@@ -123,8 +123,8 @@ fn prog() -> String {
         .to_string()
 }
 
-/// A port in 19000-19999 with nothing listening. Tests in this binary run
-/// in parallel: the hung test takes 19980-19989, every other one 19960-19979.
+/// A port in slot 175's band 20450-20459 with nothing listening. Tests in this binary run
+/// in parallel: the hung test takes 20458-20459, every other one 20450-20457.
 fn free_test_port(mut r: std::ops::RangeInclusive<u16>) -> u16 {
     r.find(|p| {
         TcpListener::bind(("127.0.0.1", *p)).is_ok()
@@ -204,7 +204,7 @@ fn cfg(tag: &str, nerve: SocketAddr, port: u16) -> (HealCfg, Gate) {
             health_path: "/health".into(),
             argv: vec![prog(), "--port".into(), port.to_string()],
         },
-        allowed: 19000..=19999,
+        allowed: 20450..=20459,
         nerve,
         state_dir: d.join("state"),
         hades_config: gate.config.clone(),
@@ -218,7 +218,7 @@ fn cfg(tag: &str, nerve: SocketAddr, port: u16) -> (HealCfg, Gate) {
 fn nerve_two_restarts_leave_exactly_one_for_gaia() {
     let (addr, n) = fake_nerve();
     n.restarts("dummy-dl", 2);
-    let (mut c, g) = cfg("two", addr, free_test_port(19960..=19979));
+    let (mut c, g) = cfg("two", addr, free_test_port(20450..=20457));
     c.token_file = Some(g.token_file(&c.target, "a.tok"));
     let r = heal_tick(&c).unwrap();
     // /bin/true is spawned (the one allowed restart) and never comes up.
@@ -268,7 +268,7 @@ fn nerve_two_restarts_leave_exactly_one_for_gaia() {
 fn nerve_three_restarts_cap_before_any_token_or_spawn() {
     let (addr, n) = fake_nerve();
     n.restarts("dummy-dl", 3);
-    let (mut c, g) = cfg("three", addr, free_test_port(19960..=19979));
+    let (mut c, g) = cfg("three", addr, free_test_port(20450..=20457));
     c.token_file = Some(g.token_file(&c.target, "a.tok"));
     let r = heal_tick(&c).unwrap();
     assert_eq!(r.exit, exit::CAPPED, "{}", r.report.pretty());
@@ -289,7 +289,7 @@ fn reflex_budget_counts_even_when_the_component_row_says_zero() {
         json!({"components": [{"name": "dummy-dl", "unit": "dummy-dl.service", "restarts_1h": 0}],
                "reflex": {"budgets": {"dummy-dl.service": {"live_1h": 3}}}}),
     );
-    let (mut c, g) = cfg("budget", addr, free_test_port(19960..=19979));
+    let (mut c, g) = cfg("budget", addr, free_test_port(20450..=20457));
     c.token_file = Some(g.token_file(&c.target, "a.tok"));
     assert_eq!(heal_tick(&c).unwrap().exit, exit::CAPPED);
     assert_eq!(g.consumed(), 0);
@@ -298,7 +298,7 @@ fn reflex_budget_counts_even_when_the_component_row_says_zero() {
 #[test]
 fn unreadable_nerve_state_fails_closed_without_consuming_the_token() {
     let (addr, n) = fake_nerve();
-    let (mut c, g) = cfg("closed", addr, free_test_port(19960..=19979));
+    let (mut c, g) = cfg("closed", addr, free_test_port(20450..=20457));
     c.token_file = Some(g.token_file(&c.target, "a.tok"));
     for (code, body) in [
         (500, json!({"error": "boom"})),
@@ -326,7 +326,7 @@ fn unreadable_nerve_state_fails_closed_without_consuming_the_token() {
 fn hung_service_is_reported_with_its_pid_and_never_restarted() {
     let (addr, n) = fake_nerve();
     // A "service" that accepts and never answers, held by this process.
-    let port = free_test_port(19980..=19989);
+    let port = free_test_port(20458..=20459);
     let l = TcpListener::bind(("127.0.0.1", port)).unwrap();
     let held = Arc::new(Mutex::new(Vec::new()));
     let held2 = held.clone();
@@ -380,7 +380,7 @@ fn hung_service_is_reported_with_its_pid_and_never_restarted() {
 #[test]
 fn a_down_port_is_not_hung_and_heals_normally() {
     let (addr, n) = fake_nerve();
-    let (mut c, g) = cfg("down", addr, free_test_port(19960..=19979));
+    let (mut c, g) = cfg("down", addr, free_test_port(20450..=20457));
     c.token_file = Some(g.token_file(&c.target, "a.tok"));
     let r = heal_tick(&c).unwrap();
     assert_eq!(r.exit, exit::APPLY_FAILED, "{}", r.report.pretty());

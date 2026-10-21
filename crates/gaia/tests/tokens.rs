@@ -63,14 +63,14 @@ impl Env {
             dir,
             seed,
             config,
-            port: "19758".into(),
+            port: "20458".into(),
             prog: prog(),
         }
     }
     fn target(&self) -> TestTarget {
         TestTarget {
             name: "dummy-tok".into(),
-            port: 19758,
+            port: 20458,
             health_path: "/health".into(),
             argv: vec![self.prog.clone(), "--port".into(), self.port.clone()],
         }
@@ -85,7 +85,7 @@ impl Env {
             "--port",
             &self.port,
             "--allow-ports",
-            "19750-19759",
+            "20450-20459",
             "--",
             &self.prog,
             "--port",
@@ -354,7 +354,7 @@ fn loop_never_offers_an_expired_token_to_a_tick() {
     let c = LoopCfg {
         tick: HealCfg {
             target: e.target(),
-            allowed: 19750..=19759,
+            allowed: 20450..=20459,
             nerve: closed,
             state_dir: e.dir.join("state"),
             hades_config: e.config.clone(),

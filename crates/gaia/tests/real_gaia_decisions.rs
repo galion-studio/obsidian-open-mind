@@ -4,7 +4,7 @@
 //! REAL test (GALION_REAL=1), box only, of Mate's accepted decisions for
 //! slot 160 (2026-10-21), wave-4 slot 175:
 //!
-//! * D-L2: a fake nerve (in this test, real HTTP on 127.0.0.1:20750) reports
+//! * D-L2: a fake nerve (in this test, real HTTP on 127.0.0.1:20450) reports
 //!   its own restarts in `GET /state`; the real `gaia heal-tick --loop`
 //!   (release) on a flapping `gaia-dummy` restarts only `3 - nerve` times,
 //!   and the cap lifts as soon as the nerve's count drops. Nerve 3 caps a
@@ -14,12 +14,13 @@
 //!   expired tokens moved aside by the loop and never consumed.
 //! * D-L4: a hung `gaia-dummy --mode hang` is reported as `gaia.heal.hung`
 //!   every tick with its real pid; never restarted, never killed.
-//! * The real `openmind-nerve serve` (GAIA_NERVE_BIN, 127.0.0.1:20751): its
+//! * The real `openmind-nerve serve` (GAIA_NERVE_BIN, 127.0.0.1:20451): its
 //!   `/state` parses and the heal path works against it.
 //!
-//! Ports: slot 175 owns 20750-20759 (nerves); dummies sit on 19750-19754
-//! because the heal apply path only touches 19000-19999 (a safety guard
-//! this test does not widen). D-L1: nothing is installed anywhere.
+//! Ports: all in slot 175's band 20450-20459 (nerves 20450-20451, dummies
+//! 20452-20456; slot 199 moved them from 20750/19750, D-FI4). The heal
+//! apply path refuses live VPS ports (`gaia_live::heal::LIVE_PORTS`). D-L1:
+//! nothing is installed anywhere.
 //!
 //! Run: `GALION_REAL=1 GAIA_NERVE_BIN=$T/release/openmind-nerve cargo test
 //! --release -p gaia --test real_gaia_decisions -- --nocapture`.
@@ -32,15 +33,15 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const FAKE: &str = "127.0.0.1:20750";
-const REAL: &str = "127.0.0.1:20751";
-const ALLOW: &str = "19750-19754";
-const FLAP: u16 = 19750;
-const NCAP: u16 = 19751;
-const HANG: u16 = 19752;
-const EXPIRY: u16 = 19753;
-const REALSVC: u16 = 19754;
-const PORTS: [u16; 7] = [20750, 20751, FLAP, NCAP, HANG, EXPIRY, REALSVC];
+const FAKE: &str = "127.0.0.1:20450";
+const REAL: &str = "127.0.0.1:20451";
+const ALLOW: &str = "20452-20456";
+const FLAP: u16 = 20452;
+const NCAP: u16 = 20453;
+const HANG: u16 = 20454;
+const EXPIRY: u16 = 20455;
+const REALSVC: u16 = 20456;
+const PORTS: [u16; 7] = [20450, 20451, FLAP, NCAP, HANG, EXPIRY, REALSVC];
 
 fn stamp() -> String {
     zagreb_time::now_rfc3339()
@@ -90,7 +91,7 @@ impl Fake {
 }
 
 fn start_fake() -> Fake {
-    let l = TcpListener::bind(FAKE).expect("bind fake nerve 20750");
+    let l = TcpListener::bind(FAKE).expect("bind fake nerve 20450");
     let f = Fake::default();
     f.set(200, json!({"cycle": 1, "components": []}));
     let f2 = f.clone();
@@ -416,7 +417,7 @@ fn real_gaia_loop_decisions_dl2_dl3_dl4() {
         dummy: env!("CARGO_BIN_EXE_gaia-dummy").to_string(),
     };
     let fake = start_fake();
-    wait_port(20750);
+    wait_port(20450);
     eprintln!("[{}] fake nerve on {FAKE}", stamp());
     let real = Command::new(&nerve_bin)
         .args(["serve", "--listen", REAL, "--log"])
@@ -428,7 +429,7 @@ fn real_gaia_loop_decisions_dl2_dl3_dl4() {
         kids: vec![real],
         dir: dir.clone(),
     };
-    wait_port(20751);
+    wait_port(20451);
 
     // ---------------- D-L3: batch limits through the real CLI.
     let flap_argv = c.argv(FLAP, &["--mode", "flap", "--up-ms", "1200"]);
@@ -812,7 +813,7 @@ fn real_gaia_loop_decisions_dl2_dl3_dl4() {
         assert!(!open(*p), "port {p} still open after teardown");
     }
     eprintln!(
-        "[{}] teardown: 0 dummies, 20751 + 19750-19754 closed (20750 is this test's own thread)",
+        "[{}] teardown: 0 dummies, 20451 + 20452-20456 closed (20450 is this test's own thread)",
         stamp()
     );
     let _ = std::fs::remove_dir_all(&dir);

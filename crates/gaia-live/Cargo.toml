@@ -4,7 +4,7 @@
 # Gaia live. M1 (lib.rs): read-only health probes of the real services
 # (HTTP GET only, `systemctl is-active` only, file metadata only).
 # M2 (heal.rs, nerve.rs; the test service is crates/gaia/src/bin/gaia-dummy.rs): the first apply path, scoped to
-# box-local TEST services on 127.0.0.1:19000-19999 behind a HADES approval
+# box-local TEST services on 127.0.0.1:19000-20999 (never a live VPS port) behind a HADES approval
 # token and a 3-restarts-per-hour cap, with nerve events over loopback.
 # Never calls systemctl to change anything, never signals a process.
 

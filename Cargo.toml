@@ -60,11 +60,16 @@ opt-level = 3
 opt-level = 3
 [profile.release.package.galion-chatterbox]
 opt-level = 3
+# galion-voice-cpu owns the galion-voice-serve binary. Cargo links a crate's binaries with its package
+# override, and an override without `strip` falls back to cargo's default "debuginfo" (binary kept
+# .symtab, size-budget FAIL). So repeat `strip = true` here; guard: crates/galion-voice-cpu/tests/release_strip.rs.
 [profile.release.package.galion-voice-cpu]
 opt-level = 3
+strip = true
 
 # RUSTSEC-2026-0367/0368/0369: no candle release (0.9.2..0.11.0, nor upstream main) allows zip >= 9.
-# vendor/candle-core is candle-core 0.9.2 unchanged except its zip requirement (7.2 -> 9.0.5).
+# vendor/candle-core is candle-core 0.9.2 with its zip requirement 7.2 -> 9.0.5 and its AVX2/NEON/simd128
+# kernels removed (no-SIMD rule; vendor/candle-core/GALION-PATCH.md item 6).
 # See docs/security/candle-zip-fix.md. Drop this patch once upstream candle requires zip >= 9.
 # RUSTSEC-2024-0436: `paste` (via gemm/pulp under candle-core) is unmaintained. vendor/paste-pastey is a
 # 20-line shim named `paste` that re-exports the maintained drop-in fork `pastey` 0.2.3 (MIT OR Apache-2.0).

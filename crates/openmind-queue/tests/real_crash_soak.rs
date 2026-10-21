@@ -366,7 +366,7 @@ fn worker(s: Arc<Shared>, seed: u64, wid: usize) {
             l.max_token = l.max_token.max(token);
         }
         let path = format!("/jobs/{id}/ack");
-        if rng.next() % 10 == 0 {
+        if rng.next().is_multiple_of(10) {
             // deliberate stale ack
             let bad = json!({"token": token + 1_000_000});
             match guarded(&s, || req(&s.addr, "POST", &path, Some(&bad))) {
@@ -652,12 +652,12 @@ fn kill_loop(name: &str, port: u16, compact_min: u64, hammer: bool) {
     let mut threads = Vec::new();
     for i in 0..4 {
         let sc = s.clone();
-        threads.push(thread::spawn(move || producer(sc, seed ^ (i + 1) * 7919)));
+        threads.push(thread::spawn(move || producer(sc, seed ^ ((i + 1) * 7919))));
     }
     for i in 0..4 {
         let sc = s.clone();
         threads.push(thread::spawn(move || {
-            worker(sc, seed ^ (i as u64 + 11) * 104_729, i)
+            worker(sc, seed ^ ((i as u64 + 11) * 104_729), i)
         }));
     }
     if hammer {
@@ -1118,7 +1118,7 @@ fn real_soak_10k() {
     let addr = "127.0.0.1:20768".to_string();
     let (srv, _) = start(&addr, &data, &[], &errlog);
     let pid = Arc::new(AtomicU64::new(u64::from(srv.pid)));
-    let samples: Arc<Mutex<Vec<(u64, u64, &'static str)>>> = Arc::new(Mutex::new(Vec::new()));
+    let samples: Arc<Mutex<Vec<RssSample>>> = Arc::new(Mutex::new(Vec::new()));
     let phase: Arc<Mutex<&'static str>> = Arc::new(Mutex::new("idle"));
     let stop = Arc::new(AtomicBool::new(false));
     let t_start = Instant::now();
@@ -1366,3 +1366,6 @@ fn snapshot_at_kill(data: &Path, to: &Path) {
         std::fs::copy(data.join(refusals::FILE), to.join(refusals::FILE)).unwrap();
     }
 }
+
+/// (ms since start, VmRSS KiB, phase)
+type RssSample = (u64, u64, &'static str);

@@ -360,7 +360,13 @@ pub fn status_canonical(device_id: &str, ts: i64, url: &str) -> String {
 }
 
 /// Canonical string a node signs to answer a tunnel challenge.
-pub fn tunnel_canonical(device_id: &str, session: &str, id: &str, challenge: &str, url: &str) -> String {
+pub fn tunnel_canonical(
+    device_id: &str,
+    session: &str,
+    id: &str,
+    challenge: &str,
+    url: &str,
+) -> String {
     format!("omnode-tunnel-v1|{device_id}|{session}|{id}|{challenge}|{url}")
 }
 
@@ -540,7 +546,10 @@ impl Enroll {
         let data = serde_json::to_vec_pretty(&next.to_json()).map_err(|e| e.to_string())?;
         write_atomic(&self.cfg.store, &data)?;
         for o in next.outcomes.iter().filter(|o| !cur.outcomes.contains(o)) {
-            log(&format!("request from {} is now {} ({})", o.device_id, o.status, o.at));
+            log(&format!(
+                "request from {} is now {} ({})",
+                o.device_id, o.status, o.at
+            ));
         }
         *cur = next;
         Ok(())
@@ -989,8 +998,8 @@ impl Enroll {
     }
 
     /// `POST /openmind/enroll/status` `{"device_id","ts","signature"}`: a
-    /// signed poll while the device waits for the owner. Read-only (no store
-    /// write, no token); its own rate bucket, so polling never starves the
+    /// signed poll while the device waits for the owner. Never a token, and no
+    /// store write except recording a timeout it noticed; its own rate bucket, so polling never starves the
     /// enroll and claim POSTs.
     fn status(&self, b: &Value, now: i64) -> Response {
         let Some(o) = b.as_object() else {
@@ -1011,25 +1020,52 @@ impl Enroll {
         if (now - ts).abs() > SKEW {
             return refuse(400, "status timestamp outside the allowed skew");
         }
-        let mut s = self.lock().clone();
-        self.prune(&mut s, now);
+        let s = {
+            let mut cur = self.lock();
+            let mut next = cur.clone();
+            self.prune(&mut next, now);
+            // Persist only a timeout this poll noticed (once per request), so
+            // the owner log and the store say "expired" too. Best effort: a
+            // failed write changes nothing and the answer is the same.
+            if next.outcomes != cur.outcomes {
+                let _ = self.commit(&mut cur, next.clone());
+            }
+            next
+        };
         let pk = s
             .devices
             .get(dev)
             .map(|d| d.public_key.clone())
-            .or_else(|| s.pending.iter().find(|p| p.device_id == dev).map(|p| p.public_key.clone()))
-            .or_else(|| s.outcomes.iter().find(|o| o.device_id == dev).map(|o| o.public_key.clone()));
+            .or_else(|| {
+                s.pending
+                    .iter()
+                    .find(|p| p.device_id == dev)
+                    .map(|p| p.public_key.clone())
+            })
+            .or_else(|| {
+                s.outcomes
+                    .iter()
+                    .find(|o| o.device_id == dev)
+                    .map(|o| o.public_key.clone())
+            });
         let Some(pk) = pk else {
             return refuse(403, "not enrolled");
         };
         if let Err(e) = verify::parse_key(&pk).and_then(|vk| {
-            verify::check_sig(&vk, status_canonical(dev, ts, &self.cfg.url).as_bytes(), sig.trim())
+            verify::check_sig(
+                &vk,
+                status_canonical(dev, ts, &self.cfg.url).as_bytes(),
+                sig.trim(),
+            )
         }) {
             return refuse(401, &e);
         }
         if let Some(d) = s.devices.get(dev) {
             if d.revoked_at.is_some() {
-                return reply(403, json!({"ok": false, "status": "revoked", "error": "device revoked"}));
+                return reply(
+                    403,
+                    json!({"ok": false, "status": "revoked", "error": "device revoked"}),
+                );
             }
             return reply(
                 200,
@@ -1134,7 +1170,7 @@ impl Enroll {
                 break 'run "node gone before hello".into();
             }
             loop {
-                std::thread::sleep(Duration::from_millis(200));
+                std::thread::sleep(Duration::from_millis(100));
                 let now = crate::time::now_secs();
                 if self.authorize(tok, None, now).is_err() {
                     break 'run bye(w, "credential revoked or expired");
@@ -1246,7 +1282,9 @@ impl Enroll {
             return refuse(404, "no such tunnel session");
         };
         if let Err(err) = checked {
-            log(&format!("tunnel {dev} {session}: bad answer to {id}: {err}"));
+            log(&format!(
+                "tunnel {dev} {session}: bad answer to {id}: {err}"
+            ));
             if id == "hello" {
                 e.failed = Some("hello answer did not verify".into());
             }
@@ -1254,7 +1292,9 @@ impl Enroll {
         }
         if id == "hello" {
             e.verified = true;
-            log(&format!("tunnel verified: {dev} session {session} (device key)"));
+            log(&format!(
+                "tunnel verified: {dev} session {session} (device key)"
+            ));
         }
         e.answered.push(id.to_string());
         let excess = e.answered.len().saturating_sub(64);
@@ -1296,7 +1336,9 @@ impl Enroll {
                     Some(e) if e.session == session => {
                         if e.answered.contains(&id) {
                             let ms = start.elapsed().as_millis() as u64;
-                            log(&format!("ping {dev} {session} {id}: signed answer in {ms} ms"));
+                            log(&format!(
+                                "ping {dev} {session} {id}: signed answer in {ms} ms"
+                            ));
                             return reply(
                                 200,
                                 json!({"ok": true, "device_id": dev, "session": session, "id": id, "rtt_ms": ms}),
@@ -1342,7 +1384,10 @@ impl Enroll {
                 .pending
                 .iter()
                 .position(|p| !p.code.is_empty() && ct_eq(&p.code, c)),
-            None => s.pending.iter().position(|p| Some(p.device_id.as_str()) == dev),
+            None => s
+                .pending
+                .iter()
+                .position(|p| Some(p.device_id.as_str()) == dev),
         }
         .ok_or_else(|| refuse(404, "no pending request for that code or device"))?;
         let p = &s.pending[i];
@@ -1350,7 +1395,10 @@ impl Enroll {
             return Err(refuse(409, "code and device_id name different requests"));
         }
         if fp.is_some_and(|f| !ct_eq(&p.fingerprint, f)) {
-            return Err(refuse(409, "fingerprint does not match the pending request"));
+            return Err(refuse(
+                409,
+                "fingerprint does not match the pending request",
+            ));
         }
         Ok(i)
     }

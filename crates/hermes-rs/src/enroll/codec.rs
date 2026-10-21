@@ -88,7 +88,14 @@ const DEVICE: [&str; 14] = [
 ];
 const FLAG: [&str; 3] = ["at", "device_id", "reason"];
 const STATE: [&str; 6] = ["v", "nonces", "pending", "devices", "flags", "outcomes"];
-const OUTCOME: [&str; 6] = ["device_id", "public_key", "fingerprint", "status", "at", "until_unix"];
+const OUTCOME: [&str; 6] = [
+    "device_id",
+    "public_key",
+    "fingerprint",
+    "status",
+    "at",
+    "until_unix",
+];
 
 /// Like [`obj`], but the fields in `optional` may be missing (stores written
 /// by an older build). Unknown fields are still refused.

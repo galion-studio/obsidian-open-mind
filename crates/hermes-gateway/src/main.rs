@@ -26,6 +26,8 @@ use hermes_rs::spend::SpendTracker;
 use hermes_rs::tools::{ClockTool, Registry};
 use std::sync::Arc;
 
+mod owner;
+
 fn log(msg: &str) {
     eprintln!(
         "{} hermes-gateway {msg}",
@@ -99,6 +101,12 @@ fn main() {
             std::process::exit(2);
         }
     };
+    // Owner approval commands talk to the running gateway; they never open
+    // the stores or bind a port themselves.
+    if args.first().map(String::as_str) == Some("enroll") {
+        let key = cfg.api_key(&env);
+        std::process::exit(owner::run(&cfg, key, &args[1..]));
+    }
     if args.iter().any(|a| a == "--check-config") {
         println!(
             "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={}",

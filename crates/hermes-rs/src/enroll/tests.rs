@@ -675,11 +675,21 @@ fn pairing_code_shape_and_normalising() {
     assert_eq!(normalize_code(&c.to_lowercase()), Some(c.clone()));
     assert_eq!(normalize_code(&c.replace('-', " ")), Some(c.clone()));
     assert_eq!(normalize_code("o0il-ABCD").as_deref(), Some("0011-ABCD"));
-    for bad in ["", "ABC", "ABCD-EFGH-J", "ABCD-EFGU", "ABCD_EFGH", "ÄBCD-EFGH"] {
+    for bad in [
+        "",
+        "ABC",
+        "ABCD-EFGH-J",
+        "ABCD-EFGU",
+        "ABCD_EFGH",
+        "ÄBCD-EFGH",
+    ] {
         assert_eq!(normalize_code(bad), None, "{bad}");
     }
     // pinned vector: omnode computes the same string (edge/openmind-node tests)
-    assert_eq!(pairing_code(&"11".repeat(32), &"22".repeat(12)), "J820-7XVQ");
+    assert_eq!(
+        pairing_code(&"11".repeat(32), &"22".repeat(12)),
+        "J820-7XVQ"
+    );
 }
 
 #[test]
@@ -687,11 +697,8 @@ fn approve_by_code_then_claim_and_status() {
     let dir = tmp("code");
     let e = Enroll::open(cfg(&dir)).unwrap();
     let d = Dev::new(41);
-    let (s, b) = status_body(e.handle(
-        &post(ENROLL_PATH, &d.doc(&n(1), NOW, &["cpu"])),
-        false,
-        NOW,
-    ));
+    let (s, b) =
+        status_body(e.handle(&post(ENROLL_PATH, &d.doc(&n(1), NOW, &["cpu"])), false, NOW));
     assert_eq!(s, 202);
     let code = d.code(&n(1));
     assert_eq!(b["code"], json!(code));
@@ -708,7 +715,8 @@ fn approve_by_code_then_claim_and_status() {
     // owner routes stay closed without the key, also for code approval
     let ap = json!({"code": code.to_lowercase()});
     assert_eq!(
-        e.handle(&post("/openmind/enroll/approve", &ap), false, NOW).status(),
+        e.handle(&post("/openmind/enroll/approve", &ap), false, NOW)
+            .status(),
         401
     );
     // wrong code, malformed code, code + wrong fingerprint
@@ -802,7 +810,8 @@ fn owner_refusal_is_told_to_the_device() {
     // reject needs the key
     let rj = json!({"code": d.code(&n(1))});
     assert_eq!(
-        e.handle(&post("/openmind/enroll/reject", &rj), false, NOW).status(),
+        e.handle(&post("/openmind/enroll/reject", &rj), false, NOW)
+            .status(),
         401
     );
     let (s, b) = status_body(e.handle(&post("/openmind/enroll/reject", &rj), true, NOW + 1));
@@ -828,8 +837,12 @@ fn owner_refusal_is_told_to_the_device() {
     assert_eq!(b["recent"][0]["status"], json!("rejected"));
     // a fresh request starts over (new nonce, new code)
     assert_eq!(
-        e.handle(&post(ENROLL_PATH, &d.doc(&n(3), NOW + 6, &["cpu"])), false, NOW + 6)
-            .status(),
+        e.handle(
+            &post(ENROLL_PATH, &d.doc(&n(3), NOW + 6, &["cpu"])),
+            false,
+            NOW + 6
+        )
+        .status(),
         202
     );
     assert_eq!(poll(&e, &d, NOW + 7).1["status"], json!("pending"));
@@ -978,7 +991,10 @@ impl Frames {
                 }
                 return Some((ev, data));
             }
-            let chunk = self.rx.recv_timeout(std::time::Duration::from_secs(10)).ok()?;
+            let chunk = self
+                .rx
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .ok()?;
             self.buf.push_str(&String::from_utf8_lossy(&chunk));
         }
     }
@@ -1007,11 +1023,13 @@ fn answer(e: &Enroll, token: &str, body: &Value) -> (u16, Value) {
 fn tunnel_hello_proof_ping_replace_and_revoke() {
     let dir = tmp("tunnel");
     let now = crate::time::now_secs();
-    let e = Arc::new(Enroll::open(EnrollCfg {
-        url: URL.into(),
-        ..cfg(&dir)
-    })
-    .unwrap());
+    let e = Arc::new(
+        Enroll::open(EnrollCfg {
+            url: URL.into(),
+            ..cfg(&dir)
+        })
+        .unwrap(),
+    );
     let d = Dev::new(47);
     let tok = enrolled_at(&e, &d, 1, now);
     // no / wrong credential: 401, no stream
@@ -1063,7 +1081,11 @@ fn tunnel_hello_proof_ping_replace_and_revoke() {
     let (s, _) = answer(
         &e,
         &tok,
-        &d.answer(&session, c["id"].as_str().unwrap(), c["challenge"].as_str().unwrap()),
+        &d.answer(
+            &session,
+            c["id"].as_str().unwrap(),
+            c["challenge"].as_str().unwrap(),
+        ),
     );
     assert_eq!(s, 200);
     let (s, b) = pinger.join().unwrap();
@@ -1127,7 +1149,10 @@ fn enrolled_at(e: &Enroll, d: &Dev, base: u8, now: i64) -> String {
     ));
     assert_eq!(s, 202);
     let (s, _) = status_body(e.handle(
-        &post("/openmind/enroll/approve", &json!({"code": d.code(&n(base))})),
+        &post(
+            "/openmind/enroll/approve",
+            &json!({"code": d.code(&n(base))}),
+        ),
         true,
         now,
     ));

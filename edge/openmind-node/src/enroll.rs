@@ -40,6 +40,57 @@ pub fn claim_canonical(device_id: &str, nonce: &str, ts: i64, url: &str) -> Stri
     format!("omnode-claim-v1|{device_id}|{nonce}|{ts}|{url}")
 }
 
+/// Canonical string of a signed status poll (must match Hermes `status_canonical`).
+pub fn status_canonical(device_id: &str, ts: i64, url: &str) -> String {
+    format!("omnode-status-v1|{device_id}|{ts}|{url}")
+}
+
+/// Canonical string of a tunnel challenge answer (Hermes `tunnel_canonical`).
+pub fn tunnel_canonical(
+    device_id: &str,
+    session: &str,
+    id: &str,
+    challenge: &str,
+    url: &str,
+) -> String {
+    format!("omnode-tunnel-v1|{device_id}|{session}|{id}|{challenge}|{url}")
+}
+
+/// Short code shown next to the QR (Hermes `pairing_code`): 40 bits of
+/// SHA-256(`omnode-code-v1|public_key|nonce`), Crockford base32, `XXXX-XXXX`.
+pub fn pairing_code(public_key: &str, nonce: &str) -> String {
+    use sha2::{Digest, Sha256};
+    const A: &[u8; 32] = b"0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+    let d = Sha256::digest(format!("omnode-code-v1|{public_key}|{nonce}").as_bytes());
+    let v = d[..5].iter().fold(0u64, |acc, b| acc << 8 | u64::from(*b));
+    let mut s = String::with_capacity(9);
+    for i in (0..8).rev() {
+        s.push(A[((v >> (i * 5)) & 31) as usize] as char);
+        if i == 4 {
+            s.push('-');
+        }
+    }
+    s
+}
+
+/// Signed status poll while waiting for the owner. Returns Hermes' HTTP
+/// status and JSON: 202 pending, 200 approved, 403 rejected/revoked,
+/// 410 expired. Hermes writes nothing for a poll and never sends a token.
+pub fn poll(url: &str, id: &Identity, net: Net) -> Result<(u16, Value), String> {
+    let ts = crate::zagreb::now_unix();
+    let dev = &id.state.device_id;
+    let sig = id.sign(status_canonical(dev, ts, url).as_bytes());
+    let body = json!({"device_id": dev, "ts": ts, "signature": sig});
+    let (code, text) = http(
+        "POST",
+        &format!("{url}/status"),
+        Some(&body.to_string()),
+        None,
+        net,
+    )?;
+    Ok((code, json_of(&text)))
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct Url {
     https: bool,
@@ -89,47 +140,85 @@ fn is_loopback(host: &str) -> bool {
     matches!(host, "127.0.0.1" | "localhost" | "::1")
 }
 
-/// One HTTP exchange; returns (status, body). `bearer` is a secret: it goes
-/// into the request head (http) or curl's stdin (https), never argv or logs.
-pub fn http(
-    method: &str,
-    url: &str,
-    body: Option<&str>,
-    bearer: Option<&str>,
-    allow_http: bool,
-) -> Result<(u16, String), String> {
-    let u = parse_url(url)?;
-    if u.https {
-        return via_curl(method, url, body, bearer);
+/// How omnode reaches Hermes. `https://` always goes through the system
+/// `curl` (omnode carries no TLS stack). Plain `http://` is used only for a
+/// loopback Hermes unless `allow_http` (`--insecure-http`, a LAN test on a
+/// network you own). `via_curl` (`--via-curl`) sends plain http through curl
+/// too, so the curl code path that a phone uses for https can be tested
+/// against a local server.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Net {
+    pub allow_http: bool,
+    pub via_curl: bool,
+}
+
+impl Net {
+    pub fn new(allow_http: bool, via_curl: bool) -> Net {
+        Net {
+            allow_http,
+            via_curl,
+        }
     }
-    if !is_loopback(&u.host) && !allow_http {
+}
+
+/// Refuse plain http to a non-loopback host unless allowed.
+fn check_plain(u: &Url, net: Net) -> Result<(), String> {
+    if !u.https && !is_loopback(&u.host) && !net.allow_http {
         return Err(format!(
             "refusing plain http to {} (not loopback); use https or --insecure-http on a network you own",
             u.host
         ));
     }
+    Ok(())
+}
+
+fn connect(u: &Url, timeout: Duration) -> Result<TcpStream, String> {
     let addr = (u.host.as_str(), u.port)
         .to_socket_addrs()
         .map_err(|e| format!("resolve {}: {e}", u.host))?
         .next()
         .ok_or("host did not resolve")?;
-    let mut s =
-        TcpStream::connect_timeout(&addr, TIMEOUT).map_err(|e| format!("connect {addr}: {e}"))?;
-    s.set_read_timeout(Some(TIMEOUT)).ok();
-    s.set_write_timeout(Some(TIMEOUT)).ok();
+    let s =
+        TcpStream::connect_timeout(&addr, timeout).map_err(|e| format!("connect {addr}: {e}"))?;
+    s.set_read_timeout(Some(timeout)).ok();
+    s.set_write_timeout(Some(timeout)).ok();
+    Ok(s)
+}
+
+fn request_head(method: &str, u: &Url, bearer: Option<&str>, accept: &str) -> String {
     let host_hdr = if u.host.contains(':') {
         format!("[{}]:{}", u.host, u.port)
     } else {
         format!("{}:{}", u.host, u.port)
     };
     let mut head = format!(
-        "{method} {} HTTP/1.1\r\nHost: {host_hdr}\r\nUser-Agent: omnode/{}\r\nAccept: application/json\r\nConnection: close\r\n",
+        "{method} {} HTTP/1.1\r\nHost: {host_hdr}\r\nUser-Agent: omnode/{}\r\nAccept: {accept}\r\nConnection: close\r\n",
         u.path,
         env!("CARGO_PKG_VERSION")
     );
     if let Some(t) = bearer {
         head.push_str(&format!("Authorization: Bearer {t}\r\n"));
     }
+    head
+}
+
+/// One HTTP exchange; returns (status, body). `bearer` is a secret: it goes
+/// into the request head (http) or curl's stdin config (curl), never argv
+/// or logs.
+pub fn http(
+    method: &str,
+    url: &str,
+    body: Option<&str>,
+    bearer: Option<&str>,
+    net: Net,
+) -> Result<(u16, String), String> {
+    let u = parse_url(url)?;
+    check_plain(&u, net)?;
+    if u.https || net.via_curl {
+        return via_curl(method, url, u.https, body, bearer);
+    }
+    let mut s = connect(&u, TIMEOUT)?;
+    let mut head = request_head(method, &u, bearer, "application/json");
     let b = body.unwrap_or("");
     if body.is_some() {
         head.push_str(&format!(
@@ -157,58 +246,89 @@ pub fn http(
     Ok((status, body.to_string()))
 }
 
+/// A value inside a double-quoted curl config string.
+fn curl_quote(s: &str) -> Result<String, String> {
+    if s.chars().any(|c| c.is_control() && c != '\t') {
+        return Err("internal: control character in a curl config value".into());
+    }
+    Ok(format!(
+        "\"{}\"",
+        s.replace('\\', "\\\\").replace('"', "\\\"")
+    ))
+}
+
+/// curl config (`-K -`, read from stdin): headers, bearer and body never
+/// appear on argv, where other local users could read them in /proc.
+fn curl_config(
+    method: &str,
+    accept: &str,
+    body: Option<&str>,
+    bearer: Option<&str>,
+) -> Result<String, String> {
+    let mut c = String::new();
+    c.push_str(&format!("request = {}\n", curl_quote(method)?));
+    c.push_str(&format!(
+        "header = {}\n",
+        curl_quote(&format!("Accept: {accept}"))?
+    ));
+    c.push_str(&format!(
+        "header = {}\n",
+        curl_quote(&format!("User-Agent: omnode/{}", env!("CARGO_PKG_VERSION")))?
+    ));
+    if let Some(t) = bearer {
+        c.push_str(&format!(
+            "header = {}\n",
+            curl_quote(&format!("Authorization: Bearer {t}"))?
+        ));
+    }
+    if let Some(b) = body {
+        c.push_str("header = \"Content-Type: application/json\"\n");
+        c.push_str(&format!("data-binary = {}\n", curl_quote(b)?));
+    }
+    Ok(c)
+}
+
+fn curl_proto(https: bool) -> &'static str {
+    if https {
+        "=https"
+    } else {
+        "=http"
+    }
+}
+
 fn via_curl(
     method: &str,
     url: &str,
+    https: bool,
     body: Option<&str>,
     bearer: Option<&str>,
 ) -> Result<(u16, String), String> {
-    if body.is_some() && bearer.is_some() {
-        return Err("internal: https request with both a body and a bearer".into());
-    }
-    let mut args: Vec<&str> = vec![
+    let config = curl_config(method, "application/json", body, bearer)?;
+    let args: Vec<&str> = vec![
         "-sS",
         "--proto",
-        "=https",
+        curl_proto(https),
         "--max-time",
         "15",
         "--max-filesize",
         "65536",
-        "-X",
-        method,
-        "-H",
-        "Accept: application/json",
         "-w",
         "\n%{http_code}",
+        "-K",
+        "-",
+        url,
     ];
-    if body.is_some() {
-        args.extend([
-            "-H",
-            "Content-Type: application/json",
-            "--data-binary",
-            "@-",
-        ]);
-    }
-    if bearer.is_some() {
-        args.extend(["-H", "@-"]);
-    }
-    args.push(url);
     let mut child = Command::new("curl")
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("https needs the system curl: {e}"))?;
+        .map_err(|e| format!("https needs the system curl (Termux: pkg install curl): {e}"))?;
     {
         let mut stdin = child.stdin.take().ok_or("curl stdin")?;
-        let feed = match (body, bearer) {
-            (Some(b), _) => b.to_string(),
-            (None, Some(t)) => format!("Authorization: Bearer {t}\n"),
-            _ => String::new(),
-        };
         stdin
-            .write_all(feed.as_bytes())
+            .write_all(config.as_bytes())
             .map_err(|e| format!("curl stdin: {e}"))?;
     }
     let out = child.wait_with_output().map_err(|e| format!("curl: {e}"))?;
@@ -222,6 +342,129 @@ fn via_curl(
     let (body, code) = text.rsplit_once('\n').ok_or("curl: no status")?;
     let code = code.trim().parse().map_err(|_| "curl: bad status")?;
     Ok((code, body.to_string()))
+}
+
+/// A long-lived GET whose body is read line by line (the node tunnel).
+pub enum Stream {
+    Tcp(std::io::BufReader<TcpStream>),
+    Curl(
+        std::process::Child,
+        std::io::BufReader<std::process::ChildStdout>,
+    ),
+}
+
+impl Stream {
+    /// Next line without the line ending; `Ok(None)` at end of stream.
+    pub fn line(&mut self) -> std::io::Result<Option<String>> {
+        use std::io::BufRead;
+        let mut s = String::new();
+        let n = match self {
+            Stream::Tcp(r) => Read::take(&mut *r, 16 * 1024).read_line(&mut s)?,
+            Stream::Curl(_, r) => Read::take(&mut *r, 16 * 1024).read_line(&mut s)?,
+        };
+        if n == 0 {
+            return Ok(None);
+        }
+        Ok(Some(s.trim_end_matches(['\r', '\n']).to_string()))
+    }
+}
+
+impl Drop for Stream {
+    fn drop(&mut self) {
+        if let Stream::Curl(c, _) = self {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+}
+
+/// Open `GET url` (Bearer) and return (status, stream positioned at the
+/// body). `idle` = give up when nothing arrives for that long (Hermes pings
+/// well inside it); `max` = hard stop for the whole connection.
+pub fn open_stream(
+    url: &str,
+    bearer: &str,
+    net: Net,
+    idle: Duration,
+    max: Option<Duration>,
+) -> Result<(u16, Stream), String> {
+    let u = parse_url(url)?;
+    check_plain(&u, net)?;
+    let mut st = if u.https || net.via_curl {
+        let config = curl_config("GET", "text/event-stream", None, Some(bearer))?;
+        let idle_s = idle.as_secs().max(1).to_string();
+        let max_s = max.map(|m| m.as_secs().max(1).to_string());
+        let mut args: Vec<&str> = vec![
+            "-sS",
+            "-N",
+            "-i",
+            "--proto",
+            curl_proto(u.https),
+            "--connect-timeout",
+            "15",
+            "--speed-limit",
+            "1",
+            "--speed-time",
+            &idle_s,
+        ];
+        if let Some(m) = &max_s {
+            args.extend(["--max-time", m]);
+        }
+        args.extend(["-K", "-", url]);
+        let mut child = Command::new("curl")
+            .args(&args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("https needs the system curl (Termux: pkg install curl): {e}"))?;
+        {
+            let mut stdin = child.stdin.take().ok_or("curl stdin")?;
+            stdin
+                .write_all(config.as_bytes())
+                .map_err(|e| format!("curl stdin: {e}"))?;
+        }
+        let out = child.stdout.take().ok_or("curl stdout")?;
+        Stream::Curl(child, std::io::BufReader::new(out))
+    } else {
+        let mut s = connect(&u, TIMEOUT)?;
+        let head = request_head("GET", &u, Some(bearer), "text/event-stream") + "\r\n";
+        s.write_all(head.as_bytes())
+            .map_err(|e| format!("send: {e}"))?;
+        s.set_read_timeout(Some(idle)).ok();
+        Stream::Tcp(std::io::BufReader::new(s))
+    };
+    // Status line, then headers up to the blank line (curl -i prints them too;
+    // a 1xx/redirect head is not expected from Hermes and is treated as an error).
+    let first = st
+        .line()
+        .map_err(|e| format!("read: {e}"))?
+        .ok_or("connection closed before a response")?;
+    let code: u16 = first
+        .split_whitespace()
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .ok_or_else(|| {
+            format!(
+                "malformed status line: {}",
+                first.chars().take(80).collect::<String>()
+            )
+        })?;
+    let mut n = 0;
+    loop {
+        let l = st
+            .line()
+            .map_err(|e| format!("read: {e}"))?
+            .ok_or("connection closed in the response head")?;
+        if l.is_empty() {
+            break;
+        }
+        n += 1;
+        if n > 100 {
+            return Err("response head too long".into());
+        }
+    }
+    Ok((code, st))
 }
 
 fn json_of(body: &str) -> Value {
@@ -250,11 +493,11 @@ pub enum Outcome {
 
 /// `omnode enroll request URL`: POST the signed document produced by
 /// `pair::build`. `doc` is what `omnode pair` would print.
-pub fn request(dir: &Path, url: &str, doc: &Value, allow_http: bool) -> Result<Outcome, String> {
+pub fn request(dir: &Path, url: &str, doc: &Value, net: Net) -> Result<Outcome, String> {
     if !url.ends_with(ENROLL_PATH) {
         return Err(format!("enroll URL must end with {ENROLL_PATH}"));
     }
-    let (code, body) = http("POST", url, Some(&doc.to_string()), None, allow_http)?;
+    let (code, body) = http("POST", url, Some(&doc.to_string()), None, net)?;
     let resp = json_of(&body);
     match code {
         202 => {
@@ -282,7 +525,7 @@ pub fn request(dir: &Path, url: &str, doc: &Value, allow_http: bool) -> Result<O
 }
 
 /// `omnode enroll claim`: fresh signed claim; on 200 store the credential.
-pub fn claim(dir: &Path, id: &Identity, allow_http: bool) -> Result<Outcome, String> {
+pub fn claim(dir: &Path, id: &Identity, net: Net) -> Result<Outcome, String> {
     let rec =
         read_json(&request_file(dir)).map_err(|e| format!("no enrollment request yet ({e})"))?;
     let url = rec["url"]
@@ -299,7 +542,7 @@ pub fn claim(dir: &Path, id: &Identity, allow_http: bool) -> Result<Outcome, Str
         &format!("{url}/claim"),
         Some(&body.to_string()),
         None,
-        allow_http,
+        net,
     )?;
     let mut resp = json_of(&text);
     match code {
@@ -335,7 +578,7 @@ pub fn claim(dir: &Path, id: &Identity, allow_http: bool) -> Result<Outcome, Str
 }
 
 /// `omnode enroll status [--scope S]`: is this credential accepted right now?
-pub fn status(dir: &Path, scope: Option<&str>, allow_http: bool) -> Result<Outcome, String> {
+pub fn status(dir: &Path, scope: Option<&str>, net: Net) -> Result<Outcome, String> {
     let cred = read_json(&credential_file(dir)).map_err(|e| format!("no credential ({e})"))?;
     let url = cred["url"].as_str().ok_or("credential has no url")?;
     let token = cred["token"].as_str().ok_or("credential has no token")?;
@@ -351,7 +594,7 @@ pub fn status(dir: &Path, scope: Option<&str>, allow_http: bool) -> Result<Outco
         }
         None => node_url(url, "whoami")?,
     };
-    let (code, text) = http("GET", &target, None, Some(token), allow_http)?;
+    let (code, text) = http("GET", &target, None, Some(token), net)?;
     let resp = json_of(&text);
     if code == 200 {
         Ok(Outcome::Done(json!({"http": code, "hermes": resp})))
@@ -391,8 +634,42 @@ mod tests {
 
     #[test]
     fn plain_http_only_to_loopback() {
-        let e = http("GET", "http://192.0.2.1:9/x", None, None, false).unwrap_err();
+        let e = http("GET", "http://192.0.2.1:9/x", None, None, Net::default()).unwrap_err();
         assert!(e.contains("refusing plain http"), "{e}");
+    }
+
+    #[test]
+    fn code_matches_hermes() {
+        // Same vector as crates/hermes-rs enroll tests (pairing_code_shape_and_normalising).
+        assert_eq!(
+            pairing_code(&"11".repeat(32), &"22".repeat(12)),
+            "J820-7XVQ"
+        );
+        assert_eq!(
+            status_canonical("omn-0123456789ab", 5, "http://127.0.0.1:1/openmind/enroll"),
+            "omnode-status-v1|omn-0123456789ab|5|http://127.0.0.1:1/openmind/enroll"
+        );
+        assert_eq!(
+            tunnel_canonical("omn-0123456789ab", "s", "hello", "c", "u"),
+            "omnode-tunnel-v1|omn-0123456789ab|s|hello|c|u"
+        );
+    }
+
+    #[test]
+    fn curl_config_quotes_and_keeps_secrets_off_argv() {
+        let c = curl_config(
+            "POST",
+            "application/json",
+            Some(r#"{"a":"b\\"c"}"#),
+            Some("omn1_x"),
+        )
+        .unwrap();
+        assert!(
+            c.contains("header = \"Authorization: Bearer omn1_x\"\n"),
+            "{c}"
+        );
+        assert!(c.contains(r#"data-binary = "{\"a\":\"b\\\\\"c\"}""#), "{c}");
+        assert!(curl_config("GET", "x", Some("a\nb"), None).is_err());
     }
 
     #[test]

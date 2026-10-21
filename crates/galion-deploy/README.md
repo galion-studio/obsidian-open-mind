@@ -12,7 +12,8 @@ galion-deploy --recover <service>
 Backup, atomic install, restart, health check, automatic rollback, for one systemd
 unit (or a `simsup` unit on the box). It replaces the bash script that was at
 `deploy/foundation/galion-deploy`. That script is kept, not installed and not run, at
-`docs/reference/galion-deploy.bash`. std only: no crates, no libc crate.
+`docs/reference/galion-deploy.bash`. std only: no crates.io crates, no libc crate; the one
+in-workspace dependency is the std-only `galion-common` (for `--version` / `--help` / `--check`).
 
 ## Same as the bash version
 

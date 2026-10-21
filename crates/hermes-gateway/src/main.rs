@@ -9,6 +9,11 @@
 //! env (HERMES_RS_HOST, HERMES_RS_PORT, HERMES_RS_STATE_DB, ...). The API key
 //! is read from $API_SERVER_KEY only. `--mock` uses the offline mock
 //! provider (no network, no spend) for shadow smoke tests.
+//!
+//! `HERMES_RS_BENCH=1` (needs the `bench` cargo feature) also registers the
+//! B1 banking / B2 Wall Street / B3 vending tool sets from `hermes-bench`
+//! (local mock / paper / sim only; loopback bind only; fails closed on a bad
+//! bench config). See `docs/bench/hermes-gateway-bench.md`.
 
 use hermes_rs::api::Gateway;
 use hermes_rs::config::Config;
@@ -27,6 +32,28 @@ fn log(msg: &str) {
 
 fn env(k: &str) -> Option<String> {
     std::env::var(k).ok()
+}
+
+/// `HERMES_RS_BENCH=1`: register the bench tool sets, or refuse to start on a
+/// bad bench config (fail closed). Without the `bench` feature the switch is
+/// only logged.
+#[cfg(feature = "bench")]
+fn wire_bench(tools: &mut Registry, loopback: bool) {
+    match hermes_bench::gateway::register_from_env(tools, &env, loopback) {
+        Ok(None) => {}
+        Ok(Some(w)) => log(&w.summary()),
+        Err(e) => {
+            log(&format!("bench config error: {e}"));
+            std::process::exit(2);
+        }
+    }
+}
+
+#[cfg(not(feature = "bench"))]
+fn wire_bench(_tools: &mut Registry, _loopback: bool) {
+    if env("HERMES_RS_BENCH").is_some_and(|v| !matches!(v.trim(), "" | "0")) {
+        log("HERMES_RS_BENCH ignored: this build has no `bench` feature");
+    }
 }
 
 fn open_store(cfg: &Config) -> Result<Arc<dyn SessionStore>, String> {
@@ -101,6 +128,8 @@ fn main() {
             tools.add(t);
         }
     }
+    // after MCP, so a bench name can never silently replace an MCP tool
+    wire_bench(&mut tools, cfg.is_loopback());
     let cron_agent = Arc::new(hermes_rs::agent::Agent {
         cfg: cfg.clone(),
         provider: provider.clone(),

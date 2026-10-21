@@ -291,6 +291,8 @@ dependencies = [
 name = "hermes-gateway"
 version = "0.1.0"
 dependencies = [
+ "bench-banking",
+ "hermes-bench",
  "hermes-rs",
  "serde_json",
 ]

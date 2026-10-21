@@ -38,6 +38,14 @@ slot could run it on its own range 20470-20479. Test-only.
 
 Textually none (fast-forward). What still stands between this branch and main:
 
+0. **repo-check FAILS (10 errors), new since integration-4.** All 10 are `portable` errors on `core::arch::` in the vendored
+   upstream candle-core (`vendor/candle-core/src/cpu/{avx,neon,simd128}.rs`, `src/quantized/{avx,neon,simd128}.rs`).
+   integration-4 `42de672`: 1383 files, 0 errors -> PASS; candle-zip-rebase `b246f66`: 10 errors -> FAIL; integration-5: same 10 -> FAIL.
+   The code was always in the registry crate; vendoring only made repo-check see it. It also touches the no-SIMD rule (NEON is on by
+   default on aarch64, so candle uses those intrinsics there). Owner decision, not made here: (a) repo-check skips `vendor/` like
+   cargo does (`exclude = ["contrib", "vendor"]`), (b) allow-mark the vendored files, (c) strip the SIMD modules from the vendored
+   copy (larger patch to keep in sync), (d) drop the vendoring and accept the zip advisories while candle features stay off.
+
 1. **Owner decisions carried in from the merged branches** (none decided here):
    - C1 keep vendored, patched `vendor/candle-core` until upstream candle uses zip >= 9 (recommended (a)); C2 upstream issue/PR to huggingface/candle = publishing, yes/no (docs/security/candle-zip-fix.md).
    - Keep the `vendor/paste-pastey` shim (drop when gemm/pulp leave `paste`) (docs/security/deny-paste-replace.md).

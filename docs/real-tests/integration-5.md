@@ -15,6 +15,7 @@ Ports used: 20470-20478 only. VPS: read-only GETs only.
 | 09:24 | `cargo deny --all-features --locked check advisories bans licenses sources` | advisories ok, bans ok, licenses ok, sources ok (warnings only: duplicate syn/hashbrown, wildcard path deps) |
 | 09:25 | same on integration-4 `42de672` (throwaway worktree, removed) | advisories FAILED: RUSTSEC-2024-0436, RUSTSEC-2026-0367/0368/0369 |
 | 09:24 | `scripts/no-python.sh` | no-python: ok |
+| 09:41 | `cargo run -p repo-check` | **FAIL**: 1519 files, 10 errors (all `portable` `core::arch::` in vendor/candle-core), 48 warnings; integration-4 PASS (0 errors), candle-zip-rebase b246f66 FAIL (same 10) |
 | 09:30:01-09:30:55 | `cargo test --workspace --exclude openmind-sandbox --exclude cgroup-detect --exclude hermes-tools --locked --no-fail-fast` | **1241 passed, 0 failed, 6 ignored**, 263 suites |
 | 09:29-09:31:55 | `cargo build --release --workspace --target x86_64-unknown-linux-musl` | ok, 37/37 binaries static |
 | 09:37-09:38:52 | same for aarch64-unknown-linux-musl (rust-lld; zig cc 0.15.2, `CRATE_CC_NO_DEFAULTS=1`, explicit `-O2` CFLAGS) | ok, 37/37 binaries AArch64 static |

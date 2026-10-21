@@ -210,7 +210,7 @@ fn real_edge_rate_on_the_box() {
     assert!(off["cortex"]["ddos"]["findings"].is_null());
     assert_eq!(
         (off["score"].as_u64(), off["grade"].as_str()),
-        (Some(21), Some("F"))
+        (Some(16), Some("F")) // 21/F before the T3.2 scanner member floor
     );
     eprintln!(
         "NERVE_EDGE_HOSTS=0: no host streams, score {} (on: {score_on})",

@@ -261,6 +261,22 @@ impl Cortex {
             .chain(&self.ddos_findings)
     }
 
+    /// The findings as T3.2 correlation members (`<kind>:<id>`, sensor,
+    /// cause, component, severity), in [`Self::findings`] order.
+    pub fn members(&self) -> Vec<crate::incident::Member> {
+        self.findings()
+            .map(|f| {
+                crate::incident::Member::new(
+                    &format!("{}:{}", f.kind.as_str(), f.id),
+                    f.source_or_cortex(),
+                    f.cause.as_deref(),
+                    &f.component,
+                    f.sev,
+                )
+            })
+            .collect()
+    }
+
     /// B33 `NerveEvent`s for this cycle with the B41 rule "the highest
     /// severity wins inside one `(source, kind)` pair": one event per pair,
     /// `data` = `{findings, ids, top}` (`top` is the worst finding's event

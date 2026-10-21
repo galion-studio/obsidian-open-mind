@@ -32,6 +32,14 @@
 //!    and lists the finding's component: correlation pulled that
 //!    component's signals into it, so its findings belong there too.
 //!
+//! **Member floor (T3.2).** The correlator lists the findings an incident
+//! covers as its members ([`crate::incident::Member`], `correlation` in the
+//! incident JSON). An incident costs at least what its worst member would
+//! cost uncovered, and a member that would block `pass` alone still blocks
+//! it: a scanner finding at error under a warn scanner signal costs 10, not
+//! 5. Without members (an incident built by [`crate::incident::Correlator::update`])
+//! nothing changes.
+//!
 //! Uncovered findings that share a `cause` (an ssh credential flood plus
 //! the auth-log disk bleed it causes, both `ssh-flood`) are one deduction:
 //! the worst finding's points, the others named in `why`. Findings without
@@ -46,8 +54,9 @@
 //! incident.
 //!
 //! Grade: A >= 90, B >= 80, C >= 70, D >= 55, F below.
-//! `pass` = no critical/error incident, no uncovered error-level
-//! vulnerability or ddos finding, no probe error, and score >= 70.
+//! `pass` = no critical/error incident, no error-level vulnerability or ddos
+//! finding (uncovered, or a member of an incident), no probe error, and
+//! score >= 70.
 
 use crate::cortex::{Cortex, Finding, FindingKind};
 use crate::incident::{Incident, Sev};
@@ -120,8 +129,51 @@ pub fn finding_blocks(kind: FindingKind, sev: Sev) -> bool {
     sev >= Sev::Error && matches!(kind, FindingKind::Vulnerability | FindingKind::Ddos)
 }
 
+/// The worst member of an incident (T3.2) as an uncovered finding would be
+/// scored: its points and whether it would block `pass`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Floor<'a> {
+    pub key: &'a str,
+    pub sev: &'static str,
+    pub points: u32,
+    pub blocks: bool,
+}
+
+/// [`Floor`] of `i`'s member findings (None: no member, or none costs points).
+pub fn member_floor(i: &Incident) -> Option<Floor<'_>> {
+    i.members
+        .iter()
+        .filter_map(|m| {
+            let kind = FindingKind::parse(m.key.split(':').next().unwrap_or(""))?;
+            Some(Floor {
+                key: &m.key,
+                sev: m.sev.as_str(),
+                points: finding_points(kind, m.sev),
+                blocks: finding_blocks(kind, m.sev),
+            })
+        })
+        .filter(|f| f.points > 0)
+        .reduce(|a, b| {
+            if (b.points, b.blocks) > (a.points, a.blocks) {
+                b
+            } else {
+                a
+            }
+        })
+}
+
 /// The open incident that already scores `f`, if any (rules in the module doc).
+/// An incident that lists `f` as a T3.2 correlation member
+/// ([`crate::incident::Member`]) wins; the cause / absorbing rules below are
+/// the same ones the correlator used to place it.
 pub fn covering<'a>(f: &Finding, incidents: &[&'a Incident]) -> Option<&'a Incident> {
+    let key = format!("{}:{}", f.kind.as_str(), f.id);
+    if let Some(i) = incidents
+        .iter()
+        .find(|i| i.members.iter().any(|m| m.key == key))
+    {
+        return Some(i);
+    }
     if let Some(c) = &f.cause {
         if let Some(i) = incidents.iter().find(|i| &i.cause == c) {
             return Some(i);
@@ -129,10 +181,7 @@ pub fn covering<'a>(f: &Finding, incidents: &[&'a Incident]) -> Option<&'a Incid
     }
     incidents
         .iter()
-        .find(|i| {
-            (i.cause.starts_with("ddos:") || i.cause == "stack-wide")
-                && i.components.contains(&f.component)
-        })
+        .find(|i| crate::incident::absorbing(&i.cause) && i.components.contains(&f.component))
         .copied()
 }
 
@@ -143,6 +192,7 @@ pub fn score(
     self_warns: &[String],
 ) -> Score {
     let mut d: Vec<Deduction> = vec![];
+    let mut blocking_member = false;
     for i in incidents {
         let extra = i.components.len().saturating_sub(1) as u32;
         let (base, per, cap) = match i.sev {
@@ -151,21 +201,36 @@ pub fn score(
             Sev::Warn => (5, 0, 0),
             Sev::Info => continue,
         };
+        let points = base + (extra * per).min(cap);
+        // T3.2 member floor: never less than its worst member costs alone.
+        let floor = member_floor(i);
+        blocking_member |= floor.is_some_and(|f| f.blocks);
+        let mut why = format!(
+            "{} signal(s) from {} correlated into one cause `{}`; open since {}{}",
+            i.signals.len(),
+            i.components.iter().cloned().collect::<Vec<_>>().join(", "),
+            i.cause,
+            crate::util::ts(i.opened),
+            if i.why.is_empty() {
+                String::new()
+            } else {
+                format!(". {}", i.why)
+            }
+        );
+        let points = match floor {
+            Some(f) if f.points > points => {
+                why.push_str(&format!(
+                    "; member floor: {} ({}) costs {} alone, so the incident costs {} not {points}",
+                    f.key, f.sev, f.points, f.points
+                ));
+                f.points
+            }
+            _ => points,
+        };
         d.push(Deduction {
-            points: base + (extra * per).min(cap),
+            points,
             what: format!("{} incident: {}", i.sev.as_str(), i.title),
-            why: format!(
-                "{} signal(s) from {} correlated into one cause `{}`; open since {}{}",
-                i.signals.len(),
-                i.components.iter().cloned().collect::<Vec<_>>().join(", "),
-                i.cause,
-                crate::util::ts(i.opened),
-                if i.why.is_empty() {
-                    String::new()
-                } else {
-                    format!(". {}", i.why)
-                }
-            ),
+            why,
         });
     }
     // Uncovered findings, grouped by cause in first-seen order
@@ -258,6 +323,7 @@ pub fn score(
     let s = 100u32.saturating_sub(total);
     let blocking = incidents.iter().any(|i| i.sev >= Sev::Error)
         || blocking_finding
+        || blocking_member
         || !probe_errors.is_empty();
     let pass = !blocking && s >= 70;
     let crit = incidents.iter().filter(|i| i.sev == Sev::Critical).count();
@@ -267,7 +333,7 @@ pub fn score(
     } else {
         let state = if crit > 0 {
             "failing"
-        } else if err > 0 || blocking_finding {
+        } else if err > 0 || blocking_finding || blocking_member {
             "degraded"
         } else {
             "degrading"
@@ -327,6 +393,8 @@ mod tests {
             signals: vec![],
             why: String::new(),
             next: String::new(),
+            members: vec![],
+            folds: vec![],
         }
     }
 
@@ -375,6 +443,10 @@ mod tests {
             score(&[&c], &Cortex::default(), &[], &[]).score,
             100 - 25 - 9
         );
+    }
+
+    fn vuln(id: &str, sev: Sev, comp: &str) -> Finding {
+        Finding::new(FindingKind::Vulnerability, id, sev, comp, format!("{id} t"))
     }
 
     fn ddos(id: &str, sev: Sev, comp: &str) -> Finding {
@@ -552,6 +624,62 @@ mod tests {
         c.update(1_792_520_000, cx.signals.clone(), &explain);
         let open = c.open_sorted();
         score(&open, &cx, &[], &[])
+    }
+
+    #[test]
+    fn member_floor_and_member_covering() {
+        use crate::incident::Member;
+        // A warn scanner incident whose member finding is an error vuln.
+        let mut i = inc("scan:console", Sev::Warn, &["console"]);
+        i.members = vec![Member::new(
+            "vulnerability:scanner-probes-console",
+            "scanners",
+            Some("scan:console"),
+            "console",
+            Sev::Error,
+        )];
+        let mut cx = Cortex::default();
+        cx.vulnerabilities
+            .push(vuln("scanner-probes-console", Sev::Error, "console").with_cause("scan:console"));
+        let s = score(&[&i], &cx, &[], &[]);
+        assert_eq!(s.score, 90, "{:?}", s.deductions);
+        assert_eq!(s.deductions.len(), 1, "scored once");
+        assert!(s.deductions[0].why.contains("member floor"));
+        assert!(!s.pass, "an error member blocks pass as it would alone");
+        assert!(s.verdict.starts_with("degraded"));
+        assert_eq!(s.covered[0].by, "scan:console");
+        // Without members: v2 behaviour (5 points, pass).
+        i.members.clear();
+        let s = score(&[&i], &cx, &[], &[]);
+        assert_eq!((s.score, s.pass), (95, true));
+        // A member listed by an incident wins over a same-cause one.
+        let mut a = inc("edge", Sev::Warn, &["cloudflared"]);
+        let mut b = inc("ddos:edge-cloudflared", Sev::Error, &["cloudflared"]);
+        b.members = vec![Member::new(
+            "vulnerability:scanner-probes-console",
+            "scanners",
+            Some("edge"),
+            "x",
+            Sev::Warn,
+        )];
+        a.members.clear();
+        let mut cx = Cortex::default();
+        cx.vulnerabilities
+            .push(vuln("scanner-probes-console", Sev::Warn, "x").with_cause("edge"));
+        let s = score(&[&a, &b], &cx, &[], &[]);
+        assert_eq!(s.covered[0].by, "ddos:edge-cloudflared");
+        // A floor below the incident's own points changes nothing.
+        let mut c = inc("galion-one", Sev::Error, &["galion-one"]);
+        c.members = vec![Member::new(
+            "bleeding:stuck",
+            "components",
+            Some("galion-one"),
+            "galion-one",
+            Sev::Error,
+        )];
+        let s = score(&[&c], &Cortex::default(), &[], &[]);
+        assert_eq!(s.score, 85);
+        assert!(!s.deductions[0].why.contains("member floor"));
     }
 
     #[test]

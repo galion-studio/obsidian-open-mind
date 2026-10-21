@@ -12,10 +12,10 @@
 //! non-info finding is in exactly one deduction; the deductions add up to
 //! `100 - score`.
 //!
-//! 1. `openmind-nerve replay fixtures/cortex-replay`: still 21/F with the
+//! 1. `openmind-nerve replay fixtures/cortex-replay`: 16/F (21/F before the T3.2 scanner member floor) with the
 //!    golden deductions (the stream flood `ddos:tuner` costs 25 once).
 //! 2. The live capture `/workspace/swarm/nerve-capture/replay1` (or
-//!    `$CORTEX_REPLAY_DIR`) still scores 61/D when present.
+//!    `$CORTEX_REPLAY_DIR`) scores 56/D when present (61/D before T3.2).
 //! 3. `openmind-nerve serve` on 127.0.0.1:19780 with a live service
 //!    (:19781), a dead one (:19782) and two stray listeners (:19783,
 //!    :19784): the strays are one finding and one 4-point deduction, the
@@ -23,6 +23,9 @@
 //!    goes.
 
 use serde_json::Value;
+
+#[allow(dead_code)] // shared golden helpers; only `t32_delta` is used here
+mod support;
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -166,17 +169,18 @@ fn real_score_v2_on_the_box() {
 
     // 1. Golden replay.
     let r = replay(&fx.join("cortex-replay"), &dir.join("replay-data"));
-    let want: Value = serde_json::from_str(
+    let mut want: Value = serde_json::from_str(
         &std::fs::read_to_string(fx.join("cortex-replay.expected.json")).unwrap(),
     )
     .unwrap();
+    support::t32_delta(&mut want); // T3.2 member floor: scanner 5 -> 10, score 21 -> 16
     assert_eq!(
         (
             r["score"].as_u64(),
             r["grade"].as_str(),
             r["pass"].as_bool()
         ),
-        (Some(21), Some("F"), Some(false))
+        (Some(16), Some("F"), Some(false))
     );
     assert_eq!(r["deductions"], want["deductions"], "v2 keeps v1 points");
     let flood: Vec<u64> = r["deductions"]
@@ -201,12 +205,12 @@ fn real_score_v2_on_the_box() {
         let r = replay(Path::new(&live), &dir.join("replay1-data"));
         assert_eq!(
             (r["score"].as_u64(), r["grade"].as_str()),
-            (Some(61), Some("D")),
+            (Some(56), Some("D")),
             "replay1 verdict changed"
         );
         let (c, s) = check(&r);
         eprintln!(
-            "replay1 live capture: score 61 grade D (unchanged); findings covered {c} / scored {s}"
+            "replay1 live capture: score 56 grade D (T3.2 scanner member floor, was 61); findings covered {c} / scored {s}"
         );
     } else {
         eprintln!("replay1 live capture not on this box: skipped");

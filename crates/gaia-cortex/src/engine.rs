@@ -51,6 +51,10 @@ pub struct Stats {
     pub actions_rate_limited: u64,
     pub actions_circuit_open: u64,
     pub actions_failed: u64,
+    /// Requests sent whose reply was lost (hung / slow nerve).
+    pub actions_unknown: u64,
+    /// Nerve restarts seen by the stream subscriber (seq went back / new instance).
+    pub nerve_restarts: u64,
     pub alerts: u64,
     pub alerts_to_nerve: u64,
     pub escalations: u64,
@@ -127,6 +131,15 @@ impl Cortex {
     fn next_id(&mut self, p: &str) -> String {
         self.seq += 1;
         format!("{p}-{}", self.seq)
+    }
+
+    /// The nerve behind the stream restarted: its `seq` numbering starts
+    /// again, so the seq-based fingerprints of the old instance must not
+    /// swallow the new instance's events (T5.1 chaos S8).
+    pub fn nerve_restarted(&mut self) {
+        self.stats.nerve_restarts += 1;
+        self.seen.clear();
+        self.seen_order.clear();
     }
 
     /// Dedupe and drop our own echoes. Returns the events worth deciding on.
@@ -323,7 +336,14 @@ impl Cortex {
                 ActionStatus::CircuitOpen => self.stats.actions_circuit_open += 1,
                 ActionStatus::Failed => self.stats.actions_failed += 1,
             }
-            if matches!(o.status, ActionStatus::Simulated | ActionStatus::Executed) {
+            // A request whose reply was lost (`by == "unknown"`) may still run:
+            // it counts toward the cap like an executed one, and a human hears of it.
+            let unknown = o.by == "unknown";
+            if unknown {
+                self.stats.actions_unknown += 1;
+                v.escalate = true;
+            }
+            if unknown || matches!(o.status, ActionStatus::Simulated | ActionStatus::Executed) {
                 self.rules.note_restart(unit, now);
             }
             if matches!(
@@ -410,6 +430,7 @@ impl Cortex {
             "actions_requested": s.actions_requested, "actions_simulated": s.actions_simulated,
             "actions_executed": s.actions_executed, "actions_refused": s.actions_refused,
             "actions_rate_limited": s.actions_rate_limited, "actions_circuit_open": s.actions_circuit_open, "actions_failed": s.actions_failed,
+            "actions_unknown": s.actions_unknown, "nerve_restarts": s.nerve_restarts,
             "alerts": s.alerts, "alerts_to_nerve": s.alerts_to_nerve, "escalations": s.escalations,
             "escalations_open": self.escalations.open.len(),
             "llm_calls": s.llm_calls, "llm_refused": s.llm_refused, "llm_skipped_disabled": s.llm_skipped_disabled,

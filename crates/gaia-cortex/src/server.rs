@@ -62,15 +62,28 @@ pub fn handle(req: &Request, cx: &Arc<Mutex<Cortex>>, tx: &Mutex<Sender<Vec<Even
             )
         }
         ("GET", "/health") => {
-            let g = cx.lock().unwrap_or_else(|e| e.into_inner());
-            Response::json(
-                200,
-                json!({"ok": true, "service": "gaia-cortex", "version": env!("CARGO_PKG_VERSION"), "ts": ts(now_secs()),
-                       "mode": if g.cfg.dry_run() { "dry-run" } else { "live" }, "llm_enabled": g.cfg.llm.enabled,
-                       "nerve": g.cfg.nerve_url.is_some(), "events_in": g.stats.events_in,
-                       "incidents_open": g.correlator.open.len(), "escalations_open": g.escalations.open.len()})
-                .to_string(),
-            )
+            // Never wait for the decider: while it is inside a decision
+            // (e.g. a POST /actions to a hung nerve, up to 3 x 3 s) /health
+            // answers from the last snapshot with `busy: true` (T5.1 chaos S7).
+            let v = match cx.try_lock() {
+                Ok(g) => {
+                    let v = health_json(&g);
+                    *LAST_HEALTH.lock().unwrap_or_else(|e| e.into_inner()) = Some(v.clone());
+                    v
+                }
+                Err(std::sync::TryLockError::Poisoned(p)) => health_json(&p.into_inner()),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    let mut v = LAST_HEALTH
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .clone()
+                        .unwrap_or_else(|| json!({"ok": true, "service": "gaia-cortex"}));
+                    v["busy"] = json!(true);
+                    v["ts"] = json!(ts(now_secs()));
+                    v
+                }
+            };
+            Response::json(200, v.to_string())
         }
         ("GET", "/stats") => Response::json(
             200,
@@ -123,4 +136,15 @@ pub fn handle(req: &Request, cx: &Arc<Mutex<Cortex>>, tx: &Mutex<Sender<Vec<Even
         ),
         _ => Response::json(404, r#"{"ok":false,"error":"not found"}"#),
     }
+}
+
+/// Last `/health` body, served with `busy: true` while the decider holds the engine.
+static LAST_HEALTH: Mutex<Option<serde_json::Value>> = Mutex::new(None);
+
+fn health_json(g: &Cortex) -> serde_json::Value {
+    json!({"ok": true, "service": "gaia-cortex", "version": env!("CARGO_PKG_VERSION"), "ts": ts(now_secs()),
+           "mode": if g.cfg.dry_run() { "dry-run" } else { "live" }, "llm_enabled": g.cfg.llm.enabled,
+           "nerve": g.cfg.nerve_url.is_some(), "events_in": g.stats.events_in,
+           "incidents_open": g.correlator.open.len(), "escalations_open": g.escalations.open.len(),
+           "busy": false})
 }

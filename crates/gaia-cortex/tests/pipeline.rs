@@ -223,10 +223,11 @@ fn flapping_opens_circuit_then_escalates_once() {
     );
     let esc = std::fs::read_to_string(cx.cfg.data_dir.join("escalations.jsonl")).unwrap();
     assert!(esc.contains("flapping"));
-    assert_eq!(
-        cx.incidents_json()["units"]["tuner.service"]["circuit_open"],
-        true
-    );
+    // At the scenario's own clock (T0-based), not the wall clock: the
+    // incidents_json view uses now_secs(), which made this assertion expire
+    // one hour after T0 (time bomb found during T5.1, 2026-10-21 23:14 +02:00).
+    assert!(cx.rules.circuit_open("tuner.service", T0 + 4 * 60));
+    assert!(cx.incidents_json()["units"]["tuner.service"].is_object());
 }
 
 #[test]

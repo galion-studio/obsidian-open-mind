@@ -142,6 +142,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("one-defence", S(System::GuardianWatchdog), "read-only health_checks rows and a defence note; security watch (was HEPHAESTUS)"),
     c("one-set-model", S(System::GalionOne), "Galion One plan/action model lane, validated, writes nothing (was HEPHAESTUS)"),
     c("one-talk", S(System::GalionOne), "Galion One hear/reply request shapes (was HEPHAESTUS)"),
+    c("openmind-compact", S(System::MemoryGateway), "model-free context compaction library for memory and hermes (not wired live)"),
     c("openmind-config", S(System::ConfigHealth), "config health: TOML, then env, loopback defaults"),
     c("openmind-discovery", S(System::LanDiscovery), "LAN peer seeds and scan path; network identity is AETHER (was APOLLO)"),
     c("openmind-exo", S(System::VramPool), "exo compute adapter (fixtures); external compute is POSEIDON (was HEPHAESTUS)"),
@@ -339,10 +340,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} has no system", r.name));
             assert_eq!(r.role.function(), Some(s.function()));
         }
-        // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3.
+        // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3,
+        // 1 from swarm/context-compact (openmind-compact).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            51
+            52
         );
     }
 

@@ -127,7 +127,7 @@ integration-1 brought 7 crates the registry did not know; `every_workspace_crate
 
 ## integration-3 rows (2026-10-21, all pending Slavik)
 
-integration-3 brings 10 more crates (rust-ports, deploy-rust, health-land and the bench-hermes family). `every_workspace_crate_is_mapped` failed on exactly these after the merges; one row each, every one a judgement call (`"pending_slavik": true`). Counts: 63 crates, 51 system crates, 29 systems with a crate.
+integration-3 brings 10 more crates (rust-ports, deploy-rust, health-land and the bench-hermes family). `every_workspace_crate_is_mapped` failed on exactly these after the merges; one row each, every one a judgement call (`"pending_slavik": true`). Counts: 63 crates, 51 system crates, 29 systems with a crate. swarm/context-compact (2026-10-21 +02:00) adds `openmind-compact` under MemoryGateway: 64 crates, 52 system crates.
 
 | Crate | Placed at | Alternatives |
 |---|---|---|

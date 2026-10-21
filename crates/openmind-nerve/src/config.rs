@@ -208,6 +208,11 @@ pub struct Config {
     /// NERVE_LISTEN_SCOPE=lo-hi: judge only listeners in this port range
     /// (a shared box); unset judges every listener (the VPS).
     pub listen_scope: Option<(u16, u16)>,
+    /// NERVE_PORT_OWNERS=port=name[@GAIA],...: extra port owners.
+    pub port_owners: Vec<(u16, crate::owners::Entry)>,
+    /// NERVE_UNOWNED_PORTS: listeners reported as "unknown owner" (default
+    /// the five VPS ports 8431,8432,8433,8652,8653; empty string = none).
+    pub unowned_ports: Vec<u16>,
 }
 
 /// One tailed access log.
@@ -308,6 +313,11 @@ impl Config {
                 let (a, b) = s.split_once('-')?;
                 Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
             }),
+            port_owners: crate::owners::parse_owners(&get("NERVE_PORT_OWNERS").unwrap_or_default()),
+            unowned_ports: match get("NERVE_UNOWNED_PORTS") {
+                Some(s) => ports(&s),
+                None => crate::owners::VPS_UNOWNED_PORTS.to_vec(),
+            },
         })
     }
 }

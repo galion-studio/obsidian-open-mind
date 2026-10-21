@@ -217,6 +217,7 @@ mod tests {
             signals: vec![],
             why: String::new(),
             next: String::new(),
+            owners: Default::default(),
         }
     }
 

@@ -107,6 +107,7 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
     let mut states: Vec<(u64, Value)> = vec![];
     let mut journal = String::new();
     let mut ss = None;
+    let mut ss_procs = std::collections::BTreeMap::new();
     let mut health: HashMap<String, bool> = HashMap::new();
     let mut bodies: HashMap<u16, Value> = HashMap::new();
     let mut access: Vec<(String, String)> = vec![];
@@ -130,7 +131,9 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
             journal.push_str(&read()?);
             journal.push('\n');
         } else if n == "ss.txt" {
-            ss = Some(parse_ss(&read()?));
+            let t = read()?;
+            ss = Some(parse_ss(&t));
+            ss_procs = crate::owners::parse_ss_procs(&t);
         } else if n == "health_status.json" {
             health = parse_galion_health(&read()?).unwrap_or_default();
         } else if let Some(port) = n
@@ -192,6 +195,7 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
         let mut col = Collected {
             lines: win,
             listeners: ss.clone(),
+            port_procs: ss_procs.clone(),
             ..Default::default()
         };
         for c in v["components"].as_array().into_iter().flatten() {

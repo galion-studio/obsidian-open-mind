@@ -311,10 +311,16 @@ pub fn serve(listener: TcpListener, handler: Handler, max_conns: usize) -> io::R
     .unwrap_or_default();
     let conn: Arc<common::ConnHandler> =
         Arc::new(move |s: TcpStream, l: &common::Limits| connection(s, l, &handler));
-    common::serve_connections(
-        listener,
-        limits(max_conns).with_env("HERMES_RS"),
-        busy,
-        conn,
-    )
+    let limits = limits(max_conns).with_env("HERMES_RS");
+    let cap = limits.max_connections;
+    // nerve: report conn-cap refusals (rate-limited, bounded queue, no-op
+    // without NERVE_URL), as nerve-wiring-2 did in its own accept loop.
+    let on_busy: Arc<common::BusyHook> = Arc::new(move || {
+        nerve_client::cap_hit(
+            "hermes-rs",
+            "conn_cap",
+            &format!("{cap} connections busy: 503"),
+        )
+    });
+    common::serve_connections_with(listener, limits, busy, conn, Some(on_busy))
 }

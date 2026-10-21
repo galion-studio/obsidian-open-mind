@@ -255,3 +255,17 @@ Differences:
 - the event log is optional (POST /event returns 404 without `--log`/`NERVE_EVENT_LOG`);
 - `/health` has extra fields (system, score, cycle);
 - the request body cap is 8 KiB instead of 64 KiB.
+
+## swarm/nerve-wiring (2026-10-20 CEST +02:00): services push, ports have owners
+
+- Ported ws/nerve a63b730: `hermes-rs` and `openmind-memory` push started,
+  heartbeat (RSS + client queue counters), `http_5xx`, `slow_request`
+  (`NERVE_SLOW_MS`, 1000), `conn_cap` and, from hermes, `spend_cap`.
+  `nerve-client` now uses a bounded queue with one worker. It never blocks, and
+  drop-on-full is counted. It is a no-op without `NERVE_URL`.
+- Pushed events from the last 120 s become incident signals (`spend-cap:<group>`
+  is its own cause).
+- `owners.rs`: the port ownership map. The five VPS listeners with no unit
+  (8431-8433, 8652, 8653) report as "unknown owner" with the process taken from /proc.
+- The cortex lists each open incident's owning Gaia function(s).
+- Evidence is in [`docs/real-tests/nerve-wiring.md`](real-tests/nerve-wiring.md).

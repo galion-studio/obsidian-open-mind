@@ -297,7 +297,7 @@ fn load(
                 let mut next = Instant::now();
                 while !stop.load(Ordering::SeqCst) {
                     i += 3;
-                    let code = if mock && i % 4 == 0 {
+                    let code = if mock && i.is_multiple_of(4) {
                         chat(port, &format!("mock-fail {i}"), None).0
                     } else if i % 8 == 1 {
                         let b = serde_json::json!({"input": format!("run {i}")}).to_string();

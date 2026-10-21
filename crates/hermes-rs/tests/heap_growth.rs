@@ -208,6 +208,9 @@ fn measure(gw: &Arc<Gateway>) -> Measured {
     }
 }
 
+/// (name, provider the gateway uses, the same provider when it is a mock)
+type Case = (&'static str, Arc<dyn Provider>, Option<Arc<MockProvider>>);
+
 static SERIAL: Mutex<()> = Mutex::new(());
 
 #[test]
@@ -259,7 +262,7 @@ fn heap_profile_chat_path() {
     let _ = std::fs::remove_dir_all(h);
 
     // 2. default bounded log, 3. no log, 4. production-shaped provider
-    let cases: Vec<(&str, Arc<dyn Provider>, Option<Arc<MockProvider>>)> = {
+    let cases: Vec<Case> = {
         let d = Arc::new(MockProvider::echo());
         let off = Arc::new(MockProvider::echo().without_call_log());
         vec![

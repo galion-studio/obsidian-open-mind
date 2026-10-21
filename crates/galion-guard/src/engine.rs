@@ -10,6 +10,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
+use crate::f2blog::ShadowLog;
 use crate::filter::SshdFilter;
 use crate::jail::{Action, Ban, FailResult, Jail, Protected};
 use crate::nft::Backend;
@@ -21,6 +22,20 @@ use crate::timefmt;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "event", rename_all = "kebab-case")]
 pub enum Event {
+    /// One counted failure (fail2ban `Found`). Only emitted when
+    /// `Engine::emit_found` is set (shadow log, replay comparisons).
+    Found {
+        at: i64,
+        ip: IpAddr,
+        /// Time of the log line.
+        logged: i64,
+    },
+    /// A ban re-applied from the state file at start (fail2ban `Restore Ban`).
+    Restored {
+        at: i64,
+        ip: IpAddr,
+        until: i64,
+    },
     Ban {
         ip: IpAddr,
         at: i64,
@@ -67,6 +82,10 @@ pub struct Engine {
     pub verbose: bool,
     pub lines_seen: u64,
     pub lines_matched: u64,
+    /// Emit `Event::Found` for every counted failure.
+    pub emit_found: bool,
+    /// Shadow mode: every event is also written here in fail2ban format.
+    pub shadow: Option<ShadowLog>,
     dirty: bool,
     last_save: i64,
     last_setup_try: i64,
@@ -95,6 +114,8 @@ impl Engine {
             verbose: false,
             lines_seen: 0,
             lines_matched: 0,
+            emit_found: false,
+            shadow: None,
             dirty: false,
             last_save: 0,
             last_setup_try: i64::MIN / 2,
@@ -103,8 +124,15 @@ impl Engine {
     }
 
     fn emit(&mut self, e: Event) {
-        if self.verbose {
+        if let Some(s) = self.shadow.as_mut() {
+            s.write_event(&e);
+        }
+        if self.verbose && !matches!(e, Event::Found { .. }) {
             let msg = match &e {
+                Event::Found { .. } => String::new(),
+                Event::Restored { ip, until, .. } => {
+                    format!("restored ban {ip} until {}", zagreb_time::from_unix(*until))
+                }
                 Event::Ban {
                     ip,
                     until,
@@ -149,6 +177,11 @@ impl Engine {
                     let acts = self
                         .jail
                         .restore(st.bans, st.history, st.accepted, st.totals, now);
+                    let live: Vec<(IpAddr, i64)> =
+                        self.jail.bans().map(|b| (b.ip, b.end)).collect();
+                    for (ip, until) in live {
+                        self.emit(Event::Restored { at: now, ip, until });
+                    }
                     for a in acts {
                         if let Action::Unban { ip, reason } = a {
                             self.emit(Event::Unban {
@@ -242,6 +275,17 @@ impl Engine {
         }
     }
 
+    fn found(&mut self, ip: IpAddr, logged: i64, now: i64) {
+        if self.emit_found {
+            let ip = crate::ipnet::canonical(ip);
+            self.emit(Event::Found {
+                at: now,
+                ip,
+                logged: logged.min(now),
+            });
+        }
+    }
+
     /// Process one log entry at wall-clock `now`.
     pub fn handle_line(&mut self, line: &LogLine, now: i64) {
         self.lines_seen += 1;
@@ -267,6 +311,7 @@ impl Engine {
         match self.sessions.feed(&m, t) {
             Outcome::Failure { ip, .. } => match self.jail.on_failure(ip, t, now) {
                 FailResult::Banned(b) => {
+                    self.found(ip, t, now);
                     self.fw_ban(&b, now);
                     self.emit(Event::Ban {
                         ip: b.ip,
@@ -281,7 +326,11 @@ impl Engine {
                     self.last_save = now;
                 }
                 FailResult::Protected(reason) => self.emit(Event::Protected { at: now, reason }),
-                _ => self.dirty = true,
+                FailResult::Counted(_) | FailResult::AlreadyBanned => {
+                    self.found(ip, t, now);
+                    self.dirty = true;
+                }
+                FailResult::TooOld => {}
             },
             Outcome::Accepted { ip } => {
                 if let Some(Action::Unban { ip, reason }) = self.jail.on_accepted(ip, t, now) {
@@ -423,6 +472,12 @@ impl Engine {
             "protected_hits": self.jail.totals.protected_hits,
             "backend": self.backend.name(),
             "backend_ready": self.backend_ready,
+            "shadow": self.shadow.as_ref().map(|s| serde_json::json!({
+                "log": s.path.display().to_string(),
+                "zone": s.zone,
+                "write_errors": s.write_errors,
+                "firewall_writes": 0,
+            })),
             "allowlist_entries": self.jail.protect.allow.len(),
             "self_addresses": self.jail.protect.self_addrs.len(),
             "lines_seen": self.lines_seen,
@@ -465,6 +520,17 @@ impl Engine {
         );
         s += &format!("   |- Total banned:\t{}\n", j.totals.banned);
         s += &format!("   |- Protected hits:\t{}\n", j.totals.protected_hits);
+        if let Some(sh) = &self.shadow {
+            s += &format!(
+                "   |- Mode:\tSHADOW (log-only, no firewall writes) -> {}{}\n",
+                sh.path.display(),
+                if sh.write_errors > 0 {
+                    format!(" ({} write errors)", sh.write_errors)
+                } else {
+                    String::new()
+                }
+            );
+        }
         s += "   `- Banned IP list:\n";
         for b in bans {
             s += &format!(

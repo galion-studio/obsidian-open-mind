@@ -40,7 +40,7 @@ const PACK: &str = r#"{"zone":"chill","target":{"provider":"cpu","pod":"ip50","p
 const LEDGER: &str = r#"{"services":[{"id":"gen","name":"Generation","weight":"heavy","summary":"GPU only."},{"id":"console","name":"Control console","weight":"light","summary":"desk"}],"fridge":[{"id":"helium-browser","name":"Helium","summary":"Browser fork. Not an origin."}]}"#;
 
 const DESK: &str = r#"{"line":true,"model":"galion","vram":0,"ctx":4096,"mindpack":{"context":{"model_window":65536},"road":[{"id":"s1","source":"api_server","model":"m","messages":3,"at":1792340805}],"tools":[{"name":"terminal","n":9}]}}"#;
-const GUARDIAN: &str = r#"{"status":"watching","score":97,"activeIncidents":0,"secrets":[{"name":"a.env","mode":"400","ok":true}],"library":{"count":1,"files":["s1.md"]}}"#;
+const GUARDIAN: &str = r#"{"status":"watching","health":"ok","score":97,"checks":[{"service":"console","status":"healthy"}],"activeIncidents":0,"secrets":[{"name":"a.env","mode":"400","ok":true}],"library":{"count":1,"files":["s1.md"]}}"#;
 
 /// Fake `/api/hermes/*` GETs (shapes from the live API, 2026-10-21).
 fn hermes_fake(p: &str) -> &'static str {
@@ -158,6 +158,10 @@ fn answer(mut s: TcpStream, log: Log) {
         ("GET", "/api/v1/keys") => (200, "application/json", String::new(), r#"{"ok":true,"keys":[]}"#.into()),
         ("GET", "/api/v1/markers") => (200, "application/json", String::new(), r#"{"count":0,"cap":42,"items":[]}"#.into()),
         ("GET", "/api/mesh") => (200, "application/json", String::new(), "{\"ok\":true,\"phase\":\"idle\",\"score\":[\"SCOPE 1\"]}".into()),
+        // console-port-5 rooms (/security, /session).
+        ("GET", "/api/v1/security") => (200, "application/json", String::new(), r#"{"ok":true,"denylist":true,"autoAccept":false,"floor":["gateway stop"],"files":[],"volume":[]}"#.into()),
+        ("GET", "/api/v3/guardian/incidents") => (200, "application/json", String::new(), "[]".into()),
+        ("GET", "/api/v1/session") => (200, "application/json", String::new(), r#"{"ok":true,"items":[{"name":"00-summary.md","bytes":12}]}"#.into()),
         ("POST", "/api/v1/command") => (200, "application/json", String::new(), "{\"ok\":true,\"data\":{\"cmd\":\"health\",\"note\":\"undefined fine\"}}".into()),
         _ => (404, "text/plain", String::new(), "nope".into()),
     };

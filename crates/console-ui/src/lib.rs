@@ -30,6 +30,7 @@ pub mod pages;
 pub mod port2;
 pub mod port3;
 pub mod port4;
+pub mod port5;
 pub mod rooms;
 
 use client::Forward;
@@ -75,6 +76,11 @@ pub const PORTED: &[&str] = &[
     "/md/user",
     "/memory",
     "/mesh",
+    // console-port-5 (wave 4 slot 139): last fifth, alphabetical, of the 17
+    // routes still in TypeScript at 669dc18.
+    "/node",
+    "/security",
+    "/session",
 ];
 
 /// Ported pages the pre-built SPA keeps while a fallback is configured,
@@ -350,7 +356,8 @@ impl Ui {
         }
         let post_ok = (req.path == "/agents"
             || port2::POST_ROUTES.contains(&req.path)
-            || port3::POST_ROUTES.contains(&req.path))
+            || port3::POST_ROUTES.contains(&req.path)
+            || port5::POST_ROUTES.contains(&req.path))
             && req.method == "POST";
         if req.method != "GET" && req.method != "HEAD" && !post_ok {
             let mut r = Reply::text(405, "Method Not Allowed\n");
@@ -380,6 +387,7 @@ impl Ui {
             "/instances" | "/keys" | "/markers" => self.port3_room(req),
             "/memory" | "/mesh" => self.port4_room(req),
             p if port4::owns(p) => self.port4_room(req),
+            "/node" | "/security" | "/session" => self.port5_room(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);
@@ -831,6 +839,43 @@ mod tests {
         let desk = json::parse(br#"{"mindpack":{"cache":{"read":1},"cached":[{"id":"c"}],"stores":[{"name":"s","n":1,"bytes":1}],"models":[{"name":"m"}],"recent":[{"name":"f","at":1,"bytes":1}]}}"#).unwrap();
         all.push_str(&pages::cache::body(Some(&desk)));
         all.push_str(&pages::cache::body(None));
+        // console-port-5 rooms.
+        all.push_str(&pages::node::body(Some(&health)));
+        all.push_str(&pages::node::body(None));
+        let docs = vec![
+            pages::session::Doc {
+                name: "a.md".into(),
+                bytes: "1".into(),
+            },
+            pages::session::Doc {
+                name: "<x>".into(),
+                bytes: "2".into(),
+            },
+        ];
+        let miss = pages::session::Miss::Status(401, "phone required".into());
+        all.push_str(&pages::session::body(
+            Ok(&docs),
+            pages::session::Open::Doc("a.md", Ok("x")),
+        ));
+        all.push_str(&pages::session::body(
+            Err(&miss),
+            pages::session::Open::Refused,
+        ));
+        let guardian = json::parse(br#"{"status":"alert","score":1,"checks":[{"service":"a","status":"down"}],"lastScan":"2026-10-21T03:00:00Z"}"#).unwrap();
+        let sec = json::parse(br#"{"denylist":true,"floor":["f"],"files":[{"path":"/a/b","mode":"644","ok":false}],"volume":[{"path":"/c","mode":"sealed","ok":true}]}"#).unwrap();
+        let inc = json::parse(br#"[{"title":"t","severity":"high"}]"#).unwrap();
+        all.push_str(&pages::security::body(&pages::security::View {
+            guard: Ok(&sec),
+            guardian: Ok(&guardian),
+            incidents: Ok(&inc),
+            note: "n",
+        }));
+        all.push_str(&pages::security::body(&pages::security::View {
+            guard: Err(&miss),
+            guardian: Err(&miss),
+            incidents: Err(&miss),
+            note: "",
+        }));
         let none = Frame {
             light: None,
             ..f.clone()

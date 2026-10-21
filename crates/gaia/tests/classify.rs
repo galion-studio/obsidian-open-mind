@@ -415,3 +415,34 @@ fn cortex_unit_circuit_open_is_warn() {
     let j = run(&inp);
     assert_eq!(unit(&j, "openmind-memory")["cortex"]["verdict"], "warn");
 }
+
+#[test]
+fn cortex_only_alarm_on_healthy_unit_is_a_disagreement() {
+    // Live 2026-10-21 23:09: cortex open `nerve-incident:hermes-rs` while
+    // Gaia and the nerve's component row both say hermes-rs is healthy.
+    let mut inp = live_inputs();
+    inp.probes.push(r(
+        "hermes-rs",
+        Some("hermes-rs.service"),
+        System::HermesAgents,
+        State::Up,
+    ));
+    if let Ok(n) = inp.nerve_state.as_mut() {
+        n["components"].as_array_mut().unwrap().push(comp(
+            "hermes-rs",
+            Some("hermes-rs.service"),
+            "healthy",
+            "ARTEMIS",
+            "hermes-agents",
+            0,
+        ));
+    }
+    inp.cortex_incidents = Ok(json!({"open": [
+        {"id": "inc-h", "severity": "warn", "components": ["nerve-incident:hermes-rs"]}
+    ]}));
+    let j = run(&inp);
+    let h = unit(&j, "hermes-rs");
+    assert_eq!(h["cortex"]["verdict"], "warn");
+    assert_eq!(h["agree"], false);
+    assert_eq!(kinds(&j, "hermes-rs"), vec!["cortex-disagree".to_string()]);
+}

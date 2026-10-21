@@ -375,6 +375,21 @@ pub fn classify(inp: &Inputs) -> Json {
                 ),
             );
         }
+        if cclass == Class::Warn && g == Class::Ok && matches!(nclass, Class::Ok | Class::Unknown) {
+            push(
+                &mut findings,
+                "info",
+                "cortex-disagree",
+                format!(
+                    "the cortex has open incident(s) {} for it; Gaia and the nerve see it healthy",
+                    if c_inc.is_empty() {
+                        "(unit circuit/failures)".to_string()
+                    } else {
+                        c_inc.join(", ")
+                    }
+                ),
+            );
+        }
         let worst = g.max(if nclass == Class::Unknown {
             Class::Ok
         } else {

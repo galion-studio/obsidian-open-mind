@@ -122,8 +122,11 @@ pub fn write_response<W: Write>(mut w: W, code: u16, body: &str) -> io::Result<(
         reason(code),
         body.len()
     );
-    w.write_all(head.as_bytes())?;
-    w.write_all(body.as_bytes())?;
+    // One write for head and body, so a crash cannot leave a complete
+    // head with no body on the wire (slot 206).
+    let mut out = head.into_bytes();
+    out.extend_from_slice(body.as_bytes());
+    w.write_all(&out)?;
     w.flush()
 }
 
@@ -172,7 +175,16 @@ pub fn parse_response(raw: &[u8]) -> io::Result<(u16, String)> {
         if let Some((k, v)) = l.split_once(':') {
             if k.trim().eq_ignore_ascii_case("content-length") {
                 if let Ok(n) = v.trim().parse::<usize>() {
-                    body = &body[..n.min(body.len())];
+                    // A body shorter than Content-Length means the peer died
+                    // mid-answer (slot 206 found a SIGKILLed server leave
+                    // "201" with an empty body): that is not an answer.
+                    if body.len() < n {
+                        return Err(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            format!("truncated response body: {} of {n} bytes", body.len()),
+                        ));
+                    }
+                    body = &body[..n];
                 }
             }
         }
@@ -202,6 +214,31 @@ pub fn split_url(url: &str) -> Option<(String, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncated_body_is_an_error_not_an_answer() {
+        // what a server killed between head and body leaves
+        let cut = b"HTTP/1.1 201 Created\r\nContent-Length: 30\r\n\r\n";
+        let e = parse_response(cut).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::UnexpectedEof);
+        let half = b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n{\"id\":";
+        assert!(parse_response(half).is_err());
+        let full = b"HTTP/1.1 201 Created\r\nContent-Length: 8\r\n\r\n{\"id\":7}";
+        assert_eq!(parse_response(full).unwrap(), (201, "{\"id\":7}".into()));
+        // extra bytes after Content-Length are still cut off
+        let more = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}junk";
+        assert_eq!(parse_response(more).unwrap(), (200, "{}".into()));
+        // no Content-Length: body to EOF, as before
+        let eof = b"HTTP/1.1 200 OK\r\n\r\n{\"a\":1}";
+        assert_eq!(parse_response(eof).unwrap(), (200, "{\"a\":1}".into()));
+    }
+
+    #[test]
+    fn write_response_roundtrips() {
+        let mut out = Vec::new();
+        write_response(&mut out, 201, "{\"id\":1}").unwrap();
+        assert_eq!(parse_response(&out).unwrap(), (201, "{\"id\":1}".into()));
+    }
 
     #[test]
     fn parses_request_with_body_and_query() {

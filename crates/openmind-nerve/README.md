@@ -33,7 +33,7 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
    Each detector is a `Sensor` in `src/sensors/` (listeners, scanners, edge,
    components, ddos); findings carry a B41 `kind` and their sensor as `source`,
    and `/api/v1/state` has `cortex_sensors` (per-sensor counts, us) and
-   `cortex_events` (B33 `NerveEvent`s). `NERVE_SENSORS_OFF=name,...` turns
+   `cortex_events` (B33 `NerveEvent`s: ids, component, cause and counts only, no titles or fixes). `NERVE_SENSORS_OFF=name,...` turns
    sensors off. Adding one: [`docs/cortex/sensors.md`](../../docs/cortex/sensors.md).
 4. **DDoS detector**: 10 s buckets, 2 h kept; the baseline is the median and MAD of
    the window from 30 min ago to 2 min ago. Threshold = max(`NERVE_DDOS_MIN_RPS`,

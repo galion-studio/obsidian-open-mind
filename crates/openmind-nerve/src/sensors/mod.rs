@@ -416,13 +416,17 @@ mod tests {
             Finding::new(FindingKind::Vulnerability, "b", Sev::Warn, "host", "w")
                 .with_evidence(vec!["LISTEN secret-host:1".into()]),
         );
-        sink.finding(Finding::new(
-            FindingKind::Vulnerability,
-            "a",
-            Sev::Error,
-            "host",
-            "e",
-        ));
+        sink.finding(
+            Finding::new(
+                FindingKind::Vulnerability,
+                "a",
+                Sev::Error,
+                "host",
+                "port 9 listens on 203.0.113.9 (not loopback)",
+            )
+            .with_fix("bind it to 127.0.0.1 (owner approval)")
+            .with_cause("edge"),
+        );
         sink.finding(Finding::new(
             FindingKind::Bleeding,
             "i",
@@ -450,6 +454,18 @@ mod tests {
         assert_eq!(ev[1]["severity"], "high");
         assert_eq!(ev[1]["data"]["findings"], 2);
         assert_eq!(ev[1]["data"]["top"]["id"], "a");
+        // Slot 105: titles and fixes (bind addresses, ports) never ride in an
+        // event; `top` is tokens and the evidence count only.
+        assert_eq!(
+            ev[1]["data"]["top"],
+            serde_json::json!({"id": "a", "component": "host", "cause": "edge", "evidence_n": 0})
+        );
+        for leak in ["203.0.113.9", "127.0.0.1", "listens on", "title", "fix"] {
+            assert!(
+                !Value::from(ev.clone()).to_string().contains(leak),
+                "{leak} leaked: {ev:?}"
+            );
+        }
         assert_eq!(ev[1]["ts"], "2026-10-25T02:00:00+01:00");
         let one = cx
             .vulnerabilities

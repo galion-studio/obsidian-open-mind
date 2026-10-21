@@ -126,3 +126,44 @@ fn findings_are_valid_b33_nerve_events() {
     let all = serde_json::to_string(&evs).unwrap();
     assert!(!all.contains("example.test"), "{all}");
 }
+
+/// The `/api/v1/state` `cortex_events` of the replay fixture, pinned (slot
+/// 105): `top` is `{id, component, cause, evidence_n}` only. Before this
+/// golden, `top.title` carried "port 9999 listens on <bind address>" and the
+/// unmanaged loopback ports, and `top.fix` the operator hint text.
+/// Regenerate with `CORTEX_GOLDEN_WRITE=1` (then review the diff).
+#[test]
+fn nerve_events_match_the_golden_and_carry_no_titles() {
+    let out = run();
+    let evs = Value::from(out.engine.cortex.nerve_events(out.engine.now));
+    let path = fixture().join("cortex-replay.expected.events.json");
+    if std::env::var("CORTEX_GOLDEN_WRITE").as_deref() == Ok("1") {
+        let mut s = serde_json::to_string_pretty(&evs).unwrap();
+        s.push('\n');
+        std::fs::write(&path, s).unwrap();
+    }
+    let want: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(evs, want, "cortex_events differ from the golden");
+    for e in evs.as_array().unwrap() {
+        let keys: Vec<&str> = e["data"]["top"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let mut keys = keys;
+        keys.sort();
+        assert_eq!(keys, ["cause", "component", "evidence_n", "id"], "{e}");
+    }
+    let all = evs.to_string();
+    for leak in [
+        "0.0.0.0",
+        "listens on",
+        ":8652",
+        "\"title\"",
+        "\"fix\"",
+        "owner approval",
+    ] {
+        assert!(!all.contains(leak), "{leak} leaked: {all}");
+    }
+}

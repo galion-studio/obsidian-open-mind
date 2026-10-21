@@ -4,7 +4,8 @@
 //! The durable log behind the engine.
 //!
 //! One file, `queue.log`, one record per line: `<crc32 as 8 hex> <json>\n`.
-//! Every append is flushed with `sync_data` before the client is answered.
+//! Every append is flushed with `sync            .write_all(out.as_bytes())
+            .and_then(|_| if sync { self.file.sync_data() } else { Ok(()) });data` before the client is answered.
 //!
 //! Opening the log replays it. A torn tail (the last line cut short or
 //! failing its checksum, which is what a crash mid-write leaves) is cut off
@@ -165,6 +166,18 @@ impl Store {
     /// Append records and sync. On failure the file is cut back to where it
     /// was, so a failed write never leaves a half line in the middle.
     pub fn append(&mut self, recs: &[Record]) -> io::Result<()> {
+        self.append_with(recs, true)
+    }
+
+    /// Like [`Store::append`] but without `sync_data`: the line reaches the
+    /// page cache, so it survives a process crash (kill -9) but not a power
+    /// loss, and the next synced append makes it durable too. Used only for
+    /// [`Record::Tally`] counter lines, so a refusal flood costs no fsyncs.
+    pub fn append_unsynced(&mut self, recs: &[Record]) -> io::Result<()> {
+        self.append_with(recs, false)
+    }
+
+    fn append_with(&mut self, recs: &[Record], sync: bool) -> io::Result<()> {
         if recs.is_empty() {
             return Ok(());
         }
@@ -187,25 +200,33 @@ impl Store {
     }
 
     /// Replace the log with `snapshot` atomically.
+    ///
+    /// The handle that wrote the snapshot becomes the log handle, so once the
+    /// rename has happened there is no later step that can fail and leave
+    /// appends going to the old, unlinked file (slot 206: the previous code
+    /// reopened the path after the rename). Any error before the rename
+    /// leaves the old log and handle untouched.
     pub fn compact(&mut self, snapshot: &[Record]) -> io::Result<()> {
         let tmp = self.dir.join("queue.log.tmp");
-        {
-            let mut f = File::create(&tmp)?;
-            let mut out = String::new();
-            for r in snapshot {
-                out.push_str(&encode(r));
-            }
-            f.write_all(out.as_bytes())?;
-            f.sync_all()?;
+        let mut f = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&tmp)?;
+        let mut out = String::new();
+        for r in snapshot {
+            out.push_str(&encode(r));
         }
+        f.write_all(out.as_bytes())?;
+        f.sync_all()?;
+        f.seek(SeekFrom::End(0))?;
         let path = Self::log_path(&self.dir);
         fs::rename(&tmp, &path)?;
         if let Ok(d) = File::open(&self.dir) {
             let _ = d.sync_all();
         }
-        let mut file = OpenOptions::new().read(true).write(true).open(&path)?;
-        file.seek(SeekFrom::End(0))?;
-        self.file = file;
+        self.file = f;
         self.lines = snapshot.len() as u64;
         Ok(())
     }

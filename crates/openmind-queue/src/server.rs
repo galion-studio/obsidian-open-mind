@@ -10,7 +10,7 @@
 //! The ticker sleeps on a condvar until the next deadline (at most 1 s), so
 //! an idle server uses no CPU.
 
-use crate::engine::{Config, Engine, Job, JobSpec, Miss, Record, Refusal, GLOBAL};
+use crate::engine::{Config, Engine, Job, JobSpec, Miss, Record, Refusal, Tally, GLOBAL};
 use crate::store::{OpenReport, Store};
 use crate::vram::{Device, ProviderView, VramPool};
 use crate::{gaia, http, now_ms, zagreb_ms};
@@ -64,6 +64,10 @@ struct State {
     started_ms: u64,
     providers: ProviderRows,
     compactions: u64,
+    /// Compactions that failed (the change itself was durable; see `commit`).
+    compaction_errors: u64,
+    /// The refusal counters as last written to the log.
+    tally: Tally,
 }
 
 struct Shared {
@@ -111,16 +115,47 @@ fn lock(s: &Shared) -> MutexGuard<'_, State> {
     s.st.lock().unwrap_or_else(|p| p.into_inner())
 }
 
+/// Write `recs` (plus any changed refusal counters) and apply them.
+///
+/// Once the append has synced the change is durable and applied, so a
+/// failed compaction afterwards is logged and counted, not returned: before
+/// slot 206 it turned into a 500 for a change that had in fact happened,
+/// and a client retrying that would enqueue or charge twice.
 fn commit(st: &mut State, recs: &[Record], compact_min: u64) -> io::Result<()> {
-    st.store.append(recs)?;
+    let now_tally = st.engine.tally();
+    let delta = st.tally.delta_to(&now_tally);
+    let mut all: Vec<Record> = Vec::with_capacity(recs.len() + 1);
+    if let Some(d) = delta {
+        all.push(Record::Tally(d));
+    }
+    all.extend_from_slice(recs);
+    st.store.append(&all)?;
+    st.tally = now_tally;
     for r in recs {
         st.engine.apply(r);
     }
     let live = st.engine.live_jobs() as u64 + 16;
     if st.store.lines() >= compact_min && st.store.lines() > live * 4 {
         let snap = st.engine.snapshot();
-        st.store.compact(&snap)?;
-        st.compactions += 1;
+        match st.store.compact(&snap) {
+            Ok(()) => st.compactions += 1,
+            Err(e) => {
+                st.compaction_errors += 1;
+                eprintln!("{} poseidon: compaction failed (log kept): {e}", zagreb_ms(now_ms()));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Persist refusal counters that changed while handling a request, before
+/// the client is answered (unsynced: survives kill -9, see
+/// [`Store::append_unsynced`]).
+fn flush_tally(st: &mut State) -> io::Result<()> {
+    let now_tally = st.engine.tally();
+    if let Some(d) = st.tally.delta_to(&now_tally) {
+        st.store.append_unsynced(&[Record::Tally(d)])?;
+        st.tally = now_tally;
     }
     Ok(())
 }
@@ -151,7 +186,10 @@ pub fn start(opts: Options) -> io::Result<Handle> {
         started_ms: now_ms(),
         providers,
         compactions: 0,
+        compaction_errors: 0,
+        tally: Tally::default(),
     };
+    st.tally = st.engine.tally();
     let sync: Vec<Record> = st
         .engine
         .vram
@@ -242,6 +280,12 @@ fn handle_conn(stream: TcpStream, s: &Shared) {
     let (code, body) = match http::read_request(&stream) {
         Ok(req) => route(s, &req),
         Err(e) => (400, json!({"error":"bad_request","detail":e.to_string()})),
+    };
+    // A refusal bumps a counter but writes no job record: persist it before
+    // answering, so a crash right after the answer cannot lose it.
+    let (code, body) = match flush_tally(&mut lock(s)) {
+        Ok(()) => (code, body),
+        Err(e) => io_err(e),
     };
     let _ = http::write_response(&stream, code, &body.to_string());
 }
@@ -371,7 +415,8 @@ fn stats_json(st: &State) -> Value {
         "agents": agents,
         "vram": e.vram.summary(),
         "store": {"lines": st.store.lines(), "replayed": st.opened.records,
-                  "truncated_bytes": st.opened.truncated_bytes, "compactions": st.compactions},
+                  "truncated_bytes": st.opened.truncated_bytes, "compactions": st.compactions,
+                  "compaction_errors": st.compaction_errors},
         "load": gaia::load(e),
     })
 }
@@ -634,6 +679,7 @@ fn route(s: &Shared, req: &http::Request) -> (u16, Value) {
             let before = g.store.lines();
             let snap = g.engine.snapshot();
             if let Err(e) = g.store.compact(&snap) {
+                g.compaction_errors += 1;
                 return io_err(e);
             }
             g.compactions += 1;

@@ -67,6 +67,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `galion-one` | system | galion-one | ELEUTHIA | Galion One, the persona the stack embodies (:8091, :8002) |
 | `galion-origin` | system | origin | AETHER | origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin) |
 | `galion-realtest` | system | repo-check | MINERVA | pending Slavik: platform-wide real-life test harness (self-evaluation); alternative cargo-build/HEPHAESTUS |
+| `galion-release` | system | release-artifacts | HEPHAESTUS | release.yml packaging: static musl tar.gz per target, MANIFEST, SHA256SUMS, --version rehearsal under qemu (slot 216) |
 | `galion-voice-core` | system | voice-relay | AETHER | full-duplex framing, VAD, jitter buffer, barge-in |
 | `galion-voice-cpu` | system | speech-io | AETHER | on-device CPU STT -> text model -> TTS pipeline (Whisper-tiny via candle); speech on CPU like openmind-speech |
 | `galleon-arena` | system | ecosystem-census | ARTEMIS | paper arena that lists and scores the gladiator population; no value moves (was ARES) |

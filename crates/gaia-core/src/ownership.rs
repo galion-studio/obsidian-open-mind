@@ -127,6 +127,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("galion-one", S(System::GalionOne), "Galion One, the persona the stack embodies (:8091, :8002)"),
     c("galion-origin", S(System::Origin), "origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin)"),
     c("galion-realtest", S(System::RepoCheck), "pending Slavik: platform-wide real-life test harness (self-evaluation); alternative cargo-build/HEPHAESTUS"),
+    c("galion-release", S(System::ReleaseArtifacts), "release.yml packaging: static musl tar.gz per target, MANIFEST, SHA256SUMS, --version rehearsal under qemu (slot 216)"),
     c("galion-vending", S(System::EcosystemCensus), "pending Slavik: B3 deterministic vending business sim benchmark; alternative: a new bench system"),
     c("galion-voice-core", S(System::VoiceRelay), "full-duplex framing, VAD, jitter buffer, barge-in"),
     c("galion-voice-cpu", S(System::SpeechIo), "on-device CPU STT -> text model -> TTS pipeline (Whisper-tiny via candle); speech on CPU like openmind-speech"),

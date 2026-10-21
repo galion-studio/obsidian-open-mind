@@ -6,7 +6,7 @@
 //! loud on stderr (= the systemd journal the cortex `hades` sensor reads), in
 //! its JSON, its exit code and its `/health`.
 //!
-//! Runs only with `GALION_REAL=1`. Binds 127.0.0.1:19950 (slot 125 range
+//! Runs only with `GALION_REAL=1`. Binds 127.0.0.1:19950 (or `HADES_REAL_LEDGER_FAIL_PORT`; slot 125 range
 //! 19950-19959). Throwaway keys in a temp dir; token strings are never printed.
 //! A full disk is simulated with a ledger symlinked to `/dev/full` (every
 //! write fails with ENOSPC); lost write permission with `chmod 0400`.
@@ -19,7 +19,14 @@ use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_hades-gate");
-const PORT: u16 = 19950;
+/// Default 19950 (slot 125 range); `HADES_REAL_LEDGER_FAIL_PORT` overrides it
+/// so a later slot can re-run this test inside its own port range.
+fn port() -> u16 {
+    std::env::var("HADES_REAL_LEDGER_FAIL_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(19950)
+}
 const PLAN: &str = "restart galion-tuner";
 
 fn enabled() -> bool {
@@ -64,7 +71,7 @@ fn chmod(p: &Path, mode: u32) -> std::io::Result<()> {
 }
 
 fn http(method: &str, path: &str, body: &str) -> String {
-    let mut c = TcpStream::connect(("127.0.0.1", PORT)).expect("connect");
+    let mut c = TcpStream::connect(("127.0.0.1", port())).expect("connect");
     c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     write!(
         c,
@@ -229,7 +236,7 @@ fn real_ledger_write_failure_is_detectable() {
 
     // ---- serve: the long-running case (permission lost after start).
     let child = Command::new(BIN)
-        .args(["serve", "--config", s(&cfg), "--port", &PORT.to_string()])
+        .args(["serve", "--config", s(&cfg), "--port", &port().to_string()])
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
@@ -237,7 +244,7 @@ fn real_ledger_write_failure_is_detectable() {
     let mut server = Server(Some(child));
     let mut up = false;
     for _ in 0..50 {
-        if TcpStream::connect(("127.0.0.1", PORT)).is_ok() {
+        if TcpStream::connect(("127.0.0.1", port())).is_ok() {
             up = true;
             break;
         }

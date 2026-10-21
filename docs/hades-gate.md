@@ -72,3 +72,12 @@ Config (flat TOML subset): `admin_pubkey`, `ledger`, `disable_file` (all require
 Real-life test: docs/real-tests/gaia-hades-tokens.md, scripts/real/gaia-hades-tokens.sh.
 
 Real-life test: docs/real-tests/hades-approval.md. Dependencies: docs/third-party/hades-approval.md.
+
+## Ledger under race and short writes (slot 219, 2026-10-21)
+
+`tests/real_ledger_race.rs` (`GALION_REAL=1`, ports 20890-20891 or
+`HADES_REAL_RACE_PORT`) races one token through 12 `check` processes, and
+through 2 `serve` processes plus 6 `check` processes on one ledger: exactly one
+approval per token. A write the kernel cuts short never approves and the gate
+then fails closed (`ledger corrupt`) until the corrupt line is removed. See
+`docs/security/sec-ledger-race.md` for findings and owner decisions D-219-1..4.

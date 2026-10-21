@@ -191,7 +191,10 @@ impl Gate {
 }
 
 fn run(args: &[&str]) -> Output {
-    Command::new(BIN).args(args).output().expect("run hades-gate")
+    Command::new(BIN)
+        .args(args)
+        .output()
+        .expect("run hades-gate")
 }
 
 /// Open every FIFO write end (waits until each process is blocked reading it).
@@ -269,7 +272,10 @@ fn real_ledger_single_use_under_process_race() {
     const PROCS: usize = 12;
     let g = Gate::new("cli");
     eprintln!("start {} bin {BIN}", now_zagreb());
-    assert!(!g.ledger.exists(), "round 0 races a ledger that does not exist yet");
+    assert!(
+        !g.ledger.exists(),
+        "round 0 races a ledger that does not exist yet"
+    );
     let started = Instant::now();
     let mut wins = Vec::new();
     let mut nonces = Vec::new();
@@ -295,7 +301,11 @@ fn real_ledger_single_use_under_process_race() {
     let mut refused_replay = 0;
     for l in &lines {
         match l["event"].as_str() {
-            Some("consumed") => *consumed.entry(l["nonce"].as_str().unwrap().into()).or_default() += 1,
+            Some("consumed") => {
+                *consumed
+                    .entry(l["nonce"].as_str().unwrap().into())
+                    .or_default() += 1
+            }
             Some("refused") if l["reason"].as_str().unwrap_or("").starts_with("replayed") => {
                 refused_replay += 1;
             }
@@ -449,7 +459,10 @@ fn real_ledger_single_use_under_mixed_serve_and_cli_race() {
                 );
             }
         }
-        assert_eq!(approved, 1, "round {round}: exactly one approval across processes");
+        assert_eq!(
+            approved, 1,
+            "round {round}: exactly one approval across processes"
+        );
     }
     for w in &winners {
         *by_kind.entry(w.clone()).or_default() += 1;
@@ -461,7 +474,11 @@ fn real_ledger_single_use_under_mixed_serve_and_cli_race() {
     for port in [pa, pb] {
         let r = http(port, "GET", "/health", "");
         let h = body_of(&r);
-        eprintln!("health {port}: {} ledger {}", r.lines().next().unwrap_or(""), h["ledger"]);
+        eprintln!(
+            "health {port}: {} ledger {}",
+            r.lines().next().unwrap_or(""),
+            h["ledger"]
+        );
         assert!(r.starts_with("HTTP/1.1 200"), "{r}");
         assert_eq!(h["ledger"]["consumed"], ROUNDS);
         assert_eq!(h["ledger"]["audit_failures_total"], 0);
@@ -559,12 +576,18 @@ fn real_ledger_short_write_fails_closed() {
     assert_ne!(o.status.code(), Some(0), "a torn consume never approves");
     assert!(!text(&o.stdout).contains("WouldApply"));
     let after = std::fs::metadata(&g.ledger).unwrap().len();
-    eprintln!("ledger {size} -> {after} bytes (torn tail {} bytes)", after - size);
+    eprintln!(
+        "ledger {size} -> {after} bytes (torn tail {} bytes)",
+        after - size
+    );
     assert_eq!(after, size + 40, "kernel short write landed");
 
     // Every later decision fails closed on the torn line, loudly.
     let (t3, _) = g.mint();
-    for (label, tok) in [("fresh token after torn write", &t3), ("torn token again", &t2)] {
+    for (label, tok) in [
+        ("fresh token after torn write", &t3),
+        ("torn token again", &t2),
+    ] {
         let o = check(&g, tok);
         show(label, &o);
         assert_eq!(o.status.code(), Some(2));
@@ -593,7 +616,11 @@ fn real_ledger_short_write_fails_closed() {
         glued.len(),
         glued.matches("{\"action\"").count() == 2
     );
-    assert_eq!(glued.matches("{\"action\"").count(), 2, "fragment + one note");
+    assert_eq!(
+        glued.matches("{\"action\"").count(),
+        2,
+        "fragment + one note"
+    );
     let kept: String = t
         .lines()
         .enumerate()
@@ -612,5 +639,9 @@ fn real_ledger_short_write_fails_closed() {
     let lines = g.ledger_lines();
     let consumed = lines.iter().filter(|l| l["event"] == "consumed").count();
     assert_eq!(consumed, 4, "t0, t1, t2, t3 each once");
-    eprintln!("ledger lines {} well-formed, consumed {consumed}; end {}", lines.len(), now_zagreb());
+    eprintln!(
+        "ledger lines {} well-formed, consumed {consumed}; end {}",
+        lines.len(),
+        now_zagreb()
+    );
 }

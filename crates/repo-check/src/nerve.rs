@@ -360,9 +360,11 @@ pub fn reach(manifests: &BTreeMap<String, Manifest>) -> BTreeMap<String, Reach> 
             if r[pkg] != Reach::None {
                 continue;
             }
-            if let Some(d) = m.deps.iter().find(|d| {
-                !d.optional && r.get(&d.package).is_some_and(|x| *x != Reach::None)
-            }) {
+            if let Some(d) = m
+                .deps
+                .iter()
+                .find(|d| !d.optional && r.get(&d.package).is_some_and(|x| *x != Reach::None))
+            {
                 r.insert(pkg.clone(), Reach::Via(d.package.clone()));
                 changed = true;
             }
@@ -407,7 +409,10 @@ pub fn parse_allowlist(path: &str, text: &str) -> (Vec<AllowEntry>, Vec<Finding>
             .split_once(':')
             .filter(|(p, b)| !p.is_empty() && !b.is_empty() && !b.contains(':'))
         else {
-            bad.push(err(n, format!("allowlist entry {id:?} is not `package:bin`")));
+            bad.push(err(
+                n,
+                format!("allowlist entry {id:?} is not `package:bin`"),
+            ));
             continue;
         };
         if reason.is_empty() {
@@ -572,9 +577,7 @@ pub fn check_coverage(
             });
         }
     }
-    out.sort_by(|a, b| {
-        (&a.target.package, &a.target.bin).cmp(&(&b.target.package, &b.target.bin))
-    });
+    out.sort_by(|a, b| (&a.target.package, &a.target.bin).cmp(&(&b.target.package, &b.target.bin)));
     (findings, out)
 }
 

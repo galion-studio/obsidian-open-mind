@@ -99,7 +99,8 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    let report = match scan_tree_with(&opts.root, opts.copyright.as_deref(), &opts.nerve_allowlist) {
+    let report = match scan_tree_with(&opts.root, opts.copyright.as_deref(), &opts.nerve_allowlist)
+    {
         Ok(r) => r,
         Err(e) => {
             eprintln!("repo-check: cannot scan {}: {e}", opts.root.display());

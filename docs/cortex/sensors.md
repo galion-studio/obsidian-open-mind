@@ -55,6 +55,34 @@ sensor emits ddos-kind findings; `/api/v1/state` gains `cortex_sensors` `[{name,
 | `components` | sensors/components.rs | `stuck-loading-*`, `restarts-*`, `memory-trend-*`, `error-rate-*`, `host-pressure-*`, `memory-heavy-*` | - (component verdict signals stay in `cortex::component_signals`) | comps |
 | `ddos` | sensors/ddos.rs | - (streams) | `ddos:<stream>` | ddos verdicts |
 
+
+## S2 sensors (merged in T2.0, `swarm/cortex-t20-merge`, 2026-10-21 CEST +02:00)
+
+Registered in `Sensors::from_env` in this order, after the built-ins (each is off until its env is set, so a nerve
+with no new env behaves exactly like e536446). Run order fixes signal order and so incident ids: append, don't reorder.
+
+| name | file | task / branch | on when | finding ids (kind) | signals | reads (host only when `live`) |
+|---|---|---|---|---|---|---|
+| `sshd` | sensors/sshd.rs | T2.1, cortex-s2-a 9557eb3 | `NERVE_SSHD=1` | `sshd-accepted-password`, `sshd-accepted-publickey-other`, `sshd-invalid-user`, `sshd-max-auth-attempts` (vulnerability); `sshd-credential-flood` (ddos); `sshd-auth-log-growth` (bleeding); source `auth.log` | `ssh-flood` | `input.journal` (`NERVE_SSHD_UNITS`, default `ssh.service,sshd.service`); size of `NERVE_SSHD_AUTH_LOG` |
+| `rustsec` | sensors/rustsec.rs | T2.4, cortex-s2-a 9557eb3 | `NERVE_RUSTSEC_LOCK` | `rustsec-<pkg>-<ver>` (vulnerability) | - | the lock file; embedded offline advisory snapshot (CC0), optional `NERVE_RUSTSEC_DB` |
+| `drift` | sensors/drift.rs | T2.5, cortex-s2-b 51100e1 | `NERVE_DRIFT_MANIFEST` | `drift-<name>`, `drift-missing-<name>`, `drift-manifest` (vulnerability) | - | SHA256SUMS manifest + listed files, hashing budgeted per cycle |
+| `conn-rate` | sensors/connrate.rs | T2.7, cortex-s2-b 51100e1 | `NERVE_CONNRATE_PORTS` | `conn-rate-<port>`, `conn-rate-unreadable` (bleeding) | - | `/proc/net/tcp`, `/proc/net/tcp6` |
+| `proc-owner` | sensors/proc_owner.rs | T2.8, cortex-s2-c dbec5c9 | `NERVE_PROC_OWNER_USERS` | `stray-owner`, `deleted-binary`, `proc-owner-unresolved` (vulnerability) | - | `/proc/net/tcp*`, `/proc/<pid>/{fd,status,exe}`, `/etc/passwd` |
+| `surface` | sensors/surface.rs | T2.9, cortex-s2-c dbec5c9 | `NERVE_SURFACE_TARGETS` | `surface-dns`, `surface-tls-expired`, `surface-tls-expiring`, `surface-tls-fail`, `surface-http-down`, `surface-http-status`, info `surface-tls-unread`/`surface-note` (bleeding, cause `edge`) | - | DNS, TLS 1.2 cert read, HTTP GET on a background thread every 300 s |
+| `hades` | sensors/hades.rs | T2.13, cortex-s2-d f3468ce | `NERVE_HADES_LEDGER`, `_DISABLE_FILE`, `_AUDIT` or `NERVE_HADES=1` | `hades-off`, `hades-ledger-failing`, `hades-refusal-burst`, `hades-safety-refusals`, `hades-token-abuse`, `hades-unapprovable-actions`, `sandbox-escape-attempts`, `sandbox-not-enforced` | `hades`, `sandbox` | ledger/audit JSONL tails, disable file; `input.journal` units `hades*` (also in replay) |
+
+Also merged from cortex-s2-d: `src/feed.rs`, `GET /api/v1/cortex/events` (B33 JSONL, counts/ids only; see
+docs/cortex/hades-sensor-and-feed.md).
+
+Journal collection (T2.0, `collect.rs`): the engine reads the journal of the component units plus
+`collect::JOURNAL_EXTRA_UNITS` = `ssh.service`, so `sshd` sees live lines without a fake component. The extra unit
+gets no sample, status or `journal_counts` entry; its lines only reach `input.journal` and the log scan. A host
+whose daemon is `sshd.service` / `sshd@*.service` needs that unit added to the list (one line). Collection is still
+skipped when no component has a unit or `NERVE_JOURNAL=0`.
+
+New dependencies from the merged branches: `semver` 1 (cortex-s2-a, MIT OR Apache-2.0), `toml` (dev, workspace),
+`galion-common` (path, cortex-s2-b). Details in docs/third-party/cortex-s2-{a,b,c,d}.md.
+
 ## Adding an S2 sensor
 
 1. `src/sensors/<name>.rs` with SPDX header; `pub struct X { .. }`, `impl Sensor for X`, and
@@ -70,19 +98,19 @@ sensor emits ddos-kind findings; `/api/v1/state` gains `cortex_sensors` `[{name,
 
 ## S2 tasks this unblocks
 
-| task | input it needs | status after T1.2 |
+| task | input it needs | status after T1.2 (T2.0: merged = in `swarm/cortex-t20-merge`) |
 |---|---|---|
-| T2.1 sshd auth | `input.journal` (ssh unit) or auth.log when `live` | ready |
+| T2.1 sshd auth | `input.journal` (ssh unit) or auth.log when `live` | **merged (T2.0)** |
 | T2.2 host posture (sshd -T, ufw, fail2ban) | `live` host commands | ready (command list needs Slavik) |
 | T2.3 secrets mode bits | `live` stat | API ready, **Slavik approval** pending |
-| T2.4 RustSec advisories | own files | ready |
-| T2.5 source-vs-live drift | own files, comps units | ready |
+| T2.4 RustSec advisories | own files | **merged (T2.0)** |
+| T2.5 source-vs-live drift | own files, comps units | **merged (T2.0)** |
 | T2.6 tunnel ingress lint | own config read | ready after tunnel-audit lands |
-| T2.7 per-port connection rate | stateful `&mut self`, /proc/net/tcp when `live` | ready |
-| T2.8 stray process owner | `input.listeners` + /proc when `live` | ready |
-| T2.9 public DNS/TLS/HTTP | network GETs when `live` (keep under budget: cache/rotate) | ready |
-| T2.10 Gaia `/event` feed | event JSONL via its own env; `Sev::parse`, `FindingKind::parse` | ready |
+| T2.7 per-port connection rate | stateful `&mut self`, /proc/net/tcp when `live` | **merged (T2.0)** |
+| T2.8 stray process owner | `input.listeners` + /proc when `live` | **merged (T2.0)** |
+| T2.9 public DNS/TLS/HTTP | network GETs when `live` (keep under budget: cache/rotate) | **merged (T2.0)** |
+| T2.10 Gaia `/event` feed | event JSONL via its own env; `Sev::parse`, `FindingKind::parse` | outbound B33 feed `/api/v1/cortex/events` merged (T2.0); inbound `/event` sensor open |
 | T2.11 POSEIDON budget bleed | after nerve-wiring lands | API ready, blocked on nerve-wiring |
 | T2.12 per-hostname edge rate | `input.journal` (cloudflared `dest=`) | ready (feeding the access.rs detector itself needs engine.rs: T2.0) |
-| T2.13 hades/sandbox misbehaviour | `input.journal` | ready |
+| T2.13 hades/sandbox misbehaviour | `input.journal` | **merged (T2.0)** |
 | T2.15 push wiring | nerve-client/hub.rs (nerve-wiring) | not a sensor; unaffected |

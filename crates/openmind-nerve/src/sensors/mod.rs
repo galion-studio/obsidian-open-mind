@@ -34,10 +34,17 @@ use serde_json::{json, Value};
 use std::time::Instant;
 
 pub mod components;
+pub mod connrate;
 pub mod ddos;
+pub mod drift;
 pub mod edge;
+pub mod hades;
 pub mod listeners;
+pub mod proc_owner;
+pub mod rustsec;
 pub mod scanners;
+pub mod sshd;
+pub mod surface;
 
 /// Environment lookup handed to `from_env` constructors (tests pass a map).
 pub type Env<'a> = &'a dyn Fn(&str) -> Option<String>;
@@ -154,6 +161,13 @@ impl Sensors {
     pub fn from_env(env: Env) -> Self {
         let mut s = Self::builtin();
         // S2 sensors: one line each, e.g. `s.add_opt(sshd::SshAuth::from_env(env));`
+        s.add_opt(sshd::SshAuth::from_env(env));
+        s.add_opt(rustsec::RustSec::from_env(env));
+        s.add_opt(drift::Drift::from_env(env));
+        s.add_opt(connrate::ConnRate::from_env(env));
+        s.add_opt(proc_owner::ProcOwner::from_env(env));
+        s.add_opt(surface::Surface::from_env(env));
+        s.add_opt(hades::Hades::from_env(env));
         let off: Vec<String> = env("NERVE_SENSORS_OFF")
             .unwrap_or_default()
             .split(',')

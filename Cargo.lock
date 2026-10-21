@@ -1210,9 +1210,12 @@ dependencies = [
 name = "openmind-nerve"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
  "openmind-schema",
+ "semver",
  "serde",
  "serde_json",
+ "toml",
  "zagreb-time",
 ]
 

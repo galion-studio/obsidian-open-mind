@@ -4,14 +4,15 @@
 //! repo-check CLI. Read-only: scans the tree, prints findings, exits 1 when
 //! any finding is at error level, 2 on usage or I/O errors.
 
-use repo_check::{json_escape, scan_tree, Check, Level};
+use repo_check::nerve::{self, Reach, Status};
+use repo_check::{json_escape, scan_tree_with, Check, Level};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 const USAGE: &str =
     "usage: repo-check [--root DIR] [--json] [--only a,b] [--warn a,b] [--error a,b]
-                  [--copyright TEXT] [--list]
+                  [--copyright TEXT] [--list] [--nerve-allowlist PATH] [--nerve-gaps]
   --root DIR        tree to scan (default .)
   --json            JSON report on stdout (Europe/Zagreb timestamp)
   --only a,b        run only these checks
@@ -19,6 +20,9 @@ const USAGE: &str =
   --error a,b       upgrade these checks to errors
   --copyright TEXT  the LICENSE copyright line must contain TEXT
   --list            list the checks and exit
+  --nerve-allowlist PATH  probe-only allowlist, repo-relative
+                    (default crates/repo-check/nerve-probe-only.txt)
+  --nerve-gaps      also print the per-bin nerve coverage table
 exit: 0 clean, 1 error findings, 2 usage/io error";
 
 struct Opts {
@@ -28,6 +32,8 @@ struct Opts {
     levels: HashMap<Check, Level>,
     copyright: Option<String>,
     list: bool,
+    nerve_allowlist: String,
+    nerve_gaps: bool,
 }
 
 fn parse_checks(s: &str) -> Result<Vec<Check>, String> {
@@ -45,6 +51,8 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
         levels: HashMap::new(),
         copyright: None,
         list: false,
+        nerve_allowlist: nerve::DEFAULT_ALLOWLIST.to_string(),
+        nerve_gaps: false,
     };
     let mut it = args;
     while let Some(a) = it.next() {
@@ -65,6 +73,8 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
             }
             "--copyright" => o.copyright = Some(val("--copyright")?),
             "--list" => o.list = true,
+            "--nerve-allowlist" => o.nerve_allowlist = val("--nerve-allowlist")?,
+            "--nerve-gaps" => o.nerve_gaps = true,
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown argument {other:?}")),
         }
@@ -89,7 +99,7 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    let report = match scan_tree(&opts.root, opts.copyright.as_deref()) {
+    let report = match scan_tree_with(&opts.root, opts.copyright.as_deref(), &opts.nerve_allowlist) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("repo-check: cannot scan {}: {e}", opts.root.display());
@@ -118,6 +128,7 @@ fn main() -> ExitCode {
     let errors = findings.iter().filter(|f| f.level == Level::Error).count();
     let warnings = findings.len() - errors;
     let ts = zagreb_time::now_rfc3339();
+    let nerve_bins = report.nerve_bins;
 
     if opts.json {
         let items: Vec<String> = findings
@@ -134,16 +145,20 @@ fn main() -> ExitCode {
             })
             .collect();
         println!(
-            "{{\"tool\":\"repo-check\",\"version\":\"{}\",\"ts\":\"{}\",\"files_scanned\":{},\"errors\":{},\"warnings\":{},\"pass\":{},\"findings\":[{}]}}",
+            "{{\"tool\":\"repo-check\",\"version\":\"{}\",\"ts\":\"{}\",\"files_scanned\":{},\"errors\":{},\"warnings\":{},\"pass\":{},\"findings\":[{}],\"nerve_bins\":[{}]}}",
             env!("CARGO_PKG_VERSION"),
             ts,
             report.files_scanned,
             errors,
             warnings,
             errors == 0,
-            items.join(",")
+            items.join(","),
+            nerve_bins_json(&nerve_bins)
         );
     } else {
+        if opts.nerve_gaps {
+            print!("{}", nerve::render_table(&nerve_bins));
+        }
         for f in &findings {
             let loc = if f.line == 0 {
                 f.file.clone()
@@ -163,4 +178,25 @@ fn main() -> ExitCode {
     } else {
         ExitCode::from(1)
     }
+}
+
+fn nerve_bins_json(rows: &[nerve::BinStatus]) -> String {
+    rows.iter()
+        .map(|r| {
+            let (status, detail) = match &r.status {
+                Status::Gap => ("gap", String::new()),
+                Status::Covered(Reach::Via(v)) => ("covered", format!("via {v}")),
+                Status::Covered(_) => ("covered", "direct".to_string()),
+                Status::ProbeOnly(why) => ("probe-only", why.clone()),
+            };
+            format!(
+                "{{\"package\":\"{}\",\"bin\":\"{}\",\"manifest\":\"{}\",\"status\":\"{status}\",\"detail\":\"{}\"}}",
+                json_escape(&r.target.package),
+                json_escape(&r.target.bin),
+                json_escape(&r.target.manifest),
+                json_escape(&detail)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",")
 }

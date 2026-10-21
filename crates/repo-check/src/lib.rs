@@ -14,6 +14,8 @@
 //! Patterns that would match this file itself are assembled with `concat!`, so
 //! the tool can scan its own source without allow markers.
 
+pub mod nerve;
+
 use std::fmt;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
@@ -52,10 +54,11 @@ pub enum Check {
     Secrets,
     Hosts,
     Portable,
+    Nerve,
 }
 
 impl Check {
-    pub const ALL: [Check; 8] = [
+    pub const ALL: [Check; 9] = [
         Check::License,
         Check::Spdx,
         Check::Cjk,
@@ -64,6 +67,7 @@ impl Check {
         Check::Secrets,
         Check::Hosts,
         Check::Portable,
+        Check::Nerve,
     ];
 
     pub fn name(self) -> &'static str {
@@ -76,6 +80,7 @@ impl Check {
             Check::Secrets => "secrets",
             Check::Hosts => "hosts",
             Check::Portable => "portable",
+            Check::Nerve => "nerve",
         }
     }
 
@@ -102,6 +107,7 @@ impl Check {
             Check::Secrets => "no private-key blocks or token-shaped strings (matches are never printed)",
             Check::Hosts => "no public IPv4 literals in crates/, deploy/, .github/",
             Check::Portable => "no inline asm, arch intrinsics, target-cpu/target-feature, openssl-sys (UNIVERSAL-CPU.md)",
+            Check::Nerve => "every workspace bin reaches nerve-client or is listed probe-only (with a reason) in crates/repo-check/nerve-probe-only.txt (Nerve T2.4)",
         }
     }
 }
@@ -583,10 +589,21 @@ pub fn read_text(path: &Path) -> Option<String> {
 pub struct Report {
     pub files_scanned: usize,
     pub findings: Vec<Finding>,
+    /// Nerve coverage verdict per workspace bin (the `nerve` check).
+    pub nerve_bins: Vec<nerve::BinStatus>,
 }
 
 /// Scan the whole tree under `root`.
 pub fn scan_tree(root: &Path, expect_copyright: Option<&str>) -> std::io::Result<Report> {
+    scan_tree_with(root, expect_copyright, nerve::DEFAULT_ALLOWLIST)
+}
+
+/// [`scan_tree`] with a repo-relative nerve probe-only allowlist path.
+pub fn scan_tree_with(
+    root: &Path,
+    expect_copyright: Option<&str>,
+    nerve_allowlist: &str,
+) -> std::io::Result<Report> {
     let files = walk(root)?;
     let root_license = read_text(&root.join("LICENSE"));
     let mut findings = check_license(root_license.as_deref(), expect_copyright);
@@ -606,9 +623,20 @@ pub fn scan_tree(root: &Path, expect_copyright: Option<&str>) -> std::io::Result
         }
         findings.extend(scan_text(rel, &text));
     }
+    let read = |rel: &str| read_text(&root.join(rel));
+    let root_manifest = read("Cargo.toml");
+    let allow_text = read(nerve_allowlist);
+    let (nerve_findings, nerve_bins) = nerve::check_coverage(
+        root_manifest.as_deref(),
+        &files,
+        &read,
+        (nerve_allowlist, allow_text.as_deref()),
+    );
+    findings.extend(nerve_findings);
     Ok(Report {
         files_scanned,
         findings,
+        nerve_bins,
     })
 }
 

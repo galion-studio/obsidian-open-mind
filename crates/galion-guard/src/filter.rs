@@ -294,13 +294,14 @@ impl SshdFilter {
                 if !matches!(next, None | Some(' ' | '\t' | ']' | ')' | ':' | ',')) {
                     continue;
                 }
-                // An IPv6 run followed by `:` and more address characters is
-                // one longer, invalid token: "::1:2:3:4:5:6:7:81.0.0.1" must not
-                // yield 0:1:2:3:4:5:6:7 (found by the weekly fuzz run, slot 202,
-                // 2026-10-21 17:49 +02:00). `1.2.3.4: 11:` style tails still match.
+                // An IPv6 run followed by `:` and anything but whitespace or the
+                // end is one longer, invalid token: "::1:2:3:4:5:6:7:81.0.0.1"
+                // and "::1:2:3:4:5:6:7:t1" must not yield 0:1:2:3:4:5:6:7 (weekly
+                // fuzz runs, slot 202, 2026-10-21 17:49 and 18:51 +02:00).
+                // `2001:db8::7: 11:` style tails (`: ` then text) still match.
                 if c.name("ip6").is_some() && next == Some(':') {
                     let after = content[h.end() + 1..].chars().next();
-                    if matches!(after, Some(a) if a.is_ascii_hexdigit() || a == ':' || a == '.') {
+                    if !matches!(after, None | Some(' ' | '\t')) {
                         continue;
                     }
                 }
@@ -390,6 +391,20 @@ mod tests {
         assert_eq!(
             m("h sshd[1]: Invalid user b from 2001:db8::7 port 22").and_then(|x| x.host),
             ip("2001:db8::7")
+        );
+        // 18:51 +02:00 find (seed 1792601469964599518): `:` then a letter.
+        let bad2 = m("ip50 sshd[117]: Failed publickey for invalid user b from ::1:2:3:4:5:6:7:t1.00.0.1 port 4013");
+        assert!(
+            !matches!(
+                bad2.as_ref().and_then(|x| x.host.clone()),
+                Some(Host::Ip(_))
+            ),
+            "{bad2:?}"
+        );
+        // `addr: text` (colon then space) is still a boundary.
+        assert!(
+            m("h sshd[1]: Received disconnect from 2001:db8::7: 11: Bye Bye [preauth]")
+                .is_none_or(|x| x.host == ip("2001:db8::7"))
         );
     }
 

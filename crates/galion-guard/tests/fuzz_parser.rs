@@ -151,13 +151,7 @@ fn ip_in_line(ip: IpAddr, line: &str) -> bool {
     // weekly-budget run, slot 202, 2026-10-21 18:07 +02:00, seed
     // 1792598853241971466: an oracle gap, not a parser bug).
     line.split(|c: char| {
-        c.is_whitespace()
-            || c == '['
-            || c == ']'
-            || c == '('
-            || c == ')'
-            || c == '='
-            || c == ','
+        c.is_whitespace() || c == '[' || c == ']' || c == '(' || c == ')' || c == '=' || c == ','
     })
     .filter_map(|t| t.trim_end_matches([':', ',']).parse::<IpAddr>().ok())
     .any(|t| galion_guard::ipnet::canonical(t) == ip)
@@ -369,6 +363,12 @@ fn weekly_finds_replay() {
         assert_eq!(ip, "::1:2:3:4:5:6:7".parse::<IpAddr>().unwrap());
         assert!(ip_in_line(ip, &t2), "{t2}");
     }
+    // 18:51 find (seed 1792601469964599518): `:` then a letter is one token.
+    let t3 = format!("{head}::1:2:3:4:5:6:7:t1.rom ::1:2:3:4:5:6:7:t1.00.0.1 por8 4013");
+    assert!(
+        !matches!(f.matches(&t3).and_then(|m| m.host), Some(Host::Ip(_))),
+        "{t3}"
+    );
     // The oracle still rejects an address that is not in the line.
     assert!(!ip_in_line("10.9.8.7".parse().unwrap(), &t2));
     assert!(!ip_in_line("0:1:2:3:4:5:6:8".parse().unwrap(), &t2));

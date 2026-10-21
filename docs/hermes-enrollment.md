@@ -1,10 +1,10 @@
 <!-- SPDX-License-Identifier: MIT -->
-# Hermes device enrollment (design, v0, NOT implemented on Hermes, no listener)
+# Hermes device enrollment (design, v0; implemented on swarm/hermes-enroll, see hermes-enroll.md)
 
 | Field | Value |
 |---|---|
 | Written | 2026-10-18 21:05 CEST (+02:00), Europe/Zagreb |
-| Status | **Design only.** No endpoint exists, no listener was started, no Hermes code or unit was changed. The device-side check (`pair::verify`, `omnode pair verify`) is implemented and tested in `edge/openmind-node`. |
+| Status | **Implemented on branch swarm/hermes-enroll (2026-10-20 20:55 CEST, +02:00)**, off by default, not deployed: see [hermes-enroll.md](hermes-enroll.md). The original design text below is kept as written. |
 | Related | `docs/phone-instance.md` §6, `edge/openmind-node/src/pair.rs` |
 
 ## 1. Goal

@@ -151,6 +151,34 @@ impl Ledger {
         });
         append(&mut file, &line)
     }
+
+    /// Read-only health probe: the ledger can be opened for append, locked and
+    /// parsed. Writes nothing. Catches a removed write permission, a read-only
+    /// file system, a missing directory and a corrupt file. A full disk is only
+    /// seen by a real write, so callers must also watch
+    /// [`Approver::approve_audited`](crate::approval::Approver::approve_audited).
+    ///
+    /// Note: like every ledger open, a ledger file that was deleted is
+    /// recreated empty here (the gate cannot tell a new ledger from a lost one).
+    ///
+    /// # Errors
+    /// [`LedgerError::Io`] or [`LedgerError::Corrupt`].
+    pub fn health(&self) -> Result<LedgerHealth, LedgerError> {
+        let file = open_append(&self.path).map_err(|e| io(&e))?;
+        file.lock().map_err(|e| io(&e))?;
+        let consumed = scan(&self.path)?.len();
+        let bytes = file.metadata().map_err(|e| io(&e))?.len();
+        Ok(LedgerHealth { consumed, bytes })
+    }
+}
+
+/// What [`Ledger::health`] saw. Counts only; no nonce or target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LedgerHealth {
+    /// Consumed nonces in the ledger.
+    pub consumed: usize,
+    /// Ledger size in bytes.
+    pub bytes: u64,
 }
 
 fn to_i64(secs: u64) -> i64 {
@@ -190,6 +218,11 @@ fn append(file: &mut File, line: &serde_json::Value) -> Result<(), LedgerError> 
 /// Every consumed nonce. Any unparsable line fails closed.
 fn scan(path: &Path) -> Result<Vec<String>, LedgerError> {
     let mut text = String::new();
+    // A device, FIFO or directory is not a ledger (reading /dev/full or
+    // /dev/zero would never end): fail closed instead.
+    if !std::fs::metadata(path).map_err(|e| io(&e))?.is_file() {
+        return Err(LedgerError::Io("not a regular file".into()));
+    }
     File::open(path)
         .and_then(|mut f| f.read_to_string(&mut text))
         .map_err(|e| io(&e))?;

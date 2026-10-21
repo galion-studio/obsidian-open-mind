@@ -15,7 +15,7 @@
 //! The plan bytes that are hashed and signed are the steps joined with `\n`
 //! ([`gaia_plan_bytes`]). The admin mints with exactly the same bytes.
 
-use crate::approval::{Approver, Refusal, Request, Verdict};
+use crate::approval::{Approver, Audit, Decided, Refusal, Request, Verdict};
 
 /// Map a GAIA HADES system name to a gate action kind.
 ///
@@ -53,6 +53,45 @@ pub fn check_gaia(
     };
     let plan = gaia_plan_bytes(steps);
     approver.approve(
+        Request {
+            action,
+            target,
+            plan: &plan,
+            token,
+        },
+        now,
+    )
+}
+
+/// [`check_gaia`] plus whether the decision reached the ledger
+/// ([`Approver::approve_audited`]). A system that can never be approved is
+/// refused here and also written to the ledger as an audit line.
+#[must_use]
+pub fn check_gaia_audited(
+    approver: &Approver,
+    system: &str,
+    target: &str,
+    steps: &[String],
+    token: &str,
+    now: u64,
+) -> Decided {
+    let Some(action) = gaia_action(system) else {
+        let refusal = Refusal::ActionNotApprovable(system.to_owned());
+        let audit =
+            match approver
+                .ledger()
+                .note("refused", system, target, &refusal.reason(), token, now)
+            {
+                Ok(()) => Audit::Written,
+                Err(e) => Audit::Failed(e),
+            };
+        return Decided {
+            verdict: Verdict::Refused(refusal),
+            audit,
+        };
+    };
+    let plan = gaia_plan_bytes(steps);
+    approver.approve_audited(
         Request {
             action,
             target,

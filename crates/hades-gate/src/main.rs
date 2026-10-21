@@ -16,7 +16,11 @@
 //!   hades-gate plan-hash --plan-file F
 //!
 //! Every mode is dry-run: an approval is a decision, nothing is executed.
-//! Exit codes: 0 approved or dry-run, 2 refused, 1 usage or I/O error.
+//! Exit codes: 0 approved or dry-run, 2 refused, 1 usage or I/O error,
+//! 3 ledger failing: a dry-run whose audit line was not written, or `status`
+//! on a ledger that cannot be written or parsed. Every ledger failure is also
+//! one stderr (journal) line starting `hades-gate: ledger unavailable` or
+//! `hades-gate: ledger corrupt`, the strings the cortex `hades` sensor matches.
 //! No key material and no token string is ever printed.
 
 use std::collections::HashMap;
@@ -25,7 +29,9 @@ use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use hades_gate::approval::{unix_now, Approver, Request, Verdict};
+use std::cell::Cell;
+
+use hades_gate::approval::{unix_now, Approver, Audit, Decided, Request, Verdict};
 use hades_gate::config::Config;
 use hades_gate::token::{plan_hash, to_hex, Claims};
 use hades_gate::{keys, safety};
@@ -106,8 +112,12 @@ fn run(args: &[String]) -> Result<i32, String> {
         "status" => {
             let cfg = Config::load(Path::new(need(&f, "config")?))?;
             let a = Approver::from_config(&cfg)?;
-            println!("{}", status_json(&a));
-            Ok(0)
+            let (ok, ledger) = ledger_json(&a, 0);
+            if let Some(e) = ledger["error"].as_str() {
+                eprintln!("hades-gate: {e}");
+            }
+            println!("{}", status_json(&a, &ledger, ok));
+            Ok(if ok { 0 } else { 3 })
         }
         "disable" => {
             // Needs no token and no key: the admin can always switch HADES off.
@@ -181,11 +191,13 @@ fn claims_json(c: &Claims) -> serde_json::Value {
     })
 }
 
-fn verdict_json(v: &Verdict) -> serde_json::Value {
+fn verdict_json(d: &Decided) -> serde_json::Value {
+    let v = &d.verdict;
     let base = serde_json::json!({
         "decision": format!("{:?}", v.decision()),
         "dry_run": true,
         "executed": false,
+        "audit": if d.audit.ok() { "written" } else { "failed" },
         "ts": zagreb_time::now_rfc3339(),
     });
     let mut obj = base.as_object().cloned().unwrap_or_default();
@@ -201,11 +213,44 @@ fn verdict_json(v: &Verdict) -> serde_json::Value {
             obj.insert("reason".into(), r.reason().into());
         }
     }
+    if let Audit::Failed(e) = &d.audit {
+        obj.insert("audit_error".into(), e.reason().into());
+    }
     serde_json::Value::Object(obj)
 }
 
-fn exit_for(v: &Verdict) -> i32 {
-    i32::from(matches!(v, Verdict::Refused(_))) * 2
+fn verdict_code(v: &Verdict) -> &'static str {
+    match v {
+        Verdict::DryRun => "dry-run",
+        Verdict::Approved(_) => "approved",
+        Verdict::Refused(r) => r.code(),
+    }
+}
+
+/// Make a ledger failure loud: one stderr (journal) line per decision. The
+/// reason text starts with `ledger unavailable` / `ledger corrupt`. Nothing
+/// from the request (target, plan, token) is printed.
+fn report_audit(d: &Decided) {
+    if let Audit::Failed(e) = &d.audit {
+        let line = match &d.verdict {
+            Verdict::Refused(hades_gate::Refusal::Ledger(_)) => "refusal audit line attempted",
+            _ => "audit line not written",
+        };
+        eprintln!(
+            "hades-gate: {}; decision {:?} ({}); {line}",
+            e.reason(),
+            d.verdict.decision(),
+            verdict_code(&d.verdict),
+        );
+    }
+}
+
+fn exit_for(d: &Decided) -> i32 {
+    match (&d.verdict, d.audit.ok()) {
+        (Verdict::Refused(_), _) => 2,
+        (_, false) => 3,
+        _ => 0,
+    }
 }
 
 fn check(f: &HashMap<String, String>) -> Result<i32, String> {
@@ -216,7 +261,7 @@ fn check(f: &HashMap<String, String>) -> Result<i32, String> {
         Some(p) => String::from_utf8(read_file(p)?).map_err(|_| "token file is not UTF-8")?,
         None => String::new(),
     };
-    let v = approver.approve(
+    let d = approver.approve_audited(
         Request {
             action: need(f, "action")?,
             target: need(f, "target")?,
@@ -225,18 +270,89 @@ fn check(f: &HashMap<String, String>) -> Result<i32, String> {
         },
         unix_now(),
     );
-    println!("{}", verdict_json(&v));
-    Ok(exit_for(&v))
+    report_audit(&d);
+    println!("{}", verdict_json(&d));
+    Ok(exit_for(&d))
 }
 
-fn status_json(a: &Approver) -> serde_json::Value {
+/// Ledger part of `status` / `/health`: `(ok, json)`. Counts only.
+fn ledger_json(a: &Approver, audit_failures: u64) -> (bool, serde_json::Value) {
+    match a.ledger_health() {
+        Ok(h) => (
+            audit_failures == 0,
+            serde_json::json!({
+                "ok": audit_failures == 0,
+                "probe_ok": true,
+                "consumed": h.consumed,
+                "bytes": h.bytes,
+                "audit_failures": audit_failures,
+            }),
+        ),
+        Err(e) => (
+            false,
+            serde_json::json!({
+                "ok": false,
+                "probe_ok": false,
+                "error": e.reason(),
+                "audit_failures": audit_failures,
+            }),
+        ),
+    }
+}
+
+fn status_json(a: &Approver, ledger: &serde_json::Value, ok: bool) -> serde_json::Value {
     serde_json::json!({
         "service": "hades-gate",
         "mode": "dry-run",
+        "ok": ok,
         "disabled": a.is_disabled(),
         "admin_fingerprint": a.admin_fingerprint(),
+        "ledger": ledger,
         "ts": zagreb_time::now_rfc3339(),
     })
+}
+
+/// `serve` state: how many decisions did not reach the ledger since the last
+/// healthy `/health`, and the last ledger state that was logged.
+struct Gate<'a> {
+    approver: &'a Approver,
+    /// Audit failures since start (also shown in `/health`).
+    audit_failures: Cell<u64>,
+    /// Audit failures already seen by a `/health` that then found the ledger
+    /// writable again; `/health` is unhealthy only for newer ones.
+    acked_failures: Cell<u64>,
+    /// Last logged ledger state, so `/health` logs only transitions.
+    ledger_ok: Cell<Option<bool>>,
+}
+
+impl Gate<'_> {
+    fn health(&self) -> (bool, serde_json::Value) {
+        let total = self.audit_failures.get();
+        let fresh = total - self.acked_failures.get();
+        let (ok, mut ledger) = ledger_json(self.approver, fresh);
+        if let Some(o) = ledger.as_object_mut() {
+            o.insert("audit_failures_total".into(), total.into());
+        }
+        if self.ledger_ok.get() != Some(ok) {
+            if ok {
+                if self.ledger_ok.get().is_some() {
+                    eprintln!("hades-gate: ledger ok again (audit failures so far: {total})");
+                }
+            } else {
+                let why = ledger["error"]
+                    .as_str()
+                    .map_or_else(|| format!("ledger unavailable ({fresh} decisions not written since the last check)"), str::to_owned);
+                eprintln!("hades-gate: {why}; /health unhealthy");
+            }
+            self.ledger_ok.set(Some(ok));
+        }
+        // A probe that finds the ledger fine again acknowledges older write
+        // failures: they stay counted in audit_failures_total and in the journal.
+        if ledger["probe_ok"] == serde_json::Value::Bool(true) {
+            self.acked_failures.set(total);
+        }
+        (ok, ledger)
+    }
 }
 
 fn serve(f: &HashMap<String, String>) -> Result<i32, String> {
@@ -246,9 +362,16 @@ fn serve(f: &HashMap<String, String>) -> Result<i32, String> {
     let listener = TcpListener::bind(("127.0.0.1", port))
         .map_err(|e| format!("bind 127.0.0.1:{port}: {}", e.kind()))?;
     eprintln!("hades-gate: serving on 127.0.0.1:{port} (dry-run)");
+    let gate = Gate {
+        approver: &approver,
+        audit_failures: Cell::new(0),
+        acked_failures: Cell::new(0),
+        ledger_ok: Cell::new(None),
+    };
+    let _ = gate.health();
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
-        if handle(stream, &approver) {
+        if handle(stream, &gate) {
             eprintln!("hades-gate: stopped by admin request");
             return Ok(0);
         }
@@ -257,11 +380,11 @@ fn serve(f: &HashMap<String, String>) -> Result<i32, String> {
 }
 
 /// Serve one connection. Returns `true` when the admin asked to stop.
-fn handle(mut stream: TcpStream, approver: &Approver) -> bool {
+fn handle(mut stream: TcpStream, gate: &Gate<'_>) -> bool {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
     let (status, body, stop) = match read_request(&stream) {
-        Ok((method, path, body)) => route(&method, &path, &body, approver),
+        Ok((method, path, body)) => route(&method, &path, &body, gate),
         Err(e) => (400, serde_json::json!({"error": e}), false),
     };
     let text = body.to_string();
@@ -270,6 +393,7 @@ fn handle(mut stream: TcpStream, approver: &Approver) -> bool {
         400 => "Bad Request",
         403 => "Forbidden",
         404 => "Not Found",
+        503 => "Service Unavailable",
         _ => "Error",
     };
     let _ = write!(
@@ -280,14 +404,14 @@ fn handle(mut stream: TcpStream, approver: &Approver) -> bool {
     stop
 }
 
-fn route(
-    method: &str,
-    path: &str,
-    body: &[u8],
-    approver: &Approver,
-) -> (u16, serde_json::Value, bool) {
+fn route(method: &str, path: &str, body: &[u8], gate: &Gate<'_>) -> (u16, serde_json::Value, bool) {
+    let approver = gate.approver;
     match (method, path) {
-        ("GET", "/health") => (200, status_json(approver), false),
+        ("GET", "/health") => {
+            let (ok, ledger) = gate.health();
+            let status = if ok { 200 } else { 503 };
+            (status, status_json(approver, &ledger, ok), false)
+        }
         // The admin can always stop HADES. Stopping only removes the ability
         // to approve, so it needs no token (localhost only).
         ("POST", "/v1/stop") => (200, serde_json::json!({"ok": true, "stopping": true}), true),
@@ -300,7 +424,7 @@ fn route(
                 );
             };
             let field = |k: &str| req.get(k).and_then(serde_json::Value::as_str).unwrap_or("");
-            let v = approver.approve(
+            let d = approver.approve_audited(
                 Request {
                     action: field("action"),
                     target: field("target"),
@@ -309,12 +433,16 @@ fn route(
                 },
                 unix_now(),
             );
-            let status = if matches!(v, Verdict::Refused(_)) {
-                403
-            } else {
-                200
+            report_audit(&d);
+            if !d.audit.ok() {
+                gate.audit_failures.set(gate.audit_failures.get() + 1);
+            }
+            let status = match (&d.verdict, d.audit.ok()) {
+                (Verdict::Refused(_), _) => 403,
+                (_, false) => 503,
+                _ => 200,
             };
-            (status, verdict_json(&v), false)
+            (status, verdict_json(&d), false)
         }
         _ => (404, serde_json::json!({"error": "not found"}), false),
     }

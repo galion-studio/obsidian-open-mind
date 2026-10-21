@@ -523,3 +523,97 @@ fn damaged_layout_fails_closed_and_keeps_copies() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Gated real-life run (`GALION_REAL=1`, best with `--release`): rebuild the
+/// state dir from a *fresh* read-only capture of the live nerve (directory
+/// in `NERVE_T41_LIVE_DIR` holding `api-state.json` and `api-alerts.json`
+/// from GET :8670 `/state` and `/alerts`; default: the committed fixtures)
+/// and check the new binary reports every live budget exactly as the live
+/// nerve did (live_1h count per unit, last_rollback), keeps every live
+/// top-level `/state` key, and serves the live alert history.
+#[test]
+fn real_live_capture_round_trips_through_new_binary() {
+    if std::env::var("GALION_REAL").as_deref() != Ok("1") {
+        eprintln!("skipped: set GALION_REAL=1");
+        return;
+    }
+    let src = std::env::var("NERVE_T41_LIVE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| fixtures());
+    let read = |n: &str| -> Value {
+        serde_json::from_str(&std::fs::read_to_string(src.join(n)).unwrap()).unwrap()
+    };
+    let live = read("api-state.json");
+    let live_alerts = read("api-alerts.json");
+    let t = now();
+    let dir = tmp("real");
+    let data = dir.join("data");
+    let budgets = live["reflex"]["budgets"].as_object().unwrap().clone();
+    let mut restarts = serde_json::Map::new();
+    let mut rollbacks = serde_json::Map::new();
+    for (u, b) in &budgets {
+        let n = b["live_1h"].as_u64().unwrap();
+        restarts.insert(
+            u.clone(),
+            json!((0..n).map(|i| t - 60 - i * 60).collect::<Vec<_>>()),
+        );
+        if let Some(r) = b["last_rollback"].as_str() {
+            rollbacks.insert(u.clone(), json!(r));
+        }
+    }
+    std::fs::write(
+        data.join("reflex.json"),
+        json!({"restarts": restarts, "rollbacks": rollbacks}).to_string(),
+    )
+    .unwrap();
+    std::fs::write(data.join("mode"), live["mode"].as_str().unwrap()).unwrap();
+    let on_disk: Vec<Value> = live_alerts
+        .as_array()
+        .unwrap()
+        .iter()
+        .rev()
+        .cloned()
+        .collect();
+    std::fs::write(
+        data.join("alerts.json"),
+        serde_json::to_string(&on_disk).unwrap(),
+    )
+    .unwrap();
+    for (event, port) in [(false, 20935u16), (true, 20936u16)] {
+        let _n = start(port, &dir, event, &[]);
+        let st = get_json(port, "/state");
+        for (u, b) in &budgets {
+            let got = &st["reflex"]["budgets"][u.as_str()];
+            assert_eq!(got["live_1h"], b["live_1h"], "{u} event={event}");
+            assert_eq!(
+                got["last_rollback"], b["last_rollback"],
+                "{u} event={event}"
+            );
+        }
+        for k in live.as_object().unwrap().keys() {
+            assert!(
+                st.get(k).is_some(),
+                "live /state key {k} missing (event={event})"
+            );
+        }
+        assert_eq!(st["mode"], live["mode"]);
+        let a = get_json(port, "/alerts");
+        let served: Vec<&Value> = a.as_array().unwrap().iter().collect();
+        for old in live_alerts.as_array().unwrap().iter().take(40) {
+            assert!(
+                served
+                    .iter()
+                    .any(|s| s["key"] == old["key"] && s["ts"] == old["ts"]),
+                "alert {} not served (event={event})",
+                old["key"]
+            );
+        }
+        eprintln!(
+            "event={event}: {} budgets equal, {} live keys present, {} alerts served",
+            budgets.len(),
+            live.as_object().unwrap().len(),
+            served.len()
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -107,6 +107,14 @@ pub struct Reflex {
     rollbacks: HashMap<String, u64>,
     pub recent: VecDeque<Value>,
     pub persist: bool,
+    /// Top-level keys of `reflex.json` this version does not know (written by
+    /// an older or newer nerve). Kept and written back unchanged on save.
+    extra: serde_json::Map<String, Value>,
+    /// `reflex.json` existed but was unreadable: the live restart budget is
+    /// treated as spent until this instant (fail closed, no budget reset).
+    pub budget_unknown_until: u64,
+    /// What happened while loading the state dir (None when clean).
+    pub load_note: Option<String>,
 }
 
 impl Reflex {
@@ -124,6 +132,9 @@ impl Reflex {
             rollbacks: HashMap::new(),
             recent: VecDeque::new(),
             persist: true,
+            extra: serde_json::Map::new(),
+            budget_unknown_until: 0,
+            load_note: None,
         };
         r.load();
         r
@@ -143,38 +154,93 @@ impl Reflex {
     }
 
     fn load(&mut self) {
-        let Ok(s) = std::fs::read_to_string(self.state_path()) else {
-            return;
-        };
-        let Ok(v) = serde_json::from_str::<Value>(&s) else {
-            return;
-        };
-        if let Some(m) = v.get("restarts").and_then(Value::as_object) {
-            for (k, arr) in m {
-                let q: VecDeque<u64> = arr
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_u64)
-                    .collect();
-                self.restarts.insert(k.clone(), q);
+        let path = self.state_path();
+        let s = match std::fs::read(&path) {
+            Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(e) => {
+                self.load_failed(&path, &format!("unreadable: {e}"));
+                return;
             }
-        }
-        if let Some(m) = v.get("rollbacks").and_then(Value::as_object) {
-            for (k, t) in m {
-                if let Some(t) = t.as_u64() {
-                    self.rollbacks.insert(k.clone(), t);
+        };
+        let v = match serde_json::from_str::<Value>(&s) {
+            Ok(Value::Object(m)) => m,
+            Ok(_) => {
+                self.load_failed(&path, "not a JSON object");
+                return;
+            }
+            Err(e) => {
+                self.load_failed(&path, &format!("bad JSON: {e}"));
+                return;
+            }
+        };
+        for (k, val) in v {
+            match k.as_str() {
+                // Timestamps: integers, floats, numeric strings or RFC 3339
+                // (older layouts), a bare number is one restart.
+                "restarts" => {
+                    for (unit, arr) in val.as_object().into_iter().flatten() {
+                        let q: VecDeque<u64> = match arr {
+                            Value::Array(a) => {
+                                a.iter().filter_map(crate::util::json_secs).collect()
+                            }
+                            other => crate::util::json_secs(other).into_iter().collect(),
+                        };
+                        let mut q: Vec<u64> = q.into();
+                        q.sort_unstable();
+                        self.restarts.insert(unit.clone(), q.into());
+                    }
+                }
+                "rollbacks" => {
+                    for (unit, t) in val.as_object().into_iter().flatten() {
+                        if let Some(t) = crate::util::json_secs(t) {
+                            self.rollbacks.insert(unit.clone(), t);
+                        }
+                    }
+                }
+                _ => {
+                    self.extra.insert(k, val);
                 }
             }
         }
+    }
+
+    /// `reflex.json` exists but cannot be used: keep a copy, and treat the
+    /// live restart budget as spent for an hour (the window it covers)
+    /// rather than silently starting from zero.
+    fn load_failed(&mut self, path: &Path, why: &str) {
+        let now = now_secs();
+        let copy = crate::util::quarantine(path, now);
+        self.budget_unknown_until = now + 3600;
+        self.load_note = Some(format!(
+            "{} {why}; copy at {}; live restarts held until {}",
+            path.display(),
+            copy.map(|p| p.display().to_string())
+                .unwrap_or_else(|| "(copy failed)".into()),
+            ts(self.budget_unknown_until)
+        ));
+        eprintln!(
+            "<4>galion-nerve reflex: {}",
+            self.load_note.as_deref().unwrap_or("")
+        );
     }
 
     fn save(&self) {
         if !self.persist {
             return;
         }
-        let v = json!({"restarts": self.restarts, "rollbacks": self.rollbacks});
-        let _ = write_atomic(&self.state_path(), v.to_string().as_bytes());
+        let mut v = self.extra.clone();
+        v.insert("restarts".into(), json!(self.restarts));
+        v.insert("rollbacks".into(), json!(self.rollbacks));
+        let _ = write_atomic(&self.state_path(), Value::Object(v).to_string().as_bytes());
+    }
+
+    /// True when another restart of `unit` fits the hourly budget.
+    pub fn budget_left(&self, unit: &str, now: u64, dry: bool, per_hour: usize) -> bool {
+        if !dry && now < self.budget_unknown_until {
+            return false;
+        }
+        self.used(unit, now, dry) < per_hour
     }
 
     pub fn used(&self, unit: &str, now: u64, dry: bool) -> usize {
@@ -300,7 +366,7 @@ impl Reflex {
             };
         }
         let dry = self.dry_run();
-        if self.used(unit, now, dry) < c.spec.restarts_per_hour as usize {
+        if self.budget_left(unit, now, dry, c.spec.restarts_per_hour as usize) {
             return Decision::Restart {
                 unit: unit.into(),
                 reason,
@@ -309,6 +375,7 @@ impl Reflex {
         let svc = unit.trim_end_matches(".service");
         if self.rollback_enabled
             && down
+            && (dry || now >= self.budget_unknown_until)
             && self.deploy_bin.exists()
             && self.rollbacks.get(unit).is_none_or(|t| *t + 86400 < now)
             && unit != "cloudflared.service"

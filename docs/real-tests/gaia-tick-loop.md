@@ -105,3 +105,13 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 - 07:25:05 `/state` after all box runs: cycle 6821, 11/15 healthy. Not healthy: galion-one-mouth degrading, cloudflared degrading, voice-worker absent, gaia absent. These are the same as before the runs. Sum of `restarts_1h` is 0 and `reflex.recent` is empty, so the box work caused no VPS restarts.
 - The cortex is not deployed, so the nerve was used, as the standing rule says.
 - Comparison: the nerve reflex's 3 restarts per unit per hour matches Gaia's `MAX_RESTARTS_PER_HOUR` = 3. The two budgets are separate (owner decision D-L2 in docs/gaia-heal-loop.md).
+
+## Resume re-verification (08:08-08:12, same code as ea5b53b)
+A new executor resumed the slot after the first one was interrupted at about 07:25. The code was not changed; this section only adds evidence.
+- `cargo fmt --check` ok. `cargo clippy --workspace --all-targets -- -D warnings` ok.
+- Workspace (08:08:40-08:09:18, `--exclude openmind-sandbox --exclude cgroup-detect --exclude hermes-tools`): 262 suites, 1234 passed, 0 failed, 6 ignored.
+- gaia + gaia-live: 67 passed / 0 failed (heal_loop 11, heal_tick 13, gaia-live heal 12, others unchanged).
+- **Disclosure:** the 07:16 workspace run above (1245 passed) did not exclude hermes-tools. Its sandboxed tests may have run the sandbox locally once, which goes against sandbox_vps_only (same slip as slots 150 and 155). There was no host change. The 08:08 run excludes it.
+- `real_gaia_loop` (GALION_REAL=1, release), 3 more passing runs. Run 7 started 08:09:54, run 8 08:10:21, run 9 08:10:40. Settle times were 16.51, 16.52 and 16.03 s, and each test run took 18.5-19.0 s. Every run held the same invariants: hang 6 ticks (apply-failed 3, capped 3); flap 44-45 ticks with restarted 3; crash 42-44 ticks with restarted 1; tokens 3/3/1; one-shot exit 5 capped; fourth loop `{"capped":3}`; nerve loop.started 4, loop.stopped 4, heal.applied 4, heal.failed 3, heal.approved 7, heal.refused 0; 0 errors; sleeps 301-500 ms; the stop file stopped the loops in 51-101 ms. Teardown: 0 dummies; 20300 and 19601-19603 closed.
+- `real_gaia_live` regression (08:11:28) passed in 1.48 s. Ports 19233/19234 were free before and closed after.
+- VPS, read-only, 08:11:12-08:11:38: nerve `/healthz` returned `ok`; `/state` mode `live`, cycle 6914, statuses healthy 17 / degrading 4 / absent 3 (all components, nested included), `restarts_1h` 0 on all 15 units, `reflex.recent` []. No gaia/heal/guardian timer, no gaia binary in /usr/local/bin. Cortex `/cortex` returned 404 (not deployed), so the nerve was used.

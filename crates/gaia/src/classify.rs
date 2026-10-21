@@ -118,10 +118,19 @@ fn nerve_component<'a>(comps: &'a [Value], p: &ProbeResult) -> Option<&'a Value>
         .or_else(|| comps.iter().find(|c| s(c, "name") == Some(p.name.as_str())))
 }
 
+/// A component name as the cortex writes it, without its source prefix
+/// (`unit:x.service` -> `x.service`, `nerve-incident:edge` -> `edge`).
+fn bare(c: &str) -> &str {
+    c.strip_prefix("unit:")
+        .or_else(|| c.strip_prefix("nerve-incident:"))
+        .unwrap_or(c)
+}
+
 /// Open incidents (nerve or cortex shape: `open: [{id, components, ...}]`)
-/// whose `components` name any of `names` (not `cause`: the nerve groups
-/// the mouth under cause `galion-one`, which is itself healthy).
-fn open_incidents(doc: &Value, names: &[&str]) -> Vec<String> {
+/// whose `components` (prefix-stripped, see [`bare`]) name any of `names`.
+/// Not `cause` on the nerve side: the nerve groups the mouth under cause
+/// `galion-one`, which is itself healthy. Returns `(id, cause)` pairs.
+fn open_incidents(doc: &Value, names: &[&str]) -> Vec<(String, String)> {
     doc.get("open")
         .and_then(Value::as_array)
         .map(|a| {
@@ -130,9 +139,11 @@ fn open_incidents(doc: &Value, names: &[&str]) -> Vec<String> {
                     let comps = strs(i.get("components"));
                     names
                         .iter()
-                        .any(|n| !n.is_empty() && comps.iter().any(|c| c == n))
+                        .any(|n| !n.is_empty() && comps.iter().any(|c| bare(c) == *n))
                 })
-                .filter_map(|i| s(i, "id").map(str::to_string))
+                .filter_map(|i| {
+                    s(i, "id").map(|id| (id.to_string(), s(i, "cause").unwrap_or("").to_string()))
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -242,6 +253,7 @@ pub fn classify(inp: &Inputs) -> Json {
 
     let mut units = Vec::new();
     let mut matched: Vec<String> = Vec::new();
+    let mut cortex_matched: Vec<String> = Vec::new();
     let (mut agree, mut disagree) = (0u64, 0u64);
     // Gaia per-function worst class (for the function view).
     let mut gaia_fn: BTreeMap<&'static str, Class> = BTreeMap::new();
@@ -264,13 +276,26 @@ pub fn classify(inp: &Inputs) -> Json {
         let n_inc = nerve_inc
             .map(|d| open_incidents(d, &names))
             .unwrap_or_default();
+        // The cortex mirrors a nerve incident as `nerve-incident:<cause>`,
+        // so the causes of this unit's nerve incidents also name it there.
+        let mut cnames: Vec<&str> = names.to_vec();
+        cnames.extend(n_inc.iter().map(|(_, c)| c.as_str()));
         let c_inc = cortex_inc
-            .map(|d| open_incidents(d, &names))
+            .map(|d| open_incidents(d, &cnames))
             .unwrap_or_default();
+        cortex_matched.extend(c_inc.iter().map(|(id, _)| id.clone()));
+        let n_inc: Vec<String> = n_inc.into_iter().map(|(id, _)| id).collect();
+        let c_inc: Vec<String> = c_inc.into_iter().map(|(id, _)| id).collect();
         let c_unit = cortex_inc
             .and_then(|d| d.get("units"))
             .and_then(|u| u.get(unit))
-            .is_some();
+            .is_some_and(|u| {
+                u.get("circuit_open").and_then(Value::as_bool) == Some(true)
+                    || u.get("failures_window")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(0)
+                        > 0
+            });
         let cclass = match cortex_inc {
             None => Class::Unknown,
             Some(_) if !c_inc.is_empty() || c_unit => Class::Warn,
@@ -424,6 +449,30 @@ pub fn classify(inp: &Inputs) -> Json {
         });
     }
 
+    // Cortex incidents about things Gaia does not probe.
+    if let Some(open) = cortex_inc
+        .and_then(|d| d.get("open"))
+        .and_then(Value::as_array)
+    {
+        for i in open {
+            let id = s(i, "id").unwrap_or("?");
+            if cortex_matched.iter().any(|m| m == id) {
+                continue;
+            }
+            let comps = strs(i.get("components"));
+            let subject = comps.first().map_or("?", |c| bare(c)).to_string();
+            findings.push(Finding {
+                severity: "info",
+                kind: "gaia-blind",
+                subject,
+                detail: format!(
+                    "the cortex has open incident {id} ({}; {}) on something Gaia has no probe for",
+                    s(i, "severity").unwrap_or("?"),
+                    s(i, "title").unwrap_or("")
+                ),
+            });
+        }
+    }
     // Function view: Gaia's worst class per function vs the nerve's.
     let mut functions = Json::obj();
     let nfn = nerve.and_then(|n| n.get("gaia")).and_then(Value::as_object);
@@ -539,7 +588,15 @@ pub fn classify(inp: &Inputs) -> Json {
                 )
                 .with("nerve_open_incidents", n_open)
                 .with("cortex_mode", c_mode)
-                .with("cortex_open_incidents", c_open),
+                .with("cortex_open_incidents", c_open)
+                .with(
+                    "cortex_escalations_open",
+                    ch.and_then(|h| h.get("escalations_open")).and_then(Value::as_u64),
+                )
+                .with(
+                    "cortex_hermes_handoff",
+                    ch.and_then(|h| h.get("hermes_handoff")).and_then(Value::as_bool),
+                ),
         )
         .with("units", Json::Arr(units))
         .with("functions", functions)

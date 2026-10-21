@@ -370,3 +370,48 @@ fn classify_probe_set_covers_the_live_ports() {
         "fits the slot's 10 tunnel ports 20940-20949"
     );
 }
+
+#[test]
+fn cortex_prefixed_components_match_live_shape() {
+    // Live 2026-10-21 23:06: the cortex mirrors nerve incidents as
+    // `nerve-incident:<cause>` and unit failures as `unit:<unit>`.
+    let mut inp = live_inputs();
+    inp.cortex_incidents = Ok(json!({"open": [
+        {"id": "inc-c-edge", "severity": "error", "components": ["nerve-incident:edge"], "cause": "nerve-incident:edge"},
+        {"id": "inc-c-unit", "severity": "error", "components": ["unit:gaia-hermes-handoff.path.service"],
+         "title": "unit:gaia-hermes-handoff.path.service (1 signal(s))"}
+    ], "units": {
+        "gaia-hermes-handoff.path.service": {"circuit_open": false, "failures_window": 1},
+        "openmind-memory.service": {"circuit_open": false, "failures_window": 0}
+    }}));
+    let j = run(&inp);
+    // cloudflared's nerve incident has cause `edge`: the cortex has it.
+    assert_eq!(
+        unit(&j, "cloudflared")["cortex"]["open_incidents"][0],
+        "inc-c-edge"
+    );
+    assert!(!kinds(&j, "cloudflared").contains(&"cortex-missed".into()));
+    // The mouth's nerve incident (cause galion-one) is still missed.
+    assert!(kinds(&j, "galion-one-mouth").contains(&"cortex-missed".into()));
+    // A unit row with no failures and a closed circuit is not a warning.
+    assert_eq!(unit(&j, "openmind-memory")["cortex"]["verdict"], "ok");
+    // The cortex-only unit incident is reported as Gaia-blind.
+    let f = j["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["subject"] == "gaia-hermes-handoff.path.service")
+        .expect("cortex-only incident finding");
+    assert_eq!(f["kind"], "gaia-blind");
+    assert!(f["detail"].as_str().unwrap().contains("inc-c-unit"));
+}
+
+#[test]
+fn cortex_unit_circuit_open_is_warn() {
+    let mut inp = live_inputs();
+    inp.cortex_incidents = Ok(json!({"open": [], "units": {
+        "openmind-memory.service": {"circuit_open": true, "failures_window": 0}
+    }}));
+    let j = run(&inp);
+    assert_eq!(unit(&j, "openmind-memory")["cortex"]["verdict"], "warn");
+}

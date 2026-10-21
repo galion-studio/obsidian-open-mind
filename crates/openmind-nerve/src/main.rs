@@ -11,8 +11,11 @@
 //!       (or NERVE_EVENT_LOG) enables the JSONL event log behind POST /event
 //!       and GET /events (swarm/gaia-live's `openmind-nerve serve` API).
 //!   openmind-nerve once [--md]        one observe-only cycle; prints the self-eval
-//!   openmind-nerve replay DIR [--md | --state | --plans]
-//!       run a read-only capture of a live host through the same pipeline
+//!   openmind-nerve replay DIR [--md | --state | --plans | --verdict [--hold N]]
+//!       run a read-only capture of a live host through the same pipeline;
+//!       `--verdict` prints the replay-corpus summary (final + held verdict
+//!       after N quiet hold cycles, default 20, and any flapping keys; exit 3
+//!       on a flap)
 //!   openmind-nerve plans STATE.json|-
 //!       HADES plan templates (T4.2) for a saved `/api/v1/state` JSON (text only,
 //!       nothing is run; exit 0, or 2 on unreadable input)
@@ -40,7 +43,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state|--plans] | plans STATE.json|- | --version]";
+const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state|--plans|--verdict [--hold N]] | plans STATE.json|- | --version]";
 
 fn opt(args: &[String], k: &str) -> Option<String> {
     args.iter()
@@ -100,6 +103,36 @@ fn main() -> ExitCode {
                 eprintln!("{USAGE}");
                 return ExitCode::from(2);
             };
+            if args.iter().any(|a| a == "--verdict") {
+                let hold = match opt(&args, "--hold").map(|h| h.parse::<usize>()) {
+                    None => openmind_nerve::corpus::HOLD_CYCLES,
+                    Some(Ok(h)) if h <= 10_000 => h,
+                    _ => {
+                        eprintln!("openmind-nerve replay: --hold N (0..=10000)");
+                        return ExitCode::from(2);
+                    }
+                };
+                return match openmind_nerve::corpus::run(
+                    &PathBuf::from(dir),
+                    cfg,
+                    &|k| std::env::var(k).ok(),
+                    hold,
+                ) {
+                    Ok(v) => {
+                        println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                        if v["flaps"].as_array().is_some_and(|f| !f.is_empty()) {
+                            eprintln!("openmind-nerve replay: verdict flaps: {}", v["flaps"]);
+                            ExitCode::from(3)
+                        } else {
+                            ExitCode::SUCCESS
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("openmind-nerve replay: {err}");
+                        ExitCode::from(2)
+                    }
+                };
+            }
             match openmind_nerve::replay::replay_dir(&PathBuf::from(dir), cfg) {
                 Ok(out) => {
                     for n in &out.notes {

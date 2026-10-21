@@ -103,6 +103,23 @@ pub struct ReplayOut {
 /// Replay a capture directory. `cfg` supplies thresholds/ports; reflexes,
 /// alerts and file writes are forced off.
 pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
+    replay_dir_with(dir, cfg, &|k| std::env::var(k).ok(), 0, &mut |_, _, _| {})
+}
+
+/// [`replay_dir`] plus `hold` extra cycles after the last snapshot: the last
+/// snapshot's samples again, `interval_s` apart, with no new journal lines
+/// or access hits (a quiet host that stays as captured; journal lines
+/// captured after the last snapshot still land in their window). `env`
+/// holds the cortex sensor settings (`NERVE_SSHD`, ...). `on_cycle(k, t,
+/// engine)` runs after every cycle (capture cycles first, then hold cycles);
+/// the replay regression corpus uses it for its no-flap check.
+pub fn replay_dir_with(
+    dir: &Path,
+    cfg: Config,
+    env: crate::sensors::Env,
+    hold: usize,
+    on_cycle: &mut dyn FnMut(usize, u64, &Engine),
+) -> Result<ReplayOut, String> {
     let rd = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut states: Vec<(u64, Value)> = vec![];
     let mut journal = String::new();
@@ -163,7 +180,7 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
         health.len(),
         bodies.keys().collect::<Vec<_>>()
     ));
-    let mut e = Engine::new(cfg)?;
+    let mut e = Engine::new_with_env(cfg, env)?;
     e.reflexes_enabled = false;
     e.live = false;
     e.write_files = false;
@@ -179,7 +196,15 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
         }
     }
     let mut prev = 0u64;
-    for (k, (t, v)) in states.iter().enumerate() {
+    let n = states.len();
+    let (last_t, step) = (states[n - 1].0, e.cfg.interval_s.max(1));
+    for k in 0..n + hold {
+        let (tv, v): (u64, &Value) = if k < n {
+            (states[k].0, &states[k].1)
+        } else {
+            (last_t + (k + 1 - n) as u64 * step, &states[n - 1].1)
+        };
+        let t = &tv;
         let win: Vec<JLine> = lines
             .iter()
             .filter(|l| (k == 0 || l.t > prev) && l.t <= *t)
@@ -249,10 +274,16 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
             vec![]
         };
         e.cycle_with(col, h, *t, Instant::now());
+        on_cycle(k, *t, &e);
         prev = *t;
     }
+    if hold > 0 {
+        notes.push(format!(
+            "{hold} hold cycle(s) of the last snapshot, {step} s apart"
+        ));
+    }
     Ok(ReplayOut {
-        cycles: states.len(),
+        cycles: n + hold,
         engine: e,
         notes,
     })

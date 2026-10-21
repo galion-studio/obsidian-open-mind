@@ -35,6 +35,7 @@ pub mod access;
 pub mod alerts;
 pub mod collect;
 pub mod config;
+pub mod corpus;
 pub mod cortex;
 pub mod engine;
 pub mod feed;

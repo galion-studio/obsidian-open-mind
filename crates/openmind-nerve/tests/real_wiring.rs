@@ -29,7 +29,9 @@
 //!
 //! Knobs: `N_REQ` (default 300) requests per stream and phase;
 //! `NERVE_WIRING_BIN_DIR` = a directory that already holds the three
-//! release binaries (skips the build). Otherwise the test runs
+//! release binaries (skips the build); `REAL_WIRING_PORT_BASE` = first port of the
+//! 10-port block (default 20250; the table above is offsets +0..+8 from it).
+//! Otherwise the test runs
 //! `cargo build --release` into `<target>/real-nerve-wiring` (a separate
 //! target dir, so it never waits on the outer `cargo test` lock).
 //! Run with `--nocapture` to see the report.
@@ -43,17 +45,43 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const NERVE: u16 = 20250;
-const HERMES: u16 = 20251;
-const MEMORY: u16 = 20252;
-const BASE_HERMES: u16 = 20253;
-const BASE_MEMORY: u16 = 20254;
-const STRAY: u16 = 20255;
+/// First port of the 10-port block (default 20250, slot 155). `REAL_WIRING_PORT_BASE` moves the whole
+/// block so a re-run (e.g. integration-5, slot 177: 20470) stays inside its own slot range.
+fn port_base() -> u16 {
+    std::env::var("REAL_WIRING_PORT_BASE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20250)
+}
+fn nerve_p() -> u16 {
+    port_base()
+}
+fn hermes_p() -> u16 {
+    port_base() + 1
+}
+fn memory_p() -> u16 {
+    port_base() + 2
+}
+fn base_hermes_p() -> u16 {
+    port_base() + 3
+}
+fn base_memory_p() -> u16 {
+    port_base() + 4
+}
+fn stray_p() -> u16 {
+    port_base() + 5
+}
 /// Conn-cap phase (rebase slot 155): memory / hermes with a 1-connection cap.
-const CAP_MEMORY: u16 = 20256;
-const CAP_HERMES: u16 = 20257;
+fn cap_memory_p() -> u16 {
+    port_base() + 6
+}
+fn cap_hermes_p() -> u16 {
+    port_base() + 7
+}
 /// Interleaved A/B phase (slot 155 re-measure): hermes with `NERVE_URL` set while the nerve is down.
-const AB_DOWN_HERMES: u16 = 20258;
+fn ab_down_hermes_p() -> u16 {
+    port_base() + 8
+}
 
 /// A started process; killed (after SIGCONT, in case it was stopped) on drop.
 struct Proc(Child);
@@ -150,7 +178,7 @@ impl Stack {
     fn nerve(&self) -> Proc {
         let p = Command::new(self.bin.join("openmind-nerve"))
             .arg("serve")
-            .env("NERVE_ADDR", format!("127.0.0.1:{NERVE}"))
+            .env("NERVE_ADDR", format!("127.0.0.1:{}", nerve_p()))
             .env("NERVE_INTERVAL", "5")
             .env("NERVE_DATA_DIR", self.work.join("data"))
             .env("NERVE_COMPONENTS", self.work.join("components.json"))
@@ -158,8 +186,11 @@ impl Stack {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "20250-20259")
-            .env("NERVE_UNOWNED_PORTS", STRAY.to_string())
+            .env(
+                "NERVE_LISTEN_SCOPE",
+                format!("{}-{}", port_base(), port_base() + 9),
+            )
+            .env("NERVE_UNOWNED_PORTS", stray_p().to_string())
             .stdout(Stdio::null())
             .stderr(self.log("nerve.log"))
             .spawn()
@@ -181,7 +212,7 @@ impl Stack {
             .stdout(Stdio::null())
             .stderr(self.log(&format!("{home}.log")));
         if nerve {
-            c.env("NERVE_URL", format!("http://127.0.0.1:{NERVE}"))
+            c.env("NERVE_URL", format!("http://127.0.0.1:{}", nerve_p()))
                 .env("NERVE_QUEUE", "8")
                 .env("NERVE_SLOW_MS", "1000")
                 .env("NERVE_HEARTBEAT_S", "10");
@@ -197,7 +228,7 @@ impl Stack {
             .stdout(Stdio::null())
             .stderr(self.log(&format!("{dir}.log")));
         if nerve {
-            c.env("NERVE_URL", format!("http://127.0.0.1:{NERVE}"))
+            c.env("NERVE_URL", format!("http://127.0.0.1:{}", nerve_p()))
                 .env("NERVE_SLOW_MS", "1000")
                 .env("NERVE_HEARTBEAT_S", "10");
         }
@@ -228,7 +259,7 @@ impl Stack {
                 .env("HERMES_RS_HTTP_HEAD_TIMEOUT_MS", "20000");
             c
         };
-        c.env("NERVE_URL", format!("http://127.0.0.1:{NERVE}"))
+        c.env("NERVE_URL", format!("http://127.0.0.1:{}", nerve_p()))
             .env("NERVE_HEARTBEAT_S", "10")
             .stdout(Stdio::null())
             .stderr(self.log(&format!("{dir}.log")));
@@ -435,11 +466,12 @@ fn nerve_wiring_end_to_end() {
     for d in ["data", "hermes", "mem", "stray", "base-hermes", "base-mem"] {
         std::fs::create_dir_all(work.join(d)).unwrap();
     }
+    let (hermes_port, memory_port) = (hermes_p(), memory_p());
     std::fs::write(
         work.join("components.json"),
         format!(
-            r#"[{{"name":"hermes-rs","port":{HERMES},"path":"/health","gaia":"ARTEMIS","system":"hermes-agents"}},
- {{"name":"openmind-memory","port":{MEMORY},"path":"/health","gaia":"APOLLO","system":"memory-gateway"}}]"#
+            r#"[{{"name":"hermes-rs","port":{hermes_port},"path":"/health","gaia":"ARTEMIS","system":"hermes-agents"}},
+ {{"name":"openmind-memory","port":{memory_port},"path":"/health","gaia":"APOLLO","system":"memory-gateway"}}]"#
         ),
     )
     .unwrap();
@@ -453,18 +485,18 @@ fn nerve_wiring_end_to_end() {
     // Phase 0: baseline, NERVE_URL unset, no nerve running.
     println!("== {} PHASE base: NERVE_URL unset, no nerve", stamp());
     let base = {
-        let _h = st.hermes(BASE_HERMES, 1_000_000, "base-hermes", false);
-        let _m = st.memory(BASE_MEMORY, "base-mem", false);
-        wait_up(BASE_HERMES, "/health");
-        wait_up(BASE_MEMORY, "/health");
-        load(&st, "base", n, BASE_HERMES, BASE_MEMORY)
+        let _h = st.hermes(base_hermes_p(), 1_000_000, "base-hermes", false);
+        let _m = st.memory(base_memory_p(), "base-mem", false);
+        wait_up(base_hermes_p(), "/health");
+        wait_up(base_memory_p(), "/health");
+        load(&st, "base", n, base_hermes_p(), base_memory_p())
     };
 
     let mut nerve = st.nerve();
-    let mut hermes = st.hermes(HERMES, 1_000_000, "hermes", true);
-    let mem = st.memory(MEMORY, "mem", true);
-    let stray = st.memory(STRAY, "stray", false);
-    wait_up(NERVE, "/healthz");
+    let mut hermes = st.hermes(hermes_p(), 1_000_000, "hermes", true);
+    let mem = st.memory(memory_p(), "mem", true);
+    let stray = st.memory(stray_p(), "stray", false);
+    wait_up(nerve_p(), "/healthz");
     sleep_s(12);
     println!(
         "== {} started: nerve {} hermes {} memory {} stray {}",
@@ -475,7 +507,7 @@ fn nerve_wiring_end_to_end() {
         stray.pid()
     );
 
-    let sig = get_json(NERVE, "/api/v1/signals");
+    let sig = get_json(nerve_p(), "/api/v1/signals");
     println!("-- pushed sources (started events)");
     for s in sources(&sig) {
         println!(
@@ -483,7 +515,7 @@ fn nerve_wiring_end_to_end() {
             serde_json::json!({"source": s["source"], "total": s["total"], "dropped": s["dropped"]})
         );
     }
-    for (src, port) in [("hermes-rs", HERMES), ("openmind-memory", MEMORY)] {
+    for (src, port) in [("hermes-rs", hermes_p()), ("openmind-memory", memory_p())] {
         let want = format!("listening on 127.0.0.1:{port}");
         let s = source(&sig, src);
         let found = s["recent"].as_array().is_some_and(|r| {
@@ -493,8 +525,12 @@ fn nerve_wiring_end_to_end() {
         assert!(found, "no started event from {src}: {s}");
     }
 
-    let cx = get_json(NERVE, "/api/v1/cortex");
-    println!("-- ownership (listen scope 20250-20259)");
+    let cx = get_json(nerve_p(), "/api/v1/cortex");
+    println!(
+        "-- ownership (listen scope {}-{})",
+        port_base(),
+        port_base() + 9
+    );
     let own = cx["exposure"]["ownership"]
         .as_array()
         .cloned()
@@ -502,10 +538,11 @@ fn nerve_wiring_end_to_end() {
     for o in &own {
         println!("{o}");
     }
+    let stray_port = stray_p();
     let stray_row = own
         .iter()
-        .find(|o| o["port"] == STRAY)
-        .unwrap_or_else(|| panic!("no ownership row for :{STRAY}: {cx}"));
+        .find(|o| o["port"] == stray_p())
+        .unwrap_or_else(|| panic!("no ownership row for :{stray_port}: {cx}"));
     assert_eq!(stray_row["owner"], "unknown owner", "{stray_row}");
     assert_eq!(stray_row["process"], "openmind-memory", "{stray_row}");
     let by_port = |p: u16| {
@@ -514,8 +551,8 @@ fn nerve_wiring_end_to_end() {
             .cloned()
             .unwrap_or_default()
     };
-    assert_eq!(by_port(HERMES)["gaia"], "ARTEMIS");
-    assert_eq!(by_port(MEMORY)["gaia"], "APOLLO");
+    assert_eq!(by_port(hermes_p())["gaia"], "ARTEMIS");
+    assert_eq!(by_port(memory_p())["gaia"], "APOLLO");
     let unmanaged = cx["vulnerabilities"]
         .as_array()
         .and_then(|v| v.iter().find(|f| f["id"] == "unmanaged-listeners").cloned())
@@ -524,23 +561,23 @@ fn nerve_wiring_end_to_end() {
     assert!(unmanaged["title"]
         .as_str()
         .unwrap_or("")
-        .contains(&format!(":{STRAY}")));
+        .contains(&format!(":{stray_port}")));
 
     http(
-        MEMORY,
+        memory_p(),
         "POST",
         "/capture",
         &[("Content-Type", "application/json")],
         r#"{"session_key":"s1","messages":[{"role":"user","content":"the nerve wiring test remembers this line"}]}"#,
     );
     println!("== {} PHASE up: nerve running", stamp());
-    let up = load(&st, "up", n, HERMES, MEMORY);
+    let up = load(&st, "up", n, hermes_p(), memory_p());
 
     println!("-- 3 slow chats (mock-slow, 1.5 s) and 3 memory 5xx (POST /seed -> 501)");
     let slow: Vec<_> = (1..=3)
         .map(|i| {
             let s = st.clone();
-            std::thread::spawn(move || s.chat(HERMES, &format!("mock-slow {i}")))
+            std::thread::spawn(move || s.chat(hermes_p(), &format!("mock-slow {i}")))
         })
         .collect();
     for h in slow {
@@ -551,7 +588,7 @@ fn nerve_wiring_end_to_end() {
     }
     for _ in 0..3 {
         let (c, _, _) = http(
-            MEMORY,
+            memory_p(),
             "POST",
             "/seed",
             &[("Content-Type", "application/json")],
@@ -561,7 +598,7 @@ fn nerve_wiring_end_to_end() {
         assert_eq!(c, 501);
     }
     sleep_s(11);
-    let inc = get_json(NERVE, "/api/v1/incidents");
+    let inc = get_json(nerve_p(), "/api/v1/incidents");
     println!("-- incidents (with owning Gaia function)");
     let open = inc["open"].as_array().cloned().unwrap_or_default();
     for i in &open {
@@ -584,7 +621,7 @@ fn nerve_wiring_end_to_end() {
     assert!(hs.contains("pushed 3 slow request(s)"), "{hs}");
     assert!(hs.contains("-> 502"), "{hs}");
     assert!(mi.to_string().contains("POST /seed -> 501"), "{mi}");
-    let cxi = get_json(NERVE, "/api/v1/cortex")["incidents"].clone();
+    let cxi = get_json(nerve_p(), "/api/v1/cortex")["incidents"].clone();
     println!("-- cortex incident owners\n{cxi}");
     assert!(
         cxi.to_string().contains(r#""system":"hermes-agents""#),
@@ -600,12 +637,12 @@ fn nerve_wiring_end_to_end() {
         stamp()
     );
     nerve.signal("-STOP");
-    let hung = load(&st, "hung", n, HERMES, MEMORY);
+    let hung = load(&st, "hung", n, hermes_p(), memory_p());
     nerve.signal("-CONT");
     sleep_s(3);
     println!("== {} PHASE down: nerve killed", stamp());
     drop(nerve);
-    let down = load(&st, "down", n, HERMES, MEMORY);
+    let down = load(&st, "down", n, hermes_p(), memory_p());
 
     // Interleaved A/B (re-measure, slot 155): the sequential base/down phases
     // above compare different processes at different points in the run, so
@@ -621,18 +658,18 @@ fn nerve_wiring_end_to_end() {
         for d in ["ab-a", "ab-b"] {
             std::fs::create_dir_all(work.join(d)).unwrap();
         }
-        let _a = st.hermes(BASE_HERMES, 1_000_000, "ab-a", false);
-        let _b = st.hermes(AB_DOWN_HERMES, 1_000_000, "ab-b", true);
-        wait_up(BASE_HERMES, "/health");
-        wait_up(AB_DOWN_HERMES, "/health");
+        let _a = st.hermes(base_hermes_p(), 1_000_000, "ab-a", false);
+        let _b = st.hermes(ab_down_hermes_p(), 1_000_000, "ab-b", true);
+        wait_up(base_hermes_p(), "/health");
+        wait_up(ab_down_hermes_p(), "/health");
         let rounds = 10;
         let block = (n / rounds).max(1);
         let (mut va, mut vb) = (Vec::new(), Vec::new());
         for r in 0..rounds {
             let order = if r % 2 == 0 {
-                [BASE_HERMES, AB_DOWN_HERMES]
+                [base_hermes_p(), ab_down_hermes_p()]
             } else {
-                [AB_DOWN_HERMES, BASE_HERMES]
+                [ab_down_hermes_p(), base_hermes_p()]
             };
             for port in order {
                 let s = st.clone();
@@ -644,7 +681,7 @@ fn nerve_wiring_end_to_end() {
                     };
                     s.chat(port, &text)
                 });
-                if port == BASE_HERMES {
+                if port == base_hermes_p() {
                     va.extend(v);
                 } else {
                     vb.extend(v);
@@ -684,9 +721,9 @@ fn nerve_wiring_end_to_end() {
 
     println!("== {} nerve restarted (fresh state)", stamp());
     nerve = st.nerve();
-    wait_up(NERVE, "/healthz");
+    wait_up(nerve_p(), "/healthz");
     sleep_s(12);
-    let sig = get_json(NERVE, "/api/v1/signals");
+    let sig = get_json(nerve_p(), "/api/v1/signals");
     println!("-- client counters after hung + down phases (first heartbeats to the new nerve)");
     for s in sources(&sig) {
         println!("{} heartbeat: {}", s["source"], heartbeat(&s));
@@ -709,7 +746,7 @@ fn nerve_wiring_end_to_end() {
     assert!(failed + dropped > 0, "hung/down phases left no trace: {hb}");
 
     println!("== {} PHASE up2: nerve running again", stamp());
-    let up2 = load(&st, "up2", n, HERMES, MEMORY);
+    let up2 = load(&st, "up2", n, hermes_p(), memory_p());
 
     // Requests are answered in every phase; the nerve never gates them.
     for (label, (h, m)) in [
@@ -764,7 +801,7 @@ fn nerve_wiring_end_to_end() {
     println!("== {} KILL hermes-gateway (pid {})", stamp(), hermes.pid());
     drop(hermes);
     sleep_s(11);
-    let inc = get_json(NERVE, "/api/v1/incidents");
+    let inc = get_json(nerve_p(), "/api/v1/incidents");
     let down_inc = inc["open"]
         .as_array()
         .and_then(|o| {
@@ -787,22 +824,22 @@ fn nerve_wiring_end_to_end() {
         "== {} restart hermes with HERMES_RS_DAILY_CALL_CAP=5 (spend file already counts > 5 mock calls)",
         stamp()
     );
-    hermes = st.hermes(HERMES, 5, "hermes", true);
-    wait_up(HERMES, "/health");
+    hermes = st.hermes(hermes_p(), 5, "hermes", true);
+    wait_up(hermes_p(), "/health");
     for i in 1..=6 {
-        let (c, d) = st.chat(HERMES, &format!("after cap {i}"));
+        let (c, d) = st.chat(hermes_p(), &format!("after cap {i}"));
         println!("{c} {:.4}s", d.as_secs_f64());
         assert_eq!(c, 402);
     }
     sleep_s(11);
-    let sig = get_json(NERVE, "/api/v1/signals");
+    let sig = get_json(nerve_p(), "/api/v1/signals");
     let hsrc = source(&sig, "hermes-rs");
     let cap_ev = hsrc["recent"]
         .as_array()
         .and_then(|r| r.iter().find(|e| e["name"] == "spend_cap").cloned())
         .unwrap_or_else(|| panic!("no spend_cap event: {hsrc}"));
     println!("-- hermes spend_cap event\n{cap_ev}");
-    let inc = get_json(NERVE, "/api/v1/incidents");
+    let inc = get_json(nerve_p(), "/api/v1/incidents");
     let cap_inc = inc["open"]
         .as_array()
         .and_then(|o| {
@@ -820,7 +857,7 @@ fn nerve_wiring_end_to_end() {
         .unwrap_or("")
         .contains("spend cap hit (provider calls refused)"));
     assert_eq!(cap_inc["gaia"], serde_json::json!(["ARTEMIS"]));
-    let cxi = get_json(NERVE, "/api/v1/cortex")["incidents"].to_string();
+    let cxi = get_json(nerve_p(), "/api/v1/cortex")["incidents"].to_string();
     assert!(cxi.contains("spend-cap:hermes-rs"), "{cxi}");
 
     println!(
@@ -828,8 +865,8 @@ fn nerve_wiring_end_to_end() {
         stamp()
     );
     for (src, which, port) in [
-        ("openmind-memory", "memory", CAP_MEMORY),
-        ("hermes-rs", "hermes", CAP_HERMES),
+        ("openmind-memory", "memory", cap_memory_p()),
+        ("hermes-rs", "hermes", cap_hermes_p()),
     ] {
         let p = st.capped(which, port);
         wait_up(port, "/health");
@@ -844,7 +881,7 @@ fn nerve_wiring_end_to_end() {
         assert_eq!(codes, [503, 503, 503], "{src}");
         drop(hold);
         sleep_s(2);
-        let ev = source(&get_json(NERVE, "/api/v1/signals"), src)["recent"]
+        let ev = source(&get_json(nerve_p(), "/api/v1/signals"), src)["recent"]
             .as_array()
             .and_then(|r| r.iter().find(|e| e["name"] == "conn_cap").cloned())
             .unwrap_or_else(|| panic!("no conn_cap event from {src}"));

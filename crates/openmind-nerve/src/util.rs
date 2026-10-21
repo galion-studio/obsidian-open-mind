@@ -86,6 +86,8 @@ pub struct HttpReply {
 }
 
 /// Minimal HTTP/1.0 client for loopback probes (no TLS, no redirects).
+/// Guarded by [`crate::egress`]: non-loopback addresses and LLM endpoint
+/// paths are refused before any connect.
 /// `body` turns the request into a POST with `application/json`.
 pub fn http(
     addr: SocketAddr,
@@ -93,6 +95,8 @@ pub fn http(
     body: Option<&str>,
     timeout: Duration,
 ) -> Result<HttpReply, String> {
+    crate::egress::check_addr(&addr)?;
+    crate::egress::check_path(path)?;
     let t = Instant::now();
     let mut s = TcpStream::connect_timeout(&addr, timeout).map_err(|e| format!("connect: {e}"))?;
     let _ = s.set_read_timeout(Some(timeout));

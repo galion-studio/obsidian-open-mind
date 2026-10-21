@@ -27,6 +27,8 @@
 //! - [`score`]: the explained self-eval score.
 //! - [`reflex`]: allowlisted, rate-limited auto-remediation with an audit log.
 //! - [`alerts`]: journald + alerts.json.
+//! - [`egress`]: no LLM path: loopback-only client, LLM endpoints and
+//!   external LLM providers refused (Hermes on the VPS is the only LLM path).
 //! - [`engine`]: the loop; [`server`]: the loopback JSON API and dashboard;
 //!   [`replay`]: run captured live data through the same pipeline.
 
@@ -35,6 +37,7 @@ pub mod alerts;
 pub mod collect;
 pub mod config;
 pub mod cortex;
+pub mod egress;
 pub mod engine;
 pub mod hub;
 pub mod incident;

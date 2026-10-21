@@ -72,6 +72,17 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
+    // Egress guard: the nerve has no LLM path; LLM provider env vars are
+    // ignored. Names only, never values.
+    let llm = openmind_nerve::egress::llm_env_names(
+        std::env::vars_os().map(|(k, _)| k.to_string_lossy().into_owned()),
+    );
+    if !llm.is_empty() {
+        eprintln!(
+            "<4>openmind-nerve: ignoring LLM provider env (no LLM path in the nerve/cortex): {}",
+            llm.join(" ")
+        );
+    }
     match cmd {
         "once" => {
             let mut e = match Engine::new(cfg) {

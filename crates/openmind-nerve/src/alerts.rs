@@ -155,8 +155,15 @@ impl Alerts {
             .filter(|c| *c != '"' && *c != '\\' && !c.is_control())
             .take(500)
             .collect();
+        // Egress guard: only the allowlisted Telegram API, never an LLM provider.
+        // The error text never contains the URL (it carries the token).
+        let url = format!("https://api.telegram.org/bot{tok}/sendMessage");
+        if let Err(e) = crate::egress::check_url(&url) {
+            self.ext_status = e;
+            return;
+        }
         let cfg = format!(
-            "url = \"https://api.telegram.org/bot{tok}/sendMessage\"\ndata-urlencode = \"chat_id={chat}\"\ndata-urlencode = \"text={text}\"\nsilent\nmax-time = 10\noutput = /dev/null\n"
+            "url = \"{url}\"\ndata-urlencode = \"chat_id={chat}\"\ndata-urlencode = \"text={text}\"\nsilent\nmax-time = 10\noutput = /dev/null\n"
         );
         let child = Command::new("curl")
             .args(["-K", "-"])

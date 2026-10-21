@@ -82,3 +82,30 @@ The agents must always learn from and keep up with the files being built as part
 - Guardian and healer exist in old Galion code (Python: `guardian-tick.py`, `desk_heal.py`, upstream auto_healer) and have not run since 8-12 Oct 2026; investigation of why is running. 'The fort' is only the console Defence page heading.
 - Security: plaintext world-readable secret copies found in `galion-light/secrets/persist/`; lockdown in progress (permissions to root-only, encrypted backup, no deletion without approval). Earlier findings remain: root password SSH login, about 55,000 failed logins/week, no fail2ban, firewall off.
 - Multi-agent to-do run in progress (priorities: 1 secrets, 2 GitHub repo, 3 guardian/healer, 4 Hermes verification).
+
+## Notes (not dictation, added 2026-10-21T23:55:00+02:00 by the swarm, slot 231)
+
+Everything above this heading is Slavik's dictated text and is left unchanged.
+These notes only point to where the current facts live; they need Slavik's
+approval to stay (plan item D14) and he may move or delete them.
+
+- **§7 agent count.** Superseded by a dated exception: on 2026-10-20 Slavik
+  approved a parallel swarm of 20+ agents on `swarm/*` branches
+  (`docs/SOURCE-OF-TRUTH.md:38-47`). On 2026-10-21 the wave-4 routine ran with
+  "pace 18/max 18" agents (box file `/workspace/swarm/CALL-RECORD.md:796`). The
+  CPU-light rule still holds for the product itself.
+- **§8 Revolut.** On 2026-10-20 about 22:56 +02:00 Slavik lifted the design ban
+  for the Hermes Rust V2 redesign: Revolut may be designed, mocked, read and
+  wired. Moving money (orders, transfers, top-ups) is still not approved (box
+  file `/workspace/swarm/RULES.md`, hard rule 5).
+- **§15 status.** The snapshot is from 2026-10-18 19:54. Current backlog status
+  is `docs/STATUS.md` (89 items, 60.7 % done unweighted, computed by
+  `scripts/status-percent.sh`); swarm branches are listed there too. Live VPS,
+  read-only GETs at 2026-10-21T23:53:39+02:00: nerve `127.0.0.1:8670` `/healthz`
+  ok, `/state` mode live, cycle 9 since 22:56:55, score 66 grade D;
+  gaia-cortex `127.0.0.1:8674/health` ok, mode live, LLM advisor on, Hermes
+  handoff on, 0 open incidents; `galion-nerve`, `gaia-cortex`, `hermes-rs` and
+  `openmind-memory` units active.
+- **Repository name.** §15 names `galion-studio/open-mind-stack`; the real
+  repository is `galion-studio/obsidian-open-mind` (`README.md:14,134`). GitHub
+  `main` is still 13a296c at 2026-10-21T23:50:33+02:00.

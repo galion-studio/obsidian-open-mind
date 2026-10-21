@@ -41,41 +41,38 @@ pub fn legit_typed() -> Vec<(&'static str, Plan)> {
             ]),
         ),
         (
-            "galion-tuner",
+            "tuner",
             plan(vec![Step::Switch {
-                service: sv("galion-tuner"),
+                service: sv("tuner"),
                 release: rel("2026-10-20"),
             }]),
         ),
         (
-            "galion-tuner",
+            "tuner",
             plan(vec![
-                Step::Restart(sv("galion-tuner")),
+                Step::Restart(sv("tuner")),
                 Step::Verify(probe(Some("127.0.0.1:8420"), "/health")),
             ]),
         ),
         (
-            "galion-tuner",
+            "tuner",
             plan(vec![
                 Step::Operator(Runbook::DeployRollback),
                 Step::KeepFailed,
             ]),
         ),
         (
-            "galion-tuner",
+            "tuner",
             plan(vec![
-                Step::Restart(sv("galion-tuner")),
+                Step::Restart(sv("tuner")),
                 Step::Verify(probe(None, "/health")),
             ]),
         ),
-        (
-            "galion-tuner",
-            plan(vec![Step::Restart(sv("galion-tuner"))]),
-        ),
+        ("tuner", plan(vec![Step::Restart(sv("tuner"))])),
         (
             "openmind-memory",
             plan(vec![
-                Step::Restart(sv("galion-tuner")),
+                Step::Restart(sv("tuner")),
                 Step::Verify(probe(None, "/health")),
             ]),
         ),

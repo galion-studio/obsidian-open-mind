@@ -30,6 +30,11 @@ const USAGE_HEAD: &str = "usage: gaia <command> [options]
   heal-plan --service NAME --port P --allow-ports A-B [--health /health] [--out F] -- /abs/start/cmd ARGS...
                                  print the exact heal-apply plan and its SHA-256 for `hades-gate mint`;
                                  --out writes the plan bytes to a new file
+  typed-plan SYSTEM [--intensity N] [--out F]
+                                 HADES Option B (parallel, not wired into the gate mode): print the
+                                 canonical hades-plan/v1 typed plan, its SHA-256 and gate action for
+                                 `hades-gate mint` / `check-typed`; --out writes the bytes to a new file;
+                                 exit 4 for teardown, kill-switch, secret-rotation-plan (no v1 form)
   tick [--n N]                   boot and run N ticks (default 10, max 1000)
   simulate-faro [--full-power] [--approve ALPHA]
                                  run the Faro scenario; --full-power drives every system at intensity 100;
@@ -98,6 +103,10 @@ fn main() -> ExitCode {
             },
         },
         Some("heal-plan") => gaia::live_heal::heal_plan_cli(&args[1..]),
+        Some("typed-plan") => gaia::typed_plan::run(&args[1..]).map(|(j, code)| {
+            live_exit = code;
+            j
+        }),
         Some("status") => Ok(gaia::status()),
         Some("tick") => match opt("--n").map(str::parse::<u64>) {
             None => Ok(gaia::tick(10)),

@@ -11,3 +11,11 @@ description = "Gaia HADES: guarded teardown, rollback, kill switch, heal-apply a
 [dependencies]
 gaia-core = { path = "../gaia-core" }
 
+# Option B typed plans (hades-plan/v1 grammar) and the gate action map.
+# In-workspace path dependency, no new third-party crates (gaia already
+# links hades-gate). See docs/third-party/gaia-hades-typed.md.
+hades-gate = { path = "../hades-gate" }
+
+[dev-dependencies]
+# Same spec as hades-gate (already in Cargo.lock): sign throwaway test tokens.
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }

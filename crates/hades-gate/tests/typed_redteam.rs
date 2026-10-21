@@ -35,7 +35,7 @@ fn every_redteam_attempt_fails_typed_parse() {
 /// The legitimate intents from the corpus, re-expressed as typed plans. These
 /// are what Option B replaces the prose with.
 fn legit_typed_plans() -> Vec<Plan> {
-    let tuner = || Service::new("galion-tuner").unwrap();
+    let tuner = || Service::new("tuner").unwrap();
     let one = || Service::new("galion-one").unwrap();
     vec![
         // rollback runbook with verify/keep/record

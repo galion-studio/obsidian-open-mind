@@ -198,7 +198,7 @@ fn real_typed_over_http_and_cli() {
 
     // CLI: check-typed dry-run (exit 0), approve with token, then replay.
     let pf = dir.join("cli-plan.txt");
-    let plan = format!("{MAGIC}\nrestart galion-tuner\nverify 127.0.0.1:8420 /health");
+    let plan = format!("{MAGIC}\nrestart tuner\nverify 127.0.0.1:8420 /health");
     std::fs::write(&pf, &plan).unwrap();
     let base = [
         "check-typed",
@@ -207,7 +207,7 @@ fn real_typed_over_http_and_cli() {
         "--action",
         "heal-apply",
         "--target",
-        "galion-tuner",
+        "tuner",
         "--plan-file",
         s(&pf),
     ];
@@ -218,7 +218,7 @@ fn real_typed_over_http_and_cli() {
         dry.status.code(),
         dry_out.trim()
     );
-    let tok = mint(&dir, &seed, "galion-tuner", plan.as_bytes(), 99_999).unwrap();
+    let tok = mint(&dir, &seed, "tuner", plan.as_bytes(), 99_999).unwrap();
     let mut with_tok: Vec<&str> = base.to_vec();
     with_tok.extend(["--token-file", s(&tok)]);
     let ok = run(&with_tok);
@@ -236,7 +236,7 @@ fn real_typed_over_http_and_cli() {
         rep_out.trim()
     );
     let prose_pf = dir.join("cli-prose.txt");
-    std::fs::write(&prose_pf, "restart galion-tuner").unwrap();
+    std::fs::write(&prose_pf, "restart tuner").unwrap();
     let mut prose = base.to_vec();
     prose[8] = s(&prose_pf);
     let pr = run(&prose);

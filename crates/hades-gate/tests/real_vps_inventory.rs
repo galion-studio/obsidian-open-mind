@@ -165,7 +165,9 @@ fn real_typed_plans_against_vps_inventory() {
         leaked.len()
     );
 
-    // 4. Corpus legit typed plans vs the real inventory.
+    // 4. Corpus legit typed plans vs the real inventory. Since slot 152
+    // (gaia-hades-typed) the typed corpus names the real unit `tuner`, so no
+    // legit plan may name a unit that is missing on the VPS.
     let legit = typed_legit::legit_typed();
     let mut stale = Vec::new();
     for (target, plan) in &legit {
@@ -181,4 +183,8 @@ fn real_typed_plans_against_vps_inventory() {
     for s in &stale {
         eprintln!("REAL   stale: {s}");
     }
+    assert!(
+        stale.is_empty(),
+        "corpus names units missing on the VPS: {stale:?}"
+    );
 }

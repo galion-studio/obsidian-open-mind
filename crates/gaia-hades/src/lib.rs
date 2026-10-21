@@ -19,6 +19,8 @@ use gaia_core::{
     SubordinateFunction, System, Verb,
 };
 
+pub mod typed;
+
 /// Topic of the outside signal that subverts HADES.
 pub const SUBVERSION_TOPIC: &str = "extinction-signal";
 
@@ -75,6 +77,20 @@ impl Hades {
         };
         steps.push("record the plan in lineage".into());
         steps
+    }
+
+    /// Option B twin of [`Hades::plan_for`]: the same intent as a canonical
+    /// `hades-plan/v1` typed plan (see [`typed`]). Parallel only: the prose
+    /// plan above is unchanged and is still what [`Hades`] reports.
+    ///
+    /// # Errors
+    /// [`typed::TypedRefusal`] for a non-HADES system or one with no v1 form
+    /// (teardown, kill-switch, secret-rotation-plan).
+    pub fn typed_plan_for(
+        system: System,
+        intensity: u8,
+    ) -> Result<hades_gate::typed::Plan, typed::TypedRefusal> {
+        typed::typed_plan_for(system, intensity)
     }
 }
 

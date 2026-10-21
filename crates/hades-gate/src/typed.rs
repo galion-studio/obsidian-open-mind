@@ -556,7 +556,8 @@ impl Plan {
 /// the real VPS unit list (docs/real-tests/hades-option-b.md) it still lets
 /// security units such as `firewalld`, `fail2ban`, `auditd` or `apparmor`
 /// through, and it cannot tell that a plan names a unit that does not exist
-/// (the corpus `galion-tuner` is `tuner` on the VPS). An inventory closes both:
+/// (the old typed corpus named `galion-tuner`; the real unit is `tuner`, fixed
+/// in slot 152). An inventory closes both:
 /// every [`Service`] in a plan must be one of the listed names, exactly.
 ///
 /// Prototype only: [`crate::approval::Approver::approve_typed`] does not load
@@ -624,7 +625,7 @@ mod tests {
     fn sample() -> Plan {
         Plan::new(vec![
             Step::ReadReleases,
-            Step::Restart(Service::new("galion-tuner").unwrap()),
+            Step::Restart(Service::new("tuner").unwrap()),
             Step::Switch {
                 service: Service::new("galion-one").unwrap(),
                 release: Release::new("2026-10-20").unwrap(),
@@ -653,13 +654,13 @@ mod tests {
     #[test]
     fn canonical_is_what_we_expect() {
         let p = Plan::new(vec![
-            Step::Restart(Service::new("galion-tuner").unwrap()),
+            Step::Restart(Service::new("tuner").unwrap()),
             Step::Verify(Probe::new(Some("127.0.0.1:8420"), "/health").unwrap()),
         ])
         .unwrap();
         assert_eq!(
             p.canonical(),
-            "hades-plan/v1\nrestart galion-tuner\nverify 127.0.0.1:8420 /health"
+            "hades-plan/v1\nrestart tuner\nverify 127.0.0.1:8420 /health"
         );
     }
 

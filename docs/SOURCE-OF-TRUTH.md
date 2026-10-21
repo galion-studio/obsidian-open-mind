@@ -20,7 +20,7 @@
    a plain https `origin` remote (no credentials in git config) so it can
    fetch. Nobody commits there.
 3. **At most 3 agents at once**, across Grok Bot, Grok Build and Hermes
-   together.
+   together. Dated exception below (2026-10-20 swarm).
 4. **Builds run on the box or in CI, never on production.** Each worktree has
    its own `CARGO_TARGET_DIR` (for example `/workspace/<worktree>-target`);
    no per-desk target dirs in the VPS `/tmp`.
@@ -34,6 +34,26 @@
 7. **Status lives in one table:** `docs/STATUS.md`, percentage computed by
    `scripts/status-percent.sh`. No record-only commits (port lists, pid
    snapshots, `ALREADY` notes); put observations in the PR or in STATUS.md.
+
+## Dated exceptions
+
+- **2026-10-20 (Europe/Zagreb, +02:00):** owner Slavik approved a parallel
+  swarm of 20+ agents on `swarm/*` branches; the 3-agent cap otherwise
+  stands. The swarm works under `/workspace/swarm/RULES.md` on the box: one
+  `swarm/<slug>` branch per agent, based on `main` 13a296c, its own
+  `CARGO_TARGET_DIR`, no PRs or merges by agents (the owner merges), nothing
+  on the VPS beyond read-only probes. The branches are listed in
+  `docs/STATUS.md` ("Swarm branches"). When the swarm ends, rule 3 applies
+  again with no further note.
+
+## Time zone
+
+Every timestamp is Europe/Zagreb RFC 3339 with an explicit offset, never `Z`
+or UTC. Until **2026-10-25 03:00 CEST (+02:00)** the offset is `+02:00`
+(CEST). At that instant clocks go back to 02:00 and the offset becomes
+**`+01:00` (CET)**, which holds through the 2026-10-31 launch deadline. Take
+stamps from `TZ=Europe/Zagreb date -Iseconds` or the `zagreb-time` crate;
+never hard-code `+02:00`.
 
 ## The 2026-10-20 merge (what became one)
 

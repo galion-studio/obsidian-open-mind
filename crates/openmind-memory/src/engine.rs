@@ -79,6 +79,9 @@ fn meta_times(meta_json: &str) -> (Option<String>, Option<String>) {
     }
 }
 
+/// Upper bound of ranked rows read when a search filter is set.
+const FILTER_SCAN: usize = 5000;
+
 pub fn err(msg: &str) -> (u16, Value) {
     (400, json!({ "error": msg }))
 }
@@ -481,20 +484,17 @@ impl Engine {
                 "none",
             );
         }
-        let hits = build_fts_query(&query)
-            .map(|q| store.search_l1_fts(&q, limit * 3))
+        // Filters run before the limit over up to FILTER_SCAN ranked rows
+        // (VPS rewrite semantics), instead of filtering only limit*3 rows.
+        let keep = |h: &crate::store::L1Hit| {
+            (type_filter.is_empty() || h.kind == type_filter)
+                && (scene_filter.is_empty() || h.scene_name.to_lowercase().contains(&scene_filter))
+        };
+        let filtered = !type_filter.is_empty() || !scene_filter.is_empty();
+        let scan = if filtered { FILTER_SCAN } else { limit };
+        let items = build_fts_query(&query)
+            .map(|q| store.search_l1_fts_filtered(&q, limit, scan, &keep))
             .unwrap_or_default();
-        if hits.is_empty() {
-            return reply("No matching memories found.".into(), 0, "fts");
-        }
-        let items: Vec<_> = hits
-            .into_iter()
-            .filter(|h| type_filter.is_empty() || h.kind == type_filter)
-            .filter(|h| {
-                scene_filter.is_empty() || h.scene_name.to_lowercase().contains(&scene_filter)
-            })
-            .take(limit)
-            .collect();
         if items.is_empty() {
             return reply("No matching memories found.".into(), 0, "fts");
         }
@@ -545,19 +545,12 @@ impl Engine {
                 0,
             );
         }
-        let k = if session.is_empty() {
-            limit * 3
-        } else {
-            limit * 4
-        };
-        let hits = build_fts_query(&query)
-            .map(|q| store.search_l0_fts(&q, k))
+        // The session filter runs in SQL before the limit (VPS rewrite
+        // semantics), instead of filtering only limit*4 global hits.
+        let sk = (!session.is_empty()).then_some(session.as_str());
+        let items = build_fts_query(&query)
+            .map(|q| store.search_l0_fts_session(&q, sk, limit))
             .unwrap_or_default();
-        let items: Vec<_> = hits
-            .into_iter()
-            .filter(|h| session.is_empty() || h.session_key == session)
-            .take(limit)
-            .collect();
         if items.is_empty() {
             return reply(none.into(), 0);
         }

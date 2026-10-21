@@ -14,7 +14,7 @@ struct Fixture {
 
 impl Fixture {
     fn create() -> Self {
-        let nanos = SystemTime::now()
+        let nanos = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
@@ -79,6 +79,7 @@ fn write_node(dir: &Path, subtree: &str) {
         ("cgroup.stat", "nr_descendants 0\n"),
         ("cgroup.max.depth", "max\n"),
         ("cgroup.max.descendants", "max\n"),
+        ("cgroup.procs", ""),
     ];
     for (name, body) in files {
         fs::write(dir.join(name), body).unwrap();

@@ -194,6 +194,11 @@ impl Preset {
             namespaces: self.namespaces,
             ro_root: self.ro_root,
             hide_paths: paths(self.hide_paths),
+            // Callers opt in by setting a delegated parent (cgroup-detect).
+            cgroup_parent: None,
+            cgroup_pids_max: 64,
+            cgroup_mem_bytes: self.mem_bytes,
+            cgroup_cpu_pct: 0,
         }
     }
 }

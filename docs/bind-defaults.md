@@ -20,7 +20,7 @@ Strings below are the missing-file defaults visible in source. Test fixtures and
 | link-watch | crates/link-watch/src/main.rs | http://127.0.0.1:11434 |
 | link-watch | crates/link-watch/src/main.rs | http://127.0.0.1:8642 |
 | tuner | crates/tuner/src/config.rs | 127.0.0.1:8650 |
-| room | crates/room/src/main.rs | 127.0.0.1:{port} |
+| room | crates/room/src/config.rs | 127.0.0.1:{DEFAULT_PORT} (4020) |
 
 ## galion-one
 
@@ -49,7 +49,7 @@ It is the listen address when `TUNER_ADDR` is unset and no config file sets `bin
 
 ## room
 
-The fallback inside `bind_addr` is the format string `127.0.0.1:{port}`.
-The listen call is `bind_addr("ROOM_BIND", 4020)`.
-When `ROOM_BIND` is unset or blank, that call builds `127.0.0.1:4020`.
+`Config::from_lookup` in `crates/room/src/config.rs` falls back to `format!("127.0.0.1:{DEFAULT_PORT}")` with `DEFAULT_PORT = 4020`.
+When `ROOM_BIND` is unset or blank, the listen address is `127.0.0.1:4020`.
+Only `room --listen` binds; no flags and `--fixture` open no socket (tests/no_bind.rs).
 The host and port `127.0.0.1:4020` is not one string literal in the file.

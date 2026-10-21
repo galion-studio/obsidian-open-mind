@@ -249,7 +249,7 @@ fn l1_keyword_recall_persona_scene() {
             80,
             "Coffee",
             "s1",
-            "2026-10-01T08:30:00.000Z",
+            "2026-10-01T08:30:00.000Z", // repo-check: allow (legacy UTC row fixture, wire parity with 8420)
             "{}",
         )
         .unwrap();
@@ -398,8 +398,8 @@ fn offload_ingest_mmd_read_ref() {
     );
 
     let pairs = json!([
-        {"tool_name": "terminal", "tool_call_id": "toolu_02B", "params": {"cmd": "ls"}, "result": "a\nb", "timestamp": "2026-10-18T19:00:02Z"},
-        {"tool_name": "read \"file\"", "tool_call_id": "toolu_01A", "params": {"p": 1}, "result": {"ok": true}, "error": "warn", "timestamp": "2026-10-18T19:00:01Z", "duration_ms": 5}
+        {"tool_name": "terminal", "tool_call_id": "toolu_02B", "params": {"cmd": "ls"}, "result": "a\nb", "timestamp": "2026-10-18T19:00:02Z"}, // repo-check: allow (legacy UTC tool-call fixture, wire parity with 8420)
+        {"tool_name": "read \"file\"", "tool_call_id": "toolu_01A", "params": {"p": 1}, "result": {"ok": true}, "error": "warn", "timestamp": "2026-10-18T19:00:01Z", "duration_ms": 5} // repo-check: allow (legacy UTC tool-call fixture, wire parity with 8420)
     ]);
     let (s, b) = call(
         &a,

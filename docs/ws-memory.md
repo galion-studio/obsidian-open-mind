@@ -67,7 +67,7 @@ Subcommands: `snapshot <src.db> <dst.db>` (SQLite online backup, source read-onl
 
 ### Migration / compatibility note
 
-- Same files, same schema: opens the existing `vectors.db` as is (`CREATE … IF NOT EXISTS` only when writable; adds the `l0_conversations.timestamp` column like the gateway). Never creates or reads vec0 tables, so a DB with sqlite-vec tables still opens.
+- Same files, same schema: opens the existing `vectors.db` as is (`CREATE … IF NOT EXISTS` only when writable; adds the `l0_conversations.timestamp` column like the gateway, all in one transaction via `Store::migrate`; before swarm/memory-real a pre-v3 DB failed to open, see docs/real-tests/memory-real.md). Never creates or reads vec0 tables, so a DB with sqlite-vec tables still opens.
 - FTS tokenisation: Node uses jieba (`@node-rs/jieba`, native, ~5 MB dict). The port is dictionary-free: non-CJK words split exactly as the gateway's regex fallback and as jieba does for Latin text; CJK runs become the run + 2-grams + 3-grams on both query and write side. Rows written by Node (jieba words) are still found by Rust queries (their 2/3-char words are among our n-grams) and rows written by Rust are found by Rust. Expected recall differences: only CJK queries, only in ranking/extra hits. If exact jieba parity is required later, a `jieba` cargo feature can be added (not default: size + phone builds).
 - Rollback is trivial: the Rust server writes the same tables/files the Node one reads.
 

@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+# bench-banking fixtures for the shared galion-bench MockServer (static, read-only
+# Revolut-SHAPED replies). Hand-written; every id and amount is fake; nothing was
+# recorded from a live account. The stateful mock in src/mock.rs carries the full
+# axes; this file is the cross-check that the draft paths never reach a money-moving
+# endpoint on the shared harness either. All *-refused ids must count 0.
+{"id":"token","method":"POST","path":"/api/1.0/auth/token","body_json":{"grant_type":"refresh_token","refresh_token":"mock-refresh-not-a-secret"},"body":{"access_token":"mock-token","token_type":"bearer","expires_in":2399}}
+{"id":"token-bad","method":"POST","path":"/api/1.0/auth/token","status":401,"body":{"error":"invalid_grant"}}
+{"id":"accounts","method":"GET","path":"/api/1.0/accounts","headers":{"Authorization":"Bearer mock-token"},"body":[{"id":"acc-eur-main","name":"Main EUR","balance":2450.75,"currency":"EUR","state":"active","public":false,"created_at":"2026-09-01T10:00:00+02:00","updated_at":"{{now}}"}]}
+{"id":"counterparties","method":"GET","path":"/api/1.0/counterparties","headers":{"Authorization":"Bearer mock-token"},"body":[{"id":"cp-001","name":"Ana Horvat","state":"created","accounts":[{"id":"cp-001-acc","name":"Ana Horvat","bank_country":"HR","currency":"EUR","type":"external","iban":"HR1210010051863000160","bic":"ZABAHR2X"}]}]}
+{"id":"transactions","method":"GET","path":"/api/1.0/transactions","headers":{"Authorization":"Bearer mock-token"},"body":[{"id":"tx-008","type":"card_payment","state":"completed","created_at":"2026-10-19T10:10:00+02:00","legs":[{"leg_id":"tx-008-leg","account_id":"acc-eur-main","amount":-230.0,"currency":"EUR","description":"Unknown merchant LTD"}]}]}
+{"id":"transaction-008","method":"GET","path":"/api/1.0/transaction/tx-008","headers":{"Authorization":"Bearer mock-token"},"body":{"id":"tx-008","type":"card_payment","state":"completed","created_at":"2026-10-19T10:10:00+02:00","merchant":{"name":"Unknown merchant LTD"},"legs":[{"leg_id":"tx-008-leg","account_id":"acc-eur-main","amount":-230.0,"currency":"EUR","description":"Unknown merchant LTD"}]}}
+{"id":"card-1","method":"GET","path":"/api/1.0/cards/card-1","headers":{"Authorization":"Bearer mock-token"},"body":{"id":"card-1","label":"Daily","last_digits":"4242","state":"active"}}
+{"id":"rate","method":"GET","path":"/api/1.0/rate","query":{"from":"EUR","to":"USD"},"headers":{"Authorization":"Bearer mock-token"},"body":{"from":{"amount":100,"currency":"EUR"},"to":{"amount":108.42,"currency":"USD"},"rate":1.0842,"fee":{"amount":0,"currency":"EUR"},"rate_date":"2026-10-20T22:00:00+02:00"}}
+{"id":"pay-refused","method":"*","path":"/api/1.0/pay*","status":403,"body":{"code":403,"message":"mock: money moves are forbidden in benchmarks; use a payment draft"}}
+{"id":"transfer-refused","method":"*","path":"/api/1.0/transfer*","status":403,"body":{"code":403,"message":"mock: transfers are forbidden in benchmarks"}}
+{"id":"exchange-refused","method":"*","path":"/api/1.0/exchange*","status":403,"body":{"code":403,"message":"mock: exchanges are forbidden in benchmarks"}}
+{"id":"card-freeze-refused","method":"*","path":"/api/1.0/cards/card-1/freeze","status":403,"body":{"code":403,"message":"mock: card state changes are drafts only"}}
+{"id":"card-unfreeze-refused","method":"*","path":"/api/1.0/cards/card-1/unfreeze","status":403,"body":{"code":403,"message":"mock: card state changes are drafts only"}}
+{"id":"disputes-refused","method":"*","path":"/api/1.0/disputes*","status":403,"body":{"code":403,"message":"mock: disputes are drafts only"}}

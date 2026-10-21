@@ -5,6 +5,7 @@ use std::net::TcpListener;
 use std::sync::Arc;
 
 fn main() {
+    galion_common::build_info::exit_if_version("openmind-memory", env!("CARGO_PKG_VERSION"));
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Some(code) = subcommand(&args) {
         std::process::exit(code);
@@ -51,7 +52,13 @@ fn subcommand(args: &[String]) -> Option<i32> {
     match args.first().map(String::as_str) {
         None => None,
         Some("--version" | "-V") => {
-            println!("openmind-memory {}", env!("CARGO_PKG_VERSION"));
+            println!(
+                "{}",
+                galion_common::build_info::version_line(
+                    "openmind-memory",
+                    env!("CARGO_PKG_VERSION")
+                )
+            );
             Some(0)
         }
         Some("snapshot") if args.len() == 3 => Some(

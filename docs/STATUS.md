@@ -14,9 +14,14 @@ docs. The percentage is computed, never typed: run `scripts/status-percent.sh`.
 - Credit: D = 1, P = 0.5, N and O = 0. "Done" does not mean live: only
   WS-HERMES, WS-MEM and B59 run in production.
 - Baseline: the 2026-10-20 progress review. Changed by the one-source merge:
-  GAIA-1 D -> P, HYG-2 N -> D.
+  GAIA-1 D -> P, HYG-2 N -> D. The docs-sync swarm branch (2026-10-20) fixed
+  evidence text only (GAIA-1, WS-SURV, B38, B42, B46/B47/B62/B65); no status
+  changed. swarm/survival-heal: WS-SURV briefly D -> P (guardian/healer were not in
+  13a296c), back to D on swarm/integration-1 (2026-10-20, +02:00) where the
+  heal port is merged.
 
-Computed on 2026-10-20 (Europe/Zagreb) with `scripts/status-percent.sh`:
+Computed on 2026-10-20 (Europe/Zagreb) with `scripts/status-percent.sh`; re-run
+on 2026-10-20T18:58:00+02:00 after the docs-sync evidence fixes, same result:
 
 ```
 status-percent: items 89 (D 54, P 12, N 2, O 21), weight 122
@@ -27,11 +32,11 @@ owner-blocked: 23.6 % of items
 
 | ID | Size | Status | Evidence |
 |---|---|---|---|
-| GAIA-1 | 2 | P | Canonical ws/gaia (11 crates, 52 systems) is on a GitHub branch, not merged; the VPS dry-run gaia-core left the workspace in the 2026-10-20 merge |
+| GAIA-1 | 2 | P | Partial, pending `swarm/gaia-land`: canonical ws/gaia (11 crates, 52 systems, approval-token HADES path) is on a GitHub branch, not on main; the VPS dry-run gaia-core left the workspace in the 2026-10-20 merge |
 | GAIA-2 | 2 | P | VPS `gaia-registry` is a static table mapping 37 crates (GAIA-2/3/4 PASS). Nothing routes live services or ... |
 | UCPU-1 | 2 | P | docs/universal-cpu.md and scripts/target-check.sh ("four target names KNOWN; no cross build"). The gate is ... |
 | HADES-1 | 2 | P | crates/hades-gate: dry-run by default, kill and rotate always refused. HADES-WIRE: not wired or installed. ... |
-| WS-SURV | 2 | D | (not live) - Merged into GitHub main (galion-guardian, galion-healer, galion-boot, galion-origin). No guardian or healer... |
+| WS-SURV | 2 | D | (not live) - galion-boot and galion-origin are on main 13a296c; galion-guardian and galion-healer were DROPPED by the PR #8 merge (not merged, contrary to the old row). Their probe/classify/dry-run repair path and incident store are re-ported onto openmind-survival (`heal`) + guardian-tick (`heal`, `classify`) from swarm/survival-heal, merged on swarm/integration-1 (not yet on main). No guardian/healer/guardian-tick unit installed on the VPS |
 | WS-HERMES | 2 | D | live - hermes-rs.service active since Oct 18 22:00 CEST; Python hermes.service inactive |
 | WS-MEM | 2 | D | live - openmind-memory.service on 8420 since Oct 18 22:14 CEST; memory-gateway inactive |
 | WS-ODT | 2 | D | (partly live) - Merged on GitHub main. Live galion-one is an Oct 18 ws/ui build; desk and tuner are older binaries |
@@ -46,7 +51,7 @@ owner-blocked: 23.6 % of items
 | B51 | 2 | O | docs/dist-switch.md is staged. Spare-port runs PASS (REAL-*-2). Cutover approval: "no" |
 | OMNODE-2 | 2 | O | VPS edge/openmind-node still on `landlock = "0.4"`; no omnode process |
 | PHONE-1 | 2 | O | Needs the HTTPS host |
-| B42 | 1 | P | SPDX headers in 120/120 .rs files; REUSE.toml and LICENSES/ absent |
+| B42 | 1 | P | SPDX headers in 175/175 .rs files under crates/ (scripts/spdx-scan.sh, 2026-10-20); REUSE.toml and LICENSES/ absent |
 | B16 | 1 | D | scripts/no-python.sh |
 | B08 | 1 | D | scripts/size-budget.sh, docs/low-end-profile.md |
 | B44 | 1 | D | scripts/sbom.sh, .github/workflows/sbom.yml |
@@ -58,7 +63,7 @@ owner-blocked: 23.6 % of items
 | ART-1 | 2 | P | hermes-rs delegate_task caps (live); spawn and retire exist only in the ws/gaia sim |
 | ELEU-1 | 2 | P | gaia-eleuthia seed parser (ws/gaia, sim only, not merged) |
 | B34 | 2 | D | crates/openmind-provider |
-| B38 | 1 | D | crates/openmind-fallback |
+| B38 | 1 | D | crates/openmind-provider `fallback` module (the openmind-fallback crate until the 2026-10-20 merge) |
 | POS-1 | 1 | O | BOSS.md cap went $5 → $10 (committed f0c69e7, per LIVE.md); no record that the owner approved it |
 | POS-2 | 1 | O | RunPod/GPU; owner target ≥1500 GB VRAM, spend not approved |
 | HYG-1 | 1 | D | Branches merged on GitHub main; LOCKFILE-NOW: lock = HEAD (Oct 20) |
@@ -82,10 +87,10 @@ owner-blocked: 23.6 % of items
 | B06 | 2 | D | (not live) - Config-driven desk and One, tuner imported. Spare runs only |
 | B53 | 1 | D | (not live) - Config-driven desk and One, tuner imported. Spare runs only |
 | B52 | 1 | P | docs/source-dedupe.md lists the roots; nothing removed |
-| B47 | 1 | D | Persona TOML and galleon-voice, relay tracked, openmind-speech (fixtures), voice-to-voice doc |
-| B65 | 1 | D | Persona TOML and galleon-voice, relay tracked, openmind-speech (fixtures), voice-to-voice doc |
-| B62 | 2 | D | Persona TOML and galleon-voice, relay tracked, openmind-speech (fixtures), voice-to-voice doc |
-| B46 | 1 | D | Persona TOML and galleon-voice, relay tracked, openmind-speech (fixtures), voice-to-voice doc |
+| B47 | 1 | D | Persona TOML and galion-voice-core (galleon-voice dropped in the 2026-10-20 merge), relay tracked, openmind-speech (fixtures), voice-to-voice doc |
+| B65 | 1 | D | Persona TOML and galion-voice-core (galleon-voice dropped in the 2026-10-20 merge), relay tracked, openmind-speech (fixtures), voice-to-voice doc |
+| B62 | 2 | D | Persona TOML and galion-voice-core (galleon-voice dropped in the 2026-10-20 merge), relay tracked, openmind-speech (fixtures), voice-to-voice doc |
+| B46 | 1 | D | Persona TOML and galion-voice-core (galleon-voice dropped in the 2026-10-20 merge), relay tracked, openmind-speech (fixtures), voice-to-voice doc |
 | WS-SPEECH | 2 | P | openmind-speech crate exists; no ws/speech stream; vision missing |
 | B04 | 1 | D | Docs and crates with PASS lines |
 | B03 | 1 | D | Docs and crates with PASS lines |
@@ -116,3 +121,37 @@ owner-blocked: 23.6 % of items
 | B48 | 1 | D | docs/arena.md, crates/galleon-arena |
 | B49 | 2 | D | docs/arena.md, crates/galleon-arena |
 | B50 | 1 | D | docs/arena.md, crates/galleon-arena |
+
+## Swarm branches (2026-10-20)
+
+Owner Slavik approved a parallel swarm on 2026-10-20 (dated exception in
+`docs/SOURCE-OF-TRUTH.md`). Each agent works on one `swarm/<slug>` branch based
+on `main` 13a296c; none is merged, and the owner merges. These are not backlog
+rows and do not count in the percentage. A row above changes only when its
+branch is merged into `main`.
+
+| # | branch |
+|---|---|
+| 1 | `swarm/gaia-land` |
+| 2 | `swarm/hades-approval` |
+| 3 | `swarm/gaia-live` |
+| 4 | `swarm/survival-heal` |
+| 5 | `swarm/one-probe` |
+| 6 | `swarm/voice-mouth` |
+| 7 | `swarm/tuner-cutover` |
+| 8 | `swarm/room` |
+| 9 | `swarm/memory-real` |
+| 10 | `swarm/nerve` |
+| 11 | `swarm/lan-discovery` |
+| 12 | `swarm/poseidon` |
+| 13 | `swarm/ucpu` |
+| 14 | `swarm/real-harness` |
+| 15 | `swarm/launch-gates` |
+| 16 | `swarm/common` |
+| 17 | `swarm/hermes-tools` |
+| 18 | `swarm/desk-linkwatch` |
+| 19 | `swarm/sandbox` |
+| 20 | `swarm/edge-boot` |
+| 21 | `swarm/docs-sync` |
+
+Also: `ci-fix`, being investigated separately (not one of the 21).

@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# Read-only capture from the VPS, 2026-10-20 ~18:55 CEST (+02:00).
+  UNIT                    LOAD   ACTIVE   SUB     DESCRIPTION
+  cloudflared.service     loaded active   running Cloudflare tunnel
+  console.service         loaded active   running Galion console
+  galion-backup.service   loaded inactive dead    Galion snapshot backup to /var/backups/galion (ws/foundation)
+  galion-desk.service     loaded active   running Galion desk
+  galion-health.service   loaded active   running Galion health dashboard (127.0.0.1:8660)
+  galion-nerve.service    loaded active   running galion-nerve: Galion self-eval + nervous system hub (127.0.0.1:8670)
+  galion-one.service      loaded active   running Galion One (Rust, openmind crates/galion-one): text 127.0.0.1:8091, mouth 127.0.0.1:8002
+  hermes-rs.service       loaded active   running hermes-rs gateway (Rust port of Hermes; replaces hermes.service)
+  hermes.service          loaded inactive dead    Hermes agent gateway
+  link-watch-rs.service   loaded active   running Laptop link watch (Rust; replaces link-watch.service)
+  link-watch.service      loaded inactive dead    Laptop link watch
+  memory-gateway.service  loaded inactive dead    TencentDB Memory Gateway (loopback only)
+  openmind-memory.service loaded active   running OpenMind memory (Rust, loopback only; replaces memory-gateway)
+  tanga-proto.service     loaded active   running Galion One growth prototype (static, mock data) on 127.0.0.1:8671, routed at one.galion.app/tanga/
+  tuner-quick.service     loaded active   running Temporary trycloudflare tunnel for tuner
+  tuner.service           loaded active   running Ukulele tuner static server (127.0.0.1:8650)
+
+Legend: LOAD   → Reflects whether the unit definition was properly loaded.
+        ACTIVE → The high-level unit activation state, i.e. generalization of SUB.
+        SUB    → The low-level unit activation state, values depend on unit type.
+
+16 loaded units listed.
+To show all installed unit files use 'systemctl list-unit-files'.

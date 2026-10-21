@@ -13,9 +13,13 @@ name = "hermes-gateway"
 path = "src/main.rs"
 
 [features]
-default = ["sqlite"]
+default = ["sqlite", "coding"]
 sqlite = ["hermes-rs/sqlite"]
+# Sandboxed coding tools (fs_read, fs_write, git, cargo). Compiled in, but
+# OFF at run time unless HERMES_RS_CODING_WORKTREE is set.
+coding = ["dep:hermes-tools"]
 
 [dependencies]
 hermes-rs = { path = "../hermes-rs", default-features = false }
+hermes-tools = { path = "../hermes-tools", optional = true }
 serde_json = { workspace = true }

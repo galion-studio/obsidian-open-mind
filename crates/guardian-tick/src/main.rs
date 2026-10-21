@@ -9,6 +9,13 @@
 //! one flat JSON object (`name`, `ok`, `detail`, `ts`) appended to that file.
 //! `ts` is the probe stamp from `zagreb_time::now_rfc3339` (Europe/Zagreb,
 //! never UTC). This writes a file; it is not a network client.
+//!
+//! Subcommands (see `heal.rs`): `heal` (probe, classify, plan, dry-run or
+//! `--allow`-listed apply, incident store, nerve) and `classify` (offline
+//! plan over a captured galion-health status.json). With no subcommand the
+//! report-only behaviour above is unchanged.
+
+mod heal;
 
 use openmind_survival::{
     check_cloudflared, check_freshness, check_http, check_unit, parse_df, ProbeResult, Runner,
@@ -22,6 +29,8 @@ use std::path::Path;
 struct ProbeFile {
     #[serde(default)]
     probe: Vec<Spec>,
+    #[serde(default)]
+    repair: Vec<heal::RepairSpec>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -61,12 +70,17 @@ fn d_crit() -> f64 {
     95.0
 }
 
-fn parse_probes(text: &str) -> Result<Vec<Spec>, String> {
+fn parse_file(text: &str) -> Result<ProbeFile, String> {
     let f: ProbeFile = toml::from_str(text).map_err(|e| e.to_string())?;
     if f.probe.is_empty() {
         return Err("no [[probe]] entries".into());
     }
-    Ok(f.probe)
+    heal::validate(&f.repair)?;
+    Ok(f)
+}
+
+fn parse_probes(text: &str) -> Result<Vec<Spec>, String> {
+    parse_file(text).map(|f| f.probe)
 }
 
 fn run_http(name: &str, port: u16, path: &str, ok_codes: &[u16]) -> ProbeResult {
@@ -238,6 +252,11 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
 
 fn real_main() -> Result<(), (i32, String)> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    match argv.first().map(String::as_str) {
+        Some("heal") => return heal_main(&argv[1..]),
+        Some("classify") => return classify_main(&argv[1..]),
+        _ => {}
+    }
     let a = parse_args(&argv).map_err(|e| (2, e))?;
     let pf = a
         .probes
@@ -268,6 +287,99 @@ fn real_main() -> Result<(), (i32, String)> {
             println!("suggest: {}", suggestion(r));
         }
     }
+    Ok(())
+}
+
+fn need(it: &mut std::slice::Iter<'_, String>, flag: &str) -> Result<String, (i32, String)> {
+    it.next()
+        .filter(|v| !v.is_empty())
+        .cloned()
+        .ok_or((2, format!("{flag} needs a value")))
+}
+
+fn load_file(p: &str) -> Result<ProbeFile, (i32, String)> {
+    let text = std::fs::read_to_string(p).map_err(|e| (2, format!("{p}: {e}")))?;
+    parse_file(&text).map_err(|e| (2, format!("{p}: {e}")))
+}
+
+/// `guardian-tick heal --probes F [--state DIR] [--allow UNIT]... [--nerve P] [--cap N] [--out P]`
+fn heal_main(argv: &[String]) -> Result<(), (i32, String)> {
+    let mut probes = std::env::var("GUARDIAN_PROBES").ok();
+    let mut a = heal::HealArgs {
+        state: "target/test-out/guardian-heal".into(),
+        nerve: None,
+        allow: Default::default(),
+        cap: openmind_survival::heal::REFLEX_CAP,
+        out: None,
+    };
+    let mut it = argv.iter();
+    while let Some(x) = it.next() {
+        match x.as_str() {
+            "--probes" => probes = Some(need(&mut it, x)?),
+            "--state" => a.state = need(&mut it, x)?.into(),
+            "--nerve" => a.nerve = Some(need(&mut it, x)?.into()),
+            "--out" => a.out = Some(need(&mut it, x)?.into()),
+            "--allow" => {
+                a.allow.insert(need(&mut it, x)?);
+            }
+            "--cap" => {
+                a.cap = need(&mut it, x)?
+                    .parse()
+                    .map_err(|_| (2, "--cap needs a number".to_string()))?
+            }
+            o => return Err((2, format!("heal: unknown argument {o}"))),
+        }
+    }
+    let pf = probes.ok_or((2, "no probe file (--probes or GUARDIAN_PROBES)".to_string()))?;
+    let f = load_file(&pf)?;
+    for u in &a.allow {
+        if !f.repair.iter().any(|r| &r.unit == u) {
+            return Err((2, format!("--allow {u}: no [[repair]] rule for that unit")));
+        }
+    }
+    let rep = heal::heal(&f.probe, &f.repair, &a).map_err(|e| (1, e))?;
+    heal::print_report(
+        &rep,
+        &format!(
+            "guardian-tick heal {} mode={} cap={}/h",
+            rep["ts"].as_str().unwrap_or(""),
+            rep["mode"].as_str().unwrap_or(""),
+            rep["cap"]
+        ),
+    );
+    Ok(())
+}
+
+/// `guardian-tick classify --status-json F [--probes F] [--out P]`: never applies.
+fn classify_main(argv: &[String]) -> Result<(), (i32, String)> {
+    let (mut status, mut probes, mut out) = (None, None, None);
+    let mut it = argv.iter();
+    while let Some(x) = it.next() {
+        match x.as_str() {
+            "--status-json" => status = Some(need(&mut it, x)?),
+            "--probes" => probes = Some(need(&mut it, x)?),
+            "--out" => out = Some(need(&mut it, x)?),
+            o => return Err((2, format!("classify: unknown argument {o}"))),
+        }
+    }
+    let sp = status.ok_or((2, "classify needs --status-json FILE".to_string()))?;
+    let text = std::fs::read_to_string(&sp).map_err(|e| (2, format!("{sp}: {e}")))?;
+    let f = probes.map(|p| load_file(&p)).transpose()?;
+    let rep = heal::classify_status(&text, f.as_ref().map(|f| f.repair.as_slice()))
+        .map_err(|e| (2, e))?;
+    if let Some(o) = out {
+        let body = serde_json::to_string_pretty(&rep).map_err(|e| (1, e.to_string()))?;
+        std::fs::write(&o, body + "\n").map_err(|e| (1, format!("{o}: {e}")))?;
+    }
+    heal::print_report(
+        &rep,
+        &format!(
+            "guardian-tick classify {} source_checked_at={} source_ok={} mode=classify-only (nothing applied)",
+            rep["ts"].as_str().unwrap_or(""),
+            rep["source_checked_at"].as_str().unwrap_or(""),
+            rep["source_ok"]
+        ),
+    );
     Ok(())
 }
 

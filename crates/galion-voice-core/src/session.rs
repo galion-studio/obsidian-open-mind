@@ -87,6 +87,10 @@ pub struct Session<B: VoiceBackend> {
     jitter: JitterBuffer,
     state: State,
     turn_done: bool,
+    /// Last frames before speech onset (half duplex), so the start of an
+    /// utterance is not clipped by the VAD onset delay.
+    preroll: std::collections::VecDeque<Frame>,
+    preroll_max: usize,
     stats: SessionStats,
 }
 
@@ -99,6 +103,8 @@ impl<B: VoiceBackend> Session<B> {
             jitter: JitterBuffer::new(n, cfg.jitter_target, cfg.jitter_max),
             state: State::Idle,
             turn_done: false,
+            preroll: std::collections::VecDeque::new(),
+            preroll_max: cfg.vad.onset_frames.saturating_sub(1) as usize,
             stats: SessionStats::default(),
         }
     }
@@ -165,8 +171,6 @@ impl<B: VoiceBackend> Session<B> {
             Some(VadEvent::SpeechEnd) => {
                 out.events.push(SessionEvent::UserSpeechEnd);
                 self.stats.user_turns += 1;
-                self.backend.end_of_user_turn()?;
-                self.set(State::AwaitingReply, &mut out);
             }
             None => {}
         }
@@ -177,8 +181,24 @@ impl<B: VoiceBackend> Session<B> {
             }
         };
         if send {
+            if vad_ev == Some(VadEvent::SpeechStart) {
+                while let Some(f) = self.preroll.pop_front() {
+                    self.backend.send_audio(&f)?;
+                    self.stats.frames_up += 1;
+                }
+            }
             self.backend.send_audio(mic)?;
             self.stats.frames_up += 1;
+        } else if self.preroll_max > 0 {
+            if self.preroll.len() == self.preroll_max {
+                self.preroll.pop_front();
+            }
+            self.preroll.push_back(mic.clone());
+        }
+        // End the turn after the last frame went up, so the backend has it.
+        if vad_ev == Some(VadEvent::SpeechEnd) {
+            self.backend.end_of_user_turn()?;
+            self.set(State::AwaitingReply, &mut out);
         }
 
         // 2. Downlink: poll backend.

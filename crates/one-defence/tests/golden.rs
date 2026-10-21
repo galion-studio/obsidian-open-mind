@@ -114,7 +114,7 @@ fn missing_db_exits_1_and_creates_nothing() {
     let path = std::env::temp_dir().join(format!(
         "one-defence-missing-{}-{}.db",
         std::process::id(),
-        std::time::SystemTime::now()
+        std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos()

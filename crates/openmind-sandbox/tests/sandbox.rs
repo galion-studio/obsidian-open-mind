@@ -214,20 +214,22 @@ fn status_field(o: &Outcome, key: &str) -> String {
         .find_map(|l| l.strip_prefix(key).map(|v| v.trim().to_string()))
         .unwrap_or_default()
 }
-/// On hosts where the user-namespace uid/gid map cannot be written (CI
-/// containers, the build box), `/proc` inside the sandbox can be unreadable.
-/// That is the machine, not the sandbox: skip with a clear message.
-fn proc_unreadable(o: &Outcome, test: &str) -> bool {
+/// `/proc` must always be readable inside the sandbox. It used to be
+/// unreadable about 1 run in 5 under parallel tests: RLIMIT_NOFILE was set
+/// before the uid/gid map was written, so in a parent with many open fds
+/// `open("/proc/self/uid_map")` failed with EMFILE, the command ran unmapped
+/// as the overflow uid and could not read its own /proc entries. Not a
+/// machine quirk, so no skip: fail loudly.
+fn assert_proc_readable(o: &Outcome, test: &str) {
     let err = String::from_utf8_lossy(&o.stderr);
-    if err.contains("/proc/") && err.contains("Permission denied") {
-        println!(
-            "SKIP {test}: /proc is not readable inside the sandbox on this machine ({}); userns: {:?}",
-            err.trim(),
-            o.layer("userns")
-        );
-        return true;
-    }
-    false
+    assert!(
+        o.status == Status::Exited(0) && !err.contains("Permission denied"),
+        "{test}: /proc unreadable inside the sandbox: status {:?}, error {:?}, stderr {:?}, userns {:?}",
+        o.status,
+        o.error,
+        err.trim(),
+        o.layer("userns")
+    );
 }
 fn report(o: &Outcome) {
     for (l, e) in &o.enforced {
@@ -238,9 +240,7 @@ fn report(o: &Outcome) {
 #[test]
 fn g_no_new_privs_always() {
     let o = sh("cat /proc/self/status", &pol("nnp"));
-    if proc_unreadable(&o, "g_no_new_privs_always") {
-        return;
-    }
+    assert_proc_readable(&o, "g_no_new_privs_always");
     assert_eq!(status_field(&o, "NoNewPrivs:"), "1", "{o:?}");
     assert!(o.enforced("no_new_privs"));
 }
@@ -249,16 +249,72 @@ fn g_no_new_privs_always() {
 fn h_caps_dropped_when_enforced() {
     let o = sh("cat /proc/self/status", &pol("caps"));
     report(&o);
-    if proc_unreadable(&o, "h_caps_dropped_when_enforced") {
-        return;
+    assert_proc_readable(&o, "h_caps_dropped_when_enforced");
+    if features().caps {
+        assert!(
+            o.enforced("caps"),
+            "capget/capset usable, so caps must drop"
+        );
     }
     if o.enforced("caps") {
-        assert_eq!(status_field(&o, "CapEff:"), "0000000000000000");
-        assert_eq!(status_field(&o, "CapPrm:"), "0000000000000000");
+        // Every set, not just the effective one. The test process itself may
+        // hold a full inheritable set (this box does), so CapInh matters.
+        for f in ["CapEff:", "CapPrm:", "CapInh:", "CapAmb:"] {
+            assert_eq!(status_field(&o, f), "0000000000000000", "{f} {o:?}");
+        }
         if o.enforced("userns") || euid() == 0 {
             assert_eq!(status_field(&o, "CapBnd:"), "0000000000000000");
         }
     }
+}
+
+/// Regression for the EMFILE root cause: a parent holding far more open fds
+/// than the sandbox's RLIMIT_NOFILE must not break the uid map or /proc.
+#[test]
+fn h2_many_parent_fds_do_not_break_setup() {
+    let files: Vec<std::fs::File> = (0..300)
+        .map(|_| std::fs::File::open("/dev/null").unwrap())
+        .collect();
+    let mut p = pol("manyfds");
+    p.nofile = 16;
+    for _ in 0..5 {
+        let o = sh("cat /proc/self/status; cat /proc/net/dev", &p);
+        assert_proc_readable(&o, "h2_many_parent_fds_do_not_break_setup");
+        if features().userns {
+            assert!(o.enforced("userns"), "{o:?}");
+            // mapped 1:1, not the overflow uid 65534
+            let uid = status_field(&o, "Uid:");
+            assert!(!uid.starts_with("65534"), "unmapped uid: {uid}");
+        }
+    }
+    drop(files);
+}
+
+/// A descriptor the host leaked (no O_CLOEXEC) must not reach the command.
+#[test]
+fn h3_leaked_parent_fd_is_not_inherited() {
+    let secret = wd("leak").join("secret");
+    std::fs::write(&secret, "leaked-secret").unwrap();
+    let c = std::ffi::CString::new(secret.to_str().unwrap()).unwrap();
+    // SAFETY: open, then F_DUPFD (which never sets FD_CLOEXEC) to a number
+    // >= 100 so it cannot be confused with ls's own fd 3; closed below.
+    let fd = unsafe {
+        let fd0 = libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_CLOEXEC);
+        let fd = libc::fcntl(fd0, libc::F_DUPFD, 100);
+        libc::close(fd0);
+        fd
+    };
+    assert!(fd >= 100);
+    let mut p = pol("leakrun");
+    p.hide_paths = vec![secret.parent().unwrap().to_path_buf()];
+    let o = sh(&format!("cat /proc/self/fd/{fd}; ls /proc/self/fd"), &p);
+    // SAFETY: closing the fd opened above.
+    unsafe { libc::close(fd) };
+    assert!(o.enforced("fds"), "{o:?}");
+    assert!(!o.stdout_str().contains("leaked-secret"), "{o:?}");
+    let fds: Vec<String> = o.stdout_str().lines().map(str::to_string).collect();
+    assert!(fds.contains(&"0".to_string()), "{o:?}");
+    assert!(!fds.contains(&fd.to_string()), "fd {fd} inherited: {fds:?}");
 }
 fn euid() -> u32 {
     std::fs::read_to_string("/proc/self/status")
@@ -292,9 +348,7 @@ fn i_pid_namespace_hides_and_protects_others() {
 #[test]
 fn j_net_namespace_has_only_lo() {
     let o = sh("cat /proc/net/dev", &pol("netns"));
-    if proc_unreadable(&o, "j_net_namespace_has_only_lo") {
-        return;
-    }
+    assert_proc_readable(&o, "j_net_namespace_has_only_lo");
     if o.enforced("net") {
         let ifs: Vec<String> = o
             .stdout_str()

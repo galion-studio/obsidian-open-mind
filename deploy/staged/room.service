@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# STAGED, NOT INSTALLED. room has no live unit today (read-only probe
+# 2026-10-20T18:52:20+02:00: nothing on :4020, no room unit, no room process).
+# Installing this is a NEW service, gated by docs/cutover/room.md and Slavik's
+# approval. No [Install] section on purpose, so it cannot be enabled by accident.
+[Unit]
+Description=room: read-only page of operator docs (127.0.0.1:4020)
+After=network.target
+
+[Service]
+Type=simple
+# Outside the /opt/galion/openmind working copy on purpose (swarm rule 3).
+ExecStart=/opt/galion/rust/bin/room --listen
+Environment=ROOM_BIND=127.0.0.1:4020
+Environment=ROOM_ROOT=/workspace
+Restart=always
+RestartSec=2
+Nice=10
+# Hardening. room only reads files and listens on loopback. Check with
+# `systemd-analyze security room.service` before the go decision.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6
+IPAddressDeny=any
+IPAddressAllow=localhost
+CapabilityBoundingSet=

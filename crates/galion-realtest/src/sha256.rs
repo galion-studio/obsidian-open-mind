@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
+// Copied verbatim from crates/galion-one/src/sha256.rs at 13a296c (same repo,
+// same MIT licence) so the harness can write a pairing-store fixture with the
+// same code hash galion-one checks. Keep in sync if that file changes.
 // SHA-256 (FIPS 180-4), portable scalar code, no intrinsics. Used for the
 // device-pairing token hashes so no `sha256sum` child is spawned per check.
 

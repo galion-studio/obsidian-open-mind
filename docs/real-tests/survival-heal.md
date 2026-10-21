@@ -18,7 +18,7 @@ No Python was run. Nothing was written, restarted or built on the VPS.
    (real restart through the `command` backend, re-probe verify = 200), a fourth
    `--allow` tick that hits the reflex cap (3 restarts per unit per hour) and does not restart.
 3. The append-only incident store and nerve JSONL, all Zagreb `+02:00` stamps.
-4. Live VPS, read-only: `ssh root@51.38.137.193 'curl -sS -m 5 http://127.0.0.1:8660/status.json'`
+4. Live VPS, read-only: `ssh root@<vps> 'curl -sS -m 5 http://127.0.0.1:8660/status.json'`
    (one HTTP GET each at 18:51:20 and 19:11:35 CEST; no other command was run there).
    The captured JSON is in `captures/`; `guardian-tick classify` ran on the BOX over it.
 

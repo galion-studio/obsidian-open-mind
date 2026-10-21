@@ -8,7 +8,7 @@ user, `unshare -rn` / `unshare -rm` permitted. Nothing written on the VPS.
 
 ## 1. VPS read-only probes (2026-10-20 22:56-23:00 +02:00)
 
-`ssh ... root@51.38.137.193` with `systemctl cat galion-backup*`,
+`ssh ... root@<vps>` with `systemctl cat galion-backup*`,
 `systemctl list-timers`, `sha256sum`/`cat` of the script, `stat`, `df`,
 `tar -tv` (names/modes only) of the newest archive, `journalctl -u
 galion-backup -n 4`. No secret values printed (no file contents other than

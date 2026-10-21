@@ -42,7 +42,8 @@ pub const TEST_PORTS: RangeInclusive<u16> = 19000..=20999;
 
 /// Every TCP port that is live on the VPS (listening, or the origin of a
 /// tunnel ingress rule), from `docs/ops/vps-baseline.md` (2026-10-21 11:23
-/// +02:00 refresh) plus a read-only `ss -ltn` on 2026-10-21 17:57 +02:00
+/// +02:00 refresh) plus a read-only `ss -ltn` and the nerve edge finding
+/// (2026-10-21 17:57-18:30 +02:00)
 /// (slot 199). Gaia's apply path refuses all of them, even inside
 /// [`TEST_PORTS`], and a test (`gaia-live/tests/port_bands.rs`) fails if a
 /// test port or a Gaia test's hardcoded port is on this list. Sorted.
@@ -55,6 +56,7 @@ pub const LIVE_PORTS: &[u16] = &[
     3010,  // tunnel origin: adriaticpadel
     3011,  // tunnel origin: merlinelement.com
     3020,  // tunnel origin: maivirtue.com
+    3333,  // tunnel origin (closed), nerve edge finding 2026-10-21 18:30 +02:00
     4001,  // tunnel origin: studio / galion.studio
     4003,  // tunnel origin: voice
     4004,  // tunnel origin: tactical-belts

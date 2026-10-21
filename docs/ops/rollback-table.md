@@ -8,7 +8,7 @@
   at 20:20:39, 20:21:18, 20:21:51, 20:22:56 and the recheck in `docs/real-tests/vps-rollback-table.md`, cross-checked against `CALL-RECORD.md`
   and the cutover index `swarm/docs-cutover-missing@878485d:docs/cutover/README.md` (C1–C12).
 - One row per change made to a VPS service on 2026-10-21. "sha256 now" is the file in place at 20:20 (for a removed or replaced thing: the backup).
-- The VPS clock is **UTC** (`timedatectl`: Etc/UTC). Backup names stamped by `date` on the VPS (`…-063215`, `…-150844`) are therefore 2 h behind Zagreb time.
+- The VPS clock runs at **+00:00** (`timedatectl`: Etc/UTC). Backup names stamped by `date` on the VPS (`…-063215`, `…-150844`) are therefore 2 h behind Zagreb time.
   Backups stamped by the agents in Zagreb time (`…-094354`, `…-181414` …) are not.
 - Rollback lines run on the VPS as root. A line marked *rehearsed* has actually been run once; all others are written down but never run.
 - The base unit files were never edited: `galion-nerve.service` `12084a2891f5c48cdebd6b97c138c645d883276aa6db97a23c78a652f87aae17`, `hermes-rs.service` `acf5dae845d4a0438647abbaecab4d15daf9f95cdbb8696e27d72d5c2cc4736c`,
@@ -83,16 +83,16 @@ Remove `/etc/gaia-cortex/river.env` on full removal (it is a copy of a key; the 
 ## 3. Change-freeze rule (DRAFT — owner decides, not in force)
 
 **F1 — DST night.** No live change on the VPS from **2026-10-25 01:00 CEST (+02:00) to 2026-10-25 04:00 CET (+01:00)**
-(= 2026-10-24 23:00 to 2026-10-25 03:00 on the VPS's own UTC clock; 4 hours of real time).
+(= 2026-10-24 23:00 to 2026-10-25 03:00 on the VPS clock, +00:00; 4 hours of real time).
 - Why: clocks go back at 03:00 CEST → 02:00 CET, so 02:00–03:00 local happens twice. Box-side logs, CALL-RECORD lines and backup names written in
-  Zagreb time are ambiguous in that hour; the nerve's DST handling (slot 157 fix) is new; the galion-backup timer (`OnCalendar=*-*-* 00/6:17:00` UTC,
-  5 min random delay) fires at 00:17 UTC = 02:17 CEST, inside the window (it runs from the VPS UTC clock, so it fires once — but a change racing a
-  backup is the case we want to avoid). `e2scrub_all.timer` runs at 03:10 UTC = 04:10 CET, just after the window.
+  Zagreb time are ambiguous in that hour; the nerve's DST handling (slot 157 fix) is new; the galion-backup timer (`OnCalendar=*-*-* 00/6:17:00` on the +00:00 clock,
+  5 min random delay) fires at 00:17 +00:00 = 02:17 CEST, inside the window (it runs from the VPS +00:00 clock, so it fires once — but a change racing a
+  backup is the case we want to avoid). `e2scrub_all.timer` runs at 03:10 +00:00 = 04:10 CET, just after the window.
 - "Live change" = anything that writes `/etc/systemd/system/**`, `/opt/galion/**/bin`, `/usr/local/bin`, the cloudflared config, `/etc/gaia-cortex`,
   or runs `systemctl start|stop|restart|daemon-reload|enable|disable|mask`, `galion-deploy`, a DNS change, or a new user.
 - Allowed in the window: read-only probes (GET, `systemctl show/status`, `journalctl`, `ss`, `sha256sum`). A rollback line from §1 only if the owner says so (D-210-2).
 
-**F2 — Pre-deadline freeze.** No cutovers after **2026-10-29 18:00 CET (+01:00)** (= 17:00 UTC).
+**F2 — Pre-deadline freeze.** No cutovers after **2026-10-29 18:00 CET (+01:00)** (= 17:00 +00:00).
 - A cutover = a new binary, a new unit, a new drop-in, an ingress change, or a mode change (dry-run → live, LLM on/off).
 - Still allowed after it: read-only probes, and the rollback lines in §1 (they return to an already-known state).
 - The end of F2 is not set (D-210-1).

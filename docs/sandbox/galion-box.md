@@ -73,3 +73,9 @@ decisions (below).
   per real uid, so it is a coarse fork-bomb cap, not a cgroup.
 - No jank/thermal test (needs the phone, Phase 3).
 - Not wired into openmind-sandbox or the admin CLI yet.
+
+## Escape suite (slot 164)
+
+See `docs/sandbox/galion-box-escape.md` and `docs/real-tests/galion-os-box-escape.md`.
+One Rust test per family (ptrace, mount/pivot_root, userns, bpf/perf, io_uring, keyctl, sockets),
+run only on the VPS per sandbox_vps_only.

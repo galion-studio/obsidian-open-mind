@@ -14,3 +14,7 @@ libc = "0.2"
 [[test]]
 name = "real_vps"
 path = "tests/real_vps.rs"
+
+[[test]]
+name = "real_escape"
+path = "tests/real_escape.rs"

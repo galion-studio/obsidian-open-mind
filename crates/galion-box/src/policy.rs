@@ -94,7 +94,7 @@ USAGE:
   galion-box probe                       read-only capability report (no namespaces created)
   galion-box plan [OPTIONS] -- CMD...    validate the policy and print the steps (no namespaces created)
   galion-box run  [OPTIONS] -- CMD...    run CMD in a new user+mount+pid+net+uts+ipc namespace
-  galion-box inside-check|spawn|alloc|sleep|exit ...   payload helpers for tests
+  galion-box inside-check|escape|spawn|alloc|sleep|exit ...   payload helpers for tests
 
 OPTIONS:
   --rootfs DIR        new root (required; must not be /)
@@ -129,7 +129,7 @@ pub fn parse_args(args: &[String]) -> Result<Cmd, String> {
         "-h" | "--help" | "help" => return Ok(Cmd::Help),
         "-V" | "--version" => return Ok(Cmd::Version),
         "probe" => return Ok(Cmd::Probe),
-        "inside-check" | "spawn" | "alloc" | "sleep" | "exit" => {
+        "inside-check" | "escape" | "spawn" | "alloc" | "sleep" | "exit" => {
             let mut v = vec![sub];
             v.extend(it);
             return Ok(Cmd::Inside(v));

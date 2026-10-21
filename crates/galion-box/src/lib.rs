@@ -7,6 +7,7 @@
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 compile_error!("galion-box only supports Linux and Android");
 
+pub mod escape;
 pub mod inside;
 pub mod launch;
 pub mod policy;

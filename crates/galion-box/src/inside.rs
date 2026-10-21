@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
-fn errno_name(e: &io::Error) -> String {
+pub(crate) fn errno_name(e: &io::Error) -> String {
     match e.raw_os_error() {
         Some(libc::EPERM) => "EPERM".into(),
         Some(libc::EACCES) => "EACCES".into(),
@@ -18,6 +18,13 @@ fn errno_name(e: &io::Error) -> String {
         Some(libc::EAGAIN) => "EAGAIN".into(),
         Some(libc::ENOMEM) => "ENOMEM".into(),
         Some(libc::EINVAL) => "EINVAL".into(),
+        Some(libc::EOPNOTSUPP) => "EOPNOTSUPP".into(),
+        Some(libc::ENOSYS) => "ENOSYS".into(),
+        Some(libc::EAFNOSUPPORT) => "EAFNOSUPPORT".into(),
+        Some(libc::ESRCH) => "ESRCH".into(),
+        Some(libc::EBUSY) => "EBUSY".into(),
+        Some(libc::ENODEV) => "ENODEV".into(),
+        Some(libc::EPROTONOSUPPORT) => "EPROTONOSUPPORT".into(),
         Some(n) => format!("errno{n}"),
         None => format!("{:?}", e.kind()),
     }
@@ -280,6 +287,7 @@ fn alloc(mb: usize) -> i32 {
 pub fn dispatch(args: &[String]) -> i32 {
     let num = |i: usize| args.get(i).and_then(|s| s.parse::<u64>().ok());
     match args.first().map(String::as_str) {
+        Some("escape") => crate::escape::dispatch(&args[1..]),
         Some("inside-check") => inside_check(&args[1..]),
         Some("spawn") => spawn(num(1).unwrap_or(10) as u32),
         Some("alloc") => alloc(num(1).unwrap_or(64) as usize),

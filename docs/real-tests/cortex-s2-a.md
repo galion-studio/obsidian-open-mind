@@ -54,7 +54,7 @@ found"). The journal path is covered by the replay fixture through the real bina
 
 ## Read-only VPS probes (counts only)
 
-2026-10-20 23:23:43 / 23:24:02 / 23:24:15 CEST (+02:00), `journalctl -u ssh.service` on 51.38.137.193:
+2026-10-20 23:23:43 / 23:24:02 / 23:24:15 CEST (+02:00), `journalctl -u ssh.service` on the VPS:
 
 | window | count |
 |---|---|

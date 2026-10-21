@@ -16,11 +16,12 @@
 //!   `Transfer-Encoding` refused (501) so CL/TE smuggling cannot happen;
 //! - no panics on any input (fuzz-style tests in `tests/http_fuzz.rs`).
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Server limits. The defaults suit small loopback JSON/static services.
@@ -39,6 +40,14 @@ pub struct Limits {
     pub max_connections: usize,
     /// Stack size of each connection thread.
     pub thread_stack: usize,
+    /// At the connection cap, close the oldest connection that has not yet
+    /// delivered a complete request (head + body) instead of refusing the
+    /// new one, so idle or slowloris connections cannot lock real clients
+    /// out for the head deadline. Live connections stay below twice
+    /// `max_connections` while evicted threads wind down. With nothing
+    /// to evict, a new connection waits up to [`EVICT_GRACE`] for a slot
+    /// before the 503. Off by default.
+    pub evict_idle: bool,
 }
 
 impl Default for Limits {
@@ -52,6 +61,7 @@ impl Default for Limits {
             write_timeout: Duration::from_secs(10),
             max_connections: 32,
             thread_stack: 256 * 1024,
+            evict_idle: false,
         }
     }
 }
@@ -515,13 +525,24 @@ fn drain(s: &mut TcpStream) {
 pub type Handler = dyn Fn(&Request) -> Response + Send + Sync;
 
 /// Serve one connection: read, handle, write, close.
-pub fn handle_connection<F>(mut s: TcpStream, limits: &Limits, handler: &F)
+pub fn handle_connection<F>(s: TcpStream, limits: &Limits, handler: &F)
+where
+    F: Fn(&Request) -> Response + ?Sized,
+{
+    serve_one(s, limits, handler, &|| {});
+}
+
+/// [`handle_connection`] with a hook called as soon as the request has been
+/// read (or reading failed), before the handler runs.
+fn serve_one<F>(mut s: TcpStream, limits: &Limits, handler: &F, read_done: &dyn Fn())
 where
     F: Fn(&Request) -> Response + ?Sized,
 {
     let _ = s.set_nodelay(true);
     let _ = s.set_write_timeout(Some(limits.write_timeout));
-    match read_request(&mut s, limits) {
+    let got = read_request(&mut s, limits);
+    read_done();
+    match got {
         Ok(Some(req)) => {
             let reply = handler(&req);
             let bytes = reply.to_bytes(req.head.method == "HEAD");
@@ -539,11 +560,63 @@ where
     }
 }
 
+/// Connections still reading their request, oldest first (for
+/// [`Limits::evict_idle`]).
+type Reading = Mutex<VecDeque<(u64, TcpStream)>>;
+
+fn reading_remove(r: &Reading, id: u64) {
+    let mut g = r.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(i) = g.iter().position(|(k, _)| *k == id) {
+        g.remove(i);
+    }
+}
+
+/// Close the oldest connection that is still reading its request. Its
+/// blocked read returns at once and its thread exits on its own.
+fn evict_oldest(r: &Reading) -> bool {
+    let oldest = r.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+    match oldest {
+        Some((_, s)) => {
+            let _ = s.shutdown(Shutdown::Both);
+            true
+        }
+        None => false,
+    }
+}
+
+/// At the cap with [`Limits::evict_idle`]: evict the oldest connection still
+/// reading its request; if none, queue the new one for up to
+/// [`EVICT_GRACE`] while finished connections wind down. `false` = refuse.
+fn make_room(limits: &Limits, live: &AtomicUsize, reading: &Reading) -> bool {
+    let deadline = Instant::now() + EVICT_GRACE;
+    loop {
+        let n = live.load(Ordering::SeqCst);
+        if n < limits.max_connections {
+            return true;
+        }
+        if n < limits.max_connections.saturating_mul(2) && evict_oldest(reading) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// How long [`serve`] holds a new connection at the cap (evict mode) before
+/// it answers 503.
+pub const EVICT_GRACE: Duration = Duration::from_millis(100);
+
 /// Accept forever on `listener`, one thread per connection, at most
-/// `limits.max_connections` at once (the rest get a 503).
+/// `limits.max_connections` at once (the rest get a 503, or with
+/// [`Limits::evict_idle`] the oldest connection still reading its request
+/// is closed to make room).
 pub fn serve(listener: TcpListener, limits: Limits, handler: Arc<Handler>) -> io::Result<()> {
     let limits = Arc::new(limits);
     let live = Arc::new(AtomicUsize::new(0));
+    let reading: Arc<Reading> = Arc::new(Mutex::new(VecDeque::new()));
+    let mut next_id = 0u64;
     loop {
         let s = match listener.accept() {
             Ok((s, _)) => s,
@@ -554,22 +627,41 @@ pub fn serve(listener: TcpListener, limits: Limits, handler: Arc<Handler>) -> io
                 continue;
             }
         };
-        if live.load(Ordering::SeqCst) >= limits.max_connections {
+        if live.load(Ordering::SeqCst) >= limits.max_connections
+            && !(limits.evict_idle && make_room(&limits, &live, &reading))
+        {
             reject_busy(s);
             continue;
         }
+        next_id = next_id.wrapping_add(1);
+        let id = next_id;
+        if limits.evict_idle {
+            if let Ok(c) = s.try_clone() {
+                reading
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push_back((id, c));
+            }
+        }
         live.fetch_add(1, Ordering::SeqCst);
-        let (limits2, live2, handler2) = (limits.clone(), live.clone(), handler.clone());
+        let (limits2, live2, handler2, reading2) = (
+            limits.clone(),
+            live.clone(),
+            handler.clone(),
+            reading.clone(),
+        );
         let mut slot = Some(s);
         let spawned = std::thread::Builder::new()
             .stack_size(limits.thread_stack)
             .spawn(move || {
                 if let Some(s) = slot.take() {
-                    handle_connection(s, &limits2, &*handler2);
+                    serve_one(s, &limits2, &*handler2, &|| reading_remove(&reading2, id));
                 }
+                reading_remove(&reading2, id);
                 live2.fetch_sub(1, Ordering::SeqCst);
             });
         if spawned.is_err() {
+            reading_remove(&reading, id);
             live.fetch_sub(1, Ordering::SeqCst);
         }
     }

@@ -37,7 +37,6 @@ use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
 const NERVE: u16 = 20550;
-const VPS: &str = "root@51.38.137.193";
 const VPS_INGRESS: &str = "/opt/galion/galion-src/galion-infrastructure/cloudflared/config.yml";
 
 fn real() -> bool {
@@ -82,18 +81,15 @@ fn tempdir(tag: &str) -> TempDir {
 
 /// One read-only command on the VPS; stdout or None.
 fn vps(cmd: &str) -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
+    // ssh alias (shared swarm convention), not a hard-coded address.
+    let host = std::env::var("GALION_VPS_SSH").unwrap_or_else(|_| "slavik-vps".into());
     let o = Command::new("ssh")
         .args([
-            "-i",
-            &format!("{home}/.ssh/id_ed25519_vps"),
-            "-o",
-            "IdentitiesOnly=yes",
             "-o",
             "ConnectTimeout=10",
             "-o",
             "BatchMode=yes",
-            VPS,
+            host.as_str(),
             cmd,
         ])
         .stderr(Stdio::null())

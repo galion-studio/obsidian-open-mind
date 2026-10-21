@@ -508,7 +508,7 @@ pub fn target_event() -> Target {
         ev(NOW - 40, "gaia", "gaia.heal.applied", "info", r#"{"service":"t1"}"#),
         ev(NOW - 30, "survival", "probe", "warn", r#"{"name":"disk","ok":false,"detail":"/ 97% used"}"#),
         r#"{"ts":"2026-10-21T00:59:00+02:00","source":"survival","kind":"probe","name":"disk","ok":true}"#.to_string(),
-        ev(NOW - 20, "event_cortex", "cortex.finding", "critical", r#"{"top":{"id":"x-1","component":"edge","title":"10.0.0.1:443 open to 1.2.3.4"}}"#),
+        ev(NOW - 20, "event_cortex", "cortex.finding", "critical", r#"{"top":{"id":"x-1","component":"edge","title":"10.0.0.1:443 open to 192.0.2.4"}}"#),
         ev(NOW - 10, "galion-deploy", "nerve-cutover", "info", r#"{"binary":"openmind-nerve-aa77864","slot":180}"#),
         "not json\n[]\n\"str\"\n{}".to_string(),
     ];

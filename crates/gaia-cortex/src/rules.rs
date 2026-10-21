@@ -20,6 +20,7 @@
 //! | `R8-unclassified` | unclassified process: warn | alert; error+ | escalate (LLM-eligible) |
 //! | `R9-process-exit` | process exit: non-zero, warn+ | alert |
 //! | `R10-remediation` | nerve `action.result` / `circuit.open` | rate-limited/circuit-open opens the cortex circuit + escalates once; echoes of our own requests are info |
+//! | `R11-nerve-incident` | nerve engine `incident.opened` (warn/error alert, critical escalate) / `incident.resolved` (info) | no action |
 //! | `R99-default` | anything else: error+ | escalate (LLM-eligible); warn | alert; info | nothing |
 
 use crate::guard::Guard;
@@ -397,6 +398,28 @@ impl Rules {
                     )
                 }
             }
+            EventKind::NerveIncident => {
+                let resolved = s.events.iter().any(|e| e.kind.ends_with("resolved"));
+                let v = Verdict::new(
+                    "R11-nerve-incident",
+                    sev,
+                    format!(
+                        "nerve engine incident {} {}",
+                        s.key,
+                        if resolved { "resolved" } else { "open" }
+                    ),
+                );
+                if resolved || sev == Sev::Info {
+                    Verdict {
+                        sev: Sev::Info,
+                        ..v
+                    }
+                } else if sev >= Sev::Critical {
+                    v.escalate()
+                } else {
+                    v.alert()
+                }
+            }
             EventKind::Threshold => {
                 let v = Verdict::new(
                     "R7-threshold",
@@ -481,6 +504,11 @@ pub fn subject_key(e: &Event) -> (String, Option<String>) {
     let k = e.kind();
     let tail = match k {
         EventKind::Threshold => e.metric().map(|m| format!("threshold:{m}")),
+        EventKind::NerveIncident => e
+            .data
+            .get("cause")
+            .and_then(Value::as_str)
+            .map(|c| format!("nerve-incident:{c}")),
         EventKind::UnclassifiedProcess | EventKind::ProcessExit | EventKind::Oom => {
             e.comm().map(|c| format!("proc:{c}"))
         }

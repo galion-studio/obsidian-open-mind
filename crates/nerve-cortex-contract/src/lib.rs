@@ -118,14 +118,20 @@ pub enum EventKind {
     CircuitOpen,
     /// The cortex's own alert/escalation echoed back (ignored: no loops).
     CortexAlert,
-    /// Stream housekeeping (`stream.keepalive`, `stream.gap`): no decision.
+    /// A polling-engine incident the nerve forwards (`incident.opened`,
+    /// `incident.resolved`; `data.cause`).
+    NerveIncident,
+    /// Nerve bookkeeping, no decision: `stream.keepalive`, `stream.gap`, and
+    /// `escalation.batch` (the nerve's delegate-to-cortex batch summary; its
+    /// member events are already on the stream, and deciding on it would
+    /// loop: cortex alert -> nerve batch -> cortex alert).
     Housekeeping,
     /// Anything else (`kernel.error`, `file.changed`, ...).
     Other,
 }
 
 impl EventKind {
-    pub const ALL: [EventKind; 15] = [
+    pub const ALL: [EventKind; 16] = [
         EventKind::UnitState,
         EventKind::UnitCrash,
         EventKind::RestartScheduled,
@@ -138,6 +144,7 @@ impl EventKind {
         EventKind::UnclassifiedProcess,
         EventKind::Remediation,
         EventKind::CircuitOpen,
+        EventKind::NerveIncident,
         EventKind::CortexAlert,
         EventKind::Housekeeping,
         EventKind::Other,
@@ -159,6 +166,7 @@ impl EventKind {
             EventKind::Remediation => "action.result",
             EventKind::CircuitOpen => "circuit.open",
             EventKind::CortexAlert => "cortex.alert",
+            EventKind::NerveIncident => "incident.opened",
             EventKind::Housekeeping => "stream.keepalive",
             EventKind::Other => "other",
         }
@@ -196,7 +204,12 @@ impl EventKind {
             }
             "circuit.open" | "circuit.opened" | "breaker.open" => EventKind::CircuitOpen,
             "cortex.alert" | "cortex.escalation" | "cortex.decision" => EventKind::CortexAlert,
-            "stream.keepalive" | "stream.gap" => EventKind::Housekeeping,
+            "incident.opened" | "incident.updated" | "incident.resolved" => {
+                EventKind::NerveIncident
+            }
+            "stream.keepalive" | "stream.gap" | "escalation.batch" | "escalation.delegated" => {
+                EventKind::Housekeeping
+            }
             _ => EventKind::Other,
         }
     }
@@ -572,6 +585,9 @@ mod tests {
             ("action.result", EventKind::Remediation),
             ("stream.keepalive", EventKind::Housekeeping),
             ("stream.gap", EventKind::Housekeeping),
+            ("escalation.batch", EventKind::Housekeeping),
+            ("incident.opened", EventKind::NerveIncident),
+            ("incident.resolved", EventKind::NerveIncident),
             ("kernel.error", EventKind::Other),
             ("unit_state_change", EventKind::UnitState),
             ("crash", EventKind::UnitCrash),

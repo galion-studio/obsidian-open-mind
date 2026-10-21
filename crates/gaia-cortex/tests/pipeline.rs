@@ -782,3 +782,32 @@ fn transient_unit_not_on_allowlist_escalates() {
     assert_eq!(d[0]["rule"], "R4-unknown-unit");
     assert!(nerve.reqs.lock().unwrap().is_empty());
 }
+
+#[test]
+fn nerve_batches_and_engine_incidents_do_not_loop() {
+    let (mut cx, nerve, _) = cortex(cfg());
+    let mut b = Event::new(
+        "escalation",
+        "escalation.batch",
+        "high",
+        json!({"batch": {"id": 1, "seqs": [4, 5]}}),
+    );
+    b.seq = Some(9);
+    assert!(
+        cx.process(vec![b], T0).is_empty(),
+        "batch summaries are bookkeeping"
+    );
+    let mut i = Event::new(
+        "engine",
+        "incident.opened",
+        "high",
+        json!({"cause": "edge", "components": ["cloudflared"]}),
+    );
+    i.seq = Some(10);
+    let d = cx.process(vec![i], T0);
+    assert_eq!(d[0]["rule"], "R11-nerve-incident");
+    assert_eq!(d[0]["subject"], "nerve-incident:edge");
+    assert_eq!(d[0]["alert"], true);
+    assert_eq!(d[0]["escalate"], false);
+    assert!(nerve.reqs.lock().unwrap().is_empty());
+}

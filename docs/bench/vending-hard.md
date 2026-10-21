@@ -130,3 +130,6 @@ GALION_REAL=1 cargo test --release -p hermes-bench --test real_hermes_vending_ha
 - The pricing axis rewards one closed-form optimum of the published demand model. It does not reward dynamic
   pricing against noise or inventory, and it is not a market model.
 - No live-model run. The owner's live-model decision for B3 stays open.
+- Short runs: at 7 and 14 days many seeds miss 100 % on `service_level` (hard 76/200 and 187/200, standard
+  87/200 and 198/200 too), because the first days run on the starting stock. The 100 % claim is for 30-day
+  runs (60 and 90 days: 200/200 as well). See `docs/real-tests/bench-vending-adv.md` section 7.

@@ -74,3 +74,39 @@ Note: the first probe saved the /state body to `/tmp/.n` on the VPS to measure i
 command. That was the only write, and it was outside every service directory.
 
 Sandbox: not run anywhere (sandbox_vps_only). Local workspace tests exclude openmind-sandbox and cgroup-detect.
+
+## 7. Restart re-verification (2026-10-21 05:39 to 05:45 +02:00, sole agent after the first agent stopped at 7fcb607)
+Everything above was re-run from scratch on 7fcb607, and the Hermes real test was extended.
+- `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`: clean. `cargo test --workspace --exclude
+  openmind-sandbox --exclude cgroup-detect`: **601 passed, 0 failed**.
+- `real_vending_hard` (GALION_REAL=1, 05:39:50-05:39:52): same output as section 1 (pid on 127.0.0.1:20030, standard
+  `c4b11d2642a0b6be`, hard `21317eedd059a608`, 200/200, standard policy mean 7572 bp, 82 capped).
+- **Fresh baseline**: 457ef74 was checked out into a separate worktree and built release (`-p galion-vending`).
+  Compared with this branch built the same way: `bench --seed S` for **S = 1..1000: 0 differing**, `tools` and
+  `schedule --seed 42` identical, `run --seed 42 --log` journal (474 lines) and stdout identical, 7/60/90-day and
+  seed-7 90-day bench identical.
+  Pitfall found while doing this: a binary built with `-p galion-vending -p hermes-bench` together orders JSON keys
+  differently in `tools` and in the journal (serde_json `preserve_order` is switched on by feature unification) than
+  one built with `-p galion-vending` alone. Score JSON is unaffected. Compare like with like (this is the issue
+  slot 146 serde-order-pin is about).
+- Hard sweeps (05:41:55-05:42:02, 2000 runs, 6.2 s): scripted 200/200 (1-200) and 999/1000 (1-1000, seed 909 =
+  9993 bp); standard policy 1-200 mean 7572 bp (min 5000, max 9400, 82 capped, 0 full); 1-1000 mean 7703 bp, 380
+  capped, 0 full. Same numbers as section 4.
+- **New: run length.** Seed 42 at 7/14/60/90 days: 100 % with the published hashes. Seeds 1-200 at hard, scripted:
+  60 days 200/200, 90 days 200/200, **14 days 187/200, 7 days 76/200**. That is not new to the hard layer:
+  **standard** at 7 days is 87/200 and at 14 days 198/200. Every miss is `service_level` under the 90 % fill line
+  (the first days run on the starting stock). The 100 % claim is for the published 30-day runs (and longer).
+- An attempt to fix seed 909 (3 days of cover for all perishables instead of 2.5 for sandwiches) still missed 909
+  and changed the seed-42 hard hash, so it was reverted. 909 stays a documented limit.
+- Cross-arch (x86_64-musl vs aarch64-musl under qemu): stdout sha256 identical for `bench --seed 42`, `--level hard`,
+  `--level hard --policy standard`, `--seed 7 --level hard --days 90`, `--seed 909 --level hard`,
+  `schedule --seed 42 --level hard`. armv7-musleabihf and aarch64-linux-android `cargo check` pass.
+- `real_hermes_vending_hard` now also runs the **standard** level through Hermes (05:44:03-05:44:24, ports
+  20035/20036, 20037 never bound): hard scripted + mock-LLM 100 %, `21317eedd059a608`, 471 tool calls, 501 model
+  API calls; standard scripted + mock-LLM 100 %, `c4b11d2642a0b6be`, 443 tool calls, and both score JSONs equal the
+  published 457ef74 files apart from `generated_at`, `sha` and the mock-LLM port. `ss -ltn`: no listeners on
+  20030-20039 afterwards.
+- VPS, read-only GETs over ssh (05:44:30-05:44:33, nothing written): nerve 127.0.0.1:8670 `/state` 200, 13090 B,
+  version 0.1.0, mode live, cycle 6619, cycle_ms 371, 15 components. Shadow nerve 8672 `/healthz` 200, its cortex
+  verdict is `score 70, degraded: 2 open incident(s)` (observe-only; the cortex is still not live in the live
+  nerve). 0 listeners in 19500-20099, 0 vending/bench units: there is no live B3 service to compare with.

@@ -1,0 +1,120 @@
+{
+  "capture": [
+    {
+      "bytes": 1011,
+      "file": "README.md",
+      "fnv64": "ad846345bc37ef7c"
+    },
+    {
+      "bytes": 3775,
+      "file": "journal.jsonl",
+      "fnv64": "171c467ba5c297fa"
+    },
+    {
+      "bytes": 218,
+      "file": "state-0.json",
+      "fnv64": "fd0ebe231a09ce24"
+    },
+    {
+      "bytes": 218,
+      "file": "state-1.json",
+      "fnv64": "a7aa9f497a80171b"
+    },
+    {
+      "bytes": 218,
+      "file": "state-2.json",
+      "fnv64": "ab44d0bd8d28638d"
+    }
+  ],
+  "env": {
+    "NERVE_SSHD": "1"
+  },
+  "name": "fixture-cortex-t31-band",
+  "result": {
+    "capture_cycles": 3,
+    "final": {
+      "checks": [
+        "error coverage cloudflared",
+        "error coverage console",
+        "error coverage gaia",
+        "error coverage galion-health",
+        "error coverage galion-nerve",
+        "error coverage galion-one",
+        "error coverage galion-one-mouth",
+        "error coverage hermes-rs",
+        "error coverage link-watch-rs",
+        "error coverage lxc-host",
+        "error coverage openmind-memory",
+        "error coverage tuner",
+        "error coverage tuner-quick",
+        "error coverage voice-worker",
+        "info alerts-channel galion-nerve",
+        "info mode galion-nerve",
+        "info push galion-nerve"
+      ],
+      "deductions": [],
+      "findings": [],
+      "grade": "A",
+      "incidents": [],
+      "pass": false,
+      "score": 100,
+      "system": "healthy"
+    },
+    "flaps": [],
+    "held": {
+      "checks": [
+        "error coverage cloudflared",
+        "error coverage console",
+        "error coverage gaia",
+        "error coverage galion-health",
+        "error coverage galion-nerve",
+        "error coverage galion-one",
+        "error coverage galion-one-mouth",
+        "error coverage hermes-rs",
+        "error coverage link-watch-rs",
+        "error coverage lxc-host",
+        "error coverage openmind-memory",
+        "error coverage tuner",
+        "error coverage tuner-quick",
+        "error coverage voice-worker",
+        "info alerts-channel galion-nerve",
+        "info mode galion-nerve",
+        "info push galion-nerve"
+      ],
+      "deductions": [],
+      "findings": [],
+      "grade": "A",
+      "incidents": [],
+      "pass": false,
+      "score": 100,
+      "system": "healthy"
+    },
+    "hold_cycles": 20,
+    "timeline": [
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A",
+      "100 A"
+    ]
+  },
+  "source": "fixture:cortex-t31-band"
+}

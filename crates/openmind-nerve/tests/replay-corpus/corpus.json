@@ -3,6 +3,7 @@
   "captures": [
     {"name": "fixture-cortex-replay", "source": "fixture:cortex-replay", "env": {}, "note": "synthetic golden: every built-in sensor fires once (16/F since T3.2)"},
     {"name": "fixture-cortex-sshd", "source": "fixture:cortex-sshd", "env": {"NERVE_SSHD": "1"}, "note": "synthetic ssh credential flood (T2.1 sshd sensor)"},
+    {"name": "fixture-cortex-t31-band", "source": "fixture:cortex-t31-band", "env": {"NERVE_SSHD": "1"}, "note": "synthetic T3.1 band: 25 invalid users / 300 s and a 300 MiB service, between the old and the calibrated thresholds"},
     {"name": "live-replay1", "source": "live:replay1", "env": {}, "note": "VPS 2026-10-20 19:25 +02:00, old galion-nerve"},
     {"name": "live-replay158", "source": "live:replay158", "env": {}, "note": "VPS 2026-10-21 08:24 +02:00 (slot 158)"},
     {"name": "live-replay179", "source": "live:replay179", "env": {}, "note": "VPS 2026-10-21 09:16 +02:00 (slot 179)"},

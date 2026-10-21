@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Real-life test of `omnode boot` (swarm slot 20, ports 19205-19206).
+//! Real-life test of `omnode boot` (swarm slot 20, ports 19205-19206; with
+//! GALION_REAL_PORT_BASE=B it uses B+5 and B+6 instead).
 //! Runs only with GALION_REAL=1. Uses OMNODE_BIN (e.g. the x86_64 musl
 //! release binary) or else the binary cargo built for this test
 //! (`cargo test --release` gives the release one). Pairing codes and tokens
@@ -19,6 +20,14 @@ fn enabled() -> bool {
     }
     eprintln!("SKIP: set GALION_REAL=1 to run the real-life edge-boot test");
     false
+}
+
+/// Port block: GALION_REAL_PORT_BASE (the real-test harness sets it) or 19200.
+fn port_base() -> u16 {
+    std::env::var("GALION_REAL_PORT_BASE")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(19200)
 }
 
 fn bin() -> PathBuf {
@@ -97,7 +106,8 @@ fn real_first_boot_pairing_restart() {
     std::fs::create_dir_all(&dir).unwrap();
     let state = dir.join("state");
     let cf = dir.join("code");
-    let port = 19205;
+    let port = port_base() + 5;
+    let port2 = port_base() + 6;
 
     let mut c = boot(&state, port, &cf, 300);
     let node = wait_up(port, 1);
@@ -137,12 +147,12 @@ fn real_first_boot_pairing_restart() {
     // expired code on a second node
     let state2 = dir.join("state2");
     let cf2 = dir.join("code2");
-    let n2 = boot(&state2, 19206, &cf2, 1);
-    wait_up(19206, 1);
+    let n2 = boot(&state2, port2, &cf2, 1);
+    wait_up(port2, 1);
     std::thread::sleep(Duration::from_millis(2200));
     let code2 = std::fs::read_to_string(&cf2).unwrap().trim().to_string();
     let (c, b) = http(
-        19206,
+        port2,
         "POST",
         "/v1/pair",
         &format!(r#"{{"code":"{code2}"}}"#),

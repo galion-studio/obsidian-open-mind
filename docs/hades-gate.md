@@ -51,6 +51,6 @@ Config (flat TOML subset): `admin_pubkey`, `ledger`, `disable_file` (all require
 - `hades-gate disable --config C` still needs no token; heal-tick then refuses with code `disabled` and consumes nothing.
 - Nerve events: `gaia.heal.refused` (with `code`: no-token, forged, malformed, wrong-scope, expired, lifetime, replayed, admin-safety, disabled, gate-unavailable, token-file), `gaia.heal.approved` (nonce, plan SHA-256, token expiry), `gaia.heal.applied` / `failed` / `capped`. The token string is never printed; only its SHA-256 prefix.
 
-Real-life test: docs/real-tests/gaia-hades-tokens.md, scripts/real/gaia-hades-tokens.sh.
+Real-life test: docs/real-tests/gaia-hades-tokens.md, crates/galion-realtest/tests/real_sh_gaia_hades_tokens.rs.
 
 Real-life test: docs/real-tests/hades-approval.md. Dependencies: docs/third-party/hades-approval.md.

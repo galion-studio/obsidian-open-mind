@@ -4,7 +4,7 @@
 //! Real-life hammer against running services (gated: `GALION_REAL=1`).
 //!
 //! `GALION_REAL_TARGETS` is a comma list of `name=host:port`, e.g.
-//! `tuner=127.0.0.1:19160,origin=127.0.0.1:19161`. `scripts/real/common.sh`
+//! `tuner=127.0.0.1:19160,origin=127.0.0.1:19161`. `crates/galion-realtest/tests/real_sh_common.rs`
 //! builds the release binaries, starts them, runs this and tears down.
 //! Each target gets: sequential and concurrent GETs (latency), malformed
 //! requests, oversized heads/bodies, a slowloris wave larger than the

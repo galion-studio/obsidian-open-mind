@@ -4,7 +4,7 @@
 //! Hermetic checks of `gaia heal-tick`'s refusal paths against an in-process
 //! fake nerve on an ephemeral loopback port. Nothing is started or restarted
 //! here: every case must stop before the apply step. The full apply path is
-//! in `real_gaia_live.rs` (GALION_REAL=1) and scripts/real/gaia-live.sh.
+//! in `real_gaia_live.rs` (GALION_REAL=1) and crates/galion-realtest/tests/real_sh_gaia_hades_tokens.rs.
 
 use gaia::live_heal::{
     exit, heal_plan, heal_plan_cli, heal_plan_sha256, heal_tick, parse_cli, HealCfg,

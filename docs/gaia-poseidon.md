@@ -113,7 +113,7 @@ That loud failure is deliberate: compute is never silently split or orphaned.
   non-objects rejected, job inspect and status translation, unreachable ->
   refused + degraded, loopback-only config.
 * `gaia`: `job_spec_from_flags`, `unreachable_queue_degrades_poseidon_and_refuses`.
-* Real life: `scripts/real/gaia-poseidon.sh` (60 checks) and
+* Real life: `crates/galion-realtest/tests/real_sh_gaia_poseidon.rs` (60 checks) and
   `GALION_REAL=1 cargo test -p gaia --test real_gaia_poseidon`; evidence in
   `docs/real-tests/gaia-poseidon.md`.
 

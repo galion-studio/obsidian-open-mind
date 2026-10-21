@@ -7,7 +7,7 @@
 //! refusals, VRAM status), kills it with SIGKILL, restarts it on the same
 //! data directory and checks through gaia that jobs, spend and caps survived.
 //! Binaries: `$CARGO_TARGET_DIR/release/{gaia,openmind-queue}`. The full
-//! scenario is `scripts/real/gaia-poseidon.sh`.
+//! scenario is `crates/galion-realtest/tests/real_sh_gaia_poseidon.rs`.
 
 use serde_json::Value;
 use std::process::{Child, Command, Stdio};

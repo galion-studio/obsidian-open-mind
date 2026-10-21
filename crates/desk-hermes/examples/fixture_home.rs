@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // Write the deterministic test Hermes home to the directory given as the only
-// argument. Used by scripts/real/desk-linkwatch.sh; never point it at a live
+// argument. Used by crates/galion-realtest/tests/real_sh_desk_linkwatch.rs; never point it at a live
 // Hermes home (it overwrites state.db in the target directory).
 
 #[path = "../tests/fixture/mod.rs"]

@@ -33,3 +33,20 @@ Platform-wide real-life test harness (Rust, std + serde_json only).
 Over `ssh <host> sh -s` (default host `slavik-vps`) it runs a fixed script: `curl -sS -m 6 -D - URL` GETs against loopback health URLs, `systemctl is-active` and `ss -ltnH`. From the box it GETs `https://one.galion.app/{health,,me,session,api/v1/analytics,tanga/}`. Then it compares the results with the expected contract. It never POSTs, never writes a file on the VPS and never restarts anything (a unit test pins the script). Bodies that could hold private data are recorded as a byte count only.
 
 Exit: 0 = no unexpected failure, 1 = a check failed, 2 = usage/setup error.
+
+## Ports of the old `scripts/real/*.sh` (`tests/real_sh_*.rs`)
+Rust-only rule (2026-10-20 20:41 CEST +02:00): the shell real-life scripts are being replaced by gated Rust integration tests in this crate. Each `tests/real_sh_<name>.rs` builds the release binaries it needs (`nice -n 10 cargo build --release -j 2`), starts them on loopback, probes them with real requests, prints PASS/FAIL lines with Zagreb stamps and tears everything down (also on panic). Shared helpers are in `src/script.rs`.
+
+| Env | Meaning |
+|---|---|
+| `GALION_REAL=1` | run at all (otherwise each port prints SKIP and passes) |
+| `GALION_REAL_PORT_BASE` | move the port block (each file documents its default block; all offsets are < 10) |
+| `GALION_REAL_SKIP_BUILD=1` | use already built binaries |
+| `GALION_REAL_JOBS` | `cargo build -j` (default 2) |
+| `GALION_REAL_KEEP=1` | keep the scratch dir for inspection |
+
+```
+GALION_REAL=1 GALION_REAL_PORT_BASE=19820 cargo test -p galion-realtest --test real_sh_hades_approval -- --nocapture
+```
+
+Ported on swarm/realscript-port-1: common, desk-linkwatch, docs-sync, edge-boot, gaia-hades-tokens (+ the gaia-live wrapper), gaia-poseidon, hades-approval, hermes-tools. Evidence: `docs/real-tests/realscript-port-1.md`.

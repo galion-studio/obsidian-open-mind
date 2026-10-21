@@ -147,3 +147,6 @@ same bytes (`cmp` identical; sha256 of the reply
 `6625bd800f1c40e462dd7cf7f429a2c2bb95a26884057dc2e5e5a63749d7cc1e`).
 The origin port 8655 was not listening on the VPS at that time (`connect:
 refused`), so there was no live origin to compare.
+
+## Ported to Rust (2026-10-21, +02:00)
+`scripts/real/common.sh` was replaced on swarm/realscript-port-1 by the gated Rust test `crates/galion-realtest/tests/real_sh_common.rs` (same checks; run with `GALION_REAL=1`). The evidence above is from the shell version; the Rust run is in `docs/real-tests/realscript-port-1.md`.

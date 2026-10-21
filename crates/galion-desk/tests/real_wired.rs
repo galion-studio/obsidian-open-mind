@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //
 // Real-life checks against the wired box stack started by
-// scripts/real/desk-linkwatch.sh (release galion-desk on 19180, release
+// crates/galion-realtest/tests/real_sh_desk_linkwatch.rs (release galion-desk on 19180, release
 // desk-hermes on a fixture Hermes home, release link-watch writing link.json
 // after fetching public pages, hermes-gateway --mock on 19182, galion-one on
 // 19181/19183). Ignored by default; the script runs them with:
@@ -69,7 +69,7 @@ fn missing(a: &Value, b: &Value, at: &str, out: &mut Vec<String>) {
 }
 
 #[test]
-#[ignore = "needs the wired stack: scripts/real/desk-linkwatch.sh"]
+#[ignore = "needs the wired stack: crates/galion-realtest/tests/real_sh_desk_linkwatch.rs"]
 fn real_desk_matches_the_live_shape() {
     let Some((desk, _)) = stack() else { return };
     let snap = json(&get(&desk, "/desk"));
@@ -93,7 +93,7 @@ fn real_desk_matches_the_live_shape() {
 }
 
 #[test]
-#[ignore = "needs the wired stack: scripts/real/desk-linkwatch.sh"]
+#[ignore = "needs the wired stack: crates/galion-realtest/tests/real_sh_desk_linkwatch.rs"]
 fn real_desk_is_wired_to_link_watch_hermes_one_and_desk_hermes() {
     let Some((desk, state)) = stack() else { return };
     let snap = json(&get(&desk, "/desk"));
@@ -140,7 +140,7 @@ fn real_desk_is_wired_to_link_watch_hermes_one_and_desk_hermes() {
 }
 
 #[test]
-#[ignore = "needs the wired stack: scripts/real/desk-linkwatch.sh"]
+#[ignore = "needs the wired stack: crates/galion-realtest/tests/real_sh_desk_linkwatch.rs"]
 fn real_desk_note_round_trip_and_routes() {
     let Some((desk, state)) = stack() else { return };
     let text = format!("real test note {}", std::process::id());

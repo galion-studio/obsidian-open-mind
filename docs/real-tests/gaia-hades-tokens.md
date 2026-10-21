@@ -249,3 +249,6 @@ typenum 1.20.1 MIT OR Apache-2.0
 zeroize 1.9.1 Apache-2.0 OR MIT
 zmij 1.0.23 MIT
 ```
+
+## Ported to Rust (2026-10-21, +02:00)
+`scripts/real/gaia-hades-tokens.sh` was replaced on swarm/realscript-port-1 by the gated Rust test `crates/galion-realtest/tests/real_sh_gaia_hades_tokens.rs` (same checks; run with `GALION_REAL=1`). The evidence above is from the shell version; the Rust run is in `docs/real-tests/realscript-port-1.md`.

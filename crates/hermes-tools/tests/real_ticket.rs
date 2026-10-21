@@ -7,7 +7,7 @@
 //! sandboxed tools drive fake ticket FAKE-1 end to end (read, cargo test red,
 //! edit, cargo test green, diff, commit on the branch). No paid model call:
 //! the provider runs with HERMES_RS_PROVIDER_LOOPBACK_ONLY=1 and no key.
-//! The full HTTP run (hermes-gateway binary) is scripts/real/hermes-tools.sh.
+//! The full HTTP run (hermes-gateway binary) is crates/galion-realtest/tests/real_sh_hermes_tools.rs.
 
 use hermes_rs::agent::{boss, Turn};
 use hermes_rs::config::Config;

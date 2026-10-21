@@ -117,3 +117,6 @@ Forged, tampered, malformed, expired, not-yet-valid, over-long TTL, wrong action
 process, second process on the same ledger, 8 threads racing: exactly one wins), corrupt ledger fails
 closed, kill/rotate/teardown refused with a valid signature, admin-safety refusals with a valid
 signature, disable switch, GAIA adapter mapping.
+
+## Ported to Rust (2026-10-21, +02:00)
+`scripts/real/hades-approval.sh` was replaced on swarm/realscript-port-1 by the gated Rust test `crates/galion-realtest/tests/real_sh_hades_approval.rs` (same checks; run with `GALION_REAL=1`). The evidence above is from the shell version; the Rust run is in `docs/real-tests/realscript-port-1.md`.

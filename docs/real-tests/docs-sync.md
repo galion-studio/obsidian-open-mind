@@ -76,3 +76,6 @@ status-row pattern, so they are not counted.
   the same test at once. Not touched here.
 - The full self-check's size-budget step needs `file(1)`; it was missing on the
   box and was installed with apt (box only).
+
+## Ported to Rust (2026-10-21, +02:00)
+`scripts/real/docs-sync.sh` was replaced on swarm/realscript-port-1 by the gated Rust test `crates/galion-realtest/tests/real_sh_docs_sync.rs` (same checks; run with `GALION_REAL=1`). The evidence above is from the shell version; the Rust run is in `docs/real-tests/realscript-port-1.md`.

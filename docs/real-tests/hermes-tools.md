@@ -141,3 +141,6 @@ The per-run cgroup layer (`memory.max`, `pids.max`, `cpu.max`) is reported `not_
 `/sys/fs/cgroup` here is root-owned and not delegated. Memory and CPU were bounded by RLIMIT_AS
 (2 GiB), RLIMIT_CPU, `nice -n 19`, `-j 2` and the wall timeout. See
 docs/staged/hermes-tools-unit.md for the delegated setup.
+
+## Ported to Rust (2026-10-21, +02:00)
+`scripts/real/hermes-tools.sh` was replaced on swarm/realscript-port-1 by the gated Rust test `crates/galion-realtest/tests/real_sh_hermes_tools.rs` (same checks; run with `GALION_REAL=1`). The evidence above is from the shell version; the Rust run is in `docs/real-tests/realscript-port-1.md`.

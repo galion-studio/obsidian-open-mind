@@ -151,3 +151,6 @@ Two nerve JSONL lines exactly as they are on disk (`nerve.jsonl`):
 - DEMETER's simulated heal-dry reads GAIA's model vitals, so it reports 0 suggestions. The live suggestion comes from the probe and is passed as the HADES payload.
 - One tick is one run of `gaia heal-tick`. There is no daemon or timer loop yet. A guardian-tick timer would call it.
 - The restart cap ledger is local to `--state DIR`, so a different state dir gets a fresh budget.
+
+## Ported to Rust (2026-10-21, +02:00)
+`scripts/real/gaia-live.sh` was replaced on swarm/realscript-port-1 by the gated Rust test `crates/galion-realtest/tests/real_sh_gaia_hades_tokens.rs` (same checks; run with `GALION_REAL=1`). The evidence above is from the shell version; the Rust run is in `docs/real-tests/realscript-port-1.md`.

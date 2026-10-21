@@ -203,3 +203,6 @@ compare against. Nothing on the VPS was touched.
 2026-10-20T20:24:39+02:00 PASS port 19240 closed
 2026-10-20T20:24:39+02:00 RESULT pass=60 fail=0
 ```
+
+## Ported to Rust (2026-10-21, +02:00)
+`scripts/real/gaia-poseidon.sh` was replaced on swarm/realscript-port-1 by the gated Rust test `crates/galion-realtest/tests/real_sh_gaia_poseidon.rs` (same checks; run with `GALION_REAL=1`). The evidence above is from the shell version; the Rust run is in `docs/real-tests/realscript-port-1.md`.

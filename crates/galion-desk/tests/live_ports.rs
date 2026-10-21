@@ -4,7 +4,7 @@
 // Live-listener checks. These used to hard-code the production ports
 // 8646 (galion-desk) and 8091 (galion-one) and therefore only passed on the
 // VPS. The ports are now configurable so the same checks run against box
-// test instances (scripts/real/desk-linkwatch.sh starts them on 19180/19181):
+// test instances (crates/galion-realtest/tests/real_sh_desk_linkwatch.rs starts them on 19180/19181):
 //
 //   GALION_DESK_LIVE_DESK_PORT  desk listener to check   (default 8646)
 //   GALION_DESK_LIVE_ONE_PORT   one listener to check    (default 8091)

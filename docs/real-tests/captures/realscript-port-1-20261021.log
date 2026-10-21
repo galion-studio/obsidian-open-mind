@@ -1,0 +1,794 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Raw output of the swarm/realscript-port-1 evidence run (box, 2026-10-21 02:26:42 to 02:27:45 CEST +02:00).
+# Command: GALION_REAL=1 GALION_REAL_PORT_BASE=19820 cargo-slot test --no-fail-fast -j 2 -p galion-realtest --test real_sh_* -- --nocapture --test-threads 1
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running tests/real_sh_common.rs (/workspace/swarm/target/realscript-port-1/debug/deps/real_sh_common-3f5d88a9ad5245fd)
+
+running 1 test
+test real_sh_common ... [2026-10-21T02:26:42+02:00] build (release, nice -n 10, -j 2): ["-p", "tuner", "-p", "galion-origin"]
+  352920 bytes  /workspace/swarm/target/realscript-port-1/release/tuner
+  366208 bytes  /workspace/swarm/target/realscript-port-1/release/galion-origin
+  started tuner pid 3073417
+  tuner pid 3073417 port 19820
+  started origin pid 3073425
+  origin pid 3073425 port 19821
+[2026-10-21T02:26:42+02:00] start
+before tuner: VmRSS:2156 kB VmHWM:2156 kB Threads:1
+before origin: VmRSS:2212 kB VmHWM:2212 kB Threads:2
+tuner sequential GET /health: n=2000 ok=2000 p50=0.07ms p99=0.46ms max=20.33ms
+tuner concurrent: 44886 req/s over 0.07s
+tuner concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.32ms p99=1.36ms max=2.80ms
+tuner malformed: 416 requests in 0.03s -> {"400": 411, "501": 2, "505": 1, "closed": 2}
+tuner after malformed: /health -> Some(200)
+tuner oversized 100 KB header: Some(431) in 0.3ms
+tuner oversized 1000 headers: Some(431) in 0.1ms
+tuner oversized Content-Length 10 GB (no body): Some(413) in 0.1ms
+tuner oversized 5 MB body: Some(413) in 0.6ms
+tuner slowloris x80: outcomes {"HTTP/1.1 408": 64, "HTTP/1.1 503": 16}, longest held 5.1s
+tuner legit GETs during slowloris (60 over 15s): {"Some(200)": 41, "Some(503)": 19}, first 200 at Some("5.3s")
+tuner final /health -> Some(200)
+origin sequential GET /health: n=2000 ok=2000 p50=0.08ms p99=0.48ms max=4.65ms
+origin concurrent: 39692 req/s over 0.08s
+origin concurrent 16x200 GET /health: n=3200 ok=3200 p50=0.37ms p99=1.00ms max=3.18ms
+origin malformed: 416 requests in 0.04s -> {"400": 411, "501": 2, "505": 1, "closed": 2}
+origin after malformed: /health -> Some(200)
+origin oversized 100 KB header: Some(431) in 0.3ms
+origin oversized 1000 headers: Some(431) in 0.1ms
+origin oversized Content-Length 10 GB (no body): Some(413) in 0.1ms
+origin oversized 5 MB body: Some(413) in 0.9ms
+origin slowloris x80: outcomes {"HTTP/1.1 408": 32, "HTTP/1.1 503": 48}, longest held 10.1s
+origin legit GETs during slowloris (60 over 15s): {"Some(200)": 21, "Some(503)": 39}, first 200 at Some("10.3s")
+origin final /health -> Some(200)
+.
+  PASS galion-common real_hammer against the release services (exit 0)
+[2026-10-21T02:27:15+02:00] done
+after tuner: VmRSS:3492 kB VmHWM:3492 kB Threads:1
+after origin: VmRSS:2984 kB VmHWM:2984 kB Threads:1
+peak threads seen by the 1 s sampler:
+  origin 33
+  tuner 65
+  PASS tuner: alive after the hammer
+  PASS origin: alive after the hammer
+[2026-10-21T02:27:15+02:00] common: 3 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 33.35s
+
+     Running tests/real_sh_desk_linkwatch.rs (/workspace/swarm/target/realscript-port-1/debug/deps/real_sh_desk_linkwatch-85d6d0e5b0477c1d)
+
+running 1 test
+test real_sh_desk_linkwatch ... [2026-10-21T02:27:15+02:00] build (release, nice -n 10, -j 2): ["-p", "galion-desk", "-p", "desk-hermes", "-p", "link-watch", "-p", "hermes-gateway", "-p", "galion-one", "--bins", "--example", "fixture_home"]
+  632944 bytes  /workspace/swarm/target/realscript-port-1/release/galion-desk
+  1225152 bytes  /workspace/swarm/target/realscript-port-1/release/desk-hermes
+  668904 bytes  /workspace/swarm/target/realscript-port-1/release/link-watch
+  1798696 bytes  /workspace/swarm/target/realscript-port-1/release/hermes-gateway
+  698216 bytes  /workspace/swarm/target/realscript-port-1/release/galion-one
+  1137728 bytes  /workspace/swarm/target/realscript-port-1/release/examples/fixture_home
+[2026-10-21T02:27:15+02:00] start hermes-gateway --mock on 19822
+  started hermes-gateway pid 3085794
+[2026-10-21T02:27:15+02:00] start galion-one on 19821 (mouth 19823)
+  started galion-one pid 3085795
+[2026-10-21T02:27:15+02:00] start galion-desk on 19820
+  started galion-desk pid 3085796
+[2026-10-21T02:27:15+02:00] start link-watch (loop) -> state/link.json; URLs: https://example.com/ https://one.galion.app/
+  started link-watch pid 3085829
+[2026-10-21T02:27:17+02:00] listeners:
+  LISTEN 0      128        127.0.0.1:19822      0.0.0.0:*    users:(("hermes-gateway",pid=3085794,fd=6))
+  LISTEN 0      128        127.0.0.1:19823      0.0.0.0:*    users:(("galion-one",pid=3085795,fd=7))    
+  LISTEN 0      128        127.0.0.1:19820      0.0.0.0:*    users:(("galion-desk",pid=3085796,fd=5))   
+  LISTEN 0      128        127.0.0.1:19821      0.0.0.0:*    users:(("galion-one",pid=3085795,fd=5))    
+[2026-10-21T02:27:17+02:00] desk route matrix (GET):
+  /          404 application/json 21B 0.000534s
+  /health    200 application/json 11B 0.000533s
+  /healthz   200 application/json 11B 0.000548s
+  /health/x  200 application/json 11B 0.000407s
+  /desk      200 application/json 2571B 0.002297s
+  /desk/     200 application/json 2571B 0.002177s
+  /deskx     200 application/json 2571B 0.002500s
+  /desk?x=1  200 application/json 2571B 0.001963s
+  /nope      404 application/json 21B 0.000455s
+  /DESK      404 application/json 21B 0.000469s
+[2026-10-21T02:27:17+02:00] one/hermes health:
+  19821 200
+  19822 200
+  19823 503
+[2026-10-21T02:27:17+02:00] link.json from link-watch:
+  {"events":0,"france":"unconfigured","hermes":true,"hermes_ms":0,"laptop":"Box test laptop","laptop_port":false,"model":"","urls":[{"checked_at_local":"2026-10-21T02:27:15+02:00","error":"","ms":46,"ok":true,"status":200,"url":"https://example.com/"},{"checked_at_local":"2026-10-21T02:27:16+02:00","error":"","ms":1048,"ok":true,"status":200,"url":"https://one.galion.app/"}]}
+[2026-10-21T02:27:17+02:00] desk snapshot (selected fields):
+  {"board":{"agents":2,"cpu":"i7-13620H","france":false,"gpu":"RTX 4060, 8188 MiB","hermes_ms":0,"laptop_ram":"20 / 32 GB","studio":"Box test laptop","version":"box-real"},"foundation":"rust","hermes":true,"line":false,"mindpack":{"line":"Mate builds Galion. Second line","messages":5,"road":2,"sessions":3,"tasks":["one-galion","d2","d1"]},"one":true,"services":["Console=false","Origin=false","Hermes=true","Laptop=false","One=true","Room=false","Tulu=false","Tunnel=false"],"tunnel":false,"voice":"jarvis"}
+[2026-10-21T02:27:17+02:00] desk acts (POST):
+  note   200 application/json 2625B 0.002123s
+    notes: [{"at":1792542437,"text":"real-life note from slot 18"}]
+  stamp  200 application/json 2681B 0.002101s
+    last-note: "Stamp. Line down. Hermes up."
+  focus  200 application/json 2695B 0.001709s
+    focus: "desk-linkwatch"
+  hold   200 application/json 2694B 0.002073s
+    hold: true
+  hold   200 application/json 2695B 0.001964s
+    hold: false
+  drop   200 application/json 2639B 0.001908s
+    notes-left: 1
+  voice  200 application/json 2641B 0.002118s
+    voice: "samantha"
+[2026-10-21T02:27:17+02:00] gated galion-desk real tests against the stack:
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+  test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+  PASS galion-desk real_wired + live_ports against the stack (exit 0)
+[2026-10-21T02:27:17+02:00] link-watch rate limit (LINK_WATCH_URLS_EVERY=60):
+  checked_unix at start: [1792542435,1792542436]; after 9 s (more loop passes, last at 2026-10-21T02:27:26+02:00): [1792542435,1792542436]
+  PASS public URLs fetched on the first pass ([1792542435,1792542436])
+  PASS URLs not re-fetched inside the 60 s interval ([1792542435,1792542436])
+[2026-10-21T02:27:26+02:00] process RSS:
+  hermes-gateway 4212 kB
+  galion-one 3216 kB
+  galion-desk 2600 kB
+  link-watch 2552 kB
+  PASS test gateway key never in logs
+  PASS port 19820 closed after teardown
+  PASS port 19821 closed after teardown
+  PASS port 19822 closed after teardown
+  PASS port 19823 closed after teardown
+[2026-10-21T02:27:27+02:00] desk-linkwatch: 8 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 11.63s
+
+     Running tests/real_sh_docs_sync.rs (/workspace/swarm/target/realscript-port-1/debug/deps/real_sh_docs_sync-eaceb71416d54ca2)
+
+running 2 tests
+test real_sh_docs_sync ... [2026-10-21T02:27:27+02:00] docs-sync
+[2026-10-21T02:27:27+02:00] build (release, nice -n 10, -j 2): ["-p", "repo-check"]
+  372568 bytes  /workspace/swarm/target/realscript-port-1/release/repo-check
+[2026-10-21T02:27:27+02:00] repo-check exit 0: repo-check 2026-10-21T02:27:27+02:00: 1116 files, 0 error(s), 29 warning(s) -> PASS
+  FAIL repo-check clean: repo-check 2026-10-21T02:27:27+02:00: 1116 files, 0 error(s), 29 warning(s) -> PASS
+warn  utc      crates/gaia-live/src/heal.rs:170: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/gaia-live/src/lib.rs:363: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/gaia/tests/heal_tick.rs:184: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/galion-common/src/time.rs:89: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/galion-common/src/time.rs:186: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/galion-common/src/time.rs:188: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/galion-common/src/time.rs:208: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/galion-common/tests/time_vs_chrono.rs:41: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/galion-desk/src/lib.rs:360: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/guardian-tick/src/heal.rs:103: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/hades-gate/src/approval.rs:249: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/hades-gate/tests/approval.rs:32: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/hades-gate/tests/real_cli.rs:22: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/openmind-discovery/src/mdns.rs:99: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/openmind-memory/tests/real_memory.rs:242: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/openmind-memory/tests/real_memory.rs:674: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/openmind-nerve/src/logscan.rs:281: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/openmind-nerve/src/logscan.rs:284: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/openmind-nerve/src/probe.rs:256: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/openmind-nerve/src/probe.rs:638: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/openmind-nerve/src/probe.rs:641: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/openmind-nerve/src/probe.rs:642: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/openmind-nerve/src/util.rs:16: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/openmind-nerve/src/util.rs:331: RFC 3339 timestamp ending in Z; output must carry the Zagreb offset
+warn  utc      crates/openmind-queue/src/lib.rs:29: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/room/src/http.rs:281: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/room/src/index.rs:280: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/room/src/lib.rs:100: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+warn  utc      crates/room/tests/common/mod.rs:21: `SystemTime::now()` outside zagreb-time; fine only if it feeds zagreb-time
+repo-check 2026-10-21T02:27:27+02:00: 1116 files, 0 error(s), 29 warning(s) -> PASS
+
+  PASS repo-check exit (0)
+[2026-10-21T02:27:27+02:00] spdx-scan: 373 scanned, 0 missing
+  PASS spdx-scan missing (0)
+  PASS self-check (self-check: ok)
+  PASS no-python
+  PASS status-percent ran
+status-percent: items 89 (D 54, P 12, N 2, O 21), weight 122
+done: 60.7 % unweighted, 59.0 % weighted
+done + half partial: 67.4 % unweighted, 67.2 % weighted
+owner-blocked: 23.6 % of items
+  PASS status-percent matches docs/STATUS.md (status-percent: items 89 (D 54, P 12, N 2, O 21), weight 122
+done: 60.7 % unweighted, 59.0 % weighted
+done + half partial: 67.4 % unweighted, 67.2 % weighted
+owner-blocked: 23.6 % of items)
+  PASS STATUS.md lists all 21 real-test branches
+[2026-10-21T02:27:28+02:00] STATUS.md swarm table: 21 branches
+[2026-10-21T02:27:28+02:00] docs-sync: 7 passed, 1 failed
+
+thread 'real_sh_docs_sync' (3086189) panicked at crates/galion-realtest/src/script.rs:461:9:
+docs-sync: failed checks: ["repo-check clean"]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+test status_block_extraction ... ok
+
+failures:
+
+failures:
+    real_sh_docs_sync
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.74s
+
+error: test failed, to rerun pass `-p galion-realtest --test real_sh_docs_sync`
+     Running tests/real_sh_edge_boot.rs (/workspace/swarm/target/realscript-port-1/debug/deps/real_sh_edge_boot-f1b5023f0134f7ff)
+
+running 1 test
+test real_sh_edge_boot ... [2026-10-21T02:27:28+02:00] build (release, nice -n 10, -j 2): ["--target", "x86_64-unknown-linux-musl"]
+[2026-10-21T02:27:28+02:00] build (release, nice -n 10, -j 2): ["--target", "aarch64-unknown-linux-musl"]
+  1520512 bytes  /workspace/swarm/target/realscript-port-1/x86_64-unknown-linux-musl/release/omnode
+  1292656 bytes  /workspace/swarm/target/realscript-port-1/aarch64-unknown-linux-musl/release/omnode
+[2026-10-21T02:27:28+02:00] omnode edge-boot real-life test, kernel 6.12.94+, PID 1 on this box: tini
+[2026-10-21T02:27:28+02:00] == x86_64
+  machine: Advanced Micro Devices X86-64
+  NEEDED: 0  INTERP: 0
+  size: 1520512  sha256: 2198477fe8288e9a
+  version: omnode 0.1.0 (x86_64, linux)
+  PASS x86_64 sandbox selftest exit (0)
+  PASS x86_64 selftest enforced (true)
+  PASS x86_64 fsconfig(431) denied (true)
+  PASS x86_64 strace under seccomp refused (EPERM) (rc 2)
+  PASS x86_64 strace with --no-seccomp (control) (0)
+  PASS x86_64 unshare -U under seccomp refused (EPERM) (rc 2)
+  PASS x86_64 everyday shell work allowed (0)
+  PASS x86_64 sandbox report seccomp=deny-list ("seccomp": "deny-list")
+  PASS x86_64 first boot listening on :19820
+  PASS x86_64 boot event first_boot (true)
+  PASS x86_64 boot event seccomp.enforced (true)
+  device_id omn-0bee824470bf  fingerprint SHA256:0bee-8244-70bf-accf-f335-891e-1627-58f9  first_boot 2026-10-21T02:27:28+02:00
+  PASS x86_64 key file mode (600)
+  PASS x86_64 pair store mode (600)
+  PASS x86_64 code file mode (600)
+  PASS x86_64 store holds only the code hash
+  PASS x86_64 whoami unpaired (401)
+  PASS x86_64 wrong code (403 no)
+  PASS x86_64 malformed body (400)
+  PASS x86_64 right code (lower-case) (200 true)
+  token: <redacted, 64 hex chars>
+  PASS x86_64 whoami with token (200 omn-0bee824470bf)
+  PASS x86_64 whoami with wrong token (401)
+  PASS x86_64 code is single use (403 no)
+  PASS x86_64 token not on disk or in logs
+  PASS x86_64 restarted by supervisor after kill -9
+  PASS x86_64 same device after restart (omn-0bee824470bf)
+  PASS x86_64 new pid after restart (yes)
+  PASS x86_64 first_boot timestamp kept (2026-10-21T02:27)
+  PASS x86_64 boot event on restart (false 2 null)
+  PASS x86_64 token survives restart (200)
+  PASS x86_64 old code still refused after restart (403 no)
+  PASS x86_64 pair verify fresh payload (0 true omn-0bee824470bf)
+  PASS x86_64 pair verify expired payload (2 expired)
+  PASS x86_64 pair verify other server (2 enroll_url)
+  PASS x86_64 pair verify tampered caps (2 signature)
+  PASS x86_64 exits (kill -9, then SIGTERM) (exit=137 exit=0)
+  PASS x86_64 port closed after stop (000)
+  PASS x86_64 expired code refused (403 expired)
+  PASS x86_64 5th refusal (403 no)
+  PASS x86_64 locked after 5 refusals (429 later)
+  PASS x86_64 fails counted in store (5)
+  PASS x86_64 node 2 SIGTERM exit (0)
+[2026-10-21T02:27:31+02:00] == x86_64 as PID 1 (unshare --pid --fork)
+  PASS PID-1 node up
+  PASS PID-1 node sees itself as pid (1)
+  PASS PID-1 node host pid found (3086775)
+  PASS PID-1 node exits 0 on SIGTERM (handler installed) (0)
+  PASS PID-1 stop message (stopping (signal))
+[2026-10-21T02:27:31+02:00] == aarch64-qemu
+  machine: AArch64
+  NEEDED: 0  INTERP: 0
+  size: 1292656  sha256: 8527cea69800357c
+  version: omnode 0.1.0 (aarch64, linux)
+  PASS aarch64-qemu sandbox selftest refuses (not enforceable here) (2)
+  PASS aarch64-qemu selftest enforced (false)
+  PASS aarch64-qemu boot --require-seccomp refuses (2)
+  PASS aarch64-qemu refusal reason: not enforced (not enforced)
+  PASS aarch64-qemu no pairing code opened when refused
+  PASS aarch64-qemu first boot listening on :19823
+  PASS aarch64-qemu boot event first_boot (true)
+  PASS aarch64-qemu boot event seccomp.enforced (false)
+  device_id omn-8c63f14d9269  fingerprint SHA256:8c63-f14d-9269-b477-657f-8c6b-f747-28d3  first_boot 2026-10-21T02:27:32+02:00
+  PASS aarch64-qemu key file mode (600)
+  PASS aarch64-qemu pair store mode (600)
+  PASS aarch64-qemu code file mode (600)
+  PASS aarch64-qemu store holds only the code hash
+  PASS aarch64-qemu whoami unpaired (401)
+  PASS aarch64-qemu wrong code (403 no)
+  PASS aarch64-qemu malformed body (400)
+  PASS aarch64-qemu right code (lower-case) (200 true)
+  token: <redacted, 64 hex chars>
+  PASS aarch64-qemu whoami with token (200 omn-8c63f14d9269)
+  PASS aarch64-qemu whoami with wrong token (401)
+  PASS aarch64-qemu code is single use (403 no)
+  PASS aarch64-qemu token not on disk or in logs
+  PASS aarch64-qemu restarted by supervisor after kill -9
+  PASS aarch64-qemu same device after restart (omn-8c63f14d9269)
+  PASS aarch64-qemu new pid after restart (yes)
+  PASS aarch64-qemu first_boot timestamp kept (2026-10-21T02:27)
+  PASS aarch64-qemu boot event on restart (false 2 null)
+  PASS aarch64-qemu token survives restart (200)
+  PASS aarch64-qemu old code still refused after restart (403 no)
+  PASS aarch64-qemu pair verify fresh payload (0 true omn-8c63f14d9269)
+  PASS aarch64-qemu pair verify expired payload (2 expired)
+  PASS aarch64-qemu pair verify other server (2 enroll_url)
+  PASS aarch64-qemu pair verify tampered caps (2 signature)
+  PASS aarch64-qemu exits (kill -9, then SIGTERM) (exit=137 exit=0)
+  PASS aarch64-qemu port closed after stop (000)
+  PASS aarch64-qemu expired code refused (403 expired)
+  PASS aarch64-qemu 5th refusal (403 no)
+  PASS aarch64-qemu locked after 5 refusals (429 later)
+  PASS aarch64-qemu fails counted in store (5)
+  PASS aarch64-qemu node 2 SIGTERM exit (0)
+[2026-10-21T02:27:35+02:00] == cargo real test (GALION_REAL=1, x86_64 release binary, ports 19825-19826)
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.51s
+  PASS tests/real_edge_boot.rs (exit 0)
+  PASS port 19820 closed at the end
+  PASS port 19821 closed at the end
+  PASS port 19822 closed at the end
+  PASS port 19823 closed at the end
+  PASS port 19824 closed at the end
+  PASS port 19825 closed at the end
+  PASS port 19826 closed at the end
+[2026-10-21T02:27:38+02:00] edge-boot: 92 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.47s
+
+     Running tests/real_sh_gaia_hades_tokens.rs (/workspace/swarm/target/realscript-port-1/debug/deps/real_sh_gaia_hades_tokens-97cfb32202784e86)
+
+running 1 test
+test real_sh_gaia_hades_tokens ... [2026-10-21T02:27:38+02:00] build (release, nice -n 10, -j 2): ["-p", "gaia", "-p", "openmind-nerve", "-p", "hades-gate"]
+  856176 bytes  /workspace/swarm/target/realscript-port-1/release/gaia
+  325472 bytes  /workspace/swarm/target/realscript-port-1/release/gaia-dummy
+  499848 bytes  /workspace/swarm/target/realscript-port-1/release/hades-gate
+  1007816 bytes  /workspace/swarm/target/realscript-port-1/release/openmind-nerve
+[2026-10-21T02:27:38+02:00] admin side: hades-gate keygen (seed in admin/, mode 600, never printed); a second 'attacker' key
+  PASS admin seed mode (600)
+gate status: {"admin_fingerprint":"3807918f7e8de343","disabled":false,"mode":"dry-run","service":"hades-gate","ts":"2026-10-21T02:27:38+02:00"}
+[2026-10-21T02:27:38+02:00] gaia heal-plan: the exact plan bytes the admin signs
+{"admin_safety":"ok","plan_sha256":"3ee9ba7d6598fd96eae0fe609b705ee49659cfff21625c9255b846c66e272042","target":"gaia-dummy"}
+gaia heal-apply plan v1 (box test service)
+service gaia-dummy on 127.0.0.1:19821 (box test ports 19000-19999 only)
+probe GET /health must answer status ok
+start ["/workspace/swarm/target/realscript-port-1/release/gaia-dummy","--port","19821"] detached in its own process group, stdin closed, no shell
+at most 3 restarts of gaia-dummy per rolling hour
+record the result on the nerve
+hades-gate plan-hash: 3ee9ba7d6598fd96eae0fe609b705ee49659cfff21625c9255b846c66e272042
+  PASS gaia plan_sha256 == hades-gate plan-hash (3ee9ba7d6598fd96eae0fe609b705ee49659cfff21625c9255b846c66e272042)
+{"admin_safety":"ok","plan_sha256":"53fb4f487b3843c0319c3891bee53f6606f60781f76178b26ddf21c6f2410292","target":"gaia-dummy"}
+{"admin_safety":"admin-safety: secret exposure refused (secret)","plan_sha256":"3f5bf05b17e4f45eb65fad5a6f0998d3e8d41c9d18dc5a5ad2d9f6d767f649ed","target":"gaia-dummy"}
+[2026-10-21T02:27:38+02:00] admin side: hades-gate mint (tokens written mode 600 to tok/, never printed)
+{"action":"heal-apply","exp":"2026-10-21T02:32:38+02:00","iat":"2026-10-21T02:27:38+02:00","nonce":"b9f78b77c95f3f640e575a896409237b","plan_sha256":"3ee9ba7d6598fd96","target":"gaia-dummy","token":"forged"}
+{"action":"heal-apply","exp":"2026-10-21T02:32:38+02:00","iat":"2026-10-21T02:27:38+02:00","nonce":"b874fdc1c17475220596ac464ed98d29","plan_sha256":"3ee9ba7d6598fd96","target":"gaia-other","token":"wrong-svc"}
+{"action":"heal-apply","exp":"2026-10-21T02:32:38+02:00","iat":"2026-10-21T02:27:38+02:00","nonce":"c0280930b9a5e31709de2cdfb61bf5b1","plan_sha256":"53fb4f487b3843c0","target":"gaia-dummy","token":"wrong-plan"}
+{"action":"heal-apply","exp":"2026-10-21T02:25:58+02:00","iat":"2026-10-21T02:20:58+02:00","nonce":"53f47fcbb7e2f8fca9fc8fff385bd460","plan_sha256":"3ee9ba7d6598fd96","target":"gaia-dummy","token":"expired"}
+{"action":"heal-apply","exp":"2026-10-21T02:32:38+02:00","iat":"2026-10-21T02:27:38+02:00","nonce":"10cc30e1126dd09f31527ff2c2f1d8bf","plan_sha256":"3f5bf05b17e4f45e","target":"gaia-dummy","token":"unsafe"}
+{"action":"heal-apply","exp":"2026-10-21T02:32:38+02:00","iat":"2026-10-21T02:27:38+02:00","nonce":"9d527891446f99ba94a383dfaf434f7a","plan_sha256":"3ee9ba7d6598fd96","target":"gaia-dummy","token":"valid-1"}
+{"action":"heal-apply","exp":"2026-10-21T02:32:38+02:00","iat":"2026-10-21T02:27:38+02:00","nonce":"21f6bb2d201bce30fb0b335fbd430db0","plan_sha256":"3ee9ba7d6598fd96","target":"gaia-dummy","token":"valid-2"}
+{"action":"heal-apply","exp":"2026-10-21T02:32:38+02:00","iat":"2026-10-21T02:27:38+02:00","nonce":"b2d2786cb71632d3f4125803cc8a272f","plan_sha256":"3ee9ba7d6598fd96","target":"gaia-dummy","token":"valid-3"}
+{"action":"heal-apply","exp":"2026-10-21T02:32:38+02:00","iat":"2026-10-21T02:27:38+02:00","nonce":"7e723c3e10906b36cbbc6e2cac1c74a2","plan_sha256":"3ee9ba7d6598fd96","target":"gaia-dummy","token":"valid-4"}
+{"action":"rollback","exp":"2026-10-21T02:32:38+02:00","iat":"2026-10-21T02:27:38+02:00","nonce":"5048208e91a2f72b2f5559bcc3a3ca98","plan_sha256":"3ee9ba7d6598fd96","target":"gaia-dummy","token":"wrong-action"}
+600 expired  600 forged  600 unsafe  600 valid-1  600 valid-2  600 valid-3  600 valid-4  600 wrong-action  600 wrong-plan  600 wrong-svc  644 tampered
+[2026-10-21T02:27:38+02:00] start the real openmind-nerve on 127.0.0.1:19820 and gaia-dummy on 127.0.0.1:19821
+  started openmind-nerve pid 3087149
+  started gaia-dummy (first) pid 3087150
+nerve GET /health: {"appended":0,"cycle":1,"score":0,"service":"openmind-nerve","status":"ok","system":"failing","ts":"2026-10-21T02:27:38+02:00","version":"0.1.0"}
+dummy GET /health: {"status":"ok","service":"gaia-dummy","pid":3087150,"started":"2026-10-21T02:27:38+02:00"}
+[2026-10-21T02:27:38+02:00] 1. dummy up: healthy, no token needed or touched
+01-healthy       exit=0 outcome=healthy   code=-             consumed=0 detail=service is up; nothing to do
+  PASS 01-healthy: exit/outcome/code/consumed (0 healthy - 0)
+[2026-10-21T02:27:38+02:00] 2. scope guard: live stack port 8420 refused before any probe or token
+02-live-port     exit=4 outcome=refused   code=-             consumed=0 detail=port 8420 is outside the allowed test range 19820-19829
+  PASS 02-live-port detail names the allowed range (19820-19829)
+  PASS 02-live-port: exit/outcome/code/consumed (4 refused - 0)
+[2026-10-21T02:27:38+02:00] 3. kill the dummy (pid 3087150, our own child)
+  PASS dummy down (connection refused)
+[2026-10-21T02:27:38+02:00] 4. refusals (service down, nothing restarted, no token consumed)
+04-no-token      exit=4 outcome=refused   code=no-token      consumed=0 detail=no approval token: HADES releases the dry-run plan only
+  PASS 04-no-token: exit/outcome/code/consumed (4 refused no-token 0)
+05-forged        exit=4 outcome=refused   code=forged        consumed=0 detail=forged or tampered token: signature does not verify
+  PASS 05-forged: exit/outcome/code/consumed (4 refused forged 0)
+06-tampered      exit=4 outcome=refused   code=forged        consumed=0 detail=forged or tampered token: signature does not verify
+  PASS 06-tampered: exit/outcome/code/consumed (4 refused forged 0)
+07-wrong-service exit=4 outcome=refused   code=wrong-scope   consumed=0 detail=token is scoped to a different target
+  PASS 07-wrong-service: exit/outcome/code/consumed (4 refused wrong-scope 0)
+08-wrong-action  exit=4 outcome=refused   code=wrong-scope   consumed=0 detail=token is scoped to a different action
+  PASS 08-wrong-action: exit/outcome/code/consumed (4 refused wrong-scope 0)
+09-wrong-plan    exit=4 outcome=refused   code=wrong-scope   consumed=0 detail=token is scoped to a different plan
+  PASS 09-wrong-plan: exit/outcome/code/consumed (4 refused wrong-scope 0)
+10-expired       exit=4 outcome=refused   code=expired       consumed=0 detail=expired token
+  PASS 10-expired: exit/outcome/code/consumed (4 refused expired 0)
+[2026-10-21T02:27:38+02:00] 5. admin safety first: a valid signature over an unsafe plan is still refused
+11-admin-safety  exit=4 outcome=refused   code=admin-safety  consumed=0 detail=admin-safety: secret exposure refused (secret)
+  PASS 11-admin-safety: exit/outcome/code/consumed (4 refused admin-safety 0)
+[2026-10-21T02:27:38+02:00] 6. hades-gate disable (no token, no key) beats a valid token; enable
+12-disabled      exit=4 outcome=refused   code=disabled      consumed=0 detail=HADES is disabled by the admin (disable file present)
+  PASS 12-disabled: exit/outcome/code/consumed (4 refused disabled 0)
+[2026-10-21T02:27:38+02:00] 7.1 valid token valid-1: restart 1 of 3
+13.1-valid       exit=0 outcome=restarted code=approved      consumed=1 detail=restart 1/3 this hour; health verified
+  PASS 13.1-valid: exit/outcome/code/consumed (0 restarted approved 1)
+dummy GET /health: {"status":"ok","service":"gaia-dummy","pid":3087227,"started":"2026-10-21T02:27:38+02:00"}
+[2026-10-21T02:27:38+02:00] kill the restarted dummy (pid 3087227)
+  PASS restart 1: dummy pid reported
+[2026-10-21T02:27:39+02:00] 7.1b replay valid-1
+14-replayed      exit=4 outcome=refused   code=replayed      consumed=1 detail=replayed token: nonce already consumed
+  PASS 14-replayed: exit/outcome/code/consumed (4 refused replayed 1)
+[2026-10-21T02:27:39+02:00] 7.2 valid token valid-2: restart 2 of 3
+13.2-valid       exit=0 outcome=restarted code=approved      consumed=2 detail=restart 2/3 this hour; health verified
+  PASS 13.2-valid: exit/outcome/code/consumed (0 restarted approved 2)
+dummy GET /health: {"status":"ok","service":"gaia-dummy","pid":3087256,"started":"2026-10-21T02:27:39+02:00"}
+[2026-10-21T02:27:39+02:00] kill the restarted dummy (pid 3087256)
+  PASS restart 2: dummy pid reported
+[2026-10-21T02:27:39+02:00] 7.3 valid token valid-3: restart 3 of 3
+13.3-valid       exit=0 outcome=restarted code=approved      consumed=3 detail=restart 3/3 this hour; health verified
+  PASS 13.3-valid: exit/outcome/code/consumed (0 restarted approved 3)
+dummy GET /health: {"status":"ok","service":"gaia-dummy","pid":3087320,"started":"2026-10-21T02:27:39+02:00"}
+[2026-10-21T02:27:39+02:00] kill the restarted dummy (pid 3087320)
+  PASS restart 3: dummy pid reported
+[2026-10-21T02:27:40+02:00] 8. fourth valid token within the hour: capped, token NOT consumed
+15-capped        exit=5 outcome=capped    code=-             consumed=3 detail=restart cap reached: 3 restarts of gaia-dummy in the last hour; next allowed in 3598 s
+  PASS 15-capped: exit/outcome/code/consumed (5 capped - 3)
+  PASS valid-4 nonce not consumed (0)
+  PASS ledger consumed nonces (3)
+refusal/dry-run audit lines = 10
+[2026-10-21T02:27:40+02:00] approval step of restart 1
+{"at":"2026-10-21T02:27:38+02:00","d":{"dry_run":true,"outcome":"dry-run","plan_sha256":"3ee9ba7d6598fd96eae0fe609b705ee49659cfff21625c9255b846c66e272042"},"step":"hades-plan"}
+{"at":"2026-10-21T02:27:38+02:00","d":{"admin_fingerprint":"3807918f7e8de343","alpha":"owner","approved":{"action":"heal-apply","exp":"2026-10-21T02:32:38+02:00","iat":"2026-10-21T02:27:38+02:00","nonce":"9d527891446f99ba94a383dfaf434f7a","plan_sha256":"3ee9ba7d6598fd96eae0fe609b705ee49659cfff21625c9255b846c66e272042","target":"gaia-dummy"},"code":"approved","decision":"WouldApply","released":true,"token_sha256_16":"de84bffba7777d3c"},"step":"approval"}
+[2026-10-21T02:27:40+02:00] hades-gate ledger (no token strings; consumed nonces and refusal reasons)
+{"event":"dry-run","reason":"no token","target":"gaia-dummy","token_sha256_16":"","ts":"2026-10-21T02:27:38+02:00"}
+{"event":"refused","reason":"forged or tampered token: signature does not verify","target":"gaia-dummy","token_sha256_16":"ca39f07ecb6c7032","ts":"2026-10-21T02:27:38+02:00"}
+{"event":"refused","reason":"forged or tampered token: signature does not verify","target":"gaia-dummy","token_sha256_16":"738322c4e781d5e7","ts":"2026-10-21T02:27:38+02:00"}
+{"event":"refused","reason":"token is scoped to a different target","target":"gaia-dummy","token_sha256_16":"12abc3c2cc3a78db","ts":"2026-10-21T02:27:38+02:00"}
+{"event":"refused","reason":"token is scoped to a different action","target":"gaia-dummy","token_sha256_16":"b74768ca6512bdb0","ts":"2026-10-21T02:27:38+02:00"}
+{"event":"refused","reason":"token is scoped to a different plan","target":"gaia-dummy","token_sha256_16":"126aa05741cc70cb","ts":"2026-10-21T02:27:38+02:00"}
+{"event":"refused","reason":"expired token","target":"gaia-dummy","token_sha256_16":"e960aff7adfc9cdd","ts":"2026-10-21T02:27:38+02:00"}
+{"event":"refused","reason":"admin-safety: secret exposure refused (secret)","target":"gaia-dummy","token_sha256_16":"ed1e7c751adaf06d","ts":"2026-10-21T02:27:38+02:00"}
+{"event":"refused","reason":"HADES is disabled by the admin (disable file present)","target":"gaia-dummy","token_sha256_16":"de84bffba7777d3c","ts":"2026-10-21T02:27:38+02:00"}
+{"event":"consumed","nonce":"9d527891446f99ba94a383dfaf434f7a","target":"gaia-dummy","ts":"2026-10-21T02:27:38+02:00"}
+{"event":"refused","reason":"replayed token: nonce already consumed","target":"gaia-dummy","token_sha256_16":"de84bffba7777d3c","ts":"2026-10-21T02:27:39+02:00"}
+{"event":"consumed","nonce":"21f6bb2d201bce30fb0b335fbd430db0","target":"gaia-dummy","ts":"2026-10-21T02:27:39+02:00"}
+{"event":"consumed","nonce":"b2d2786cb71632d3f4125803cc8a272f","target":"gaia-dummy","ts":"2026-10-21T02:27:39+02:00"}
+[2026-10-21T02:27:40+02:00] nerve GET /events?n=200 (ts, severity, kind, short data)
+2026-10-21T02:27:38+02:00	info	service.probe	{"state":"up"}
+2026-10-21T02:27:38+02:00	warn	gaia.heal.refused	{"stage":"scope"}
+2026-10-21T02:27:38+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:38+02:00	warn	gaia.heal.refused	{"code":"no-token","stage":"hades-approval"}
+2026-10-21T02:27:38+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:38+02:00	warn	gaia.heal.refused	{"code":"forged","stage":"hades-approval"}
+2026-10-21T02:27:38+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:38+02:00	warn	gaia.heal.refused	{"code":"forged","stage":"hades-approval"}
+2026-10-21T02:27:38+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:38+02:00	warn	gaia.heal.refused	{"code":"wrong-scope","stage":"hades-approval"}
+2026-10-21T02:27:38+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:38+02:00	warn	gaia.heal.refused	{"code":"wrong-scope","stage":"hades-approval"}
+2026-10-21T02:27:38+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:38+02:00	warn	gaia.heal.refused	{"code":"wrong-scope","stage":"hades-approval"}
+2026-10-21T02:27:38+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:38+02:00	warn	gaia.heal.refused	{"code":"expired","stage":"hades-approval"}
+2026-10-21T02:27:38+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:38+02:00	warn	gaia.heal.refused	{"code":"admin-safety","stage":"hades-approval"}
+2026-10-21T02:27:38+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:38+02:00	warn	gaia.heal.refused	{"code":"disabled","stage":"hades-approval"}
+2026-10-21T02:27:38+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:38+02:00	info	gaia.heal.approved	{"nonce":"9d527891446f99ba94a383dfaf434f7a"}
+2026-10-21T02:27:38+02:00	info	gaia.heal.applied	{"health_verified":true,"nonce":"9d527891446f99ba94a383dfaf434f7a","pid":3087227,"restarts_last_hour":1}
+2026-10-21T02:27:39+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:39+02:00	warn	gaia.heal.refused	{"code":"replayed","stage":"hades-approval"}
+2026-10-21T02:27:39+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:39+02:00	info	gaia.heal.approved	{"nonce":"21f6bb2d201bce30fb0b335fbd430db0"}
+2026-10-21T02:27:39+02:00	info	gaia.heal.applied	{"health_verified":true,"nonce":"21f6bb2d201bce30fb0b335fbd430db0","pid":3087256,"restarts_last_hour":2}
+2026-10-21T02:27:39+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:39+02:00	info	gaia.heal.approved	{"nonce":"b2d2786cb71632d3f4125803cc8a272f"}
+2026-10-21T02:27:39+02:00	info	gaia.heal.applied	{"health_verified":true,"nonce":"b2d2786cb71632d3f4125803cc8a272f","pid":3087320,"restarts_last_hour":3}
+2026-10-21T02:27:40+02:00	warn	service.probe	{"state":"down"}
+2026-10-21T02:27:40+02:00	error	gaia.heal.capped	{"restarts_last_hour":3,"retry_after_s":3598,"token_consumed":false}
+nerve events: 33; JSONL lines on disk: 33
+  PASS nerve saw events (33 events, 33 lines)
+  PASS nerve stamps without Zagreb offset (0)
+  PASS restart ledger lines (3)
+[2026-10-21T02:27:40+02:00] token / seed leak check
+  PASS no token string or seed in tick output, nerve log, gate ledger or state
+[2026-10-21T02:27:40+02:00] teardown
+  PASS port 19820 closed
+  PASS port 19821 closed
+  PASS port 19822 closed
+[2026-10-21T02:27:40+02:00] gaia-hades-tokens: 32 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.10s
+
+     Running tests/real_sh_gaia_poseidon.rs (/workspace/swarm/target/realscript-port-1/debug/deps/real_sh_gaia_poseidon-a6e9d83a7d15721a)
+
+running 1 test
+test real_sh_gaia_poseidon ... [2026-10-21T02:27:40+02:00] build (release, nice -n 10, -j 2): ["-p", "gaia", "-p", "openmind-queue"]
+  856176 bytes  /workspace/swarm/target/realscript-port-1/release/gaia
+  753736 bytes  /workspace/swarm/target/realscript-port-1/release/openmind-queue
+[2026-10-21T02:27:40+02:00] openmind-queue 0.1.0
+[2026-10-21T02:27:40+02:00] == ownership: the single config point
+[2026-10-21T02:27:40+02:00]   gaia systems -> exit 0: 
+  PASS compute systems owned by POSEIDON (FunctionId::COMPUTE) (POSEIDON)
+[2026-10-21T02:27:40+02:00] == unreachable queue: refused, no stand-in fallback
+[2026-10-21T02:27:40+02:00]   gaia poseidon status --queue 127.0.0.1:19829 -> exit 3: degraded
+  PASS unreachable exit (3)
+  PASS POSEIDON degraded when queue down (degraded)
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --queue 10.1.2.3:19820 --agent x -> exit 2: 
+  PASS non-loopback queue refused (usage error) (2)
+[2026-10-21T02:27:40+02:00] == start openmind-queue on 127.0.0.1:19820
+  started openmind-queue pid 3087436
+[2026-10-21T02:27:40+02:00]   gaia poseidon status -> exit 0: terraforming
+  PASS status exit (0)
+  PASS POSEIDON terraforming (terraforming)
+  PASS backend (openmind-queue)
+  PASS four systems done (4)
+[2026-10-21T02:27:40+02:00] == operator sets caps, quotas and VRAM devices (openmind-queue CLI, not Gaia)
+  PASS priced device without approved provider stays planned (planned)
+[2026-10-21T02:27:40+02:00] == submit and inspect jobs through gaia
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-a --kind echo --cost 40 --priority 5 --job-payload hello -> exit 0: job 1 queued on openmind-queue 127.0.0.1:19820 at 2026-10-21T02:27:40.762+02:00
+  PASS submit 1 done (0)
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-a --kind echo --cost 40 -> exit 0: job 2 queued on openmind-queue 127.0.0.1:19820 at 2026-10-21T02:27:40.765+02:00
+  PASS submit 2 done (0)
+[2026-10-21T02:27:40+02:00]   gaia poseidon job 1 -> exit 0: job 1 ready on queue default for agent agent-a (kind echo, attempts 0/5, cost 40, vram 0 GB), created 2026-10-21T02:27:40.762+02:00
+  PASS inspect job 1 live (1)
+  PASS inspect job 1 cost (40)
+  PASS inspect job 1 priority (5)
+[2026-10-21T02:27:40+02:00]   gaia poseidon job 999999 -> exit 0: job 999999 is not live on openmind-queue (acked jobs are not kept, or it never existed)
+  PASS unknown job not live (0)
+[2026-10-21T02:27:40+02:00]   gaia dispatch queues run --payload {"agent":"agent-a","kind":"echo","cost":1,"token":7} --queue 127.0.0.1:19820 -> exit 5: 
+  PASS unknown job field rejected by adapter (5)
+[2026-10-21T02:27:40+02:00] == Gaia never spends: snapshot budget, run every gaia read command, compare
+[2026-10-21T02:27:40+02:00]   gaia poseidon status -> exit 0: terraforming
+[2026-10-21T02:27:40+02:00]   gaia poseidon vram -> exit 0: 24 GB approved (1 routable devices), 0 GB used, 104 GB planned; goal 1500 GB, gap 1476 GB; devices: gpu0 24 GB approved free 24, lan-4090 24 GB planned (not routable) free 24, rented-h100 80 GB planned (not routable) free 80
+[2026-10-21T02:27:40+02:00]   gaia poseidon caps -> exit 0: global spent 0 reserved 0 cap 1000; caps only, no money moves
+[2026-10-21T02:27:40+02:00]   gaia poseidon quotas -> exit 0: 2 agent(s); default max_pending 100000, max_inflight 1000
+[2026-10-21T02:27:40+02:00]   gaia poseidon dlq -> exit 0: 0 dead-lettered job(s)
+[2026-10-21T02:27:40+02:00]   gaia poseidon plan-vram 16 -> exit 0: 16 GB would go to device gpu0 (no spend)
+[2026-10-21T02:27:40+02:00]   gaia poseidon job 1 -> exit 0: job 1 ready on queue default for agent agent-a (kind echo, attempts 0/5, cost 40, vram 0 GB), created 2026-10-21T02:27:40.762+02:00
+[2026-10-21T02:27:40+02:00]   gaia dispatch budget-caps run --payload 100000 --queue 127.0.0.1:19820 -> exit 4: 
+  PASS budget-caps run refused (read-only) (4)
+[2026-10-21T02:27:40+02:00]   gaia dispatch quotas run --payload 99 --queue 127.0.0.1:19820 -> exit 4: 
+  PASS quotas run refused (read-only) (4)
+[2026-10-21T02:27:40+02:00]   gaia dispatch vram-pool run --payload 80 --queue 127.0.0.1:19820 -> exit 4: 
+  PASS vram-pool run refused (read-only) (4)
+[2026-10-21T02:27:40+02:00]   gaia dispatch budget-caps execute --payload 100000 --queue 127.0.0.1:19820 -> exit 4: 
+  PASS budget-caps execute refused (read-only) (4)
+[2026-10-21T02:27:40+02:00]   gaia dispatch quotas execute --payload 99 --queue 127.0.0.1:19820 -> exit 4: 
+  PASS quotas execute refused (read-only) (4)
+[2026-10-21T02:27:40+02:00]   gaia dispatch vram-pool execute --payload 80 --queue 127.0.0.1:19820 -> exit 4: 
+  PASS vram-pool execute refused (read-only) (4)
+  PASS budget, caps, acks and leases unchanged by gaia ({"a":{"reserved":0,"spent":0},"acked":0,"g":{"cap":1000,"reserved":0,"spent":0},"leased":0})
+  PASS agent-a cap still 100 (100)
+[2026-10-21T02:27:40+02:00] == operator worker spends 80 units in the queue (lease + ack; Gaia never does this)
+[2026-10-21T02:27:40+02:00]   worker: 2 ack(s)
+[2026-10-21T02:27:40+02:00]   gaia poseidon caps -> exit 0: global spent 80 reserved 0 cap 1000; caps only, no money moves
+  PASS caps: agent-a spent 80 (80)
+  PASS caps: agent-a cap 100 (100)
+  PASS caps: global cap 1000 (1000)
+[2026-10-21T02:27:40+02:00] == spend-cap refusal surfaced through gaia
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-a --kind echo --cost 40 -> exit 4: openmind-queue refused the job: spend cap hard stop (budget_hard_stop: budget agent-a: spent 80 + cost 40 > cap 100)
+  PASS spend cap -> exit 4 (4)
+  PASS spend cap -> refused (refused)
+  PASS spend cap -> 402 (402)
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-a --kind echo --cost 20 -> exit 0: job 3 queued on openmind-queue 127.0.0.1:19820 at 2026-10-21T02:27:40.798+02:00
+  PASS cost that fits under the cap accepted (0)
+[2026-10-21T02:27:40+02:00] == quota refusal surfaced through gaia
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-b --kind echo -> exit 0: job 4 queued on openmind-queue 127.0.0.1:19820 at 2026-10-21T02:27:40.800+02:00
+  PASS agent-b job 1 (0)
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-b --kind echo -> exit 0: job 5 queued on openmind-queue 127.0.0.1:19820 at 2026-10-21T02:27:40.802+02:00
+  PASS agent-b job 2 (0)
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-b --kind echo -> exit 4: openmind-queue refused the job: quota exceeded (quota_exceeded: agent agent-b has 2 pending jobs (max_pending 2))
+  PASS quota -> exit 4 (4)
+  PASS quota -> 429 (429)
+[2026-10-21T02:27:40+02:00]   gaia poseidon quotas -> exit 0: 2 agent(s); default max_pending 100000, max_inflight 1000
+  PASS quotas: agent-b pending 2 (2)
+  PASS quotas: agent-b max_pending 2 (2)
+  PASS quotas: refusals counted (1)
+[2026-10-21T02:27:40+02:00] == money refused (adapter, before the queue)
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-a --kind payout -> exit 4: real-money access is not approved; POSEIDON tracks caps only
+  PASS money kind -> exit 4 (4)
+[2026-10-21T02:27:40+02:00] == VRAM pool through gaia
+[2026-10-21T02:27:40+02:00]   gaia poseidon vram -> exit 0: 24 GB approved (1 routable devices), 0 GB used, 104 GB planned; goal 1500 GB, gap 1476 GB; devices: gpu0 24 GB approved free 24, lan-4090 24 GB planned (not routable) free 24, rented-h100 80 GB planned (not routable) free 80
+  PASS vram: 24 GB approved (24)
+  PASS vram: 3 devices listed (3)
+  PASS vram: planned GB counts lan + h100 (104)
+[2026-10-21T02:27:40+02:00]   gaia poseidon plan-vram 16 -> exit 0: 16 GB would go to device gpu0 (no spend)
+  PASS plan 16 GB dry-run (dry-run)
+  PASS plan 16 GB -> gpu0 (true)
+[2026-10-21T02:27:40+02:00]   gaia poseidon plan-vram 48 -> exit 0: 48 GB fits no approved device now: offload to CPU or wait; more VRAM needs owner spend approval
+  PASS plan 48 GB fits nothing (true)
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-c --kind echo --vram-gb 48 -> exit 4: openmind-queue refused the job: VRAM unavailable (vram_unavailable: no approved, healthy device can hold 48 GB (largest 24 GB); set cpu_fallback or get a device approved)
+  PASS 48 GB job without cpu fallback -> refused (4)
+  PASS 48 GB job -> 503 (503)
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-c --kind echo --vram-gb 48 --cpu-fallback -> exit 0: job 6 queued on openmind-queue 127.0.0.1:19820 at 2026-10-21T02:27:40.813+02:00
+  PASS 48 GB job with cpu fallback accepted (0)
+[2026-10-21T02:27:40+02:00] == dead-letter queue through gaia
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-d --queue-name dl --kind fail --max-attempts 1 -> exit 0: job 7 queued on openmind-queue 127.0.0.1:19820 at 2026-10-21T02:27:40.815+02:00
+[2026-10-21T02:27:40+02:00]   gaia poseidon dlq -> exit 0: 1 dead-lettered job(s): 7
+  PASS dlq lists job 7 (true)
+[2026-10-21T02:27:40+02:00] == restart persistence: kill -9 the queue
+[2026-10-21T02:27:40+02:00]   gaia poseidon job 3 -> exit 3: openmind-queue unreachable at 127.0.0.1:19820: Connection refused (os error 111); nothing done (no fallback to the stand-in)
+  PASS queue down -> gaia exit 3 (3)
+  started openmind-queue pid 3087613
+  PASS depth, budget and caps survive kill -9 ({"a":{"cap":100,"spent":80},"depth":{"dead":1,"delayed":0,"leased":0,"ready":4},"g":{"cap":1000,"reserved":0,"spent":80}})
+[2026-10-21T02:27:40+02:00]   gaia poseidon job 3 -> exit 0: job 3 ready on queue default for agent agent-a (kind echo, attempts 0/5, cost 20, vram 0 GB), created 2026-10-21T02:27:40.798+02:00
+  PASS job 3 still live after restart (1)
+[2026-10-21T02:27:40+02:00]   gaia poseidon job 6 -> exit 0: job 6 ready on queue default for agent agent-c (kind echo, attempts 0/5, cost 0, vram 48 GB), created 2026-10-21T02:27:40.813+02:00
+  PASS job 6 still live after restart (1)
+[2026-10-21T02:27:40+02:00]   gaia poseidon caps -> exit 0: global spent 80 reserved 0 cap 1000; caps only, no money moves
+  PASS spent 80 persisted (80)
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-a --kind echo --cost 40 -> exit 4: openmind-queue refused the job: spend cap hard stop (budget_hard_stop: budget agent-a: spent 80 + cost 40 > cap 100)
+  PASS spend cap still enforced after restart (4)
+[2026-10-21T02:27:40+02:00]   gaia poseidon submit --agent agent-b --kind echo -> exit 4: openmind-queue refused the job: quota exceeded (quota_exceeded: agent agent-b has 2 pending jobs (max_pending 2))
+  PASS quota still enforced after restart (4)
+[2026-10-21T02:27:40+02:00]   gaia poseidon vram -> exit 0: 24 GB approved (1 routable devices), 0 GB used, 104 GB planned; goal 1500 GB, gap 1476 GB; devices: gpu0 24 GB approved free 24, lan-4090 24 GB planned (not routable) free 24, rented-h100 80 GB planned (not routable) free 80
+  PASS VRAM devices persisted (3)
+[2026-10-21T02:27:40+02:00]   gaia poseidon dlq -> exit 0: 1 dead-lettered job(s): 7
+  PASS dead letter persisted (true)
+[2026-10-21T02:27:40+02:00]   gaia poseidon status -> exit 0: terraforming
+  PASS status after restart (0)
+[2026-10-21T02:27:40+02:00]   store: {"compactions":0,"lines":19,"replayed":19,"truncated_bytes":0}
+[2026-10-21T02:27:40+02:00] == teardown
+  PASS port 19820 closed
+[2026-10-21T02:27:40+02:00] gaia-poseidon: 60 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
+
+     Running tests/real_sh_hades_approval.rs (/workspace/swarm/target/realscript-port-1/debug/deps/real_sh_hades_approval-205c517485d98770)
+
+running 1 test
+test real_sh_hades_approval ... [2026-10-21T02:27:40+02:00] build (release, nice -n 10, -j 2): ["-p", "hades-gate", "--target", "x86_64-unknown-linux-musl"]
+  615120 bytes  /workspace/swarm/target/realscript-port-1/x86_64-unknown-linux-musl/release/hades-gate
+[2026-10-21T02:27:41+02:00] binary: /workspace/swarm/target/realscript-port-1/x86_64-unknown-linux-musl/release/hades-gate
+  started hades-gate serve pid 3087700
+[2026-10-21T02:27:41+02:00] GET /health
+{"admin_fingerprint":"e03ce575eb6a5349","disabled":false,"mode":"dry-run","service":"hades-gate","ts":"2026-10-21T02:27:41+02:00"}
+  PASS health ("mode":"dry-run")
+[2026-10-21T02:27:41+02:00] 1. no token -> DryRun (default)
+{"decision":"DryRun","dry_run":true,"executed":false,"reason":"no token: plan only","ts":"2026-10-21T02:27:41+02:00"} http=200
+  PASS dry-run ("decision":"DryRun")
+[2026-10-21T02:27:41+02:00] 2. old public token approved-test -> refused
+{"code":"malformed","decision":"Refused","dry_run":true,"executed":false,"reason":"malformed token: prefix","ts":"2026-10-21T02:27:41+02:00"} http=403
+  PASS old-token ("code":"malformed")
+[2026-10-21T02:27:41+02:00] 3. mint a token (throwaway key) and approve the dry-run action once
+{"approved":{"action":"heal-apply","exp":"2026-10-21T02:29:41+02:00","iat":"2026-10-21T02:27:41+02:00","nonce":"5c8b48f6d15a37e92e6698355a3a1100","plan_sha256":"66615e425a965e3992379f331816b64041b57eb9ed7fa9836f00fb60ec2fc76a","target":"galion-tuner"},"decision":"WouldApply","dry_run":true,"executed":false,"ts":"2026-10-21T02:27:41+02:00"} http=200
+  PASS approved ("decision":"WouldApply")
+  PASS not-executed ("executed":false)
+[2026-10-21T02:27:41+02:00] 4. replay the same token -> refused
+{"code":"replayed","decision":"Refused","dry_run":true,"executed":false,"reason":"replayed token: nonce already consumed","ts":"2026-10-21T02:27:41+02:00"} http=403
+  PASS replay ("code":"replayed")
+[2026-10-21T02:27:41+02:00] 5. tamper: one payload hex digit changed (fresh token) -> refused
+{"code":"forged","decision":"Refused","dry_run":true,"executed":false,"reason":"forged or tampered token: signature does not verify","ts":"2026-10-21T02:27:41+02:00"} http=403
+  PASS tamper ("code":"forged")
+[2026-10-21T02:27:41+02:00] 6. forged: token signed by a different throwaway key -> refused
+{"code":"forged","decision":"Refused","dry_run":true,"executed":false,"reason":"forged or tampered token: signature does not verify","ts":"2026-10-21T02:27:41+02:00"} http=403
+  PASS forged ("code":"forged")
+[2026-10-21T02:27:41+02:00] 7. wrong scope: valid token used for another target -> refused
+{"code":"wrong-scope","decision":"Refused","dry_run":true,"executed":false,"reason":"token is scoped to a different target","ts":"2026-10-21T02:27:41+02:00"} http=403
+  PASS wrong-scope ("code":"wrong-scope")
+[2026-10-21T02:27:41+02:00] 8. expiry: token with ttl 2 s, used after 3 s -> refused
+{"code":"expired","decision":"Refused","dry_run":true,"executed":false,"reason":"expired token","ts":"2026-10-21T02:27:44+02:00"} http=403
+  PASS expired ("code":"expired")
+[2026-10-21T02:27:44+02:00] 9. admin-safety: validly signed token for 'rm -rf' -> refused
+{"code":"admin-safety","decision":"Refused","dry_run":true,"executed":false,"reason":"admin-safety: destructive command refused (rm -r)","ts":"2026-10-21T02:27:44+02:00"} http=403
+  PASS safety-destructive ("code":"admin-safety")
+{"code":"admin-safety","decision":"Refused","dry_run":true,"executed":false,"reason":"admin-safety: admin account/access change refused (usermod)","ts":"2026-10-21T02:27:44+02:00"} http=403
+  PASS safety-admin ("code":"admin-safety")
+[2026-10-21T02:27:44+02:00] 10. kill with a valid signature -> refused
+{"code":"action","decision":"Refused","dry_run":true,"executed":false,"reason":"action \"kill\" can never be approved","ts":"2026-10-21T02:27:44+02:00"} http=403
+  PASS kill ("code":"action")
+[2026-10-21T02:27:44+02:00] 11. admin disables HADES (no token needed) -> everything refused
+{"code":"disabled","decision":"Refused","dry_run":true,"executed":false,"reason":"HADES is disabled by the admin (disable file present)","ts":"2026-10-21T02:27:44+02:00"} http=403
+  PASS disabled ("code":"disabled")
+{"approved":{"action":"heal-apply","exp":"2026-10-21T02:29:44+02:00","iat":"2026-10-21T02:27:44+02:00","nonce":"914dcfb3ad4a498c9e609c312c3fa321","plan_sha256":"66615e425a965e3992379f331816b64041b57eb9ed7fa9836f00fb60ec2fc76a","target":"galion-tuner"},"decision":"WouldApply","dry_run":true,"executed":false,"ts":"2026-10-21T02:27:44+02:00"} http=200
+  PASS re-enabled ("decision":"WouldApply")
+[2026-10-21T02:27:44+02:00] 12. CLI check path: replay of t3 via the CLI -> exit 2
+{"code":"replayed","decision":"Refused","dry_run":true,"executed":false,"reason":"replayed token: nonce already consumed","ts":"2026-10-21T02:27:44+02:00"} exit=2
+  PASS cli-replay ("code":"replayed")
+  PASS cli-exit-2 (2)
+[2026-10-21T02:27:44+02:00] 13. ledger (append-only, fsynced): event counts; no token strings stored
+     2 consumed
+     1 dry-run
+    11 refused
+  PASS no-token-in-ledger
+  ledger mode 600  seed mode 600
+[2026-10-21T02:27:44+02:00] 14. admin stop: POST /v1/stop
+{"ok":true,"stopping":true}
+  PASS stopped (Some(ExitStatus(unix_wait_status(0))))
+  PASS port 19820 closed
+[2026-10-21T02:27:44+02:00] hades-approval: 20 passed, 0 failed
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.23s
+
+     Running tests/real_sh_hermes_tools.rs (/workspace/swarm/target/realscript-port-1/debug/deps/real_sh_hermes_tools-9398e9bc1f10e2d5)
+
+running 2 tests
+test escapes_parse_like_grep ... ok
+test real_sh_hermes_tools ... [2026-10-21T02:27:44+02:00] build (release, nice -n 10, -j 2): ["-p", "hermes-tools", "--bin", "hermes-mock-model"]
+[2026-10-21T02:27:44+02:00] build (release, nice -n 10, -j 2): ["-p", "hermes-gateway", "--no-default-features", "--features", "coding"]
+[2026-10-21T02:27:44+02:00] build (release, nice -n 10, -j 2): ["-p", "hermes-gateway"]
+  949088 bytes  /workspace/swarm/target/realscript-port-1/release/hermes-gateway-coding-only
+  404824 bytes  /workspace/swarm/target/realscript-port-1/release/hermes-mock-model
+[2026-10-21T02:27:44+02:00] fake ticket repo /tmp/hermes-tools-real-3087878-1792542464340126739/ticket on swarm/fake-ticket, origin = /tmp/hermes-tools-real-3087878-1792542464340126739/remote.git
+  started hermes-mock-model pid 3087932
+  started hermes-gateway pid 3087933
+[2026-10-21T02:27:44+02:00] gateway log:
+2026-10-21T02:27:44+02:00 hermes-gateway coding: no HERMES_RS_CODING_CGROUP: per-run memory/cpu/pids caps fall back to rlimits (RLIMIT_AS, RLIMIT_CPU) and nice
+2026-10-21T02:27:44+02:00 hermes-gateway coding: landlock_abi=6 userns=true worktree=/tmp/hermes-tools-real-3087878-1792542464340126739/ticket branch=swarm/fake-ticket audit=/tmp/hermes-tools-real-3087878-1792542464340126739/state/audit.jsonl
+2026-10-21T02:27:44+02:00 hermes-gateway coding: tools on: ["fs_read", "fs_write", "git", "cargo"]
+2026-10-21T02:27:44+02:00 hermes-gateway listening on 127.0.0.1:19820 mock=false loopback=true
+[2026-10-21T02:27:44+02:00] GET /health: {"status":"ok","platform":"hermes-agent","version":"0.21.4","implementation":"hermes-rs","implementation_version":"0.1.0"}
+[2026-10-21T02:27:44+02:00] === session 1: fake ticket FAKE-1 ===
+[2026-10-21T02:27:44+02:00] assistant: FAKE-1 done: read src/lib.rs, fixed add(), cargo test green, committed on the work branch. Not pushed.
+  987015d hermes-rs <hermes-rs@galion.invalid> fix(adder): add() adds instead of subtracting (FAKE-1)
+  86354a5 setup <setup@local> FAKE-1: buggy adder
+  PASS commit on swarm/fake-ticket by hermes-rs (hermes-rs)
+  PASS main untouched (FAKE-1: buggy adder)
+  PASS origin has no new branch (nothing pushed) (refs/heads/main)
+  PASS src/lib.rs fixed (a + b)
+  mock: {"authorization_header_sent":false,"last_tool_result":"","model":"anthropic/claude-opus-5.5","reply":"tool_call git","req_no":1,"script":"ticket","step":0}
+  mock: {"authorization_header_sent":false,"last_tool_result":"{\"branch\":\"swarm/fake-ticket\",\"status\":\"## swarm/fake-ticket\\n\"}","model":"anthropic/claude-opus-5.5","reply":"tool_call fs_read","req_no":2,"script":"ticket","step":1}
+  mock: {"authorization_header_sent":false,"last_tool_result":"{\"path\":\"src/lib.rs\",\"offset\":0,\"bytes\":276,\"file_size\":276,\"truncated\":false,\"content\":\"// SPDX-License-Identifier: MIT\\n// Copyright (c) 3000 Galion / galion-studio\\n\\n/// Ticket FAKE-1
+  mock: {"authorization_header_sent":false,"last_tool_result":"{\"exit\":101,\"signal\":null,\"timed_out\":false,\"wall_ms\":123,\"sandbox\":{\"enforced\":[\"rlimits\",\"env\",\"workdir\",\"no_new_privs\",\"userns\",\"net\",\"pidns\",\"mountns\",\"ro_root\",\"proc\",\
+  mock: {"authorization_header_sent":false,"last_tool_result":"{\"path\":\"src/lib.rs\",\"bytes\":276,\"written\":true}","model":"anthropic/claude-opus-5.5","reply":"tool_call cargo","req_no":5,"script":"ticket","step":4}
+  mock: {"authorization_header_sent":false,"last_tool_result":"{\"exit\":0,\"signal\":null,\"timed_out\":false,\"wall_ms\":102,\"sandbox\":{\"enforced\":[\"rlimits\",\"env\",\"workdir\",\"no_new_privs\",\"userns\",\"net\",\"pidns\",\"mountns\",\"ro_root\",\"proc\",\"l
+  mock: {"authorization_header_sent":false,"last_tool_result":"{\"branch\":\"swarm/fake-ticket\",\"diff\":\" src/lib.rs | 2 +-\\n 1 file changed, 1 insertion(+), 1 deletion(-)\\n\\ndiff --git a/src/lib.rs b/src/lib.rs\\nindex 3b77902..49304cf 100644\\n--- a/src/lib.rs
+  mock: {"authorization_header_sent":false,"last_tool_result":"{\"branch\":\"swarm/fake-ticket\",\"commit\":\"987015d3c43d313e4aacdcc4423a9161a09dc0a2\",\"pushed\":false,\"stat\":\"fix(adder): add() adds instead of subtracting (FAKE-1)\\n\\n src/lib.rs | 2 +-\\n 1 fil
+[2026-10-21T02:27:44+02:00] === session 2: escape attempts ===
+[2026-10-21T02:27:45+02:00] assistant: Escape script finished.
+  step result:   -> next: tool_call fs_read
+  step result: {"error":"refused: path traversal (..) refused: ../../../../etc/passwd"}  -> next: tool_call fs_read
+  step result: {"error":"refused: absolute path outside the allowlisted worktree refused: /etc/shadow"}  -> next: tool_call fs_read
+  step result: {"error":"refused: symlink in path refused (it could point outside the worktree): link-out"}  -> next: tool_call fs_write
+  step result: {"error":"refused: path traversal (..) refused: ../canary/keep.txt"}  -> next: tool_call fs_write
+  step result: {"error":"refused: absolute path outside the allowlisted worktree refused: /tmp/hermes-tools-real-3087878-1792542464340126739/canary/keep.txt"}  -> next: tool_call fs_write
+  step result: {"error":"refused: .git is off-limits to the coding tools: .git/hooks/pre-commit"}  -> next: tool_call fs_write
+  step result: {"error":"refused: writing under .cargo is not allowed: .cargo/config.toml"}  -> next: tool_call shell
+  step result: {"error":"Unknown tool: shell"}  -> next: tool_call cargo
+  step result: {"error":"refused: argument \"args\" is not allowed (allowed: command, package, release, test_filter, nocapture)"}  -> next: tool_call cargo
+  step result: {"error":"refused: cargo \"rm -rf /\" is not allowed (allowed: build, check, test, clippy)"}  -> next: tool_call git
+  step result: {"error":"refused: git \"push\" is never allowed: hermes-rs does not push (the owner pushes)"}  -> next: tool_call git
+  step result: {"error":"refused: git op \"remote\" is not allowed (allowed: status, diff, commit)"}  -> next: tool_call fs_write
+  step result: {"path":"tests/escape.rs","bytes":2866,"written":true}  -> next: tool_call cargo
+  step result: {"exit":0,"signal":null,"timed_out":false,"wall_ms":153,"sandbox":{"enforced":["rlimits","env","workdir","no_new_privs","userns","net","pidns","mountns","ro_root","proc","landlock","caps","fds"],"not_  -> next: tool_call git
+  step result: {"branch":"swarm/fake-ticket","status":"## swarm/fake-ticket\n?? Cargo.lock\n?? tests/escape.rs\n"}  -> next: final
+  PASS canary intact
+  PASS no .git/hooks/pre-commit written
+  PASS no .cargo/config.toml written
+  PASS origin still only main (refs/heads/main)
+  ESCAPE dns_github.com: BLOCKED
+  ESCAPE git_push_to_origin: BLOCKED
+  ESCAPE net_internet_1.1.1.1:443: BLOCKED
+  ESCAPE net_loopback_mock_model: BLOCKED
+  ESCAPE read_host_file_outside_worktree: BLOCKED
+  ESCAPE rm_-rf_outside_worktree: BLOCKED
+  ESCAPE write_outside_worktree: BLOCKED
+  PASS escape test ran inside the sandbox: 7 attempts, all BLOCKED (7 BLOCKED of 7)
+[2026-10-21T02:27:45+02:00] === session 3+4+5: spend caps ($0.60 per mock call; session cap $1.00, daily $2.00) ===
+[2026-10-21T02:27:45+02:00] spend-1: {"error":{"message":"session spend cap reached ($1.2000 of $1.00)","type":"agent_error","param":null,"code":"spend_cap"}}
+[2026-10-21T02:27:45+02:00] spend-2: {"error":{"message":"daily spend cap reached ($2.4000 of $2.00)","type":"agent_error","param":null,"code":"spend_cap"}}
+[2026-10-21T02:27:45+02:00] spend-3: {"error":{"message":"daily spend cap reached ($2.4000 of $2.00)","type":"agent_error","param":null,"code":"spend_cap"}}
+  PASS mock saw exactly 4 spend calls (2 per session, 0 for the third) (4)
+[2026-10-21T02:27:45+02:00] === audit log summary (state/audit.jsonl) ===
+  refused fs_read: path traversal (..) refused: ../../../../etc/passwd
+  refused fs_read: absolute path outside the allowlisted worktree refused: /etc/shadow
+  refused fs_read: symlink in path refused (it could point outside the worktree): link-out
+  refused fs_write: path traversal (..) refused: ../canary/keep.txt
+  refused fs_write: absolute path outside the allowlisted worktree refused: /tmp/hermes-tools-real-3087878-1792542464340126739/canary/keep.txt
+  refused fs_write: .git is off-limits to the coding tools: .git/hooks/pre-commit
+  refused fs_write: writing under .cargo is not allowed: .cargo/config.toml
+  refused cargo: argument "args" is not allowed (allowed: command, package, release, test_filter, nocapture)
+  refused cargo: cargo "rm -rf /" is not allowed (allowed: build, check, test, clippy)
+  refused git: git "push" is never allowed: hermes-rs does not push (the owner pushes)
+  refused git: git op "remote" is not allowed (allowed: status, diff, commit)
+  refused fs_read: session spend cap reached ($1.2000 of $1.00)
+  refused fs_read: daily spend cap reached ($2.4000 of $2.00)
+     18 allowed
+     18 ran
+     13 refused
+  PASS mock never saw a key in Authorization
+  PASS no non-loopback connection from the gateway
+  PASS test gateway key never in logs
+[2026-10-21T02:27:45+02:00] processes stopped; listeners left on our ports: 0
+  PASS listeners left (0)
+[2026-10-21T02:27:45+02:00] hermes-tools: 14 passed, 0 failed
+ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+
+error: 1 target failed:
+    `-p galion-realtest --test real_sh_docs_sync`

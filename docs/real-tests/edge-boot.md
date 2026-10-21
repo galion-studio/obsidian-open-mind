@@ -174,3 +174,6 @@ main 13a296ce under qemu-user (RLIMIT_AS under qemu-user), so it is not from thi
 branch. armv7 (merged with swarm/ucpu 3e70ffb in a scratch clone, run under
 `qemu-arm`): the 8 seccomp/boot tests pass, including the check that every armv7
 deny-list number equals libc's `SYS_*` constant.
+
+## Ported to Rust (2026-10-21, +02:00)
+`scripts/real/edge-boot.sh` was replaced on swarm/realscript-port-1 by the gated Rust test `crates/galion-realtest/tests/real_sh_edge_boot.rs` (same checks; run with `GALION_REAL=1`). The evidence above is from the shell version; the Rust run is in `docs/real-tests/realscript-port-1.md`.

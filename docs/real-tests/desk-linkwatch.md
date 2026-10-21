@@ -153,3 +153,6 @@ aarch64-linux-android and armv7-unknown-linux-musleabihf (C for the bundled
 SQLite compiled with the ucpu agent's zig cc wrappers); aarch64 binaries run
 `--help` under qemu-aarch64. The armv7 gnueabihf target is not installed on the
 box, so the musleabihf variant was checked instead.
+
+## Ported to Rust (2026-10-21, +02:00)
+`scripts/real/desk-linkwatch.sh` was replaced on swarm/realscript-port-1 by the gated Rust test `crates/galion-realtest/tests/real_sh_desk_linkwatch.rs` (same checks; run with `GALION_REAL=1`). The evidence above is from the shell version; the Rust run is in `docs/real-tests/realscript-port-1.md`.

@@ -479,7 +479,8 @@ impl Engine {
             "probes_skipped": self.skipped,
         });
         // T4.2: HADES plan templates, text only; never executed here.
-        st["cortex_plans"] = crate::plans::from_state(&st).to_json();
+        st["cortex_plans"] =
+            crate::plans::from_state_with(&st, &self.cfg.plans_protected).to_json();
         st
     }
 

@@ -462,17 +462,13 @@ fn protected_names_never_get_a_plan() {
         }
     });
     let ps = from_state(&state);
-    // The only thing left: an ingress removal for :2222 with no hostname.
-    let ids: Vec<&str> = ps.plans.iter().map(|p| p.id.as_str()).collect();
-    assert_eq!(
-        ids,
-        ["plan-ingress-rule-removal-cloudflared"],
-        "{:#?}",
-        ps.skipped
-    );
-    let t = ps.plans[0].plan_text();
-    assert!(!t.contains("ssh") && !t.contains("admin"), "{t}");
-    well_formed(&ps.plans[0]);
+    // :2222 routes only protected hostnames: removing "the rules whose service
+    // is :2222" would drop them too, so the port is left alone (D-T42-4 fix).
+    assert!(ps.plans.is_empty(), "{:#?}", ps.plans);
+    assert!(ps
+        .skipped
+        .iter()
+        .any(|s| s.finding == "bleeding:edge-dead-origins:2222"));
     for k in [
         "vulnerability:public-listener-22",
         "bleeding:stuck-loading-hades-gate",

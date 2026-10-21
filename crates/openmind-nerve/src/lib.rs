@@ -43,6 +43,7 @@ pub mod incident;
 pub mod logscan;
 pub mod plans;
 pub mod probe;
+pub mod protected_hosts;
 pub mod reflex;
 pub mod replay;
 pub mod score;

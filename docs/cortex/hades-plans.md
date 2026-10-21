@@ -85,6 +85,9 @@ same plan hash cycle after cycle (asserted live across two cycles).
   galion.studio (:4001), which Slavik wants serving (tunnel-fix-502, 08:27). The plan's precondition asks the
   owner to confirm, but a keep list would be safer. Options: (a) precondition only (current); (b)
   `NERVE_PLANS_KEEP_HOSTS` list that is never unrouted. Recommendation (b).
+  **DECIDED 2026-10-21 17:04 +02:00 (Mate):** never-unroute list = the VPS itself, DNS, the mail server, the
+  backup server; everything else may be proposed. Implemented on `swarm/cortex-protected-hosts`, see
+  docs/cortex/protected-hosts.md. galion.studio is not one of the four, so it is still proposed (open: D-PH-1).
 - **D-T42-5 edge rate-limit numbers.** Limit = max(stream threshold, 4 x baseline) x 10 s per client, at least
   20; managed challenge for 10 min; block rule only for a single public source, review after 24 h.
   Options: approve, or set other numbers. No Cloudflare change is made by any of this.

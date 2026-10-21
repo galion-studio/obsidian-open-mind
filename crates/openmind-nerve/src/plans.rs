@@ -34,6 +34,7 @@
 //! in the engine, on a replayed capture and on a saved state file
 //! (`openmind-nerve plans FILE`).
 
+use crate::protected_hosts::ProtectedHosts;
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
 
@@ -149,6 +150,8 @@ pub struct Skip {
 pub struct Plans {
     pub plans: Vec<Plan>,
     pub skipped: Vec<Skip>,
+    /// The never-unroute list the route-removal plan obeyed (D-T42-4).
+    pub protected: ProtectedHosts,
 }
 
 impl Plans {
@@ -167,6 +170,7 @@ impl Plans {
             "by_family": by,
             "plans": self.plans.iter().map(Plan::to_json).collect::<Vec<_>>(),
             "skipped": self.skipped.iter().map(|s| json!({"finding": s.finding, "reason": s.reason})).collect::<Vec<_>>(),
+            "protected_hosts": self.protected.to_json(),
         })
     }
 }
@@ -262,6 +266,7 @@ fn comps(state: &Value) -> Vec<Comp<'_>> {
 
 struct Ctx<'a> {
     comps: Vec<Comp<'a>>,
+    keep: &'a ProtectedHosts,
     incidents: Vec<&'a Value>,
     out: Plans,
     seen: BTreeSet<String>,
@@ -352,10 +357,18 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// All plans for one nerve state (`/api/v1/state` JSON).
+/// All plans for one nerve state (`/api/v1/state` JSON), with the built-in
+/// never-unroute list (`deploy/nerve/plans-protected-hosts.conf`).
 pub fn from_state(state: &Value) -> Plans {
+    from_state_with(state, &ProtectedHosts::builtin())
+}
+
+/// [`from_state`] with an explicit never-unroute list (the nerve passes the
+/// one from its config, see [`ProtectedHosts::from_env`]).
+pub fn from_state_with<'a>(state: &'a Value, keep: &'a ProtectedHosts) -> Plans {
     let mut cx = Ctx {
         comps: comps(state),
+        keep,
         incidents: state["incidents"]["open"]
             .as_array()
             .map(|a| a.iter().collect())
@@ -400,6 +413,7 @@ pub fn from_state(state: &Value) -> Plans {
         );
     }
     let mut out = cx.out;
+    out.protected = keep.clone();
     out.plans.sort_by(|a, b| {
         sev_rank(&b.severity)
             .cmp(&sev_rank(&a.severity))
@@ -596,15 +610,38 @@ fn ingress_removal(cx: &mut Ctx<'_>, key: &str, cause: Option<&str>, sev: &str, 
             continue;
         }
         let mut keep = vec![];
+        let mut held = 0;
         for h in hosts {
             match clean(&h) {
+                Some(h) if cx.keep.is_protected(h) => {
+                    held += 1;
+                    let cat = cx.keep.category(h).unwrap_or("extra").to_string();
+                    cx.skip(
+                        format!("{key}:{h}"),
+                        format!(
+                            "never-unroute hostname ({cat}, D-T42-4): never removed by a template"
+                        ),
+                    );
+                }
                 Some(h) if !is_protected(h) => keep.push(h.to_string()),
-                Some(h) => cx.skip(
-                    format!("{key}:{h}"),
-                    "protected hostname (admin access path): never removed by a template",
-                ),
+                Some(h) => {
+                    held += 1;
+                    cx.skip(
+                        format!("{key}:{h}"),
+                        "protected hostname (admin access path): never removed by a template",
+                    );
+                }
                 None => cx.skip(format!("{key}:{port}"), "unreadable hostname"),
             }
+        }
+        if keep.is_empty() && held > 0 {
+            // Removing "the rules whose service is :port" would take the
+            // protected hostname's rule with it: leave the port alone.
+            cx.skip(
+                format!("{key}:{port}"),
+                "every hostname routed to this port is protected: its rule stays",
+            );
+            continue;
         }
         rules.push((port, keep));
     }
@@ -619,6 +656,10 @@ fn ingress_removal(cx: &mut Ctx<'_>, key: &str, cause: Option<&str>, sev: &str, 
         ),
         "precondition: each port below still has no listener (ss -ltn) and still refuses tunnel dials in the cloudflared journal".to_string(),
         "precondition: the owner confirms none of these services is coming back soon (else start it instead)".to_string(),
+        format!(
+            "precondition: no rule to remove names a never-unroute hostname (the VPS, DNS, mail, backup): {}; if one does, keep that rule",
+            cx.keep.names().join(", ")
+        ),
         "copy the cloudflared config file to a dated backup next to it".to_string(),
     ];
     for (port, hosts) in &rules {

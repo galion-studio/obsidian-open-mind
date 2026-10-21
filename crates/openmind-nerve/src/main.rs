@@ -144,7 +144,9 @@ fn plans_cmd(path: Option<&str>) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let p = openmind_nerve::plans::from_state(&state).to_json();
+    let keep =
+        openmind_nerve::protected_hosts::ProtectedHosts::from_env(&|k| std::env::var(k).ok());
+    let p = openmind_nerve::plans::from_state_with(&state, &keep).to_json();
     println!("{}", serde_json::to_string_pretty(&p).unwrap_or_default());
     ExitCode::SUCCESS
 }

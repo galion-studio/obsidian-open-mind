@@ -208,6 +208,10 @@ pub struct Config {
     /// NERVE_LISTEN_SCOPE=lo-hi: judge only listeners in this port range
     /// (a shared box); unset judges every listener (the VPS).
     pub listen_scope: Option<(u16, u16)>,
+    /// Never-unroute hostnames for the route-removal plan (D-T42-4):
+    /// NERVE_PLANS_PROTECTED_HOSTS_FILE, NERVE_PLANS_PROTECTED_HOSTS, else
+    /// the built-in deploy/nerve/plans-protected-hosts.conf.
+    pub plans_protected: crate::protected_hosts::ProtectedHosts,
 }
 
 /// One tailed access log.
@@ -308,6 +312,7 @@ impl Config {
                 let (a, b) = s.split_once('-')?;
                 Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
             }),
+            plans_protected: crate::protected_hosts::ProtectedHosts::from_env(get),
         })
     }
 }

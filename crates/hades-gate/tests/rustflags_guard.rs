@@ -26,15 +26,22 @@ fn missing_cfg_fails_and_names_the_var() {
     let e = guard::check(None, X86, &["RUSTFLAGS".to_string()]).unwrap_err();
     assert!(e.contains("SIMD guard"), "{e}");
     assert!(e.contains("backend cfg not set"), "{e}");
-    assert!(e.contains("REPLACE the workspace `build.rustflags`: RUSTFLAGS."), "{e}");
-    assert!(e.contains("--cfg curve25519_dalek_backend=\"serial\""), "{e}");
+    assert!(
+        e.contains("REPLACE the workspace `build.rustflags`: RUSTFLAGS."),
+        "{e}"
+    );
+    assert!(
+        e.contains("--cfg curve25519_dalek_backend=\"serial\""),
+        "{e}"
+    );
     assert!(e.contains(X86), "{e}");
 }
 
 #[test]
-fn missing_cfg_without_env_points_at_config() {
+fn missing_cfg_without_visible_env_lists_every_source() {
     let e = guard::check(None, "aarch64-unknown-linux-musl", &[]).unwrap_err();
     assert!(e.contains("target.<triple>.rustflags"), "{e}");
+    assert!(e.contains("CARGO_TARGET_<TRIPLE>_RUSTFLAGS"), "{e}");
 }
 
 #[test]

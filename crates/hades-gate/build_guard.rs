@@ -49,9 +49,12 @@ pub fn check(backend: Option<&str>, target: &str, set_vars: &[String]) -> Result
         Some(v) => format!("\"{v}\""),
     };
     let why = if set_vars.is_empty() {
-        "No RUSTFLAGS-style env var is set, so a `target.<triple>.rustflags` \
-         (or `target.'cfg(..)'.rustflags`) config entry probably replaced the \
-         workspace `build.rustflags`."
+        "Something replaced the workspace `build.rustflags`: a RUSTFLAGS, \
+         CARGO_ENCODED_RUSTFLAGS, CARGO_BUILD_RUSTFLAGS or \
+         CARGO_TARGET_<TRIPLE>_RUSTFLAGS env var (cargo hides some of them \
+         from build scripts), or a `target.<triple>.rustflags` / \
+         `target.'cfg(..)'.rustflags` config entry."
+
             .to_string()
     } else {
         format!(

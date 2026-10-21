@@ -27,6 +27,7 @@ pub mod http;
 pub mod market;
 pub mod money;
 pub mod news;
+pub mod public;
 pub mod report;
 pub mod risk;
 pub mod score;

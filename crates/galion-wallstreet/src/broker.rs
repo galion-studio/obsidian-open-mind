@@ -183,6 +183,8 @@ pub struct PaperBroker {
     pub refusals: Vec<Refusal>,
     pub events: Vec<Event>,
     next_id: u64,
+    /// Which data tape this broker replays (`/reset` keeps it).
+    pub tape: crate::public::Tape,
 }
 
 impl PaperBroker {
@@ -200,6 +202,7 @@ impl PaperBroker {
             refusals: Vec::new(),
             events: Vec::new(),
             next_id: 1,
+            tape: crate::public::Tape::Synthetic,
         }
     }
 

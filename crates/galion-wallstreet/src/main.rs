@@ -3,16 +3,18 @@
 
 //! galion-wallstreet CLI. PAPER ONLY: no live broker, no real orders, no money.
 //!
-//!   galion-wallstreet serve [--bind 127.0.0.1:19520]   (or WALLSTREET_BIND)
+//!   galion-wallstreet serve [--bind 127.0.0.1:19520] [--tape synthetic|ecb-fx|ust]   (or WALLSTREET_BIND, WALLSTREET_TAPE)
 //!   galion-wallstreet ticket <file.json> [--md]
-//!   galion-wallstreet backtest
+//!   galion-wallstreet backtest [--data synthetic|ecb-fx|ust]
+//!   galion-wallstreet data [synthetic|ecb-fx|ust] [--notice]
 //!   galion-wallstreet score [--md]
 //!   galion-wallstreet screen "<text>"
 
+use galion_wallstreet::public::{self, Tape};
 use galion_wallstreet::{backtest, compliance, http, report, score, ticket};
 use std::process::ExitCode;
 
-const USAGE: &str = "usage: galion-wallstreet serve [--bind ADDR] | ticket FILE [--md] | backtest | score [--md] | screen TEXT";
+const USAGE: &str = "usage: galion-wallstreet serve [--bind ADDR] [--tape T] | ticket FILE [--md] | backtest [--data T] | data [T] [--notice] | score [--md] | screen TEXT   (T = synthetic | ecb-fx | ust)";
 
 fn score_md(s: &score::Scoreboard) -> String {
     let mut o = format!(
@@ -34,6 +36,11 @@ fn score_md(s: &score::Scoreboard) -> String {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let flag = |f: &str| args.iter().any(|a| a == f);
+    let opt = |f: &str| {
+        args.iter()
+            .position(|a| a == f)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
     match args.first().map(String::as_str) {
         Some("serve") => {
             let bind = args
@@ -42,7 +49,18 @@ fn main() -> ExitCode {
                 .and_then(|i| args.get(i + 1).cloned())
                 .or_else(|| std::env::var("WALLSTREET_BIND").ok())
                 .unwrap_or_else(|| "127.0.0.1:19520".into());
-            match http::serve(&bind) {
+            let tape = match Tape::parse(
+                &opt("--tape")
+                    .or_else(|| std::env::var("WALLSTREET_TAPE").ok())
+                    .unwrap_or_default(),
+            ) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("galion-wallstreet: {e}");
+                    return ExitCode::from(2);
+                }
+            };
+            match http::serve_tape(&bind, tape) {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("galion-wallstreet: cannot serve on {bind}: {e}");
@@ -88,10 +106,41 @@ fn main() -> ExitCode {
                 }
             }
         }
-        Some("backtest") => {
-            let r = backtest::reference();
-            println!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
-            ExitCode::SUCCESS
+        Some("backtest") => match opt("--data") {
+            None => {
+                let r = backtest::reference();
+                println!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
+                ExitCode::SUCCESS
+            }
+            Some(d) => match Tape::parse(&d) {
+                Ok(t) => {
+                    let r = public::backtests(t);
+                    println!("{}", serde_json::to_string_pretty(&r).unwrap_or_default());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("galion-wallstreet: {e}");
+                    ExitCode::from(2)
+                }
+            },
+        },
+        Some("data") => {
+            if flag("--notice") {
+                print!("{}", public::NOTICE_MD);
+                return ExitCode::SUCCESS;
+            }
+            let name = args.get(1).filter(|a| !a.starts_with("--")).cloned();
+            match Tape::parse(name.as_deref().unwrap_or("ecb-fx")) {
+                Ok(t) => {
+                    let i = public::info(t);
+                    println!("{}", serde_json::to_string_pretty(&i).unwrap_or_default());
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("galion-wallstreet: {e}");
+                    ExitCode::from(2)
+                }
+            }
         }
         Some("score") => {
             let s = score::run();

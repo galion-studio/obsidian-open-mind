@@ -45,7 +45,7 @@ Met with **recorded fixtures** (synthetic, committed). Evidence: `GALION_REAL=1 
 
 ## Gaps / honest limits
 
-- Market data is **synthetic** (seeded awk random walk, committed once). "Delayed public data" from a real free API is not wired: picking a source and its licence is an owner decision (see below). The `vendor-mock.jsonl` shape is ready for a recorded file.
+- The scored market data is **synthetic** (seeded awk random walk, committed once). Since slot 174 (B2b) there are also two **REAL-PUBLIC** replay tapes (ECB reference rates, U.S. Treasury par yields) with their own pinned replay results; they are kept out of this 100/100 score on purpose. See [`wallstreet-public-data.md`](wallstreet-public-data.md).
 - Daily bars only; no intraday, no corporate actions, no FX, no shorting or options (out of scope by the plan).
 - Compliance screen is deterministic phrase rules; it can be evaded by paraphrase. It is a floor, not a guarantee; Hades/the model layer should add a second screen.
 - Hermes is not wired to these tools yet (workstream H); the tool contract is in [`hermes-wallstreet-tools.md`](hermes-wallstreet-tools.md).

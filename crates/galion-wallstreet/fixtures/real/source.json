@@ -1,0 +1,32 @@
+{
+  "note": "Recording of the REAL-PUBLIC slices (bench B2b, slot 174). Plain HTTPS GET from the box, no key, no account. Files are the first 41 lines (header + 40 business days) of each download, byte-for-byte. Times Europe/Zagreb.",
+  "fetched_at": "2026-10-21T09:50:38+02:00",
+  "files": [
+    {
+      "file": "ecb-eurofxref-hist.csv",
+      "url": "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist.zip",
+      "member": "eurofxref-hist.csv",
+      "download_sha256": "4599576d28c5f1ab52a01646c505e591e9bc5ffa943092873293493d7398e96c",
+      "member_sha256": "3265d7608d49258ac284e236ea673301ddc6b18b80a9f6e144dd2d32e4341338",
+      "slice": "lines 1-41",
+      "slice_sha256": "bc65a73f99f335c551b957670521f2fa830fa24fa96aabb302625846ed47716e",
+      "slice_fnv1a64": "fnv1a64:98b489c67c87139c",
+      "first_day": "2026-08-26",
+      "last_day": "2026-10-20",
+      "attribution": "Source: ECB statistics.",
+      "terms": "https://www.ecb.europa.eu/stats/ecb_statistics/governance_and_quality_framework/html/usage_policy.en.html"
+    },
+    {
+      "file": "ust-par-yield-curve.csv",
+      "url": "https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/2026/all?type=daily_treasury_yield_curve&field_tdr_date_value=2026&page&_format=csv",
+      "download_sha256": "5a14c3594b7d1ea446ed9e401813b75d447aaff24ebf4b0601dcceef6adfaf12",
+      "slice": "lines 1-41",
+      "slice_sha256": "0166c66bcd8e7f376d20cf96c3ccdd19bcd601711e11d2419d5fc8cddd5af0a1",
+      "slice_fnv1a64": "fnv1a64:0164a478033857bb",
+      "first_day": "2026-08-24",
+      "last_day": "2026-10-20",
+      "attribution": "Source: U.S. Department of the Treasury, Daily Treasury Par Yield Curve Rates. U.S. Government work, public domain. Not endorsed by the U.S. Treasury.",
+      "terms": "https://resources.data.gov/open-licenses/"
+    }
+  ]
+}

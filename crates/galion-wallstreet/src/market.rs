@@ -54,8 +54,14 @@ fn valid_date(d: &str) -> bool {
     (1..=12).contains(&m) && (1..=31).contains(&day)
 }
 
+/// 1-6 chars, uppercase letter first, then uppercase letters or digits (UST10Y).
 fn valid_symbol(s: &str) -> bool {
-    !s.is_empty() && s.len() <= 6 && s.bytes().all(|b| b.is_ascii_uppercase())
+    let b = s.as_bytes();
+    !b.is_empty()
+        && b.len() <= 6
+        && b[0].is_ascii_uppercase()
+        && b.iter()
+            .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
 }
 
 /// Parse and validate a bar CSV. Every problem names its line number.

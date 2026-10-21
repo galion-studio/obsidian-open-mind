@@ -6,6 +6,7 @@
 
 use crate::broker::{OrderRequest, PaperBroker, Side};
 use crate::money::parse_cents;
+use crate::public::{self, Tape};
 use crate::{backtest, compliance, news, report, score, ticket};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -65,6 +66,7 @@ pub fn route(state: &Mutex<PaperBroker>, method: &str, target: &str, body: &str)
             json!({
                 "ok": true, "service": "galion-wallstreet", "mode": "paper",
                 "live_broker": false, "as_of": b.today(), "data_source": b.feed.data.source,
+                "tape": b.tape, "data_class": b.tape.data_class(), "attribution": b.tape.attribution(),
                 "time": zagreb_time::now_rfc3339()
             }),
         ),
@@ -96,7 +98,22 @@ pub fn route(state: &Mutex<PaperBroker>, method: &str, target: &str, body: &str)
                 j(200, json!(r))
             }
         }
-        ("GET", "/backtest") => j(200, json!(backtest::reference())),
+        ("GET", "/backtest") => match query(q, "data") {
+            None => j(200, json!(backtest::reference())),
+            Some(d) => match Tape::parse(d) {
+                Ok(t) => j(200, json!(public::backtests(t))),
+                Err(e) => err(400, "unknown_tape", &e),
+            },
+        },
+        ("GET", "/data") => match Tape::parse(query(q, "tape").unwrap_or(b.tape.name())) {
+            Ok(t) => j(200, json!(public::info(t))),
+            Err(e) => err(400, "unknown_tape", &e),
+        },
+        ("GET", "/data/notice") => Response {
+            status: 200,
+            ctype: "text/markdown; charset=utf-8",
+            body: public::NOTICE_MD.to_string(),
+        },
         ("GET", "/score") => j(200, json!(score::run())),
         ("POST", "/order") => {
             let v = match body_json(body) {
@@ -199,7 +216,8 @@ pub fn route(state: &Mutex<PaperBroker>, method: &str, target: &str, body: &str)
             )
         }
         ("POST", "/reset") => {
-            *b = PaperBroker::fixture();
+            let t = b.tape;
+            *b = t.broker();
             j(200, json!({ "ok": true, "as_of": b.today() }))
         }
         ("POST", "/compliance/check") => {
@@ -224,9 +242,9 @@ pub fn route(state: &Mutex<PaperBroker>, method: &str, target: &str, body: &str)
         (
             _,
             "/health" | "/universe" | "/quote" | "/account" | "/positions" | "/orders" | "/fills"
-            | "/news" | "/report" | "/report.md" | "/backtest" | "/score" | "/order" | "/cancel"
-            | "/close" | "/advance" | "/kill" | "/kill/reset" | "/reset" | "/compliance/check"
-            | "/ticket",
+            | "/news" | "/report" | "/report.md" | "/backtest" | "/data" | "/data/notice"
+            | "/score" | "/order" | "/cancel" | "/close" | "/advance" | "/kill" | "/kill/reset"
+            | "/reset" | "/compliance/check" | "/ticket",
         ) => err(405, "method_not_allowed", path),
         _ => err(404, "not_found", path),
     }
@@ -284,13 +302,20 @@ fn handle(mut stream: TcpStream, state: &Mutex<PaperBroker>) -> std::io::Result<
 }
 
 pub fn serve(bind: &str) -> std::io::Result<()> {
+    serve_tape(bind, Tape::Synthetic)
+}
+
+/// Serve the paper broker on a chosen data tape (synthetic, ecb-fx or ust).
+pub fn serve_tape(bind: &str, tape: Tape) -> std::io::Result<()> {
     let l = TcpListener::bind(bind)?;
     eprintln!(
-        "galion-wallstreet: PAPER broker listening on {} ({})",
+        "galion-wallstreet: PAPER broker listening on {} (tape {}, {}) ({})",
         l.local_addr()?,
+        tape.name(),
+        tape.data_class(),
         zagreb_time::now_rfc3339()
     );
-    let state = Arc::new(Mutex::new(PaperBroker::fixture()));
+    let state = Arc::new(Mutex::new(tape.broker()));
     for conn in l.incoming() {
         let Ok(c) = conn else { continue };
         let st = Arc::clone(&state);

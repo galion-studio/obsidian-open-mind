@@ -177,7 +177,7 @@ fn client_refuses_llm_paths_without_connecting() {
         assert!(r.unwrap_err().contains("egress guard"), "{p}");
     }
     let r = openmind_nerve::util::http(
-        "1.1.1.1:443".parse().unwrap(),
+        "192.0.2.1:443".parse().unwrap(),
         "/health",
         None,
         Duration::from_millis(300),

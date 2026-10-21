@@ -150,7 +150,7 @@ mod tests {
     fn addr_loopback_only() {
         assert!(check_addr(&"127.0.0.1:8642".parse().unwrap()).is_ok());
         assert!(check_addr(&"[::1]:8642".parse().unwrap()).is_ok());
-        assert!(check_addr(&"104.18.2.115:443".parse().unwrap()).is_err());
+        assert!(check_addr(&"203.0.113.15:443".parse().unwrap()).is_err());
         assert!(check_addr(&"0.0.0.0:80".parse().unwrap()).is_err());
     }
 

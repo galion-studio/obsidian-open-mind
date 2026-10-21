@@ -172,17 +172,17 @@ impl Lcg {
 }
 
 const MIXED: [&str; 12] = [
-    "萨格勒布",
-    "咖啡馆",
-    "東京タワー",
-    "서울특별시",
+    "\u{8428}\u{683c}\u{52d2}\u{5e03}",
+    "\u{5496}\u{5561}\u{9986}",
+    "\u{6771}\u{4eac}\u{30bf}\u{30ef}\u{30fc}",
+    "\u{c11c}\u{c6b8}\u{d2b9}\u{bcc4}\u{c2dc}",
     "zagreb",
     "kiwi",
     "🦀",
     "👨‍👩‍👧",
     "👍🏽",
     "🇭🇷",
-    "𠮷野家",
+    "\u{20bb7}\u{91ce}\u{5bb6}",
     "café",
 ];
 
@@ -383,11 +383,11 @@ fn real_kill9_during_migration_loop() {
     let (_, v) = srv.call(
         "POST",
         "/search/conversations",
-        Some(&json!({"query": "萨格勒布", "limit": 3})),
+        Some(&json!({"query": "\u{8428}\u{683c}\u{52d2}\u{5e03}", "limit": 3})),
     );
     assert_eq!(v["total"], 3, "{v}");
     let text = v["results"].as_str().unwrap();
-    assert!(text.contains("萨格勒布"));
+    assert!(text.contains("\u{8428}\u{683c}\u{52d2}\u{5e03}"));
     let c = ro(&db);
     let want: String = c
         .query_row(
@@ -404,7 +404,7 @@ fn real_kill9_during_migration_loop() {
     let (_, v) = srv.call(
         "POST",
         "/search/memories",
-        Some(&json!({"query": "서울특별시", "limit": 2})),
+        Some(&json!({"query": "\u{c11c}\u{c6b8}\u{d2b9}\u{bcc4}\u{c2dc}", "limit": 2})),
     );
     assert_eq!(
         (v["total"].clone(), v["strategy"].clone()),
@@ -423,14 +423,14 @@ fn real_kill9_during_migration_loop() {
 /// Text that has bitten Unicode handling before: astral CJK, kana, hangul,
 /// ZWJ families, skin tones, flags, combining marks, RTL, a lone keycap.
 const ROUND_TRIP: [&str; 8] = [
-    "我们明天去萨格勒布吗？🚆",
-    "東京タワーで会いましょう 🗼",
-    "서울특별시 날씨 좋네요 ☀️",
-    "家族 👨‍👩‍👧‍👦 and 👍🏽 at the 🇭🇷 coast",
-    "𠮷野家の牛丼 (astral U+20BB7)",
+    "\u{6211}\u{4eec}\u{660e}\u{5929}\u{53bb}\u{8428}\u{683c}\u{52d2}\u{5e03}\u{5417}？🚆",
+    "\u{6771}\u{4eac}\u{30bf}\u{30ef}\u{30fc}\u{3067}\u{4f1a}\u{3044}\u{307e}\u{3057}\u{3087}\u{3046} 🗼",
+    "\u{c11c}\u{c6b8}\u{d2b9}\u{bcc4}\u{c2dc} \u{b0a0}\u{c528} \u{c88b}\u{b124}\u{c694} ☀️",
+    "\u{5bb6}\u{65cf} 👨‍👩‍👧‍👦 and 👍🏽 at the 🇭🇷 coast",
+    "\u{20bb7}\u{91ce}\u{5bb6}\u{306e}\u{725b}\u{4e3c} (astral U+20BB7)",
     "Ćevapi u Sarajevu, e\u{301} combining, שלום",
     "keycap 1️⃣ crab 🦀 rust",
-    "纯中文没有空格的一句话用于测试分词效果",
+    "\u{7eaf}\u{4e2d}\u{6587}\u{6ca1}\u{6709}\u{7a7a}\u{683c}\u{7684}\u{4e00}\u{53e5}\u{8bdd}\u{7528}\u{4e8e}\u{6d4b}\u{8bd5}\u{5206}\u{8bcd}\u{6548}\u{679c}",
 ];
 
 #[test]
@@ -487,14 +487,14 @@ fn real_cjk_emoji_roundtrip_and_fts() {
     }
     // FTS search: query -> expected original text in the result
     let cases: [(&str, usize); 9] = [
-        ("萨格勒布", 0),
-        ("格勒", 0),   // 2-gram inside a run
-        ("タワー", 1), // katakana
-        ("서울", 2),   // hangul 2-gram
-        ("날씨", 2),
-        ("𠮷野家", 4), // astral ideograph
+        ("\u{8428}\u{683c}\u{52d2}\u{5e03}", 0),
+        ("\u{683c}\u{52d2}", 0),         // 2-gram inside a run
+        ("\u{30bf}\u{30ef}\u{30fc}", 1), // katakana
+        ("\u{c11c}\u{c6b8}", 2),         // hangul 2-gram
+        ("\u{b0a0}\u{c528}", 2),
+        ("\u{20bb7}\u{91ce}\u{5bb6}", 4), // astral ideograph
         ("Ćevapi", 5),
-        ("分词", 7), // inside an unspaced sentence
+        ("\u{5206}\u{8bcd}", 7), // inside an unspaced sentence
         ("rust", 6),
     ];
     for (q, idx) in cases {
@@ -536,7 +536,7 @@ fn real_cjk_emoji_roundtrip_and_fts() {
     let (_, v) = srv.call(
         "POST",
         "/search/conversations",
-        Some(&json!({"query": "家族", "session_key": "cjk"})),
+        Some(&json!({"query": "\u{5bb6}\u{65cf}", "session_key": "cjk"})),
     );
     assert!(v["results"].as_str().unwrap().contains(ROUND_TRIP[3]));
     println!("real_cjk_emoji_roundtrip_and_fts: ok (port {PORT_CJK})");
@@ -648,7 +648,7 @@ fn real_import_replay_idempotent() {
     let (_, v) = srv.call(
         "POST",
         "/search/conversations",
-        Some(&json!({"query": "replayed 萨格勒布", "session_key": "replay", "limit": 100})),
+        Some(&json!({"query": "replayed \u{8428}\u{683c}\u{52d2}\u{5e03}", "session_key": "replay", "limit": 100})),
     );
     assert!(v["total"].as_i64().unwrap() >= 5, "{v}");
     println!("import (port {PORT_IMPORT}): 40 inserted, 3x40 duplicates, 8 concurrent x60 -> +20, rows 60/60 FTS, JSONL 60");
@@ -715,7 +715,7 @@ fn real_rollback_to_previous_binary() {
     };
     {
         let srv = Server::start(PORT_DEFAULT, &dir, &[]);
-        cap(&srv, "new binary wrote 新的 🦀", ahead);
+        cap(&srv, "new binary wrote \u{65b0}\u{7684} 🦀", ahead);
     }
     assert_eq!(q_i64(&ro(&db), "PRAGMA user_version"), SCHEMA_VERSION);
     // roll back: previous binary on the v4 DB
@@ -749,10 +749,14 @@ fn real_rollback_to_previous_binary() {
         let (_, v) = srv.call(
             "POST",
             "/search/conversations",
-            Some(&json!({"query": "新的", "session_key": "rb"})),
+            Some(&json!({"query": "\u{65b0}\u{7684}", "session_key": "rb"})),
         );
         assert_eq!(v["total"], 1, "previous binary cannot read v4 rows: {v}");
-        cap(&srv, "previous binary wrote 旧的 👍🏽", ahead + 10);
+        cap(
+            &srv,
+            "previous binary wrote \u{65e7}\u{7684} 👍🏽",
+            ahead + 10,
+        );
         println!(
             "previous binary on v4 DB: health {} fts {}, read + write ok",
             h["status"], h["fts"]
@@ -771,7 +775,7 @@ fn real_rollback_to_previous_binary() {
     let (_, v) = srv.call(
         "POST",
         "/search/conversations",
-        Some(&json!({"query": "旧的", "session_key": "rb"})),
+        Some(&json!({"query": "\u{65e7}\u{7684}", "session_key": "rb"})),
     );
     assert_eq!(v["total"], 1);
     println!("real_rollback_to_previous_binary: ok (port {PORT_DEFAULT}, user_version stays {SCHEMA_VERSION})");

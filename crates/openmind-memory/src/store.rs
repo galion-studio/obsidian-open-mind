@@ -869,13 +869,13 @@ mod tests {
                 "CREATE TABLE l0_conversations (record_id TEXT PRIMARY KEY, session_key TEXT NOT NULL, \
                  session_id TEXT DEFAULT '', role TEXT NOT NULL DEFAULT '', message_text TEXT NOT NULL, \
                  recorded_at TEXT DEFAULT '');
-                 INSERT INTO l0_conversations VALUES ('a','s','s','user','老朋友 hello 🦀','');
+                 INSERT INTO l0_conversations VALUES ('a','s','s','user','\u{8001}\u{670b}\u{53cb} hello 🦀','');
                  CREATE TABLE l1_records (record_id TEXT PRIMARY KEY, content TEXT NOT NULL, type TEXT DEFAULT '', \
                  priority INTEGER DEFAULT 50, scene_name TEXT DEFAULT '', session_key TEXT DEFAULT '', \
                  session_id TEXT DEFAULT '', timestamp_str TEXT DEFAULT '', timestamp_start TEXT DEFAULT '', \
                  timestamp_end TEXT DEFAULT '', created_time TEXT DEFAULT '', updated_time TEXT DEFAULT '', \
                  metadata_json TEXT DEFAULT '{}');
-                 INSERT INTO l1_records (record_id, content) VALUES ('m1','用户喜欢喝咖啡 ☕');",
+                 INSERT INTO l1_records (record_id, content) VALUES ('m1','\u{7528}\u{6237}\u{559c}\u{6b22}\u{559d}\u{5496}\u{5561} ☕');",
             )
             .unwrap();
         let mut c = Connection::open(&p).unwrap();
@@ -886,12 +886,18 @@ mod tests {
         );
         drop(c);
         let s = Store::open(&p, false).unwrap();
-        let q = crate::fts::build_fts_query("咖啡").unwrap();
+        let q = crate::fts::build_fts_query("\u{5496}\u{5561}").unwrap();
         let hits = s.search_l1_fts(&q, 5);
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].content, "用户喜欢喝咖啡 ☕");
-        let q = crate::fts::build_fts_query("朋友").unwrap();
-        assert_eq!(s.search_l0_fts(&q, 5)[0].message_text, "老朋友 hello 🦀");
+        assert_eq!(
+            hits[0].content,
+            "\u{7528}\u{6237}\u{559c}\u{6b22}\u{559d}\u{5496}\u{5561} ☕"
+        );
+        let q = crate::fts::build_fts_query("\u{670b}\u{53cb}").unwrap();
+        assert_eq!(
+            s.search_l0_fts(&q, 5)[0].message_text,
+            "\u{8001}\u{670b}\u{53cb} hello 🦀"
+        );
     }
 
     #[test]
@@ -935,10 +941,15 @@ mod tests {
     fn import_is_idempotent_and_dedupes_against_live_rows() {
         let s = Store::open(&tmp("import"), false).unwrap();
         // a row live capture stored earlier (random id), same key
-        s.upsert_l0(&rec("l0_live_1", "sess", 1000, "一样的消息 👋🏽"))
-            .unwrap();
+        s.upsert_l0(&rec(
+            "l0_live_1",
+            "sess",
+            1000,
+            "\u{4e00}\u{6837}\u{7684}\u{6d88}\u{606f} 👋🏽",
+        ))
+        .unwrap();
         let batch: Vec<L0Record> = [
-            (1000, "一样的消息 👋🏽"), // dup of the live row
+            (1000, "\u{4e00}\u{6837}\u{7684}\u{6d88}\u{606f} 👋🏽"), // dup of the live row
             (1001, "new one 👨‍👩‍👧"),
             (1001, "new one 👨‍👩‍👧"), // dup inside the batch
             (1002, "third"),
@@ -982,8 +993,13 @@ mod tests {
         let p = tmp("gw-v4");
         {
             let s = Store::open(&p, false).unwrap();
-            s.import_l0(&[rec(&import_record_id("s", 7, "前"), "s", 7, "前")])
-                .unwrap();
+            s.import_l0(&[rec(
+                &import_record_id("s", 7, "\u{524d}"),
+                "s",
+                7,
+                "\u{524d}",
+            )])
+            .unwrap();
         }
         let c = Connection::open(&p).unwrap();
         c.execute_batch("PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL;")
@@ -1023,7 +1039,7 @@ mod tests {
         }
         c.execute(
             "INSERT INTO l0_conversations (record_id, session_key, session_id, role, message_text, recorded_at, timestamp) \
-             VALUES ('gw1', 's', 's', 'user', '网关写入', '', 8) ON CONFLICT(record_id) DO UPDATE SET message_text=excluded.message_text",
+             VALUES ('gw1', 's', 's', 'user', '\u{7f51}\u{5173}\u{5199}\u{5165}', '', 8) ON CONFLICT(record_id) DO UPDATE SET message_text=excluded.message_text",
             [],
         )
         .unwrap();

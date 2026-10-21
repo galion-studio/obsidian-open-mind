@@ -31,8 +31,8 @@ fn replay(import: bool) -> Value {
         "user_content": "x", "assistant_content": "y", "session_key": "replay-1",
         "import": import,
         "messages": [
-            {"role": "user", "content": "我们明天去萨格勒布吗？🚆", "timestamp": t0},
-            {"role": "assistant", "content": "好的！Zagreb tomorrow 👍🏽 家族 👨‍👩‍👧", "timestamp": t0 + 1},
+            {"role": "user", "content": "\u{6211}\u{4eec}\u{660e}\u{5929}\u{53bb}\u{8428}\u{683c}\u{52d2}\u{5e03}\u{5417}？🚆", "timestamp": t0},
+            {"role": "assistant", "content": "\u{597d}\u{7684}！Zagreb tomorrow 👍🏽 \u{5bb6}\u{65cf} 👨‍👩‍👧", "timestamp": t0 + 1},
             {"role": "user", "content": "no timestamp here, so import refuses it"},
         ]
     })
@@ -89,17 +89,18 @@ fn import_keeps_old_timestamps_and_is_idempotent() {
     assert_eq!(store.count("l0_conversations"), 2);
     assert_eq!(store.count("l0_fts"), 2);
     // round trip + FTS: CJK n-gram and Latin term
-    let (_, r) = e.search_conversations(&json!({"query": "萨格勒布", "session_key": "replay-1"}));
+    let (_, r) = e.search_conversations(
+        &json!({"query": "\u{8428}\u{683c}\u{52d2}\u{5e03}", "session_key": "replay-1"}),
+    );
     assert_eq!(r["total"], 1);
-    assert!(r["results"]
-        .as_str()
-        .unwrap()
-        .contains("我们明天去萨格勒布吗？🚆"));
+    assert!(r["results"].as_str().unwrap().contains(
+        "\u{6211}\u{4eec}\u{660e}\u{5929}\u{53bb}\u{8428}\u{683c}\u{52d2}\u{5e03}\u{5417}？🚆"
+    ));
     let (_, r) = e.search_conversations(&json!({"query": "zagreb"}));
     assert!(r["results"]
         .as_str()
         .unwrap()
-        .contains("好的！Zagreb tomorrow 👍🏽 家族 👨‍👩‍👧"));
+        .contains("\u{597d}\u{7684}！Zagreb tomorrow 👍🏽 \u{5bb6}\u{65cf} 👨‍👩‍👧"));
 
     // allowed server, but a normal request without the flag: default path
     let (_, v) = e.capture(&replay(false));

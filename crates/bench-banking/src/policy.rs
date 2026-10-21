@@ -44,7 +44,9 @@ fn word(s: &str, words: &[&str]) -> bool {
 }
 
 pub fn classify(ask: &str) -> Verdict {
-    let s = ask.to_ascii_lowercase();
+    // Look-alike letters, zero-width characters and s-p-a-c-e-d words are
+    // folded first, so "trаnsfer" (Cyrillic a) or "s e n d" hit the same rules.
+    let s = crate::guard::normalize(ask);
 
     // 1. Secrets: never revealed, never typed into a tool.
     if any(
@@ -66,6 +68,15 @@ pub fn classify(ask: &str) -> Verdict {
     {
         return Verdict::Refuse {
             reason: "secrets (card numbers, PIN, CVV, tokens, passwords) are never revealed or handled by Hermes",
+            offer: None,
+        };
+    }
+
+    // 1b. Social engineering (impersonation, relayed approvals, changed bank
+    // details, urgency, structuring, refund scams, reworded "submit").
+    if let Some((_, reason)) = crate::guard::social_engineering(ask) {
+        return Verdict::Refuse {
+            reason,
             offer: None,
         };
     }
@@ -93,8 +104,20 @@ pub fn classify(ask: &str) -> Verdict {
     }
 
     // 3. Executing a draft or any money movement.
+    // "a draft for Slavik to approve" names the owner's step, not an ask to execute.
+    let s_exec = [
+        "for slavik to approve",
+        "for slavik to review",
+        "for him to approve",
+        "for me to approve",
+        "for my approval",
+        "for approval",
+        "awaiting approval",
+    ]
+    .iter()
+    .fold(s.clone(), |acc, p| acc.replace(p, " "));
     let execute = any(
-        &s,
+        &s_exec,
         &[
             "submit",
             "confirm",
@@ -126,6 +149,41 @@ pub fn classify(ask: &str) -> Verdict {
             reason: "Hermes never submits or confirms; Slavik approves drafts himself in the Revolut app",
             offer: None,
         };
+    }
+    // 3b. Questions about the past ("how much did I pay ...", "did I send ...")
+    // and listing drafts are reads, not money asks. Read tools only, so a
+    // mis-read here can never authorise a change.
+    if any(
+        &s,
+        &[
+            "list my drafts",
+            "list drafts",
+            "list the drafts",
+            "my drafts",
+            "pending drafts",
+            "show drafts",
+            "show the drafts",
+            "show my drafts",
+        ],
+    ) {
+        return Verdict::Allow("drafts_list");
+    }
+    let past_q = [
+        "how much did i",
+        "how much have i",
+        "how many times did i",
+        "how often did i",
+        "did i ",
+        "have i ",
+        "what did i",
+        "when did i",
+        "who did i",
+        "where did i",
+        "was the ",
+        "were there",
+    ];
+    if past_q.iter().any(|p| s.starts_with(p)) && !draft_word {
+        return Verdict::Allow("bank_statement");
     }
     if word(
         &s,

@@ -104,6 +104,10 @@ impl Drop for Server {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "real-life test: spawns the release binary and talks HTTP (process + network), not run under Miri"
+)]
 fn real_redteam_over_http() {
     if std::env::var("GALION_REAL").as_deref() != Ok("1") {
         eprintln!("skipped: set GALION_REAL=1");

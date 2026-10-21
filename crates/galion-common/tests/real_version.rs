@@ -23,6 +23,10 @@ const BINS: &[&str] = &[
 ];
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "real-life test: builds and spawns release binaries (process + FS), not run under Miri"
+)]
 fn version_is_instant_and_stamped() {
     if std::env::var("GALION_REAL").as_deref() != Ok("1") {
         eprintln!("skipped: set GALION_REAL=1");

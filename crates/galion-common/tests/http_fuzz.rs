@@ -165,6 +165,10 @@ fn client_side_parsers_never_panic() {
 /// Garbage over a real socket: the server answers or closes, and still
 /// serves a good request afterwards.
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "real TCP socket (network), refused under Miri isolation; run in the net pass (-Zmiri-disable-isolation -Zmiri-ignore-leaks: the serve thread never exits)"
+)]
 fn live_server_survives_garbage() {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = l.local_addr().unwrap();
@@ -240,6 +244,10 @@ fn live_server_survives_garbage() {
 
 /// A client that sends one byte every 100 ms is cut off at the head deadline.
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "real TCP socket + read timeouts (network), refused under Miri isolation; run in the net pass (-Zmiri-disable-isolation -Zmiri-ignore-leaks)"
+)]
 fn slowloris_is_cut_off() {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = l.local_addr().unwrap();

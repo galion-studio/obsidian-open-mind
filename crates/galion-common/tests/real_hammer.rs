@@ -258,6 +258,10 @@ pub(crate) fn hammer(name: &str, addr: SocketAddr) {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "real-life test: TCP connections to running services (network), not run under Miri"
+)]
 fn real_hammer() {
     let Some(targets) = targets() else {
         eprintln!("skipped: set GALION_REAL=1 and GALION_REAL_TARGETS");

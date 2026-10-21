@@ -38,6 +38,12 @@ fn env(name: &str) -> Env {
         std::process::id()
     ));
     std::fs::create_dir_all(&dir).unwrap();
+    // Miri cannot fsync a directory fd (an interpreter limit, not UB), and
+    // Ledger::open only syncs the directory when it creates the file. Under
+    // Miri the empty ledger is created first so the rest of the ledger code
+    // (scan, flock, append, file fsync) still runs. Normal builds unchanged.
+    #[cfg(miri)]
+    std::fs::write(dir.join("ledger.jsonl"), b"").unwrap();
     let admin = SigningKey::from_bytes(&[0x42; 32]);
     let gate = Approver::new(
         admin.verifying_key(),
@@ -78,6 +84,10 @@ fn code(v: &Verdict) -> &'static str {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn no_token_is_dry_run() {
     let e = env("dry");
     let v = e.gate.approve(req(""), NOW);
@@ -86,6 +96,10 @@ fn no_token_is_dry_run() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn valid_token_approves_once_then_replay_is_refused() {
     let e = env("replay");
     let t = claims(1).sign(&e.admin);
@@ -111,6 +125,10 @@ fn valid_token_approves_once_then_replay_is_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn forged_token_is_refused() {
     let e = env("forged");
     let mallory = SigningKey::from_bytes(&[0x13; 32]);
@@ -122,6 +140,10 @@ fn forged_token_is_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn tampered_token_is_refused() {
     let e = env("tamper");
     let t = claims(3).sign(&e.admin);
@@ -140,6 +162,10 @@ fn tampered_token_is_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn expired_token_is_refused() {
     let e = env("expired");
     let t = claims(4).sign(&e.admin);
@@ -150,6 +176,10 @@ fn expired_token_is_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn wrong_scope_is_refused() {
     let e = env("scope");
     let t = claims(5).sign(&e.admin);
@@ -173,6 +203,10 @@ fn wrong_scope_is_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn kill_and_rotate_refused_even_with_a_valid_token() {
     let e = env("kill");
     for action in ["kill", "rotate", "teardown", "unknown"] {
@@ -185,6 +219,10 @@ fn kill_and_rotate_refused_even_with_a_valid_token() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn admin_safety_beats_a_valid_token() {
     let e = env("safety");
     let cases: [(&str, &[u8]); 6] = [
@@ -215,6 +253,10 @@ fn admin_safety_beats_a_valid_token() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn admin_can_always_disable() {
     let e = env("disable");
     let t = claims(7).sign(&e.admin);
@@ -227,6 +269,10 @@ fn admin_can_always_disable() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn corrupt_ledger_fails_closed() {
     let e = env("corrupt");
     std::fs::write(e.dir.join("ledger.jsonl"), b"{\"event\":\"consumed\"").unwrap();
@@ -242,6 +288,10 @@ fn corrupt_ledger_fails_closed() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn concurrent_consumers_approve_exactly_once() {
     let e = env("race");
     let t = claims(9).sign(&e.admin);
@@ -264,6 +314,10 @@ fn concurrent_consumers_approve_exactly_once() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn gaia_adapter_maps_systems() {
     let e = env("gaia");
     let steps = vec![

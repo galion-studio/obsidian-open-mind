@@ -23,6 +23,8 @@ use crate::reflex::{
     deploy_in_progress, status_needs_alert, Decision, Reflex, MAX_ACTIONS_PER_CYCLE,
 };
 use crate::score::{score, Score};
+use crate::sensors::edgerate::{self, EdgeHosts};
+use crate::sensors::Sensors;
 use crate::state::{CompState, Status, Thresholds};
 use crate::util::{kib, now_secs, ts, write_atomic};
 use serde_json::{json, Value};
@@ -32,6 +34,9 @@ use std::time::Instant;
 
 /// How long journal insights (dead origins, scanner hits) stay in view.
 pub const LOG_WINDOW_S: u64 = 1800;
+
+/// Pushed events (errors, slow requests, caps) stay in incident view this long.
+pub const PUSH_WINDOW_S: u64 = 120;
 
 /// Shared between the loop and the HTTP server.
 #[derive(Default)]
@@ -44,6 +49,8 @@ pub struct Shared {
     pub audit: Value,
     /// Request streams; the HTTP server records its own requests here.
     pub detector: Detector,
+    /// Event mode hub (`NERVE_MODE=event`); None in the polling mode.
+    pub evt: Option<Arc<crate::evt::Hub>>,
 }
 
 pub struct Engine {
@@ -61,15 +68,28 @@ pub struct Engine {
     skipped: Vec<String>,
     actions_since_report: Vec<Value>,
     pub reflexes_enabled: bool,
+    /// Replay: fixed answer for "is a deploy running" instead of scanning /proc.
+    pub busy_override: Option<bool>,
     pub write_files: bool,
     pub tails: Vec<(Tail, Option<String>)>,
     pub logs: LogInsights,
     pub listeners: Option<Vec<Listener>>,
     pub incidents: Correlator,
     pub cortex: Cortex,
+    /// Cortex sensors, kept across cycles (stateful sensors).
+    pub sensors: Sensors,
+    /// Per-hostname edge streams from cloudflared journal lines (T2.12);
+    /// None when the `edge-rate` sensor is off.
+    pub edge_hosts: Option<EdgeHosts>,
+    /// Live host cycle (false in replay: host-reading sensors stay idle).
+    pub live: bool,
     pub ddos: Vec<DdosVerdict>,
     pub score: Option<Score>,
     tunnel_prev: HashMap<String, (u64, u64)>,
+    /// Port ownership map (component table + env).
+    pub owners: crate::owners::OwnerMap,
+    /// Holders of unowned listeners, from the last read.
+    pub port_procs: std::collections::BTreeMap<u16, crate::owners::ProcInfo>,
     /// Clock of the last cycle (live: now; replay: the capture time).
     pub now: u64,
 }
@@ -84,7 +104,7 @@ impl Engine {
         Ok(Self::with_specs(cfg, specs))
     }
 
-    pub fn with_specs(cfg: Config, specs: Vec<Spec>) -> Self {
+    pub fn with_specs(cfg: Config, specs_list: Vec<Spec>) -> Self {
         let mut reflex = Reflex::new(cfg.data_dir.clone(), cfg.dry_run_env, cfg.fail_cycles);
         reflex.rollback_enabled = cfg.rollback;
         reflex.deploy_bin = cfg.deploy_bin.clone();
@@ -95,6 +115,7 @@ impl Engine {
             cfg.telegram_env.clone(),
             cfg.ext_alerts_per_hour,
         );
+        let sensors = Sensors::from_env(&|k| std::env::var(k).ok());
         let now = now_secs();
         let shared = Shared {
             detector: Detector {
@@ -117,7 +138,7 @@ impl Engine {
             })
             .collect();
         Engine {
-            comps: specs.into_iter().map(CompState::new).collect(),
+            comps: specs_list.iter().cloned().map(CompState::new).collect(),
             th: Thresholds::default(),
             reflex,
             alerts,
@@ -131,15 +152,25 @@ impl Engine {
             skipped: vec![],
             actions_since_report: vec![],
             reflexes_enabled: cfg.reflex,
+            busy_override: None,
             write_files: true,
             tails,
             logs: LogInsights::default(),
             listeners: None,
             incidents: Correlator::default(),
             cortex: Cortex::default(),
+            edge_hosts: sensors
+                .names()
+                .contains(&edgerate::NAME)
+                .then(|| EdgeHosts::from_env(&|k| std::env::var(k).ok()))
+                .flatten(),
+            sensors,
+            live: true,
             ddos: vec![],
             score: None,
             tunnel_prev: HashMap::new(),
+            owners: crate::owners::OwnerMap::for_config(&specs_list, &cfg),
+            port_procs: Default::default(),
             now,
             cfg,
         }
@@ -224,6 +255,7 @@ impl Engine {
         self.logs.expire(now.saturating_sub(LOG_WINDOW_S));
         if col.listeners.is_some() {
             self.listeners = col.listeners;
+            self.port_procs = col.port_procs;
         }
         {
             let mut sh = lock(&self.shared);
@@ -247,10 +279,13 @@ impl Engine {
                     self.tunnel_prev.insert(key, (r, e));
                 }
             }
+            if let Some(eh) = self.edge_hosts.as_mut() {
+                eh.feed(&col.lines, now, &mut sh.detector);
+            }
             self.ddos = sh.detector.evaluate(now);
         }
         let own_port = self.cfg.addr.port();
-        self.cortex = cortex::analyse(&cortex::Input {
+        self.cortex = self.sensors.run(&cortex::Input {
             now,
             comps: &self.comps,
             logs: &self.logs,
@@ -261,9 +296,23 @@ impl Engine {
             listen_scope: self.cfg.listen_scope,
             own_port,
             loading_grace_s: self.cfg.loading_grace_s,
+            journal: &col.lines,
+            live: self.live,
+            owners: &self.owners,
+            procs: &self.port_procs,
         });
         let mut sigs = cortex::component_signals(&self.comps, now, self.cfg.loading_grace_s);
         sigs.extend(self.cortex.signals.iter().cloned());
+        // Pushed events (errors, slow requests, spend/conn caps, starts).
+        {
+            let hub = lock(&self.shared).hub.clone();
+            let comps = &self.comps;
+            let map = |src: &str| match comps.iter().find(|c| c.spec.name == src) {
+                Some(c) => (c.spec.group.to_string(), c.spec.name.to_string()),
+                None => (src.to_string(), src.to_string()),
+            };
+            sigs.extend(hub.incident_signals(now.saturating_sub(PUSH_WINDOW_S), &map));
+        }
         let comps_snapshot: Vec<(String, String, &'static str)> = self
             .comps
             .iter()
@@ -275,11 +324,16 @@ impl Engine {
                 )
             })
             .collect();
+        // T3.2: the findings join the incidents that score them.
+        let members = self.cortex.members();
         self.incidents
-            .update(now, sigs, &|cause, ss| explain(cause, ss, &comps_snapshot));
+            .update_with(now, sigs, &members, &|cause, ss| {
+                explain(cause, ss, &comps_snapshot)
+            });
+        self.cortex.attach_owners(&mut self.incidents, &self.comps);
         // Reflexes.
         if self.reflexes_enabled {
-            let busy = deploy_in_progress();
+            let busy = self.busy_override.unwrap_or_else(deploy_in_progress);
             let mut acted = 0;
             for i in 0..self.comps.len() {
                 let d = self.reflex.decide(&self.comps[i], now, busy);
@@ -294,7 +348,7 @@ impl Engine {
                 }
                 let name = self.comps[i].spec.name;
                 let before = self.reflex.recent.len();
-                self.reflex.execute(name, &d, &mut self.alerts);
+                self.reflex.execute_at(name, &d, &mut self.alerts, now);
                 if self.reflex.recent.len() > before {
                     if let Some(a) = self.reflex.recent.back() {
                         self.actions_since_report.push(a.clone());
@@ -422,7 +476,7 @@ impl Engine {
             .as_ref()
             .map(Score::to_json)
             .unwrap_or(Value::Null);
-        json!({
+        let mut st = json!({
             "tool": "openmind-nerve",
             "service": "galion-nerve",
             "version": env!("CARGO_PKG_VERSION"),
@@ -437,6 +491,9 @@ impl Engine {
                        "open_incidents": self.incidents.open.len(), "ddos_firing": self.cortex.ddos_firing},
             "incidents": self.incidents.to_json(),
             "cortex": self.cortex.to_json(),
+            "cortex_sensors": self.sensors.last_json(),
+            "edge_hosts": self.edge_hosts.as_ref().map(|e| json!({"hosts": e.hosts(), "max_hosts": e.max_hosts, "lines_counted": e.counted, "folded_into_other": e.folded})),
+            "cortex_events": self.cortex.nerve_events(now),
             "self_eval": sc,
             "components": self.comps.iter().map(|c| c.to_json(now)).collect::<Vec<_>>(),
             "gaia": self.gaia_rollup(),
@@ -448,7 +505,17 @@ impl Engine {
             "alerts": {"recent": self.alerts.recent.iter().rev().take(10).collect::<Vec<_>>(), "external": self.alerts.ext_status},
             "probe_errors": self.probe_errors,
             "probes_skipped": self.skipped,
-        })
+        });
+        // Only present after a state-dir load problem (keeps old goldens).
+        for (k, n) in [
+            ("reflex", &self.reflex.load_note),
+            ("alerts", &self.alerts.load_note),
+        ] {
+            if let Some(n) = n {
+                st[k]["load_note"] = json!(n);
+            }
+        }
+        st
     }
 
     /// The self-eval: findings in repo-check's shape (check, level,
@@ -503,12 +570,18 @@ impl Engine {
         let mut self_warns = vec![];
         for c in &self.comps {
             if c.hist.is_empty() {
-                add(
-                    "coverage",
-                    "error",
-                    c.spec.name,
-                    "no sample this cycle".into(),
-                );
+                // A replay marks components its capture does not name as absent
+                // (T2.3): reported, not an error. A live cycle always samples.
+                if c.status == crate::state::Status::Absent {
+                    add("coverage", "info", c.spec.name, c.reasons.join("; "));
+                } else {
+                    add(
+                        "coverage",
+                        "error",
+                        c.spec.name,
+                        "no sample this cycle".into(),
+                    );
+                }
                 continue;
             }
             if c.status != Status::Healthy {
@@ -665,7 +738,6 @@ impl Engine {
 
     fn write_report(&self, r: &Value, md: &str) {
         let dir = self.cfg.data_dir.join("self-eval");
-        let stamp = r["ts"].as_str().unwrap_or("").replace([':', '-'], "");
         let _ = write_atomic(
             &dir.join("latest.json"),
             serde_json::to_string_pretty(r)
@@ -674,26 +746,31 @@ impl Engine {
         );
         let _ = write_atomic(&dir.join("latest.md"), md.as_bytes());
         let _ = write_atomic(
-            &dir.join(format!(
-                "self-eval-{}.json",
-                stamp.chars().take(15).collect::<String>()
-            )),
+            &dir.join(self_eval_file_name(r["ts"].as_str().unwrap_or(""))),
             r.to_string().as_bytes(),
         );
-        // Keep the newest 96 timestamped reports (~16 h at the default cadence).
+        // Keep the newest SELF_EVAL_KEEP timestamped reports (~16 h at the
+        // default cadence), newest by instant, not by name (DST fold).
         if let Ok(rd) = std::fs::read_dir(&dir) {
-            let mut v: Vec<_> = rd
+            let v: Vec<(String, u64)> = rd
                 .flatten()
-                .map(|e| e.path())
-                .filter(|p| {
-                    p.file_name()
-                        .is_some_and(|n| n.to_string_lossy().starts_with("self-eval-"))
+                .filter_map(|e| {
+                    let n = e.file_name().to_string_lossy().into_owned();
+                    if !n.starts_with("self-eval-") {
+                        return None;
+                    }
+                    let mtime = e
+                        .metadata()
+                        .ok()
+                        .and_then(|m| m.modified().ok())
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    Some((n, mtime))
                 })
                 .collect();
-            v.sort();
-            let n = v.len().saturating_sub(96);
-            for p in v.into_iter().take(n) {
-                let _ = std::fs::remove_file(p);
+            for n in self_eval_prune(v, SELF_EVAL_KEEP) {
+                let _ = std::fs::remove_file(dir.join(n));
             }
         }
         eprintln!(
@@ -707,6 +784,106 @@ impl Engine {
             r["system"]
         );
     }
+}
+
+/// Timestamped self-eval reports kept in `self-eval/` (~16 h at 10 min).
+pub const SELF_EVAL_KEEP: usize = 96;
+
+/// File name for the timestamped self-eval report written at `stamp`
+/// (Europe/Zagreb RFC 3339, e.g. `2026-10-25T02:34:35+02:00`):
+/// `self-eval-20261025T023435+0200.json`.
+///
+/// The offset is part of the name. Without it the hour 02:00-02:59 on the
+/// last Sunday of October (CEST +02:00, then again as CET +01:00) maps to the
+/// same names twice and the CET reports overwrote the CEST ones (six reports
+/// lost per year at the default 10 min cadence; slot 157, 2026-10-21).
+pub fn self_eval_file_name(stamp: &str) -> String {
+    format!("self-eval-{}.json", stamp.replace([':', '-'], ""))
+}
+
+/// The instant a `self-eval-*.json` name stands for: the offset form
+/// (`self-eval-20261025T023435+0200.json`) parses exactly; the legacy
+/// offset-less form (`self-eval-20261025T023435.json`, ambiguous inside the
+/// October fold) has no instant and returns `None`.
+pub fn self_eval_file_instant(name: &str) -> Option<u64> {
+    let c = name.strip_prefix("self-eval-")?.strip_suffix(".json")?;
+    if c.len() != 20 || c.as_bytes().get(8) != Some(&b'T') {
+        return None;
+    }
+    let iso = format!(
+        "{}-{}-{}T{}:{}:{}{}",
+        c.get(0..4)?,
+        c.get(4..6)?,
+        c.get(6..8)?,
+        c.get(9..11)?,
+        c.get(11..13)?,
+        c.get(13..15)?,
+        c.get(15..20)?
+    );
+    crate::util::parse_rfc3339(&iso)
+}
+
+/// Which `self-eval-*` files to delete so the newest `keep` remain. Order is
+/// by instant: the name's own instant when it carries an offset, else the
+/// file's mtime (legacy names), ties by name. Never by name alone: inside the
+/// October fold `...T020435+0100` is an hour later than `...T023435+0200`
+/// but sorts before it.
+pub fn self_eval_prune(mut files: Vec<(String, u64)>, keep: usize) -> Vec<String> {
+    files.sort_by(|a, b| {
+        let ka = self_eval_file_instant(&a.0).unwrap_or(a.1);
+        let kb = self_eval_file_instant(&b.0).unwrap_or(b.1);
+        ka.cmp(&kb).then_with(|| a.0.cmp(&b.0))
+    });
+    let n = files.len().saturating_sub(keep);
+    files.into_iter().take(n).map(|f| f.0).collect()
+}
+
+/// One markdown line for an incident's T3.2 `correlation` section, or
+/// None when nothing beyond its own signals made it (no member findings,
+/// no folded signals). Starts with `- correlated:`.
+pub fn correlated_md(c: &Value) -> Option<String> {
+    let arr = |k: &str| c[k].as_array().cloned().unwrap_or_default();
+    let (fs, fo) = (arr("findings"), arr("folded"));
+    if fs.is_empty() && fo.is_empty() {
+        return None;
+    }
+    let s = |v: &Value| v.as_str().unwrap_or("").replace('|', "/");
+    let mut parts = vec![format!(
+        "rules {}",
+        arr("rules").iter().map(s).collect::<Vec<_>>().join(" + ")
+    )];
+    if !fs.is_empty() {
+        parts.push(format!(
+            "sensors {}; findings {}",
+            arr("sensors").iter().map(s).collect::<Vec<_>>().join(", "),
+            fs.iter()
+                .map(|f| format!("{} ({})", s(&f["finding"]), s(&f["severity"])))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !fo.is_empty() {
+        parts.push(format!(
+            "folded {}",
+            fo.iter()
+                .map(|f| format!(
+                    "{} from `{}` ({})",
+                    s(&f["component"]),
+                    s(&f["from"]),
+                    s(&f["rule"])
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if let Some(w) = c["worst_finding"].as_object() {
+        parts.push(format!(
+            "worst finding {} ({})",
+            s(&w["finding"]),
+            s(&w["severity"])
+        ));
+    }
+    Some(format!("- correlated: {}\n", parts.join("; ")))
 }
 
 /// Words for an incident cause: title, why it matters, the next step.
@@ -736,6 +913,14 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
         v
     };
     if let Some(stream) = cause.strip_prefix("ddos:") {
+        // T2.12: per-hostname edge streams signal under the tunnel cause.
+        let by_host =
+            cause == edgerate::CAUSE && ss.iter().any(|s| s.msg.contains(" public hostname(s) "));
+        let stream = if by_host {
+            "edge-host:*, per public hostname"
+        } else {
+            stream
+        };
         let target = ss.first().map(|s| s.component.as_str()).unwrap_or(stream);
         let others = ss.len().saturating_sub(1);
         return Explain {
@@ -743,9 +928,27 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
             why: format!(
                 "{}{}",
                 short(top),
-                if others > 0 { format!("; {others} related signal(s) from the target folded in") } else { String::new() }
+                if others > 0 {
+                    format!("; {others} related signal(s) from the target folded in")
+                } else {
+                    String::new()
+                }
             ),
-            next: "check the top source IPs; block or rate-limit them at the edge (Cloudflare WAF rule / rate limit) -- owner approval; the nerve never changes the edge".into(),
+            next: if by_host {
+                "find the hostname in the cortex finding edge-host-rate (evidence); rate-limit or challenge it at the edge (Cloudflare WAF rule / rate limit), or fix its dead origin -- owner approval; the nerve never changes the edge".into()
+            } else {
+                "check the top source IPs; block or rate-limit them at the edge (Cloudflare WAF rule / rate limit) -- owner approval; the nerve never changes the edge".into()
+            },
+        };
+    }
+    if let Some(group) = cause.strip_prefix("spend-cap:") {
+        return Explain {
+            title: format!("{group}: spend cap hit (provider calls refused)"),
+            why: format!(
+                "{}; the service refuses paid calls until the cap resets (Europe/Zagreb day or session), so users get 402s",
+                short(top)
+            ),
+            next: "expected when a budget is reached; if it is not expected, look for a runaway loop or cron job, otherwise raise the cap (owner approval: real money)".into(),
         };
     }
     if let Some(comp) = cause.strip_prefix("scan:") {
@@ -756,6 +959,29 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
         };
     }
     match cause {
+        // T3.2: the sshd flood, the auth-log bleed it writes and the disk
+        // signals that bleed explains (incident::RULE_SSH_DISK).
+        crate::incident::SSH_FLOOD => {
+            let flood = ss
+                .iter()
+                .filter(|s| s.component == "host")
+                .max_by_key(|s| s.sev)
+                .map(|s| s.msg.as_str())
+                .unwrap_or(top);
+            let disk: Vec<&str> = names.iter().copied().filter(|n| *n != "host").collect();
+            Explain {
+                title: format!("ssh flood: {}", short(flood)),
+                why: format!(
+                    "every failed ssh attempt is a line in the auth log, so the credential flood and the disk it eats are one incident (cortex findings sshd-credential-flood and sshd-auth-log-growth){}",
+                    if disk.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; disk signal(s) of {} folded in while the auth log grows", disk.join(", "))
+                    }
+                ),
+                next: "password auth stays off; check logrotate for the auth log and what else fills the disk; a ban or edge rate limit is a HADES plan (owner approval), never a nerve action".into(),
+            }
+        }
         "edge" => Explain {
             title: format!("edge: {}", short(top)),
             why: "public hostnames answer with Cloudflare error pages; every failed request is a visitor or bot turned away, and the error counters hide real faults".into(),
@@ -898,6 +1124,10 @@ pub fn render_md(r: &Value) -> String {
                 txt(&sg["msg"])
             ));
         }
+        // T3.2: which sensors and folded signals made this one incident.
+        if let Some(line) = correlated_md(&i["correlation"]) {
+            s.push_str(&line);
+        }
         s.push('\n');
     }
     s.push_str("## Cortex\n\n### Vulnerabilities\n\n");
@@ -1025,6 +1255,64 @@ pub fn render_md(r: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 2026-10-25T02:00:00+02:00 Zagreb (one hour
+    /// before the fall-back to CET).
+    const FOLD_START: u64 = 1_792_886_400;
+
+    #[test]
+    fn self_eval_names_are_unique_across_the_october_fold() {
+        // Every 10 min from 01:04:35+02:00 to 04:04:35+01:00: four hours of
+        // instants, the 02:xx hour twice.
+        let ts: Vec<u64> = (0..25).map(|k| FOLD_START - 3600 + 275 + k * 600).collect();
+        let names: Vec<String> = ts
+            .iter()
+            .map(|t| self_eval_file_name(&crate::util::ts(*t)))
+            .collect();
+        let uniq: std::collections::BTreeSet<&String> = names.iter().collect();
+        assert_eq!(uniq.len(), names.len(), "{names:?}");
+        assert!(names.contains(&"self-eval-20261025T020435+0200.json".to_string()));
+        assert!(names.contains(&"self-eval-20261025T020435+0100.json".to_string()));
+        for (n, t) in names.iter().zip(&ts) {
+            assert_eq!(self_eval_file_instant(n), Some(*t), "{n}");
+        }
+        // The old 15-char name collided on exactly the six 02:x4:35 reports.
+        let old: std::collections::BTreeSet<String> = ts
+            .iter()
+            .map(|t| {
+                crate::util::ts(*t)
+                    .replace([':', '-'], "")
+                    .chars()
+                    .take(15)
+                    .collect()
+            })
+            .collect();
+        assert_eq!(ts.len() - old.len(), 6);
+    }
+
+    #[test]
+    fn self_eval_prune_keeps_the_newest_by_instant() {
+        let a = "self-eval-20261025T023435+0200.json"; // CEST, first pass
+        let b = "self-eval-20261025T020435+0100.json"; // CET, 30 min after a
+        let c = "self-eval-20261025T025435+0100.json";
+        assert_eq!(self_eval_file_instant(a), Some(FOLD_START + 2075));
+        assert_eq!(self_eval_file_instant(b), Some(FOLD_START + 2075 + 1800));
+        // By name b < c < a; by instant a < b < c.
+        let files = vec![(c.to_string(), 0), (a.to_string(), 0), (b.to_string(), 0)];
+        assert_eq!(self_eval_prune(files.clone(), 2), vec![a.to_string()]);
+        assert_eq!(
+            self_eval_prune(files.clone(), 1),
+            vec![a.to_string(), b.to_string()]
+        );
+        assert!(self_eval_prune(files, 3).is_empty());
+        // Legacy offset-less names fall back to their mtime.
+        let legacy = "self-eval-20261021T065435.json";
+        assert_eq!(self_eval_file_instant(legacy), None);
+        let files = vec![(legacy.to_string(), 1_792_558_475), (a.to_string(), 0)];
+        assert_eq!(self_eval_prune(files, 1), vec![legacy.to_string()]);
+        assert_eq!(self_eval_file_instant("self-eval-garbage+0100.json"), None);
+        assert_eq!(self_eval_file_instant("latest.json"), None);
+    }
 
     #[test]
     fn md_renders_report_shape() {

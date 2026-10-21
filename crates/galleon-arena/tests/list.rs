@@ -53,7 +53,7 @@ fn list_text_has_seed_ids_and_zagreb_stamp() {
 #[test]
 fn zulu_and_utc_offsets_are_refused() {
     let dir = homes();
-    let err = render_list(&dir, "2026-10-19T16:21:00Z").unwrap_err();
+    let err = render_list(&dir, "2026-10-19T16:21:00Z").unwrap_err(); // repo-check: allow (the Z stamp is the refused input under test)
     assert!(matches!(err, ListError::BadStamp(_)));
     let err = render_list(&dir, "2026-10-19T16:21:00+00:00").unwrap_err();
     assert!(matches!(err, ListError::BadStamp(_)));

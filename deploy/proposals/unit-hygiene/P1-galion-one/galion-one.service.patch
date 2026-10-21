@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# P1: live /etc/systemd/system/galion-one.service (sha256 cff8a7c1…cdeaf, read 2026-10-21 11:24 +02:00) -> proposed.
+# Apply only after approval: cd / && patch -p1 --dry-run < this.patch, then without --dry-run; systemctl daemon-reload. No restart.
+
+--- a/etc/systemd/system/galion-one.service
++++ b/etc/systemd/system/galion-one.service
+@@ -1,14 +1,17 @@
+ # SPDX-License-Identifier: MIT
+-# SPDX-FileCopyrightText: 2026 Slavik / Galion Studio
++# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+ #
+-# STAGED, NOT INSTALLED. Awaiting Slavik's approval (docs/ws-one-desk-tuner.md).
+-# Replaces the nohup-started ./one/one (pid since 2026-10-13, cwd
+-# /opt/galion/galion-light, log /var/log/galion-one.log) with the openmind
+-# crates/galion-one build. No [Install] section on purpose: it cannot be
+-# enabled by accident; the switch steps add the boot hook explicitly.
++# INSTALLED and ENABLED on the VPS since 2026-10-18 22:13 +02:00 (link in
++# multi-user.target.wants). Replaced the nohup-started ./one/one (cwd
++# /opt/galion/galion-light, log /var/log/galion-one.log).
++# The binary that runs is set by the drop-in galion-one.service.d/50-rust-bin.conf
++# (since 2026-10-21 08:39 +02:00: /opt/galion/rust/bin/galion-one, swarm/one-no-shellout 40454f9).
++# The ExecStart below is the older build inside the frozen working copy. It is kept
++# on purpose: removing 50-rust-bin.conf is the rollback.
++# Hygiene proposal deploy/proposals/unit-hygiene P1 (slot 183, 2026-10-21 +02:00).
+ [Unit]
+ Description=Galion One (Rust, openmind crates/galion-one): text 127.0.0.1:8091, mouth 127.0.0.1:8002
+-After=network-online.target hermes.service
++After=network-online.target hermes-rs.service
+ Wants=network-online.target
+ StartLimitIntervalSec=300
+ StartLimitBurst=10
+@@ -40,3 +43,6 @@
+ ProtectSystem=full
+ MemoryMax=128M
+ TasksMax=512
++
++[Install]
++WantedBy=multi-user.target

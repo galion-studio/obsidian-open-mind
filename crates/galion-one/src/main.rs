@@ -25,13 +25,20 @@
 #![allow(dead_code)]
 
 mod cli;
+mod host;
+mod http_plain;
+mod inflate;
 mod json;
 mod models_refresh;
+mod pdf_crypt;
+mod pdf_text;
 mod persona;
-mod sha256;
+mod probe;
+mod services;
 mod speech;
 mod sqlite_ro;
 mod trace;
+mod zagreb;
 
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -45,7 +52,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 fn endpoint(key: &str, port: u16) -> std::net::SocketAddr {
     let name = match key {
         "ear" => "GALION_EAR",
-        "mouth" => "GALION_MOUTH",
         "mind" => "GALION_MIND",
         "eye" => "GALION_EYE",
         _ => "",
@@ -66,9 +72,10 @@ fn ear_addr() -> std::net::SocketAddr {
     static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
     *SLOT.get_or_init(|| endpoint("ear", 8643))
 }
+// Mouth client: `GALION_MOUTH`, else our own `ONE_MOUTH_BIND` (probe.rs).
 fn mouth_addr() -> std::net::SocketAddr {
     static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
-    *SLOT.get_or_init(|| endpoint("mouth", 8002))
+    *SLOT.get_or_init(|| probe::mouth_client_target(&probe::process_env))
 }
 fn mind_addr() -> std::net::SocketAddr {
     static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
@@ -80,8 +87,19 @@ fn eye_addr() -> std::net::SocketAddr {
 }
 
 fn mouth_remote() -> bool {
-    let addr = mouth_addr();
-    !(addr.ip().is_loopback() && addr.port() == 8002)
+    probe::mouth_is_remote(mouth_addr(), &probe::process_env)
+}
+
+// The `one` self probe dials our own `ONE_BIND` (probe.rs), not live :8091.
+fn one_probe_addr() -> std::net::SocketAddr {
+    static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
+    *SLOT.get_or_init(|| probe::one_probe_target(&probe::process_env))
+}
+// Console pulse: `ONE_CONSOLE` (`host:port` or `off`) and `ONE_CONSOLE_PATH` (probe.rs).
+fn console_probe() -> Option<(std::net::SocketAddr, String)> {
+    static SLOT: OnceLock<Option<(std::net::SocketAddr, String)>> = OnceLock::new();
+    SLOT.get_or_init(|| probe::console_target(&probe::process_env))
+        .clone()
 }
 
 fn home() -> String {
@@ -92,16 +110,8 @@ fn p(rel: &str) -> String {
     format!("{}/{}", home().trim_end_matches('/'), rel)
 }
 
-// Listen address for a server socket. Reads the named env var (trimmed; empty
-// counts as unset) and otherwise falls back to the loopback address this
-// service has always bound. Returned as a string and handed to
-// TcpListener::bind unchanged.
-fn bind_addr(name: &str, port: u16) -> String {
-    match std::env::var(name) {
-        Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
-        _ => format!("127.0.0.1:{port}"),
-    }
-}
+// Listen addresses (`ONE_BIND`, `ONE_MOUTH_BIND`) live in probe.rs, so the
+// listeners and the self probes read the same values.
 
 fn one_page() -> Vec<u8> {
     let raw = std::fs::read(p("one/index.html")).unwrap_or_else(|_| b"missing".to_vec());
@@ -258,6 +268,7 @@ fn mouth() -> &'static Mutex<()> {
 }
 
 fn main() {
+    galion_common::build_info::exit_if_version("galion-one", env!("CARGO_PKG_VERSION"));
     // Operator subcommands (ports of one/set-model.py and one/trace.py). With no
     // argument the server starts exactly as before.
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -272,7 +283,7 @@ fn main() {
     if std::env::var("ONE_NO_WARM").as_deref() != Ok("1") {
         thread::spawn(keep_warm);
     }
-    let listener = TcpListener::bind(bind_addr("ONE_BIND", 8091)).unwrap_or_else(|err| {
+    let listener = TcpListener::bind(probe::one_bind(&probe::process_env)).unwrap_or_else(|err| {
         eprintln!("one: bind failed: {err}");
         std::process::exit(1);
     });
@@ -395,6 +406,17 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     }
     if method == "GET" && path == "/api/v1/catalog" {
         let bytes = fs::read(p("one/catalog.json")).unwrap_or_else(|_| b"[]".to_vec());
+        return write_response(&mut stream, 200, "application/json", &bytes, None);
+    }
+    if method == "GET" && path == "/api/v1/services" {
+        // Unpaired, like live (ws/ui f69a916): up/down and latency only.
+        let link_watch = services::process_named("/proc", "link-watch");
+        let bytes = services::services_json(
+            mind_addr(),
+            probe::memory_target(&probe::process_env),
+            link_watch,
+        )
+        .into_bytes();
         return write_response(&mut stream, 200, "application/json", &bytes, None);
     }
     if method == "GET" && path == "/api/v1/awake" {
@@ -856,7 +878,7 @@ fn remember(whisper: u32, hermes: u32, tts: u32, heard: usize, said: usize) {
             file,
             "{{\"id\":\"one-voice\",\"unix\":{},\"at\":\"{}\",\"channel\":\"galion-one\",\"heard\":{heard},\"said\":{said},\"whisper\":{whisper},\"hermes\":{hermes},\"tts\":{tts}}}",
             unix_secs(),
-            clock()
+            stamp()
         );
     }
 }
@@ -1074,7 +1096,7 @@ fn warm_due() -> bool {
         .ok()
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(0.0);
-    let now = SystemTime::now()
+    let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
@@ -1143,7 +1165,7 @@ fn warm_pass() {
         eprintln!("warm rust skipped mouth=0 mind={mind}");
         return;
     }
-    let now = SystemTime::now()
+    let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0);
@@ -1242,7 +1264,7 @@ fn wav_of(pcm: &[u8]) -> Vec<u8> {
 
 fn serve_tts() {
     let listener = loop {
-        match TcpListener::bind(bind_addr("ONE_MOUTH_BIND", 8002)) {
+        match TcpListener::bind(probe::mouth_bind(&probe::process_env)) {
             Ok(listener) => break listener,
             Err(_) => thread::sleep(Duration::from_millis(300)),
         }
@@ -1258,6 +1280,39 @@ fn serve_tts() {
             });
         }
     }
+}
+
+/// What :8002 /health answers. It used to hard-code a Chatterbox/CUDA body
+/// and, with no worker, a permanent `"status":"loading"` 503. Now it tells
+/// the truth: with GALION_MOUTH set it passes the remote voice service's own
+/// health through (one GET, 3 s), otherwise it says no backend is configured.
+fn mouth_health() -> (u16, Vec<u8>) {
+    if mouth_remote() {
+        let addr = mouth_addr();
+        return match http_to(addr, "GET", "/health", &[], b"", Duration::from_secs(3)) {
+            Ok((code, body)) if code != 0 && !body.is_empty() => (code, body),
+            _ => (
+                503,
+                format!(
+                    "{{\"ok\":false,\"status\":\"unreachable\",\"provider\":\"remote\",\"mouth\":\"{addr}\"}}"
+                )
+                .into_bytes(),
+            ),
+        };
+    }
+    let m = speech::local();
+    if m.ready() {
+        let body = format!(
+            "{{\"ok\":true,\"status\":\"ok\",\"provider\":\"local\",\"model\":\"{}\",\"loaded\":true}}",
+            m.name()
+        );
+        return (200, body.into_bytes());
+    }
+    let body = format!(
+        "{{\"ok\":false,\"status\":\"unavailable\",\"provider\":\"{}\",\"loaded\":false,\"reason\":\"no speech backend configured; set GALION_MOUTH to a galion-voice-serve address\"}}",
+        m.name()
+    );
+    (503, body.into_bytes())
 }
 
 fn tts_http(mut stream: TcpStream) -> std::io::Result<()> {
@@ -1300,13 +1355,7 @@ fn tts_http(mut stream: TcpStream) -> std::io::Result<()> {
     }
     body.truncate(length);
     if method == "GET" && path == "/health" {
-        let ready = speech::local().ready();
-        let bytes = if ready {
-            br#"{"ok":true,"status":"ok","version":2,"provider":"local","model":"chatterbox","loaded":true,"device":"cuda","voices":["samantha","jarvis"],"bind":"127.0.0.1:8002"}"#.to_vec()
-        } else {
-            br#"{"ok":false,"status":"loading","provider":"local","model":"chatterbox","loaded":false}"#.to_vec()
-        };
-        let status = if ready { 200 } else { 503 };
+        let (status, bytes) = mouth_health();
         return write_response(&mut stream, status, "application/json", &bytes, None);
     }
     if method == "POST" && path == "/synthesize" {
@@ -1354,7 +1403,7 @@ fn share_id() -> String {
     if let Ok(mut file) = File::open("/dev/urandom") {
         let _ = file.read_exact(&mut buf);
     }
-    let now = SystemTime::now()
+    let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
@@ -1515,21 +1564,22 @@ fn look_image(bytes: &[u8]) -> String {
 }
 
 fn pdf_clip(bytes: &[u8]) -> String {
-    let path = "/tmp/galion-one-page.pdf";
-    if fs::write(path, bytes).is_err() {
-        return String::new();
-    }
-    let Ok(out) = Command::new("pdftotext")
-        .args(["-f", "1", "-l", "1", "-q", path, "-"])
-        .output()
-    else {
+    // Built-in pure-Rust reader by default (pdf_text.rs); pdftotext only when
+    // ONE_PDF_TEXT asks for it (host.rs `pdf_engine`).
+    let engine = host::pdf_engine(std::env::var("ONE_PDF_TEXT").ok().as_deref());
+    let setting = std::env::var("ONE_PDFTOTEXT").ok();
+    let (text, by) = host::pdf_text(
+        bytes,
+        engine,
+        setting.as_deref(),
+        &std::env::temp_dir(),
+        host::PDF_TIMEOUT,
+    );
+    note(format!("pdf text by {by}"));
+    let Some(text) = text else {
         return String::new();
     };
-    if !out.status.success() {
-        return String::new();
-    }
-    String::from_utf8_lossy(&out.stdout)
-        .chars()
+    text.chars()
         .take(480)
         .collect::<String>()
         .split_whitespace()
@@ -1779,7 +1829,7 @@ fn keep_turn(heard: &str, said: &str) {
     let line = format!(
         "{{\"id\":\"one-voice\",\"unix\":{},\"at\":\"{}\",\"heard\":{},\"said\":{}}}\n",
         unix_secs(),
-        clock(),
+        stamp(),
         quote(heard),
         quote(said)
     );
@@ -1830,11 +1880,8 @@ fn shorten(text: &str) -> String {
 }
 
 fn load_units() -> Vec<Unit> {
-    let ps = Command::new("ps").args(["-eo", "args"]).output();
-    let text = ps
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-        .unwrap_or_default();
+    // /proc/<pid>/cmdline instead of `ps -eo args` (host.rs): no procps needed.
+    let text = host::process_text();
     let mut rows = Vec::new();
     let mut push = |id: &str, ok: bool, note: &str| {
         rows.push(Unit {
@@ -1906,26 +1953,26 @@ fn json_error(body: &str) -> String {
 }
 
 fn sample() {
-    let specs = [
-        ("console", 8080u16, "/"),
-        ("hermes", 8642, "/health"),
-        ("whisper", 8643, "/health"),
-        ("voice", 8002, "/health"),
-        ("vision", 8645, "/health"),
-        ("one", 8091, "/health"),
-    ];
+    // `voice` and `one` have no fixed port: they dial the mouth client and
+    // this process's own listen address (ONE-PROBE). Every pulse reports the
+    // port it dialled.
+    // The console pulse is configurable (ONE_CONSOLE / ONE_CONSOLE_PATH) and
+    // left out entirely when ONE_CONSOLE=off.
+    let mut specs: Vec<(&'static str, std::net::SocketAddr, String)> = Vec::new();
+    if let Some((addr, path)) = console_probe() {
+        specs.push(("console", addr, path));
+    }
+    specs.push(("hermes", mind_addr(), "/health".to_string()));
+    specs.push(("whisper", ear_addr(), "/health".to_string()));
+    specs.push(("voice", mouth_addr(), "/health".to_string()));
+    specs.push(("vision", eye_addr(), "/health".to_string()));
+    specs.push(("one", one_probe_addr(), "/health".to_string()));
     let mut joins = Vec::new();
     for spec in specs {
         joins.push(thread::spawn(move || {
             let t = Instant::now();
-            let addr = match spec.0 {
-                "hermes" => mind_addr(),
-                "whisper" => ear_addr(),
-                "voice" => mouth_addr(),
-                "vision" => eye_addr(),
-                _ => std::net::SocketAddr::from(([127, 0, 0, 1], spec.1)),
-            };
-            let (code, body) = http_to(addr, "GET", spec.2, &[], b"", Duration::from_millis(400))
+            let addr = spec.1;
+            let (code, body) = http_to(addr, "GET", &spec.2, &[], b"", Duration::from_millis(400))
                 .unwrap_or((0, Vec::new()));
             let text = String::from_utf8_lossy(&body);
             let ok = code > 0
@@ -1935,7 +1982,8 @@ fn sample() {
             let note = service_note(&text, ok);
             Pulse {
                 id: spec.0,
-                port: spec.1,
+                // The port actually dialled (env overrides included), not a fixed one.
+                port: addr.port(),
                 ok,
                 ms: t.elapsed().as_millis() as u32,
                 note,
@@ -2021,6 +2069,12 @@ fn sample() {
             n.gpu_total = total;
             n.gpu_util = util;
             n.gpu_ok = total > 0;
+        } else if tick % 5 == 0 {
+            // nvidia-smi went away (or was switched off): stop reporting the
+            // last reading as a live GPU.
+            n.gpu_ok = false;
+            n.gpu_used = 0;
+            n.gpu_util = 0;
         }
         if !defence.is_empty() {
             n.defence = defence;
@@ -2208,17 +2262,24 @@ fn analytics_json(path: &str) -> String {
         "users" => users,
         "workforce" => workforce.to_string(),
         "overview" => format!("{{\"health\":{health},\"agents\":{agents}}}"),
-        _ => format!("{{\"at\":\"{}\",\"server\":\"runpod-main\",\"source\":\"nerve\",\"health\":{health},\"infrastructure\":{infra},\"services\":[{services}],\"agents\":{agents},\"users\":{users},\"workforce\":{workforce},\"defence\":[{defence}],\"edge\":[{edge}],\"systems\":[{systems}],\"line\":[{line}],\"nerve\":{nerve_json},\"cortex\":{cortex},\"memory\":{memory}}}", clock()),
+        _ => format!("{{\"at\":\"{}\",\"server\":\"runpod-main\",\"source\":\"nerve\",\"health\":{health},\"infrastructure\":{infra},\"services\":[{services}],\"agents\":{agents},\"users\":{users},\"workforce\":{workforce},\"defence\":[{defence}],\"edge\":[{edge}],\"systems\":[{systems}],\"line\":[{line}],\"nerve\":{nerve_json},\"cortex\":{cortex},\"memory\":{memory}}}", stamp()),
     };
     body
 }
 
 fn memory_section() -> String {
-    let http_up = match http(8420, "GET", "/health", &[], b"", Duration::from_secs(1)) {
+    // `GALION_MEMORY` moves this off the live 8420 (probe.rs). The gateway
+    // process (for its env and open files) is only looked up on loopback.
+    let target = probe::memory_target(&probe::process_env);
+    let http_up = match http_to(target, "GET", "/health", &[], b"", Duration::from_secs(1)) {
         Ok((code, _)) => (200..500).contains(&code),
         Err(_) => false,
     };
-    let gate = gateway_proc(8420);
+    let gate = if target.ip().is_loopback() {
+        gateway_proc(target.port())
+    } else {
+        None
+    };
     let model = gate.as_ref().and_then(|g| {
         ["TDAI_LLM_MODEL", "MEMORY_TENCENTDB_LLM_MODEL", "MODEL_NAME"]
             .iter()
@@ -2948,24 +3009,11 @@ fn disk() -> (u64, u32) {
     (used, pct)
 }
 
+/// Optional GPU query (host.rs): `ONE_NVIDIA_SMI=off` skips it, a missing or
+/// failing or hung nvidia-smi is simply "no GPU".
 fn gpu() -> Option<(String, u32, u32, u32)> {
-    let out = Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=name,memory.used,memory.total,utilization.gpu",
-            "--format=csv,noheader,nounits",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut bits = text.split(',');
-    let name = bits.next()?.trim().to_string();
-    let used = bits.next()?.trim().parse().unwrap_or(0);
-    let total = bits.next()?.trim().parse().unwrap_or(0);
-    let util = bits.next()?.trim().parse().unwrap_or(0);
-    Some((name, used, total, util))
+    let setting = std::env::var("ONE_NVIDIA_SMI").ok();
+    host::gpu(setting.as_deref(), host::GPU_TIMEOUT)
 }
 
 fn phones() -> usize {
@@ -2987,8 +3035,10 @@ fn castle() -> bool {
 }
 
 fn token_ok(cookie: &str) -> bool {
+    // Fail closed (ws/ui 15cdb53, live since Oct 18): a missing, unreadable or
+    // empty pairing store means nobody is paired.
     if !castle() {
-        return true;
+        return false;
     }
     let token = cookie_token(cookie);
     if token.is_empty() {
@@ -3004,10 +3054,15 @@ fn token_ok(cookie: &str) -> bool {
 }
 
 fn pair(code: &str) -> (u16, Vec<u8>, Option<String>) {
-    let text = fs::read_to_string(store_path()).unwrap_or_default();
+    // No store (or an unreadable one) means nobody can pair: refuse without
+    // writing anything, so a stray POST /pair never creates a store file in
+    // the secrets dir. Same body as a wrong code, so it reveals nothing.
+    let Ok(text) = fs::read_to_string(store_path()) else {
+        return (200, br#"{"error":"no"}"#.to_vec(), None);
+    };
     let mut fails = json_u64(text.as_bytes(), "fails");
     let locked_until = json_u64(text.as_bytes(), "lockedUntil");
-    let now = SystemTime::now()
+    let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
@@ -3042,7 +3097,16 @@ fn write_store(previous: &str, hashes: &[String], fails: u64, locked_until: u64)
         .collect::<Vec<_>>()
         .join(",");
     let body = format!("{{\"codeHash\":\"{code_hash}\",\"tokenHash\":\"{token_hash}\",\"tokenHashes\":[{list}],\"deviceHash\":\"{device_hash}\",\"fails\":{fails},\"lockedUntil\":{locked_until}}}\n");
-    if fs::write(store_path(), body).is_ok() {
+    // Rewrite in place only: never create the store (it is provisioned by
+    // the operator). If it vanished since it was read, nothing is written.
+    let Ok(mut file) = fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(store_path())
+    else {
+        return;
+    };
+    if file.write_all(body.as_bytes()).is_ok() {
         let _ = fs::set_permissions(store_path(), fs::Permissions::from_mode(0o600));
     }
 }
@@ -3244,8 +3308,8 @@ fn json_u64(body: &[u8], key: &str) -> u64 {
 }
 
 fn sha256(text: &str) -> String {
-    // In-process SHA-256 (sha256.rs); no sha256sum child per token check.
-    sha256::hex(text.as_bytes())
+    // In-process SHA-256 (galion-common); no sha256sum child per token check.
+    galion_common::sha256::hex(text.as_bytes())
 }
 
 fn new_token() -> String {
@@ -3271,36 +3335,8 @@ fn quote(text: &str) -> String {
     out
 }
 
-fn b64(data: &[u8]) -> String {
-    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::new();
-    for chunk in data.chunks(3) {
-        let a = chunk[0] as u32;
-        let b = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-        let c = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
-        let n = (a << 16) | (b << 8) | c;
-        out.push(T[((n >> 18) & 63) as usize] as char);
-        out.push(T[((n >> 12) & 63) as usize] as char);
-        if chunk.len() > 1 {
-            out.push(T[((n >> 6) & 63) as usize] as char);
-        } else {
-            out.push('=');
-        }
-        if chunk.len() > 2 {
-            out.push(T[(n & 63) as usize] as char);
-        } else {
-            out.push('=');
-        }
-    }
-    out
-}
-
 fn b64url(data: &[u8]) -> String {
-    b64(data)
-        .replace('+', "-")
-        .replace('/', "_")
-        .trim_end_matches('=')
-        .to_string()
+    galion_common::base64::encode_url(data)
 }
 
 fn unquote(text: &str) -> String {
@@ -3329,16 +3365,22 @@ fn count_lines(path: &str) -> u32 {
 }
 
 fn unix_secs() -> u64 {
-    SystemTime::now()
+    SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
 }
 
+/// Nerve event prefix: Europe/Zagreb wall clock with its offset, e.g.
+/// `20:40:00+02:00` (was the UTC time of day with no offset).
 fn clock() -> String {
-    let secs = unix_secs();
-    let s = secs % 86400;
-    format!("{:02}:{:02}:{:02}", s / 3600, (s % 3600) / 60, s % 60)
+    zagreb::clock(unix_secs() as i64)
+}
+
+/// The `at` field everywhere (analytics, one.jsonl, session.jsonl):
+/// Europe/Zagreb RFC 3339, e.g. `2026-10-20T20:40:00+02:00`, never `Z`.
+fn stamp() -> String {
+    zagreb::rfc3339(unix_secs() as i64)
 }
 
 fn heal_line() -> Option<String> {
@@ -3402,4 +3444,87 @@ fn write_response(
     }
     let _ = stream.shutdown(std::net::Shutdown::Write);
     Ok(())
+}
+
+#[cfg(test)]
+mod pairing_tests {
+    use super::*;
+
+    // Ported from ws/ui 15cdb53. The only test that touches ONE_DEVICE_STORE,
+    // so env changes never race.
+    #[test]
+    fn pairing_store_fails_closed_and_keeps_tokens() {
+        let dir = std::env::temp_dir().join(format!("one-pair-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let store = dir.join("admin-device.json");
+        let _ = fs::remove_file(&store);
+        std::env::set_var("ONE_DEVICE_STORE", &store);
+
+        // Missing store: nobody is paired, with or without a cookie.
+        assert!(!token_ok(""));
+        assert!(!token_ok("galion_admin=anything"));
+
+        // A failed pairing attempt with no store must not create one.
+        for code in ["WRONG", "", "abc123"] {
+            let (status, body, tok) = pair(code);
+            assert_eq!((status, body), (200, br#"{"error":"no"}"#.to_vec()));
+            assert!(tok.is_none());
+            assert!(!store.exists(), "pair({code:?}) created the store");
+        }
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0, "nothing in the dir");
+
+        // Store without a codeHash: still closed.
+        fs::write(&store, r#"{"codeHash":"","tokenHashes":[]}"#).unwrap();
+        assert!(!token_ok("galion_admin=anything"));
+
+        // Real store: existing token valid, wrong token rejected.
+        let good = sha256("tok-1");
+        let code = sha256("ABC123");
+        fs::write(
+            &store,
+            format!(r#"{{"codeHash":"{code}","tokenHash":"","tokenHashes":["{good}"],"deviceHash":"","fails":0,"lockedUntil":0}}"#),
+        )
+        .unwrap();
+        assert!(token_ok("galion_admin=tok-1"));
+        assert!(!token_ok("galion_admin=tok-2"));
+        assert!(!token_ok(""));
+
+        // A wrong code is refused and counted.
+        let (_, body, tok) = pair("WRONG");
+        assert_eq!(body, br#"{"error":"no"}"#.to_vec());
+        assert!(tok.is_none());
+        assert!(fs::read_to_string(&store).unwrap().contains("\"fails\":1"));
+
+        // Lower-case code is uppercased before hashing; old token survives.
+        let (_, body, tok) = pair("abc123");
+        assert_eq!(body, br#"{"ok":true}"#.to_vec());
+        let tok = tok.unwrap();
+        assert!(token_ok(&format!("galion_admin={tok}")));
+        assert!(token_ok("galion_admin=tok-1"));
+        let text = fs::read_to_string(&store).unwrap();
+        assert!(text.contains(&code));
+        assert!(text.contains("\"fails\":0"));
+
+        std::env::remove_var("ONE_DEVICE_STORE");
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod common_tests {
+    // The vectors the removed sha256.rs carried, now through galion-common.
+    #[test]
+    fn sha256_and_b64url_unchanged() {
+        assert_eq!(
+            super::sha256("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            super::sha256(&"a".repeat(1000)),
+            "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3"
+        );
+        assert_eq!(super::b64url(&[0xfb, 0xff, 0xfe]), "-__-");
+        assert_eq!(super::b64url(b"M"), "TQ");
+        assert_eq!(super::new_token().len(), 43);
+    }
 }

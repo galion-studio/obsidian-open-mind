@@ -76,6 +76,8 @@ pub struct Collected {
     pub lines: Vec<probe::JLine>,
     /// Listening sockets (None: not read).
     pub listeners: Option<Vec<probe::Listener>>,
+    /// Holders (from /proc or `ss -ltnp`) of listeners no component owns.
+    pub port_procs: std::collections::BTreeMap<u16, crate::owners::ProcInfo>,
     /// Probes intentionally skipped on this host (info, not errors).
     pub skipped: Vec<String>,
 }
@@ -100,10 +102,35 @@ pub fn health_body_summary(body: &str) -> Option<Value> {
     (!m.is_empty()).then_some(Value::Object(m))
 }
 
+/// Journal units read for the cortex sensors only (never component units:
+/// no sample, no status, no journal counts). `ssh.service` feeds the
+/// `sshd-auth` sensor (T2.1); a host without that unit yields no lines.
+pub const JOURNAL_EXTRA_UNITS: &[&str] = &["ssh.service"];
+
+/// The units whose journal lines one collection pass reads: the component
+/// units first, then [`JOURNAL_EXTRA_UNITS`] not already among them.
+pub fn journal_units<'a>(component_units: &[&'a str]) -> Vec<&'a str> {
+    let mut v = component_units.to_vec();
+    for u in JOURNAL_EXTRA_UNITS {
+        if !v.contains(u) {
+            v.push(u);
+        }
+    }
+    v
+}
+
 pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) -> Collected {
     let mut errs = vec![];
     let mut skipped = vec![];
     let units: Vec<&str> = specs.iter().filter_map(|s| s.unit).collect();
+    // Timer kind: the oneshot service behind each timer (T2.3).
+    let timer_svcs: Vec<String> = specs
+        .iter()
+        .filter(|s| s.kind == Kind::Timer)
+        .filter_map(|s| s.unit.and_then(probe::timer_service))
+        .collect();
+    let mut read_units = units.clone();
+    read_units.extend(timer_svcs.iter().map(String::as_str));
     let infos = if !cfg.systemd {
         skipped.push("systemd (NERVE_SYSTEMD=0)".to_string());
         HashMap::new()
@@ -120,7 +147,7 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
         skipped.push("journald (NERVE_JOURNAL=0 or no units)".to_string());
         vec![]
     } else {
-        match probe::journal_lines(&units, since) {
+        match probe::journal_lines(&journal_units(&read_units), since) {
             Ok(v) => v,
             Err(e) => {
                 errs.push(format!("journald: {e}"));
@@ -128,7 +155,13 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
             }
         }
     };
-    let journal = probe::journal_counts(&lines, &units);
+    let journal = probe::journal_counts(&lines, &read_units);
+    let runs: Result<HashMap<String, probe::LastRun>, String> = if !cfg.systemd {
+        Ok(HashMap::new())
+    } else {
+        let refs: Vec<&str> = timer_svcs.iter().map(String::as_str).collect();
+        probe::last_runs(&refs)
+    };
     let health: HashMap<String, bool> = match cfg.health_url_port {
         Some(p) => {
             // Full body (http_probe keeps only 512 bytes).
@@ -265,6 +298,27 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
                     s.present = false;
                 }
             }
+            Kind::Timer => {
+                let svc = sp.unit.and_then(probe::timer_service);
+                if let Some(svc) = svc.filter(|_| s.present) {
+                    if let Some(j) = journal.get(svc.as_str()) {
+                        s.journal_errors += j.errors;
+                        s.journal_warnings += j.warnings;
+                        if j.last_error.is_some() {
+                            s.last_error = j.last_error.clone();
+                        }
+                    }
+                    match &runs {
+                        Ok(m) => {
+                            if let Some(r) = m.get(&svc) {
+                                s.extra["last_run"] = r.to_json();
+                            }
+                        }
+                        // Observed, not scored: older systemd has no --timestamp=unix.
+                        Err(e) => s.extra["last_run_unreadable"] = json!(e),
+                    }
+                }
+            }
             Kind::SelfNerve => {
                 s.present = true;
                 s.rss_kb = probe::proc_rss_kb(std::process::id());
@@ -275,11 +329,27 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
         }
         out.insert(sp.name.to_string(), s);
     }
+    let listeners = probe::listeners();
+    // Holders of listeners nobody owns (in scope), for "unknown owner".
+    let port_procs = match &listeners {
+        Some(ls) => {
+            let om = crate::owners::OwnerMap::for_config(specs, cfg);
+            let in_scope = |p: u16| cfg.listen_scope.is_none_or(|(a, b)| p >= a && p <= b);
+            let ports: std::collections::BTreeSet<u16> = ls
+                .iter()
+                .map(|l| l.port)
+                .filter(|p| in_scope(*p) && !om.is_owned(*p))
+                .collect();
+            crate::owners::socket_procs(&ports)
+        }
+        None => Default::default(),
+    };
     Collected {
         samples: out,
         probe_errors: errs,
         lines,
-        listeners: probe::listeners(),
+        listeners,
+        port_procs,
         skipped,
     }
 }
@@ -288,6 +358,27 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
 mod tests {
     use super::*;
 
+    #[test]
+    fn journal_units_add_ssh_once() {
+        assert_eq!(
+            journal_units(&["galion-one.service", "cloudflared.service"]),
+            ["galion-one.service", "cloudflared.service", "ssh.service"]
+        );
+        assert_eq!(
+            journal_units(&["ssh.service", "x.service"]),
+            ["ssh.service", "x.service"]
+        );
+        // ssh lines are read but never counted as a component's journal.
+        let lines = vec![probe::JLine {
+            t: 1,
+            unit: "ssh.service".into(),
+            prio: 3,
+            msg: "error: x".into(),
+        }];
+        let c = probe::journal_counts(&lines, &["galion-one.service"]);
+        assert!(!c.contains_key("ssh.service"));
+        assert_eq!(c["galion-one.service"].lines, 0);
+    }
     #[test]
     fn gaia_summary_is_shallow() {
         let v = json!({"functions": [1, 2, 3], "tick": 4, "bus": {"a": 1}});

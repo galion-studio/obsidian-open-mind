@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "galion-realtest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Platform-wide real-life test harness: boots the whole stack on spare ports, runs scenarios, writes JUnit + Markdown; plus a read-only live probe."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "galion-realtest"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }

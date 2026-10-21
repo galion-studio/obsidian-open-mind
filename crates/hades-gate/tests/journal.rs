@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! The journal returns one object and stores nothing. A test may write a temp file.
+#![allow(deprecated)]
 
 use hades_gate::journal::record;
 use hades_gate::{decide, Decision, ALLOW_LIST, ALWAYS_REFUSED, APPROVED_TEST_TOKEN};
@@ -40,6 +41,10 @@ fn assert_record(action: &str, token: &str, expect: Decision) {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "journal::record stamps the real-time clock (and some tests use a temp dir), refused under Miri isolation; run in the FS pass"
+)]
 fn default_is_dry_run() {
     assert_record("heal-apply", "", Decision::DryRun);
     assert_record("switch", "no", Decision::DryRun);
@@ -54,13 +59,21 @@ fn default_is_dry_run() {
 }
 
 #[test]
-fn would_apply_only_for_the_test_token_on_the_allow_list() {
+#[cfg_attr(
+    miri,
+    ignore = "journal::record stamps the real-time clock (and some tests use a temp dir), refused under Miri isolation; run in the FS pass"
+)]
+fn the_public_test_token_no_longer_approves() {
     for action in ALLOW_LIST {
-        assert_record(action, APPROVED_TEST_TOKEN, Decision::WouldApply);
+        assert_record(action, APPROVED_TEST_TOKEN, Decision::DryRun);
     }
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "journal::record stamps the real-time clock (and some tests use a temp dir), refused under Miri isolation; run in the FS pass"
+)]
 fn kill_and_rotate_are_refused() {
     for action in ALWAYS_REFUSED {
         assert_record(action, "", Decision::Refused);
@@ -70,10 +83,14 @@ fn kill_and_rotate_are_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "journal::record stamps the real-time clock (and some tests use a temp dir), refused under Miri isolation; run in the FS pass"
+)]
 fn a_test_may_write_the_object_the_crate_does_not() {
     let row = record("switch", APPROVED_TEST_TOKEN);
-    assert_eq!(row["decision"].as_str(), Some("WouldApply"));
-    let nanos = std::time::SystemTime::now()
+    assert_eq!(row["decision"].as_str(), Some("DryRun"));
+    let nanos = std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock after epoch")
         .as_nanos();
@@ -88,6 +105,10 @@ fn a_test_may_write_the_object_the_crate_does_not() {
 
 /// `record` returns JSON and writes no file. `kill` and `rotate` stay refused.
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "journal::record stamps the real-time clock (and some tests use a temp dir), refused under Miri isolation; run in the FS pass"
+)]
 fn record_returns_json_writes_no_file_and_kill_and_rotate_stay_refused() {
     assert_eq!(ALWAYS_REFUSED, ["kill", "rotate"]);
 
@@ -158,7 +179,7 @@ impl Drop for CwdGuard {
 }
 
 fn probe_dir() -> std::path::PathBuf {
-    let nanos = std::time::SystemTime::now()
+    let nanos = std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock after epoch")
         .as_nanos();

@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# Fake ticket repo for the hermes-tools real-life test (copied out, never built in place).
+[package]
+name = "adder"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+[workspace]

@@ -1,0 +1,212 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# Repo-side hygiene. P1: deploy/staged/galion-one.service = live + P1, deploy/galion-one.service marked superseded.
+# P3: deploy/link-watch.service marked superseded; deploy/survival/link-watch.d -> link-watch-rs.d (the live unit).
+# P3b: all five deploy/survival/*/10-restart.conf move StartLimit* to [Unit] (systemd ignored them in [Service]).
+# P4: deploy/staged/tuner.service = live unit. P5: deploy/console-prod.service stale comment.
+# Base integration-4 42de672. Apply after owner review: git apply --index this.patch. Repo files only; nothing on the VPS reads them.
+
+diff --git a/deploy/console-prod.service b/deploy/console-prod.service
+index f28dd3a..f6cdfcd 100644
+--- a/deploy/console-prod.service
++++ b/deploy/console-prod.service
+@@ -13,6 +13,8 @@ Restart=always
+ RestartSec=3
+ 
+ # No [Install] section on purpose: this unit must not be enabled until Slavik
+-# approves the switch. The live console.service runs the vite dev server on
+-# 0.0.0.0:8080; this one runs the built output on 127.0.0.1:8080.
++# approves the switch. The live console.service runs the vite dev server (node,
++# --host 127.0.0.1 --port 8080, WorkingDirectory /opt/galion/console-ide; checked 2026-10-21 11:24 +02:00);
++# this one runs the built output on 127.0.0.1:8080. Its paths are inside the frozen working copy
++# (/opt/galion/openmind/stage/console-dist): copy the bundle out (e.g. /opt/galion/console-prod) before any install.
+ # The build itself is reproduced by the command in deploy/console-prod.md.
+diff --git a/deploy/galion-one.service b/deploy/galion-one.service
+index d647a33..1651e61 100644
+--- a/deploy/galion-one.service
++++ b/deploy/galion-one.service
+@@ -1,3 +1,5 @@
++# SUPERSEDED 2026-10-21 (unit-hygiene P1): the live unit is deploy/staged/galion-one.service plus the drop-in
++# 50-rust-bin.conf (see deploy/proposals/unit-hygiene/README.md). Do not install this file. Kept for history only.
+ [Unit]
+ Description=Galion One (Rust port of ./one/one)
+ After=network-online.target
+diff --git a/deploy/link-watch.service b/deploy/link-watch.service
+index 519b87e..9388fb3 100644
+--- a/deploy/link-watch.service
++++ b/deploy/link-watch.service
+@@ -1,3 +1,5 @@
++# SUPERSEDED 2026-10-21 (unit-hygiene P3): the live unit is link-watch-rs.service (/opt/galion/rust/bin/link-watch,
++# installed 2026-10-18 21:57 +02:00, Conflicts=link-watch.service). Do not install this file. Kept for history only.
+ [Unit]
+ Description=Laptop link watch (Rust port of galion-light/scripts/link-watch.py)
+ After=network-online.target
+diff --git a/deploy/staged/galion-one.service b/deploy/staged/galion-one.service
+index 2659935..0c8171b 100644
+--- a/deploy/staged/galion-one.service
++++ b/deploy/staged/galion-one.service
+@@ -1,14 +1,17 @@
+ # SPDX-License-Identifier: MIT
+ # SPDX-FileCopyrightText: 3000 Galion / galion-studio
+ #
+-# STAGED, NOT INSTALLED. Awaiting Slavik's approval (docs/ws-one-desk-tuner.md).
+-# Replaces the nohup-started ./one/one (pid since 2026-10-13, cwd
+-# /opt/galion/galion-light, log /var/log/galion-one.log) with the openmind
+-# crates/galion-one build. No [Install] section on purpose: it cannot be
+-# enabled by accident; the switch steps add the boot hook explicitly.
++# INSTALLED and ENABLED on the VPS since 2026-10-18 22:13 +02:00 (link in
++# multi-user.target.wants). Replaced the nohup-started ./one/one (cwd
++# /opt/galion/galion-light, log /var/log/galion-one.log).
++# The binary that runs is set by the drop-in galion-one.service.d/50-rust-bin.conf
++# (since 2026-10-21 08:39 +02:00: /opt/galion/rust/bin/galion-one, swarm/one-no-shellout 40454f9).
++# The ExecStart below is the older build inside the frozen working copy. It is kept
++# on purpose: removing 50-rust-bin.conf is the rollback.
++# Hygiene proposal deploy/proposals/unit-hygiene P1 (slot 183, 2026-10-21 +02:00).
+ [Unit]
+ Description=Galion One (Rust, openmind crates/galion-one): text 127.0.0.1:8091, mouth 127.0.0.1:8002
+-After=network-online.target hermes.service
++After=network-online.target hermes-rs.service
+ Wants=network-online.target
+ StartLimitIntervalSec=300
+ StartLimitBurst=10
+@@ -18,8 +21,8 @@ Type=simple
+ WorkingDirectory=/opt/galion/galion-light
+ ExecStart=/opt/galion/openmind/dist/bin-ws/galion-one
+ # Every value below is the live default, written out so a typo cannot
+-# silently change behaviour. A missing ONE_DEVICE_STORE file means "unpaired"
+-# and leaves One OPEN (castle() is false), exactly like the live binary.
++# silently change behaviour. A missing or empty ONE_DEVICE_STORE file means
++# "nobody paired": One fails CLOSED (every gated route answers 401 pair).
+ Environment=GALION_HOME=/workspace/galion-light
+ Environment=ONE_BIND=127.0.0.1:8091
+ Environment=ONE_MOUTH_BIND=127.0.0.1:8002
+@@ -40,3 +43,6 @@ NoNewPrivileges=true
+ ProtectSystem=full
+ MemoryMax=128M
+ TasksMax=512
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/deploy/staged/tuner.service b/deploy/staged/tuner.service
+index 3187efa..b249a7a 100644
+--- a/deploy/staged/tuner.service
++++ b/deploy/staged/tuner.service
+@@ -1,19 +1,23 @@
+ # SPDX-License-Identifier: MIT
+ # SPDX-FileCopyrightText: 3000 Galion / galion-studio
+ #
+-# STAGED, NOT INSTALLED. Same as the live tuner.service except ExecStart now
+-# points at the openmind crates/tuner build. Responses are byte-identical
+-# (docs/ws-one-desk-tuner.md). No [Install] here; the live unit keeps its own.
++# Mirror of the LIVE /etc/systemd/system/tuner.service (sha256 8d475345…bada4 on 2026-10-21 11:24 +02:00).
++# The crates/tuner build (integration-4 42de672, sha256 89c7fcbc…2b12) was deployed IN PLACE to
++# /opt/galion/tuner/bin/tuner by galion-deploy on 2026-10-21 04:32 +02:00; the unit file did not change.
++# The old staged copy pointed at /opt/galion/openmind/dist/bin-ws/tuner, which does not exist on the VPS.
+ [Unit]
+ Description=Ukulele tuner static server (127.0.0.1:8650)
+ After=network.target
+ 
+ [Service]
+ Type=simple
+-ExecStart=/opt/galion/openmind/dist/bin-ws/tuner
++ExecStart=/opt/galion/tuner/bin/tuner
+ Environment=TUNER_ADDR=127.0.0.1:8650
+ Environment=TUNER_ROOT=/opt/galion/tuner/www
+ Restart=always
+ RestartSec=2
+ Nice=10
+ NoNewPrivileges=true
++
++[Install]
++WantedBy=multi-user.target
+diff --git a/deploy/survival/console.d/10-restart.conf b/deploy/survival/console.d/10-restart.conf
+index 11f4ba8..f870bc5 100644
+--- a/deploy/survival/console.d/10-restart.conf
++++ b/deploy/survival/console.d/10-restart.conf
+@@ -1,5 +1,9 @@
++# StartLimit* belong in [Unit]: in [Service] systemd ignores StartLimitIntervalSec
++# ("Unknown key ... ignoring", systemd-analyze verify 257, unit-hygiene P3b).
++[Unit]
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
+ [Service]
+ Restart=always
+ RestartSec=5
+-StartLimitIntervalSec=60
+-StartLimitBurst=5
+diff --git a/deploy/survival/galion-desk.d/10-restart.conf b/deploy/survival/galion-desk.d/10-restart.conf
+index 11f4ba8..f870bc5 100644
+--- a/deploy/survival/galion-desk.d/10-restart.conf
++++ b/deploy/survival/galion-desk.d/10-restart.conf
+@@ -1,5 +1,9 @@
++# StartLimit* belong in [Unit]: in [Service] systemd ignores StartLimitIntervalSec
++# ("Unknown key ... ignoring", systemd-analyze verify 257, unit-hygiene P3b).
++[Unit]
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
+ [Service]
+ Restart=always
+ RestartSec=5
+-StartLimitIntervalSec=60
+-StartLimitBurst=5
+diff --git a/deploy/survival/galion-one.d/10-restart.conf b/deploy/survival/galion-one.d/10-restart.conf
+index 11f4ba8..f870bc5 100644
+--- a/deploy/survival/galion-one.d/10-restart.conf
++++ b/deploy/survival/galion-one.d/10-restart.conf
+@@ -1,5 +1,9 @@
++# StartLimit* belong in [Unit]: in [Service] systemd ignores StartLimitIntervalSec
++# ("Unknown key ... ignoring", systemd-analyze verify 257, unit-hygiene P3b).
++[Unit]
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
+ [Service]
+ Restart=always
+ RestartSec=5
+-StartLimitIntervalSec=60
+-StartLimitBurst=5
+diff --git a/deploy/survival/link-watch-rs.d/10-restart.conf b/deploy/survival/link-watch-rs.d/10-restart.conf
+new file mode 100644
+index 0000000..c4dde4e
+--- /dev/null
++++ b/deploy/survival/link-watch-rs.d/10-restart.conf
+@@ -0,0 +1,10 @@
++# Target: link-watch-rs.service (the live Rust unit). The old link-watch.service is the disabled Python unit.
++# StartLimit* belong in [Unit]: in [Service] systemd ignores StartLimitIntervalSec
++# ("Unknown key ... ignoring", systemd-analyze verify 257, unit-hygiene P3b).
++[Unit]
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
++[Service]
++Restart=always
++RestartSec=5
+diff --git a/deploy/survival/link-watch.d/10-restart.conf b/deploy/survival/link-watch.d/10-restart.conf
+deleted file mode 100644
+index 11f4ba8..0000000
+--- a/deploy/survival/link-watch.d/10-restart.conf
++++ /dev/null
+@@ -1,5 +0,0 @@
+-[Service]
+-Restart=always
+-RestartSec=5
+-StartLimitIntervalSec=60
+-StartLimitBurst=5
+diff --git a/deploy/survival/tuner.d/10-restart.conf b/deploy/survival/tuner.d/10-restart.conf
+index 11f4ba8..f870bc5 100644
+--- a/deploy/survival/tuner.d/10-restart.conf
++++ b/deploy/survival/tuner.d/10-restart.conf
+@@ -1,5 +1,9 @@
++# StartLimit* belong in [Unit]: in [Service] systemd ignores StartLimitIntervalSec
++# ("Unknown key ... ignoring", systemd-analyze verify 257, unit-hygiene P3b).
++[Unit]
++StartLimitIntervalSec=60
++StartLimitBurst=5
++
+ [Service]
+ Restart=always
+ RestartSec=5
+-StartLimitIntervalSec=60
+-StartLimitBurst=5

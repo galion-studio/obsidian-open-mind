@@ -1,0 +1,30 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Spike: can a pure-Rust SQLite engine (Turso, turso_core) open and query the
+# databases openmind-memory and hermes-rs use, and cross-build without a C
+# compiler? Not a workspace member (own lock file); see docs/sqlite-rust-only.md.
+[package]
+name = "sqlite-pure-spike"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[workspace]
+
+[features]
+default = []
+# Turso's native (Tantivy) full-text index, the only FTS Turso has.
+fts = ["turso_core/fts"]
+
+[dependencies]
+# `uuid` is required: turso_core 0.8.3 does not compile without it.
+turso_core = { version = "=0.8.3", default-features = false, features = ["fs", "json", "time", "uuid", "pure-rust-crypto"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

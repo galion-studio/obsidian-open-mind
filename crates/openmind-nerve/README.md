@@ -30,6 +30,16 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
    probes, Vite dev servers on public hostnames), *bleeding* (tunnel
    ingress to closed origin ports with hosts, ports and failed req/min,
    restart loops, memory leaks, error rates, host pressure) and **DDoS**.
+   Each detector is a `Sensor` in `src/sensors/` (listeners, scanners, edge,
+   components, ddos); findings carry a B41 `kind` and their sensor as `source`,
+   and `/api/v1/state` has `cortex_sensors` (per-sensor counts, us) and
+   `cortex_events` (B33 `NerveEvent`s: ids, component, cause and counts only, no titles or fixes). `NERVE_SENSORS_OFF=name,...` turns
+   sensors off. S2 sensor `event-feed` (T2.10, off unless `NERVE_EVENT_FEED_FILE`
+   is set) reads the `POST /event` JSONL log back: Gaia heal/probe records,
+   survival probe lines and pushed B33 findings become cortex findings. Adding one: [`docs/cortex/sensors.md`](../../docs/cortex/sensors.md).
+   S2 sensor `edge-rate` (T2.12): one `edge-host:<host>` DDoS stream per public
+   hostname from cloudflared `Request failed ... dest=` journal lines (see
+   [`docs/cortex/edge-rate.md`](../../docs/cortex/edge-rate.md)); `/api/v1/state` has `edge_hosts`.
 4. **DDoS detector**: 10 s buckets, 2 h kept; the baseline is the median and MAD of
    the window from 30 min ago to 2 min ago. Threshold = max(`NERVE_DDOS_MIN_RPS`,
    5x median, median + 8 x 1.4826 x MAD). Level = flood / elevated / normal,
@@ -38,8 +48,10 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
 5. **Correlation**: signals are grouped by cause (`group`, `edge`, `ddos:*`,
    `scan:*`, `stack-wide` when 3 or more groups fail hard) into incidents with
    stable ids, a "why" and a "next step". Incidents resolve after 2 quiet cycles.
-6. **Score**: 100 minus listed deductions, giving grade A-F. The self-eval passes only
-   with no error incident, no error vulnerability, no probe errors and a score of 70 or more.
+6. **Score** (v2, `src/score.rs`): 100 minus listed deductions, giving grade A-F. Incidents are scored once
+   per cause; cortex findings (vulnerability, bleeding, ddos) only when no open incident already scores them,
+   and once per `cause`. The self-eval passes only with no error incident, no uncovered error vulnerability or
+   ddos finding, no probe errors and a score of 70 or more.
 7. Reflexes (restart of allowlisted units) only with `NERVE_REFLEX=1` and
    the mode switch; observe-only by default.
 
@@ -62,8 +74,36 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
 `NERVE_COMPONENTS` (JSON component table), `NERVE_SYSTEMD=0`,
 `NERVE_JOURNAL=0`, `NERVE_REFLEX=0|1`, `NERVE_LISTEN_SCOPE=lo-hi`,
 `NERVE_KNOWN_PORTS`, `NERVE_PUBLIC_OK_PORTS`, `NERVE_DDOS_MIN_RPS`,
-`NERVE_DDOS_MIN_REQUESTS`, `NERVE_EVENT_LOG`, `NERVE_DATA_DIR`.
+`NERVE_DDOS_MIN_REQUESTS`, `NERVE_EVENT_LOG`, `NERVE_DATA_DIR`, `NERVE_SENSORS_OFF`,
+`NERVE_EDGE_HOSTS=0`, `NERVE_EDGE_HOSTS_MAX` (32).
 
 Real-life tests: `GALION_REAL=1 cargo test -p openmind-nerve --test real_box`,
 `scripts/real/nerve.sh`, `scripts/real/nerve-capture-vps.sh` (read-only);
 results in [`docs/real-tests/nerve.md`](../../docs/real-tests/nerve.md).
+
+## Pushed events, port ownership, incident owners (swarm/nerve-wiring)
+
+- **Pushed events -> incidents.** `hermes-rs` and `openmind-memory` push
+  through `nerve-client` (bounded queue, never blocks a request; drops are
+  counted and reported in the heartbeat). Pushed signals from the last 120 s become incident
+  signals. `error` (`http_5xx`) is an Error, `slow_request` and `conn_cap`
+  are Warn in the component's group, `spend_cap` is Warn under its own cause
+  `spend-cap:<group>` ("spend cap hit (provider calls refused)"), and
+  `started` is Info.
+- **Port ownership** (`owners.rs`): every judged listener gets an owner, its
+  Gaia function and, for ports nobody owns, the holding process (from
+  `/proc`: pid, `comm`, cgroup unit/scope; in a replay, from `ss -ltnp`).
+  `NERVE_UNOWNED_PORTS` (default `8431,8432,8433,8652,8653`, the VPS
+  listeners with no unit) always report as **"unknown owner"**.
+  `NERVE_PORT_OWNERS=port=name[@GAIA],...` adds owners. See `GET
+  /api/v1/cortex` -> `exposure.ownership` and the `unmanaged-listeners`
+  evidence.
+- **Incident owners**: every incident has `gaia` (its set of functions)
+  and `owners` (component -> function, "unknown" when not in the table).
+  `cortex.incidents` lists the open incidents with their owning Gaia
+  function(s) and systems. Every cortex finding carries its `gaia` too.
+
+Real-life test (Rust only; ports 19710-19719):
+`GALION_REAL=1 cargo test -p openmind-nerve --test real_wiring -- --nocapture`
+(`N_REQ`, default 300; `NERVE_WIRING_BIN_DIR` to reuse release binaries). Results
+are in [`docs/real-tests/nerve-wiring.md`](../../docs/real-tests/nerve-wiring.md).

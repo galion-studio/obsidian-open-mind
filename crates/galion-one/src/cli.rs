@@ -4,13 +4,14 @@
 // Operator subcommands that replace the last Galion One Python helpers:
 //   galion-one set-model <plan|action> <provider/model>   (one/set-model.py)
 //   galion-one trace <src.pgm|src.ppm> <dest.svg> [--no-caption]  (one/trace.py)
+//   galion-one pdf-text <file.pdf>   (first-page text, pure Rust; replaces pdftotext)
 // With no arguments main() starts the server as before.
 
 use crate::json::{self, dump_str, Json};
 use std::path::Path;
 use std::time::Duration;
 
-const USAGE: &str = "usage: galion-one [set-model <plan|action> <provider/model> | trace <src.pgm|.ppm> <dest.svg> [--no-caption] | version]";
+const USAGE: &str = "usage: galion-one [set-model <plan|action> <provider/model> | trace <src.pgm|.ppm> <dest.svg> [--no-caption] | pdf-text <file.pdf> [--content] | version]";
 
 pub fn run(args: &[String]) -> i32 {
     match args[0].as_str() {
@@ -36,8 +37,55 @@ pub fn run(args: &[String]) -> i32 {
                 }
             }
         }
+        "pdf-text" if args.len() == 2 || (args.len() == 3 && args[2] == "--content") => {
+            // First-page text by the built-in Rust reader, no subprocess.
+            let bytes = match std::fs::read(&args[1]) {
+                Ok(b) => b,
+                Err(e) => {
+                    eprintln!("pdf-text: read {}: {e}", args[1]);
+                    return 1;
+                }
+            };
+            if args.len() == 3 {
+                return match crate::pdf_text::first_page_content(
+                    &bytes,
+                    crate::pdf_text::DEFAULT_LIMITS,
+                ) {
+                    Ok(c) => {
+                        use std::io::Write;
+                        let _ = std::io::stdout().write_all(&c);
+                        0
+                    }
+                    Err(o) => {
+                        eprintln!("pdf-text: {o:?}");
+                        3
+                    }
+                };
+            }
+            match crate::pdf_text::first_page_text(
+                &bytes,
+                crate::pdf_text::Limits {
+                    max_chars: 1_000_000,
+                    ..crate::pdf_text::DEFAULT_LIMITS
+                },
+            ) {
+                crate::pdf_text::Outcome::Text(t) => {
+                    use std::io::Write;
+                    // A closed pipe (`| head`) is not an error worth a panic.
+                    let _ = writeln!(std::io::stdout(), "{t}");
+                    0
+                }
+                other => {
+                    eprintln!("pdf-text: {other:?}");
+                    3
+                }
+            }
+        }
         "version" | "--version" => {
-            println!("galion-one {}", env!("CARGO_PKG_VERSION"));
+            println!(
+                "{}",
+                galion_common::build_info::version_line("galion-one", env!("CARGO_PKG_VERSION"))
+            );
             0
         }
         _ => {

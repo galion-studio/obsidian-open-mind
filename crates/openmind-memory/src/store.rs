@@ -34,7 +34,6 @@ CREATE TABLE IF NOT EXISTS l0_conversations (
 CREATE INDEX IF NOT EXISTS idx_l0_session ON l0_conversations(session_key);
 CREATE INDEX IF NOT EXISTS idx_l0_session_id ON l0_conversations(session_id);
 CREATE INDEX IF NOT EXISTS idx_l0_recorded ON l0_conversations(recorded_at);
-CREATE INDEX IF NOT EXISTS idx_l0_timestamp ON l0_conversations(timestamp);
 CREATE VIRTUAL TABLE IF NOT EXISTS l1_fts USING fts5(
   content, content_original UNINDEXED, record_id UNINDEXED, type UNINDEXED, priority UNINDEXED,
   scene_name UNINDEXED, session_key UNINDEXED, session_id UNINDEXED, timestamp_str UNINDEXED,
@@ -45,6 +44,11 @@ CREATE VIRTUAL TABLE IF NOT EXISTS l0_fts USING fts5(
   session_id UNINDEXED, role UNINDEXED, recorded_at UNINDEXED, timestamp UNINDEXED
 );
 "#;
+
+/// Index on the v3 column. Runs only after `migrate` has made sure the column
+/// exists: putting it in SCHEMA_SQL made pre-v3 databases fail to open.
+pub const SCHEMA_V3_SQL: &str =
+    "CREATE INDEX IF NOT EXISTS idx_l0_timestamp ON l0_conversations(timestamp);";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct L1Hit {
@@ -118,7 +122,7 @@ fn f(row: &Row, i: usize) -> f64 {
 
 impl Store {
     pub fn open(path: &Path, read_only: bool) -> rusqlite::Result<Store> {
-        let conn = if read_only {
+        let mut conn = if read_only {
             Connection::open_with_flags(
                 path,
                 OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -134,11 +138,7 @@ impl Store {
         conn.execute_batch("PRAGMA cache_size = -2048;")?;
         if !read_only {
             let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |r| r.get(0))?;
-            conn.execute_batch(SCHEMA_SQL)?;
-            // Pre-v3 DBs lack l0_conversations.timestamp (gateway runs the same ALTER).
-            let _ = conn.execute_batch(
-                "ALTER TABLE l0_conversations ADD COLUMN timestamp INTEGER DEFAULT 0",
-            );
+            Self::migrate(&mut conn)?;
         }
         let fts_available = Self::has_v2_fts(&conn);
         Ok(Store {
@@ -146,6 +146,28 @@ impl Store {
             fts_available,
             read_only,
         })
+    }
+
+    /// Bring a database up to the v3 schema in ONE transaction (SQLite DDL is
+    /// transactional), so a crash mid-migration leaves the old schema intact
+    /// and the next start simply retries. Idempotent: `IF NOT EXISTS` plus a
+    /// column check instead of an ALTER whose error is ignored.
+    pub fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
+        let tx = conn.transaction()?;
+        tx.execute_batch(SCHEMA_SQL)?;
+        // Pre-v3 DBs lack l0_conversations.timestamp (gateway runs the same ALTER).
+        let has_ts: bool = tx.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('l0_conversations') WHERE name = 'timestamp'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )? > 0;
+        if !has_ts {
+            tx.execute_batch(
+                "ALTER TABLE l0_conversations ADD COLUMN timestamp INTEGER DEFAULT 0",
+            )?;
+        }
+        tx.execute_batch(SCHEMA_V3_SQL)?;
+        tx.commit()
     }
 
     fn has_v2_fts(conn: &Connection) -> bool {
@@ -181,15 +203,32 @@ impl Store {
 
     /// `searchL1Fts`: BM25 over l1_fts, best first. Empty on any error.
     pub fn search_l1_fts(&self, fts_query: &str, limit: usize) -> Vec<L1Hit> {
-        if !self.fts_available {
+        self.search_l1_fts_filtered(fts_query, limit, limit, &|_| true)
+    }
+
+    /// BM25 over l1_fts, keeping only hits that pass `keep`, best first.
+    /// Filters run before the limit (ported from the VPS `vps-main-20261020`
+    /// memory rewrite: a type/scene filter never starves the result list the
+    /// way "take limit*3, then filter" can). At most `scan` ranked rows are
+    /// read. (A record_id tie-break in SQL was tried and dropped: it
+    /// doubled p50 search latency on 10k rows, see docs/real-tests/memory-real.md.)
+    pub fn search_l1_fts_filtered(
+        &self,
+        fts_query: &str,
+        limit: usize,
+        scan: usize,
+        keep: &dyn Fn(&L1Hit) -> bool,
+    ) -> Vec<L1Hit> {
+        if !self.fts_available || limit == 0 {
             return Vec::new();
         }
         let conn = self.lock();
         let sql = "SELECT record_id, content_original AS content, type, priority, scene_name, \
                    session_key, session_id, timestamp_str, timestamp_start, timestamp_end, metadata_json, \
-                   bm25(l1_fts) AS rank FROM l1_fts WHERE l1_fts MATCH ? ORDER BY rank ASC LIMIT ?";
+                   bm25(l1_fts) AS rank FROM l1_fts WHERE l1_fts MATCH ? \
+                   ORDER BY rank ASC LIMIT ?";
         let res = conn.prepare_cached(sql).and_then(|mut st| {
-            let rows = st.query_map(params![fts_query, limit as i64], |r| {
+            let rows = st.query_map(params![fts_query, scan.max(limit) as i64], |r| {
                 Ok(L1Hit {
                     record_id: s(r, 0),
                     content: s(r, 1),
@@ -204,7 +243,11 @@ impl Store {
                     score: bm25_rank_to_score(f(r, 11)),
                 })
             })?;
-            Ok(rows.filter_map(Result::ok).collect::<Vec<_>>())
+            Ok(rows
+                .filter_map(Result::ok)
+                .filter(|h| keep(h))
+                .take(limit)
+                .collect::<Vec<_>>())
         });
         res.unwrap_or_else(|e| {
             crate::log::warn(&format!("[L1-fts-search] failed (non-fatal): {e}"));
@@ -214,27 +257,53 @@ impl Store {
 
     /// `searchL0Fts`: BM25 over l0_fts, best first. Empty on any error.
     pub fn search_l0_fts(&self, fts_query: &str, limit: usize) -> Vec<L0Hit> {
-        if !self.fts_available {
+        self.search_l0_fts_session(fts_query, None, limit)
+    }
+
+    /// BM25 over l0_fts, optionally limited to one session_key in SQL, so the
+    /// session filter runs before the limit (VPS rewrite semantics).
+    pub fn search_l0_fts_session(
+        &self,
+        fts_query: &str,
+        session_key: Option<&str>,
+        limit: usize,
+    ) -> Vec<L0Hit> {
+        if !self.fts_available || limit == 0 {
             return Vec::new();
         }
         let conn = self.lock();
-        let sql = "SELECT record_id, message_text_original AS message_text, session_key, session_id, role, \
-                   recorded_at, timestamp, bm25(l0_fts) AS rank FROM l0_fts WHERE l0_fts MATCH ? \
-                   ORDER BY rank ASC LIMIT ?";
-        let res = conn.prepare_cached(sql).and_then(|mut st| {
-            let rows = st.query_map(params![fts_query, limit as i64], |r| {
-                Ok(L0Hit {
-                    record_id: s(r, 0),
-                    message_text: s(r, 1),
-                    session_key: s(r, 2),
-                    session_id: s(r, 3),
-                    role: s(r, 4),
-                    recorded_at: s(r, 5),
-                    timestamp: n(r, 6),
-                    score: bm25_rank_to_score(f(r, 7)),
-                })
-            })?;
-            Ok(rows.filter_map(Result::ok).collect::<Vec<_>>())
+        let base = "SELECT record_id, message_text_original AS message_text, session_key, session_id, role, \
+                    recorded_at, timestamp, bm25(l0_fts) AS rank FROM l0_fts WHERE l0_fts MATCH ?1";
+        let sql = match session_key {
+            Some(_) => {
+                format!("{base} AND session_key = ?3 ORDER BY rank ASC LIMIT ?2")
+            }
+            None => format!("{base} ORDER BY rank ASC LIMIT ?2"),
+        };
+        let map = |r: &Row| {
+            Ok(L0Hit {
+                record_id: s(r, 0),
+                message_text: s(r, 1),
+                session_key: s(r, 2),
+                session_id: s(r, 3),
+                role: s(r, 4),
+                recorded_at: s(r, 5),
+                timestamp: n(r, 6),
+                score: bm25_rank_to_score(f(r, 7)),
+            })
+        };
+        let res = conn.prepare_cached(&sql).and_then(|mut st| {
+            let rows: Vec<L0Hit> = match session_key {
+                Some(sk) => st
+                    .query_map(params![fts_query, limit as i64, sk], map)?
+                    .filter_map(Result::ok)
+                    .collect(),
+                None => st
+                    .query_map(params![fts_query, limit as i64], map)?
+                    .filter_map(Result::ok)
+                    .collect(),
+            };
+            Ok(rows)
         });
         res.unwrap_or_else(|e| {
             crate::log::warn(&format!("[L0-fts-search] failed (non-fatal): {e}"));
@@ -336,5 +405,80 @@ impl Store {
             params![tokenize_for_fts(content), content, id, kind, priority, scene, session_key, session_key, timestamp_str, metadata_json],
         )?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("om-store-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d.join("vectors.db")
+    }
+
+    #[test]
+    fn pre_v3_database_opens_and_gains_timestamp() {
+        let p = tmp("prev3");
+        Connection::open(&p)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE l0_conversations (record_id TEXT PRIMARY KEY, session_key TEXT NOT NULL, \
+                 session_id TEXT DEFAULT '', role TEXT NOT NULL DEFAULT '', message_text TEXT NOT NULL, \
+                 recorded_at TEXT DEFAULT ''); INSERT INTO l0_conversations VALUES ('a','s','s','user','x','');",
+            )
+            .unwrap();
+        let s = Store::open(&p, false).expect("pre-v3 db must open");
+        assert!(s.fts_available);
+        assert_eq!(s.count("l0_conversations"), 1);
+        drop(s);
+        // idempotent: a second open changes nothing and does not fail
+        let s = Store::open(&p, false).unwrap();
+        let ts: i64 = s
+            .lock()
+            .query_row("SELECT timestamp FROM l0_conversations", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(ts, 0);
+    }
+
+    #[test]
+    fn filters_run_before_limit() {
+        let s = Store::open(&tmp("filter"), false).unwrap();
+        for i in 0..20 {
+            s.insert_l1(
+                &format!("e{i:02}"),
+                "kiwi kiwi kiwi",
+                "episodic",
+                50,
+                "",
+                "k",
+                "",
+                "{}",
+            )
+            .unwrap();
+        }
+        s.insert_l1(
+            "z",
+            "kiwi and many other words here",
+            "instruction",
+            50,
+            "",
+            "k",
+            "",
+            "{}",
+        )
+        .unwrap();
+        let q = crate::fts::build_fts_query("kiwi").unwrap();
+        // The old path (take 3, then filter) found nothing here.
+        let old: Vec<_> = s
+            .search_l1_fts(&q, 3)
+            .into_iter()
+            .filter(|h| h.kind == "instruction")
+            .collect();
+        assert!(old.is_empty());
+        let new = s.search_l1_fts_filtered(&q, 1, 5000, &|h| h.kind == "instruction");
+        assert_eq!(new.len(), 1);
     }
 }

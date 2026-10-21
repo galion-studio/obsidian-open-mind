@@ -15,6 +15,14 @@
 //! | `health_status.json` | galion-health report | `curl -s 127.0.0.1:8660/status.json` |
 //! | `body-<port>.json` | body of a failing health endpoint | `curl -s 127.0.0.1:8002/health` |
 //! | `access-<name>.log` | an access log (CLF or JSON lines) | `cat` / `tail` |
+//! | `systemctl-show.txt` | unit facts for components the snapshots lack (T2.3) | `systemctl show -p <probe::SHOW_PROPS> <units>` |
+//! | `systemctl-runs.txt` | last run of the services behind timers (T2.3) | `systemctl show --timestamp=unix -p <probe::RUN_PROPS> <services>` |
+//! | `http.txt` | `PORT CODE` per line: health probe of those components (T2.3) | `curl -s -o /dev/null -w '%{http_code}'` |
+//!
+//! A component of this build's table that a snapshot lacks (for example a
+//! spec added after the capture's nerve build) is filled from the last three
+//! files when they name it (the same facts for every cycle) and is otherwise
+//! reported `absent` ("not in this capture"), never healthy or failing.
 //!
 //! Each state snapshot becomes one cycle at its own timestamp; journal lines
 //! are split into the windows between snapshots. Nothing in a capture is
@@ -94,6 +102,60 @@ pub fn sample_from_state(c: &Value, t: u64) -> Sample {
     }
 }
 
+/// A sample for a component the snapshot lacks, from the capture's
+/// `systemctl-show.txt` / `systemctl-runs.txt` / `http.txt` (T2.3). `None`:
+/// the capture says nothing about it.
+fn missing_sample(
+    spec: &crate::config::Spec,
+    t: u64,
+    units: &HashMap<String, crate::probe::UnitInfo>,
+    runs: &HashMap<String, crate::probe::LastRun>,
+    http: &HashMap<u16, u16>,
+) -> Option<Sample> {
+    use crate::config::Kind;
+    if !matches!(spec.kind, Kind::Service | Kind::Timer) {
+        return None;
+    }
+    let info = spec.unit.and_then(|u| units.get(u));
+    let code = spec.port.and_then(|p| http.get(&p)).copied();
+    if info.is_none() && code.is_none() {
+        return None;
+    }
+    let mut s = Sample {
+        t,
+        present: info.is_none_or(|i| i.found()),
+        extra: json!({"source": "capture systemctl-show/http"}),
+        ..Default::default()
+    };
+    if let Some(i) = info.filter(|i| i.found()) {
+        s.unit_active = Some(i.active.clone());
+        s.unit_sub = Some(i.sub.clone());
+        s.unit_result = Some(i.result.clone());
+        s.file_state = Some(i.file_state.clone());
+        s.pid = i.main_pid;
+        s.n_restarts = i.n_restarts;
+        s.mem_max_kb = i.memory_max.map(|b| b / 1024);
+        s.mem_kb = i.memory_current.map(|b| b / 1024);
+    }
+    if s.present {
+        // curl prints 000 when nothing answered: probe down, not "HTTP 0".
+        match code {
+            Some(0) => s.probe_error = Some("no response (captured 000)".into()),
+            c => s.http_code = c,
+        }
+        if spec.kind == Kind::Timer {
+            if let Some(r) = spec
+                .unit
+                .and_then(crate::probe::timer_service)
+                .and_then(|svc| runs.get(&svc))
+            {
+                s.extra["last_run"] = r.to_json();
+            }
+        }
+    }
+    Some(s)
+}
+
 pub struct ReplayOut {
     pub engine: Engine,
     pub cycles: usize,
@@ -103,13 +165,75 @@ pub struct ReplayOut {
 /// Replay a capture directory. `cfg` supplies thresholds/ports; reflexes,
 /// alerts and file writes are forced off.
 pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
+    replay_dir_with(dir, cfg, 0, &mut |_| {})
+}
+
+/// The last captured snapshot moved `k` cycles past the capture: cumulative
+/// tunnel counters keep growing at the rate seen across the capture, so a
+/// condition that held while capturing keeps holding (T3.2 stretch).
+fn stretch_state(first: &(u64, Value), last: &(u64, Value), extra_s: u64) -> Value {
+    let mut v = last.1.clone();
+    let span = last.0.saturating_sub(first.0);
+    let rate = |name: &str, key: &str| -> u64 {
+        if span == 0 {
+            return 0;
+        }
+        let pick = |s: &Value| {
+            s["components"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|c| c["name"] == name)
+                .and_then(|c| c["tunnel"][key].as_u64())
+        };
+        match (pick(&first.1), pick(&last.1)) {
+            (Some(a), Some(b)) => b.saturating_sub(a) * extra_s / span,
+            _ => 0,
+        }
+    };
+    let names: Vec<String> = v["components"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c["name"].as_str().map(str::to_string))
+        .collect();
+    for name in names {
+        let (dr, de) = (rate(&name, "requests"), rate(&name, "request_errors"));
+        if let Some(c) = v["components"]
+            .as_array_mut()
+            .and_then(|a| a.iter_mut().find(|c| c["name"] == name.as_str()))
+        {
+            for (k, d) in [("requests", dr), ("request_errors", de)] {
+                if let Some(x) = c["tunnel"][k].as_u64() {
+                    c["tunnel"][k] = json!(x + d);
+                }
+            }
+        }
+    }
+    v
+}
+
+/// [`replay_dir`] with a hook to configure the engine before the first cycle
+/// (the reflex dry-run replay turns reflexes back on, forced dry) and
+/// `stretch` extra cycles that repeat the last capture window `interval_s`
+/// apart: journal lines shifted forward, tunnel counters advanced.
+pub fn replay_dir_with(
+    dir: &Path,
+    cfg: Config,
+    stretch: usize,
+    setup: &mut dyn FnMut(&mut Engine),
+) -> Result<ReplayOut, String> {
     let rd = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut states: Vec<(u64, Value)> = vec![];
     let mut journal = String::new();
     let mut ss = None;
+    let mut ss_procs = std::collections::BTreeMap::new();
     let mut health: HashMap<String, bool> = HashMap::new();
     let mut bodies: HashMap<u16, Value> = HashMap::new();
     let mut access: Vec<(String, String)> = vec![];
+    let mut units_cap: HashMap<String, crate::probe::UnitInfo> = HashMap::new();
+    let mut runs_cap: HashMap<String, crate::probe::LastRun> = HashMap::new();
+    let mut http_cap: HashMap<u16, u16> = HashMap::new();
     let mut notes = vec![];
     let mut names: Vec<_> = rd.flatten().map(|e| e.path()).collect();
     names.sort();
@@ -130,7 +254,27 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
             journal.push_str(&read()?);
             journal.push('\n');
         } else if n == "ss.txt" {
-            ss = Some(parse_ss(&read()?));
+            let t = read()?;
+            ss = Some(parse_ss(&t));
+            ss_procs = crate::owners::parse_ss_procs(&t);
+        } else if n == "systemctl-show.txt" {
+            for u in crate::probe::parse_show(&read()?) {
+                units_cap.insert(u.id.clone(), u);
+            }
+        } else if n == "systemctl-runs.txt" {
+            for r in crate::probe::parse_last_runs(&read()?) {
+                runs_cap.insert(r.unit.clone(), r);
+            }
+        } else if n == "http.txt" {
+            for l in read()?.lines() {
+                let mut it = l.split_whitespace();
+                if let (Some(Some(p)), Some(Some(c))) = (
+                    it.next().map(|x| x.parse::<u16>().ok()),
+                    it.next().map(|x| x.parse::<u16>().ok()),
+                ) {
+                    http_cap.insert(p, c);
+                }
+            }
         } else if n == "health_status.json" {
             health = parse_galion_health(&read()?).unwrap_or_default();
         } else if let Some(port) = n
@@ -165,9 +309,12 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
     ));
     let mut e = Engine::new(cfg)?;
     e.reflexes_enabled = false;
+    e.live = false;
     e.write_files = false;
     e.alerts.path = None;
     e.alerts.to_journal = false;
+    let interval = e.cfg.interval_s.max(1);
+    setup(&mut e);
     let units: Vec<&'static str> = e.comps.iter().filter_map(|c| c.spec.unit).collect();
     let mut hits: Vec<(String, Option<String>, Hit)> = vec![];
     for (name, text) in &access {
@@ -177,6 +324,8 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
             }
         }
     }
+    // (cycle time, snapshot, journal window) for every cycle, real then stretched.
+    let mut plan: Vec<(u64, Value, Vec<JLine>)> = vec![];
     let mut prev = 0u64;
     for (k, (t, v)) in states.iter().enumerate() {
         let win: Vec<JLine> = lines
@@ -184,6 +333,35 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
             .filter(|l| (k == 0 || l.t > prev) && l.t <= *t)
             .cloned()
             .collect();
+        plan.push((*t, v.clone(), win));
+        prev = *t;
+    }
+    if stretch > 0 {
+        let first = &states[0];
+        let last = &states[states.len() - 1];
+        let tail: Vec<JLine> = lines
+            .iter()
+            .filter(|l| l.t + interval > last.0 && l.t <= last.0)
+            .cloned()
+            .collect();
+        for k in 1..=stretch as u64 {
+            let shift = k * interval;
+            let win = tail
+                .iter()
+                .map(|l| JLine {
+                    t: l.t + shift,
+                    ..l.clone()
+                })
+                .collect();
+            plan.push((last.0 + shift, stretch_state(first, last, shift), win));
+        }
+        notes.push(format!(
+            "stretched {stretch} cycle(s) of {interval} s past the capture (last window {} journal line(s) repeated)",
+            tail.len()
+        ));
+    }
+    for (k, (t, v, win)) in plan.iter().enumerate() {
+        let (t, win) = (t, win.clone());
         // Error counts use the last 5 min of the window (what a live cycle sees
         // first); the cortex reads the whole window.
         let recent: Vec<JLine> = win.iter().filter(|l| l.t + 300 > *t).cloned().collect();
@@ -191,6 +369,7 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
         let mut col = Collected {
             lines: win,
             listeners: ss.clone(),
+            port_procs: ss_procs.clone(),
             ..Default::default()
         };
         for c in v["components"].as_array().into_iter().flatten() {
@@ -237,6 +416,20 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
             }
             col.samples.insert(name.to_string(), s);
         }
+        for cs in e.comps.iter_mut() {
+            if col.samples.contains_key(cs.spec.name) {
+                continue;
+            }
+            match missing_sample(&cs.spec, *t, &units_cap, &runs_cap, &http_cap) {
+                Some(s) => {
+                    col.samples.insert(cs.spec.name.to_string(), s);
+                }
+                None => {
+                    cs.status = Status::Absent;
+                    cs.reasons = vec!["absent: not in this capture".into()];
+                }
+            }
+        }
         for p in v["probe_errors"].as_array().into_iter().flatten() {
             if let Some(p) = p.as_str() {
                 col.probe_errors.push(format!("captured: {p}"));
@@ -248,10 +441,9 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
             vec![]
         };
         e.cycle_with(col, h, *t, Instant::now());
-        prev = *t;
     }
     Ok(ReplayOut {
-        cycles: states.len(),
+        cycles: plan.len(),
         engine: e,
         notes,
     })
@@ -314,7 +506,7 @@ mod tests {
                 "merlinelement.com"
             };
             j.push_str(&json!({"_SYSTEMD_UNIT": "cloudflared.service", "PRIORITY": "6", "__REALTIME_TIMESTAMP": ((t0 + k * 15) * 1_000_000).to_string(),
-                "MESSAGE": format!("2026-10-20T16:40:00Z ERR Request failed error=\"dial tcp [::1]:{port}: connect: connection refused\" dest=https://{host}/ ip=198.41.200.13 type=http")}).to_string());
+                "MESSAGE": format!("2026-10-20T16:40:00Z ERR Request failed error=\"dial tcp [::1]:{port}: connect: connection refused\" dest=https://{host}/ ip=198.41.200.13 type=http")}).to_string()); // repo-check: allow (test fixture address, never dialled)
             j.push('\n');
         }
         std::fs::write(dir.join("journal.jsonl"), j).unwrap();
@@ -372,6 +564,55 @@ mod tests {
         );
         assert!(r["score"].as_u64().unwrap() < 70);
         assert_eq!(r["system"], "degraded");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod t23_tests {
+    use super::*;
+
+    #[test]
+    fn capture_files_fill_components_the_snapshot_lacks() {
+        let dir = std::env::temp_dir().join(format!("nerve-replay-t23-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("state-1.json"),
+            json!({"ts": "2026-10-21T18:00:00+02:00", "components": [], "probe_errors": []})
+                .to_string(),
+        )
+        .unwrap();
+        std::fs::write(dir.join("systemctl-show.txt"), "Id=tanga-proto.service\nLoadState=loaded\nActiveState=active\nSubState=running\nResult=success\nUnitFileState=enabled\nMainPID=7\nNRestarts=0\n\nId=galion-backup.timer\nLoadState=loaded\nActiveState=active\nSubState=waiting\nResult=success\nUnitFileState=enabled\nMainPID=0\nNRestarts=0\n").unwrap();
+        std::fs::write(dir.join("systemctl-runs.txt"), "Id=galion-backup.service\nLoadState=loaded\nActiveState=inactive\nResult=success\nExecMainStatus=0\nExecMainExitTimestamp=@1792576800\n").unwrap();
+        std::fs::write(dir.join("http.txt"), "8671 200\n19120 000\n").unwrap();
+        let d = dir.display().to_string();
+        let cfg = Config::from_env(&|k| (k == "NERVE_DATA_DIR").then(|| d.clone())).unwrap();
+        let out = replay_dir(&dir, cfg).unwrap();
+        let st = |n: &str| {
+            let c = out.engine.comps.iter().find(|c| c.spec.name == n).unwrap();
+            (c.status, c.reasons.clone())
+        };
+        assert_eq!(
+            st("tanga-proto").0,
+            Status::Healthy,
+            "{:?}",
+            st("tanga-proto")
+        );
+        assert_eq!(
+            st("galion-backup").0,
+            Status::Healthy,
+            "{:?}",
+            st("galion-backup")
+        );
+        let q = st("openmind-queue");
+        assert_eq!(q.0, Status::Degrading, "{q:?}");
+        assert!(q.1[0].contains("captured 000"), "{q:?}");
+        assert_eq!(st("galion-nerve-shadow").0, Status::Absent);
+        assert_eq!(
+            st("galion-nerve-shadow").1,
+            vec!["absent: not in this capture".to_string()]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

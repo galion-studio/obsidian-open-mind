@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "gaia-eleuthia"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gaia ELEUTHIA: birth of personas and agents from seed files (Persona Plex, Galion One/Samantha, Gaia seeds) with lineage."
+
+[dependencies]
+gaia-core = { path = "../gaia-core" }
+

@@ -115,12 +115,12 @@ mod tests {
         assert_eq!(n.to_string(), "127.0.0.0/8");
         assert!(n.contains("127.255.0.9".parse().unwrap()));
         assert!(n.contains("::ffff:127.0.0.2".parse().unwrap()));
-        assert!(!n.contains("128.0.0.1".parse().unwrap()));
+        assert!(!n.contains("128.0.0.1".parse().unwrap())); // repo-check: allow (test fixture address, never dialled)
         assert!(!n.contains("::1".parse().unwrap()));
         let six = Net::parse("2001:db8::/32").unwrap();
         assert!(six.contains("2001:db8:1::5".parse().unwrap()));
         assert!(!six.contains("2001:db9::5".parse().unwrap()));
-        assert!(Net::parse("1.2.3.4/33").is_err());
+        assert!(Net::parse("1.2.3.4/33").is_err()); // repo-check: allow (test fixture address, never dialled)
         assert!(Net::parse("nope").is_err());
         assert_eq!(Net::parse("0.0.0.0/0").unwrap().prefix, 0);
     }

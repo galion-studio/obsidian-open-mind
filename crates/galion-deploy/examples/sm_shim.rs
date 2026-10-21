@@ -10,6 +10,10 @@
 //!   reports; `SHIM_STATE` present means active (restart creates it unless the
 //!   target is missing or equals `SHIM_BAD`, stop removes it); `SHIM_RESTART_RC` is
 //!   the exit code of every `systemctl restart` (default 0).
+//!   `systemctl show -p ActiveState -p SubState -p NRestarts` (fail-fast) answers only when
+//!   `SHIM_NRESTARTS` names a counter file: every read while the unit is not active
+//!   counts one more automatic restart and reports one pending (a crash loop). Unset, it prints what an old
+//!   systemd without NRestarts would: nothing usable.
 //! * `ctl`: the same fake unit behind the direct backend's verbs
 //!   (`ctl known|exec-path|restart|stop|is-active|reset-failed|journal UNIT [N]`).
 //! * `data-backup`: stand-in for galion-backup.sh. Prints one line, touches
@@ -82,6 +86,29 @@ fn systemctl(verb: &str, unit_arg: Option<&str>) -> i32 {
     }
 }
 
+fn unit_state() -> i32 {
+    let f = env("SHIM_NRESTARTS");
+    if f.is_empty() {
+        return 0;
+    }
+    let mut n: u32 = fs::read_to_string(&f)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0);
+    let active = std::path::Path::new(&env("SHIM_STATE")).exists();
+    if !active {
+        n += 1;
+        let _ = fs::write(&f, n.to_string());
+    }
+    let (st, sub) = if active {
+        ("active", "running")
+    } else {
+        ("activating", "auto-restart")
+    };
+    println!("ActiveState={st}\nSubState={sub}\nNRestarts={n}");
+    0
+}
+
 fn journal() -> i32 {
     println!("tuner: bind 127.0.0.1:8650: boom");
     0
@@ -99,6 +126,7 @@ fn main() {
         "journalctl" => journal(),
         "systemctl" => match args.as_slice() {
             ["is-active", "--quiet", u] => systemctl("is-active", Some(u)),
+            ["show", "-p", "ActiveState", "-p", "SubState", "-p", "NRestarts", _] => unit_state(),
             ["show", .., u] => systemctl("show", Some(u)),
             [verb, u, ..] => systemctl(verb, Some(u)),
             _ => 64,
@@ -109,6 +137,7 @@ fn main() {
                 0
             }
             ["journal", ..] => journal(),
+            ["show", _] => unit_state(),
             ["known", u] => systemctl("cat", Some(&format!("{u}.service"))),
             [verb, u, ..] => systemctl(verb, Some(&format!("{u}.service"))),
             _ => 64,

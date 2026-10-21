@@ -167,6 +167,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-common"
+version = "0.1.0"
+
+[[package]]
 name = "generic-array"
 version = "0.14.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -287,6 +291,7 @@ name = "openmind-node"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "galion-common",
  "getrandom",
  "landlock",
  "libc",

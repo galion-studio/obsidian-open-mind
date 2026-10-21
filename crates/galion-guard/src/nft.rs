@@ -341,6 +341,47 @@ impl Backend for DryRun {
     }
 }
 
+/// Shadow mode: log-only. Keeps the ban set in memory so `status` and
+/// `sync` behave as in production, and has no way to reach the firewall:
+/// no `nft` path, no process spawning, no script log. `teardown` is a
+/// no-op because shadow mode never creates a table.
+#[derive(Debug, Default)]
+pub struct Shadow {
+    /// ip -> absolute expiry (unix seconds).
+    pub elems: BTreeMap<IpAddr, i64>,
+}
+
+impl Backend for Shadow {
+    fn setup(&mut self) -> Result<(), String> {
+        Ok(())
+    }
+    fn ban(&mut self, ip: IpAddr, timeout: u64) -> Result<(), String> {
+        self.elems
+            .insert(ip, crate::state::now_secs() + timeout as i64);
+        Ok(())
+    }
+    fn unban(&mut self, ip: IpAddr) -> Result<(), String> {
+        self.elems.remove(&ip);
+        Ok(())
+    }
+    fn list(&mut self) -> Result<Vec<(IpAddr, Option<u64>)>, String> {
+        let now = crate::state::now_secs();
+        self.elems.retain(|_, e| *e > now);
+        Ok(self
+            .elems
+            .iter()
+            .map(|(ip, e)| (*ip, Some((*e - now).max(0) as u64)))
+            .collect())
+    }
+    fn teardown(&mut self) -> Result<(), String> {
+        self.elems.clear();
+        Ok(())
+    }
+    fn name(&self) -> &'static str {
+        "shadow"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,17 +423,30 @@ mod tests {
 
     #[test]
     fn parses_set_json() {
-        let j = r#"{"nftables": [{"metainfo": {"version": "1.1.3"}}, {"set": {"family": "inet", "name": "addr4", "table": "t", "type": "ipv4_addr", "handle": 1, "flags": ["timeout"], "elem": [{"elem": {"val": "1.2.3.4", "timeout": 5, "expires": 4}}, "5.6.7.8"]}}]}"#;
+        let j = r#"{"nftables": [{"metainfo": {"version": "1.1.3"}}, {"set": {"family": "inet", "name": "addr4", "table": "t", "type": "ipv4_addr", "handle": 1, "flags": ["timeout"], "elem": [{"elem": {"val": "1.2.3.4", "timeout": 5, "expires": 4}}, "5.6.7.8"]}}]}"#; // repo-check: allow (test fixture address, never dialled)
         let v = parse_set_json(j).unwrap();
         assert_eq!(
             v,
             vec![
-                ("1.2.3.4".parse().unwrap(), Some(4)),
-                ("5.6.7.8".parse().unwrap(), None)
+                ("1.2.3.4".parse().unwrap(), Some(4)), // repo-check: allow (test fixture address, never dialled)
+                ("5.6.7.8".parse().unwrap(), None) // repo-check: allow (test fixture address, never dialled)
             ]
         );
         let empty = r#"{"nftables": [{"metainfo": {}}, {"set": {"name": "addr6"}}]}"#;
         assert!(parse_set_json(empty).unwrap().is_empty());
         assert!(parse_set_json("nope").is_err());
+    }
+
+    #[test]
+    fn shadow_is_memory_only() {
+        let mut s = Shadow::default();
+        s.setup().unwrap();
+        let ip: IpAddr = "203.0.113.1".parse().unwrap();
+        s.ban(ip, 60).unwrap();
+        assert_eq!(s.list().unwrap().len(), 1);
+        s.unban(ip).unwrap();
+        assert!(s.list().unwrap().is_empty());
+        s.teardown().unwrap();
+        assert_eq!(s.name(), "shadow");
     }
 }

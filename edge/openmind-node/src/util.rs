@@ -91,6 +91,35 @@ pub fn vm_hwm_kb() -> Option<u64> {
         .ok()
 }
 
+/// Run `child` in a forked child process and report whether it returned true.
+/// Used by the doctor/seccomp probes so the probe never changes this process
+/// (a seccomp filter or a new user namespace cannot be undone).
+///
+/// # Safety
+/// After `fork` in a possibly multi-threaded process only async-signal-safe
+/// work is allowed in the child. `child` must therefore not allocate, take
+/// locks, print through std, or unwind; plain syscalls (`prctl`, `unshare`,
+/// `ptrace`, `write`) are fine. The child always leaves through `_exit`.
+pub unsafe fn fork_probe(child: impl FnOnce() -> bool) -> bool {
+    // SAFETY: fork has no memory-safety preconditions of its own; what the
+    // child may do afterwards is the caller's contract (see `# Safety`).
+    let pid = unsafe { libc::fork() };
+    if pid < 0 {
+        return false;
+    }
+    if pid == 0 {
+        let ok = child();
+        // SAFETY: _exit is async-signal-safe and never returns, so the child
+        // never runs Rust destructors, atexit handlers or the test harness.
+        unsafe { libc::_exit(if ok { 0 } else { 1 }) };
+    }
+    let mut st = 0;
+    // SAFETY: `pid` is our own just-forked child and `st` is a valid,
+    // writable c_int for the duration of the call.
+    let r = unsafe { libc::waitpid(pid, &mut st, 0) };
+    r == pid && libc::WIFEXITED(st) && libc::WEXITSTATUS(st) == 0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,18 +144,9 @@ mod tests {
 }
 
 /// Unpadded base64url (RFC 4648 section 5), used to keep QR payloads small.
+/// The shared std-only encoder from galion-common (was a local copy).
 pub fn b64url(bytes: &[u8]) -> String {
-    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for c in bytes.chunks(3) {
-        let n = (c[0] as u32) << 16
-            | (*c.get(1).unwrap_or(&0) as u32) << 8
-            | *c.get(2).unwrap_or(&0) as u32;
-        for i in 0..=c.len() {
-            s.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
-        }
-    }
-    s
+    galion_common::base64::encode_url(bytes)
 }
 
 #[cfg(test)]
@@ -139,5 +159,40 @@ mod b64_tests {
         assert_eq!(super::b64url(b"foo"), "Zm9v");
         assert_eq!(super::b64url(b"foobar"), "Zm9vYmFy");
         assert_eq!(super::b64url(&[0xfb, 0xff]), "-_8");
+    }
+
+    /// The local encoder this crate used before galion-common, kept as the
+    /// reference: the shared one must give the same text for every input.
+    fn old_b64url(bytes: &[u8]) -> String {
+        const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        let mut s = String::with_capacity(bytes.len().div_ceil(3) * 4);
+        for c in bytes.chunks(3) {
+            let n = (c[0] as u32) << 16
+                | (*c.get(1).unwrap_or(&0) as u32) << 8
+                | *c.get(2).unwrap_or(&0) as u32;
+            for i in 0..=c.len() {
+                s.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            }
+        }
+        s
+    }
+
+    #[test]
+    fn same_as_the_old_local_copy() {
+        let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
+        for len in 0..600usize {
+            let bytes: Vec<u8> = (0..len)
+                .map(|_| {
+                    x ^= x << 13;
+                    x ^= x >> 7;
+                    x ^= x << 17;
+                    x as u8
+                })
+                .collect();
+            assert_eq!(super::b64url(&bytes), old_b64url(&bytes), "len {len}");
+        }
+        // Ed25519 public keys and signatures, the real payloads.
+        assert_eq!(super::b64url(&[0xff; 32]), old_b64url(&[0xff; 32]));
+        assert_eq!(super::b64url(&[0u8; 64]), old_b64url(&[0u8; 64]));
     }
 }

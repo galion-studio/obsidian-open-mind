@@ -1,0 +1,74 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# cargo-deny policy for the public launch (2026-10-31).
+# Run:  cargo deny --all-features check licenses bans sources
+#       (advisories needs the RustSec DB fetched over the network)
+# The same file is used for edge/openmind-node:
+#       cargo deny --manifest-path edge/openmind-node/Cargo.toml --config deny.toml check
+# Allowed licences = docs/swarm RULES.md "Open-source borrowing":
+#   MIT, Apache-2.0, MIT OR Apache-2.0, BSD-2/3, ISC, Zlib, Unicode-3.0, 0BSD, CC0.
+# Anything else (GPL, LGPL, AGPL, MPL-only, SSPL, BUSL, non-commercial,
+# missing licence) fails the check. An SPDX expression passes when it can be
+# satisfied from this list (for example "Unlicense OR MIT" passes via MIT).
+
+[graph]
+all-features = true
+# Every transitive dependency, for every target we ship or check.
+targets = [
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "aarch64-linux-android",
+    "armv7-unknown-linux-gnueabihf",
+    "x86_64-unknown-linux-gnu",
+]
+
+[licenses]
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "0BSD",
+    "CC0-1.0",
+]
+# Below this, cargo-deny refuses to guess a licence from a LICENSE file.
+confidence-threshold = 0.93
+# The allow-list is the RULES.md list; entries no crate uses yet are fine.
+unused-allowed-license = "allow"
+# No per-crate exceptions. Adding one needs the owner's approval.
+exceptions = []
+
+[licenses.private]
+# Workspace crates are unpublished but declare MIT; keep checking them.
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+# "warn", not "deny": the only wildcards today are intra-workspace path deps
+# in crates that lack `publish = false` (cargo-deny then treats them as
+# public). Flip to "deny" once every crate sets `publish = false`.
+wildcards = "warn"
+allow-wildcard-paths = true
+# Hard rule 1: no openssl.
+deny = [
+    { crate = "openssl", reason = "RULES.md hard rule 1: no openssl" },
+    { crate = "openssl-sys", reason = "RULES.md hard rule 1: no openssl" },
+    { crate = "native-tls", reason = "pulls openssl on Linux" },
+    { crate = "pyo3", reason = "RULES.md hard rule 1: Rust only, no Python" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
+
+[advisories]
+version = 2
+yanked = "deny"
+ignore = []

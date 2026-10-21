@@ -1,0 +1,76 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# launch-gates: build the public-export tree (git archive + .gitattributes
+# export-ignore) and run every gate over it: path policy, no binaries, no
+# Python, built-in secret patterns, gitleaks, REUSE lint (comply), cargo deny
+# (licences/bans/sources/advisories), CycloneDX SBOM. Read-only: it publishes
+# nothing and never touches repository settings. The report and the SBOM are
+# uploaded as a workflow artifact for review.
+name: launch-gates
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  public-export:
+    name: public export + gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+      CARGO_DENY_VERSION: 0.20.2
+      CARGO_DENY_SHA256: 9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+      CYCLONEDX_VERSION: 0.5.9
+      CYCLONEDX_SHA256: fb8dbee9f182173e062a64a387b21a0badc6fab8b2abf9294973f012972bf6d8
+      COMPLY_VERSION: 0.1.1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+      - name: install scanners (pinned versions, sha256-verified)
+        run: |
+          set -eu
+          bin="$RUNNER_TEMP/tools/bin"; mkdir -p "$bin"; cd "$RUNNER_TEMP"
+          f="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfLO "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$f"
+          echo "$GITLEAKS_SHA256  $f" | sha256sum -c -
+          tar xzf "$f" gitleaks && mv gitleaks "$bin/"
+          f="cargo-deny-${CARGO_DENY_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          curl -sSfLO "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/$f"
+          echo "$CARGO_DENY_SHA256  $f" | sha256sum -c -
+          tar xzf "$f" && find . -name cargo-deny -type f -exec mv {} "$bin/" \;
+          f="cargo-cyclonedx-x86_64-unknown-linux-gnu.tar.xz"
+          curl -sSfLO "https://github.com/CycloneDX/cyclonedx-rust-cargo/releases/download/cargo-cyclonedx-${CYCLONEDX_VERSION}/$f"
+          echo "$CYCLONEDX_SHA256  $f" | sha256sum -c -
+          tar xJf "$f" && find . -name cargo-cyclonedx -type f -exec mv {} "$bin/" \;
+          # comply (Rust REUSE linter) ships no binaries; build the exact
+          # version from crates.io with its own Cargo.lock.
+          cargo install --locked comply --version "$COMPLY_VERSION" --root "$RUNNER_TEMP/tools"
+          echo "GALION_TOOLS_BIN=$bin" >> "$GITHUB_ENV"
+      - name: fill the cargo cache without rewriting Cargo.lock
+        run: |
+          cargo fetch --locked
+          cargo fetch --locked --manifest-path edge/openmind-node/Cargo.toml
+      - name: public export + gates
+        run: scripts/public-export.sh --out "$RUNNER_TEMP/public" --online
+      - name: upload report and SBOM
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: launch-gates-report
+          path: |
+            ${{ runner.temp }}/public/REPORT.md
+            ${{ runner.temp }}/public/MANIFEST.sha256
+            ${{ runner.temp }}/public/logs/
+            ${{ runner.temp }}/public/sbom/
+          retention-days: 14

@@ -15,43 +15,174 @@
 //!   pressure, a dependency stuck "loading".
 //! - **ddos**: the request-rate anomaly verdict per stream ([`crate::access`]).
 //!
+//! The detectors live in [`crate::sensors`], one file per [`Sensor`]; this
+//! module holds the contract they share: the read-only [`Input`] of one
+//! cycle, the [`Finding`] they report (B33 `NerveEvent` / B41 kinds and
+//! severities, see [`Finding::to_nerve_event`]) and the assembled [`Cortex`].
+//!
 //! Each finding says what was seen (evidence), why it matters and the next
 //! step. The nerve never acts on cortex findings by itself: every fix here
 //! touches config, DNS or units and needs the owner.
+//!
+//! [`Sensor`]: crate::sensors::Sensor
 
 use crate::access::DdosVerdict;
-use crate::config::Kind;
+use crate::incident::Correlator;
 use crate::incident::{Sev, Signal};
 use crate::logscan::LogInsights;
-use crate::probe::Listener;
+use crate::owners::{OwnerMap, ProcInfo};
+use crate::probe::{JLine, Listener};
 use crate::state::{CompState, Status};
-use crate::util::kib;
+use crate::util::ts;
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Finding {
-    pub id: String,
-    pub sev: Sev,
-    pub component: String,
-    pub title: String,
-    pub evidence: Vec<String>,
-    pub fix: String,
-    /// Incident cause this finding is part of (scored there, not twice).
-    pub cause: Option<String>,
+/// B41 finding kind (docs/cortex.md section 2): which of the three
+/// main.md section 3 questions a finding answers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum FindingKind {
+    /// Something an attacker could use (exposure, probes, weak posture).
+    Vulnerability,
+    /// Requests, memory, uptime, disk or money leaking away.
+    Bleeding,
+    /// Request or credential flood.
+    Ddos,
 }
 
-impl Finding {
-    pub fn to_json(&self) -> Value {
-        json!({"id": self.id, "severity": self.sev.as_str(), "component": self.component, "title": self.title,
-               "evidence": self.evidence, "fix": self.fix, "incident_cause": self.cause})
+impl FindingKind {
+    /// The B33 `NerveEvent.kind` string: `vulnerability`, `bleeding`, `ddos`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FindingKind::Vulnerability => "vulnerability",
+            FindingKind::Bleeding => "bleeding",
+            FindingKind::Ddos => "ddos",
+        }
+    }
+
+    /// Inverse of [`Self::as_str`] (for pushed `NerveEvent`s).
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "vulnerability" => FindingKind::Vulnerability,
+            "bleeding" => FindingKind::Bleeding,
+            "ddos" => FindingKind::Ddos,
+            _ => return None,
+        })
     }
 }
 
+/// One cortex finding: what was seen, why it matters, the next step.
+///
+/// Build one with [`Finding::new`] and the `with_*` methods so new fields
+/// can be added without breaking sensors.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Finding {
+    /// Stable id, unique per cycle within a kind (`public-listener-8652`).
+    pub id: String,
+    pub kind: FindingKind,
+    pub sev: Sev,
+    /// The component (spec name) or `host`.
+    pub component: String,
+    /// One line for a human; counts, not raw log lines.
+    pub title: String,
+    /// Short supporting lines; stay on the loopback API, never in events.
+    pub evidence: Vec<String>,
+    /// The next step (always owner-approved when it changes anything).
+    pub fix: String,
+    /// Incident cause this finding is part of (scored there, not twice).
+    pub cause: Option<String>,
+    /// The B33 `source`: the sensor that saw it ([`crate::sensors::Sensor::name`]
+    /// unless the sensor names its own source, e.g. `auth.log`).
+    pub source: String,
+}
+
+impl Finding {
+    /// A finding with no evidence, fix, cause or source yet. The source is
+    /// stamped by [`crate::sensors::Sink::finding`] when left empty.
+    pub fn new(
+        kind: FindingKind,
+        id: impl Into<String>,
+        sev: Sev,
+        component: impl Into<String>,
+        title: impl Into<String>,
+    ) -> Self {
+        Finding {
+            id: id.into(),
+            kind,
+            sev,
+            component: component.into(),
+            title: title.into(),
+            evidence: vec![],
+            fix: String::new(),
+            cause: None,
+            source: String::new(),
+        }
+    }
+
+    pub fn with_evidence(mut self, evidence: Vec<String>) -> Self {
+        self.evidence = evidence;
+        self
+    }
+
+    pub fn with_fix(mut self, fix: impl Into<String>) -> Self {
+        self.fix = fix.into();
+        self
+    }
+
+    pub fn with_cause(mut self, cause: impl Into<String>) -> Self {
+        self.cause = Some(cause.into());
+        self
+    }
+
+    pub fn with_source(mut self, source: impl Into<String>) -> Self {
+        self.source = source.into();
+        self
+    }
+
+    /// Loopback API shape (`/api/v1/cortex`, self-eval report).
+    pub fn to_json(&self) -> Value {
+        json!({"id": self.id, "kind": self.kind.as_str(), "source": self.source,
+               "severity": self.sev.as_str(), "component": self.component, "title": self.title,
+               "evidence": self.evidence, "fix": self.fix, "incident_cause": self.cause})
+    }
+
+    /// The finding as one B33 `NerveEvent` (`openmind_schema::NerveEvent`
+    /// field for field): `ts` Europe/Zagreb RFC 3339 of `now`, `source`,
+    /// `kind` (B41), `severity` (B41 via [`Sev::b41`]), `data`.
+    ///
+    /// `data` = `{id, component, cause, evidence_n}`: tokens and the evidence
+    /// *count* only. Title, fix and evidence lines are left out (B41: no raw
+    /// lines or addresses); titles and fixes can name bind addresses, ports
+    /// and hostnames (the listeners sensor names the port and its bind address), so they stay in the
+    /// loopback finding shape ([`Finding::to_json`]) and never ride in an
+    /// event (`/api/v1/state` `cortex_events`, the T2.10 feed).
+    pub fn to_nerve_event(&self, now: u64) -> Value {
+        json!({"ts": ts(now), "source": self.source_or_cortex(), "kind": self.kind.as_str(),
+               "severity": self.sev.b41(),
+               "data": {"id": self.id, "component": self.component,
+                        "cause": self.cause, "evidence_n": self.evidence.len()}})
+    }
+
+    fn source_or_cortex(&self) -> &str {
+        if self.source.is_empty() {
+            "cortex"
+        } else {
+            &self.source
+        }
+    }
+}
+
+/// Everything a sensor may read in one cycle. Read-only, borrowed from the
+/// engine (live) or from a capture (replay).
+///
+/// Construct with [`Input::new`] and set what you have; fields may be added
+/// (always with a neutral default in `new`).
 pub struct Input<'a> {
+    /// Cycle clock (unix seconds): live now, or the capture time in replay.
     pub now: u64,
     pub comps: &'a [CompState],
+    /// Sliding journal window insights (dead origins, scanners, dev servers).
     pub logs: &'a LogInsights,
+    /// Listening sockets (None: not read this cycle).
     pub listeners: Option<&'a [Listener]>,
     pub ddos: &'a [DdosVerdict],
     pub known_ports: &'a [u16],
@@ -60,30 +191,190 @@ pub struct Input<'a> {
     pub listen_scope: Option<(u16, u16)>,
     pub own_port: u16,
     pub loading_grace_s: u64,
+    /// Journal lines new in this cycle (all collected units), for sensors
+    /// that count their own patterns (sshd, cloudflared `dest=`, hades-gate).
+    pub journal: &'a [JLine],
+    /// True in a live cycle. False in replay and tests: a sensor that reads
+    /// the host itself (files, commands, /proc) must do nothing when false,
+    /// so replays stay deterministic and never read the box.
+    pub live: bool,
+    /// Port ownership map ([`crate::owners`]).
+    pub owners: &'a OwnerMap,
+    /// Holders of unowned listeners (from /proc or `ss -ltnp`).
+    pub procs: &'a BTreeMap<u16, ProcInfo>,
+}
+
+impl<'a> Input<'a> {
+    /// Neutral input: no listeners, no streams, no ports, no journal,
+    /// `loading_grace_s` 900, not live.
+    pub fn new(now: u64, comps: &'a [CompState], logs: &'a LogInsights) -> Self {
+        Input {
+            now,
+            comps,
+            logs,
+            listeners: None,
+            ddos: &[],
+            known_ports: &[],
+            public_ok_ports: &[],
+            listen_scope: None,
+            own_port: 0,
+            loading_grace_s: 900,
+            journal: &[],
+            live: false,
+            owners: &crate::owners::EMPTY,
+            procs: &crate::owners::NO_PROCS,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct Cortex {
     pub vulnerabilities: Vec<Finding>,
     pub bleeding: Vec<Finding>,
+    /// Per-stream rate verdicts ([`DdosVerdict::to_json`]).
     pub ddos: Vec<Value>,
     pub ddos_firing: bool,
+    /// Findings of kind [`FindingKind::Ddos`] (credential floods and the
+    /// like). Scored on their own unless an open incident (a [`Signal`] with
+    /// the same cause) already scores them; see [`crate::score`].
+    pub ddos_findings: Vec<Finding>,
     pub signals: Vec<Signal>,
     pub exposure: Value,
+    /// Open incidents with their owning Gaia function(s) ([`Cortex::attach_owners`]).
+    pub incident_owners: Vec<Value>,
+    /// component -> Gaia function, for findings.
+    pub gaia_of: BTreeMap<String, String>,
 }
 
 impl Cortex {
     pub fn to_json(&self) -> Value {
+        let mut ddos = json!({"firing": self.ddos_firing, "streams": self.ddos});
+        if !self.ddos_findings.is_empty() {
+            ddos["findings"] = self
+                .ddos_findings
+                .iter()
+                .map(|f| self.finding_json(f))
+                .collect::<Vec<_>>()
+                .into();
+        }
         json!({
-            "vulnerabilities": self.vulnerabilities.iter().map(Finding::to_json).collect::<Vec<_>>(),
-            "bleeding": self.bleeding.iter().map(Finding::to_json).collect::<Vec<_>>(),
-            "ddos": {"firing": self.ddos_firing, "streams": self.ddos},
+            "vulnerabilities": self.vulnerabilities.iter().map(|f| self.finding_json(f)).collect::<Vec<_>>(),
+            "bleeding": self.bleeding.iter().map(|f| self.finding_json(f)).collect::<Vec<_>>(),
+            "incidents": self.incident_owners,
+            "ddos": ddos,
             "exposure": self.exposure,
         })
     }
+
+    /// All findings, vulnerabilities then bleeding then ddos.
+    pub fn findings(&self) -> impl Iterator<Item = &Finding> {
+        self.vulnerabilities
+            .iter()
+            .chain(&self.bleeding)
+            .chain(&self.ddos_findings)
+    }
+
+    /// The findings as T3.2 correlation members (`<kind>:<id>`, sensor,
+    /// cause, component, severity), in [`Self::findings`] order.
+    pub fn members(&self) -> Vec<crate::incident::Member> {
+        self.findings()
+            .map(|f| {
+                crate::incident::Member::new(
+                    &format!("{}:{}", f.kind.as_str(), f.id),
+                    f.source_or_cortex(),
+                    f.cause.as_deref(),
+                    &f.component,
+                    f.sev,
+                )
+            })
+            .collect()
+    }
+
+    /// B33 `NerveEvent`s for this cycle with the B41 rule "the highest
+    /// severity wins inside one `(source, kind)` pair": one event per pair,
+    /// `data` = `{findings, ids, top}` (`top` is the worst finding's event
+    /// data `{id, component, cause, evidence_n}`: no title, fix or evidence).
+    /// Info-only pairs are skipped (B41 has no info level).
+    pub fn nerve_events(&self, now: u64) -> Vec<Value> {
+        let mut by: BTreeMap<(&str, FindingKind), Vec<&Finding>> = BTreeMap::new();
+        for f in self.findings() {
+            by.entry((f.source_or_cortex(), f.kind))
+                .or_default()
+                .push(f);
+        }
+        let mut out = vec![];
+        for ((source, kind), fs) in by {
+            let Some(top) = fs
+                .iter()
+                .copied()
+                .max_by(|a, b| a.sev.cmp(&b.sev).then(b.id.cmp(&a.id)))
+            else {
+                continue;
+            };
+            if top.sev == Sev::Info {
+                continue;
+            }
+            let ev = top.to_nerve_event(now);
+            out.push(json!({"ts": ev["ts"], "source": source, "kind": kind.as_str(), "severity": ev["severity"],
+                            "data": {"findings": fs.len(), "ids": fs.iter().map(|f| f.id.as_str()).collect::<Vec<_>>(),
+                                     "top": ev["data"]}}));
+        }
+        out
+    }
+
+    fn finding_json(&self, f: &Finding) -> Value {
+        let mut v = f.to_json();
+        v["gaia"] = json!(self.gaia_of.get(&f.component));
+        v
+    }
+
+    /// After correlation: name the owning Gaia function(s) of every open
+    /// incident. A component maps to its spec's function; signals from
+    /// components the table does not know (the host, an unknown pushed
+    /// source) are listed as "unknown". Also tags each incident itself.
+    pub fn attach_owners(&mut self, inc: &mut Correlator, comps: &[CompState]) {
+        self.gaia_of = comps
+            .iter()
+            .map(|c| (c.spec.name.to_string(), c.spec.gaia.to_string()))
+            .collect();
+        let sys: BTreeMap<&str, &str> = comps
+            .iter()
+            .map(|c| (c.spec.name, c.spec.gaia_system))
+            .collect();
+        for i in inc.open.values_mut() {
+            i.owners = i
+                .components
+                .iter()
+                .map(|c| {
+                    (
+                        c.clone(),
+                        self.gaia_of
+                            .get(c)
+                            .cloned()
+                            .unwrap_or_else(|| "unknown".into()),
+                    )
+                })
+                .collect();
+        }
+        self.incident_owners = inc
+            .open_sorted()
+            .iter()
+            .map(|i| {
+                let fns: BTreeSet<&String> = i.owners.values().collect();
+                json!({
+                    "id": i.id, "cause": i.cause, "title": i.title, "severity": i.sev.as_str(),
+                    "gaia": fns,
+                    "owners": i.owners.iter().map(|(c, g)| json!({
+                        "component": c, "gaia": g, "system": sys.get(c.as_str()),
+                    })).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+    }
 }
 
-fn dur(s: u64) -> String {
+/// Human duration: `45 s`, `12 min`, `3.5 h`, `1.8 d`.
+pub fn dur(s: u64) -> String {
     if s >= 86_400 {
         format!("{:.1} d", s as f64 / 86_400.0)
     } else if s >= 3600 {
@@ -150,334 +441,15 @@ pub fn component_signals(comps: &[CompState], now: u64, grace: u64) -> Vec<Signa
     v
 }
 
+/// Run the built-in sensors once over `i` (stateless convenience; the
+/// engine keeps a [`crate::sensors::Sensors`] registry across cycles).
 pub fn analyse(i: &Input) -> Cortex {
-    let mut cx = Cortex::default();
-    let spec_ports: BTreeSet<u16> = i
-        .comps
-        .iter()
-        .flat_map(|c| [c.spec.port, c.spec.metrics_port])
-        .flatten()
-        .collect();
-
-    // ---- vulnerabilities: listeners
-    if let Some(ls) = i.listeners {
-        let in_scope = |p: u16| i.listen_scope.is_none_or(|(a, b)| p >= a && p <= b);
-        let mut public_ok = vec![];
-        let mut unmanaged: Vec<&Listener> = vec![];
-        for l in ls.iter().filter(|l| in_scope(l.port)) {
-            if !l.loopback {
-                if i.public_ok_ports.contains(&l.port) {
-                    public_ok.push(format!("{}:{}", l.addr, l.port));
-                } else {
-                    cx.vulnerabilities.push(Finding {
-                        id: format!("public-listener-{}", l.port),
-                        sev: Sev::Error,
-                        component: "host".into(),
-                        title: format!("port {} listens on {} (not loopback)", l.port, l.addr),
-                        evidence: vec![format!("LISTEN {}:{}", l.addr, l.port)],
-                        fix: "bind it to 127.0.0.1 and publish through the tunnel, or firewall it (owner approval)".into(),
-                        cause: None,
-                    });
-                }
-            } else if !spec_ports.contains(&l.port)
-                && !i.known_ports.contains(&l.port)
-                && l.port != i.own_port
-            {
-                unmanaged.push(l);
-            }
-        }
-        let mut ports: Vec<u16> = unmanaged.iter().map(|l| l.port).collect();
-        ports.sort();
-        ports.dedup();
-        if !ports.is_empty() {
-            cx.vulnerabilities.push(Finding {
-                id: "unmanaged-listeners".into(),
-                sev: Sev::Warn,
-                component: "host".into(),
-                title: format!(
-                    "{} loopback listener(s) no monitored unit owns: {}",
-                    ports.len(),
-                    ports.iter().map(|p| format!(":{p}")).collect::<Vec<_>>().join(" ")
-                ),
-                evidence: vec![
-                    "not a component health/metrics port and not in NERVE_KNOWN_PORTS".into(),
-                    "typical cause: manual shadow/test processes left running (no unit, no restart policy, no patching)".into(),
-                ],
-                fix: "identify the owners (ss -ltnp), then stop them or give them a unit (owner approval; the nerve never kills processes)".into(),
-                cause: None,
-            });
-        }
-        cx.exposure = json!({"public_expected": public_ok, "unmanaged_ports": ports,
-                             "listeners_judged": ls.iter().filter(|l| in_scope(l.port)).count()});
-    } else {
-        cx.exposure = json!({"note": "listeners not read this cycle"});
-    }
-
-    // ---- vulnerabilities: scanners and dev servers
-    let mut by_unit: std::collections::BTreeMap<&str, Vec<(&str, u32)>> = Default::default();
-    for s in i.logs.scans.values() {
-        by_unit
-            .entry(s.unit.as_str())
-            .or_default()
-            .push((s.path.as_str(), s.count));
-    }
-    for (unit, paths) in &by_unit {
-        let dev = i.logs.dev_servers.contains(*unit);
-        let n: u32 = paths.iter().map(|p| p.1).sum();
-        let comp = comp_of_unit(i.comps, unit);
-        let mut ev: Vec<String> = paths
-            .iter()
-            .take(8)
-            .map(|(p, c)| format!("{p} x{c}"))
-            .collect();
-        if dev {
-            ev.push("the unit prints Vite dev-server messages: a dev server is answering internet traffic".into());
-        }
-        cx.vulnerabilities.push(Finding {
-            id: format!("scanner-probes-{comp}"),
-            sev: if dev { Sev::Error } else { Sev::Warn },
-            component: comp.clone(),
-            title: format!("{n} scanner/exploit request(s) reached {comp} ({} distinct paths)", paths.len()),
-            evidence: ev,
-            fix: if dev {
-                "serve a production build (B61) instead of the dev server, and deny dotfiles (.env, .git) at the edge".into()
-            } else {
-                "make sure those paths 404 and nothing sensitive sits under the web root".into()
-            },
-            cause: Some(format!("scan:{comp}")),
-        });
-        cx.signals.push(Signal::new(
-            &format!("scan:{comp}"),
-            &comp,
-            Sev::Warn,
-            format!(
-                "{n} scanner request(s): {}",
-                paths
-                    .iter()
-                    .take(4)
-                    .map(|p| p.0)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ),
-        ));
-    }
-    for unit in &i.logs.dev_servers {
-        if by_unit.contains_key(unit.as_str()) {
-            continue;
-        }
-        let comp = comp_of_unit(i.comps, unit);
-        cx.vulnerabilities.push(Finding {
-            id: format!("dev-server-{comp}"),
-            sev: Sev::Warn,
-            component: comp.clone(),
-            title: format!("{comp} runs a Vite dev server"),
-            evidence: vec![format!("{unit} logs Vite dev-server messages")],
-            fix: "switch to a production build (B61)".into(),
-            cause: None,
-        });
-    }
-
-    // ---- bleeding: edge (tunnel routes to dead origins)
-    if !i.logs.dead_origins.is_empty() {
-        let mut hosts: BTreeSet<&str> = BTreeSet::new();
-        let mut failed = 0u32;
-        let mut ev = vec![];
-        let mut ports = vec![];
-        for d in i.logs.dead_origins.values() {
-            failed += d.failed_requests;
-            hosts.extend(d.hosts.iter().map(String::as_str));
-            ports.push(d.port);
-            ev.push(format!(
-                "origin {} (port {}) refused {} dial(s), {} failed request(s); hosts: {}",
-                if d.service.is_empty() {
-                    "?"
-                } else {
-                    d.service.as_str()
-                },
-                d.port,
-                d.refusals,
-                d.failed_requests,
-                if d.hosts.is_empty() {
-                    "-".to_string()
-                } else {
-                    d.hosts.iter().cloned().collect::<Vec<_>>().join(", ")
-                }
-            ));
-        }
-        let listening: Vec<u16> = i
-            .listeners
-            .map(|ls| {
-                ports
-                    .iter()
-                    .copied()
-                    .filter(|p| ls.iter().any(|l| l.port == *p))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if i.listeners.is_some() {
-            ev.push(if listening.is_empty() {
-                "none of these ports has a listener on the host: the routes point at services that no longer run".into()
-            } else {
-                format!("ports with a listener now: {listening:?} (they may be flapping)")
-            });
-        }
-        let span = i
-            .logs
-            .window_last
-            .saturating_sub(i.logs.window_first)
-            .max(60);
-        let per_min = failed as f64 * 60.0 / span as f64;
-        if let Some(cf) = i
-            .comps
-            .iter()
-            .find(|c| c.spec.kind == Kind::Tunnel && c.spec.critical)
-        {
-            if let Some(s) = cf.latest() {
-                if let (Some(r), Some(e)) = (s.tunnel_requests, s.tunnel_req_errors) {
-                    ev.push(format!(
-                        "cloudflared counters since its start: {e} of {r} requests failed ({:.0}%)",
-                        e as f64 * 100.0 / r.max(1) as f64
-                    ));
-                }
-            }
-        }
-        let title = format!(
-            "tunnel routes {} public hostname(s) to {} closed origin port(s) {}: {:.1} failed requests/min over {}",
-            hosts.len(),
-            ports.len(),
-            ports.iter().map(|p| format!(":{p}")).collect::<Vec<_>>().join(" "),
-            per_min,
-            dur(span)
-        );
-        let sev = if per_min >= 1.0 {
-            Sev::Error
-        } else {
-            Sev::Warn
-        };
-        cx.bleeding.push(Finding {
-            id: "edge-dead-origins".into(),
-            sev,
-            component: "cloudflared".into(),
-            title: title.clone(),
-            evidence: ev,
-            fix: "either start the services behind those ports or remove the ingress rules / DNS for those hostnames (cloudflared config + DNS: owner approval; the nerve never touches them)".into(),
-            cause: Some("edge".into()),
-        });
-        cx.signals
-            .push(Signal::new("edge", "cloudflared", sev, title));
-    }
-
-    // ---- bleeding: per component
-    for c in i.comps {
-        let Some(s) = c.latest() else { continue };
-        let name = c.spec.name;
-        let group = Some(c.spec.group.to_string());
-        let mut push = |id: &str, sev: Sev, title: String, ev: Vec<String>, fix: &str| {
-            cx.bleeding.push(Finding {
-                id: format!("{id}-{name}"),
-                sev,
-                component: name.into(),
-                title,
-                evidence: ev,
-                fix: fix.into(),
-                cause: group.clone(),
-            })
-        };
-        if let Some(age) = stuck_loading(c, i.now, i.loading_grace_s) {
-            let body = s
-                .extra
-                .get("health_body")
-                .map(|b| b.to_string())
-                .unwrap_or_else(|| "model loading".into());
-            push("stuck-loading", Sev::Error,
-                format!("{name} has answered 503 \"loading\" for {} (since {})", dur(age), crate::util::ts(c.status_since)),
-                vec![format!("health :{}{} -> 503 {body}", c.spec.port.unwrap_or(0), c.spec.path),
-                     format!("a model load takes minutes, not {}: the loader is stuck or the model is missing", dur(age))],
-                "check the voice/model process logs and the model files, then restart that one service (owner approval)");
-        }
-        let r1h = c.restarts_1h(i.now);
-        if r1h >= 1 {
-            push(
-                "restarts",
-                if r1h >= 3 { Sev::Error } else { Sev::Warn },
-                format!("{name} restarted {r1h} time(s) in the last hour"),
-                vec![format!("systemd NRestarts={}", s.n_restarts)],
-                "read the unit journal before the restart",
-            );
-        }
-        for r in &c.reasons {
-            if r.contains("memory rising") || r.contains("memory limit reached") {
-                push(
-                    "memory-trend",
-                    Sev::Warn,
-                    format!("{name}: {r}"),
-                    vec![],
-                    "look for a leak; a restart only resets it",
-                );
-            }
-            if r.contains("errors in 5 min") {
-                push(
-                    "error-rate",
-                    Sev::Warn,
-                    format!("{name}: {r}"),
-                    vec![],
-                    "read the unit journal",
-                );
-            }
-            if c.spec.kind == Kind::Host && (r.contains("disk") || r.contains("RAM")) {
-                push(
-                    "host-pressure",
-                    Sev::Warn,
-                    format!("host: {r}"),
-                    vec![],
-                    "free space / memory",
-                );
-            }
-        }
-        if let Some(m) = s.mem_kb {
-            if m > 512 * 1024 && c.spec.kind == Kind::Service {
-                push(
-                    "memory-heavy",
-                    Sev::Info,
-                    format!("{name} holds {}", kib(m)),
-                    vec!["largest resident service on the host".into()],
-                    "expected for a Node dev server; a production build would use a fraction",
-                );
-            }
-        }
-    }
-
-    // ---- DDoS
-    for v in i.ddos {
-        cx.ddos.push(v.to_json());
-        let target = v.component.clone().unwrap_or_else(|| v.stream.clone());
-        match v.level {
-            "flood" => {
-                cx.ddos_firing = true;
-                cx.signals.push(Signal::new(
-                    &format!("ddos:{}", v.stream),
-                    &target,
-                    Sev::Critical,
-                    format!("request flood: {}", v.explain()),
-                ));
-            }
-            "elevated" => cx.signals.push(Signal::new(
-                &format!("ddos:{}", v.stream),
-                &target,
-                Sev::Warn,
-                format!("request rate elevated: {}", v.explain()),
-            )),
-            _ => {}
-        }
-    }
-    cx.vulnerabilities
-        .sort_by(|a, b| b.sev.cmp(&a.sev).then(a.id.cmp(&b.id)));
-    cx.bleeding
-        .sort_by(|a, b| b.sev.cmp(&a.sev).then(a.id.cmp(&b.id)));
-    cx
+    crate::sensors::Sensors::builtin().run(i)
 }
 
-fn comp_of_unit(comps: &[CompState], unit: &str) -> String {
+/// Component name of a systemd unit (the unit name without `.service`
+/// when no spec owns it).
+pub fn comp_of_unit(comps: &[CompState], unit: &str) -> String {
     comps
         .iter()
         .find(|c| c.spec.unit == Some(unit))
@@ -527,10 +499,18 @@ mod tests {
             c.push(s, &th);
         }
         let lines: Vec<JLine> = (0..60u64).map(|k| JLine { t: now - 1800 + k * 30, unit: "cloudflared.service".into(), prio: 6,
-            msg: format!("Z ERR Request failed error=\"dial tcp [::1]:{}: connect: connection refused\" dest=https://{}/ ip=1.1.1.1", if k % 2 == 0 { 4001 } else { 3011 }, if k % 2 == 0 { "galion.studio" } else { "merlinelement.com" }) }).chain([
+            msg: format!("Z ERR Request failed error=\"dial tcp [::1]:{}: connect: connection refused\" dest=https://{}/ ip=1.1.1.1", if k % 2 == 0 { 4001 } else { 3011 }, if k % 2 == 0 { "galion.studio" } else { "merlinelement.com" }) }).chain([ // repo-check: allow (test fixture address, never dialled)
             JLine { t: now - 60, unit: "console.service".into(), prio: 6, msg: "The request id \"/x/.git/config\" is outside of Vite serving allow list.".into() }]).collect();
         let li = crate::logscan::insights(&lines);
-        let ls = crate::probe::parse_ss("LISTEN 0 1 127.0.0.1:8652 0.0.0.0:*\nLISTEN 0 1 127.0.0.1:8420 0.0.0.0:*\nLISTEN 0 1 *:22 *:*\nLISTEN 0 1 127.0.0.1:20241 0.0.0.0:*\n");
+        let ss_text = "LISTEN 0 1 127.0.0.1:8652 0.0.0.0:* users:((\"hermes-gateway\",pid=1395619,fd=4))\nLISTEN 0 1 127.0.0.1:8431 0.0.0.0:* users:((\"openmind-memory\",pid=1375169,fd=6))\nLISTEN 0 1 127.0.0.1:8420 0.0.0.0:*\nLISTEN 0 1 *:22 *:*\nLISTEN 0 1 127.0.0.1:20241 0.0.0.0:*\n";
+        let ls = crate::probe::parse_ss(ss_text);
+        let procs = crate::owners::parse_ss_procs(ss_text);
+        let om = OwnerMap::build(
+            &default_specs(None, None),
+            &[20241],
+            &[],
+            &crate::owners::VPS_UNOWNED_PORTS,
+        );
         let cx = analyse(&Input {
             now,
             comps: &cs,
@@ -542,10 +522,39 @@ mod tests {
             listen_scope: None,
             own_port: 8670,
             loading_grace_s: 900,
+            journal: &[],
+            live: false,
+            owners: &om,
+            procs: &procs,
         });
         let ids: Vec<&str> = cx.vulnerabilities.iter().map(|f| f.id.as_str()).collect();
         assert!(ids.contains(&"unmanaged-listeners"), "{ids:?}");
         assert!(cx.vulnerabilities.iter().any(|f| f.title.contains(":8652")));
+        let um = cx
+            .vulnerabilities
+            .iter()
+            .find(|f| f.id == "unmanaged-listeners")
+            .unwrap();
+        assert!(um.title.contains(":8431 :8652"), "{}", um.title);
+        assert!(
+            um.evidence
+                .iter()
+                .any(|e| e.starts_with(":8652 unknown owner")
+                    && e.contains("hermes-gateway (pid 1395619)")),
+            "{:?}",
+            um.evidence
+        );
+        let own = cx.exposure["ownership"].as_array().unwrap();
+        let o8652 = own.iter().find(|o| o["port"] == 8652).unwrap();
+        assert_eq!(
+            (o8652["owner"].as_str(), o8652["process"].as_str()),
+            (Some("unknown owner"), Some("hermes-gateway"))
+        );
+        let o8420 = own.iter().find(|o| o["port"] == 8420).unwrap();
+        assert_eq!(
+            (o8420["owner"].as_str(), o8420["gaia"].as_str()),
+            (Some("openmind-memory"), Some("APOLLO"))
+        );
         assert!(ids.contains(&"scanner-probes-console"), "{ids:?}");
         assert_eq!(
             cx.vulnerabilities

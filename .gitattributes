@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# Public-export rules for the 2026-10-31 launch.
+# `export-ignore` keeps a path out of `git archive`, which is how
+# scripts/public-export.sh builds the public tree. These rules do NOT rewrite
+# git history: anything here is still in the private repo's history, so the
+# public repository must be created from the exported tree (fresh history),
+# never by flipping this repository's visibility. See docs/launch/PUBLIC-EXPORT.md.
+
+# Line endings: keep text LF everywhere, binaries untouched.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.wav binary
+*.db binary
+*.db-wal binary
+
+# --- private material: never in the public tree -----------------------------
+# Vendored Grok Bot operator material (VPS access skills, ssh MCP, private notes).
+/contrib export-ignore
+# Redacted secret inventories: every value is a REDACTED marker, but the names, paths
+# and tunnel ids are an inventory of the secret store.
+*.redacted export-ignore
+# The whole key-management mirror (console key routes, cloudflared config with
+# the tunnel id, lock-secrets guard script).
+/stack/kms export-ignore
+# Index of stack/ copies: lists every secret path and the sha256 of each
+# secret-holding original.
+/stack/INDEX.md export-ignore
+
+# --- build artefacts: shipped as signed release assets, not in the source tree
+# (OpenSSF Scorecard "Binary-Artifacts" check).
+/dist/bin export-ignore
+/edge/dist export-ignore

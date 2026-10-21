@@ -145,3 +145,11 @@ galion-one gained no dependencies. A transient lock edit that was not this ticke
 ## Not done
 
 No git commit. No systemctl. Production bins and units were not switched. TEACHER/STAGED.md was not edited.
+
+## hermes-tools: unit drop-in for hermes-rs coding tools (2026-10-20T20:10:00+02:00, slot 17)
+
+Proposal only: `deploy/staged/hermes-rs.service.d/coding-tools.conf`, explained in
+`docs/staged/hermes-tools-unit.md`. MemoryMax 64M -> 2304M for the unit (the gateway stays at
+64M in its own leaf), `Delegate=memory pids cpu`, TasksMax 64 -> 512, CPUQuota 200%, and the
+coding-tool environment. It needs approval of the base `hermes-rs.service` first. Paid model use
+for real tickets is a separate decision and is not part of this proposal.

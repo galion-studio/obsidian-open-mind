@@ -65,6 +65,11 @@ struct Node {
     max_descendants: String,
     nr_descendants: u64,
     dir_writable: bool,
+    /// `cgroup.procs` is writable too. Moving a process from its own cgroup
+    /// into a new child of this node needs write access to the common
+    /// ancestor's `cgroup.procs`, which is this node; a delegation that only
+    /// chowned the directory is not enough.
+    procs_writable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,6 +197,10 @@ fn load_node(mount: &Path, path: &str, cred: &Cred, mount_rw: bool) -> Option<No
         max_descendants: read_trim(&dir.join("cgroup.max.descendants")),
         nr_descendants: parse_nr_descendants(&stat),
         dir_writable: mount_rw && mode_writable(&meta, cred),
+        procs_writable: mount_rw
+            && fs::metadata(dir.join("cgroup.procs"))
+                .map(|m| mode_writable(&m, cred))
+                .unwrap_or(false),
     })
 }
 
@@ -242,7 +251,7 @@ fn parent_ok(node: &Node) -> bool {
     if under_system_slice(&node.path) {
         return false;
     }
-    if node.kind != "domain" || node.frozen || !node.dir_writable {
+    if node.kind != "domain" || node.frozen || !node.dir_writable || !node.procs_writable {
         return false;
     }
     if !has_controllers(&node.subtree) {
@@ -508,7 +517,19 @@ mod tests {
             max_descendants: "max".to_string(),
             nr_descendants: 0,
             dir_writable: writable,
+            procs_writable: writable,
         }
+    }
+
+    #[test]
+    fn chowned_dir_without_writable_procs_is_not_a_delegation() {
+        let mut half = node("/user.slice/user-1000.slice", "cpu memory pids", true);
+        half.procs_writable = false;
+        let mut root = node("/", "cpu memory pids", true);
+        root.dir_writable = false;
+        root.procs_writable = false;
+        let report = decide(&snap(vec![half, root]));
+        assert!(!report.per_run_possible, "{report:?}");
     }
 
     fn snap(nodes: Vec<Node>) -> Snap {

@@ -19,6 +19,6 @@ Four pending seed ids. Discovery sets `approval` to `pending` on every seed. The
 
 Discovery builds these in `static_seeds`. Ports are `7787` (`PORT_OPENMIND`), `11434` (`PORT_OLLAMA`), `50052` (`PORT_LLAMA_RPC`), and `52415` (`PORT_EXO`). `host` and `addrs` are `127.0.0.1`. Route copies them in `PENDING_SEEDS` as `127.0.0.1:7787`, `127.0.0.1:11434`, `127.0.0.1:50052`, and `127.0.0.1:52415`.
 
-A requested scan reports packets_sent 0. `Scan::Requested` calls `active_scan`. That stub sets `packets_sent` to 0. The note is `stub: --scan was set; no packets were sent`. It opens no socket and sends no packet.
+Updated 2026-10-20 (swarm/lan-discovery): `Scan::Requested` (`--scan`) now calls `active_scan`, which runs one real mDNS browse (a query plus one repeat, so `packets_sent` is 2) and adds what answers as pending candidates. `Scan::Off`, the default, still opens no socket. See docs/lan-discovery.md.
 
 The stamp offset is numeric. It is not a trailing UTC designator.

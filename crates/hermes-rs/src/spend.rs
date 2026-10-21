@@ -100,7 +100,17 @@ impl SpendTracker {
         }
     }
 
+    /// Is another provider call allowed? A refusal (cap hit) is also pushed
+    /// to the nerve as a `spend_cap` event (throttled; no-op without NERVE_URL).
     pub fn check(&self, session: &str) -> Result<(), SpendBlock> {
+        let r = self.check_inner(session);
+        if let Err(b) = &r {
+            nerve_client::cap_hit("hermes-rs", "spend_cap", &b.message());
+        }
+        r
+    }
+
+    fn check_inner(&self, session: &str) -> Result<(), SpendBlock> {
         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
         self.roll(&mut st);
         let c = &self.cfg;
@@ -187,7 +197,7 @@ mod tests {
     #[test]
     fn caps_and_day_roll() {
         let now = Arc::new(AtomicI64::new(
-            crate::time::parse_rfc3339("2026-10-18T10:00:00Z").unwrap(),
+            crate::time::parse_rfc3339("2026-10-18T12:00:00+02:00").unwrap(),
         ));
         let n2 = now.clone();
         let t = SpendTracker::with_clock(

@@ -77,3 +77,16 @@ Written 2026-10-18T19:06:00+02:00; last updated 2026-10-18T20:55:00+02:00
 |---|---|---|
 | Owner | Slavik | |
 | Release lead | Hermes | 2026-10-18T19:06:00+02:00 |
+
+## 7. Launch gates (added 2026-10-20T20:20:00+02:00, swarm/launch-gates)
+
+| # | Item | Owner | Status | Timestamp |
+|---|---|---|---|---|
+| 7.1 | REUSE 3.3: `REUSE.toml`, `LICENSES/MIT.txt`, binary `.license` companions; lint 0 failed | Grok Bot | done (branch) | 2026-10-20T20:20:00+02:00 |
+| 7.2 | `deny.toml` licence allow-list over all transitive deps; `cargo deny` ok | Grok Bot | done (branch) | 2026-10-20T20:20:00+02:00 |
+| 7.3 | CycloneDX SBOM from Cargo.lock (cargo-cyclonedx) | Grok Bot | done (branch) | 2026-10-20T20:20:00+02:00 |
+| 7.4 | `.gitattributes` export rules + `scripts/public-export.sh` verified tree | Grok Bot | done (branch) | 2026-10-20T20:20:00+02:00 |
+| 7.5 | All GitHub Actions pinned to commit SHAs | Grok Bot | done (branch) | 2026-10-20T20:20:00+02:00 |
+| 7.6 | SEC-1..SEC-5 rotations, history purge, permissions, tunnel | owner | open | 2026-10-20T20:20:00+02:00 |
+| 7.7 | Public repo created from the export tree (fresh history), not by flipping this repo | owner | open | 2026-10-20T20:20:00+02:00 |
+| 7.8 | Branch protection, private vulnerability reporting, secret scanning (docs/launch/SCORECARD-READINESS.md) | owner | open | 2026-10-20T20:20:00+02:00 |

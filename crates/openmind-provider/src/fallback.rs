@@ -104,6 +104,22 @@ pub fn select_provider(rows: &[ProviderRow], need: Capability) -> Option<&Provid
     None
 }
 
+/// Every usable row for `need` in fallback order: all usable GPU rows, then
+/// LAN, then CPU-local, input order kept inside a tier. The first entry is
+/// what [`select_provider`] returns; a caller that fails to reach it tries
+/// the next one. Same rules as [`select_provider`]; remote is never listed.
+#[must_use]
+pub fn ordered(rows: &[ProviderRow], need: Capability) -> Vec<&ProviderRow> {
+    let mut out = Vec::new();
+    for kind in [Kind::Gpu, Kind::Lan, Kind::CpuLocal] {
+        out.extend(
+            rows.iter()
+                .filter(|row| row.kind == kind && usable(row, need)),
+        );
+    }
+    out
+}
+
 fn usable(row: &ProviderRow, need: Capability) -> bool {
     row.approval == Approval::Approved
         && row.health != Health::Down

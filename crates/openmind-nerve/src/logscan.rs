@@ -279,8 +279,8 @@ mod tests {
     fn cloudflared_dead_origins_and_hosts() {
         let lines = vec![
             jl(100, "cloudflared.service", "2026-10-20T17:04:34Z ERR  error=\"Unable to reach the origin service. The service may be down or it may not be responding to traffic from cloudflared: dial tcp [::1]:4001: connect: connection refused\" connIndex=1 event=1 ingressRule=18 originService=http://localhost:4001"),
-            jl(100, "cloudflared.service", "2026-10-20T17:04:34Z ERR Request failed error=\"Unable to reach the origin service. The service may be down or it may not be responding to traffic from cloudflared: dial tcp [::1]:4001: connect: connection refused\" connIndex=1 dest=https://galion.studio/ event=0 ip=198.41.200.13 type=http"),
-            jl(101, "cloudflared.service", "2026-10-20T17:04:35Z ERR Request failed error=\"x: dial tcp 127.0.0.1:3011: connect: connection refused\" dest=https://merlinelement.com/a?b=c ip=1.2.3.4 type=http"),
+            jl(100, "cloudflared.service", "2026-10-20T17:04:34Z ERR Request failed error=\"Unable to reach the origin service. The service may be down or it may not be responding to traffic from cloudflared: dial tcp [::1]:4001: connect: connection refused\" connIndex=1 dest=https://galion.studio/ event=0 ip=198.41.200.13 type=http"), // repo-check: allow (test fixture address, never dialled)
+            jl(101, "cloudflared.service", "2026-10-20T17:04:35Z ERR Request failed error=\"x: dial tcp 127.0.0.1:3011: connect: connection refused\" dest=https://merlinelement.com/a?b=c ip=1.2.3.4 type=http"), // repo-check: allow (test fixture address, never dialled)
             jl(102, "cloudflared.service", "2026-10-20T17:04:36Z INF Registered tunnel connection"),
         ];
         let li = insights(&lines);

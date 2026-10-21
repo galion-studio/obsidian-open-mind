@@ -56,7 +56,7 @@ Discovery builds a **candidate list**. A candidate is not a registry record and 
 
 ### 4.2 Active scan (off by default)
 
-Matches the later `openmind-discovery` stub (B35). A static seed list plus a parser for mDNS-SD records. The active scan sits behind a flag and is off unless the owner passes it. Tests of that later crate use fixtures and do not open 5353.
+Matches the later `openmind-discovery` stub (B35); since 2026-10-20 that crate does a real mDNS browse, see docs/lan-discovery.md. A static seed list plus a parser for mDNS-SD records. The active scan sits behind a flag and is off unless the owner passes it. Tests of that later crate use fixtures and do not open 5353.
 
 The one-packet query (`_services._dns-sd._udp.local.` and `_openmind._tcp.local.`) stays opt-in, as `omnode discover --mdns-query` is today. It is not run on the VPS.
 

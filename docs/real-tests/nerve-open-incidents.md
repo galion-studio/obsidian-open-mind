@@ -112,5 +112,5 @@ elevated at half), `openmind-nerve/src/evt/runtime.rs` (`incident.opened` only f
 `gaia-cortex/src/rules.rs` (`subject_key`, R11), `nerve-client/src/lib.rs` (`DEFAULT_SLOW_MS`),
 all at nerve-event-driven bb287cc and cortex-live-fixes bd6fbe6.
 
-Raw captures stayed on the box in /tmp (not committed: they hold public hostnames); no secrets
+Raw captures were kept on the box only during the run and then deleted (they hold public hostnames); no secrets
 were read or printed.

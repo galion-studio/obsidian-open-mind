@@ -127,5 +127,9 @@ Go only if all of these hold: D1–D4 are decided; the snapshot of 2.2 exists an
 - Nerve in **live** reflex mode with a deploy-capable rollback reflex (D2).
 - The bash galion-deploy is still installed: the F1 hang on an L2 rollback with the unit down, the F2 start-limit trap, and an ambiguous exit 1. The bash table has no nerve entry, so it judges nerve on `is-active` only, and on `/health` 404 if that URL is passed.
 - The VPS galion-backup binary is unverified against rust-ports 26a2a8e (2.2).
-- tuner-quick is transient: a reboot during the window loses the public quick URL for good.
+- tuner-quick is transient: a reboot during the window loses the public quick URL for good. A persistent unit is staged (section 9), but is not installed.
 - The whole flow has been proven only against simsup and systemctl shims. PID 1 on the box is tini, not systemd.
+
+## 9. Side step: tuner-quick as a real unit (slot 120, staged)
+
+`deploy/staged/tuner-quick.service` replaces the transient tunnel with a persistent, sandboxed unit. It uses the same cloudflared and the same arguments, and keeps the same unit name, so nerve and galion-health keep seeing it. It has `Wants=tuner.service` rather than `Requires=`, so the tuner deploy in 3.3 does not rotate the URL. The full step, its three paths, the checks and the rollback are in `docs/ops/tuner-quick-unit.md`. It needs O4 first. **Do not do it in the same window as section 3.** Path B (install and enable the file, take effect at the next reboot, URL unchanged now) can go in at any time. Path A changes the public URL once.

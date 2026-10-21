@@ -15,6 +15,7 @@ mod identity;
 mod pair;
 mod sandbox;
 mod seccomp;
+mod seccomp_table;
 mod sysinfo;
 mod tunnel;
 mod util;
@@ -65,6 +66,9 @@ USAGE: omnode [--config FILE] <command>
               [--no-landlock] [--no-seccomp] [--no-namespaces] [--keep] -- CMD [ARGS...]
   sandbox check            report which isolation this platform provides
   sandbox selftest         install the seccomp deny-list in a child and try denied syscalls
+  sandbox denylist [--markdown] [--check FILE]
+                           seccomp deny-list parity across x86_64/aarch64/armv7 (no syscalls tried);
+                           --markdown prints docs/security/denylist-parity.md; exit 2 on any gap
   doctor                   what this device can do (SSID, namespaces, landlock, CPU)
   version
 
@@ -317,6 +321,48 @@ fn real_main() -> ExitCode {
                     Err(format!("pair verify: refused: {e}"))
                 }
             }
+        }
+        ("sandbox", Some("denylist")) => {
+            let md = a.flag("--markdown");
+            let check_file = a.value("--check")?;
+            a.done()?;
+            let doc = seccomp_table::markdown();
+            if md {
+                print!("{doc}");
+                return Ok(());
+            }
+            let viol = seccomp_table::check();
+            let arch = seccomp_table::Arch::current();
+            let live: Vec<u32> = seccomp::denied().collect();
+            let table: Vec<u32> = arch.map(|a| a.denied().collect()).unwrap_or_default();
+            let live_matches = arch.is_some() && live == table;
+            let doc_current = match &check_file {
+                Some(f) => {
+                    Some(std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}"))? == doc)
+                }
+                None => None,
+            };
+            print_json(&serde_json::json!({
+                "arch": arch.map(|a| a.name()),
+                "audit_arch": format!("{:#010x}", seccomp::AUDIT_ARCH),
+                "denied_live": live,
+                "denied_live_count": live.len(),
+                "live_matches_table": live_matches,
+                "parity_ok": viol.is_empty(),
+                "violations": viol,
+                "counts": seccomp_table::ARCHES.iter().map(|a| (a.name(), a.denied().count())).collect::<std::collections::BTreeMap<_, _>>(),
+                "doc_current": doc_current,
+            }));
+            if !viol.is_empty() {
+                return Err(format!("deny-list parity: {} violations", viol.len()));
+            }
+            if !live_matches {
+                return Err("compiled deny-list differs from the parity table".into());
+            }
+            if doc_current == Some(false) {
+                return Err("parity doc is stale; regenerate with --markdown".into());
+            }
+            Ok(())
         }
         ("sandbox", Some("selftest")) => {
             a.done()?;

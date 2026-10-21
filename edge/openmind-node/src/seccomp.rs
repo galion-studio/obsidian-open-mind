@@ -305,12 +305,14 @@ fn errno() -> i32 {
 /// fork or install failure reads as not enforced.
 pub fn self_test() -> SelfTest {
     let f = Filter::new();
-    // SAFETY (all probes): the child runs only `install` and plain syscalls,
-    // no allocation, locks or unwinding; see `util::fork_probe`.
+    // SAFETY: (this and every probe below) the child runs only `install` (two
+    // prctl calls on a program built before the fork) and plain syscalls: no
+    // allocation, locks or unwinding, as `util::fork_probe` requires.
     let installed = unsafe { crate::util::fork_probe(|| f.install().is_ok()) };
     if !installed {
         return SelfTest::default();
     }
+    // SAFETY: fork_probe contract as above; ptrace(TRACEME) and errno only.
     let ptrace_denied = unsafe {
         crate::util::fork_probe(|| {
             f.install().is_ok()
@@ -318,6 +320,8 @@ pub fn self_test() -> SelfTest {
                 && errno() == libc::EPERM
         })
     };
+    // SAFETY: fork_probe contract as above; fsconfig is called with fd -1 and
+    // null pointers, which the kernel rejects without touching memory.
     let fsconfig_denied = unsafe {
         crate::util::fork_probe(|| {
             f.install().is_ok()
@@ -328,11 +332,14 @@ pub fn self_test() -> SelfTest {
                 && errno() == libc::EPERM
         })
     };
+    // SAFETY: fork_probe contract as above; flags-only unshare(2).
     let unshare_denied = unsafe {
         crate::util::fork_probe(|| {
             f.install().is_ok() && libc::unshare(libc::CLONE_NEWUSER) < 0 && errno() == libc::EPERM
         })
     };
+    // SAFETY: fork_probe contract as above; getppid and a 0-byte write from a
+    // live static buffer.
     let everyday_allowed = unsafe {
         crate::util::fork_probe(|| {
             let msg = b"";
@@ -371,25 +378,47 @@ mod tests {
         assert_eq!(p[1].k, AUDIT_ARCH);
     }
 
+    /// `install` passes `prog.len() as u16` to the kernel. Slot 229 review: the
+    /// cast must never truncate, and the kernel refuses programs longer than
+    /// BPF_MAXINSNS (4096), so pin both bounds for every built architecture.
+    #[test]
+    fn program_length_fits_sock_fprog() {
+        let n = build().len();
+        assert!(n > 2, "program too short: {n}");
+        assert!(n <= 4096, "BPF_MAXINSNS exceeded: {n}");
+        assert_eq!(n as u16 as usize, n, "u16 cast would truncate");
+        let f = Filter::new();
+        assert_eq!(f.prog.len(), n);
+    }
+
     #[test]
     fn install_in_child_denies_ptrace() {
         if !available() {
             eprintln!("seccomp unavailable here; skipping enforce test");
             return;
         }
+        // Built BEFORE the fork: the test harness is multi-threaded, so the child
+        // must not allocate (another thread may hold the allocator lock). Slot
+        // 229 review finding F2: this used to call Filter::new() in the child.
+        let f = Filter::new();
+        // SAFETY: the child below only calls install (no allocation), ptrace,
+        // reads errno and leaves through _exit; it never returns into the harness.
         let pid = unsafe { libc::fork() };
         assert!(pid >= 0);
         if pid == 0 {
-            let f = Filter::new();
             if f.install().is_err() {
+                // SAFETY: _exit is async-signal-safe and never returns.
                 unsafe { libc::_exit(2) };
             }
             // ptrace(PTRACE_TRACEME) must fail with EPERM under the filter.
+            // SAFETY: PTRACE_TRACEME ignores pid/addr/data; no memory is touched.
             let r = unsafe { libc::ptrace(libc::PTRACE_TRACEME, 0, 0, 0) };
             let err = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            // SAFETY: _exit is async-signal-safe and never returns.
             unsafe { libc::_exit(if r < 0 && err == libc::EPERM { 0 } else { 3 }) };
         }
         let mut st = 0;
+        // SAFETY: `pid` is our own child and `st` a live, writable c_int.
         assert_eq!(unsafe { libc::waitpid(pid, &mut st, 0) }, pid);
         assert!(libc::WIFEXITED(st), "child status {st:#x}");
         assert_eq!(
@@ -405,18 +434,24 @@ mod tests {
         if !available() {
             return;
         }
+        // Built before the fork (finding F2, see install_in_child_denies_ptrace).
+        let f = Filter::new();
+        // SAFETY: the child only calls install, write on a static buffer and _exit.
         let pid = unsafe { libc::fork() };
         assert!(pid >= 0);
         if pid == 0 {
-            let f = Filter::new();
             if f.install().is_err() {
+                // SAFETY: _exit is async-signal-safe and never returns.
                 unsafe { libc::_exit(2) };
             }
             let msg = b"ok\n";
+            // SAFETY: ptr/len come from the same live static byte string.
             let r = unsafe { libc::write(2, msg.as_ptr().cast(), msg.len()) };
+            // SAFETY: _exit is async-signal-safe and never returns.
             unsafe { libc::_exit(if r == msg.len() as isize { 0 } else { 3 }) };
         }
         let mut st = 0;
+        // SAFETY: `pid` is our own child and `st` a live, writable c_int.
         assert_eq!(unsafe { libc::waitpid(pid, &mut st, 0) }, pid);
         assert_eq!(libc::WEXITSTATUS(st), 0);
     }

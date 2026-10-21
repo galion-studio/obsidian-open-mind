@@ -111,6 +111,9 @@ const B_SECCOMP: u8 = 1 << 7;
 /// Kernel Landlock ABI version (0 = unavailable).
 pub fn landlock_abi() -> i32 {
     #[cfg(target_os = "linux")]
+    // SAFETY: LANDLOCK_CREATE_RULESET_VERSION query (flags = 1): the kernel
+    // requires a null attr with size 0 and only returns the ABI number; no
+    // memory is read or written and no fd is created.
     unsafe {
         let r = libc::syscall(
             libc::SYS_landlock_create_ruleset,
@@ -208,10 +211,15 @@ fn set_rlimit(res: Res, soft: u64, hard: u64) -> bool {
         rlim_cur: soft as libc::rlim_t,
         rlim_max: hard as libc::rlim_t,
     };
+    // SAFETY: `r` is a valid, initialised rlimit that outlives the call; setrlimit
+    // only reads it and is async-signal-safe (this runs in the pre_exec child).
     unsafe { libc::setrlimit(res, &r) == 0 }
 }
 
 fn write_all_fd(path: &std::ffi::CStr, data: &[u8]) -> bool {
+    // SAFETY: `path` is a NUL-terminated CStr and `data` a live slice whose
+    // pointer/length pair is passed unchanged; the fd is opened, used and
+    // closed here only. open/write/close are async-signal-safe (pre_exec).
     unsafe {
         let fd = libc::open(path.as_ptr(), libc::O_WRONLY | libc::O_CLOEXEC);
         if fd < 0 {
@@ -260,6 +268,9 @@ fn setup_mount_ns() -> bool {
     }
     // Remount /proc. Best-effort: without a PID ns this still shows host pids,
     // but it keeps /proc consistent inside the mount ns.
+    // SAFETY: all string args are NUL-terminated C literals with static
+    // lifetime and `data` is null (allowed for proc); runs only in the child
+    // after it entered its own mount namespace, so the host is unaffected.
     let _ = unsafe {
         libc::mount(
             c"proc".as_ptr(),
@@ -283,14 +294,19 @@ fn enter_namespaces(allow_net: bool, uid_map: &str, gid_map: &str, euid0: bool) 
     // proposal. Mount + net + user namespaces still apply.
     let full =
         libc::CLONE_NEWUSER | libc::CLONE_NEWNS | if allow_net { 0 } else { libc::CLONE_NEWNET };
+    // SAFETY: unshare(2) takes only flags and touches no user memory. It is
+    // called in the pre_exec child (single-threaded after fork), the only
+    // context where CLONE_NEWUSER can succeed; the parent is unaffected.
     if unsafe { libc::unshare(full) } == 0 {
         bits |= B_USERNS | B_MOUNTNS;
         if !allow_net {
             bits |= B_NETNS;
         }
     } else if !allow_net {
+        // SAFETY: flags-only unshare(2) in the pre_exec child (see above).
         if euid0 && unsafe { libc::unshare(libc::CLONE_NEWNET) } == 0 {
             bits |= B_NETNS;
+            // SAFETY: flags-only unshare(2) in the pre_exec child (see above).
         } else if unsafe { libc::unshare(libc::CLONE_NEWUSER | libc::CLONE_NEWNET) } == 0 {
             bits |= B_USERNS | B_NETNS;
         }
@@ -342,13 +358,18 @@ pub fn run(cmd: &[String], opts: &Opts) -> Result<Report, String> {
     };
 
     let mut fds = [0i32; 2];
+    // SAFETY: `fds` is a live, writable [c_int; 2], exactly what pipe2 fills.
     if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } != 0 {
         return Err("pipe2 failed".into());
     }
     let (rfd, wfd) = (fds[0], fds[1]);
 
+    // SAFETY: getuid/getgid/geteuid take no arguments, cannot fail and touch
+    // no memory.
     let uid = unsafe { libc::getuid() };
+    // SAFETY: as above.
     let gid = unsafe { libc::getgid() };
+    // SAFETY: as above.
     let euid0 = unsafe { libc::geteuid() } == 0;
     let uid_map = format!("{uid} {uid} 1");
     let gid_map = format!("{gid} {gid} 1");
@@ -372,6 +393,15 @@ pub fn run(cmd: &[String], opts: &Opts) -> Result<Report, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
+    // SAFETY: pre_exec runs the closure in the forked child before exec, where
+    // only async-signal-safe work is allowed. Everything it needs (rlimit
+    // values, uid/gid map strings, the Landlock ruleset, the seccomp program)
+    // is built here, before the fork. The closure calls setpgid, setrlimit,
+    // unshare, open/write/close, mount, prctl and landlock_restrict_self; it
+    // does not allocate. The one Mutex it locks is touched by no other thread
+    // (only this closure owns `prepared`), so it is never held across fork.
+    // `wfd` stays open in the child until exec (O_CLOEXEC) and the byte
+    // written is a live local. Review note: docs/security/unsafe-review.md.
     unsafe {
         c.pre_exec(move || {
             let mut bits = 0u8;
@@ -438,8 +468,11 @@ pub fn run(cmd: &[String], opts: &Opts) -> Result<Report, String> {
 
     let start = Instant::now();
     let spawned = c.spawn();
+    // SAFETY: `wfd` is our write end from pipe2 above, closed exactly once here.
     unsafe { libc::close(wfd) };
     let mut bits = 0u8;
+    // SAFETY: `rfd` is our read end; `bits` is a live u8 and read writes at most
+    // 1 byte into it; `rfd` is closed exactly once, after the read.
     unsafe {
         libc::read(rfd, (&mut bits as *mut u8).cast(), 1);
         libc::close(rfd);
@@ -514,6 +547,8 @@ pub fn run(cmd: &[String], opts: &Opts) -> Result<Report, String> {
             Ok(Some(s)) => break s,
             Ok(None) if start.elapsed() >= opts.wall => {
                 timed_out = true;
+                // SAFETY: kill(2) takes no pointers. try_wait just returned None, so the
+                // child is alive and its process group (pgid == pid via setpgid) exists.
                 unsafe { libc::kill(-pid, libc::SIGKILL) };
                 break child.wait().map_err(|e| e.to_string())?;
             }
@@ -521,6 +556,11 @@ pub fn run(cmd: &[String], opts: &Opts) -> Result<Report, String> {
             Err(e) => return Err(e.to_string()),
         }
     };
+    // SAFETY: kill(2) takes no pointers, so this is memory-safe. Review note
+    // F1 (docs/security/unsafe-review.md): the child is already reaped here, so
+    // if its group emptied and the pid was recycled as a new group leader this
+    // could signal an unrelated group. openmind-sandbox avoids it with
+    // waitid(WNOWAIT); behaviour kept unchanged in slot 229.
     unsafe { libc::kill(-pid, libc::SIGKILL) };
     let duration_ms = start.elapsed().as_millis();
     let (so, sot) = out_h.join().unwrap_or_default();
@@ -693,6 +733,7 @@ mod tests {
         assert!(r.timed_out);
         let pid: i32 = r.stdout.trim().parse().unwrap();
         std::thread::sleep(Duration::from_millis(300));
+        // SAFETY: signal 0 only probes for existence; no pointers involved.
         let gone = unsafe { libc::kill(pid, 0) } != 0
             || std::fs::read_to_string(format!("/proc/{pid}/stat"))
                 .map(|s| s.contains(") Z "))

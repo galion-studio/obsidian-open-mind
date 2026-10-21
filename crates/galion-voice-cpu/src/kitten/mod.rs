@@ -64,8 +64,10 @@ impl KittenTts {
     pub fn load(dir: &Path, cmudict: &Path) -> Result<Self, String> {
         let device = Device::Cpu;
         let cfg = config::KittenConfig::nano();
-        // Safety: the weight file is opened read-only and not modified while
-        // mapped (same pattern as the Whisper loader).
+        // SAFETY: the weight file is opened read-only and must not be modified
+        // or truncated while mapped (same pattern as the Whisper loader). This
+        // is an operational assumption, not enforced: a writer changing the file
+        // under the map is UB (slot 229 review note F4).
         #[allow(unsafe_code)]
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(

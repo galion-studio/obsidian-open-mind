@@ -157,6 +157,7 @@ fn fake_journalctl() {
     let Ok(path) = std::env::var("GUARD_FAKE_JOURNAL") else {
         return;
     };
+    // SAFETY: getppid takes no arguments, cannot fail and touches no memory.
     let ppid = unsafe { libc::getppid() };
     let mut f = loop {
         match File::open(&path) {
@@ -169,6 +170,7 @@ fn fake_journalctl() {
     loop {
         match f.read(&mut buf) {
             Ok(0) => {
+                // SAFETY: as above.
                 if unsafe { libc::getppid() } != ppid {
                     return;
                 }

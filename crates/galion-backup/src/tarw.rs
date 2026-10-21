@@ -122,6 +122,8 @@ fn header_block(h: &Hdr) -> [u8; BLOCK] {
 
 fn lookup_user(uid: u32) -> Vec<u8> {
     let mut buf = vec![0 as libc::c_char; 16384];
+    // SAFETY: passwd is a C struct of integers and raw pointers; all-zero (null
+    // pointers) is a valid value and it is only read after getpwuid_r fills it.
     let mut pw: libc::passwd = unsafe { std::mem::zeroed() };
     let mut res: *mut libc::passwd = std::ptr::null_mut();
     // SAFETY: all pointers refer to live, correctly sized buffers.
@@ -136,6 +138,7 @@ fn lookup_user(uid: u32) -> Vec<u8> {
 
 fn lookup_group(gid: u32) -> Vec<u8> {
     let mut buf = vec![0 as libc::c_char; 16384];
+    // SAFETY: as for passwd above: all-zero is a valid C group struct.
     let mut gr: libc::group = unsafe { std::mem::zeroed() };
     let mut res: *mut libc::group = std::ptr::null_mut();
     // SAFETY: as above.

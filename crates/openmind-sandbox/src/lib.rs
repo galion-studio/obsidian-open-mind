@@ -1143,8 +1143,9 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             c.finish();
         }
     };
-    // SAFETY: closing our copy of the write end, then reading at most 2 bytes.
     let mut b = [0u8; 2];
+    // SAFETY: `wfd`/`rfd` are our own pipe2 ends, each closed exactly once here;
+    // read writes at most 2 bytes into the live 2-byte buffer `b`.
     let got_bits = unsafe {
         libc::close(wfd);
         let n = libc::read(rfd, b.as_mut_ptr().cast(), 2);

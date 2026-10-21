@@ -167,6 +167,7 @@ fn err(ctx: &str, e: impl std::fmt::Display) -> i32 {
 pub fn avail_kb(dir: &Path) -> io::Result<u64> {
     let c = CString::new(dir.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"))?;
+    // SAFETY: statvfs is a plain C struct of integers; all-zero is a valid value.
     let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
     // SAFETY: c is NUL-terminated, st is a valid out-pointer.
     if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {

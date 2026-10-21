@@ -37,7 +37,7 @@ test real_corpus_over_http ... FAILED
 
 (8 cases cannot be minted at all because `mint` refuses the target or action name; they go without a token.)
 
-### After: branch head (2026-10-21 20:45:12 +02:00, final re-run after the doc commit below)
+### After: branch head (2026-10-21 20:45:12 +02:00; identical re-run at e2f0110 21:00:15-21:00:29 +02:00)
 
 ```
 REAL TOTAL WouldApply: 0 / 82                      (real_redteam, port 20781)
@@ -90,3 +90,9 @@ run"), giving 104 refused / 50 passing.
   4/4, `redteam` 3/3, unit tests 17/17).
 - Workspace `cargo test --workspace --exclude openmind-sandbox --exclude cgroup-detect --exclude hermes-tools`
   (20:31-20:41 +02:00, at the first fix commit): 1252 passed, 0 failed, 6 ignored.
+- Final gates at e2f0110 (20:47-20:49 +02:00): `cargo fmt --check` ok; `cargo clippy --workspace --all-targets
+  -D warnings` ok; workspace tests (same excludes) 1253 passed, 0 failed, 6 ignored; `scripts/no-python.sh`
+  ok; release musl x86_64 and aarch64 (rust-lld) build of hades-gate + gaia ok; aarch64-linux-android and
+  armv7-unknown-linux-musleabihf `cargo check` ok. repo-check: 10 errors, all the known vendored candle-core
+  `portable` errors (main-merge blocker 0, slot 177), identical on 0d68f46; 3 new `utc` warnings (temp-dir
+  nanos in the new tests, the same pattern as tests/approval.rs). No new dependencies, Cargo.lock unchanged.

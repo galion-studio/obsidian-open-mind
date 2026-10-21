@@ -33,7 +33,7 @@ No services restarted/stopped. No secrets read or printed. No firewall/sshd/DNS 
 
 ## 2026-10-18 — Security hardening (approved by Slavik): SSH, fail2ban, ufw
 
-Operator: Grok Bot (from grokbot box; VPS sees source IP 52.25.103.4). All commands via an SSH ControlMaster (/tmp/vps-cm on the box) so an existing session stays up. No secrets read/printed. Backups in `/root/galion-hardening/`.
+Operator: Grok Bot (from grokbot box; VPS sees source IP <box egress IP, redacted>). All commands via an SSH ControlMaster (/tmp/vps-cm on the box) so an existing session stays up. No secrets read/printed. Backups in `/root/galion-hardening/`.
 
 Pre-state (20:08 +0200): root authorized_keys = 5 ED25519 keys (root@ip51, info@galion.studio, galion-control@grok-sandbox, galion-laptop, grokbot-box = SHA256:pgAlNtwW…frw4, ours). Only login-shell user: root (password set). sshd on *:22 via ssh.socket (socket-activated, ssh.service active). /etc/ssh/sshd_config.d/ was empty (no 50-cloud-init.conf). Main sshd_config: `PermitRootLogin yes`, `KbdInteractiveAuthentication no`, PasswordAuthentication unset (=yes). Non-loopback TCP listeners: only sshd :22 (cloudflared UDP sockets are outbound QUIC).
 
@@ -45,10 +45,10 @@ Pre-state (20:08 +0200): root authorized_keys = 5 ED25519 keys (root@ip51, info@
    - Rollback: `rm /etc/ssh/sshd_config.d/00-galion-hardening.conf && sshd -t && systemctl reload ssh`
 
 2. **fail2ban** — 20:10 +0200
-   - What: new file `/etc/fail2ban/jail.d/galion-sshd.local` ([sshd] enabled=true, backend=systemd, maxretry=5, findtime=10m, bantime=1h, bantime.increment=true, ignoreip=127.0.0.1/8 ::1 52.25.103.4). Then `apt-get install -y fail2ban` (fail2ban 1.0.2-3ubuntu0.1 + python3-systemd, python3-pyinotify, python3-pyasyncore, python3-setuptools, whois; upgraded python3-pkg-resources). `systemctl enable --now fail2ban`. Package default `/etc/fail2ban/jail.d/defaults-debian.conf` (banaction=nftables, backend=systemd) left as shipped.
+   - What: new file `/etc/fail2ban/jail.d/galion-sshd.local` ([sshd] enabled=true, backend=systemd, maxretry=5, findtime=10m, bantime=1h, bantime.increment=true, ignoreip=127.0.0.1/8 ::1 <box egress IP, redacted>). Then `apt-get install -y fail2ban` (fail2ban 1.0.2-3ubuntu0.1 + python3-systemd, python3-pyinotify, python3-pyasyncore, python3-setuptools, whois; upgraded python3-pkg-resources). `systemctl enable --now fail2ban`. Package default `/etc/fail2ban/jail.d/defaults-debian.conf` (banaction=nftables, backend=systemd) left as shipped.
    - Before→after: fail2ban not installed → active+enabled, jail sshd running.
    - Verified: `fail2ban-client status sshd` → total failed 294 (journal backlog), 4 IPs banned immediately; `nft list table inet f2b-table` shows the set + reject rule on tcp/22 → nft banning DOES work inside this LXC (container has CAP_NET_ADMIN in its own netns). 0 ERROR lines in /var/log/fail2ban.log.
-   - Caveat: 52.25.103.4 is the box egress IP today; if it changes, it is not whitelisted (key auth success never counts as failure, so normal use is not banned).
+   - Caveat: <box egress IP, redacted> is the box egress IP today; if it changes, it is not whitelisted (key auth success never counts as failure, so normal use is not banned).
    - Rollback: `systemctl disable --now fail2ban && rm /etc/fail2ban/jail.d/galion-sshd.local && nft delete table inet f2b-table 2>/dev/null; apt-get purge -y fail2ban` (optional purge)
 
 3. **ufw firewall** — 20:11–20:12 +0200

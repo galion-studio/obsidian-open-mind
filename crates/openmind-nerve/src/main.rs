@@ -13,6 +13,11 @@
 //!   openmind-nerve once [--md]        one observe-only cycle; prints the self-eval
 //!   openmind-nerve replay DIR [--md | --state]
 //!       run a read-only capture of a live host through the same pipeline
+//!   openmind-nerve replay DIR --reflex [--stretch N] [--worst-case] [--log]
+//!       the same replay with reflexes on, forced dry-run (nothing executed);
+//!       prints the T3.2 verdict (exit 1 on any cloudflared restart or rollback)
+//!   openmind-nerve reflex-audit
+//!       allowlist / never-touch audit of this config's reflex targets (exit 1 on a violation)
 //!   openmind-nerve --version
 //!
 //! Env: NERVE_ADDR, NERVE_INTERVAL (30), NERVE_DATA_DIR (/var/lib/galion-nerve),
@@ -36,7 +41,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state] | --version]";
+const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state|--reflex [--stretch N] [--worst-case] [--log]] | reflex-audit | --version]";
 
 fn opt(args: &[String], k: &str) -> Option<String> {
     args.iter()
@@ -87,6 +92,55 @@ fn main() -> ExitCode {
             e.alerts.to_journal = false;
             e.cycle();
             print_report(&e, &args)
+        }
+        "reflex-audit" => match openmind_nerve::config::specs_for(&cfg) {
+            Ok(specs) => {
+                let a = openmind_nerve::reflex_audit::allowlist_audit(&specs);
+                println!("{}", serde_json::to_string_pretty(&a).unwrap_or_default());
+                if a["pass"] == true {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::from(1)
+                }
+            }
+            Err(err) => {
+                eprintln!("openmind-nerve reflex-audit: {err}");
+                ExitCode::from(2)
+            }
+        },
+        "replay" if args.iter().any(|a| a == "--reflex") => {
+            let Some(dir) = args.get(1).filter(|a| !a.starts_with("--")) else {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            };
+            let opts = openmind_nerve::reflex_audit::DryOpts {
+                stretch: opt(&args, "--stretch")
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(0)
+                    .min(10_000),
+                worst_case: args.iter().any(|a| a == "--worst-case"),
+            };
+            match openmind_nerve::reflex_audit::dry_replay(&PathBuf::from(dir), cfg, &opts) {
+                Ok(r) => {
+                    for n in &r.out.notes {
+                        eprintln!("replay: {n}");
+                    }
+                    let mut v = r.verdict.clone();
+                    if args.iter().any(|a| a == "--log") {
+                        v["log"] = serde_json::Value::from(r.log.clone());
+                    }
+                    println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+                    if r.verdict["pass"] == true {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::from(1)
+                    }
+                }
+                Err(err) => {
+                    eprintln!("openmind-nerve replay: {err}");
+                    ExitCode::from(2)
+                }
+            }
         }
         "replay" => {
             let Some(dir) = args.get(1).filter(|a| !a.starts_with("--")) else {

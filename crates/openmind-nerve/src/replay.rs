@@ -103,6 +103,64 @@ pub struct ReplayOut {
 /// Replay a capture directory. `cfg` supplies thresholds/ports; reflexes,
 /// alerts and file writes are forced off.
 pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
+    replay_dir_with(dir, cfg, 0, &mut |_| {})
+}
+
+/// The last captured snapshot moved `k` cycles past the capture: cumulative
+/// tunnel counters keep growing at the rate seen across the capture, so a
+/// condition that held while capturing keeps holding (T3.2 stretch).
+fn stretch_state(first: &(u64, Value), last: &(u64, Value), extra_s: u64) -> Value {
+    let mut v = last.1.clone();
+    let span = last.0.saturating_sub(first.0);
+    let rate = |name: &str, key: &str| -> u64 {
+        if span == 0 {
+            return 0;
+        }
+        let pick = |s: &Value| {
+            s["components"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|c| c["name"] == name)
+                .and_then(|c| c["tunnel"][key].as_u64())
+        };
+        match (pick(&first.1), pick(&last.1)) {
+            (Some(a), Some(b)) => b.saturating_sub(a) * extra_s / span,
+            _ => 0,
+        }
+    };
+    let names: Vec<String> = v["components"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c["name"].as_str().map(str::to_string))
+        .collect();
+    for name in names {
+        let (dr, de) = (rate(&name, "requests"), rate(&name, "request_errors"));
+        if let Some(c) = v["components"]
+            .as_array_mut()
+            .and_then(|a| a.iter_mut().find(|c| c["name"] == name.as_str()))
+        {
+            for (k, d) in [("requests", dr), ("request_errors", de)] {
+                if let Some(x) = c["tunnel"][k].as_u64() {
+                    c["tunnel"][k] = json!(x + d);
+                }
+            }
+        }
+    }
+    v
+}
+
+/// [`replay_dir`] with a hook to configure the engine before the first cycle
+/// (the reflex dry-run replay turns reflexes back on, forced dry) and
+/// `stretch` extra cycles that repeat the last capture window `interval_s`
+/// apart: journal lines shifted forward, tunnel counters advanced.
+pub fn replay_dir_with(
+    dir: &Path,
+    cfg: Config,
+    stretch: usize,
+    setup: &mut dyn FnMut(&mut Engine),
+) -> Result<ReplayOut, String> {
     let rd = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut states: Vec<(u64, Value)> = vec![];
     let mut journal = String::new();
@@ -172,6 +230,8 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
     e.write_files = false;
     e.alerts.path = None;
     e.alerts.to_journal = false;
+    let interval = e.cfg.interval_s.max(1);
+    setup(&mut e);
     let units: Vec<&'static str> = e.comps.iter().filter_map(|c| c.spec.unit).collect();
     let mut hits: Vec<(String, Option<String>, Hit)> = vec![];
     for (name, text) in &access {
@@ -181,6 +241,8 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
             }
         }
     }
+    // (cycle time, snapshot, journal window) for every cycle, real then stretched.
+    let mut plan: Vec<(u64, Value, Vec<JLine>)> = vec![];
     let mut prev = 0u64;
     for (k, (t, v)) in states.iter().enumerate() {
         let win: Vec<JLine> = lines
@@ -188,6 +250,35 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
             .filter(|l| (k == 0 || l.t > prev) && l.t <= *t)
             .cloned()
             .collect();
+        plan.push((*t, v.clone(), win));
+        prev = *t;
+    }
+    if stretch > 0 {
+        let first = &states[0];
+        let last = &states[states.len() - 1];
+        let tail: Vec<JLine> = lines
+            .iter()
+            .filter(|l| l.t + interval > last.0 && l.t <= last.0)
+            .cloned()
+            .collect();
+        for k in 1..=stretch as u64 {
+            let shift = k * interval;
+            let win = tail
+                .iter()
+                .map(|l| JLine {
+                    t: l.t + shift,
+                    ..l.clone()
+                })
+                .collect();
+            plan.push((last.0 + shift, stretch_state(first, last, shift), win));
+        }
+        notes.push(format!(
+            "stretched {stretch} cycle(s) of {interval} s past the capture (last window {} journal line(s) repeated)",
+            tail.len()
+        ));
+    }
+    for (k, (t, v, win)) in plan.iter().enumerate() {
+        let (t, win) = (t, win.clone());
         // Error counts use the last 5 min of the window (what a live cycle sees
         // first); the cortex reads the whole window.
         let recent: Vec<JLine> = win.iter().filter(|l| l.t + 300 > *t).cloned().collect();
@@ -253,10 +344,9 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
             vec![]
         };
         e.cycle_with(col, h, *t, Instant::now());
-        prev = *t;
     }
     Ok(ReplayOut {
-        cycles: states.len(),
+        cycles: plan.len(),
         engine: e,
         notes,
     })

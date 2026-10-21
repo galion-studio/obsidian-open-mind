@@ -21,6 +21,7 @@ use crate::llm::{Advisor, Choice};
 use crate::nerve::NerveLink;
 use crate::rules::{subject_key, Limits, Outcome, Rules, Subject, Verdict};
 use crate::sink::{Escalations, Jsonl};
+use crate::snapshot::Snapshot;
 use nerve_cortex_contract::{
     ActionKind, ActionRequest, ActionStatus, DecidedBy, Event, EventKind, CONTRACT_VERSION,
     CORTEX_SOURCE,
@@ -83,6 +84,8 @@ pub struct Cortex {
     pub escalations: Escalations,
     pub handoff: Handoff,
     pub stats: Stats,
+    /// API read snapshot, shared outside the engine lock (see [`crate::snapshot`]).
+    pub snap: Arc<Snapshot>,
     seen: HashSet<u64>,
     seen_order: VecDeque<u64>,
     last_said: BTreeMap<(String, &'static str), u64>,
@@ -137,6 +140,7 @@ impl Cortex {
                 started: ts(now_secs()),
                 ..Stats::default()
             },
+            snap: Arc::new(Snapshot::default()),
             seen: HashSet::new(),
             seen_order: VecDeque::new(),
             last_said: BTreeMap::new(),
@@ -190,6 +194,7 @@ impl Cortex {
 
     /// Decide on one coalesced burst.
     pub fn process(&mut self, evs: Vec<Event>, now: u64) -> Vec<Value> {
+        self.stats.events_invalid += self.snap.take_invalid();
         let evs = self.admit(evs);
         if evs.is_empty() {
             return vec![];
@@ -488,7 +493,7 @@ impl Cortex {
         json!({
             "started": s.started, "mode": if self.cfg.dry_run() { "dry-run" } else { "live" },
             "events_in": s.events_in, "events_duplicate": s.events_duplicate, "events_ignored": s.events_ignored, "events_housekeeping": s.events_housekeeping,
-            "events_invalid": s.events_invalid, "batches": s.batches,
+            "events_invalid": s.events_invalid + self.snap.pending_invalid(), "batches": s.batches,
             "incidents_open": self.correlator.open.len(), "incidents_opened_total": self.correlator.opened_total,
             "decisions": s.decisions, "decisions_suppressed": s.decisions_suppressed,
             "actions_requested": s.actions_requested, "actions_simulated": s.actions_simulated,
@@ -511,6 +516,32 @@ impl Cortex {
         let mut v = self.correlator.to_json();
         v["units"] = self.rules.books_json(now_secs());
         v
+    }
+
+    pub fn health_json(&self) -> Value {
+        json!({"ok": true, "service": "gaia-cortex", "version": env!("CARGO_PKG_VERSION"), "ts": ts(now_secs()),
+               "mode": if self.cfg.dry_run() { "dry-run" } else { "live" }, "llm_enabled": self.cfg.llm.enabled,
+               "nerve": self.cfg.nerve_url.is_some(), "events_in": self.stats.events_in,
+               "incidents_open": self.correlator.open.len(), "escalations_open": self.escalations.open.len(),
+               "hermes_handoff": self.handoff.enabled, "handoffs": self.stats.handoffs,
+               "busy": false})
+    }
+
+    pub fn escalations_json(&self) -> Value {
+        json!({"open": self.escalations.open, "total": self.escalations.log.total})
+    }
+
+    /// Publish the API read snapshot (after every batch and every API
+    /// mutation), so reads never have to wait for the next batch.
+    pub fn publish(&self) {
+        self.snap.store(
+            self.health_json(),
+            self.stats_json(),
+            self.incidents_json(),
+            self.decisions.recent(usize::MAX),
+            self.alerts.recent(usize::MAX),
+            self.escalations_json(),
+        );
     }
 }
 
@@ -554,5 +585,6 @@ pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: D
         }
         let mut g = cx.lock().unwrap_or_else(|e| e.into_inner());
         g.process(burst, now_secs());
+        g.publish();
     }
 }

@@ -35,11 +35,30 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const NERVE_PORT: u16 = 20970;
-const CORTEX_PORT: u16 = 20971;
-const PROXY_PORT: u16 = 20972;
-const CORTEX_B_PORT: u16 = 20973;
-const DEAD_PORT: u16 = 20979;
+/// Port base: slot 227 range 20970-20979 by default; `GALION_T51_PORT_BASE`
+/// moves the whole block (slot 236 re-runs it on 21060-21069).
+fn port(off: u16) -> u16 {
+    std::env::var("GALION_T51_PORT_BASE")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(20970)
+        + off
+}
+fn nerve_port() -> u16 {
+    port(0)
+}
+fn cortex_port() -> u16 {
+    port(1)
+}
+fn proxy_port() -> u16 {
+    port(2)
+}
+fn cortex_b_port() -> u16 {
+    port(3)
+}
+fn dead_port() -> u16 {
+    port(9)
+}
 
 const ID_FAILURE_RESULT: &str = "d9b373ed55a64feb8242e02dbe79a49c";
 const ID_PROCESS_EXIT: &str = "98e322203f7a4ed290d09fe03c09fe15";
@@ -166,7 +185,7 @@ fn start_nerve(bin: &Path, dir: &Path, fifo: &Path, dedupe_s: u64, tag: &str) ->
     std::fs::create_dir_all(&data).unwrap();
     std::fs::write(
         dir.join("components.json"),
-        format!(r#"[{{"name":"t51-dead","port":{DEAD_PORT},"path":"/health","gaia":"DEMETER","system":"tuner"}}]"#),
+        format!(r#"[{{"name":"t51-dead","port":{},"path":"/health","gaia":"DEMETER","system":"tuner"}}]"#, dead_port()),
     )
     .unwrap();
     let stderr = std::fs::File::create(dir.join(format!("nerve-{tag}.log"))).unwrap();
@@ -176,7 +195,7 @@ fn start_nerve(bin: &Path, dir: &Path, fifo: &Path, dedupe_s: u64, tag: &str) ->
             "--mode",
             "event",
             "--listen",
-            &format!("127.0.0.1:{NERVE_PORT}"),
+            &format!("127.0.0.1:{}", nerve_port()),
             "--log",
             &dir.join(format!("nerve-events-{tag}.jsonl"))
                 .display()
@@ -208,7 +227,7 @@ fn start_nerve(bin: &Path, dir: &Path, fifo: &Path, dedupe_s: u64, tag: &str) ->
         name: "nerve",
     };
     wait_until("nerve /health", 30, || {
-        http(NERVE_PORT, "GET", "/health", "").0 == 200
+        http(nerve_port(), "GET", "/health", "").0 == 200
     });
     p
 }
@@ -292,7 +311,7 @@ fn decisions_for(port: u16, subject: &str) -> Vec<Value> {
 }
 
 fn nerve_actions_for(unit: &str) -> Vec<Value> {
-    get(NERVE_PORT, "/actions")
+    get(nerve_port(), "/actions")
         .as_array()
         .cloned()
         .unwrap_or_default()
@@ -302,7 +321,7 @@ fn nerve_actions_for(unit: &str) -> Vec<Value> {
 }
 
 fn nerve_streams() -> u64 {
-    n(&get(NERVE_PORT, "/stats"), "streams")
+    n(&get(nerve_port(), "/stats"), "streams")
 }
 
 // ------------------------------------------------------------------ sockets
@@ -440,7 +459,7 @@ fn assert_llm_off(port: u16, who: &str) {
 #[test]
 fn chaos_t51_real_cortex_and_nerve() {
     let Some(nerve_bin) = gate() else { return };
-    for p in [NERVE_PORT, CORTEX_PORT, PROXY_PORT, CORTEX_B_PORT] {
+    for p in [nerve_port(), cortex_port(), proxy_port(), cortex_b_port()] {
         assert!(
             TcpListener::bind(("127.0.0.1", p)).is_ok(),
             "port {p} busy (slot 227 range 20970-20979)"
@@ -454,11 +473,11 @@ fn chaos_t51_real_cortex_and_nerve() {
     // ---- start: nerve A (default 600 s dedupe, as on the VPS) + cortex
     let mut nerve = start_nerve(&nerve_bin, &dir, &fifo, 600, "a");
     let mut j = Journal::open(&fifo);
-    let mut cortex = start_cortex(&dir, CORTEX_PORT, NERVE_PORT, "a");
+    let mut cortex = start_cortex(&dir, cortex_port(), nerve_port(), "a");
     wait_until("cortex subscribed to the nerve stream", 20, || {
         nerve_streams() == 1
     });
-    let h = get(CORTEX_PORT, "/health");
+    let h = get(cortex_port(), "/health");
     assert_eq!(h["mode"], "dry-run", "{h}");
     assert_eq!(h["llm_enabled"], false, "{h}");
     log(format!(
@@ -473,10 +492,10 @@ fn chaos_t51_real_cortex_and_nerve() {
     let t = Instant::now();
     j.kill("tuner.service");
     let el = wait_until("S1 decision on tuner", 15, || {
-        !decisions_for(CORTEX_PORT, "unit:tuner.service").is_empty()
+        !decisions_for(cortex_port(), "unit:tuner.service").is_empty()
     });
     std::thread::sleep(Duration::from_millis(1200));
-    let d = decisions_for(CORTEX_PORT, "unit:tuner.service");
+    let d = decisions_for(cortex_port(), "unit:tuner.service");
     assert_eq!(d.len(), 1, "one incident -> one decision: {d:?}");
     let d0 = &d[0];
     assert_eq!(d0["rule"], "R3-known-crash", "{d0}");
@@ -505,14 +524,14 @@ fn chaos_t51_real_cortex_and_nerve() {
     );
 
     // ---- S2a restart loop under the default nerve dedupe (600 s)
-    let dedup0 = n(&get(NERVE_PORT, "/stats"), "deduped");
+    let dedup0 = n(&get(nerve_port(), "/stats"), "deduped");
     for _ in 0..5 {
         j.failed("tuner.service");
         std::thread::sleep(Duration::from_millis(700));
     }
     std::thread::sleep(Duration::from_secs(2));
-    let dedup1 = n(&get(NERVE_PORT, "/stats"), "deduped");
-    let d = decisions_for(CORTEX_PORT, "unit:tuner.service");
+    let dedup1 = n(&get(nerve_port(), "/stats"), "deduped");
+    let d = decisions_for(cortex_port(), "unit:tuner.service");
     assert!(
         dedup1 >= dedup0 + 5,
         "nerve folded the loop: {dedup0} -> {dedup1}"
@@ -533,7 +552,7 @@ fn chaos_t51_real_cortex_and_nerve() {
     );
 
     // ---- S3 protected pieces: one burst each, alert only, no action request
-    let acts_before = n(&get(CORTEX_PORT, "/stats"), "actions_requested");
+    let acts_before = n(&get(cortex_port(), "/stats"), "actions_requested");
     let mut s3 = vec![];
     for u in [
         "ssh.service",
@@ -545,9 +564,9 @@ fn chaos_t51_real_cortex_and_nerve() {
         j.kill(u);
         let subj = format!("unit:{u}");
         wait_until(&format!("S3 decision {u}"), 15, || {
-            !decisions_for(CORTEX_PORT, &subj).is_empty()
+            !decisions_for(cortex_port(), &subj).is_empty()
         });
-        let d = decisions_for(CORTEX_PORT, &subj);
+        let d = decisions_for(cortex_port(), &subj);
         assert_eq!(d[0]["rule"], "R1-protected", "{u}: {}", d[0]);
         assert_eq!(d[0]["alert"], true, "{u}");
         assert!(d[0]["action"].is_null(), "{u}: never an action: {}", d[0]);
@@ -557,23 +576,23 @@ fn chaos_t51_real_cortex_and_nerve() {
     }
     // a path event naming the protected working copy
     let (c, _) = http(
-        NERVE_PORT,
+        nerve_port(),
         "POST",
         "/event",
         r#"{"source":"t51","kind":"file.changed","severity":"high","data":{"path":"/opt/galion/openmind/.git/HEAD","unit":"galion-one.service"}}"#,
     );
     assert_eq!(c, 200);
     wait_until("S3 /opt/galion/openmind decision", 15, || {
-        decisions_for(CORTEX_PORT, "unit:galion-one.service")
+        decisions_for(cortex_port(), "unit:galion-one.service")
             .iter()
             .any(|d| d["rule"] == "R1-protected")
     });
     assert!(nerve_actions_for("galion-one.service").is_empty());
-    let acts_after = n(&get(CORTEX_PORT, "/stats"), "actions_requested");
+    let acts_after = n(&get(cortex_port(), "/stats"), "actions_requested");
     assert_eq!(acts_before, acts_after, "protected pieces never act");
     // how long does the S1 incident stay open? (the correlator resolves after 2 quiet batches)
     let s1_inc = summary["S1"]["incident"].clone();
-    let inc = get(CORTEX_PORT, "/incidents");
+    let inc = get(cortex_port(), "/incidents");
     let s1_open = inc["open"]
         .as_array()
         .is_some_and(|a| a.iter().any(|i| i["id"] == s1_inc));
@@ -592,8 +611,8 @@ fn chaos_t51_real_cortex_and_nerve() {
     summary.insert("S3".into(), json!(s3));
 
     // ---- S4 grouping: 4 stack units in one burst -> one stack-wide decision
-    let dec0 = n(&get(CORTEX_PORT, "/stats"), "decisions");
-    let acts0 = n(&get(CORTEX_PORT, "/stats"), "actions_requested");
+    let dec0 = n(&get(cortex_port(), "/stats"), "decisions");
+    let acts0 = n(&get(cortex_port(), "/stats"), "actions_requested");
     for u in [
         "hermes-rs.service",
         "console.service",
@@ -603,13 +622,13 @@ fn chaos_t51_real_cortex_and_nerve() {
         j.kill(u);
     }
     wait_until("S4 stack-wide decision", 15, || {
-        get(CORTEX_PORT, "/decisions?n=50")
+        get(cortex_port(), "/decisions?n=50")
             .as_array()
             .is_some_and(|a| a.iter().any(|d| d["rule"] == "R0-stack-wide"))
     });
     std::thread::sleep(Duration::from_millis(1500));
-    let st = get(CORTEX_PORT, "/stats");
-    let sw: Vec<Value> = get(CORTEX_PORT, "/decisions?n=50")
+    let st = get(cortex_port(), "/stats");
+    let sw: Vec<Value> = get(cortex_port(), "/decisions?n=50")
         .as_array()
         .cloned()
         .unwrap_or_default()
@@ -634,8 +653,8 @@ fn chaos_t51_real_cortex_and_nerve() {
     );
 
     // ---- S5 malformed event burst
-    let c0 = get(CORTEX_PORT, "/stats");
-    let ns0 = get(NERVE_PORT, "/stats");
+    let c0 = get(cortex_port(), "/stats");
+    let ns0 = get(nerve_port(), "/stats");
     // into the nerve's journal source
     for i in 0..500 {
         j.raw(&format!("garbage {i} \u{1} {{{{ not json"));
@@ -651,19 +670,19 @@ fn chaos_t51_real_cortex_and_nerve() {
     j.raw(&format!("{}{}", "[".repeat(10_000), "]".repeat(10_000)));
     // into the cortex push ingest
     let garbage: String = (0..1000).map(|i| format!("not json {i}\n")).collect();
-    let (gc, gb) = http(CORTEX_PORT, "POST", "/v1/events", &garbage);
+    let (gc, gb) = http(cortex_port(), "POST", "/v1/events", &garbage);
     let nested = format!("{}{}", "[".repeat(50_000), "]".repeat(50_000));
-    let (nc, _) = http(CORTEX_PORT, "POST", "/v1/events", &nested);
+    let (nc, _) = http(cortex_port(), "POST", "/v1/events", &nested);
     let big = vec![b'{'; 2 * 1024 * 1024];
     let (bc, _) = http_raw(
-        CORTEX_PORT,
+        cortex_port(),
         "POST",
         "/v1/events",
         &big,
         Duration::from_secs(15),
     );
     let (uc, _) = http_raw(
-        CORTEX_PORT,
+        cortex_port(),
         "POST",
         "/v1/events",
         &[0xff, 0xfe, 0x00, 0x7b, 0x22],
@@ -673,7 +692,7 @@ fn chaos_t51_real_cortex_and_nerve() {
         .map(|i| json!({"source":"t51","kind":"unit.failed","severity":"high","unit":"tuner.service","seq": 900_000 + i}))
         .collect();
     let (ac, ab) = http(
-        CORTEX_PORT,
+        cortex_port(),
         "POST",
         "/v1/events",
         &Value::Array(arr).to_string(),
@@ -691,22 +710,22 @@ fn chaos_t51_real_cortex_and_nerve() {
     let mut ib = String::new();
     for (i, u) in inj.iter().enumerate() {
         let body = json!({"source":"t51-inject","kind":"unit.failed","severity":"critical","unit":u,"seq": 800_000 + i}).to_string();
-        let (c, b) = http(CORTEX_PORT, "POST", "/v1/events", &body);
+        let (c, b) = http(cortex_port(), "POST", "/v1/events", &body);
         ic = c;
         ib = b;
         std::thread::sleep(Duration::from_millis(900));
     }
     // raw non-HTTP bytes and a connection flood (slowloris)
-    if let Ok(mut s) = TcpStream::connect(("127.0.0.1", CORTEX_PORT)) {
+    if let Ok(mut s) = TcpStream::connect(("127.0.0.1", cortex_port())) {
         let _ = s.write_all(&[0u8, 0xff, 0x13, 0x37, b'\r', b'\n', b'\r', b'\n']);
     }
     let flood: Vec<TcpStream> = (0..40)
-        .filter_map(|_| TcpStream::connect(("127.0.0.1", CORTEX_PORT)).ok())
+        .filter_map(|_| TcpStream::connect(("127.0.0.1", cortex_port())).ok())
         .collect();
-    let during = http(CORTEX_PORT, "GET", "/health", "").0;
+    let during = http(cortex_port(), "GET", "/health", "").0;
     let t_flood = Instant::now();
     let rec = wait_until("cortex /health after the flood", 20, || {
-        http(CORTEX_PORT, "GET", "/health", "").0 == 200
+        http(cortex_port(), "GET", "/health", "").0 == 200
     });
     drop(flood);
     let _ = t_flood;
@@ -715,11 +734,11 @@ fn chaos_t51_real_cortex_and_nerve() {
         nerve.alive() && cortex.alive(),
         "both survive the malformed burst"
     );
-    assert_eq!(http(NERVE_PORT, "GET", "/health", "").0, 200);
-    let c1 = get(CORTEX_PORT, "/stats");
-    let ns1 = get(NERVE_PORT, "/stats");
+    assert_eq!(http(nerve_port(), "GET", "/health", "").0, 200);
+    let c1 = get(cortex_port(), "/stats");
+    let ns1 = get(nerve_port(), "/stats");
     // no injection unit got an action request or a restart outcome
-    let decs = get(CORTEX_PORT, "/decisions?n=500");
+    let decs = get(cortex_port(), "/decisions?n=500");
     let mut inj_decisions = 0;
     for d in decs.as_array().unwrap() {
         let u = d["unit"].as_str().unwrap_or("");
@@ -743,14 +762,14 @@ fn chaos_t51_real_cortex_and_nerve() {
         .map(|d| json!([d["unit"], d["rule"], d["outcome"]]))
         .collect();
     log(format!("S5 injection decisions: {inj_rules:?}"));
-    let tuner: Vec<Value> = decisions_for(CORTEX_PORT, "unit:tuner.service")
+    let tuner: Vec<Value> = decisions_for(cortex_port(), "unit:tuner.service")
         .iter()
         .map(|d| json!([d["rule"], d["events"], d["outcome"]]))
         .collect();
     log(format!(
         "S5 tuner decisions after the 1500-array (newest first): {tuner:?}"
     ));
-    let restart_units: Vec<String> = get(NERVE_PORT, "/actions")
+    let restart_units: Vec<String> = get(nerve_port(), "/actions")
         .as_array()
         .unwrap()
         .iter()
@@ -797,16 +816,16 @@ fn chaos_t51_real_cortex_and_nerve() {
     // ---- S6 slow upstream: cortex B through a latency proxy
     let delay = Arc::new(AtomicU64::new(1000));
     let stop = Arc::new(AtomicBool::new(false));
-    latency_proxy(PROXY_PORT, NERVE_PORT, delay.clone(), stop.clone());
-    let mut cortex_b = start_cortex(&dir, CORTEX_B_PORT, PROXY_PORT, "b");
+    latency_proxy(proxy_port(), nerve_port(), delay.clone(), stop.clone());
+    let mut cortex_b = start_cortex(&dir, cortex_b_port(), proxy_port(), "b");
     wait_until("cortex B subscribed via proxy", 30, || nerve_streams() == 2);
     let t = Instant::now();
     j.kill("galion-voice.service");
     wait_until("S6 B decision (1 s latency)", 30, || {
-        !decisions_for(CORTEX_B_PORT, "unit:galion-voice.service").is_empty()
+        !decisions_for(cortex_b_port(), "unit:galion-voice.service").is_empty()
     });
     let slow_ok = t.elapsed();
-    let db = decisions_for(CORTEX_B_PORT, "unit:galion-voice.service");
+    let db = decisions_for(cortex_b_port(), "unit:galion-voice.service");
     assert_eq!(db[0]["rule"], "R3-known-crash", "{}", db[0]);
     assert_eq!(
         db[0]["action"]["by"], "nerve",
@@ -816,17 +835,17 @@ fn chaos_t51_real_cortex_and_nerve() {
     delay.store(4000, Ordering::SeqCst);
     let t = Instant::now();
     let (pc, _) = http(
-        CORTEX_B_PORT,
+        cortex_b_port(),
         "POST",
         "/v1/events",
         r#"{"source":"t51-push","kind":"unit.failed","severity":"high","unit":"galion-health.service","seq":700001}"#,
     );
     assert_eq!(pc, 202);
     wait_until("S6 B decision (4 s latency)", 40, || {
-        !decisions_for(CORTEX_B_PORT, "unit:galion-health.service").is_empty()
+        !decisions_for(cortex_b_port(), "unit:galion-health.service").is_empty()
     });
     let slow_to = t.elapsed();
-    let db2 = decisions_for(CORTEX_B_PORT, "unit:galion-health.service");
+    let db2 = decisions_for(cortex_b_port(), "unit:galion-health.service");
     log(format!(
         "S6 slow upstream: 1 s latency -> {} by {} after {} ms; 4 s latency -> {} by {} ({}) after {} ms",
         db[0]["action"]["status"], db[0]["action"]["by"], slow_ok.as_millis(),
@@ -837,7 +856,7 @@ fn chaos_t51_real_cortex_and_nerve() {
         "request reached the proxy, reply lost -> outcome unknown: {}",
         db2[0]
     );
-    assert_llm_off(CORTEX_B_PORT, "cortex B");
+    assert_llm_off(cortex_b_port(), "cortex B");
     summary.insert(
         "S6".into(),
         json!({"latency_1s": {"status": db[0]["action"]["status"], "by": db[0]["action"]["by"], "ms": slow_ok.as_millis() as u64},
@@ -851,7 +870,7 @@ fn chaos_t51_real_cortex_and_nerve() {
     nerve.signal("-STOP");
     let t = Instant::now();
     let (pc, _) = http(
-        CORTEX_PORT,
+        cortex_port(),
         "POST",
         "/v1/events",
         r#"{"source":"t51-push","kind":"unit.failed","severity":"high","unit":"galion-desk.service","seq":700101}"#,
@@ -859,17 +878,17 @@ fn chaos_t51_real_cortex_and_nerve() {
     assert_eq!(pc, 202, "push ingest answers while the nerve is hung");
     std::thread::sleep(Duration::from_millis(900)); // inside the decision (POST /actions blocked)
     let th = Instant::now();
-    let (hc, hb) = http(CORTEX_PORT, "GET", "/health", "");
+    let (hc, hb) = http(cortex_port(), "GET", "/health", "");
     let hv: Value = serde_json::from_str(&hb).unwrap_or(Value::Null);
     let health_ms = th.elapsed().as_millis() as u64;
     let ts = Instant::now();
-    let sc = http(CORTEX_PORT, "GET", "/stats", "").0;
+    let sc = http(cortex_port(), "GET", "/stats", "").0;
     let stats_ms = ts.elapsed().as_millis() as u64;
     wait_until("S7 decision while the nerve is hung", 40, || {
-        !decisions_for(CORTEX_PORT, "unit:galion-desk.service").is_empty()
+        !decisions_for(cortex_port(), "unit:galion-desk.service").is_empty()
     });
     let hung_ms = t.elapsed().as_millis() as u64;
-    let dh = decisions_for(CORTEX_PORT, "unit:galion-desk.service");
+    let dh = decisions_for(cortex_port(), "unit:galion-desk.service");
     nerve.signal("-CONT");
     // the nerve wakes up and may still process the request the cortex gave up on
     std::thread::sleep(Duration::from_secs(3));
@@ -895,7 +914,11 @@ fn chaos_t51_real_cortex_and_nerve() {
         health_ms < 1000,
         "/health must not wait for the decider: {health_ms} ms"
     );
-    assert_eq!(n(&get(CORTEX_PORT, "/stats"), "actions_unknown"), 1);
+    assert!(
+        stats_ms < 1000,
+        "/stats must not wait for the decider either (slot 236): {stats_ms} ms"
+    );
+    assert_eq!(n(&get(cortex_port(), "/stats"), "actions_unknown"), 1);
     summary.insert(
         "S7".into(),
         json!({"decision_ms": hung_ms, "status": dh[0]["action"]["status"], "by": dh[0]["action"]["by"],
@@ -904,21 +927,21 @@ fn chaos_t51_real_cortex_and_nerve() {
     // the stream survives the stop/cont (same TCP connection)
     j.failed("galion-one.service");
     wait_until("stream alive after SIGCONT", 20, || {
-        decisions_for(CORTEX_PORT, "unit:galion-one.service")
+        decisions_for(cortex_port(), "unit:galion-one.service")
             .iter()
             .any(|d| d["rule"] != "R1-protected")
     });
 
     // ---- S8 nerve restart mid-incident
-    let open_before: Vec<Value> = get(CORTEX_PORT, "/incidents")["open"]
+    let open_before: Vec<Value> = get(cortex_port(), "/incidents")["open"]
         .as_array()
         .cloned()
         .unwrap_or_default()
         .iter()
         .map(|i| i["cause"].clone())
         .collect();
-    let seq_before = n(&get(NERVE_PORT, "/stats"), "seq");
-    let desk_base = decisions_for(CORTEX_PORT, "unit:galion-desk.service").len();
+    let seq_before = n(&get(nerve_port(), "/stats"), "seq");
+    let desk_base = decisions_for(cortex_port(), "unit:galion-desk.service").len();
     // incident in flight: a kill the cortex is still coalescing
     j.kill("galion-health.service");
     std::thread::sleep(Duration::from_millis(150));
@@ -937,7 +960,7 @@ fn chaos_t51_real_cortex_and_nerve() {
     });
     let resub_ms = t.elapsed().as_millis() as u64;
     std::thread::sleep(Duration::from_secs(1));
-    let health_dec = decisions_for(CORTEX_PORT, "unit:galion-health.service");
+    let health_dec = decisions_for(cortex_port(), "unit:galion-health.service");
     // restart loop on the new nerve (1 s dedupe), failures 1.3 s apart
     let mut seen = vec![];
     for i in 0..4 {
@@ -946,13 +969,13 @@ fn chaos_t51_real_cortex_and_nerve() {
         let t = Instant::now();
         let ok = (0..60).any(|_| {
             std::thread::sleep(Duration::from_millis(100));
-            decisions_for(CORTEX_PORT, "unit:galion-desk.service").len() >= want
+            decisions_for(cortex_port(), "unit:galion-desk.service").len() >= want
         });
         seen.push(json!({"failure": i + 1, "decided": ok, "ms": t.elapsed().as_millis() as u64}));
         std::thread::sleep(Duration::from_millis(1300));
     }
-    let nseq = n(&get(NERVE_PORT, "/stats"), "seq");
-    let dd = decisions_for(CORTEX_PORT, "unit:galion-desk.service");
+    let nseq = n(&get(nerve_port(), "/stats"), "seq");
+    let dd = decisions_for(cortex_port(), "unit:galion-desk.service");
     let after: Vec<&Value> = dd.iter().take(dd.len() - desk_base).collect();
     let rules: Vec<String> = after
         .iter()
@@ -965,7 +988,7 @@ fn chaos_t51_real_cortex_and_nerve() {
             )
         })
         .collect();
-    let st = get(CORTEX_PORT, "/stats");
+    let st = get(cortex_port(), "/stats");
     log(format!(
         "S8 nerve restart: re-subscribed after {resub_ms} ms; new nerve seq {nseq} (old {seq_before}); \
          in-flight galion-health decisions {:?}; galion-desk after restart (oldest first) {rules:?}; per failure {seen:?}; suppressed {}",
@@ -988,7 +1011,7 @@ fn chaos_t51_real_cortex_and_nerve() {
     );
     let desk_acts = dd.iter().filter(|d| !d["action"].is_null()).count();
     assert!(desk_acts <= 3, "cortex cap 3/unit/h: {desk_acts}");
-    let esc = get(CORTEX_PORT, "/escalations");
+    let esc = get(cortex_port(), "/escalations");
     assert!(
         esc["open"].as_array().is_some_and(|a| a
             .iter()
@@ -997,27 +1020,27 @@ fn chaos_t51_real_cortex_and_nerve() {
     );
 
     // ---- S9 LLM advisor stays off and capped
-    let s0 = get(CORTEX_PORT, "/stats");
+    let s0 = get(cortex_port(), "/stats");
     let (c, _) = http(
-        CORTEX_PORT,
+        cortex_port(),
         "POST",
         "/v1/events",
         r#"{"source":"t51-push","kind":"disk.crossed","severity":"critical","seq":700201,"data":{"path":"/var/lib/t51","pct":99}}"#,
     );
     assert_eq!(c, 202);
     let (c, _) = http(
-        CORTEX_PORT,
+        cortex_port(),
         "POST",
         "/v1/events",
         r#"{"source":"t51-push","kind":"kernel.error","severity":"critical","seq":700202,"data":{"msg":"t51 ambiguous"}}"#,
     );
     assert_eq!(c, 202);
     wait_until("S9 advisor-eligible decisions", 15, || {
-        n(&get(CORTEX_PORT, "/stats"), "llm_skipped_disabled") > n(&s0, "llm_skipped_disabled")
+        n(&get(cortex_port(), "/stats"), "llm_skipped_disabled") > n(&s0, "llm_skipped_disabled")
     });
-    let s1 = get(CORTEX_PORT, "/stats");
-    assert_llm_off(CORTEX_PORT, "cortex A");
-    let ns = get(NERVE_PORT, "/stats");
+    let s1 = get(cortex_port(), "/stats");
+    assert_llm_off(cortex_port(), "cortex A");
+    let ns = get(nerve_port(), "/stats");
     assert_eq!(n(&ns, "llm_calls"), 0, "{ns}");
     assert_eq!(ns["config"]["escalate"]["paid_enabled"], false, "{ns}");
     let bad_c = non_loopback_sockets(cortex.pid());
@@ -1045,20 +1068,24 @@ fn chaos_t51_real_cortex_and_nerve() {
     );
 
     // ---- totals + teardown
-    let fin = get(CORTEX_PORT, "/stats");
+    let fin = get(cortex_port(), "/stats");
     summary.insert("cortex_stats".into(), fin.clone());
-    summary.insert("nerve_stats".into(), get(NERVE_PORT, "/stats"));
+    summary.insert("nerve_stats".into(), get(nerve_port(), "/stats"));
     println!("T51-SUMMARY {}", Value::Object(summary));
     assert_eq!(n(&fin, "actions_executed"), 0);
     cortex.stop();
     nerve.stop();
-    for p in [NERVE_PORT, CORTEX_PORT, PROXY_PORT, CORTEX_B_PORT] {
+    for p in [nerve_port(), cortex_port(), proxy_port(), cortex_b_port()] {
         wait_until(&format!("port {p} free"), 10, || {
             TcpListener::bind(("127.0.0.1", p)).is_ok()
         });
     }
     let _ = std::fs::remove_dir_all(&dir);
-    log("teardown: processes killed, ports 20970-20973 free, work dir removed");
+    log(format!(
+        "teardown: processes killed, ports {}-{} free, work dir removed",
+        nerve_port(),
+        cortex_b_port()
+    ));
 }
 
 /// The advisor cannot be switched on without the feature: config load refuses

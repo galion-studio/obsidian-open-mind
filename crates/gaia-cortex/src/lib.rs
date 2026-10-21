@@ -6,7 +6,7 @@
 //!
 //! See `docs/cortex/event-driven.md` and `docs/cortex/event-contract.md`.
 //! Pipeline: [`engine`]; rules: [`rules`]; never-act list: [`guard`];
-//! advisor (OFF by default): [`llm`]; nerve link: [`nerve`]; API: [`server`].
+//! advisor (OFF by default): [`llm`]; nerve link: [`nerve`]; API: [`server`] (reads from [`snapshot`] while the decider is busy).
 
 pub mod config;
 pub mod dispatch;
@@ -18,6 +18,7 @@ pub mod nerve;
 pub mod rules;
 pub mod server;
 pub mod sink;
+pub mod snapshot;
 
 use std::path::Path;
 
@@ -29,7 +30,9 @@ pub fn build(cfg: config::Config) -> engine::Cortex {
             Some(n) => Box::new(n),
             None => Box::new(nerve::NoNerve),
         };
-    engine::Cortex::new(cfg, guard, link)
+    let cx = engine::Cortex::new(cfg, guard, link);
+    cx.publish();
+    cx
 }
 
 /// Read an NDJSON / JSON-array event file.

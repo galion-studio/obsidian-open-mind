@@ -17,7 +17,8 @@
 
 use gaia_cortex::config::Config;
 use gaia_cortex::engine::{now_secs, run_decider};
-use galion_common::http::{serve, Limits};
+use gaia_cortex::server::api_limits;
+use galion_common::http::serve;
 use nerve_cortex_contract::Event;
 use std::net::TcpListener;
 use std::process::ExitCode;
@@ -178,10 +179,10 @@ fn serve_main(cfg: Config) -> ExitCode {
             std::thread::spawn(move || pull_loop(n, tx, Duration::from_secs(pull_every)));
         }
     }
-    let txm = Arc::new(Mutex::new(tx));
+    let api = gaia_cortex::server::Api::new(cx, tx);
     let handler =
-        Arc::new(move |r: &galion_common::http::Request| gaia_cortex::server::handle(r, &cx, &txm));
-    match serve(listener, Limits::default(), handler) {
+        Arc::new(move |r: &galion_common::http::Request| gaia_cortex::server::handle(r, &api));
+    match serve(listener, api_limits(), handler) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("gaia-cortex: {e}");
@@ -287,9 +288,9 @@ fn subscribe(
             eprintln!(
                 "gaia-cortex: nerve restarted (was {instance:?} at seq {since:?}, now {now:?}); resuming from its first event"
             );
-            cx.lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .nerve_restarted();
+            let mut g = cx.lock().unwrap_or_else(|e| e.into_inner());
+            g.nerve_restarted();
+            g.publish();
         }
         since = s;
         if let Some((st, _)) = now {

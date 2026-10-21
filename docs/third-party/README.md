@@ -56,7 +56,7 @@ spelling of `OR`. Counts are packages:
 
 Notes:
 * `r-efi` 5.3.0 is `MIT OR Apache-2.0 OR LGPL-2.1-or-later`; it is a UEFI-only target dependency of
-  `getrandom` and is taken under MIT. No shipped target (musl x86_64/aarch64, android, armv7) compiles it.
+  `getrandom` (pulled in by candle-core through `rand`) and is taken under MIT. No shipped target (musl x86_64/aarch64, android, armv7) compiles it.
 * `libsqlite3-sys` 0.30.1 (via `rusqlite`, `bundled`) compiles the SQLite C amalgamation. SQLite itself
   is public domain; the crate is MIT. This is the only C code linked into our binaries
   (see [rust-ports](rust-ports.md), [memory-real](memory-real.md), [ucpu](ucpu.md)).
@@ -249,13 +249,13 @@ in the graph: `cargo tree -i <crate> --all-features --target all -e normal,build
 
 `ahash` 0.8.12, `android_system_properties` 0.1.6, `bumpalo` 3.20.3, `core-foundation-sys` 0.8.7, `crunchy` 0.2.4, `enum-as-inner` 0.6.1, `fallible-iterator` 0.3.0, `fallible-streaming-iterator` 0.1.9, `find-msvc-tools` 0.1.14, `futures-core` 0.3.34, `futures-task` 0.3.34, `futures-util` 0.3.34, `hashlink` 0.9.1, `heck` 0.5.0, `hermit-abi` 0.5.3, `iana-time-zone-haiku` 0.1.2, `js-sys` 0.3.106, `pin-project-lite` 0.2.17, `pkg-config` 0.3.34, `r-efi` 5.3.0, `rustversion` 1.0.23, `same-file` 1.0.6, `serde_spanned` 0.6.9, `slab` 0.4.12, `smallvec` 1.16.3, `sysctl` 0.6.0, `toml_datetime` 0.6.11, `toml_edit` 0.22.27, `toml_write` 0.1.2, `vcpkg` 0.2.15, `walkdir` 2.5.0, `wasip2` 1.0.4+wasi-0.2.12, `wasm-bindgen` 0.2.129, `wasm-bindgen-macro` 0.2.129, `wasm-bindgen-macro-support` 0.2.129, `wasm-bindgen-shared` 0.2.129, `winapi-util` 0.1.11, `windows-core` 0.62.2, `windows-implement` 0.60.2, `windows-interface` 0.59.3, `windows-result` 0.4.1, `windows-strings` 0.5.1, `winnow` 0.7.15, `wit-bindgen` 0.57.1.
 
-They arrive through already documented direct crates: `chrono`/`chrono-tz` (iana-time-zone,
-wasm-bindgen, js-sys, windows-*, android_system_properties, core-foundation-sys, bumpalo), `toml`
-(toml_edit, toml_datetime, toml_write, serde_spanned, winnow), `rusqlite` (hashlink, ahash,
-fallible-iterator, fallible-streaming-iterator, smallvec, pkg-config, vcpkg), `candle-core`
-(futures-*, slab, pin-project-lite, sysctl, walkdir, same-file, winapi-util, enum-as-inner, heck,
-rustversion), `getrandom` (r-efi, wasip2, wit-bindgen) and build helpers (find-msvc-tools,
-hermit-abi, crunchy). Most are platform-gated and never compiled for our targets. The next branch that
+They arrive through already documented direct crates (checked with `cargo tree -i`): `chrono`/`chrono-tz`
+(iana-time-zone, iana-time-zone-haiku, android_system_properties, core-foundation-sys, windows-*, wasm-bindgen*,
+js-sys -> futures-util/-core/-task, slab, pin-project-lite; rustversion as a wasm-bindgen build dep, bumpalo),
+`toml` (toml_edit, toml_datetime, toml_write, serde_spanned, winnow), `rusqlite` (hashlink, ahash,
+fallible-iterator, fallible-streaming-iterator, smallvec; pkg-config, vcpkg as libsqlite3-sys build deps;
+find-msvc-tools via `cc`) and `candle-core` (sysctl -> enum-as-inner -> heck, walkdir -> same-file / winapi-util,
+num_cpus -> hermit-abi, half -> crunchy, rand/getrandom -> r-efi, wasip2 -> wit-bindgen). The windows-*, wasm-*, js-sys, futures-*, core-foundation-sys, android_system_properties, iana-time-zone-haiku, hermit-abi, r-efi, wasip2 and wit-bindgen rows are platform-gated and not compiled for our Linux/Android targets; the rest (toml_edit, winnow, hashlink, smallvec and so on) are compiled. The next branch that
 touches one of these direct crates should name them in its own file; until then this register covers
 them.
 
@@ -265,8 +265,8 @@ them.
 |---|---|---|---|---|---|
 | Whisper model code (candle 0.9 examples) | `crates/galion-voice-cpu/src/whisper/` | MIT OR Apache-2.0 | https://github.com/huggingface/candle | in integration-4 | [voice-mouth](voice-mouth.md), [integration-1](integration-1.md) (REUSE: `LICENSES/Apache-2.0.txt`) |
 | kitten-core model code (tts-web @ 4ac4680a) | `crates/galion-voice-cpu/src/kitten/` | MIT, notice in `crates/galion-voice-cpu/LICENSE-kitten-core.txt` | https://github.com/idle-intelligence/tts-web | in integration-4 | [voice-mouth](voice-mouth.md) |
-| CMU Pronouncing Dictionary data | `crates/galion-voice-cpu` (notice `NOTICE-cmudict.txt`) | BSD-2-Clause-style (CMU) | http://www.speech.cs.cmu.edu/cgi-bin/cmudict | in integration-4 | [voice-mouth](voice-mouth.md) |
-| Mel filter bytes (64,320 B) | galion-voice-cpu | MIT OR Apache-2.0 (candle repo) | huggingface/candle @ a3b16994 | in integration-4 | [voice-mouth](voice-mouth.md) |
+| CMU Pronouncing Dictionary (cmudict.dict, 3,618,488 B) | data fetched by `scripts/voice/fetch-models.sh`, **not in git**; notice `crates/galion-voice-cpu/NOTICE-cmudict.txt` is in git | BSD-2-Clause style (CMU) | https://github.com/cmusphinx/cmudict @ 7479086 | notice in integration-4 | [voice-mouth](voice-mouth.md) |
+| Mel filter bytes (melfilters.bytes, 64,320 B) | fetched with the models, **not in git** | MIT OR Apache-2.0 (candle repo) | huggingface/candle @ a3b16994 | fetched data | [voice-mouth](voice-mouth.md) |
 | **candle-core 0.9.2, patched** (`[patch.crates-io] candle-core = { path = "vendor/candle-core" }`) | `vendor/candle-core/` with `GALION-PATCH.md` | MIT OR Apache-2.0 (upstream `LICENSE` kept) | crates.io candle-core 0.9.2, upstream commit 3b39794c | **not in integration-4**; on swarm/candle-zip-fix a4f49b5, swarm/candle-zip-rebase b246f66 and swarm/integration-5 0d68f46 | this page; GALION-PATCH.md in the vendored folder |
 | paste -> pastey shim (`[patch.crates-io] paste`) | `vendor/paste-pastey/` re-exporting pastey 0.2.3 | MIT OR Apache-2.0 | https://crates.io/crates/pastey | **not in integration-4**; on swarm/deny-paste-replace 4bfffe8 and integration-5 | this page |
 | sha256.rs copied inside the repo | `crates/galion-realtest/src/sha256.rs` from `crates/galion-one/src/sha256.rs` | MIT (ours) | this repo @ 13a296c | in integration-4 | [real-harness](real-harness.md) |
@@ -300,6 +300,15 @@ RUSTSEC-2026-0367, RUSTSEC-2026-0368, RUSTSEC-2026-0369 (`zip` 7.4.0 via candle-
 (`paste` unmaintained, via gemm-common). Both are cleared on swarm/integration-5 0d68f46 by the two vendored
 patches in §4 (slot 177: advisories/bans/licenses/sources ok).
 
+### 5.1 Live cross-check on the VPS (read-only, 2026-10-21 10:53 (+02:00))
+
+`ldd` and a byte search on the deployed Rust binaries (no service touched): `hermes-gateway-aa77864`,
+`openmind-memory-aa77864`, `openmind-nerve-aa77864` and `galion-one` are all **statically linked**, so no
+shared third-party library is loaded at run time. The bundled SQLite (`SQLite format 3` header string) is in
+hermes-gateway, openmind-memory and galion-one and absent from openmind-nerve, matching §3 (nerve has no
+`rusqlite`). Nerve `GET /state` 200, cycle 140, 11 healthy / 1 degrading / 1 failing-soon / 2 absent, 61/D;
+cortex is not deployed yet, so the nerve was the observer. Details: `docs/real-tests/docs-thirdparty-register.md`.
+
 ## 6. Tools used, never linked or shipped
 
 These run as separate programs on the box, in CI or on the VPS. They are not in `Cargo.lock` and no code
@@ -325,7 +334,7 @@ programs as tools is not yet ruled, so every copyleft row is **pending owner rul
 | GitHub Actions (checkout, upload-artifact, codeql-action, rust-toolchain, cosign-installer, scorecard-action, sbom-action) | pinned in workflows | MIT / Apache-2.0 | CI | [launch-gates](launch-gates.md) | allowed; CodeQL licence ruling still open (security plan) |
 
 Model weights and data files (Whisper-tiny, KittenTTS nano, rejected Piper/Kokoro options) are listed with
-their licences in [voice-mouth](voice-mouth.md) §models; none is in git.
+their licences in [voice-mouth](voice-mouth.md) §3 "Model weights"; none is in git.
 
 ## 7. Open items for the owner (Slavik)
 

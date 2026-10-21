@@ -325,6 +325,7 @@ fn spa_keeps_arena_and_bank_when_it_exists() {
         pulse: None,
         extra_hosts: Vec::new(),
         desk: None,
+        files: Default::default(),
     });
     for p in ["/analytics", "/cache"] {
         assert!(ui.owns(p, true) && ui.owns(p, false), "{p}");

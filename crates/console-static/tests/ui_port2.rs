@@ -457,6 +457,7 @@ fn spa_fallback_keeps_hermes() {
         pulse: None,
         extra_hosts: vec![],
         desk: None,
+        files: Default::default(),
     });
     assert!(!ui.owns("/hermes", true), "SPA keeps the full Hermes room");
     assert!(ui.owns("/hermes", false));

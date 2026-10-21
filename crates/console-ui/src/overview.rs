@@ -146,13 +146,19 @@ pub const SECTORS: &[Sector] = &[
         name: "Console",
         role: "Rust replacement for the Node/Vite operator console: server-rendered HTML, no JavaScript.",
         state: State::Building,
-        status: "13 of 31 routes at c242fed",
+        status: "31 of 31 routes in Rust on console-port-merge",
         facts: &[
             "Strict CSP, server-side phone gate, ~2.9 MB RSS",
             "Live 8080 is still the Vite dev server (~1.23 GiB RSS) and serves /package.json and src/**",
-            "17 rooms were still placeholders at c242fed; mic + streaming rooms need a ruling on browser JS",
+            "The 17 rooms left at c242fed are ported in 5 slices (console-port-1..5), merged here",
+            "With an SPA fallback /arena, /bank and /hermes stay SPA-first (writes held for owner rulings)",
+            "Mic + streaming parts of Hermes still need a ruling on browser JS",
         ],
-        refs: &[("swarm/console-ui-rust", "c242fed"), ("swarm/landing-overview", "")],
+        refs: &[
+            ("swarm/console-ui-rust", "c242fed"),
+            ("swarm/landing-overview", "669dc18"),
+            ("swarm/console-port-merge", ""),
+        ],
     },
     Sector {
         id: "voice",

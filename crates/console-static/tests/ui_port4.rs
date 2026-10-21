@@ -465,6 +465,7 @@ fn ported_list_and_owning() {
         upstream: "127.0.0.1:9".parse().unwrap(),
         pulse: None,
         extra_hosts: Vec::new(),
+        desk: None,
         files: Default::default(),
     });
     // With an SPA fallback the Rust rooms still answer these paths.

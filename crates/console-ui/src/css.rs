@@ -484,7 +484,9 @@ mod tests {
     #[test]
     fn sheet_is_small_and_balanced() {
         let s = sheet();
-        assert!(s.len() < 24 * 1024, "{}", s.len());
+        // 24 KiB per port branch; the merge of all five (slot 169) is 26480 B,
+        // so the budget for the whole sheet is 28 KiB (one immutable file).
+        assert!(s.len() < 28 * 1024, "{}", s.len());
         assert!(s.contains(
             "@media (prefers-color-scheme:light){html:not([data-theme]){color-scheme:light;--c-bg:#f6f6f4"
         ));

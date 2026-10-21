@@ -543,10 +543,12 @@ fn theme_css_and_fail_closed() {
         404
     );
     assert_eq!(get(a, "/_ui/favicon.svg", "127.0.0.1", "").code, 200);
-    // Unported room: "not in Rust yet" page (no SPA fallback configured).
+    // console-port-merge: every in-console room is in Rust now, so a former
+    // placeholder (/session, last fifth) renders its Rust page, not the
+    // "Not in Rust yet" page (no SPA fallback configured).
     let r = get(a, "/session", "127.0.0.1", "");
     assert_eq!(r.code, 200);
-    assert!(r.body.contains("Not in Rust yet"));
+    assert!(!r.body.contains("Not in Rust yet"));
     assert_eq!(get(a, "/nope", "127.0.0.1", "").code, 404);
 
     // API down: console hosts fail closed (503, no page data).
@@ -613,6 +615,12 @@ fn read_rooms_render_get_only() {
         .filter(|p| console_ui::PORTED.contains(p))
         .count();
     assert_eq!(not_ported.len() + ported_rooms, 28, "{not_ported:?}");
+    // console-port-merge (slot 169): all 28 rooms are ported; PORTED holds 30
+    // entries, and the overview (/console) counts itself: 31 of 31.
+    assert!(not_ported.is_empty(), "{not_ported:?}");
+    assert_eq!(console_ui::PORTED.len(), 30);
+    let ov = get(a, "/console", "127.0.0.1", "");
+    assert!(ov.body.contains("31 of 31 routes in Rust"), "{}", ov.body);
     for p in not_ported {
         let r = get(a, p, "127.0.0.1", "");
         assert_eq!(r.code, 200, "{p}");

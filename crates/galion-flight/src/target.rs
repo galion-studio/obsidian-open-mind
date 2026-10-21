@@ -223,6 +223,39 @@ pub fn parse_unix_ts(v: &str) -> Option<i64> {
     v.trim().strip_prefix('@')?.parse().ok()
 }
 
+/// systemd's realtime form `Wed 2026-10-21 18:21:43 UTC` (NextElapseUSecRealtime
+/// ignores `--timestamp=unix` on systemd 255). Only UTC is accepted, anything
+/// else is `None` (the caller fails closed).
+pub fn parse_systemd_utc(v: &str) -> Option<i64> {
+    let w: Vec<&str> = v.split_whitespace().collect();
+    if w.len() != 4 || !(w[3] == "UTC" || w[3] == "GMT") {
+        return None;
+    }
+    let d: Vec<&str> = w[1].split('-').collect();
+    let t: Vec<&str> = w[2].split(':').collect();
+    if d.len() != 3 || t.len() != 3 {
+        return None;
+    }
+    let (y, mo, da): (i64, u32, u32) = (d[0].parse().ok()?, d[1].parse().ok()?, d[2].parse().ok()?);
+    let (h, mi, s): (i64, i64, i64) = (t[0].parse().ok()?, t[1].parse().ok()?, t[2].parse().ok()?);
+    if !(1..=12).contains(&mo) || !(1..=31).contains(&da) || h > 23 || mi > 59 || s > 60 {
+        return None;
+    }
+    Some(galion_common::time::days_from_civil(y, mo, da) * 86_400 + h * 3600 + mi * 60 + s)
+}
+
+/// Timer property value -> Ok(None) not scheduled, Ok(Some(t)), Err unparsable.
+pub fn parse_timer_value(v: Option<&String>) -> Result<Option<i64>, String> {
+    match v.map(|s| s.trim()) {
+        None => Err("no NextElapseUSecRealtime".into()),
+        Some("") | Some("n/a") => Ok(None),
+        Some(s) => parse_unix_ts(s)
+            .or_else(|| parse_systemd_utc(s))
+            .map(Some)
+            .ok_or_else(|| format!("unparsable timer time {s:?}")),
+    }
+}
+
 pub fn parse_stat(s: &str) -> Option<Stat> {
     let w: Vec<&str> = s.split_whitespace().collect();
     if w.len() != 4 {
@@ -264,7 +297,7 @@ impl Target for Vps {
             return failed(format!("systemctl show exit {code}"));
         }
         let m = parse_show(&out);
-        Ok(m.get("NextElapseUSecRealtime").and_then(|v| parse_unix_ts(v)))
+        parse_timer_value(m.get("NextElapseUSecRealtime")).map_err(ReadErr::Failed)
     }
     fn readlink_exe(&mut self, pid: u32) -> R<String> {
         let (code, out) = self.run(&Remote::Readlink { pid })?;
@@ -500,5 +533,23 @@ mod tests {
         let t = "  sl  local_address rem_address   st\n   0: 0100007F:21DE 00000000:0000 0A 0\n";
         assert!(proc_net_listening(t, 0x21DE));
         assert!(!proc_net_listening(t, 8671));
+    }
+}
+
+#[cfg(test)]
+mod timer_tests {
+    use super::*;
+
+    #[test]
+    fn systemd_realtime_values() {
+        // 2026-10-21 18:21:43 UTC = 20:21:43 +02:00
+        let t = parse_systemd_utc("Wed 2026-10-21 18:21:43 UTC").unwrap();
+        assert_eq!(galion_common::time::from_unix(t), "2026-10-21T20:21:43+02:00");
+        assert_eq!(parse_systemd_utc("Wed 2026-10-21 18:21:43 CEST"), None);
+        assert_eq!(parse_timer_value(Some(&"".to_string())), Ok(None));
+        assert_eq!(parse_timer_value(Some(&"@5".to_string())), Ok(Some(5)));
+        // Fail closed: an unparsable time is an error, never "not scheduled".
+        assert!(parse_timer_value(Some(&"tomorrow".to_string())).is_err());
+        assert!(parse_timer_value(None).is_err());
     }
 }

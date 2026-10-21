@@ -39,3 +39,5 @@ fs_write = []
 namespaces = true
 ro_root = true
 hide_paths = ["/root", "/home", "/run/secrets"]
+workdir_tmpfs_bytes = 67108864 # 64 MiB total work dir cap (private tmpfs, ENOSPC past it)
+workdir_tmpfs_inodes = 0 # 0 = bytes / 16 KiB, at least 1024

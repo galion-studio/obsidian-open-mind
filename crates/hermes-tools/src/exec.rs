@@ -68,6 +68,13 @@ pub fn policy(cfg: &CodingConfig, kind: Kind) -> SandboxPolicy {
     p.net = false;
     p.require_net_isolation = true;
     p.cgroup_parent = cfg.cgroup_parent.clone();
+    // The presets cap the work dir with a private tmpfs that is copied in
+    // and back on every run (openmind-sandbox, row 151). Here the work dir is
+    // the whole git worktree (sources, .git, target/), so that copy would
+    // cost a full tree copy per tool call and a worktree above the cap would
+    // fail closed. Hermes keeps its per-file caps and the cgroup instead;
+    // a worktree-level quota is an owner decision (docs/sandbox/workdir-quota.md).
+    p.workdir_tmpfs_bytes = 0;
     match kind {
         Kind::Fs => {
             p.fs_read.push(state.join("stage"));

@@ -5,8 +5,13 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 fn wd(name: &str) -> PathBuf {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-out/sandbox")
+    // GALION_REAL_BASE: run the suite from a throwaway dir on the VPS
+    // (sandbox_vps_only) instead of the build tree.
+    let p = std::env::var("GALION_REAL_BASE")
+        .map(|b| PathBuf::from(b).join("sandbox"))
+        .unwrap_or_else(|_| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/sandbox")
+        })
         .join(name);
     std::fs::create_dir_all(&p).unwrap();
     p.canonicalize().unwrap()

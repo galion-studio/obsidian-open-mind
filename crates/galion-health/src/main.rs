@@ -209,10 +209,16 @@ fn check() -> Result<String, String> {
     let entries = spec.split(';').filter(|e| !e.trim().is_empty()).count();
     let checks = parse(&spec);
     for c in &checks {
-        r.push_str(&format!("check {} unit={} port={} path={}\n", c.name, c.unit, c.port, c.path));
+        r.push_str(&format!(
+            "check {} unit={} port={} path={}\n",
+            c.name, c.unit, c.port, c.path
+        ));
     }
     if checks.len() != entries {
-        return Err(format!("{r}{} of {entries} check entries are malformed (name|unit|port|path)", entries - checks.len()));
+        return Err(format!(
+            "{r}{} of {entries} check entries are malformed (name|unit|port|path)",
+            entries - checks.len()
+        ));
     }
     Ok(r)
 }

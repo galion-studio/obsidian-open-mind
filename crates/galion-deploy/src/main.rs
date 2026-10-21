@@ -12,7 +12,15 @@ fn check() -> Result<String, String> {
     let mut r = String::new();
     galion_deploy::deploy::manager_from_env()?;
     let sm = std::env::var("GALION_DEPLOY_SM").unwrap_or_default();
-    line(&mut r, "manager", if sm.is_empty() { "systemd" } else { sm.as_str() });
+    line(
+        &mut r,
+        "manager",
+        if sm.is_empty() {
+            "systemd"
+        } else {
+            sm.as_str()
+        },
+    );
     let cfg = galion_deploy::deploy::Config::from_env("check", "-", None)?;
     line(
         &mut r,
@@ -20,7 +28,11 @@ fn check() -> Result<String, String> {
         cfg.version_timeout
             .map_or("off".to_string(), |d| format!("{} ms", d.as_millis())),
     );
-    line(&mut r, "health", format!("{} tries x {} ms", cfg.tries, cfg.interval.as_millis()));
+    line(
+        &mut r,
+        "health",
+        format!("{} tries x {} ms", cfg.tries, cfg.interval.as_millis()),
+    );
     let mut ok = path_exists(&mut r, "backup_dir", &cfg.backup_dir, true);
     if cfg.skip_data_backup {
         line(&mut r, "data_backup", "skipped (SKIP_DATA_BACKUP=1)");

@@ -33,7 +33,12 @@ use hades_gate::{keys, safety};
 const USAGE: &str = "usage: hades-gate <check|serve|status|disable|enable|keygen|mint|plan-hash> [--flags]  (see crate docs)";
 
 fn main() {
-    galion_common::flags::early("hades-gate", env!("CARGO_PKG_VERSION"), USAGE, || Ok("config none at start (each command takes --config C; serve binds 127.0.0.1 only)".into()));
+    galion_common::flags::early("hades-gate", env!("CARGO_PKG_VERSION"), USAGE, || {
+        Ok(
+            "config none at start (each command takes --config C; serve binds 127.0.0.1 only)"
+                .into(),
+        )
+    });
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match run(&args) {
         Ok(code) => code,

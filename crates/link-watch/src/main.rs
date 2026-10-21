@@ -310,8 +310,40 @@ fn model_from_tags(body: &[u8]) -> String {
     format!("{base} (idle)")
 }
 
+const EARLY_USAGE: &str = "link-watch: writes link.json every 3 s (LINK_WATCH_ONCE=1: once). See the crate docs for LINK_WATCH_* settings.\n";
+
+/// `--check`: resolve the settings and LINK_WATCH_URLS; probes nothing, writes nothing.
+fn check() -> Result<String, String> {
+    use galion_common::flags::line;
+    let s = resolve(&|key| std::env::var(key).ok()).map_err(|e| e.to_string())?;
+    let mut r = String::new();
+    let dir_state = |p: &Path| match p.parent() {
+        Some(d) if d.as_os_str().is_empty() || d.is_dir() => "dir ok",
+        _ => "dir missing",
+    };
+    line(
+        &mut r,
+        "out",
+        format!("{} ({})", s.out.display(), dir_state(&s.out)),
+    );
+    line(&mut r, "laptop", s.laptop.display());
+    line(
+        &mut r,
+        "log",
+        format!("{} ({})", s.log.display(), dir_state(&s.log)),
+    );
+    line(&mut r, "ollama", &s.ollama);
+    line(&mut r, "hermes", &s.hermes);
+    line(&mut r, "france", s.france.as_deref().unwrap_or("none"));
+    if let Ok(raw) = std::env::var("LINK_WATCH_URLS") {
+        let n = urls::parse_urls(&raw).map_err(|e| format!("{r}LINK_WATCH_URLS: {e}"))?;
+        line(&mut r, "urls", n.len());
+    }
+    Ok(r)
+}
+
 fn main() {
-    galion_common::build_info::exit_if_version("link-watch", env!("CARGO_PKG_VERSION"));
+    galion_common::flags::early("link-watch", env!("CARGO_PKG_VERSION"), EARLY_USAGE, check);
     if std::env::args()
         .nth(1)
         .is_some_and(|a| a == "--help" || a == "-h")

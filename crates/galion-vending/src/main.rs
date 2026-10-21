@@ -58,7 +58,12 @@ fn print(v: &impl serde::Serialize) {
 }
 
 fn main() -> ExitCode {
-    galion_common::flags::early("galion-vending", env!("CARGO_PKG_VERSION"), VENDING_USAGE, || Ok("config none (arguments only; serve default bind 127.0.0.1:19530)".into()));
+    galion_common::flags::early(
+        "galion-vending",
+        env!("CARGO_PKG_VERSION"),
+        VENDING_USAGE,
+        || Ok("config none (arguments only; serve default bind 127.0.0.1:19530)".into()),
+    );
     let mut argv = std::env::args().skip(1);
     let cmd = argv.next().unwrap_or_default();
     let a = match parse(argv) {

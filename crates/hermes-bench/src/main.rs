@@ -46,7 +46,12 @@ fn score_file(dir: &Path, bench: &str, agent: &str) -> PathBuf {
 }
 
 fn main() -> ExitCode {
-    galion_common::flags::early("hermes-bench", env!("CARGO_PKG_VERSION"), HERMES_BENCH_USAGE, || Ok("config none (arguments only; the live agent is off unless --agent live)".into()));
+    galion_common::flags::early(
+        "hermes-bench",
+        env!("CARGO_PKG_VERSION"),
+        HERMES_BENCH_USAGE,
+        || Ok("config none (arguments only; the live agent is off unless --agent live)".into()),
+    );
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("run") => run(&args),

@@ -12,6 +12,7 @@ name = "openmind-queue"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 # In-workspace crates only. serde/serde_json are existing workspace
 # dependencies (already in Cargo.lock); no new third-party crates.
 zagreb-time = { path = "../zagreb-time" }

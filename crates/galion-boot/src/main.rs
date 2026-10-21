@@ -214,8 +214,16 @@ fn run(cmd: &str, a: &Args) -> Result<i32, String> {
     }
 }
 
+const EARLY_USAGE: &str = "usage: galion-boot hardware | secrets-restore | tunnel-env | render-units | supervise | status | fire-loops [--config FILE] [...]\n";
+
+/// `--check`: galion-boot has no start-time config; each command names its
+/// `--config FILE`. Reads nothing (secrets-restore is never run by this).
+fn check() -> Result<String, String> {
+    Ok("config none at start (each command takes --config FILE)\n".into())
+}
+
 fn main() {
-    galion_common::build_info::exit_if_version("galion-boot", env!("CARGO_PKG_VERSION"));
+    galion_common::flags::early("galion-boot", env!("CARGO_PKG_VERSION"), EARLY_USAGE, check);
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = argv.first().cloned() else {
         eprintln!("galion-boot: hardware | secrets-restore | tunnel-env | render-units | supervise | status | fire-loops");

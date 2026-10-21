@@ -91,21 +91,34 @@ fn check() -> Result<String, String> {
         format!(
             "{} ({})",
             cfg.state_db.display(),
-            if cfg.state_db.exists() { "exists" } else { "absent, would be created at start" }
+            if cfg.state_db.exists() {
+                "exists"
+            } else {
+                "absent, would be created at start"
+            }
         ),
     );
     let key_ok = cfg.api_key(&env).is_some_and(|k| k.len() >= 16);
     galion_common::flags::line(
         &mut r,
         "api_key",
-        if key_ok { "set (>= 16 chars)" } else { "MISSING or shorter than 16 chars" },
+        if key_ok {
+            "set (>= 16 chars)"
+        } else {
+            "MISSING or shorter than 16 chars"
+        },
     );
     galion_common::flags::bind_addr(&mut r, "bind", &format!("{}:{}", cfg.host, cfg.port))?;
     if !home_ok {
-        return Err(format!("{r}HERMES_HOME {} is not a directory", cfg.home.display()));
+        return Err(format!(
+            "{r}HERMES_HOME {} is not a directory",
+            cfg.home.display()
+        ));
     }
     if !key_ok {
-        return Err(format!("{r}API_SERVER_KEY missing or shorter than 16 chars (start would refuse)"));
+        return Err(format!(
+            "{r}API_SERVER_KEY missing or shorter than 16 chars (start would refuse)"
+        ));
     }
     Ok(r)
 }

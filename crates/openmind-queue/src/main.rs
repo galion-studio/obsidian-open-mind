@@ -288,7 +288,17 @@ fn worker(a: &Args) -> Result<(), String> {
     Ok(())
 }
 
+/// `--check`: resolve POSEIDON_ADDR; dials nothing (serve takes --bind/--data).
+fn check() -> Result<String, String> {
+    let mut r = String::new();
+    let addr = std::env::var("POSEIDON_ADDR").unwrap_or_else(|_| "127.0.0.1:19120".into());
+    galion_common::flags::bind_addr(&mut r, "client_addr", &addr)?;
+    r.push_str("serve config: --bind and --data on the command line\n");
+    Ok(r)
+}
+
 fn main() -> ExitCode {
+    galion_common::flags::early("openmind-queue", env!("CARGO_PKG_VERSION"), USAGE, check);
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = argv.first().cloned() else {
         eprintln!("{USAGE}");

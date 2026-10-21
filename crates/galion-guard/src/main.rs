@@ -319,7 +319,19 @@ fn real_main() -> Result<(), String> {
     }
 }
 
+/// `--check`: load the default config (or built-in VPS defaults); never
+/// touches the packet filter, never reads the journal.
+fn check() -> Result<String, String> {
+    let e = load_config(&None)?;
+    Ok(format!(
+        "config {}\nsource {}\nbackend {}\ntable {}\nports {:?}\nmaxretry {}\nallowlist {} entries\n",
+        if std::path::Path::new(config::DEFAULT_PATH).exists() { config::DEFAULT_PATH } else { "built-in VPS defaults (no /etc/galion-guard/guard.toml)" },
+        e.cfg.sshd.source, e.cfg.guard.backend, e.cfg.guard.table, e.cfg.sshd.ports, e.params.maxretry, e.allow.len()
+    ))
+}
+
 fn main() -> ExitCode {
+    galion_common::flags::early("galion-guard", env!("CARGO_PKG_VERSION"), USAGE, check);
     match real_main() {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

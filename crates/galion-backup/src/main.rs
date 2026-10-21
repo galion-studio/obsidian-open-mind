@@ -25,7 +25,11 @@ fn check() -> Result<String, String> {
     use galion_common::flags::line;
     let o = backup::Opts::from_env()?;
     let mut r = String::new();
-    let state = if o.dest.is_dir() { "exists" } else { "absent, run would create it" };
+    let state = if o.dest.is_dir() {
+        "exists"
+    } else {
+        "absent, run would create it"
+    };
     line(&mut r, "dest", format!("{} ({state})", o.dest.display()));
     line(&mut r, "keep", o.keep);
     match o.minfree_kb {

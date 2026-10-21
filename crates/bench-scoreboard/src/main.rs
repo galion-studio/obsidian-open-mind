@@ -9,7 +9,12 @@ use bench_scoreboard::{parse_score, render, Entry, BENCHES};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    galion_common::flags::early("bench-scoreboard", env!("CARGO_PKG_VERSION"), "usage: bench-scoreboard [--score B<n>=<json>@<sha>]... [--out FILE]\n", || Ok("config none (arguments only)".into()));
+    galion_common::flags::early(
+        "bench-scoreboard",
+        env!("CARGO_PKG_VERSION"),
+        "usage: bench-scoreboard [--score B<n>=<json>@<sha>]... [--out FILE]\n",
+        || Ok("config none (arguments only)".into()),
+    );
     let mut entries: [Option<Entry>; 3] = [None, None, None];
     let mut out: Option<String> = None;
     let mut args = std::env::args().skip(1);

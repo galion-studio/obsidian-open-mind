@@ -23,8 +23,20 @@ fn run() -> Result<(), RoomError> {
     Ok(())
 }
 
+/// `--check`: resolve ROOM_BIND / ROOM_ROOT; never binds.
+fn check() -> Result<String, String> {
+    let cfg = Config::from_env();
+    let mut r = String::new();
+    galion_common::flags::bind_addr(&mut r, "bind", &cfg.bind)?;
+    if galion_common::flags::path_exists(&mut r, "root", &cfg.root, true) {
+        Ok(r)
+    } else {
+        Err(format!("{r}ROOM_ROOT is not a directory"))
+    }
+}
+
 fn main() -> ExitCode {
-    galion_common::build_info::exit_if_version("room", env!("CARGO_PKG_VERSION"));
+    galion_common::flags::early("room", env!("CARGO_PKG_VERSION"), USAGE, check);
     match run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {

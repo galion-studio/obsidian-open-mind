@@ -255,8 +255,33 @@ fn mouth() -> &'static Mutex<()> {
     MOUTH.get_or_init(|| Mutex::new(()))
 }
 
+const EARLY_USAGE: &str = "usage: galion-one [set-model <plan|action> <provider/model> | trace <src.pgm|.ppm> <dest.svg> [--no-caption] | version]\n  no arguments  serve on ONE_BIND, mouth on ONE_MOUTH_BIND (ONE_NO_WARM=1: no keep-warm)\n";
+
+/// `--check`: resolve the listen addresses; never binds, never warms, never
+/// spawns the sampler or the mouth thread.
+fn check() -> Result<String, String> {
+    use galion_common::flags::{bind_addr, line};
+    let mut r = String::new();
+    bind_addr(&mut r, "bind", &probe::one_bind(&probe::process_env))?;
+    bind_addr(
+        &mut r,
+        "mouth_bind",
+        &probe::mouth_bind(&probe::process_env),
+    )?;
+    line(
+        &mut r,
+        "keep_warm",
+        if std::env::var("ONE_NO_WARM").as_deref() == Ok("1") {
+            "off (ONE_NO_WARM=1)"
+        } else {
+            "on"
+        },
+    );
+    Ok(r)
+}
+
 fn main() {
-    galion_common::build_info::exit_if_version("galion-one", env!("CARGO_PKG_VERSION"));
+    galion_common::flags::early("galion-one", env!("CARGO_PKG_VERSION"), EARLY_USAGE, check);
     // Operator subcommands (ports of one/set-model.py and one/trace.py). With no
     // argument the server starts exactly as before.
     let args: Vec<String> = std::env::args().skip(1).collect();

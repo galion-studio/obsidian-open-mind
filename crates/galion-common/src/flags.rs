@@ -62,13 +62,7 @@ where
 
 /// What the process prints and its exit code for an early flag. Pure, so it
 /// is unit tested without exiting.
-pub fn render<F>(
-    flag: Early,
-    name: &str,
-    version: &str,
-    usage: &str,
-    check: F,
-) -> (String, i32)
+pub fn render<F>(flag: Early, name: &str, version: &str, usage: &str, check: F) -> (String, i32)
 where
     F: FnOnce() -> Result<String, String>,
 {
@@ -190,7 +184,9 @@ mod tests {
         assert_eq!((o.as_str(), c), ("bind a:1\nx check ok\n", 0));
         let (o, c) = render(Early::Check, "x", "1.0", "u", || Err("no root".into()));
         assert_eq!((o.as_str(), c), ("x check failed: no root\n", 1));
-        let (o, c) = render(Early::Check, "x", "1.0", "u", || Err("bind a:1\nno root".into()));
+        let (o, c) = render(Early::Check, "x", "1.0", "u", || {
+            Err("bind a:1\nno root".into())
+        });
         assert_eq!((o.as_str(), c), ("bind a:1\nx check failed: no root\n", 1));
     }
 

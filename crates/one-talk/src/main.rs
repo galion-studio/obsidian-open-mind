@@ -13,8 +13,22 @@ use std::env;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
+/// `--check`: one-talk has no runtime config.
+fn check() -> Result<String, String> {
+    Ok(format!(
+        "config none (prints shapes only; lock path {TALK_LOCK})\n"
+    ))
+}
+
 fn main() -> ExitCode {
-    galion_common::build_info::exit_if_version("one-talk", env!("CARGO_PKG_VERSION"));
+    galion_common::flags::early(
+        "one-talk",
+        env!("CARGO_PKG_VERSION"),
+        "usage: one-talk
+prints the warm lock path and helper JSON shapes; dials nothing
+",
+        check,
+    );
     if env::args().len() != 1 {
         eprintln!("usage: one-talk");
         eprintln!("prints the warm lock path and helper JSON shapes; dials nothing");

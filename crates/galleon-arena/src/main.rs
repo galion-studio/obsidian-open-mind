@@ -27,7 +27,9 @@ fn wants_stamp(args: &[String]) -> bool {
 }
 
 fn main() -> ExitCode {
-    galion_common::flags::early("galleon-arena", env!("CARGO_PKG_VERSION"), USAGE, || Ok("config none (reads seed files only; no socket)".into()));
+    galion_common::flags::early("galleon-arena", env!("CARGO_PKG_VERSION"), USAGE, || {
+        Ok("config none (reads seed files only; no socket)".into())
+    });
     let args: Vec<String> = env::args().skip(1).collect();
     let at = if wants_stamp(&args) {
         match read_zagreb_now() {

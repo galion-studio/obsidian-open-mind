@@ -13,6 +13,7 @@ name = "galion-guard"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 # Unicode tables are only needed for `\s`/`\w`/`\S` classes in the filter.
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl"] }
 serde = { workspace = true }

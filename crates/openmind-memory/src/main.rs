@@ -4,8 +4,51 @@ use openmind_memory::{api::App, config::Config, engine::Engine, http, log};
 use std::net::TcpListener;
 use std::sync::Arc;
 
+const EARLY_USAGE: &str = "usage: openmind-memory                      (serve; config from env)\n       openmind-memory snapshot <src.db> <dst.db>\n       openmind-memory parity <http://a> <http://b> <queries.txt> [session_key]\n";
+
+/// `--check`: resolve the env config; opens no DB, never binds. The API key
+/// is reported as set or not, never printed.
+fn check() -> Result<String, String> {
+    use galion_common::flags::{bind_addr, line, path_exists};
+    let cfg = Config::from_env(&|k| std::env::var(k).ok());
+    let mut r = String::new();
+    bind_addr(&mut r, "bind", &format!("{}:{}", cfg.host, cfg.port))?;
+    let ok = path_exists(&mut r, "data_dir", &cfg.data_dir, true);
+    let db = cfg.db_path();
+    line(
+        &mut r,
+        "db",
+        format!(
+            "{} ({})",
+            db.display(),
+            if db.is_file() { "exists" } else { "absent" }
+        ),
+    );
+    line(&mut r, "read_only", cfg.read_only);
+    line(&mut r, "loopback", cfg.is_loopback());
+    line(
+        &mut r,
+        "api_key",
+        if cfg.api_key.is_some() {
+            "set"
+        } else {
+            "not set (auth disabled)"
+        },
+    );
+    if ok {
+        Ok(r)
+    } else {
+        Err(format!("{r}data_dir is not a directory"))
+    }
+}
+
 fn main() {
-    galion_common::build_info::exit_if_version("openmind-memory", env!("CARGO_PKG_VERSION"));
+    galion_common::flags::early(
+        "openmind-memory",
+        env!("CARGO_PKG_VERSION"),
+        EARLY_USAGE,
+        check,
+    );
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Some(code) = subcommand(&args) {
         std::process::exit(code);

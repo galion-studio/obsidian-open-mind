@@ -45,7 +45,30 @@ fn opt(args: &[String], k: &str) -> Option<String> {
         .cloned()
 }
 
+/// `--check`: resolve the env config exactly as `serve` would; never binds,
+/// never runs a cycle, never writes the data dir.
+fn check() -> Result<String, String> {
+    use galion_common::flags::{line, path_exists};
+    let cfg = Config::from_env(&|k| std::env::var(k).ok())?;
+    let mut r = String::new();
+    line(&mut r, "bind", cfg.addr);
+    line(&mut r, "interval_s", cfg.interval_s);
+    let ok = path_exists(&mut r, "data_dir", &cfg.data_dir, true);
+    line(&mut r, "dry_run_env", cfg.dry_run_env);
+    line(&mut r, "fail_cycles", cfg.fail_cycles);
+    line(&mut r, "rollback", cfg.rollback);
+    if cfg.rollback {
+        path_exists(&mut r, "deploy_bin", &cfg.deploy_bin, false);
+    }
+    if ok {
+        Ok(r)
+    } else {
+        Err(format!("{r}NERVE data dir missing"))
+    }
+}
+
 fn main() -> ExitCode {
+    galion_common::flags::early("openmind-nerve", env!("CARGO_PKG_VERSION"), USAGE, check);
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("serve");
     if cmd == "--version" || cmd == "-V" {

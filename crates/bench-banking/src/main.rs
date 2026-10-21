@@ -25,7 +25,9 @@ fn usage() -> ExitCode {
 }
 
 fn main() -> ExitCode {
-    galion_common::flags::early("bench-banking", env!("CARGO_PKG_VERSION"), USAGE, || Ok("config none (arguments only; mock binds only with `mock --port`)".into()));
+    galion_common::flags::early("bench-banking", env!("CARGO_PKG_VERSION"), USAGE, || {
+        Ok("config none (arguments only; mock binds only with `mock --port`)".into())
+    });
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("mock") => {

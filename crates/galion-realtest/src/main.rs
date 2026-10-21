@@ -235,7 +235,9 @@ fn cmd_live(o: &Opts) -> Result<bool, String> {
 }
 
 fn main() -> ExitCode {
-    galion_common::flags::early("galion-realtest", env!("CARGO_PKG_VERSION"), USAGE, || Ok("config none (arguments only)".into()));
+    galion_common::flags::early("galion-realtest", env!("CARGO_PKG_VERSION"), USAGE, || {
+        Ok("config none (arguments only)".into())
+    });
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = argv.first() else {
         eprintln!("{USAGE}");

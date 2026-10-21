@@ -382,8 +382,15 @@ fn every_binary_flags_are_instant_and_never_bind() {
                         "{name} {} (commit {STAMP_COMMIT}, built {STAMP_TIME})",
                         env!("CARGO_PKG_VERSION")
                     );
-                    if std::env::var("GALION_REAL_BIN_DIR").is_err() && r.stdout.trim_end() != want
-                    {
+                    let prebuilt = std::env::var("GALION_REAL_BIN_DIR").is_ok();
+                    let prefix = format!("{name} {} (commit ", env!("CARGO_PKG_VERSION"));
+                    // Prebuilt binaries carry their own stamp: require the shape only.
+                    let good = if prebuilt {
+                        r.stdout.starts_with(&prefix)
+                    } else {
+                        r.stdout.trim_end() == want
+                    };
+                    if !good {
                         failures.push(format!(
                             "{name} --version: {:?} != {want:?}",
                             r.stdout.trim_end()

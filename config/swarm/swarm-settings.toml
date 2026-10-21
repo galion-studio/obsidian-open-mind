@@ -41,6 +41,8 @@ meaning = "Every interaction (voice, chat, agent report, UI) must leave Slavik w
 [standing_rules]
 # Set by Slavik 2026-10-20 20:41 CEST (+02:00).
 rust_only = "Rust only for everything, no exceptions. No Python or other languages; non-Rust components are rewritten as proper Rust implementations, not quick ports."
+# Set by Slavik (relayed by Mate) 2026-10-21 04:30 CEST (+02:00).
+sandbox_vps_only = "The sandbox (openmind-sandbox, cgroup-detect, real_escape / real_sh_sandbox and any sandboxed tool run) is RUN only on the VPS, never on the development machine (Grok Bot box). Binaries may be built on the box, but every sandbox test and run happens on the VPS as an ordinary non-root user in a throwaway test folder (/var/tmp/sandbox-test-<ts>), never in /opt/galion/openmind, and is cleaned up afterwards (folder, processes, cgroups, temp user). Local cargo test runs exclude openmind-sandbox and cgroup-detect."
 
 [non_rust_on_vps]
 # Read-only inventory 2026-10-20 20:43 CEST (+02:00). Flagged for replacement.

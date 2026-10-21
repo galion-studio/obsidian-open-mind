@@ -27,6 +27,14 @@ const USAGE_HEAD: &str = "usage: gaia <command> [options]
                                  heal-apply + service + plan hash, expiry, single use) ->
                                  restart (max 3 per service per hour) -> nerve event;
                                  exit 0 ok, 4 refused, 5 capped, 6 apply failed
+  heal-tick --loop [--interval-ms 30000] [--jitter-ms 0] [--max-ticks N] [--max-runtime-s S]
+            [--max-restarts R] [--max-errors 5] [--stop-file F] [--token-dir D] [--seed N] ...heal-tick flags... -- CMD
+                                 S3.1 supervised loop: one heal-tick per interval + random jitter (monotonic
+                                 clock), budget stops (ticks, runtime, restarts, consecutive errors -> exit 7,
+                                 stop file); setup errors and panics back off instead of ending the loop;
+                                 --token-dir: pre-minted single-use tokens (*.tok), used ones renamed .spent;
+                                 the 3/h cap is GLOBAL (gaia-restarts.jsonl next to hades-gate's replay
+                                 ledger), a new --state dir does not reset it; one JSON line per tick
   heal-plan --service NAME --port P --allow-ports A-B [--health /health] [--out F] -- /abs/start/cmd ARGS...
                                  print the exact heal-apply plan and its SHA-256 for `hades-gate mint`;
                                  --out writes the plan bytes to a new file
@@ -86,6 +94,16 @@ fn main() -> ExitCode {
                 live_exit = 3;
             }
             Ok(j)
+        }
+        Some("heal-tick") if args.contains(&"--loop") => {
+            match gaia::heal_loop::parse_cli(&args[1..]) {
+                Err(e) => Err(e),
+                Ok(cfg) => {
+                    let run = gaia::heal_loop::run(&cfg, &mut std::io::stdout());
+                    live_exit = run.exit;
+                    Ok(run.summary)
+                }
+            }
         }
         Some("heal-tick") => match gaia::live_heal::parse_cli(&args[1..]) {
             Err(e) => Err(e),

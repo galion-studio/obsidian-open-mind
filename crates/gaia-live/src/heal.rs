@@ -17,7 +17,10 @@
 //!   hash, consumed in hades-gate's fsynced replay ledger.
 //! * [`cap_check`] and [`Ledger`]: at most [`MAX_RESTARTS_PER_HOUR`]
 //!   restarts per service in any rolling hour, persisted on disk so separate
-//!   ticks share the budget.
+//!   ticks share the budget. Since Gaia S3.1 ([`Budget`]) the budget is the
+//!   `--state` ledger plus a global ledger next to hades-gate's replay
+//!   ledger, so a new `--state` dir cannot reset it, with an OS file lock
+//!   around check-and-record.
 //! * [`spawn_detached`]: starts the test service in its own process group
 //!   with stdin closed and output in a log file. It never signals, stops or
 //!   restarts anything else, and never calls systemctl.
@@ -202,12 +205,27 @@ impl Ledger {
         }
     }
 
+    /// A ledger at an explicit file path (the global ledger).
+    pub fn at(path: PathBuf) -> Ledger {
+        Ledger { path }
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
 
     /// Restart times (epoch seconds) recorded for `service`.
     pub fn history(&self, service: &str) -> io::Result<Vec<u64>> {
+        Ok(self
+            .entries(service)?
+            .into_iter()
+            .map(|r| r.epoch_s)
+            .collect())
+    }
+
+    /// Restart records (time and pid) for `service`. A line that is not JSON
+    /// (corrupt or torn) is an error, so callers fail closed.
+    pub fn entries(&self, service: &str) -> io::Result<Vec<Restart>> {
         let text = match fs::read_to_string(&self.path) {
             Ok(t) => t,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(vec![]),
@@ -215,29 +233,59 @@ impl Ledger {
         };
         let mut out = Vec::new();
         for line in text.lines().filter(|l| !l.trim().is_empty()) {
-            let v: serde_json::Value = serde_json::from_str(line)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+            let v: serde_json::Value = serde_json::from_str(line).map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{}: {e}", self.path.display()),
+                )
+            })?;
             if v.get("service").and_then(|s| s.as_str()) == Some(service) {
                 if let Some(t) = v.get("epoch_s").and_then(|t| t.as_u64()) {
-                    out.push(t);
+                    out.push(Restart {
+                        epoch_s: t,
+                        pid: v
+                            .get("pid")
+                            .and_then(|p| p.as_u64())
+                            .and_then(|p| u32::try_from(p).ok()),
+                    });
                 }
             }
         }
         Ok(out)
     }
 
-    pub fn record(&self, service: &str, epoch_s: u64, pid: u32) -> io::Result<()> {
-        let line = serde_json::json!({
+    fn line(service: &str, epoch_s: u64, pid: u32) -> String {
+        serde_json::json!({
             "service": service,
             "epoch_s": epoch_s,
             "ts": zagreb_time::from_unix(epoch_s as i64),
             "pid": pid,
-        });
+        })
+        .to_string()
+    }
+
+    pub fn record(&self, service: &str, epoch_s: u64, pid: u32) -> io::Result<()> {
         let mut f = OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)?;
-        writeln!(f, "{line}")
+        writeln!(f, "{}", Self::line(service, epoch_s, pid))
+    }
+
+    /// [`Ledger::record`] as one `write` of the whole line, then `fsync`;
+    /// creates the parent directory if needed.
+    pub fn record_synced(&self, service: &str, epoch_s: u64, pid: u32) -> io::Result<()> {
+        if let Some(dir) = self.path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            fs::create_dir_all(dir)?;
+        }
+        let mut f = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        let mut line = Self::line(service, epoch_s, pid);
+        line.push('\n');
+        f.write_all(line.as_bytes())?;
+        f.sync_data()
     }
 }
 
@@ -260,7 +308,27 @@ pub fn spawn_detached(argv: &[String], log: &Path) -> io::Result<u32> {
         .stderr(Stdio::from(err))
         .process_group(0)
         .spawn()?;
-    Ok(child.id())
+    let pid = child.id();
+    if let Ok(mut kids) = CHILDREN.lock() {
+        kids.push(child);
+    }
+    Ok(pid)
+}
+
+/// Children started by [`spawn_detached`] that may still need reaping.
+static CHILDREN: std::sync::Mutex<Vec<std::process::Child>> = std::sync::Mutex::new(Vec::new());
+
+/// Reap restarted test services that have exited, so a long-running loop
+/// does not collect zombies (the one-shot command exits and init reaps).
+/// Never signals anything; only `waitpid(WNOHANG)` on our own children.
+/// Returns `(reaped now, still running)`.
+pub fn reap() -> (usize, usize) {
+    let Ok(mut kids) = CHILDREN.lock() else {
+        return (0, 0);
+    };
+    let before = kids.len();
+    kids.retain_mut(|c| matches!(c.try_wait(), Ok(None)));
+    (before - kids.len(), kids.len())
 }
 
 /// Probe `t` until it is up or `timeout` passes (200 ms between tries).
@@ -298,5 +366,95 @@ pub fn test_probe(t: &TestTarget) -> crate::Probe {
         }),
         unit: None,
         fresh_file: None,
+    }
+}
+
+// ------------------------------------------------- global restart budget
+
+/// File name of the global restart ledger. It lives in the directory of
+/// hades-gate's replay ledger (from the `--hades-config` file), not in
+/// `--state`, so a new or empty `--state` directory cannot reset the
+/// [`MAX_RESTARTS_PER_HOUR`] budget (gaia-live.md limit, Gaia S3.1).
+pub const GLOBAL_LEDGER_FILE: &str = "gaia-restarts.jsonl";
+
+/// Where the global restart ledger sits for a hades-gate replay ledger path.
+#[must_use]
+pub fn global_ledger_path(hades_replay_ledger: &Path) -> PathBuf {
+    match hades_replay_ledger.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.join(GLOBAL_LEDGER_FILE),
+        _ => PathBuf::from(GLOBAL_LEDGER_FILE),
+    }
+}
+
+/// One restart record: when (epoch seconds) and which pid was started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Restart {
+    pub epoch_s: u64,
+    pub pid: Option<u32>,
+}
+
+/// The restart budget seen by one tick: the per-`--state` ledger and the
+/// global ledger together. A restart counts once even when both files have
+/// it (same epoch and pid). Records go to the global ledger first (fsynced),
+/// then to the state ledger. [`Budget::lock`] serialises the check-and-record
+/// window between concurrent ticks and loops (an OS file lock on
+/// `<global>.lock`; released when the returned file is dropped or the
+/// process dies).
+#[derive(Clone, Debug)]
+pub struct Budget {
+    state: Ledger,
+    global: Ledger,
+}
+
+impl Budget {
+    #[must_use]
+    pub fn new(state_dir: &Path, global_path: &Path) -> Budget {
+        Budget {
+            state: Ledger::new(state_dir),
+            global: Ledger::at(global_path.to_path_buf()),
+        }
+    }
+
+    #[must_use]
+    pub fn global_path(&self) -> &Path {
+        self.global.path()
+    }
+
+    #[must_use]
+    pub fn state_path(&self) -> &Path {
+        self.state.path()
+    }
+
+    /// Restart times of `service` from both ledgers, de-duplicated. An
+    /// unreadable or corrupt ledger is an error (the caller fails closed).
+    pub fn history(&self, service: &str) -> io::Result<Vec<u64>> {
+        let mut all = self.global.entries(service)?;
+        all.extend(self.state.entries(service)?);
+        all.sort_unstable();
+        all.dedup();
+        Ok(all.into_iter().map(|r| r.epoch_s).collect())
+    }
+
+    /// Exclusive lock for the check-then-record window. Blocks until free.
+    pub fn lock(&self) -> io::Result<fs::File> {
+        let mut p = self.global.path().as_os_str().to_owned();
+        p.push(".lock");
+        let lock_path = PathBuf::from(p);
+        if let Some(dir) = lock_path.parent().filter(|d| !d.as_os_str().is_empty()) {
+            fs::create_dir_all(dir)?;
+        }
+        let f = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&lock_path)?;
+        f.lock()?;
+        Ok(f)
+    }
+
+    /// Record one restart in the global ledger (fsynced) and the state one.
+    pub fn record(&self, service: &str, epoch_s: u64, pid: u32) -> io::Result<()> {
+        self.global.record_synced(service, epoch_s, pid)?;
+        self.state.record(service, epoch_s, pid)
     }
 }

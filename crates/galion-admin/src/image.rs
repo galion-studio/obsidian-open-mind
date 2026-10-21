@@ -192,10 +192,10 @@ pub fn valid_time(t: &str) -> bool {
     if b.len() != 25 {
         return false;
     }
-    let digits = [0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18, 20, 21, 23, 24];
-    let num = |i: usize, n: usize| -> u32 {
-        t[i..i + n].parse().unwrap_or(u32::MAX)
-    };
+    let digits = [
+        0, 1, 2, 3, 5, 6, 8, 9, 11, 12, 14, 15, 17, 18, 20, 21, 23, 24,
+    ];
+    let num = |i: usize, n: usize| -> u32 { t[i..i + n].parse().unwrap_or(u32::MAX) };
     digits.iter().all(|&i| b[i].is_ascii_digit())
         && b[4] == b'-'
         && b[7] == b'-'
@@ -220,8 +220,7 @@ pub fn check_header(key: &str, v: &str) -> Result<(), String> {
         "version" => charset(v, 32, b".+-"),
         "arch" => charset(v, 16, b"_"),
         "build.commit" => {
-            (7..=64).contains(&v.len())
-                && v.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f'))
+            (7..=64).contains(&v.len()) && v.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f'))
         }
         "build.rustc" => printable(v, 128),
         "build.time" => valid_time(v),
@@ -251,7 +250,9 @@ pub fn check_path(p: &str) -> Result<(), String> {
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"._+@-".contains(&b))
         {
-            return Err(format!("path {p:?}: character outside A-Z a-z 0-9 . _ + @ -"));
+            return Err(format!(
+                "path {p:?}: character outside A-Z a-z 0-9 . _ + @ -"
+            ));
         }
     }
     Ok(())
@@ -322,7 +323,14 @@ impl Manifest {
                 ));
             }
             let mut acc = String::new();
-            for c in e.path.split('/').collect::<Vec<_>>().split_last().unwrap().1 {
+            for c in e
+                .path
+                .split('/')
+                .collect::<Vec<_>>()
+                .split_last()
+                .unwrap()
+                .1
+            {
                 if !acc.is_empty() {
                     acc.push('/');
                 }
@@ -331,7 +339,10 @@ impl Manifest {
             }
         }
         if let Some(e) = self.files.iter().find(|e| dirs.contains(&e.path)) {
-            return Err(format!("{}: listed both as a file and as a directory", e.path));
+            return Err(format!(
+                "{}: listed both as a file and as a directory",
+                e.path
+            ));
         }
         self.files
             .iter()
@@ -669,7 +680,11 @@ impl Report {
 }
 
 fn read_meta(p: &Path, max: u64) -> Result<Vec<u8>, Rejection> {
-    let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
+    let name = p
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("?")
+        .to_string();
     let f = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK)
@@ -686,7 +701,9 @@ fn read_meta(p: &Path, max: u64) -> Result<Vec<u8>, Rejection> {
         .read_to_end(&mut v)
         .map_err(|e| Rejection::Metadata(format!("{name}: {}", e.kind())))?;
     if v.len() as u64 > max {
-        return Err(Rejection::Metadata(format!("{name}: larger than {max} bytes")));
+        return Err(Rejection::Metadata(format!(
+            "{name}: larger than {max} bytes"
+        )));
     }
     Ok(v)
 }
@@ -714,8 +731,11 @@ pub fn verify(dir: &Path, key: &VerifyingKey) -> Result<Report, Rejection> {
     let manifest = Manifest::parse(&man).map_err(Rejection::Manifest)?;
 
     let mut problems = Vec::new();
-    let listed: BTreeMap<&str, &Entry> =
-        manifest.files.iter().map(|e| (e.path.as_str(), e)).collect();
+    let listed: BTreeMap<&str, &Entry> = manifest
+        .files
+        .iter()
+        .map(|e| (e.path.as_str(), e))
+        .collect();
     let mut want_dirs = BTreeSet::new();
     for e in &manifest.files {
         let mut acc = String::new();
@@ -859,7 +879,12 @@ mod tests {
     fn image(dir: &Path, k: &SigningKey) -> VerifyingKey {
         put(dir, "bin/galion-admin", &vec![0x7f; 70_000], 0o755);
         put(dir, "bin/galion-box", b"\x7fELF box", 0o755);
-        put(dir, "etc/galion/os.toml", b"[os]\nname = \"galion\"\n", 0o644);
+        put(
+            dir,
+            "etc/galion/os.toml",
+            b"[os]\nname = \"galion\"\n",
+            0o644,
+        );
         put(dir, "README", b"gold image\n", 0o644);
         let m = build(dir, header()).unwrap();
         let text = m.to_text();
@@ -878,7 +903,10 @@ mod tests {
         assert_eq!(r.bytes_hashed, r.manifest.total_bytes());
         assert_eq!(r.manifest.files[0].path, "README");
         let text = std::fs::read(t.0.join(MANIFEST_NAME)).unwrap();
-        assert_eq!(Manifest::parse(&text).unwrap().to_text().as_bytes(), &text[..]);
+        assert_eq!(
+            Manifest::parse(&text).unwrap().to_text().as_bytes(),
+            &text[..]
+        );
     }
 
     #[test]
@@ -927,7 +955,10 @@ mod tests {
         std::fs::create_dir(t.0.join("empty")).unwrap();
         let r = verify(&t.0, &vk).unwrap();
         let codes: Vec<_> = r.problems.iter().map(|p| (p.code(), p.path())).collect();
-        assert!(codes.contains(&("missing", "bin/galion-admin")), "{codes:?}");
+        assert!(
+            codes.contains(&("missing", "bin/galion-admin")),
+            "{codes:?}"
+        );
         assert!(codes.contains(&("unlisted", "bin/extra")), "{codes:?}");
         assert!(codes.contains(&("unlisted-dir", "empty")), "{codes:?}");
     }
@@ -936,11 +967,8 @@ mod tests {
     fn mode_symlink_special() {
         let t = tmp("mode");
         let vk = image(&t.0, &key(7));
-        std::fs::set_permissions(
-            t.0.join("README"),
-            std::fs::Permissions::from_mode(0o666),
-        )
-        .unwrap();
+        std::fs::set_permissions(t.0.join("README"), std::fs::Permissions::from_mode(0o666))
+            .unwrap();
         let r = verify(&t.0, &vk).unwrap();
         assert_eq!(
             r.problems,
@@ -950,11 +978,8 @@ mod tests {
                 got: 0o666
             }]
         );
-        std::fs::set_permissions(
-            t.0.join("README"),
-            std::fs::Permissions::from_mode(0o644),
-        )
-        .unwrap();
+        std::fs::set_permissions(t.0.join("README"), std::fs::Permissions::from_mode(0o644))
+            .unwrap();
         // Replace a listed file by a symlink to an identical copy elsewhere.
         let outside = t.0.with_extension("outside");
         std::fs::write(&outside, b"gold image\n").unwrap();
@@ -1074,7 +1099,10 @@ mod tests {
             path: "a/b".into(),
             ..m.files[0].clone()
         });
-        assert!(m.validate().unwrap_err().contains("file and as a directory"));
+        assert!(m
+            .validate()
+            .unwrap_err()
+            .contains("file and as a directory"));
         m.files[1].path = "a".into();
         assert!(m.validate().is_err(), "duplicate");
         m.files[1].path = "0".into();
@@ -1091,7 +1119,11 @@ mod tests {
         assert!(parse_sig(format!("{s}x").as_bytes()).is_err());
         let t = tmp("keys");
         let p = t.0.join("admin.pub");
-        std::fs::write(&p, format!("{PUB_TAG} {}\n", to_hex(k.verifying_key().as_bytes()))).unwrap();
+        std::fs::write(
+            &p,
+            format!("{PUB_TAG} {}\n", to_hex(k.verifying_key().as_bytes())),
+        )
+        .unwrap();
         assert_eq!(load_public(&p).unwrap(), k.verifying_key());
         std::fs::write(&p, format!("{SEED_TAG} {}\n", to_hex(&[3; 32]))).unwrap();
         assert!(load_public(&p).unwrap_err().contains("not a ed25519-pub"));

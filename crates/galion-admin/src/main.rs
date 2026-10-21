@@ -108,11 +108,18 @@ fn image_verify(g: &Global, dir: &Path, key: &Path, json: bool) -> i32 {
     match std::fs::symlink_metadata(dir) {
         Ok(m) if m.is_dir() => {}
         Ok(_) => {
-            eprintln!("galion-admin: image verify: {}: not a directory", dir.display());
+            eprintln!(
+                "galion-admin: image verify: {}: not a directory",
+                dir.display()
+            );
             return 1;
         }
         Err(e) => {
-            eprintln!("galion-admin: image verify: {}: {}", dir.display(), e.kind());
+            eprintln!(
+                "galion-admin: image verify: {}: {}",
+                dir.display(),
+                e.kind()
+            );
             return 1;
         }
     }

@@ -370,7 +370,9 @@ mod tests {
     #[test]
     fn image_verify_parsing() {
         assert_eq!(
-            parse(&v("image verify /img --key /k.pub --json")).unwrap().1,
+            parse(&v("image verify /img --key /k.pub --json"))
+                .unwrap()
+                .1,
             Cmd::ImageVerify {
                 dir: "/img".into(),
                 key: "/k.pub".into(),

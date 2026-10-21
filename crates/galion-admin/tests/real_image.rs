@@ -43,7 +43,9 @@ impl Env {
             admin: std::env::var_os("GALION_ADMIN_BIN")
                 .map(PathBuf::from)
                 .unwrap_or(own),
-            runner: std::env::var("GALION_IMAGE_RUNNER").ok().filter(|s| !s.is_empty()),
+            runner: std::env::var("GALION_IMAGE_RUNNER")
+                .ok()
+                .filter(|s| !s.is_empty()),
             tool,
             base: fresh_dir(
                 &PathBuf::from(env!("CARGO_TARGET_TMPDIR")),
@@ -180,7 +182,12 @@ fn real_image(e: &Env, seed: &Path) -> (PathBuf, String) {
         "--commit",
         "bf33cba",
     ]);
-    let s = e.tool(&["sign", img.to_str().unwrap(), "--seed", seed.to_str().unwrap()]);
+    let s = e.tool(&[
+        "sign",
+        img.to_str().unwrap(),
+        "--seed",
+        seed.to_str().unwrap(),
+    ]);
     (img, format!("{m}; {s}; extra files {extra}"))
 }
 
@@ -223,12 +230,22 @@ fn i01_real_image_ok_and_tamper_matrix() {
     let (c, out, err, ms) = e.admin(&["image", "verify", dir, "--key", key]);
     println!("[{}] ok run: exit {c} {ms} ms: {}", stamp(), out.trim());
     assert_eq!(c, 0, "{out}{err}");
-    assert!(out.starts_with("image ok: galion-os-gold 0.1.0-s204"), "{out}");
-    assert_eq!(snapshot(&img), before, "verify must not write into the image");
+    assert!(
+        out.starts_with("image ok: galion-os-gold 0.1.0-s204"),
+        "{out}"
+    );
+    assert_eq!(
+        snapshot(&img),
+        before,
+        "verify must not write into the image"
+    );
 
     let (c, out, _, _) = e.admin(&["image", "verify", dir, "--key", key, "--json"]);
     assert_eq!(c, 0);
-    assert!(out.starts_with("{\"ok\":true,") && out.contains("\"problems\":[]"), "{out}");
+    assert!(
+        out.starts_with("{\"ok\":true,") && out.contains("\"problems\":[]"),
+        "{out}"
+    );
 
     let bin = img.join("bin/galion-admin");
     let orig = std::fs::read(&bin).unwrap();
@@ -244,7 +261,11 @@ fn i01_real_image_ok_and_tamper_matrix() {
         assert!(out.contains(want), "{name}: want {want:?} in {out}");
         rows.push((name.to_string(), c, first));
         // Restored image verifies again.
-        assert_eq!(e.admin(&["image", "verify", dir, "--key", key]).0, 0, "{name} undo");
+        assert_eq!(
+            e.admin(&["image", "verify", dir, "--key", key]).0,
+            0,
+            "{name} undo"
+        );
     };
     let b2 = bin.clone();
     let o2 = orig.clone();
@@ -363,13 +384,7 @@ fn i01_real_image_ok_and_tamper_matrix() {
         &mut || std::fs::write(&sig, &sig_o).unwrap(),
     );
     // Wrong key: a second real key pair.
-    let (c, out, _, _) = e.admin(&[
-        "image",
-        "verify",
-        dir,
-        "--key",
-        other_pub.to_str().unwrap(),
-    ]);
+    let (c, out, _, _) = e.admin(&["image", "verify", dir, "--key", other_pub.to_str().unwrap()]);
     println!("[{}] wrong key: exit {c}: {}", stamp(), out.trim());
     assert_eq!(c, 4);
     assert!(out.contains("REJECTED: wrong key"), "{out}");
@@ -390,7 +405,11 @@ fn i01_real_image_ok_and_tamper_matrix() {
     assert!(!audit.contains(&seed_hex) && !audit.contains(&pub_hex));
     let n_rec = audit.lines().filter(|l| l.contains("image.verify")).count();
     let (c, out, _, _) = e.admin(&["audit", "verify"]);
-    println!("[{}] audit: {n_rec} image.verify records; {}", stamp(), out.trim());
+    println!(
+        "[{}] audit: {n_rec} image.verify records; {}",
+        stamp(),
+        out.trim()
+    );
     assert_eq!(c, 0);
     assert!(n_rec >= 2 * rows.len() + 3, "{n_rec}");
     assert_eq!(snapshot(&img), before, "image restored byte-identical");
@@ -413,9 +432,8 @@ fn i02_throughput_big_file() {
     // Pseudo-random (xorshift64*) so nothing compresses or dedups below the hash.
     {
         use std::io::Write;
-        let mut f = std::io::BufWriter::new(
-            std::fs::File::create(img.join("data/rootfs.img")).unwrap(),
-        );
+        let mut f =
+            std::io::BufWriter::new(std::fs::File::create(img.join("data/rootfs.img")).unwrap());
         let mut x: u64 = 0x9e37_79b9_7f4a_7c15;
         let mut buf = vec![0u8; 1 << 20];
         for _ in 0..mb {
@@ -448,11 +466,21 @@ fn i02_throughput_big_file() {
         "bf33cba",
     ]);
     let build_ms = t.elapsed().as_millis();
-    e.tool(&["sign", img.to_str().unwrap(), "--seed", seed.to_str().unwrap()]);
+    e.tool(&[
+        "sign",
+        img.to_str().unwrap(),
+        "--seed",
+        seed.to_str().unwrap(),
+    ]);
     let mut runs = Vec::new();
     for _ in 0..3 {
-        let (c, out, err, ms) =
-            e.admin(&["image", "verify", img.to_str().unwrap(), "--key", public.to_str().unwrap()]);
+        let (c, out, err, ms) = e.admin(&[
+            "image",
+            "verify",
+            img.to_str().unwrap(),
+            "--key",
+            public.to_str().unwrap(),
+        ]);
         assert_eq!(c, 0, "{out}{err}");
         runs.push(ms);
     }
@@ -480,9 +508,18 @@ fn i02_throughput_big_file() {
         f.seek(SeekFrom::Start(off)).unwrap();
         f.write_all(&b).unwrap();
     }
-    let (c, out, _, ms) =
-        e.admin(&["image", "verify", img.to_str().unwrap(), "--key", public.to_str().unwrap()]);
-    println!("[{}] big image 1-bit flip: exit {c} {ms} ms: {}", stamp(), out.lines().nth(1).unwrap_or(""));
+    let (c, out, _, ms) = e.admin(&[
+        "image",
+        "verify",
+        img.to_str().unwrap(),
+        "--key",
+        public.to_str().unwrap(),
+    ]);
+    println!(
+        "[{}] big image 1-bit flip: exit {c} {ms} ms: {}",
+        stamp(),
+        out.lines().nth(1).unwrap_or("")
+    );
     assert_eq!(c, 4);
     assert!(out.contains("sha256       data/rootfs.img"));
     let _ = std::fs::remove_dir_all(&e.base);

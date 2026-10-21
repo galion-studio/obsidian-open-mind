@@ -260,6 +260,12 @@ fn every_family_yields_a_well_formed_plan() {
     // Same state twice: byte-identical plans (same approval hash).
     assert_eq!(from_state(&all_families()), ps);
     assert_eq!(ps.to_json()["by_family"]["stray-stop"], 2);
+    assert!(
+        !ps.skipped
+            .iter()
+            .any(|s| s.finding.starts_with("incident:")),
+        "every open incident has a plan"
+    );
 }
 
 #[test]
@@ -429,6 +435,7 @@ fn unknown_and_excluded_findings_yield_no_plan() {
     assert!(reason("ddos:sshd-credential-flood").contains("no template touches ssh"));
     assert!(reason("bleeding:restarts-galion-desk").contains("restart loop"));
     assert!(reason("ddos:galion-desk").contains("not behind an open incident"));
+    assert!(reason("incident:ssh-flood").contains("manual"));
     // Empty / garbage input: nothing, no panic.
     for v in [
         json!(null),

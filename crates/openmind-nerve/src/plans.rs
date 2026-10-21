@@ -359,6 +359,25 @@ pub fn from_state(state: &Value) -> Plans {
         finding_plan(&mut cx, kind, f, state);
     }
     stream_plans(&mut cx, state);
+    // Open incidents no plan answers stay manual: say so.
+    let planned: BTreeSet<String> = cx
+        .out
+        .plans
+        .iter()
+        .filter_map(|p| p.incident.clone())
+        .collect();
+    let manual: Vec<String> = cx
+        .incidents
+        .iter()
+        .filter(|i| !planned.contains(s(&i["id"])))
+        .map(|i| format!("incident:{}", s(&i["cause"])))
+        .collect();
+    for m in manual {
+        cx.skip(
+            m,
+            "open incident with no plan template: stays a manual owner step",
+        );
+    }
     let mut out = cx.out;
     out.plans.sort_by(|a, b| {
         sev_rank(&b.severity)

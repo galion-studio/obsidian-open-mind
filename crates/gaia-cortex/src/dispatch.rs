@@ -8,8 +8,9 @@
 //! Hermes inbox (inotify: no timer, no poll loop). One run drains the inbox
 //! and exits. Per handoff:
 //!
-//! 1. claim: rename the file out of the inbox (so the `.path` unit cannot
-//!    re-fire on it, and a crash never repeats a paid call);
+//! 1. claim: rename the file into `<inbox>/processing/` (same mount; it ends
+//!    in `done/`, `refused/` or `failed/`, never deleted) so the `.path` unit cannot
+//!    re-fire on it, and a crash never repeats a paid call;
 //! 2. budget: the combined logged Hermes spend (sum of every session in
 //!    hermes-rs's spend file, i.e. all callers: research helper, chat,
 //!    handoffs) plus a per-handoff reserve must stay under the ceiling
@@ -189,10 +190,13 @@ pub fn run(
     get: &dyn Fn(&str) -> Option<String>,
     now: &dyn Fn() -> String,
 ) -> Value {
-    let dirs = ["processing", "done", "refused", "failed", "proposals"];
-    for d in dirs {
-        let _ = std::fs::create_dir_all(cfg.state_dir.join(d));
+    // Claimed files stay on the inbox mount (systemd gives the inbox and the
+    // state dir separate bind mounts: rename across them fails with EXDEV).
+    let arch = |d: &str| cfg.inbox.join(d);
+    for d in ["processing", "done", "refused", "failed"] {
+        let _ = std::fs::create_dir_all(arch(d));
     }
+    let _ = std::fs::create_dir_all(cfg.state_dir.join("proposals"));
     let ledger = cfg.state_dir.join("ledger.jsonl");
     let props = cfg.state_dir.join("proposals.jsonl");
     let mut files: Vec<PathBuf> = std::fs::read_dir(&cfg.inbox)
@@ -213,7 +217,7 @@ pub fn run(
     let skill = std::fs::read_to_string(&cfg.skill).ok();
     for (i, f) in files.iter().enumerate() {
         // 1. claim first: whatever happens next, this file is never re-sent.
-        let claimed = mv(f, &cfg.state_dir.join("processing"));
+        let claimed = mv(f, &arch("processing"));
         if !claimed.exists() {
             out.push(json!({"file": f, "status": "claim-failed"}));
             continue;
@@ -225,7 +229,7 @@ pub fn run(
         {
             Some(v) => v,
             None => {
-                mv(&claimed, &cfg.state_dir.join("failed"));
+                mv(&claimed, &arch("failed"));
                 out.push(json!({"file": f, "status": "bad-json"}));
                 continue;
             }
@@ -247,7 +251,7 @@ pub fn run(
             } else {
                 "failed"
             };
-            mv(&claimed, &cfg.state_dir.join(dest));
+            mv(&claimed, &arch(dest));
             let r = json!({"ts": ts, "handoff_id": id, "incident": ticket["incident"], "status": status,
                            "why": why, "spent_usd": spent, "cost_usd": 0.0});
             append(&ledger, &r);
@@ -371,7 +375,7 @@ pub fn run(
             cfg.budget_usd
         );
         let _ = std::fs::write(&ppath, md);
-        mv(&claimed, &cfg.state_dir.join("done"));
+        mv(&claimed, &arch("done"));
         let msg = format!(
             "Galion cortex -> Hermes boss ({model}) proposal {id}\n{head}\nNothing changed; reply APPROVE {id} or REJECT {id}.\n\n{}",
             text.chars().take(3000).collect::<String>()
@@ -585,11 +589,13 @@ mod tests {
         assert_eq!(r["results"][0]["notify"], "no-channel-configured");
         let md = std::fs::read_to_string(c.state_dir.join("proposals/hoff-0.md")).unwrap();
         assert!(md.contains("AWAITING MATE APPROVAL") && md.contains("proposed patch"));
-        assert_eq!(
-            std::fs::read_dir(&c.inbox).unwrap().count(),
-            0,
-            "inbox drained"
-        );
+        let top_json = std::fs::read_dir(&c.inbox)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+            .count();
+        assert_eq!(top_json, 0, "inbox drained");
+        assert!(c.inbox.join("done/hoff-0.json").exists());
         // second run: nothing to do, no calls
         let n = m.calls.borrow().len();
         run(&c, &m, &env_with_key, &|| "t".into());
@@ -633,7 +639,7 @@ mod tests {
                 .count(),
             1
         );
-        assert!(c.state_dir.join("failed/hoff-0.json").exists());
+        assert!(c.inbox.join("failed/hoff-0.json").exists());
         std::fs::remove_file(&c.spend_file).unwrap();
         crate::handoff::write_atomic(&c.inbox, "hoff-9.json", &json!({"handoff_id": "hoff-9"}))
             .unwrap();

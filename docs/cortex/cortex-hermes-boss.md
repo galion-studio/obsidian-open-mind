@@ -17,7 +17,7 @@ nerve event -> cortex rules -> restart (live, via nerve POST /actions)
                                  -> /var/lib/gaia-cortex/hermes-inbox/hoff-<t>-<n>-<incident>.json (atomic)
                                  -> gaia-hermes-handoff.path (inotify PathExistsGlob, no timer)
                                  -> gaia-hermes-handoff.service: gaia-cortex hermes-dispatch (oneshot)
-                                      claim file -> $20 check (sum of hermes-rs rs-spend.json sessions
+                                      claim file (rename into <inbox>/processing, same mount) -> $20 check (sum of hermes-rs rs-spend.json sessions
                                       + $1 reserve) -> ONE call: Hermes /v1/chat/completions, model boss
                                       (claude-opus-5.5), system = cortex-escalation SKILL.md, no retry
                                       -> /var/lib/gaia-hermes-handoff/proposals/<id>.md + proposals.jsonl
@@ -38,3 +38,15 @@ nerve event -> cortex rules -> restart (live, via nerve POST /actions)
 Deploy files: `deploy/gaia-cortex/` (`86-hermes-boss.conf`,
 `gaia-hermes-handoff.{path,service}`, `cortex-escalation.SKILL.md` ->
 `/opt/galion/hermes/skills/galion/cortex-escalation/SKILL.md`).
+
+## Real test record (VPS, 2026-10-21 +02:00)
+
+- 23:05:52 refusal path, temp inbox, `HANDOFF_BUDGET_USD=1`: `refused-budget`
+  ("Hermes spend $1.1415 + reserve $1.00 > ceiling $1.00"), `BUDGET-STOP`
+  written, zero calls.
+- 23:06 first deploy (e57b946): claim used `rename` into the state dir, which
+  is a separate systemd bind mount -> EXDEV, `claim-failed`; the `.path` unit
+  re-fired 24 times in seconds, hit `TriggerLimitBurst=24` and failed. Zero
+  paid calls (claim happens before any call). The cortex saw the failed unit
+  and handed it off (R4-unknown-unit): the chain worked end to end on a real
+  failure. Fixed: claimed files stay under `<inbox>/{processing,done,refused,failed}`.

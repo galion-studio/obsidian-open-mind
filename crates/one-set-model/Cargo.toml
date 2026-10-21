@@ -5,6 +5,7 @@
 name = "one-set-model"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Validate a plan or action lane and return the modes JSON set-model.py would write. Reads a caller path. Writes nothing."
 

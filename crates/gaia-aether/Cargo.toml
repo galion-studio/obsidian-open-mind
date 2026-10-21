@@ -5,6 +5,7 @@
 name = "gaia-aether"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Gaia AETHER: communications (messaging, nerve, voice relay frame budget, Wi-Fi identity, LAN discovery of private peers, tunnel plans, origin, Zagreb clock). No network I/O."
 

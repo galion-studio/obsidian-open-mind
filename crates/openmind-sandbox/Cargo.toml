@@ -4,6 +4,7 @@
 name = "openmind-sandbox"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Run one command under rlimits, a cleared env, a fixed workdir, a wall timeout and (when the kernel has it) Landlock."
 

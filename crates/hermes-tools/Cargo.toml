@@ -6,6 +6,7 @@
 name = "hermes-tools"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Sandboxed coding tools for hermes-rs: worktree-only file read/write, git status/diff/commit (never push), cargo build/test/clippy, all run through openmind-sandbox with an allowlist, an audit log and spend caps."
 

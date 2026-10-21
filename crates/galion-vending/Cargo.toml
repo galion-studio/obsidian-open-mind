@@ -4,6 +4,7 @@
 name = "galion-vending"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Deterministic long-horizon vending-machine business sim (benchmark B3): inventory truth, pricing, restock, cash drawer, theft/spoilage, durable log, score formula."
 

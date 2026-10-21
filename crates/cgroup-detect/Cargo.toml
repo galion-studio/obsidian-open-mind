@@ -5,5 +5,6 @@
 name = "cgroup-detect"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Read-only cgroup v2 delegation probe. Reports whether a per-run cgroup is possible. Never creates a cgroup."

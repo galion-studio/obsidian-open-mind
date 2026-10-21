@@ -4,6 +4,7 @@
 name = "galion-one"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Galion One: the operator's own ear, mind and mouth on one box."
 

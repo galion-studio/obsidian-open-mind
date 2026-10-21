@@ -5,6 +5,7 @@
 name = "galion-bench"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Shared benchmark harness: std-only mock HTTP server driven by JSONL fixtures, a std HTTP client, and 0-100 scorecards. Mock-only: never talks to a real bank or broker."
 

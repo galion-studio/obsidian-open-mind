@@ -5,6 +5,7 @@
 name = "gaia-apollo"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Gaia APOLLO: bounded in-memory knowledge archive (memory-gateway, link-watch intake, TEACHER docs, session history, stack schema). No purge without HADES."
 

@@ -5,6 +5,7 @@
 name = "galion-health"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Loopback health dashboard: polls service ports + systemd states, serves HTML/JSON. std only."
 

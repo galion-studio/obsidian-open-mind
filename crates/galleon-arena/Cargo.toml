@@ -5,6 +5,7 @@
 name = "galleon-arena"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Read-only paper arena: list seed gladiators and score a match. Paper integers only. No network."
 

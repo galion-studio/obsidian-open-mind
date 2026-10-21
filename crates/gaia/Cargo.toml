@@ -5,6 +5,7 @@
 name = "gaia"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Gaia CLI: wires GAIA core to its nine subordinate functions; status, tick, the deterministic Faro-plague scenario (with --full-power), status --live (read-only) and heal-tick (approval-gated restart of box-local test services, nerve-recorded), JSON out."
 

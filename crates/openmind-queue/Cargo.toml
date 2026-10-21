@@ -4,6 +4,7 @@
 name = "openmind-queue"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "POSEIDON systems for Gaia: a durable job queue (priorities, leases, retries, DLQ), per-agent quotas, hard-stop spend caps (numbers only) and a VRAM-pool registry with GPU -> LAN -> CPU routing. std HTTP, no async runtime."
 

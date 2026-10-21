@@ -8,6 +8,10 @@ exclude = ["contrib"]
 
 [workspace.package]
 edition = "2021"
+# Minimum supported Rust = the pinned toolchain in rust-toolchain.toml (major.minor;
+# 1.99.1 is the only compiler CI and the box test with). Bump together with
+# rust-toolchain.toml and the workflow `toolchain:` inputs (docs/toolchain-pin.md).
+rust-version = "1.99"
 license = "MIT"
 version = "0.1.0"
 

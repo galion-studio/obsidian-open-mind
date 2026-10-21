@@ -5,6 +5,8 @@
 name = "openmind-node"
 version = "0.1.0"
 edition = "2021"
+# Same pin as the main workspace (rust-toolchain.toml at the repo root applies here too).
+rust-version = "1.99"
 license = "MIT"
 description = "omnode: phone/LAN-side node of the Obsidian Open Mind Stack (device identity, polite LAN discovery, mDNS announce, pairing payload, CPU-only agent sandbox)."
 publish = false

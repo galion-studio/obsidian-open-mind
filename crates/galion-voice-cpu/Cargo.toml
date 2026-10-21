@@ -8,6 +8,7 @@
 name = "galion-voice-cpu"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Galion voice M2: on-device CPU pipeline (Whisper-tiny STT via candle, pluggable text model and TTS) as a galion-voice-core backend."
 

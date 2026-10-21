@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Pinned Rust toolchain (slot 196 ci-toolchain-pin, 2026-10-21 CEST +02:00;
+# RELEASE-CHECKLIST 1.8). Single source of truth for the compiler version:
+# - rustup reads this file for every cargo/rustc call in this tree (local
+#   builds, xtask, scripts/ucpu-gate.sh, CI jobs).
+# - Every `dtolnay/rust-toolchain` step in .github/workflows passes
+#   `toolchain:` with this exact channel, so CI installs the pinned compiler
+#   instead of a floating "stable" that this file would then override.
+# - The workspace `rust-version` (Cargo.toml [workspace.package]) is the same
+#   major.minor; crates/galion-realtest/tests/toolchain_pin.rs fails if the
+#   three ever disagree.
+# 1.99.1 = rustc 58cf8f9c3 2026-10-13, the stable the whole swarm has been
+# building and testing with (box `stable` is the same commit).
+#
+# Targets are not listed here on purpose: each CI job adds only the target it
+# needs (`targets:` on the toolchain step) so the fmt/test jobs do not
+# download four extra std libraries. Locally, add them once with
+#   rustup target add --toolchain 1.99.1 x86_64-unknown-linux-musl \
+#     aarch64-unknown-linux-musl armv7-unknown-linux-musleabihf aarch64-linux-android
+# Bumping: change `channel` here, `rust-version` in Cargo.toml and the
+# workflow `toolchain:` inputs in one commit (docs/toolchain-pin.md).
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

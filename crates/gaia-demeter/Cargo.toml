@@ -5,6 +5,7 @@
 name = "gaia-demeter"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Gaia DEMETER: environment health (survival decide/degrade, non-destructive healer, tuner, config health, guardian-tick cycle, boot units); regrows the world after the swarm."
 

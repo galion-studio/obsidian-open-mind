@@ -5,6 +5,7 @@
 name = "guardian-tick"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Guardian tick: report-only by default; `heal` adds classify, repair plan, allow-listed dry-run-by-default restarts (reflex cap 3/unit/hour), an append-only Zagreb-stamped incident store and nerve events; `classify` plans over a captured galion-health status.json."
 

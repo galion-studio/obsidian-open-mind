@@ -4,6 +4,7 @@
 name = "desk-hermes"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Rust port of the desk-hermes mind snap (was /opt/galion/bin/desk-hermes.py)"
 

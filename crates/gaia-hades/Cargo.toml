@@ -5,6 +5,7 @@
 name = "gaia-hades"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Gaia HADES: guarded teardown, rollback, kill switch, heal-apply and secret-rotation PLANS. Dry-run by default; approval token required; never executes or deletes."
 

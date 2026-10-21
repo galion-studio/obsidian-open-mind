@@ -4,6 +4,7 @@
 name = "link-watch"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Rust port of the laptop link watcher (was /opt/galion/galion-light/scripts/link-watch.py)"
 

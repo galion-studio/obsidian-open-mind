@@ -5,6 +5,7 @@
 name = "galion-backup"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Periodic Galion backup (Rust port of galion-backup.sh: SQLite online snapshots, files tar, SHA256SUMS, 0600 tar.gz, rotation) plus the snapshot/verify/schema/migrate-baseline helpers."
 

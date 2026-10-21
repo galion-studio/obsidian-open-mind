@@ -5,6 +5,7 @@
 name = "gaia-poseidon"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Gaia POSEIDON: compute resources (VRAM pool, CPU/RAM/disk quotas, bounded queues with backpressure, budget caps). Stand-in or the real openmind-queue backend (read-only for budget, never spends). No real-money access."
 

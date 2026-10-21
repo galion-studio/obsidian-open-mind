@@ -8,6 +8,7 @@
 name = "galion-voice-core"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Galion voice-to-voice core: framing, energy VAD, jitter buffer, full-duplex session state machine with barge-in, pluggable backends."
 

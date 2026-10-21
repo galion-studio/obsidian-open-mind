@@ -5,6 +5,7 @@
 name = "openmind-config"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "One small config loader for OpenMind binaries: TOML file, then env overrides, loopback defaults."
 

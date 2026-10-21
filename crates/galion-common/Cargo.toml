@@ -4,6 +4,7 @@
 name = "galion-common"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Shared std-only helpers: SHA-256, hex, base64, CPython-compatible JSON output, Europe/Zagreb RFC 3339 time and a small hardened HTTP/1.1 server and client."
 

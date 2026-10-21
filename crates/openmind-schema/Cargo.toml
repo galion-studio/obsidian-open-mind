@@ -4,6 +4,7 @@
 name = "openmind-schema"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Galion Open Mind stack contract. The processor runs this. The card only runs the model."
 

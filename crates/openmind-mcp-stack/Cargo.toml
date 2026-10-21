@@ -5,6 +5,7 @@
 name = "openmind-mcp-stack"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Read-only stdio MCP stub. initialize and tools/list for stack_status. Fixture JSON only. No sockets."
 

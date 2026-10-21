@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
-          toolchain: stable
+          toolchain: "1.99.1" # = rust-toolchain.toml channel (tests/toolchain_pin.rs)
           components: rustfmt
       - run: cargo fmt --all -- --check
       - run: cargo fmt --manifest-path edge/openmind-node/Cargo.toml --all -- --check
@@ -49,7 +49,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
-          toolchain: stable
+          toolchain: "1.99.1" # = rust-toolchain.toml channel (tests/toolchain_pin.rs)
           components: clippy
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
@@ -61,7 +61,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
-          toolchain: stable
+          toolchain: "1.99.1" # = rust-toolchain.toml channel (tests/toolchain_pin.rs)
       - run: cargo test --workspace --locked
 
   omnode:
@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
-          toolchain: stable
+          toolchain: "1.99.1" # = rust-toolchain.toml channel (tests/toolchain_pin.rs)
           components: clippy
       - run: cargo clippy --manifest-path edge/openmind-node/Cargo.toml --all-targets --locked -- -D warnings
       - run: cargo test --manifest-path edge/openmind-node/Cargo.toml --locked
@@ -98,7 +98,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
-          toolchain: stable
+          toolchain: "1.99.1" # = rust-toolchain.toml channel (tests/toolchain_pin.rs)
           targets: ${{ matrix.target }}
           components: clippy
       - name: install zig cc (pinned, checksum-verified)
@@ -125,7 +125,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
-          toolchain: stable
+          toolchain: "1.99.1" # = rust-toolchain.toml channel (tests/toolchain_pin.rs)
           targets: ${{ matrix.target }}
       - name: install zig cc (pinned, checksum-verified)
         run: echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
@@ -144,7 +144,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
-          toolchain: stable
+          toolchain: "1.99.1" # = rust-toolchain.toml channel (tests/toolchain_pin.rs)
           targets: aarch64-unknown-linux-musl, armv7-unknown-linux-musleabihf
       - name: install qemu-user-static and zig cc
         run: |
@@ -163,7 +163,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
-          toolchain: stable
+          toolchain: "1.99.1" # = rust-toolchain.toml channel (tests/toolchain_pin.rs)
           targets: x86_64-unknown-linux-musl
       - name: build repo-check (portable musl)
         run: cargo build --release --locked -p repo-check --target x86_64-unknown-linux-musl

@@ -5,6 +5,7 @@
 name = "one-defence"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Read-only port of galion-light/one/defence.py: newest health_checks row per service."
 

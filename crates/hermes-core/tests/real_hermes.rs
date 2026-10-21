@@ -7,7 +7,8 @@
 //! Nothing under test is mocked: the real registry (config/hermes/sectors.toml),
 //! the real plans (/workspace/swarm/plans or HERMES_PLANS_DIR), the real
 //! hades-gate verifier with a throwaway admin key made here, the real JSONL
-//! ledger, the real governor and the real loopback HTTP server on 19380. The
+//! ledger, the real governor and the real loopback HTTP server on 19380
+//! (`HERMES_REAL_PORT` moves it into another slot's range). The
 //! only stand-in is the model provider (offline mock), because OpenRouter
 //! returns 402 and no credit may be spent.
 //!
@@ -24,8 +25,17 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const PORT: u16 = 19380;
-const PORT_REFUSED: u16 = 19381;
+const PORT_DEFAULT: u16 = 19380;
+
+/// Status API port: 19380 (slot 38) unless `HERMES_REAL_PORT` names another
+/// in the caller's own slot range; the refused 0.0.0.0 probe uses port + 1.
+fn ports() -> (u16, u16) {
+    let p = std::env::var("HERMES_REAL_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(PORT_DEFAULT);
+    (p, p + 1)
+}
 
 struct Env {
     dir: PathBuf,
@@ -172,7 +182,8 @@ fn hermes_real_life() {
         sum("gated_tasks"),
         v["gaia_systems_covered"]
     );
-    assert_eq!(sectors.len(), 7);
+    // Seven swarm sectors plus bench (built-in plan: 3 sessions, 8 runs).
+    assert_eq!(sectors.len(), 8);
     for s in sectors {
         for k in ["sessions", "tasks", "target", "useful"] {
             let parsed = match k {
@@ -183,8 +194,11 @@ fn hermes_real_life() {
             assert_eq!(parsed, &s["planner"][k], "{} {k} vs planner", s["id"]);
         }
     }
-    assert_eq!((sum("sessions"), sum("tasks")), (47, 200));
-    assert_eq!((sum("target_agents"), sum("useful_agents")), (645, 407));
+    assert_eq!((sum("sessions"), sum("tasks")), (47 + 3, 200 + 8));
+    assert_eq!(
+        (sum("target_agents"), sum("useful_agents")),
+        (645 + 8, 407 + 8)
+    );
 
     step(
         "R2",
@@ -221,7 +235,7 @@ fn hermes_real_life() {
         .collect();
     assert_eq!(
         dispatched_sectors.len(),
-        7,
+        8,
         "round-robin: every sector gets work"
     );
     let led = std::fs::read_to_string(env.dir.join("main/ledger.jsonl")).unwrap_or_default();
@@ -335,7 +349,8 @@ fn hermes_real_life() {
     assert!(s["request_limit_stops"].as_u64().unwrap() > 10);
     assert!(s["stall_stops"].as_u64().unwrap() > 0);
     assert_eq!(s["failed"], 0);
-    assert_eq!(s["completed"], 25);
+    // 25 first-session tasks of the seven swarm sectors + bench S1 (3 runs).
+    assert_eq!(s["completed"], 28);
 
     step("R5", "HADES refuses an unapproved merge (operator intake)");
     let (code, v) = json(
@@ -463,7 +478,7 @@ fn hermes_real_life() {
     assert_eq!(code, 3);
     assert_eq!(v["decision"]["code"], "replayed");
 
-    step("R7", "status API on 127.0.0.1:19380");
+    step("R7", &format!("status API on 127.0.0.1:{}", ports().0));
     let (code, _) = hermes(
         &env,
         "main",
@@ -472,7 +487,7 @@ fn hermes_real_life() {
             "--host",
             "0.0.0.0",
             "--port",
-            &PORT_REFUSED.to_string(),
+            &ports().1.to_string(),
         ],
     );
     eprintln!("  serve --host 0.0.0.0 -> exit {code} (refused, loopback only)");
@@ -484,13 +499,13 @@ fn hermes_real_life() {
         .arg(&env.plans)
         .arg("--state")
         .arg(env.dir.join("cap24"))
-        .args(["serve", "--port", &PORT.to_string()])
+        .args(["serve", "--port", &ports().0.to_string()])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
     let server = Killer(child);
-    let addr: SocketAddr = format!("127.0.0.1:{PORT}").parse().unwrap();
+    let addr: SocketAddr = format!("127.0.0.1:{}", ports().0).parse().unwrap();
     let up = Instant::now();
     while http::get(&addr, "/health").is_err() {
         assert!(

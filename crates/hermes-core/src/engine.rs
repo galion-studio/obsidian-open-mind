@@ -184,14 +184,25 @@ struct Done {
 }
 
 impl Hermes {
-    /// Load every sector's plan from `plans_dir`.
+    /// Load every sector's plan from `plans_dir` (or, for a sector with
+    /// `plan_builtin`, from the plan compiled into the binary).
     ///
     /// # Errors
     /// A plan file is missing or has no sessions.
     pub fn load(reg: Registry, plans_dir: &Path) -> Result<Hermes, String> {
         let mut plans = Vec::new();
         for s in &reg.sectors {
-            plans.push(Plan::load(&s.id, &plans_dir.join(&s.plan))?);
+            if s.plan_builtin {
+                let text = crate::bench::builtin_plan(&s.plan)
+                    .ok_or_else(|| format!("sector {}: no built-in plan {:?}", s.id, s.plan))?;
+                let plan = crate::plan::parse(&s.id, text);
+                if plan.sessions.is_empty() {
+                    return Err(format!("built-in plan {}: no sessions", s.plan));
+                }
+                plans.push(plan);
+            } else {
+                plans.push(Plan::load(&s.id, &plans_dir.join(&s.plan))?);
+            }
         }
         Ok(Hermes::from_plans(reg, plans))
     }

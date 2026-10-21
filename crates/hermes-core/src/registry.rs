@@ -129,8 +129,12 @@ pub struct RequireMerged {
 pub struct Sector {
     pub id: String,
     pub name: String,
-    /// Plan file name, relative to `hermes.plans_dir`.
+    /// Plan file name, relative to `hermes.plans_dir`; with `plan_builtin`
+    /// the name of a plan compiled into the binary ([`crate::bench::builtin_plan`]).
     pub plan: String,
+    /// The plan ships inside the `hermes` binary instead of `plans_dir`.
+    #[serde(default)]
+    pub plan_builtin: bool,
     pub lead: String,
     pub max_concurrent: usize,
     pub gaia_functions: Vec<String>,
@@ -232,6 +236,12 @@ impl Registry {
                 return Err(format!(
                     "sector {}: plan must be a bare *.md file name",
                     s.id
+                ));
+            }
+            if s.plan_builtin && crate::bench::builtin_plan(&s.plan).is_none() {
+                return Err(format!(
+                    "sector {}: no built-in plan named {:?}",
+                    s.id, s.plan
                 ));
             }
             if s.lead == h.boss_agent || !s.lead.starts_with(&format!("{}.", s.id)) {
@@ -394,7 +404,22 @@ gaia_systems = ["teacher-docs"]
     }
 
     #[test]
-    fn repo_sectors_toml_loads_and_has_seven_sectors() {
+    fn builtin_plan_must_exist() {
+        let ok = MIN.replace(
+            "plan = \"docs.md\"",
+            "plan = \"bench.md\"\nplan_builtin = true",
+        );
+        assert!(Registry::parse(&ok).is_ok());
+        let bad = MIN.replace(
+            "plan = \"docs.md\"",
+            "plan = \"nope.md\"\nplan_builtin = true",
+        );
+        let e = Registry::parse(&bad).unwrap_err();
+        assert!(e.contains("no built-in plan"), "{e}");
+    }
+
+    #[test]
+    fn repo_sectors_toml_loads_seven_sectors_plus_bench() {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config/hermes/sectors.toml");
         let r = Registry::load(&path).unwrap();
         let ids: Vec<_> = r.sectors.iter().map(|s| s.id.as_str()).collect();
@@ -407,11 +432,15 @@ gaia_systems = ["teacher-docs"]
                 "vps-ops",
                 "integration-ci",
                 "security",
-                "docs-whitepaper"
+                "docs-whitepaper",
+                "bench"
             ]
         );
         assert_eq!(r.hermes.concurrency_cap, 16);
         let tasks: usize = r.sectors.iter().map(|s| s.planner_tasks).sum();
-        assert_eq!(tasks, 200);
+        assert_eq!(tasks, 208, "200 swarm-plan tasks + 8 bench runs");
+        let bench = r.sector("bench").unwrap();
+        assert!(bench.plan_builtin);
+        assert_eq!(bench.gaia_functions, ["ARTEMIS"]);
     }
 }

@@ -39,9 +39,10 @@ fn plan_is_dry_run_for_hades() {
 #[test]
 fn ownership_counts() {
     let j = gaia::ownership_json();
-    // +1 each for hermes-core (swarm/hermes-core, boss-node / ARTEMIS).
-    assert_eq!(num(&j, &["crates_total"]), 47);
-    assert_eq!(num(&j, &["system_crates"]), 36);
+    // +1 each for hermes-core (swarm/hermes-core, boss-node / ARTEMIS), +6
+    // each for the bench crates of swarm/bench-hermes 457ef74 (ARTEMIS).
+    assert_eq!(num(&j, &["crates_total"]), 53);
+    assert_eq!(num(&j, &["system_crates"]), 42);
     assert_eq!(num(&j, &["systems_total"]), 52);
 }
 

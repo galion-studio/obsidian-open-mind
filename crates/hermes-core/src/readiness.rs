@@ -59,7 +59,21 @@ pub struct Inputs<'a> {
     pub repo: Option<&'a Path>,
     /// Run the HTTP loopback self-test (off when called from the API itself).
     pub http_selftest: bool,
+    /// The last recorded bench run (`<state>/bench/last.json`), for G16.
+    pub bench: Option<&'a crate::bench::BenchRun>,
 }
+
+/// The sectors Hermes must hold: the seven swarm sectors plus bench.
+pub const SECTORS: [&str; 8] = [
+    "gaia",
+    "nerve",
+    "cortex",
+    "vps-ops",
+    "integration-ci",
+    "security",
+    "docs-whitepaper",
+    crate::bench::SECTOR,
+];
 
 fn check(id: &'static str, name: &str, ok: bool, fixable: bool, evidence: String) -> Check {
     Check {
@@ -87,14 +101,24 @@ pub fn evaluate(inp: &Inputs<'_>) -> Readiness {
 
     // G1 registry.
     let (covered, uncovered) = reg.coverage();
+    let missing: Vec<&str> = SECTORS
+        .iter()
+        .filter(|id| reg.sector(id).is_none())
+        .copied()
+        .collect();
     checks.push(check(
         "G1",
         "Sector registry loads; every sector maps to real Gaia systems and owners",
-        reg.validate().is_ok() && reg.sectors.len() == 7,
+        reg.validate().is_ok() && missing.is_empty() && reg.sectors.len() == SECTORS.len(),
         true,
         format!(
-            "{} sectors; {} of {} Gaia systems covered; not covered: {}",
+            "{} sectors{}; {} of {} Gaia systems covered; not covered: {}",
             reg.sectors.len(),
+            if missing.is_empty() {
+                String::new()
+            } else {
+                format!(" (missing: {})", missing.join(", "))
+            },
             covered.len(),
             covered.len() + uncovered.len(),
             uncovered.join(", ")
@@ -121,7 +145,7 @@ pub fn evaluate(inp: &Inputs<'_>) -> Readiness {
     let cycles: usize = h.plans.iter().map(|p| p.cycles.len()).sum();
     checks.push(check(
         "G3",
-        "All seven sector plans load with no dependency cycles",
+        "All sector plans (seven swarm plans plus the built-in bench plan) load with no dependency cycles",
         h.plans.len() == reg.sectors.len() && cycles == 0,
         false,
         format!(
@@ -160,12 +184,13 @@ pub fn evaluate(inp: &Inputs<'_>) -> Readiness {
     // G5 every sector can start.
     let dry = h.dry_run(inp.gate, Some(1), None);
     let mut idle = Vec::new();
+    let mut finished = Vec::new();
     for s in &reg.sectors {
-        if !dry
-            .rows
-            .iter()
-            .any(|r| r.sector == s.id && r.decision == "dispatch")
-        {
+        let mut rows = dry.rows.iter().filter(|r| r.sector == s.id).peekable();
+        if rows.peek().is_none() {
+            // Nothing left in its first session: finished, not idle.
+            finished.push(s.id.clone());
+        } else if !rows.any(|r| r.decision == "dispatch") {
             idle.push(s.id.clone());
         }
     }
@@ -175,7 +200,7 @@ pub fn evaluate(inp: &Inputs<'_>) -> Readiness {
         idle.is_empty(),
         false,
         format!(
-            "dry run: {} dispatch, {} wait for slots, {} wait for deps, {} held, {} refused; {} of {} worker slots; idle sectors: {}",
+            "dry run: {} dispatch, {} wait for slots, {} wait for deps, {} held, {} refused; {} of {} worker slots; idle sectors: {}; first session finished: {}",
             dry.count("dispatch"),
             dry.count("wait-cap"),
             dry.count("wait-deps"),
@@ -183,7 +208,8 @@ pub fn evaluate(inp: &Inputs<'_>) -> Readiness {
             dry.count("refused"),
             dry.slots_used,
             dry.worker_slots,
-            if idle.is_empty() { "none".into() } else { idle.join(", ") }
+            if idle.is_empty() { "none".into() } else { idle.join(", ") },
+            if finished.is_empty() { "none".into() } else { finished.join(", ") }
         ),
     ));
 
@@ -289,6 +315,16 @@ pub fn evaluate(inp: &Inputs<'_>) -> Readiness {
         },
     ));
 
+    // G16 the bench sector coordinates benchmark runs.
+    let (bench_ok, bench_ev) = crate::bench::readiness(h, inp.gate, inp.bench);
+    checks.push(check(
+        "G16",
+        "Bench sector: Hermes coordinates offline benchmark runs and the last run scored",
+        bench_ok,
+        true,
+        bench_ev,
+    ));
+
     let passed = checks.iter().filter(|c| c.status == Status::Pass).count();
     let total = checks.len() + 1;
     let blockers: Vec<String> = checks
@@ -310,6 +346,7 @@ pub fn evaluate(inp: &Inputs<'_>) -> Readiness {
             Err(e) => format!("{e}: {spoken:?}"),
         },
     ));
+    checks.sort_by_key(|c| c.id[1..].parse::<u32>().unwrap_or(u32::MAX));
     let passed = checks.iter().filter(|c| c.status == Status::Pass).count();
     let detail = checks
         .iter()
@@ -353,6 +390,7 @@ fn short_name(id: &str) -> &'static str {
         "G12" => "the unmerged branches",
         "G13" => "the status API",
         "G14" => "your open decisions",
+        "G16" => "the bench runs",
         _ => "a check",
     }
 }

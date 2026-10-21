@@ -2,6 +2,7 @@
 # Copyright (c) 3000 Galion / galion-studio
 #
 # Hermes sector registry (crates/hermes-core). Written 2026-10-20 21:30 CEST (+02:00).
+# The bench sector (last) uses a plan built into the binary; see its entry.
 # Seeded from the seven sector plans in /workspace/swarm/plans/*.md (planners
 # finished 2026-10-20 20:44-20:46 CEST). `planner_*` numbers are what each
 # planner reported (CALL-RECORD.md 20:44-20:46); `hermes readiness` checks
@@ -187,3 +188,28 @@ planner_tasks = 22
 planner_target = 82
 planner_useful = 34
 note = "Measurement freeze, doc fixes D1-D19, white paper draft, adversarial fact-check, publication prep."
+
+# Bench sector (swarm/hermes-core-bench-sector, 2026-10-21 04:55 CEST +02:00).
+# Hermes coordinates the benchmark runs of plans/benchmarks.md (B1 banking,
+# B2 Wall Street, B3 vending) on the hermes-bench runner (swarm/bench-hermes
+# 457ef74). The plan is the run matrix and is built into the binary
+# (crates/hermes-core/plans/bench.md); `hermes bench run --bin <hermes-bench>`
+# executes it. Only scripted and mock-llm agents exist here: the paid live
+# agent is refused by the whitelist (Slavik's live-bench decision H1).
+# Gaia: the benchmarks score the agent population (ARTEMIS), the same owner as
+# galleon-arena (paper arena); hermes-bench drives hermes-rs agents.
+[[sector]]
+id = "bench"
+name = "Benchmarks"
+plan = "bench.md"
+plan_builtin = true
+lead = "bench.lead"
+# Three runs wide (one per benchmark); the box build queue allows 3 builds.
+max_concurrent = 3
+gaia_functions = ["ARTEMIS"]
+gaia_systems = ["ecosystem-census", "hermes-agents"]
+planner_sessions = 3
+planner_tasks = 8
+planner_target = 8
+planner_useful = 8
+note = "Scripted and mock-llm runs of B1/B2/B3 through hermes-bench, then scoreboards; no live model, no money."

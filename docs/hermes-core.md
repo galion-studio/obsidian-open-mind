@@ -6,6 +6,7 @@
 Written 2026-10-20T21:35:00+02:00 (Europe/Zagreb, CEST). Branch `swarm/hermes-core`.
 Crate `crates/hermes-core` (binary `hermes`), registry `config/hermes/sectors.toml`.
 Real-test record: `docs/real-tests/hermes-core.md`. Third-party: `docs/third-party/hermes-core.md`.
+Bench sector (8th sector, 2026-10-21 +02:00, swarm/hermes-core-bench-sector): `docs/hermes-bench-sector.md`.
 
 ## 1. What Hermes is today (before this branch)
 
@@ -43,7 +44,8 @@ Slavik (owner, HADES admin key)
        ├─ vps-ops-lead         ── vps-ops.<task>.a<n>
        ├─ integration-ci-lead  ── integration-ci.<task>.a<n>
        ├─ security-lead        ── security.<task>.a<n>
-       └─ docs-whitepaper-lead ── docs-whitepaper.<task>.a<n>
+       ├─ docs-whitepaper-lead ── docs-whitepaper.<task>.a<n>
+       └─ bench.lead           ── bench.<task>.a<n>          hermes-bench processes (no model), see docs/hermes-bench-sector.md
 ```
 
 - There is exactly one coordinator. Sector leads are on-demand sessions that Hermes opens for planning and review. They do not hold a standing slot. Sub-agents are one session per task attempt, named `<sector>.<task>.a<attempt>`, so a retry is a new session with a new name and the ledger keeps every attempt.
@@ -52,7 +54,7 @@ Slavik (owner, HADES admin key)
 
 ## 3. Registration (`config/hermes/sectors.toml`, `src/registry.rs`)
 
-The registry is one TOML file with these parts: `[hermes]`, `[retry]`, `[hades]`, `[[readiness.require_merged]]`, `[[readiness.owner]]` and seven `[[sector]]`. Each sector has `id`, `name`, `lead`, `plan` (a bare file name under `plans_dir`), `max_concurrent`, `gaia_functions`, `gaia_systems` and the planner's own `planner_sessions/tasks/target/useful`.
+The registry is one TOML file with these parts: `[hermes]`, `[retry]`, `[hades]`, `[[readiness.require_merged]]`, `[[readiness.owner]]` and eight `[[sector]]` (the seven swarm sectors plus `bench`). Each sector has `id`, `name`, `lead`, `plan` (a bare file name under `plans_dir`), `max_concurrent`, `gaia_functions`, `gaia_systems` and the planner's own `planner_sessions/tasks/target/useful`. `plan_builtin = true` means the plan is compiled into the binary (only `bench.md`, from `crates/hermes-core/plans/`); an unknown built-in name refuses the file.
 
 Mapping to Gaia uses the gaia-land registry (`gaia_core`, swarm/gaia-land 9d3ec18, merged into this branch). `Registry::validate` refuses to load if:
 - a system is not one of the 52 `gaia_core::System` names;
@@ -162,12 +164,12 @@ Every transition is a ledger event, and `Hermes::apply` replays the ledger. Afte
 
 ## 10. Interfaces
 
-- **CLI** (`hermes`): `sectors`, `agents`, `plan [--sector]`, `dispatch --dry-run [--first-sessions N] [--cap N]`, `run --simulate [...]`, `intake`, `gate --task`, `brief --task`, `ledger [--tail N|--retries|--verify]`, `readiness [--repo]`, `report`, `serve --port`. Global flags are `--config`, `--plans`, `--state` and `--json`. Exit code 3 means not ready or refused.
+- **CLI** (`hermes`): `sectors`, `agents`, `plan [--sector]`, `dispatch --dry-run [--first-sessions N] [--cap N]`, `run --simulate [...]`, `intake`, `gate --task`, `brief --task`, `ledger [--tail N|--retries|--verify]`, `readiness [--repo]`, `report`, `serve --port`, `bench plan|run --bin PATH|status`. Global flags are `--config`, `--plans`, `--state` and `--json`. Exit code 3 means not ready or refused.
 - **HTTP status API** (`hermes serve`):
   - binds loopback only; non-loopback addresses are refused;
   - GET and HEAD only, so every other method gets 405;
   - at most 16 connections and an 8 KiB request head.
-  - Routes: `/health`, `/v1/sectors`, `/v1/agents`, `/v1/tasks[?sector=]`, `/v1/dispatch`, `/v1/ledger[?tail=]`, `/v1/retries`, `/v1/governor`, `/v1/readiness`, `/v1/report`.
+  - Routes: `/health`, `/v1/sectors`, `/v1/agents`, `/v1/tasks[?sector=]`, `/v1/dispatch`, `/v1/ledger[?tail=]`, `/v1/retries`, `/v1/governor`, `/v1/readiness`, `/v1/report`, `/v1/bench`.
 - **Provider trait** (`src/provider.rs`): `run(&Brief) -> RunOutcome`.
   - `OpenRouter` always refuses with the 402 message and makes no network call.
   - `MockProvider(limit, work)` models the platform request limit by counting active slots and can inject stalls.
@@ -196,8 +198,11 @@ Hermes is ready to coordinate the swarm only when all 15 checks pass. Results ar
 | G13 | Status API loopback-only and answers | pass | pass | Hermes |
 | G14 | Slavik's open decisions recorded as decided (7 open) | **fail** | **fail** | Slavik |
 | G15 | Operator report opens with one speakable sentence | pass | pass | Hermes |
+| G16 | Bench sector: built-in plan parses to offline commands only, the whitelist refuses `live` and backend URLs, and the last recorded `hermes bench run` completed every plan task with every scripted run at 100% | fail until a run is recorded; **pass** after `hermes bench run` (2026-10-21 05:01 CEST) | same | Hermes (`hermes bench run`) |
 
 The totals are 11/15 for A and 12/15 for B. Every check that fails needs Slavik, and Hermes can fix none of them alone.
+
+Update 2026-10-21 05:05 CEST (+02:00), swarm/hermes-core-bench-sector: there are now 16 checks. G1 requires all eight sectors, G3 loads seven plan files plus the built-in bench plan (208 tasks, 50 sessions), and G5 counts a sector whose first session is all done as finished, not idle (that case first appeared once the bench sector had run). On a fresh state the totals are 11/16 for A and 12/16 for B: G16 is the only extra failure, and Hermes fixes it alone with `hermes bench run`. With a recorded bench run A is 12/16 (measured, real_bench RB5); B would be 13/16, since B differs from A only in G9 (inferred, not measured). Details are in `docs/hermes-bench-sector.md`.
 
 ## 12. What Slavik decides (the open items of G14)
 

@@ -18,6 +18,11 @@
 //!   report                        one spoken sentence plus detail
 //!   intake --sector S --title T [--class C] [--deps K,K]   operator task intake
 //!   serve --port P [--host 127.0.0.1]
+//!   bench plan                    the bench sector's run matrix (parsed commands)
+//!   bench run --bin PATH [--out DIR] [--sha SHA] [--rerun] [--only K,K]
+//!             [--cap N] [--timeout-secs N] [--time-scale F]
+//!                                 run the bench tasks as real hermes-bench processes
+//!   bench status                  the last recorded bench run
 //! ```
 //!
 //! Defaults: `--config` $HERMES_CONFIG or config/hermes/sectors.toml;
@@ -26,6 +31,7 @@
 //! Exit codes: 0 ok, 1 error, 2 usage, 3 readiness not met / gate refused.
 
 use hermes_core::action::ActionClass;
+use hermes_core::bench;
 use hermes_core::engine::{local_id, retry_table, Hermes, RunOpts, TaskState};
 use hermes_core::gate::{plan_bytes, Gate, GateDecision};
 use hermes_core::governor::Governor;
@@ -43,7 +49,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Duration;
 
-const USAGE: &str = "usage: hermes [--config F] [--plans DIR] [--state DIR] [--json] <sectors|agents|plan|dispatch --dry-run|run --simulate|gate|brief|ledger|readiness|report|intake|serve> [flags]";
+const USAGE: &str = "usage: hermes [--config F] [--plans DIR] [--state DIR] [--json] <sectors|agents|plan|dispatch --dry-run|run --simulate|gate|brief|ledger|readiness|report|intake|serve|bench plan|bench run --bin PATH|bench status> [flags]";
 
 #[derive(Clone, Debug)]
 struct Ctx {
@@ -74,7 +80,14 @@ struct Args {
     switches: Vec<String>,
 }
 
-const SWITCHES: &[&str] = &["--dry-run", "--simulate", "--retries", "--verify", "--json"];
+const SWITCHES: &[&str] = &[
+    "--dry-run",
+    "--simulate",
+    "--retries",
+    "--verify",
+    "--json",
+    "--rerun",
+];
 
 fn parse(rest: &[String]) -> Result<Args, String> {
     let mut flags: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -157,7 +170,16 @@ fn main() -> ExitCode {
         eprintln!("{USAGE}");
         return ExitCode::from(2);
     };
-    let args = match parse(&argv[i + 1..]) {
+    // `bench` takes a sub-command word before its flags.
+    let (sub, rest) = if cmd == "bench" {
+        match argv.get(i + 1) {
+            Some(s) if !s.starts_with("--") => (Some(s.clone()), &argv[i + 2..]),
+            _ => (None, &argv[i + 1..]),
+        }
+    } else {
+        (None, &argv[i + 1..])
+    };
+    let args = match parse(rest) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("hermes: {e}\n{USAGE}");
@@ -180,6 +202,7 @@ fn main() -> ExitCode {
         "report" => cmd_report(&ctx),
         "intake" => cmd_intake(&ctx, &args),
         "serve" => cmd_serve(&ctx, &args),
+        "bench" => cmd_bench(&ctx, sub.as_deref(), &args),
         other => Err(format!("unknown command {other:?}\n{USAGE}")),
     };
     match res {
@@ -724,12 +747,14 @@ fn readiness_for(
     let (h, gate) = ctx.load()?;
     let lp = ctx.ledger_path();
     let ledger = lp.exists().then_some(lp.as_path());
+    let last = bench::load_last(&ctx.state)?;
     Ok(readiness::evaluate(&Inputs {
         hermes: &h,
         gate: &gate,
         ledger,
         repo,
         http_selftest,
+        bench: last.as_ref(),
     }))
 }
 
@@ -849,17 +874,20 @@ fn api(ctx: &Ctx, req: &Request) -> Response {
             }
             "/v1/readiness" => {
                 let lp = ctx.ledger_path();
+                let last = bench::load_last(&ctx.state)?;
                 let r = readiness::evaluate(&Inputs {
                     hermes: &h,
                     gate: &gate,
                     ledger: lp.exists().then_some(lp.as_path()),
                     repo: None,
                     http_selftest: false,
+                    bench: last.as_ref(),
                 });
                 Response::json(200, &serde_json::to_value(r).unwrap_or_default())
             }
             "/v1/report" => Response::json(200, &serde_json::to_value(status_report(&h, &rep.events)).unwrap_or_default()),
-            _ => Response::error(404, "unknown route; see /health, /v1/{sectors,agents,tasks,dispatch,ledger,retries,governor,readiness,report}"),
+            "/v1/bench" => Response::json(200, &bench_json(&h, bench::load_last(&ctx.state)?.as_ref())),
+            _ => Response::error(404, "unknown route; see /health, /v1/{sectors,agents,tasks,dispatch,ledger,retries,governor,readiness,report,bench}"),
         })
     })();
     res.unwrap_or_else(|e| Response::error(500, &e))
@@ -884,4 +912,134 @@ fn cmd_serve(ctx: &Ctx, args: &Args) -> Result<u8, String> {
     let c = ctx.clone();
     http::serve(listener, Arc::new(move |r: &Request| api(&c, r)));
     Ok(0)
+}
+
+fn bench_json(h: &Hermes, last: Option<&bench::BenchRun>) -> Value {
+    let rows: Vec<Value> = bench::matrix(h)
+        .into_iter()
+        .map(|(k, s)| {
+            let rt = &h.tasks[&k];
+            match s {
+                Ok(spec) => json!({"task": k, "state": rt.state, "attempts": rt.attempts,
+                                   "deps": rt.task.deps, "spec": spec}),
+                Err(e) => json!({"task": k, "state": rt.state, "refused": e}),
+            }
+        })
+        .collect();
+    json!({"sector": bench::SECTOR, "cap": h.sector_cap(bench::SECTOR),
+           "agents_allowed": bench::AGENTS, "benches": bench::BENCHES,
+           "child_env": bench::CHILD_ENV, "tasks": rows, "last": last})
+}
+
+fn cmd_bench(ctx: &Ctx, sub: Option<&str>, args: &Args) -> Result<u8, String> {
+    match sub {
+        Some("plan") => {
+            let (h, _) = ctx.load()?;
+            let v = bench_json(&h, None);
+            out(ctx, &v, || {
+                let mut s = format!(
+                    "bench sector: cap {}, agents {}, child env {}\n",
+                    h.sector_cap(bench::SECTOR),
+                    bench::AGENTS.join(","),
+                    bench::CHILD_ENV.join(",")
+                );
+                for (k, spec) in bench::matrix(&h) {
+                    let rt = &h.tasks[&k];
+                    let what = match spec {
+                        Ok(sp) => format!(
+                            "hermes-bench {}",
+                            sp.argv(Path::new("<out>"), "<sha>").join(" ")
+                        ),
+                        Err(e) => format!("REFUSED: {e}"),
+                    };
+                    s.push_str(&format!(
+                        "{:<14} {:<10} deps {:<34} {}\n",
+                        k,
+                        rt.state.as_str(),
+                        rt.task.deps.join(","),
+                        what
+                    ));
+                }
+                s
+            });
+            Ok(0)
+        }
+        Some("status") => {
+            let last = bench::load_last(&ctx.state)?;
+            let v = json!({"last": last});
+            out(ctx, &v, || match &last {
+                None => "no bench run recorded yet\n".into(),
+                Some(b) => bench_text(b),
+            });
+            Ok(if last.is_some() { 0 } else { 3 })
+        }
+        Some("run") => {
+            let bin = PathBuf::from(
+                args.get("bin")
+                    .ok_or("--bin PATH (the hermes-bench binary) is required")?,
+            );
+            if !bin.is_file() {
+                return Err(format!("--bin {}: not a file", bin.display()));
+            }
+            let (h, gate) = ctx.load()?;
+            let (mut l, _) = Ledger::open(&ctx.ledger_path())?;
+            let cfg = bench::RunCfg {
+                out: args
+                    .get("out")
+                    .map_or_else(|| ctx.state.join("bench").join("out"), PathBuf::from),
+                sha: args.get("sha").unwrap_or("unknown").to_string(),
+                rerun: args.has("--rerun"),
+                only: args
+                    .get("only")
+                    .map(|o| {
+                        o.split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                timeout: Duration::from_secs(args.num("timeout-secs")?.unwrap_or(900)),
+                time_scale: args.num("time-scale")?.unwrap_or(0.01),
+                cap: args.num("cap")?,
+            };
+            let policy = RetryPolicy(h.reg.retry.clone());
+            let exec = Arc::new(bench::ProcessExec { bin });
+            let mut b = bench::run(&h, &gate, &mut l, &policy, exec, &cfg)?;
+            let saved = bench::save(&ctx.state, &mut b)?;
+            let v = json!({"run": b, "saved": saved, "ledger": ctx.ledger_path()});
+            out(ctx, &v, || {
+                format!("{}  record {}\n", bench_text(&b), saved.display())
+            });
+            Ok(
+                if b.failed + b.blocked + b.refused == 0
+                    && b.rows.iter().all(|r| r.outcome != "unfinished")
+                {
+                    0
+                } else {
+                    3
+                },
+            )
+        }
+        _ => Err(format!("bench needs plan, run or status\n{USAGE}")),
+    }
+}
+
+fn bench_text(b: &bench::BenchRun) -> String {
+    let mut s = format!(
+        "{}\n  run {} sha {} {} .. {}: {} done, {} failed, {} blocked, {} refused, {} retries; peak {} of {} slots; {} ms\n",
+        b.spoken, b.run, b.sha, b.started, b.finished, b.done, b.failed, b.blocked, b.refused, b.retries, b.peak, b.cap, b.wall_ms
+    );
+    for r in &b.rows {
+        s.push_str(&format!(
+            "  {:<14} {:<12} att {} exit {:<4} {:>5} {:>7} ms  {}\n",
+            r.task,
+            r.outcome,
+            r.attempts,
+            r.exit.map_or("-".into(), |e| e.to_string()),
+            r.pct.map_or("-".into(), |p| format!("{p}%")),
+            r.ms,
+            r.detail.chars().take(110).collect::<String>()
+        ));
+    }
+    s
 }

@@ -87,8 +87,11 @@ impl CrateOwner {
 use CrateRole::{Core, Function as F, System as S};
 
 /// Every workspace crate, alphabetical. 35 crates of main 13a296c, the
-/// 11 Gaia crates from `ws/gaia`, and hermes-core (swarm/hermes-core).
+/// 11 Gaia crates from `ws/gaia`, hermes-core (swarm/hermes-core), and the
+/// six benchmark crates of swarm/bench-hermes 457ef74 (bench sector).
 pub const CRATES: &[CrateOwner] = &[
+    c("bench-banking", S(System::EcosystemCensus), "B1 banking benchmark: Revolut-shaped mock bank, drafts only, scores the agent; no money moves (bench sector)"),
+    c("bench-scoreboard", S(System::EcosystemCensus), "renders the three benchmark percentages into SCOREBOARD.md (bench sector)"),
     c("cgroup-detect", S(System::Quotas), "read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS)"),
     c("desk-hermes", S(System::HermesAgents), "Hermes mind snap for the desk: the agent population view"),
     c("gaia", Core, "the gaia CLI: wires GAIA core to the nine functions; dry-run only"),
@@ -102,14 +105,18 @@ pub const CRATES: &[CrateOwner] = &[
     c("gaia-hephaestus", F(FunctionId::Hephaestus), "HEPHAESTUS function crate"),
     c("gaia-minerva", F(FunctionId::Minerva), "MINERVA function crate"),
     c("gaia-poseidon", F(FunctionId::Poseidon), "POSEIDON function crate"),
+    c("galion-bench", S(System::EcosystemCensus), "shared benchmark harness: scorecards, axes, Zagreb stamps (bench sector)"),
     c("galion-boot", S(System::BootUnits), "boot/keep replacement and systemd unit renderer"),
     c("galion-desk", S(System::GalionDesk), "operator desk endpoint (:8646)"),
     c("galion-one", S(System::GalionOne), "Galion One, the persona the stack embodies (:8091, :8002)"),
     c("galion-origin", S(System::Origin), "origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin)"),
+    c("galion-vending", S(System::EcosystemCensus), "B3 vending-machine simulation, seeded and deterministic; simulated cents only (bench sector)"),
     c("galion-voice-core", S(System::VoiceRelay), "full-duplex framing, VAD, jitter buffer, barge-in"),
+    c("galion-wallstreet", S(System::EcosystemCensus), "B2 Wall Street benchmark: paper broker, risk limits, recorded fixtures; no brokerage (bench sector)"),
     c("galleon-arena", S(System::EcosystemCensus), "paper arena that lists and scores the gladiator population; no value moves (was ARES)"),
     c("guardian-tick", S(System::GuardianTick), "one report-only health pass"),
     c("hades-gate", S(System::Teardown), "approval gate and journal for destructive plans; dry-run, never executes"),
+    c("hermes-bench", S(System::HermesAgents), "the three benchmark tool sets as hermes-rs tools and the hermes-bench runner; Hermes's bench sector runs it (bench sector)"),
     c("hermes-core", S(System::BossNode), "Hermes coordinator above the seven swarm sectors: registry, governor, retry loop, HADES-gated dispatch, ledger (swarm/hermes-core)"),
     c("hermes-gateway", S(System::Messaging), "Hermes API server binary: the chat/messaging channel"),
     c("hermes-rs", S(System::HermesAgents), "Rust Hermes: agent loop, delegate_task caps, sessions, spend caps"),
@@ -312,10 +319,11 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} has no system", r.name));
             assert_eq!(r.role.function(), Some(s.function()));
         }
-        // 35 crates of main 13a296c, plus hermes-core (swarm/hermes-core).
+        // 35 crates of main 13a296c, hermes-core (swarm/hermes-core) and the
+        // six benchmark crates of swarm/bench-hermes 457ef74.
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            36
+            42
         );
     }
 

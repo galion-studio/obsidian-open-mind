@@ -46,6 +46,8 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 
 | Crate | Kind | System | Function | Why |
 |---|---|---|---|---|
+| `bench-banking` | system | ecosystem-census | ARTEMIS | B1 banking benchmark: Revolut-shaped mock bank, drafts only, scores the agent; no money moves (bench sector) |
+| `bench-scoreboard` | system | ecosystem-census | ARTEMIS | renders the three benchmark percentages into SCOREBOARD.md (bench sector) |
 | `cgroup-detect` | system | quotas | POSEIDON | read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS) |
 | `desk-hermes` | system | hermes-agents | ARTEMIS | Hermes mind snap for the desk: the agent population view |
 | `gaia` | core | (none) | GAIA | the gaia CLI: wires GAIA core to the nine functions; dry-run only |
@@ -59,14 +61,19 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `gaia-hephaestus` | function | (none) | HEPHAESTUS | HEPHAESTUS function crate |
 | `gaia-minerva` | function | (none) | MINERVA | MINERVA function crate |
 | `gaia-poseidon` | function | (none) | POSEIDON | POSEIDON function crate |
+| `galion-bench` | system | ecosystem-census | ARTEMIS | shared benchmark harness: scorecards, axes, Zagreb stamps (bench sector) |
 | `galion-boot` | system | boot-units | DEMETER | boot/keep replacement and systemd unit renderer |
 | `galion-desk` | system | galion-desk | HEPHAESTUS | operator desk endpoint (:8646) |
 | `galion-one` | system | galion-one | ELEUTHIA | Galion One, the persona the stack embodies (:8091, :8002) |
 | `galion-origin` | system | origin | AETHER | origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin) |
+| `galion-vending` | system | ecosystem-census | ARTEMIS | B3 vending-machine simulation, seeded and deterministic; simulated cents only (bench sector) |
 | `galion-voice-core` | system | voice-relay | AETHER | full-duplex framing, VAD, jitter buffer, barge-in |
+| `galion-wallstreet` | system | ecosystem-census | ARTEMIS | B2 Wall Street benchmark: paper broker, risk limits, recorded fixtures; no brokerage (bench sector) |
 | `galleon-arena` | system | ecosystem-census | ARTEMIS | paper arena that lists and scores the gladiator population; no value moves (was ARES) |
 | `guardian-tick` | system | guardian-tick | DEMETER | one report-only health pass |
 | `hades-gate` | system | teardown | HADES | approval gate and journal for destructive plans; dry-run, never executes |
+| `hermes-bench` | system | hermes-agents | ARTEMIS | the three benchmark tool sets as hermes-rs tools and the hermes-bench runner; Hermes's bench sector runs it (bench sector) |
+| `hermes-core` | system | boss-node | ARTEMIS | Hermes coordinator above the swarm sectors: registry, governor, retry loop, HADES-gated dispatch, ledger (swarm/hermes-core) |
 | `hermes-gateway` | system | messaging | AETHER | Hermes API server binary: the chat/messaging channel |
 | `hermes-rs` | system | hermes-agents | ARTEMIS | Rust Hermes: agent loop, delegate_task caps, sessions, spend caps |
 | `link-watch` | system | link-watch | APOLLO | laptop link intake |
@@ -103,3 +110,7 @@ Systems with no crate yet stay design-only (for example vision, queues, kill-swi
 
 - `swarm/integration-1` (8fd26f6) also carries ws/gaia, plus `crates/gaia-live` and live-heal additions in `crates/gaia/src/{lib,main}.rs`, and still has the old GAIA-4 version of this file. This branch stays on main 13a296c. When the two meet: take this file and `gaia_core::ownership`; add one row for `gaia-live` (kind core: Gaia's read-only sensing / approval-gated test-service path, owns no system), otherwise `every_workspace_crate_is_mapped` fails, which is the point of the test. Expect textual conflicts where both branches append commands to `crates/gaia/src/lib.rs` and the USAGE/match in `main.rs`; the commands are disjoint (`plan`, `dry-run`, `ownership`, `view` here).
 - `docs/crate-index.md` and `docs/STATUS.md` (GAIA-1, GAIA-2 rows) still describe the VPS gaia-core/gaia-registry. Left untouched here (status lives in one table that the owner updates on merge).
+
+## Benchmark crates (swarm/hermes-core-bench-sector, 2026-10-21 05:05 CEST +02:00)
+
+The six crates of swarm/bench-hermes 457ef74 (`bench-banking`, `bench-scoreboard`, `galion-bench`, `galion-vending`, `galion-wallstreet`, `hermes-bench`) were unmapped, so the guard test failed once bench-hermes was merged onto gaia-land. They are mapped by the precedent of `galleon-arena` (a paper arena that scores the population): the five benchmark crates go to `ecosystem-census` / ARTEMIS, and `hermes-bench`, which drives hermes-rs agents, goes to `hermes-agents` / ARTEMIS. The live nerve on the VPS already reports hermes-rs under ARTEMIS / hermes-agents (read-only GET of 127.0.0.1:8670/state, 2026-10-21 05:02 CEST). `hermes-core` (boss-node), which was in the code but not in this table, is listed too. Slavik may move them. It is one line each in `ownership.rs`.

@@ -4,8 +4,8 @@
 //! The durable log behind the engine.
 //!
 //! One file, `queue.log`, one record per line: `<crc32 as 8 hex> <json>\n`.
-//! Every append is flushed with `sync            .write_all(out.as_bytes())
-            .and_then(|_| if sync { self.file.sync_data() } else { Ok(()) });data` before the client is answered.
+//! Every append is flushed with `sync_data` before the client is answered
+//! (except [`Record::Tally`] counter lines, see [`Store::append_unsynced`]).
 //!
 //! Opening the log replays it. A torn tail (the last line cut short or
 //! failing its checksum, which is what a crash mid-write leaves) is cut off
@@ -186,10 +186,13 @@ impl Store {
             out.push_str(&encode(r));
         }
         let before = self.file.seek(SeekFrom::End(0))?;
-        let res = self
-            .file
-            .write_all(out.as_bytes())
-            .and_then(|_| self.file.sync_data());
+        let res = self.file.write_all(out.as_bytes()).and_then(|_| {
+            if sync {
+                self.file.sync_data()
+            } else {
+                Ok(())
+            }
+        });
         if let Err(e) = res {
             let _ = self.file.set_len(before);
             let _ = self.file.seek(SeekFrom::End(0));

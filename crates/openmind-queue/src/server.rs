@@ -141,7 +141,10 @@ fn commit(st: &mut State, recs: &[Record], compact_min: u64) -> io::Result<()> {
             Ok(()) => st.compactions += 1,
             Err(e) => {
                 st.compaction_errors += 1;
-                eprintln!("{} poseidon: compaction failed (log kept): {e}", zagreb_ms(now_ms()));
+                eprintln!(
+                    "{} poseidon: compaction failed (log kept): {e}",
+                    zagreb_ms(now_ms())
+                );
             }
         }
     }

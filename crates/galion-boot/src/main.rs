@@ -204,7 +204,10 @@ fn run(cmd: &str, a: &Args) -> Result<i32, String> {
             }
         }
         "--version" => {
-            println!("galion-boot {}", env!("CARGO_PKG_VERSION"));
+            println!(
+                "{}",
+                galion_common::build_info::version_line("galion-boot", env!("CARGO_PKG_VERSION"))
+            );
             Ok(0)
         }
         o => Err(format!("unknown command {o}")),
@@ -212,6 +215,7 @@ fn run(cmd: &str, a: &Args) -> Result<i32, String> {
 }
 
 fn main() {
+    galion_common::build_info::exit_if_version("galion-boot", env!("CARGO_PKG_VERSION"));
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let Some(cmd) = argv.first().cloned() else {
         eprintln!("galion-boot: hardware | secrets-restore | tunnel-env | render-units | supervise | status | fire-loops");

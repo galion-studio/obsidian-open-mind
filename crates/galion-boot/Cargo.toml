@@ -9,6 +9,7 @@ license.workspace = true
 description = "Boot/keep tool replacing keep.sh, stack-boot.sh, persist-boot.sh and hardware.sh: hardware probe, age-bundle secret restore, tunnel env file, systemd unit renderer, plain supervisor fallback, status."
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 openmind-survival = { path = "../openmind-survival" }
 zagreb-time = { path = "../zagreb-time" }
 serde = { workspace = true }

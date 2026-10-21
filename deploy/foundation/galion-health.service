@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# galion-health: loopback-only status dashboard (ws/foundation). Not exposed; DNS workstream may route later.
+[Unit]
+Description=Galion health dashboard (127.0.0.1:8660)
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/rust/bin/galion-health
+Environment=GALION_HEALTH_ADDR=127.0.0.1:8660
+Environment=GALION_LOG_FORMAT=kv
+# Runs as root only so `systemctl is-active` can use /run/systemd/private (system dbus refuses DynamicUser here);
+# all capabilities dropped and the filesystem is read-only.
+User=root
+CapabilityBoundingSet=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+Restart=always
+RestartSec=5
+MemoryMax=16M
+TasksMax=8
+CPUQuota=10%
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

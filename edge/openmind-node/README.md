@@ -10,8 +10,12 @@ omnode identity init [--no-bind] | show | bind [--force] | network
 omnode discover [--seconds N] [--dry-run] [--mdns-query] [--no-msearch] [--probe] [--probe-subnet]
 omnode announce [--seconds N] [--dry-run]
 omnode pair [URL] [--no-qr] [--dry-run]     # prints payload + QR; --dry-run = HTTP plan only
+omnode pair verify FILE --url URL [--now UNIX] # fail-closed payload check (what Hermes runs)
+omnode boot [--state DIR] [--listen IP:PORT] [--code-ttl S] [--code-file F] [--require-seccomp]
+                                            # edge boot: first boot, pairing code, loopback HTTP
 omnode sandbox run [limits...] -- CMD...
 omnode sandbox check
+omnode sandbox selftest                     # seccomp deny-list really enforced?
 omnode doctor                               # what this device can do
 omnode version
 ```
@@ -44,3 +48,5 @@ rustup target add aarch64-unknown-linux-musl
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
   nice -n 19 cargo build --release -j 2 --target aarch64-unknown-linux-musl
 ```
+
+Boot path, pairing and seccomp notes: `docs/edge-boot.md` (repo root).

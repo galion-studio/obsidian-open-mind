@@ -13,4 +13,5 @@ name = "one-talk"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 serde_json = { workspace = true }

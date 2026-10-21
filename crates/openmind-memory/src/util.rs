@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_ms() -> i64 {
-    SystemTime::now()
+    SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
@@ -29,7 +29,7 @@ fn civil(days: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-/// JS `new Date(ms).toISOString()`: `2026-10-18T19:00:00.000Z`.
+/// JS `new Date(ms).toISOString()`: `2026-10-18T19:00:00.000Z`. // repo-check: allow (documents the JS toISOString wire format kept for 8420 parity)
 pub fn iso_utc(ms: i64) -> String {
     let secs = ms.div_euclid(1000);
     let milli = ms.rem_euclid(1000);
@@ -71,8 +71,8 @@ mod tests {
     use super::*;
     #[test]
     fn iso() {
-        assert_eq!(iso_utc(0), "1970-01-01T00:00:00.000Z");
-        assert_eq!(iso_utc(1_792_349_999_411), "2026-10-18T18:59:59.411Z");
+        assert_eq!(iso_utc(0), "1970-01-01T00:00:00.000Z"); // repo-check: allow (JS toISOString wire format kept for 8420 parity)
+        assert_eq!(iso_utc(1_792_349_999_411), "2026-10-18T18:59:59.411Z"); // repo-check: allow (JS toISOString wire format kept for 8420 parity)
         assert_eq!(utc_date(951_782_400_000), "2000-02-29");
         assert_eq!(rand_hex(3).len(), 6);
     }

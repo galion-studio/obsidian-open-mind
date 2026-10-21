@@ -10,10 +10,10 @@
 //!   TDAI_GATEWAY_API_KEY (never printed).
 
 use crate::hash::sha256_hex;
+use galion_common::http;
 use rusqlite::{Connection, OpenFlags};
 use serde_json::{json, Value};
-use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::time::Duration;
 
@@ -36,7 +36,8 @@ pub fn snapshot(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Tiny blocking HTTP/1.1 POST over loopback (http:// only).
+/// Tiny blocking HTTP/1.1 POST over loopback (http:// only), through the
+/// galion-common client (60 s for the whole exchange, 16 MiB reply cap).
 pub fn post_json(
     base: &str,
     path: &str,
@@ -47,27 +48,34 @@ pub fn post_json(
         .strip_prefix("http://")
         .ok_or("only http:// bases are supported")?
         .trim_end_matches('/');
-    let mut s = TcpStream::connect(hostport).map_err(|e| format!("connect {hostport}: {e}"))?;
-    s.set_read_timeout(Some(Duration::from_secs(30))).ok();
+    let addr = hostport
+        .to_socket_addrs()
+        .map_err(|e| format!("connect {hostport}: {e}"))?
+        .next()
+        .ok_or_else(|| format!("connect {hostport}: no address"))?;
     let payload = body.to_string();
-    let auth = key
-        .map(|k| format!("Authorization: Bearer {k}\r\n"))
-        .unwrap_or_default();
-    let req = format!(
-        "POST {path} HTTP/1.1\r\nHost: {hostport}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n{auth}Connection: close\r\n\r\n{payload}",
-        payload.len()
-    );
-    s.write_all(req.as_bytes()).map_err(|e| e.to_string())?;
-    let mut raw = Vec::new();
-    s.read_to_end(&mut raw).map_err(|e| e.to_string())?;
-    let text = String::from_utf8_lossy(&raw).to_string();
-    let (head, body) = text.split_once("\r\n\r\n").ok_or("bad response")?;
-    let status = head
-        .split_whitespace()
-        .nth(1)
-        .and_then(|c| c.parse().ok())
-        .unwrap_or(0);
-    Ok((status, body.to_string()))
+    let mut headers = vec![
+        ("Host".to_string(), hostport.to_string()),
+        ("Content-Type".to_string(), "application/json".to_string()),
+        ("Content-Length".to_string(), payload.len().to_string()),
+    ];
+    if let Some(k) = key {
+        headers.push(("Authorization".to_string(), format!("Bearer {k}")));
+    }
+    headers.push(("Connection".to_string(), "close".to_string()));
+    let req = http::ClientRequest {
+        method: "POST",
+        path,
+        minor: 1,
+        headers,
+        body: payload.as_bytes(),
+    };
+    match http::send(addr, &req, Duration::from_secs(60), 16 << 20) {
+        Ok(r) => Ok((r.status, r.text())),
+        Err(http::ClientError::Connect(e)) => Err(format!("connect {hostport}: {e}")),
+        Err(http::ClientError::BadStatus(_)) => Err("bad response".into()),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 fn summary(status: u16, body: &str) -> Value {

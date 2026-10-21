@@ -13,8 +13,10 @@ name = "openmind-memory"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 # bundled: SQLite (with FTS5) is compiled from the amalgamation; no system lib, no openssl.
 rusqlite = { version = "0.32", default-features = false, features = ["bundled", "backup"] }
 serde = { workspace = true }
 serde_json = { workspace = true, features = ["preserve_order"] }
 zagreb-time = { path = "../zagreb-time" }
+nerve-client = { path = "../nerve-client" }

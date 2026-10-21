@@ -30,6 +30,14 @@ gate does not.
 
 ## Flipping to public
 
+> **Update 2026-10-20T20:15:00+02:00 (swarm/launch-gates):** do not flip this
+> repository. Its history still contains `contrib/`, the `*.redacted` secret
+> inventory, `stack/kms/` and committed binaries, which `.gitattributes`
+> export-ignore only removes from `git archive`. Create the public repository
+> from the tree produced by `scripts/public-export.sh` (fresh history) instead;
+> the settings below then apply to that new repository. See
+> `docs/launch/PUBLIC-EXPORT.md` and `docs/launch/GATES-OCT31.md`.
+
 Settings → General → Danger Zone → Change visibility → Public (owner only). Then, in
 Settings → Code security:
 

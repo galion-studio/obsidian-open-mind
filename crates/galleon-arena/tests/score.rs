@@ -217,7 +217,7 @@ fn rejects_bad_base_stamp_and_bits() {
     assert!(matches!(err, Err(BoutError::BaseBelowOne(0))));
     let err = Match::try_new(
         "m",
-        "2026-10-19T16:21:00Z",
+        "2026-10-19T16:21:00Z", // repo-check: allow (the Z stamp is the refused input under test)
         100,
         "task",
         vec!["g2-0".to_string()],

@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "gaia-poseidon"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gaia POSEIDON: compute resources (VRAM pool, CPU/RAM/disk quotas, bounded queues with backpressure, budget caps). Stand-in or the real openmind-queue backend (read-only for budget, never spends). No real-money access."
+
+[dependencies]
+gaia-core = { path = "../gaia-core" }
+
+# In-workspace: the real POSEIDON backend talks to openmind-queue with its own
+# std-only HTTP client. serde_json is an existing workspace dependency.
+openmind-queue = { path = "../openmind-queue" }
+serde_json = { workspace = true }

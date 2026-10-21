@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# B2 Wall Street: a recorded "delayed quote vendor" and a broker that refuses
+# every order. Served by galion-bench MockServer in tests only. Values mirror the
+# first visible bar of fixtures/bars.csv (SYNTHETIC). No real vendor, no broker.
+{"id":"quote-glxa","path":"/v1/quotes/GLXA","body":{"symbol":"GLXA","last":"42.16","as_of":"2026-08-10","delayed":true,"delay_bars":1}}
+{"id":"quote-omnd","path":"/v1/quotes/OMND","body":{"symbol":"OMND","last":"119.00","as_of":"2026-08-10","delayed":true,"delay_bars":1}}
+{"id":"live-order-refused","method":"*","path":"/v2/orders*","status":403,"body":{"error":"mock: no live brokerage; the paper broker must never route here"}}
+{"id":"live-account-refused","method":"*","path":"/v2/account*","status":403,"body":{"error":"mock: no live brokerage account"}}

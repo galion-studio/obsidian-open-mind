@@ -187,7 +187,7 @@ static LIVE: Gate = Gate::new();
 /// Live refresh used by galion-one: gated (backoff + single flight). Callers
 /// keep serving the stale cache whatever the outcome.
 pub fn refresh_live(out: &Path) -> Outcome {
-    let now = std::time::SystemTime::now()
+    let now = std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);

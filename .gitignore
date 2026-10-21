@@ -36,3 +36,6 @@ stack/**/vault/
 stack/**/galion-secrets/*
 !stack/**/galion-secrets/*.redacted
 !stack/**/galion-secrets/from-grok-build/
+
+# vendored candle-core keeps its two upstream torch test fixtures (vendor/candle-core/tests/pth_tests.rs)
+!vendor/candle-core/tests/*.pt

@@ -1,0 +1,146 @@
+{
+  "at": "number",
+  "board": {
+    "agents": "number",
+    "cpu": "string",
+    "disk": "string",
+    "france": "boolean",
+    "gpu": "string",
+    "hermes_ms": "number",
+    "laptop_ram": "string",
+    "load": "string",
+    "model_ms": "number",
+    "pod": "string",
+    "pod_ram": "string",
+    "studio": "string",
+    "version": "string"
+  },
+  "ctx": "number",
+  "events": [
+    "string"
+  ],
+  "focus": "string",
+  "foundation": "string",
+  "heard": "string",
+  "hermes": "boolean",
+  "hold": "boolean",
+  "line": "boolean",
+  "mindpack": {
+    "cache": {
+      "file_bytes": "number",
+      "files": "number",
+      "input": "number",
+      "output": "number",
+      "read": "number",
+      "reasoning": "number",
+      "write": "number"
+    },
+    "cached": [
+      {
+        "id": "string",
+        "model": "string",
+        "turns": "number"
+      }
+    ],
+    "context": {
+      "cache_bytes": "number",
+      "cached_sessions": "number",
+      "cached_turns": "number",
+      "model_window": "number"
+    },
+    "history": [
+      {
+        "at": "number",
+        "kind": "string",
+        "text": "string"
+      }
+    ],
+    "mind": {
+      "line": "string",
+      "messages": "number",
+      "sessions": "number"
+    },
+    "models": [
+      {
+        "calls": "number",
+        "input": "number",
+        "name": "string",
+        "output": "number",
+        "read": "number",
+        "reasoning": "number"
+      }
+    ],
+    "recent": [
+      {
+        "at": "number",
+        "bytes": "number",
+        "name": "string"
+      }
+    ],
+    "road": [
+      {
+        "at": "number",
+        "id": "string",
+        "messages": "number",
+        "model": "string",
+        "source": "string"
+      }
+    ],
+    "roles": {
+      "assistant": "number",
+      "tool": "number",
+      "user": "number"
+    },
+    "sessions": [
+      {
+        "at": "number",
+        "id": "string",
+        "messages": "number",
+        "model": "string",
+        "source": "string"
+      }
+    ],
+    "stores": [
+      {
+        "bytes": "number",
+        "n": "number",
+        "name": "string"
+      }
+    ],
+    "tasks": [
+      {
+        "at": "number",
+        "id": "string",
+        "state": "string",
+        "title": "string"
+      }
+    ],
+    "tools": [
+      {
+        "n": "number",
+        "name": "string"
+      }
+    ]
+  },
+  "model": "string",
+  "notes": [
+    {
+      "at": "number",
+      "text": "string"
+    }
+  ],
+  "one": "boolean",
+  "resting": "boolean",
+  "said": "string",
+  "services": [
+    {
+      "name": "string",
+      "up": "boolean"
+    }
+  ],
+  "tunnel": "boolean",
+  "turns": "number",
+  "voice": "string",
+  "vram": "number",
+  "waking": "boolean"
+}

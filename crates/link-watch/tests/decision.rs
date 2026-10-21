@@ -26,7 +26,7 @@ const GOLDEN: [&str; 10] = [
 
 fn sample(laptop_port: bool, hermes: bool, france: Value, model: &str) -> WatchFacts {
     WatchFacts {
-        at: "2026-10-19T16:00:00Z".to_owned(),
+        at: "2026-10-19T16:00:00Z".to_owned(), // repo-check: allow (legacy history field at is UTC by format; at_local carries the Zagreb stamp)
         at_local: "2026-10-19T18:00:00+02:00".to_owned(),
         stamp: "16:00:00".to_owned(),
         laptop_port,

@@ -5,6 +5,7 @@
 //! Rust only. See docs/phone-instance.md.
 
 mod announce;
+mod boot;
 mod config;
 mod discover;
 mod dns;
@@ -19,6 +20,7 @@ mod wifi;
 mod zagreb;
 
 use identity::Identity;
+use std::io::Read as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -37,9 +39,16 @@ USAGE: omnode [--config FILE] <command>
                            advertise _openmind._tcp over mDNS (0 = until stopped)
   pair [URL] [--no-qr] [--dry-run]
                            signed pairing payload + QR; --dry-run prints the HTTP plan, sends nothing
+  pair verify FILE --url URL [--now UNIX]
+                           fail-closed check of a pairing payload (what Hermes runs); exit 2 if refused
+  boot [--state DIR] [--listen IP:PORT] [--allow-lan] [--code-ttl S] [--code-file F]
+       [--new-code] [--require-seccomp]
+                           edge boot path: first-boot identity, seccomp self-test, one-time pairing
+                           code, loopback HTTP (/health, /v1/node, POST /v1/pair, /v1/whoami)
   sandbox run [--wall S] [--cpu S] [--mem MB] [--allow-net] [--require-isolation]
               [--no-landlock] [--no-seccomp] [--no-namespaces] [--keep] -- CMD [ARGS...]
   sandbox check            report which isolation this platform provides
+  sandbox selftest         install the seccomp deny-list in a child and try denied syscalls
   doctor                   what this device can do (SSID, namespaces, landlock, CPU)
   version
 
@@ -226,6 +235,78 @@ fn real_main() -> ExitCode {
                 Ok(())
             } else {
                 announce::run(&cfg, &id, secs)
+            }
+        }
+        ("boot", None) => {
+            let state_dir = a
+                .value("--state")?
+                .map(PathBuf::from)
+                .unwrap_or(dir.clone());
+            let o = boot::Opts {
+                state_dir,
+                listen: a
+                    .value("--listen")?
+                    .unwrap_or_else(|| boot::DEFAULT_LISTEN.into()),
+                allow_lan: a.flag("--allow-lan"),
+                code_ttl: a
+                    .num("--code-ttl")?
+                    .map(|v| v.clamp(1, 86_400) as i64)
+                    .unwrap_or(boot::DEFAULT_CODE_TTL),
+                code_file: a.value("--code-file")?.map(PathBuf::from),
+                new_code: a.flag("--new-code"),
+                require_seccomp: a.flag("--require-seccomp"),
+            };
+            a.done()?;
+            boot::install_signal_handlers();
+            let b = boot::start(&o)?;
+            println!("{}", boot::boot_event(&b));
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            boot::serve(&b)
+        }
+        ("pair", Some("verify")) => {
+            let url = a
+                .value("--url")?
+                .ok_or("pair verify: --url URL is required")?;
+            let now = a
+                .num("--now")?
+                .map(|v| v as i64)
+                .unwrap_or_else(zagreb::now_unix);
+            let file = if a.0.first().is_some_and(|s| !s.starts_with('-')) {
+                a.0.remove(0)
+            } else {
+                return Err(
+                    "pair verify: give the JSON file `omnode pair` printed (- for stdin)".into(),
+                );
+            };
+            a.done()?;
+            let text = if file == "-" {
+                let mut s = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin().take(1 << 16), &mut s)
+                    .map_err(|e| e.to_string())?;
+                s
+            } else {
+                std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?
+            };
+            match pair::verify_document(&text, &url, now) {
+                Ok(v) => {
+                    print_json(&serde_json::json!({"ok": true, "verified": v}));
+                    Ok(())
+                }
+                Err(e) => {
+                    print_json(&serde_json::json!({"ok": false, "error": e}));
+                    Err(format!("pair verify: refused: {e}"))
+                }
+            }
+        }
+        ("sandbox", Some("selftest")) => {
+            a.done()?;
+            let t = seccomp::self_test();
+            print_json(&t);
+            if t.enforced {
+                Ok(())
+            } else {
+                Err("seccomp deny-list is not enforced on this device".into())
             }
         }
         ("pair", url) => {

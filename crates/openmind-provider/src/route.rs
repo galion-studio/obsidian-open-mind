@@ -68,6 +68,28 @@ pub fn route(need: Capability, rows: &[ProviderRow]) -> Option<ProviderRow> {
     Some(chosen.clone())
 }
 
+/// The fallback chain for `need` over approved registry rows plus
+/// operator-configured `extra` rows (for example the local CPU fallback).
+///
+/// Registry rows come from [`crate::Registry::approved_rows`], so pending and
+/// rejected discovery rows are never in the chain, and a LAN row is in it
+/// only after a `join` recorded it up. `extra` rows follow the usual policy
+/// (they must be approved too). Order: GPU, then LAN, then CPU-local; the
+/// caller dials the first entry and moves to the next on failure.
+#[must_use]
+pub fn chain(
+    need: Capability,
+    registry: &crate::Registry,
+    extra: &[ProviderRow],
+) -> Vec<ProviderRow> {
+    let mut rows = registry.approved_rows();
+    rows.extend_from_slice(extra);
+    crate::fallback::ordered(&rows, need)
+        .into_iter()
+        .cloned()
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

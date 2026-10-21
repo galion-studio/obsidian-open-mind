@@ -7,3 +7,4 @@ Every binary must run on consumer-grade CPUs: phones, laptops, Raspberry Pi-clas
 - Release profile: opt-level="z" or "s", lto, codegen-units=1, panic="abort", strip.
 - Report per binary: size per target, RSS on x86_64, and which tier-2 targets built.
 - Linking: rust-lld (bundled with rustup) for musl targets; Android check with `cargo check --target aarch64-linux-android` (no NDK on this box).
+- Gate (UCPU-1, 2026-10-20 CEST): `scripts/ucpu-gate.sh` + CI jobs `ucpu-tier1`/`ucpu-tier2`/`ucpu-qemu`; zig cc is the C cross compiler for bundled SQLite; Android is check-only without an NDK. Details: docs/ucpu.md.

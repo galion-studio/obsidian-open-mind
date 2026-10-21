@@ -1,0 +1,49 @@
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+Content-Length: 2356
+Cache-Control: public, max-age=300
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+Permissions-Policy: microphone=(self)
+Content-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self'; media-src 'self' blob:
+Connection: close
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b0d10">
+<title>Ukulele Tuner · Galion</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Cpath d=%27M16 2 29 9v14L16 30 3 23V9z%27 fill=%27%230B0F14%27 stroke=%27%2358C4FF%27 stroke-width=%272%27/%3E%3Cpath d=%27M16 9 23 13v7l-7 4-7-4v-7z%27 fill=%27%2358C4FF%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header><h1>Ukulele Tuner</h1><p class="sub">Automatic · GCEA (re-entrant) + Low-G · A4 = 440 Hz</p></header>
+  <section class="display" aria-live="polite">
+    <div id="string" class="string">–</div>
+    <div id="stringLabel" class="label">Tap Start, then pluck any string</div>
+    <div class="meter">
+      <div class="scale"><span>-50</span><span>-25</span><span>0</span><span>+25</span><span>+50</span></div>
+      <div class="track"><div class="zone"></div><div id="needle" class="needle"></div></div>
+      <div class="flatsharp"><span id="flat">♭ flat</span><span id="state" class="state">–</span><span id="sharp">sharp ♯</span></div>
+    </div>
+    <div class="readout"><span id="freq">– Hz</span><span id="cents">– ¢</span></div>
+  </section>
+  <section class="strings" aria-label="Strings by pitch, high to low">
+    <div class="chip" data-id="A4"><b>A4</b><small>440.00</small></div>
+    <div class="chip" data-id="G4"><b>G4</b><small>392.00</small></div>
+    <div class="chip" data-id="E4"><b>E4</b><small>329.63</small></div>
+    <div class="chip" data-id="C4"><b>C4</b><small>261.63</small></div>
+    <div class="chip lowg" data-id="G3"><b>G3</b><small>196.00 Low-G</small></div>
+  </section>
+  <p class="hint">Pitch order high → low: A4 &gt; G4 &gt; E4 &gt; C4 (&gt; G3 with Low-G). Physically the G string sits on top but in standard re-entrant tuning it is pitched between E and A; C is the lowest. Low-G is recognised automatically by frequency.</p>
+  <button id="start" type="button">Start tuner</button>
+  <p class="hint small">Audio stays in your browser. Nothing is uploaded.</p>
+  <p class="hint small brand">Galion · Obsidian Open Mind</p>
+</main>
+<script src="pitch.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

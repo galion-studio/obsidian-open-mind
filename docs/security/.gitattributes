@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) 3000 Galion / galion-studio
+# Secret-inventory planning docs (paths of secret files) stay out of the public export.
+SEC-HISTORY-PURGE-PLAN.md export-ignore
+history-purge-affected-paths.txt export-ignore

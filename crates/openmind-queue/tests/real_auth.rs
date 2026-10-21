@@ -19,7 +19,7 @@
 //! No VPS contact, no LAN bind on the VPS; processes and files are removed.
 
 use openmind_queue::http;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::net::{IpAddr, TcpStream, UdpSocket};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};

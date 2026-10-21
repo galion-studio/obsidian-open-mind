@@ -662,15 +662,46 @@ fn real_cortex_t44_end_to_end_on_the_box() {
         eprintln!("    gate on its own: {c} {} ({})", v["code"], v["reason"]);
     }
     let good = mint(&dir, &seed, "heal-apply", DUMMY_UNIT, &text, "good");
+    // Forged: one hex digit of the signature flipped.
     let mut forged: Vec<char> = good.chars().collect();
-    let i = forged.len() - 5;
-    forged[i] = if forged[i] == 'A' { 'B' } else { 'A' };
+    let last = forged.len() - 1;
+    forged[last] = if forged[last] == '0' { '1' } else { '0' };
     let forged: String = forged.into_iter().collect();
-    let out = ex.apply(&plan, &forged);
-    eprintln!("  {:<38} -> {out:?}", "forged token");
-    assert!(
-        matches!(&out, Outcome::Refused(c) if c == "gate:forged" || c == "gate:malformed"),
-        "{out:?}"
+    check(
+        &mut ex,
+        &mut log,
+        "forged signature",
+        &plan,
+        &forged,
+        refused("gate:forged"),
+    );
+    // Signed by another key (also made on the box, not the gate's admin key).
+    let (seed2, pub2) = (dir.join("other.seed"), dir.join("other.pub"));
+    assert!(gate(&[
+        "keygen",
+        "--seed",
+        seed2.to_str().unwrap(),
+        "--pub",
+        pub2.to_str().unwrap()
+    ])
+    .status
+    .success());
+    let other = mint(&dir, &seed2, "heal-apply", DUMMY_UNIT, &text, "other");
+    check(
+        &mut ex,
+        &mut log,
+        "token signed by another key",
+        &plan,
+        &other,
+        refused("gate:forged"),
+    );
+    check(
+        &mut ex,
+        &mut log,
+        "garbage token",
+        &plan,
+        "not-a-token",
+        refused("gate:malformed"),
     );
     let mut changed = plan.clone();
     changed["steps"][4] = json!(format!("run systemctl restart {DUMMY_UNIT} twice"));
@@ -811,9 +842,16 @@ fn real_cortex_t44_end_to_end_on_the_box() {
     assert_eq!(resolved["state"], "resolved");
     assert!(left.contains(&stray_plan_id), "stray plan should stay");
 
+    let evlog = std::fs::read_to_string(&events).unwrap();
+    for t in [&good, &fresh, &tok_stray, &tok_rollback, &other] {
+        assert!(
+            !evlog.contains(t.as_str()),
+            "token text in the nerve event log"
+        );
+    }
     // The ledger holds the one approval and the refusals, never a token.
     let led = std::fs::read_to_string(&ledger).unwrap();
-    for t in [&good, &fresh, &tok_stray, &tok_rollback] {
+    for t in [&good, &fresh, &tok_stray, &tok_rollback, &other] {
         assert!(!led.contains(t.as_str()), "token text in the ledger");
     }
     let lines = led.lines().count();

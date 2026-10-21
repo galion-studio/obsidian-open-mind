@@ -12,7 +12,15 @@ use std::process::{Command, Output};
 use std::time::Duration;
 
 const BIN: &str = env!("CARGO_BIN_EXE_hades-gate");
-const PORT: u16 = 19021;
+/// Default port; override with `HADES_CLI_PORT` to stay inside a slot range.
+const DEFAULT_PORT: u16 = 19021;
+
+fn port() -> u16 {
+    std::env::var("HADES_CLI_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(DEFAULT_PORT)
+}
 
 fn enabled() -> bool {
     std::env::var("GALION_REAL").as_deref() == Ok("1")
@@ -89,7 +97,7 @@ fn check(cfg: &Path, target: &str, plan: &Path, token: &Path) -> (i32, String) {
 }
 
 fn http(method: &str, path: &str, body: &str) -> String {
-    let mut c = TcpStream::connect(("127.0.0.1", PORT)).expect("connect");
+    let mut c = TcpStream::connect(("127.0.0.1", port())).expect("connect");
     c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     write!(
         c,
@@ -190,13 +198,13 @@ fn real_cli_and_http_round_trip() {
 
     // HTTP: health, approve, replay, stop.
     let mut child = Command::new(BIN)
-        .args(["serve", "--config", s(&cfg), "--port", &PORT.to_string()])
+        .args(["serve", "--config", s(&cfg), "--port", &port().to_string()])
         .stderr(std::process::Stdio::null())
         .spawn()
         .unwrap();
     let mut up = false;
     for _ in 0..50 {
-        if TcpStream::connect(("127.0.0.1", PORT)).is_ok() {
+        if TcpStream::connect(("127.0.0.1", port())).is_ok() {
             up = true;
             break;
         }

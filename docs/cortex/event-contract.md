@@ -34,7 +34,7 @@ fields are optional and `unit` / `seq` fall back to `data.unit` / `data.seq`.
 | `data.path` / `data.metric` | subject `threshold:<path>` for `disk.crossed` / `cert.crossed` |
 | `data.exit_status` / `exit_code` | abnormal-exit check |
 | `data.result`, `data.source` | `action.result`: `rate-limited` / `circuit-open` open the cortex circuit; our own echoes are ignored |
-| `count` | informational (the nerve already folded duplicates) |
+| `count` | occurrences: the nerve folds duplicates of one `key` inside its dedupe window (600 s) into the stored event and only raises its ring `count`; the cortex counts every occurrence toward the flap rule and re-reads the ring (`GET /evt`, transport 1b) for the failures it decided on (slot 235) |
 
 | nerve kind | cortex `EventKind` | used by rule |
 |---|---|---|
@@ -59,6 +59,7 @@ fields are optional and `unit` / `seq` fall back to `data.unit` / `data.seq`.
 | # | transport | idle cost | default |
 |---|---|---|---|
 | 1 | **subscribe** `GET <nerve>/events/stream?since=SEQ` (held open, NDJSON) | 0: the cortex blocks in `read()`; the nerve writes one keepalive line per 5 min | on when `nerve_url` is set |
+| 1b | **repeat watch** `GET <nerve>/evt?since=<oldest watched seq - 1>&n=1000` every `repeat_poll_s` (30 s; `CORTEX_REPEAT_POLL_S`, 0 = off), only while a unit failure decided on in the last `flap_window_s` is watched; a `count` rise becomes a repeat event (`count` = new occurrences, `data.repeat = {of_seq, total, new}`) | 0 when nothing is watched (condvar); at most one loopback GET per `repeat_poll_s` while a crash loop is open | on with the stream |
 | 2 | push `POST <cortex>/v1/events` (one object, JSON array or NDJSON, max 1000; extra items are counted `invalid`, not silently dropped) | 0 | always on |
 | 3 | unix socket (`socket` / `CORTEX_SOCKET`), NDJSON lines | 0 | off |
 | 4 | pull `GET <nerve>/events?n=200` every `pull_every_s` (polling nerve only) | one loopback GET per tick | off |

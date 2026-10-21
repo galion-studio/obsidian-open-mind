@@ -307,8 +307,20 @@ impl Event {
         if u.is_empty() || u == "-" || u == "-.slice" || u.len() > 256 {
             return None;
         }
-        const SUFFIX: [&str; 7] = [
-            ".service", ".scope", ".slice", ".timer", ".socket", ".target", ".mount",
+        // `.path` etc.: live on the VPS 2026-10-21 23:06 (gaia-hermes-handoff.path
+        // trigger-limit-hit) became `gaia-hermes-handoff.path.service` (slot 235).
+        const SUFFIX: [&str; 11] = [
+            ".service",
+            ".scope",
+            ".slice",
+            ".timer",
+            ".socket",
+            ".target",
+            ".mount",
+            ".path",
+            ".automount",
+            ".swap",
+            ".device",
         ];
         Some(if SUFFIX.iter().any(|s| u.ends_with(s)) {
             u.to_string()
@@ -674,6 +686,13 @@ mod tests {
         assert_eq!(e.unit().as_deref(), Some("tuner.service"));
         let e = Event::new("nerve", "crash", "error", json!({"unit": "run-u7.scope"}));
         assert_eq!(e.unit().as_deref(), Some("run-u7.scope"));
+        let e = Event::new(
+            "nerve",
+            "crash",
+            "error",
+            json!({"unit": "gaia-hermes-handoff.path"}),
+        );
+        assert_eq!(e.unit().as_deref(), Some("gaia-hermes-handoff.path"));
         let e = Event::new("nerve", "crash", "error", json!({}));
         assert_eq!(e.unit(), None);
     }
@@ -767,5 +786,37 @@ mod tests {
             ActionStatus::RateLimited
         );
         assert!(ActionResult::from_nerve(&json!({"result":"noted"})).is_none());
+    }
+}
+
+#[cfg(test)]
+mod occurrences {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn count_and_repeat_marker() {
+        let l = r#"{"v":1,"seq":12,"source":"journal","kind":"unit.failed","severity":"high","unit":"gaia-hermes-handoff.path","key":"unit.failed:gaia-hermes-handoff.path","data":{"unit_result":"trigger-limit-hit"},"count":2}"#;
+        let e = parse_events(l).pop().unwrap().unwrap();
+        assert_eq!(e.occurrences(), 2);
+        assert_eq!(e.repeat_of(), None);
+        let mut r = Event::new(
+            "journal",
+            "unit.failed",
+            "high",
+            json!({"repeat": {"of_seq": 12, "total": 5, "new": 3}}),
+        );
+        r.count = Some(3);
+        assert_eq!((r.occurrences(), r.repeat_of()), (3, Some(12)));
+        // no count / zero count = itself
+        let mut z = Event::new("nerve", "crash", "error", json!({}));
+        assert_eq!(z.occurrences(), 1);
+        z.count = Some(0);
+        assert_eq!(z.occurrences(), 1);
+        assert_eq!(NERVE_RING_PATH, "/evt");
+        assert_eq!(
+            (NERVE_RESTARTS_PER_UNIT_HOUR, NERVE_RESTARTS_TOTAL_HOUR),
+            (2, 6)
+        );
     }
 }

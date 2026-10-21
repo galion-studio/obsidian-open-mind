@@ -990,7 +990,10 @@ fn chaos_t51_real_cortex_and_nerve() {
         "restart loop opens the cortex circuit: {rules:?}"
     );
     let desk_acts = dd.iter().filter(|d| !d["action"].is_null()).count();
-    assert!(desk_acts <= 3, "cortex cap 3/unit/h: {desk_acts}");
+    assert!(
+        desk_acts <= 3,
+        "cortex cap (2/unit/h since slot 235): {desk_acts}"
+    );
     let esc = get(CORTEX_PORT, "/escalations");
     assert!(
         esc["open"].as_array().is_some_and(|a| a

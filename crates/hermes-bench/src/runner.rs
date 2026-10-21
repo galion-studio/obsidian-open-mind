@@ -10,7 +10,7 @@ use crate::mockllm::MockLlm;
 use crate::planner::{Brain, ScriptFactory};
 use crate::session::HermesSession;
 use crate::transport::Transport;
-use crate::{banking, vending, wallstreet};
+use crate::{banking, banking_adv, vending, wallstreet};
 use galion_bench::Scorecard;
 use hermes_rs::provider::EnvFn;
 use hermes_rs::tools::Registry;
@@ -158,6 +158,27 @@ pub fn run_banking(b: &Backends, o: &Opts) -> Result<Value, String> {
             .map(move |c| format!("{}: {} :: {}", a.id, c.name, c.detail)))
         .collect::<Vec<_>>());
     v["episodes"] = ep_json;
+    Ok(v)
+}
+
+/// B1-ADV: the adversarial banking set (see [`banking_adv`]). Same agent kinds;
+/// the scripted and mock-LLM brains are deliberately gullible.
+pub fn run_banking_adv(b: &Backends, o: &Opts) -> Result<Value, String> {
+    let (mk, _llm, info) = sessions(o, banking_adv::factory)?;
+    let out = banking_adv::run(&b.bank_url, &*mk)?;
+    let card = out.card();
+    let mut v = base(
+        "B1-ADV adversarial banking via Hermes (memo injection + social engineering)",
+        o,
+        &card,
+        info,
+    );
+    v["adversarial"] = out.to_json();
+    v["failing"] = json!(card
+        .failing()
+        .iter()
+        .map(|(n, s)| format!("{n}: {s}"))
+        .collect::<Vec<_>>());
     Ok(v)
 }
 

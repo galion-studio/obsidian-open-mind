@@ -2,7 +2,7 @@
 // Copyright (c) 3000 Galion / galion-studio
 
 //! ```text
-//! hermes-bench run --bench banking|wallstreet|vending|all
+//! hermes-bench run --bench banking|banking-adv|wallstreet|vending|all
 //!                  [--agent scripted|mock-llm|live]       (default scripted)
 //!                  [--bank-url URL] [--ws-url URL] [--vend-url URL --vend-log PATH]
 //!                  [--seed 42] [--days 30] [--max-shifts N] [--llm-port P]
@@ -33,7 +33,7 @@ fn flag(args: &[String], name: &str) -> Option<String> {
 }
 
 fn usage(msg: &str) -> ExitCode {
-    eprintln!("hermes-bench: {msg}\nusage: hermes-bench run --bench banking|wallstreet|vending|all [--agent scripted|mock-llm|live] [--bank-url URL] [--ws-url URL] [--vend-url URL --vend-log PATH] [--seed N] [--days N] [--max-shifts N] [--llm-port P] [--out DIR] [--sha SHA] | tools | scoreboard --dir DIR --sha SHA [--agent A] [--out FILE]");
+    eprintln!("hermes-bench: {msg}\nusage: hermes-bench run --bench banking|banking-adv|wallstreet|vending|all [--agent scripted|mock-llm|live] [--bank-url URL] [--ws-url URL] [--vend-url URL --vend-log PATH] [--seed N] [--days N] [--max-shifts N] [--llm-port P] [--out DIR] [--sha SHA] | tools | scoreboard --dir DIR --sha SHA [--agent A] [--out FILE]");
     ExitCode::from(2)
 }
 
@@ -125,7 +125,7 @@ fn run(args: &[String]) -> ExitCode {
     };
     let which: Vec<&str> = match bench.as_str() {
         "all" => vec!["banking", "wallstreet", "vending"],
-        "banking" | "wallstreet" | "vending" => vec![bench.as_str()],
+        "banking" | "banking-adv" | "wallstreet" | "vending" => vec![bench.as_str()],
         _ => return usage("bad --bench"),
     };
     let out_dir = flag(args, "--out").map(PathBuf::from);
@@ -133,6 +133,7 @@ fn run(args: &[String]) -> ExitCode {
     for w in which {
         let r = match w {
             "banking" => runner::run_banking(&b, &o),
+            "banking-adv" => runner::run_banking_adv(&b, &o),
             "wallstreet" => runner::run_wallstreet(&b, &o),
             _ => runner::run_vending(&b, &o),
         };
@@ -170,6 +171,18 @@ fn run(args: &[String]) -> ExitCode {
 }
 
 fn summary(w: &str, v: &Value) -> String {
+    if w == "banking-adv" {
+        let a = &v["adversarial"];
+        return format!(
+            "gate refuse {}/{} allow {}/{} episodes {} attack_calls={} refused_scope={} forbidden={} flagged={} payees_end={} unasked_drafts={}",
+            a["gate_items"].as_array().map(|x| x.iter().filter(|i| i["id"].as_str().unwrap_or("").starts_with("se-") && i["pass"] == true).count()).unwrap_or(0),
+            a["gate_refuse"],
+            a["gate_items"].as_array().map(|x| x.iter().filter(|i| i["id"].as_str().unwrap_or("").starts_with("ok-") && i["pass"] == true).count()).unwrap_or(0),
+            a["gate_allow"],
+            a["episodes"].as_array().map(|x| format!("{}/{}", x.iter().filter(|i| i["pass"] == true).count(), x.len())).unwrap_or_default(),
+            a["attack_calls"], a["refused_scope"], a["forbidden_total"], a["flagged_ids"], a["payees_end"], a["unasked_drafts"]
+        );
+    }
     let ep = format!("episodes={}%", v["episodes"]["pct"]);
     match w {
         "banking" if v["identical_to_direct"].is_boolean() => format!(

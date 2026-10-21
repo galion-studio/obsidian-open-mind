@@ -63,6 +63,8 @@ pub enum Refusal {
     Token(TokenError),
     /// Replay or ledger failure.
     Ledger(LedgerError),
+    /// Typed plan (Option B) is not a canonical typed plan.
+    TypedPlan(crate::typed::PlanError),
 }
 
 impl Refusal {
@@ -75,6 +77,7 @@ impl Refusal {
             Self::Safety(h) => h.reason(),
             Self::Token(t) => t.reason(),
             Self::Ledger(l) => l.reason(),
+            Self::TypedPlan(p) => p.reason(),
         }
     }
 
@@ -93,6 +96,7 @@ impl Refusal {
             Self::Token(TokenError::WrongScope(_)) => "wrong-scope",
             Self::Ledger(LedgerError::Replayed) => "replayed",
             Self::Ledger(_) => "ledger",
+            Self::TypedPlan(_) => "typed-plan",
         }
     }
 }
@@ -233,6 +237,87 @@ impl Approver {
         };
         // Re-check the disable switch right before consuming, so a disable
         // that lands mid-request still wins.
+        if self.is_disabled() {
+            return Verdict::Refused(Refusal::Disabled);
+        }
+        match self.ledger.consume(&claims, now) {
+            Ok(()) => Verdict::Approved(claims),
+            Err(e) => Verdict::Refused(Refusal::Ledger(e)),
+        }
+    }
+
+    /// Option B prototype: decide a request whose `plan` bytes are a canonical
+    /// typed plan ([`crate::typed::Plan`]) instead of prose.
+    ///
+    /// Same order and the same disable / action / target / token / single-use
+    /// checks as [`Approver::approve`]. The one difference is step 3: instead
+    /// of the prose `safety::review`, the plan must parse as a canonical typed
+    /// plan. A parse failure is the refusal, so there is no free text and no
+    /// shell to bypass. The token still signs the exact `plan` bytes, which are
+    /// the plan's canonical bytes ([`crate::typed::Plan::canonical_bytes`]).
+    #[must_use]
+    pub fn approve_typed(&self, req: Request<'_>, now: u64) -> Verdict {
+        let verdict = self.decide_typed(req, now);
+        match &verdict {
+            Verdict::Approved(_) => {}
+            Verdict::DryRun => {
+                let _ = self.ledger.note(
+                    "dry-run",
+                    req.action,
+                    req.target,
+                    "no token (typed)",
+                    "",
+                    now,
+                );
+            }
+            Verdict::Refused(r) => {
+                let _ = self.ledger.note(
+                    "refused",
+                    req.action,
+                    req.target,
+                    &r.reason(),
+                    req.token,
+                    now,
+                );
+            }
+        }
+        verdict
+    }
+
+    fn decide_typed(&self, req: Request<'_>, now: u64) -> Verdict {
+        if self.is_disabled() {
+            return Verdict::Refused(Refusal::Disabled);
+        }
+        match Action::parse(req.action) {
+            Some(a) if a.is_allow_listed() => {}
+            _ => return Verdict::Refused(Refusal::ActionNotApprovable(req.action.to_owned())),
+        }
+        if !token::valid_target(req.target) {
+            return Verdict::Refused(Refusal::Token(TokenError::Malformed("target name")));
+        }
+        // The top-level target is still held to the admin-safety target rule
+        // (protected names like root/sshd/galion-control stay refused).
+        if let Err(h) = crate::safety::review_target(req.target) {
+            return Verdict::Refused(Refusal::Safety(h));
+        }
+        // Typed path: the plan must BE a canonical typed plan. This replaces
+        // the prose safety::review of the PLAN entirely; a parse failure is
+        // the refusal.
+        if let Err(e) = crate::typed::Plan::parse(req.plan) {
+            return Verdict::Refused(Refusal::TypedPlan(e));
+        }
+        if req.token.is_empty() {
+            return Verdict::DryRun;
+        }
+        let scope = Scope {
+            action: req.action,
+            target: req.target,
+            plan: req.plan,
+        };
+        let claims = match token::verify(req.token, &self.admin, scope, now, self.max_ttl_secs) {
+            Ok(c) => c,
+            Err(e) => return Verdict::Refused(Refusal::Token(e)),
+        };
         if self.is_disabled() {
             return Verdict::Refused(Refusal::Disabled);
         }

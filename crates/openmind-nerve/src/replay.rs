@@ -123,7 +123,7 @@ fn missing_sample(
     }
     let mut s = Sample {
         t,
-        present: info.map_or(true, |i| i.found()),
+        present: info.is_none_or(|i| i.found()),
         extra: json!({"source": "capture systemctl-show/http"}),
         ..Default::default()
     };

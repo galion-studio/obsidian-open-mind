@@ -11,8 +11,9 @@
 - The VPS clock is **UTC** (`timedatectl`: Etc/UTC). Backup names stamped by `date` on the VPS (`…-063215`, `…-150844`) are therefore 2 h behind Zagreb time.
   Backups stamped by the agents in Zagreb time (`…-094354`, `…-181414` …) are not.
 - Rollback lines run on the VPS as root. A line marked *rehearsed* has actually been run once; all others are written down but never run.
-- The base unit files were never edited: `galion-nerve.service` `12084a28…`, `hermes-rs.service` `acf5dae8…`, `openmind-memory.service` `42517408…`,
-  `galion-one.service` `cff8a7c1…` are byte-identical to their backups (20:22:56). Every unit change today is a drop-in, a new unit, or a mask.
+- The base unit files were never edited: `galion-nerve.service` `12084a2891f5c48cdebd6b97c138c645d883276aa6db97a23c78a652f87aae17`, `hermes-rs.service` `acf5dae845d4a0438647abbaecab4d15daf9f95cdbb8696e27d72d5c2cc4736c`,
+  `openmind-memory.service` `42517408ae24c5af9829ec8d0c3f6d307f441d4ee814f1cb7301421abe055902`,
+  `galion-one.service` `cff8a7c151cbfb89ce150c7d1599e9bd2018b3afe726b99462b6fd006e5cdeaf` are byte-identical to their backups (20:22:56). Every unit change today is a drop-in, a new unit, or a mask.
 
 ## 1. The table
 

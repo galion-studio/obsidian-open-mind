@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# STAGED: /etc/galion/hades/gaia-gate.toml (root:gaia 0640). hades-gate config for the
+# Gaia heal loop. Only the admin PUBLIC key lives on the VPS; the seed never does.
+# The replay ledger dir is also where Gaia keeps the global restart ledger
+# (gaia-restarts.jsonl), so it must be writable by the gaia user (StateDirectory).
+admin_pubkey = "/etc/galion/hades/admin.pub"
+ledger = "/var/lib/gaia/hades/ledger.jsonl"
+# touch this file (as root) to refuse every heal without a token: kill switch
+disable_file = "/etc/galion/hades/gaia.DISABLED"

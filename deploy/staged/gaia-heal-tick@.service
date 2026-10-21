@@ -1,0 +1,82 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# STAGED (wave-4 slot 188, swarm/gaia-heal-tick-unit): NOT installed, NOT enabled.
+# Owner decision D-L1 (2026-10-21): no Gaia heal unit on the VPS yet. Cutover: docs/cutover/gaia-heal-tick.md.
+#
+# One supervised `gaia heal-tick --loop` per target; the instance name (%i) is the
+# service Gaia watches. Started and re-armed only by gaia-heal-tick@%i.timer.
+# Gaia's apply path only touches box test services on 127.0.0.1:19000-19999 (scope
+# guard in crates/gaia-live/src/heal.rs); a live unit or port is refused with exit 4.
+#
+# Caps: at most 3 restarts per service per rolling hour, counted together with the
+# nerve's own restarts (D-L2: GET 127.0.0.1:8670/state, restarts_1h / reflex live_1h;
+# an unreadable /state fails closed before any token is used). Every restart needs a
+# single-use, short-lived hades-gate token from the token dir (D-L3). A hung service
+# is reported to the nerve, never restarted or killed (D-L4).
+#
+# Pause:  touch /var/lib/gaia/%i/stop  (running loop exits within ~0.1 s; the timer
+#         keeps skipping the start while the file exists)
+# Resume: rm /var/lib/gaia/%i/stop
+[Unit]
+Description=Gaia heal-tick loop for %i (hades-gate tokens, combined 3/h cap with the nerve)
+Documentation=file:/opt/galion/docs/cutover/gaia-heal-tick.md
+After=network.target galion-nerve.service
+ConditionPathExists=!/var/lib/gaia/%i/stop
+ConditionPathExists=/etc/galion/gaia/heal-%i.env
+StartLimitIntervalSec=1h
+StartLimitBurst=6
+
+[Service]
+Type=exec
+User=gaia
+Group=gaia
+EnvironmentFile=/etc/galion/gaia/heal-%i.env
+StateDirectory=gaia gaia/hades gaia/%i gaia/%i/state gaia/%i/tokens
+StateDirectoryMode=0700
+UMask=0077
+ExecStart=/opt/galion/rust/bin/gaia heal-tick --loop --compact --interval-ms 30000 --jitter-ms 5000 --max-runtime-s 3600 --max-errors 5 --max-restarts 3 --stop-file /var/lib/gaia/%i/stop --token-dir /var/lib/gaia/%i/tokens --state /var/lib/gaia/%i/state --hades-config /etc/galion/hades/gaia-gate.toml --nerve 127.0.0.1:8670 --wait-ms 5000 --health ${GAIA_HEALTH} --service %i --port ${GAIA_PORT} --allow-ports ${GAIA_ALLOW_PORTS} -- $GAIA_START_ARGV
+# The loop never restarts itself: the timer re-arms it 5 min after it stops
+# (budget, max-errors exit 7, scope exit 4), so a broken setup cannot hot-loop.
+Restart=no
+# Exit 4 (scope refused) and 7 (5 errors in a row) leave the unit "failed" on purpose,
+# so `systemctl --failed` shows it; the timer still re-arms it 5 min later.
+# Stopping Gaia must never stop a service Gaia healed (it was started detached in
+# its own process group). Default control-group kill would take it down, see the
+# cutover doc "KillMode". Only the gaia main process gets SIGTERM.
+KillMode=process
+TimeoutStopSec=10s
+Nice=10
+CPUQuota=20%
+MemoryMax=128M
+TasksMax=64
+# Hardening (the restarted test service inherits all of it).
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+# Hung check (D-L4) reads /proc/net/tcp{,6} and /proc/<pid>/fd of its own children:
+# ProtectProc=invisible keeps that, ProcSubset=pid would hide /proc/net (not set).
+ProtectProc=invisible
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+IPAddressDeny=any
+IPAddressAllow=localhost
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+ReadOnlyPaths=/etc/galion

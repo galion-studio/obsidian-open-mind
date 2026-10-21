@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# STAGED (wave-4 slot 188, swarm/gaia-heal-tick-unit): NOT installed, NOT enabled.
+# Owner decision D-L1 (2026-10-21): no Gaia heal unit on the VPS yet.
+#
+# Starts gaia-heal-tick@%i.service and re-arms it 5 min after it stops (hourly
+# runtime budget, 3 restarts by this run, 5 errors in a row, or a scope refusal).
+# The loop itself ticks every 30 s + 0-5 s jitter (same 30 s as the nerve cycle).
+# While /var/lib/gaia/%i/stop exists every start is skipped (ConditionPathExists).
+[Unit]
+Description=Re-arm the Gaia heal-tick loop for %i (5 min after it stops)
+Documentation=file:/opt/galion/docs/cutover/gaia-heal-tick.md
+
+[Timer]
+OnActiveSec=30s
+OnBootSec=2min
+OnUnitInactiveSec=5min
+AccuracySec=10s
+RandomizedDelaySec=20s
+Unit=gaia-heal-tick@%i.service
+
+[Install]
+WantedBy=timers.target

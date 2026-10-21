@@ -667,6 +667,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-release"
+version = "0.1.0"
+dependencies = [
+ "miniz_oxide",
+]
+
+[[package]]
 name = "galion-vending"
 version = "0.1.0"
 dependencies = [

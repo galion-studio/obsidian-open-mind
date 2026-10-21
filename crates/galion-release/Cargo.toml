@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-release"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Release artefact tool for release.yml: checks and packages the static musl binaries per target (tar.gz), writes and verifies SHA256SUMS, and rehearses the packages (--version under qemu-user for foreign arches)."
+
+[[bin]]
+name = "galion-release"
+path = "src/main.rs"
+
+[dependencies]
+# Pure-Rust deflate for the .tar.gz (no SIMD feature). Same pin and features as
+# galion-backup, already in Cargo.lock (0.8.9). gzip framing + CRC32 are ours.
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }

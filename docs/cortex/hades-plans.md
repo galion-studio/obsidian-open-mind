@@ -38,7 +38,7 @@ Wrapper: `{executed: false, action, count, by_family, plans, skipped}`.
 `steps` is the signed text: `steps.join("\n")` = `hades_gate::adapter::gaia_plan_bytes(steps)`. Every plan has a
 first line naming the family, `precondition:` lines (abort if the problem is gone or the situation differs),
 the change, `verify:` lines and a `rollback:` line. **Steps carry no timestamp**, so the same problem gives the
-same plan hash cycle after cycle (an approval minted at 14:52 still matches the plan at 14:57).
+same plan hash cycle after cycle (asserted live across two cycles).
 
 ## Hard limits (by construction, all tested)
 

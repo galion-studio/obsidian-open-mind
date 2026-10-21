@@ -38,9 +38,9 @@ GALION_REAL=1 NERVE_T42_CAPTURES=$N/replay192,$N/replay186,$N/replay179,$N/repla
 |---|---|---|---|---|
 | golden fixture `cortex-replay` | 6 | edge-rate-limit 1 (ddos:tuner), unit-restart 1, ingress 1, rebind 1 (:9999), stray-stop 2 (:8652 :8653) | 5 (scanner probes, cloudflared error rate, galion-desk restart loop; incidents scan:console, galion-desk stay manual) | 5 |
 | VPS capture replay192 (14:47-14:48 today) | 4 | unit-restart galion-one.service, ingress (8 closed ports), stray-stop :8672 :19120 | 1 (error-rate-cloudflared) | 33 |
-| VPS capture replay186 (12:3x today) | 4 | same 4 | 1 | 18 |
+| VPS capture replay186 (12:39 today) | 4 | same 4 | 1 | 18 |
 | VPS capture replay179 (09:15 today) | 4 | same 4 (7 closed ports) | 1 | 23 |
-| VPS capture replay158 (08:23 today) | 3 | unit-restart, ingress, stray-stop :8672 | 1 | 25 |
+| VPS capture replay158 (08:24 today) | 3 | unit-restart, ingress, stray-stop :8672 | 1 | 25 |
 | VPS capture replay1 (2026-10-20 19:25) | 7 | unit-restart, ingress, stray-stop :8431 :8432 :8433 :8652 :8653 | 3 | 13 |
 
 Every plan passed hades-gate's admin-safety review. The replay1 stray-stop plans name exactly the five

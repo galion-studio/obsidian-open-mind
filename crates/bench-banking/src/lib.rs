@@ -18,9 +18,11 @@
 //! - [`audit`]: hash-chained, redacted audit trail with Zagreb timestamps.
 //! - [`axes`]: the ten scored axes and the scoreboard writer.
 
+pub mod adversarial;
 pub mod audit;
 pub mod axes;
 pub mod client;
+pub mod guard;
 pub mod http;
 pub mod mock;
 pub mod money;

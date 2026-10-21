@@ -22,6 +22,7 @@
 
 pub mod adapters;
 pub mod banking;
+pub mod banking_adv;
 pub mod live;
 pub mod mockllm;
 pub mod planner;

@@ -19,7 +19,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-#[allow(dead_code)] // only `canon` is used here
+#[allow(dead_code)] // only `canon` and `drop_edge_hosts` are used here
 mod support;
 
 fn fx() -> PathBuf {
@@ -158,6 +158,8 @@ fn replay_with_both_sensors_on_keeps_the_golden() {
     assert_eq!(o.status.code(), Some(1), "failing verdict exits 1");
     let mut got: Value = serde_json::from_slice(&o.stdout).unwrap();
     support::canon(&mut got);
+    // T2.12 additive `edge-host:*` streams postdate the golden (cortex-merge-all).
+    support::drop_edge_hosts(&mut got);
     let mut want: Value = serde_json::from_str(
         &std::fs::read_to_string(fx().join("cortex-replay.expected.json")).unwrap(),
     )

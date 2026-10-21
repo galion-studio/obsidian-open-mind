@@ -1032,8 +1032,15 @@ mod tests {
             (2, 60, 20)
         );
         assert!(Hades::from_env(&|k| (k == "NERVE_HADES").then(|| "1".into())).is_some());
+        // Registered after the other S2 sensors; event-feed and edge-rate (T2.10, T2.12)
+        // register after it since cortex-merge-all, edge-rate on by default.
         let names = Sensors::from_env(&env).names();
-        assert_eq!(names.last(), Some(&"hades"));
+        let pos = |n: &str| names.iter().position(|x| *x == n);
+        assert!(pos("hades").is_some(), "{names:?}");
+        assert!(
+            pos("hades") > pos("surface") && pos("hades") < pos("edge-rate"),
+            "{names:?}"
+        );
         let off = |k: &str| {
             if k == "NERVE_SENSORS_OFF" {
                 Some("hades".into())

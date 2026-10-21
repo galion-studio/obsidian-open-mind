@@ -1104,4 +1104,46 @@ mod tests {
         assert!(f.stats.lines > 0 && f.stats.bad == 0, "{:?}", f.stats);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// Merge check (slot 158, cortex-merge-all): pushed B33 `ddos` events under
+    /// score v2. A warn-level ddos event has no signal, so it now costs its own
+    /// 4 points (v1: 0, invisible); an error-level one carries `gaia:<src>` and
+    /// its signal, so it is scored once, as the incident, and listed as covered.
+    #[test]
+    fn pushed_ddos_events_are_scored_once_by_score_v2() {
+        use crate::incident::{Correlator, Explain};
+        let explain = |cause: &str, _: &[Signal]| Explain {
+            title: format!("{cause} title"),
+            ..Default::default()
+        };
+        let data = r#"{"id":"edge-flood","component":"tunnel","title":"edge flood"}"#;
+        // warn: own deduction, no signal, pass kept (warn never blocks).
+        let mut f = EventFeed::new(vec![], 3600, None);
+        f.ingest_line(&ev(NOW - 30, "gaia", "ddos", "warn", data), NOW);
+        let cx = feed_cycle(&mut f, NOW, false);
+        assert_eq!(cx.ddos_findings.len(), 1);
+        assert!(cx.signals.is_empty());
+        let sc = crate::score::score(&[], &cx, &[], &[]);
+        assert_eq!((sc.score, sc.pass), (96, true), "{:?}", sc.deductions);
+        assert!(
+            sc.deductions[0].what.starts_with("ddos (warn)"),
+            "{:?}",
+            sc.deductions
+        );
+        // error: one incident deduction, finding covered, fails.
+        let mut f = EventFeed::new(vec![], 3600, None);
+        f.ingest_line(&ev(NOW - 30, "gaia", "ddos", "error", data), NOW);
+        let cx = feed_cycle(&mut f, NOW, false);
+        assert_eq!(cx.signals.len(), 1);
+        assert_eq!(cx.signals[0].cause, "gaia:gaia");
+        let mut c = Correlator::default();
+        c.update(NOW, cx.signals.clone(), &explain);
+        let open = c.open_sorted();
+        let sc = crate::score::score(&open, &cx, &[], &[]);
+        assert_eq!(sc.deductions.len(), 1, "{:?}", sc.deductions);
+        assert!(sc.deductions[0].what.starts_with("error incident: "));
+        assert_eq!((sc.score, sc.pass), (85, false));
+        assert_eq!(sc.covered.len(), 1);
+        assert_eq!(sc.covered[0].by, "gaia:gaia");
+    }
 }

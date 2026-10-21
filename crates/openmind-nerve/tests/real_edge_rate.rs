@@ -198,6 +198,10 @@ fn real_edge_rate_on_the_box() {
         inc[0]["id"], inc[0]["severity"], inc[0]["title"]
     );
     eprintln!("verdict: score {} grade {}", r["score"], r["grade"]);
+    // Score v2 (cortex-merge-all): the flood is scored once, as its incident; was 0/F under v1.
+    for d in r["deductions"].as_array().unwrap() {
+        eprintln!("  -{} {}", d["points"], d["what"]);
+    }
     let score_on = r["score"].as_u64().unwrap();
 
     // 1b. Switched off: no host streams, no finding, the fixture verdict.

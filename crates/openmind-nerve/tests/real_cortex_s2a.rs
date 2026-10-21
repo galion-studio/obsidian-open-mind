@@ -214,7 +214,9 @@ fn real_cortex_s2a_on_the_box() {
             "components",
             "ddos",
             "sshd",
-            "rustsec"
+            "rustsec",
+            // T2.12 edge-rate is on by default since cortex-merge-all (NERVE_EDGE_HOSTS=0 turns it off).
+            "edge-rate"
         ]
     );
     assert_eq!(

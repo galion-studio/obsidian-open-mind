@@ -533,4 +533,36 @@ mod tests {
         let cx = s.run(&i);
         assert!(cx.ddos_findings.is_empty() && cx.signals.is_empty());
     }
+
+    /// Merge check (slot 158, cortex-merge-all): the T2.12 edge-host flood goes
+    /// through the engine order (sensors -> correlator -> score v2) and costs
+    /// exactly one critical-incident deduction; the finding is listed as covered.
+    #[test]
+    fn edge_host_flood_is_scored_once_by_score_v2() {
+        use crate::incident::{Correlator, Explain};
+        let v = flood_streams();
+        let comps = vec![];
+        let logs = LogInsights::default();
+        let now = 1_792_501_560;
+        let mut i = Input::new(now, &comps, &logs);
+        i.ddos = &v;
+        let mut s = Sensors::builtin();
+        s.add(EdgeRate);
+        let cx = s.run(&i);
+        let mut c = Correlator::default();
+        let explain = |cause: &str, _: &[Signal]| Explain {
+            title: format!("{cause} title"),
+            ..Default::default()
+        };
+        c.update(now, cx.signals.clone(), &explain);
+        let open = c.open_sorted();
+        let sc = crate::score::score(&open, &cx, &[], &[]);
+        assert_eq!(sc.deductions.len(), 1, "{:?}", sc.deductions);
+        assert!(sc.deductions[0].what.starts_with("critical incident: "));
+        assert_eq!(sc.score, 75, "{:?}", sc.deductions);
+        assert!(!sc.pass);
+        assert_eq!(sc.covered.len(), 1);
+        assert_eq!(sc.covered[0].finding, "ddos:edge-host-rate");
+        assert_eq!(sc.covered[0].by, CAUSE);
+    }
 }

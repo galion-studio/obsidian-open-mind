@@ -314,7 +314,9 @@ fn real_cortex_s2_d_feed_and_hades_sensor() {
             "edge",
             "components",
             "ddos",
-            "hades"
+            "hades",
+            // T2.12 edge-rate is on by default since cortex-merge-all (NERVE_EDGE_HOSTS=0 turns it off).
+            "edge-rate"
         ]
     );
     let hs = st["cortex_sensors"]

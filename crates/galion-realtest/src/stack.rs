@@ -99,10 +99,12 @@ pub fn build(repo: &Path, jobs: u32) -> Result<String, String> {
     ))
 }
 
+/// A relative `bin_dir` (CI passes `target/release`) is made absolute against
+/// the current directory: galion-boot refuses a relative `argv[0]`.
 pub fn locate(bin_dir: Option<&Path>, repo: &Path) -> Bins {
     if let Some(d) = bin_dir {
         return Bins {
-            dir: d.to_path_buf(),
+            dir: std::path::absolute(d).unwrap_or_else(|_| d.to_path_buf()),
         };
     }
     let target = std::env::var_os("CARGO_TARGET_DIR")
@@ -586,5 +588,16 @@ mod tests {
     #[test]
     fn port_layout_fits_the_full_stack_range() {
         const { assert!(19500 + off::MAX <= 19599) };
+    }
+
+    #[test]
+    fn relative_bin_dir_becomes_absolute() {
+        // CI runs `--bin-dir target/release`; galion-boot needs absolute argv[0].
+        let b = locate(Some(Path::new("target/release")), Path::new("/r"));
+        assert!(b.dir.is_absolute(), "{}", b.dir.display());
+        assert!(b.dir.ends_with("target/release"));
+        assert!(b.path("galion-one").is_absolute());
+        let a = locate(Some(Path::new("/x/release")), Path::new("/r"));
+        assert_eq!(a.dir, PathBuf::from("/x/release"));
     }
 }

@@ -129,10 +129,14 @@ fn cmd_stack(o: &Opts) -> Result<bool, String> {
     if base < 1024 || u32::from(base) + u32::from(stack::off::MAX) > 65535 {
         return Err("--base-port out of range".into());
     }
-    let out = o.get("--out").map(PathBuf::from).unwrap_or_else(|| {
-        repo.join("target/realtest")
-            .join(format!("stack-{}", stamp_dir()))
-    });
+    // Absolute, so the fixture paths written into boot.toml are absolute too.
+    let out = o
+        .get("--out")
+        .map(|p| std::path::absolute(p).unwrap_or_else(|_| PathBuf::from(p)))
+        .unwrap_or_else(|| {
+            repo.join("target/realtest")
+                .join(format!("stack-{}", stamp_dir()))
+        });
     let mut pre = format!(
         "Mode: **box stack** (real release binaries on 127.0.0.1:{base}-{}).\n\n- Repo: `{}` at commit `{}`\n- Host: `{}`\n",
         base + stack::off::MAX,

@@ -23,6 +23,47 @@ pub trait Manager {
     fn is_active(&mut self, unit: &str) -> bool;
     fn journal(&mut self, unit: &str, lines: u32) -> String;
     fn reset_failed(&mut self, unit: &str) -> bool;
+    /// `ActiveState` and `NRestarts` of the unit, for the optional crash-loop fail-fast
+    /// (`GALION_DEPLOY_FAILFAST`). `None` = the backend cannot tell; fail-fast then
+    /// stays off and the full health window is used.
+    fn unit_state(&mut self, _unit: &str) -> Option<UnitState> {
+        None
+    }
+}
+
+/// The `systemctl show` properties fail-fast reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnitState {
+    /// `active`, `activating` (systemd's auto-restart), `failed`, `inactive`, ...
+    pub active_state: String,
+    /// `auto-restart` = it crashed and systemd will start it again after `RestartSec`
+    /// (a crash that `NRestarts` does not count yet). Empty if the backend omits it.
+    pub sub_state: String,
+    /// systemd's automatic-restart counter (`Restart=`), not manual restarts.
+    pub n_restarts: u32,
+}
+
+/// `KEY=value` lines of `systemctl show -p ActiveState -p SubState -p NRestarts` (or `simsup ctl
+/// show`, which prints more keys). `NRestarts` is required; a missing `ActiveState` is
+/// read as empty.
+pub fn parse_unit_state(show: &str) -> Option<UnitState> {
+    let mut active_state = String::new();
+    let mut sub_state = String::new();
+    let mut n = None;
+    for l in show.lines() {
+        if let Some(v) = l.strip_prefix("ActiveState=") {
+            active_state = v.trim().to_string();
+        } else if let Some(v) = l.strip_prefix("SubState=") {
+            sub_state = v.trim().to_string();
+        } else if let Some(v) = l.strip_prefix("NRestarts=") {
+            n = v.trim().parse().ok();
+        }
+    }
+    Some(UnitState {
+        active_state,
+        sub_state,
+        n_restarts: n?,
+    })
 }
 
 fn cmd(argv: &[String]) -> Command {
@@ -113,6 +154,19 @@ impl Manager for Systemd {
     fn reset_failed(&mut self, u: &str) -> bool {
         loud(&v(&["systemctl", "reset-failed", &format!("{u}.service")]))
     }
+    fn unit_state(&mut self, u: &str) -> Option<UnitState> {
+        parse_unit_state(&stdout_of(&v(&[
+            "systemctl",
+            "show",
+            "-p",
+            "ActiveState",
+            "-p",
+            "SubState",
+            "-p",
+            "NRestarts",
+            &format!("{u}.service"),
+        ])))
+    }
 }
 
 /// `$GALION_DEPLOY_CTL` split on whitespace, like bash `read -a`.
@@ -154,11 +208,46 @@ impl Manager for Direct {
     fn reset_failed(&mut self, u: &str) -> bool {
         loud(&self.with(&["reset-failed", u]))
     }
+    /// `ctl show UNIT` (simsup prints `ActiveState=` and `NRestarts=` among others).
+    fn unit_state(&mut self, u: &str) -> Option<UnitState> {
+        parse_unit_state(&stdout_of(&self.with(&["show", u])))
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_exec_start;
+    use super::{parse_exec_start, parse_unit_state, UnitState};
+
+    #[test]
+    fn unit_state() {
+        let st = |a: &str, n: u32| UnitState {
+            active_state: a.into(),
+            sub_state: String::new(),
+            n_restarts: n,
+        };
+        assert_eq!(
+            parse_unit_state("ActiveState=activating\nNRestarts=3\n"),
+            Some(st("activating", 3))
+        );
+        // simsup ctl show: more keys, any order
+        assert_eq!(
+            parse_unit_state("Id=t.service\nNRestarts=0\nActiveState=active\nMainPID=9\n"),
+            Some(st("active", 0))
+        );
+        assert_eq!(parse_unit_state("NRestarts=7"), Some(st("", 7)));
+        assert_eq!(
+            parse_unit_state("ActiveState=activating\nSubState=auto-restart\nNRestarts=1\n"),
+            Some(UnitState {
+                active_state: "activating".into(),
+                sub_state: "auto-restart".into(),
+                n_restarts: 1
+            })
+        );
+        // no NRestarts (old systemd, a ctl without `show`, the ExecStart shim): unknown
+        assert_eq!(parse_unit_state("ActiveState=active\n"), None);
+        assert_eq!(parse_unit_state("NRestarts=[not set]\n"), None);
+        assert_eq!(parse_unit_state("{ path=/x ; argv[]=/x }\n"), None);
+    }
 
     #[test]
     fn exec_start() {

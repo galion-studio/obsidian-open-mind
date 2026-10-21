@@ -183,6 +183,7 @@ const RESET: &str = "systemctl reset-failed tuner.service";
 const RESTART: &str = "systemctl restart tuner.service";
 const ACTIVE: &str = "systemctl is-active --quiet tuner.service";
 const JOURNAL: &str = "journalctl -u tuner.service -n 20 --no-pager -o cat";
+const FFSHOW: &str = "systemctl show -p ActiveState -p SubState -p NRestarts tuner.service";
 
 fn s(v: &[&str]) -> Vec<String> {
     v.iter().map(|x| x.to_string()).collect()
@@ -291,6 +292,75 @@ fn systemd_backend_scenarios() {
     assert!(out.contains("level=warn msg=\"rolled back ok\" unit=tuner"));
     report.push(format!(
         "broken-rolls-back: exit {rc}, {} calls",
+        calls.len()
+    ));
+
+    // 3b fail-fast (new, opt-in GALION_DEPLOY_FAILFAST=2): the crash-looping build is
+    // given up after 2 crashes instead of 20 tries; one extra read per poll,
+    // `systemctl show -p ActiveState -p SubState -p NRestarts`. The rollback is unchanged.
+    let w = world("failfast");
+    set(&w, false);
+    let counter = w.d.join("nrestarts");
+    let (rc, out, calls) = w.run(
+        &["tuner", &w.bad.display().to_string(), &url],
+        &[
+            ("GALION_DEPLOY_FAILFAST", "2"),
+            ("SHIM_NRESTARTS", counter.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(rc, 3, "{out}");
+    assert_eq!(
+        calls,
+        s(&[CAT, SHOW, RESET, RESTART, FFSHOW, FFSHOW, JOURNAL, RESET, RESTART, ACTIVE])
+    );
+    assert_eq!(w.target(), b"\x7fELFgood-old");
+    assert!(out.contains("level=info msg=\"fail-fast armed\" unit=tuner crash_limit=2 nrestarts_base=1 state=activating/auto-restart"));
+    assert!(out.contains("msg=\"crash loop: 2 crash(es) of the new build since the deploy restart (limit 2); failing fast\" unit=tuner"));
+    assert!(out.contains("level=error msg=\"health failed, rolling back\" unit=tuner"));
+    assert!(out.contains("level=warn msg=\"rolled back ok\" unit=tuner"));
+    report.push(format!(
+        "failfast-broken: exit {rc}, {} calls (gave up on the first poll instead of after 20 tries)",
+        calls.len()
+    ));
+
+    // 3c fail-fast asked for, but systemd gives no NRestarts (older than 235): warn,
+    // then exactly the old 20-try window.
+    let w = world("failfast-old");
+    set(&w, false);
+    let (rc, out, calls) = w.run(
+        &["tuner", &w.bad.display().to_string(), &url],
+        &[("GALION_DEPLOY_FAILFAST", "2")],
+    );
+    assert_eq!(rc, 3, "{out}");
+    let mut exp = s(&[CAT, SHOW, RESET, RESTART, FFSHOW]);
+    exp.extend(rep(ACTIVE, 20));
+    exp.extend(s(&[JOURNAL, RESET, RESTART, ACTIVE]));
+    assert_eq!(calls, exp);
+    assert!(out.contains("fail-fast off: cannot read NRestarts; using the full health window"));
+    report.push(format!(
+        "failfast-no-nrestarts: exit {rc}, {} calls (full window)",
+        calls.len()
+    ));
+
+    // 3d fail-fast on, healthy build: one arming read, otherwise the healthy sequence
+    let w = world("failfast-ok");
+    set(&w, false);
+    let counter = w.d.join("nrestarts");
+    let (rc, out, calls) = w.run(
+        &["tuner", &w.good.display().to_string(), &url],
+        &[
+            ("GALION_DEPLOY_FAILFAST", "1"),
+            ("SHIM_NRESTARTS", counter.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(rc, 0, "{out}");
+    assert_eq!(
+        calls,
+        s(&[CAT, SHOW, RESET, RESTART, FFSHOW, FFSHOW, ACTIVE])
+    );
+    assert!(!out.contains("crash loop"));
+    report.push(format!(
+        "failfast-healthy: exit {rc}, {} calls",
         calls.len()
     ));
 

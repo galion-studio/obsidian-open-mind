@@ -35,15 +35,31 @@ fn main() {
             Verdict::DryRun => "**passes safety (dry-run)**".to_owned(),
             Verdict::Approved(_) => "**approved**".to_owned(),
         };
-        let esc = |s: String| s.replace('|', "\\|");
+        let esc = |s: String| {
+            s.chars()
+                .map(|ch| {
+                    if ch.is_ascii() {
+                        ch.to_string()
+                    } else {
+                        ch.escape_unicode().to_string()
+                    }
+                })
+                .collect::<String>()
+                .replace('|', "\\|")
+        };
         println!(
             "| {} | {} | {} | {} | {} | {} | {} |",
             i + 1,
             c.cat,
             esc(c.desc.to_owned()),
-            esc(format!("{:?}", c.system)),
-            esc(format!("{:?}", c.target)),
-            esc(format!("{:?}", c.steps)),
+            esc(format!("`{}`", c.system.escape_default())),
+            esc(format!("`{}`", c.target.escape_default())),
+            esc(c
+                .steps
+                .iter()
+                .map(|s| format!("`{}`", s.escape_default()))
+                .collect::<Vec<_>>()
+                .join(" / ")),
             esc(cell)
         );
         match per.iter_mut().find(|(k, _, _)| *k == c.cat) {

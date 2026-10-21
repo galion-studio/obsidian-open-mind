@@ -16,6 +16,9 @@
 //!   can never be used to switch off the admin's ability to stop HADES;
 //! * plans the reviewer cannot read: non-ASCII text, shell substitution, `eval`,
 //!   encoded payloads.
+//! * the owner never-unroute list (D-T42-4): the VPS itself, DNS, the mail
+//!   server and the backup server, as a target or named in the plan (S5.2,
+//!   docs/security/hades-safety-corpus.md).
 //!
 //! Since S3.1 (docs/security/hades-redteam.md) the deny list is backed by
 //! allow lists: plan punctuation is limited to `/ . - _ : , ( ) ;` (no shell

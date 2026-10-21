@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "console-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Server-rendered Rust UI for the Galion console: HTML pages, a CSS sheet generated from Rust, the phone/host gate, and a loopback API client. std only, no JavaScript."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]

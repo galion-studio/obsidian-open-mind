@@ -22,10 +22,10 @@ as proposals for the owner, with no behaviour change.
 holds every VPS listener and every tunnel-ingress origin port from
 `docs/ops/vps-baseline.md` (refresh 2026-10-21 11:23 +02:00). It was checked
 against a read-only `ss -ltn` at 17:57 and 18:30 +02:00, and against the nerve's
-edge finding at 18:30 +02:00, which added `:3333`. The full list is 22, 25, 53,
+edge finding at 18:30 +02:00, which added `:3333`. A further read-only `ss -ltn` at 18:51 +02:00 added 8673 and 8675 (openmind-nerve instances) and 8674 (gaia-cortex, dry-run). The full list is 22, 25, 53,
 3004, 3005, 3010, 3011, 3020, 3333, 4001, 4003, 4004, 4020, 4042, 4060, 4444,
 8002, 8003, 8080, 8091, 8420, 8431, 8642, 8646, 8650, 8652, 8653, 8660, 8670,
-8671, 8672, 18800 (a transient sshd forward), 19120, 20241 and 20242.
+8671, 8672, 8673, 8674, 8675, 18800 (a transient sshd forward), 19120, 20241 and 20242.
 
 ### Where each Gaia test's ports now live
 
@@ -49,7 +49,7 @@ slot N uses 19700+10*(N-100)..+9.
 1. `LIVE_PORTS` is sorted and has no duplicates, and it holds every baseline port.
 2. No port that `is_test_port` accepts is on the live list. The live ports
    inside the band are exactly 19120, 20241 and 20242, and `check_target`
-   refuses all 35 live ports.
+   refuses all 38 live ports.
 3. No registered slot band holds a live port. Known collisions: slot 12's
    band holds 19120 and slot 154's holds 20241/20242, so those bands must
    never be given to a Gaia test that binds ports.

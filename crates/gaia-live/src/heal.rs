@@ -79,6 +79,9 @@ pub const LIVE_PORTS: &[u16] = &[
     8670,  // galion-nerve (openmind-nerve)
     8671,  // tanga-proto
     8672,  // galion-nerve-shadow
+    8673,  // openmind-nerve instance (nerve-event-driven), seen 2026-10-21 18:51 +02:00
+    8674,  // gaia-cortex (dry-run), seen 2026-10-21 18:51 +02:00
+    8675,  // openmind-nerve instance, seen 2026-10-21 18:51 +02:00
     18800, // sshd forward seen 2026-10-21 17:57 +02:00 (transient)
     19120, // openmind-queue (POSEIDON)
     20241, // cloudflared metrics

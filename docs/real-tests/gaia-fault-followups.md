@@ -94,3 +94,31 @@ only `TEST_PORTS.contains(start/end)`), and so was the POSEIDON port 19120.
 * nerve `/cortex` 200 (a vulnerabilities JSON, including "3 loopback listener(s) no
   monitored unit owns: :8672 :18800 ..."). No `gaia*` unit and no `gaia` binary
   in /usr/local/bin. Gaia is still not installed on the VPS (D-L1).
+
+## Resume re-run at HEAD (retry 2, 18:48-18:53 +02:00)
+
+The 18:22-18:27 runs above came before the `:3333` edit (0e8bb15), so they were
+all run again on the final code:
+
+| Test | Window (+02:00) | Result |
+|---|---|---|
+| real_gaia_faults | 18:49:17-18:50:29 | 10/10 in 61.02 s |
+| real_gaia_loop | 18:50:29-18:50:47 | 1/1 in 11.76 s |
+| real_gaia_decisions | 18:50:47-18:51:18 | 1/1 in 23.60 s |
+| real_gaia_live | 18:51:18-18:51:25 | 1/1 in 1.25 s |
+
+After the runs, no `gaia-dummy` or test nerve was left running, and 0 listeners were open on 20300-20309,
+20450-20459, 20590-20599 or 20690-20699.
+
+VPS read-only at 18:51 +02:00: `ss -ltn` showed the same listeners as at 18:30, plus three new
+loopback ones. They are 8673 (openmind-nerve, `/health` cycle 5, score 76), 8674 (gaia-cortex,
+`/health` mode dry-run, llm_enabled false, 1 incident open) and 8675 (openmind-nerve, score 61).
+All three were added to `LIVE_PORTS` and to the guard test's baseline list. They lie outside the
+19000-20999 test band, so no test port changed. Nerve `:8670/state` returned 200 (36 907 B):
+cycle 74, mode dry-run, score 66/D. POSEIDON `:19120/healthz` returned 200. The VPS still has no `gaia*` unit and
+no gaia binary. A cortex now answers on the VPS (8674, dry-run).
+
+Box suites after that edit: gaia + gaia-live 111/0. The workspace run (excl.
+openmind-sandbox, cgroup-detect, hermes-tools) from 18:52:31 to 18:53:19 had 269 suites,
+**1278 passed / 0 failed / 6 ignored**. clippy `-D warnings` (workspace, excl. sandbox and
+cgroup-detect) and `cargo fmt --check` were clean, and no-python was ok.

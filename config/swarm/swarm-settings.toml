@@ -13,6 +13,12 @@ measurement_notes = [
   "20:34 restart to 16 concurrent: all kept running",
   "20:38 7 planners added (22 running): 4 stopped (2 coding, 2 planners), 18 kept running",
 ]
+# Set by Slavik (relayed by Mate) 2026-10-21 04:33 CEST (+02:00).
+# owner_ceiling (250) is the SWARM ceiling, not the Grok Bot's own limit.
+per_sector_agent_limit = "PLACEHOLDER: maximum agents per sector on the Grok Bot comes from the Grok Bot's data-center hard-coded limit; exact number pending from Slavik"
+per_sector_agent_limit_source = "Grok Bot data-center hard-coded limit (not stored on this computer)"
+per_sector_agent_limit_status = "pending Slavik"
+grok_bot_permissions_note = "The Grok Bot's own permissions and limits are hard-coded in the data center and not kept in any file on this computer; no permissions.json or similar exists (searched 2026-10-21 04:32 CEST +02:00)."
 
 [planners]
 structure = "one planner per sector, not per task"

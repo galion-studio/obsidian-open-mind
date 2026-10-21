@@ -92,7 +92,12 @@ jobs:
           set -eu
           target/release/galion-release sums dist
           (cd dist && sha256sum -c SHA256SUMS)
-          target/release/galion-release rehearse dist --work "$RUNNER_TEMP/rehearse"
+          # binding: --version names the binary + release version, every stamped
+          # binary carries this build's provenance, same binaries and --version
+          # lines on both targets. --help is recorded only (non-binding).
+          target/release/galion-release rehearse dist --work "$RUNNER_TEMP/rehearse" \
+            --expect-commit "$GALION_BUILD_COMMIT" --expect-built "$GALION_BUILD_TIME" \
+            --help-timeout 5 --tsv "$RUNNER_TEMP/rehearse.tsv"
 
       - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3.9.1
 

@@ -60,6 +60,10 @@ fn packages_both_tier1_targets_with_galion_release() {
     assert!(w.contains("galion-release sums dist"));
     assert!(w.contains("sha256sum -c SHA256SUMS"));
     assert!(w.contains("galion-release rehearse dist"));
+    // S5-T3: provenance stamps are checked against this build (binding).
+    assert!(w.contains("--expect-commit \"$GALION_BUILD_COMMIT\""));
+    assert!(w.contains("--expect-built \"$GALION_BUILD_TIME\""));
+    assert!(w.contains("--help-timeout 5"));
     assert!(w.contains("qemu-user-static"));
     // No hand-picked binary list and no shell tar packaging any more.
     assert!(!w.contains("for b in galion-one"));

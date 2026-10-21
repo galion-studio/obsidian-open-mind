@@ -63,3 +63,11 @@ docs/third-party/vps-version-flags.md).
 `GALION_REAL=1 cargo test -p galion-common --test real_flags -- --nocapture`
 (Rust, builds all 34 release binaries with a stamp; `GALION_REAL_BIN_DIR=...`
 runs prebuilt ones). See docs/real-tests/vps-version-flags.md.
+
+## Owner decisions (Slavik)
+
+* **D-194-1 version line change.** galion-deploy, galion-guard, openmind-nerve and openmind-queue printed `<name> 0.1.0`; they now print the stamped `<name> 0.1.0 (commit ..., built ...)` like the other binaries (the prefix is unchanged). openmind-memory `--help` now exits 0 (was 64). Accept (recommended), or keep the old lines for those four.
+* **D-194-2 VPS `--check` run.** This row was box only. Next step: copy the static x86_64 binaries to a throwaway `/var/tmp/flags-test-<ts>` on the VPS and run `--version`/`--check` as an ordinary user against the real env (read-only, nothing bound, folder removed after). Needs your OK.
+* **D-194-3 galion-wallstreet.** Keep the local copy of the flags (recommended, keeps the paper-only pinned dependency list), or allow `galion-common` in its deps and drop the ~40 duplicated lines.
+* **D-194-4 galion-deploy dependency.** galion-deploy had no dependencies at all; it now uses the std-only in-workspace `galion-common`. Accept (recommended), or keep it dependency-free with a local copy.
+* **D-194-5 deploy preflight (later).** galion-deploy could also run `<new> --check` (bounded like `--version`) and refuse on exit 1 before it installs anything. Not done here; it changes deploy behaviour.

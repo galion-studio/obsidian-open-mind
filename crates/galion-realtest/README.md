@@ -7,7 +7,7 @@ Platform-wide real-life test harness (Rust, std + serde_json only).
 ## `galion-realtest stack`
 1. Locates release binaries (`--bin-dir`, else `$CARGO_TARGET_DIR/release`, else `target/release`) or builds them with `--build` (`nice -n 10 cargo build --release --locked -j 4`).
 2. Writes fixture configs under `<out>/fixture/` (pairing stores, fixture web roots, a throwaway memory key in an env file, a `boot.toml`) and starts a fixture upstream stub (fake Ollama/Hermes; every model or TTS call gets 503, so nothing is ever paid for).
-3. Boots the whole stack under the stack's own supervisor (`galion-boot supervise`) in its own process group, with a clean environment, on `127.0.0.1:BASE..BASE+51` (default 19500).
+3. Boots the whole stack under the stack's own supervisor (`galion-boot supervise`) in its own process group, with a clean environment, on `127.0.0.1:BASE..BASE+53` (default 19500). `--with-nerve` adds openmind-nerve (BASE+50, event log on); `--with-gaia` adds openmind-queue (BASE+53) and needs `gaia`, `gaia-dummy`, `hades-gate`, `openmind-queue`; BASE+52 is the never-bound Gaia heal target (keep BASE in 19000-19946 so it is a Gaia test port).
 4. Waits for health, then runs the scenarios:
 
 | Scenario | What it checks |
@@ -23,6 +23,9 @@ Platform-wide real-life test harness (Rust, std + serde_json only).
 | voice-relay-contract | persona-plex-relay scaffold: one Zagreb stamp with no config, plan never prints the secret values, exit codes |
 | guardian-tick-heal | guardian-tick green, tuner SIGKILLed, guardian-tick reports it with the "operator may restart tuner" suggestion, the supervisor restarts it (new pid), guardian-tick green again, JSONL stamps are Zagreb |
 | heal-request | the healer channel (`<supervisor_dir>/restart/<name>`) restarts exactly that service |
+| gaia-heal-tick | (`--with-gaia --with-nerve`) `gaia heal-plan` sha256 equals `hades-gate plan-hash` and is deterministic; heal-tick on the healthy tuner exits 0 and leaves its pid alone; no gate config fails closed; a down target with no token gets the dry-run plan only (exit 4 `no-token`, steps scope>probe>nerve-in>demeter>hades-plan>approval, no apply), with `service.probe` + `gaia.heal.refused` read back from the nerve; scope guard refuses a live port, a port outside the allow range, a forbidden program and a relative program; no restart recorded |
+| gaia-hades-refusals | (`--with-gaia --with-nerve`) real `hades-gate keygen`/`mint`/`check`/`disable`/`enable`: forged, wrong target, wrong plan, wrong action, expired, malformed, empty token file, replayed, disabled gate (token not burned), admin-safety - each exit 4 with its code and one `gaia.heal.refused` on the nerve; 0 approved/applied events; hades ledger has one refusal per gated refusal and only the admin's 2 consumes; no token text in any output or event; target never started |
+| gaia-poseidon | (`--with-gaia`) `gaia poseidon` status, submit + job inspect, spend cap (exit 4 HTTP 402 after the operator worker spends), quota (exit 4 HTTP 429), VRAM + plan-vram, unreachable queue exit 3 |
 | teardown | process group gone, every port free |
 
 5. Writes `junit.xml` and `report.md` (Zagreb timestamps) to `--out` (default `target/realtest/stack-<stamp>`); service logs stay in `<out>/fixture/logs/`.

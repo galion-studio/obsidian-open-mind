@@ -231,7 +231,14 @@ fn worker(a: &Args) -> Result<(), String> {
     };
     while done < max_jobs {
         let body = json!({"queue": queue, "worker": name, "wait_ms": 1000}).to_string();
-        let (_, b) = call(&addr, "POST", "/lease", Some(&body))?;
+        let (code, b) = call(&addr, "POST", "/lease", Some(&body))?;
+        if code == 401 {
+            // Never spin on a refused credential.
+            return Err(format!("lease at {addr}: 401 unauthorized ({b})"));
+        }
+        if code >= 400 {
+            return Err(format!("lease at {addr}: {code} {b}"));
+        }
         let v: Value = serde_json::from_str(&b).map_err(|e| format!("lease reply: {e}"))?;
         if v["id"].is_null() {
             if idle_exit > 0 && now_ms().saturating_sub(idle_since) >= idle_exit {

@@ -131,7 +131,11 @@ fn real_auth() {
     std::fs::write(&tok, format!("{SECRET}\n")).unwrap();
     std::fs::set_permissions(&tok, std::fs::Permissions::from_mode(0o600)).unwrap();
     let wrong = dir.join("wrong");
-    std::fs::write(&wrong, "this-is-the-wrong-token-but-long-enough-0123456789\n").unwrap();
+    std::fs::write(
+        &wrong,
+        "this-is-the-wrong-token-but-long-enough-0123456789\n",
+    )
+    .unwrap();
     std::fs::set_permissions(&wrong, std::fs::Permissions::from_mode(0o600)).unwrap();
     let loose = dir.join("loose");
     std::fs::write(&loose, format!("{SECRET}\n")).unwrap();
@@ -173,18 +177,37 @@ fn real_auth() {
         let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
         assert!(!o.status.success(), "{what}: started");
         assert!(TcpStream::connect(&lan).is_err() && TcpStream::connect(&lo).is_err());
-        log(&format!("refused [{what}]: exit {:?}: {err}", o.status.code()));
+        log(&format!(
+            "refused [{what}]: exit {:?}: {err}",
+            o.status.code()
+        ));
     }
     // A CLI pointed at a loose token file refuses too.
-    let o = cli(&["get", "/healthz", "--addr", &lo, "--token-file", loose.to_str().unwrap()], None);
+    let o = cli(
+        &[
+            "get",
+            "/healthz",
+            "--addr",
+            &lo,
+            "--token-file",
+            loose.to_str().unwrap(),
+        ],
+        None,
+    );
     assert_eq!(o.status.code(), Some(2));
 
     // --- loopback: unchanged behaviour -----------------------------------
     {
         let _s = serve(&lo, &dir.join("lo"), &["--token-file", ts]);
-        let o = cli(&["submit", "--addr", &lo, "--kind", "echo", "--payload", "hi"], None);
+        let o = cli(
+            &["submit", "--addr", &lo, "--kind", "echo", "--payload", "hi"],
+            None,
+        );
         assert!(o.status.success(), "{}", out(&o));
-        let o = cli(&["worker", "--addr", &lo, "--worker", "lw", "--max-jobs", "1"], None);
+        let o = cli(
+            &["worker", "--addr", &lo, "--worker", "lw", "--max-jobs", "1"],
+            None,
+        );
         assert!(o.status.success(), "{}", out(&o));
         let st = stats(&lo);
         assert_eq!(st["stats"]["acked"], 1, "{st}");
@@ -196,7 +219,11 @@ fn real_auth() {
     }
 
     // --- non-loopback test bind ------------------------------------------
-    let _s = serve(&lan, &dir.join("lan"), &["--allow-remote", "--token-file", ts]);
+    let _s = serve(
+        &lan,
+        &dir.join("lan"),
+        &["--allow-remote", "--token-file", ts],
+    );
     assert!(TcpStream::connect("127.0.0.1:20754").is_err());
     let o = cli(&["get", "/healthz", "--addr", &lan], None);
     assert_eq!(o.status.code(), Some(1));
@@ -206,21 +233,53 @@ fn real_auth() {
     assert_eq!(o.status.code(), Some(1));
     assert!(out(&o).starts_with("401 "), "{}", out(&o));
     log(&format!("lan wrong token: exit 1 `{}`", out(&o)));
-    let o = cli(&["get", "/healthz", "--addr", &lan, "--token-file", ts], None);
-    assert!(o.status.success() && out(&o).starts_with("200 "), "{}", out(&o));
+    let o = cli(
+        &["get", "/healthz", "--addr", &lan, "--token-file", ts],
+        None,
+    );
+    assert!(
+        o.status.success() && out(&o).starts_with("200 "),
+        "{}",
+        out(&o)
+    );
     for i in 0..5 {
         let p = i.to_string();
-        let o = cli(&["submit", "--addr", &lan, "--kind", "echo", "--payload", &p], Some(&tok));
+        let o = cli(
+            &["submit", "--addr", &lan, "--kind", "echo", "--payload", &p],
+            Some(&tok),
+        );
         assert!(out(&o).starts_with("201 "), "{}", out(&o));
     }
-    let o = cli(&["worker", "--addr", &lan, "--worker", "lanw", "--max-jobs", "5"], Some(&tok));
+    let o = cli(
+        &[
+            "worker",
+            "--addr",
+            &lan,
+            "--worker",
+            "lanw",
+            "--max-jobs",
+            "5",
+        ],
+        Some(&tok),
+    );
     assert!(o.status.success(), "{}", out(&o));
     log(&format!(
         "lan token CLI: 5 submits 201, worker drained {} lines",
         out(&o).lines().count()
     ));
     // A worker without the token cannot lease (fails, nothing leased).
-    let o = cli(&["worker", "--addr", &lan, "--worker", "evil", "--max-jobs", "1"], None);
+    let o = cli(
+        &[
+            "worker",
+            "--addr",
+            &lan,
+            "--worker",
+            "evil",
+            "--max-jobs",
+            "1",
+        ],
+        None,
+    );
     assert!(!o.status.success());
 
     // Wrong-token burst: all 401, server still healthy.

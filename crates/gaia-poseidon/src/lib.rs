@@ -19,13 +19,14 @@
 //! `gaia_core::FunctionId::COMPUTE` (POSEIDON today; see
 //! `docs/gaia-poseidon.md` for the HEPHAESTUS question).
 
+pub mod contract;
 pub mod queue;
 
 pub use queue::{QueueAdapter, QueueConfig};
 
 use gaia_core::{
-    scaled, Context, Directive, FunctionId, Health, Json, Outcome, Report, SubordinateFunction,
-    System, Verb,
+    scaled, Context, Directive, FunctionId, Health, Json, Outcome, Report, Route,
+    SubordinateFunction, System, Verb,
 };
 use std::collections::VecDeque;
 
@@ -133,8 +134,13 @@ impl SubordinateFunction for Poseidon {
 
     fn handle(&mut self, d: &Directive, ctx: &mut Context) -> Report {
         if let Some(q) = self.backend.as_mut() {
+            // The real handle: one typed round trip to openmind-queue (identity
+            // handshake, allow-listed call, strict contract parse), then the
+            // outcome, water and any outage / off-contract / spend-cap event
+            // go back into GAIA's world.
             let r = q.handle(d);
             ctx.env.water = ctx.env.water.min(100 - q.load().min(100));
+            forward_events(q, ctx);
             return r;
         }
         if Poseidon::is_money_request(&d.payload) {
@@ -215,6 +221,7 @@ impl SubordinateFunction for Poseidon {
         if let Some(q) = self.backend.as_mut() {
             // One read-only GET per tick keeps health and water honest.
             q.refresh();
+            forward_events(q, ctx);
             let headroom = 100 - q.load().min(100);
             if !ctx.env.swarm_active {
                 ctx.env.water = ctx.env.water.saturating_add(4).min(headroom);
@@ -255,6 +262,13 @@ impl SubordinateFunction for Poseidon {
             .with("vram_pool_gb", self.vram_pool_gb)
             .with("headroom", self.headroom())
             .with("backend", "stand-in")
+    }
+}
+
+/// Queue events go up to GAIA on the bus (topic = event topic).
+fn forward_events(q: &mut QueueAdapter, ctx: &mut Context) {
+    for e in q.take_events() {
+        ctx.send(Route::Gaia, e.topic, e.body);
     }
 }
 
@@ -317,5 +331,29 @@ mod tests {
             Outcome::Refused
         );
         assert_eq!(Poseidon::ram_quota_mb(15 * 1024, 7), 1974);
+    }
+
+    #[test]
+    fn real_backend_down_refuses_degrades_and_tells_gaia() {
+        // A loopback port nothing listens on (the box's tcpmux port).
+        let mut p = Poseidon::with_queue(QueueConfig::new("127.0.0.1:1").unwrap());
+        let mut env = Environment::pristine();
+        let mut ctx = Context::new(1, String::new(), false, &mut env);
+        let r = p.handle(&Directive::new(1, System::Queues, Verb::Status), &mut ctx);
+        assert_eq!(r.outcome, Outcome::Refused);
+        assert_eq!(r.metric_value("unreachable"), Some(1));
+        let topics: Vec<&str> = ctx.outbox().iter().map(|o| o.topic.as_str()).collect();
+        assert_eq!(topics, ["poseidon-unreachable"]);
+        assert!(p.health().integrity < Health::DEGRADE_BELOW);
+        // A second failure does not repeat the event.
+        let mut ctx = Context::new(2, String::new(), false, &mut env);
+        let _ = p.handle(&Directive::new(2, System::Quotas, Verb::Status), &mut ctx);
+        assert!(ctx.outbox().is_empty());
+        // Money is still refused before anything is sent.
+        let r = p.handle(
+            &Directive::new(3, System::BudgetCaps, Verb::Run).payload("revolut transfer"),
+            &mut ctx,
+        );
+        assert_eq!(r.outcome, Outcome::Refused);
     }
 }

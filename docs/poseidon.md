@@ -65,9 +65,14 @@ a read-only GET to loopback `http://` URLs only).
   token layer first.
 - One mutex for the whole engine and an fsync per write: fine for agent-scale
   work queues (hundreds of jobs per second), not a message bus.
-- Gaia integration: on `swarm/gaia-poseidon` the gaia-core POSEIDON function
+- Gaia integration: gaia-core's POSEIDON `SubordinateFunction::handle`
   forwards to this service through `gaia_poseidon::queue::QueueAdapter`
-  (read-only for budget, never leases or acks); see `docs/gaia-poseidon.md`.
+  (read-only for budget, never leases or acks; loopback only). The coupling
+  is typed, not vocabulary-only: this crate publishes its Gaia wire contract
+  as constants (`gaia::{FUNCTION, SYSTEMS, VERBS, DISPATCH_VERBS, OUTCOMES}`)
+  and `gaia_poseidon::contract` pins them to the gaia-core enums in tests,
+  checks the `/healthz` identity before any other call and parses every
+  answer strictly (slot 218, 2026-10-21); see `docs/gaia-poseidon.md`.
 - The VPS ownership registry (`docs/gaia-ownership.md`, VPS `gaia-registry`)
   has a different nine (no POSEIDON; compute adapters under HEPHAESTUS). The
   ws/gaia design has POSEIDON. Row for this crate in the ws/gaia scheme:

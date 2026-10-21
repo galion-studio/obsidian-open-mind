@@ -32,6 +32,33 @@ Queue answers to a submission map to Gaia outcomes: `201` -> `done` (metric
 metric; `400` -> `rejected`. Money words in any payload are refused by the
 adapter before any call (both the gaia-poseidon list and the queue's list).
 
+## Typed contract and the real handle (slot 218, 2026-10-21 22:10 +02:00)
+
+Before: `openmind-queue` spoke Gaia's vocabulary as strings and the adapter
+matched them by hand ("vocabulary-only coupling"). Three real gaps came out
+of that, all fixed here:
+
+1. A `plan` answer's `dry_run` flag was dropped (`Outcome::DryRun` with
+   `dry_run = false`); GAIA's judge decides destructive work by `dry_run`.
+2. `budget_blocked` in `/stats` is the engine's **u64 count** of lease-time
+   budget blocks; the adapter read it as a bool, so `blocked:<agent>` was
+   never reported, also not against the live VPS queue (whose `/stats` has
+   `"budget_blocked":0`).
+3. The queue answered `vram-pool plan` with a bad payload as
+   `rejected` **and** `dry_run: true`.
+
+Now:
+
+| Piece | What |
+| --- | --- |
+| `openmind_queue::gaia::{VERBS, DISPATCH_VERBS, OUTCOMES}` | the wire contract as constants (next to `FUNCTION`, `SYSTEMS`); a queue test drives every system x verb x payload and checks each answer stays inside it (`dry_run` iff `dry-run`, non-dispatch verbs always `refused`). |
+| `gaia_poseidon::contract` | `wire_system` / `wire_verb` / `outcome_from_wire` (exhaustive; tests pin them to `System::COMPUTE`, `Verb`, `Outcome`); `check_identity` for `/healthz` (service `openmind-queue`, function = `FunctionId::COMPUTE`, ok); `parse_dispatch` refuses a wrong function, an echoed system or verb that differs from the request, an unknown outcome (incl. `contained`), `dry_run` disagreeing with the outcome, `done` for a verb the queue may not answer, non-`[name, int]` metrics. An in-process test feeds the queue's real `gaia::dispatch` (80 system x verb x payload cases) through it. |
+| `QueueAdapter` | identity handshake before the first call and after every outage or reset (an unverified port gets only `GET /healthz`); contract violations -> `refused` with metric `off_contract`, integrity 20 (degraded); events `poseidon-unreachable`, `poseidon-off-contract` (once per distinct state) and `budget-hard-stop`. |
+| `Poseidon::handle` / `tick` | forward those events to GAIA on the bus (`Route::Gaia`), besides outcome and water. |
+
+`state_json` now also shows `identity` (queue version), `contract`
+(`ok` / `violated`) and `violations`.
+
 ## Read-only for budget, never spending
 
 One allow-list (`gaia_poseidon::queue::allowed`) is checked before every
@@ -113,6 +140,13 @@ That loud failure is deliberate: compute is never silently split or orphaned.
   non-objects rejected, job inspect and status translation, unreachable ->
   refused + degraded, loopback-only config.
 * `gaia`: `job_spec_from_flags`, `unreachable_queue_degrades_poseidon_and_refuses`.
+* Slot 218: `gaia-poseidon` contract (5) + adapter (6 new) + lib (1 new)
+  tests, `tests/live_shapes.rs` (3, read-only VPS captures in
+  `crates/gaia-poseidon/tests/live/`), `openmind-queue`
+  `every_answer_stays_inside_the_published_contract`, and
+  `GALION_REAL=1 cargo test -p gaia --test real_poseidon_handle` (real
+  queue, impostor, look-alike; ports 20880-20882); evidence in
+  `docs/real-tests/gaia-poseidon-handle.md`.
 * Real life: `scripts/real/gaia-poseidon.sh` (60 checks) and
   `GALION_REAL=1 cargo test -p gaia --test real_gaia_poseidon`; evidence in
   `docs/real-tests/gaia-poseidon.md`.

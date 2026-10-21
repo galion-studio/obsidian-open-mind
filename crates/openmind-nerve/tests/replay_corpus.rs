@@ -293,7 +293,7 @@ fn a_flapping_capture_is_caught() {
     let data = scratch("flap-data");
     let dd = data.display().to_string();
     let cfg = || Config::from_env(&|k| (k == "NERVE_DATA_DIR").then(|| dd.clone())).unwrap();
-    let flapping = make("on", &|k| k < 4 || k >= 8);
+    let flapping = make("on", &|k| !(4..8).contains(&k));
     let r = run(&flapping, cfg(), &|_| None, 20).unwrap();
     let f: Vec<String> = r["flaps"]
         .as_array()

@@ -9,6 +9,8 @@
 //! * [`store`]: the durable append-only log (checksummed lines, torn-tail
 //!   repair, compaction). The engine is event-sourced: every change is a
 //!   [`engine::Record`] that is written to the log before it is applied.
+//! * [`refusals`]: the `refusals.dat` sidecar that keeps the refusal
+//!   counters across `kill -9` (two crc-checked slots, no state in it).
 //! * [`vram`]: the VRAM-pool registry and the owner's capacity goal of at
 //!   least 1500 GB of VRAM. It is a model only: it never spends anything.
 //! * [`gaia`]: how these map onto the four POSEIDON systems.
@@ -20,6 +22,7 @@
 pub mod engine;
 pub mod gaia;
 pub mod http;
+pub mod refusals;
 pub mod server;
 pub mod store;
 pub mod vram;

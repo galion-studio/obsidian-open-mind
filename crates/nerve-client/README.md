@@ -10,7 +10,9 @@ loopback `http://` only.
 - `NERVE_URL` unset (default): every call is a no-op (one atomic load).
 - `NERVE_URL=http://127.0.0.1:8670`: signals go into a **bounded queue**
   (`NERVE_QUEUE`, default 256, clamped 8..4096) drained by ONE worker
-  thread (300 ms connect/read/write timeouts). `send` never blocks: a full
+  thread (300 ms connect/read/write timeouts, and a hard 1 s deadline per
+  POST since T3.3: a nerve that trickles its reply byte by byte used to hold
+  the worker ~16 s per signal). `send` never blocks: a full
   queue drops the signal and counts it. After a failed POST the worker
   skips connecting for 2 s (a dead nerve costs one refused connect per 2 s,
   and the queue drains instead of filling up).

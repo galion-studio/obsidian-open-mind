@@ -62,6 +62,18 @@ pub fn request_bytes(
     fwd: &Forward,
     body: Option<(&str, &[u8])>,
 ) -> Vec<u8> {
+    request_bytes_with(method, path, fwd, &[], body)
+}
+
+/// [`request_bytes`] plus extra request headers (CR/LF stripped), e.g. the
+/// Guardian PIN header `X-Galion-Pin`.
+pub fn request_bytes_with(
+    method: &str,
+    path: &str,
+    fwd: &Forward,
+    extra: &[(&str, &str)],
+    body: Option<(&str, &[u8])>,
+) -> Vec<u8> {
     let mut h = format!(
         "{method} {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nAccept: application/json\r\nUser-Agent: galion-console-ui\r\n",
         clean(path),
@@ -75,6 +87,9 @@ pub fn request_bytes(
     }
     if let Some(p) = &fwd.forwarded_proto {
         h.push_str(&format!("X-Forwarded-Proto: {}\r\n", clean(p)));
+    }
+    for (k, v) in extra {
+        h.push_str(&format!("{}: {}\r\n", clean(k), clean(v)));
     }
     let mut out;
     match body {
@@ -107,10 +122,22 @@ pub fn call(
     fwd: &Forward,
     body: Option<(&str, &[u8])>,
 ) -> io::Result<Response> {
+    call_with(addr, method, path, fwd, &[], body)
+}
+
+/// [`call`] with extra request headers.
+pub fn call_with(
+    addr: SocketAddr,
+    method: &str,
+    path: &str,
+    fwd: &Forward,
+    extra: &[(&str, &str)],
+    body: Option<(&str, &[u8])>,
+) -> io::Result<Response> {
     let start = Instant::now();
     let mut s = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)?;
     s.set_write_timeout(Some(CALL_BUDGET))?;
-    s.write_all(&request_bytes(method, path, fwd, body))?;
+    s.write_all(&request_bytes_with(method, path, fwd, extra, body))?;
     s.flush()?;
     let mut raw = Vec::new();
     let mut chunk = [0u8; 8192];

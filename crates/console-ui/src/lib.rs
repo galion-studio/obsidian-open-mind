@@ -27,6 +27,7 @@ pub mod json;
 pub mod layout;
 pub mod overview;
 pub mod pages;
+pub mod port5;
 pub mod rooms;
 
 use client::Forward;
@@ -50,6 +51,11 @@ pub const PORTED: &[&str] = &[
     "/data",
     "/soon",
     "/console",
+    // console-port-5 (wave 4 slot 139): last fifth, alphabetical, of the 17
+    // routes still in TypeScript at 669dc18.
+    "/node",
+    "/security",
+    "/session",
 ];
 
 /// Largest form body accepted (pairing code or a command name).
@@ -297,7 +303,8 @@ impl Ui {
             p if p.starts_with("/_ui/") => return Reply::text(404, "Not Found\n"),
             _ => {}
         }
-        let post_ok = req.path == "/agents" && req.method == "POST";
+        let post_ok = (req.path == "/agents" || port5::POST_ROUTES.contains(&req.path))
+            && req.method == "POST";
         if req.method != "GET" && req.method != "HEAD" && !post_ok {
             let mut r = Reply::text(405, "Method Not Allowed\n");
             r.headers.push(("Allow".into(), "GET, HEAD".into()));
@@ -321,6 +328,7 @@ impl Ui {
             }
             "/domains" | "/repos" | "/docs" | "/cloudflare" | "/pack" | "/chill" | "/jupyter"
             | "/data" => self.read_room(req),
+            "/node" | "/security" | "/session" => self.port5_room(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);
@@ -657,6 +665,43 @@ mod tests {
         all.push_str(&pages::catalog::repos(None));
         all.push_str(&pages::gate::coming_soon("galion.app"));
         all.push_str(&pages::overview::body(PORTED.len() + 1));
+        // console-port-5 rooms.
+        all.push_str(&pages::node::body(Some(&health)));
+        all.push_str(&pages::node::body(None));
+        let docs = vec![
+            pages::session::Doc {
+                name: "a.md".into(),
+                bytes: "1".into(),
+            },
+            pages::session::Doc {
+                name: "<x>".into(),
+                bytes: "2".into(),
+            },
+        ];
+        let miss = pages::session::Miss::Status(401, "phone required".into());
+        all.push_str(&pages::session::body(
+            Ok(&docs),
+            pages::session::Open::Doc("a.md", Ok("x")),
+        ));
+        all.push_str(&pages::session::body(
+            Err(&miss),
+            pages::session::Open::Refused,
+        ));
+        let guardian = json::parse(br#"{"status":"alert","score":1,"checks":[{"service":"a","status":"down"}],"lastScan":"2026-10-21T03:00:00Z"}"#).unwrap();
+        let sec = json::parse(br#"{"denylist":true,"floor":["f"],"files":[{"path":"/a/b","mode":"644","ok":false}],"volume":[{"path":"/c","mode":"sealed","ok":true}]}"#).unwrap();
+        let inc = json::parse(br#"[{"title":"t","severity":"high"}]"#).unwrap();
+        all.push_str(&pages::security::body(&pages::security::View {
+            guard: Ok(&sec),
+            guardian: Ok(&guardian),
+            incidents: Ok(&inc),
+            note: "n",
+        }));
+        all.push_str(&pages::security::body(&pages::security::View {
+            guard: Err(&miss),
+            guardian: Err(&miss),
+            incidents: Err(&miss),
+            note: "",
+        }));
         let none = Frame {
             light: None,
             ..f.clone()

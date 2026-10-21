@@ -8,9 +8,12 @@
 pub mod agents;
 pub mod catalog;
 pub mod gate;
+pub mod node;
 pub mod not_ported;
 pub mod overview;
+pub mod security;
 pub mod services;
+pub mod session;
 pub mod status;
 
 use crate::json::Value;

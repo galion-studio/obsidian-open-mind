@@ -123,6 +123,11 @@ fn answer(mut s: TcpStream, log: Log) {
         ("GET", "/api/v1/cloudflare") => (200, "application/json", String::new(), CLOUDFLARE.into()),
         ("GET", "/api/v1/pack") => (200, "application/json", String::new(), PACK.into()),
         ("GET", "/api/v1/ledger") => (200, "application/json", String::new(), LEDGER.into()),
+        // console-port-5 rooms (/security, /session).
+        ("GET", "/api/v1/security") => (200, "application/json", String::new(), r#"{"ok":true,"denylist":true,"autoAccept":false,"floor":["gateway stop"],"files":[],"volume":[]}"#.into()),
+        ("GET", "/api/v3/guardian/status") => (200, "application/json", String::new(), r#"{"status":"watching","health":"ok","score":97,"checks":[{"service":"console","status":"healthy"}]}"#.into()),
+        ("GET", "/api/v3/guardian/incidents") => (200, "application/json", String::new(), "[]".into()),
+        ("GET", "/api/v1/session") => (200, "application/json", String::new(), r#"{"ok":true,"items":[{"name":"00-summary.md","bytes":12}]}"#.into()),
         ("POST", "/api/v1/command") => (200, "application/json", String::new(), "{\"ok\":true,\"data\":{\"cmd\":\"health\",\"note\":\"undefined fine\"}}".into()),
         _ => (404, "text/plain", String::new(), "nope".into()),
     };
@@ -561,7 +566,7 @@ fn read_rooms_render_get_only() {
         .filter_map(|r| r.to)
         .filter(|p| !console_ui::PORTED.contains(p))
         .collect();
-    assert_eq!(not_ported.len(), 16, "{not_ported:?}");
+    assert_eq!(not_ported.len(), 13, "{not_ported:?}");
     for p in not_ported {
         let r = get(a, p, "127.0.0.1", "");
         assert_eq!(r.code, 200, "{p}");

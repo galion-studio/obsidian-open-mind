@@ -20,6 +20,8 @@ only.
 | 23:54:46 | `scripts/public-export.sh --ref 79ee761` (launch-gates) | 0 FAIL, 1 WARN; gate 7 724/684/0/40; gate 10 7 IPv4, 1 quick-tunnel |
 | after edits | `scripts/status-percent.sh` | unchanged (no status changed; B42 stays P, see STATUS.md) |
 | after edits | `scripts/no-python.sh` | no-python: ok |
+| 23:55:38-23:55:59 | `cargo-slot run -j 2 -p repo-check -- --copyright "3000 Galion / galion-studio"` | 1519 files, 10 errors, 48 warnings -> FAIL, the same as base (`docs/real-tests/integration-5.md:18`); all 10 errors are `portable` in vendor/candle-core, none in files this branch touched |
+| 23:56:22 | `scripts/public-export.sh --ref HEAD` (this branch) | 1520 / 1612 files; gate 5 0 hits; gate 7 FAIL 14 problems (same 7 files as base); gate 10 27 IPv4, 1 quick-tunnel (unchanged: no new disclosure) |
 
 The IPv4 literals and the quick-tunnel host were counted, not copied here.
 Cross-check of the branch tables: 7 record lines picked by hand

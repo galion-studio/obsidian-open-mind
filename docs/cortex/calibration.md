@@ -113,9 +113,10 @@ golden fixture still open the `edge` incident at **error** (`tests/calibration.r
 
 - **D-T31-1 dead-origin bursts trip edge-rate at the current floor.** At 10 req/s, replay158 (5.97 req/s, 358 failed
   requests in a minute) and replay207 (5.08 req/s, 305) go `elevated` once: a warn `ddos:edge-cloudflared` incident
-  next to the `edge` dead-origin incident, for the same crawler hitting closed origin ports. The live event-driven
-  nerve showed it at 19:46:59 +02:00 (the live cortex `gaia-cortex` :8674 had `nerve-incident:ddos:edge-cloudflared`
-  warn open). Loosening is not allowed in code. Options: (a) accept (a burst is a burst); (b) correlation change:
+  next to the `edge` dead-origin incident, for the same crawler hitting closed origin ports. The live system shows the
+  same incident kind: the live cortex `gaia-cortex` :8674 had `nerve-incident:ddos:edge-cloudflared` warn open
+  (opened 19:46:59 +02:00 by the event-driven nerve; not attributed to one burst: the capture's largest bursts were
+  at 19:49 and 19:51, 269 and 313 failed requests/min). Loosening is not allowed in code. Options: (a) accept (a burst is a burst); (b) correlation change:
   fold `edge-host-rate` into the `edge` incident when every hot hostname is a dead-origin hostname (no threshold
   moves); (c) remove the dead routes (cloudflared config + DNS, owner), which removes both. Recommendation: (c),
   with (b) until then.

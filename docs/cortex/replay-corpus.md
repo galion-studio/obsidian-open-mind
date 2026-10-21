@@ -109,3 +109,14 @@ corpus on all 8 captures with the exact lost/new deductions and score deltas (re
   in `.cargo/config.toml` is identical.
 - Observation (no decision): incidents open on the first failing snapshot and clear one cycle after recovery
   (flap control timeline `60 D x5, 85 B x3, 60 D`). Live status already carries the nerve's own fail-cycle logic.
+
+## T3.1 update (2026-10-21 20:05 +02:00, swarm/cortex-t31-calibrate, slot 207)
+
+The corpus now has 17 entries: `live-replay200` (slot 200's 19:00 capture; it was unlisted and failed
+`every_saved_capture_is_in_the_corpus`), `live-replay207` (fresh read-only capture 19:51 +02:00; the live nerve runs
+in event mode, so the 3 GETs gave one identical snapshot and one is kept), a `NERVE_SSHD=1` twin of the 6 live
+captures with ssh lines (`live-replay158-sshd` .. `live-replay207-sshd`), and the synthetic
+`fixture-cortex-t31-band`. Thresholds tightened by T3.1 (sshd `invalid_user` 30 -> 20, memory-heavy 512 -> 256 MiB)
+move only the band fixture (100/A -> 96/A); every other entry is unchanged, 0 flaps. Live verdicts: replay200 76/C
+final, 66/D held (galion-one passes its 900 s loading grace during the hold); replay207 66/D. See
+docs/cortex/calibration.md.

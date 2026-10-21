@@ -146,8 +146,18 @@ fn ip_in_line(ip: IpAddr, line: &str) -> bool {
         return true;
     }
     // IPv6 text forms differ (zero compression, case): parse every token.
+    // `,` splits too: the sshd filter ends an address at `,` by design, so
+    // "::1:2:3:4:5:6:7,:81.0.0.1" literally contains ::1:2:3:4:5:6:7 (second
+    // weekly-budget run, slot 202, 2026-10-21 18:07 +02:00, seed
+    // 1792598853241971466: an oracle gap, not a parser bug).
     line.split(|c: char| {
-        c.is_whitespace() || c == '[' || c == ']' || c == '(' || c == ')' || c == '='
+        c.is_whitespace()
+            || c == '['
+            || c == ']'
+            || c == '('
+            || c == ')'
+            || c == '='
+            || c == ','
     })
     .filter_map(|t| t.trim_end_matches([':', ',']).parse::<IpAddr>().ok())
     .any(|t| galion_guard::ipnet::canonical(t) == ip)
@@ -337,4 +347,29 @@ fn fuzz_parser_timed() {
         )
     );
     assert!(s.execs > 1000, "too few inputs in {secs} s: {}", s.execs);
+}
+
+/// The two weekly-budget finds (slot 202, 2026-10-21 +02:00), replayed
+/// through the parser and the oracle exactly as the fuzz loop does.
+#[test]
+fn weekly_finds_replay() {
+    let f = SshdFilter::new();
+    let head = "ip50 sshd[1017]: Failed \u{27a}publickey for invalid user Invlidpublvckey fr inialid user Invalid usid user Invalid us\u{181}er b from ";
+    // 17:49 find (seed 1792597233379690538): one over-long invalid token, the
+    // parser must not cut a valid prefix out of it (fixed in filter.rs).
+    let t1 = format!("{head}::1:2:3:4:5:6:7:81.00.0.1 port 4013");
+    assert!(
+        !matches!(f.matches(&t1).and_then(|m| m.host), Some(Host::Ip(_))),
+        "{t1}"
+    );
+    // 18:07 find (seed 1792598853241971466): `,` ends the address by design,
+    // the address is literally in the line, the oracle accepts it.
+    let t2 = format!("{head}::1:2:3:4:5:6:7,:81.00.0.1 port 4013");
+    if let Some(Host::Ip(ip)) = f.matches(&t2).and_then(|m| m.host) {
+        assert_eq!(ip, "::1:2:3:4:5:6:7".parse::<IpAddr>().unwrap());
+        assert!(ip_in_line(ip, &t2), "{t2}");
+    }
+    // The oracle still rejects an address that is not in the line.
+    assert!(!ip_in_line("10.9.8.7".parse().unwrap(), &t2));
+    assert!(!ip_in_line("0:1:2:3:4:5:6:8".parse().unwrap(), &t2));
 }

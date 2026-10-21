@@ -42,11 +42,13 @@ fn replay_matches_the_pre_trait_build() {
     support::canon(&mut want);
     support::strip_empty_last(&mut want);
     let mut got = sh.report.clone();
+    // T2.12 edge-host streams are additive (checked in edge_host_streams_from_the_journal).
+    support::drop_edge_hosts(&mut got);
     support::canon(&mut got);
     support::strip_nerve_wiring(&mut got);
     assert_eq!(got, want, "report differs from the pre-trait golden");
     assert_eq!(
-        support::strip_nerve_wiring_md(&sh.report_md),
+        support::drop_edge_hosts_md(&support::strip_nerve_wiring_md(&sh.report_md)),
         support::strip_nerve_wiring_md(&support::expected_md(&fixture())),
         "markdown differs from the pre-trait golden"
     );
@@ -83,7 +85,14 @@ fn every_finding_names_its_kind_and_sensor() {
     assert!(cx.ddos_firing);
     assert_eq!(
         out.engine.sensors.names(),
-        ["listeners", "scanners", "edge", "components", "ddos"]
+        [
+            "listeners",
+            "scanners",
+            "edge",
+            "components",
+            "ddos",
+            "edge-rate"
+        ]
     );
     let ran: Vec<(&str, usize)> = out
         .engine
@@ -170,4 +179,95 @@ fn nerve_wiring_additions_are_present() {
         md.contains(":8652 unknown owner (documented: no unit owns it)"),
         "{md}"
     );
+    }
+
+    #[test]
+/// The `/api/v1/state` `cortex_events` of the replay fixture, pinned (slot
+/// 105): `top` is `{id, component, cause, evidence_n}` only. Before this
+/// golden, `top.title` carried "port 9999 listens on <bind address>" and the
+/// unmanaged loopback ports, and `top.fix` the operator hint text.
+/// Regenerate with `CORTEX_GOLDEN_WRITE=1` (then review the diff).
+#[test]
+fn nerve_events_match_the_golden_and_carry_no_titles() {
+    let out = run();
+    let evs = Value::from(out.engine.cortex.nerve_events(out.engine.now));
+    let path = fixture().join("cortex-replay.expected.events.json");
+    if std::env::var("CORTEX_GOLDEN_WRITE").as_deref() == Ok("1") {
+        let mut s = serde_json::to_string_pretty(&evs).unwrap();
+        s.push('\n');
+        std::fs::write(&path, s).unwrap();
+    }
+    let want: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(evs, want, "cortex_events differ from the golden");
+    for e in evs.as_array().unwrap() {
+        let keys: Vec<&str> = e["data"]["top"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
+        let mut keys = keys;
+        keys.sort();
+        assert_eq!(keys, ["cause", "component", "evidence_n", "id"], "{e}");
+    }
+    let all = evs.to_string();
+    for leak in [
+        "0.0.0.0",
+        "listens on",
+        ":8652",
+        "\"title\"",
+        "\"fix\"",
+        "owner approval",
+    ] {
+        assert!(!all.contains(leak), "{leak} leaked: {all}");
+    }
+}
+
+/// T2.12: the fixture's cloudflared `Request failed ... dest=` lines become
+/// one counter-only stream per public hostname, judged by the access.rs
+/// detector; at fixture rates they stay normal and add no signal.
+#[test]
+fn edge_host_streams_from_the_journal() {
+    let out = run();
+    let sh = out.engine.shared.lock().unwrap();
+    let streams = sh.report["cortex"]["ddos"]["streams"].as_array().unwrap();
+    let hosts: Vec<(&str, &str, &str)> = streams
+        .iter()
+        .filter(|s| s["stream"].as_str().unwrap().starts_with("edge-host:"))
+        .map(|s| {
+            (
+                s["stream"].as_str().unwrap(),
+                s["level"].as_str().unwrap(),
+                s["component"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        hosts,
+        [
+            ("edge-host:one.example.test", "normal", "cloudflared"),
+            ("edge-host:two.example.test", "normal", "cloudflared"),
+        ]
+    );
+    for s in streams
+        .iter()
+        .filter(|s| s["stream"].as_str().unwrap().starts_with("edge-host:"))
+    {
+        assert!(s["total"].as_u64().unwrap() > 0, "{s}");
+        assert_eq!(s["shape"], "unknown (counter only)", "no client IPs kept");
+    }
+    let eh = out
+        .engine
+        .edge_hosts
+        .as_ref()
+        .expect("edge-rate on by default");
+    assert_eq!(eh.hosts(), 2);
+    assert!(eh.counted > 0);
+    assert!(out.engine.cortex.ddos_findings.is_empty());
+    assert!(!out
+        .engine
+        .cortex
+        .signals
+        .iter()
+        .any(|s| s.cause == "ddos:edge-cloudflared"));
 }

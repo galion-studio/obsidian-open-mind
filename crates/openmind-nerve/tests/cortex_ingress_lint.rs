@@ -219,7 +219,7 @@ fn path_sensor_reads_nothing_in_replay() {
     let p = dir.join("vps-config-20261021.yml");
     let env = |k: &str| (k == "NERVE_INGRESS_LINT_CONFIG").then(|| p.display().to_string());
     let mut reg = Sensors::from_env(&env);
-    assert_eq!(reg.names().last(), Some(&NAME));
+    assert!(reg.names().contains(&NAME)); // main-staging: edge-rate registers after it
     let ls = parse_ss(&fx("vps-ss-20261021.txt"));
     let logs = LogInsights::default();
     let mut i = Input::new(NOW, &[], &logs);

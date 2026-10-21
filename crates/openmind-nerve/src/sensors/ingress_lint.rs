@@ -690,6 +690,7 @@ ingress:
         .unwrap();
         assert_eq!(s.component, "tunnel");
         let env = |k: &str| (k == "NERVE_INGRESS_LINT_CONFIG").then(|| "/tmp/x.yml".to_string());
-        assert_eq!(Sensors::from_env(&env).names().last(), Some(&NAME));
+        // main-staging: edge-rate (cortex-merge-all) registers after ingress-lint.
+        assert!(Sensors::from_env(&env).names().contains(&NAME));
     }
 }

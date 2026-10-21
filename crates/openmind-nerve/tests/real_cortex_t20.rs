@@ -174,7 +174,9 @@ fn real_cortex_t20_all_sensors_on_the_box() {
             "conn-rate",
             "proc-owner",
             "surface",
-            "hades"
+            "hades",
+            // T2.12 edge-rate is on by default since cortex-merge-all (NERVE_EDGE_HOSTS=0 turns it off).
+            "edge-rate"
         ],
         "{st}"
     );

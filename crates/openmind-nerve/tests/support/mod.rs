@@ -185,3 +185,26 @@ pub fn strip_nerve_wiring_md(md: &str) -> String {
     }
     out
 }
+
+/// Remove the per-hostname edge streams (`edge-host:*`, T2.12) the
+/// pre-trait golden predates: from `cortex.ddos.streams` in a report.
+/// The rest of the report must stay byte-identical.
+pub fn drop_edge_hosts(report: &mut Value) {
+    if let Some(a) = report
+        .pointer_mut("/cortex/ddos/streams")
+        .and_then(Value::as_array_mut)
+    {
+        a.retain(|s| {
+            !s["stream"]
+                .as_str()
+                .is_some_and(|n| n.starts_with("edge-host:"))
+        });
+    }
+}
+
+/// The same for the markdown report: drop `- [level] edge-host:...` lines.
+pub fn drop_edge_hosts_md(md: &str) -> String {
+    md.split_inclusive('\n')
+        .filter(|l| !(l.starts_with("- [") && l.contains("] edge-host:")))
+        .collect()
+}

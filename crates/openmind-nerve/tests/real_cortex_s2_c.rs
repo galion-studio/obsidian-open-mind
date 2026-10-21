@@ -232,7 +232,9 @@ fn real_proc_owner_and_surface_on_the_box() {
             "components",
             "ddos",
             "proc-owner",
-            "surface"
+            "surface",
+            // T2.12 edge-rate is on by default since cortex-merge-all (NERVE_EDGE_HOSTS=0 turns it off).
+            "edge-rate"
         ]
     );
     let so = finding(&st, "stray-owner").unwrap();

@@ -38,8 +38,10 @@ s.add(S) / s.add_opt(Option<S>) / s.names() / s.run(&input) -> Cortex / s.last (
 
 B41 alignment: `FindingKind` = `vulnerability | bleeding | ddos`; `Sev::b41()` maps warn -> `warn`, error -> `high`,
 critical -> `crit` (info stays `info`, below B41; `nerve_events` skips info-only pairs). `Sev::parse` and
-`FindingKind::parse` read both spellings back (for T2.10 pushed events). Event `data` carries id, component, title,
-fix, cause and `evidence_n`; evidence lines (paths, hostnames, addresses) never leave the loopback API.
+`FindingKind::parse` read both spellings back (for T2.10 pushed events). Event `data` carries id, component, cause
+and `evidence_n` only (`nerve_events` `top` the same); titles, fixes and evidence lines (bind addresses, ports, paths,
+hostnames) stay in the loopback finding shape `/api/v1/cortex` / `/api/v1/state` `cortex` and never ride in an event
+(slot 105, golden `tests/fixtures/cortex-replay.expected.events.json`).
 
 Visible output: every finding in `/api/v1/cortex` gains `kind` and `source`; `ddos.findings` appears only when a
 sensor emits ddos-kind findings; `/api/v1/state` gains `cortex_sensors` `[{name, findings, signals, us}]` and
@@ -113,8 +115,27 @@ New dependencies from the merged branches: `semver` 1 (cortex-s2-a, MIT OR Apach
 | T2.7 per-port connection rate | stateful `&mut self`, /proc/net/tcp when `live` | **merged (T2.0)** |
 | T2.8 stray process owner | `input.listeners` + /proc when `live` | **merged (T2.0)** |
 | T2.9 public DNS/TLS/HTTP | network GETs when `live` (keep under budget: cache/rotate) | **merged (T2.0)** |
-| T2.10 Gaia `/event` feed | event JSONL via its own env; `Sev::parse`, `FindingKind::parse` | outbound B33 feed `/api/v1/cortex/events` merged (T2.0); inbound `/event` sensor open |
+| T2.10 Gaia `/event` feed | event JSONL via its own env; `Sev::parse`, `FindingKind::parse` | outbound B33 feed `/api/v1/cortex/events` merged (T2.0); inbound `/event` sensor **merged (cortex-merge-all)**: `event-feed` (swarm/cortex-event-ingest 7a55e6c) |
 | T2.11 POSEIDON budget bleed | after nerve-wiring lands | API ready, blocked on nerve-wiring |
-| T2.12 per-hostname edge rate | `input.journal` (cloudflared `dest=`) | ready (feeding the access.rs detector itself needs engine.rs: T2.0) |
+| T2.12 per-hostname edge rate | `input.journal` (cloudflared `dest=`) | **merged (cortex-merge-all)**, from `swarm/cortex-t212-edgerate` 9a48217: sensor `edge-rate` (registered after `event-feed`) + engine.rs feeder hook ([edge-rate.md](edge-rate.md)) |
 | T2.13 hades/sandbox misbehaviour | `input.journal` | **merged (T2.0)** |
 | T2.15 push wiring | nerve-client/hub.rs (nerve-wiring) | not a sensor; unaffected |
+
+## event-feed sensor (T2.10, swarm/cortex-event-ingest 7a55e6c; merged in swarm/cortex-merge-all)
+
+Registered last in `Sensors::from_env` (after `hades`), so the T2.0 run order and incident ids are unchanged.
+
+| name | file | finding ids | signals | reads | env |
+|---|---|---|---|---|---|
+| `event-feed` (T2.10) | sensors/event_feed.rs | `heal-capped-<svc>` (crit), `heal-failed-<svc>` (error), `heal-refused-<svc>`, `service-down-<svc>`, `probe-failed-<name>` (warn), `ev-<source>-<id>` (pushed B33, its severity), `event-errors-<source>-<kind>` (unknown kind at error+, capped at error) | `gaia:<svc>` for error/critical heal findings and pushed ddos >= high | JSONL files when `live` (tail, rotation-aware, 1 MiB/cycle, 256 KiB first-read backfill) | `NERVE_EVENT_FEED_FILE` (comma list, max 4; off when unset), `NERVE_EVENT_FEED_WINDOW_S` (3600), `NERVE_EVENT_FEED_SOURCES` (optional allow-list) |
+
+`event-feed` notes (2026-10-21 01:25 CEST +02:00):
+- Findings carry `source` = `event:<event source>` (e.g. `event:gaia-live`), so B41 `nerve_events` gives one event per
+  pushing service and kind. Pushed B33 records whose source starts with `event:` are ignored (no feedback loop).
+- A problem lasts until a resolving record (`gaia.heal.applied`, `service.probe` with `state:"up"`, survival `ok:true`,
+  B33 `info` for the same source+kind) or until it is older than the window. An older resolving record never clears a
+  newer problem (records are ordered by their own `ts`, parsed with its offset).
+- Point it at the same path as `--log` / `NERVE_EVENT_LOG`, plus the survival guardian's JSONL if wanted:
+  `NERVE_EVENT_FEED_FILE=/var/lib/galion-nerve/events.jsonl,/var/lib/galion-survival/nerve.jsonl` (example paths).
+- `POST /event` is unauthenticated (cortex plan section 8 item 6): anything on the box can create findings. Bounds:
+  128 subjects, cleaned ids/titles, unknown kinds capped at error, optional source allow-list. Not a substitute for auth.

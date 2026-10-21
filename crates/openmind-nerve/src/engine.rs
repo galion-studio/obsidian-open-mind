@@ -23,6 +23,7 @@ use crate::reflex::{
     deploy_in_progress, status_needs_alert, Decision, Reflex, MAX_ACTIONS_PER_CYCLE,
 };
 use crate::score::{score, Score};
+use crate::sensors::edgerate::{self, EdgeHosts};
 use crate::sensors::Sensors;
 use crate::state::{CompState, Status, Thresholds};
 use crate::util::{kib, now_secs, ts, write_atomic};
@@ -77,6 +78,9 @@ pub struct Engine {
     pub cortex: Cortex,
     /// Cortex sensors, kept across cycles (stateful sensors).
     pub sensors: Sensors,
+    /// Per-hostname edge streams from cloudflared journal lines (T2.12);
+    /// None when the `edge-rate` sensor is off.
+    pub edge_hosts: Option<EdgeHosts>,
     /// Live host cycle (false in replay: host-reading sensors stay idle).
     pub live: bool,
     pub ddos: Vec<DdosVerdict>,
@@ -111,6 +115,7 @@ impl Engine {
             cfg.telegram_env.clone(),
             cfg.ext_alerts_per_hour,
         );
+        let sensors = Sensors::from_env(&|k| std::env::var(k).ok());
         let now = now_secs();
         let shared = Shared {
             detector: Detector {
@@ -154,7 +159,12 @@ impl Engine {
             listeners: None,
             incidents: Correlator::default(),
             cortex: Cortex::default(),
-            sensors: Sensors::from_env(&|k| std::env::var(k).ok()),
+            edge_hosts: sensors
+                .names()
+                .contains(&edgerate::NAME)
+                .then(|| EdgeHosts::from_env(&|k| std::env::var(k).ok()))
+                .flatten(),
+            sensors,
             live: true,
             ddos: vec![],
             score: None,
@@ -268,6 +278,9 @@ impl Engine {
                     }
                     self.tunnel_prev.insert(key, (r, e));
                 }
+            }
+            if let Some(eh) = self.edge_hosts.as_mut() {
+                eh.feed(&col.lines, now, &mut sh.detector);
             }
             self.ddos = sh.detector.evaluate(now);
         }
@@ -475,6 +488,7 @@ impl Engine {
             "incidents": self.incidents.to_json(),
             "cortex": self.cortex.to_json(),
             "cortex_sensors": self.sensors.last_json(),
+            "edge_hosts": self.edge_hosts.as_ref().map(|e| json!({"hosts": e.hosts(), "max_hosts": e.max_hosts, "lines_counted": e.counted, "folded_into_other": e.folded})),
             "cortex_events": self.cortex.nerve_events(now),
             "self_eval": sc,
             "components": self.comps.iter().map(|c| c.to_json(now)).collect::<Vec<_>>(),
@@ -847,6 +861,14 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
         v
     };
     if let Some(stream) = cause.strip_prefix("ddos:") {
+        // T2.12: per-hostname edge streams signal under the tunnel cause.
+        let by_host =
+            cause == edgerate::CAUSE && ss.iter().any(|s| s.msg.contains(" public hostname(s) "));
+        let stream = if by_host {
+            "edge-host:*, per public hostname"
+        } else {
+            stream
+        };
         let target = ss.first().map(|s| s.component.as_str()).unwrap_or(stream);
         let others = ss.len().saturating_sub(1);
         return Explain {
@@ -854,9 +876,17 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
             why: format!(
                 "{}{}",
                 short(top),
-                if others > 0 { format!("; {others} related signal(s) from the target folded in") } else { String::new() }
+                if others > 0 {
+                    format!("; {others} related signal(s) from the target folded in")
+                } else {
+                    String::new()
+                }
             ),
-            next: "check the top source IPs; block or rate-limit them at the edge (Cloudflare WAF rule / rate limit) -- owner approval; the nerve never changes the edge".into(),
+            next: if by_host {
+                "find the hostname in the cortex finding edge-host-rate (evidence); rate-limit or challenge it at the edge (Cloudflare WAF rule / rate limit), or fix its dead origin -- owner approval; the nerve never changes the edge".into()
+            } else {
+                "check the top source IPs; block or rate-limit them at the edge (Cloudflare WAF rule / rate limit) -- owner approval; the nerve never changes the edge".into()
+            },
         };
     }
     if let Some(group) = cause.strip_prefix("spend-cap:") {

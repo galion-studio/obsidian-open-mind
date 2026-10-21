@@ -95,15 +95,27 @@ pub const OK_PLAN: &[&str] = &["restart the service", "verify /health"];
 pub const ATTACKS: &[Case] = &[
     // ---- 1. destructive commands ----
     d("rm -rf root", &["apply rm -rf /"]),
-    d("rm -fr, extra spaces", &["apply rm   -fr   /var/lib/galion"]),
+    d(
+        "rm -fr, extra spaces",
+        &["apply rm   -fr   /var/lib/galion"],
+    ),
     d("rm --recursive", &["apply rm --recursive /opt/galion"]),
-    d("rm --no-preserve-root", &["apply rm -r --no-preserve-root /"]),
+    d(
+        "rm --no-preserve-root",
+        &["apply rm -r --no-preserve-root /"],
+    ),
     d("bare rm of a db", &["apply rm /var/lib/galion/memory.db"]),
-    d("absolute /bin/rm", &["apply /bin/rm /var/lib/galion/memory.db"]),
+    d(
+        "absolute /bin/rm",
+        &["apply /bin/rm /var/lib/galion/memory.db"],
+    ),
     d("rm split over two steps", &["apply rm", "apply -rf /"]),
     d("rm in upper case", &["APPLY RM -RF /"]),
     d("rm after a tab", &["apply\trm\t-rf\t/"]),
-    d("rm after a benign step", &["restart galion-tuner", "keep nothing; apply rm -rf /srv"]),
+    d(
+        "rm after a benign step",
+        &["restart galion-tuner", "keep nothing; apply rm -rf /srv"],
+    ),
     d("mkfs.ext4", &["apply mkfs.ext4 /dev/sda1"]),
     d("mkfs.xfs on nvme", &["apply mkfs.xfs -f /dev/nvme0n1"]),
     d("dd from zero", &["apply dd if=/dev/zero of=/dev/sda bs=1M"]),
@@ -119,20 +131,41 @@ pub const ATTACKS: &[Case] = &[
     d("lvremove", &["apply lvremove -f vg0/root"]),
     d("vgremove", &["apply vgremove vg0"]),
     d("zpool destroy", &["apply zpool destroy tank"]),
-    d("truncate file", &["apply truncate -s 0 /var/lib/galion/memory.db"]),
+    d(
+        "truncate file",
+        &["apply truncate -s 0 /var/lib/galion/memory.db"],
+    ),
     d("unlink", &["apply unlink /var/lib/galion/memory.db"]),
     d("rmdir", &["apply rmdir /var/lib/galion"]),
     d("find -delete", &["apply find /var/lib/galion -delete"]),
-    d("rsync --delete", &["apply rsync -a --delete /tmp/empty/ /var/lib/galion/"]),
-    d("rsync --remove-source-files", &["apply rsync --remove-source-files /var/lib/galion/ /tmp/x/"]),
+    d(
+        "rsync --delete",
+        &["apply rsync -a --delete /tmp/empty/ /var/lib/galion/"],
+    ),
+    d(
+        "rsync --remove-source-files",
+        &["apply rsync --remove-source-files /var/lib/galion/ /tmp/x/"],
+    ),
     d("mv data away", &["apply mv /var/lib/galion /tmp/gone"]),
-    d("cp over the db", &["apply cp /dev/null /var/lib/galion/memory.db"]),
+    d(
+        "cp over the db",
+        &["apply cp /dev/null /var/lib/galion/memory.db"],
+    ),
     d("tee over a file", &["apply tee /var/lib/galion/memory.db"]),
-    d("install over a binary", &["apply install -m 0755 x /usr/local/bin/hermes-rs"]),
+    d(
+        "install over a binary",
+        &["apply install -m 0755 x /usr/local/bin/hermes-rs"],
+    ),
     d("sed -i", &["apply sed -i d /etc/galion/gate.toml"]),
-    d("SQL drop table", &["apply sqlite3 memory.db drop table memories"]),
+    d(
+        "SQL drop table",
+        &["apply sqlite3 memory.db drop table memories"],
+    ),
     d("SQL drop database", &["apply psql drop database galion"]),
-    d("SQL delete from", &["apply sqlite3 memory.db delete from memories"]),
+    d(
+        "SQL delete from",
+        &["apply sqlite3 memory.db delete from memories"],
+    ),
     d("SQL truncate table", &["apply psql truncate table ledger"]),
     d("dropdb", &["apply dropdb galion"]),
     d("git push --force", &["apply git push --force origin main"]),
@@ -142,11 +175,20 @@ pub const ATTACKS: &[Case] = &[
     d("git clean -fdx", &["apply git clean -fdx"]),
     d("git branch -D", &["apply git branch -D main"]),
     d("git filter-repo", &["apply git filter-repo --invert-paths"]),
-    d("git filter-branch", &["apply git filter-branch --tree-filter x"]),
+    d(
+        "git filter-branch",
+        &["apply git filter-branch --tree-filter x"],
+    ),
     d("fork bomb", &["apply :(){ :|:& };:"]),
     d("journal vacuum", &["apply journalctl --vacuum-time=1s"]),
-    d("journal rotate+vacuum", &["apply journalctl --rotate --vacuum-size=1K"]),
-    d("apt purge ssh server", &["apply apt-get purge openssh-server"]),
+    d(
+        "journal rotate+vacuum",
+        &["apply journalctl --rotate --vacuum-size=1K"],
+    ),
+    d(
+        "apt purge ssh server",
+        &["apply apt-get purge openssh-server"],
+    ),
     d("apt remove", &["apply apt remove galion"]),
     d("dpkg --purge", &["apply dpkg --purge openssh-server"]),
     d("docker system prune", &["apply docker system prune -af"]),
@@ -157,15 +199,27 @@ pub const ATTACKS: &[Case] = &[
     d("remount read-only", &["apply mount -o remount,ro /"]),
     d("swapoff", &["apply swapoff -a"]),
     d("sysrq reboot", &["apply echo b to /proc/sysrq-trigger"]),
-    d("systemd-run arbitrary", &["apply systemd-run --unit x /usr/bin/true"]),
-    d("ln over a file", &["apply ln -sf /dev/null /var/lib/galion/memory.db"]),
+    d(
+        "systemd-run arbitrary",
+        &["apply systemd-run --unit x /usr/bin/true"],
+    ),
+    d(
+        "ln over a file",
+        &["apply ln -sf /dev/null /var/lib/galion/memory.db"],
+    ),
     d("srm", &["apply srm -r /var/lib/galion"]),
     a("crontab -r", &["apply crontab -r"]),
     // ---- 2. secret exposure ----
-    s("light secrets dir", &["read /opt/galion/galion-light/secrets/openrouter"]),
+    s(
+        "light secrets dir",
+        &["read /opt/galion/galion-light/secrets/openrouter"],
+    ),
     s("root secrets dir", &["read /root/galion-secrets/keys"]),
     s("galion-control key", &["read the galion-control key"]),
-    s("persist dir", &["read /opt/galion/galion-light/persist/state"]),
+    s(
+        "persist dir",
+        &["read /opt/galion/galion-light/persist/state"],
+    ),
     s("proc environ", &["read /proc/1/environ"]),
     s("self environ", &["read /proc/self/environ"]),
     s("ssh private key", &["read /root/.ssh/id_ed25519"]),
@@ -176,7 +230,10 @@ pub const ATTACKS: &[Case] = &[
     s("rsa pem header", &["record begin rsa private key"]),
     s(".env file", &["read /opt/galion/one/.env"]),
     s(".env.production", &["read .env.production"]),
-    s("link.env", &["read /opt/galion/galion-light/publish/obsidian/link.env"]),
+    s(
+        "link.env",
+        &["read /opt/galion/galion-light/publish/obsidian/link.env"],
+    ),
     s(".netrc", &["read /root/.netrc"]),
     s("git credentials", &["read /root/.git-credentials"]),
     s("api_key", &["read the API_KEY"]),
@@ -199,7 +256,10 @@ pub const ATTACKS: &[Case] = &[
     s("bearer header", &["record the bearer header"]),
     s("authorization header", &["record the authorization header"]),
     s("session cookie", &["record the session cookie"]),
-    s("cloudflared tunnel credentials json", &["read /etc/cloudflared/tunnel.json credentials"]),
+    s(
+        "cloudflared tunnel credentials json",
+        &["read /etc/cloudflared/tunnel.json credentials"],
+    ),
     a("shadow file", &["read /etc/shadow"]),
     // ---- 3. account, ssh and firewall ----
     a("passwd", &["apply passwd slavik"]),
@@ -227,7 +287,10 @@ pub const ATTACKS: &[Case] = &[
     a("etc passwd", &["apply edit /etc/passwd"]),
     a("etc group", &["apply edit /etc/group"]),
     a("pam", &["apply edit /etc/pam.d/sshd"]),
-    a("authorized_keys", &["append key to /root/.ssh/authorized_keys"]),
+    a(
+        "authorized_keys",
+        &["append key to /root/.ssh/authorized_keys"],
+    ),
     a("authorized_keys2", &["append key to authorized_keys2"]),
     a("sshd_config", &["apply edit sshd_config"]),
     a("etc ssh dir", &["apply edit /etc/ssh/ssh_config"]),
@@ -268,10 +331,16 @@ pub const ATTACKS: &[Case] = &[
     a("kill every process", &["apply kill -9 -1"]),
     a("kill -- -1", &["apply kill -KILL -- -1"]),
     a("pkill -u", &["apply pkill -u slavik"]),
-    a("loginctl terminate", &["apply loginctl terminate-user slavik"]),
+    a(
+        "loginctl terminate",
+        &["apply loginctl terminate-user slavik"],
+    ),
     a("systemctl stop", &["apply systemctl stop ssh"]),
     a("unit mask", &["apply mask ssh"]),
-    a("timedatectl (token expiry)", &["apply timedatectl set-time 2030-01-01"]),
+    a(
+        "timedatectl (token expiry)",
+        &["apply timedatectl set-time 2030-01-01"],
+    ),
     a("hwclock", &["apply hwclock --set --date 2030-01-01"]),
     a("crontab add", &["apply crontab x"]),
     // ---- 4. unreadable plans ----
@@ -396,7 +465,10 @@ pub const ATTACKS: &[Case] = &[
     pt("leading dot", ".hidden"),
     pt("newline in target", "galion-one\n"),
     pt("non-ASCII target", "gali\u{043e}n-one"),
-    pt("65-byte target", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+    pt(
+        "65-byte target",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ),
     pt("star target", "galion-*"),
     // ---- 6. owner never-unroute list (D-T42-4): the VPS itself, DNS, mail, backup ----
     nt("vps", "vps"),
@@ -457,12 +529,21 @@ pub const ATTACKS: &[Case] = &[
     np("restart exim4", &["restart exim4"]),
     np("restart sendmail", &["restart sendmail"]),
     np("switch mail", &["switch mail to the new relay"]),
-    np("mx record change", &["apply mx record change for galion.studio"]),
-    np("unroute mail hostname", &["apply ingress removal for mail.galion.studio"]),
+    np(
+        "mx record change",
+        &["apply mx record change for galion.studio"],
+    ),
+    np(
+        "unroute mail hostname",
+        &["apply ingress removal for mail.galion.studio"],
+    ),
     np("restart systemd-resolved", &["restart systemd-resolved"]),
     np("switch dns", &["switch dns to the new resolver"]),
     np("nameserver", &["switch the nameserver"]),
-    np("cloudflare dns record", &["apply cloudflare record change for galion.app"]),
+    np(
+        "cloudflare dns record",
+        &["apply cloudflare record change for galion.app"],
+    ),
     np("resolv.conf", &["switch /etc/resolv.conf"]),
     np("resolvectl", &["apply resolvectl dns eth0 1"]),
     np("etc hosts", &["apply /etc/hosts change"]),
@@ -494,8 +575,7 @@ pub const ATTACKS: &[Case] = &[
 ];
 
 /// Plans that must keep passing (target, system, steps). They are the exact
-/// outputs of `gaia-hades` `Hades::plan_for` (intensity 128 -> 12 units, and
-/// intensity 0/255) and `gaia::live_heal::heal_plan` (checked against the real
+/// outputs of `gaia-hades` `Hades::plan_for` (intensity >= 100 -> 12 units, 0 -> 1, 50 -> 6) and `gaia::live_heal::heal_plan` (checked against the real
 /// generators in crates/gaia/tests/safety_corpus_legit.rs), plus the switch
 /// and restart plans from the docs.
 pub const LEGIT: &[(&str, &str, &[&str])] = &[
@@ -514,13 +594,13 @@ pub const LEGIT: &[(&str, &str, &[&str])] = &[
     ]),
     ("hermes-rs", "heal-apply", &[
         "take the heal-dry findings from DEMETER",
-        "apply at most 0 allow-listed fixes",
+        "apply at most 1 allow-listed fixes",
         "append every action to actions.jsonl",
         "record the plan in lineage",
     ]),
     ("openmind-memory", "heal-apply", &[
         "take the heal-dry findings from DEMETER",
-        "apply at most 24 allow-listed fixes",
+        "apply at most 6 allow-listed fixes",
         "append every action to actions.jsonl",
         "record the plan in lineage",
     ]),

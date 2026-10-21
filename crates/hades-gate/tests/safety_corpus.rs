@@ -149,7 +149,10 @@ fn every_attack_is_refused_even_with_a_valid_token() {
     );
     // Nothing was consumed: no attack burnt or used an approval.
     let ledger = std::fs::read_to_string(e.dir.join("ledger.jsonl")).unwrap();
-    assert!(!ledger.contains("\"consumed\""), "an attack consumed a token");
+    assert!(
+        !ledger.contains("\"consumed\""),
+        "an attack consumed a token"
+    );
     assert_eq!(
         ledger.lines().filter(|l| l.contains("\"refused\"")).count(),
         ATTACKS.len(),
@@ -213,7 +216,10 @@ fn legit_plans_are_approved_once_and_dry_run_without_a_token() {
     }
     let ledger = std::fs::read_to_string(e.dir.join("ledger.jsonl")).unwrap();
     assert_eq!(
-        ledger.lines().filter(|l| l.contains("\"consumed\"")).count(),
+        ledger
+            .lines()
+            .filter(|l| l.contains("\"consumed\""))
+            .count(),
         LEGIT.len()
     );
 }

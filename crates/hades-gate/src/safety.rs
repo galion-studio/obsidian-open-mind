@@ -391,7 +391,6 @@ const PROTECTED_TARGETS: &[&str] = &[
     "polkitd",
 ];
 
-
 /// Owner never-unroute list (D-T42-4, Mate 2026-10-21 17:04 +02:00): the VPS
 /// itself, DNS, the mail server and the backup server are never approvable
 /// targets. Matched against every alphanumeric part of the target name

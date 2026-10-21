@@ -7,9 +7,14 @@
 
 pub mod agents;
 pub mod catalog;
+pub mod context;
 pub mod gate;
+pub mod gateway;
+pub mod guardian;
+pub mod hermes;
 pub mod not_ported;
 pub mod overview;
+pub mod p2;
 pub mod services;
 pub mod status;
 

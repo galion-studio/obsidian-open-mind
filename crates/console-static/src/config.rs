@@ -28,6 +28,8 @@ usage: galion-console-static --root DIR [options]
                        to the pre-built SPA
   --pulse ADDR         loopback desk pulse for /services (GET /api/v1/awake),
                        e.g. 127.0.0.1:8091; default none
+  --desk ADDR          loopback galion-desk for /context (GET /desk),
+                       e.g. 127.0.0.1:8646; default none
   --console-host HOST  extra host treated as a console host (repeatable),
                        e.g. the machine public IP (the TSX had
                        the two server IPs hard-coded; pass them here)
@@ -55,6 +57,7 @@ pub struct Config {
     pub rust_ui: bool,
     pub pulse: Option<SocketAddr>,
     pub extra_hosts: Vec<String>,
+    pub desk: Option<SocketAddr>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -95,6 +98,7 @@ impl Config {
         let mut public = false;
         let mut rust_ui = false;
         let mut pulse = None;
+        let mut desk = None;
         let mut extra_hosts = Vec::new();
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
@@ -163,6 +167,15 @@ impl Config {
                     }
                     pulse = Some(p);
                 }
+                "--desk" => {
+                    let p: SocketAddr = val("--desk")?
+                        .parse()
+                        .map_err(|_| bad("--desk must be IP:port"))?;
+                    if !p.ip().is_loopback() {
+                        return Err(bad("--desk must be a loopback address"));
+                    }
+                    desk = Some(p);
+                }
                 "--console-host" => {
                     let h = val("--console-host")?.to_ascii_lowercase();
                     if h.is_empty()
@@ -211,6 +224,7 @@ impl Config {
             rust_ui,
             pulse,
             extra_hosts,
+            desk,
         })
     }
 }
@@ -284,6 +298,16 @@ mod tests {
         assert!(
             Config::from_args(args("--ui rust --upstream 127.0.0.1:1 --pulse 10.0.0.1:1")).is_err()
         );
+        let d = Config::from_args(args(
+            "--ui rust --upstream 127.0.0.1:1 --desk 127.0.0.1:8646",
+        ))
+        .unwrap();
+        assert_eq!(d.desk.unwrap().port(), 8646);
+        assert!(c.desk.is_none());
+        assert!(
+            Config::from_args(args("--ui rust --upstream 127.0.0.1:1 --desk 10.0.0.1:1")).is_err()
+        );
+        assert!(Config::from_args(args("--ui rust --upstream 127.0.0.1:1 --desk x")).is_err());
         assert!(
             Config::from_args(args("--ui rust --upstream 127.0.0.1:1 --console-host a/b")).is_err()
         );

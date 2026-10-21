@@ -27,6 +27,7 @@ pub mod json;
 pub mod layout;
 pub mod overview;
 pub mod pages;
+pub mod port2;
 pub mod rooms;
 
 use client::Forward;
@@ -50,6 +51,12 @@ pub const PORTED: &[&str] = &[
     "/data",
     "/soon",
     "/console",
+    // console-port-2 (wave 4 slot 136): 2nd fifth, alphabetical, of the 17
+    // routes still in TypeScript at 669dc18.
+    "/context",
+    "/gateway",
+    "/guardian",
+    "/hermes",
 ];
 
 /// Largest form body accepted (pairing code or a command name).
@@ -63,6 +70,9 @@ pub struct UiConfig {
     pub pulse: Option<SocketAddr>,
     /// Extra hosts treated as console hosts (the machine's public IP).
     pub extra_hosts: Vec<String>,
+    /// galion-desk (`GET /desk`, live on 127.0.0.1:8646), loopback, for
+    /// `/context`; `None` shows the room as "not answering".
+    pub desk: Option<SocketAddr>,
 }
 
 /// One request, already parsed and path-sanitised by the front.
@@ -178,7 +188,7 @@ impl Ui {
     /// room is (unported rooms get a "not in Rust yet" page).
     pub fn owns(&self, path: &str, spa_fallback: bool) -> bool {
         path.starts_with("/_ui/")
-            || PORTED.contains(&path)
+            || (PORTED.contains(&path) && !(spa_fallback && port2::SPA_FIRST.contains(&path)))
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
     }
@@ -297,7 +307,8 @@ impl Ui {
             p if p.starts_with("/_ui/") => return Reply::text(404, "Not Found\n"),
             _ => {}
         }
-        let post_ok = req.path == "/agents" && req.method == "POST";
+        let post_ok = (req.path == "/agents" || port2::POST_ROUTES.contains(&req.path))
+            && req.method == "POST";
         if req.method != "GET" && req.method != "HEAD" && !post_ok {
             let mut r = Reply::text(405, "Method Not Allowed\n");
             r.headers.push(("Allow".into(), "GET, HEAD".into()));
@@ -321,6 +332,7 @@ impl Ui {
             }
             "/domains" | "/repos" | "/docs" | "/cloudflare" | "/pack" | "/chill" | "/jupyter"
             | "/data" => self.read_room(req),
+            "/context" | "/gateway" | "/guardian" | "/hermes" => self.port2_room(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);

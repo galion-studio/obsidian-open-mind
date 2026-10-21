@@ -527,10 +527,11 @@ fn real_t23_vps_capture_specs_listeners_and_negative_control() {
 fn collect_owners(v: &Value, out: &mut Vec<Value>) {
     match v {
         Value::Object(m) => {
-            if m.contains_key("port") && m.contains_key("owner") {
-                if !out.iter().any(|o| o["port"] == m["port"]) {
-                    out.push(v.clone());
-                }
+            if m.contains_key("port")
+                && m.contains_key("owner")
+                && !out.iter().any(|o| o["port"] == m["port"])
+            {
+                out.push(v.clone());
             }
             for x in m.values() {
                 collect_owners(x, out);

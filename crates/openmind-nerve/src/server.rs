@@ -206,6 +206,67 @@ pub fn route(
         .filter(|r| !r.is_empty())
         .unwrap_or(&req.path);
     let api = req.path.starts_with("/api/v1/");
+    let evt_hub = || sh.lock().unwrap_or_else(|e| e.into_inner()).evt.clone();
+    match (req.method.as_str(), p) {
+        ("GET", "/inventory" | "/stats" | "/evt" | "/escalations" | "/actions")
+        | ("POST", "/actions") => {
+            let Some(h) = evt_hub() else {
+                return (
+                    404,
+                    j,
+                    r#"{"ok":false,"error":"event mode off (NERVE_MODE=event)"}"#.into(),
+                );
+            };
+            return match (req.method.as_str(), p) {
+                ("GET", "/inventory") => {
+                    let inv = h.lock().inventory.clone();
+                    if inv.is_null() {
+                        (503, j, r#"{"ok":false,"warming_up":true}"#.into())
+                    } else {
+                        (200, j, inv.to_string())
+                    }
+                }
+                ("GET", "/stats") => (200, j, h.stats_json(now_secs()).to_string()),
+                ("GET", "/evt") => {
+                    let since = crate::evt::stream::query_u64(&req.query, "since").unwrap_or(0);
+                    let n = tail_n(&req.query);
+                    let min = crate::evt::stream::query_str(&req.query, "min")
+                        .and_then(crate::evt::Severity::parse)
+                        .unwrap_or(crate::evt::Severity::Info);
+                    let v: Vec<_> = h
+                        .since(since, crate::evt::RING)
+                        .into_iter()
+                        .filter(|e| e.severity >= min)
+                        .collect();
+                    let from = if since == 0 {
+                        v.len().saturating_sub(n)
+                    } else {
+                        0
+                    };
+                    (
+                        200,
+                        j,
+                        serde_json::to_string(&v[from..v.len().min(from + n)]).unwrap_or_default(),
+                    )
+                }
+                ("GET", "/escalations") => (
+                    200,
+                    j,
+                    Value::Array(h.lock().escalations.iter().cloned().collect()).to_string(),
+                ),
+                ("GET", "/actions") => (
+                    200,
+                    j,
+                    Value::Array(h.lock().action_log.iter().cloned().collect()).to_string(),
+                ),
+                _ => {
+                    let (c, v) = h.action(&req.body);
+                    (c, j, v.to_string())
+                }
+            };
+        }
+        _ => {}
+    }
     match (req.method.as_str(), p) {
         ("POST", "/event") => {
             let Some(ev) = ev else {
@@ -226,6 +287,9 @@ pub fn route(
                             drop(l);
                             if let Some(s) = event_signal(&e, now_secs()) {
                                 let _ = sh.lock().unwrap_or_else(|x| x.into_inner()).hub.ingest(s);
+                            }
+                            if let Some(h) = evt_hub() {
+                                h.submit(crate::evt::from_http_event(&e));
                             }
                             (200, j, format!("{{\"ok\":true,\"appended\":{n}}}"))
                         }
@@ -297,10 +361,15 @@ pub fn route(
                 }
                 ("GET", "/") if !api => (200, "text/html; charset=utf-8", dashboard(&g.state)),
                 ("POST", "/signal") => match parse_signal(&req.body, now_secs()) {
-                    Ok(s) => match g.hub.ingest(s) {
-                        Ok(()) => (202, j, r#"{"ok":true}"#.into()),
-                        Err(e) => (429, j, json!({"ok": false, "error": e}).to_string()),
-                    },
+                    Ok(s) => {
+                        if let (Some(h), true) = (g.evt.clone(), s.kind == "error") {
+                            h.submit(crate::evt::from_signal(&s));
+                        }
+                        match g.hub.ingest(s) {
+                            Ok(()) => (202, j, r#"{"ok":true}"#.into()),
+                            Err(e) => (429, j, json!({"ok": false, "error": e}).to_string()),
+                        }
+                    }
                     Err(e) => (400, j, json!({"ok": false, "error": e}).to_string()),
                 },
                 (_, "/signal") => (405, j, r#"{"error":"POST only"}"#.into()),
@@ -497,6 +566,20 @@ pub fn serve(listener: TcpListener, sh: Arc<Mutex<Shared>>, ev: Option<Arc<Mutex
             .stack_size(256 * 1024)
             .spawn(move || {
                 match read_req(&mut s) {
+                    Ok(r)
+                        if r.method == "GET"
+                            && matches!(
+                                r.path.as_str(),
+                                "/events/stream" | "/api/v1/events/stream"
+                            )
+                            && sh.lock().unwrap_or_else(|e| e.into_inner()).evt.is_some() =>
+                    {
+                        let h = sh.lock().unwrap_or_else(|e| e.into_inner()).evt.clone();
+                        record_hit(&sh, &ip, &r.path, 200);
+                        if let Some(h) = h {
+                            crate::evt::stream::serve(s, h, &r.query);
+                        }
+                    }
                     Ok(r) => {
                         let (c, t, b) = route(&r, &sh, &ev);
                         write_resp(&mut s, c, t, &b);

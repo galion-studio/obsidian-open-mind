@@ -10,6 +10,8 @@
 //!       loop + loopback API (default 127.0.0.1:8670 / NERVE_ADDR). `--log`
 //!       (or NERVE_EVENT_LOG) enables the JSONL event log behind POST /event
 //!       and GET /events (swarm/gaia-live's `openmind-nerve serve` API).
+//!   openmind-nerve serve --mode event   (or NERVE_MODE=event): event-driven mode,
+//!       see `docs/nerve-event-contract.md`; NERVE_EVT_* env (evt::EvtConfig)
 //!   openmind-nerve once [--md]        one observe-only cycle; prints the self-eval
 //!   openmind-nerve replay DIR [--md | --state]
 //!       run a read-only capture of a live host through the same pipeline
@@ -28,6 +30,8 @@
 
 use openmind_nerve::config::Config;
 use openmind_nerve::engine::Engine;
+use openmind_nerve::evt::runtime::Runtime;
+use openmind_nerve::evt::{escalate, EvtConfig, Hub};
 use openmind_nerve::server::EventLog;
 use openmind_nerve::Writer;
 use std::net::TcpListener;
@@ -36,7 +40,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const USAGE: &str = "usage: openmind-nerve [serve [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state] | --version]";
+const USAGE: &str = "usage: openmind-nerve [serve [--mode event] [--listen 127.0.0.1:PORT] [--log PATH] [--max-bytes N] [--keep K] | once [--md] | replay DIR [--md|--state] | --version]";
 
 fn opt(args: &[String], k: &str) -> Option<String> {
     args.iter()
@@ -185,6 +189,32 @@ fn serve(cfg: Config, args: &[String]) -> ExitCode {
         ev.as_ref().map(|x| x.lock().map(|l| l.path.display().to_string()).unwrap_or_default()).unwrap_or_else(|| "off".into()),
         e.comps.len()
     );
+    let event_mode = opt(args, "--mode")
+        .or_else(|| std::env::var("NERVE_MODE").ok())
+        .is_some_and(|m| m.trim() == "event");
+    let mut evt_parts = None;
+    if event_mode {
+        let ecfg = match EvtConfig::from_env(&|k| std::env::var(k).ok(), e.cfg.data_dir.clone()) {
+            Ok(c) => c,
+            Err(err) => {
+                eprintln!("<3>openmind-nerve: event config: {err}");
+                return ExitCode::from(2);
+            }
+        };
+        let hub = Arc::new(Hub::new(ecfg.dedupe_s));
+        hub.actions
+            .lock()
+            .unwrap_or_else(|x| x.into_inner())
+            .live_enabled = ecfg.actions_live;
+        e.shared.lock().unwrap_or_else(|x| x.into_inner()).evt = Some(hub.clone());
+        eprintln!(
+            "<6>openmind-nerve event mode: heartbeat={}s debounce={}s max_wait={}s dedupe={}s escalate={:?} paid_llm={} actions={}",
+            ecfg.heartbeat_s, ecfg.debounce_s, ecfg.max_wait_s, ecfg.dedupe_s, ecfg.escalate.mode, ecfg.escalate.enabled(),
+            if ecfg.actions_live { "live" } else { "dry-run" }
+        );
+        evt_parts = Some((ecfg, hub));
+    }
+    let ev_rt = ev.clone();
     let sh = e.shared.clone();
     if std::thread::Builder::new()
         .name("nerve-http".into())
@@ -194,6 +224,15 @@ fn serve(cfg: Config, args: &[String]) -> ExitCode {
         eprintln!("<3>openmind-nerve: cannot start http thread");
         return ExitCode::from(1);
     }
+    if let Some((ecfg, hub)) = evt_parts {
+        let esc = escalate::build(&ecfg.escalate, Some(ecfg.data_dir.clone()));
+        let mut rt = Runtime::new(ecfg, hub, esc);
+        rt.evlog = ev_rt;
+        rt.start_sources();
+        rt.run(&mut e);
+        return ExitCode::SUCCESS;
+    }
+    let _ = ev_rt;
     let mut last_mode = e.mode();
     let mut last_sys = String::new();
     loop {

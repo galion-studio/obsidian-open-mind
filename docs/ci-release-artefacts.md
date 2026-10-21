@@ -70,7 +70,7 @@ offender and exits 1; nothing is written.
    one-set-model, openmind-discovery, openmind-mcp-stack, persona-plex-relay,
    repo-check, omnode (omnode keeps its `version` subcommand too).
 
-## Results (box, 2026-10-21 21:20 CEST +02:00)
+## Results (box, 2026-10-21 21:35 CEST +02:00, binaries built at 8d93ad5)
 
 See docs/real-tests/ci-release-artefacts.md. Summary: 2 archives x 36
 binaries, all static/stripped/right machine/within budget; `verify` OK and
@@ -80,7 +80,7 @@ openmind-nerve started from both packages answer `/health` 200.
 
 Sizes vs budget (largest): hermes-gateway x86_64 2,082,048 B = **99.3 %**
 (15,104 B headroom), aarch64 89.5 %; openmind-memory 86.5 % / 79.7 %;
-galion-guard 84.2 % / 67.5 %. Archives: x86_64 15,964,799 B, aarch64 15,294,802 B (gzip -9).
+galion-guard 84.2 % / 67.5 %. Archives: x86_64 15,964,847 B, aarch64 15,294,837 B (gzip -9).
 
 ## Not done / out of scope
 

@@ -89,11 +89,23 @@ fn lock(s: &Arc<Mutex<Shared>>) -> std::sync::MutexGuard<'_, Shared> {
 
 impl Engine {
     pub fn new(cfg: Config) -> Result<Self, String> {
+        Self::new_with_env(cfg, &|k| std::env::var(k).ok())
+    }
+
+    /// [`Engine::new`] with the cortex sensor settings (`NERVE_SSHD`,
+    /// `NERVE_SURFACE_TARGETS`, ...) read from `env` instead of the process
+    /// environment (the replay corpus pins them per capture).
+    pub fn new_with_env(cfg: Config, env: crate::sensors::Env) -> Result<Self, String> {
         let specs = specs_for(&cfg)?;
-        Ok(Self::with_specs(cfg, specs))
+        Ok(Self::with_specs_env(cfg, specs, env))
     }
 
     pub fn with_specs(cfg: Config, specs: Vec<Spec>) -> Self {
+        Self::with_specs_env(cfg, specs, &|k| std::env::var(k).ok())
+    }
+
+    /// [`Engine::with_specs`] with the sensor settings read from `env`.
+    pub fn with_specs_env(cfg: Config, specs: Vec<Spec>, env: crate::sensors::Env) -> Self {
         let mut reflex = Reflex::new(cfg.data_dir.clone(), cfg.dry_run_env, cfg.fail_cycles);
         reflex.rollback_enabled = cfg.rollback;
         reflex.deploy_bin = cfg.deploy_bin.clone();
@@ -104,7 +116,7 @@ impl Engine {
             cfg.telegram_env.clone(),
             cfg.ext_alerts_per_hour,
         );
-        let sensors = Sensors::from_env(&|k| std::env::var(k).ok());
+        let sensors = Sensors::from_env(env);
         let now = now_secs();
         let shared = Shared {
             detector: Detector {
@@ -150,7 +162,7 @@ impl Engine {
             edge_hosts: sensors
                 .names()
                 .contains(&edgerate::NAME)
-                .then(|| EdgeHosts::from_env(&|k| std::env::var(k).ok()))
+                .then(|| EdgeHosts::from_env(env))
                 .flatten(),
             sensors,
             live: true,

@@ -3,6 +3,8 @@
 
 # Real-life test: POSEIDON (`openmind-queue`)
 
+> **2026-10-21T02:40:00+02:00:** `scripts/real/poseidon.sh` is gone; its Rust port is `crates/openmind-queue/tests/real_poseidon.rs` (`real_binary.rs` now uses cargo's own build of the binary). New run: [realscript-port-2.md](realscript-port-2.md). The record below is historical.
+
 - Written: 2026-10-20T19:30:51+02:00 (Europe/Zagreb)
 - Branch: `swarm/poseidon` (slot 12, ports 19120-19129)
 - Command: `scripts/real/poseidon.sh` (needs curl and jq; builds the release binaries with `nice -n 10 ... -j 4` into `/workspace/swarm/target/poseidon`)

@@ -11,6 +11,7 @@
 
 pub mod http;
 pub mod live;
+pub mod realrun;
 pub mod report;
 pub mod scenarios;
 pub mod sha256;

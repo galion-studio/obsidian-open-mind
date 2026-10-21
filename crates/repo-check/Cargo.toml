@@ -10,3 +10,7 @@ description = "Repo self-evaluation lint: LICENSE, SPDX headers, CJK, no Python,
 
 [dependencies]
 zagreb-time = { path = "../zagreb-time" }
+
+[dev-dependencies]
+# Shared real-test plumbing (in-workspace, std + serde_json only).
+galion-realtest = { path = "../galion-realtest" }

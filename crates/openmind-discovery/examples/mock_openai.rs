@@ -3,7 +3,7 @@
 // Copyright (c) 3000 Galion / galion-studio
 
 //! Test-only mock of an OpenAI-compatible model server, used by
-//! `scripts/real/lan-routing.sh`: `mock_openai NAME PORT SECONDS` listens on
+//! `tests/real_routing.rs`: `mock_openai NAME PORT SECONDS` listens on
 //! 127.0.0.1:PORT until SECONDS pass. No model runs: `/v1/chat/completions`
 //! and `/v1/completions` answer a canned reply that names NAME, `/v1/models`
 //! lists one model `mock-NAME`, `/health` says ok. Each request is counted

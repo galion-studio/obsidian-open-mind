@@ -13,3 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 galion-common = { path = "../galion-common" }
+
+[dev-dependencies]
+# Shared real-test plumbing (in-workspace, std + serde_json only).
+galion-realtest = { path = "../galion-realtest" }
+serde_json = { workspace = true }

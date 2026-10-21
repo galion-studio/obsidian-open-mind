@@ -4,8 +4,16 @@
 //! (swarm slot 09 ports 19090-19099) with a fresh FIXTURE database and hit
 //! its HTTP routes over real sockets. Gated: they run only with
 //! `GALION_REAL=1` (plus `GALION_REAL_VPS=1` for the read-only live probe).
-//! Use `scripts/real/memory-real.sh`, which builds release and runs these
-//! with `--test-threads=1 --nocapture`. Synthetic data only.
+//! Run (Rust port of the old `scripts/real/memory-real.sh`):
+//!
+//! ```text
+//! GALION_REAL=1 cargo test --release -p openmind-memory --test real_memory -- --test-threads=1 --nocapture
+//! ```
+//!
+//! `--release` makes `CARGO_BIN_EXE_openmind-memory` the release binary
+//! (`OPENMIND_MEMORY_BIN` overrides it). Every server is SIGKILLed in `Drop`
+//! and its port must be closed afterwards (the old script's "listeners
+//! left" check). Synthetic data only.
 
 use openmind_memory::store::Store;
 use rusqlite::{Connection, OpenFlags};
@@ -28,7 +36,7 @@ const FIXTURE_KEY: &str = "fixture-key-not-a-secret";
 fn real() -> bool {
     let on = std::env::var("GALION_REAL").as_deref() == Ok("1");
     if !on {
-        eprintln!("skip: set GALION_REAL=1 (see scripts/real/memory-real.sh)");
+        eprintln!("skip: set GALION_REAL=1 (see the module docs)");
     }
     on
 }
@@ -105,7 +113,41 @@ impl Server {
 impl Drop for Server {
     fn drop(&mut self) {
         self.kill9();
+        // The old script's final check: nothing of ours left listening.
+        if !std::thread::panicking() {
+            let t0 = Instant::now();
+            while TcpStream::connect(("127.0.0.1", self.port)).is_ok() {
+                assert!(
+                    t0.elapsed() < Duration::from_secs(3),
+                    "listener left on 127.0.0.1:{} after kill",
+                    self.port
+                );
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
     }
+}
+
+#[test]
+fn real_binary_version_and_size() {
+    if !real() {
+        return;
+    }
+    let b = bin();
+    let out = Command::new(&b)
+        .arg("--version")
+        .output()
+        .expect("run --version");
+    let v = String::from_utf8_lossy(&out.stdout);
+    let size = std::fs::metadata(&b).map(|m| m.len()).unwrap_or(0);
+    eprintln!(
+        "memory-real: {} ({size} bytes) {} at {}",
+        b.display(),
+        v.trim(),
+        zagreb_time::now_rfc3339()
+    );
+    assert!(out.status.success());
+    assert!(v.starts_with("openmind-memory "), "{v}");
 }
 
 fn parse(text: &str) -> Value {

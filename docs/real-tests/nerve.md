@@ -3,6 +3,8 @@
 <!-- Copyright (c) 3000 Galion / galion-studio -->
 # Real-life tests: openmind-nerve (swarm/nerve, slot 10)
 
+> **2026-10-21T02:40:00+02:00:** `scripts/real/nerve.sh` and `scripts/real/nerve-capture-vps.sh` are gone; their Rust ports are `crates/openmind-nerve/tests/real_nerve_scenario.rs` and `crates/openmind-nerve/tests/real_vps_capture.rs` (read-only, `GALION_REAL_VPS=1`). New run: [realscript-port-2.md](realscript-port-2.md). The record below is historical.
+
 All times are Europe/Zagreb, CEST (+02:00). The outputs contain no secrets.
 
 ## 1. Read-only capture of the live VPS nerve (galion-nerve, 8670)

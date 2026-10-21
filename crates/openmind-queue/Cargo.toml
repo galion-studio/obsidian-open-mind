@@ -18,3 +18,7 @@ zagreb-time = { path = "../zagreb-time" }
 openmind-provider = { path = "../openmind-provider" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# Shared real-test plumbing (in-workspace, std + serde_json only).
+galion-realtest = { path = "../galion-realtest" }

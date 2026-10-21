@@ -2,6 +2,8 @@
 <!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
 # Real-life test: launch-gates (slot 15)
 
+> **2026-10-21T02:40:00+02:00:** `scripts/real/launch-gates.sh` is gone; its Rust port is `crates/repo-check/tests/real_launch_gates.rs`. New run: [realscript-port-2.md](realscript-port-2.md). The record below is historical.
+
 Run on the box, 2026-10-20 (Europe/Zagreb, +02:00), at commit `17d7b73`.
 No network service is involved, so no port in 19150-19159 was opened and no
 live VPS probe applies; the real thing under test is the public-export

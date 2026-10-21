@@ -562,6 +562,8 @@ name = "galion-one"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "galion-realtest",
+ "serde_json",
 ]
 
 [[package]]
@@ -1049,6 +1051,7 @@ dependencies = [
 name = "openmind-discovery"
 version = "0.1.0"
 dependencies = [
+ "galion-realtest",
  "openmind-provider",
  "serde",
  "serde_json",
@@ -1093,6 +1096,7 @@ dependencies = [
 name = "openmind-nerve"
 version = "0.1.0"
 dependencies = [
+ "galion-realtest",
  "serde",
  "serde_json",
  "zagreb-time",
@@ -1114,6 +1118,7 @@ dependencies = [
 name = "openmind-queue"
 version = "0.1.0"
 dependencies = [
+ "galion-realtest",
  "openmind-provider",
  "serde",
  "serde_json",
@@ -1363,6 +1368,7 @@ checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 name = "repo-check"
 version = "0.1.0"
 dependencies = [
+ "galion-realtest",
  "zagreb-time",
 ]
 

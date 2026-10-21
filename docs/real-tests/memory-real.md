@@ -3,6 +3,8 @@
 
 # openmind-memory: real-life tests (swarm slot 09, `swarm/memory-real`)
 
+> **2026-10-21T02:40:00+02:00:** `scripts/real/memory-real.sh` is gone; `tests/real_memory.rs` now carries its checks itself (release binary version/size, no listener left after each server). New run: [realscript-port-2.md](realscript-port-2.md).
+
 Written 2026-10-20T19:24:00+02:00 (Europe/Zagreb, CEST +02:00). Base: GitHub
 main 13a296c. Box ports: 19090-19099 only. Live VPS: only GET requests to
 127.0.0.1:8420 over ssh, plus `ss -ltn` and `systemctl is-active`. No POST was
@@ -12,8 +14,9 @@ latency and key/type shapes.
 ## How to run
 
 ```
-scripts/real/memory-real.sh                     # box only
-GALION_REAL_VPS=1 scripts/real/memory-real.sh   # + read-only GET probe of live 8420
+GALION_REAL=1 cargo test --release -p openmind-memory --test real_memory -- --test-threads=1 --nocapture
+# + read-only GET probe of live 8420: add GALION_REAL_VPS=1
+# (Rust port, swarm/realscript-port-2; the old scripts/real/memory-real.sh is deleted)
 ```
 
 The script builds the release binary, runs `crates/openmind-memory/tests/real_memory.rs`

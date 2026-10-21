@@ -6,7 +6,7 @@
 //! `openmind-nerve serve` binary on 127.0.0.1:19105 (slot 10 range) against
 //! one live HTTP service (a thread here, :19106) and one dead port (:19107),
 //! then floods the nerve's API and expects the DDoS detector to fire.
-//! The full scenario with tuner and room is `scripts/real/nerve.sh`.
+//! The full scenario with tuner and room is `tests/real_nerve_scenario.rs`.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};

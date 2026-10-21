@@ -28,7 +28,7 @@ the same as the VPS code.
 
 Tests: 39 unit tests in galion-one (was 25; +10 probe, +3 services, +1 pairing),
 plus the gated real-life test `tests/real_one_probe.rs` (`GALION_REAL=1`) and
-`scripts/real/one-probe.sh`.
+the static-musl scenario `tests/real_one_static.rs` (was `scripts/real/one-probe.sh`).
 
 ## 2. VPS-only / live-only galion-one features and whether they were kept
 

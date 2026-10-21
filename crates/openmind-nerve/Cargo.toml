@@ -22,3 +22,5 @@ zagreb-time = { path = "../zagreb-time" }
 
 [dev-dependencies]
 zagreb-time = { path = "../zagreb-time" }
+# Shared real-test plumbing (in-workspace, std + serde_json only).
+galion-realtest = { path = "../galion-realtest" }

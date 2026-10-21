@@ -3,7 +3,7 @@
 // Copyright (c) 3000 Galion / galion-studio
 
 //! Test-only stand-in for a device's HTTP port, used by
-//! `scripts/real/lan-discovery.sh`: `health_stub PORT SECONDS` listens on
+//! `tests/real_discovery_cli.rs`: `health_stub PORT SECONDS` listens on
 //! 127.0.0.1:PORT and answers every request with `{"status":"ok"}` until
 //! SECONDS pass. Loopback only.
 

@@ -2,11 +2,11 @@
 // Copyright (c) 3000 Galion / galion-studio
 
 //! Real-binary test, gated: runs only with `GALION_REAL=1`. Starts the
-//! release `openmind-queue` (path from `POSEIDON_BIN`, default
-//! `$CARGO_TARGET_DIR/release/openmind-queue`) on 127.0.0.1:19121 (slot 12),
+//! `openmind-queue` (path from `POSEIDON_BIN`, default cargo's own build of
+//! the binary: run with `--release`) on 127.0.0.1:19121 (slot 12),
 //! submits jobs, kills it with SIGKILL mid-lease, restarts it on the same
 //! data directory and checks that nothing acknowledged was lost.
-//! The full scenario lives in `scripts/real/poseidon.sh`.
+//! The full scenario lives in `tests/real_poseidon.rs`.
 
 use openmind_queue::http;
 use serde_json::{json, Value};
@@ -16,11 +16,8 @@ use std::time::Duration;
 const ADDR: &str = "127.0.0.1:19121";
 
 fn bin() -> String {
-    std::env::var("POSEIDON_BIN").unwrap_or_else(|_| {
-        let t = std::env::var("CARGO_TARGET_DIR")
-            .unwrap_or_else(|_| "/workspace/swarm/target/poseidon".into());
-        format!("{t}/release/openmind-queue")
-    })
+    // `cargo test --release` makes this the release binary.
+    std::env::var("POSEIDON_BIN").unwrap_or_else(|_| env!("CARGO_BIN_EXE_openmind-queue").into())
 }
 
 fn call(m: &str, p: &str, b: Option<Value>) -> (u16, Value) {

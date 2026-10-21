@@ -20,3 +20,7 @@ zagreb-time = { path = "../zagreb-time" }
 # SO_REUSEADDR/SO_REUSEPORT and multicast interface selection, which std lacks.
 # MIT OR Apache-2.0. See docs/third-party/lan-discovery.md.
 socket2 = { version = "0.6", features = ["all"] }
+
+[dev-dependencies]
+# Shared real-test plumbing (in-workspace, std + serde_json only).
+galion-realtest = { path = "../galion-realtest" }

@@ -67,7 +67,8 @@ CI: `.github/workflows/launch-gates.yml` runs the same script on every pull
 request to main (read-only permissions, sha256-pinned tool downloads, report and
 SBOM uploaded as an artifact).
 
-Real-life test: `GALION_REAL=1 scripts/real/launch-gates.sh` (results in
+Real-life test: `GALION_REAL=1 cargo test --release -p repo-check --test real_launch_gates`
+(Rust port of the old `scripts/real/launch-gates.sh`; results in
 `docs/real-tests/launch-gates.md`) exports HEAD, builds the exported tree, and
 then plants canaries (a generated fake AWS key, a GPL crate, an ELF binary, a
 GPL SPDX header, a removed contrib rule, a new `*.redacted` file) and checks

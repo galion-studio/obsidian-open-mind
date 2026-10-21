@@ -4,6 +4,8 @@
 
 # Real-life test: lan-routing (slot 31, ports 19310-19319)
 
+> **2026-10-21T02:40:00+02:00:** `scripts/real/lan-routing.sh` is gone; `crates/openmind-discovery/tests/real_routing.rs` is now the full Rust scenario (it used to shell out to the script). New run: [realscript-port-2.md](realscript-port-2.md). The record below is historical.
+
 - Run: 2026-10-20T20:48:01+02:00 (Europe/Zagreb), on the box, release builds
 - Script: `scripts/real/lan-routing.sh` (also `GALION_REAL=1 cargo test -p openmind-discovery --test real_routing`)
 - No real models, no paid calls, nothing on the VPS. Mocks: `examples/mock_openai.rs`.

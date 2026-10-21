@@ -65,5 +65,7 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
 `NERVE_DDOS_MIN_REQUESTS`, `NERVE_EVENT_LOG`, `NERVE_DATA_DIR`.
 
 Real-life tests: `GALION_REAL=1 cargo test -p openmind-nerve --test real_box`,
-`scripts/real/nerve.sh`, `scripts/real/nerve-capture-vps.sh` (read-only);
+`GALION_REAL=1 cargo test --release -p openmind-nerve --test real_nerve_scenario`,
+and the read-only VPS capture + replay
+`GALION_REAL=1 GALION_REAL_VPS=1 cargo test --release -p openmind-nerve --test real_vps_capture`;
 results in [`docs/real-tests/nerve.md`](../../docs/real-tests/nerve.md).

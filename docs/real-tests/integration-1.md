@@ -2,6 +2,8 @@
 <!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
 # Real-life test: integration-1 (slot 22)
 
+> **2026-10-21T02:40:00+02:00:** `scripts/real/integration-1.sh` is gone; its Rust port is `crates/galion-realtest/tests/real_integration_1.rs` (part C now uses the hades-gate signed tokens, since `--trust-file/--approval-file` no longer exist). New run: [realscript-port-2.md](realscript-port-2.md). The record below is historical.
+
 Box run, 2026-10-20 (Europe/Zagreb, +02:00). Ports: 19220-19229 (own) and
 19500-19551 (real-harness range, slot 22 only in wave 2). All started
 processes were torn down; ports checked closed afterwards. The only VPS

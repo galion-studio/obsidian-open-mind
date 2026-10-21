@@ -4,6 +4,8 @@
 
 # Real-life test: lan-discovery (swarm slot 11)
 
+> **2026-10-21T02:40:00+02:00:** `scripts/real/lan-discovery.sh` is gone; its Rust port is `crates/openmind-discovery/tests/real_discovery_cli.rs`. New run: [realscript-port-2.md](realscript-port-2.md). The record below is historical.
+
 - Run: 2026-10-20T19:24:03+02:00 to 19:24:29+02:00 (Europe/Zagreb), on the box
   (Linux x86_64, `enp0s4` 172.30.0.2/24), branch `swarm/lan-discovery`.
 - Command: `scripts/real/lan-discovery.sh` (release build, `nice -n 10`, `-j 4`,

@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+# galion-bench example: a simulated vending supplier. Fake data only.
+{"id":"catalog","path":"/supplier/catalog","body":{"items":[{"sku":"cola-330","unit_cost_eur":0.45,"lead_days":2},{"sku":"chips-50","unit_cost_eur":0.30,"lead_days":3}],"at":"{{now}}"}}
+{"id":"order","method":"POST","path":"/supplier/orders","body_contains":"\"sku\"","status":201,"body":{"order_id":"po-{{hit}}","status":"accepted","simulated":true,"at":"{{now}}"}}

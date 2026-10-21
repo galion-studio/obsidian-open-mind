@@ -36,6 +36,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
+name = "bench-banking"
+version = "0.1.0"
+dependencies = [
+ "galion-bench",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
+name = "bench-scoreboard"
+version = "0.1.0"
+dependencies = [
+ "galion-bench",
+ "serde_json",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -357,6 +374,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-bench"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-boot"
 version = "0.1.0"
 dependencies = [
@@ -383,8 +408,28 @@ name = "galion-origin"
 version = "0.1.0"
 
 [[package]]
+name = "galion-vending"
+version = "0.1.0"
+dependencies = [
+ "galion-bench",
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-voice-core"
 version = "0.1.0"
+
+[[package]]
+name = "galion-wallstreet"
+version = "0.1.0"
+dependencies = [
+ "galion-bench",
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
 
 [[package]]
 name = "galleon-arena"
@@ -455,6 +500,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ba4ff7128dee98c7dc9794b6a411377e1404dba1c97deb8d1a55297bd25d8af"
 dependencies = [
  "hashbrown 0.14.5",
+]
+
+[[package]]
+name = "hermes-bench"
+version = "0.1.0"
+dependencies = [
+ "bench-banking",
+ "bench-scoreboard",
+ "galion-bench",
+ "galion-vending",
+ "galion-wallstreet",
+ "hermes-rs",
+ "serde_json",
+ "zagreb-time",
 ]
 
 [[package]]

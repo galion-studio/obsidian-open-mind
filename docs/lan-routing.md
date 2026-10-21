@@ -69,3 +69,15 @@ nothing dialed), `GET /healthz`. Answers carry `X-Galion-Provider` and
 - If an old and a new announcement of the same instance are both live,
   `find` may see either; the real test stops the old announcer first.
 - Streaming (`stream: true`) is not proxied.
+
+## Gaia S6.3 real test (wave-4 slot 214, 2026-10-21 +02:00)
+
+`crates/openmind-discovery/tests/real_lan_fallback.rs` (`GALION_REAL=1`,
+Rust only, ports 20840-20849) runs two loopback providers, a fake GPU
+(registry row kind `gpu`, seeded pending, admitted with `approve`) and a
+fake LAN device (found over mDNS on port 20840), plus the CPU fallback and
+POSEIDON: approve, route GPU -> LAN -> CPU, GPU hang (SIGSTOP) and death,
+LAN death, CPU fallback, moved LAN re-approval, GPU recovery, deny, all
+down -> 503. Results and findings (late duplicate on a hung provider,
+health only from `join`, no discovery path for GPU rows):
+`docs/real-tests/gaia-lan-fallback-test.md`.

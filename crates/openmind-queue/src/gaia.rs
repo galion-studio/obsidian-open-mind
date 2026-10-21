@@ -187,6 +187,9 @@ pub fn dispatch(e: &Engine, system: &str, verb: &str, payload: &str) -> GaiaRepo
             rep.outcome = "dry-run";
             let gb: u32 = payload.trim().parse().unwrap_or(0);
             if gb == 0 {
+                // Nothing was planned: not a dry run (kept consistent with
+                // `outcome` so a strict reader never sees rejected + dry_run).
+                rep.dry_run = false;
                 rep.outcome = "rejected";
                 rep.summary = "payload must be the GB needed, e.g. 40".into();
             } else {

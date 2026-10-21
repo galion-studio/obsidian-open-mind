@@ -167,7 +167,7 @@ fn well_formed(p: &Plan) {
     assert_eq!(j["plan_bytes"], text.len());
 }
 
-fn by<'a>(ps: &'a Plans, f: Family) -> Vec<&'a Plan> {
+fn by(ps: &Plans, f: Family) -> Vec<&Plan> {
     ps.plans.iter().filter(|p| p.family == f).collect()
 }
 

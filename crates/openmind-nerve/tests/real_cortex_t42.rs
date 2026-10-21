@@ -19,6 +19,7 @@
 //!      (unit t42-api.service) bound to 0.0.0.0:20624 -> two `rebind-loopback`
 //!      plans (listener-20623, t42-api.service);
 //!    - 800 requests to the nerve API -> `ddos:nerve-api` -> `edge-rate-limit`.
+//!
 //!    `GET /api/v1/cortex/plans` serves them; two cycles give the same plan
 //!    text (same approval hash); the nerve ran nothing (the stray listener
 //!    still answers, no reflex action, no audit entry); `openmind-nerve
@@ -341,6 +342,14 @@ fn real_cortex_t42_on_the_box() {
             .cloned()
             .unwrap()
     };
+    // The API flood comes from 127.0.0.1: rate limit only, never a ban line for it.
+    let rl = by_id(&p, "plan-edge-rate-limit-cloudflare-edge-nerve-api");
+    assert!(!text(&rl).contains("block client address"), "{}", text(&rl));
+    assert!(
+        rl["notes"].to_string().contains("not a public address"),
+        "{}",
+        rl["notes"]
+    );
     let voice = by_id(&p, "plan-unit-restart-t42-voice.service");
     assert!(voice["incident"].is_string(), "{voice}");
     eprintln!(

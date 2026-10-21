@@ -200,6 +200,27 @@ fn clean(t: &str) -> Option<&str> {
     ok.then_some(t)
 }
 
+/// A routable public address (a ban at the edge can only match those).
+fn public_ip(ip: &str) -> bool {
+    match ip.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(a)) => {
+            !(a.is_loopback()
+                || a.is_private()
+                || a.is_link_local()
+                || a.is_unspecified()
+                || a.is_broadcast())
+        }
+        Ok(std::net::IpAddr::V6(a)) => {
+            let s = a.segments()[0];
+            !(a.is_loopback()
+                || a.is_unspecified()
+                || (s & 0xfe00) == 0xfc00
+                || (s & 0xffc0) == 0xfe80)
+        }
+        Err(_) => false,
+    }
+}
+
 /// `:<port>` tokens of a title (`... owns: :8672 :19120`, `:19570 (uid 1000)`).
 fn colon_ports(t: &str) -> Vec<u16> {
     let mut v: Vec<u16> = t
@@ -689,7 +710,15 @@ fn stream_plans(cx: &mut Ctx<'_>, state: &Value) {
         ];
         let single = v["shape"] == "single-source";
         let top = v["top_ips"][0]["ip"].as_str().and_then(clean);
+        let mut ban_note = None;
         if let (true, Some(ip)) = (single, top) {
+            if !public_ip(ip) {
+                ban_note = Some(format!(
+                    "single source {ip} is not a public address (loopback, private or a proxy): no ban line, the rate limit only"
+                ));
+            }
+        }
+        if let (true, Some(ip), None) = (single, top, &ban_note) {
             steps.push(format!(
                 "add one Cloudflare custom rule for {scope}: block client address {ip} (single source of the flood), review after 24 h"
             ));
@@ -703,6 +732,7 @@ fn stream_plans(cx: &mut Ctx<'_>, state: &Value) {
             format!("limit = max(threshold {thr:.1} req/s, 4 x baseline {base:.2} req/s) x 10 s, at least 20; edge-host streams count failed requests only"),
             "behind the tunnel the origin sees Cloudflare, so a ban by address only works at the edge".to_string(),
         ];
+        let notes: Vec<String> = notes.into_iter().chain(ban_note).collect();
         let target = "cloudflare-edge";
         let before = cx.out.plans.len();
         let id_target = format!("{target}-{}", stream.replace([':', '.'], "-"));
@@ -811,6 +841,27 @@ mod tests {
             )]),
             [8002, 9000]
         );
+    }
+
+    #[test]
+    fn public_ip_only() {
+        for ip in ["203.0.113.7", "51.15.0.1", "2a01:4f8::1"] {
+            assert!(public_ip(ip), "{ip}");
+        }
+        for ip in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "192.168.1.1",
+            "172.16.0.9",
+            "169.254.1.1",
+            "0.0.0.0",
+            "::1",
+            "fd00::1",
+            "fe80::1",
+            "x",
+        ] {
+            assert!(!public_ip(ip), "{ip}");
+        }
     }
 
     #[test]

@@ -21,7 +21,9 @@ docs. The percentage is computed, never typed: run `scripts/status-percent.sh`.
   heal port is merged.
 
 Computed on 2026-10-20 (Europe/Zagreb) with `scripts/status-percent.sh`; re-run
-on 2026-10-20T18:58:00+02:00 after the docs-sync evidence fixes, same result:
+on 2026-10-20T18:58:00+02:00 after the docs-sync evidence fixes, and again on
+2026-10-21T23:51:59+02:00 on swarm/docs-status-refresh (base integration-5 0d68f46) after
+the B42 evidence fix (no status changed), same result:
 
 ```
 status-percent: items 89 (D 54, P 12, N 2, O 21), weight 122
@@ -51,7 +53,7 @@ owner-blocked: 23.6 % of items
 | B51 | 2 | O | docs/dist-switch.md is staged. Spare-port runs PASS (REAL-*-2). Cutover approval: "no" |
 | OMNODE-2 | 2 | O | VPS edge/openmind-node still on `landlock = "0.4"`; no omnode process |
 | PHONE-1 | 2 | O | Needs the HTTPS host |
-| B42 | 1 | P | SPDX headers in 175/175 .rs files under crates/ (scripts/spdx-scan.sh, 2026-10-20); REUSE.toml and LICENSES/ absent |
+| B42 | 1 | P | SPDX headers in 526/526 .rs files under crates/ (`scripts/spdx-scan.sh`, integration-5 0d68f46, 2026-10-21T23:48:30+02:00). `REUSE.toml` and `LICENSES/` (MIT.txt, Apache-2.0.txt) are present on swarm/integration-1 8fd26f6 and swarm/integration-5 0d68f46, but not on main 13a296c, so the row stays P until a merge reaches main (rule below). REUSE gate 7 (`scripts/public-export.sh`, comply 0.1.1): integration-1 PASS (1053 total, 1007 passed, 0 failed, 46 skipped; 2026-10-21T23:49:31+02:00); integration-5 FAIL (1502 total, 1431 passed, 7 failed, 64 skipped; 2026-10-21T23:48:30+02:00): two .rs test fixtures that hold an HTML SPDX string (crates/bench-banking/src/axes.rs:1131, crates/bench-scoreboard/src/lib.rs:119) and five vendored candle-core test binaries (vendor/candle-core/tests/*.pt, *.npy, *.npz, *.pth) without `.license` companions. Fix (not docs, not done here): add the two .rs files to REUSE.toml annotation 2, the way crates/gaia-minerva/src/lib.rs is, and annotate vendor/candle-core (upstream MIT OR Apache-2.0) |
 | B16 | 1 | D | scripts/no-python.sh |
 | B08 | 1 | D | scripts/size-budget.sh, docs/low-end-profile.md |
 | B44 | 1 | D | scripts/sbom.sh, .github/workflows/sbom.yml |

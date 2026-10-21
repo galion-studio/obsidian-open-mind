@@ -140,3 +140,12 @@ All 13 units were `active`. The link-watch state file was 1-2 s old.
   under the rules of 22:50.
 - D-224-4: Should the nerve add `gaia-cortex` and `openmind-queue` components
   (finding 1)? That is a nerve change.
+
+## Gates (23:12-23:15 CEST)
+- `cargo test -p gaia --test classify`: 14/0. `real_gaia_classify` with GALION_REAL=1 and the VPS: 2/0 in 7 runs.
+- `cargo test --workspace --exclude openmind-sandbox --exclude cgroup-detect`: 1283 passed, 0 failed, 6 ignored (274 suites).
+- `cargo clippy --workspace --all-targets -- -D warnings`: clean. `cargo fmt --all --check`: clean. `scripts/no-python.sh`: ok.
+- Cross builds: `gaia` release for x86_64-unknown-linux-musl (1,164,160 B) and for
+  aarch64-unknown-linux-musl (983,248 B, static, needs `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld`
+  because the box `cc` rejects `--fix-cortex-a53-843419`). `cargo check` of gaia and
+  gaia-live for aarch64-linux-android and armv7-unknown-linux-musleabihf: ok.

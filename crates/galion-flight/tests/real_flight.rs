@@ -42,8 +42,7 @@ fn bin_dir() -> PathBuf {
 
 fn run_flight(args: &[&str]) -> (i32, String) {
     let o = Command::new(flight()).args(args).output().unwrap();
-    let out = String::from_utf8_lossy(&o.stdout).into_owned()
-        + &String::from_utf8_lossy(&o.stderr);
+    let out = String::from_utf8_lossy(&o.stdout).into_owned() + &String::from_utf8_lossy(&o.stderr);
     println!("$ galion-flight {}\n{out}", args.join(" "));
     (o.status.code().unwrap_or(-1), out)
 }
@@ -65,7 +64,10 @@ fn wait_health(port: u16, path: &str) {
     let t0 = Instant::now();
     while t0.elapsed() < Duration::from_secs(20) {
         if let Ok(mut s) = std::net::TcpStream::connect(("127.0.0.1", port)) {
-            let _ = write!(s, "GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+            let _ = write!(
+                s,
+                "GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
+            );
             let mut b = String::new();
             let _ = s.read_to_string(&mut b);
             if b.starts_with("HTTP/1.") {
@@ -90,8 +92,18 @@ impl Drop for Inst {
     }
 }
 
-fn spawn(name: &'static str, exe: PathBuf, args: &[&str], env: &[(&str, String)], dir: &Path) -> Inst {
-    assert!(exe.is_file(), "missing {} (build release first)", exe.display());
+fn spawn(
+    name: &'static str,
+    exe: PathBuf,
+    args: &[&str],
+    env: &[(&str, String)],
+    dir: &Path,
+) -> Inst {
+    assert!(
+        exe.is_file(),
+        "missing {} (build release first)",
+        exe.display()
+    );
     let log = std::fs::File::create(dir.join(format!("{name}.log"))).unwrap();
     let mut c = Command::new(&exe);
     c.args(args)
@@ -294,11 +306,20 @@ fn real_box_postflight() {
         let pid = inst.child.id().to_string();
         let sets = box_sets(inst, *port, extra);
         let base = [
-            "postflight", svc, "--target", "local", "--pid", &pid, "--no-public",
+            "postflight",
+            svc,
+            "--target",
+            "local",
+            "--pid",
+            &pid,
+            "--no-public",
         ];
         let (code, out) = run_flight(&args_with(&base, &sets));
         assert_eq!(code, 0, "{svc} postflight must be GO:\n{out}");
-        assert!(out.contains(&format!("RESULT GO {svc} postflight")), "{out}");
+        assert!(
+            out.contains(&format!("RESULT GO {svc} postflight")),
+            "{out}"
+        );
         summary.push(format!("{svc}: GO"));
 
         // Negative 1: the change was not the tested binary.
@@ -308,7 +329,8 @@ fn real_box_postflight() {
         assert_eq!(code, 1, "{out}");
         let f = fails(&out);
         assert!(
-            f.contains(&"exe.running-sha256".to_string()) && f.contains(&"exe.file-sha256".to_string()),
+            f.contains(&"exe.running-sha256".to_string())
+                && f.contains(&"exe.file-sha256".to_string()),
             "{f:?}"
         );
         // Negative 2: a wrong body expectation is caught.
@@ -322,14 +344,36 @@ fn real_box_postflight() {
     {
         let one = &insts[3];
         let pid = one.child.id().to_string();
-        let sets = box_sets(one, 20653, &["get=/health 200 exact:ok".into(), "get=:20659 /health 503 json:status=loading".into()]);
+        let sets = box_sets(
+            one,
+            20653,
+            &[
+                "get=/health 200 exact:ok".into(),
+                "get=:20659 /health 503 json:status=loading".into(),
+            ],
+        );
         let (code, out) = run_flight(&args_with(
-            &["postflight", "galion-one", "--target", "local", "--pid", &pid, "--no-public"],
+            &[
+                "postflight",
+                "galion-one",
+                "--target",
+                "local",
+                "--pid",
+                &pid,
+                "--no-public",
+            ],
             &sets,
         ));
         assert_eq!(code, 1);
-        assert_eq!(fails(&out), vec!["http.get :20659/health".to_string()], "{out}");
-        summary.push("galion-one live mouth body (loading) vs 42de672 box (unavailable): NO-GO caught".into());
+        assert_eq!(
+            fails(&out),
+            vec!["http.get :20659/health".to_string()],
+            "{out}"
+        );
+        summary.push(
+            "galion-one live mouth body (loading) vs 42de672 box (unavailable): NO-GO caught"
+                .into(),
+        );
     }
     // cloudflared stand-in (status-only /ready, as on the VPS).
     {
@@ -348,11 +392,22 @@ fn real_box_postflight() {
             "get=:20656 /ready 200 any".into(),
         ];
         let (code, out) = run_flight(&args_with(
-            &["postflight", "cloudflared", "--target", "local", "--pid", &me, "--no-public"],
+            &[
+                "postflight",
+                "cloudflared",
+                "--target",
+                "local",
+                "--pid",
+                &me,
+                "--no-public",
+            ],
             &sets,
         ));
         assert_eq!(code, 0, "{out}");
-        assert!(!out.contains("connectorId") && !out.contains("stand-in"), "body leaked");
+        assert!(
+            !out.contains("connectorId") && !out.contains("stand-in"),
+            "body leaked"
+        );
         summary.push("cloudflared (stand-in): GO, body not shown".into());
     }
     // Negative 3: kill each instance, postflight must say NO-GO.
@@ -362,7 +417,15 @@ fn real_box_postflight() {
         let _ = inst.child.kill();
         let _ = inst.child.wait();
         let (code, out) = run_flight(&args_with(
-            &["postflight", svc, "--target", "local", "--pid", &pid, "--no-public"],
+            &[
+                "postflight",
+                svc,
+                "--target",
+                "local",
+                "--pid",
+                &pid,
+                "--no-public",
+            ],
             &sets,
         ));
         assert_eq!(code, 1, "{out}");
@@ -386,7 +449,14 @@ fn real_vps_flight() {
         eprintln!("skip: set GALION_FLIGHT_VPS=<ssh host> for the live read-only run");
         return;
     };
-    let services = ["nerve", "memory", "hermes-rs", "galion-one", "tuner", "cloudflared"];
+    let services = [
+        "nerve",
+        "memory",
+        "hermes-rs",
+        "galion-one",
+        "tuner",
+        "cloudflared",
+    ];
     let mut summary = Vec::new();
     for phase in ["preflight", "postflight"] {
         for svc in services {
@@ -400,13 +470,23 @@ fn real_vps_flight() {
             } else {
                 vec![]
             };
-            assert!(f.iter().all(|x| allowed.contains(x)), "{phase} {svc}: {f:?}\n{out}");
+            assert!(
+                f.iter().all(|x| allowed.contains(x)),
+                "{phase} {svc}: {f:?}\n{out}"
+            );
             assert_eq!(code, if f.is_empty() { 0 } else { 1 });
             for l in out.lines().filter_map(|l| l.strip_prefix("SENT ")) {
                 assert!(
-                    ["systemctl show ", "readlink ", "sha256sum ", "stat ", "ss -ltnH ", "curl -sS "]
-                        .iter()
-                        .any(|v| l.starts_with(v)),
+                    [
+                        "systemctl show ",
+                        "readlink ",
+                        "sha256sum ",
+                        "stat ",
+                        "ss -ltnH ",
+                        "curl -sS "
+                    ]
+                    .iter()
+                    .any(|v| l.starts_with(v)),
                     "non-read command sent: {l}"
                 );
                 assert!(!l.contains("-X") && !l.contains("--data") && !l.contains("Environment"));
@@ -414,7 +494,9 @@ fn real_vps_flight() {
             let sent = out.lines().filter(|l| l.starts_with("SENT ")).count();
             let checks = out
                 .lines()
-                .filter(|l| l.starts_with("PASS ") || l.starts_with("FAIL ") || l.starts_with("SKIP "))
+                .filter(|l| {
+                    l.starts_with("PASS ") || l.starts_with("FAIL ") || l.starts_with("SKIP ")
+                })
                 .count();
             summary.push(format!(
                 "{phase} {svc}: exit {code}, {checks} checks, {sent} remote reads, {} ms, fails {f:?}",
@@ -423,17 +505,44 @@ fn real_vps_flight() {
         }
     }
     // Negative controls, still read-only.
-    let (code, out) = run_flight(&["preflight", "nerve", "--host", &host, "--set", &format!("sha256={}", "0".repeat(64))]);
+    let (code, out) = run_flight(&[
+        "preflight",
+        "nerve",
+        "--host",
+        &host,
+        "--set",
+        &format!("sha256={}", "0".repeat(64)),
+    ]);
     assert_eq!(code, 1);
     assert!(fails(&out).contains(&"exe.running-sha256".to_string()));
     summary.push("nerve wrong sha: NO-GO".into());
-    let (code, out) = run_flight(&["preflight", "tuner", "--host", &host, "--set", "quiet_timer=galion-backup.timer 999999"]);
+    let (code, out) = run_flight(&[
+        "preflight",
+        "tuner",
+        "--host",
+        &host,
+        "--set",
+        "quiet_timer=galion-backup.timer 999999",
+    ]);
     assert_eq!(code, 1);
-    assert_eq!(fails(&out), vec!["timer.quiet galion-backup.timer".to_string()]);
+    assert_eq!(
+        fails(&out),
+        vec!["timer.quiet galion-backup.timer".to_string()]
+    );
     summary.push("tuner backup due within window: NO-GO".into());
-    let (code, out) = run_flight(&["postflight", "memory", "--host", &host, "--since-unix", "4102444800"]);
+    let (code, out) = run_flight(&[
+        "postflight",
+        "memory",
+        "--host",
+        &host,
+        "--since-unix",
+        "4102444800",
+    ]);
     assert_eq!(code, 1);
-    assert_eq!(fails(&out), vec!["unit.restarted openmind-memory.service".to_string()]);
+    assert_eq!(
+        fails(&out),
+        vec!["unit.restarted openmind-memory.service".to_string()]
+    );
     summary.push("memory not restarted since T: NO-GO".into());
     let (code, _) = run_flight(&["preflight", "nope", "--host", &host]);
     assert_eq!(code, 2);

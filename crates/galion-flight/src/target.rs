@@ -91,7 +91,8 @@ impl Remote {
                 safe_unit(unit)?;
                 let mut s = String::from("systemctl show --timestamp=unix");
                 for p in props {
-                    if !p.bytes().all(|b| b.is_ascii_alphabetic()) || p == "Environment"
+                    if !p.bytes().all(|b| b.is_ascii_alphabetic())
+                        || p == "Environment"
                         || (p.starts_with("Exec") && p != "ExecMainStartTimestamp")
                     {
                         return Err(format!("property {p:?} not allowed"));
@@ -327,7 +328,10 @@ impl Target for Vps {
             return failed(format!("stat -f exit {code}"));
         }
         let l = first_line(&out);
-        let w: Vec<u64> = l.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+        let w: Vec<u64> = l
+            .split_whitespace()
+            .filter_map(|x| x.parse().ok())
+            .collect();
         if w.len() != 2 {
             return failed("unparsable stat -f");
         }
@@ -386,8 +390,7 @@ impl Target for Local {
             .map_err(|e| ReadErr::Failed(format!("readlink: {e}")))
     }
     fn sha256(&mut self, path: &str) -> R<String> {
-        let mut f =
-            std::fs::File::open(path).map_err(|e| ReadErr::Failed(format!("open: {e}")))?;
+        let mut f = std::fs::File::open(path).map_err(|e| ReadErr::Failed(format!("open: {e}")))?;
         let mut h = galion_common::sha256::Sha256::new();
         let mut buf = vec![0u8; 64 * 1024];
         loop {
@@ -489,7 +492,9 @@ mod tests {
                     assert!(!";|&><`$\n(".contains(ch), "operator {ch:?} in {c}");
                 }
             }
-            for bad in ["-X", " -d ", "--data", "POST", "PUT", "DELETE", " -o ", "-T ", "--upload", "-F "] {
+            for bad in [
+                "-X", " -d ", "--data", "POST", "PUT", "DELETE", " -o ", "-T ", "--upload", "-F ",
+            ] {
                 assert!(!c.contains(bad), "{bad} in {c}");
             }
             assert!(!c.contains("Environment"), "{c}");
@@ -544,7 +549,10 @@ mod timer_tests {
     fn systemd_realtime_values() {
         // 2026-10-21 18:21:43 UTC = 20:21:43 +02:00
         let t = parse_systemd_utc("Wed 2026-10-21 18:21:43 UTC").unwrap();
-        assert_eq!(galion_common::time::from_unix(t), "2026-10-21T20:21:43+02:00");
+        assert_eq!(
+            galion_common::time::from_unix(t),
+            "2026-10-21T20:21:43+02:00"
+        );
         assert_eq!(parse_systemd_utc("Wed 2026-10-21 18:21:43 CEST"), None);
         assert_eq!(parse_timer_value(Some(&"".to_string())), Ok(None));
         assert_eq!(parse_timer_value(Some(&"@5".to_string())), Ok(Some(5)));

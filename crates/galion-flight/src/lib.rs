@@ -492,12 +492,30 @@ pub fn render(phase: Phase, m: &Manifest, target: &str, at: &str, rep: &Report) 
 
 /// The six manifests that ship with the binary (live VPS state as recorded).
 pub const BUILTIN: &[(&str, &str)] = &[
-    ("nerve", include_str!("../../../config/ops/flight/nerve.conf")),
-    ("memory", include_str!("../../../config/ops/flight/memory.conf")),
-    ("hermes-rs", include_str!("../../../config/ops/flight/hermes-rs.conf")),
-    ("galion-one", include_str!("../../../config/ops/flight/galion-one.conf")),
-    ("tuner", include_str!("../../../config/ops/flight/tuner.conf")),
-    ("cloudflared", include_str!("../../../config/ops/flight/cloudflared.conf")),
+    (
+        "nerve",
+        include_str!("../../../config/ops/flight/nerve.conf"),
+    ),
+    (
+        "memory",
+        include_str!("../../../config/ops/flight/memory.conf"),
+    ),
+    (
+        "hermes-rs",
+        include_str!("../../../config/ops/flight/hermes-rs.conf"),
+    ),
+    (
+        "galion-one",
+        include_str!("../../../config/ops/flight/galion-one.conf"),
+    ),
+    (
+        "tuner",
+        include_str!("../../../config/ops/flight/tuner.conf"),
+    ),
+    (
+        "cloudflared",
+        include_str!("../../../config/ops/flight/cloudflared.conf"),
+    ),
 ];
 
 #[cfg(test)]
@@ -557,7 +575,10 @@ mod tests {
                 ("NRestarts", "0"),
                 ("MainPID", "7"),
                 ("ExecMainStartTimestamp", "@1000"),
-                ("DropInPaths", "/etc/systemd/system/x.service.d/50-rust-bin.conf"),
+                (
+                    "DropInPaths",
+                    "/etc/systemd/system/x.service.d/50-rust-bin.conf",
+                ),
                 ("UnitFileState", "enabled"),
             ]
             .iter()

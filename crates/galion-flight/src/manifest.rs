@@ -86,8 +86,7 @@ pub fn safe_path(p: &str) -> Result<(), String> {
     let ok = p.starts_with('/')
         && !p.contains("..")
         && p.len() < 256
-        && p
-            .bytes()
+        && p.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"/._-+@".contains(&b));
     if ok {
         Ok(())
@@ -99,8 +98,7 @@ pub fn safe_path(p: &str) -> Result<(), String> {
 pub fn safe_url_path(p: &str) -> Result<(), String> {
     let ok = p.starts_with('/')
         && p.len() < 200
-        && p
-            .bytes()
+        && p.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"/._-~=&?".contains(&b));
     if ok {
         Ok(())
@@ -113,8 +111,7 @@ pub fn safe_unit(u: &str) -> Result<(), String> {
     let ok = !u.is_empty()
         && u.len() < 100
         && (u.ends_with(".service") || u.ends_with(".timer"))
-        && u
-            .bytes()
+        && u.bytes()
             .all(|b| b.is_ascii_alphanumeric() || b".-_@".contains(&b));
     if ok {
         Ok(())
@@ -124,17 +121,24 @@ pub fn safe_unit(u: &str) -> Result<(), String> {
 }
 
 pub fn safe_sha(s: &str) -> Result<(), String> {
-    if s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) {
+    if s.len() == 64
+        && s.bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+    {
         Ok(())
     } else {
-        Err(format!("sha256 must be 64 lower-case hex chars, got {} chars", s.len()))
+        Err(format!(
+            "sha256 must be 64 lower-case hex chars, got {} chars",
+            s.len()
+        ))
     }
 }
 
 fn safe_public(u: &str) -> Result<(), String> {
     let ok = (u.starts_with("https://") || u.starts_with("http://"))
         && u.len() < 200
-        && u.bytes().all(|b| b.is_ascii_alphanumeric() || b":/._-~".contains(&b));
+        && u.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b":/._-~".contains(&b));
     if ok {
         Ok(())
     } else {
@@ -162,7 +166,9 @@ fn parse_match(s: &str) -> Result<Match, String> {
         let (k, val) = v.split_once('=').ok_or("json:KEY=VALUE")?;
         return Ok(Match::Json(k.to_string(), val.to_string()));
     }
-    Err(format!("bad body match {s:?} (any|exact:|contains:|json:K=V)"))
+    Err(format!(
+        "bad body match {s:?} (any|exact:|contains:|json:K=V)"
+    ))
 }
 
 /// `get = [:PORT] /path STATUS[,STATUS] MATCH`
@@ -251,9 +257,7 @@ impl Manifest {
             }
             "nerve" => self.nerve = v.into(),
             "nerve_ok" => self.nerve_ok = v.split(',').map(|s| s.trim().to_string()).collect(),
-            "nerve_port" => {
-                self.nerve_port = v.parse().map_err(|_| format!("bad port {v:?}"))?
-            }
+            "nerve_port" => self.nerve_port = v.parse().map_err(|_| format!("bad port {v:?}"))?,
             "get" => {
                 if replace {
                     self.gets.clear();

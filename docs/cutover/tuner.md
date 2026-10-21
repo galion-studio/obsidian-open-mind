@@ -4,7 +4,12 @@
 
 # Tuner cutover plan (first single-service cutover)
 
-- Status: **PREPARED, NOT EXECUTED. Needs Slavik's approval.** Nothing has been copied to the VPS, and no unit was restarted or edited.
+- Status (refreshed 2026-10-21 17:30 CEST (+02:00), wave-4 slot 203): **EXECUTED 2026-10-21 04:32:32 CEST (+02:00)** with the Rust galion-deploy, following [../ops/cutover-tuner-nerve.md](../ops/cutover-tuner-nerve.md).
+  `/opt/galion/tuner/bin/tuner` `ecad72a4…3c91` → `89c7fcbcb54c510887dafd8c67b255f05d00595af598fe65f022e204c0ef2b12` (source integration-4 42de672e1e4b39a2c44e290195feb01a17df992e). A mistaken rollback at 04:32:10 was redeployed at 04:32:32.
+  Approved by Mate 04:22 (Slavik auto-accept 20 Oct). Record: `swarm/vps-deploy-20261021@d9bd8295935d2620587aaed68e4b1b52f6ea72b9:docs/ops/deploy-2026-10-21.md`; index [README.md](README.md) §2 C2.
+  At 17:22 the unit was active since 04:32:32 with NRestarts 0, the exe sha256 matched, and `/health` returned 200. Rollback: `/opt/galion/rust/bin/galion-deploy tuner /var/backups/galion/deploy/tuner-20261021-043232+0200.bin http://127.0.0.1:8650/health`.
+  The sections below are the 2026-10-20 plan, kept as written; `tuner.galion.app` still has no DNS record.
+- Original status (2026-10-20): PREPARED, NOT EXECUTED. Needs Slavik's approval. Nothing has been copied to the VPS, and no unit was restarted or edited.
 - Prepared: 2026-10-20 19:10 CEST (+02:00) by swarm slot 07, branch `swarm/tuner-cutover` (based on GitHub main 13a296ce).
 - Evidence: `docs/real-tests/tuner-cutover.md`. Re-run with `scripts/real/tuner-cutover.sh`.
 - If the cutover runs on or after 2026-10-25 03:00, timestamps are CET (+01:00).
@@ -46,9 +51,9 @@ Differences from the live binary (none of them changes a served byte):
 
 Build: `nice -n 10 cargo build --release --locked -p tuner --target <triple>` with `CARGO_TARGET_<TRIPLE>_LINKER=rust-lld`, cargo 1.99.1, profile `opt-level=z, lto, codegen-units=1, panic=abort, strip`. The build is **reproducible**: a second build from a different source path and target dir gave the same two sha256s. SOURCE-OF-TRUTH rule 6 says deploys come from a merged main commit, so after Slavik merges this branch, rebuild from that main commit (`scripts/real/tuner-cutover.sh` does it) and deploy only if the sha256 is still `47a17df2…`. If the merge changed the tuner crate, the sha will differ. Use the new sha, and re-run the script first.
 
-## 3. The cutover (for Slavik; nothing below has been run)
+## 3. The cutover (2026-10-20 plan; executed 2026-10-21 04:32 via galion-deploy, see Status at the top)
 
-### 3.1 Copy the binary (needs approval; not done)
+### 3.1 Copy the binary (needs approval; done 2026-10-21 04:30 as /var/tmp/galion-cutover staging, see Status)
 
 Use a scratch dir that is **not** the `/opt/galion/openmind` working copy:
 

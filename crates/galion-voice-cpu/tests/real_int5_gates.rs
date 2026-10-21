@@ -72,7 +72,7 @@ fn elf64_section_names(elf: &[u8]) -> Vec<String> {
 fn elf_reader_sees_symtab_in_an_unstripped_file() {
     // The test binary itself is built with debug info / symbols.
     let me = std::fs::read(std::env::current_exe().unwrap()).unwrap();
-    if me[4] == 2 && me[5] == 1 && !cfg!(not(debug_assertions)) {
+    if me[4] == 2 && me[5] == 1 && cfg!(debug_assertions) {
         assert!(elf64_section_names(&me).iter().any(|n| n == ".symtab"));
     }
 }

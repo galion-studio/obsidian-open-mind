@@ -235,7 +235,9 @@ pub fn get_json(addr: SocketAddr, path: &str) -> Result<Value, String> {
         return Err(format!("bad path {path:?}"));
     }
     match call(addr, "GET", path, "")? {
-        (200, b) => serde_json::from_str::<Value>(&b).map_err(|e| format!("GET {path}: not JSON ({e})")),
+        (200, b) => {
+            serde_json::from_str::<Value>(&b).map_err(|e| format!("GET {path}: not JSON ({e})"))
+        }
         (c, _) => Err(format!("GET {path}: HTTP {c}")),
     }
 }

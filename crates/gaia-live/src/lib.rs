@@ -408,15 +408,21 @@ impl Remote {
                 (Some("file"), Some(p), Some(a), None) => {
                     let age = match a {
                         "missing" => None,
-                        n => Some(n.parse::<u64>().map_err(|_| {
-                            format!("evidence line {}: bad age {n:?}", i + 1)
-                        })?),
+                        n => Some(
+                            n.parse::<u64>()
+                                .map_err(|_| format!("evidence line {}: bad age {n:?}", i + 1))?,
+                        ),
                     };
                     self.file_ages
                         .get_or_insert_with(Default::default)
                         .insert(PathBuf::from(p), age);
                 }
-                _ => return Err(format!("evidence line {}: not `unit N S` or `file P AGE`", i + 1)),
+                _ => {
+                    return Err(format!(
+                        "evidence line {}: not `unit N S` or `file P AGE`",
+                        i + 1
+                    ))
+                }
             }
         }
         Ok(())

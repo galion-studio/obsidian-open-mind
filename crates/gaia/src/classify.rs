@@ -119,7 +119,8 @@ fn nerve_component<'a>(comps: &'a [Value], p: &ProbeResult) -> Option<&'a Value>
 }
 
 /// Open incidents (nerve or cortex shape: `open: [{id, components, ...}]`)
-/// that name any of `names`.
+/// whose `components` name any of `names` (not `cause`: the nerve groups
+/// the mouth under cause `galion-one`, which is itself healthy).
 fn open_incidents(doc: &Value, names: &[&str]) -> Vec<String> {
     doc.get("open")
         .and_then(Value::as_array)
@@ -127,10 +128,9 @@ fn open_incidents(doc: &Value, names: &[&str]) -> Vec<String> {
             a.iter()
                 .filter(|i| {
                     let comps = strs(i.get("components"));
-                    let cause = s(i, "cause").unwrap_or("");
                     names
                         .iter()
-                        .any(|n| !n.is_empty() && (comps.iter().any(|c| c == n) || cause == *n))
+                        .any(|n| !n.is_empty() && comps.iter().any(|c| c == n))
                 })
                 .filter_map(|i| s(i, "id").map(str::to_string))
                 .collect()
@@ -163,10 +163,7 @@ fn heal_plan(p: &ProbeResult, port: Option<&(u16, String)>, nerve: Option<&Value
         }),
         None => "no HTTP port: heal-tick only heals loopback HTTP test services".into(),
     };
-    let unit = p
-        .unit
-        .as_ref()
-        .map_or(p.name.as_str(), |(u, _)| u.as_str());
+    let unit = p.unit.as_ref().map_or(p.name.as_str(), |(u, _)| u.as_str());
     let restarts = nerve.map(|st| gaia_live::nerve::restarts_for(st, unit));
     let (used, left, rerr) = match restarts {
         Some(Ok(r)) => (
@@ -175,7 +172,11 @@ fn heal_plan(p: &ProbeResult, port: Option<&(u16, String)>, nerve: Option<&Value
             None,
         ),
         Some(Err(e)) => (None, Some(0), Some(e)),
-        None => (None, Some(0), Some("nerve /state unreadable; failing closed".into())),
+        None => (
+            None,
+            Some(0),
+            Some("nerve /state unreadable; failing closed".into()),
+        ),
     };
     Json::obj()
         .with("mode", "plan-only")
@@ -260,8 +261,12 @@ pub fn classify(inp: &Inputs) -> Json {
             .and_then(|c| s(c, "status"))
             .map_or(Class::Unknown, Class::of_nerve);
         let names = [cname, p.name.as_str(), unit];
-        let n_inc = nerve_inc.map(|d| open_incidents(d, &names)).unwrap_or_default();
-        let c_inc = cortex_inc.map(|d| open_incidents(d, &names)).unwrap_or_default();
+        let n_inc = nerve_inc
+            .map(|d| open_incidents(d, &names))
+            .unwrap_or_default();
+        let c_inc = cortex_inc
+            .map(|d| open_incidents(d, &names))
+            .unwrap_or_default();
         let c_unit = cortex_inc
             .and_then(|d| d.get("units"))
             .and_then(|u| u.get(unit))
@@ -294,7 +299,10 @@ pub fn classify(inp: &Inputs) -> Json {
                 ),
             );
         } else if comp.is_some() && nclass != g {
-            let sev = if matches!((g, nclass), (Class::Ok, Class::Bad) | (Class::Bad, Class::Ok)) {
+            let sev = if matches!(
+                (g, nclass),
+                (Class::Ok, Class::Bad) | (Class::Bad, Class::Ok)
+            ) {
                 "error"
             } else {
                 "warn"
@@ -342,7 +350,11 @@ pub fn classify(inp: &Inputs) -> Json {
                 ),
             );
         }
-        let worst = g.max(if nclass == Class::Unknown { Class::Ok } else { nclass });
+        let worst = g.max(if nclass == Class::Unknown {
+            Class::Ok
+        } else {
+            nclass
+        });
         let heal = (worst != Class::Ok && worst != Class::Absent)
             .then(|| heal_plan(p, inp.ports.get(&p.name), nerve));
         if unit_findings == 0 {
@@ -589,12 +601,20 @@ pub fn cli(args: &[&str]) -> Result<(Json, bool), String> {
             .next()
             .ok_or_else(|| "no address".to_string())
     };
-    let nerve_port: u16 = opt("--nerve-port").map_or(Ok(8670), str::parse).map_err(|_| "bad --nerve-port")?;
-    let cortex_port: u16 = opt("--cortex-port").map_or(Ok(8674), str::parse).map_err(|_| "bad --cortex-port")?;
+    let nerve_port: u16 = opt("--nerve-port")
+        .map_or(Ok(8670), str::parse)
+        .map_err(|_| "bad --nerve-port")?;
+    let cortex_port: u16 = opt("--cortex-port")
+        .map_or(Ok(8674), str::parse)
+        .map_err(|_| "bad --cortex-port")?;
     let probes = gaia_live::classify_probes();
     let ports = probes
         .iter()
-        .filter_map(|p| p.http.as_ref().map(|h| (p.name.clone(), (h.port, h.path.clone()))))
+        .filter_map(|p| {
+            p.http
+                .as_ref()
+                .map(|h| (p.name.clone(), (h.port, h.path.clone())))
+        })
         .collect();
     let results = gaia_live::probe_all_with(&probes, &o, &r);
     let nerve_state = match opt("--nerve-state") {

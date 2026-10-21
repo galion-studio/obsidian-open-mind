@@ -7,11 +7,13 @@
 //!   gaia-cortex [serve] [--config PATH]   loopback API + event ingest (default 127.0.0.1:8674)
 //!   gaia-cortex replay FILE [--config PATH]  decide on an NDJSON event file, print decisions + stats
 //!   gaia-cortex config [--config PATH]    print the effective config (no secrets: only key_env NAME)
+//!   gaia-cortex hermes-dispatch           drain the Hermes handoff inbox once (systemd .path unit)
 //!   gaia-cortex --version
 //!
 //! Env: CORTEX_CONFIG, CORTEX_LISTEN, CORTEX_SOCKET, CORTEX_DATA_DIR, CORTEX_NERVE_URL,
 //! CORTEX_PULL_EVERY_S (0 = off), CORTEX_ACTIONS (dry-run|live), CORTEX_COALESCE_MS,
-//! CORTEX_OUTBOX, CORTEX_LLM_ENABLED (default off).
+//! CORTEX_OUTBOX, CORTEX_LLM_ENABLED (default off), CORTEX_HERMES_HANDOFF (default off),
+//! CORTEX_HERMES_INBOX, CORTEX_HERMES_PER_HOUR (max 6).
 
 use gaia_cortex::config::Config;
 use gaia_cortex::engine::{now_secs, run_decider};
@@ -23,7 +25,7 @@ use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const USAGE: &str = "usage: gaia-cortex [serve | replay FILE | config] [--config PATH] | --version";
+const USAGE: &str = "usage: gaia-cortex [serve | replay FILE | config | hermes-dispatch] [--config PATH] | --version";
 
 fn opt(args: &[String], k: &str) -> Option<String> {
     args.iter()
@@ -43,6 +45,9 @@ fn main() -> ExitCode {
         .filter(|a| !a.starts_with("--"))
         .map(String::as_str)
         .unwrap_or("serve");
+    if cmd == "hermes-dispatch" {
+        return hermes_dispatch();
+    }
     let cfg = match Config::load(opt(&args, "--config").as_deref(), &|k| {
         std::env::var(k).ok()
     }) {
@@ -84,6 +89,25 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
     }
+}
+
+/// Drain the cortex -> Hermes inbox once (started by a systemd .path unit).
+fn hermes_dispatch() -> ExitCode {
+    use gaia_cortex::dispatch::{run, CurlHttp, DispatchCfg};
+    let get = |k: &str| std::env::var(k).ok();
+    let cfg = match DispatchCfg::from_env(&get) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("gaia-cortex hermes-dispatch: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let http = CurlHttp {
+        tmp_dir: std::env::temp_dir(),
+    };
+    let r = run(&cfg, &http, &get, &|| gaia_cortex::engine::ts(now_secs()));
+    println!("{r}");
+    ExitCode::SUCCESS
 }
 
 fn serve_main(cfg: Config) -> ExitCode {

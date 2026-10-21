@@ -224,7 +224,9 @@ fn flapping_opens_circuit_then_escalates_once() {
     let esc = std::fs::read_to_string(cx.cfg.data_dir.join("escalations.jsonl")).unwrap();
     assert!(esc.contains("flapping"));
     assert_eq!(
-        cx.incidents_json()["units"]["tuner.service"]["circuit_open"],
+        // at the test clock, not the wall clock (T0 is fixed; the wall clock
+        // moves past the 1 h circuit and made this flaky after 19:26 +02:00)
+        cx.rules.books_json(T0 + 4 * 60)["tuner.service"]["circuit_open"],
         true
     );
 }
@@ -810,4 +812,56 @@ fn nerve_batches_and_engine_incidents_do_not_loop() {
     assert_eq!(d[0]["alert"], true);
     assert_eq!(d[0]["escalate"], false);
     assert!(nerve.reqs.lock().unwrap().is_empty());
+}
+
+/// Mate t217: incidents the rules cannot settle go to the Hermes boss inbox,
+/// once per incident, never per event; protected units and restarts do not.
+#[test]
+fn unresolved_incident_handed_to_hermes_once() {
+    let mut c = cfg();
+    c.actions = "live".into();
+    c.hermes.enabled = true;
+    let inbox = c.data_dir.join("hermes-inbox");
+    let (mut cx, nerve, _) = cortex(c);
+    let files = || -> Vec<serde_json::Value> {
+        let mut v: Vec<_> = std::fs::read_dir(&inbox)
+            .map(|r| r.flatten().map(|e| e.path()).collect())
+            .unwrap_or_default();
+        v.retain(|p: &std::path::PathBuf| p.extension().is_some_and(|x| x == "json"));
+        v.iter()
+            .map(|p| serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap())
+            .collect()
+    };
+    // restarts (R3-known-crash) are the cortex's own job: no handoff
+    cx.process(vec![crash("tuner.service")], T0);
+    cx.process(vec![crash("tuner.service")], T0 + 60);
+    assert!(files().is_empty());
+    assert_eq!(nerve.reqs.lock().unwrap().len(), 2);
+    // third crash opens the circuit (R2) -> escalation -> one handoff
+    for i in 2..8u64 {
+        cx.process(vec![crash("tuner.service")], T0 + i * 200);
+    }
+    let f = files();
+    assert_eq!(f.len(), 1, "one handoff for the incident: {f:?}");
+    assert_eq!(f[0]["kind"], "cortex.handoff");
+    assert_eq!(f[0]["rule"], "R2-circuit-open");
+    assert!(f[0]["handoff_id"].as_str().unwrap().starts_with("hoff-"));
+    assert!(f[0]["recent_decisions"].as_array().unwrap().len() >= 2);
+    assert_eq!(cx.stats.handoffs, 1);
+    // protected unit: alert only, never handed off for action
+    cx.process(vec![crash("cloudflared.service")], T0 + 2000);
+    assert_eq!(files().len(), 1);
+    // budget stop file from the dispatcher: no more handoffs
+    std::fs::write(inbox.join(gaia_cortex::handoff::STOP_FILE), "spent").unwrap();
+    cx.process(
+        vec![ev(
+            "mystery.thing",
+            "critical",
+            json!({"seq": seq(), "what": "unknown"}),
+        )],
+        T0 + 3000,
+    );
+    assert_eq!(files().len(), 1);
+    assert_eq!(cx.stats.handoffs_budget_stopped, 1);
+    assert_eq!(cx.stats_json()["hermes_handoff"]["budget_stopped"], true);
 }

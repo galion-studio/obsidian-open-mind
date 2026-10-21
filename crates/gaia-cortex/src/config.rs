@@ -48,6 +48,8 @@ pub struct Config {
     /// when `nerve_url` is set; this is the zero-idle-work transport.
     pub nerve_stream: bool,
     pub llm: LlmConfig,
+    /// Cortex -> Hermes boss handoff (inbox files; see `handoff`).
+    pub hermes: HermesConfig,
 }
 
 impl Default for Config {
@@ -70,6 +72,34 @@ impl Default for Config {
             restart_allow: vec![],
             nerve_stream: true,
             llm: LlmConfig::default(),
+            hermes: HermesConfig::default(),
+        }
+    }
+}
+
+/// Hand unresolved incidents to the Hermes boss agent (Mate, 2026-10-21
+/// 22:50 +02:00). OFF by default. The cortex only writes inbox files; the
+/// paid call, its $20 ceiling and Mate's approval gate live in the
+/// dispatcher (`gaia-cortex hermes-dispatch`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HermesConfig {
+    pub enabled: bool,
+    /// Inbox dir; unset = `<data_dir>/hermes-inbox`.
+    pub inbox: Option<PathBuf>,
+    /// Handoffs per rolling hour (clamped to 6).
+    pub per_hour: u32,
+    /// Same subject + rule: one handoff per this many seconds.
+    pub subject_window_s: u64,
+}
+
+impl Default for HermesConfig {
+    fn default() -> Self {
+        HermesConfig {
+            enabled: false,
+            inbox: None,
+            per_hour: 6,
+            subject_window_s: 3600,
         }
     }
 }
@@ -173,6 +203,15 @@ impl Config {
         if let Some(v) = get("CORTEX_LLM_ENABLED") {
             c.llm.enabled = v == "1" || v == "true";
         }
+        if let Some(v) = get("CORTEX_HERMES_HANDOFF") {
+            c.hermes.enabled = v == "1" || v == "true";
+        }
+        if let Some(v) = get("CORTEX_HERMES_INBOX") {
+            c.hermes.inbox = Some(v.into());
+        }
+        if let Some(v) = get("CORTEX_HERMES_PER_HOUR").and_then(|v| v.parse().ok()) {
+            c.hermes.per_hour = v;
+        }
         c.validate()?;
         Ok(c)
     }
@@ -218,6 +257,7 @@ impl Config {
                 return Err(format!("llm.endpoint refused: {r}"));
             }
         }
+        self.hermes.per_hour = self.hermes.per_hour.min(crate::handoff::HARD_MAX_PER_HOUR);
         self.coalesce_ms = self.coalesce_ms.min(60_000);
         Ok(())
     }

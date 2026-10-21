@@ -16,6 +16,7 @@
 
 use crate::config::Config;
 use crate::guard::Guard;
+use crate::handoff::{Handoff, Offer};
 use crate::llm::{Advisor, Choice};
 use crate::nerve::NerveLink;
 use crate::rules::{subject_key, Limits, Outcome, Rules, Subject, Verdict};
@@ -54,6 +55,11 @@ pub struct Stats {
     pub alerts: u64,
     pub alerts_to_nerve: u64,
     pub escalations: u64,
+    pub handoffs: u64,
+    pub handoffs_duplicate: u64,
+    pub handoffs_rate_limited: u64,
+    pub handoffs_budget_stopped: u64,
+    pub handoffs_failed: u64,
     pub llm_calls: u64,
     pub llm_refused: u64,
     pub llm_skipped_disabled: u64,
@@ -71,6 +77,7 @@ pub struct Cortex {
     pub alerts: Jsonl,
     pub outbox: Option<std::path::PathBuf>,
     pub escalations: Escalations,
+    pub handoff: Handoff,
     pub stats: Stats,
     seen: HashSet<u64>,
     seen_order: VecDeque<u64>,
@@ -112,6 +119,16 @@ impl Cortex {
             alerts: Jsonl::new(file("alerts.jsonl")),
             outbox: cfg.outbox.clone(),
             escalations: Escalations::new(file("escalations.jsonl")),
+            handoff: Handoff::new(
+                cfg.hermes.enabled,
+                cfg.hermes
+                    .inbox
+                    .clone()
+                    .unwrap_or_else(|| dir.join("hermes-inbox")),
+                file("hermes-handoff-state.json"),
+                cfg.hermes.per_hour,
+                cfg.hermes.subject_window_s,
+            ),
             stats: Stats {
                 started: ts(now_secs()),
                 ..Stats::default()
@@ -384,10 +401,15 @@ impl Cortex {
     fn escalate(&mut self, dec: &str, s: &Subject, incident: &str, v: &Verdict, now: u64) {
         let id = self.next_id("esc");
         let lead = s.lead().map(Event::to_json).unwrap_or(Value::Null);
-        let e = json!({"id": id, "ts": ts(now), "decision": dec, "incident": incident, "subject": s.key,
+        let mut e = json!({"id": id, "ts": ts(now), "decision": dec, "incident": incident, "subject": s.key,
                        "rule": v.rule, "severity": v.sev.as_str(), "reason": v.reason, "lead_event": lead,
                        "events": s.events.len()});
         self.stats.escalations += 1;
+        let offer = self.hand_to_hermes(&e, s, now);
+        e["handoff"] = json!(offer.code());
+        if let Offer::Written(h) = &offer {
+            e["handoff_id"] = json!(h);
+        }
         let ev = Event::new(
             CORTEX_SOURCE,
             "cortex.escalation",
@@ -396,6 +418,48 @@ impl Cortex {
         );
         let _ = self.nerve.post_event(&ev);
         self.escalations.push(e);
+    }
+
+    /// Hand an escalation to the Hermes boss inbox (once per incident, capped).
+    fn hand_to_hermes(&mut self, esc: &Value, s: &Subject, now: u64) -> Offer {
+        if !self.handoff.enabled {
+            return Offer::Disabled;
+        }
+        let recent: Vec<Value> = self
+            .decisions
+            .ring
+            .iter()
+            .rev()
+            .filter(|d| d["subject"] == s.key.as_str())
+            .take(6)
+            .cloned()
+            .collect();
+        let evs: Vec<Value> = s.events.iter().take(12).map(Event::to_json).collect();
+        let ticket = json!({
+            "v": 1, "kind": "cortex.handoff", "ts": ts(now), "to": "hermes-boss",
+            "incident": esc["incident"], "subject": esc["subject"], "unit": s.unit, "host": s.host,
+            "rule": esc["rule"], "severity": esc["severity"], "reason": esc["reason"],
+            "escalation": esc, "events": evs, "recent_decisions": recent,
+            "cortex": {"mode": if self.cfg.dry_run() { "dry-run" } else { "live" },
+                       "allowed_action": "restart via the nerve allowlist (already tried or not applicable)",
+                       "restarts_per_unit_hour": self.cfg.restarts_per_unit_hour,
+                       "circuit_open_s": self.cfg.circuit_open_s,
+                       "unit_books": self.rules.books_json(now)},
+            "ask": "diagnose, propose a fix (code or config), notify Mate, change NOTHING until Mate approves",
+        });
+        let o = self.handoff.offer(&ticket, now);
+        match &o {
+            Offer::Written(_) => self.stats.handoffs += 1,
+            Offer::Duplicate => self.stats.handoffs_duplicate += 1,
+            Offer::RateLimited => self.stats.handoffs_rate_limited += 1,
+            Offer::BudgetStopped => self.stats.handoffs_budget_stopped += 1,
+            Offer::Failed(e) => {
+                self.stats.handoffs_failed += 1;
+                eprintln!("gaia-cortex: hermes handoff failed: {e}");
+            }
+            Offer::Disabled => {}
+        }
+        o
     }
 
     pub fn stats_json(&self) -> Value {
@@ -412,6 +476,9 @@ impl Cortex {
             "actions_rate_limited": s.actions_rate_limited, "actions_circuit_open": s.actions_circuit_open, "actions_failed": s.actions_failed,
             "alerts": s.alerts, "alerts_to_nerve": s.alerts_to_nerve, "escalations": s.escalations,
             "escalations_open": self.escalations.open.len(),
+            "handoffs": s.handoffs, "handoffs_duplicate": s.handoffs_duplicate, "handoffs_rate_limited": s.handoffs_rate_limited,
+            "handoffs_budget_stopped": s.handoffs_budget_stopped, "handoffs_failed": s.handoffs_failed,
+            "hermes_handoff": self.handoff.to_json(now_secs()),
             "llm_calls": s.llm_calls, "llm_refused": s.llm_refused, "llm_skipped_disabled": s.llm_skipped_disabled,
             "llm_spend_usd": llm["ledger"]["spent_usd"].clone(),
             "llm": llm,

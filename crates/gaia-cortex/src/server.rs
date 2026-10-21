@@ -68,7 +68,8 @@ pub fn handle(req: &Request, cx: &Arc<Mutex<Cortex>>, tx: &Mutex<Sender<Vec<Even
                 json!({"ok": true, "service": "gaia-cortex", "version": env!("CARGO_PKG_VERSION"), "ts": ts(now_secs()),
                        "mode": if g.cfg.dry_run() { "dry-run" } else { "live" }, "llm_enabled": g.cfg.llm.enabled,
                        "nerve": g.cfg.nerve_url.is_some(), "events_in": g.stats.events_in,
-                       "incidents_open": g.correlator.open.len(), "escalations_open": g.escalations.open.len()})
+                       "incidents_open": g.correlator.open.len(), "escalations_open": g.escalations.open.len(),
+                       "hermes_handoff": g.handoff.enabled, "handoffs": g.stats.handoffs})
                 .to_string(),
             )
         }

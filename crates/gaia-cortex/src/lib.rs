@@ -9,8 +9,10 @@
 //! advisor (OFF by default): [`llm`]; nerve link: [`nerve`]; API: [`server`].
 
 pub mod config;
+pub mod dispatch;
 pub mod engine;
 pub mod guard;
+pub mod handoff;
 pub mod llm;
 pub mod nerve;
 pub mod rules;

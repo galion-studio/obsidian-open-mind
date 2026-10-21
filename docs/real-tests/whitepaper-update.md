@@ -5,7 +5,7 @@
 All times Europe/Zagreb, CEST +02:00. Box = swarm build box; VPS = read-only probes only (GET, sha256sum, systemctl is-active, sshd -T, getent, TLS handshake). Nothing was written, restarted or built on the VPS. No secrets were read or printed.
 
 ## SHA resolution (06:36)
-All 38 short SHAs cited resolved to full commits in /workspace/swarm/base.git or /workspace/swarm/wt/* (e.g. e6ceca7 -> e6ceca79b527779f2f551d2051c1f7941c5de44d, 457ef74 -> 457ef742bc6430623ac2e082dd80ac16db0a368a, e43d7ab -> e43d7ab609dd46521b27e16aac9ad9b440a9f737, 5ddd828 -> 5ddd828cdbb1622ea4b74271e74cefaa6abf4305). 0 missing.
+(Fact-check 16:37: 32 distinct commits across this file and results-2026-10-21.md, not 38; all resolve.) All 38 short SHAs cited resolved to full commits in /workspace/swarm/base.git or /workspace/swarm/wt/* (e.g. e6ceca7 -> e6ceca79b527779f2f551d2051c1f7941c5de44d, 457ef74 -> 457ef742bc6430623ac2e082dd80ac16db0a368a, e43d7ab -> e43d7ab609dd46521b27e16aac9ad9b440a9f737, 5ddd828 -> 5ddd828cdbb1622ea4b74271e74cefaa6abf4305). 0 missing.
 
 ## HADES red team (box, ~06:36-06:37)
 - `GALION_REAL=1 HADES_REDTEAM_PORT=20100 cargo test --release -p hades-gate` at e6ceca7: 45 passed, 0 failed (10 suites, incl. real_redteam_over_http and every_redteam_attempt_is_refused).

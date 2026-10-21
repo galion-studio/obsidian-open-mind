@@ -5,16 +5,17 @@
 Sources: /workspace/swarm/CALL-RECORD.md (CR:line; results log, retry ledgers CR:49-65, wave-3 table CR:120-134) and a box snapshot taken 2026-10-20 22:51 +02:00:
 `git -C /workspace/swarm/wt/<slug> log -1 --format='%h %ci'` and `git -C ... status --short | wc -l` (= dirty).
 "Start" = latest (re)start recorded; earlier starts are not recorded unless stated. "End" = DONE line time in CALL-RECORD. Head = worktree HEAD at 22:51 (commit time in brackets). Stops = request-limit stops (or stall) from the retry ledgers.
+Fact-check 2026-10-21 (docs/whitepaper/factcheck-2026-10-21.md): CALL-RECORD retry-ledger rows that say "completed" carry the completion time in "Latest start"; starts below were corrected from the narrative lines (D9-D12). Rows still "running at 22:52" (fuzz-sast, nerve-wiring, hermes-enroll, tunnel-audit) were finished by successor slots 100-103 at 00:59-01:02 (CR:187-190). P0 = pre-run (before 20:34).
 
 ## Full-capacity run, coding agents (CR:26-28)
 | slot | slug | start | end | outcome | head (commit time) | dirty | stops/retries | source |
 |---|---|---|---|---|---|---|---|---|
 | 01 | gaia-land | before 20:34; resumed 20:44 | 20:52 | done, 9d3ec18 | 9d3ec18 (20:51:22) | 0 | 1 stall / 1 | CR:27, :73, :83-84 |
-| 22 | integration-1 | before 20:34 | 20:34 | done, 8fd26f6 pushed | 8fd26f6 (20:32:58) | 0 | 0/0 | CR:27, :31 |
+| 22 | integration-1 (P0 pre-run result: built 20:15-20:35, head 20:32:58) | before 20:34 | 20:34 | done, 8fd26f6 pushed | 8fd26f6 (20:32:58) | 0 | 0/0 | CR:27, :31 |
 | 25 | fuzz-sast | 20:34 (restart) | not recorded | e78b2e7 committed, not on GitHub at 21:24; still running at 22:52 | e78b2e7 (21:05:50) | 0 | 1/1 | CR:28, :56, :98, :115 |
-| 26 | sec-runbooks | 20:26; restarted 21:03 | 21:03 | done, c5fc269 | c5fc269 (21:02:50) | 0 | 1/1 (+1 interrupt 20:54) | CR:62, :88-89, :94 |
+| 26 | sec-runbooks | 20:26; restarted ~20:54 (CR:88; fact-check D9, was "21:03" = DONE time) | 21:03 | done, c5fc269 | c5fc269 (21:02:50) | 0 | 1/1 (+1 interrupt 20:54) | CR:62, :88-89, :94 |
 | 27 | flake-fix | before 20:34 | 20:44 | done, b2e69b9 pushed | b2e69b9 (20:41:04) | 0 | 0/0 | CR:27, :71 |
-| 28 | common-migrate-2 | 20:26; follow-up 22:06 | 21:05; follow-up 22:06 | done, cf40c1b then 123eab2 | 123eab2 (21:55:28) | 0 | 1/1 + follow-up 1/1 | CR:64, :95, :97, :107-108 |
+| 28 | common-migrate-2 | 20:26; follow-up 21:09 (CR:97; fact-check D11, was "22:06" = DONE time) | 21:05; follow-up 22:06 | done, cf40c1b then 123eab2 | 123eab2 (21:55:28) | 0 | 1/1 + follow-up 1/1 | CR:64, :95, :97, :107-108 |
 | 29 | one-hardening | 20:42 | 20:52 | done, fed3de4 | fed3de4 (20:51:43) | 0 | 2/2 | CR:28, :42, :55, :85-86 |
 | 30 | nerve-wiring | 20:34 | not recorded | still running at 22:52 | 8d7a924 (21:08:04) | 0 | 1/1 | CR:28, :57, :115 |
 | 31 | lan-routing | 20:34 | 20:48 | done, e8169c9 | e8169c9 (20:48:19) | 0 | 1/1 | CR:28, :58, :82 |
@@ -23,7 +24,7 @@ Sources: /workspace/swarm/CALL-RECORD.md (CR:line; results log, retry ledgers CR
 | 34 | console-static | 20:26 | 20:47 | done, 6bd3580 | 6bd3580 (20:47:03) | 0 | 1/1 | CR:27, :63, :81 |
 | 35 | tunnel-audit | 20:34 | not recorded | still running at 22:52 | d35ef73 (20:46:59) | 0 | 1/1 | CR:28, :60, :115 |
 | 36 | memory-schema | 20:34 | 20:52 | done, 7952626 (on GitHub) | 7952626 (20:52:07) | 0 | 1/1 | CR:28, :61, :87, :98 |
-| - | recap agent | before 20:34 | 20:35 | CALL-RECAP.md written | n/a | n/a | 0/0 | CR:27, :32 |
+| - | recap agent (P0 pre-run start) | before 20:34 | 20:35 | CALL-RECAP.md written | n/a | n/a | 0/0 | CR:27, :32 |
 
 ## Planners (CR:41, start 20:38)
 | slot | slug | start | end | outcome | head | dirty | stops/retries | source |
@@ -39,9 +40,9 @@ Sources: /workspace/swarm/CALL-RECORD.md (CR:line; results log, retry ledgers CR
 ## Other agents started during the run (no slot recorded)
 | slot | slug | start | end | outcome | head (commit time) | dirty | stops/retries | source |
 |---|---|---|---|---|---|---|---|---|
-| - | settings-snapshot | ~20:41 | 20:41 (685f57f); later 20:57 rule update | pushed | aab8d85 (20:57:23) | 0 | 0/0 | CR:45, :93 |
+| - | settings-snapshot | before 20:40:10 (685f57f commit time; fact-check D12, was "~20:41") | 20:41 (685f57f); later 20:57 rule update | pushed | aab8d85 (20:57:23) | 0 | 0/0 | CR:45, :93 |
 | - | nonrust-inventory | ~20:41 | 20:46 | done, plans/non-rust-inventory.md | n/a | n/a | 0/0 | CR:70, :78 |
-| - | voice-rust | ~20:41; restart 21:41 | 21:41 | done, 03d21a9 | 03d21a9 (21:41:15) | 0 | 1 interrupt / 1 | CR:70, :102-103, :105 |
+| - | voice-rust | ~20:41; restart 21:33 (CR:102; fact-check D10, was "21:41" = DONE time) | 21:41 | done, 03d21a9 | 03d21a9 (21:41:15) | 0 | 1 interrupt / 1 | CR:70, :102-103, :105 |
 | - | guard-rust | ~20:41 | 21:30 | done, d5f7874 | d5f7874 (21:29:49) | 0 | 0/0 | CR:70, :101 |
 | - | hermes-core | 21:02 | 21:33 | done, 45b7980 | 45b7980 (21:32:17) | 0 | 0/0 | CR:94, :104 |
 | - | console-ui-rust | not recorded | 21:24; pass 2 21:51 | done, 3d6c436 then c242fed | c242fed (21:50:18) | 0 | 0/0 | CR:98, :106 |
@@ -49,7 +50,7 @@ Sources: /workspace/swarm/CALL-RECORD.md (CR:line; results log, retry ledgers CR
 | - | slavik-todo (t107u/t108u) | not recorded | 22:16; update 22:35 | pushed d7e5895 then 87fdd91 | 87fdd91 (22:33:56) | 0 | 0/0 | CR:109-110 |
 
 ## Wave 3 (launched 22:52, CR:112-134)
-All 13 at 22:52, 0 stops, 0 retries, "running" at the time of writing (CR:122-134). Heads are the base at the 22:51 snapshot, not results.
+All 13 at 22:52, 0 stops, 0 retries, "running" at the time of writing (CR:122-134). Fact-check (S5): the table was updated later: 38-cutover-prep 2 stops/2 retries (CR:123, :177), 39-swarm-record 1/1 (CR:124). Heads are the base at the 22:51 snapshot, not results.
 | slot | slug | head at 22:51 | dirty |
 |---|---|---|---|
 | 37 | merge-gaia (worktree integration-2) | 328a386 (22:49:46) | 3 |
@@ -67,7 +68,7 @@ All 13 at 22:52, 0 stops, 0 retries, "running" at the time of writing (CR:122-13
 | 49 | health-land | worktree created after the 22:51 snapshot | - |
 
 ## Not covered
-- Wave-1 slots 02-21 (20 branches "green at push", CR:8) have no per-agent lines in CALL-RECORD, so no start/end/outcome rows here. Their worktrees exist (common, desk-linkwatch, docs-sync, edge-boot, gaia-live, hades-approval, hades-redteam (1 dirty), hermes-tools, lan-discovery, launch-gates, memory-real, nerve, one-probe, poseidon, real-harness, room, sandbox, survival-heal, tuner-cutover, ucpu, voice-mouth; plus gaia-poseidon 498e3d2, gaia-hades-tokens f3f41a2, deploy-rust c5ab8f9).
+- Wave-1 slots 02-21 (20 branches "green at push", CR:8) have no per-agent lines in CALL-RECORD, so no start/end/outcome rows here. Their worktrees exist (common, desk-linkwatch, docs-sync, edge-boot, gaia-live, hades-approval, hades-redteam (1 dirty), hermes-tools, lan-discovery, launch-gates, memory-real, nerve, one-probe, poseidon, real-harness, room, sandbox, survival-heal, tuner-cutover, ucpu, voice-mouth; plus gaia-poseidon 498e3d2 (20:25:35, P0 pre-run), gaia-hades-tokens f3f41a2 (20:25:54, P0 pre-run), deploy-rust c5ab8f9).
 - The 11 wave-2 agents killed ~20:14 (CR:7) are not identified by slug.
 
 ## Spot-checks (22:51 +02:00)

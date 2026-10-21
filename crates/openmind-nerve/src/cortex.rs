@@ -149,12 +149,16 @@ impl Finding {
     /// field for field): `ts` Europe/Zagreb RFC 3339 of `now`, `source`,
     /// `kind` (B41), `severity` (B41 via [`Sev::b41`]), `data`.
     ///
-    /// `data` holds the id, component, title, fix, cause and the evidence
-    /// *count*; evidence lines are left out (B41: no raw lines or addresses).
+    /// `data` = `{id, component, cause, evidence_n}`: tokens and the evidence
+    /// *count* only. Title, fix and evidence lines are left out (B41: no raw
+    /// lines or addresses); titles and fixes can name bind addresses, ports
+    /// and hostnames (the listeners sensor names the port and its bind address), so they stay in the
+    /// loopback finding shape ([`Finding::to_json`]) and never ride in an
+    /// event (`/api/v1/state` `cortex_events`, the T2.10 feed).
     pub fn to_nerve_event(&self, now: u64) -> Value {
         json!({"ts": ts(now), "source": self.source_or_cortex(), "kind": self.kind.as_str(),
                "severity": self.sev.b41(),
-               "data": {"id": self.id, "component": self.component, "title": self.title, "fix": self.fix,
+               "data": {"id": self.id, "component": self.component,
                         "cause": self.cause, "evidence_n": self.evidence.len()}})
     }
 
@@ -231,7 +235,8 @@ pub struct Cortex {
     pub ddos: Vec<Value>,
     pub ddos_firing: bool,
     /// Findings of kind [`FindingKind::Ddos`] (credential floods and the
-    /// like). Not scored by themselves: pair them with a [`Signal`].
+    /// like). Scored on their own unless an open incident (a [`Signal`] with
+    /// the same cause) already scores them; see [`crate::score`].
     pub ddos_findings: Vec<Finding>,
     pub signals: Vec<Signal>,
     pub exposure: Value,
@@ -269,9 +274,26 @@ impl Cortex {
             .chain(&self.ddos_findings)
     }
 
+    /// The findings as T3.2 correlation members (`<kind>:<id>`, sensor,
+    /// cause, component, severity), in [`Self::findings`] order.
+    pub fn members(&self) -> Vec<crate::incident::Member> {
+        self.findings()
+            .map(|f| {
+                crate::incident::Member::new(
+                    &format!("{}:{}", f.kind.as_str(), f.id),
+                    f.source_or_cortex(),
+                    f.cause.as_deref(),
+                    &f.component,
+                    f.sev,
+                )
+            })
+            .collect()
+    }
+
     /// B33 `NerveEvent`s for this cycle with the B41 rule "the highest
     /// severity wins inside one `(source, kind)` pair": one event per pair,
-    /// `data` = `{findings, ids, top}` (`top` is the worst finding's data).
+    /// `data` = `{findings, ids, top}` (`top` is the worst finding's event
+    /// data `{id, component, cause, evidence_n}`: no title, fix or evidence).
     /// Info-only pairs are skipped (B41 has no info level).
     pub fn nerve_events(&self, now: u64) -> Vec<Value> {
         let mut by: BTreeMap<(&str, FindingKind), Vec<&Finding>> = BTreeMap::new();

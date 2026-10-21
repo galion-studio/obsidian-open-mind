@@ -236,3 +236,5 @@ Suggested read-only confirmation on the VPS (no build, no state change):
 `cargo`-built `cgroup-detect` binary run as the target user, plus the existing
 `j_net`/`h_caps` behaviour from a box-built static musl binary copied to a
 VPS *test* area. None of this was performed, per the read-only rule.
+
+> **2026-10-21 (realscript-port-3):** the shell driver for this evidence was ported to Rust and deleted; re-run with the matching test in `crates/galion-realtest/tests/` (see `docs/real-tests/realscript-port-3.md`).

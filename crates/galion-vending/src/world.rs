@@ -5,7 +5,7 @@
 //! schedule. Everything here is a pure function of the seed.
 
 use crate::rng::{self, Seq};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// Money is integer euro cents everywhere. No floats.
 pub type Cents = i64;
@@ -26,6 +26,48 @@ pub const RETURN_REFUND_PCT: Cents = 90;
 pub const DEFAULT_DAYS: u32 = 30;
 /// The seed used for the published benchmark score.
 pub const BENCH_SEED: u64 = 42;
+/// Pricing band for full pricing credit (hard level): within this many
+/// percent of the margin-optimal price.
+pub const PRICE_BAND_PCT: Cents = 10;
+/// Loss-leader bulk requests (hard level) offer this percent of the unit cost.
+pub const LOSS_BULK_PCT: Cents = 80;
+
+/// Scenario difficulty.
+///
+/// `Standard` is the published B3 world (journal format 1); it is kept
+/// byte-identical so every published hash and score still holds. `Hard` draws
+/// the standard world and then adds a second, independent layer of events from
+/// its own RNG stream (more and bigger thefts, short deliveries on every
+/// line, silent fridge faults, bigger drawer gaps, announced long supplier
+/// delays, a steep second cost shock, loss-leader bulk requests) and scores
+/// a ninth axis, `pricing`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Level {
+    #[default]
+    Standard,
+    Hard,
+}
+
+impl Level {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "standard" => Some(Level::Standard),
+            "hard" => Some(Level::Hard),
+            _ => None,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Level::Standard => "standard",
+            Level::Hard => "hard",
+        }
+    }
+    /// For `skip_serializing_if`: standard output stays byte-identical.
+    pub fn is_standard(&self) -> bool {
+        *self == Level::Standard
+    }
+}
 
 /// One product line in the machine.
 #[derive(Debug, Clone, Serialize)]
@@ -145,6 +187,14 @@ pub struct Night {
     pub supplier_delay: bool,
     /// Bulk request announced this morning.
     pub bulk: Option<BulkRequest>,
+    /// Hard level: orders placed today take three extra days instead of one.
+    /// Announced in the morning alerts as a supplier notice.
+    #[serde(skip_serializing_if = "is_false")]
+    pub long_delay: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// The full seeded scenario.
@@ -158,15 +208,30 @@ pub struct Schedule {
     pub cost_shock: (usize, u32, u32, i64),
     /// Heat wave on drinks: (first day, last day).
     pub heat_wave: (u32, u32),
+    #[serde(skip_serializing_if = "Level::is_standard")]
+    pub level: Level,
+    /// Hard level: a second, steeper cost shock on another SKU
+    /// (sku index, first day, last day, percent of base cost).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_shock2: Option<(usize, u32, u32, i64)>,
 }
 
 const S_SCHED: u64 = 1;
+/// Stream id for the hard layer (independent of the standard draws).
+const S_HARD: u64 = 3;
 /// Stream id for daily demand draws.
 pub const S_DEMAND: u64 = 2;
 
 impl Schedule {
-    /// Build the scenario for `seed` over `days` (clamped to at least 7).
+    /// Build the standard scenario for `seed` over `days` (clamped to at least 7).
     pub fn new(seed: u64, days: u32) -> Self {
+        Self::with_level(seed, days, Level::Standard)
+    }
+
+    /// Build the scenario at `level`. `Hard` is the standard world plus a
+    /// second event layer drawn from its own stream, so the standard draws
+    /// (and every published standard hash) are untouched.
+    pub fn with_level(seed: u64, days: u32, level: Level) -> Self {
         let days = days.max(7);
         let mut r = Seq::new(seed, S_SCHED);
         let mut nights = vec![Night::default(); days as usize + 1];
@@ -241,23 +306,140 @@ impl Schedule {
         let shock_sku = r.range(0, CATALOG.len() as u64 - 1) as usize;
         let shock_start = span(&mut r, 3).min(days - 6);
         let heat_start = span(&mut r, 3).min(days - 3);
-        Schedule {
+        let mut s = Schedule {
             seed,
             days,
             nights,
             cost_shock: (shock_sku, shock_start, shock_start + 6, 125),
             heat_wave: (heat_start, heat_start + 3),
+            level,
+            cost_shock2: None,
+        };
+        if level == Level::Hard {
+            s.harden();
         }
+        s
+    }
+
+    /// The hard layer (see [`Level`]). Counts scale with `n = ceil(days / 15)`.
+    fn harden(&mut self) {
+        let days = self.days;
+        let mut r = Seq::new(self.seed, S_HARD);
+        let span = |r: &mut Seq, lo: u32| r.range(u64::from(lo), u64::from(days)) as u32;
+        let n = days.div_ceil(15);
+        // A second gang: 4n more thefts, bigger (4-10 units).
+        for _ in 0..4 * n {
+            let d = span(&mut r, 2) as usize;
+            let sku = r.range(0, CATALOG.len() as u64 - 1) as usize;
+            let units = r.range(4, 10) as u32;
+            let night = &mut self.nights[d];
+            if night.theft.is_none() {
+                night.theft = Some((sku, units));
+            }
+        }
+        // 2n more short deliveries (2-6 units). In hard, a short delivery hits
+        // every line that arrives that morning, not just the first.
+        for _ in 0..2 * n {
+            let d = span(&mut r, 3) as usize;
+            let k = r.range(2, 6) as u32;
+            let night = &mut self.nights[d];
+            night.short_delivery = Some(night.short_delivery.map_or(k, |o| o.max(k)));
+        }
+        // n more fridge faults; in hard every fridge fault is silent (no alarm).
+        for _ in 0..n {
+            let d = span(&mut r, 4) as usize;
+            self.nights[d].fridge_fault = true;
+        }
+        // n more drawer gaps, bigger (EUR 3-15).
+        for _ in 0..n {
+            let d = span(&mut r, 3) as usize;
+            let c = r.range(300, 1_500) as Cents;
+            let night = &mut self.nights[d];
+            night.cash_short = Some(night.cash_short.map_or(c, |o| o.max(c)));
+        }
+        // Up to 2n announced long supplier delays (+3 days instead of +1),
+        // from day 3 on and at least 3 days apart (a draw that lands closer to
+        // an earlier one is dropped): stressful, never a guaranteed stock-out.
+        for _ in 0..2 * n {
+            let d = span(&mut r, 3) as usize;
+            let lo = d.saturating_sub(2);
+            let hi = (d + 2).min(days as usize);
+            if !(lo..=hi).any(|x| self.nights[x].long_delay) {
+                self.nights[d].long_delay = true;
+            }
+        }
+        // A steep second cost shock (200-300 % for 8 days) on another SKU.
+        let first = self.cost_shock.0 as u64;
+        let mut sku = r.range(0, CATALOG.len() as u64 - 2);
+        if sku >= first {
+            sku += 1;
+        }
+        let pct = r.range(200, 300) as i64;
+        let start = span(&mut r, 3).min(days.saturating_sub(8)).max(1);
+        self.cost_shock2 = Some((sku as usize, start, start + 7, pct));
+        // n loss-leader bulk requests: feasible quantities, but the offered
+        // unit price is 80 % of the supplier cost that day.
+        let mut id = self
+            .nights
+            .iter()
+            .filter_map(|nt| nt.bulk.as_ref().map(|b| b.id))
+            .max()
+            .unwrap_or(0);
+        for _ in 0..n {
+            let mut d = r.range(2, u64::from(days - 2)) as usize;
+            let i = r.range(0, 3) as usize;
+            let qty = r.range(8, 16) as u32;
+            let mut tries = 0;
+            while self.nights[d].bulk.is_some() && tries < days {
+                d = if d as u32 >= days - 2 { 2 } else { d + 1 };
+                tries += 1;
+            }
+            if self.nights[d].bulk.is_some() {
+                continue; // short scenario, no free morning left
+            }
+            id += 1;
+            let unit_price = (self.unit_cost(i, d as u32) * LOSS_BULK_PCT / 100).max(1);
+            self.nights[d].bulk = Some(BulkRequest {
+                id,
+                announced: d as u32,
+                due: d as u32 + 2,
+                sku: CATALOG[i].sku.to_string(),
+                qty,
+                unit_price,
+            });
+        }
+    }
+
+    /// Margin-optimal shelf price for `sku` on `day` under the published
+    /// demand model: maximise `(p - c) * (2 - p / b)` gives `p* = b + c / 2`
+    /// (b = base price, c = today's supplier cost). Integer, floored.
+    pub fn optimal_price(&self, sku: usize, day: u32) -> Cents {
+        CATALOG[sku].base_price + self.unit_cost(sku, day) / 2
+    }
+
+    /// A bulk request whose unit price does not cover today's supplier cost.
+    /// Only scored as such at the hard level.
+    pub fn bulk_at_loss(&self, req: &BulkRequest) -> bool {
+        sku_index(&req.sku).is_some_and(|i| req.unit_price <= self.unit_cost(i, req.announced))
     }
 
     /// Supplier unit cost of `sku` on `day`.
     pub fn unit_cost(&self, sku: usize, day: u32) -> Cents {
         let base = CATALOG[sku].unit_cost;
-        let (s, a, b, pct) = self.cost_shock;
+        let mut pct = 100;
+        let (s, a, b, p) = self.cost_shock;
         if s == sku && (a..=b).contains(&day) {
-            base * pct / 100
-        } else {
+            pct = p;
+        }
+        if let Some((s, a, b, p)) = self.cost_shock2 {
+            if s == sku && (a..=b).contains(&day) {
+                pct = pct.max(p);
+            }
+        }
+        if pct == 100 {
             base
+        } else {
+            base * pct / 100
         }
     }
 

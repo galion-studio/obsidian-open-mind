@@ -61,126 +61,27 @@ pub const AUDIT_ARCH: u32 = 0x4000_0028;
 pub const AUDIT_ARCH: u32 = 0;
 
 // ---- Denied syscall numbers per architecture ----
-// Goal: block escape / host change / process inspection. Everyday shell
-// tools (read, write, open, mmap, clone for threads, socket inside a netns
-// that is already empty, etc.) stay allowed. Numbers from the Linux UAPI.
+// The arrays live in `seccomp_table` (compiled on every target so one host
+// can check x86_64 / aarch64 / armv7 parity; docs/security/denylist-parity.md).
 
 #[cfg(target_arch = "x86_64")]
-pub const DENIED: &[u32] = &[
-    101, // ptrace
-    165, // mount
-    166, // umount2
-    155, // pivot_root
-    169, // reboot
-    272, // unshare (namespaces already set up by the parent)
-    167, // swapon
-    168, // swapoff
-    170, // sethostname
-    171, // setdomainname
-    172, // iopl
-    173, // ioperm
-    175, // init_module
-    176, // delete_module
-    246, // kexec_load
-    320, // kexec_file_load
-    250, // keyctl
-    248, // add_key
-    249, // request_key
-    321, // bpf
-    323, // userfaultfd
-    298, // perf_event_open
-    313, // finit_module
-    179, // quotactl
-    163, // acct
-    310, // process_vm_readv
-    311, // process_vm_writev
-];
+pub const DENIED: &[u32] = crate::seccomp_table::DENIED_X86_64;
 
 #[cfg(target_arch = "aarch64")]
-pub const DENIED: &[u32] = &[
-    117, // ptrace
-    40,  // mount
-    39,  // umount2
-    41,  // pivot_root
-    142, // reboot
-    97,  // unshare
-    224, // swapon
-    225, // swapoff
-    161, // sethostname
-    162, // setdomainname
-    105, // init_module
-    106, // delete_module
-    104, // kexec_load
-    294, // kexec_file_load
-    219, // keyctl
-    217, // add_key
-    218, // request_key
-    280, // bpf
-    282, // userfaultfd
-    241, // perf_event_open
-    273, // finit_module
-    60,  // quotactl
-    89,  // acct
-    270, // process_vm_readv
-    271, // process_vm_writev
-];
+pub const DENIED: &[u32] = crate::seccomp_table::DENIED_AARCH64;
 
-// armv7 (32-bit ARM EABI) numbers from arch/arm/tools/syscall.tbl, same set
-// as aarch64.
 #[cfg(target_arch = "arm")]
-pub const DENIED: &[u32] = &[
-    26,  // ptrace
-    21,  // mount
-    52,  // umount2
-    218, // pivot_root
-    88,  // reboot
-    337, // unshare
-    87,  // swapon
-    115, // swapoff
-    74,  // sethostname
-    121, // setdomainname
-    128, // init_module
-    129, // delete_module
-    347, // kexec_load
-    311, // keyctl
-    309, // add_key
-    310, // request_key
-    386, // bpf
-    388, // userfaultfd
-    364, // perf_event_open
-    379, // finit_module
-    131, // quotactl
-    51,  // acct
-    376, // process_vm_readv
-    377, // process_vm_writev
-];
+pub const DENIED: &[u32] = crate::seccomp_table::DENIED_ARMV7;
 
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm")))]
 pub const DENIED: &[u32] = &[];
 
 const EPERM: u32 = 1;
 
-// Syscalls added after Linux 5.1 share one number on every architecture we
-// build for (x86_64, aarch64, 32-bit ARM EABI; see the unified table in
-// include/uapi/asm-generic/unistd.h and arch/*/syscall.tbl). An earlier list
-// carried 431 labelled "process_vm_readv-like"; 431 is really `fsconfig`, so
-// it is kept here under its real name together with the rest of the new
-// mount API (an alternative to the denied `mount`), io_uring (its requests
-// are not seen by seccomp) and pidfd_getfd (steals another process's fds).
+/// Post-5.1 syscalls with one number on every supported arch (see
+/// `seccomp_table::DENIED_UNIFIED`).
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm"))]
-pub const DENIED_UNIFIED: &[u32] = &[
-    425, // io_uring_setup
-    426, // io_uring_enter
-    427, // io_uring_register
-    428, // open_tree
-    429, // move_mount
-    430, // fsopen
-    431, // fsconfig
-    432, // fsmount
-    433, // fspick
-    438, // pidfd_getfd
-    442, // mount_setattr
-];
+pub const DENIED_UNIFIED: &[u32] = crate::seccomp_table::DENIED_UNIFIED;
 
 #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm")))]
 pub const DENIED_UNIFIED: &[u32] = &[];
@@ -466,6 +367,8 @@ mod tests {
             libc::SYS_fspick,
             libc::SYS_pidfd_getfd,
             libc::SYS_mount_setattr,
+            libc::SYS_quotactl_fd,
+            467, // open_tree_attr (Linux 6.15; no libc 0.2.191 constant)
         ];
         #[cfg(target_arch = "x86_64")]
         let kexec_file: &[libc::c_long] = &[libc::SYS_kexec_file_load];
@@ -473,7 +376,11 @@ mod tests {
         // aarch64 musl.
         #[cfg(target_arch = "aarch64")]
         let kexec_file: &[libc::c_long] = &[294];
-        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        // arch/arm/tools/syscall.tbl: 401 kexec_file_load, 22 umount (OABI);
+        // libc 0.2.191 has neither for arm musl.
+        #[cfg(target_arch = "arm")]
+        let kexec_file: &[libc::c_long] = &[401, 22];
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "arm")))]
         let kexec_file: &[libc::c_long] = &[];
         let mut want: Vec<u32> = arch_only
             .iter()

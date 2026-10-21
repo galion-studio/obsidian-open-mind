@@ -91,10 +91,21 @@ pub fn build(
     url: &str,
     obs: &wifi::Observation,
 ) -> Result<(Payload, String, Vec<String>), String> {
+    build_at(cfg, id, url, obs, zagreb::now_unix())
+}
+
+/// [`build`] with an explicit creation time (`omnode pair --now`, used by the
+/// real-life tests to produce an expired payload; a verifier refuses it).
+pub fn build_at(
+    cfg: &Config,
+    id: &Identity,
+    url: &str,
+    obs: &wifi::Observation,
+    now: i64,
+) -> Result<(Payload, String, Vec<String>), String> {
     let warns = validate_url(url)?;
     let me = sysinfo::self_info();
     let net = id.current_network(cfg, obs);
-    let now = zagreb::now_unix();
     let p = Payload {
         v: 1,
         kind: "openmind-pair",

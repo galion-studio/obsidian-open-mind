@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# STAGED, NOT INSTALLED (wave 4 slot 120, swarm/tuner-quick-unit).
+# Persistent replacement for the hand-made TRANSIENT unit
+# /run/systemd/transient/tuner-quick.service (created 2026-10-18 19:19:30 +02:00
+# with systemd-run; gone after a reboot). Same program and arguments as the live
+# transient unit:
+#   /usr/local/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8650
+# plus a pinned metrics address (the live process already listens there) and
+# sandboxing. Owner decision O4 / SEC-5 comes first: whether the tuner should be
+# public on a random trycloudflare URL at all. Install steps and rollback:
+# docs/ops/tuner-quick-unit.md. Uses only cloudflared; no Galion binary needed
+# (unlike deploy/staged/tuner-publish.service, which needs tuner-publish).
+#
+# Every (re)start of this unit gets a NEW random https://<words>.trycloudflare.com
+# URL; read it with:
+#   journalctl -u tuner-quick -o cat | grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' | tail -1
+[Unit]
+Description=Tuner quick tunnel (cloudflared, random trycloudflare URL -> 127.0.0.1:8650)
+Documentation=https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/
+After=network-online.target tuner.service
+Wants=network-online.target
+# Wants=, not Requires=/BindsTo=: galion-deploy restarts tuner.service during a
+# cutover, and Requires= would restart this unit with it, which rotates the
+# public URL. cloudflared retries the origin per request, so a 2 ms tuner swap
+# is only a few refused requests here.
+Wants=tuner.service
+# Restart storm guard: 5 starts per 10 min, then the unit stays failed
+# (each start would be a new URL anyway).
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate --metrics 127.0.0.1:20242 --url http://127.0.0.1:8650
+# The transient unit has Restart=on-failure with 100 ms. cloudflared can also
+# exit 0 after losing the edge, so restart in every case, with a pause.
+Restart=always
+RestartSec=10
+Nice=10
+# Graceful shutdown: cloudflared waits --grace-period (30 s default) on SIGTERM.
+TimeoutStopSec=40
+
+# Sandbox. The transient unit runs as root with no sandbox (systemd-analyze
+# security: 9.6 UNSAFE) and can read /root/.cloudflared/<uuid>.json, the
+# credential of the separate NAMED tunnel (cloudflared.service). A quick tunnel
+# needs no credential, no config and no writes, so: a throwaway user, no home.
+DynamicUser=yes
+Environment=HOME=/nonexistent
+ProtectHome=yes
+ProtectSystem=strict
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged
+# Go raises RLIMIT_NOFILE at start (setrlimit, in @resources): keep @resources
+# allowed, and answer any other filtered call with EPERM instead of SIGSYS.
+SystemCallErrorNumber=EPERM
+UMask=0077
+# Live RSS 19.1 MB (2026-10-21 04:03 +02:00); generous ceiling.
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

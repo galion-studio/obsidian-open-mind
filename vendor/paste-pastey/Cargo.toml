@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# galion deny-paste-replace: compatibility shim for RUSTSEC-2024-0436 ("paste" is unmaintained).
+# It takes the crate name `paste` so that the workspace `[patch.crates-io]` entry replaces the archived
+# dtolnay/paste 1.0.15 everywhere it is pulled in (gemm, gemm-common, gemm-f16/f32/f64/c32/c64, pulp, all under
+# candle-core). It contains no macro code of its own: it re-exports the macros of `pastey`, the maintained
+# drop-in fork named in the advisory. See docs/security/deny-paste-replace.md.
+# Remove it (and the patch entry) once gemm/pulp depend on pastey or another maintained crate themselves.
+[package]
+name = "paste"
+version = "1.0.15+galion-pastey"
+edition = "2021"
+license = "MIT"
+description = "Galion shim: the `paste` crate API re-exported from the maintained fork `pastey` (RUSTSEC-2024-0436)."
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+pastey = "=0.2.3"

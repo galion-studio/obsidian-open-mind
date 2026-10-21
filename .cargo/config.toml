@@ -25,3 +25,24 @@ LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLI
 # replaces this list; crates/hades-gate/tests/simd_free.rs fails if it does.
 [build]
 rustflags = ["--cfg", "curve25519_dalek_backend=\"serial\""]
+
+# Cross linkers (slot 145, toolchain-aarch64, 2026-10-21 CEST +02:00).
+# Without this, `cargo build --target aarch64-unknown-linux-musl` falls back
+# to the host `cc` (x86_64 GNU ld), which fails with
+# "unrecognized option '--fix-cortex-a53-843419'". Every swarm agent had to
+# export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld by hand.
+# rust-lld ships with every rustup toolchain (rustlib/<host>/bin), rustc finds
+# it there on its own, and the musl targets bring their own self-contained
+# crt objects and libc.a, so no cross gcc is needed. armv7 musl has the same
+# problem and the same fix. An env var CARGO_TARGET_<TRIPLE>_LINKER still
+# overrides this (scripts/ucpu-gate.sh sets the same value). This is only a
+# linker choice: no codegen or CPU flags (UNIVERSAL-CPU.md), and it does not
+# touch [build] rustflags above (target.<triple>.rustflags would replace them).
+# C code (bundled SQLite in desk-hermes, hermes-rs, hermes-gateway,
+# one-defence, openmind-memory) still needs a C cross compiler for these
+# targets: see docs/toolchain-aarch64.md (zig cc, as in scripts/ucpu-gate.sh).
+[target.aarch64-unknown-linux-musl]
+linker = "rust-lld"
+
+[target.armv7-unknown-linux-musleabihf]
+linker = "rust-lld"

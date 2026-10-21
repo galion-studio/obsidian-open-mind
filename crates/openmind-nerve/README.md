@@ -33,8 +33,13 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
    Each detector is a `Sensor` in `src/sensors/` (listeners, scanners, edge,
    components, ddos); findings carry a B41 `kind` and their sensor as `source`,
    and `/api/v1/state` has `cortex_sensors` (per-sensor counts, us) and
-   `cortex_events` (B33 `NerveEvent`s). `NERVE_SENSORS_OFF=name,...` turns
-   sensors off. Adding one: [`docs/cortex/sensors.md`](../../docs/cortex/sensors.md).
+   `cortex_events` (B33 `NerveEvent`s: ids, component, cause and counts only, no titles or fixes). `NERVE_SENSORS_OFF=name,...` turns
+   sensors off. S2 sensor `event-feed` (T2.10, off unless `NERVE_EVENT_FEED_FILE`
+   is set) reads the `POST /event` JSONL log back: Gaia heal/probe records,
+   survival probe lines and pushed B33 findings become cortex findings. Adding one: [`docs/cortex/sensors.md`](../../docs/cortex/sensors.md).
+   S2 sensor `edge-rate` (T2.12): one `edge-host:<host>` DDoS stream per public
+   hostname from cloudflared `Request failed ... dest=` journal lines (see
+   [`docs/cortex/edge-rate.md`](../../docs/cortex/edge-rate.md)); `/api/v1/state` has `edge_hosts`.
 4. **DDoS detector**: 10 s buckets, 2 h kept; the baseline is the median and MAD of
    the window from 30 min ago to 2 min ago. Threshold = max(`NERVE_DDOS_MIN_RPS`,
    5x median, median + 8 x 1.4826 x MAD). Level = flood / elevated / normal,
@@ -43,8 +48,10 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
 5. **Correlation**: signals are grouped by cause (`group`, `edge`, `ddos:*`,
    `scan:*`, `stack-wide` when 3 or more groups fail hard) into incidents with
    stable ids, a "why" and a "next step". Incidents resolve after 2 quiet cycles.
-6. **Score**: 100 minus listed deductions, giving grade A-F. The self-eval passes only
-   with no error incident, no error vulnerability, no probe errors and a score of 70 or more.
+6. **Score** (v2, `src/score.rs`): 100 minus listed deductions, giving grade A-F. Incidents are scored once
+   per cause; cortex findings (vulnerability, bleeding, ddos) only when no open incident already scores them,
+   and once per `cause`. The self-eval passes only with no error incident, no uncovered error vulnerability or
+   ddos finding, no probe errors and a score of 70 or more.
 7. Reflexes (restart of allowlisted units) only with `NERVE_REFLEX=1` and
    the mode switch; observe-only by default.
 
@@ -67,7 +74,8 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
 `NERVE_COMPONENTS` (JSON component table), `NERVE_SYSTEMD=0`,
 `NERVE_JOURNAL=0`, `NERVE_REFLEX=0|1`, `NERVE_LISTEN_SCOPE=lo-hi`,
 `NERVE_KNOWN_PORTS`, `NERVE_PUBLIC_OK_PORTS`, `NERVE_DDOS_MIN_RPS`,
-`NERVE_DDOS_MIN_REQUESTS`, `NERVE_EVENT_LOG`, `NERVE_DATA_DIR`, `NERVE_SENSORS_OFF`.
+`NERVE_DDOS_MIN_REQUESTS`, `NERVE_EVENT_LOG`, `NERVE_DATA_DIR`, `NERVE_SENSORS_OFF`,
+`NERVE_EDGE_HOSTS=0`, `NERVE_EDGE_HOSTS_MAX` (32).
 
 Real-life tests: `GALION_REAL=1 cargo test -p openmind-nerve --test real_box`,
 `scripts/real/nerve.sh`, `scripts/real/nerve-capture-vps.sh` (read-only);

@@ -1,0 +1,136 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# Secrets-free copy of the VPS cloudflared ingress config, read 2026-10-20 20:35 +02:00.
+# Tunnel id zeroed, credentials-file path replaced; the credentials file was never read.
+tunnel: 00000000-0000-0000-0000-000000000000
+credentials-file: /nonexistent/REDACTED-NOT-COPIED.json
+
+# Global WebSocket settings for better connection stability
+originRequest:
+  noTLSVerify: true
+  connectTimeout: 30s
+  tcpKeepAlive: 30s
+  keepAliveConnections: 100
+  keepAliveTimeout: 90s
+
+ingress:
+# Galion One growth prototype (mock data), added 20261018-223412; remove with tanga-proto.service
+- hostname: one.galion.app
+  path: ^/tanga(/.*)?$
+  service: http://127.0.0.1:8671
+
+- hostname: one.galion.app
+  service: http://127.0.0.1:8091
+
+- hostname: console.galion.app
+  service: http://127.0.0.1:8080
+
+- hostname: obsidian.galion.app
+  service: http://127.0.0.1:8080
+
+- hostname: code.galion.app
+  service: http://127.0.0.1:7681
+
+- hostname: jupyter.adriaticpadel.com
+  service: http://127.0.0.1:8889
+
+- hostname: adriaticpadel.com
+  service: http://127.0.0.1:3010
+- hostname: www.adriaticpadel.com
+  service: http://127.0.0.1:3010
+
+- hostname: galion.app
+  service: http://localhost:4000
+- hostname: www.galion.app
+  service: http://localhost:4000
+
+- hostname: studio.galion.app
+  service: http://localhost:4001
+
+- hostname: developer.galion.app
+  service: http://localhost:3333
+
+# API with WebSocket optimization for voice streaming
+- hostname: api.galion.app
+  service: http://127.0.0.1:8000
+  originRequest:
+    noTLSVerify: true
+    connectTimeout: 60s
+    tcpKeepAlive: 30s
+    keepAliveTimeout: 120s
+    httpHostHeader: api.galion.app
+
+# Docusaurus Documentation - Disable caching for dev mode
+- hostname: docs.galion.app
+  service: http://localhost:4042
+  originRequest:
+    noTLSVerify: true
+    httpHostHeader: docs.galion.app
+    disableChunkedEncoding: false
+
+# API Reference (Next.js)
+- hostname: reference.galion.app
+  service: http://localhost:3080
+
+- hostname: voice.galion.app
+  service: http://localhost:4003
+
+- hostname: downloader.galion.app
+  service: http://localhost:4444
+
+- hostname: knowledge.galion.app
+  service: http://localhost:3015
+
+- hostname: galion.studio
+  service: http://localhost:4001
+- hostname: www.galion.studio
+  service: http://localhost:4001
+
+- hostname: ws3d.app
+  service: http://localhost:4020
+- hostname: www.ws3d.app
+  service: http://localhost:4020
+- hostname: workspace3d.app
+  service: http://localhost:4020
+- hostname: www.workspace3d.app
+  service: http://localhost:4020
+
+- hostname: slaviknomad.com
+  service: http://localhost:4060
+- hostname: www.slaviknomad.com
+  service: http://localhost:4060
+
+- hostname: villapenava.com
+  service: http://localhost:4050
+- hostname: www.villapenava.com
+  service: http://localhost:4050
+
+- hostname: machine.galion.app
+  service: http://localhost:3004
+
+- hostname: torchbearer.galion.app
+  service: http://localhost:3005
+
+- hostname: tactical-belts.galion.app
+  service: http://localhost:4004
+- hostname: www.tactical-belts.galion.app
+  service: http://localhost:4004
+
+- hostname: maivirtue.com
+  service: http://localhost:3020
+- hostname: www.maivirtue.com
+  service: http://localhost:3020
+
+- hostname: merlinelement.com
+  service: http://localhost:3011
+- hostname: www.merlinelement.com
+  service: http://localhost:3011
+
+- hostname: tulu.galion.app
+  service: http://localhost:5530
+
+# Catch-all (required)
+- hostname: tuner.galion.app
+  service: http://127.0.0.1:8650
+
+- service: http_status:404

@@ -77,10 +77,17 @@ pub fn parse_line(line: &str, now: u64) -> Option<Hit> {
                 x.as_u64()
                     .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
             })
-            .unwrap_or(0) as u16;
+            .and_then(|n| u16::try_from(n).ok())
+            .unwrap_or(0);
         return Some(Hit {
             t,
-            ip: s(&["ip", "remote_addr", "client_ip", "client", "remote_ip"]).unwrap_or_default(),
+            // Capped like the CLF branch (T3.1 fuzz find: a JSON line kept an
+            // unbounded client address, the per-IP map key).
+            ip: s(&["ip", "remote_addr", "client_ip", "client", "remote_ip"])
+                .unwrap_or_default()
+                .chars()
+                .take(64)
+                .collect(),
             path: path.chars().take(200).collect(),
             status,
         });

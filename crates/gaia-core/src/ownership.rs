@@ -102,6 +102,8 @@ pub const CRATES: &[CrateOwner] = &[
     c("bench-banking", S(System::EcosystemCensus), "pending Slavik: B1 banking benchmark on a local Revolut-shaped mock (draft-only, no money moves); scores the agent population like galleon-arena; alternative: a new bench system (hermes-core-bench-sector, wave-4 slot 129)"),
     c("bench-scoreboard", S(System::EcosystemCensus), "pending Slavik: renders docs/bench/SCOREBOARD.md from the B1/B2/B3 score JSONs; alternative: teacher-docs/APOLLO or a new bench system"),
     c("cgroup-detect", S(System::Quotas), "read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS)"),
+    c("console-static", S(System::Console), "pending Slavik: Rust console static server, console-route-31 (main-staging 2026-10-21)"),
+    c("console-ui", S(System::Console), "pending Slavik: Rust console rooms replacing the old SPA, console-port-1..5 (main-staging 2026-10-21)"),
     c("desk-hermes", S(System::HermesAgents), "Hermes mind snap for the desk: the agent population view"),
     c("gaia", Core, "the gaia CLI: wires GAIA core to the nine functions; dry-run only"),
     c("gaia-aether", F(FunctionId::Aether), "AETHER function crate"),
@@ -118,6 +120,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("galion-backup", S(System::Survival), "pending Slavik: periodic backup (SQLite snapshots, files tar, SHA256SUMS, rotation), the data part of galion-deploy backup; same system as its galion-backup unit in UNITS; alternatives healer/DEMETER or release-artifacts/HEPHAESTUS"),
     c("galion-bench", S(System::EcosystemCensus), "pending Slavik: shared mock-only benchmark harness and 0-100 scorecards for B1/B2/B3; alternative: a new bench system"),
     c("galion-boot", S(System::BootUnits), "boot/keep replacement and systemd unit renderer"),
+    c("galion-chatterbox", S(System::SpeechIo), "pending Slavik: Chatterbox TTS (T3, S3Gen, HiFT, voice cloning) on candle, CPU only; the mouth behind galion-voice-serve, speech like galion-voice-cpu/openmind-speech; came in with voice-rust via candle-zip-fix"),
     c("galion-common", S(System::ZagrebClock), "pending Slavik: shared std-only helpers (SHA-256, hex, base64, JSON, Zagreb time, small HTTP/1.1 server/client); nearest system is the Zagreb clock it carries; alternative: core"),
     c("galion-deploy", S(System::DeploySwitch), "pending Slavik: backup -> atomic install -> restart -> health -> automatic rollback for one unit (replaces deploy/foundation/galion-deploy); executes, unlike the plan-only switch scripts; alternative rollback/HADES"),
     c("galion-desk", S(System::GalionDesk), "operator desk endpoint (:8646)"),
@@ -161,6 +164,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("repo-check", S(System::RepoCheck), "self-eval: SPDX, licence, secrets, no-Python, Zagreb time"),
     c("room", S(System::Room), "read-only page of the operator files agents share"),
     c("tuner", S(System::Tuner), "ukulele tuner static server (:8650)"),
+    c("tunnel-lint", S(System::Nerve), "pending Slavik: read-only cloudflared ingress lint (tunnel-audit d35ef73), used by the nerve ingress-lint sensor"),
     c("zagreb-time", S(System::ZagrebClock), "Europe/Zagreb RFC 3339 with explicit offset (was GAIA)"),
 ];
 
@@ -339,10 +343,13 @@ mod tests {
                 .unwrap_or_else(|| panic!("{} has no system", r.name));
             assert_eq!(r.role.function(), Some(s.function()));
         }
-        // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3.
+        // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3,
+        // galion-chatterbox from voice-rust via candle-zip-fix (slot 154).
+        // tunnel-lint from tunnel-audit (main-staging 2026-10-21).
+        // console-static, console-ui from the console pair (main-staging 2026-10-21).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            51
+            55
         );
     }
 
@@ -373,9 +380,12 @@ mod tests {
             [
                 "bench-banking",
                 "bench-scoreboard",
+                "console-static",
+                "console-ui",
                 "gaia-live",
                 "galion-backup",
                 "galion-bench",
+                "galion-chatterbox",
                 "galion-common",
                 "galion-deploy",
                 "galion-guard",
@@ -385,7 +395,8 @@ mod tests {
                 "galion-wallstreet",
                 "hermes-bench",
                 "hermes-tools",
-                "openmind-queue"
+                "openmind-queue",
+                "tunnel-lint"
             ]
         );
         assert!(crate_owner("gaia-live")

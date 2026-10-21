@@ -203,7 +203,7 @@ impl Tool for FsRead {
         match sh.step(t, ctx, args, Kind::Fs, cmd) {
             Err(e) => sh.refuse(t, ctx, args, &e),
             Ok(out) if !exec::ok(&out) => {
-                ToolOutput::err(format!("read failed: {}", exec::tail(&out.stderr, 2000)))
+                ToolOutput::err(format!("read failed: {}", exec::failure(&out, 2000)))
             }
             Ok(out) => {
                 let size = std::fs::metadata(sh.cfg.worktree.join(&rel))
@@ -296,7 +296,7 @@ impl Tool for FsWrite {
         match r {
             Err(e) => sh.refuse(t, ctx, args, &e),
             Ok(out) if !exec::ok(&out) => {
-                ToolOutput::err(format!("write failed: {}", exec::tail(&out.stderr, 2000)))
+                ToolOutput::err(format!("write failed: {}", exec::failure(&out, 2000)))
             }
             Ok(_) => ToolOutput::ok(
                 json!({"path": rel.display().to_string(), "bytes": content.len(), "written": true})
@@ -322,6 +322,13 @@ impl Git {
             "protocol.allow=never".into(),
             "commit.gpgsign=false".into(),
             "color.ui=false".into(),
+            // The worktree cap runs every git call on a fresh tmpfs copy (new
+            // inodes and ctimes): compare only mtime/size/mode so the index is
+            // not rewritten on every call, and never auto-gc (deleted loose
+            // objects are not propagated back; a gc only grows the host .git).
+            "core.checkStat=minimal".into(),
+            "core.trustctime=false".into(),
+            "gc.auto=0".into(),
             format!("user.name={}", c.author_name),
             format!("user.email={}", c.author_email),
             format!("safe.directory={}", c.worktree.display()),
@@ -427,7 +434,7 @@ impl Tool for Git {
                 "--untracked-files=all",
             ])) {
                 Err(e) => sh.refuse(t, ctx, args, &e),
-                Ok(o) if !exec::ok(&o) => ToolOutput::err(exec::tail(&o.stderr, 2000)),
+                Ok(o) if !exec::ok(&o) => ToolOutput::err(exec::failure(&o, 2000)),
                 Ok(o) => {
                     ToolOutput::ok(json!({"branch": head, "status": o.stdout_str()}).to_string())
                 }
@@ -448,7 +455,7 @@ impl Tool for Git {
                 c.extend(paths);
                 match run(c) {
                     Err(e) => sh.refuse(t, ctx, args, &e),
-                    Ok(o) if !exec::ok(&o) => ToolOutput::err(exec::tail(&o.stderr, 2000)),
+                    Ok(o) if !exec::ok(&o) => ToolOutput::err(exec::failure(&o, 2000)),
                     Ok(o) => ToolOutput::ok(
                         json!({"branch": head, "diff": exec::tail(&o.stdout, 60_000), "truncated": o.stdout_truncated})
                             .to_string(),
@@ -469,7 +476,7 @@ impl Tool for Git {
                 match run(add) {
                     Err(e) => return sh.refuse(t, ctx, args, &e),
                     Ok(o) if !exec::ok(&o) => {
-                        return ToolOutput::err(format!("git add: {}", exec::tail(&o.stderr, 2000)))
+                        return ToolOutput::err(format!("git add: {}", exec::failure(&o, 2000)))
                     }
                     Ok(_) => {}
                 }
@@ -492,7 +499,7 @@ impl Tool for Git {
                         return ToolOutput::err(format!(
                             "git commit: {}{}",
                             exec::tail(&o.stdout, 1000),
-                            exec::tail(&o.stderr, 1000)
+                            exec::failure(&o, 1000)
                         ))
                     }
                     Ok(_) => {}
@@ -635,6 +642,9 @@ impl Tool for Cargo {
                 v["ok"] = json!(exec::ok(&out));
                 v["stdout"] = json!(exec::tail(&out.stdout, 12_000));
                 v["stderr"] = json!(exec::tail(&out.stderr, 12_000));
+                if let Some(p) = exec::copy_back_problem(&out) {
+                    v["copy_back"] = json!(p);
+                }
                 ToolOutput {
                     content: v.to_string(),
                     is_error: !exec::ok(&out),

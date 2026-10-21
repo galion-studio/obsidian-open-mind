@@ -9,7 +9,7 @@ use crate::config::{Config, ProviderCfg};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -556,10 +556,26 @@ impl Provider for CurlProvider {
 
 type MockFn = dyn Fn(&Target, &ChatRequest) -> ChatResult + Send + Sync;
 
+/// Default bound of the [`MockProvider::calls`] log (slot 198).
+///
+/// The log used to keep a clone of every request forever: under steady load
+/// a long-running `hermes-gateway --mock` (shadow / smoke / soak runs) grew
+/// by the size of each request (system prompt + messages + tool schemas)
+/// per answered chat, ~9.5-19 MB/min at 30-37 chats/s.
+pub const MOCK_CALL_LOG_CAP: usize = 256;
+
 /// Deterministic provider for tests and `--mock`. Never touches the network.
 pub struct MockProvider {
     pub behaviour: Box<MockFn>,
+    /// The most recent requests, oldest first. Bounded by `call_log_cap`:
+    /// when full, the oldest half is dropped (amortised O(1)), so at least
+    /// the last `call_log_cap / 2` calls are always kept. Unit tests make a
+    /// handful of calls and see all of them.
     pub calls: Mutex<Vec<(Target, ChatRequest)>>,
+    /// Every call ever made, including the ones evicted from `calls`.
+    pub calls_total: AtomicU64,
+    /// Max entries in `calls`; 0 = record nothing (gateway `--mock` mode).
+    pub call_log_cap: usize,
     pub delay_ms: u64,
 }
 
@@ -568,7 +584,33 @@ impl MockProvider {
         MockProvider {
             behaviour: Box::new(f),
             calls: Mutex::new(Vec::new()),
+            calls_total: AtomicU64::new(0),
+            call_log_cap: MOCK_CALL_LOG_CAP,
             delay_ms: 0,
+        }
+    }
+
+    /// Keep no request log at all (long-running `--mock` gateways).
+    pub fn without_call_log(mut self) -> Self {
+        self.call_log_cap = 0;
+        self
+    }
+
+    /// Count one call and keep it in the bounded log.
+    fn record(&self, target: &Target, req: &ChatRequest) {
+        self.calls_total.fetch_add(1, Ordering::Relaxed);
+        let cap = self.call_log_cap;
+        if cap == 0 {
+            return;
+        }
+        if let Ok(mut c) = self.calls.lock() {
+            if c.len() >= cap {
+                // keep the newest cap/2, always leaving room for this call
+                let keep = (cap / 2).min(cap - 1);
+                let n = c.len() - keep;
+                c.drain(..n);
+            }
+            c.push((target.clone(), req.clone()));
         }
     }
 
@@ -653,9 +695,7 @@ impl Provider for MockProvider {
         cancel: &AtomicBool,
         sink: &mut dyn FnMut(StreamEvent),
     ) -> Result<ChatResult, String> {
-        if let Ok(mut c) = self.calls.lock() {
-            c.push((target.clone(), req.clone()));
-        }
+        self.record(target, req);
         if self.delay_ms > 0 {
             std::thread::sleep(std::time::Duration::from_millis(self.delay_ms));
         }
@@ -866,5 +906,77 @@ platforms:
             )
             .unwrap_err();
         assert!(e.starts_with("curl:"), "{e}");
+    }
+
+    fn one_call(p: &MockProvider, n: usize) {
+        let t = Target {
+            provider: "mock".into(),
+            base_url: "http://127.0.0.1:1".into(),
+            model: "m".into(),
+            requested: "m".into(),
+            key_env: None,
+            inline_key: None,
+        };
+        let req = ChatRequest {
+            messages: vec![json!({"role": "user", "content": format!("hi {n}")})],
+            ..Default::default()
+        };
+        p.chat(&t, &req, &AtomicBool::new(false), &mut |_| {})
+            .unwrap();
+    }
+
+    fn last_user(p: &MockProvider) -> String {
+        let c = p.calls.lock().unwrap();
+        c.last().unwrap().1.messages[0]["content"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    }
+
+    /// Slot 198: the mock's request log is bounded; the newest calls stay.
+    #[test]
+    fn mock_call_log_is_bounded_and_keeps_newest() {
+        let p = MockProvider::echo();
+        assert_eq!(p.call_log_cap, MOCK_CALL_LOG_CAP);
+        for n in 0..10 {
+            one_call(&p, n);
+        }
+        // a few calls: all kept, in order (what the unit tests rely on)
+        assert_eq!(p.calls.lock().unwrap().len(), 10);
+        assert_eq!(p.calls.lock().unwrap()[0].1.messages[0]["content"], "hi 0");
+        for n in 10..5_000 {
+            one_call(&p, n);
+            let len = p.calls.lock().unwrap().len();
+            assert!(len <= MOCK_CALL_LOG_CAP, "log grew to {len} at call {n}");
+            assert!(len >= MOCK_CALL_LOG_CAP / 2 || n < MOCK_CALL_LOG_CAP);
+        }
+        assert_eq!(p.calls_total.load(Ordering::Relaxed), 5_000);
+        assert_eq!(last_user(&p), "hi 4999");
+        // the kept window is contiguous and ends at the newest call
+        let c = p.calls.lock().unwrap();
+        let first: usize = c[0].1.messages[0]["content"].as_str().unwrap()[3..]
+            .parse()
+            .unwrap();
+        assert_eq!(first + c.len(), 5_000);
+    }
+
+    #[test]
+    fn mock_call_log_small_caps_and_off() {
+        for cap in [1usize, 2, 3] {
+            let mut p = MockProvider::echo();
+            p.call_log_cap = cap;
+            for n in 0..50 {
+                one_call(&p, n);
+                assert!(p.calls.lock().unwrap().len() <= cap);
+            }
+            assert_eq!(last_user(&p), "hi 49");
+        }
+        let p = MockProvider::echo().without_call_log();
+        for n in 0..50 {
+            one_call(&p, n);
+        }
+        assert!(p.calls.lock().unwrap().is_empty());
+        assert_eq!(p.calls_total.load(Ordering::Relaxed), 50);
+        assert_eq!(p.calls.lock().unwrap().capacity(), 0, "no buffer at all");
     }
 }

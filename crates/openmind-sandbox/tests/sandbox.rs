@@ -5,8 +5,13 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 fn wd(name: &str) -> PathBuf {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-out/sandbox")
+    // GALION_REAL_BASE: run the suite from a throwaway dir on the VPS
+    // (sandbox_vps_only) instead of the build tree.
+    let p = std::env::var("GALION_REAL_BASE")
+        .map(|b| PathBuf::from(b).join("sandbox"))
+        .unwrap_or_else(|_| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/sandbox")
+        })
         .join(name);
     std::fs::create_dir_all(&p).unwrap();
     p.canonicalize().unwrap()
@@ -16,6 +21,14 @@ fn s(v: &[&str]) -> Vec<String> {
 }
 fn pol(name: &str) -> SandboxPolicy {
     SandboxPolicy::new(wd(name))
+}
+/// For tests that observe the command through `/proc/self` (status, fd, net):
+/// where no private proc can be mounted (LXC), the default /proc mask has no
+/// pid directories, so these keep the host /proc as their observation tool.
+fn pol_hostproc(name: &str) -> SandboxPolicy {
+    let mut p = pol(name);
+    p.proc_fallback = ProcFallback::Host;
+    p
 }
 
 #[test]
@@ -239,7 +252,7 @@ fn report(o: &Outcome) {
 
 #[test]
 fn g_no_new_privs_always() {
-    let o = sh("cat /proc/self/status", &pol("nnp"));
+    let o = sh("cat /proc/self/status", &pol_hostproc("nnp"));
     assert_proc_readable(&o, "g_no_new_privs_always");
     assert_eq!(status_field(&o, "NoNewPrivs:"), "1", "{o:?}");
     assert!(o.enforced("no_new_privs"));
@@ -247,7 +260,7 @@ fn g_no_new_privs_always() {
 
 #[test]
 fn h_caps_dropped_when_enforced() {
-    let o = sh("cat /proc/self/status", &pol("caps"));
+    let o = sh("cat /proc/self/status", &pol_hostproc("caps"));
     report(&o);
     assert_proc_readable(&o, "h_caps_dropped_when_enforced");
     if features().caps {
@@ -275,7 +288,7 @@ fn h2_many_parent_fds_do_not_break_setup() {
     let files: Vec<std::fs::File> = (0..300)
         .map(|_| std::fs::File::open("/dev/null").unwrap())
         .collect();
-    let mut p = pol("manyfds");
+    let mut p = pol_hostproc("manyfds");
     p.nofile = 16;
     for _ in 0..5 {
         let o = sh("cat /proc/self/status; cat /proc/net/dev", &p);
@@ -305,7 +318,7 @@ fn h3_leaked_parent_fd_is_not_inherited() {
         fd
     };
     assert!(fd >= 100);
-    let mut p = pol("leakrun");
+    let mut p = pol_hostproc("leakrun");
     p.hide_paths = vec![secret.parent().unwrap().to_path_buf()];
     let o = sh(&format!("cat /proc/self/fd/{fd}; ls /proc/self/fd"), &p);
     // SAFETY: closing the fd opened above.
@@ -347,7 +360,7 @@ fn i_pid_namespace_hides_and_protects_others() {
 
 #[test]
 fn j_net_namespace_has_only_lo() {
-    let o = sh("cat /proc/net/dev", &pol("netns"));
+    let o = sh("cat /proc/net/dev", &pol_hostproc("netns"));
     assert_proc_readable(&o, "j_net_namespace_has_only_lo");
     if o.enforced("net") {
         let ifs: Vec<String> = o
@@ -458,4 +471,163 @@ fn q_output_cap_configurable() {
     assert_eq!(o.stdout.len(), 100);
     assert!(o.stdout_truncated);
     assert!(!o.stderr_truncated);
+}
+
+// ---- /proc view (slot 191: the LXC "seebystander" gap) ----
+// Markers are matched with a bracket regex ('318[1]') so the command's own
+// argv, which holds the pattern text, never matches itself.
+
+/// A bystander outside the sandbox with a marker argv and a canary variable
+/// in its environment (a stand-in for a service's secrets).
+fn bystander(marker: &str) -> std::process::Child {
+    std::process::Command::new("/bin/sleep")
+        .arg(marker)
+        .env("R191_CANARY", format!("c191-{}", std::process::id()))
+        .spawn()
+        .unwrap()
+}
+const PEEK: &str = "n=0; e=0; for d in /proc/[0-9]*; do tr '\\0' ' ' < $d/cmdline 2>/dev/null | grep -q 'sleep 318[1]' && n=$((n+1)); tr '\\0' '\\n' < $d/environ 2>/dev/null | grep -q '^R191_CANARY=c19[1]' && e=$((e+1)); done; echo seen=$n; echo env_seen=$e; echo entries=$(ls /proc | wc -l); [ -e /proc/self ] && echo self=yes || echo self=no; echo names=$(ls /proc | grep -v '^[0-9]' | head -12 | tr '\\n' ,); echo meminfo=$(head -c 9 /proc/meminfo 2>&1 | head -c 60)";
+fn num(o: &Outcome, key: &str) -> i64 {
+    status_field(o, key).parse().unwrap_or(-1)
+}
+
+#[test]
+fn r1_proc_never_shows_host_processes_by_default() {
+    let mut b = bystander("3181");
+    let o = sh(PEEK, &pol("r1"));
+    report(&o);
+    println!("proc_view {:?} stdout {}", o.proc_view, o.stdout_str());
+    b.kill().ok();
+    b.wait().ok();
+    assert_eq!(o.status, Status::Exited(0), "{o:?}");
+    if !o.enforced("pidns") || !o.enforced("mountns") {
+        println!("skipped: no pid + mount namespaces here");
+        return;
+    }
+    assert!(o.enforced("proc"), "{:?}", o.layer("proc"));
+    assert_ne!(o.proc_view, ProcView::Host);
+    assert_eq!(num(&o, "seen="), 0, "host process visible: {o:?}");
+    assert_eq!(num(&o, "env_seen="), 0, "host environ readable: {o:?}");
+    if let ProcView::Masked { static_files, .. } = o.proc_view {
+        assert_eq!(num(&o, "entries="), static_files as i64, "{o:?}");
+        assert_eq!(status_field(&o, "self="), "no");
+    }
+}
+
+/// Control: with `ProcFallback::Host` on a kernel that refuses a private
+/// proc, the same probe must see the bystander, or r1 proves nothing.
+#[test]
+fn r2_proc_host_fallback_control_sees_the_bystander() {
+    let mut b = bystander("3181");
+    let o = sh(PEEK, &pol_hostproc("r2"));
+    report(&o);
+    println!("proc_view {:?} stdout {}", o.proc_view, o.stdout_str());
+    b.kill().ok();
+    b.wait().ok();
+    assert_eq!(o.status, Status::Exited(0), "{o:?}");
+    match o.proc_view {
+        ProcView::Host => {
+            assert!(!o.enforced("proc"));
+            assert!(
+                num(&o, "seen=") >= 1,
+                "control cannot see the bystander: {o:?}"
+            );
+            println!(
+                "MEASURED host-proc leak: same-uid environ canary readable = {} (landlock {:?})",
+                num(&o, "env_seen="),
+                o.layer("landlock")
+            );
+        }
+        v => {
+            assert!(o.enforced("proc"));
+            assert_eq!(num(&o, "seen="), 0, "{v:?} {o:?}");
+        }
+    }
+}
+
+#[test]
+fn r3_proc_refuse_fails_closed_or_runs_private() {
+    let mut p = pol("r3");
+    p.proc_fallback = ProcFallback::Refuse;
+    let o = sh("echo ran", &p);
+    report(&o);
+    if o.status == Status::Error {
+        let e = o.error.clone().unwrap_or_default();
+        assert!(e.contains("Refuse"), "{e}");
+        assert!(o.stdout.is_empty());
+    } else {
+        assert_eq!(o.stdout_str(), "ran\n");
+        assert!(o.enforced("proc"));
+        assert!(matches!(o.proc_view, ProcView::Private | ProcView::PidOnly));
+    }
+}
+
+/// The mask is a pivot_root into a copy of the tree: the work dir, read-only
+/// root and hidden paths must behave exactly as without it.
+#[test]
+fn r4_mask_keeps_workdir_ro_root_and_hide() {
+    let hidden = wd("r4-hidden");
+    std::fs::write(hidden.join("secret"), "s").unwrap();
+    let mut p = pol("r4");
+    p.hide_paths = vec![hidden.clone()];
+    let _ = std::fs::remove_file(p.workdir.join("out.txt"));
+    let script = format!(
+        "echo hi > out.txt && cat out.txt; touch /usr/r191-ro 2>/dev/null && echo RO_BROKEN; echo hidden=$(ls {} | wc -l); echo pwd=$(pwd); echo meminfo=$(head -c 9 /proc/meminfo 2>/dev/null)",
+        hidden.display()
+    );
+    let o = sh(&script, &p);
+    report(&o);
+    println!("proc_view {:?} stdout {}", o.proc_view, o.stdout_str());
+    assert_eq!(o.status, Status::Exited(0), "{o:?}");
+    assert!(o.stdout_str().starts_with("hi\n"), "{o:?}");
+    assert_eq!(
+        std::fs::read_to_string(p.workdir.join("out.txt")).unwrap(),
+        "hi\n"
+    );
+    assert!(!o.stdout_str().contains("RO_BROKEN"));
+    assert!(!std::path::Path::new("/usr/r191-ro").exists());
+    if o.enforced("hide_home") {
+        assert_eq!(status_field(&o, "hidden="), "0", "{o:?}");
+    }
+    assert_eq!(status_field(&o, "pwd="), p.workdir.to_str().unwrap());
+    if let ProcView::Masked { static_files, .. } = o.proc_view {
+        if static_files == 6 {
+            assert_eq!(status_field(&o, "meminfo="), "MemTotal:", "{o:?}");
+        }
+    }
+}
+
+/// Mask + work dir tmpfs: the copy back still reaches the host work dir and
+/// the size cap still holds.
+#[test]
+fn r5_mask_with_workdir_quota() {
+    let mut p = pol("r5");
+    let _ = std::fs::remove_file(p.workdir.join("small"));
+    let _ = std::fs::remove_file(p.workdir.join("big"));
+    p.workdir_tmpfs_bytes = 8 << 20;
+    p.fsize_bytes = 0;
+    p.wall_timeout = Duration::from_secs(20);
+    let o = sh(
+        "echo ok > small; dd if=/dev/zero of=big bs=1M count=16 2>&1 | grep -c 'No space'",
+        &p,
+    );
+    report(&o);
+    println!("proc_view {:?} wdq {:?}", o.proc_view, o.workdir_quota);
+    if !o.enforced("workdir_quota") {
+        println!("skipped: no work dir tmpfs here");
+        return;
+    }
+    assert_eq!(o.stdout_str().trim(), "1", "{o:?}");
+    assert_eq!(
+        std::fs::read_to_string(p.workdir.join("small")).unwrap(),
+        "ok\n"
+    );
+    let big = std::fs::metadata(p.workdir.join("big"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    assert!(big <= 8 << 20, "big = {big}");
+    assert!(
+        o.workdir_quota.as_ref().is_some_and(|q| q.out_complete),
+        "{o:?}"
+    );
 }

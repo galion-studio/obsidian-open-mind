@@ -39,8 +39,8 @@ fn plan_is_dry_run_for_hades() {
 #[test]
 fn ownership_counts() {
     let j = gaia::ownership_json();
-    assert_eq!(num(&j, &["crates_total"]), 63);
-    assert_eq!(num(&j, &["system_crates"]), 51);
+    assert_eq!(num(&j, &["crates_total"]), 67); // main-staging: +tunnel-lint, +console-static, +console-ui
+    assert_eq!(num(&j, &["system_crates"]), 55); // main-staging: +tunnel-lint, +console-static, +console-ui
     assert_eq!(num(&j, &["systems_total"]), 52);
 }
 

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Real-life room sessions on the box. Gated: runs only with `GALION_REAL=1`
-//! (see `scripts/real/room.sh`, which builds release and sets it).
+//! (see `crates/galion-realtest/tests/real_sh_room.rs`, which builds release and sets it).
 //!
 //! Uses the swarm slot-08 ports: `ROOM_REAL_PORT` (default 19081) on the host
 //! and `ROOM_REAL_PORT + 1` inside a private network namespace.

@@ -123,8 +123,6 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "candle-core"
 version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c15b675b80d994b2eadb20a4bbe434eabeb454eac3ee5e2b4cf6f147ee9be091"
 dependencies = [
  "byteorder",
  "float8",
@@ -176,6 +174,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
 
 [[package]]
+name = "cfg_aliases"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
+
+[[package]]
 name = "cgroup-detect"
 version = "0.1.0"
 
@@ -199,6 +203,17 @@ dependencies = [
  "chrono",
  "phf",
 ]
+
+[[package]]
+name = "console-static"
+version = "0.1.0"
+dependencies = [
+ "console-ui",
+]
+
+[[package]]
+name = "console-ui"
+version = "0.1.0"
 
 [[package]]
 name = "const-oid"
@@ -591,6 +606,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-chatterbox"
+version = "0.1.0"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "serde_json",
+]
+
+[[package]]
 name = "galion-common"
 version = "0.1.0"
 dependencies = [
@@ -616,6 +640,8 @@ dependencies = [
 name = "galion-guard"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "chrono-tz",
  "libc",
  "regex",
  "serde",
@@ -626,7 +652,7 @@ dependencies = [
 
 [[package]]
 name = "galion-health"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "zagreb-time",
 ]
@@ -636,6 +662,7 @@ name = "galion-one"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "zagreb-time",
 ]
 
 [[package]]
@@ -673,6 +700,7 @@ version = "0.1.0"
 dependencies = [
  "candle-core",
  "candle-nn",
+ "galion-chatterbox",
  "galion-voice-core",
  "num-traits",
  "serde",
@@ -953,11 +981,14 @@ dependencies = [
 name = "hermes-rs"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek",
  "galion-common",
+ "getrandom 0.2.17",
  "nerve-client",
  "openmind-persona",
  "rusqlite",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -1096,6 +1127,18 @@ name = "nerve-client"
 version = "0.1.0"
 
 [[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
+
+[[package]]
 name = "num-complex"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1213,12 +1256,16 @@ name = "openmind-nerve"
 version = "0.1.0"
 dependencies = [
  "gaia-live",
+ "galion-common",
  "galion-deploy",
  "galion-realtest",
  "nerve-client",
  "openmind-schema",
+ "semver",
  "serde",
  "serde_json",
+ "toml",
+ "tunnel-lint",
  "zagreb-time",
 ]
 
@@ -1292,9 +1339,16 @@ checksum = "4de7c2ad44427a636b27bf0b03eb29e713775ba1b45ff31a0618c19ee5adb215"
 
 [[package]]
 name = "paste"
-version = "1.0.15"
+version = "1.0.15+galion-pastey"
+dependencies = [
+ "pastey",
+]
+
+[[package]]
+name = "pastey"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "persona-plex-relay"
@@ -1854,6 +1908,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "tunnel-lint"
+version = "0.1.0"
+
+[[package]]
 name = "typed-path"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2125,13 +2183,14 @@ checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zip"
-version = "7.4.0"
+version = "9.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc12baa6db2b15a140161ce53d72209dacea594230798c24774139b54ecaa980"
+checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
 dependencies = [
  "crc32fast",
  "indexmap",
  "memchr",
+ "nix",
  "typed-path",
 ]
 

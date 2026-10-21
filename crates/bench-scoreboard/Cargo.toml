@@ -11,3 +11,6 @@ description = "Renders docs/bench/SCOREBOARD.md from the B1/B2/B3 galion-bench s
 [dependencies]
 galion-bench = { path = "../galion-bench" }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

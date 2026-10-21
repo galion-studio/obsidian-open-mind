@@ -4,7 +4,13 @@
 
 # Nerve cutover plan: galion-nerve → openmind-nerve (8670)
 
-- Status: **PREPARED AND REHEARSED ON THE BOX, NOT EXECUTED. Needs Slavik's approval.** Nothing has been copied to the VPS, and no unit was restarted or edited.
+- Status (refreshed 2026-10-21 17:30 CEST (+02:00), wave-4 slot 203): **EXECUTED, but not as planned below.** galion-nerve has run openmind-nerve since **2026-10-21 09:43:54 CEST (+02:00)**.
+  The swap used an ExecStart drop-in `/etc/systemd/system/galion-nerve.service.d/50-rust-bin.conf` → `/opt/galion/rust/bin/openmind-nerve-aa77864 serve` (sha256 `f0994b6db1fd8ed87c16bd72c9583c2894ec4dd5ba89d407016877322aed6a68`, source aa77864c2744fad56d11e84476d5bfab1fd25bf7), not the galion-deploy swap of §3.3.
+  The old binary `/opt/galion/rust/bin/galion-nerve` (`3b150dea…`) is untouched. Approved by Slavik ~09:35 (t175), relayed by Mate. Record: `swarm/nerve-eventlog-deploy@0ddce9bafe29771ca5dd1e16d2c965a5ba95155a:docs/ops/nerve-eventlog-nerveurl-20261021.md`; index [README.md](README.md) §2 C10a/C10c.
+  Reflex dry-run (§3.0) went live at **17:08:27** by drop-in `70-nerve-dryrun.conf` (`NERVE_DRY_RUN=1`, Mate 17:04 t193, D-T32-R1; CALL-RECORD 17:15:45; record `swarm/nerve-dryrun-live@80974b951d6a0fc38a43b172387d65da46f54840:docs/cutover/nerve-dryrun-live.md`). At 17:22 `/state` showed `mode dry-run`.
+  Rollback now: `rm /etc/systemd/system/galion-nerve.service.d/50-rust-bin.conf && systemctl daemon-reload && systemctl restart galion-nerve` (dry-run only: remove `70-nerve-dryrun.conf` the same way).
+  Sections 1–6 below are the 2026-10-20 plan, kept as written for the record.
+- Original status (2026-10-20): PREPARED AND REHEARSED ON THE BOX, NOT EXECUTED. Needs Slavik's approval. Nothing has been copied to the VPS, and no unit was restarted or edited.
 - Prepared: 2026-10-20 21:25 CEST (+02:00) by swarm slot 33, branch `swarm/deploy-sim`.
 - Rehearsal: `scripts/real/deploy-sim.sh nerve` (bash, removed on swarm/deploy-rust; now `GALION_REAL=1 cargo test --release -p galion-deploy --test real_rehearsal rehearsal_nerve`, see docs/real-tests/deploy-rust.md), 18/18 checks (`docs/real-tests/deploy-sim.md`, full log `docs/real-tests/deploy-sim/nerve-run5.log`).
 - Do it **after** the tuner cutover, never in the same session (one service at a time, docs/next.md).
@@ -38,7 +44,7 @@ What changes for the operator:
 - The reflex module (`reflex.rs`) is **byte-identical** apart from one copyright line: the same allowlist, deny list and rate limits. The *inputs* differ, though. The new engine sees cloudflared errors and refused upstreams that the old one missed, so in live mode it may pick allowlisted restarts that the old nerve never picked (for example `cloudflared.service`, 1/h). See §3.0.
 - Data dir: the same three files (`alerts.json`, `self-eval`, `state.json`). The rehearsal started each binary on the other's data dir. Both came up and served `/healthz` 200.
 
-## 3. The cutover (for Slavik; nothing below has been run)
+## 3. The cutover (2026-10-20 plan; the live cutover on 2026-10-21 differed, see Status at the top)
 
 ### 3.0 Reflexes to dry-run first (recommended; a state change, so part of the approval)
 

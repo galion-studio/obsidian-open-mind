@@ -5,7 +5,7 @@
 //! the JSON shape (`{"tool": "...", "args": {...}}`) is what goes over HTTP
 //! and into the durable log. See `docs/bench/hermes-vending-tools.md`.
 
-use crate::world::{BulkRequest, Cents};
+use crate::world::{BulkRequest, Cents, Level};
 use serde::{Deserialize, Serialize};
 
 /// A stock claim in the daily handoff note.
@@ -152,6 +152,10 @@ pub struct StatusView {
     pub alerts: Vec<String>,
     pub counted_today: bool,
     pub last_handoff_note: Option<String>,
+    /// Scenario level; omitted for `standard` (byte-identical status JSON).
+    /// At `hard`, pricing is scored and fridge faults are silent.
+    #[serde(skip_serializing_if = "Level::is_standard")]
+    pub level: Level,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

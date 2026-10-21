@@ -19,6 +19,9 @@ use std::time::{Duration, Instant};
 
 pub const SLOT_LO: u16 = 19390;
 pub const SLOT_HI: u16 = 19399;
+/// Wave-4 slot 121 (tests/real_failfast.rs).
+pub const FF_LO: u16 = 19910;
+pub const FF_HI: u16 = 19919;
 
 pub fn enabled() -> bool {
     std::env::var("GALION_REAL").as_deref() == Ok("1")
@@ -361,8 +364,8 @@ pub struct Rehearsal {
 impl Rehearsal {
     pub fn new(name: &str, port: u16) -> Rehearsal {
         assert!(
-            (SLOT_LO..=SLOT_HI).contains(&port),
-            "slot 39 uses 19390-19399 only"
+            (SLOT_LO..=SLOT_HI).contains(&port) || (FF_LO..=FF_HI).contains(&port),
+            "slot 39 uses 19390-19399, slot 121 (real_failfast) 19910-19919"
         );
         let home = sim_home();
         let root = home.join(format!("root-{name}"));

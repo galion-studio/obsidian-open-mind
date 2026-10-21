@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Test dummy for scripts/real/survival-heal.sh: a loopback HTTP service that
+//! Test dummy for crates/galion-realtest/tests/real_sh_survival_heal.rs: a loopback HTTP service that
 //! answers 200 "ok" and, with `--die-after-s N`, exits after N seconds (a
 //! service that dies). Not a product binary; only built as an example.
 //!

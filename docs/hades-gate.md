@@ -54,3 +54,5 @@ Config (flat TOML subset): `admin_pubkey`, `ledger`, `disable_file` (all require
 Real-life test: docs/real-tests/gaia-hades-tokens.md, scripts/real/gaia-hades-tokens.sh.
 
 Real-life test: docs/real-tests/hades-approval.md. Dependencies: docs/third-party/hades-approval.md.
+
+Key custody (keygen on the owner device, public key only on the host, rotation, disable-file revocation, loss/compromise runbooks, gold-image key D-IF1): docs/security/hades-key-custody.md (slot 215, 2026-10-21).

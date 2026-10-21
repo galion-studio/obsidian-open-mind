@@ -185,3 +185,108 @@ pub fn strip_nerve_wiring_md(md: &str) -> String {
     }
     out
 }
+
+/// Remove the per-hostname edge streams (`edge-host:*`, T2.12) the
+/// pre-trait golden predates: from `cortex.ddos.streams` in a report.
+/// The rest of the report must stay byte-identical.
+pub fn drop_edge_hosts(report: &mut Value) {
+    if let Some(a) = report
+        .pointer_mut("/cortex/ddos/streams")
+        .and_then(Value::as_array_mut)
+    {
+        a.retain(|s| {
+            !s["stream"]
+                .as_str()
+                .is_some_and(|n| n.starts_with("edge-host:"))
+        });
+    }
+}
+
+/// The same for the markdown report: drop `- [level] edge-host:...` lines.
+pub fn drop_edge_hosts_md(md: &str) -> String {
+    md.split_inclusive('\n')
+        .filter(|l| !(l.starts_with("- [") && l.contains("] edge-host:")))
+        .collect()
+}
+
+/// Remove the T3.2 incident `correlation` sections (additive: the cause,
+/// severity and every pre-T3.2 key stay as they were) from a report.
+pub fn drop_correlation(report: &mut Value) {
+    for i in report["incidents"].as_array_mut().into_iter().flatten() {
+        if let Some(m) = i.as_object_mut() {
+            m.remove("correlation");
+        }
+    }
+}
+
+/// The same for the markdown report: drop the `- correlated: ...` lines.
+pub fn drop_correlation_md(md: &str) -> String {
+    md.split_inclusive('\n')
+        .filter(|l| !l.starts_with("- correlated: "))
+        .collect()
+}
+
+/// The one T3.2 score change on the golden fixture, applied to the
+/// pre-trait golden: score v2's member floor charges the warn scanner
+/// incident 10 (what its error-level `scanner-probes-console` member costs
+/// alone), not 5, so the score goes 21 -> 16. Everything else in the golden
+/// is unchanged (docs/cortex/correlation.md).
+pub const T32_SCAN_WHAT: &str = "warn incident: scanner/exploit probes against console";
+pub const T32_SCAN_FLOOR: &str = "; member floor: vulnerability:scanner-probes-console (error) costs 10 alone, so the incident costs 10 not 5";
+
+/// [`T32_SCAN_FLOOR`] applied to a JSON golden.
+pub fn t32_delta(want: &mut Value) {
+    let ded = want["deductions"].as_array_mut().unwrap();
+    let at = ded
+        .iter()
+        .position(|d| d["what"] == T32_SCAN_WHAT && d["points"] == 5)
+        .expect("pre-T3.2 golden has the 5-point scanner incident");
+    let mut d = ded.remove(at);
+    d["points"] = 10.into();
+    let why = format!("{}{T32_SCAN_FLOOR}", d["why"].as_str().unwrap());
+    d["why"] = why.into();
+    // Incident deductions come before finding deductions of equal points.
+    let to = ded
+        .iter()
+        .position(|x| x["points"].as_u64().unwrap() <= 10)
+        .unwrap_or(ded.len());
+    ded.insert(to, d);
+    assert_eq!(want["score"], 21);
+    want["score"] = 16.into();
+}
+
+/// [`T32_SCAN_FLOOR`] applied to a markdown golden.
+pub fn t32_delta_md(md: &str) -> String {
+    let old_row = md
+        .lines()
+        .find(|l| l.starts_with(&format!("| -5 | {T32_SCAN_WHAT} | ")))
+        .expect("pre-T3.2 markdown has the 5-point scanner row")
+        .to_string();
+    let new_row = format!(
+        "| -10 {}{T32_SCAN_FLOOR} |",
+        old_row
+            .strip_prefix("| -5 ")
+            .unwrap()
+            .strip_suffix(" |")
+            .unwrap()
+    );
+    let mut out = String::new();
+    let mut placed = false;
+    for l in md.split_inclusive('\n') {
+        if l.trim_end_matches('\n') == old_row {
+            continue;
+        }
+        if !placed && l.starts_with("| -10 | ") {
+            out.push_str(&new_row);
+            out.push('\n');
+            placed = true;
+        }
+        out.push_str(l);
+    }
+    assert!(placed);
+    out.replacen(
+        "score **21/100 (grade F)**",
+        "score **16/100 (grade F)**",
+        1,
+    )
+}

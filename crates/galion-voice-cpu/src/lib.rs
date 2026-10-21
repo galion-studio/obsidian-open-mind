@@ -11,6 +11,8 @@
 //! * `whisper_stt` (feature `whisper`) - Whisper tiny via candle, CPU only.
 #![deny(unsafe_code)]
 
+#[cfg(feature = "chatterbox")]
+pub mod chatterbox_tts;
 pub mod g2p;
 #[cfg(feature = "kitten")]
 pub mod kitten;

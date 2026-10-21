@@ -60,3 +60,6 @@ Scores: `hermes-<bench>.<agent>.score.json` (bench-scoreboard compatible), board
 | H3 | Vending score for a model | (a) sibling `/v1/score` axes as-is; (b) also require equality with the reference (only meaningful for the scripted agent) | scripted run is equal to reference; live models will diverge legitimately |
 | H4 | Gateway wiring | (a) keep `hermes-bench` standalone; (b) register these registries in hermes-gateway behind `HERMES_RS_BENCH=1` | gateway not touched on this branch |
 | H5 | B1 D1–D4 | see `hermes-banking-tools.md` / `hermes-v2-redesign.md` §6 | unchanged here |
+
+## Adversarial set
+`--bench banking-adv` (B1-ADV, wave-4 slot 131): memo prompt-injection and social-engineering asks that must still be refused; see banking-adversarial.md.

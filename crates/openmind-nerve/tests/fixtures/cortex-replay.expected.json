@@ -164,6 +164,86 @@
     {
       "cpu_pct": null,
       "detail": "",
+      "gaia": "POSEIDON",
+      "http": null,
+      "latency_ms": null,
+      "log_errors": 0,
+      "mem_kb": null,
+      "name": "openmind-queue",
+      "reasons": [
+        "absent: not in this capture"
+      ],
+      "restarts_1h": 0,
+      "status": "absent",
+      "unit_state": null
+    },
+    {
+      "cpu_pct": null,
+      "detail": "",
+      "gaia": "ELEUTHIA",
+      "http": null,
+      "latency_ms": null,
+      "log_errors": 0,
+      "mem_kb": null,
+      "name": "tanga-proto",
+      "reasons": [
+        "absent: not in this capture"
+      ],
+      "restarts_1h": 0,
+      "status": "absent",
+      "unit_state": null
+    },
+    {
+      "cpu_pct": null,
+      "detail": "",
+      "gaia": "AETHER",
+      "http": null,
+      "latency_ms": null,
+      "log_errors": 0,
+      "mem_kb": null,
+      "name": "galion-nerve-shadow",
+      "reasons": [
+        "absent: not in this capture"
+      ],
+      "restarts_1h": 0,
+      "status": "absent",
+      "unit_state": null
+    },
+    {
+      "cpu_pct": null,
+      "detail": "",
+      "gaia": "DEMETER",
+      "http": null,
+      "latency_ms": null,
+      "log_errors": 0,
+      "mem_kb": null,
+      "name": "galion-backup",
+      "reasons": [
+        "absent: not in this capture"
+      ],
+      "restarts_1h": 0,
+      "status": "absent",
+      "unit_state": null
+    },
+    {
+      "cpu_pct": null,
+      "detail": "",
+      "gaia": "HADES",
+      "http": null,
+      "latency_ms": null,
+      "log_errors": 0,
+      "mem_kb": null,
+      "name": "hades-gate",
+      "reasons": [
+        "absent: not in this capture"
+      ],
+      "restarts_1h": 0,
+      "status": "absent",
+      "unit_state": null
+    },
+    {
+      "cpu_pct": null,
+      "detail": "",
       "gaia": "AETHER",
       "http": null,
       "latency_ms": null,
@@ -547,6 +627,36 @@
       "msg": "degrading: degrading: tunnel origin errors 30/40 requests in 1 min; degrading: 19 errors in 5 min (last: )"
     },
     {
+      "check": "coverage",
+      "component": "openmind-queue",
+      "level": "info",
+      "msg": "absent: not in this capture"
+    },
+    {
+      "check": "coverage",
+      "component": "tanga-proto",
+      "level": "info",
+      "msg": "absent: not in this capture"
+    },
+    {
+      "check": "coverage",
+      "component": "galion-nerve-shadow",
+      "level": "info",
+      "msg": "absent: not in this capture"
+    },
+    {
+      "check": "coverage",
+      "component": "galion-backup",
+      "level": "info",
+      "msg": "absent: not in this capture"
+    },
+    {
+      "check": "coverage",
+      "component": "hades-gate",
+      "level": "info",
+      "msg": "absent: not in this capture"
+    },
+    {
       "check": "component",
       "component": "voice-worker",
       "level": "info",
@@ -583,6 +693,7 @@
         "galion-one-mouth:degrading",
         "cloudflared:degrading",
         "tuner-quick:healthy",
+        "galion-nerve-shadow:absent",
         "voice-worker:absent",
         "galion-nerve:healthy"
       ],
@@ -607,14 +718,16 @@
     "DEMETER": {
       "components": [
         "tuner:healthy",
-        "galion-health:healthy"
+        "galion-health:healthy",
+        "galion-backup:absent"
       ],
       "note": "boot-units: nerve restart reflex",
       "status": "healthy"
     },
     "ELEUTHIA": {
       "components": [
-        "galion-one:healthy"
+        "galion-one:healthy",
+        "tanga-proto:absent"
       ],
       "note": "",
       "status": "healthy"
@@ -627,9 +740,11 @@
       "status": "absent"
     },
     "HADES": {
-      "components": [],
+      "components": [
+        "hades-gate:absent"
+      ],
       "note": "rollback: nerve rollback reflex via galion-deploy, 1 per unit per day",
-      "status": "no-live-systems"
+      "status": "absent"
     },
     "HEPHAESTUS": {
       "components": [
@@ -646,6 +761,7 @@
     },
     "POSEIDON": {
       "components": [
+        "openmind-queue:absent",
         "lxc-host:healthy"
       ],
       "note": "",

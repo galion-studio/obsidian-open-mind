@@ -18,7 +18,10 @@ path = "src/main.rs"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+semver = "1"
 zagreb-time = { path = "../zagreb-time" }
+galion-common = { path = "../galion-common" }
+tunnel-lint = { path = "../tunnel-lint" }
 
 [dev-dependencies]
 zagreb-time = { path = "../zagreb-time" }
@@ -30,3 +33,6 @@ nerve-client = { path = "../nerve-client" }
 gaia-live = { path = "../gaia-live" }
 galion-realtest = { path = "../galion-realtest" }
 galion-deploy = { path = "../galion-deploy" }
+toml = { workspace = true }
+# Fuzz/property targets (T5.2) also drive the ingress YAML parser; path crate, no deps.
+tunnel-lint = { path = "../tunnel-lint" }

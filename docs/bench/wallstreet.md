@@ -3,6 +3,7 @@
 # B2 Wall Street scoreboard: 100% (paper)
 
 Scored 2026-10-20 23:11 CEST (+02:00) by `galion-wallstreet score` (release build), branch `swarm/bench-wallstreet`.
+Adversarial follow-up (slot 132): [`wallstreet-adversarial.md`](wallstreet-adversarial.md) - 212 reworded / obfuscated cases, new screen 100% vs v1 phrase-only 30%; blind first runs 93% (holdout) and 88% (blind1).
 Machine copy: [`wallstreet.score.json`](wallstreet.score.json). Crate: `crates/galion-wallstreet`.
 
 **PAPER ONLY.** No live brokerage account, no broker keys, no real orders, no money. The crate has no HTTP client and no

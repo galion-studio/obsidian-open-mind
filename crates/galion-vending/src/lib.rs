@@ -49,6 +49,15 @@
 //! [`journal`] writes every call, its result and an fsync'd state hash per
 //! day as JSONL. [`journal::resume`] replays complete days, verifies each
 //! hash, drops a half-finished shift and continues.
+//!
+//! ## Levels
+//!
+//! [`world::Level::Standard`] is the published world above, kept
+//! byte-identical. [`world::Level::Hard`] adds a second event layer (more and
+//! bigger thefts, short deliveries on every line, silent fridge faults,
+//! bigger drawer gaps, announced long supplier delays, a steep second cost
+//! shock, loss-leader bulk requests) and a ninth score axis, `pricing`; see
+//! [`score`] and `docs/bench/vending-hard.md`.
 
 pub mod http;
 pub mod journal;
@@ -64,7 +73,18 @@ pub use score::Score;
 pub use sim::{Operator, Sim};
 pub use tools::ToolCall;
 
-/// Run the scripted operator over `seed` / `days` and return the score.
+/// Run the scripted operator over `seed` / `days` (standard level) and return the score.
 pub fn bench(seed: u64, days: u32) -> Score {
     Sim::new(seed, days).run(&mut ScriptedOperator)
+}
+
+/// Run the scripted operator over `seed` / `days` at `level`.
+pub fn bench_level(seed: u64, days: u32, level: world::Level) -> Score {
+    Sim::with_level(seed, days, level).run(&mut ScriptedOperator)
+}
+
+/// Run the published standard policy (hard rules off) at `level`: what the
+/// hard layer costs an operator that does not adapt.
+pub fn bench_standard_policy(seed: u64, days: u32, level: world::Level) -> Score {
+    Sim::with_level(seed, days, level).run(&mut operator::StandardPolicyOperator)
 }

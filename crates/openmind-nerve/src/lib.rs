@@ -2,7 +2,10 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
-#![forbid(unsafe_code)]
+// `deny`, not `forbid`: the one exception is `evt::sys` (blocking inotify /
+// pidfd / poll syscalls for the event mode), which opts in with an inner
+// `allow` and documents every block. Everything else stays unsafe-free.
+#![deny(unsafe_code)]
 
 //! openmind-nerve: the Obsidian Open Mind nervous system and cortex.
 //!
@@ -29,6 +32,9 @@
 //! - [`alerts`]: journald + alerts.json.
 //! - [`egress`]: no LLM path: loopback-only client, LLM endpoints and
 //!   external LLM providers refused (Hermes on the VPS is the only LLM path).
+//! - [`evt`]: event-driven mode (`NERVE_MODE=event`): kernel-blocking sources,
+//!   dedupe/debounce, delegated escalation, inventory, NDJSON stream, actions.
+//! - [`feed`]: the cortex B33 event feed (`GET /api/v1/cortex/events`).
 //! - [`engine`]: the loop; [`server`]: the loopback JSON API and dashboard;
 //!   [`replay`]: run captured live data through the same pipeline.
 
@@ -39,12 +45,15 @@ pub mod config;
 pub mod cortex;
 pub mod egress;
 pub mod engine;
+pub mod evt;
+pub mod feed;
 pub mod hub;
 pub mod incident;
 pub mod logscan;
 pub mod owners;
 pub mod probe;
 pub mod reflex;
+pub mod reflex_audit;
 pub mod replay;
 pub mod score;
 pub mod sensors;

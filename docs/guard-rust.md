@@ -273,6 +273,11 @@ pass; output in docs/real-tests/guard-rust.md (section A2).
 
 ## 5. Rollout (needs Slavik's approval; nothing done)
 
+**Superseded by docs/guard-shadow.md section 6** (swarm/guard-shadow): a real
+log-only `shadow` backend, a fail2ban-format shadow log and `galion-guard
+compare`, with PARITY on 121 real VPS bans. The steps below are the original
+plan.
+
 Staged files only: `deploy/staged/galion-guard.service`,
 `deploy/staged/galion-guard.toml`. Proposed steps:
 

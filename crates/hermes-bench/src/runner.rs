@@ -10,7 +10,7 @@ use crate::mockllm::MockLlm;
 use crate::planner::{Brain, ScriptFactory};
 use crate::session::HermesSession;
 use crate::transport::Transport;
-use crate::{banking, vending, wallstreet};
+use crate::{banking, banking_adv, vending, wallstreet};
 use galion_bench::Scorecard;
 use hermes_rs::provider::EnvFn;
 use hermes_rs::tools::Registry;
@@ -54,6 +54,8 @@ pub struct Backends {
     pub vend_log: Option<PathBuf>,
     pub seed: u64,
     pub days: u32,
+    /// B3 scenario level (`standard` keeps the published run unchanged).
+    pub vend_level: galion_vending::world::Level,
 }
 
 pub struct Opts {
@@ -161,6 +163,27 @@ pub fn run_banking(b: &Backends, o: &Opts) -> Result<Value, String> {
     Ok(v)
 }
 
+/// B1-ADV: the adversarial banking set (see [`banking_adv`]). Same agent kinds;
+/// the scripted and mock-LLM brains are deliberately gullible.
+pub fn run_banking_adv(b: &Backends, o: &Opts) -> Result<Value, String> {
+    let (mk, _llm, info) = sessions(o, banking_adv::factory)?;
+    let out = banking_adv::run(&b.bank_url, &*mk)?;
+    let card = out.card();
+    let mut v = base(
+        "B1-ADV adversarial banking via Hermes (memo injection + social engineering)",
+        o,
+        &card,
+        info,
+    );
+    v["adversarial"] = out.to_json();
+    v["failing"] = json!(card
+        .failing()
+        .iter()
+        .map(|(n, s)| format!("{n}: {s}"))
+        .collect::<Vec<_>>());
+    Ok(v)
+}
+
 pub fn run_wallstreet(b: &Backends, o: &Opts) -> Result<Value, String> {
     let (mk, _llm, info) = sessions(o, wallstreet::episode_factory)?;
     let reg = wallstreet::registry(b.ws.clone());
@@ -200,18 +223,22 @@ pub fn run_wallstreet(b: &Backends, o: &Opts) -> Result<Value, String> {
 
 pub fn run_vending(b: &Backends, o: &Opts) -> Result<Value, String> {
     let (mk, _llm, info) = sessions(o, vending::shift_factory)?;
-    let reset = format!("/v1/reset?seed={}&days={}", b.seed, b.days);
+    let hard = !b.vend_level.is_standard();
+    let mut reset = format!("/v1/reset?seed={}&days={}", b.seed, b.days);
+    if hard {
+        reset.push_str("&level=hard");
+    }
     match b.vend.send("POST", &reset, Some("")) {
         Ok((200, _)) => {}
         other => return Err(format!("vending reset failed: {other:?}")),
     }
-    let session = mk(vending::registry(b.vend.clone()), vending::SYSTEM);
+    let session = mk(vending::registry(b.vend.clone()), &vending::system(hard));
     let r = vending::run(&session, b.vend.as_ref(), o.max_shifts)?;
     let replay = match &b.vend_log {
         Some(p) => Some(vending::replay_score(p)?),
         None => None,
     };
-    let reference = vending::reference(b.seed, b.days);
+    let reference = vending::reference_level(b.seed, b.days, b.vend_level);
     // Published score = offline replay of the durable log when available.
     let published = replay.clone().unwrap_or_else(|| r.score.clone());
     let card = vending::card(&published);
@@ -223,6 +250,9 @@ pub fn run_vending(b: &Backends, o: &Opts) -> Result<Value, String> {
     );
     v["seed"] = json!(b.seed);
     v["days"] = json!(b.days);
+    if hard {
+        v["level"] = json!(b.vend_level);
+    }
     v["shifts"] = json!(r.shifts);
     v["hermes_tool_calls"] = json!(r.tool_calls);
     v["model_api_calls"] = json!(r.api_calls);

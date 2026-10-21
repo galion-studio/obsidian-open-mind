@@ -31,6 +31,12 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 const TIMEOUT: Duration = Duration::from_millis(300);
+/// Hard cap on one whole POST (connect + write + reading the status line).
+/// T3.3: the 300 ms timeouts are per socket call, so a nerve that trickles
+/// its reply one byte at a time could hold the single worker for up to 64
+/// reads (~19 s per signal) and silently turn every later signal into a
+/// drop. The deadline bounds one POST at 1 s whatever the nerve does.
+pub const POST_DEADLINE: Duration = Duration::from_millis(1000);
 pub const DEFAULT_QUEUE: usize = 256;
 pub const DEFAULT_SLOW_MS: u64 = 1000;
 
@@ -222,9 +228,24 @@ pub fn body(source: &str, kind: &str, name: &str, value: Option<f64>, msg: &str)
 
 /// POST one body; the HTTP status of the reply (0 when it has no status line).
 fn post(addr: SocketAddr, body: &str) -> std::io::Result<u16> {
-    let mut s = TcpStream::connect_timeout(&addr, TIMEOUT)?;
-    s.set_write_timeout(Some(TIMEOUT))?;
-    s.set_read_timeout(Some(TIMEOUT))?;
+    post_within(addr, body, POST_DEADLINE)
+}
+
+/// [`post`] with an explicit whole-request deadline (tests use a short one).
+fn post_within(addr: SocketAddr, body: &str, deadline: Duration) -> std::io::Result<u16> {
+    let end = Instant::now() + deadline;
+    let left = || -> std::io::Result<Duration> {
+        let r = end.saturating_duration_since(Instant::now());
+        if r.is_zero() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "nerve POST deadline",
+            ));
+        }
+        Ok(r.min(TIMEOUT))
+    };
+    let mut s = TcpStream::connect_timeout(&addr, left()?)?;
+    s.set_write_timeout(Some(left()?))?;
     write!(
         s,
         "POST /signal HTTP/1.0\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -235,6 +256,7 @@ fn post(addr: SocketAddr, body: &str) -> std::io::Result<u16> {
     let mut b = [0u8; 64];
     let mut n = 0;
     while n < b.len() && !b[..n].contains(&b'\n') {
+        s.set_read_timeout(Some(left()?))?;
         match s.read(&mut b[n..])? {
             0 => break,
             k => n += k,
@@ -508,6 +530,57 @@ mod tests {
         }
         let s = c.counters.snapshot();
         assert_eq!((s.failed, s.sent), (5, 0));
+    }
+
+    /// A nerve that trickles its reply (one byte per `gap`, never a newline).
+    fn trickle_listener(gap: Duration) -> (SocketAddr, std::thread::JoinHandle<()>) {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let h = std::thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            let _ = read_req(&mut s);
+            for _ in 0..64 {
+                if s.write_all(b"H").is_err() {
+                    break;
+                }
+                std::thread::sleep(gap);
+            }
+        });
+        (addr, h)
+    }
+
+    #[test]
+    fn trickling_nerve_is_cut_at_the_post_deadline() {
+        // T3.3: before the deadline each byte reset the 300 ms read timeout,
+        // so this reply (64 bytes, 250 ms apart) held the worker ~16 s.
+        let (addr, h) = trickle_listener(Duration::from_millis(250));
+        let t = Instant::now();
+        let r = post(addr, &body("t", "event", "x", None, ""));
+        let took = t.elapsed();
+        assert!(r.is_err(), "{r:?}");
+        assert!(
+            took >= Duration::from_millis(900) && took < POST_DEADLINE + Duration::from_millis(400),
+            "took {took:?}"
+        );
+        h.join().unwrap();
+    }
+
+    #[test]
+    fn post_within_honours_a_short_deadline() {
+        let (addr, h) = trickle_listener(Duration::from_millis(50));
+        let t = Instant::now();
+        let r = post_within(
+            addr,
+            &body("t", "event", "x", None, ""),
+            Duration::from_millis(200),
+        );
+        assert!(r.is_err(), "{r:?}");
+        assert!(
+            t.elapsed() < Duration::from_millis(600),
+            "{:?}",
+            t.elapsed()
+        );
+        h.join().unwrap();
     }
 
     #[test]

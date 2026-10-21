@@ -316,7 +316,10 @@ fn toolchain_pin_consistent() {
     // is the pinned one when it comes from a rustup toolchain directory.
     if let Ok(c) = std::env::var("CARGO") {
         if c.contains("/toolchains/") {
-            assert!(c.contains(&format!("/toolchains/{ch}-")), "CARGO={c} is not {ch}");
+            assert!(
+                c.contains(&format!("/toolchains/{ch}-")),
+                "CARGO={c} is not {ch}"
+            );
             eprintln!("CARGO is the pinned {ch} cargo");
         }
     }

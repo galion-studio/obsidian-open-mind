@@ -713,4 +713,106 @@ mod tests {
         assert_eq!(r.used("tuner.service", now, false), 2);
         let _ = std::fs::remove_dir_all(d);
     }
+
+    #[test]
+    fn old_reflex_json_forms_and_unknown_keys_survive() {
+        let d = tmp("t41-old");
+        let now = now_secs();
+        let old = json!({
+            "restarts": {
+                "hermes-rs.service": [now - 7200, now - 600],
+                "galion-one.service": [(now - 300) as f64 + 0.5, ts(now - 900), "junk", null],
+                "cloudflared.service": format!("{}", now - 60),
+            },
+            "rollbacks": {"tuner.service": ts(now - 3600), "console.service": "nope"},
+            "layout": 1,
+            "future": {"x": [1, 2]},
+        });
+        std::fs::write(d.join("reflex.json"), old.to_string()).unwrap();
+        let mut r = Reflex::new(d.clone(), true, 3);
+        r.deploy_bin = d.join("no-deploy");
+        assert!(r.load_note.is_none());
+        assert_eq!(r.used("hermes-rs.service", now, false), 1);
+        assert_eq!(r.used("galion-one.service", now, false), 2);
+        assert_eq!(r.used("cloudflared.service", now, false), 1);
+        assert_eq!(r.rollbacks.get("tuner.service"), Some(&(now - 3600)));
+        assert!(!r.rollbacks.contains_key("console.service"));
+        // A (dry) action saves: unknown keys are written back unchanged.
+        let mut a = quiet_alerts();
+        let c = down_comp("tuner", 3, "failed", "exit-code", "enabled");
+        let dec = r.decide(&c, now, false);
+        assert!(matches!(dec, Decision::Restart { .. }), "{dec:?}");
+        r.execute("tuner", &dec, &mut a);
+        let v: Value =
+            serde_json::from_str(&std::fs::read_to_string(d.join("reflex.json")).unwrap()).unwrap();
+        assert_eq!(v["layout"], 1);
+        assert_eq!(v["future"], json!({"x": [1, 2]}));
+        assert_eq!(
+            v["restarts"]["galion-one.service"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        // Reloading the saved file gives the same budgets (no drift).
+        let r2 = Reflex::new(d.clone(), true, 3);
+        assert_eq!(r2.used("galion-one.service", now, false), 2);
+        assert_eq!(r2.used("hermes-rs.service", now, false), 1);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn corrupt_reflex_json_holds_live_actions_for_an_hour() {
+        let d = tmp("t41-bad");
+        std::fs::write(d.join("reflex.json"), "{\"restarts\": [").unwrap();
+        std::fs::write(d.join("mode"), "live\n").unwrap();
+        let r = Reflex::new(d.clone(), true, 1);
+        let note = r.load_note.clone().unwrap();
+        assert!(
+            note.contains("bad JSON") && note.contains("held until"),
+            "{note}"
+        );
+        let now = now_secs();
+        assert!(r.budget_unknown_until >= now + 3500);
+        // A copy of the damaged file is kept next to it.
+        let copies = std::fs::read_dir(&d)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("reflex.json.corrupt-")
+            })
+            .count();
+        assert_eq!(copies, 1);
+        // Live: no restart and no rollback inside the hour, even with a
+        // recent backup and the deploy tool present.
+        let bk = d.join("backups");
+        std::fs::create_dir_all(&bk).unwrap();
+        std::fs::write(bk.join("tuner-20261018-2200+0200.bin"), b"\x7fELF").unwrap();
+        std::fs::write(d.join("deploy"), b"#!/bin/sh\n").unwrap();
+        let mut r = r;
+        r.deploy_backups = bk;
+        r.deploy_bin = d.join("deploy");
+        let c = down_comp("tuner", 1, "failed", "exit-code", "enabled");
+        assert!(matches!(r.decide(&c, now, false), Decision::Limited { .. }));
+        assert!(!r.budget_left("tuner.service", now, false, 3));
+        // Dry-run budgets are not affected; after the hour live works again.
+        assert!(r.budget_left("tuner.service", now, true, 3));
+        assert!(r.budget_left("tuner.service", now + 3601, false, 3));
+        // A non-object file is treated the same way.
+        std::fs::write(d.join("reflex.json"), "[1,2]").unwrap();
+        let r3 = Reflex::new(d.clone(), true, 1);
+        assert!(r3
+            .load_note
+            .as_deref()
+            .unwrap_or("")
+            .contains("not a JSON object"));
+        // No file at all is a clean first boot, not a hold.
+        let e = tmp("t41-empty");
+        let r4 = Reflex::new(e.clone(), true, 1);
+        assert!(r4.load_note.is_none() && r4.budget_unknown_until == 0);
+        let _ = std::fs::remove_dir_all(d);
+        let _ = std::fs::remove_dir_all(e);
+    }
 }

@@ -729,4 +729,68 @@ mod tests {
         assert!(matches!(e3.escalate(&batch(), 0), Outcome::Refused(r) if r.contains("budget")));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn old_spend_file_keeps_its_total_and_damaged_one_fails_closed() {
+        let dir = std::env::temp_dir().join(format!("nerve-evt-t41-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("evt-llm-spend.json");
+        let never = || -> Transport { Box::new(|_, _| panic!("must not call")) };
+        // Older record: no `refused`, an unknown field.
+        std::fs::write(&p, r#"{"total_usd":0.9995,"calls":3,"seen_by":"old"}"#).unwrap();
+        let mut e = OpenAiCompat::new(
+            cfg(1.0),
+            Some(dir.clone()),
+            never(),
+            Box::new(|_| Some("k".into())),
+        );
+        assert!(e.spend_error.is_none());
+        assert_eq!(e.spend.total_usd, 0.9995);
+        assert!(matches!(e.escalate(&batch(), 0), Outcome::Refused(r) if r.contains("budget cap")));
+        let v: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v["total_usd"], 0.9995);
+        assert_eq!(v["calls"], 3);
+        assert_eq!(v["refused"], 1);
+        assert_eq!(v["seen_by"], "old", "unknown field kept");
+        // Damaged records: refused, never overwritten, copy kept.
+        for (i, bad) in [
+            "{\"total_usd\":",
+            "[]",
+            "{\"total_usd\":-1}",
+            "{\"total_usd\":\"x\"}",
+        ]
+        .iter()
+        .enumerate()
+        {
+            std::fs::write(&p, bad).unwrap();
+            let mut e = OpenAiCompat::new(
+                cfg(100.0),
+                Some(dir.clone()),
+                never(),
+                Box::new(|_| Some("k".into())),
+            );
+            assert!(e.spend_error.is_some(), "{bad}");
+            let o = e.escalate(&batch(), i as u64);
+            assert!(
+                matches!(&o, Outcome::Refused(r) if r.contains("not a usable spend record")),
+                "{o:?}"
+            );
+            assert_eq!(std::fs::read_to_string(&p).unwrap(), *bad);
+        }
+        let copies = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("evt-llm-spend.json.corrupt-")
+            })
+            .count();
+        assert!(copies >= 1);
+        // Missing file: clean zero.
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(load_spend(&p, 0).unwrap(), Spend::default());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

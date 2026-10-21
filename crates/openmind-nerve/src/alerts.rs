@@ -258,4 +258,69 @@ mod tests {
         assert!(b.ext_status.starts_with("none configured"));
         let _ = std::fs::remove_dir_all(dir);
     }
+
+    #[test]
+    fn old_alert_history_restores_dedupe_and_tolerates_layouts() {
+        let dir = std::env::temp_dir().join(format!("nerve-alerts-t41-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("alerts.json");
+        let now = now_secs();
+        let old = json!([
+            {"ts": ts(now - 60), "severity": "warn", "component": "tuner", "key": "recent", "msg": "m", "legacy_ack": true},
+            {"ts": ts(now - 7200), "severity": "warn", "component": "tuner", "key": "old", "msg": "m"},
+            {"ts": ts(now + 86400), "severity": "warn", "component": "tuner", "key": "future", "msg": "m"},
+            "not an object",
+        ]);
+        std::fs::write(&p, old.to_string()).unwrap();
+        let mut a = Alerts::new(Some(p.clone()), None, 0);
+        a.to_journal = false;
+        assert!(a.load_note.is_none());
+        assert_eq!(a.recent.len(), 3, "non-object entries dropped");
+        assert!(
+            !a.raise("recent", Severity::Warn, "tuner", "again"),
+            "still deduped after restart"
+        );
+        assert!(a.raise("old", Severity::Warn, "tuner", "again"));
+        // A future stamp mutes for at most the normal window from now.
+        assert!(!a.raise("future", Severity::Warn, "tuner", "again"));
+        let v: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v.len(), 4);
+        assert_eq!(v[0]["legacy_ack"], true, "unknown field kept");
+        // Wrapped layout {"recent": [...]}.
+        std::fs::write(
+            &p,
+            json!({"recent": [{"key": "w", "ts": ts(now)}]}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(Alerts::new(Some(p.clone()), None, 0).recent.len(), 1);
+        // Over-long history is trimmed to the newest KEEP.
+        let many: Vec<Value> = (0..KEEP + 5)
+            .map(|i| json!({"key": format!("k{i}")}))
+            .collect();
+        std::fs::write(&p, serde_json::to_string(&many).unwrap()).unwrap();
+        let b = Alerts::new(Some(p.clone()), None, 0);
+        assert_eq!(b.recent.len(), KEEP);
+        assert_eq!(b.recent[0]["key"], "k5");
+        // Garbage: copied aside, reported, starts empty.
+        std::fs::write(&p, "garbage").unwrap();
+        let c = Alerts::new(Some(p.clone()), None, 0);
+        assert!(c.recent.is_empty());
+        assert!(c
+            .load_note
+            .as_deref()
+            .unwrap_or("")
+            .contains("not an alert list"));
+        let copies = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("alerts.json.corrupt-")
+            })
+            .count();
+        assert_eq!(copies, 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

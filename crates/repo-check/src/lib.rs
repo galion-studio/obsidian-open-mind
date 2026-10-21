@@ -5,7 +5,8 @@
 //!
 //! Turns the TEACHER/CHECKS.md one-liners (C6 Zagreb time, C7 CJK, C8 no
 //! Python) plus the repo rules (MIT LICENSE, SPDX headers, no secrets, no
-//! hard-coded hosts, universal CPU) into one std-only, read-only scanner.
+//! hard-coded hosts, universal CPU, documented `unsafe`) into one std-only,
+//! read-only scanner.
 //!
 //! Every check works on `(relative path, text)` so it is unit-testable without
 //! touching the disk. A line containing the marker `repo-check: allow` is
@@ -13,6 +14,8 @@
 //!
 //! Patterns that would match this file itself are assembled with `concat!`, so
 //! the tool can scan its own source without allow markers.
+
+pub mod safety;
 
 use std::fmt;
 use std::net::Ipv4Addr;
@@ -23,6 +26,9 @@ pub const ALLOW_MARKER: &str = concat!("repo-check", ": allow");
 
 /// Files larger than this are skipped (binaries, dumps).
 pub const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Trees whose Rust must document every `unsafe` (vendored code is out of scope).
+pub const SAFETY_DIRS: &[&str] = &["crates", "edge", "sim", "gaia", "apps", "tests"];
 
 /// Directories never descended into.
 pub const SKIP_DIRS: &[&str] = &[".git", "target", "contrib", "stage", "node_modules"];
@@ -52,10 +58,11 @@ pub enum Check {
     Secrets,
     Hosts,
     Portable,
+    Safety,
 }
 
 impl Check {
-    pub const ALL: [Check; 8] = [
+    pub const ALL: [Check; 9] = [
         Check::License,
         Check::Spdx,
         Check::Cjk,
@@ -64,6 +71,7 @@ impl Check {
         Check::Secrets,
         Check::Hosts,
         Check::Portable,
+        Check::Safety,
     ];
 
     pub fn name(self) -> &'static str {
@@ -76,6 +84,7 @@ impl Check {
             Check::Secrets => "secrets",
             Check::Hosts => "hosts",
             Check::Portable => "portable",
+            Check::Safety => "safety",
         }
     }
 
@@ -87,7 +96,7 @@ impl Check {
     /// that feed zagreb-time), so it only warns.
     pub fn default_level(self) -> Level {
         match self {
-            Check::Utc => Level::Warn,
+            Check::Utc | Check::Safety => Level::Warn,
             _ => Level::Error,
         }
     }
@@ -102,6 +111,7 @@ impl Check {
             Check::Secrets => "no private-key blocks or token-shaped strings (matches are never printed)",
             Check::Hosts => "no public IPv4 literals in crates/, deploy/, .github/",
             Check::Portable => "no inline asm, arch intrinsics, target-cpu/target-feature, openssl-sys (UNIVERSAL-CPU.md)",
+            Check::Safety => "every unsafe block/impl/trait/extern in our Rust (crates, edge, sim, gaia, apps, tests) has a // SAFETY: comment; unsafe fn has a # Safety doc (warn first)",
         }
     }
 }
@@ -217,6 +227,19 @@ pub fn scan_text(path: &str, text: &str) -> Vec<Finding> {
         under(path, &["crates", "deploy", ".github"]) && file_name(path) != "Cargo.lock";
     let portable_rs = rs;
     let portable_cfg = ext(path) == "toml" || under(path, &[".cargo"]) || under(path, &[".github"]);
+    if rs && under(path, SAFETY_DIRS) {
+        for m in safety::missing(text, ALLOW_MARKER) {
+            out.push(finding(
+                Check::Safety,
+                path,
+                m.line,
+                format!(
+                    "{} without a `// SAFETY:` comment (or `# Safety` doc); say why the call is sound",
+                    m.kind.label()
+                ),
+            ));
+        }
+    }
 
     for (i, line) in text.lines().enumerate() {
         let n = i + 1;

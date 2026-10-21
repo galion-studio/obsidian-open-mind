@@ -186,7 +186,10 @@ fn hosts_public_only() {
 
 #[test]
 fn portable_rust_and_config() {
-    let asm = format!("{HDR}unsafe {{ {}!(\"nop\") }}\n", "asm");
+    let asm = format!(
+        "{HDR}// SAFETY: test input.\nunsafe {{ {}!(\"nop\") }}\n",
+        "asm"
+    );
     assert_eq!(checks("crates/a/src/lib.rs", &asm), vec![Check::Portable]);
     let simd = format!("{HDR}use std::{}::x86_64::*;\n", "arch");
     assert_eq!(checks("crates/a/src/lib.rs", &simd), vec![Check::Portable]);
@@ -264,4 +267,32 @@ fn check_names_roundtrip() {
         assert!(!c.describe().is_empty());
     }
     assert_eq!(Check::parse("nope"), None);
+}
+
+#[test]
+fn safety_scope_level_and_message() {
+    let kw = concat!("un", "safe");
+    let bare = format!("{HDR}fn f() {{\n    {kw} {{ g() }};\n}}\n");
+    for p in [
+        "crates/a/src/lib.rs",
+        "edge/openmind-node/src/sandbox.rs",
+        "crates/a/tests/t.rs",
+        "sim/x/src/main.rs",
+    ] {
+        let f = scan_text(p, &bare);
+        assert_eq!(f.len(), 1, "{p}: {f:?}");
+        assert_eq!(f[0].check, Check::Safety);
+        assert_eq!(f[0].level, Level::Warn);
+        assert_eq!(f[0].line, 4);
+        assert!(f[0].msg.contains("SAFETY"), "{}", f[0].msg);
+    }
+    // Vendored third-party code is out of scope, as are non-Rust files.
+    assert!(checks("vendor/candle-core/src/lib.rs", &bare).is_empty());
+    assert!(checks("docs/x.md", &bare).is_empty());
+    let ok = format!(
+        "{HDR}fn f() {{\n    // SAFETY: g has no preconditions.\n    {kw} {{ g() }};\n}}\n"
+    );
+    assert!(checks("crates/a/src/lib.rs", &ok).is_empty());
+    assert_eq!(Check::parse("safety"), Some(Check::Safety));
+    assert_eq!(Check::Safety.default_level(), Level::Warn);
 }

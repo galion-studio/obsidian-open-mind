@@ -63,8 +63,7 @@ impl Secret {
 impl Drop for Secret {
     fn drop(&mut self) {
         for b in self.0.iter_mut() {
-            // SAFETY-free wipe: volatile-ish via black_box so it is not elided.
-            *b = 0;
+                        *b = 0;
             std::hint::black_box(&*b);
         }
     }

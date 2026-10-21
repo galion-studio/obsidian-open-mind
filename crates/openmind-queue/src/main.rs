@@ -4,6 +4,7 @@
 //! `openmind-queue`: the POSEIDON queue service, its CLI client and a
 //! built-in test worker. See `docs/poseidon.md`.
 
+use openmind_queue::auth::{self, Secret};
 use openmind_queue::engine::Config;
 use openmind_queue::{http, now_ms, server, zagreb_ms};
 use serde_json::{json, Value};
@@ -11,6 +12,7 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const USAGE: &str =
@@ -18,7 +20,11 @@ const USAGE: &str =
 
   serve   --bind 127.0.0.1:19120 --data DIR [--providers registry.json] [--lease-ms N]
           [--max-attempts N] [--backoff-base-ms N] [--backoff-max-ms N] [--max-depth N]
-          [--compact-min N] [--allow-remote]
+          [--compact-min N] [--allow-remote --token-file F] [--token-on-loopback]
+          A non-loopback bind needs --allow-remote AND --token-file (mode 0600/0400,
+          one line, >= 32 visible ASCII chars). Non-loopback peers then need
+          Authorization: Bearer <token>; loopback peers need none unless
+          --token-on-loopback.
   submit  [--queue Q] [--agent A] [--kind K] [--priority P] [--max-attempts N] [--cost C]
           [--lease-ms N] [--vram-gb G] [--cpu-fallback] [--payload TEXT]
   lease   --worker W [--queue Q] [--lease-ms N] [--wait-ms N]
@@ -33,7 +39,25 @@ const USAGE: &str =
                  probe (payload = http://127.0.0.1:PORT/path, loopback GET only)
   version
 
-Client commands talk to --addr (default $POSEIDON_ADDR or 127.0.0.1:19120).";
+Client commands talk to --addr (default $POSEIDON_ADDR or 127.0.0.1:19120) and send
+the bearer token from --token-file (default $POSEIDON_TOKEN_FILE) when one is given.";
+
+/// The client's token, loaded once from --token-file / $POSEIDON_TOKEN_FILE.
+static CLIENT_TOKEN: OnceLock<Option<Secret>> = OnceLock::new();
+
+fn load_client_token(a: &Args) -> Result<(), String> {
+    let path = a
+        .get("token-file")
+        .map(String::from)
+        .or_else(|| std::env::var("POSEIDON_TOKEN_FILE").ok())
+        .filter(|p| !p.is_empty());
+    let tok = match path {
+        None => None,
+        Some(p) => Some(auth::load_secret_file(std::path::Path::new(&p)).map_err(|e| e.to_string())?),
+    };
+    let _ = CLIENT_TOKEN.set(tok);
+    Ok(())
+}
 
 struct Args {
     flags: HashMap<String, String>,
@@ -79,7 +103,8 @@ impl Args {
 }
 
 fn call(addr: &str, method: &str, path: &str, body: Option<&str>) -> Result<(u16, String), String> {
-    http::request(addr, method, path, body, Duration::from_secs(40))
+    let tok = CLIENT_TOKEN.get().and_then(|t| t.as_ref()).map(|s| s.expose());
+    http::request_auth(addr, method, path, body, tok, Duration::from_secs(40))
         .map_err(|e| format!("{method} {path} at {addr}: {e}"))
 }
 
@@ -117,6 +142,8 @@ fn serve(a: &Args) -> Result<(), String> {
         compact_min: a.num("compact-min", 10_000)?,
         providers: a.get("providers").map(PathBuf::from),
         allow_remote: a.get("allow-remote").is_some(),
+        token_file: a.get("token-file").map(PathBuf::from),
+        token_on_loopback: a.get("token-on-loopback").is_some(),
         ..server::Options::default()
     };
     let data = opts.data.clone();
@@ -297,6 +324,12 @@ fn main() -> ExitCode {
     let a = Args::parse(&argv[1..]);
     let addr = a.addr();
     let res: Result<ExitCode, String> = (|| {
+        if !matches!(
+            cmd.as_str(),
+            "serve" | "version" | "--version" | "help" | "--help" | "-h"
+        ) {
+            load_client_token(&a)?;
+        }
         Ok(match cmd.as_str() {
             "serve" => {
                 serve(&a)?;

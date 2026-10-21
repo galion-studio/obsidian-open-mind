@@ -3,7 +3,7 @@
 Target milestone: **2026-10-31**. Every item has an owner, a status and a Europe/Zagreb
 timestamp. Status values: `open`, `in progress`, `done`, `blocked`.
 
-Written 2026-10-18T19:06:00+02:00; last updated 2026-10-18T20:55:00+02:00
+Written 2026-10-18T19:06:00+02:00; last updated 2026-10-21T16:00:00+02:00
 
 ## 1. Repository
 
@@ -16,7 +16,7 @@ Written 2026-10-18T19:06:00+02:00; last updated 2026-10-18T20:55:00+02:00
 | 1.5 | `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` present | Hermes | done | 2026-10-18T19:06:00+02:00 |
 | 1.6 | Issue templates and pull request template present | Hermes | done | 2026-10-18T19:06:00+02:00 |
 | 1.7 | CI workflow present: fmt, clippy `-D warnings`, test, no-python, cjk-scan, secrets-scan | Hermes | done | 2026-10-18T19:06:00+02:00 |
-| 1.8 | Toolchain requirement pinned (`rust-version` or `rust-toolchain.toml`) | other worker / owner | open | 2026-10-18T19:06:00+02:00 |
+| 1.8 | Toolchain requirement pinned (`rust-version` or `rust-toolchain.toml`). Done on swarm/ci-toolchain-pin (slot 196): `rust-toolchain.toml` channel 1.99.1, workspace `rust-version = "1.99"` in all 63 crates + omnode, all 12 cargo CI jobs install 1.99.1; guard `crates/galion-realtest/tests/toolchain_pin.rs`; evidence `docs/real-tests/ci-toolchain-pin.md` | Grok Bot (slot 196) | done | 2026-10-21T16:00:00+02:00 |
 | 1.9 | Placeholder contact `__CONTACT_EMAIL__` replaced with a real private address | owner | open | 2026-10-18T19:06:00+02:00 |
 | 1.10 | Project name and slug: "Obsidian Open Mind", `galion-studio/obsidian-open-mind` in README, SECURITY, PUBLISHING, release workflow, Cargo metadata and release kit | Grok Bot | done | 2026-10-18T20:55:00+02:00 |
 | 1.11 | Brand pack in `brand/` (logo, lockups, banner / social preview, icons, `BRAND.md`, `palette.json`, `tokens.css`) | Grok Bot | done | 2026-10-18T20:55:00+02:00 |

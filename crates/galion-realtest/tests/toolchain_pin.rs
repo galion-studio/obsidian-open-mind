@@ -312,6 +312,14 @@ fn toolchain_pin_consistent() {
     let ch = unquote(&toml_get(&tc, "toolchain", "channel").unwrap()).to_string();
     let (a, b, _) = exact_version(&ch).unwrap();
     assert_eq!(env!("CARGO_PKG_RUST_VERSION"), format!("{a}.{b}"));
+    // The cargo running this test (and `cargo xtask`, which spawns $CARGO)
+    // is the pinned one when it comes from a rustup toolchain directory.
+    if let Ok(c) = std::env::var("CARGO") {
+        if c.contains("/toolchains/") {
+            assert!(c.contains(&format!("/toolchains/{ch}-")), "CARGO={c} is not {ch}");
+            eprintln!("CARGO is the pinned {ch} cargo");
+        }
+    }
     // Kept from slot 145 (toolchain-aarch64 4d0c036): cross linkers.
     let cfg = read(&r.join(".cargo/config.toml"));
     for t in [

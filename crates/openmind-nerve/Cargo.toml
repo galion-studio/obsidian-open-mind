@@ -26,3 +26,5 @@ galion-common = { path = "../galion-common" }
 zagreb-time = { path = "../zagreb-time" }
 openmind-schema = { path = "../openmind-schema" }
 toml = { workspace = true }
+# Fuzz/property targets (T5.2) also drive the ingress YAML parser; path crate, no deps.
+tunnel-lint = { path = "../tunnel-lint" }

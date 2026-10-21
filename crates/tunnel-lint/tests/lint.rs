@@ -230,3 +230,15 @@ fn item_styles() {
     // A misaligned key is not taken as the rule's service.
     assert!(parse("ingress:\n- hostname: a\n    service: http://localhost:1\n").is_err());
 }
+
+/// T5.2 fuzz find (cortex-t52-fuzz): a list item shallower than the first
+/// ingress item used to end the list silently, hiding every later rule.
+#[test]
+fn shallower_list_item_is_an_error_not_a_silent_stop() {
+    let text = "ingress:\n  - hostname: a.example.test\n    service: http://localhost:8081\n- hostname: b.example.test\n  service: http://localhost:8083\n- service: http_status:404\n";
+    let e = tunnel_lint::parse(text).unwrap_err();
+    assert_eq!(e.line, 3);
+    // Deeper nested lists inside a rule are still fine.
+    let ok = "ingress:\n  - hostname: a.example.test\n    service: http://localhost:8081\n    originRequest:\n      access:\n        - team\n  - service: http_status:404\n";
+    assert_eq!(tunnel_lint::parse(ok).unwrap().len(), 2);
+}

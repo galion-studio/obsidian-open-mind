@@ -155,7 +155,15 @@ pub fn parse(text: &str) -> Result<Vec<Rule>, ParseError> {
                     }
                     continue;
                 }
-                Some(_) => break,
+                Some(_) => {
+                    // YAML has no list item shallower than the first one under
+                    // the same key; cloudflared refuses such a file. Silently
+                    // stopping here hid every later rule (T5.2 fuzz find).
+                    return Err(ParseError {
+                        line: i,
+                        msg: "list item less indented than the first ingress item".into(),
+                    });
+                }
             }
             if let Some(c) = cur.take() {
                 finish(c, &mut rules)?;

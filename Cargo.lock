@@ -1096,6 +1096,7 @@ dependencies = [
  "serde",
  "serde_json",
  "toml",
+ "tunnel-lint",
  "zagreb-time",
 ]
 
@@ -1698,6 +1699,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "tunnel-lint"
+version = "0.1.0"
+
+[[package]]
 name = "typed-path"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1708,10 +1713,6 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
-
-[[package]]
-name = "tunnel-lint"
-version = "0.1.0"
 
 [[package]]
 name = "unicode-ident"

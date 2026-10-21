@@ -628,7 +628,15 @@ pub fn parse_rfc3339(s: &str) -> Option<u64> {
     if b.len() < 20 || b[4] != b'-' || b[7] != b'-' || !matches!(b[10], b'T' | b't' | b' ') {
         return None;
     }
-    let num = |a: usize, z: usize| -> Option<i64> { s.get(a..z)?.parse().ok() };
+    // Digits only: `str::parse` alone takes a sign, so `+5` or `-1` passed
+    // as a month, hour or offset (T5.2 fuzz find, differential vs util).
+    let num = |a: usize, z: usize| -> Option<i64> {
+        let t = s.get(a..z)?;
+        if !t.bytes().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        t.parse().ok()
+    };
     let (y, mo, d) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
     let (h, mi, se) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || se > 60 {

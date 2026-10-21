@@ -48,8 +48,10 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
 5. **Correlation**: signals are grouped by cause (`group`, `edge`, `ddos:*`,
    `scan:*`, `stack-wide` when 3 or more groups fail hard) into incidents with
    stable ids, a "why" and a "next step". Incidents resolve after 2 quiet cycles.
-6. **Score**: 100 minus listed deductions, giving grade A-F. The self-eval passes only
-   with no error incident, no error vulnerability, no probe errors and a score of 70 or more.
+6. **Score** (v2, `src/score.rs`): 100 minus listed deductions, giving grade A-F. Incidents are scored once
+   per cause; cortex findings (vulnerability, bleeding, ddos) only when no open incident already scores them,
+   and once per `cause`. The self-eval passes only with no error incident, no uncovered error vulnerability or
+   ddos finding, no probe errors and a score of 70 or more.
 7. Reflexes (restart of allowlisted units) only with `NERVE_REFLEX=1` and
    the mode switch; observe-only by default.
 

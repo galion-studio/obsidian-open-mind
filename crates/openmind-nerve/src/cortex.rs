@@ -227,7 +227,8 @@ pub struct Cortex {
     pub ddos: Vec<Value>,
     pub ddos_firing: bool,
     /// Findings of kind [`FindingKind::Ddos`] (credential floods and the
-    /// like). Not scored by themselves: pair them with a [`Signal`].
+    /// like). Scored on their own unless an open incident (a [`Signal`] with
+    /// the same cause) already scores them; see [`crate::score`].
     pub ddos_findings: Vec<Finding>,
     pub signals: Vec<Signal>,
     pub exposure: Value,

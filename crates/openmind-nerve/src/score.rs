@@ -2,28 +2,54 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Self-eval scoring: one number, every point explained.
+//! Self-eval scoring (score v2, cortex plan T3.3): one number, every point
+//! explained.
 //!
 //! Start at 100 and deduct. Incidents are scored once per incident (that is
 //! what correlation is for: five signals of one cause cost one deduction,
-//! not five). Cortex findings that belong to an incident are not scored
-//! again.
+//! not five). Cortex findings are scored only when no open incident already
+//! stands for them, and then once per `cause`.
 //!
 //! | what | points |
 //! |---|---|
 //! | open incident, critical | 25 (+3 per extra component, max +9) |
 //! | open incident, error | 15 (+2 per extra component, max +6) |
 //! | open incident, warn | 5 |
+//! | ddos critical / error / warn (not in an incident) | 15 / 10 / 4 |
 //! | vulnerability error / warn (not in an incident) | 10 / 4 |
 //! | bleeding error / warn (not in an incident) | 8 / 3 |
 //! | probe error (nerve blind spot) | 5 each, max 15 |
 //! | nerve self-check warn (RSS, cycle time) | 3 each |
 //!
+//! # No double counting (v2)
+//!
+//! A finding is **covered** (costs nothing here) when an open incident
+//! already scores it:
+//!
+//! 1. the incident's cause equals the finding's `cause` (the sensor sent a
+//!    [`crate::incident::Signal`] with the same cause, e.g. `ssh-flood`), or
+//! 2. the incident is an absorbing one, `ddos:<stream>` or `stack-wide`,
+//!    and lists the finding's component: correlation pulled that
+//!    component's signals into it, so its findings belong there too.
+//!
+//! Uncovered findings that share a `cause` (an ssh credential flood plus
+//! the auth-log disk bleed it causes, both `ssh-flood`) are one deduction:
+//! the worst finding's points, the others named in `why`. Findings without
+//! a cause are scored one by one, as in v1.
+//!
+//! DDoS-kind findings ([`crate::cortex::FindingKind::Ddos`]: credential
+//! floods, per-hostname edge rate, pushed Gaia ddos events) score on their
+//! own when no signal turned them into an incident; with a signal they are
+//! scored once, as the incident. The per-stream request-rate verdicts
+//! (`ddos.streams`) are never scored directly: the `ddos` sensor turns
+//! each `flood` / `elevated` into a `ddos:<stream>` signal and so an
+//! incident.
+//!
 //! Grade: A >= 90, B >= 80, C >= 70, D >= 55, F below.
-//! `pass` = no critical/error incident, no error-level vulnerability, no
-//! probe error, and score >= 70.
+//! `pass` = no critical/error incident, no uncovered error-level
+//! vulnerability or ddos finding, no probe error, and score >= 70.
 
-use crate::cortex::Cortex;
+use crate::cortex::{Cortex, Finding, FindingKind};
 use crate::incident::{Incident, Sev};
 use serde_json::{json, Value};
 
@@ -34,6 +60,15 @@ pub struct Deduction {
     pub why: String,
 }
 
+/// A finding that cost nothing because an open incident already scores it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Covered {
+    /// `<kind>:<finding id>`.
+    pub finding: String,
+    /// The cause of the incident that scores it.
+    pub by: String,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Score {
     pub score: u32,
@@ -41,13 +76,16 @@ pub struct Score {
     pub pass: bool,
     pub verdict: String,
     pub deductions: Vec<Deduction>,
+    /// Findings scored through their incident (v2 no-double-count trail).
+    pub covered: Vec<Covered>,
 }
 
 impl Score {
     pub fn to_json(&self) -> Value {
         json!({"score": self.score, "grade": self.grade, "pass": self.pass, "verdict": self.verdict,
                "deductions": self.deductions.iter().map(|d| json!({"points": d.points, "what": d.what, "why": d.why})).collect::<Vec<_>>(),
-               "method": "100 minus deductions; incidents scored once per correlated cause; see score.rs"})
+               "covered": self.covered.iter().map(|c| json!({"finding": c.finding, "by": c.by})).collect::<Vec<_>>(),
+               "method": "score v2: 100 minus deductions; incidents scored once per correlated cause; findings only when no open incident scores them, once per cause; see score.rs"})
     }
 }
 
@@ -59,6 +97,43 @@ pub fn grade(s: u32) -> &'static str {
         55..=69 => "D",
         _ => "F",
     }
+}
+
+/// Points for one finding that no incident covers (table in the module doc).
+pub fn finding_points(kind: FindingKind, sev: Sev) -> u32 {
+    match (kind, sev) {
+        (_, Sev::Info) => 0,
+        (FindingKind::Ddos, Sev::Critical) => 15,
+        (FindingKind::Ddos, Sev::Error) => 10,
+        (FindingKind::Ddos, Sev::Warn) => 4,
+        (FindingKind::Vulnerability, Sev::Critical | Sev::Error) => 10,
+        (FindingKind::Vulnerability, Sev::Warn) => 4,
+        (FindingKind::Bleeding, Sev::Critical | Sev::Error) => 8,
+        (FindingKind::Bleeding, Sev::Warn) => 3,
+    }
+}
+
+/// Does an uncovered finding of this kind and severity block `pass`?
+/// Error-level vulnerabilities (as in v1) and error-level DDoS findings
+/// (an active flood no incident tracks); bleeding only costs points.
+pub fn finding_blocks(kind: FindingKind, sev: Sev) -> bool {
+    sev >= Sev::Error && matches!(kind, FindingKind::Vulnerability | FindingKind::Ddos)
+}
+
+/// The open incident that already scores `f`, if any (rules in the module doc).
+pub fn covering<'a>(f: &Finding, incidents: &[&'a Incident]) -> Option<&'a Incident> {
+    if let Some(c) = &f.cause {
+        if let Some(i) = incidents.iter().find(|i| &i.cause == c) {
+            return Some(i);
+        }
+    }
+    incidents
+        .iter()
+        .find(|i| {
+            (i.cause.starts_with("ddos:") || i.cause == "stack-wide")
+                && i.components.contains(&f.component)
+        })
+        .copied()
 }
 
 pub fn score(
@@ -93,43 +168,72 @@ pub fn score(
             ),
         });
     }
-    let in_incident = |c: &Option<String>| {
-        c.as_ref()
-            .is_some_and(|c| incidents.iter().any(|i| &i.cause == c))
-    };
-    for v in &cx.vulnerabilities {
-        if in_incident(&v.cause) {
+    // Uncovered findings, grouped by cause in first-seen order
+    // (vulnerabilities, bleeding, ddos); no cause = a group of one.
+    let mut covered: Vec<Covered> = vec![];
+    let mut groups: Vec<(Option<&str>, Vec<&Finding>)> = vec![];
+    let mut blocking_finding = false;
+    for f in cx.findings() {
+        if let Some(i) = covering(f, incidents) {
+            if f.sev > Sev::Info {
+                covered.push(Covered {
+                    finding: format!("{}:{}", f.kind.as_str(), f.id),
+                    by: i.cause.clone(),
+                });
+            }
             continue;
         }
-        let p = match v.sev {
-            Sev::Critical | Sev::Error => 10,
-            Sev::Warn => 4,
-            Sev::Info => 0,
-        };
-        if p > 0 {
-            d.push(Deduction {
-                points: p,
-                what: format!("vulnerability ({}): {}", v.sev.as_str(), v.title),
-                why: v.evidence.join("; "),
-            });
+        if finding_points(f.kind, f.sev) == 0 {
+            continue;
+        }
+        blocking_finding |= finding_blocks(f.kind, f.sev);
+        match f
+            .cause
+            .as_deref()
+            .and_then(|c| groups.iter_mut().find(|g| g.0 == Some(c)))
+        {
+            Some(g) => g.1.push(f),
+            None => groups.push((f.cause.as_deref(), vec![f])),
         }
     }
-    for b in &cx.bleeding {
-        if in_incident(&b.cause) {
-            continue;
+    for (cause, fs) in &groups {
+        let worst = fs
+            .iter()
+            .copied()
+            .reduce(|a, b| {
+                if finding_points(b.kind, b.sev) > finding_points(a.kind, a.sev) {
+                    b
+                } else {
+                    a
+                }
+            })
+            .expect("groups are never empty");
+        let mut why = worst.evidence.join("; ");
+        if fs.len() > 1 {
+            let others: Vec<String> = fs
+                .iter()
+                .filter(|f| !std::ptr::eq(**f, worst))
+                .map(|f| format!("{} {} ({})", f.kind.as_str(), f.id, f.sev.as_str()))
+                .collect();
+            if !why.is_empty() {
+                why.push_str("; ");
+            }
+            why.push_str(&format!(
+                "same cause `{}`, scored once: also {}",
+                cause.unwrap_or_default(),
+                others.join(", ")
+            ));
         }
-        let p = match b.sev {
-            Sev::Critical | Sev::Error => 8,
-            Sev::Warn => 3,
-            Sev::Info => 0,
-        };
-        if p > 0 {
-            d.push(Deduction {
-                points: p,
-                what: format!("bleeding ({}): {}", b.sev.as_str(), b.title),
-                why: b.evidence.join("; "),
-            });
-        }
+        d.push(Deduction {
+            points: finding_points(worst.kind, worst.sev),
+            what: format!(
+                "{} ({}): {}",
+                worst.kind.as_str(),
+                worst.sev.as_str(),
+                worst.title
+            ),
+            why,
+        });
     }
     let pe = (probe_errors.len() as u32 * 5).min(15);
     if pe > 0 {
@@ -153,10 +257,7 @@ pub fn score(
     let total: u32 = d.iter().map(|x| x.points).sum();
     let s = 100u32.saturating_sub(total);
     let blocking = incidents.iter().any(|i| i.sev >= Sev::Error)
-        || cx
-            .vulnerabilities
-            .iter()
-            .any(|v| v.sev >= Sev::Error && !in_incident(&v.cause))
+        || blocking_finding
         || !probe_errors.is_empty();
     let pass = !blocking && s >= 70;
     let crit = incidents.iter().filter(|i| i.sev == Sev::Critical).count();
@@ -166,7 +267,7 @@ pub fn score(
     } else {
         let state = if crit > 0 {
             "failing"
-        } else if err > 0 {
+        } else if err > 0 || blocking_finding {
             "degraded"
         } else {
             "degrading"
@@ -179,11 +280,17 @@ pub fn score(
         if incidents.len() > 4 {
             parts.push(format!("+{} more", incidents.len() - 4));
         }
+        let ddos_n = cx
+            .ddos_findings
+            .iter()
+            .filter(|v| v.sev > Sev::Info)
+            .count();
         format!(
-            "{state}: {} open incident(s) ({crit} critical, {err} error), {} vulnerability finding(s), {} bleeding point(s). {}",
+            "{state}: {} open incident(s) ({crit} critical, {err} error), {} vulnerability finding(s), {} bleeding point(s){}. {}",
             incidents.len(),
             cx.vulnerabilities.iter().filter(|v| v.sev > Sev::Info).count(),
             cx.bleeding.iter().filter(|v| v.sev > Sev::Info).count(),
+            if ddos_n > 0 { format!(", {ddos_n} ddos finding(s)") } else { String::new() },
             parts.join(" | ")
         )
     };
@@ -193,13 +300,16 @@ pub fn score(
         pass,
         verdict,
         deductions: d,
+        covered,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cortex::{Finding, FindingKind};
+    use crate::cortex::Input;
+    use crate::incident::{Correlator, Explain, Signal};
+    use crate::sensors::{Sensor, Sensors, Sink};
     use std::collections::BTreeSet;
 
     fn inc(cause: &str, sev: Sev, comps: &[&str]) -> Incident {
@@ -265,5 +375,196 @@ mod tests {
             score(&[&c], &Cortex::default(), &[], &[]).score,
             100 - 25 - 9
         );
+    }
+
+    fn ddos(id: &str, sev: Sev, comp: &str) -> Finding {
+        Finding::new(FindingKind::Ddos, id, sev, comp, format!("{id} t"))
+            .with_evidence(vec![format!("{id} evidence")])
+    }
+
+    #[test]
+    fn ddos_finding_without_incident_scores_on_its_own_and_blocks() {
+        let mut cx = Cortex::default();
+        cx.ddos_findings
+            .push(ddos("sshd-credential-flood", Sev::Critical, "host").with_cause("ssh-flood"));
+        let s = score(&[], &cx, &[], &[]);
+        assert_eq!((s.score, s.grade), (85, "B"), "{:?}", s.deductions);
+        assert!(!s.pass, "an untracked critical flood blocks pass");
+        assert_eq!(
+            s.deductions[0].what,
+            "ddos (critical): sshd-credential-flood t"
+        );
+        assert_eq!(s.deductions[0].why, "sshd-credential-flood evidence");
+        assert!(
+            s.verdict
+                .starts_with("degraded: 0 open incident(s) (0 critical, 0 error), 0 vulnerability finding(s), 0 bleeding point(s), 1 ddos finding(s)."),
+            "{}",
+            s.verdict
+        );
+        for (sev, pts) in [(Sev::Error, 10), (Sev::Warn, 4), (Sev::Info, 0)] {
+            let mut cx = Cortex::default();
+            cx.ddos_findings.push(ddos("ev-gaia-x", sev, "gaia"));
+            let s = score(&[], &cx, &[], &[]);
+            assert_eq!(s.score, 100 - pts, "{sev:?}");
+            assert_eq!(s.pass, sev < Sev::Error, "{sev:?}");
+        }
+    }
+
+    #[test]
+    fn ddos_finding_with_its_signal_is_scored_once_as_the_incident() {
+        let i = inc("ssh-flood", Sev::Critical, &["host"]);
+        let mut cx = Cortex::default();
+        cx.ddos_findings
+            .push(ddos("sshd-credential-flood", Sev::Critical, "host").with_cause("ssh-flood"));
+        cx.bleeding.push(
+            Finding::new(
+                FindingKind::Bleeding,
+                "sshd-auth-log-growth",
+                Sev::Warn,
+                "host",
+                "auth log grew",
+            )
+            .with_cause("ssh-flood"),
+        );
+        let s = score(&[&i], &cx, &[], &[]);
+        assert_eq!(s.score, 75, "{:?}", s.deductions);
+        assert_eq!(s.deductions.len(), 1);
+        assert_eq!(
+            s.covered,
+            [
+                Covered {
+                    finding: "bleeding:sshd-auth-log-growth".into(),
+                    by: "ssh-flood".into()
+                },
+                Covered {
+                    finding: "ddos:sshd-credential-flood".into(),
+                    by: "ssh-flood".into()
+                }
+            ]
+        );
+        assert_eq!(s.to_json()["covered"][1]["by"], "ssh-flood");
+    }
+
+    #[test]
+    fn uncovered_findings_sharing_a_cause_cost_one_deduction() {
+        let mut cx = Cortex::default();
+        cx.bleeding.push(
+            Finding::new(
+                FindingKind::Bleeding,
+                "sshd-auth-log-growth",
+                Sev::Error,
+                "host",
+                "auth log grew",
+            )
+            .with_cause("ssh-flood"),
+        );
+        cx.ddos_findings
+            .push(ddos("sshd-credential-flood", Sev::Error, "host").with_cause("ssh-flood"));
+        // Two causeless warns stay two deductions (v1 behaviour).
+        for id in ["a", "b"] {
+            cx.vulnerabilities.push(Finding::new(
+                FindingKind::Vulnerability,
+                id,
+                Sev::Warn,
+                "host",
+                id,
+            ));
+        }
+        let s = score(&[], &cx, &[], &[]);
+        assert_eq!(s.score, 100 - 10 - 4 - 4, "{:?}", s.deductions);
+        let top = &s.deductions[0];
+        assert_eq!(top.what, "ddos (error): sshd-credential-flood t");
+        assert_eq!(
+            top.why,
+            "sshd-credential-flood evidence; same cause `ssh-flood`, scored once: also bleeding sshd-auth-log-growth (error)"
+        );
+        assert!(!s.pass);
+    }
+
+    #[test]
+    fn absorbing_incidents_cover_their_components_findings() {
+        let flood = inc("ddos:tuner", Sev::Critical, &["tuner"]);
+        let wide = inc("stack-wide", Sev::Critical, &["a", "b", "c"]);
+        let mut cx = Cortex::default();
+        cx.bleeding.push(
+            Finding::new(
+                FindingKind::Bleeding,
+                "errors-tuner",
+                Sev::Error,
+                "tuner",
+                "5xx",
+            )
+            .with_cause("tuner"),
+        );
+        cx.bleeding.push(
+            Finding::new(FindingKind::Bleeding, "restarts-b", Sev::Error, "b", "loop")
+                .with_cause("b"),
+        );
+        cx.bleeding.push(
+            Finding::new(FindingKind::Bleeding, "memory-z", Sev::Warn, "z", "rss").with_cause("z"),
+        );
+        let s = score(&[&flood, &wide], &cx, &[], &[]);
+        assert_eq!(s.score, 100u32.saturating_sub(25 + 25 + 6 + 3));
+        let by: Vec<&str> = s.covered.iter().map(|c| c.by.as_str()).collect();
+        assert_eq!(by, ["ddos:tuner", "stack-wide"]);
+        assert!(s.deductions.iter().any(|d| d.what.contains("rss")));
+    }
+
+    #[test]
+    fn stream_verdicts_are_never_scored_directly() {
+        let mut cx = Cortex::default();
+        cx.ddos.push(json!({"stream": "tuner", "level": "flood"}));
+        cx.ddos_firing = true;
+        let s = score(&[], &cx, &[], &[]);
+        assert_eq!((s.score, s.pass), (100, true));
+    }
+
+    /// An S2-style sensor: a ddos finding, optionally with its signal.
+    struct Flood {
+        signal: bool,
+    }
+
+    impl Sensor for Flood {
+        fn name(&self) -> &'static str {
+            "flood"
+        }
+        fn sense(&mut self, _: &Input<'_>, out: &mut Sink<'_>) {
+            out.finding(
+                ddos("sshd-credential-flood", Sev::Critical, "host").with_cause("ssh-flood"),
+            );
+            if self.signal {
+                out.signal(Signal::new("ssh-flood", "host", Sev::Critical, "flood"));
+            }
+        }
+    }
+
+    /// Sensors -> Correlator -> score, the engine's order.
+    fn pipeline(signal: bool) -> Score {
+        let mut s = Sensors::empty();
+        s.add(Flood { signal });
+        let logs = crate::logscan::LogInsights::default();
+        let cx = s.run(&Input::new(1_792_520_000, &[], &logs));
+        let mut c = Correlator::default();
+        let explain = |cause: &str, _: &[Signal]| Explain {
+            title: format!("{cause} title"),
+            ..Default::default()
+        };
+        c.update(1_792_520_000, cx.signals.clone(), &explain);
+        let open = c.open_sorted();
+        score(&open, &cx, &[], &[])
+    }
+
+    #[test]
+    fn pipeline_scores_a_flood_exactly_once_with_or_without_signal() {
+        let with = pipeline(true);
+        assert_eq!(with.score, 75, "{:?}", with.deductions);
+        assert_eq!(with.deductions.len(), 1);
+        assert!(with.deductions[0].what.starts_with("critical incident: "));
+        assert_eq!(with.covered.len(), 1);
+        let without = pipeline(false);
+        assert_eq!(without.score, 85, "{:?}", without.deductions);
+        assert_eq!(without.deductions.len(), 1);
+        assert!(without.deductions[0].what.starts_with("ddos (critical)"));
+        assert!(!with.pass && !without.pass);
     }
 }

@@ -87,6 +87,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `openmind-mcp-stack` | system | stack-schema | APOLLO | stdio MCP stack_status: serves knowledge about the stack (was MINERVA) |
 | `openmind-memory` | system | memory-gateway | APOLLO | memory store and gateway (:8420) |
 | `openmind-nerve` | system | nerve | AETHER | nerve event archive: the signal lines are AETHER (was APOLLO) |
+| `tunnel-lint` | system | nerve | AETHER | pending Slavik: read-only cloudflared ingress lint (tunnel-audit d35ef73), used by the nerve ingress-lint sensor |
 | `openmind-persona` | system | persona-plex | ELEUTHIA | persona TOML documents |
 | `openmind-provider` | system | vram-pool | POSEIDON | compute provider registry, approval state, GPU/LAN/CPU fallback and route (was HEPHAESTUS) |
 | `openmind-queue` | system | queues | POSEIDON | pending Slavik (S2 A/B): durable job queue, quotas, spend caps (numbers only), VRAM routing; the crate declares POSEIDON (option A) |

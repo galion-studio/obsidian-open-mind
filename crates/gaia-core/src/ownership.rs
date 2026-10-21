@@ -162,6 +162,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("repo-check", S(System::RepoCheck), "self-eval: SPDX, licence, secrets, no-Python, Zagreb time"),
     c("room", S(System::Room), "read-only page of the operator files agents share"),
     c("tuner", S(System::Tuner), "ukulele tuner static server (:8650)"),
+    c("tunnel-lint", S(System::Nerve), "pending Slavik: read-only cloudflared ingress lint (tunnel-audit d35ef73), used by the nerve ingress-lint sensor"),
     c("zagreb-time", S(System::ZagrebClock), "Europe/Zagreb RFC 3339 with explicit offset (was GAIA)"),
 ];
 
@@ -342,9 +343,10 @@ mod tests {
         }
         // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3,
         // galion-chatterbox from voice-rust via candle-zip-fix (slot 154).
+        // tunnel-lint from tunnel-audit (main-staging 2026-10-21).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            52
+            53
         );
     }
 
@@ -388,7 +390,8 @@ mod tests {
                 "galion-wallstreet",
                 "hermes-bench",
                 "hermes-tools",
-                "openmind-queue"
+                "openmind-queue",
+                "tunnel-lint"
             ]
         );
         assert!(crate_owner("gaia-live")

@@ -49,15 +49,22 @@
         "error coverage tuner-quick",
         "error coverage voice-worker",
         "info alerts-channel galion-nerve",
+        "info bleeding galion-desk",
         "info mode galion-nerve",
-        "info push galion-nerve"
+        "info push galion-nerve",
+        "warn vulnerability host"
       ],
-      "deductions": [],
-      "findings": [],
+      "deductions": [
+        "4 vulnerability (warn): # ssh invalid-user attempts in # s (account enumeration)"
+      ],
+      "findings": [
+        "bleeding:memory-heavy-galion-desk info",
+        "vulnerabilities:sshd-invalid-user warn"
+      ],
       "grade": "A",
       "incidents": [],
       "pass": false,
-      "score": 100,
+      "score": 96,
       "system": "healthy"
     },
     "flaps": [],
@@ -78,11 +85,14 @@
         "error coverage tuner-quick",
         "error coverage voice-worker",
         "info alerts-channel galion-nerve",
+        "info bleeding galion-desk",
         "info mode galion-nerve",
         "info push galion-nerve"
       ],
       "deductions": [],
-      "findings": [],
+      "findings": [
+        "bleeding:memory-heavy-galion-desk info"
+      ],
       "grade": "A",
       "incidents": [],
       "pass": false,
@@ -91,11 +101,11 @@
     },
     "hold_cycles": 20,
     "timeline": [
-      "100 A",
-      "100 A",
-      "100 A",
-      "100 A",
-      "100 A",
+      "96 A",
+      "96 A",
+      "96 A",
+      "96 A",
+      "96 A",
       "100 A",
       "100 A",
       "100 A",

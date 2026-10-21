@@ -11,7 +11,7 @@
 //!
 //! Env: CORTEX_CONFIG, CORTEX_LISTEN, CORTEX_SOCKET, CORTEX_DATA_DIR, CORTEX_NERVE_URL,
 //! CORTEX_PULL_EVERY_S (0 = off), CORTEX_ACTIONS (dry-run|live), CORTEX_COALESCE_MS,
-//! CORTEX_OUTBOX, CORTEX_LLM_ENABLED (default off).
+//! CORTEX_OUTBOX, CORTEX_INCIDENT_QUIET_S (one-shot incidents, default 1800), CORTEX_LLM_ENABLED (default off).
 
 use gaia_cortex::config::Config;
 use gaia_cortex::engine::{now_secs, run_decider};
@@ -248,7 +248,9 @@ fn subscribe(
     tx: Sender<Vec<Event>>,
     cx: Arc<Mutex<gaia_cortex::engine::Cortex>>,
 ) {
-    use gaia_cortex::nerve::{nerve_instance, resume_since, stream_once, StreamEnd};
+    use gaia_cortex::nerve::{
+        nerve_incidents, nerve_instance, resume_since, stream_once, StreamEnd,
+    };
     let mut since: Option<u64> = None;
     let mut instance: Option<String> = None;
     let mut backoff = Duration::from_secs(1);
@@ -268,8 +270,32 @@ fn subscribe(
                 .nerve_restarted();
         }
         since = s;
+        // First connect: start at the nerve's current seq (read before the
+        // incident snapshot below), so an incident opened between the
+        // snapshot and the stream is replayed instead of falling in between.
+        if since.is_none() {
+            since = now.as_ref().map(|(_, q)| *q);
+        }
         if let Some((st, _)) = now {
             instance = Some(st);
+        }
+        // Backfill: open nerve incidents the cortex has not seen (opened
+        // before it was listening), and resolve the ones the nerve dropped
+        // while the stream was down (slot 237).
+        if let Some(snap) = nerve_incidents(addr, Duration::from_secs(3)) {
+            let evs = cx
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .backfill(&snap, now_secs());
+            if !evs.is_empty() {
+                eprintln!(
+                    "gaia-cortex: nerve incident backfill: {} event(s) from GET /incidents",
+                    evs.len()
+                );
+                if tx.send(evs).is_err() {
+                    return;
+                }
+            }
         }
         let started = std::time::Instant::now();
         let mut got = 0u64;

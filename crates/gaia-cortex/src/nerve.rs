@@ -312,6 +312,24 @@ pub fn nerve_instance(addr: SocketAddr, timeout: Duration) -> Option<(String, u6
     Some((started, seq))
 }
 
+/// The nerve engine's incident view (`GET /incidents`: `{"open": [...],
+/// "resolved": [...]}`), read on every stream (re)connect so incidents the
+/// nerve opened before the cortex was listening are not missed (slot 237:
+/// seen live, mouth `inc-d7320b38` and `inc-5d566881` opened before the
+/// cortex started never reached it). `None` when the nerve does not answer
+/// 200 with an `open` array in `timeout`.
+pub fn nerve_incidents(addr: SocketAddr, timeout: Duration) -> Option<serde_json::Value> {
+    let host = addr.to_string();
+    let req = ClientRequest::get("/incidents", &host);
+    let r = send(addr, &req, timeout, 4 * 1024 * 1024).ok()?;
+    if r.status != 200 {
+        return None;
+    }
+    let v: serde_json::Value = serde_json::from_str(&r.text()).ok()?;
+    v.get("open")?.as_array()?;
+    Some(v)
+}
+
 /// Resume point after a (re)connect. `known` is the nerve instance seen on
 /// the previous connection, `now` the one answering now. Returns the
 /// `since` to use and whether the nerve restarted in between.

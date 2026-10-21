@@ -399,14 +399,26 @@ impl Rules {
                 }
             }
             EventKind::NerveIncident => {
-                let resolved = s.events.iter().any(|e| e.kind.ends_with("resolved"));
+                let resolved = s
+                    .events
+                    .last()
+                    .is_some_and(|e| e.kind.ends_with("resolved"));
+                let backfill = s
+                    .events
+                    .iter()
+                    .any(|e| e.data.get("backfill") == Some(&Value::Bool(true)));
                 let v = Verdict::new(
                     "R11-nerve-incident",
                     sev,
                     format!(
-                        "nerve engine incident {} {}",
+                        "nerve engine incident {} {}{}",
                         s.key,
-                        if resolved { "resolved" } else { "open" }
+                        if resolved { "resolved" } else { "open" },
+                        match (backfill, resolved) {
+                            (false, _) => "",
+                            (true, false) => " (backfill: opened before the cortex was listening)",
+                            (true, true) => " (reconciled: no longer open on the nerve)",
+                        }
                     ),
                 );
                 if resolved || sev == Sev::Info {

@@ -30,6 +30,12 @@ pub struct Config {
     pub coalesce_ms: u64,
     /// Same unit, same rule: one decision per this many seconds.
     pub decision_cooldown_s: u64,
+    /// One-shot subjects (process exits, task results, unclassified
+    /// processes, other events) carry no "cleared" signal: their incident
+    /// resolves after this many seconds without a new event. Units, nerve
+    /// incidents and thresholds resolve only when their own signal clears
+    /// (T5.1 F3: never because other subjects had bursts).
+    pub incident_quiet_s: u64,
     /// Cortex-side restart cap per unit per hour (the nerve has its own).
     pub restarts_per_unit_hour: u32,
     /// Failures of one unit within `flap_window_s` that open the circuit.
@@ -61,6 +67,7 @@ impl Default for Config {
             actions: "dry-run".into(),
             coalesce_ms: 1500,
             decision_cooldown_s: 120,
+            incident_quiet_s: 1800,
             restarts_per_unit_hour: 3,
             flap_failures: 3,
             flap_window_s: 900,
@@ -164,6 +171,9 @@ impl Config {
         if let Some(v) = get("CORTEX_COALESCE_MS").and_then(|v| v.parse().ok()) {
             c.coalesce_ms = v;
         }
+        if let Some(v) = get("CORTEX_INCIDENT_QUIET_S").and_then(|v| v.parse().ok()) {
+            c.incident_quiet_s = v;
+        }
         if let Some(v) = get("CORTEX_NERVE_STREAM") {
             c.nerve_stream = v != "0" && v != "false";
         }
@@ -219,6 +229,7 @@ impl Config {
             }
         }
         self.coalesce_ms = self.coalesce_ms.min(60_000);
+        self.incident_quiet_s = self.incident_quiet_s.clamp(1, 7 * 86_400);
         Ok(())
     }
 }

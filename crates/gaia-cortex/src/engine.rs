@@ -21,8 +21,8 @@ use crate::nerve::NerveLink;
 use crate::rules::{subject_key, Limits, Outcome, Rules, Subject, Verdict};
 use crate::sink::{Escalations, Jsonl};
 use nerve_cortex_contract::{
-    ActionKind, ActionRequest, ActionStatus, DecidedBy, Event, EventKind, CONTRACT_VERSION,
-    CORTEX_SOURCE,
+    sev_rank, ActionKind, ActionRequest, ActionStatus, DecidedBy, Event, EventKind,
+    CONTRACT_VERSION, CORTEX_SOURCE,
 };
 use openmind_nerve::incident::{correlate_with, Correlator, Explain, Sev, Signal};
 use serde_json::{json, Value};
@@ -32,6 +32,58 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const SEEN_MAX: usize = 8192;
+const KEEP_RESOLVED: usize = 50;
+
+/// A subject whose last signal was above info and has not cleared yet.
+#[derive(Debug, Clone)]
+struct Active {
+    sig: Signal,
+    /// The incident cause it was last grouped into (its own key, or
+    /// `stack-wide` when it failed together with 2+ others).
+    cause: String,
+    /// Last batch that carried an event of this subject.
+    last: u64,
+    /// Units, nerve incidents and thresholds have a "cleared" signal and wait
+    /// for it; one-shot subjects expire after `incident_quiet_s`.
+    sticky: bool,
+}
+
+/// Subjects with an explicit "it is fine again" signal.
+fn sticky(key: &str) -> bool {
+    key.starts_with("unit:") || key.starts_with("nerve-incident:") || key.starts_with("threshold:")
+}
+
+/// Does this burst clear the subject's own signal? Only an info-level
+/// burst can, and for the stateful kinds only the matching "fine again"
+/// event: a unit back to active/running (or cleanly stopped), a nerve
+/// incident whose last event is `incident.resolved`, a threshold back under.
+fn clears(s: &Subject, sev: Sev) -> bool {
+    if sev > Sev::Info {
+        return false;
+    }
+    if s.unit.is_some() {
+        return s.recovered()
+            || (s.failures() == 0
+                && s.events.iter().any(|e| {
+                    e.kind() == EventKind::UnitState
+                        && matches!(e.to_state(), Some("inactive" | "dead"))
+                }));
+    }
+    if s.key.starts_with("nerve-incident:") {
+        return s
+            .events
+            .last()
+            .is_some_and(|e| e.kind.ends_with("resolved"));
+    }
+    true
+}
+
+fn data_str<'a>(e: &'a Event, k: &str) -> Option<&'a str> {
+    e.data
+        .get(k)
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct Stats {
@@ -55,6 +107,19 @@ pub struct Stats {
     pub actions_unknown: u64,
     /// Nerve restarts seen by the stream subscriber (seq went back / new instance).
     pub nerve_restarts: u64,
+    /// Nerve incidents synthesized from `GET /incidents` on (re)connect:
+    /// opened before the cortex listened (`backfilled`), or gone from the
+    /// nerve while the cortex was not listening (`reconciled`).
+    pub nerve_incidents_backfilled: u64,
+    pub nerve_incidents_reconciled: u64,
+    /// `incident.opened` for a nerve incident id the cortex already holds.
+    pub nerve_incidents_duplicate: u64,
+    /// Same cause, new nerve id (nerve restart): followed, not re-alerted.
+    pub nerve_incidents_remapped: u64,
+    /// Cortex incidents resolved because their own signal cleared / their
+    /// one-shot subject stayed quiet for `incident_quiet_s`.
+    pub incidents_resolved_cleared: u64,
+    pub incidents_resolved_expired: u64,
     pub alerts: u64,
     pub alerts_to_nerve: u64,
     pub escalations: u64,
@@ -80,6 +145,14 @@ pub struct Cortex {
     seen_order: VecDeque<u64>,
     last_said: BTreeMap<(String, &'static str), u64>,
     seq: u64,
+    /// Last non-info signal per subject that has not cleared yet (F3).
+    active: BTreeMap<String, Active>,
+    /// Nerve incident id -> nerve cause, for every open nerve incident the
+    /// cortex knows (`incident.resolved` carries only the id).
+    nerve_incs: BTreeMap<String, String>,
+    /// Why recent cortex incidents resolved (id -> cleared / expired /
+    /// quiet), newest last.
+    resolved_by: VecDeque<(String, &'static str)>,
 }
 
 pub fn now_secs() -> u64 {
@@ -124,6 +197,9 @@ impl Cortex {
             seen_order: VecDeque::new(),
             last_said: BTreeMap::new(),
             seq: 0,
+            active: BTreeMap::new(),
+            nerve_incs: BTreeMap::new(),
+            resolved_by: VecDeque::new(),
             cfg,
         }
     }
@@ -166,12 +242,175 @@ impl Cortex {
                     self.seen.remove(&o);
                 }
             }
+            let Some(e) = self.track_nerve_incident(e) else {
+                continue;
+            };
             out.push(e);
         }
         out
     }
 
+    /// Nerve engine incidents: remember id -> cause, give `incident.resolved`
+    /// (which carries only the id) its cause so it lands on the same
+    /// subject, drop an `incident.opened` the cortex already holds (stream
+    /// replay after a backfill, or the reverse), and follow a nerve restart's
+    /// new id for a cause that is still open without alerting again.
+    fn track_nerve_incident(&mut self, mut e: Event) -> Option<Event> {
+        if e.kind() != EventKind::NerveIncident {
+            return Some(e);
+        }
+        let Some(id) = data_str(&e, "id").map(str::to_string) else {
+            return Some(e);
+        };
+        let resolved = e.kind.ends_with("resolved");
+        if resolved {
+            let cause = match data_str(&e, "cause") {
+                Some(c) => Some(c.to_string()),
+                None => self.nerve_incs.get(&id).cloned(),
+            };
+            self.nerve_incs.remove(&id);
+            if let (Some(c), Some(o)) = (cause, e.data.as_object_mut()) {
+                o.entry("cause").or_insert(Value::String(c));
+            }
+            return Some(e);
+        }
+        if self.nerve_incs.contains_key(&id) {
+            if e.kind.ends_with("opened") {
+                self.stats.nerve_incidents_duplicate += 1;
+                return None;
+            }
+            return Some(e);
+        }
+        let Some(cause) = data_str(&e, "cause").map(str::to_string) else {
+            return Some(e);
+        };
+        let old: Vec<String> = self
+            .nerve_incs
+            .iter()
+            .filter(|(_, c)| **c == cause)
+            .map(|(i, _)| i.clone())
+            .collect();
+        self.nerve_incs.insert(id, cause);
+        if !old.is_empty() {
+            for o in old {
+                self.nerve_incs.remove(&o);
+            }
+            self.stats.nerve_incidents_remapped += 1;
+            return None;
+        }
+        Some(e)
+    }
+
+    /// Events that bring the cortex up to date with the nerve engine's open
+    /// incidents (`snapshot` = the nerve's `GET /incidents`), read on every
+    /// stream (re)connect:
+    ///
+    /// - an open nerve incident the cortex does not know -> a synthetic
+    ///   `incident.opened` (`data.backfill = true`), decided by R11 like a
+    ///   streamed one (warn/error alert, critical escalate, never an action);
+    /// - a nerve incident the cortex holds open that the nerve no longer has
+    ///   open (resolved while the stream was down, or a restarted nerve that
+    ///   no longer sees it) -> a synthetic `incident.resolved`.
+    ///
+    /// New incidents are not recorded here: the events go through
+    /// [`Cortex::admit`] like any other, so a streamed copy of the same
+    /// incident is dropped by id. Only a new id for a cause the cortex already
+    /// holds (restarted nerve) is followed here, silently.
+    pub fn backfill(&mut self, snapshot: &Value, now: u64) -> Vec<Event> {
+        let Some(open) = snapshot.get("open").and_then(Value::as_array) else {
+            return vec![];
+        };
+        let mut out = vec![];
+        let mut causes: HashSet<String> = HashSet::new();
+        let mut ids: HashSet<String> = HashSet::new();
+        for i in open.iter().take(512) {
+            let (Some(id), Some(cause)) = (
+                i.get("id")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty()),
+                i.get("cause")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty()),
+            ) else {
+                continue;
+            };
+            let clip = |s: &str, n: usize| {
+                s.chars()
+                    .filter(|c| !c.is_control())
+                    .take(n)
+                    .collect::<String>()
+            };
+            let (id, cause) = (clip(id, 64), clip(cause, 120));
+            ids.insert(id.clone());
+            causes.insert(cause.clone());
+            if self.nerve_incs.contains_key(&id) {
+                continue;
+            }
+            // Same cause under an older id (the nerve restarted): follow it.
+            let old: Vec<String> = self
+                .nerve_incs
+                .iter()
+                .filter(|(_, c)| **c == cause)
+                .map(|(i, _)| i.clone())
+                .collect();
+            if !old.is_empty() {
+                for o in old {
+                    self.nerve_incs.remove(&o);
+                }
+                self.nerve_incs.insert(id, cause);
+                self.stats.nerve_incidents_remapped += 1;
+                continue;
+            }
+            let sev = i.get("severity").and_then(Value::as_str).unwrap_or("warn");
+            let sev = match sev_rank(sev) {
+                0 => "info",
+                1 => "warn",
+                2 => "error",
+                _ => "critical",
+            };
+            let mut ev = Event::new(
+                "nerve",
+                "incident.opened",
+                sev,
+                json!({
+                    "id": id, "cause": cause, "backfill": true,
+                    "components": i.get("components").cloned().unwrap_or(Value::Null),
+                    "opened": i.get("opened").cloned().unwrap_or(Value::Null),
+                }),
+            );
+            ev.ts = ts(now);
+            ev.msg = i.get("title").and_then(Value::as_str).map(|t| clip(t, 300));
+            self.stats.nerve_incidents_backfilled += 1;
+            out.push(ev);
+        }
+        let gone: Vec<(String, String)> = self
+            .nerve_incs
+            .iter()
+            .filter(|(i, c)| !ids.contains(*i) && !causes.contains(*c))
+            .map(|(i, c)| (i.clone(), c.clone()))
+            .collect();
+        for (id, cause) in gone {
+            let mut ev = Event::new(
+                "nerve",
+                "incident.resolved",
+                "info",
+                json!({"id": id, "cause": cause, "backfill": true}),
+            );
+            ev.ts = ts(now);
+            self.stats.nerve_incidents_reconciled += 1;
+            out.push(ev);
+        }
+        out
+    }
+
     /// Decide on one coalesced burst.
+    ///
+    /// Incident lifetime (T5.1 F3 fix): every subject whose last signal was
+    /// above info stays in `active` until its own signal clears ([`clears`])
+    /// or, for one-shot subjects, `incident_quiet_s` passes. Active subjects
+    /// that have no event in this burst are carried into the correlator, so
+    /// bursts of unrelated subjects no longer close an open incident; an
+    /// incident whose subject cleared is resolved in that same burst.
     pub fn process(&mut self, evs: Vec<Event>, now: u64) -> Vec<Value> {
         let evs = self.admit(evs);
         if evs.is_empty() {
@@ -199,7 +438,7 @@ impl Cortex {
             });
             s.events.push(e);
         }
-        // Signals -> correlation (reused T3.2 correlator).
+        // Signals of this burst.
         let sigs: Vec<Signal> = subjects
             .values()
             .map(|s| {
@@ -211,13 +450,105 @@ impl Cortex {
                 g
             })
             .collect();
+        // Which subjects are still failing (F3). `ended` = (incident cause,
+        // why) of the subjects whose own signal ended in this burst.
+        let mut updated: HashSet<String> = HashSet::new();
+        let mut ended: Vec<(String, &'static str)> = vec![];
+        for (s, g) in subjects.values().zip(&sigs) {
+            if g.sev > Sev::Info {
+                updated.insert(s.key.clone());
+                let cause = self
+                    .active
+                    .get(&s.key)
+                    .map(|a| a.cause.clone())
+                    .unwrap_or_else(|| s.key.clone());
+                self.active.insert(
+                    s.key.clone(),
+                    Active {
+                        sig: g.clone(),
+                        cause,
+                        last: now,
+                        sticky: sticky(&s.key),
+                    },
+                );
+            } else if clears(s, g.sev) {
+                if let Some(a) = self.active.remove(&s.key) {
+                    ended.push((a.cause, "cleared"));
+                }
+            }
+        }
+        let quiet = self.cfg.incident_quiet_s;
+        let expired: Vec<String> = self
+            .active
+            .iter()
+            .filter(|(k, a)| {
+                !a.sticky && !subjects.contains_key(*k) && now.saturating_sub(a.last) >= quiet
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+        for k in expired {
+            if let Some(a) = self.active.remove(&k) {
+                ended.push((a.cause, "expired"));
+            }
+        }
+        // Grouping of this burst (decisions: stack-wide = 3+ subjects failing
+        // in this burst, exactly as before).
         let (grouped, _) = correlate_with(sigs.clone(), &[]);
         let mut home: BTreeMap<String, String> = BTreeMap::new();
         for (cause, ss) in &grouped {
             for s in ss {
                 home.insert(s.component.clone(), cause.clone());
+                if let Some(a) = self.active.get_mut(&s.component) {
+                    a.cause = cause.clone();
+                }
             }
         }
+        let burst_stack_wide: HashSet<String> = grouped
+            .get("stack-wide")
+            .map(|ss| ss.iter().map(|s| s.component.clone()).collect())
+            .unwrap_or_default();
+        // Still-failing subjects without an event in this burst keep their
+        // incident open: their last signal goes to the correlator under the
+        // cause it was grouped into (not hard: they do not fold anew).
+        let carried: Vec<Signal> = self
+            .active
+            .iter()
+            .filter(|(k, _)| !updated.contains(*k))
+            .map(|(k, a)| {
+                let mut g = a.sig.clone();
+                g.cause = a.cause.clone();
+                g.component = k.clone();
+                g.hard = false;
+                g
+            })
+            .collect();
+        let mut fed: BTreeMap<String, bool> = BTreeMap::new(); // cause -> has a burst signal
+        for g in &sigs {
+            if g.sev > Sev::Info {
+                let c = home.get(&g.component).cloned().unwrap_or_default();
+                fed.insert(c, true);
+            }
+        }
+        for g in &carried {
+            fed.entry(g.cause.clone()).or_insert(false);
+        }
+        // Incidents fed only by carried signals saw nothing new.
+        let keep: Vec<(String, u64, u32)> = fed
+            .iter()
+            .filter(|(_, b)| !**b)
+            .filter_map(|(c, _)| {
+                self.correlator
+                    .open
+                    .get(c)
+                    .map(|i| (c.clone(), i.last_seen, i.cycles))
+            })
+            .collect();
+        let before: HashSet<String> = self
+            .correlator
+            .open
+            .values()
+            .map(|i| i.id.clone())
+            .collect();
         let explain = |cause: &str, ss: &[Signal]| Explain {
             title: format!("{cause} ({} signal(s))", ss.len()),
             why: ss
@@ -227,12 +558,56 @@ impl Cortex {
                 .join("; "),
             next: String::new(),
         };
-        self.correlator.update(now, sigs, &explain);
+        let mut all = sigs;
+        all.extend(carried);
+        self.correlator.update(now, all, &explain);
+        for (c, last, cycles) in keep {
+            if let Some(i) = self.correlator.open.get_mut(&c) {
+                i.last_seen = last;
+                i.cycles = cycles;
+            }
+        }
+        // Resolved by the correlator's own quiet rule.
+        let quiet_ids: Vec<String> = self
+            .correlator
+            .resolved
+            .iter()
+            .filter(|i| before.contains(&i.id) && i.resolved == Some(now))
+            .map(|i| i.id.clone())
+            .collect();
+        for id in quiet_ids {
+            self.note_resolved(id, "quiet");
+        }
+        // Resolve the incidents whose own subjects all cleared / expired now.
+        let mut done: Vec<(String, &'static str)> = vec![];
+        for (cause, why) in ended {
+            if !fed.contains_key(&cause)
+                && self.correlator.open.contains_key(&cause)
+                && !done.iter().any(|(c, _)| *c == cause)
+            {
+                done.push((cause, why));
+            }
+        }
+        for (key, why) in done {
+            if let Some(mut i) = self.correlator.open.remove(&key) {
+                i.resolved = Some(now);
+                let id = i.id.clone();
+                self.correlator.resolved.push_back(i);
+                while self.correlator.resolved.len() > KEEP_RESOLVED {
+                    self.correlator.resolved.pop_front();
+                }
+                match why {
+                    "cleared" => self.stats.incidents_resolved_cleared += 1,
+                    _ => self.stats.incidents_resolved_expired += 1,
+                }
+                self.note_resolved(id, why);
+            }
+        }
         let mut out = vec![];
         let mut stack_wide_done = false;
         for s in subjects.values() {
             let cause = home.get(&s.key).cloned().unwrap_or_else(|| s.key.clone());
-            let stack_wide = cause == "stack-wide";
+            let stack_wide = burst_stack_wide.contains(&s.key);
             if stack_wide && stack_wide_done {
                 continue;
             }
@@ -249,6 +624,13 @@ impl Cortex {
             }
         }
         out
+    }
+
+    fn note_resolved(&mut self, id: String, why: &'static str) {
+        self.resolved_by.push_back((id, why));
+        while self.resolved_by.len() > KEEP_RESOLVED * 2 {
+            self.resolved_by.pop_front();
+        }
     }
 
     fn act(&mut self, s: &Subject, incident: &str, mut v: Verdict, now: u64) -> Option<Value> {
@@ -431,6 +813,10 @@ impl Cortex {
             "actions_executed": s.actions_executed, "actions_refused": s.actions_refused,
             "actions_rate_limited": s.actions_rate_limited, "actions_circuit_open": s.actions_circuit_open, "actions_failed": s.actions_failed,
             "actions_unknown": s.actions_unknown, "nerve_restarts": s.nerve_restarts,
+            "nerve_incidents_known": self.nerve_incs.len(), "nerve_incidents_backfilled": s.nerve_incidents_backfilled,
+            "nerve_incidents_reconciled": s.nerve_incidents_reconciled, "nerve_incidents_duplicate": s.nerve_incidents_duplicate,
+            "nerve_incidents_remapped": s.nerve_incidents_remapped, "subjects_active": self.active.len(),
+            "incidents_resolved_cleared": s.incidents_resolved_cleared, "incidents_resolved_expired": s.incidents_resolved_expired,
             "alerts": s.alerts, "alerts_to_nerve": s.alerts_to_nerve, "escalations": s.escalations,
             "escalations_open": self.escalations.open.len(),
             "llm_calls": s.llm_calls, "llm_refused": s.llm_refused, "llm_skipped_disabled": s.llm_skipped_disabled,
@@ -442,6 +828,31 @@ impl Cortex {
 
     pub fn incidents_json(&self) -> Value {
         let mut v = self.correlator.to_json();
+        let by: BTreeMap<&str, &str> = self
+            .resolved_by
+            .iter()
+            .map(|(i, w)| (i.as_str(), *w))
+            .collect();
+        if let Some(rs) = v.get_mut("resolved").and_then(Value::as_array_mut) {
+            for r in rs {
+                let w = r
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .and_then(|i| by.get(i))
+                    .copied();
+                r["resolved_by"] = json!(w.unwrap_or("quiet"));
+            }
+        }
+        let now = now_secs();
+        v["active"] = Value::Array(
+            self.active
+                .iter()
+                .map(|(k, a)| json!({"subject": k, "severity": a.sig.sev.as_str(), "last": ts(a.last), "sticky": a.sticky,
+                                     "expires": if a.sticky { Value::Null } else { json!(ts(a.last + self.cfg.incident_quiet_s)) },
+                                     "quiet_s": now.saturating_sub(a.last)}))
+                .collect(),
+        );
+        v["nerve_incidents"] = json!(self.nerve_incs);
         v["units"] = self.rules.books_json(now_secs());
         v
     }

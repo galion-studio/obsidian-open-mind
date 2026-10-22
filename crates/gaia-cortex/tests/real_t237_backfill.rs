@@ -451,7 +451,13 @@ fn real_t237_backfill_and_incident_lifetime() {
     });
     let ms = t.elapsed().as_millis() as u64;
     let st = get(CORTEX_PORT, "/stats");
-    assert_eq!(n(&st, "nerve_incidents_backfilled"), 3, "{st}");
+    // The real nerve also watches the host it runs on: on a full box disk it
+    // opens its own `lxc-host` incident (seen 2026-10-22 +02:00, box disk
+    // 88-93%), and the cortex correctly backfills that one too. Count every
+    // incident the nerve holds, at least the three t237 ones.
+    let nerve_n = nerve_open().len() as u64;
+    assert!(nerve_n >= 3, "{nerve_n}");
+    assert_eq!(n(&st, "nerve_incidents_backfilled"), nerve_n, "{st}");
     assert_eq!(n(&st, "actions_requested"), 0, "{st}");
     let mut alerts = 0;
     for c in &causes {

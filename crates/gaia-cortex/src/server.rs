@@ -15,9 +15,11 @@
 //! | `POST /escalations/ack?id=ID` | acknowledge one item |
 //! | `POST /v1/events` | ingest: one B33 event, a JSON array, or NDJSON |
 //!
-//! Reads never wait for the decider (slot 236): when the decider holds the
-//! engine lock (for example inside a POST /actions to a hung nerve, up to
-//! 3 x 3 s), every GET answers from the snapshot published after the last
+//! Reads never wait for the decider (slot 236). Since slot 247 the decider
+//! holds the engine lock only for in-memory work (plan, commit), never
+//! across nerve I/O, so reads are fresh; while a batch is in flight (e.g.
+//! a POST /actions to a hung nerve, at most one 3 s timeout per batch) they
+//! carry `busy: true` and `x-cortex-busy: 1`. If the lock is ever held, every GET answers from the snapshot published after the last
 //! batch with `busy: true` and `snapshot_age_ms` (objects) and the headers
 //! `x-cortex-busy: 1` / `x-cortex-snapshot-age-ms` (all routes). Ingest
 //! never takes the engine lock. The one write that needs it,
@@ -69,7 +71,16 @@ fn read(api: &Api, route: Route, n: usize, fresh: impl Fn(&Cortex) -> Value) -> 
         Err(TryLockError::WouldBlock) => None,
     };
     if let Some(g) = g {
-        return Response::json(200, fresh(&g).to_string());
+        let mut body = fresh(&g);
+        drop(g);
+        // Fresh data while the decider waits on the nerve outside the lock.
+        if api.snap.busy() {
+            if let Some(o) = body.as_object_mut() {
+                o.insert("busy".into(), json!(true));
+            }
+            return Response::json(200, body.to_string()).with_header("x-cortex-busy", "1");
+        }
+        return Response::json(200, body.to_string());
     }
     let (body, age) = match api.snap.read(route, n) {
         Some(r) => (r.body, r.age_ms),

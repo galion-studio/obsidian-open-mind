@@ -207,6 +207,16 @@ impl Rules {
             .push_back(now);
     }
 
+    /// Release a cap slot reserved by [`Rules::note_restart`] at `now` (the
+    /// nerve said the restart did not run).
+    pub fn unnote_restart(&mut self, unit: &str, now: u64) {
+        if let Some(b) = self.books.get_mut(unit) {
+            if let Some(i) = b.restarts.iter().rposition(|t| *t == now) {
+                b.restarts.remove(i);
+            }
+        }
+    }
+
     /// Decide for one subject. `stack_wide` = the correlator folded it.
     pub fn decide(&mut self, s: &Subject, stack_wide: bool, now: u64) -> Verdict {
         let sev = s.sev();

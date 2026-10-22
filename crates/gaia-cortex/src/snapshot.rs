@@ -15,7 +15,7 @@
 //! counter and are folded into `Stats::events_invalid` by the next batch.
 
 use serde_json::{json, Value};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Instant;
 
@@ -49,6 +49,8 @@ pub struct Snapshot {
     inner: Mutex<Option<Snap>>,
     invalid_pending: AtomicU64,
     published: AtomicU64,
+    /// The decider is inside a batch (plan, nerve calls, commit).
+    busy: AtomicBool,
 }
 
 /// One snapshot read: the body and how old it is.
@@ -84,6 +86,16 @@ impl Snapshot {
     }
 
     /// How many times a snapshot was stored.
+    /// Set by the decider around each batch (slot 247: the engine lock is
+    /// no longer held across the nerve calls, so "busy" is this flag).
+    pub fn set_busy(&self, b: bool) {
+        self.busy.store(b, Ordering::Relaxed);
+    }
+
+    pub fn busy(&self) -> bool {
+        self.busy.load(Ordering::Relaxed)
+    }
+
     pub fn published(&self) -> u64 {
         self.published.load(Ordering::Relaxed)
     }

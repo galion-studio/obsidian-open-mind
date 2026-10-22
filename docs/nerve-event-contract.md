@@ -66,7 +66,7 @@ One JSON object per line (NDJSON). Example (captured on the VPS sandbox):
 | `unit.start_limit` | journal | critical (stack) | `start-limit-hit` = failed restart, systemd gave up |
 | `oom.kill` | journal | critical (stack, `-.slice`, kernel) / low (sandbox) | OOM killer |
 | `kernel.error` | journal | medium | kernel prio err+ (none inside the LXC) |
-| `unit.started` / `unit.stopped` | journal | medium | lifecycle of tracked units (stack groups + cloudflared + tuner-quick + `NERVE_EVT_UNITS`) |
+| `unit.started` / `unit.stopped` | journal | medium | lifecycle of tracked units (stack groups + cloudflared + tuner-quick + `NERVE_EVT_UNITS`); `unit.started` also for any unit with an open unit fault incident (it joins the journal filter while faulted, slot 246) |
 | `unit.finished` | journal | info | tracked unit "Deactivated successfully" (task finished) |
 | `proc.exit` | pidfd | medium | a tracked service main process exited (independent of journald) |
 | `task.done` / `task.failed` | inotify | medium / high | `*.done|*.ok` / `*.failed|*.fail|*.error` written into a watched dir |
@@ -74,7 +74,9 @@ One JSON object per line (NDJSON). Example (captured on the VPS sandbox):
 | `slot.started` / `slot.done` / `slot.failed` | inotify, http | info / medium / high | new line in a watched record file (`START|RESUME`, `DONE`, `FAILED`), or `POST /event` |
 | `disk.crossed` | threshold | medium/high/critical up, info down | disk use crossed 85/90/95 % (`NERVE_EVT_DISK_PCT`) |
 | `cert.crossed` | threshold | medium/high/critical | cert expiry crossed 30/14/3/0 days (`NERVE_EVT_CERTS`) |
-| `incident.opened` / `incident.resolved` | engine | from incident sev / info | the engine cycle correlated signals into an incident |
+| `incident.opened` / `incident.resolved` | engine | from incident sev / info | the engine cycle correlated signals into an incident. `data`: opened `{id, cause, components, next, opened}`, resolved `{id, cause, components, opened, resolved_by: "engine"}` (`id` = cause). Keys `incident.opened:<cause>:<opened>` / `incident.resolved:<cause>:<opened>`, so a cause that opens again inside the dedupe window is a new incident (slot 246) |
+| `incident.opened` / `incident.resolved` | units | failure sev / info | unit fault incident (slot 246): the first failure event (`unit.exit/failed/start_failed/spawn_failed/restart_scheduled/start_limit`, `oom.kill`) of a non-transient, non-sandbox unit opens one incident, `id` = `cause` = `unit:<unit>` (no top-level `unit` field, so a consumer files it under the cause); later failures only count. Resolved once the unit runs again and stays up `NERVE_EVT_RECOVER_HOLD` s (default 30) without a new failure: `data {id, cause, unit, resolved_by: journal:started\|journal:finished\|inventory:active\|inventory:inactive\|inventory:gone, state, opened, open_s, faults}`. Also listed in `GET /incidents` (`source: "units"`) and `GET /stats` `units` |
+| `unit.state` | units | info | the faulted unit is running again (`data.to` / `active_state` = `active` or `inactive`, `recovered: true`); published right before the unit `incident.resolved` |
 | `signal.error` | http | medium | `POST /signal` with kind `error` (nerve-client) |
 | `<any>` | http | from body | `POST /event` (gaia-live body) |
 | `inventory.changed` | inventory | low | running services / listening ports changed |

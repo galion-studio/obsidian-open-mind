@@ -17,6 +17,7 @@ use super::escalate::{Escalator, Outcome};
 use super::inventory::Snapshot;
 use super::journal::{JournalSource, Msg};
 use super::pidwatch::PidWatch;
+use super::recover::UnitFaults;
 use super::threshold::{check_all, Crossings};
 use super::watch::WatchOut;
 use super::{EvtConfig, Hub, NerveEvent, Severity};
@@ -59,11 +60,26 @@ impl CycleRunner for NoCycle {
 impl CycleRunner for crate::engine::Engine {
     fn run_cycle(&mut self) -> Vec<NerveEvent> {
         use crate::incident::Sev;
-        let before: BTreeSet<String> = self.incidents.open.keys().cloned().collect();
+        // id (= cause) -> (cause, opened, components) of the incidents open before
+        let before: std::collections::BTreeMap<String, (String, u64, Vec<String>)> = self
+            .incidents
+            .open
+            .iter()
+            .map(|(id, i)| {
+                (
+                    id.clone(),
+                    (
+                        i.cause.clone(),
+                        i.opened,
+                        i.components.iter().cloned().collect(),
+                    ),
+                )
+            })
+            .collect();
         self.cycle();
         let mut out = Vec::new();
         for (id, i) in &self.incidents.open {
-            if !before.contains(id) {
+            if !before.contains_key(id) {
                 let sev = match i.sev {
                     Sev::Critical => Severity::Critical,
                     Sev::Error => Severity::High,
@@ -84,13 +100,13 @@ impl CycleRunner for crate::engine::Engine {
                         ),
                     )
                     .group(super::classify_unit(&format!("{first}.service")))
-                    .key(format!("incident.opened:{id}"))
-                    .data(json!({"id": id, "cause": i.cause, "components": comps, "next": i.next})),
+                    .key(format!("incident.opened:{id}:{}", i.opened))
+                    .data(json!({"id": id, "cause": i.cause, "components": comps, "next": i.next, "opened": i.opened})),
                 );
             }
         }
         let now_open: BTreeSet<&String> = self.incidents.open.keys().collect();
-        for id in before.iter().filter(|b| !now_open.contains(b)) {
+        for (id, (cause, opened, comps)) in before.iter().filter(|(b, _)| !now_open.contains(b)) {
             out.push(
                 NerveEvent::new(
                     "engine",
@@ -98,8 +114,10 @@ impl CycleRunner for crate::engine::Engine {
                     Severity::Info,
                     format!("incident {id} resolved"),
                 )
-                .key(format!("incident.resolved:{id}"))
-                .data(json!({"id": id})),
+                // keys carry the open time: a cause that opens again inside the hub
+                // dedupe window is a new incident, not a duplicate (slot 246)
+                .key(format!("incident.resolved:{id}:{opened}"))
+                .data(json!({"id": id, "cause": cause, "components": comps, "opened": opened, "resolved_by": "engine"})),
             );
         }
         out
@@ -122,6 +140,10 @@ pub struct Runtime {
     journal: Option<JournalSource>,
     pids: PidWatch,
     inventory_fn: InvFn,
+    /// Unit fault incidents and their recoveries (slot 246).
+    units: UnitFaults,
+    /// Lifecycle-tracked units from the last inventory (journal list = these + faulted units).
+    lifecycle: Vec<String>,
     fingerprint: Option<BTreeSet<String>>,
     next_heartbeat: u64,
     pending_cycle: Option<u64>,
@@ -142,11 +164,15 @@ impl Runtime {
             "dedupe_s": cfg.dedupe_s, "escalate_min": cfg.escalate_min, "escalate": cfg.escalate.to_json(),
             "cycle_debounce_s": cfg.cycle_debounce_s, "cycle_min_gap_s": cfg.cycle_min_gap_s,
             "journal": cfg.journal, "pidfd": cfg.pidfd, "watch": cfg.watch, "certs": cfg.certs,
-            "disk": cfg.disk_paths, "actions_live": cfg.actions_live,
+            "disk": cfg.disk_paths, "actions_live": cfg.actions_live, "recover_hold_s": cfg.recover_hold_s,
         });
         let coal = Coalescer::new(cfg.escalate_min, cfg.debounce_s, cfg.max_wait_s);
+        let units = UnitFaults::new(cfg.recover_hold_s);
+        hub.lock().units = units.to_json();
         Runtime {
             coal,
+            units,
+            lifecycle: vec![],
             esc,
             cross: Crossings::default(),
             journal: None,
@@ -179,14 +205,34 @@ impl Runtime {
         }
     }
 
+    /// Journal lifecycle list: tracked units + units with an open fault incident.
+    fn journal_units(&self) -> Vec<String> {
+        let mut v: BTreeSet<String> = self.lifecycle.iter().cloned().collect();
+        v.extend(self.units.open.keys().cloned());
+        v.into_iter().collect()
+    }
+
+    /// Restart the journal child (after its last cursor) when the list changed.
+    fn sync_journal(&self) {
+        if let Some(j) = &self.journal {
+            j.set_units(self.journal_units());
+        }
+    }
+
+    fn publish_units(&self) {
+        let v = self.units.to_json();
+        self.hub.lock().units = v;
+    }
+
     /// Start the kernel-backed sources (journal child, inotify, pidfd).
     pub fn start_sources(&mut self) {
         let snap = (self.inventory_fn)();
         if self.cfg.journal {
-            let units = snap.lifecycle_units(&self.cfg.extra_units);
+            self.lifecycle = snap.lifecycle_units(&self.cfg.extra_units);
             self.journal = Some(JournalSource::start(
                 self.cfg.journal_bin.clone(),
-                units,
+                self.journal_units(),
+                self.units.tracked.clone(),
                 self.tx.clone(),
             ));
         }
@@ -223,9 +269,17 @@ impl Runtime {
             }
         }
         self.fingerprint = Some(fp);
-        if let Some(j) = &self.journal {
-            j.set_units(snap.lifecycle_units(&self.cfg.extra_units));
+        self.lifecycle = snap.lifecycle_units(&self.cfg.extra_units);
+        self.sync_journal();
+        // inventory rows confirm (active / inactive) or cancel (failed) unit recoveries
+        let now = self.now();
+        let evs = self
+            .units
+            .inventory(&snap.units, snap.errors.is_empty(), now);
+        for e in evs {
+            self.accept(e);
         }
+        self.publish_units();
         if self.cfg.pidfd {
             let mut t = snap.pidfd_targets(std::process::id());
             for p in &self.cfg.extra_pids {
@@ -249,6 +303,24 @@ impl Runtime {
     /// Publish + side effects of one event (escalation offer, deferred cycle).
     pub fn accept(&mut self, ev: NerveEvent) {
         let now = self.now();
+        // Unit faults / recoveries are seen before the hub dedupe: a repeated
+        // failure inside the dedupe window still cancels an armed recovery.
+        let touches_units = ev.unit.is_some() && ev.source != super::recover::SOURCE;
+        let open_before = self.units.open.len();
+        let follow = self.units.observe(&ev, now);
+        self.accept_one(ev, now);
+        if !follow.is_empty() || self.units.open.len() != open_before {
+            self.sync_journal();
+        }
+        for e in follow {
+            self.accept_one(e, now);
+        }
+        if touches_units {
+            self.publish_units();
+        }
+    }
+
+    fn accept_one(&mut self, ev: NerveEvent, now: u64) {
         let Some(ev) = self.hub.publish(ev) else {
             return;
         };
@@ -267,7 +339,10 @@ impl Runtime {
                 }
             }
         }
-        let loops_back = ev.kind.starts_with("escalation.") || ev.kind.starts_with("stream.");
+        // unit incident events are derived from journal events that were offered already
+        let loops_back = ev.kind.starts_with("escalation.")
+            || ev.kind.starts_with("stream.")
+            || ev.source == super::recover::SOURCE;
         if self.warm && !loops_back {
             self.coal.offer(&ev, now);
         }
@@ -291,6 +366,9 @@ impl Runtime {
             d = d.min(c);
         }
         if let Some(c) = self.pending_cycle {
+            d = d.min(c);
+        }
+        if let Some(c) = self.units.deadline() {
             d = d.min(c);
         }
         d
@@ -500,6 +578,17 @@ impl Runtime {
                     let snap = (self.inventory_fn)();
                     self.apply_inventory(snap, true);
                 }
+            }
+            let rec = self.units.due(now);
+            if !rec.is_empty() {
+                if label == "timer" {
+                    label = "recovery";
+                }
+                for e in rec {
+                    self.accept(e);
+                }
+                self.sync_journal();
+                self.publish_units();
             }
             if self.coal.deadline().is_some_and(|d| d <= now) && label == "timer" {
                 label = "debounce";

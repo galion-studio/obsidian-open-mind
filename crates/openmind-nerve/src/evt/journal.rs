@@ -22,6 +22,7 @@
 
 use super::{classify_unit, lifecycle_tracked, NerveEvent, Severity};
 use serde_json::{json, Value};
+use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::FileTypeExt;
 use std::process::{Child, Command, Stdio};
@@ -87,6 +88,13 @@ fn sev_for(unit: &str, stack: Severity) -> Severity {
 
 /// One journal JSON entry -> event (None = not interesting).
 pub fn parse_entry(v: &Value) -> Option<NerveEvent> {
+    parse_entry_with(v, &|_| false)
+}
+
+/// Like [`parse_entry`]; `faulted(unit)` = the unit has an open fault
+/// incident, so its lifecycle (started / finished) is published even when
+/// the unit is not lifecycle-tracked (slot 246: postfix, ssh, ...).
+pub fn parse_entry_with(v: &Value, faulted: &dyn Fn(&str) -> bool) -> Option<NerveEvent> {
     let t = s(v, "__REALTIME_TIMESTAMP")
         .and_then(|x| x.parse::<u64>().ok())
         .map(|us| us / 1_000_000);
@@ -134,9 +142,13 @@ pub fn parse_entry(v: &Value) -> Option<NerveEvent> {
             ID_SPAWN_FAILED => ("unit.spawn_failed", sev_for(&unit, Severity::High)),
             ID_PROCESS_EXIT => ("unit.exit", sev_for(&unit, Severity::High)),
             ID_RESTART_SCHEDULED => ("unit.restart_scheduled", sev_for(&unit, Severity::High)),
-            ID_STARTED if lifecycle_tracked(&unit) => ("unit.started", Severity::Medium),
+            ID_STARTED if lifecycle_tracked(&unit) || faulted(&unit) => {
+                ("unit.started", Severity::Medium)
+            }
             ID_STOPPED if lifecycle_tracked(&unit) => ("unit.stopped", Severity::Medium),
-            ID_SUCCESS if lifecycle_tracked(&unit) => ("unit.finished", Severity::Info),
+            ID_SUCCESS if lifecycle_tracked(&unit) || faulted(&unit) => {
+                ("unit.finished", Severity::Info)
+            }
             _ => return None,
         };
         let mut e = NerveEvent::new("journal", kind, sev, &msg).unit(&unit);
@@ -177,7 +189,16 @@ pub struct JournalSource {
 }
 
 impl JournalSource {
-    pub fn start(bin: String, units: Vec<String>, tx: Sender<super::runtime::Input>) -> Self {
+    pub fn start(
+        bin: String,
+        units: Vec<String>,
+        faulted: Arc<Mutex<BTreeSet<String>>>,
+        tx: Sender<super::runtime::Input>,
+    ) -> Self {
+        let parse = move |v: &Value| {
+            let g = faulted.lock().unwrap_or_else(|e| e.into_inner());
+            parse_entry_with(v, &|u| g.contains(u))
+        };
         let units = Arc::new(Mutex::new(units));
         let child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
         let restart = Arc::new(AtomicBool::new(false));
@@ -200,7 +221,7 @@ impl JournalSource {
                             let Ok(v) = serde_json::from_str::<Value>(&line) else {
                                 continue;
                             };
-                            if let Some(ev) = parse_entry(&v) {
+                            if let Some(ev) = parse(&v) {
                                 if !send(Msg::Event(ev)) {
                                     return;
                                 }
@@ -248,7 +269,7 @@ impl JournalSource {
                                 cursor = Some(c.to_string());
                                 backoff = 5;
                             }
-                            if let Some(ev) = parse_entry(&v) {
+                            if let Some(ev) = parse(&v) {
                                 if !send(Msg::Event(ev)) {
                                     return;
                                 }
@@ -357,5 +378,30 @@ mod tests {
         let x2 = e(r#"{"MESSAGE_ID":"98e322203f7a4ed290d09fe03c09fe15","UNIT":"hermes-rs.service","EXIT_STATUS":"9","MESSAGE":"exit"}"#).unwrap();
         assert_ne!(x1.key, x2.key);
         assert!(e(r#"{"MESSAGE":"no unit"}"#).is_none());
+    }
+
+    #[test]
+    fn faulted_untracked_lifecycle_is_published() {
+        let started = r#"{"MESSAGE_ID":"39f53479d3a045ac8e11786248231fbf","UNIT":"postfix.service","MESSAGE":"Started postfix.service","_PID":"1"}"#;
+        let v: Value = serde_json::from_str(started).unwrap();
+        assert!(
+            parse_entry(&v).is_none(),
+            "untracked: not an event by default"
+        );
+        let st = parse_entry_with(&v, &|u| u == "postfix.service").unwrap();
+        assert_eq!(
+            (st.kind.as_str(), st.group.as_str()),
+            ("unit.started", "infra")
+        );
+        let fin: Value = serde_json::from_str(r#"{"MESSAGE_ID":"7ad2d189f7e94e70a38c781354912448","UNIT":"logrotate.service","MESSAGE":"x"}"#).unwrap();
+        assert_eq!(
+            parse_entry_with(&fin, &|u| u == "logrotate.service")
+                .unwrap()
+                .kind,
+            "unit.finished"
+        );
+        // stopped stays tracked-only
+        let stop: Value = serde_json::from_str(r#"{"MESSAGE_ID":"9d1aaa27d60140bd96365438aad20286","UNIT":"postfix.service","MESSAGE":"x"}"#).unwrap();
+        assert!(parse_entry_with(&stop, &|_| true).is_none());
     }
 }

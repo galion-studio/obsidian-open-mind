@@ -338,7 +338,15 @@ pub fn route(
             let mut g = sh.lock().unwrap_or_else(|e| e.into_inner());
             match (req.method.as_str(), p) {
                 ("GET", "/state") | ("GET", "/state.json") => (200, j, g.state.to_string()),
-                ("GET", "/incidents") => (200, j, g.state["incidents"].to_string()),
+                ("GET", "/incidents") => {
+                    let (mut inc, evt) = (g.state["incidents"].clone(), g.evt.clone());
+                    drop(g);
+                    if let Some(h) = evt {
+                        let units = h.lock().units.clone();
+                        merge_unit_incidents(&mut inc, &units);
+                    }
+                    (200, j, inc.to_string())
+                }
                 ("GET", "/cortex") => (200, j, g.state["cortex"].to_string()),
                 ("GET", "/ddos") => (200, j, g.state["cortex"]["ddos"].to_string()),
                 ("GET", "/self-eval") | ("GET", "/self-eval.json") => {
@@ -376,6 +384,28 @@ pub fn route(
                 _ => (404, "text/plain", "not found\n".into()),
             }
         }
+    }
+}
+
+/// `GET /incidents` in event mode: the engine incidents plus the open /
+/// recently resolved unit fault incidents (slot 246), so a stream consumer
+/// that backfills from this list sees the same causes as on the stream.
+pub fn merge_unit_incidents(inc: &mut Value, units: &Value) {
+    if !inc.is_object() {
+        *inc = json!({"open": [], "resolved": []});
+    }
+    for k in ["open", "resolved"] {
+        let add = units[k].as_array().cloned().unwrap_or_default();
+        if add.is_empty() {
+            continue;
+        }
+        match inc[k].as_array_mut() {
+            Some(a) => a.extend(add),
+            None => inc[k] = Value::Array(add),
+        }
+    }
+    if let Some(n) = units["opened_total"].as_u64() {
+        inc["unit_incidents_opened_total"] = json!(n);
     }
 }
 

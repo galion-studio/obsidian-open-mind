@@ -20,7 +20,7 @@ not a merge error, so main-staging should not take this fold until it is settled
 CI runner, replay-corpus), nerve T4.2 plans (`plans.rs`, `protected_hosts.rs`,
 `deploy/nerve/plans-protected-hosts.conf`), T5.3 replay corpus (`corpus.rs`, 8 captures + expected
 verdicts), galion-common `Limits::evict_idle` (cortex API slowloris guard), deploy/gaia-cortex Hermes
-handoff units. 43 commits, 85 files, +20 228 lines.
+handoff units. 43 commits; the fold diff vs staging is 95 files, +20 567 / -23 lines.
 
 ## Conflicts and how they were resolved (commit ca306c3, a merge with 2 parents)
 
@@ -37,7 +37,7 @@ handoff units. 43 commits, 85 files, +20 228 lines.
 
 Follow-up commits on the branch:
 
-- 3a: `hermes-rs` / `openmind-memory` `Limits {..}` literals get `evict_idle: false` (compile fix, behaviour unchanged).
+- (inside the merge commit) `hermes-rs` / `openmind-memory` `Limits {..}` literals get `evict_idle: false` (compile fix, behaviour unchanged).
 - `gaia_core::ownership::CRATES`: gaia-cortex + nerve-cortex-contract -> Nerve, xtask -> CargoBuild, all "pending Slavik" (D-293-2); `gaia` `ownership_counts` 68/56 -> 71/59.
 - Replay corpus re-blessed for the folded nerve; 3 new captures listed (fixture:consumer from staging, live:replay200, live:replay207 on the box). See "Corpus drift".
 - `plans.rs` unit test IP 51.15.0.1 -> TEST-NET-2 198.51.100.1 (staging repo-check `hosts` rule: 1 error -> 0).
@@ -50,8 +50,8 @@ Follow-up commits on the branch:
 | `cargo clippy --workspace --all-targets --exclude openmind-sandbox --exclude cgroup-detect -- -D warnings` | ok (only the pre-existing vendored candle `f64::INFINITY` deprecation warnings, not workspace members) |
 | `cargo clippy -p gaia-cortex --all-targets --features llm-advisor -- -D warnings` | ok |
 | `cargo test --workspace --exclude openmind-sandbox --exclude cgroup-detect --no-fail-fast` | 406 suites, **2150 passed / 6 failed / 18 ignored**; failing: `openmind-nerve --test cortex_protected_hosts` 3/6, `--test cortex_t42_plans` 3/5 (D-293-1) |
-| first run, before the follow-ups | 2147/9 + ownership/workspace_ownership + replay_corpus failures (now fixed) |
-| `cargo test -p gaia-cortex` default / `--features llm-advisor` | 85/0 each (78 offline + 7 real tests that skip without GALION_REAL) |
+| first run, before the follow-ups | additionally failed gaia-core `workspace_ownership`, gaia `ownership_counts`, nerve `replay_corpus`, repo-check 1 error (all fixed by the follow-up commits) |
+| `cargo test -p gaia-cortex` default / `--features llm-advisor` | default 78 passed + 7 real tests skipped without GALION_REAL; llm-advisor 85/0 |
 | `scripts/no-python.sh` | ok |
 | `repo-check --root .` | PASS, 2200 files, 0 errors, 83 warnings (was 1 error before the TEST-NET fix) |
 
@@ -108,15 +108,15 @@ temporarily pointed at 21630-21639 (not committed). Nerve binary = **this fold's
 
 No processes or listeners left on 21630-21639 afterwards.
 
-## Live VPS, read-only (19:22 and 19:41:56 CET)
+## Live VPS, read-only (19:41:56 CET)
 
-- gaia-cortex: `/opt/galion/rust/bin/gaia-cortex-73583ab-llm` (= the merged-in source), `/health` ok, mode live, llm on, hermes_handoff on, incidents_open 5 -> 6, events_in 26 -> 40.
+- gaia-cortex: `/opt/galion/rust/bin/gaia-cortex-73583ab-llm` (= the merged-in source), `/health` ok, mode live, llm on, hermes_handoff on, incidents_open 6.
 - galion-nerve: `/opt/galion/rust/bin/openmind-nerve-9d1a4f3` (nerve-deploy-t273u; **not** in staging or in this fold - slot 292 nerve-merge-4 territory). `/state` 200.
 - No writes, no restarts, no deploy.
 
 ## Owner decisions
 
 - **D-293-1** (blocking): T4.2 plan wording vs S3.1 hades-gate: A reword / B typed steps / C leave T4.2 out. Recommend A.
-- **D-293-2**: ownership rows (pending Slavik): gaia-cortex + nerve-cortex-contract -> Nerve (AETHER) or MINERVA GuardianWatchdog/Alerting; xtask -> CargoBuild (HEPHAESTUS) or RepoCheck.
+- **D-293-2**: ownership rows (pending Slavik): gaia-cortex + nerve-cortex-contract -> Nerve, xtask -> CargoBuild, or other owners Slavik prefers.
 - **D-293-3**: accept the corpus re-bless (66 D -> 70 C on the live captures) and the `NERVE_EDGE_HOSTS=0` pin for live-replay207, or change the flap rule.
 - **D-293-4**: once D-293-1 is settled, land this fold into main-staging (a separate, explicit step; this slot did not).

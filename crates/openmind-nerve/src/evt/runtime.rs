@@ -305,6 +305,11 @@ impl Runtime {
         let now = self.now();
         // Unit faults / recoveries are seen before the hub dedupe: a repeated
         // failure inside the dedupe window still cancels an armed recovery.
+        if ev.kind == "unit.stopping" {
+            if let Some(u) = &ev.unit {
+                self.hub.lock().note_planned_stop(u, ev.t);
+            }
+        }
         let touches_units = ev.unit.is_some() && ev.source != super::recover::SOURCE;
         let open_before = self.units.open.len();
         let follow = self.units.observe(&ev, now);

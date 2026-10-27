@@ -22,7 +22,7 @@
 
 use super::{classify_unit, lifecycle_tracked, NerveEvent, Severity};
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::FileTypeExt;
 use std::process::{Child, Command, Stdio};
@@ -40,6 +40,8 @@ pub const ID_SPAWN_FAILED: &str = "641257651c1b4ec9a8624d7a40a9e1e7";
 pub const ID_STARTED: &str = "39f53479d3a045ac8e11786248231fbf";
 pub const ID_STOPPED: &str = "9d1aaa27d60140bd96365438aad20286";
 pub const ID_SUCCESS: &str = "7ad2d189f7e94e70a38c781354912448";
+/// `Stopping …` (job start of a stop / restart job), slot 310.
+pub const ID_STOPPING: &str = "de5b426a63be47a7b6ac3eaac82e2f6f";
 
 pub const FAILURE_IDS: &[&str] = &[
     ID_UNIT_FAILED,
@@ -49,7 +51,7 @@ pub const FAILURE_IDS: &[&str] = &[
     ID_OOM,
     ID_SPAWN_FAILED,
 ];
-pub const LIFECYCLE_IDS: &[&str] = &[ID_STARTED, ID_STOPPED, ID_SUCCESS];
+pub const LIFECYCLE_IDS: &[&str] = &[ID_STARTED, ID_STOPPED, ID_SUCCESS, ID_STOPPING];
 
 /// journalctl arguments for the tracked unit list. `after` = last cursor
 /// (restart without gap) else start at the tail.
@@ -173,6 +175,131 @@ pub fn parse_entry_with(v: &Value, faulted: &dyn Fn(&str) -> bool) -> Option<Ner
     Some(ev)
 }
 
+/// Stop / restart jobs seen in the journal (`Stopping …`, slot 310 / F2 of
+/// slot 271): a `unit.exit` / `unit.failed` of the same unit invocation that
+/// follows a stop job is a *planned* stop (operator `systemctl restart`,
+/// cutover, cortex restart), not a crash. systemd logs `Stopping` before the
+/// main process exits (VPS seq 21467446 < 21467449), so no reorder window.
+#[derive(Debug, Default)]
+pub struct PlannedStops {
+    /// unit -> (invocation id, Stopping time, job type, worst exit status seen)
+    open: HashMap<String, PlannedRec>,
+    pub tagged: u64,
+}
+
+#[derive(Debug, Clone)]
+struct PlannedRec {
+    invocation: Option<String>,
+    t: u64,
+    job: String,
+    exit_status: Option<String>,
+}
+
+/// A stop job older than this no longer explains an exit (systemd's default
+/// TimeoutStopSec is 90 s; a SIGKILL after it still lands inside).
+pub const PLANNED_TTL_S: u64 = 300;
+
+/// Exit statuses a well-behaved service returns on SIGTERM / SIGINT.
+fn clean_stop_status(s: Option<&str>) -> bool {
+    matches!(s, None | Some("0" | "143" | "130" | "15" | "TERM" | "INT"))
+}
+
+impl PlannedStops {
+    /// Feed one journal entry and its parsed event (if any); returns the
+    /// event to publish. Exit / failure events of an invocation that has an
+    /// open stop job become `unit.planned_stop` (`data.planned = true`).
+    pub fn apply(&mut self, v: &Value, ev: Option<NerveEvent>) -> Option<NerveEvent> {
+        let id = s(v, "MESSAGE_ID").unwrap_or("");
+        let from_pid1 = s(v, "_PID").is_none_or(|p| p == "1");
+        let unit = s(v, "UNIT").unwrap_or("");
+        let inv = s(v, "INVOCATION_ID").map(str::to_string);
+        let t = ev.as_ref().map(|e| e.t).unwrap_or_else(|| {
+            s(v, "__REALTIME_TIMESTAMP")
+                .and_then(|x| x.parse::<u64>().ok())
+                .map(|us| us / 1_000_000)
+                .unwrap_or_else(crate::util::now_secs)
+        });
+        if unit.is_empty() || !from_pid1 {
+            return ev;
+        }
+        self.open.retain(|_, r| r.t + PLANNED_TTL_S >= t);
+        match id {
+            ID_STOPPING => {
+                let job = s(v, "JOB_TYPE").unwrap_or("stop").to_string();
+                let short: String = inv.as_deref().unwrap_or("").chars().take(8).collect();
+                let msg: String = s(v, "MESSAGE").unwrap_or("").chars().take(300).collect();
+                // Info: published so the runtime (planned restarts) and the cortex
+                // (R3 planned-stop skip) see the stop job; never escalated alone.
+                let stopping = NerveEvent::new("journal", "unit.stopping", Severity::Info, msg)
+                    .unit(unit)
+                    .key(format!("unit.stopping:{unit}:{short}"))
+                    .data(json!({
+                        "message_id": id,
+                        "job_type": job,
+                        "invocation_id": inv,
+                        "planned": true,
+                        "gaia": super::gaia_function(unit),
+                    }))
+                    .at(t);
+                self.open.insert(
+                    unit.to_string(),
+                    PlannedRec {
+                        invocation: inv,
+                        t,
+                        job,
+                        exit_status: None,
+                    },
+                );
+                return ev.or(Some(stopping));
+            }
+            // a new invocation starts: the stop job is over
+            ID_STARTED => {
+                self.open.remove(unit);
+                return ev;
+            }
+            _ => {}
+        }
+        let mut e = ev?;
+        if !matches!(e.kind.as_str(), "unit.exit" | "unit.failed") {
+            return Some(e);
+        }
+        let Some(rec) = self.open.get_mut(unit) else {
+            return Some(e);
+        };
+        if let (Some(a), Some(b)) = (&rec.invocation, &inv) {
+            if a != b {
+                return Some(e);
+            }
+        }
+        if e.kind == "unit.exit" {
+            rec.exit_status = s(v, "EXIT_STATUS").map(str::to_string);
+        }
+        let result = s(v, "UNIT_RESULT").unwrap_or("");
+        let clean =
+            clean_stop_status(rec.exit_status.as_deref()) && clean_stop_status(s(v, "EXIT_STATUS"));
+        // Planned, but a stop that timed out / dumped core is still worth a look.
+        let sev = match result {
+            "" | "exit-code" | "signal" | "success" if clean => Severity::Info,
+            "" | "exit-code" | "signal" | "success" => Severity::Low,
+            _ => Severity::Medium,
+        };
+        let was = std::mem::take(&mut e.kind);
+        let short: String = inv.as_deref().unwrap_or("").chars().take(8).collect();
+        e.kind = "unit.planned_stop".into();
+        e.key = format!("unit.planned_stop:{unit}:{was}:{short}");
+        e.severity = sev;
+        if let Some(d) = e.data.as_object_mut() {
+            d.insert("planned".into(), json!(true));
+            d.insert("planned_kind".into(), json!(was));
+            d.insert("stop_job".into(), json!(rec.job));
+            d.insert("stopping_t".into(), json!(rec.t));
+            d.insert("invocation_id".into(), json!(inv));
+        }
+        self.tagged += 1;
+        Some(e)
+    }
+}
+
 /// What the source thread sends to the runtime.
 pub enum Msg {
     Event(NerveEvent),
@@ -195,9 +322,13 @@ impl JournalSource {
         faulted: Arc<Mutex<BTreeSet<String>>>,
         tx: Sender<super::runtime::Input>,
     ) -> Self {
-        let parse = move |v: &Value| {
-            let g = faulted.lock().unwrap_or_else(|e| e.into_inner());
-            parse_entry_with(v, &|u| g.contains(u))
+        let mut planned = PlannedStops::default();
+        let mut parse = move |v: &Value| {
+            let ev = {
+                let g = faulted.lock().unwrap_or_else(|e| e.into_inner());
+                parse_entry_with(v, &|u| g.contains(u))
+            };
+            planned.apply(v, ev)
         };
         let units = Arc::new(Mutex::new(units));
         let child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
@@ -403,5 +534,164 @@ mod tests {
         // stopped stays tracked-only
         let stop: Value = serde_json::from_str(r#"{"MESSAGE_ID":"9d1aaa27d60140bd96365438aad20286","UNIT":"postfix.service","MESSAGE":"x"}"#).unwrap();
         assert!(parse_entry_with(&stop, &|_| true).is_none());
+    }
+
+    fn replay(path: &str) -> (Vec<NerveEvent>, PlannedStops) {
+        let mut p = PlannedStops::default();
+        let txt = std::fs::read_to_string(path).unwrap();
+        let mut out = vec![];
+        for l in txt.lines() {
+            let v: Value = serde_json::from_str(l).unwrap();
+            if let Some(ev) = p.apply(&v, parse_entry(&v)) {
+                out.push(ev);
+            }
+        }
+        (out, p)
+    }
+
+    fn count(evs: &[NerveEvent], unit: &str, kind: &str, sev: Option<Severity>) -> usize {
+        evs.iter()
+            .filter(|e| e.unit.as_deref() == Some(unit) && e.kind == kind)
+            .filter(|e| sev.is_none_or(|s| e.severity == s))
+            .count()
+    }
+
+    /// Slot 310: the real console restarts of 2026-10-27 17:25-17:28 +01:00
+    /// (operator, cortex dec-874, cutover) are planned stops, not failures.
+    #[test]
+    fn vps_console_restarts_are_planned() {
+        let (evs, p) = replay(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/planned-stop/vps-console-restarts-20261027.jsonl"
+        ));
+        let u = "console.service";
+        assert_eq!(count(&evs, u, "unit.failed", None), 0);
+        assert_eq!(count(&evs, u, "unit.exit", None), 0);
+        assert_eq!(count(&evs, u, "unit.stopping", Some(Severity::Info)), 3);
+        assert_eq!(count(&evs, u, "unit.planned_stop", Some(Severity::Info)), 6);
+        assert_eq!(count(&evs, u, "unit.started", None), 3);
+        assert_eq!(p.tagged, 6);
+        let f = evs
+            .iter()
+            .find(|e| e.kind == "unit.planned_stop" && e.data["planned_kind"] == "unit.failed")
+            .unwrap();
+        assert_eq!(f.data["planned"], true);
+        assert_eq!(f.data["stop_job"], "stop");
+        assert_eq!(f.data["unit_result"], "exit-code");
+        assert_eq!(f.data["invocation_id"], "e8a553b23a09422d86e214e14b28c551");
+        assert!(f
+            .key
+            .starts_with("unit.planned_stop:console.service:unit.failed:e8a553b2"));
+        // nothing planned is Medium or worse: no escalation, no event-triggered cycle
+        assert!(evs
+            .iter()
+            .filter(|e| e.kind.starts_with("unit.planned") || e.kind == "unit.stopping")
+            .all(|e| e.severity == Severity::Info));
+    }
+
+    /// Crash controls from the same VPS (7 days): crash loops without a stop
+    /// job keep `unit.failed` high; only exits inside a stop job are tagged.
+    #[test]
+    fn vps_7d_crash_loops_stay_failures() {
+        let (evs, _) = replay(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/planned-stop/vps-lifecycle-7d-20261027.jsonl"
+        ));
+        let h = "hermes-rs.service";
+        assert_eq!(count(&evs, h, "unit.failed", Some(Severity::High)), 16);
+        assert_eq!(count(&evs, h, "unit.exit", Some(Severity::High)), 16);
+        assert_eq!(count(&evs, h, "unit.planned_stop", None), 0);
+        assert_eq!(count(&evs, h, "unit.stopping", None), 5);
+        let c = "gaia-cortex.service";
+        assert_eq!(count(&evs, c, "unit.failed", Some(Severity::High)), 4);
+        assert_eq!(count(&evs, c, "unit.planned_stop", None), 0);
+        let s = "cortex-sbx-crash-20261021-183907.service";
+        assert_eq!(count(&evs, s, "unit.failed", Some(Severity::Low)), 4);
+    }
+
+    #[test]
+    fn planned_stop_edge_cases() {
+        let j = |x: &str| -> Value { serde_json::from_str(x).unwrap() };
+        let stopping = j(
+            r#"{"MESSAGE_ID":"de5b426a63be47a7b6ac3eaac82e2f6f","UNIT":"hermes-rs.service","_PID":"1","JOB_TYPE":"stop","INVOCATION_ID":"aaa","__REALTIME_TIMESTAMP":"1000000000"}"#,
+        );
+        let exit = |inv: &str, st: &str, t: u64| {
+            j(&format!(
+                r#"{{"MESSAGE_ID":"98e322203f7a4ed290d09fe03c09fe15","UNIT":"hermes-rs.service","_PID":"1","EXIT_STATUS":"{st}","INVOCATION_ID":"{inv}","__REALTIME_TIMESTAMP":"{}"}}"#,
+                t * 1_000_000
+            ))
+        };
+        let failed = |inv: &str, r: &str, t: u64| {
+            j(&format!(
+                r#"{{"MESSAGE_ID":"d9b373ed55a64feb8242e02dbe79a49c","UNIT":"hermes-rs.service","_PID":"1","UNIT_RESULT":"{r}","INVOCATION_ID":"{inv}","__REALTIME_TIMESTAMP":"{}"}}"#,
+                t * 1_000_000
+            ))
+        };
+        let run = |p: &mut PlannedStops, v: &Value| p.apply(v, parse_entry(v));
+        let mut p = PlannedStops::default();
+        // other invocation: not explained by the stop job
+        assert!(run(&mut p, &stopping).unwrap().kind == "unit.stopping");
+        assert_eq!(
+            run(&mut p, &exit("bbb", "143", 1001)).unwrap().kind,
+            "unit.exit"
+        );
+        // same invocation, unclean exit during stop -> planned but Low
+        let e = run(&mut p, &exit("aaa", "1", 1001)).unwrap();
+        assert_eq!(
+            (e.kind.as_str(), e.severity),
+            ("unit.planned_stop", Severity::Low)
+        );
+        let f = run(&mut p, &failed("aaa", "exit-code", 1001)).unwrap();
+        assert_eq!(
+            (f.kind.as_str(), f.severity),
+            ("unit.planned_stop", Severity::Low)
+        );
+        // stop that timed out: planned, Medium (worth a look)
+        let mut p = PlannedStops::default();
+        run(&mut p, &stopping);
+        let f = run(&mut p, &failed("aaa", "timeout", 1090)).unwrap();
+        assert_eq!(
+            (f.kind.as_str(), f.severity),
+            ("unit.planned_stop", Severity::Medium)
+        );
+        // expired stop job: a later failure is a failure again
+        let mut p = PlannedStops::default();
+        run(&mut p, &stopping);
+        let f = run(
+            &mut p,
+            &failed("aaa", "exit-code", 1000 + PLANNED_TTL_S + 1),
+        )
+        .unwrap();
+        assert_eq!(
+            (f.kind.as_str(), f.severity),
+            ("unit.failed", Severity::High)
+        );
+        // Started of a new invocation closes the stop job
+        let mut p = PlannedStops::default();
+        run(&mut p, &stopping);
+        run(
+            &mut p,
+            &j(
+                r#"{"MESSAGE_ID":"39f53479d3a045ac8e11786248231fbf","UNIT":"hermes-rs.service","_PID":"1","INVOCATION_ID":"ccc","__REALTIME_TIMESTAMP":"1001000000"}"#,
+            ),
+        );
+        assert_eq!(
+            run(&mut p, &failed("", "exit-code", 1002)).unwrap().kind,
+            "unit.failed"
+        );
+        // a Stopping line not from pid 1 (a service printing the text) is ignored
+        let mut p = PlannedStops::default();
+        let fake = j(
+            r#"{"MESSAGE_ID":"de5b426a63be47a7b6ac3eaac82e2f6f","UNIT":"hermes-rs.service","_PID":"4242","INVOCATION_ID":"aaa","__REALTIME_TIMESTAMP":"1000000000"}"#,
+        );
+        assert!(run(&mut p, &fake).is_none());
+        assert_eq!(
+            run(&mut p, &failed("aaa", "exit-code", 1001)).unwrap().kind,
+            "unit.failed"
+        );
+        // the journal match subscribes to Stopping for tracked units
+        assert!(
+            args(&["console.service".into()], None).contains(&format!("MESSAGE_ID={ID_STOPPING}"))
+        );
     }
 }

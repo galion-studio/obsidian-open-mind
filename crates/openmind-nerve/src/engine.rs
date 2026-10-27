@@ -226,6 +226,12 @@ impl Engine {
         self.probe_errors.extend(tail_errs.into_iter().take(4));
         self.skipped = col.skipped;
         let cycle_ms_prev = self.last_cycle_ms;
+        // Journal stop / restart jobs per unit (event mode only, slot 310).
+        let planned: HashMap<String, std::collections::VecDeque<u64>> = lock(&self.shared)
+            .evt
+            .as_ref()
+            .map(|h| h.lock().planned_stops.clone())
+            .unwrap_or_default();
         for c in self.comps.iter_mut() {
             if let Some(mut s) = col.samples.get(c.spec.name).cloned() {
                 if c.spec.kind == Kind::SelfNerve {
@@ -234,7 +240,13 @@ impl Engine {
                         s.extra["degraded"] = json!(format!("cycle took {cycle_ms_prev} ms"));
                     }
                 }
-                c.push(s, &self.th);
+                let stops: Vec<u64> = c
+                    .spec
+                    .unit
+                    .and_then(|u| planned.get(u))
+                    .map(|q| q.iter().copied().collect())
+                    .unwrap_or_default();
+                c.push_planned(s, &self.th, &stops);
             }
         }
         // Cortex inputs: sliding journal window, listeners, request streams.

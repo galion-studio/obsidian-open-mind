@@ -470,6 +470,20 @@ pub struct HubInner {
     pub config: Value,
     /// Unit fault incidents (`recover::UnitFaults::to_json`), Null before event mode runs.
     pub units: Value,
+    /// Stop / restart jobs (`unit.stopping`) per unit, last hour: the engine
+    /// counts restarts that follow one as planned, not as degradation (slot 310).
+    pub planned_stops: HashMap<String, VecDeque<u64>>,
+}
+
+impl HubInner {
+    /// Remember a stop job of `unit` at `t` (kept 1 h, at most 64 per unit).
+    pub fn note_planned_stop(&mut self, unit: &str, t: u64) {
+        let q = self.planned_stops.entry(unit.to_string()).or_default();
+        q.push_back(t);
+        while q.len() > 64 || q.front().is_some_and(|x| *x + 3600 < t) {
+            q.pop_front();
+        }
+    }
 }
 
 impl Hub {
@@ -487,6 +501,7 @@ impl Hub {
                 streams: 0,
                 config: Value::Null,
                 units: Value::Null,
+                planned_stops: HashMap::new(),
             }),
             cv: Condvar::new(),
             tx: Mutex::new(None),

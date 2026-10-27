@@ -18,6 +18,8 @@
 > **Status: pre-release.** The repository is being prepared for its first public release on
 > **2026-10-31**. The build and Scorecard badges start rendering once the repository is public
 > and the workflows have run. Nothing below claims to be live in production.
+>
+> Live stack (2026-10-27, +01:00): Rust Hermes (8642) and memory (8420) run in production; nerve runs; cortex runs an older build; the **console is still served by Node** (the Rust console is not live). See [docs/STATUS.md](docs/STATUS.md), [docs/launch/GATES-OCT31.md](docs/launch/GATES-OCT31.md) and [INSTALL.md](INSTALL.md).
 
 ## Overview
 
@@ -50,9 +52,7 @@ What exists today, and how finished it is:
 | Edge / phone node (`omnode`, `edge/openmind-node`) | Runs on a device on the owner's Wi-Fi (Android via Termux, Linux laptop, Raspberry Pi): ed25519 device identity bound to a hashed **Wi-Fi identity**, polite **LAN discovery** (passive mDNS/SSDP), `_openmind._tcp` announce, and a **CPU-only agent sandbox**. | v0.1 built and tested; **pairing is a stub** (prints a payload and QR, sends nothing) |
 | Self-evaluation | CI that runs fmt, clippy, tests, no-Python, no-CJK and Zagreb-timestamp scans and gitleaks before anything can be released. | workflows written; run once the repository is public |
 
-Crates marked in the table that are not yet in this repository snapshot (`openmind-config`,
-`openmind-survival`, `guardian-tick`, `openmind-sandbox`, `persona-plex-relay`,
-`edge/openmind-node`) live in the development tree and are synced in before the release.
+All crates named in the table are now in `crates/` (and `edge/openmind-node`). Services, ports, build commands and release layout: see [INSTALL.md](INSTALL.md).
 
 ## Architecture
 

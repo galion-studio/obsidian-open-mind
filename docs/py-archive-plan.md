@@ -3,7 +3,7 @@
 
 # Remaining Python / Node files on the VPS: inventory and archive plan (wave-4 slot 308)
 
-Generated 2026-10-27 21:52–22:05 CET (+01:00), Europe/Zagreb. Read-only: every probe was
+Generated 2026-10-27 21:52–21:57 CET (+01:00), Europe/Zagreb. Read-only: every probe was
 `find`, `ls`, `stat`, `strings`, `grep`, `systemctl status/show/cat`, `ss -ltnp`, `journalctl` reads and
 HTTP GET. Nothing was moved, deleted, chmod-ed, started or stopped. Secrets dirs
 (`/opt/galion/galion-light/secrets`, `/root/galion-secrets`) were pruned from every scan.
@@ -86,5 +86,5 @@ replacing service.
 - Phase A/B/C deletes are **not** done and need owner approval (outside this row's read-only scope).
 - `galion-one` binary contains the string `node_modules`: confirmed in source as a directory-walk
   skip filter (`crates/galion-one/src/main.rs:2436,2474,2541`), not a Node call.
-- Console Node bundle not served: GET 127.0.0.1:8080 `/server/index.mjs` 404, `/node_modules/` 404, `/` 302 (22:04 CET). Still re-check the console-serve source before Phase C.
+- Console Node bundle not served: GET 127.0.0.1:8080 `/server/index.mjs` 404, `/node_modules/` 404, `/` 302 (21:56 CET). Still re-check the console-serve source before Phase C.
 - `/srv/box-archive/2026-10-21` (11 G) retention is a separate owner decision.

@@ -251,6 +251,13 @@ pub fn run(e: Effective) -> Result<(), String> {
     }
     spawn_control(listener, tx);
     log("running");
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event(
+        "galion-guard",
+        "started",
+        &format!("backend={} source={}", eng.backend.name(), e.cfg.sshd.source),
+    );
+    nerve_client::start_heartbeat("galion-guard", 60);
     let mut last_tick = 0;
     loop {
         match rx.recv_timeout(Duration::from_secs(1)) {

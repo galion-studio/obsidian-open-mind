@@ -136,3 +136,11 @@ After throwaways DEST=7c95348b main-staging=7c95348b
 3. Do **not** land on `main` until PR #12 green (main still 13a296c).
 
 Ports 21250-21259 unused (docs/mergecheck only).
+
+## Correction (2026-10-27 17:36 CET +01:00)
+
+The first throwaway `--no-ff` attempts for **memory-schema** and **no-openrouter** failed with `Committer identity unknown` (no `user.email` in that clone), which was mis-logged as MERGE-CONFLICTS. Re-run with `user.email=swarm@galion.local` / `user.name=swarm-256` and `--no-commit`:
+
+- memory-schema: MERGE-OK (no conflicts), would stage 12 paths; aborted, nothing committed.
+- no-openrouter: MERGE-OK (no conflicts), would stage 12 paths; aborted, nothing committed.
+main-staging still 7c95348b

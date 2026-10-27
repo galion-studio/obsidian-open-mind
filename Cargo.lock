@@ -576,6 +576,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-admin-console"
+version = "0.1.0"
+dependencies = [
+ "galion-common",
+ "serde_json",
+]
+
+[[package]]
 name = "galion-backup"
 version = "0.1.0"
 dependencies = [
@@ -685,6 +693,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-tar"
+version = "0.1.0"
+
+[[package]]
 name = "galion-vending"
 version = "0.1.0"
 dependencies = [
@@ -693,10 +705,6 @@ dependencies = [
  "serde_json",
  "zagreb-time",
 ]
-
-[[package]]
-name = "galion-tar"
-version = "0.1.0"
 
 [[package]]
 name = "galion-voice-core"

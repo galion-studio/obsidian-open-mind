@@ -117,6 +117,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("gaia-live", Core, "pending Slavik: Gaia's read-only live sensing (status --live) and the approval-gated heal path for box TEST services; owns no system (gaia-land note); alternatives guardian-watchdog/MINERVA or healer/DEMETER"),
     c("gaia-minerva", F(FunctionId::Minerva), "MINERVA function crate"),
     c("gaia-poseidon", F(FunctionId::Poseidon), "POSEIDON function crate"),
+    c("galion-admin-console", S(System::Console), "pending Slavik: Android admin console skeleton (phone = browser client: one-time-code pairing, hashed device tokens, node ids, hash-chained audit, read-only nerve/console status), wave-4 slot 307; same system as console-static/console-ui it will sit behind; alternative guardian-watchdog/MINERVA (security watch) or core"),
     c("galion-backup", S(System::Survival), "pending Slavik: periodic backup (SQLite snapshots, files tar, SHA256SUMS, rotation), the data part of galion-deploy backup; same system as its galion-backup unit in UNITS; alternatives healer/DEMETER or release-artifacts/HEPHAESTUS"),
     c("galion-bench", S(System::EcosystemCensus), "pending Slavik: shared mock-only benchmark harness and 0-100 scorecards for B1/B2/B3; alternative: a new bench system"),
     c("galion-boot", S(System::BootUnits), "boot/keep replacement and systemd unit renderer"),
@@ -349,9 +350,10 @@ mod tests {
         // tunnel-lint from tunnel-audit (main-staging 2026-10-21).
         // console-static, console-ui from the console pair (main-staging 2026-10-21).
         // galion-tar from shared-tar-crate via shared-tar-mergefix (wave-4 slot 242).
+        // galion-admin-console from android-admin-plan (wave-4 slot 307).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            56
+            57
         );
     }
 
@@ -385,6 +387,7 @@ mod tests {
                 "console-static",
                 "console-ui",
                 "gaia-live",
+                "galion-admin-console",
                 "galion-backup",
                 "galion-bench",
                 "galion-chatterbox",

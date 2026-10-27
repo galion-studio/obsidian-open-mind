@@ -62,6 +62,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `gaia-live` | core | (none) | GAIA | pending Slavik: Gaia's read-only live sensing (status --live) and the approval-gated heal path for box TEST services; owns no system (gaia-land note); alternatives guardian-watchdog/MINERVA or healer/DEMETER |
 | `gaia-minerva` | function | (none) | MINERVA | MINERVA function crate |
 | `gaia-poseidon` | function | (none) | POSEIDON | POSEIDON function crate |
+| `galion-admin-console` | system | console | HEPHAESTUS | pending Slavik: Android admin console skeleton (phone = browser client: one-time-code pairing, hashed device tokens, node ids, hash-chained audit, read-only nerve/console status), wave-4 slot 307 |
 | `galion-boot` | system | boot-units | DEMETER | boot/keep replacement and systemd unit renderer |
 | `galion-chatterbox` | system | speech-io | AETHER | pending Slavik: Chatterbox TTS (T3, S3Gen, HiFT, voice cloning) on candle, CPU only; the mouth behind galion-voice-serve, speech like galion-voice-cpu/openmind-speech; came in with voice-rust via candle-zip-fix |
 | `galion-common` | system | zagreb-clock | AETHER | pending Slavik: shared std-only helpers (SHA-256, hex, base64, JSON, Zagreb time, small HTTP/1.1 server/client); nearest system is the Zagreb clock it carries; alternative: core |
@@ -157,3 +158,12 @@ swarm/candle-zip-rebase merges candle-zip-fix a4f49b5 onto integration-4 42de672
 ## shared-tar-mergefix row (2026-10-22 01:15 CEST +02:00, pending Slavik)
 
 swarm/shared-tar-mergefix (wave-4 slot 242) merges swarm/main-staging into shared-tar-crate 820740e. shared-tar-crate adds the std-only `galion-tar` crate (galion-backup and galion-deploy now share it), and `every_workspace_crate_is_mapped` failed on it, which is why the main merge skipped 820740e. One row, a judgement call (`"pending_slavik": true`): survival / DEMETER, next to `galion-backup`, its main user; alternatives deploy-switch / HEPHAESTUS (galion-deploy) or core (shared plumbing like `galion-common`). Counts: 68 crates, 56 system crates; systems with a crate unchanged (survival already had one).
+
+## galion-admin-console (wave-4 slot 307, 2026-10-27 21:15 CET +01:00)
+
+swarm/android-admin-plan adds `galion-admin-console`, the Android admin console skeleton (phone =
+browser client: one-time-code pairing, hashed device tokens, node ids, hash-chained audit,
+read-only nerve/console status). One row, a judgement call (`"pending_slavik": true`): console /
+HEPHAESTUS, next to console-static and console-ui, which it serves behind; alternatives
+guardian-watchdog / MINERVA (security watch) or core. Counts: 69 crates, 57 system crates;
+systems with a crate unchanged (console already had two).

@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+[package]
+name = "galion-admin-console"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Android admin console skeleton: phone-first pairing (one-time codes, hashed device tokens, node ids only), hash-chained audit log and a read-only status page over the nerve and console. Loopback-only; the phone is a browser client, nothing runs on or flashes the device."
+
+[[bin]]
+name = "galion-admin-console"
+path = "src/main.rs"
+
+[dependencies]
+galion-common = { path = "../galion-common" }
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml

@@ -100,17 +100,32 @@ pub fn build(repo: &Path, jobs: u32) -> Result<String, String> {
 }
 
 pub fn locate(bin_dir: Option<&Path>, repo: &Path) -> Bins {
-    if let Some(d) = bin_dir {
-        return Bins {
-            dir: d.to_path_buf(),
-        };
-    }
-    let target = std::env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| repo.join("target"));
+    let dir = if let Some(d) = bin_dir {
+        d.to_path_buf()
+    } else {
+        let target = std::env::var_os("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| repo.join("target"));
+        target.join("release")
+    };
+    // galion-boot refuses a relative argv[0], and the voice/guardian scenarios
+    // exec after changing directory. A relative --bin-dir (CI passes
+    // `target/release`) fails both. Canonicalise when the directory exists.
     Bins {
-        dir: target.join("release"),
+        dir: absolute_dir(&dir),
     }
+}
+
+fn absolute_dir(p: &Path) -> PathBuf {
+    if let Ok(c) = fs::canonicalize(p) {
+        return c;
+    }
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+    std::env::current_dir()
+        .map(|c| c.join(p))
+        .unwrap_or_else(|_| p.to_path_buf())
 }
 
 pub fn tail_text(text: &str, n: usize) -> String {
@@ -586,5 +601,11 @@ mod tests {
     #[test]
     fn port_layout_fits_the_full_stack_range() {
         const { assert!(19500 + off::MAX <= 19599) };
+    }
+
+    #[test]
+    fn relative_bin_dir_becomes_absolute() {
+        let p = absolute_dir(Path::new("."));
+        assert!(p.is_absolute(), "{}", p.display());
     }
 }

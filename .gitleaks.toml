@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# False positives from gitleaks 8.30.1 on PR #12 (actions/runs/39692890293
+# and the launch-gates gitleaks-dir gate). History is not rewritten: this
+# allowlist is applied by the scanner to every commit it reads.
+# The ledger values are 16-hex SHA-256 prefixes in a test fixture. The nerve
+# line names the env var that would hold a key; it is not a credential.
+
+title = "galion"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "HADES ledger fixture: token_sha256_16 prefixes, not credentials"
+paths = ['''crates/openmind-nerve/tests/fixtures/hades/ledger\.jsonl''']
+
+[[allowlists]]
+description = "NERVE_EVT_LLM_KEY_ENV stores an env-var name, not a key"
+regexTarget = "line"
+regexes = ['''NERVE_EVT_LLM_KEY_ENV''']

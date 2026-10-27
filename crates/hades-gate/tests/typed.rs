@@ -101,6 +101,10 @@ fn prose_path_still_refuses_all_82() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn typed_path_refuses_all_82_raw_and_header_wrapped() {
     let e = env("corpus");
     let mut bypass = Vec::new();
@@ -126,6 +130,10 @@ fn typed_path_refuses_all_82_raw_and_header_wrapped() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn legit_typed_plans_are_approved_once() {
     let e = env("legit");
     let all = legit_typed();
@@ -153,6 +161,10 @@ fn legit_typed_plans_are_approved_once() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn typed_specific_attacks_are_refused() {
     let e = env("typed-attacks");
     let attacks: &[(&str, &str)] = &[
@@ -209,6 +221,10 @@ fn typed_specific_attacks_are_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn token_for_prose_does_not_approve_typed_and_vice_versa() {
     // The signature binds the exact bytes: a token signed for the prose
     // rendering cannot approve the typed bytes, and the reverse.
@@ -241,6 +257,10 @@ fn token_for_prose_does_not_approve_typed_and_vice_versa() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn typed_dry_run_and_disable() {
     let e = env("dry");
     let bytes = Plan::new(vec![Step::RecordLineage])

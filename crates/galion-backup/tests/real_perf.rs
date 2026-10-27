@@ -627,7 +627,8 @@ fn measure_env(root: &Path, which: Impl, dest: &str, extra: &[(&str, &str)]) -> 
             wall,
             user: tv(ru.ru_utime),
             sys: tv(ru.ru_stime),
-            maxrss_kb: ru.ru_maxrss,
+            // c_long: i32 on armv7, i64 on 64-bit. i64::from covers both.
+            maxrss_kb: i64::from(ru.ru_maxrss),
             tree_peak_kb: peak,
             procs: seen.len(),
         },

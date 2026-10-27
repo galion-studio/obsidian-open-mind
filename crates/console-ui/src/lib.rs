@@ -85,10 +85,10 @@ pub const PORTED: &[&str] = &[
 
 /// Ported pages the pre-built SPA keeps while a fallback is configured,
 /// because the Rust page is not yet a full replacement (owner decisions in
-/// docs/console-port-1.md): `/arena` reads the board but does not breed,
-/// stop or promote (Breed is a paid run); `/bank` needs a `/api/v1/bank`
-/// the console API does not serve yet. Without a fallback the Rust page
-/// answers.
+/// docs/console-port-1.md / console V2 R2): `/arena` reads the board but does
+/// not breed, stop or promote (Breed is a paid run); `/bank` needs a
+/// `/api/v1/bank` the console API does not serve yet. `/hermes` is Rust-first
+/// (slot 254): the Rust room already reads gateway/history live.
 pub const SPA_FIRST: &[&str] = &["/arena", "/bank"];
 
 /// Largest form body accepted (pairing code or a command name).
@@ -188,6 +188,9 @@ pub struct Ui {
     css: String,
     css_href: String,
     css_etag: String,
+    overview_css: String,
+    overview_css_href: String,
+    overview_css_etag: String,
 }
 
 /// The TanStack console answers a path it has no route for with
@@ -215,11 +218,16 @@ impl Ui {
     pub fn new(cfg: UiConfig) -> Ui {
         let css = css::sheet();
         let h = css::fnv64(css.as_bytes());
+        let overview_css = css::overview_sheet();
+        let oh = css::fnv64(overview_css.as_bytes());
         Ui {
             cfg,
             css_href: format!("/_ui/console.{h:016x}.css"),
             css_etag: format!("\"{h:016x}\""),
             css,
+            overview_css_href: format!("/_ui/overview.{oh:016x}.css"),
+            overview_css_etag: format!("\"{oh:016x}\""),
+            overview_css,
         }
     }
 
@@ -232,9 +240,7 @@ impl Ui {
     /// room is (unported rooms get a "not in Rust yet" page).
     pub fn owns(&self, path: &str, spa_fallback: bool) -> bool {
         path.starts_with("/_ui/")
-            || (PORTED.contains(&path)
-                && !(spa_fallback
-                    && (SPA_FIRST.contains(&path) || port2::SPA_FIRST.contains(&path))))
+            || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || port4::owns(path)
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
@@ -261,6 +267,7 @@ impl Ui {
         Frame {
             title,
             css_href: &self.css_href,
+            extra_css_href: None,
             light: match gate::cookie(req.cookie, "galion_theme").as_deref() {
                 Some("light") => Some(true),
                 Some("dark") => Some(false),
@@ -333,7 +340,8 @@ impl Ui {
 
     pub fn handle(&self, req: &Request<'_>) -> Reply {
         match req.path {
-            p if p == self.css_href => return self.stylesheet(req),
+            p if p == self.css_href => return self.stylesheet(req, false),
+            p if p == self.overview_css_href => return self.stylesheet(req, true),
             "/_ui/favicon.svg" => {
                 return Reply {
                     status: 200,
@@ -403,8 +411,13 @@ impl Ui {
         }
     }
 
-    fn stylesheet(&self, req: &Request<'_>) -> Reply {
+    fn stylesheet(&self, req: &Request<'_>, overview: bool) -> Reply {
         let _ = req;
+        let (etag, body) = if overview {
+            (&self.overview_css_etag, self.overview_css.as_bytes())
+        } else {
+            (&self.css_etag, self.css.as_bytes())
+        };
         Reply {
             status: 200,
             headers: vec![
@@ -413,9 +426,9 @@ impl Ui {
                     "Cache-Control".into(),
                     "public, max-age=31536000, immutable".into(),
                 ),
-                ("ETag".into(), self.css_etag.clone()),
+                ("ETag".into(), etag.clone()),
             ],
-            body: self.css.as_bytes().to_vec(),
+            body: body.to_vec(),
         }
     }
 
@@ -620,7 +633,8 @@ impl Ui {
         let fwd = self.forward(req);
         let origin = self.origin(&fwd);
         let body = pages::overview::body(PORTED.len() + 1);
-        let f = self.frame(req, "Galion Studio · Project overview");
+        let mut f = self.frame(req, "Galion Studio · Project overview");
+        f.extra_css_href = Some(&self.overview_css_href);
         Reply::html(200, layout::console(&f, origin, &body))
     }
 
@@ -787,6 +801,7 @@ mod tests {
         let f = Frame {
             title: "t",
             css_href: "/c.css",
+            extra_css_href: None,
             light: Some(false),
             path: "/agents",
         };

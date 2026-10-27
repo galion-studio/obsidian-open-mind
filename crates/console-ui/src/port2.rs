@@ -25,10 +25,6 @@ pub const ROUTES: &[&str] = &["/context", "/gateway", "/guardian", "/hermes"];
 /// Routes that may take a form POST.
 pub const POST_ROUTES: &[&str] = &["/gateway", "/guardian"];
 
-/// Ported rooms that are only a partial replacement: while a pre-built SPA
-/// fallback is configured, the SPA keeps them (`/hermes` cannot ask here).
-pub const SPA_FIRST: &[&str] = &["/hermes"];
-
 fn title(label: &str) -> String {
     format!("Galion Console · {label}")
 }

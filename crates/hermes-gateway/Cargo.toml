@@ -13,10 +13,12 @@ name = "hermes-gateway"
 path = "src/main.rs"
 
 [features]
-default = ["sqlite", "coding"]
+default = ["sqlite"]
 sqlite = ["hermes-rs/sqlite"]
-# Sandboxed coding tools (fs_read, fs_write, git, cargo). Compiled in, but
-# OFF at run time unless HERMES_RS_CODING_WORKTREE is set.
+# Sandboxed coding tools (fs_read, fs_write, git, cargo). Opt-in since slot 294
+# (keeps the release binary under the 2 MiB budget): build with
+# `--features coding`; even then OFF at run time unless
+# HERMES_RS_CODING_WORKTREE is set.
 coding = ["dep:hermes-tools"]
 
 [dependencies]

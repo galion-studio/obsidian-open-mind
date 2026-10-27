@@ -23,7 +23,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Longest a `lease` call may wait for work.
 pub const MAX_WAIT_MS: u64 = 30_000;
@@ -239,10 +239,24 @@ fn accept(listener: TcpListener, s: Arc<Shared>) {
 fn handle_conn(stream: TcpStream, s: &Shared) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(10)));
-    let (code, body) = match http::read_request(&stream) {
-        Ok(req) => route(s, &req),
-        Err(e) => (400, json!({"error":"bad_request","detail":e.to_string()})),
+    let t0 = Instant::now();
+    let (code, body, what) = match http::read_request(&stream) {
+        Ok(req) => {
+            let what = format!(
+                "{} {}",
+                req.method,
+                req.path.split('?').next().unwrap_or("")
+            );
+            let (code, body) = route(s, &req);
+            (code, body, what)
+        }
+        Err(e) => (
+            400,
+            json!({"error":"bad_request","detail":e.to_string()}),
+            "bad_request".into(),
+        ),
     };
+    nerve_client::observe_request("openmind-queue", &what, code, t0.elapsed());
     let _ = http::write_response(&stream, code, &body.to_string());
 }
 

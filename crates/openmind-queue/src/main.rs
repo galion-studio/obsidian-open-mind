@@ -121,6 +121,13 @@ fn serve(a: &Args) -> Result<(), String> {
     };
     let data = opts.data.clone();
     let h = server::start(opts).map_err(|e| format!("start: {e}"))?;
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event(
+        "openmind-queue",
+        "started",
+        &format!("listening on {}", h.addr),
+    );
+    nerve_client::start_heartbeat("openmind-queue", 60);
     let stats = call(&h.addr.to_string(), "GET", "/stats", None)
         .ok()
         .and_then(|(_, b)| serde_json::from_str::<Value>(&b).ok())

@@ -16,6 +16,7 @@
 //! | `R3b-systemd-restarting` | failure with `unit.restart_scheduled` (systemd restarts it itself) | alert, no extra action (failure still counts toward flapping) |
 //! | `R4-unknown-unit` | failure of a unit no rule may restart | alert + escalate |
 //! | `R4b-sandbox-oom` | `oom.kill` on a `sbxtest*` unit / `sbxtest.slice` (sandbox memory cap) | info only, never escalate to Hermes |
+//! | `R5b-planned-stop` | failure or exit of a unit with a stop/restart job marker (`job_type` stop/restart, nerve `planned`), or a stop-signal exit (143/130, TERM/INT) that is active again / within 10 s of a job marker; no crash evidence (OOM, core dump, other exit, systemd restart) | nothing, never counts toward flapping (slot 309, D-271-2 A) |
 //! | `R5-recovered` | unit back to `active` / info state change | nothing (incident quiets) |
 //! | `R6-task-failed` | task/slot finished with `ok=false` | alert |
 //! | `R7-threshold` | threshold crossed: warn | alert; error+ | alert + escalate (LLM-eligible) |
@@ -144,6 +145,8 @@ pub struct UnitBook {
     pub restarts: VecDeque<u64>,
     pub circuit_until: Option<u64>,
     pub circuit_escalated: bool,
+    /// Last time a stop/restart job marker was seen for the unit (slot 309).
+    pub planned_at: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -346,6 +349,15 @@ impl Rules {
             }
         }
         if let Some(u) = s.unit.clone() {
+            // Planned stop (slot 309, slot 271 F3, D-271-2 option A = ignore):
+            // an operator, cutover or job restart is not a crash. Checked
+            // before the flap book so it never counts toward R2 either.
+            if s.stop_evidence().marker.is_some() {
+                self.books.entry(u.clone()).or_default().planned_at = Some(now);
+            }
+            if let Some(why) = self.planned_stop(s, now) {
+                return Verdict::new("R5b-planned-stop", Sev::Info, why);
+            }
             let fails = s.failures();
             if fails > 0 {
                 let w = self.limits.flap_window_s;
@@ -642,6 +654,181 @@ pub fn is_sbxtest_unit(unit: &str) -> bool {
     unit == "sbxtest.slice" || unit.starts_with("sbxtest")
 }
 
+/// How long a seen stop/restart job of a unit makes a following
+/// stop-signal exit (143/130) of that unit count as planned (slot 309,
+/// slot 271 F3): covers a burst boundary between the job line and the exit.
+pub const PLANNED_HOLD_S: u64 = 10;
+
+/// What a subject's events say about a stop (slot 309, D-271-2 option A).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct StopEvidence {
+    /// Explicit stop/restart job marker: nerve `data.planned=true`, kind
+    /// `unit.planned_stop` (slot 310 F2), or `data.job_type` stop/restart
+    /// (journald `Stopping` / `Stopped` lines).
+    pub marker: Option<&'static str>,
+    /// Occurrences of marker events (nerve `count`, repeat rises).
+    pub marker_occ: u32,
+    /// Exit by the stop signal: status 143/130 (`code=exited`), or
+    /// TERM/INT (`code=killed`).
+    pub stop_exit: bool,
+    /// Occurrences of stop-signal exits.
+    pub stop_exit_occ: u32,
+    /// The unit is active again in this burst (`unit.started`, to=active).
+    pub active_again: bool,
+    /// Hard crash evidence: OOM, start limit, systemd's own restart, a core
+    /// dump, a non-stop exit status or signal, or a watchdog/oom/core/signal
+    /// unit result. Crash evidence always wins over a planned marker.
+    pub crash: bool,
+}
+
+fn data_text(e: &Event, k: &str) -> Option<String> {
+    e.data.get(k).and_then(|v| match v {
+        Value::String(s) if !s.is_empty() => Some(s.clone()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    })
+}
+
+/// Exit status of a stop by SIGTERM/SIGINT. `None` = no status on the event.
+fn stop_signal_exit(e: &Event) -> Option<bool> {
+    let st = data_text(e, "exit_status")?;
+    let code = data_text(e, "exit_code").unwrap_or_default();
+    Some(match code.as_str() {
+        "killed" => matches!(
+            st.as_str(),
+            "TERM" | "INT" | "SIGTERM" | "SIGINT" | "15" | "2"
+        ),
+        "dumped" => false,
+        _ => matches!(st.as_str(), "143" | "130"),
+    })
+}
+
+/// A unit process exit with a non-zero status (crash or stop-signal
+/// evidence). Armed by the repeat watch next to the failures (slot 309).
+pub fn exit_evidence(e: &Event) -> bool {
+    e.kind() == EventKind::ProcessExit
+        && e.unit().is_some()
+        && data_text(e, "exit_status").is_some_and(|s| s != "0")
+}
+
+/// A stop/restart job marker on a unit event: nerve `data.planned=true`,
+/// kind `unit.planned_stop` (slot 310 F2), or journald `JOB_TYPE`
+/// stop/restart (`Stopping` / `Stopped` lines; the live nerve 9d1a4f3 puts
+/// it in `data.job_type`). Also armed by the repeat watch so a planned
+/// restart the nerve folds (dedupe 600 s) still carries its marker.
+pub fn stop_marker(e: &Event) -> Option<&'static str> {
+    e.unit()?;
+    if e.data.get("planned") == Some(&Value::Bool(true)) {
+        Some("nerve planned flag")
+    } else if e.kind == "unit.planned_stop" {
+        Some("nerve unit.planned_stop")
+    } else if matches!(
+        data_text(e, "job_type").as_deref(),
+        Some("stop" | "restart")
+    ) {
+        Some("systemd stop/restart job")
+    } else {
+        None
+    }
+}
+
+impl Subject {
+    /// Stop/crash evidence of this burst (see [`StopEvidence`]).
+    pub fn stop_evidence(&self) -> StopEvidence {
+        let mut ev = StopEvidence::default();
+        for e in &self.events {
+            let k = e.kind();
+            if matches!(
+                k,
+                EventKind::Oom | EventKind::StartLimit | EventKind::RestartScheduled
+            ) {
+                ev.crash = true;
+            }
+            if data_text(e, "exit_code").as_deref() == Some("dumped") {
+                ev.crash = true;
+            }
+            if matches!(
+                data_text(e, "unit_result").as_deref(),
+                Some("core-dump" | "oom-kill" | "watchdog" | "signal" | "start-limit-hit")
+            ) {
+                ev.crash = true;
+            }
+            match stop_signal_exit(e) {
+                Some(true) => {
+                    ev.stop_exit = true;
+                    ev.stop_exit_occ = ev.stop_exit_occ.saturating_add(e.occurrences());
+                }
+                Some(false) if data_text(e, "exit_status").as_deref() != Some("0") => {
+                    ev.crash = true
+                }
+                _ => {}
+            }
+            if let Some(m) = stop_marker(e) {
+                ev.marker.get_or_insert(m);
+                ev.marker_occ = ev.marker_occ.saturating_add(e.occurrences());
+            }
+            if k == EventKind::UnitState && matches!(e.to_state(), Some("active" | "running")) {
+                ev.active_again = true;
+            }
+        }
+        ev
+    }
+
+    /// Something a planned stop could explain: a failure or a process exit.
+    fn stop_shaped(&self) -> bool {
+        self.failures() > 0
+            || self
+                .events
+                .iter()
+                .any(|e| e.kind() == EventKind::ProcessExit)
+    }
+}
+
+impl Rules {
+    /// Planned stop (operator / cutover / job restart) of a unit subject:
+    /// the reason, or `None`. Read-only (the engine asks it for the signal
+    /// severity before [`Rules::decide`] runs). Slot 309 / slot 271 F3.
+    pub fn planned_stop(&self, s: &Subject, now: u64) -> Option<String> {
+        let u = s.unit.as_deref()?;
+        if !s.stop_shaped() {
+            return None;
+        }
+        let ev = s.stop_evidence();
+        if ev.crash {
+            return None;
+        }
+        // Every failure of the burst needs its own planned explanation: a
+        // repeat burst that folds one planned restart and one real crash
+        // (failed +2, stop job +1) is still a crash.
+        let fails = s.failures();
+        if let Some(m) = ev.marker {
+            if ev.marker_occ >= fails {
+                return Some(format!("{u}: {m}; planned stop, not a crash"));
+            }
+            return None;
+        }
+        if !ev.stop_exit || ev.stop_exit_occ < fails {
+            return None;
+        }
+        let recent = self
+            .books
+            .get(u)
+            .and_then(|b| b.planned_at)
+            .is_some_and(|t| now.saturating_sub(t) <= PLANNED_HOLD_S);
+        if recent {
+            return Some(format!(
+                "{u}: stop-signal exit within {PLANNED_HOLD_S}s of a stop/restart job; planned stop, not a crash"
+            ));
+        }
+        if ev.active_again {
+            return Some(format!(
+                "{u}: stop-signal exit (143/130) and active again; planned restart, not a crash"
+            ));
+        }
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -754,5 +941,264 @@ mod tests {
         assert!(is_sbxtest_unit("sbxtest-main-20261022-010534.service"));
         assert!(!is_sbxtest_unit("galion-nerve.service"));
         assert!(!is_sbxtest_unit("test.slice"));
+    }
+
+    // ---- slot 309: planned stops (slot 271 F3, D-271-2 option A) ----
+
+    const CONSOLE: &str = "console.service";
+
+    /// A nerve event as the live nerve 9d1a4f3 (evt/journal.rs) emits it.
+    fn jev(kind: &str, sev: &str, seq: u64, data: Value) -> Event {
+        let mut e = Event::new("journal", kind, sev, data);
+        e.unit = Some(CONSOLE.to_string());
+        e.seq = Some(seq);
+        e.key = Some(format!("{kind}:{CONSOLE}"));
+        e
+    }
+
+    fn exit(seq: u64, code: &str, status: &str) -> Event {
+        jev(
+            "unit.exit",
+            "high",
+            seq,
+            json!({"message_id": "98e322203f7a4ed290d09fe03c09fe15", "exit_code": code, "exit_status": status}),
+        )
+    }
+    fn failed(seq: u64, result: &str) -> Event {
+        jev(
+            "unit.failed",
+            "high",
+            seq,
+            json!({"message_id": "d9b373ed55a64feb8242e02dbe79a49c", "unit_result": result}),
+        )
+    }
+    fn stopped(seq: u64, job: &str) -> Event {
+        jev(
+            "unit.stopped",
+            "medium",
+            seq,
+            json!({"message_id": "9d1aaa27d60140bd96365438aad20286", "job_type": job, "job_result": "done"}),
+        )
+    }
+    fn started(seq: u64) -> Event {
+        jev(
+            "unit.started",
+            "medium",
+            seq,
+            json!({"message_id": "39f53479d3a045ac8e11786248231fbf", "job_type": "start", "job_result": "done"}),
+        )
+    }
+    fn subj(events: Vec<Event>) -> Subject {
+        Subject {
+            key: format!("unit:{CONSOLE}"),
+            unit: Some(CONSOLE.to_string()),
+            host: None,
+            events,
+        }
+    }
+
+    /// Live VPS 2026-10-27 17:25:04 +01:00 (journal seq 21467446-453):
+    /// operator `systemctl restart console.service`, srvx exits 143 on
+    /// SIGTERM, systemd "Failed with result 'exit-code'", Stopped
+    /// JOB_TYPE=restart, Started. Base 73583ab answered R3-known-crash ->
+    /// restart (live dec-874). Now: R5b, no action, no flap count.
+    #[test]
+    fn live_1725_operator_restart_is_planned_not_r3() {
+        let mut r = rules();
+        let s = subj(vec![
+            exit(21467449, "exited", "143"),
+            failed(21467450, "exit-code"),
+            stopped(21467451, "restart"),
+            started(21467453),
+        ]);
+        assert!(
+            r.restart_allowed(CONSOLE),
+            "console is on the reflex allowlist"
+        );
+        let v = r.decide(&s, false, 1_793_118_305);
+        assert_eq!(v.rule, "R5b-planned-stop", "{v:?}");
+        assert_eq!(v.outcome, Outcome::None);
+        assert_eq!(v.sev, Sev::Info);
+        assert!(!v.alert && !v.escalate);
+        let b = r.books.get(CONSOLE).expect("marker noted");
+        assert!(b.failures.is_empty(), "planned stop never counts toward R2");
+        assert!(b.restarts.is_empty());
+        assert_eq!(b.planned_at, Some(1_793_118_305));
+    }
+
+    /// Same burst under the old rules shape (no job marker, no restart):
+    /// a crash-exit-1 control still restarts.
+    #[test]
+    fn crash_exit_1_control_still_restarts() {
+        let mut r = rules();
+        let s = subj(vec![exit(10, "exited", "1"), failed(11, "exit-code")]);
+        let v = r.decide(&s, false, 1_000);
+        assert_eq!(v.rule, "R3-known-crash");
+        assert_eq!(v.outcome, Outcome::Restart(CONSOLE.into()));
+    }
+
+    #[test]
+    fn crash_evidence_beats_a_job_marker() {
+        // kill -9 during a restart job, a core dump, an OOM, a non-stop exit
+        // status or systemd's own restart: never planned.
+        let cases: Vec<Vec<Event>> = vec![
+            vec![
+                exit(1, "killed", "KILL"),
+                failed(2, "signal"),
+                stopped(3, "restart"),
+            ],
+            vec![
+                exit(1, "dumped", "SEGV"),
+                failed(2, "core-dump"),
+                stopped(3, "stop"),
+            ],
+            vec![
+                exit(1, "exited", "1"),
+                failed(2, "exit-code"),
+                stopped(3, "restart"),
+            ],
+            vec![failed(2, "oom-kill"), stopped(3, "restart")],
+            vec![
+                exit(1, "exited", "143"),
+                failed(2, "exit-code"),
+                stopped(3, "restart"),
+                jev("unit.restart_scheduled", "high", 4, json!({})),
+            ],
+        ];
+        for (i, evs) in cases.into_iter().enumerate() {
+            let mut r = rules();
+            let s = subj(evs);
+            assert!(r.planned_stop(&s, 1_000).is_none(), "case {i}");
+            let v = r.decide(&s, false, 1_000);
+            assert_ne!(v.rule, "R5b-planned-stop", "case {i}: {v:?}");
+        }
+    }
+
+    #[test]
+    fn kill_9_control_restarts() {
+        let mut r = rules();
+        let s = subj(vec![exit(1, "killed", "KILL"), failed(2, "signal")]);
+        let v = r.decide(&s, false, 1_000);
+        assert_eq!(v.rule, "R3-known-crash");
+    }
+
+    #[test]
+    fn exit_143_alone_is_not_enough() {
+        // No job marker, not active again: could be anything that sent
+        // SIGTERM; keep the old behaviour (restart).
+        let mut r = rules();
+        let s = subj(vec![exit(1, "exited", "143"), failed(2, "exit-code")]);
+        assert_eq!(r.decide(&s, false, 1_000).rule, "R3-known-crash");
+    }
+
+    #[test]
+    fn exit_143_and_active_again_without_marker_is_planned() {
+        let mut r = rules();
+        for (code, st) in [("exited", "143"), ("exited", "130"), ("killed", "TERM")] {
+            let s = subj(vec![exit(1, code, st), failed(2, "exit-code"), started(3)]);
+            let v = r.decide(&s, false, 1_000);
+            assert_eq!(v.rule, "R5b-planned-stop", "{code}/{st}");
+        }
+    }
+
+    #[test]
+    fn split_burst_within_hold_is_planned_after_hold_is_crash() {
+        // F2 nerve (slot 310): the Stopping line arrives first, its own burst.
+        let mut stopping = jev(
+            "unit.planned_stop",
+            "low",
+            1,
+            json!({"job_type": "stop", "planned": true}),
+        );
+        stopping.kind = "unit.planned_stop".into();
+        let mut r = rules();
+        let v0 = r.decide(&subj(vec![stopping]), false, 1_000);
+        assert_ne!(v0.rule, "R3-known-crash");
+        let late = subj(vec![exit(2, "exited", "143"), failed(3, "exit-code")]);
+        let v1 = r.decide(&late, false, 1_000 + PLANNED_HOLD_S);
+        assert_eq!(v1.rule, "R5b-planned-stop", "{v1:?}");
+        let mut r2 = rules();
+        r2.decide(&subj(vec![stopped(1, "stop")]), false, 1_000);
+        let v2 = r2.decide(&late, false, 1_000 + PLANNED_HOLD_S + 1);
+        assert_eq!(v2.rule, "R3-known-crash", "hold expired");
+    }
+
+    #[test]
+    fn nerve_planned_flag_on_the_failure_itself() {
+        let mut f = failed(2, "exit-code");
+        f.data["planned"] = json!(true);
+        f.severity = "low".into();
+        let mut r = rules();
+        let v = r.decide(&subj(vec![f]), false, 1_000);
+        assert_eq!(v.rule, "R5b-planned-stop");
+    }
+
+    /// The live nerve folds a 2nd restart inside its 600 s dedupe: the
+    /// cortex sees it only as repeat events (count rises). A planned one
+    /// carries its folded job marker + 143 exit; a crash loop the cortex
+    /// restarts carries a non-stop exit and stays a crash; one planned
+    /// restart + one crash folded together (failed +2) is not planned.
+    #[test]
+    fn folded_repeats_planned_vs_crash() {
+        let rep = |mut e: Event, n: u32| {
+            e.count = Some(n);
+            e.data["repeat"] = json!({"of_seq": e.seq, "total": n + 1, "new": n});
+            e
+        };
+        let mut r = rules();
+        let planned = subj(vec![
+            rep(failed(2, "exit-code"), 1),
+            rep(exit(1, "exited", "143"), 1),
+            rep(stopped(3, "restart"), 1),
+        ]);
+        assert_eq!(r.decide(&planned, false, 2_000).rule, "R5b-planned-stop");
+        let crash_loop = subj(vec![
+            rep(failed(2, "exit-code"), 1),
+            rep(exit(5, "exited", "1"), 1),
+            rep(stopped(3, "restart"), 1),
+        ]);
+        assert_eq!(r.decide(&crash_loop, false, 2_100).rule, "R3-known-crash");
+        let mixed = subj(vec![
+            rep(failed(2, "exit-code"), 2),
+            rep(exit(1, "exited", "143"), 1),
+            rep(stopped(3, "restart"), 1),
+        ]);
+        let mut r3 = rules();
+        assert!(r3.planned_stop(&mixed, 3_000).is_none());
+        assert_eq!(r3.decide(&mixed, false, 3_000).rule, "R3-known-crash");
+    }
+
+    #[test]
+    fn three_planned_restarts_never_open_the_circuit() {
+        // flap_failures 3 in 600 s: three cutover restarts in 3.5 min (the
+        // live 17:25-17:28 sequence) must leave the next real crash to R3.
+        let mut r = rules();
+        for (i, t) in [0u64, 2, 205].into_iter().enumerate() {
+            let b = i as u64 * 10;
+            let s = subj(vec![
+                exit(b + 1, "exited", "143"),
+                failed(b + 2, "exit-code"),
+                stopped(b + 3, "restart"),
+                started(b + 4),
+            ]);
+            assert_eq!(r.decide(&s, false, 10_000 + t).rule, "R5b-planned-stop");
+        }
+        let crash = subj(vec![exit(99, "exited", "1"), failed(100, "exit-code")]);
+        let v = r.decide(&crash, false, 10_300);
+        assert_eq!(v.rule, "R3-known-crash", "{v:?}");
+    }
+
+    #[test]
+    fn protected_unit_stays_r1_and_plain_stop_stays_r5() {
+        let mut r = Rules::new(Guard::new(&["console.service".to_string()]), &[], limits());
+        let s = subj(vec![
+            exit(1, "exited", "143"),
+            failed(2, "exit-code"),
+            stopped(3, "restart"),
+        ]);
+        assert_eq!(r.decide(&s, false, 1_000).rule, "R1-protected");
+        let mut r = rules();
+        let only_stop = subj(vec![stopped(1, "stop")]);
+        assert_eq!(r.decide(&only_stop, false, 1_000).rule, "R5-recovered");
     }
 }

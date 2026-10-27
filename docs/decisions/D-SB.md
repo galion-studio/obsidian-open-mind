@@ -50,3 +50,8 @@ seeing the host, which is the safe way to fail. Revisit if D-SB2 is accepted.
 - D-SB3: nothing to decide until the kernel is ≥ 7.2 (recommend **park**)
 - D-SB4: run hermes-rs as a dedicated non-root user before coding tools go live? (recommend **yes**)
 - Extra: `chmod 600` link.env? (recommend **yes**). Pin WORKDIR_MB=512 in the staged drop-in? (recommend **yes**)
+
+## Update 2026-10-27 22:40 CET (slot 318, `swarm/sandbox-nonroot-stage`)
+- **D-SB4 is now staged**: `deploy/staged/hermes-rs.service.d/80-nonroot.conf` + `deploy/staged/sysusers.d/hermes-rs.conf`, docs `docs/staged/hermes-rs-nonroot.md`. A bare `User=` would have broken the live gateway: config.yaml silently skipped (routes/aliases lost) and a crash loop on the 0600 legacy state.db (both reproduced on the VPS as uid 65534). The drop-in hands both over via `LoadCredential=` and a privileged `ExecStartPre=+install` copy, with no host permission change. Still needs the owner's OK (live restart).
+- **Item 2 done**: `HERMES_RS_CODING_WORKDIR_MB=512` is pinned in `coding-tools.conf`; the test asserts it.
+- **Item 1 (link.env)** is worse than a read leak: the file is world-*writable* and `play.sh` sources it (`. ./link.env`), so any local user can run code as whoever runs `play.sh`. Command staged (`chmod 600`, plus `umask 077` in `install.sh`), not run.

@@ -121,14 +121,13 @@ fn staged_dropin_sets_the_required_keys() {
     assert_eq!(env["HERMES_RS_CODING_CGROUP"], "delegate");
     // The worktree is a dedicated clone, never the live tree.
     assert!(!env["HERMES_RS_CODING_WORKTREE"].starts_with("/opt/galion"));
-    // FINDING (slot 305): the drop-in does not pin the workdir quota; it
-    // relies on the compiled default (512 MiB). The decision pack recommends
-    // pinning it; this assert flips to `true` when that lands.
-    if env.contains_key("HERMES_RS_CODING_WORKDIR_MB") {
-        eprintln!("NOTE: staged drop-in pins HERMES_RS_CODING_WORKDIR_MB");
-    } else {
-        eprintln!("FINDING: staged drop-in relies on the 512 MiB workdir default");
-    }
+    // Slot 318: the drop-in now pins the workdir quota (D-SB pack item 2,
+    // flagged as a FINDING by slot 305) to the 512 MiB default.
+    assert_eq!(
+        env.get("HERMES_RS_CODING_WORKDIR_MB").map(String::as_str),
+        Some("512"),
+        "staged drop-in must pin HERMES_RS_CODING_WORKDIR_MB=512"
+    );
 }
 
 #[test]

@@ -21,13 +21,16 @@
 //! - threshold = max(`min_rps`, 5 x median, median + 8 x 1.4826 x MAD).
 //! - `flood` when rps >= threshold and the minute holds >= `min_requests`;
 //!   `elevated` at half the threshold; else `normal`.
+//! - **Cycle-gap bucket spread** (slot 278 / P-233-1 rest): counter-only
+//!   deltas are spread across one 10 s bucket per 10 s of the gap since the
+//!   previous sample (`record_count_spread`), so a 900 s event-mode
+//!   heartbeat shows the real ~0.6 req/s in the last-minute window instead
+//!   of dumping 15 min of traffic into one bucket.
 //! - **Zero-baseline / first-bucket skip** (slot 252): counter-only streams
-//!   (`has_ips == false`, e.g. cloudflared `total_requests` delta) never
-//!   reach `flood` when the baseline is 0, when the baseline window has no
-//!   non-empty bucket (first dump after a long event-mode gap), or when
-//!   `rps < 3 × baseline`. They cap at `elevated` (warn). This stops a
-//!   900 s heartbeat dumping ~15 min of traffic into one 10 s bucket from
-//!   going CRITICAL against an all-zero baseline. IP-bearing streams are
+//!   (`has_ips == false`) never reach `flood` when the baseline is 0, when
+//!   the baseline window has no non-empty bucket, or when `rps < 3 ×
+//!   baseline`. They cap at `elevated` (warn). Safety net when the gap is
+//!   still ≤ 60 s (spread fills the whole minute). IP-bearing streams are
 //!   unchanged.
 //! - shape: `single-source` when one IP sends >= 50 % of the minute,
 //!   `distributed` with >= 50 distinct IPs, else `concentrated`.
@@ -304,6 +307,39 @@ impl Stream {
             b.errors += errors;
         }
         self.total += n;
+    }
+
+    /// Spread a counter delta evenly across 10 s buckets covering
+    /// `(prev_t, now]`. One bucket per `BUCKET_S` of the gap (P-233-1).
+    /// When the gap is 2264 one bucket (or `prev_t == 0`), same as
+    /// [`record_count`] at `now`.
+    pub fn record_count_spread(&mut self, prev_t: u64, now: u64, n: u64, errors: u64) {
+        if n == 0 && errors == 0 {
+            return;
+        }
+        let gap = now.saturating_sub(prev_t);
+        if prev_t == 0 || gap <= BUCKET_S {
+            self.record_count(now, n, errors);
+            return;
+        }
+        let n_buckets = (gap / BUCKET_S).max(1);
+        let base_n = n / n_buckets;
+        let rem_n = n % n_buckets;
+        let base_e = errors / n_buckets;
+        let rem_e = errors % n_buckets;
+        for i in 0..n_buckets {
+            let t = now.saturating_sub((n_buckets - 1 - i) * BUCKET_S);
+            let ni = base_n + u64::from(i < rem_n);
+            let ei = base_e + u64::from(i < rem_e);
+            if ni == 0 && ei == 0 {
+                continue;
+            }
+            if let Some(b) = self.bucket(t) {
+                b.count += ni;
+                b.errors += ei;
+            }
+            self.total += ni;
+        }
     }
 
     /// Evaluate at `now`.
@@ -690,6 +726,51 @@ mod tests {
             v.baseline_rps
         );
         assert_eq!(v.floods_total, 1);
+    }
+
+    #[test]
+    fn counter_only_900s_cycle_gap_spread_is_normal() {
+        // P-233-1: 612 req over 900 s → ~0.68 req/s in the last minute, not 10.2.
+        let mut s = Stream::new("edge-cloudflared", Some("cloudflared".into()));
+        let p = DdosParams::default();
+        let t0 = 40_000_000u64;
+        s.record_count_spread(t0, t0 + 900, 612, 400);
+        let v = s.evaluate(t0 + 900, &p);
+        assert!(
+            v.requests_60s < 100,
+            "spread must keep last-minute count near real rate: {} ({})",
+            v.requests_60s,
+            v.explain()
+        );
+        assert!(v.rps < 2.0, "rps {} ({})", v.rps, v.explain());
+        assert_eq!(v.level, "normal", "{}", v.explain());
+        assert_eq!(v.floods_total, 0);
+        assert_eq!(v.shape, "unknown (counter only)");
+    }
+
+    #[test]
+    fn counter_only_short_gap_spread_fills_minute() {
+        // Gap ≤ 60 s: all spread buckets sit in the evaluate window; slot 252
+        // guards still cap at elevated when baseline is zero.
+        let mut s = Stream::new("edge-cloudflared", Some("cloudflared".into()));
+        let p = DdosParams::default();
+        let t0 = 50_000_000u64;
+        s.record_count_spread(t0, t0 + 60, 612, 400);
+        let v = s.evaluate(t0 + 60, &p);
+        assert!(v.requests_60s >= 600, "{}", v.requests_60s);
+        assert_ne!(
+            v.level,
+            "flood",
+            "short-gap still uses zero-baseline guard: {}",
+            v.explain()
+        );
+    }
+
+    #[test]
+    fn record_count_spread_noop_on_zero() {
+        let mut s = Stream::new("edge-cloudflared", None);
+        s.record_count_spread(100, 1000, 0, 0);
+        assert_eq!(s.window().0, 0);
     }
 
     #[test]

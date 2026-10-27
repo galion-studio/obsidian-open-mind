@@ -79,7 +79,7 @@ pub struct Engine {
     pub live: bool,
     pub ddos: Vec<DdosVerdict>,
     pub score: Option<Score>,
-    tunnel_prev: HashMap<String, (u64, u64)>,
+    tunnel_prev: HashMap<String, (u64, u64, u64)>,
     /// Port ownership map (component table + env).
     pub owners: crate::owners::OwnerMap,
     /// Holders of unowned listeners, from the last read.
@@ -256,14 +256,16 @@ impl Engine {
                 let Some(s) = c.latest() else { continue };
                 if let (Some(r), Some(e)) = (s.tunnel_requests, s.tunnel_req_errors) {
                     let key = c.spec.name.to_string();
-                    if let Some((r0, e0)) = self.tunnel_prev.get(&key).copied() {
+                    if let Some((r0, e0, t0)) = self.tunnel_prev.get(&key).copied() {
                         if r >= r0 {
+                            // P-233-1: spread the delta across the cycle gap
+                            // (one 10 s bucket per 10 s), not into a single bucket.
                             sh.detector
                                 .stream(&format!("edge-{key}"), Some(c.spec.name))
-                                .record_count(now, r - r0, e.saturating_sub(e0));
+                                .record_count_spread(t0, now, r - r0, e.saturating_sub(e0));
                         }
                     }
-                    self.tunnel_prev.insert(key, (r, e));
+                    self.tunnel_prev.insert(key, (r, e, now));
                 }
             }
             self.ddos = sh.detector.evaluate(now);
@@ -1200,5 +1202,89 @@ mod tests {
         ));
         assert!(md.contains("| AETHER | healthy | cloudflared:healthy |"));
         assert!(md.contains("- warn `component` x: m"));
+    }
+
+    #[test]
+    fn cycle_gap_900s_tunnel_delta_is_not_flood() {
+        // P-233-1 via Engine::cycle_with: +600 requests across a 900 s gap
+        // must land as ~normal rate, not a CRITICAL counter dump.
+        let dir = std::env::temp_dir().join(format!("nerve-cg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let comps = dir.join("components.json");
+        std::fs::write(
+            &comps,
+            r#"[{"name":"cloudflared","kind":"tunnel","metrics_port":21481,"group":"edge","unit":"cloudflared.service","gaia":"AETHER","system":"tunnels","critical":true}]"#,
+        )
+        .unwrap();
+        let d = dir.display().to_string();
+        let cpath = comps.display().to_string();
+        let cfg = Config::from_env(&|k| match k {
+            "NERVE_DATA_DIR" => Some(d.clone()),
+            "NERVE_COMPONENTS" => Some(cpath.clone()),
+            "NERVE_REFLEX" => Some("0".into()),
+            "NERVE_SYSTEMD" => Some("0".into()),
+            "NERVE_JOURNAL" => Some("0".into()),
+            "NERVE_DDOS_MIN_RPS" => Some("10".into()),
+            "NERVE_DDOS_MIN_REQUESTS" => Some("300".into()),
+            _ => None,
+        })
+        .unwrap();
+        let mut e = Engine::new(cfg).unwrap();
+        e.reflexes_enabled = false;
+        e.live = false;
+        e.write_files = false;
+        e.alerts.path = None;
+        e.alerts.to_journal = false;
+
+        let t0 = 1_700_000_000u64;
+        let sample = |t: u64, req: u64, err: u64| crate::state::Sample {
+            t,
+            present: true,
+            unit_active: Some("active".into()),
+            tunnel_conns: Some(4),
+            tunnel_requests: Some(req),
+            tunnel_req_errors: Some(err),
+            ..Default::default()
+        };
+        let mut samples0 = HashMap::new();
+        samples0.insert("cloudflared".into(), sample(t0, 10_000, 100));
+        e.cycle_with(
+            Collected {
+                samples: samples0,
+                ..Default::default()
+            },
+            vec![],
+            t0,
+            Instant::now(),
+        );
+
+        let mut samples1 = HashMap::new();
+        samples1.insert("cloudflared".into(), sample(t0 + 900, 10_600, 500));
+        e.cycle_with(
+            Collected {
+                samples: samples1,
+                ..Default::default()
+            },
+            vec![],
+            t0 + 900,
+            Instant::now(),
+        );
+
+        let v = e
+            .ddos
+            .iter()
+            .find(|d| d.stream == "edge-cloudflared")
+            .unwrap_or_else(|| panic!("no edge-cloudflared: {:?}", e.ddos));
+        assert!(
+            v.requests_60s < 100,
+            "900s spread must not dump into one minute: {} ({})",
+            v.requests_60s,
+            v.explain()
+        );
+        assert!(v.rps < 2.0, "rps {} ({})", v.rps, v.explain());
+        assert_ne!(v.level, "flood", "{}", v.explain());
+        assert_eq!(v.level, "normal", "{}", v.explain());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

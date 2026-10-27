@@ -159,9 +159,13 @@ for path in "$bins_dir"/*; do
     stripped=no
   fi
   cap=$LIMIT
-  if [ "$name" = hermes-gateway ]; then
-    cap=$HERMES_GATEWAY_LIMIT
-  fi
+  # Release artifacts carry a commit tag: hermes-gateway-<7+ hex>[-suffix]
+  # (slot 312: hermes-gateway-38a0770 was checked against 2 MiB, not 2.5 MiB).
+  case "$name" in
+    hermes-gateway | hermes-gateway-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*)
+      cap=$HERMES_GATEWAY_LIMIT
+      ;;
+  esac
   over=no
   if [ "$size" -gt "$cap" ]; then
     over=yes

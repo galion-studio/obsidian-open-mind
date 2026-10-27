@@ -16,13 +16,16 @@ name = "desk-hermes"
 path = "src/main.rs"
 
 [dependencies]
-galion-common = { path = "../galion-common", features = ["serde-json"] }
+# Release reproducibility (D-312-4): same dependency features alone and in the release set.
+galion-feature-pin = { path = "../galion-feature-pin" }
+galion-common = { path = "../galion-common" }
+galion-jsonout = { path = "../galion-jsonout" }
 # The ticket notes `bundled` is not required and that the system libsqlite3 is
 # fine. On this box there is no pkg-config, no sqlite3.h and no libsqlite3.so
 # (only the versioned libsqlite3.so.0 runtime), so libsqlite3-sys cannot link
 # against the system library. `bundled` compiles the vendored SQLite
 # amalgamation and is therefore required here. state.db is still opened
 # READ-ONLY regardless.
-rusqlite = { version = "0.32", default-features = false, features = ["bundled"] }
+rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml

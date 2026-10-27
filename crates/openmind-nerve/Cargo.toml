@@ -16,6 +16,8 @@ name = "openmind-nerve"
 path = "src/main.rs"
 
 [dependencies]
+# Release reproducibility (D-312-4): same dependency features alone and in the release set.
+galion-feature-pin = { path = "../galion-feature-pin" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 semver = "1"

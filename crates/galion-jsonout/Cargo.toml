@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+[package]
+name = "galion-jsonout"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CPython json.dumps compatible writer over serde_json::Value (was galion-common feature serde-json)."
+
+[dependencies]
+galion-common = { path = "../galion-common" }
+serde = { workspace = true }
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml

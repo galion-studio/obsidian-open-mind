@@ -12,6 +12,8 @@ name = "openmind-queue"
 path = "src/main.rs"
 
 [dependencies]
+# Release reproducibility (D-312-4): same dependency features alone and in the release set.
+galion-feature-pin = { path = "../galion-feature-pin" }
 # In-workspace crates only. serde/serde_json are existing workspace
 # dependencies (already in Cargo.lock); no new third-party crates.
 zagreb-time = { path = "../zagreb-time" }

@@ -5,19 +5,16 @@ name = "galion-common"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Shared std-only helpers: SHA-256, hex, base64, CPython-compatible JSON output, Europe/Zagreb RFC 3339 time and a small hardened HTTP/1.1 server and client."
+description = "Shared std-only helpers: SHA-256, hex, base64, CPython-compatible JSON escaping, Europe/Zagreb RFC 3339 time and a small hardened HTTP/1.1 server and client."
 
-[features]
-default = []
-# `jsonout` over serde_json::Value for the crates that already use serde_json
-# (desk-hermes, link-watch). Off by default so the crate stays std-only.
-serde-json = ["dep:serde", "dep:serde_json"]
+# No [features] on purpose (slot 325, D-312-4): every release binary links this
+# crate, so any optional feature here makes `cargo build -p X` and the full
+# release `-p` set compile it differently and the binaries stop being
+# byte-identical. The serde_json `jsonout` writer lives in crates/galion-jsonout.
+# Guard: crates/galion-feature-pin/tests/release_feature_unify.rs.
 
 [dependencies]
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 
 [dev-dependencies]
 # Cross-check only: the std-only time module must agree with chrono-tz.
 zagreb-time = { path = "../zagreb-time" }
-

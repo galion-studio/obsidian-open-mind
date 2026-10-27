@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# STAGED PROPOSAL ONLY (swarm/console-rust-serve-impl, slot 302).
+# Not installed, not enabled. Live console.service stays Node srvx until the
+# owner approves cutover. Do not copy this onto the VPS without written OK.
+[Unit]
+Description=Galion console Rust serve (console-dist static + local-api + Rust UI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/bin/galion-console-serve \
+  --bind 127.0.0.1:8080 \
+  --dist /opt/galion/console-dist \
+  --ui rust \
+  --local-api \
+  --quiet
+Restart=always
+RestartSec=2
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadOnlyPaths=/opt/galion/console-dist
+# Board API (slot 303, swarm/console-board-api-parity): --local-api now serves
+# the board catalog (services, domains, repos, catalog, ledger, docs, protocol,
+# protocol/snapshot, markers GET/POST, boot) and the admin pairing gate.
+# Remote console hosts (cloudflared) need the admin store, owner decision
+# D-303-1 (STAGED, not applied):
+#   --admin-store /root/galion-secrets/admin-device.json
+#   --admin-mirror /workspace/galion-light/secrets/persist/admin-device.json
+# plus write access under ProtectSystem/ProtectHome (pairing writes hashes):
+#   ReadWritePaths=/root/galion-secrets /workspace/galion-light/secrets/persist
+# Without ReadWritePaths, already-paired cookies still verify (read-only) and
+# new pairing answers 503 "store not writable" (fails closed).
+# DynamicUser=yes cannot read /root; keep the live root unit or move the store.
+
+[Install]
+WantedBy=multi-user.target

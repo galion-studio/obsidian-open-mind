@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+[package]
+name = "replicate-picture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust port of /opt/galion/bin/replicate-picture.py: one picture from Replicate (flux-dev, then flux-schnell). The token is read from the key file and handed to curl on stdin, never on argv or stdout."
+
+[lib]
+name = "replicate_picture"
+path = "src/lib.rs"
+
+[[bin]]
+name = "replicate-picture"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }

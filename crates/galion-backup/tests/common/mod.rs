@@ -10,6 +10,8 @@ use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+pub mod vps_tree;
+
 pub fn tmp(tag: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("galion-backup-{tag}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&d);

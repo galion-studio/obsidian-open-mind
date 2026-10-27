@@ -101,7 +101,7 @@ one std-only `crates/galion-tar` crate. galion-backup keeps only its tar
 names); the GNU writer itself moved there unchanged, and galion-deploy's ustar
 writer/reader is re-exported from it. See docs/galion-tar.md.
 
-## Deploy (NOT done; owner decision)
+## Deploy (proposal below; DONE live 2026-10-27 18:20 +01:00 by t273u via drop-in 90-deploy-t273u.conf, ELF galion-backup-98466ab)
 
 Nothing was installed, restarted or written on the VPS. Proposed cutover:
 
@@ -136,3 +136,26 @@ miniz_oxide vs GNU gzip plus pure-Rust SHA-256 vs SHA-NI. The CRC-32 is now
 slicing-by-8 (4.5x faster). `GALION_BACKUP_GZIP_LEVEL=5` gives -36 % CPU vs
 bash for +6 % archive size. Details, raw numbers and owner decisions B1/B2:
 `docs/real-tests/backup-perf.md`.
+
+## Restore (swarm/backup-restore-parity, slot 279, 2026-10-27 +01:00)
+
+Proven by `tests/real_restore_parity.rs` (43/43 with the deployed ELF
+`galion-backup-98466ab` on a fake edge-case tree and on a VPS-sized tree; see
+docs/real-tests/backup-restore-parity.md): Rust and bash archives restore to
+the same tree, DB rows equal the live source (WAL included), and
+backup -> restore -> backup gives a byte-identical files.tar.
+
+As root, with the services owning these paths stopped:
+
+1. `umask 077; W=$(mktemp -d /var/tmp/galion-restore-XXXXXX)`;
+   `tar -xpzf /var/backups/galion/galion-STAMP.tar.gz -C "$W"`
+   (from offsite: decrypt the `.age` first).
+2. `cd "$W"/galion-STAMP && sha256sum -c --strict SHA256SUMS` - all 6 lines OK.
+3. **DBs first**: for each `src name` line of `db/MAP`: `rm -f src-wal src-shm`
+   (a stale WAL would be replayed onto the restored file), then
+   `install -m 0600 db/name src`. Owner/mode are not stored: `chmod 0644` the
+   two memory-tencentdb `vectors.db` (live mode 644); hermes DBs stay 600.
+4. **Then** `tar -xpf files/files.tar -C /` (tar sets directory mtimes last;
+   doing it before step 3 leaves bumped dir mtimes).
+5. `galion-backup verify <db>` for each restored DB (`integrity=ok`), `rm -rf "$W"`,
+   start the services.

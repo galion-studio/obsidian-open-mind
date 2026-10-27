@@ -166,7 +166,9 @@ alternative if needed).
 `NERVE_MODE=event`, `NERVE_EVT_HEARTBEAT` (900, 60..3600), `NERVE_EVT_DEBOUNCE` (30),
 `NERVE_EVT_MAX_WAIT` (120), `NERVE_EVT_DEDUPE` (600), `NERVE_EVT_ESCALATE_MIN` (high),
 `NERVE_EVT_CYCLE_DEBOUNCE` (5), `NERVE_EVT_CYCLE_MIN_GAP` (60), `NERVE_EVT_JOURNAL` (1),
-`NERVE_EVT_JOURNALCTL` (journalctl; `replay:PATH` reads a file/FIFO for tests),
+`NERVE_EVT_JOURNALCTL` (journalctl; `replay:PATH` reads a file/FIFO for tests;
+`native` / `native:DIR` selects the in-process `sdjournal` follower when built with
+`--features journal-native` — see `docs/third-party/nerve-journal-reader-rs.md`),
 `NERVE_EVT_PIDFD` (1), `NERVE_EVT_PIDS`, `NERVE_EVT_WATCH`, `NERVE_EVT_UNITS`,
 `NERVE_EVT_DISK` (/), `NERVE_EVT_DISK_PCT` (85,90,95), `NERVE_EVT_CERTS`,
 `NERVE_EVT_CERT_DAYS` (30,14,3,0), `NERVE_EVT_ACTIONS` (dry-run; `live`),
@@ -180,6 +182,8 @@ Do not watch the nerve's own data dir (it writes there every cycle).
 - `seq` restarts at 1 when the nerve restarts; resume with `since=0` after a
   `nerve.started` line.
 - `journalctl -f` RSS was ~38 MB on the VPS (mapped journal files, mostly
+  shared; re-measured 2026-10-27 CET: ~49 MB under live nerve bb287cc). Optional
+  in-process replacement: feature `journal-native` (prototype, not live).
   page cache); the nerve itself ~2.3 MB.
 - Processes run by a non-root nerve: `ss -p` cannot name other users'
   sockets; ports then fall back to the well-known port table.

@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
-//! systemd journal as an event source: one `journalctl -f -o json` child
+//! systemd journal as an event source: one `journalctl -f -o json` child (default; or in-process via feature `journal-native`)
 //! whose *server-side* matches keep the stream small, read with a blocking
 //! pipe read (no polling, no timer).
 //!
@@ -181,6 +181,31 @@ impl JournalSource {
         let units = Arc::new(Mutex::new(units));
         let child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
         let restart = Arc::new(AtomicBool::new(false));
+
+        #[cfg(feature = "journal-native")]
+        if super::journal_native::is_native_spec(&bin) {
+            super::journal_native::start(bin, units.clone(), restart.clone(), tx);
+            return JournalSource {
+                units,
+                child,
+                restart,
+            };
+        }
+
+        #[cfg(not(feature = "journal-native"))]
+        if bin == "native" || bin.starts_with("native:") {
+            let send = move |m: Msg| tx.send(super::runtime::Input::Journal(m)).is_ok();
+            let _ = send(Msg::Source(
+                "journal".into(),
+                "NERVE_EVT_JOURNALCTL=native needs --features journal-native".into(),
+            ));
+            return JournalSource {
+                units,
+                child,
+                restart,
+            };
+        }
+
         let (u2, c2, r2) = (units.clone(), child.clone(), restart.clone());
         let send = move |m: Msg| tx.send(super::runtime::Input::Journal(m)).is_ok();
         let _ = std::thread::Builder::new()

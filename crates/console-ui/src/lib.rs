@@ -85,13 +85,15 @@ pub const PORTED: &[&str] = &[
     "/session",
 ];
 
-/// Ported pages the pre-built SPA keeps while a fallback is configured,
-/// because the Rust page is not yet a full replacement (owner decisions in
-/// docs/console-port-1.md / console V2 R2): `/arena` reads the board but does
-/// not breed, stop or promote (Breed is a paid run); `/bank` needs a
-/// `/api/v1/bank` the console API does not serve yet. `/hermes` is Rust-first
-/// (slot 254): the Rust room already reads gateway/history live.
-pub const SPA_FIRST: &[&str] = &["/arena", "/bank"];
+/// Ported pages the pre-built SPA keeps while a fallback is configured.
+/// Empty since wave 4 slot 299: every ported room is Rust-first. `/hermes`
+/// went Rust-first in slot 254; `/arena` and `/bank` followed in slot 299
+/// (console V2 R2): `/arena` is a read-only board (Breed/Stop/Promote stay
+/// held until Slavik approves the spend) and `/bank` renders the `BankSnap`
+/// from `/api/v1/bank` or explains why there is none. Neither page needs
+/// browser JS, so the SPA keeps no route. Kept as a (now empty) list so a
+/// future room can opt back in without an API change.
+pub const SPA_FIRST: &[&str] = &[];
 
 /// Largest form body accepted (pairing code or a command name).
 pub const MAX_FORM: usize = 4096;
@@ -773,7 +775,13 @@ impl Ui {
                 };
                 pages::analytics::body(got.as_ref().map_err(|_| miss), board)
             }
-            "/arena" => pages::arena::body(got.as_ref().ok()),
+            "/arena" => {
+                let miss = match &got {
+                    Err(Some(c)) => pages::arena::Miss::Status(*c),
+                    _ => pages::arena::Miss::Down,
+                };
+                pages::arena::body(got.as_ref().map_err(|_| miss))
+            }
             "/bank" => {
                 let miss = match &got {
                     Err(Some(c)) => pages::bank::Miss::Status(*c),
@@ -912,8 +920,9 @@ mod tests {
             "",
         ));
         let arena = json::parse(br#"{"spend":{"cap_usd":2,"spent_usd":0,"generations":0,"max_generations":3},"champion":{"id":"c"},"error":"x","rows":[{"id":"r","answer":"a","mutation":"m"}]}"#).unwrap();
-        all.push_str(&pages::arena::body(Some(&arena)));
-        all.push_str(&pages::arena::body(None));
+        all.push_str(&pages::arena::body(Ok(&arena)));
+        all.push_str(&pages::arena::body(Err(pages::arena::Miss::Down)));
+        all.push_str(&pages::arena::body(Err(pages::arena::Miss::Status(404))));
         let bank =
             json::parse(br#"{"purses":[{"name":"n","usd":1,"note":"x"}],"note":"y"}"#).unwrap();
         all.push_str(&pages::bank::body(Ok(&bank)));

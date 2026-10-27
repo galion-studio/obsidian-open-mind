@@ -132,3 +132,12 @@ Mate t315u + Titanaxe t317u (CPU 0%). Coordinated with sand cutover; no rewiring
 - SHA desk-hermes=`89bc45cd42db326c0ce1ff0cadd3be21649b641fa7ada232c9af3b5aa4889762`
 - MainPID 264677; drop-in rust-desk-hermes.conf unchanged; desk-hermes.py kept.
 - Report: `t315u-desk-hermes-verify.md`.
+
+## 2026-10-27 20:03 CET — t315u overnight gaps CLOSED (requeue)
+Caller: REQUEUE after request-limit kill. desk-hermes already LIVE_PY=NO.
+Titanaxe t317u screenshot: guest idle (CPU 0%, RAM 119MB/16GB); loadavg host-noise ~26.
+Inventory: **zero** live Galion Python/Node processes. All listed services Rust (console, desk+desk-hermes, hermes-rs, nerve, cortex, one, health, memory, queue, link-watch-rs, backup timer, guardian).
+Closed gap 1 (build/deploy): musl `pw-check` + `replicate-picture` → `/opt/galion/rust/bin/`; symlinks `/opt/galion/bin/{pw,replicate-picture}`; `.py` kept. Masked `link-watch.service` + `memory-gateway.service` (units archived under `/opt/galion/archive/py-units-20261027/`).
+Closed gap 2 (merge green): PR #13 → `swarm/main-staging` merge sha `38a07700018906fc21de7ebce1500bdcc4762671` (21 checks green).
+Follow-ups not closed: console local-api vs full board; backup size_kb metric; hermes coding OFF; archive .py after 7d.
+Report: `t315u-overnight-gaps.md`. No force-push; no secrets.

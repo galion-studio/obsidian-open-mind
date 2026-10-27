@@ -100,3 +100,15 @@ once there was free space. The build dir was removed again afterwards.
 - D-T44-2: deploy this nerve change (folds into the next nerve rollout).
 - D-233-3: :18800 (sshd forward from session-71331): keep it as a known stray
   warning or close the session. This change deliberately leaves it reported.
+
+## Re-verify on nerve-merge-4 (slot 292 D-292-1), 2026-10-27 20:01-20:07 CET (+01:00)
+
+Folded as merge 5 onto `swarm/nerve-merge-4`. `REAL_NERVE_PORT_BASE=21620`
+remaps serve/stray to 21620/21621. GALION_REAL=1 release:
+
+- `real_replay_live_vps_listeners`: unmanaged `[18800]`; override
+  `NERVE_UNOWNED_PORTS=8674` -> `[8674, 18800]`.
+- `real_serve_strays_still_reported`: legacy + event both report stray
+  `:21621` held by the test process in ~0.5 s.
+
+No live deploy from this fold.

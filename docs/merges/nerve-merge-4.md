@@ -14,6 +14,7 @@ Box only. **Not deployed**, VPS read-only.
 | 2 | nerve-journal-reader-rs 9a76ff6f | 1 | `journal-native` feature (sdjournal, MIT), off by default |
 | 3 | nerve-publish-recoveries ae3eee0 | 1 | evt/recover.rs unit fault incidents + recoveries |
 | 4 | nerve-t24-wire-gaps-3 97fb7204 | 45 (merge base 8046c41) | brings wire-gaps 1/2/3 **and** the integration-5 lineage (candle-zip-fix vendored candle-core, voice-rust, deny-paste-replace, repo-check nerve gate): 202 files |
+| 5 | nerve-own-services 9479050c | 3 | D-292-1: OWN_SERVICES for :8672/:8674/:19120; live 9d1a4f3 already had this tip |
 
 ## Post-merge fixes (commit "workspace gates green after fold")
 
@@ -82,15 +83,35 @@ edge-cloudflared normal 0.23 req/s vs baseline 0.20, baseline_buckets 168),
 
 Live 9d1a4f3 = bb287cc + publish-recoveries ae3eee0 + **nerve-own-services
 9479050** + flood-cycle-gap 1d33c59. It does **not** contain
-journal-reader-rs or wire-gaps-3. This branch does **not** contain
-nerve-own-services 9479050 (not in the slot 292 row). A trial merge of
-9479050 onto this tip is clean (5 files, +403/-1), not committed.
+journal-reader-rs or wire-gaps-3. This branch **now contains**
+nerve-own-services 9479050 as merge 5 (D-292-1 done 2026-10-27 ~20:08 CET).
+
+## Own-services fold (merge 5, 2026-10-27 19:58-20:08 CET +01:00)
+
+- `--no-ff` merge of `9479050c2f981ee9cb787cba17b426daf8229e68` (5 files, +403/-1, clean).
+- Follow-up: `REAL_NERVE_PORT_BASE` compile-time override on
+  `tests/real_own_services.rs` (same pattern as flood/publish/journal).
+- Gates after fold: fmt ok; nerve clippy journal-native -D ok; workspace
+  clippy -D ok; workspace tests **282 suites, 1344 passed, 0 failed, 6 ignored**;
+  nerve+journal-native 170/0; no-python ok.
+- Real (GALION_REAL=1, release, ports 21620-21629, `--test-threads=1`):
+  real_own_services 2/0 (replay unmanaged=[18800]; serve stray :21621 both modes);
+  real_flood_baseline 2/0; real_flood_cycle_gap 2/0; real_publish_recoveries 2/0.
+- Musl openmind-nerve release: x86_64 1,463,072 B
+  (sha256 99ef53ccc76103547f07a0754e349992641cae05e44303812622a46e50865616);
+  aarch64 1,211,624 B
+  (sha256 c5b281239571499eaa00dcfac9f265e2c5f8f820871ae60a5dfc9f7fb7b17670).
+- VPS RO 20:07 CET: galion-nerve `openmind-nerve-9d1a4f3` active NRestarts=0;
+  /health 200 score 39 degraded; /state owners show gaia-cortex:8674 and
+  openmind-queue:19120 as OWN_SERVICES (live already had tip).
+- **NO live deploy** this fold: sandbox crates not re-run (sandbox_vps_only);
+  deploy gate needs tests+sandbox green + documented SHA.
 
 ## Owner decisions
 
 - **D-292-1** Add nerve-own-services 9479050 to this fold before any deploy?
-  Without it, deploying nerve-merge-4 would drop own-services behaviour that
-  is live now. Recommendation: yes, as merge 5 (clean).
+  **DONE** as merge 5 (clean). Deploy of this tip still blocked until sandbox
+  green + SHA documented.
 - **D-292-2** wire-gaps-3 drags the whole integration-5 lineage (vendored
   candle-core, voice crates, 100+ files) into the nerve line. Accept the full
   fold (done here), or rebuild the line by cherry-picking only the 17 wiring

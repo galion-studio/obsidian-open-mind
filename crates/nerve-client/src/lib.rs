@@ -165,6 +165,32 @@ pub fn stats() -> Stats {
     client().map(|c| c.counters.snapshot()).unwrap_or_default()
 }
 
+/// Wait (at most `max`) until every queued signal has been delivered or
+/// failed. For one-shot CLIs (e.g. a timer-driven `guardian-tick`) that would
+/// otherwise exit before the push worker drains the queue. Returns true when
+/// the queue drained in time; true at once when disabled. Never blocks
+/// longer than `max`.
+pub fn flush(max: Duration) -> bool {
+    let Some(c) = client() else {
+        return true;
+    };
+    flush_counters(&c.counters, max)
+}
+
+fn flush_counters(c: &Counters, max: Duration) -> bool {
+    let t0 = Instant::now();
+    loop {
+        let st = c.snapshot();
+        if st.sent + st.failed >= st.queued {
+            return true;
+        }
+        if t0.elapsed() >= max {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 /// Requests slower than this (ms) are reported: `NERVE_SLOW_MS`, default 1000.
 pub fn slow_ms() -> u64 {
     *SLOW_MS.get_or_init(|| env_num("NERVE_SLOW_MS", DEFAULT_SLOW_MS).max(1))
@@ -474,6 +500,39 @@ mod tests {
         }
         let s = c.counters.snapshot();
         assert_eq!((s.failed, s.sent), (5, 0));
+    }
+
+    #[test]
+    fn flush_drains_and_is_bounded() {
+        // Dead nerve: every signal ends as failed, so flush returns true fast.
+        let addr = {
+            let l = TcpListener::bind("127.0.0.1:0").unwrap();
+            l.local_addr().unwrap()
+        };
+        let c = Client::start(addr, 8).unwrap();
+        for _ in 0..3 {
+            c.push(body("t", "event", "x", None, ""));
+        }
+        assert!(flush_counters(&c.counters, Duration::from_secs(5)));
+        let s = c.counters.snapshot();
+        assert_eq!(s.sent + s.failed, s.queued);
+        // Stuck nerve (accepts, never answers): flush gives up at `max`.
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let c = Client::start(l.local_addr().unwrap(), 8).unwrap();
+        for _ in 0..4 {
+            c.push(body("t", "event", "y", None, ""));
+        }
+        let t = Instant::now();
+        assert!(!flush_counters(&c.counters, Duration::from_millis(50)));
+        assert!(t.elapsed() < Duration::from_millis(250));
+        drop(l);
+    }
+
+    #[test]
+    fn flush_disabled_is_immediate() {
+        if std::env::var("NERVE_URL").is_err() {
+            assert!(flush(Duration::from_secs(10)));
+        }
     }
 
     #[test]

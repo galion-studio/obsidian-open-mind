@@ -16,7 +16,8 @@
 //!   21570-21579 — galion-voice-serve, openmind-discovery serve-route,
 //!   galion-boot supervise (long-running started+heartbeat). desk-hermes and
 //!   persona-plex-relay are also wired; repo-check covers them. guardian-tick
-//!   left as GAP (D-T24-3).
+//!   was left as GAP (D-T24-3); slot 297 wires it (dual sink), see
+//!   `real_guardian_tick.rs`.
 //!
 //! Builds and starts openmind-nerve plus the services under test, each with
 //! `NERVE_URL` set. Asserts every listed source pushed a `started` event and

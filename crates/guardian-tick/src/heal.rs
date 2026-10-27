@@ -16,7 +16,10 @@
 //!   per line, `ts` in Europe/Zagreb RFC 3339 (never `Z`) plus `unix`.
 //! * Nerve: one `openmind-nerve` event per incident change, restart,
 //!   refusal and cap hit, appended to `--nerve PATH` (default
-//!   `<state>/nerve.jsonl`). File sink only; no socket.
+//!   `<state>/nerve.jsonl`). The file sink stays authoritative (D-T24-3);
+//!   each event is also mirrored to the live nerve through `nerve-client`
+//!   (`crit` -> kind `error`, else `event`; name = event kind; msg = the JSON
+//!   data). No-op unless `NERVE_URL` is set; a down nerve never fails a tick.
 //!
 //! classify: read a captured galion-health `status.json` and print what heal
 //! WOULD do. It cannot apply anything (no `--allow`, no backend is run).
@@ -182,7 +185,25 @@ impl Nerve {
                 .map_err(|e| e.to_string())?;
             w.append(&ev).map_err(|e| e.to_string())?;
         }
+        // Mirror to the live nerve (no-op without NERVE_URL; never fails).
+        nerve_client::send(
+            "guardian-tick",
+            live_kind(severity),
+            kind,
+            None,
+            &data.to_string(),
+        );
         Ok(())
+    }
+}
+
+/// Live nerve kind for a file-sink severity: `crit` is an error, the rest
+/// (info/warn) are events.
+fn live_kind(severity: &str) -> &'static str {
+    if severity == "crit" {
+        "error"
+    } else {
+        "event"
     }
 }
 
@@ -549,6 +570,13 @@ pub fn classify_status(text: &str, repairs: Option<&[RepairSpec]>) -> Result<Val
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn live_kind_maps_crit_to_error() {
+        assert_eq!(live_kind("crit"), "error");
+        assert_eq!(live_kind("warn"), "event");
+        assert_eq!(live_kind("info"), "event");
+    }
 
     #[test]
     fn validate_rejects() {

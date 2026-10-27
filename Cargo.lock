@@ -875,6 +875,7 @@ dependencies = [
 name = "guardian-tick"
 version = "0.1.0"
 dependencies = [
+ "nerve-client",
  "openmind-nerve",
  "openmind-survival",
  "serde",

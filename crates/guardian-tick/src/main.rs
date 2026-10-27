@@ -275,6 +275,10 @@ fn real_main() -> Result<(), (i32, String)> {
         append_probe_jsonl(Path::new(path), &results).map_err(|e| (1, format!("{path}: {e}")))?;
     }
     let bad = results.iter().filter(|r| !r.ok).count();
+    nerve_client::metric(SRC, "probes_failed", bad as f64);
+    for r in results.iter().filter(|r| !r.ok) {
+        nerve_client::error(SRC, "probe_failed", &format!("{}: {}", r.name, r.detail));
+    }
     println!(
         "guardian-tick {} host_ok={} probes={} failed={}",
         rep["ts"].as_str().unwrap_or(""),
@@ -383,8 +387,33 @@ fn classify_main(argv: &[String]) -> Result<(), (i32, String)> {
     Ok(())
 }
 
+/// Live nerve source name (nerve-client; D-T24-3 follow-up, slot 297).
+const SRC: &str = "guardian-tick";
+
+/// Max wait for the nerve push worker before a one-shot tick exits.
+const FLUSH: std::time::Duration = std::time::Duration::from_millis(1500);
+
 fn main() {
-    if let Err((code, msg)) = real_main() {
+    let sub = match std::env::args().nth(1).as_deref() {
+        Some("heal") => "heal",
+        Some("classify") => "classify",
+        _ => "report",
+    };
+    nerve_client::event(SRC, "started", sub);
+    let r = real_main();
+    // One heartbeat per tick: the timer-driven tick is the liveness signal.
+    nerve_client::send(
+        SRC,
+        "heartbeat",
+        "tick",
+        None,
+        &format!("mode={sub} ok={}", r.is_ok()),
+    );
+    if let Err((_, msg)) = &r {
+        nerve_client::error(SRC, "tick_failed", msg);
+    }
+    nerve_client::flush(FLUSH);
+    if let Err((code, msg)) = r {
         eprintln!("guardian-tick: {msg}");
         std::process::exit(code);
     }

@@ -4,12 +4,13 @@
 [package]
 name = "bench-scoreboard"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Renders docs/bench/SCOREBOARD.md from the B1/B2/B3 galion-bench score JSONs; missing scores stay PENDING."
 
 [dependencies]
-galion-bench = { path = "../galion-bench" }
+galion-bench = { path = "../galion-bench", version = "0.1.0" }
 serde_json = { workspace = true }
 
 [dev-dependencies]

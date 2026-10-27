@@ -4,9 +4,10 @@
 [package]
 name = "galion-health"
 version = "0.2.0"
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Loopback health dashboard: polls service ports + systemd states, serves HTML/JSON. std only."
 
 [dependencies]
-zagreb-time = { path = "../zagreb-time" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }

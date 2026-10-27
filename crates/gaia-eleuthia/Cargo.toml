@@ -4,10 +4,11 @@
 [package]
 name = "gaia-eleuthia"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Gaia ELEUTHIA: birth of personas and agents from seed files (Persona Plex, Galion One/Samantha, Gaia seeds) with lineage."
 
 [dependencies]
-gaia-core = { path = "../gaia-core" }
+gaia-core = { path = "../gaia-core", version = "0.1.0" }
 

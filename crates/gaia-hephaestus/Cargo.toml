@@ -4,10 +4,11 @@
 [package]
 name = "gaia-hephaestus"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Gaia HEPHAESTUS: fabrication plans (cargo builds for the UNIVERSAL-CPU targets, release artifacts, sandboxed terminal command review, desk tools, console, deploy switch). Never runs a process."
 
 [dependencies]
-gaia-core = { path = "../gaia-core" }
+gaia-core = { path = "../gaia-core", version = "0.1.0" }
 

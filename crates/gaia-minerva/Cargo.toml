@@ -4,10 +4,11 @@
 [package]
 name = "gaia-minerva"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Gaia MINERVA: security audit (repo-check, secret scan), guardian watchdog and alerting, vision decoding, sandbox policy review; cracks the rogue swarm's code."
 
 [dependencies]
-gaia-core = { path = "../gaia-core" }
-repo-check = { path = "../repo-check" }
+gaia-core = { path = "../gaia-core", version = "0.1.0" }
+repo-check = { path = "../repo-check", version = "0.1.0" }

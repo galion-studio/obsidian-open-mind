@@ -4,6 +4,7 @@
 [package]
 name = "cgroup-detect"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Read-only cgroup v2 delegation probe. Reports whether a per-run cgroup is possible. Never creates a cgroup."

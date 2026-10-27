@@ -4,6 +4,7 @@
 [package]
 name = "openmind-mcp-stack"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Read-only stdio MCP stub. initialize and tools/list for stack_status. Fixture JSON only. No sockets."
@@ -14,4 +15,4 @@ path = "src/main.rs"
 
 [dependencies]
 serde_json = { workspace = true }
-zagreb-time = { path = "../zagreb-time" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }

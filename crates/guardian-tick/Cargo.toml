@@ -4,14 +4,15 @@
 [package]
 name = "guardian-tick"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Guardian tick: report-only by default; `heal` adds classify, repair plan, allow-listed dry-run-by-default restarts (reflex cap 3/unit/hour), an append-only Zagreb-stamped incident store and nerve events; `classify` plans over a captured galion-health status.json."
 
 [dependencies]
-openmind-survival = { path = "../openmind-survival" }
-zagreb-time = { path = "../zagreb-time" }
+openmind-survival = { path = "../openmind-survival", version = "0.1.0" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
-openmind-nerve = { path = "../openmind-nerve" }
+openmind-nerve = { path = "../openmind-nerve", version = "0.1.0" }

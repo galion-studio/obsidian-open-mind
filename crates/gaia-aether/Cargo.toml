@@ -4,10 +4,11 @@
 [package]
 name = "gaia-aether"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Gaia AETHER: communications (messaging, nerve, voice relay frame budget, Wi-Fi identity, LAN discovery of private peers, tunnel plans, origin, Zagreb clock). No network I/O."
 
 [dependencies]
-gaia-core = { path = "../gaia-core" }
+gaia-core = { path = "../gaia-core", version = "0.1.0" }
 

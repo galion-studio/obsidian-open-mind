@@ -4,6 +4,7 @@
 [package]
 name = "openmind-persona"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Persona Plex: load, validate and render Galion persona files (role prompt, voice prompt reference, per-channel style rules, changelog). Std only."

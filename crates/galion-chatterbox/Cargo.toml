@@ -7,6 +7,7 @@
 [package]
 name = "galion-chatterbox"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Chatterbox TTS (T3 + S3Gen + HiFT, voice cloning from a reference clip) on candle, CPU only."

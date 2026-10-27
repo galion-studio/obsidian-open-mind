@@ -3,13 +3,14 @@
 [package]
 name = "openmind-schema"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Galion Open Mind stack contract. The processor runs this. The card only runs the model."
 
 [dependencies]
-openmind-config = { path = "../openmind-config" }
+openmind-config = { path = "../openmind-config", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
-zagreb-time = { path = "../zagreb-time" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }

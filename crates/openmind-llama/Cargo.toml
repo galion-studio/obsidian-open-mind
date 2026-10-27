@@ -4,6 +4,7 @@
 [package]
 name = "openmind-llama"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Parse llama.cpp llama-server fixture bodies for /health and /v1/models. No sockets and no GPU."

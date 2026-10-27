@@ -4,6 +4,7 @@
 [package]
 name = "galion-realtest"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Platform-wide real-life test harness: boots the whole stack on spare ports, runs scenarios, writes JUnit + Markdown; plus a read-only live probe."
@@ -17,4 +18,4 @@ path = "src/main.rs"
 
 [dependencies]
 serde_json = { workspace = true }
-zagreb-time = { path = "../zagreb-time" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }

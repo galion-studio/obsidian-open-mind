@@ -3,6 +3,7 @@
 [package]
 name = "desk-hermes"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Rust port of the desk-hermes mind snap (was /opt/galion/bin/desk-hermes.py)"
@@ -16,7 +17,7 @@ name = "desk-hermes"
 path = "src/main.rs"
 
 [dependencies]
-galion-common = { path = "../galion-common", features = ["serde-json"] }
+galion-common = { path = "../galion-common", version = "0.1.0", features = ["serde-json"] }
 # The ticket notes `bundled` is not required and that the system libsqlite3 is
 # fine. On this box there is no pkg-config, no sqlite3.h and no libsqlite3.so
 # (only the versioned libsqlite3.so.0 runtime), so libsqlite3-sys cannot link

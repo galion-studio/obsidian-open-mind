@@ -3,6 +3,7 @@
 [package]
 name = "link-watch"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Rust port of the laptop link watcher (was /opt/galion/galion-light/scripts/link-watch.py)"
@@ -12,8 +13,8 @@ name = "link-watch"
 path = "src/main.rs"
 
 [dependencies]
-galion-common = { path = "../galion-common", features = ["serde-json"] }
-openmind-config = { path = "../openmind-config" }
+galion-common = { path = "../galion-common", version = "0.1.0", features = ["serde-json"] }
+openmind-config = { path = "../openmind-config", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
-zagreb-time = { path = "../zagreb-time" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }

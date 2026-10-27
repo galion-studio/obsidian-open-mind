@@ -4,6 +4,7 @@
 [package]
 name = "tuner"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Ukulele tuner static server. Bind and root are config-driven; defaults match the live tuner."
@@ -16,4 +17,4 @@ name = "tuner"
 path = "src/main.rs"
 
 [dependencies]
-galion-common = { path = "../galion-common" }
+galion-common = { path = "../galion-common", version = "0.1.0" }

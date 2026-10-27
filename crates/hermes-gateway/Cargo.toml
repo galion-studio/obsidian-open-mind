@@ -4,6 +4,7 @@
 [package]
 name = "hermes-gateway"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "hermes-gateway: the Rust Hermes API server binary (shadow of hermes.service)."
@@ -20,6 +21,6 @@ sqlite = ["hermes-rs/sqlite"]
 coding = ["dep:hermes-tools"]
 
 [dependencies]
-hermes-rs = { path = "../hermes-rs", default-features = false }
-hermes-tools = { path = "../hermes-tools", optional = true }
+hermes-rs = { path = "../hermes-rs", version = "0.1.0", default-features = false }
+hermes-tools = { path = "../hermes-tools", version = "0.1.0", optional = true }
 serde_json = { workspace = true }

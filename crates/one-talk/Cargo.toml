@@ -4,6 +4,7 @@
 [package]
 name = "one-talk"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Hear/reply request shapes from talk.py, and the warm.py lock path plus synthesize body. No pairing, no secret files, no Hermes state.db."
@@ -13,5 +14,5 @@ name = "one-talk"
 path = "src/main.rs"
 
 [dependencies]
-galion-common = { path = "../galion-common" }
+galion-common = { path = "../galion-common", version = "0.1.0" }
 serde_json = { workspace = true }

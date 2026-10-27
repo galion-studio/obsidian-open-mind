@@ -4,6 +4,7 @@
 [package]
 name = "hermes-rs"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Rust port of the parts of hermes-agent 0.21.4 Galion uses: OpenAI-compatible API, agent loop, delegate_task caps, sessions, cron, stdio MCP, spend."
@@ -17,10 +18,10 @@ default = ["sqlite"]
 sqlite = ["dep:rusqlite"]
 
 [dependencies]
-galion-common = { path = "../galion-common" }
+galion-common = { path = "../galion-common", version = "0.1.0" }
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
-openmind-persona = { path = "../openmind-persona" }
-nerve-client = { path = "../nerve-client" }
+openmind-persona = { path = "../openmind-persona", version = "0.1.0" }
+nerve-client = { path = "../nerve-client", version = "0.1.0" }
 rusqlite = { version = "0.32", default-features = false, features = ["bundled"], optional = true }
 # Device enrollment (src/enroll): Ed25519 strict verify, SHA-256, OS randomness.
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }

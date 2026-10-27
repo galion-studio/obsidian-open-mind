@@ -5,6 +5,7 @@
 [package]
 name = "console-static"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Production front for the Galion console (B61): serves the static SPA build with a startup whitelist, strict paths, no dotfiles, no listing, and proxies /api/* to a loopback upstream."
@@ -17,4 +18,4 @@ name = "galion-console-static"
 path = "src/main.rs"
 
 [dependencies]
-console-ui = { path = "../console-ui" }
+console-ui = { path = "../console-ui", version = "0.1.0" }

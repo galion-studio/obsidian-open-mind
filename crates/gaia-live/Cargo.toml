@@ -11,11 +11,12 @@
 [package]
 name = "gaia-live"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Gaia live: read-only health of the stack (M1) and an approval-gated, rate-capped restart path for box-local test services that records to the nerve (M2)."
 
 [dependencies]
-gaia-core = { path = "../gaia-core" }
-zagreb-time = { path = "../zagreb-time" }
+gaia-core = { path = "../gaia-core", version = "0.1.0" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }
 serde_json = { workspace = true }

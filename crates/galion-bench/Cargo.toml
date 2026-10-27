@@ -4,6 +4,7 @@
 [package]
 name = "galion-bench"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Shared benchmark harness: std-only mock HTTP server driven by JSONL fixtures, a std HTTP client, and 0-100 scorecards. Mock-only: never talks to a real bank or broker."
@@ -17,4 +18,4 @@ path = "src/bin/galion-bench-mock.rs"
 
 [dependencies]
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
-zagreb-time = { path = "../zagreb-time" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }

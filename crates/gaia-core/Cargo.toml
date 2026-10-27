@@ -7,9 +7,10 @@
 [package]
 name = "gaia-core"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Gaia core: central orchestrator (subordinate-function trait, signal-tower bus, registry, master override, lifecycle, containment, lineage, deterministic ticks)."
 
 [dependencies]
-zagreb-time = { path = "../zagreb-time" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }

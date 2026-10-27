@@ -3,6 +3,7 @@
 [package]
 name = "galion-one"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Galion One: the operator's own ear, mind and mouth on one box."
@@ -12,9 +13,9 @@ name = "galion-one"
 path = "src/main.rs"
 
 [dependencies]
-galion-common = { path = "../galion-common" }
+galion-common = { path = "../galion-common", version = "0.1.0" }
 
 [dev-dependencies]
 # Test-only cross-check of the dependency-free Zagreb clock (src/zagreb.rs)
 # against the tz database. Not linked into the binary.
-zagreb-time = { path = "../zagreb-time" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }

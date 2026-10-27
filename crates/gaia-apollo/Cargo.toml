@@ -4,10 +4,11 @@
 [package]
 name = "gaia-apollo"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Gaia APOLLO: bounded in-memory knowledge archive (memory-gateway, link-watch intake, TEACHER docs, session history, stack schema). No purge without HADES."
 
 [dependencies]
-gaia-core = { path = "../gaia-core" }
+gaia-core = { path = "../gaia-core", version = "0.1.0" }
 

@@ -3,6 +3,7 @@
 [package]
 name = "openmind-sandbox"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Run one command under rlimits, a cleared env, a fixed workdir, a wall timeout and (when the kernel has it) Landlock."

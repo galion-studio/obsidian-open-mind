@@ -4,9 +4,10 @@
 [package]
 name = "galion-origin"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Slim Rust port of galion-light origin.py: grinder static page, desk notes viewer, link.json, host splash. Std only, loopback by default."
 
 [dependencies]
-galion-common = { path = "../galion-common" }
+galion-common = { path = "../galion-common", version = "0.1.0" }

@@ -4,10 +4,11 @@
 [package]
 name = "gaia-hades"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Gaia HADES: guarded teardown, rollback, kill switch, heal-apply and secret-rotation PLANS. Dry-run by default; approval token required; never executes or deletes."
 
 [dependencies]
-gaia-core = { path = "../gaia-core" }
+gaia-core = { path = "../gaia-core", version = "0.1.0" }
 

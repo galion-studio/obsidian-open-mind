@@ -5,6 +5,7 @@
 [package]
 name = "hermes-tools"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Sandboxed coding tools for hermes-rs: worktree-only file read/write, git status/diff/commit (never push), cargo build/test/clippy, all run through openmind-sandbox with an allowlist, an audit log and spend caps."
@@ -14,6 +15,6 @@ name = "hermes-mock-model"
 path = "src/bin/hermes-mock-model.rs"
 
 [dependencies]
-hermes-rs = { path = "../hermes-rs", default-features = false }
-openmind-sandbox = { path = "../openmind-sandbox" }
+hermes-rs = { path = "../hermes-rs", version = "0.1.0", default-features = false }
+openmind-sandbox = { path = "../openmind-sandbox", version = "0.1.0" }
 serde_json = { workspace = true }

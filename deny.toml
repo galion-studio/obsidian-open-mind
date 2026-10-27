@@ -78,12 +78,13 @@ ignore = false
 
 [bans]
 multiple-versions = "warn"
-# "warn", not "deny": 66/69 workspace crates still lack `publish = false`, so
-# path deps look like public wildcards (slot 201 sec-deny-wildcards not on
-# main-staging tip). Flip to "deny" once every crate sets publish = false.
-# Offenders listed in docs/security/cargo-deny-gate-20261027.md.
-wildcards = "warn"
-allow-wildcard-paths = true
+# Slot 296 crate-publish-hygiene (2026-10-27 CET +01:00): every workspace crate
+# (68/68) and edge/openmind-node set `publish = false`, and every path dep
+# carries a real version req (e.g. `{ path = "../x", version = "0.1.0" }`), so
+# wildcards are denied outright and path deps get no free pass. New crates must
+# do the same; crates/repo-check/tests/publish_hygiene.rs enforces it in tests.
+wildcards = "deny"
+allow-wildcard-paths = false
 # Hard rule 1: no openssl / no Python bridge.
 deny = [
     { crate = "openssl", reason = "RULES.md hard rule 1: no openssl" },

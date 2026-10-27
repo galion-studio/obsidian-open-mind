@@ -12,8 +12,11 @@ or stored (the test token is random per run and lives in test memory only).
 `GALION_REAL=1 cargo test --release -p hermes-gateway --test real_telegram_notify -- --nocapture`
 (ports 21360-21364, loopback). Release `hermes-gateway --mock`
 (`HERMES_RS_PROVIDER_LOOPBACK_ONLY=1`), mock Telegram server in the test.
-Run 2026-10-27T18:29:06+01:00, then 3 more passes 18:31-18:32 (with the
-argv-scanner control added), 4/4 ok, ~0.9 s each.
+Run 2026-10-27T18:29:06+01:00 (pass); then an argv-scanner control was added
+(first try `sleep 5 <marker>` failed 3/3 because sleep rejects the extra
+argument, fixed to `sh -c`), then 3 passes ~18:30 and a final pass on the
+committed tip 2026-10-27T18:46:46+01:00 (pass),
+~0.9 s each.
 
 ```
 no-channel: status={"channel":"no-channel-configured","api_base_default":null,"per_hour":6,"sent_last_hour":0} post={"notify":"no-channel-configured"} unauth=401 missing-text=400 mock_hits=0

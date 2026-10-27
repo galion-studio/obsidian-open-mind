@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# Read-only capture (slot 311, 2026-10-27 ~21:55 CET +01:00) of
+# journalctl -u galion-backup.service --since 2026-10-27 17:00 -o short-iso (VPS, Etc/UTC). No secrets.
+2026-10-27T17:20:06+00:00 ip50 systemd[1]: Starting galion-backup.service - Galion snapshot backup to /var/backups/galion (ws/foundation)...
+2026-10-27T17:20:09+00:00 ip50 galion-backup-98466ab[188769]: ts=2026-10-27T18:20:09+01:00 svc=galion-backup level=info msg="ok" archive=galion-20261027-182006+0100.tar.gz size_kb=2629 kept=12
+2026-10-27T17:20:09+00:00 ip50 galion-offsite-encrypt.sh[188810]: ts=2026-10-27T18:20:09+01:00 svc=galion-offsite-encrypt level=info msg=encrypted file=galion-20261027-182006+0100.tar.gz.age size_bytes=18733860
+2026-10-27T17:20:10+00:00 ip50 galion-offsite-encrypt.sh[188810]: ts=2026-10-27T18:20:10+01:00 svc=galion-offsite-encrypt level=info msg=ok new=1 latest=galion-20261027-182006+0100.tar.gz.age kept=12
+2026-10-27T17:20:10+00:00 ip50 systemd[1]: galion-backup.service: Deactivated successfully.
+2026-10-27T17:20:10+00:00 ip50 systemd[1]: Finished galion-backup.service - Galion snapshot backup to /var/backups/galion (ws/foundation).
+2026-10-27T17:20:10+00:00 ip50 systemd[1]: galion-backup.service: Consumed 3.130s CPU time.
+2026-10-27T18:18:58+00:00 ip50 systemd[1]: Starting galion-backup.service - Galion snapshot backup to /var/backups/galion (ws/foundation)...
+2026-10-27T18:19:03+00:00 ip50 galion-backup-98466ab[232900]: ts=2026-10-27T19:19:03+01:00 svc=galion-backup level=info msg="ok" archive=galion-20261027-191858+0100.tar.gz size_kb=1 kept=12
+2026-10-27T18:19:03+00:00 ip50 galion-offsite-encrypt.sh[232947]: ts=2026-10-27T19:19:03+01:00 svc=galion-offsite-encrypt level=info msg=encrypted file=galion-20261027-191858+0100.tar.gz.age size_bytes=18737948
+2026-10-27T18:19:03+00:00 ip50 galion-offsite-encrypt.sh[232947]: ts=2026-10-27T19:19:03+01:00 svc=galion-offsite-encrypt level=info msg=ok new=1 latest=galion-20261027-191858+0100.tar.gz.age kept=12
+2026-10-27T18:19:03+00:00 ip50 systemd[1]: galion-backup.service: Deactivated successfully.
+2026-10-27T18:19:03+00:00 ip50 systemd[1]: Finished galion-backup.service - Galion snapshot backup to /var/backups/galion (ws/foundation).
+2026-10-27T18:19:03+00:00 ip50 systemd[1]: galion-backup.service: Consumed 3.362s CPU time.

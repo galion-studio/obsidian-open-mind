@@ -136,7 +136,9 @@ docs/real-tests/backup-rust-unit.md.
   exception, see common-migrate-2) was used for verification only.
 * D-269-1 When to fold the drop-in into the base unit (and retire the .sh and
   the pre-t273u ELF): proposal after 12 good timer runs (= the 3-day
-  retention window).
+  retention window). Prepared by slot 311: staged folded unit, gate test and
+  retirement checklist in docs/galion-backup-fold.md (gate CLOSED 1/12 at
+  2026-10-27 21:56 CET; earliest open 2026-10-30 ~13:17 CET).
 * D-269-2 B2 `size_kb` (du on ZFS before block allocation): still faithful to
   bash; live first Rust run logged `size_kb=2629` for an 18,729,100 B file.
 

@@ -7,6 +7,8 @@
 //! values, later files override earlier ones; drop-ins apply in name order).
 #![allow(dead_code)]
 
+pub mod gate;
+
 /// (section, key, value) in file order; comments and blank lines dropped.
 pub fn parse(text: &str) -> Vec<(String, String, String)> {
     let mut sec = String::new();

@@ -8,7 +8,9 @@
 //! two additive finding keys `kind` and `source` and the documented,
 //! additive nerve-wiring changes (owners / Gaia functions on findings and
 //! incidents, the port ownership map, owner evidence lines, no empty
-//! `(last: )`; see `support::strip_nerve_wiring`), which
+//! `(last: )`; see `support::strip_nerve_wiring`), and the slot 278
+//! cycle-gap bucket spread (tuner-quick `baseline_buckets` 0 -> 168 in the
+//! golden, slot 292 nerve-merge-4), which
 //! `nerve_wiring_additions_are_present` checks positively. Also checks the B33/B41
 //! event contract against `openmind_schema::NerveEvent`.
 

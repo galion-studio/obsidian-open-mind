@@ -174,6 +174,13 @@ pub fn parse_entry_with(v: &Value, faulted: &dyn Fn(&str) -> bool) -> Option<Ner
 }
 
 /// What the source thread sends to the runtime.
+///
+/// `Event` is ~272 bytes once workspace feature unification turns on
+/// `serde_json/preserve_order` (IndexMap `Value`); clippy -D warnings then
+/// flags `large_enum_variant` in workspace builds (pre-existing at bb287cc,
+/// slot 292). Messages are moved once per journal event over an mpsc
+/// channel, so boxing would add an allocation per event for no gain.
+#[allow(clippy::large_enum_variant)]
 pub enum Msg {
     Event(NerveEvent),
     /// Source down / restarting (counted, published as nerve.source).

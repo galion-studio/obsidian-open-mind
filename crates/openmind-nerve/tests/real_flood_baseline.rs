@@ -26,8 +26,32 @@ use std::sync::{
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
-const NERVE_PORT: u16 = 21210;
-const METRICS_PORT: u16 = 21211;
+/// Port block start. Default is this test's original slot range; slot 292
+/// (nerve-merge-4) moves the whole block at build time with
+/// `REAL_NERVE_PORT_BASE=<port>` (e.g. 21620) so merged re-runs stay inside
+/// their own slot range. Offsets inside the block are unchanged.
+const fn port_block(default: u16) -> u16 {
+    match option_env!("REAL_NERVE_PORT_BASE") {
+        None => default,
+        Some(s) => {
+            let b = s.as_bytes();
+            let mut i = 0;
+            let mut v: u32 = 0;
+            assert!(!b.is_empty(), "REAL_NERVE_PORT_BASE empty");
+            while i < b.len() {
+                assert!(b[i].is_ascii_digit(), "REAL_NERVE_PORT_BASE not a number");
+                v = v * 10 + (b[i] - b'0') as u32;
+                assert!(v <= 65_526, "REAL_NERVE_PORT_BASE too large");
+                i += 1;
+            }
+            v as u16
+        }
+    }
+}
+
+const BLOCK: u16 = port_block(21210);
+const NERVE_PORT: u16 = BLOCK;
+const METRICS_PORT: u16 = BLOCK + 1;
 
 fn real() -> bool {
     std::env::var("GALION_REAL").as_deref() == Ok("1")
@@ -237,9 +261,9 @@ fn real_ip_bearing_api_flood_still_critical() {
     }
     // Polling mode (same path as real_box): IP-bearing nerve-api must still flood.
     let dir = tmp();
-    const PORT: u16 = 21212;
-    const LIVE: u16 = 21214;
-    const DEAD: u16 = 21215;
+    const PORT: u16 = BLOCK + 2;
+    const LIVE: u16 = BLOCK + 4;
+    const DEAD: u16 = BLOCK + 5;
     let svc = TcpListener::bind(("127.0.0.1", LIVE)).expect("live port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {

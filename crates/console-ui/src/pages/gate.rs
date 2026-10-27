@@ -17,7 +17,7 @@ pub fn pair(back: &str, error: Option<&str>) -> String {
         .unwrap_or_default();
     format!(
         "<main class=\"gate\"><p class=\"k\">Admin</p><h1>This phone</h1>\
-<p class=\"lede\">One device. Enter the pairing code once. Other phones and browsers stay out.</p>\
+<p class=\"lede\">One device. Enter the pairing code once. This phone keeps a sealed resume key so Android can return without the code. Other phones and browsers stay out.</p>\
 <form method=\"post\" action=\"/_ui/pair?back={back}\">\
 <input name=\"code\" type=\"password\" autocomplete=\"one-time-code\" autocapitalize=\"characters\" spellcheck=\"false\" aria-label=\"Pairing code\" required>\
 <button class=\"btn primary\" type=\"submit\">Pair</button></form>{err}</main>",

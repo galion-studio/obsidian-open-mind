@@ -307,6 +307,33 @@ impl Ui {
                         let v = json::parse(&r.body).unwrap_or(Value::Null);
                         if v.get("you").as_bool() == Some(true) {
                             Ok(())
+                        } else if let Some(dev) = gate::cookie(req.cookie, "galion_device")
+                            .filter(|d| gate::device_token_ok(d))
+                        {
+                            // Android admin resume (SPA used localStorage + JS).
+                            // Server-side POST keeps zero-JS and SameSite cookies.
+                            match self.resume_device(req, &dev) {
+                                Ok(reply) => Err(reply),
+                                Err(clear) => {
+                                    let f = self.frame(req, "Admin");
+                                    let mut out = Reply::html(
+                                        200,
+                                        layout::document(
+                                            &f,
+                                            "",
+                                            &pages::gate::pair(safe_back(req.path), None),
+                                        ),
+                                    );
+                                    if clear {
+                                        out.headers.push((
+                                            "Set-Cookie".into(),
+                                            "galion_device=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0"
+                                                .into(),
+                                        ));
+                                    }
+                                    Err(out)
+                                }
+                            }
                         } else {
                             let f = self.frame(req, "Admin");
                             Err(Reply::html(
@@ -434,6 +461,55 @@ impl Ui {
         r
     }
 
+    /// Whether Set-Cookie should carry `Secure` (HTTPS console host or
+    /// trusted loopback proxy that forwarded `https`).
+    fn cookie_secure(req: &Request<'_>) -> bool {
+        let host = gate::normalize_host(req.host);
+        host.ends_with("galion.app")
+            || host.ends_with("galion.studio")
+            || req
+                .forwarded_proto
+                .map(|p| p.split(',').any(|x| x.trim() == "https"))
+                .unwrap_or(false)
+    }
+
+    fn device_set_cookie(req: &Request<'_>, device: &str) -> String {
+        let mut c =
+            format!("galion_device={device}; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000");
+        if Self::cookie_secure(req) {
+            c.push_str("; Secure");
+        }
+        c
+    }
+
+    /// POST `{device}` to `/api/v1/admin`. `Ok` = redirect with admin cookie.
+    /// `Err(true)` = clear a refused device cookie; `Err(false)` = soft miss.
+    fn resume_device(&self, req: &Request<'_>, device: &str) -> Result<Reply, bool> {
+        let back = safe_back(req.path).to_string();
+        let body = json::obj(&[("device", Value::Str(device.to_string()))]).to_json();
+        let mut fwd = self.forward(req);
+        fwd.cookie = None;
+        match client::call(
+            self.cfg.upstream,
+            "POST",
+            "/api/v1/admin",
+            &fwd,
+            Some(("application/json", body.as_bytes())),
+        ) {
+            Ok(r) if r.status == 200 => {
+                let mut out = Reply::redirect(303, &back);
+                for c in r.header_all("set-cookie") {
+                    if c.starts_with("galion_admin=") {
+                        out.headers.push(("Set-Cookie".into(), c.to_string()));
+                    }
+                }
+                Ok(out)
+            }
+            Ok(r) if r.status == 401 || r.status == 429 => Err(true),
+            _ => Err(false),
+        }
+    }
+
     fn pair(&self, req: &Request<'_>) -> Reply {
         let q = html::form_pairs(req.query);
         let back = safe_back(html::form_get(&q, "back").unwrap_or("/console")).to_string();
@@ -451,14 +527,25 @@ impl Ui {
             .unwrap_or("")
             .trim()
             .to_string();
+        let device = html::form_get(&form, "device")
+            .unwrap_or("")
+            .trim()
+            .to_string();
         let f = self.frame(req, "Admin");
-        if code.is_empty() {
+        let mut fields: Vec<(&str, Value)> = Vec::new();
+        if !code.is_empty() {
+            fields.push(("code", Value::Str(code)));
+        }
+        if gate::device_token_ok(&device) {
+            fields.push(("device", Value::Str(device)));
+        }
+        if fields.is_empty() {
             return Reply::html(
                 200,
                 layout::document(&f, "", &pages::gate::pair(&back, Some("Enter the code."))),
             );
         }
-        let body = json::obj(&[("code", Value::Str(code))]).to_json();
+        let body = json::obj(&fields).to_json();
         let mut fwd = self.forward(req);
         fwd.cookie = None;
         match client::call(
@@ -473,6 +560,18 @@ impl Ui {
                 for c in r.header_all("set-cookie") {
                     if c.starts_with("galion_admin=") {
                         out.headers.push(("Set-Cookie".into(), c.to_string()));
+                    }
+                }
+                // First pair returns a one-time device secret; keep it as an
+                // HttpOnly cookie so Android can resume without JavaScript.
+                if let Ok(v) = json::parse(&r.body) {
+                    if let Some(dev) = v
+                        .get("device")
+                        .as_str()
+                        .filter(|d| gate::device_token_ok(d))
+                    {
+                        out.headers
+                            .push(("Set-Cookie".into(), Self::device_set_cookie(req, dev)));
                     }
                 }
                 out
@@ -772,6 +871,20 @@ mod tests {
         assert_eq!(safe_back("https://evil.example"), "/console");
         assert_eq!(safe_back("//evil.example"), "/console");
         assert_eq!(safe_back("/api/v1/admin"), "/console");
+    }
+
+    #[test]
+    fn device_cookie_marks_secure_on_galion_hosts() {
+        let mut req = Request {
+            host: "console.galion.app",
+            ..Request::default()
+        };
+        assert!(Ui::cookie_secure(&req));
+        assert!(Ui::device_set_cookie(&req, "abcdefghijklmnopqrstuv").contains("; Secure"));
+        req.host = "127.0.0.1";
+        assert!(!Ui::cookie_secure(&req));
+        req.forwarded_proto = Some("https");
+        assert!(Ui::cookie_secure(&req));
     }
 
     #[test]

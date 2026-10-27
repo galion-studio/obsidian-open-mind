@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "CI task runner (cargo xtask). std only; shells out only to cargo. This branch carries one task (replay-corpus, cortex T5.3); swarm/ci-workflow-rust 38a26cb has the full runner and takes this task as one more module."
+
+[dependencies]

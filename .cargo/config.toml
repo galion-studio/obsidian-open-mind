@@ -46,3 +46,8 @@ linker = "rust-lld"
 
 [target.armv7-unknown-linux-musleabihf]
 linker = "rust-lld"
+
+# `cargo xtask <task>`: the Rust CI task runner (crates/xtask, docs/ci.md).
+# Every .github/workflows step calls one of its subcommands.
+[alias]
+xtask = "run --locked --quiet -p xtask --"

@@ -1,0 +1,218 @@
+{
+  "name": "live-replay1",
+  "source": "live:replay1",
+  "env": {},
+  "capture": [
+    {
+      "file": "CAPTURED",
+      "bytes": 43,
+      "fnv64": "016a0ff825031368"
+    },
+    {
+      "file": "body-8002.json",
+      "bytes": 86,
+      "fnv64": "f786f2a3e1eb6017"
+    },
+    {
+      "file": "health_status.json",
+      "bytes": 1394,
+      "fnv64": "b5b82accd3b5904a"
+    },
+    {
+      "file": "journal.jsonl",
+      "bytes": 587009,
+      "fnv64": "6f77f378cd67a5c8"
+    },
+    {
+      "file": "live-self-eval.json.txt",
+      "bytes": 5457,
+      "fnv64": "16d599807068a123"
+    },
+    {
+      "file": "live-self-eval.md.txt",
+      "bytes": 3420,
+      "fnv64": "60269f4c32c67fb9"
+    },
+    {
+      "file": "probes.txt",
+      "bytes": 153,
+      "fnv64": "1879c460ac8dbb3b"
+    },
+    {
+      "file": "ss.txt",
+      "bytes": 1518,
+      "fnv64": "d517e4d13c5c7a7b"
+    },
+    {
+      "file": "state-1.json",
+      "bytes": 13089,
+      "fnv64": "b50d343305649dec"
+    },
+    {
+      "file": "state-2.json",
+      "bytes": 13089,
+      "fnv64": "ca07c2300b523db9"
+    },
+    {
+      "file": "state-3.json",
+      "bytes": 13089,
+      "fnv64": "086c29d6f921ded6"
+    }
+  ],
+  "result": {
+    "capture_cycles": 3,
+    "hold_cycles": 20,
+    "final": {
+      "score": 56,
+      "grade": "D",
+      "pass": false,
+      "system": "degraded",
+      "incidents": [
+        {
+          "cause": "edge",
+          "severity": "error",
+          "members": [
+            "bleeding:edge-dead-origins error",
+            "bleeding:error-rate-cloudflared warn"
+          ]
+        },
+        {
+          "cause": "galion-one",
+          "severity": "error",
+          "members": [
+            "bleeding:stuck-loading-galion-one-mouth error"
+          ]
+        },
+        {
+          "cause": "scan:console",
+          "severity": "warn",
+          "members": [
+            "vulnerability:scanner-probes-console error"
+          ]
+        }
+      ],
+      "findings": [
+        "bleeding:edge-dead-origins error",
+        "bleeding:error-rate-cloudflared warn",
+        "bleeding:memory-heavy-console info",
+        "bleeding:stuck-loading-galion-one-mouth error",
+        "incidents:inc-#ada#e# error",
+        "incidents:inc-#c#d#df error",
+        "incidents:inc-#c#e# warn",
+        "vulnerabilities:scanner-probes-console error",
+        "vulnerabilities:unmanaged-listeners warn"
+      ],
+      "checks": [
+        "error incident edge",
+        "error incident galion-one",
+        "error vulnerability console",
+        "info alerts-channel galion-nerve",
+        "info bleeding console",
+        "info component cloudflared",
+        "info component gaia",
+        "info component galion-one-mouth",
+        "info component voice-worker",
+        "info coverage galion-backup",
+        "info coverage galion-nerve-shadow",
+        "info coverage hades-gate",
+        "info coverage openmind-queue",
+        "info coverage tanga-proto",
+        "info mode galion-nerve",
+        "info push galion-nerve",
+        "warn bleeding cloudflared",
+        "warn bleeding galion-one-mouth",
+        "warn incident scan:console",
+        "warn vulnerability host"
+      ],
+      "deductions": [
+        "10 warn incident: scanner/exploit probes against console",
+        "15 error incident: edge: tunnel routes # public hostname(s) to # closed origin port(s) :# :# :# :# :# :# :# :# :# :#: #.# failed requests/min over # min",
+        "15 error incident: galion-one: galion-one-mouth degrading: health probe HTTP # -- stuck loading for #.# d [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+        "4 vulnerability (warn): # loopback listener(s) no monitored unit owns: :# :# :# :# :#"
+      ]
+    },
+    "held": {
+      "score": 62,
+      "grade": "D",
+      "pass": false,
+      "system": "degraded",
+      "incidents": [
+        {
+          "cause": "edge",
+          "severity": "error",
+          "members": [
+            "bleeding:edge-dead-origins error"
+          ]
+        },
+        {
+          "cause": "galion-one",
+          "severity": "error",
+          "members": [
+            "bleeding:stuck-loading-galion-one-mouth error"
+          ]
+        }
+      ],
+      "findings": [
+        "bleeding:edge-dead-origins error",
+        "bleeding:memory-heavy-console info",
+        "bleeding:stuck-loading-galion-one-mouth error",
+        "incidents:inc-#ada#e# error",
+        "incidents:inc-#c#d#df error",
+        "vulnerabilities:dev-server-console warn",
+        "vulnerabilities:unmanaged-listeners warn"
+      ],
+      "checks": [
+        "error incident edge",
+        "error incident galion-one",
+        "info alerts-channel galion-nerve",
+        "info bleeding console",
+        "info component gaia",
+        "info component galion-one-mouth",
+        "info component voice-worker",
+        "info coverage galion-backup",
+        "info coverage galion-nerve-shadow",
+        "info coverage hades-gate",
+        "info coverage openmind-queue",
+        "info coverage tanga-proto",
+        "info mode galion-nerve",
+        "info push galion-nerve",
+        "warn bleeding cloudflared",
+        "warn bleeding galion-one-mouth",
+        "warn vulnerability console",
+        "warn vulnerability host"
+      ],
+      "deductions": [
+        "15 error incident: edge: tunnel routes # public hostname(s) to # closed origin port(s) :# :# :# :# :# :# :# :# :#: #.# failed requests/min over # min",
+        "15 error incident: galion-one: galion-one-mouth degrading: health probe HTTP # -- stuck loading for #.# d [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+        "4 vulnerability (warn): # loopback listener(s) no monitored unit owns: :# :# :# :# :#",
+        "4 vulnerability (warn): console runs a Vite dev server"
+      ]
+    },
+    "timeline": [
+      "56 D",
+      "56 D",
+      "56 D",
+      "56 D",
+      "56 D",
+      "56 D",
+      "56 D",
+      "56 D",
+      "56 D",
+      "56 D",
+      "57 D",
+      "62 D",
+      "62 D",
+      "62 D",
+      "62 D",
+      "62 D",
+      "62 D",
+      "62 D",
+      "62 D",
+      "62 D",
+      "62 D",
+      "62 D",
+      "62 D"
+    ],
+    "flaps": []
+  }
+}

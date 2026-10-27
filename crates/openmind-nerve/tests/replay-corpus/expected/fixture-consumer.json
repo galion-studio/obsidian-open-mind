@@ -1,0 +1,120 @@
+{
+  "name": "fixture-consumer",
+  "source": "fixture:consumer",
+  "env": {},
+  "capture": [
+    {
+      "file": "state-live-trimmed.json",
+      "bytes": 1883,
+      "fnv64": "a38bec1cdf4a29c4"
+    }
+  ],
+  "result": {
+    "capture_cycles": 1,
+    "hold_cycles": 20,
+    "final": {
+      "score": 66,
+      "grade": "D",
+      "pass": false,
+      "system": "failing",
+      "incidents": [
+        {
+          "cause": "stack-wide",
+          "severity": "critical",
+          "members": []
+        }
+      ],
+      "findings": [
+        "incidents:inc-#e#c# critical"
+      ],
+      "checks": [
+        "error incident stack-wide",
+        "info alerts-channel galion-nerve",
+        "info component console",
+        "info component gaia",
+        "info component galion-desk",
+        "info component galion-health",
+        "info component galion-one",
+        "info component galion-one-mouth",
+        "info component hermes-rs",
+        "info component openmind-memory",
+        "info component tuner",
+        "info component voice-worker",
+        "info coverage galion-backup",
+        "info coverage galion-nerve-shadow",
+        "info coverage hades-gate",
+        "info coverage openmind-queue",
+        "info coverage tanga-proto",
+        "info mode galion-nerve",
+        "info push galion-nerve"
+      ],
+      "deductions": [
+        "34 critical incident: stack-wide failure: # components down at once (console, galion-desk, galion-health, galion-one, galion-one-mouth, hermes-rs, openmind-memory, tuner)"
+      ]
+    },
+    "held": {
+      "score": 66,
+      "grade": "D",
+      "pass": false,
+      "system": "failing",
+      "incidents": [
+        {
+          "cause": "stack-wide",
+          "severity": "critical",
+          "members": []
+        }
+      ],
+      "findings": [
+        "incidents:inc-#e#c# critical"
+      ],
+      "checks": [
+        "error incident stack-wide",
+        "info alerts-channel galion-nerve",
+        "info component console",
+        "info component gaia",
+        "info component galion-desk",
+        "info component galion-health",
+        "info component galion-one",
+        "info component galion-one-mouth",
+        "info component hermes-rs",
+        "info component openmind-memory",
+        "info component tuner",
+        "info component voice-worker",
+        "info coverage galion-backup",
+        "info coverage galion-nerve-shadow",
+        "info coverage hades-gate",
+        "info coverage openmind-queue",
+        "info coverage tanga-proto",
+        "info mode galion-nerve",
+        "info push galion-nerve"
+      ],
+      "deductions": [
+        "34 critical incident: stack-wide failure: # components down at once (console, galion-desk, galion-health, galion-one, galion-one-mouth, hermes-rs, openmind-memory, tuner)"
+      ]
+    },
+    "timeline": [
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D"
+    ],
+    "flaps": []
+  }
+}

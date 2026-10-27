@@ -130,3 +130,45 @@ are gone from plan text, and the `;` parts that did not start with a verb are no
 expectations in `cortex_t42_plans` and `cortex_protected_hosts` follow the new wording.
 Results: `cortex_protected_hosts` 6/6, `cortex_t42_plans` 5/5, real `real_cortex_t42_on_the_box` with GALION_REAL=1 passes.
 The whole `openmind-nerve` test suite is green, clippy -D warnings is clean and fmt is clean.
+
+## Re-verification after the reword (restart r3, 2026-10-27 20:39-20:53 CET +01:00)
+
+Tip 9cef9ff7 (already on GitHub) re-checked end to end on the box, own target dir, `cargo-slot -j 2`:
+
+| Gate | Result |
+|---|---|
+| `cargo fmt --all --check` | ok |
+| workspace clippy -D warnings (excl sandbox/cgroup-detect) | ok (only vendored candle `f64::INFINITY` deprecations) |
+| `cargo test --workspace --exclude openmind-sandbox --exclude cgroup-detect --no-fail-fast` | 406 suites, **2156 passed / 0 failed / 18 ignored** (was 2150/6) |
+| `gaia-cortex --features llm-advisor` clippy -D / tests | ok / 85 passed, 0 failed |
+| `scripts/no-python.sh` | ok |
+| `repo-check --root .` | PASS, 2202 files, 0 errors, 83 warnings |
+| release `openmind-nerve` / `gaia-cortex --features llm-advisor` | 1 894 232 B / 1 028 696 B |
+
+Real tests, release, ports temporarily remapped to 21630-21639 (not committed),
+`GALION_NERVE_BIN` = this fold's release nerve. Log `/workspace/swarm/logs/cortex-staging-fold-r3-real.log` (box).
+
+| Test (CET) | Result |
+|---|---|
+| `real_nerve_io_unlock` 20:46 | 1/1 |
+| `real_api_load` 20:47 | 1/1 |
+| `real_t51_chaos` 20:50 | 2/2 |
+| `real_t237_backfill` 20:51 | 2/2 (live shadow sub-test skipped: no `GALION_T237_LIVE_PORT`) |
+| `real_flap_dedupe` 20:51 | 1/1 |
+| `real_cortex_t42` 20:47 | **1/1** (was 0/1): 6 plans in 8 ms, all 5 families after an 800-request flood; texts start with allow-listed verbs |
+| `real_replay_corpus` + `GALION_REAL_VPS=1` 20:48 | 3/3: 11/11 captures match, 0 flaps; flapping control exits 3; fresh read-only VPS capture 64 D, 0 flaps, incidents {edge, galion-one}; live nerve cycle 18 = 44 F {edge, galion-desk, galion-one, hermes-rs} |
+
+The first attempt of t51/t237/flap_dedupe failed only because `GALION_NERVE_BIN` was not set (env setup, not code).
+No listeners left on 21630-21639.
+
+Live VPS read-only 20:52:46 CET: nerve `/state` 200; gaia-cortex `/opt/galion/rust/bin/gaia-cortex-73583ab-llm`
+active, `/health` ok, mode live, llm on, hermes_handoff on, incidents_open 4, escalations_open 1. No writes, no restarts.
+
+### main-staging moved to 38a07700 (PR #13 CI fixes) since base 98466ab9
+
+98466ab9...38a07700 is 7 commits / 19 files (CI workflows, `.gitleaks.toml`, realtest/backup/room/hermes-tools test
+tweaks, hades-gate `tests/typed.rs` +20). Only 2 files overlap with this fold: `.github/workflows/self-eval.yml`
+(PR #13 adds a userns step inside the `test` job; the fold adds the `replay-corpus` job after it) and `Cargo.lock`
+(PR #13 only re-sorts `galion-tar`). A 3-way `git merge-file` of both files is clean (0 conflicts). So D-293-4
+(landing on current main-staging) should be a clean merge, but it still needs its own full gate run on 38a07700;
+not done here (38a07700 objects are not on the box, the repo is private and only the VPS holds the token).

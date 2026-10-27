@@ -31,5 +31,8 @@ fn main() {
         }
     };
     eprintln!("galion-desk {bind}");
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event("galion-desk", "started", &format!("listening on {bind}"));
+    nerve_client::start_heartbeat("galion-desk", 60);
     galion_desk::Desk::new(settings).serve(listener);
 }

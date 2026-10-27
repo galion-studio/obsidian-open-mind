@@ -104,11 +104,25 @@ impl Desk {
     /// Answer one connection.
     pub fn handle(self: &Arc<Self>, mut stream: TcpStream) {
         let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
-        let (code, body) = match net::read_request(&mut stream) {
+        let t0 = std::time::Instant::now();
+        let (code, body, what) = match net::read_request(&mut stream) {
             Err(net::ReadError::Empty) => return,
-            Err(net::ReadError::TooLarge) => (413, "{\"error\":\"too large\"}".to_string()),
-            Ok(req) => self.respond(&req.method, &req.path, &req.body),
+            Err(net::ReadError::TooLarge) => (
+                413,
+                "{\"error\":\"too large\"}".to_string(),
+                "too_large".into(),
+            ),
+            Ok(req) => {
+                let what = format!(
+                    "{} {}",
+                    req.method,
+                    req.path.split('?').next().unwrap_or("")
+                );
+                let (code, body) = self.respond(&req.method, &req.path, &req.body);
+                (code, body, what)
+            }
         };
+        nerve_client::observe_request("galion-desk", &what, code, t0.elapsed());
         let _ = stream.write_all(net::response(code, &body).as_bytes());
     }
 

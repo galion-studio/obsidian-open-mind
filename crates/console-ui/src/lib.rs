@@ -38,6 +38,8 @@ use gate::Decision;
 use json::Value;
 use layout::{Frame, Origin};
 use std::net::SocketAddr;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// Pages rendered in Rust, in port order.
 pub const PORTED: &[&str] = &[
@@ -85,14 +87,19 @@ pub const PORTED: &[&str] = &[
 
 /// Ported pages the pre-built SPA keeps while a fallback is configured,
 /// because the Rust page is not yet a full replacement (owner decisions in
-/// docs/console-port-1.md): `/arena` reads the board but does not breed,
-/// stop or promote (Breed is a paid run); `/bank` needs a `/api/v1/bank`
-/// the console API does not serve yet. Without a fallback the Rust page
-/// answers.
+/// docs/console-port-1.md / console V2 R2): `/arena` reads the board but does
+/// not breed, stop or promote (Breed is a paid run); `/bank` needs a
+/// `/api/v1/bank` the console API does not serve yet. `/hermes` is Rust-first
+/// (slot 254): the Rust room already reads gateway/history live.
 pub const SPA_FIRST: &[&str] = &["/arena", "/bank"];
 
 /// Largest form body accepted (pairing code or a command name).
 pub const MAX_FORM: usize = 4096;
+
+/// How long a shared /api/v1/health answer is reused for the header
+/// origin-dot (and for rooms that only need that payload). Single-flight
+/// under [`Ui::cached_health`].
+pub const HEALTH_CACHE_TTL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub struct UiConfig {
@@ -188,6 +195,19 @@ pub struct Ui {
     css: String,
     css_href: String,
     css_etag: String,
+    overview_css: String,
+    overview_css_href: String,
+    overview_css_etag: String,
+    sprite_href: String,
+    sprite_etag: String,
+    sprite: String,
+    /// Shared /api/v1/health payload + stamp; see [`HEALTH_CACHE_TTL`].
+    health: Mutex<HealthSlot>,
+}
+
+struct HealthSlot {
+    at: Option<Instant>,
+    value: Option<Value>,
 }
 
 /// The TanStack console answers a path it has no route for with
@@ -215,11 +235,23 @@ impl Ui {
     pub fn new(cfg: UiConfig) -> Ui {
         let css = css::sheet();
         let h = css::fnv64(css.as_bytes());
+        let overview_css = css::overview_sheet();
+        let oh = css::fnv64(overview_css.as_bytes());
         Ui {
             cfg,
             css_href: format!("/_ui/console.{h:016x}.css"),
             css_etag: format!("\"{h:016x}\""),
             css,
+            overview_css_href: format!("/_ui/overview.{oh:016x}.css"),
+            overview_css_etag: format!("\"{oh:016x}\""),
+            overview_css,
+            sprite_href: icons::sprite_href().to_string(),
+            sprite_etag: icons::sprite_etag().to_string(),
+            sprite: icons::sprite_body().to_string(),
+            health: Mutex::new(HealthSlot {
+                at: None,
+                value: None,
+            }),
         }
     }
 
@@ -232,9 +264,7 @@ impl Ui {
     /// room is (unported rooms get a "not in Rust yet" page).
     pub fn owns(&self, path: &str, spa_fallback: bool) -> bool {
         path.starts_with("/_ui/")
-            || (PORTED.contains(&path)
-                && !(spa_fallback
-                    && (SPA_FIRST.contains(&path) || port2::SPA_FIRST.contains(&path))))
+            || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || port4::owns(path)
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
@@ -261,6 +291,7 @@ impl Ui {
         Frame {
             title,
             css_href: &self.css_href,
+            extra_css_href: None,
             light: match gate::cookie(req.cookie, "galion_theme").as_deref() {
                 Some("light") => Some(true),
                 Some("dark") => Some(false),
@@ -360,7 +391,9 @@ impl Ui {
 
     pub fn handle(&self, req: &Request<'_>) -> Reply {
         match req.path {
-            p if p == self.css_href => return self.stylesheet(req),
+            p if p == self.css_href => return self.stylesheet(req, false),
+            p if p == self.overview_css_href => return self.stylesheet(req, true),
+            p if p == self.sprite_href => return self.sprite(req),
             "/_ui/favicon.svg" => {
                 return Reply {
                     status: 200,
@@ -430,8 +463,13 @@ impl Ui {
         }
     }
 
-    fn stylesheet(&self, req: &Request<'_>) -> Reply {
+    fn stylesheet(&self, req: &Request<'_>, overview: bool) -> Reply {
         let _ = req;
+        let (etag, body) = if overview {
+            (&self.overview_css_etag, self.overview_css.as_bytes())
+        } else {
+            (&self.css_etag, self.css.as_bytes())
+        };
         Reply {
             status: 200,
             headers: vec![
@@ -440,9 +478,25 @@ impl Ui {
                     "Cache-Control".into(),
                     "public, max-age=31536000, immutable".into(),
                 ),
-                ("ETag".into(), self.css_etag.clone()),
+                ("ETag".into(), etag.clone()),
             ],
-            body: self.css.as_bytes().to_vec(),
+            body: body.to_vec(),
+        }
+    }
+
+    fn sprite(&self, req: &Request<'_>) -> Reply {
+        let _ = req;
+        Reply {
+            status: 200,
+            headers: vec![
+                ("Content-Type".into(), "image/svg+xml".into()),
+                (
+                    "Cache-Control".into(),
+                    "public, max-age=31536000, immutable".into(),
+                ),
+                ("ETag".into(), self.sprite_etag.clone()),
+            ],
+            body: self.sprite.as_bytes().to_vec(),
         }
     }
 
@@ -596,8 +650,34 @@ impl Ui {
         }
     }
 
+    /// Shared `/api/v1/health` lookup: one upstream GET at most every
+    /// [`HEALTH_CACHE_TTL`] (single-flight under the mutex) so chrome pages
+    /// do not re-hit the API on every render for the header origin-dot.
+    fn cached_health(&self, fwd: &Forward) -> Option<Value> {
+        {
+            let g = self.health.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(at) = g.at {
+                if at.elapsed() < HEALTH_CACHE_TTL {
+                    return g.value.clone();
+                }
+            }
+        }
+        // Fetch while holding the lock so concurrent chrome renders share one
+        // upstream round-trip (single-flight).
+        let mut g = self.health.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(at) = g.at {
+            if at.elapsed() < HEALTH_CACHE_TTL {
+                return g.value.clone();
+            }
+        }
+        let v = self.get_json(self.cfg.upstream, "/api/v1/health", fwd);
+        g.at = Some(Instant::now());
+        g.value = v.clone();
+        v
+    }
+
     fn origin(&self, fwd: &Forward) -> Origin {
-        match self.get_json(self.cfg.upstream, "/api/v1/health", fwd) {
+        match self.cached_health(fwd) {
             Some(h) if h.get("status").as_str() == Some("healthy") => Origin::Up,
             _ => Origin::Down,
         }
@@ -616,7 +696,7 @@ impl Ui {
     fn status(&self, req: &Request<'_>) -> Reply {
         let fwd = self.forward(req);
         let (health, services, domains, pulse) = std::thread::scope(|s| {
-            let h = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/health", &fwd));
+            let h = s.spawn(|| self.cached_health(&fwd));
             let sv = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/services", &fwd));
             let d = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/domains", &fwd));
             let p = s.spawn(|| self.pulse());
@@ -678,7 +758,7 @@ impl Ui {
         };
         let fwd = self.forward(req);
         let (health, got) = std::thread::scope(|s| {
-            let h = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/health", &fwd));
+            let h = s.spawn(|| self.cached_health(&fwd));
             let hs: Vec<_> = apis
                 .iter()
                 .map(|p| s.spawn(|| self.get_json(self.cfg.upstream, p, &fwd)))
@@ -719,7 +799,8 @@ impl Ui {
         let fwd = self.forward(req);
         let origin = self.origin(&fwd);
         let body = pages::overview::body(PORTED.len() + 1);
-        let f = self.frame(req, "Galion Studio · Project overview");
+        let mut f = self.frame(req, "Galion Studio · Project overview");
+        f.extra_css_href = Some(&self.overview_css_href);
         Reply::html(200, layout::console(&f, origin, &body))
     }
 
@@ -839,7 +920,7 @@ impl Ui {
                 };
             }
         }
-        let health = self.get_json(self.cfg.upstream, "/api/v1/health", &fwd);
+        let health = self.cached_health(&fwd);
         let origin = match &health {
             Some(h) if h.get("status").as_str() == Some("healthy") => Origin::Up,
             _ => Origin::Down,
@@ -900,6 +981,7 @@ mod tests {
         let f = Frame {
             title: "t",
             css_href: "/c.css",
+            extra_css_href: None,
             light: Some(false),
             path: "/agents",
         };

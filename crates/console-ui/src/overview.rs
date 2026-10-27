@@ -151,7 +151,7 @@ pub const SECTORS: &[Sector] = &[
             "Strict CSP, server-side phone gate, ~2.9 MB RSS",
             "Live 8080 is still the Vite dev server (~1.23 GiB RSS) and serves /package.json and src/**",
             "The 17 rooms left at c242fed are ported in 5 slices (console-port-1..5), merged here",
-            "With an SPA fallback /arena, /bank and /hermes stay SPA-first (writes held for owner rulings)",
+            "With an SPA fallback /arena and /bank stay SPA-first (writes held); /hermes is Rust-first",
             "Mic + streaming parts of Hermes still need a ruling on browser JS",
         ],
         refs: &[

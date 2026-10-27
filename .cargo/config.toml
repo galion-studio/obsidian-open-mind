@@ -17,7 +17,27 @@
 # tables; the legacy DB is opened read-only, but keep the module anyway).
 # OMIT_LOAD_EXTENSION also drops the dlopen() path, which a static musl
 # binary cannot use anyway.
-LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_SOUNDEX -USQLITE_ENABLE_COLUMN_METADATA -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION"
+# Slot 294 (release-size-trim, 2026-10-27 CET +01:00): five more no-behaviour
+# trims from SQLite's own "recommended compile-time options" list
+# (https://sqlite.org/compile.html#recommended_compile_time_options):
+# MEMSTATUS=0 (no sqlite3_memory_used bookkeeping), OMIT_DECLTYPE,
+# OMIT_DEPRECATED, OMIT_PROGRESS_CALLBACK, OMIT_SHARED_CACHE. No workspace
+# crate uses decltype, progress handlers, shared cache or memory stats
+# (grep crates/*/src); if one ever does, the static link fails loudly.
+# Not taken (they change behaviour): DQS=0, MAX_EXPR_DEPTH=0,
+# DEFAULT_WAL_SYNCHRONOUS=1, OMIT_AUTOINIT, USE_ALLOCA.
+LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_SOUNDEX -USQLITE_ENABLE_COLUMN_METADATA -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_OMIT_DECLTYPE -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_PROGRESS_CALLBACK -DSQLITE_OMIT_SHARED_CACHE"
+
+# C code (today only the bundled SQLite amalgamation) needs no unwind tables:
+# release is panic = "abort" and rusqlite never lets a Rust panic cross a C
+# frame. Dropping them cuts ~90 KB of .eh_frame per SQLite binary on x86_64
+# (hermes-gateway, openmind-memory; docs/release/size-trim-20261027.md).
+# Not a CPU or SIMD flag. cc-rs still adds its defaults (-Oz, -ffunction-sections,
+# -fdata-sections, -fPIC); a CFLAGS / CFLAGS_<triple> env var replaces this.
+# Do NOT build releases with CFLAGS=-O2 plus CRATE_CC_NO_DEFAULTS=1: that drops
+# -Oz and the section flags (no --gc-sections for SQLite) and was the main
+# cause of the slot-275 overshoot (+427 KB hermes-gateway, +425 KB memory).
+CFLAGS = "-fno-asynchronous-unwind-tables -fno-unwind-tables"
 
 # curve25519-dalek (via ed25519-dalek in crates/hades-gate) would otherwise
 # compile its AVX2 SIMD backend on x86_64. Project rule: no SIMD. "serial"

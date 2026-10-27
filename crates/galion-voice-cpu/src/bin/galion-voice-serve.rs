@@ -319,6 +319,13 @@ fn main() {
             std::process::exit(1);
         }
     };
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event(
+        "galion-voice-serve",
+        "started",
+        &format!("listening on {bind}"),
+    );
+    nerve_client::start_heartbeat("galion-voice-serve", 60);
     let pending = Engines {
         loading: true,
         want_stt: o.stt != "none",

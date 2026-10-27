@@ -614,6 +614,7 @@ pub fn read_request(s: &mut impl Read) -> Result<Request, Response> {
 }
 
 fn serve_conn(cell: &EngineCell, mut s: TcpStream) {
+    let t0 = Instant::now();
     let _ = s.set_read_timeout(Some(Duration::from_secs(30)));
     let _ = s.set_write_timeout(Some(Duration::from_secs(30)));
     let resp = match read_request(&mut s) {
@@ -632,9 +633,18 @@ fn serve_conn(cell: &EngineCell, mut s: TcpStream) {
                 req.body.len(),
                 r.body.len()
             );
+            nerve_client::observe_request(
+                "galion-voice-serve",
+                &format!("{} {}", req.method, req.path),
+                r.status,
+                t0.elapsed(),
+            );
             r
         }
-        Err(r) => r,
+        Err(r) => {
+            nerve_client::observe_request("galion-voice-serve", "bad-request", r.status, t0.elapsed());
+            r
+        }
     };
     let _ = write_response(&mut s, &resp);
 }

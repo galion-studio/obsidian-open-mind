@@ -23,6 +23,7 @@ chatterbox = ["dep:galion-chatterbox"]
 
 [dependencies]
 galion-voice-core = { path = "../galion-voice-core" }
+nerve-client = { path = "../nerve-client" }
 galion-chatterbox = { path = "../galion-chatterbox", optional = true }
 candle-core = { version = "0.9", default-features = false, optional = true }
 candle-nn = { version = "0.9", default-features = false, optional = true }

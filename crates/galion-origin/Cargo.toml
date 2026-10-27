@@ -10,3 +10,4 @@ description = "Slim Rust port of galion-light origin.py: grinder static page, de
 
 [dependencies]
 galion-common = { path = "../galion-common" }
+nerve-client = { path = "../nerve-client" }

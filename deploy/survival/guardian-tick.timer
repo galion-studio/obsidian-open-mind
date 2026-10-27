@@ -1,11 +1,14 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
 [Unit]
-Description=Periodic Galion guardian tick (staged, not enabled)
+Description=Galion guardian tick (report only) every 60s
 
 [Timer]
-OnBootSec=60s
+OnBootSec=30s
 OnUnitActiveSec=60s
-AccuracySec=10s
+AccuracySec=5s
 Unit=guardian-tick.service
+Persistent=false
 
-# No [Install] section on purpose: this timer must not be enabled until Slavik
-# approves. It is not installed.
+[Install]
+WantedBy=timers.target

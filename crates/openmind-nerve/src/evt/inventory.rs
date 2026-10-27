@@ -218,6 +218,7 @@ pub fn port_hint(port: u16) -> Option<(&'static str, &'static str)> {
     Some(match port {
         8670 => ("nerve", "galion-nerve (live)"),
         8672 => ("nerve", "galion-nerve-shadow"),
+        8674 => ("cortex", "gaia-cortex"),
         8673 => ("nerve", "nerve event-mode sandbox"),
         19120 => ("gaia", "POSEIDON openmind-queue"),
         8642 => ("hermes", "hermes-rs gateway"),

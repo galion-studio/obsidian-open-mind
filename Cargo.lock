@@ -579,6 +579,7 @@ dependencies = [
 name = "galion-backup"
 version = "0.1.0"
 dependencies = [
+ "galion-tar",
  "libc",
  "miniz_oxide",
  "rusqlite",
@@ -626,6 +627,9 @@ dependencies = [
 [[package]]
 name = "galion-deploy"
 version = "0.1.0"
+dependencies = [
+ "galion-tar",
+]
 
 [[package]]
 name = "galion-desk"
@@ -689,6 +693,10 @@ dependencies = [
  "serde_json",
  "zagreb-time",
 ]
+
+[[package]]
+name = "galion-tar"
+version = "0.1.0"
 
 [[package]]
 name = "galion-voice-core"

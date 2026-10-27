@@ -14,7 +14,7 @@
 use crate::gzip::GzWriter;
 use crate::sha256::{hex, Sha256};
 use crate::sqlite;
-use crate::tarw::{backup_exclude, TarWriter};
+use crate::tarw::{self, backup_exclude};
 use std::ffi::CString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufWriter, Read, Write};
@@ -463,7 +463,7 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
     }
     let r = (|| -> io::Result<()> {
         let f = File::create(s.join("files/files.tar"))?;
-        let mut t = TarWriter::new(BufWriter::with_capacity(256 * 1024, f));
+        let mut t = tarw::writer(BufWriter::with_capacity(256 * 1024, f));
         t.cancel = interrupted;
         for p in &ops {
             t.add_tree(
@@ -495,7 +495,7 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
             .mode(0o666)
             .open(&part)?;
         let gz = GzWriter::new(BufWriter::with_capacity(256 * 1024, f), o.gzip_level as i32)?;
-        let mut t = TarWriter::new(gz);
+        let mut t = tarw::writer(gz);
         t.cancel = interrupted;
         t.add_tree(&s, top.as_bytes(), &|_| false)?;
         t.finish()?

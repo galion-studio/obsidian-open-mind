@@ -75,3 +75,17 @@ worker frame protocol ok, model loaded in 4496 ms.
 | `cargo-slot test -j 2 --offline --workspace --exclude openmind-sandbox --exclude cgroup-detect` (fail-fast) | 19:37-19:40 | 1570 passed, 1 failed: `openmind-nerve evt::runtime::tests::idle_is_quiet_and_burst_escalates_once` (timing flake under load; passed 3/3 re-run alone; unrelated to safetensors) |
 | same, `--no-fail-fast` | 19:40:57-19:42:19 | 385 suites, 2026 passed, 0 failed, 18 ignored |
 | `cargo run -p repo-check -- --root .` | 19:42:26 | PASS, 0 errors, 83 pre-existing warnings |
+
+## 8. Re-verify after box reset (restart r2, 2026-10-27 20:39-20:47 CET +01:00)
+Fresh box image (rustc 1.99.1), worktree head f4bfc21, models in /workspace/oom-models (4.9 GB).
+| Check | Window | Result |
+|---|---|---|
+| `cargo fmt --all --check` | 20:39 | ok |
+| `cargo deny --offline check licenses bans sources` (after `cargo fetch`; no safetensors exception) | 20:40 | bans ok, licenses ok, sources ok; lock `safetensors 0.7.0` is the path crate (no registry source) |
+| `cargo test -p safetensors -p galion-voice-cpu -p galion-chatterbox` | 20:39 | 10 + 21 + 14 + 2 + 1 passed, 0 failed |
+| `cargo clippy ... --all-targets --all-features -- -D warnings` | 20:40 | ok |
+| `GALION_REAL=1 ... --test real_safetensors_mit` (release voice-serve on :21650) | 20:40-20:42 | 1 passed; health 200 after 0.77 s; STT JFK text identical; TTS 140 044 B, sha256 `c1a6ef38...53bb9` = byte-identical to the 19:31 upstream baseline; port free after |
+| `GALION_REAL=1 RAYON_NUM_THREADS=2 ... --test real_chatterbox` | 20:42-20:43 | 2 passed (53.9 s) |
+| `cargo-slot test --workspace --exclude openmind-sandbox --exclude cgroup-detect --no-fail-fast` | 20:43-20:46 | 385 suites, 2026 passed, 0 failed, 18 ignored |
+| `repo-check --root .` / `scripts/no-python.sh` | 20:46 | PASS 0 errors 83 pre-existing warnings / ok |
+| VPS read-only nerve `GET 127.0.0.1:8670/state` | 20:43 | 200 (38 kB): 12 healthy, 3 degrading, 2 failing, 1 degraded, 1 loading, 1 absent; voice service inactive, :8003 not listening (no live safetensors consumer; nothing deployed) |

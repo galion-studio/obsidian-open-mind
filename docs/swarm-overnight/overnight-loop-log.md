@@ -112,3 +112,23 @@ Decision: overnight loop CAN run next tick (log/probes/push). SPAWN still gated 
 - Drop-in `galion-desk.service.d/rust-desk-hermes.conf`: ExecStart → rust galion-desk; `DESK_HERMES_BIN=/opt/galion/rust/bin/desk-hermes`.
 - Smoke: `/desk` 200; child `/opt/galion/rust/bin/desk-hermes`; LIVE_PY=NO; mindpack 13 keys == Python.
 - MainPID 283 → 264677. `desk-hermes.py` kept. Report: `t314u-desk-hermes-cutover.md`.
+
+## 2026-10-27 19:57:57 CET — t315u/t317u MASS SPAWN AUTHORIZED
+Slavik (via Mate): Titan X panel CPU 0%, RAM 119MB/16GB — guest idle. Screenshot Titanaxe ~19:56 CET. Loadavg ~28–31 is host noise; spawn gate overridden by owner.
+AUTO-ACCEPT: mass spawn for (1) desk-hermes Rust cutover verify (2) overnight open-mind work (3) open branches/worktrees.
+Desk unit already has Environment DESK_HERMES_BIN=/opt/galion/rust/bin/desk-hermes; binary present; unit restarted ~19:56 CET.
+
+## 2026-10-27 20:00 CET — backup timer Rust cutover verify (backup-rust-unit-prep / backup-restore-parity)
+- Finding: live galion-backup.timer ALREADY runs Rust ELF `/opt/galion/rust/bin/galion-backup-98466ab run` via drop-in 90-deploy-t273u.conf (since 18:20 CET). sha256 fb26d673… == ELF tested in slot 269 (parity 26/26, drift 16/16) and slot 279 (restore parity 43/43 x4).
+- Live runs 18:20 and 19:18 CET: Result=success, exit 0, offsite .age encrypted; latest archive gzip -t OK, 10 entries (same as prior).
+- Rollback intact: rm drop-in + daemon-reload → galion-backup.sh; galion-backup-pre-t273u kept.
+- No live change made. Next run ~01:20 CET.
+- Minor bug: 19:18 run logged size_kb=1 for an 18 MB archive (size metric wrong; archive fine) — follow-up in galion-backup.
+
+## 2026-10-27 19:59:37 CET — t315u desk-hermes VERIFY (PRIORITY 1)
+Mate t315u + Titanaxe t317u (CPU 0%). Coordinated with sand cutover; no rewiring needed.
+- wired=**YES**: strace during GET /desk → execve(`/opt/galion/rust/bin/desk-hermes`) = 0; LIVE_PY=NO; LIVE_RUST_DH=YES.
+- Smoke: /desk **200**, /health **200**, / **404**; foundation=rust; mindpack 13 keys.
+- SHA desk-hermes=`89bc45cd42db326c0ce1ff0cadd3be21649b641fa7ada232c9af3b5aa4889762`
+- MainPID 264677; drop-in rust-desk-hermes.conf unchanged; desk-hermes.py kept.
+- Report: `t315u-desk-hermes-verify.md`.

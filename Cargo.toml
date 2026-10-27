@@ -13,7 +13,14 @@ version = "0.1.0"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+# serde_json `preserve_order` is pinned ON here, once, for the whole
+# workspace (swarm/serde-order-pin, 2026-10-21). Cargo unifies features across
+# the packages it builds, so a per-crate `features = ["preserve_order"]` made
+# `cargo build -p X` (sorted keys) and `cargo build --workspace` (insertion
+# order) produce different JSON for the same source. Member crates must use
+# `serde_json = { workspace = true }` with no extra features; repo-check
+# (`deps` check) enforces it. See docs/decisions/serde-order-pin.md.
+serde_json = { version = "1", features = ["preserve_order"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10"
 toml = "0.8"

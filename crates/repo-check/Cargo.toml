@@ -6,7 +6,7 @@ name = "repo-check"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Repo self-evaluation lint: LICENSE, SPDX headers, CJK, no Python, Zagreb time, secret shapes, hard-coded hosts, portable (universal CPU) code. Std only plus zagreb-time."
+description = "Repo self-evaluation lint: LICENSE, SPDX headers, CJK, no Python, Zagreb time, secret shapes, hard-coded hosts, portable (universal CPU) code, pinned serde_json features. Std only plus zagreb-time."
 
 [dependencies]
 zagreb-time = { path = "../zagreb-time" }

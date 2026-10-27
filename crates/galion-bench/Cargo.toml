@@ -16,5 +16,5 @@ name = "galion-bench-mock"
 path = "src/bin/galion-bench-mock.rs"
 
 [dependencies]
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
 zagreb-time = { path = "../zagreb-time" }

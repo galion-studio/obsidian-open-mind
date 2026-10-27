@@ -13,7 +13,7 @@ name = "hermes-bench"
 path = "src/main.rs"
 
 [dependencies]
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
 # default-features = false: no bundled SQLite (C) build; the bench needs no session DB.
 hermes-rs = { path = "../hermes-rs", default-features = false }
 bench-banking = { path = "../bench-banking" }

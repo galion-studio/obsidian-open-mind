@@ -3,7 +3,7 @@
 
 # Real test: release-repro-unify (wave-4 slot 325)
 
-Written 2026-10-27 23:20 CET (+01:00) Europe/Zagreb on `swarm/release-repro-unify` (base 3f015986,
+Written 2026-10-27 23:10 CET (+01:00) Europe/Zagreb on `swarm/release-repro-unify` (base 3f015986,
 tree identical to main-staging 38a07700). Box only, x86_64 musl, `-j 2`, own target dirs, ports
 21950-21959. **No deploy**; the VPS was only probed read-only.
 
@@ -40,7 +40,7 @@ with the slot 312 matrix, which used zig.
 | byte proof on base (negative control) | 23:00-23:04 | 10 of 14 differ, rc 101; only galion-health, link-watch, galion-console-static, galion-backup were already identical |
 | smoke on the fixed release bytes | 23:04 | 19 checks pass: 9 `--version`, HTTP health 200 for nerve, tuner, galion-health, queue, memory, hermes-gateway, galion-one, galion-desk, console-static; galion-backup snapshot + verify integrity=ok tables=15; ports 21950/21951/21959 free before and after |
 | VPS read-only probe | 23:04 | 11 units active; nerve :8670 /health 200, /state 200; hermes :8642 200; console :8080 api health 200; nothing changed |
-| workspace gates | 23:05-23:25 | fmt ok; clippy -D warnings (workspace excl. sandbox, cgroup-detect) rc 0; workspace tests (excl. sandbox, cgroup-detect, hermes-tools, --no-fail-fast) 2007 passed, 1 failed (gaia ownership_counts, needed +2 crates), 18 ignored; after the count fix gaia + gaia-core all pass |
+| workspace gates | 23:04-23:10 | fmt ok; clippy -D warnings (workspace excl. sandbox, cgroup-detect) rc 0; workspace tests (excl. sandbox, cgroup-detect, hermes-tools, --no-fail-fast) 2007 passed, 1 failed (gaia ownership_counts, needed +2 crates), 18 ignored; after the count fix gaia + gaia-core all pass |
 
 Sizes are the same on base and fix for all 12 bins; `galion-one` from the fix equals the base
 **solo** build (ff3f39c7), which shows the fix moves the full set to the minimal feature set, not

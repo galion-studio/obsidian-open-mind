@@ -33,3 +33,9 @@ Conclusion: Landlock missing; ALLOW_NO_LANDLOCK path attempted under owner AUTO-
 
 ## Secrets
 API_SERVER_KEY / OPENROUTER / RIVER used on VPS only; not written to /workspace.
+
+## Unit hardening (why /srv failed)
+- ProtectSystem=strict, ProtectHome=read-only
+- ReadWritePaths=/var/lib/hermes-rs only
+- ReadOnlyPaths=/opt/galion/hermes
+- Coding worktree cannot live under `/var/lib` (denied overlap) nor under `/srv` (RO). Next enable needs ReadWritePaths expansion to a dedicated path outside `/var/lib` deny list — deferred beyond first pass after rollback.

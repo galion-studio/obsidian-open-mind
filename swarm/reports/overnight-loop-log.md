@@ -62,3 +62,6 @@ Copied overnight-*.md → VPS `/opt/galion/swarm-reports/`.
 GitHub: galion-studio/obsidian-open-mind branch `swarm/overnight-loop-20261027`.
 First log-only push sha `9fa897b9978a31ea9e8917337a33c69524748b72`.
 Full reports push sha `78cdb233f47bcbddba91fecb82a1ed5a79da6aa7` (laptop.md refined in follow-up).
+
+## 2026-10-27 19:48:26 CET — t312u final tip
+Latest branch tip sha `a83db3df869c4867b4acf08f38c5ee29c5937b06` (laptop refine + log). Push URL: https://github.com/galion-studio/obsidian-open-mind/commit/a83db3df869c4867b4acf08f38c5ee29c5937b06

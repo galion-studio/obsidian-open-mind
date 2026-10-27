@@ -3,7 +3,7 @@
 
 //! hermes-gateway: the Rust Hermes API server.
 //!
-//!   hermes-gateway [--mock] [--check-config]
+//!   hermes-gateway [--mock] [--check-config] [--offhost-once] [--offhost-standby]
 //!
 //! Config: $HERMES_HOME/config.yaml (the Python Hermes file, subset), then
 //! env (HERMES_RS_HOST, HERMES_RS_PORT, HERMES_RS_STATE_DB, ...). The API key
@@ -15,6 +15,11 @@
 //! NERVE: with `NERVE_URL=http://127.0.0.1:8670` the gateway pushes started,
 //! heartbeat, 5xx, slow-request (`NERVE_SLOW_MS`), spend-cap and conn-cap
 //! events to the nerve (bounded queue, never blocks a request).
+//!
+//! Off-host continuity (`HERMES_OFFHOST`, default off) snapshots gateway
+//! state, cron, spend, and sessions to a secondary path or URI and resumes
+//! them when local files are missing or stale. `--offhost-standby` only
+//! serves loopback health. It does not start cron or a model provider.
 
 use hermes_rs::api::Gateway;
 use hermes_rs::config::Config;
@@ -97,9 +102,25 @@ fn main() {
             std::process::exit(2);
         }
     };
+    let mut off = match hermes_rs::offhost::OffhostCfg::load(&cfg, &env) {
+        Ok(o) => o,
+        Err(e) => {
+            log(&format!("offhost config error: {}", hermes_rs::redact(&e)));
+            std::process::exit(2);
+        }
+    };
+    let once = args.iter().any(|a| a == "--offhost-once");
+    let standby_flag = args.iter().any(|a| a == "--offhost-standby");
+    if standby_flag {
+        off.enabled = true;
+        off.role = hermes_rs::offhost::Role::Standby;
+    }
+    if once {
+        off.enabled = true;
+    }
     if args.iter().any(|a| a == "--check-config") {
         println!(
-            "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={}",
+            "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={} offhost={} role={} resume={} interval_s={} stale_s={} external={}",
             cfg.home.display(),
             cfg.host,
             cfg.port,
@@ -111,10 +132,61 @@ fn main() {
             cfg.max_concurrent_runs,
             cfg.context_length,
             cfg.mcp_servers.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
-            cfg.cron_enabled
+            cfg.cron_enabled,
+            off.enabled,
+            off.role,
+            off.resume,
+            off.interval_s,
+            off.stale_after_s,
+            off.external_state_uri().as_deref().unwrap_or("-")
         );
         return;
     }
+    if once && off.role == hermes_rs::offhost::Role::Standby {
+        log("refusing: a standby does not export snapshots");
+        std::process::exit(2);
+    }
+    if once {
+        let report = off.beat_at(
+            hermes_rs::time::now_secs(),
+            hermes_rs::offhost::put_from_process,
+        );
+        println!("{}", hermes_rs::redact(&report.summary()));
+        std::process::exit(if report.local_ok { 0 } else { 1 });
+    }
+    let off_status = if off.enabled {
+        let now = hermes_rs::time::now_secs();
+        let resumed = off.resume_at(now, hermes_rs::offhost::get_from_process);
+        log(&hermes_rs::redact(&resumed.summary()));
+        let status = std::sync::Arc::new(std::sync::Mutex::new(resumed.view()));
+        if off.role == hermes_rs::offhost::Role::Standby {
+            if !cfg.is_loopback() {
+                log("refusing standby: bind is not loopback");
+                std::process::exit(2);
+            }
+            log("offhost standby: no model provider, no cron, no spend");
+            if let Err(e) = hermes_rs::offhost::spawn_periodic(off, status.clone()) {
+                log(&format!("offhost loop: {}", hermes_rs::redact(&e)));
+            }
+            let addr = format!("{}:{}", cfg.host, cfg.port);
+            match hermes_rs::offhost::spawn_standby(&addr, status) {
+                Ok(a) => log(&format!("standby listening on {a}")),
+                Err(e) => {
+                    log(&format!("bind {addr}: {e}"));
+                    std::process::exit(1);
+                }
+            }
+            loop {
+                std::thread::park();
+            }
+        }
+        if let Err(e) = hermes_rs::offhost::spawn_periodic(off, status.clone()) {
+            log(&format!("offhost loop: {}", hermes_rs::redact(&e)));
+        }
+        Some(status)
+    } else {
+        None
+    };
     let api_key = cfg.api_key(&env);
     let cfg = Arc::new(cfg);
     let provider: Arc<dyn Provider> = if mock {
@@ -177,6 +249,7 @@ fn main() {
         }
     };
     let mut gw = Gateway::new(cfg.clone(), agent, store, api_key);
+    gw.offhost = off_status;
     let sched = Arc::new(hermes_rs::cron::Scheduler::new(&cfg.home, Some(cron_agent)));
     gw.jobs = Some(sched.clone());
     let gw = Arc::new(gw);

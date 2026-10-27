@@ -7,6 +7,9 @@
 //! Portable Rust only, std threads, no async runtime, no TLS stack: HTTPS to
 //! model providers goes through the system `curl` binary (key passed on
 //! stdin, never argv). See docs/ws-hermes.md for the done / stubbed list.
+//!
+//! `offhost` is host-gone continuity (snapshot, heartbeat, resume). It is not
+//! the on-host probe crate and it does not call a model provider.
 
 pub mod agent;
 pub mod api;
@@ -15,6 +18,7 @@ pub mod cron;
 pub mod delegate;
 pub mod http;
 pub mod mcp;
+pub mod offhost;
 pub mod persona;
 pub mod provider;
 pub mod runs;

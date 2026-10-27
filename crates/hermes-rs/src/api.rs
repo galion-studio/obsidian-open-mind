@@ -27,6 +27,9 @@ pub struct Gateway {
     pub active: Arc<AtomicUsize>,
     pub runs: crate::runs::Runs,
     pub jobs: Option<Arc<crate::cron::Scheduler>>,
+    /// Off-host continuity view (no file bodies, no tokens). Empty unless
+    /// `HERMES_OFFHOST` is on. See `crate::offhost`.
+    pub offhost: Option<Arc<Mutex<Value>>>,
 }
 
 /// Holds one agent slot (`gateway.api_server.max_concurrent_runs`).
@@ -85,6 +88,7 @@ impl Gateway {
             active: Arc::new(AtomicUsize::new(0)),
             runs: crate::runs::Runs::default(),
             jobs: None,
+            offhost: None,
         }
     }
 
@@ -133,10 +137,12 @@ impl Gateway {
         let path = req.path.clone();
         let m = req.method.as_str();
         if m == "GET" && (path == "/health" || path == "/v1/health") {
-            return Response::json(
-                200,
-                &json!({"status": "ok", "platform": "hermes-agent", "version": crate::UPSTREAM_COMPAT, "implementation": "hermes-rs", "implementation_version": crate::VERSION}),
-            );
+            let mut body = json!({"status": "ok", "platform": "hermes-agent", "version": crate::UPSTREAM_COMPAT, "implementation": "hermes-rs", "implementation_version": crate::VERSION});
+            if let Some(st) = &self.offhost {
+                let g = st.lock().unwrap_or_else(|e| e.into_inner());
+                body["offhost_enabled"] = g.get("enabled").cloned().unwrap_or(Value::Bool(false));
+            }
+            return Response::json(200, &body);
         }
         if let Some(r) = self.check_auth(&req) {
             return r;
@@ -177,13 +183,18 @@ impl Gateway {
     }
 
     fn health_detailed(&self) -> Response {
-        Response::json(
-            200,
-            &json!({"status": "ok", "platform": "hermes-agent", "version": crate::UPSTREAM_COMPAT, "implementation": "hermes-rs",
-                    "gateway_state": "running", "active_agents": self.active.load(Ordering::SeqCst),
-                    "max_concurrent_runs": self.cfg.max_concurrent_runs, "platforms": {"api_server": {"state": "connected"}},
-                    "spend": self.agent.spend.status(), "pid": std::process::id()}),
-        )
+        let mut body = json!({"status": "ok", "platform": "hermes-agent", "version": crate::UPSTREAM_COMPAT, "implementation": "hermes-rs",
+                "gateway_state": "running", "active_agents": self.active.load(Ordering::SeqCst),
+                "max_concurrent_runs": self.cfg.max_concurrent_runs, "platforms": {"api_server": {"state": "connected"}},
+                "spend": self.agent.spend.status(), "pid": std::process::id()});
+        if let Some(st) = &self.offhost {
+            let g = st.lock().unwrap_or_else(|e| e.into_inner());
+            if g.get("role").and_then(|r| r.as_str()) == Some("standby") {
+                body["gateway_state"] = json!("standby");
+            }
+            body["offhost"] = g.clone();
+        }
+        Response::json(200, &body)
     }
 
     fn models(&self) -> Response {

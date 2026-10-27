@@ -268,7 +268,11 @@ pub fn handle(mut stream: TcpStream, cfg: &Config, page_json: &str) -> std::io::
     } else {
         route(cfg, page_json, line)
     };
-    let what = line.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+    let what = line
+        .split_whitespace()
+        .take(2)
+        .collect::<Vec<_>>()
+        .join(" ");
     nerve_client::observe_request("room", &what, resp.status, t0.elapsed());
     stream.write_all(&resp.to_bytes())
 }

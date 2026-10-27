@@ -255,7 +255,11 @@ pub fn run(e: Effective) -> Result<(), String> {
     nerve_client::event(
         "galion-guard",
         "started",
-        &format!("backend={} source={}", eng.backend.name(), e.cfg.sshd.source),
+        &format!(
+            "backend={} source={}",
+            eng.backend.name(),
+            e.cfg.sshd.source
+        ),
     );
     nerve_client::start_heartbeat("galion-guard", 60);
     let mut last_tick = 0;

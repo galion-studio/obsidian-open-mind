@@ -34,6 +34,7 @@ pub mod journal;
 #[cfg(feature = "journal-native")]
 pub mod journal_native;
 pub mod pidwatch;
+pub mod recover;
 pub mod runtime;
 pub mod stats;
 pub mod stream;
@@ -279,6 +280,10 @@ pub struct EvtConfig {
     /// Paths watched with inotify (files or dirs).
     pub watch: Vec<PathBuf>,
     pub extra_units: Vec<String>,
+    /// Unit fault recovery: a start / active row must hold this many seconds
+    /// without a new failure before `incident.resolved` (`NERVE_EVT_RECOVER_HOLD`,
+    /// default 30, 0..=3600).
+    pub recover_hold_s: u64,
     /// Extra PIDs to watch with pidfd (`NERVE_EVT_PIDS=pid,pid`).
     pub extra_pids: Vec<u32>,
     pub disk_paths: Vec<String>,
@@ -373,6 +378,7 @@ impl EvtConfig {
                 .map(PathBuf::from)
                 .collect(),
             extra_units: list(env("NERVE_EVT_UNITS")),
+            recover_hold_s: num("NERVE_EVT_RECOVER_HOLD", 30)?.min(3600),
             extra_pids: list(env("NERVE_EVT_PIDS"))
                 .iter()
                 .filter_map(|p| p.parse().ok())
@@ -464,6 +470,8 @@ pub struct HubInner {
     pub action_log: VecDeque<Value>,
     pub streams: usize,
     pub config: Value,
+    /// Unit fault incidents (`recover::UnitFaults::to_json`), Null before event mode runs.
+    pub units: Value,
 }
 
 impl Hub {
@@ -480,6 +488,7 @@ impl Hub {
                 action_log: VecDeque::new(),
                 streams: 0,
                 config: Value::Null,
+                units: Value::Null,
             }),
             cv: Condvar::new(),
             tx: Mutex::new(None),
@@ -583,6 +592,7 @@ impl Hub {
         s["ring"] = json!(g.ring.len());
         s["streams"] = json!(g.streams);
         s["config"] = g.config.clone();
+        s["units"] = g.units.clone();
         s
     }
 }

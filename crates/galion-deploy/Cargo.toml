@@ -9,8 +9,10 @@ license.workspace = true
 description = "Backup -> atomic install -> restart -> health check -> automatic rollback, for one systemd (or simsup) unit. Rust replacement for deploy/foundation/galion-deploy."
 publish = false
 
-# std only: no dependencies, not even libc (the four libc calls are declared in src/sys.rs).
+# Was std-only (libc via src/sys.rs). nerve-client is the one workspace path dep
+# for optional NERVE_URL push; still no third-party crates.
 [dependencies]
+nerve-client = { path = "../nerve-client" }
 
 [[bin]]
 name = "galion-deploy"

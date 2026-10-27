@@ -317,6 +317,7 @@ name = "desk-hermes"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
  "rusqlite",
  "serde",
  "serde_json",
@@ -588,6 +589,7 @@ name = "galion-boot"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
  "openmind-survival",
  "serde",
  "serde_json",
@@ -697,6 +699,7 @@ dependencies = [
  "candle-nn",
  "galion-chatterbox",
  "galion-voice-core",
+ "nerve-client",
  "num-traits",
  "serde",
  "serde_json",
@@ -1204,6 +1207,7 @@ dependencies = [
 name = "openmind-discovery"
 version = "0.1.0"
 dependencies = [
+ "nerve-client",
  "openmind-provider",
  "serde",
  "serde_json",
@@ -1342,6 +1346,7 @@ name = "persona-plex-relay"
 version = "0.1.0"
 dependencies = [
  "galion-voice-core",
+ "nerve-client",
  "opus-pure",
  "zagreb-time",
 ]

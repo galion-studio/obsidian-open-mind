@@ -12,6 +12,11 @@
 //!   started+heartbeat). galion-backup and galion-deploy are also wired at
 //!   their CLI entry points; repo-check covers them. One-shot CLIs are not
 //!   asserted here (process exit can race the nerve-client push worker).
+//! * Slot 289 (`five_more_services_push_started_and_heartbeat`): ports
+//!   21570-21579 — galion-voice-serve, openmind-discovery serve-route,
+//!   galion-boot supervise (long-running started+heartbeat). desk-hermes and
+//!   persona-plex-relay are also wired; repo-check covers them. guardian-tick
+//!   left as GAP (D-T24-3).
 //!
 //! Builds and starts openmind-nerve plus the services under test, each with
 //! `NERVE_URL` set. Asserts every listed source pushed a `started` event and
@@ -39,6 +44,15 @@
 //! | 21472 | room --listen |
 //! | 21473 | hades-gate serve |
 //! | (none)| galion-guard run (dry-run) |
+//!
+//! Slot 289 stack (override with `REAL_WIRE_GAPS3_PORT_BASE`, default 21570):
+//!
+//! | port  | process |
+//! |-------|---------|
+//! | 21570 | openmind-nerve serve |
+//! | 21571 | galion-voice-serve (--stt none --tts none) |
+//! | 21572 | openmind-discovery serve-route |
+//! | (none)| galion-boot supervise |
 //!
 //! Skip the build with `NERVE_WIRING_BIN_DIR` pointing at a release/ dir
 //! that already holds the needed binaries.
@@ -701,6 +715,237 @@ poll_ms = 500
 
     println!(
         "== {} PASS: six crates wired; four long-running proven (slot 277)",
+        stamp()
+    );
+    let _ = std::fs::remove_dir_all(&work);
+}
+
+// --- slot 289 nerve-t24-wire-gaps-3 -----------------------------------------
+
+fn gaps3_port_base() -> u16 {
+    std::env::var("REAL_WIRE_GAPS3_PORT_BASE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(21570)
+}
+fn gaps3_nerve_p() -> u16 {
+    gaps3_port_base()
+}
+fn gaps3_voice_p() -> u16 {
+    gaps3_port_base() + 1
+}
+fn gaps3_discovery_p() -> u16 {
+    gaps3_port_base() + 2
+}
+
+fn binaries_gaps3() -> PathBuf {
+    if let Some(d) = std::env::var_os("NERVE_WIRING_BIN_DIR") {
+        return PathBuf::from(d);
+    }
+    let td = target_dir().join("real-nerve-wire-gaps-3");
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let ok = Command::new(cargo)
+        .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+        .env("CARGO_TARGET_DIR", &td)
+        .args(["build", "-q", "-j", "2", "--release"])
+        .args([
+            "-p",
+            "openmind-nerve",
+            "-p",
+            "galion-voice-cpu",
+            "-p",
+            "openmind-discovery",
+            "-p",
+            "galion-boot",
+            "-p",
+            "desk-hermes",
+            "-p",
+            "persona-plex-relay",
+        ])
+        .status()
+        .expect("run cargo build")
+        .success();
+    assert!(ok, "release build of wire-gaps-3 stack failed");
+    td.join("release")
+}
+
+/// Slot 289: next highest-value remaining gaps on ports 21570-21579.
+/// Asserts started+heartbeat for the three long-running services we can keep
+/// alive on the box (galion-voice-serve, openmind-discovery serve-route,
+/// galion-boot supervise). desk-hermes and persona-plex-relay are also wired
+/// at their CLI entry points; repo-check covers them. guardian-tick stays a
+/// GAP (D-T24-3 openmind-nerve lib file writer).
+#[test]
+fn five_more_services_push_started_and_heartbeat() {
+    if std::env::var("GALION_REAL").as_deref() != Ok("1") {
+        eprintln!("SKIP: set GALION_REAL=1 to run the real-life wire-gaps-3 test");
+        return;
+    }
+    let bin = binaries_gaps3();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let work = std::env::temp_dir().join(format!("nerve-wire-gaps-3-{}-{now}", std::process::id()));
+    for d in ["data", "voice-models", "boot-logs", "boot-sup"] {
+        std::fs::create_dir_all(work.join(d)).unwrap();
+    }
+    // Empty registry (missing file = empty) for serve-route.
+    let registry = work.join("discovery-providers.json");
+    // Minimal boot.toml: no services, supervise still loops.
+    let boot_cfg = work.join("boot.toml");
+    std::fs::write(
+        &boot_cfg,
+        format!(
+            "[boot]\nlog_dir = \"{logs}\"\nsupervisor_dir = \"{sup}\"\n",
+            logs = work.join("boot-logs").display(),
+            sup = work.join("boot-sup").display(),
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        work.join("components.json"),
+        format!(
+            r#"[
+ {{"name":"galion-voice-serve","port":{},"path":"/health","gaia":"AETHER","system":"voice"}},
+ {{"name":"openmind-discovery","port":{},"path":"/healthz","gaia":"POSEIDON","system":"discovery"}},
+ {{"name":"galion-boot","port":0,"path":"-","gaia":"AETHER","system":"boot"}}
+]"#,
+            gaps3_voice_p(),
+            gaps3_discovery_p()
+        ),
+    )
+    .unwrap();
+
+    let nerve_url = format!("http://127.0.0.1:{}", gaps3_nerve_p());
+
+    let _nerve = {
+        let p = Command::new(bin.join("openmind-nerve"))
+            .arg("serve")
+            .env("NERVE_ADDR", format!("127.0.0.1:{}", gaps3_nerve_p()))
+            .env("NERVE_INTERVAL", "5")
+            .env("NERVE_DATA_DIR", work.join("data"))
+            .env("NERVE_COMPONENTS", work.join("components.json"))
+            .env("NERVE_SYSTEMD", "0")
+            .env("NERVE_JOURNAL", "0")
+            .env("NERVE_GALION_HEALTH_PORT", "0")
+            .env("NERVE_REFLEX", "0")
+            .env(
+                "NERVE_LISTEN_SCOPE",
+                format!("{}-{}", gaps3_port_base(), gaps3_port_base() + 9),
+            )
+            .stdout(Stdio::null())
+            .stderr(log_file(&work, "nerve.log"))
+            .spawn()
+            .expect("spawn openmind-nerve");
+        Proc(p)
+    };
+    wait_up(gaps3_nerve_p(), "/healthz");
+
+    let _voice = {
+        let mut c = Command::new(bin.join("galion-voice-serve"));
+        c.args([
+            "--bind",
+            &format!("127.0.0.1:{}", gaps3_voice_p()),
+            "--models",
+            work.join("voice-models").to_str().unwrap(),
+            "--stt",
+            "none",
+            "--tts",
+            "none",
+        ])
+        .env("NERVE_URL", &nerve_url)
+        .env("NERVE_HEARTBEAT_S", "10")
+        .stdout(Stdio::null())
+        .stderr(log_file(&work, "voice.log"));
+        Proc(c.spawn().expect("spawn galion-voice-serve"))
+    };
+
+    let _discovery = {
+        let mut c = Command::new(bin.join("openmind-discovery"));
+        c.args([
+            "serve-route",
+            "--bind",
+            &format!("127.0.0.1:{}", gaps3_discovery_p()),
+            "--registry",
+            registry.to_str().unwrap(),
+        ])
+        .env("NERVE_URL", &nerve_url)
+        .env("NERVE_HEARTBEAT_S", "10")
+        .stdout(Stdio::null())
+        .stderr(log_file(&work, "discovery.log"));
+        Proc(c.spawn().expect("spawn openmind-discovery"))
+    };
+
+    let _boot = {
+        let mut c = Command::new(bin.join("galion-boot"));
+        c.args([
+            "supervise",
+            "--config",
+            boot_cfg.to_str().unwrap(),
+            "--ticks",
+            "120",
+        ])
+        .env("NERVE_URL", &nerve_url)
+        .env("NERVE_HEARTBEAT_S", "10")
+        .stdout(Stdio::null())
+        .stderr(log_file(&work, "boot.log"));
+        Proc(c.spawn().expect("spawn galion-boot"))
+    };
+
+    wait_listen(gaps3_voice_p());
+    wait_up(gaps3_discovery_p(), "/healthz");
+
+    println!(
+        "== {} gaps-3 stack up on base {}; waiting for heartbeats",
+        stamp(),
+        gaps3_port_base()
+    );
+
+    let want = ["galion-voice-serve", "openmind-discovery", "galion-boot"];
+    let mut sig = Value::Null;
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_secs(25) {
+        sig = get_json(gaps3_nerve_p(), "/api/v1/signals");
+        if want
+            .iter()
+            .all(|n| has_started(&sig, n) && has_heartbeat(&sig, n))
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    println!("-- pushed sources");
+    for s in sources(&sig) {
+        println!(
+            "{}",
+            serde_json::json!({
+                "source": s["source"],
+                "total": s["total"],
+                "dropped": s["dropped"],
+            })
+        );
+    }
+
+    for name in want {
+        assert!(
+            has_started(&sig, name),
+            "missing started event from {name}: {}",
+            source(&sig, name)
+        );
+        assert!(
+            has_heartbeat(&sig, name),
+            "missing heartbeat from {name}: {}",
+            source(&sig, name)
+        );
+    }
+
+    let _ = http_get(gaps3_voice_p(), "/health");
+    let _ = http_get(gaps3_discovery_p(), "/healthz");
+
+    println!(
+        "== {} PASS: five crates wired; three long-running proven (slot 289)",
         stamp()
     );
     let _ = std::fs::remove_dir_all(&work);

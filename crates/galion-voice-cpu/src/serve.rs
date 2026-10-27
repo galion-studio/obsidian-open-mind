@@ -642,7 +642,12 @@ fn serve_conn(cell: &EngineCell, mut s: TcpStream) {
             r
         }
         Err(r) => {
-            nerve_client::observe_request("galion-voice-serve", "bad-request", r.status, t0.elapsed());
+            nerve_client::observe_request(
+                "galion-voice-serve",
+                "bad-request",
+                r.status,
+                t0.elapsed(),
+            );
             r
         }
     };

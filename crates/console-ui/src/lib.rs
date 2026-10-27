@@ -38,6 +38,8 @@ use gate::Decision;
 use json::Value;
 use layout::{Frame, Origin};
 use std::net::SocketAddr;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// Pages rendered in Rust, in port order.
 pub const PORTED: &[&str] = &[
@@ -93,6 +95,11 @@ pub const SPA_FIRST: &[&str] = &["/arena", "/bank"];
 
 /// Largest form body accepted (pairing code or a command name).
 pub const MAX_FORM: usize = 4096;
+
+/// How long a shared /api/v1/health answer is reused for the header
+/// origin-dot (and for rooms that only need that payload). Single-flight
+/// under [`Ui::cached_health`].
+pub const HEALTH_CACHE_TTL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub struct UiConfig {
@@ -191,6 +198,16 @@ pub struct Ui {
     overview_css: String,
     overview_css_href: String,
     overview_css_etag: String,
+    sprite_href: String,
+    sprite_etag: String,
+    sprite: String,
+    /// Shared /api/v1/health payload + stamp; see [`HEALTH_CACHE_TTL`].
+    health: Mutex<HealthSlot>,
+}
+
+struct HealthSlot {
+    at: Option<Instant>,
+    value: Option<Value>,
 }
 
 /// The TanStack console answers a path it has no route for with
@@ -228,6 +245,13 @@ impl Ui {
             overview_css_href: format!("/_ui/overview.{oh:016x}.css"),
             overview_css_etag: format!("\"{oh:016x}\""),
             overview_css,
+            sprite_href: icons::sprite_href().to_string(),
+            sprite_etag: icons::sprite_etag().to_string(),
+            sprite: icons::sprite_body().to_string(),
+            health: Mutex::new(HealthSlot {
+                at: None,
+                value: None,
+            }),
         }
     }
 
@@ -342,6 +366,7 @@ impl Ui {
         match req.path {
             p if p == self.css_href => return self.stylesheet(req, false),
             p if p == self.overview_css_href => return self.stylesheet(req, true),
+            p if p == self.sprite_href => return self.sprite(req),
             "/_ui/favicon.svg" => {
                 return Reply {
                     status: 200,
@@ -432,6 +457,22 @@ impl Ui {
         }
     }
 
+    fn sprite(&self, req: &Request<'_>) -> Reply {
+        let _ = req;
+        Reply {
+            status: 200,
+            headers: vec![
+                ("Content-Type".into(), "image/svg+xml".into()),
+                (
+                    "Cache-Control".into(),
+                    "public, max-age=31536000, immutable".into(),
+                ),
+                ("ETag".into(), self.sprite_etag.clone()),
+            ],
+            body: self.sprite.as_bytes().to_vec(),
+        }
+    }
+
     fn theme(&self, req: &Request<'_>) -> Reply {
         let q = html::form_pairs(req.query);
         let to = match html::form_get(&q, "to") {
@@ -510,8 +551,34 @@ impl Ui {
         }
     }
 
+    /// Shared `/api/v1/health` lookup: one upstream GET at most every
+    /// [`HEALTH_CACHE_TTL`] (single-flight under the mutex) so chrome pages
+    /// do not re-hit the API on every render for the header origin-dot.
+    fn cached_health(&self, fwd: &Forward) -> Option<Value> {
+        {
+            let g = self.health.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(at) = g.at {
+                if at.elapsed() < HEALTH_CACHE_TTL {
+                    return g.value.clone();
+                }
+            }
+        }
+        // Fetch while holding the lock so concurrent chrome renders share one
+        // upstream round-trip (single-flight).
+        let mut g = self.health.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(at) = g.at {
+            if at.elapsed() < HEALTH_CACHE_TTL {
+                return g.value.clone();
+            }
+        }
+        let v = self.get_json(self.cfg.upstream, "/api/v1/health", fwd);
+        g.at = Some(Instant::now());
+        g.value = v.clone();
+        v
+    }
+
     fn origin(&self, fwd: &Forward) -> Origin {
-        match self.get_json(self.cfg.upstream, "/api/v1/health", fwd) {
+        match self.cached_health(fwd) {
             Some(h) if h.get("status").as_str() == Some("healthy") => Origin::Up,
             _ => Origin::Down,
         }
@@ -530,7 +597,7 @@ impl Ui {
     fn status(&self, req: &Request<'_>) -> Reply {
         let fwd = self.forward(req);
         let (health, services, domains, pulse) = std::thread::scope(|s| {
-            let h = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/health", &fwd));
+            let h = s.spawn(|| self.cached_health(&fwd));
             let sv = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/services", &fwd));
             let d = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/domains", &fwd));
             let p = s.spawn(|| self.pulse());
@@ -592,7 +659,7 @@ impl Ui {
         };
         let fwd = self.forward(req);
         let (health, got) = std::thread::scope(|s| {
-            let h = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/health", &fwd));
+            let h = s.spawn(|| self.cached_health(&fwd));
             let hs: Vec<_> = apis
                 .iter()
                 .map(|p| s.spawn(|| self.get_json(self.cfg.upstream, p, &fwd)))
@@ -754,7 +821,7 @@ impl Ui {
                 };
             }
         }
-        let health = self.get_json(self.cfg.upstream, "/api/v1/health", &fwd);
+        let health = self.cached_health(&fwd);
         let origin = match &health {
             Some(h) if h.get("status").as_str() == Some("healthy") => Origin::Up,
             _ => Origin::Down,

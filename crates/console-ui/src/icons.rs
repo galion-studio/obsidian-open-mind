@@ -2,9 +2,16 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Inline SVG icons, path data carried over from the console-ide
-//! `src/components/icon.tsx` (Galion's own code, same licence) so the Rust
-//! pages look the same. 24x24, 1.5 stroke, `currentColor`.
+//! SVG icons. Path data carried over from the console-ide
+//! `src/components/icon.tsx` (Galion's own code, same licence).
+//!
+//! V2 (slot 276): every path is rendered once as an immutable sprite at
+//! `/_ui/i.<fnv64>.svg` (`<symbol id=…>`); pages reference icons with
+//! `<svg …><use href="/_ui/i.<h>.svg#name"/></svg>` (~70 B) instead of
+//! inlining the path (~220 B) on every occurrence.
+
+use crate::css;
+use std::sync::OnceLock;
 
 /// (name, path data).
 pub const PATHS: &[(&str, &str)] = &[
@@ -56,19 +63,81 @@ pub const PATHS: &[(&str, &str)] = &[
     ("skill", "M12 4l2 5h5l-4 3 2 5-5-3-5 3 2-5-4-3h5z"),
 ];
 
-/// `<svg>` for `name`; unknown names render an empty, still-sized box.
+struct Sprite {
+    body: String,
+    href: String,
+    etag: String,
+}
+
+fn sprite() -> &'static Sprite {
+    static S: OnceLock<Sprite> = OnceLock::new();
+    S.get_or_init(|| {
+        let body = build_sprite();
+        let h = css::fnv64(body.as_bytes());
+        Sprite {
+            href: format!("/_ui/i.{h:016x}.svg"),
+            etag: format!("\"{h:016x}\""),
+            body,
+        }
+    })
+}
+
+/// Immutable sprite document: one `<symbol id=name>` per [`PATHS`] entry.
+pub fn build_sprite() -> String {
+    let mut out = String::with_capacity(4096);
+    out.push_str(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" \
+         fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" \
+         stroke-linecap=\"round\" stroke-linejoin=\"round\">",
+    );
+    for (name, d) in PATHS {
+        // Names are our compile-time constants (ASCII [a-z]); path data is
+        // likewise ours and contains no quotes or angle brackets (see tests).
+        out.push_str("<symbol id=\"");
+        out.push_str(name);
+        out.push_str("\" viewBox=\"0 0 24 24\"><path d=\"");
+        out.push_str(d);
+        out.push_str("\"/></symbol>");
+    }
+    out.push_str("</svg>\n");
+    out
+}
+
+/// `/_ui/i.<fnv64>.svg` for the current [`PATHS`] contents.
+pub fn sprite_href() -> &'static str {
+    &sprite().href
+}
+
+/// Raw sprite bytes (served with an immutable Cache-Control).
+pub fn sprite_body() -> &'static str {
+    &sprite().body
+}
+
+/// ETag for the sprite (`"<hex>"`).
+pub fn sprite_etag() -> &'static str {
+    &sprite().etag
+}
+
+/// `<svg>` for `name` via the shared sprite; unknown names still size the box
+/// but point at a missing symbol (renders empty, same as an empty path before).
 pub fn icon(name: &str, class: &str) -> String {
-    let d = PATHS
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, d)| *d)
-        .unwrap_or("");
+    let href = sprite_href();
+    // Only emit a fragment for known names so a typo cannot invent an id.
+    let frag = if PATHS.iter().any(|(n, _)| *n == name) {
+        name
+    } else {
+        ""
+    };
     format!(
-        "<svg class=\"{class}\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"{d}\"/></svg>"
+        "<svg class=\"{class}\" viewBox=\"0 0 24 24\" fill=\"none\" \
+         stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" \
+         stroke-linejoin=\"round\" aria-hidden=\"true\">\
+         <use href=\"{href}#{frag}\"/></svg>"
     )
 }
 
-/// The Galion mark (console-ide `src/components/mark.tsx`).
+/// The Galion mark (console-ide `src/components/mark.tsx`). Kept inline: one
+/// per page, not in [`PATHS`].
 pub fn mark(class: &str) -> String {
     format!(
         "<svg class=\"{class}\" viewBox=\"0 0 32 32\" aria-hidden=\"true\"><rect x=\"1.5\" y=\"1.5\" width=\"29\" height=\"29\" rx=\"3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"/><path d=\"M10 10.5h8.5c3.2 0 5.5 2.1 5.5 5.5s-2.3 5.5-5.5 5.5H10V10.5zm4 3.2v4.6h4.4c1.5 0 2.4-1 2.4-2.3s-.9-2.3-2.4-2.3H14z\" fill=\"currentColor\"/></svg>"
@@ -85,8 +154,44 @@ mod tests {
         for (n, d) in PATHS {
             assert!(d.starts_with('M'), "{n}");
             assert!(!d.contains('"') && !d.contains('<'), "{n}");
+            assert!(
+                n.bytes().all(|b| b.is_ascii_lowercase()),
+                "symbol id must be [a-z]: {n}"
+            );
         }
-        assert!(icon("services", "i").contains("M6 6h12v4H6z"));
-        assert!(icon("nope", "i").contains("d=\"\""));
+    }
+
+    #[test]
+    fn icon_uses_sprite_not_inline_path() {
+        let s = icon("services", "i");
+        assert!(s.contains("<use href=\"/_ui/i."), "{s}");
+        assert!(s.contains("#services\""), "{s}");
+        assert!(!s.contains("<path"), "{s}");
+        assert!(!s.contains("M6 6h12v4H6z"), "{s}");
+        let nope = icon("nope", "i");
+        assert!(nope.contains("href=\"/_ui/i."), "{nope}");
+        assert!(nope.contains("#\""), "empty fragment for unknown: {nope}");
+    }
+
+    #[test]
+    fn sprite_lists_every_symbol_once() {
+        let body = build_sprite();
+        assert!(body.starts_with("<svg xmlns="));
+        for (n, d) in PATHS {
+            assert!(body.contains(&format!("id=\"{n}\"")), "missing symbol {n}");
+            assert!(body.contains(d), "missing path for {n}");
+            assert_eq!(
+                body.matches(&format!("id=\"{n}\"")).count(),
+                1,
+                "duplicate symbol {n}"
+            );
+        }
+        let href = sprite_href();
+        assert!(
+            href.starts_with("/_ui/i.") && href.ends_with(".svg"),
+            "{href}"
+        );
+        assert_eq!(href, sprite_href(), "href is stable");
+        assert_eq!(sprite_body(), body.as_str());
     }
 }

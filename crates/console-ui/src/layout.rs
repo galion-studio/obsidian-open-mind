@@ -203,6 +203,11 @@ mod tests {
         assert!(html.contains("href=\"/_ui/theme?to=light&amp;back=/services\""));
         assert!(html.contains("data-theme=\"dark\""));
         assert!(!html.contains("<script"));
+        assert!(html.contains("<use href=\"/_ui/i."), "sprite use in chrome");
+        assert!(
+            !html.contains("M6 6h12v4H6z"),
+            "services icon path not inlined"
+        );
         assert_eq!(html.matches("<li><a href=").count(), DOCK.len());
     }
 }

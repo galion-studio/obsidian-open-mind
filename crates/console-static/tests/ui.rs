@@ -817,3 +817,66 @@ fn landing_overview() {
     let r = get(a, "/console", "galion.app", "");
     assert!(!r.body.contains("Sector map"));
 }
+
+/// V2 sprite + cached health (slot 276): chrome pages reference
+/// `/_ui/i.<hash>.svg#id` (immutable), and N rapid chrome renders cost the
+/// upstream a single `/api/v1/health` GET within the TTL.
+#[test]
+fn sprite_and_health_cache() {
+    let (a, _) = start(&[]);
+    let r = get(a, "/services", "127.0.0.1", "");
+    assert_eq!(r.code, 200, "{}", r.head);
+    assert!(
+        r.body.contains("<use href=\"/_ui/i."),
+        "chrome icons use the sprite"
+    );
+    assert!(
+        !r.body.contains("<path d=\"M6 6h12v4H6z"),
+        "services path must not be inlined in the page"
+    );
+    let href = r
+        .body
+        .split("<use href=\"")
+        .nth(1)
+        .unwrap()
+        .split('#')
+        .next()
+        .unwrap()
+        .to_string();
+    assert!(
+        href.starts_with("/_ui/i.") && href.ends_with(".svg"),
+        "{href}"
+    );
+    let spr = get(a, &href, "127.0.0.1", "");
+    assert_eq!(spr.code, 200, "{}", spr.head);
+    assert!(spr.head.contains("immutable"), "{}", spr.head);
+    assert!(spr.head.contains("image/svg+xml"), "{}", spr.head);
+    assert!(spr.body.contains("id=\"services\""), "sprite symbols");
+    assert!(spr.body.contains("id=\"desk\""), "sprite symbols");
+    assert!(
+        spr.body.matches("<symbol ").count() >= 40,
+        "symbol count {}",
+        spr.body.matches("<symbol ").count()
+    );
+    assert_eq!(
+        get(a, "/_ui/i.0000000000000000.svg", "127.0.0.1", "").code,
+        404
+    );
+
+    // Fresh server so the health slot starts empty; 16 chrome renders share
+    // one upstream /api/v1/health within HEALTH_CACHE_TTL.
+    let (a, log) = start(&[]);
+    for _ in 0..8 {
+        assert_eq!(get(a, "/data", "127.0.0.1", "").code, 200);
+        assert_eq!(get(a, "/console", "127.0.0.1", "").code, 200);
+    }
+    let calls: Vec<String> = log.lock().unwrap().clone();
+    let health_hits = calls
+        .iter()
+        .filter(|l| l.starts_with("GET /api/v1/health "))
+        .count();
+    assert_eq!(
+        health_hits, 1,
+        "8×/data + 8×/console must share one cached health GET, got {health_hits}: {calls:?}"
+    );
+}

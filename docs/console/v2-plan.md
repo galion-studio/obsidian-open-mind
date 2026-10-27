@@ -31,14 +31,14 @@ page, one cached sheet <=20 kB, header never blocks a page, and the 1.3 GB Vite 
   <main id=main>      page body only (tables, cards, forms). Forms POST + 303 redirect (PRG), no JS.
   <nav class=dock>    5 primary rooms (as today)
 ```
-- **Icon sprite**: `icons::PATHS` rendered once as `/_ui/i.<fnv64>.svg` (`<symbol id=..>`), immutable cache, same
+- **Icon sprite**: IMPLEMENTED (slot 276): `icons::PATHS` rendered once as `/_ui/i.<fnv64>.svg` (`<symbol id=..>`), immutable cache, same
   origin so the current CSP (`img-src 'self'`) holds; pages use `<svg class=i><use href=".../i.<h>.svg#desk"/></svg>`
   (~70 B instead of ~220 B each). Expected: -8 kB per page (~55% of a typical page).
 - **Compression**: gzip HTML when the client sends `Accept-Encoding: gzip` (5.6x measured); precompress the CSS and
   sprite once at start. Dependency: `miniz_oxide` (MIT OR Zlib OR Apache-2.0, pure Rust, no C) - only if the owner
   accepts one dep; otherwise skip HTML gzip and rely on the sprite cut.
-- **Header dot off the hot path**: one shared health value refreshed at most every 5 s (single-flight, `Mutex` +
-  `Instant`), so static rooms (`/agents /data /jupyter /gateway /memory /node /security /analytics /guardian`) answer
+- **Header dot off the hot path**: IMPLEMENTED (slot 276): one shared health value refreshed at most every 5 s (single-flight, `Mutex` +
+  `Instant` via `Ui::cached_health` / `HEALTH_CACHE_TTL`), so static rooms (`/agents /data /jupyter /gateway /memory /node /security /analytics /guardian`) answer
   in ~1 ms instead of one upstream RTT. Rooms needing data keep their parallel fan-out (`std::thread::scope`, already
   used in lib.rs) with a 1.5 s per-call timeout and a "stale/did not load" line.
 - **CSS split**: base sheet (RULES + PORT1-4 ~19 kB) for every page; `ov-*` (~6 kB) as `/_ui/overview.<h>.css` linked
@@ -80,7 +80,7 @@ page, one cached sheet <=20 kB, header never blocks a page, and the 1.3 GB Vite 
   API surface listed in the measurement doc. Live service change - Slavik's call and a separate cutover slot.
 
 ## Phases
-1. **Front-only cuts (no VPS change, ~1 slot):** sprite, cached health dot, CSS split + budget, light palette once,
+1. **Front-only cuts (no VPS change, ~1 slot):** sprite + cached health dot (slot 276), CSS split + budget (slot 254), light palette once,
    delete `real_console_ui`, `real_merge` ports via env. Gate: all 30 routes 200, 0 `<script>`, median page <=7 kB,
    static rooms <=10 ms live through the forward after first warm-up.
 2. **Compression (if R4 yes):** gzip HTML + precompressed assets. Gate: gzip page <=2.5 kB, CPU per page <=1 ms.

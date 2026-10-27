@@ -12,20 +12,29 @@ pub const USAGE: &str = "galion-console-static: static front for the Galion cons
 
 usage: galion-console-static --root DIR [options]
        galion-console-static --ui rust --upstream ADDR [--root DIR] [options]
+       galion-console-static --dist DIR [--ui rust] [options]
+       galion-console-serve …   (same binary; alias for console-dist cutover prep)
 
   --bind ADDR          listen address (default 127.0.0.1:8090; loopback only
                        unless --allow-public-bind)
   --root DIR           pre-built console (dist/client), indexed once at start;
                        optional with --ui rust (then only Rust pages are served)
-  --shell NAME         HTML shell under root (default _shell.html)
+  --dist DIR           console-dist root (live layout): uses DIR/static when
+                       present else DIR; sets --shell none and --local-api;
+                       with --ui rust and no --upstream, upstream defaults to
+                       --bind (in-process local-api for health/session gate)
+  --shell NAME         HTML shell under root (default _shell.html); use `none`
+                       when the tree has only assets (console-dist/static)
   --routes FILE        page/redirect list (see routes.rs); default: only `/`
+                       (with --dist and no file: redirect / -> /console)
   --upstream ADDR      loopback IP:port that answers the API (e.g. 127.0.0.1:8081)
   --proxy-prefix P     path prefix sent upstream; repeatable
                        (default /api/ and /_serverFn/ when --upstream is set)
+  --local-api          answer honest /api/v1/health and unpaired session
+                       phone-gate in-process (before any proxy)
   --ui rust            render the ported pages in Rust (crates/console-ui):
                        server-side HTML, Rust-generated CSS, no JavaScript;
-                       needs --upstream; with --root, unported pages fall back
-                       to the pre-built SPA
+                       needs --upstream (or --dist/--local-api self-upstream)
   --pulse ADDR         loopback desk pulse for /services (GET /api/v1/awake),
                        e.g. 127.0.0.1:8091; default none
   --desk ADDR          loopback galion-desk for /cache, /context (GET /desk),
@@ -49,12 +58,51 @@ usage: galion-console-static --root DIR [options]
                        print a routes file from a TanStack routeTree.gen.ts
 ";
 
+/// Default routes when `--dist` is used without `--routes`.
+pub const DIST_DEFAULT_ROUTES: &str = "\
+# console-dist / Console V2 default (console-rust-serve)
+page /
+page /soon
+page /status
+page /agents
+page /analytics
+page /arena
+page /bank
+page /cache
+page /chill
+page /cloudflare
+page /console
+page /context
+page /data
+page /docs
+page /domains
+page /gateway
+page /guardian
+page /hermes
+page /instances
+page /jupyter
+page /keys
+page /markers
+page /memory
+page /mesh
+page /node
+page /pack
+page /repos
+page /security
+page /services
+page /session
+page /md/$name
+redirect / /console
+";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     pub bind: SocketAddr,
     pub root: Option<PathBuf>,
     pub shell: String,
     pub routes: Option<PathBuf>,
+    /// When set, use this routes text instead of reading `routes` (dist default).
+    pub routes_text: Option<String>,
     pub upstream: Option<SocketAddr>,
     pub proxy_prefixes: Vec<String>,
     pub max_conns: usize,
@@ -65,6 +113,10 @@ pub struct Config {
     pub extra_hosts: Vec<String>,
     pub desk: Option<SocketAddr>,
     pub files: console_ui::port4::HostFiles,
+    /// Answer health/session gate in-process.
+    pub local_api: bool,
+    /// True when `--dist` was passed (for logging / docs).
+    pub dist_mode: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -90,6 +142,15 @@ fn valid_prefix(p: &str) -> bool {
     p.len() > 1 && p.ends_with('/') && crate::path::sanitize(p).as_deref() == Ok(p)
 }
 
+fn resolve_dist_root(dir: PathBuf) -> PathBuf {
+    let nested = dir.join("static");
+    if nested.is_dir() {
+        nested
+    } else {
+        dir
+    }
+}
+
 impl Config {
     /// Parse arguments (without the program name).
     pub fn from_args<I: IntoIterator<Item = String>>(args: I) -> Result<Config, ArgsError> {
@@ -108,6 +169,8 @@ impl Config {
         let mut desk = None;
         let mut extra_hosts = Vec::new();
         let mut files = console_ui::port4::HostFiles::default();
+        let mut local_api = false;
+        let mut dist_mode = false;
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             let mut val = |name: &str| {
@@ -122,12 +185,22 @@ impl Config {
                         .map_err(|_| bad("--bind must be IP:port"))?
                 }
                 "--root" => root = Some(PathBuf::from(val("--root")?)),
+                "--dist" => {
+                    let d = PathBuf::from(val("--dist")?);
+                    root = Some(resolve_dist_root(d));
+                    shell = "none".into();
+                    local_api = true;
+                    dist_mode = true;
+                }
                 "--shell" => {
                     let s = val("--shell")?;
-                    if s.contains('/') || s.starts_with('.') || !s.ends_with(".html") {
-                        return Err(bad("--shell must be a plain .html file name"));
+                    if s == "none" {
+                        shell = "none".into();
+                    } else if s.contains('/') || s.starts_with('.') || !s.ends_with(".html") {
+                        return Err(bad("--shell must be a plain .html file name or `none`"));
+                    } else {
+                        shell = s;
                     }
-                    shell = s;
                 }
                 "--routes" => routes = Some(PathBuf::from(val("--routes")?)),
                 "--upstream" => {
@@ -148,6 +221,7 @@ impl Config {
                     }
                     prefixes.push(p);
                 }
+                "--local-api" => local_api = true,
                 "--max-conns" => {
                     max_conns = val("--max-conns")?
                         .parse()
@@ -208,29 +282,46 @@ impl Config {
             }
         }
         if root.is_none() && !rust_ui {
-            return Err(bad("--root is required (or use --ui rust)"));
+            return Err(bad("--root is required (or use --ui rust / --dist)"));
         }
+        // Dist + rust UI with no external upstream: loop API back to self so
+        // the in-process --local-api answers /api/v1/health for page renders.
         if rust_ui && upstream.is_none() {
-            return Err(bad(
-                "--ui rust needs --upstream (the pages read the console API)",
-            ));
+            if local_api {
+                upstream = Some(bind);
+            } else {
+                return Err(bad(
+                    "--ui rust needs --upstream (or --local-api / --dist for self-upstream)",
+                ));
+            }
         }
         if !public && !bind.ip().is_loopback() {
             return Err(bad(
                 "--bind is not loopback; pass --allow-public-bind if that is intended",
             ));
         }
-        if upstream.is_some() && prefixes.is_empty() {
+        let self_upstream = upstream == Some(bind);
+        if upstream.is_some() && prefixes.is_empty() && !self_upstream {
             prefixes = vec!["/api/".to_string(), "/_serverFn/".to_string()];
+        }
+        // Self-upstream must not proxy (would loop); local-api owns health/session.
+        if self_upstream {
+            prefixes.clear();
         }
         if upstream.is_none() && !prefixes.is_empty() {
             return Err(bad("--proxy-prefix needs --upstream"));
         }
+        let routes_text = if dist_mode && routes.is_none() {
+            Some(DIST_DEFAULT_ROUTES.to_string())
+        } else {
+            None
+        };
         Ok(Config {
             bind,
             root,
             shell,
             routes,
+            routes_text,
             upstream,
             proxy_prefixes: prefixes,
             max_conns,
@@ -241,6 +332,8 @@ impl Config {
             extra_hosts,
             desk,
             files,
+            local_api,
+            dist_mode,
         })
     }
 }
@@ -275,6 +368,7 @@ mod tests {
         assert!(!c.rust_ui);
         assert!(c.upstream.is_none());
         assert!(c.proxy_prefixes.is_empty());
+        assert!(!c.local_api);
     }
 
     #[test]
@@ -374,5 +468,24 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn dist_and_local_api() {
+        let c = Config::from_args(args(
+            "--dist /tmp/console-dist --bind 127.0.0.1:21610 --ui rust",
+        ))
+        .unwrap();
+        assert!(c.dist_mode);
+        assert!(c.local_api);
+        assert_eq!(c.shell, "none");
+        assert!(c.rust_ui);
+        assert_eq!(c.upstream, Some(c.bind));
+        assert!(c.proxy_prefixes.is_empty());
+        assert!(c.routes_text.is_some());
+        assert!(c.root.as_ref().unwrap().ends_with("static") || c.root.is_some());
+        let d = Config::from_args(args("--root /srv/c --shell none --local-api")).unwrap();
+        assert_eq!(d.shell, "none");
+        assert!(d.local_api);
     }
 }

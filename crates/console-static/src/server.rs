@@ -183,6 +183,34 @@ fn handle_request(
         }
     };
 
+    if state.cfg.local_api {
+        let peer = stream.peer_addr().ok();
+        let peer_loopback = peer.is_some_and(|p| p.ip().is_loopback());
+        if let Some(reply) =
+            crate::api::try_handle(method, &clean, head, peer_loopback, &state.cfg.extra_hosts)
+        {
+            let extra = format!(
+                "Content-Type: {}\r\nCache-Control: no-store\r\n",
+                reply.content_type
+            );
+            let ok = http::write_head(stream, reply.status, &extra, reply.body.len() as u64, keep)
+                .and_then(|_| {
+                    if head_only {
+                        Ok(())
+                    } else {
+                        stream.write_all(reply.body.as_bytes())
+                    }
+                })
+                .and_then(|_| stream.flush());
+            log(state, method, &clean, reply.status);
+            if keep && ok.is_ok() {
+                *next_carry = carry;
+                return true;
+            }
+            return false;
+        }
+    }
+
     if let Some(up) = state.cfg.upstream {
         if state
             .cfg

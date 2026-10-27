@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# STAGED PROPOSAL ONLY (swarm/console-rust-serve-impl, slot 302).
+# Not installed, not enabled. Live console.service stays Node srvx until the
+# owner approves cutover. Do not copy this onto the VPS without written OK.
+[Unit]
+Description=Galion console Rust serve (console-dist static + local-api + Rust UI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/bin/galion-console-serve \
+  --bind 127.0.0.1:8080 \
+  --dist /opt/galion/console-dist \
+  --ui rust \
+  --local-api \
+  --quiet
+Restart=always
+RestartSec=2
+DynamicUser=yes
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadOnlyPaths=/opt/galion/console-dist
+# Note: without --upstream, only local-api paths + Rust UI degraded data work.
+# For full API parity during transition, add e.g.:
+#   --upstream 127.0.0.1:8088
+# and keep a Node API-only process on 8088 (separate owner change).
+
+[Install]
+WantedBy=multi-user.target

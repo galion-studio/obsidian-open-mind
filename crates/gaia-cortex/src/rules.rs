@@ -774,13 +774,16 @@ impl Subject {
         ev
     }
 
-    /// Something a planned stop could explain: a failure or a process exit.
+    /// Something a planned stop could explain: a failure, a process exit,
+    /// or a failure/exit the slot 310 nerve already tagged as
+    /// `unit.planned_stop` (it no longer arrives as unit.failed/unit.exit;
+    /// without this the pair never reaches R5b, slot 328 F-328-1).
     fn stop_shaped(&self) -> bool {
         self.failures() > 0
             || self
                 .events
                 .iter()
-                .any(|e| e.kind() == EventKind::ProcessExit)
+                .any(|e| e.kind() == EventKind::ProcessExit || e.kind == "unit.planned_stop")
     }
 }
 
@@ -1200,5 +1203,84 @@ mod tests {
         let mut r = rules();
         let only_stop = subj(vec![stopped(1, "stop")]);
         assert_eq!(r.decide(&only_stop, false, 1_000).rule, "R5-recovered");
+    }
+
+    // ---- slot 328: the slot 310 nerve tags the failure itself ----
+
+    /// A failure/exit as the slot 310 nerve (12956b45) emits it: kind
+    /// `unit.planned_stop`, `data.planned`, `planned_kind`, exit fields kept.
+    fn tagged(seq: u64, was: &str, extra: Value) -> Event {
+        let mut d = json!({"planned": true, "planned_kind": was, "stop_job": "restart"});
+        if let (Some(o), Some(e)) = (d.as_object_mut(), extra.as_object()) {
+            o.extend(e.clone());
+        }
+        jev("unit.planned_stop", "info", seq, d)
+    }
+
+    #[test]
+    fn nerve_tagged_restart_is_r5b_not_r5_or_r99() {
+        // The exact burst the e2e pair saw (slot 328 run 00:16 +01:00):
+        // stopping, planned_stop (exit 143), planned_stop (failed), stopped, started.
+        let mut stopping = jev(
+            "unit.stopping",
+            "info",
+            1,
+            json!({"job_type": "restart", "planned": true}),
+        );
+        stopping.key = Some(format!("unit.stopping:{CONSOLE}"));
+        let burst = subj(vec![
+            stopping.clone(),
+            tagged(
+                2,
+                "unit.exit",
+                json!({"exit_code": "exited", "exit_status": "143"}),
+            ),
+            tagged(3, "unit.failed", json!({"unit_result": "exit-code"})),
+            stopped(4, "restart"),
+            started(5),
+        ]);
+        let mut r = rules();
+        let v = r.decide(&burst, false, 1_000);
+        assert_eq!(v.rule, "R5b-planned-stop", "{v:?}");
+        assert!(
+            v.outcome == Outcome::None && !v.escalate && !v.alert,
+            "{v:?}"
+        );
+        // without the active-again tail (the cortex burst split before Started)
+        let short = subj(vec![
+            stopping.clone(),
+            tagged(
+                2,
+                "unit.exit",
+                json!({"exit_code": "exited", "exit_status": "143"}),
+            ),
+            tagged(3, "unit.failed", json!({"unit_result": "exit-code"})),
+        ]);
+        assert_eq!(r.decide(&short, false, 1_010).rule, "R5b-planned-stop");
+        // a Stopping line alone is still not stop-shaped (plain R5 as before)
+        assert_ne!(
+            rules().decide(&subj(vec![stopping]), false, 1_000).rule,
+            "R5b-planned-stop"
+        );
+    }
+
+    #[test]
+    fn nerve_tagged_unclean_stop_is_not_r5b_and_never_restarts() {
+        // The nerve tags an exit 1 during a stop job as planned (low); the
+        // cortex sees crash evidence, so no R5b, but also no failure to restart.
+        let s = subj(vec![
+            tagged(
+                2,
+                "unit.exit",
+                json!({"exit_code": "exited", "exit_status": "1"}),
+            ),
+            tagged(3, "unit.failed", json!({"unit_result": "exit-code"})),
+        ]);
+        let mut r = rules();
+        assert!(r.planned_stop(&s, 1_000).is_none());
+        let v = r.decide(&s, false, 1_000);
+        assert_ne!(v.rule, "R5b-planned-stop", "{v:?}");
+        assert!(!v.rule.starts_with("R3"), "{v:?}");
+        assert_eq!(v.outcome, Outcome::None, "{v:?}");
     }
 }

@@ -147,6 +147,9 @@ pub struct OffhostCfg {
     pub config_path: PathBuf,
     pub host: String,
     pub port: u16,
+    /// F1: host-side HMAC key (`HERMES_OFFHOST_HMAC_FILE`). Required when a
+    /// secondary store is set; every snapshot is sealed and verified with it.
+    pub seal: Option<crate::offhost_guard::SealKey>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -163,12 +166,14 @@ pub struct BeatReport {
     pub role: String,
     pub resume_policy: String,
     pub external_state_uri: Option<String>,
+    /// Snapshot was sealed with the host HMAC key (F1).
+    pub sealed: bool,
 }
 
 impl BeatReport {
     pub fn summary(&self) -> String {
         format!(
-            "offhost beat role={} local_ok={} path_ok={:?} uri_ok={:?} survival_ok={:?} sessions={} bytes={} blockers={}",
+            "offhost beat role={} local_ok={} path_ok={:?} uri_ok={:?} survival_ok={:?} sessions={} bytes={} sealed={} blockers={}",
             self.role,
             self.local_ok,
             self.path_ok,
@@ -176,6 +181,7 @@ impl BeatReport {
             self.survival_ok,
             self.session_files,
             self.bytes,
+            self.sealed,
             self.blockers.join("; ")
         )
     }
@@ -195,6 +201,7 @@ impl BeatReport {
             "config_sha256": self.config_sha256,
             "session_files": self.session_files,
             "bytes": self.bytes,
+            "sealed": self.sealed,
             "blockers": self.blockers,
         })
     }
@@ -211,15 +218,19 @@ pub struct ResumeReport {
     pub resume_policy: String,
     pub external_state_uri: Option<String>,
     pub written_at: Option<String>,
+    /// "hmac-sha256" when the snapshot seal verified, "unsigned-local" when
+    /// no key is set (local-only mode), "none" when nothing was applied.
+    pub auth: String,
 }
 
 impl ResumeReport {
     pub fn summary(&self) -> String {
         format!(
-            "offhost resume role={} loaded={} source={} restored={} kept={} blockers={}",
+            "offhost resume role={} loaded={} source={} auth={} restored={} kept={} blockers={}",
             self.role,
             self.loaded,
             self.source,
+            self.auth,
             self.restored.join(","),
             self.kept.join(","),
             self.blockers.join("; ")
@@ -234,6 +245,7 @@ impl ResumeReport {
             "resume_policy": self.resume_policy,
             "external_state_uri": self.external_state_uri,
             "last_heartbeat": self.written_at,
+            "auth": self.auth,
             "loaded": self.loaded,
             "source": self.source,
             "restored": self.restored,
@@ -252,6 +264,8 @@ struct Piece {
     body: Option<Vec<u8>>,
     text: bool,
     redacted: bool,
+    /// Values redacted inside the sanitised session DB (F2).
+    redacted_values: usize,
     omit_reason: Option<&'static str>,
 }
 
@@ -295,9 +309,35 @@ fn uri_host(uri: &str) -> String {
     host.split(':').next().unwrap_or(host).to_ascii_lowercase()
 }
 
+/// Host part of an http(s) URI is 127.0.0.0/8, ::1 or localhost.
+fn loopback_uri(uri: &str) -> bool {
+    let rest = uri.split_once("://").map(|(_, r)| r).unwrap_or("");
+    let hostport = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if hostport.contains('@') {
+        return false;
+    }
+    let host = if let Some(v6) = hostport.strip_prefix('[') {
+        v6.split(']').next().unwrap_or("")
+    } else {
+        hostport.split(':').next().unwrap_or("")
+    };
+    let host = host.to_ascii_lowercase();
+    if host == "localhost" || host == "::1" {
+        return true;
+    }
+    match host.parse::<std::net::Ipv4Addr>() {
+        Ok(ip) => ip.is_loopback(),
+        Err(_) => false,
+    }
+}
+
 fn check_uri(uri: &str) -> Result<(), String> {
     if !(uri.starts_with("https://") || uri.starts_with("http://")) {
         return Err("HERMES_OFFHOST_URI must be http or https".into());
+    }
+    // F4: the bearer token and the snapshot never cross the network in clear.
+    if uri.starts_with("http://") && !loopback_uri(uri) {
+        return Err("HERMES_OFFHOST_URI must be https (plain http only for loopback)".into());
     }
     if uri.contains([' ', '\n', '\r', '"', '\\']) {
         return Err("HERMES_OFFHOST_URI has unusable characters".into());
@@ -385,6 +425,19 @@ impl OffhostCfg {
         let config_path = env_get(env, "HERMES_RS_CONFIG")
             .map(PathBuf::from)
             .unwrap_or_else(|| cfg.home.join("config.yaml"));
+        let seal = match env_get(env, "HERMES_OFFHOST_HMAC_FILE") {
+            Some(p) => Some(crate::offhost_guard::SealKey::load(
+                Path::new(&p),
+                external_path.as_deref(),
+            )?),
+            None => None,
+        };
+        if seal.is_none() && (external_path.is_some() || external_uri.is_some()) {
+            return Err(
+                "HERMES_OFFHOST_HMAC_FILE is required when HERMES_OFFHOST_PATH or HERMES_OFFHOST_URI is set (unsigned off-host snapshots are refused)"
+                    .into(),
+            );
+        }
         Ok(OffhostCfg {
             enabled,
             role,
@@ -405,6 +458,7 @@ impl OffhostCfg {
             config_path,
             host: cfg.host.clone(),
             port: cfg.port,
+            seal,
         })
     }
 
@@ -421,7 +475,12 @@ impl OffhostCfg {
         mut put: impl FnMut(&str, &[u8]) -> Result<(), String>,
     ) -> BeatReport {
         let snap = self.build_snapshot(now);
-        let bytes = serde_json::to_vec_pretty(&snap).unwrap_or_default();
+        // F1: sealed with the host key when one is set (always, when a
+        // secondary store is configured).
+        let bytes = match &self.seal {
+            Some(k) => k.seal(&snap),
+            None => serde_json::to_vec_pretty(&snap).unwrap_or_default(),
+        };
         let mut blockers = string_list(&snap["blockers"]);
         if self.external_path.is_none() && self.external_uri.is_none() {
             blockers.push(
@@ -481,6 +540,7 @@ impl OffhostCfg {
             role: self.role.as_str().to_string(),
             resume_policy: self.resume.as_str().to_string(),
             external_state_uri: self.external_state_uri(),
+            sealed: self.seal.is_some(),
         }
     }
 
@@ -497,17 +557,50 @@ impl OffhostCfg {
             }
             return self.resume_report(false, "none", Vec::new(), Vec::new(), blockers, None);
         };
-        let snap: Value = match serde_json::from_slice(&bytes) {
+        let doc: Value = match serde_json::from_slice(&bytes) {
             Ok(v) => v,
             Err(_) => {
                 blockers.push("snapshot is not JSON; local state was not overwritten".into());
                 return self.resume_report(false, &source, Vec::new(), Vec::new(), blockers, None);
             }
         };
+        // F1: verify the seal before anything is parsed further or written.
+        let snap = match (&self.seal, crate::offhost_guard::is_sealed(&doc)) {
+            (Some(k), _) => match k.open(&doc) {
+                Ok(s) => s,
+                Err(e) => {
+                    blockers.push(format!("{e}; local state was not overwritten"));
+                    if self.role == Role::Standby {
+                        let _ = self.write_survival(now, None, &mut blockers);
+                    }
+                    return self.resume_report(
+                        false,
+                        &source,
+                        Vec::new(),
+                        Vec::new(),
+                        blockers,
+                        None,
+                    );
+                }
+            },
+            (None, true) => {
+                blockers.push(
+                    "snapshot is sealed but HERMES_OFFHOST_HMAC_FILE is not set; local state was not overwritten"
+                        .into(),
+                );
+                return self.resume_report(false, &source, Vec::new(), Vec::new(), blockers, None);
+            }
+            (None, false) => doc,
+        };
         let written_at = snap["written_at"].as_str().map(str::to_string);
         let mut report = self.apply_snapshot(&snap, now);
         report.source = source;
         report.loaded = true;
+        report.auth = if self.seal.is_some() {
+            crate::offhost_guard::ALG.into()
+        } else {
+            "unsigned-local".into()
+        };
         report.written_at = written_at;
         report.blockers.splice(0..0, blockers);
         if self.role == Role::Standby {
@@ -535,6 +628,7 @@ impl OffhostCfg {
             resume_policy: self.resume.as_str().to_string(),
             external_state_uri: self.external_state_uri(),
             written_at,
+            auth: "none".into(),
         }
     }
 
@@ -725,14 +819,12 @@ impl OffhostCfg {
             false,
         ));
         if self.state_db.is_file() {
-            pieces.push(consider(
-                &self.state_db,
-                "session_db",
-                "",
-                "if_stale",
-                &mut budget,
-                false,
-            ));
+            let tmp_dir = self
+                .local_path
+                .parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| PathBuf::from("."));
+            pieces.push(consider_db(&self.state_db, &tmp_dir, &mut budget));
         }
         if let Some(dir) = session_dir(&self.state_db) {
             for (name, path) in session_files(&dir) {
@@ -754,6 +846,7 @@ impl OffhostCfg {
                     | Some("secret_like_bytes")
                     | Some("too_large")
                     | Some("unreadable")
+                    | Some("unsanitizable")
             ) {
                 blockers.push(format!(
                     "{} omitted: {}",
@@ -884,6 +977,7 @@ fn consider(
         body: None,
         text: false,
         redacted: false,
+        redacted_values: 0,
         omit_reason: None,
     };
     let meta = match fs::metadata(path) {
@@ -941,6 +1035,74 @@ fn consider(
     p
 }
 
+/// F2: the SQLite session DB leaves the host only as a sanitised copy
+/// (offhost_guard::export_sqlite): freed pages dropped, every TEXT/BLOB value
+/// redacted with the strict list, then a final strict byte scan. One secret
+/// now costs one value, not the whole DB (also softens F3). A file that is not
+/// SQLite falls back to the strict raw scan; an export error omits the DB.
+fn consider_db(path: &Path, tmp_dir: &Path, budget: &mut usize) -> Piece {
+    #[cfg(feature = "sqlite")]
+    {
+        let is_sqlite = fs::File::open(path)
+            .and_then(|mut f| {
+                let mut head = [0u8; 16];
+                f.read_exact(&mut head).map(|_| head)
+            })
+            .map(|h| &h == b"SQLite format 3\0")
+            .unwrap_or(false);
+        if is_sqlite {
+            let mut p = Piece {
+                role: "session_db",
+                name: String::new(),
+                restore: "if_stale",
+                raw_len: 0,
+                source_sha: None,
+                body: None,
+                text: false,
+                redacted: false,
+                redacted_values: 0,
+                omit_reason: None,
+            };
+            let meta = match fs::metadata(path) {
+                Ok(m) if m.is_file() => m,
+                _ => return p,
+            };
+            p.raw_len = meta.len();
+            if meta.len() > HASH_LIMIT {
+                p.omit_reason = Some("too_large");
+                return p;
+            }
+            match fs::read(path) {
+                Ok(raw) => p.source_sha = Some(sha256_hex(&raw)),
+                Err(_) => {
+                    p.omit_reason = Some("unreadable");
+                    return p;
+                }
+            }
+            match crate::offhost_guard::export_sqlite(path, tmp_dir) {
+                Ok(x) => {
+                    if secret_like(&x.bytes) {
+                        p.omit_reason = Some("secret_like_bytes");
+                        p.redacted = true;
+                        return p;
+                    }
+                    if !take_budget(x.bytes.len(), budget, false) {
+                        p.omit_reason = Some("over_cap");
+                        return p;
+                    }
+                    p.redacted = x.redacted_values > 0 || x.dropped_virtual > 0;
+                    p.redacted_values = x.redacted_values;
+                    p.body = Some(x.bytes);
+                }
+                Err(_) => p.omit_reason = Some("unsanitizable"),
+            }
+            return p;
+        }
+    }
+    let _ = tmp_dir;
+    consider(path, "session_db", "", "if_stale", budget, false)
+}
+
 fn take_budget(len: usize, budget: &mut usize, force: bool) -> bool {
     if len <= *budget {
         *budget = budget.saturating_sub(len);
@@ -980,6 +1142,9 @@ fn piece_json(p: &Piece) -> Value {
     }
     if let Some(s) = &p.source_sha {
         v["source_sha256"] = json!(s);
+    }
+    if p.redacted_values > 0 {
+        v["redacted_values"] = json!(p.redacted_values);
     }
     if let Some(reason) = p.omit_reason {
         v["reason"] = json!(reason);
@@ -1165,7 +1330,7 @@ fn scrub_value(v: &mut Value) -> bool {
             }
         }
         Value::String(s) => {
-            let n = crate::redact(s);
+            let n = crate::offhost_guard::strict_redact(s);
             if n != *s {
                 *s = n;
                 changed = true;
@@ -1194,7 +1359,7 @@ fn export_text(raw: &str) -> (String, bool) {
                 continue;
             }
         }
-        let n = crate::redact(line);
+        let n = crate::offhost_guard::strict_redact(line);
         changed |= n != line;
         lines_out.push(n);
     }
@@ -1205,24 +1370,9 @@ fn export_text(raw: &str) -> (String, bool) {
     (out, changed)
 }
 
+/// F2: one strict pattern list for bytes and text (see offhost_guard).
 fn secret_like(bytes: &[u8]) -> bool {
-    has_prefix_tail(bytes, b"sk-", 20)
-        || has_prefix_tail(bytes, b"ghp_", 36)
-        || has_prefix_tail(bytes, b"xoxb-", 10)
-}
-
-fn has_prefix_tail(hay: &[u8], prefix: &[u8], min: usize) -> bool {
-    if hay.len() < prefix.len() || prefix.is_empty() {
-        return false;
-    }
-    let extra = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-    hay.windows(prefix.len()).enumerate().any(|(i, w)| {
-        if w != prefix {
-            return false;
-        }
-        let rest = &hay[i + prefix.len()..];
-        rest.iter().take_while(|c| extra.contains(c)).count() >= min
-    })
+    crate::offhost_guard::secret_like(bytes)
 }
 
 fn safe_file_name(name: &str) -> Result<&str, String> {
@@ -1567,6 +1717,16 @@ mod tests {
         }
     }
 
+    /// Host-side HMAC key in its own dir (never inside the store).
+    fn key_file() -> (Tmp, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch();
+        let p = dir.join("offhost.key");
+        fs::write(&p, b"unit-test-offhost-hmac-key-0123456789abcdef\n").unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o600)).unwrap();
+        (Tmp(dir), p.display().to_string())
+    }
+
     fn home() -> (Tmp, Config) {
         let dir = scratch();
         let cfg = Config::defaults(&dir);
@@ -1748,9 +1908,11 @@ mod tests {
         )
         .unwrap();
         cfg.state_db = tmp.0.join("rs-state.db");
+        let (_kt, kf) = key_file();
         let env = |k: &str| match k {
             "HERMES_OFFHOST" => Some("1".into()),
             "HERMES_OFFHOST_URI" => Some("https://example.com/snap?sig=abc".into()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(kf.clone()),
             "HERMES_OFFHOST_SURVIVAL" => Some(tmp.0.join("survival.json").display().to_string()),
             _ => None,
         };
@@ -1776,7 +1938,9 @@ mod tests {
         let sent = String::from_utf8(put_body.unwrap()).unwrap();
         assert!(!sent.contains("sig=abc"));
         assert!(!sent.contains(secret));
-        let snap: Value = serde_json::from_str(&raw).unwrap();
+        let env_doc: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(env_doc["kind"], crate::offhost_guard::SEALED_KIND);
+        let snap = off.seal.as_ref().unwrap().open(&env_doc).unwrap();
         let cfg_bytes = fs::read(tmp.0.join("config.yaml")).unwrap();
         assert_eq!(snap["config_sha256"], sha256_hex(&cfg_bytes));
         assert_eq!(report.session_files, 1);
@@ -1805,9 +1969,11 @@ mod tests {
         )
         .unwrap();
         fs::write(tmp.0.join("rs-cron-state.json"), r#"{"job":1}"#).unwrap();
+        let (_kt, kf) = key_file();
         let env = |k: &str| match k {
             "HERMES_OFFHOST" => Some("1".into()),
             "HERMES_OFFHOST_PATH" => Some(ext.display().to_string()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(kf.clone()),
             "HERMES_OFFHOST_STALE_S" => Some("60".into()),
             _ => None,
         };
@@ -1846,9 +2012,11 @@ mod tests {
             r#"{"day":"2026-10-27","day_usd":1.0,"day_calls":2}"#,
         )
         .unwrap();
+        let (_kt, kf) = key_file();
         let env = |k: &str| match k {
             "HERMES_OFFHOST" => Some("1".into()),
             "HERMES_OFFHOST_PATH" => Some(ext.display().to_string()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(kf.clone()),
             "HERMES_OFFHOST_STALE_S" => Some("60".into()),
             _ => None,
         };
@@ -1874,9 +2042,11 @@ mod tests {
         let (tmp, cfg) = home();
         let ext = tmp.0.join("ext.json");
         fs::write(tmp.0.join("rs-cron-state.json"), r#"{"v":"snap"}"#).unwrap();
+        let (_kt, kf) = key_file();
         let env = |k: &str| match k {
             "HERMES_OFFHOST" => Some("1".into()),
             "HERMES_OFFHOST_PATH" => Some(ext.display().to_string()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(kf.clone()),
             _ => None,
         };
         let off = OffhostCfg::load(&cfg, &env).unwrap();
@@ -1951,10 +2121,12 @@ mod tests {
         big.extend(std::iter::repeat_n(b'a', 80_000));
         fs::write(sdir.join("sess-1.jsonl"), &big).unwrap();
         cfg.state_db = tmp.0.join("rs-state.db");
+        let (_kt, kf) = key_file();
         let env = |k: &str| match k {
             "HERMES_OFFHOST" => Some("1".into()),
             "HERMES_OFFHOST_MAX_BYTES" => Some("65536".into()),
             "HERMES_OFFHOST_PATH" => Some(tmp.0.join("ext.json").display().to_string()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(kf.clone()),
             _ => None,
         };
         let off = OffhostCfg::load(&cfg, &env).unwrap();
@@ -2085,6 +2257,244 @@ mod tests {
         let mut buf = String::new();
         let _ = s.read_to_string(&mut buf);
         buf
+    }
+
+    // ---- slot 314: F1 / F2 / F4 ----
+
+    #[test]
+    fn f1_secondary_store_requires_a_host_key() {
+        let (tmp, cfg) = home();
+        let ext = tmp.0.join("store").join("continuity.json");
+        let err = match OffhostCfg::load(&cfg, &|k| match k {
+            "HERMES_OFFHOST_PATH" => Some(ext.display().to_string()),
+            _ => None,
+        }) {
+            Err(e) => e,
+            Ok(_) => panic!("unsigned store must be refused"),
+        };
+        assert!(err.contains("HERMES_OFFHOST_HMAC_FILE is required"));
+        let err = match OffhostCfg::load(&cfg, &|k| match k {
+            "HERMES_OFFHOST_URI" => Some("https://store.example/snap".into()),
+            _ => None,
+        }) {
+            Err(e) => e,
+            Ok(_) => panic!("unsigned store must be refused"),
+        };
+        assert!(err.contains("HERMES_OFFHOST_HMAC_FILE is required"));
+        // Key kept inside the store is refused (whoever writes the store
+        // would hold the key).
+        use std::os::unix::fs::PermissionsExt;
+        fs::create_dir_all(ext.parent().unwrap()).unwrap();
+        let inside = ext.parent().unwrap().join("k");
+        fs::write(&inside, [b'q'; 40]).unwrap();
+        fs::set_permissions(&inside, fs::Permissions::from_mode(0o600)).unwrap();
+        let err = match OffhostCfg::load(&cfg, &|k| match k {
+            "HERMES_OFFHOST_PATH" => Some(ext.display().to_string()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(inside.display().to_string()),
+            _ => None,
+        }) {
+            Err(e) => e,
+            Ok(_) => panic!("key in store must be refused"),
+        };
+        assert!(err.contains("secondary store"));
+        assert!(!err.contains("qqqq"));
+    }
+
+    fn tampered_job_snapshot(off: &OffhostCfg, ext: &Path) -> Value {
+        // What an attacker with store write access does: open the envelope
+        // (no key needed to read), add a cron job with a matching sha256,
+        // and put it back (keeping the old mac, or as a plain document).
+        let env_doc: Value = serde_json::from_slice(&fs::read(ext).unwrap()).unwrap();
+        let mut snap: Value = serde_json::from_str(env_doc["payload"].as_str().unwrap()).unwrap();
+        let evil = r#"{"jobs":[{"id":"evil314","prompt":"spend"}]}"#;
+        let files = snap["files"].as_array_mut().unwrap();
+        for f in files.iter_mut() {
+            if f["role"] == "cron_jobs" {
+                f["included"] = json!(true);
+                f["text"] = json!(evil);
+                f["sha256"] = json!(sha256_hex(evil.as_bytes()));
+            }
+        }
+        let _ = off;
+        let mut forged = env_doc.clone();
+        forged["payload"] = json!(serde_json::to_string(&snap).unwrap());
+        forged
+    }
+
+    #[test]
+    fn f1_tampered_or_unsigned_snapshot_is_refused() {
+        let (tmp, cfg) = home();
+        let ext = tmp.0.join("ext").join("continuity.json");
+        fs::create_dir_all(tmp.0.join("cron")).unwrap();
+        fs::write(tmp.0.join("cron/jobs.json"), r#"{"jobs":[{"id":"good"}]}"#).unwrap();
+        let (_kt, kf) = key_file();
+        let env = |k: &str| match k {
+            "HERMES_OFFHOST" => Some("1".into()),
+            "HERMES_OFFHOST_PATH" => Some(ext.display().to_string()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(kf.clone()),
+            _ => None,
+        };
+        let off = OffhostCfg::load(&cfg, &env).unwrap();
+        let beat = off.beat_at(now(), |_u, _b| panic!("no uri"));
+        assert!(beat.sealed && beat.path_ok == Some(true));
+        // Genuine snapshot restores a missing jobs.json.
+        fs::remove_file(tmp.0.join("cron/jobs.json")).unwrap();
+        let ok = off.resume_at(now() + 10, |_u| panic!("no"));
+        assert_eq!(ok.auth, "hmac-sha256");
+        assert!(ok.restored.iter().any(|r| r == "cron_jobs"), "{ok:?}");
+        // 1) payload edited, old mac kept -> refused, nothing written.
+        let forged = tampered_job_snapshot(&off, &ext);
+        fs::write(&ext, serde_json::to_vec(&forged).unwrap()).unwrap();
+        fs::remove_file(tmp.0.join("cron/jobs.json")).unwrap();
+        let r = off.resume_at(now() + 20, |_u| panic!("no"));
+        assert!(!r.loaded);
+        assert!(
+            r.blockers.iter().any(|b| b.contains("MAC mismatch")),
+            "{r:?}"
+        );
+        assert!(!tmp.0.join("cron/jobs.json").exists());
+        // 2) unsigned plain document (valid per-file sha256) -> refused.
+        let plain: Value = serde_json::from_str(forged["payload"].as_str().unwrap()).unwrap();
+        fs::write(&ext, serde_json::to_vec(&plain).unwrap()).unwrap();
+        let r = off.resume_at(now() + 30, |_u| panic!("no"));
+        assert!(!r.loaded);
+        assert!(r.blockers.iter().any(|b| b.contains("unsigned")), "{r:?}");
+        assert!(!tmp.0.join("cron/jobs.json").exists());
+        // 3) sealed with another key -> refused.
+        let other = crate::offhost_guard::SealKey::from_bytes(&[b'x'; 48]).unwrap();
+        fs::write(&ext, other.seal(&plain)).unwrap();
+        let r = off.resume_at(now() + 40, |_u| panic!("no"));
+        assert!(
+            r.blockers.iter().any(|b| b.contains("different key")),
+            "{r:?}"
+        );
+        assert!(!tmp.0.join("cron/jobs.json").exists());
+    }
+
+    #[test]
+    fn f4_plain_http_only_for_loopback() {
+        let (_tmp, cfg) = home();
+        let (_kt, kf) = key_file();
+        for (uri, ok) in [
+            ("http://store.example/snap", false),
+            ("http://10.0.0.5:8080/snap", false),
+            ("http://127.0.0.1.evil.example/snap", false),
+            ("http://127.0.0.1:21842/snap", true),
+            ("http://localhost:9/snap", true),
+            ("http://[::1]:9/snap", true),
+            ("https://store.example/snap", true),
+        ] {
+            let r = OffhostCfg::load(&cfg, &|k| match k {
+                "HERMES_OFFHOST_URI" => Some(uri.into()),
+                "HERMES_OFFHOST_HMAC_FILE" => Some(kf.clone()),
+                _ => None,
+            });
+            assert_eq!(r.is_ok(), ok, "{uri}");
+            if let Err(e) = r {
+                assert!(e.contains("https"), "{e}");
+            }
+        }
+    }
+
+    #[test]
+    fn f2_review_shapes_never_leave_in_session_files() {
+        let (tmp, mut cfg) = home();
+        let pat = concat!(
+            "github",
+            "_pat_",
+            "11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz"
+        );
+        let aws = concat!("AK", "IA", "ABCDEFGHIJKLMNOP");
+        let sdir = tmp.0.join("rs-state.sessions");
+        fs::create_dir_all(&sdir).unwrap();
+        fs::write(
+            sdir.join("s.jsonl"),
+            format!("{{\"role\":\"user\",\"content\":\"a {pat} b {aws}\"}}\nraw line {pat}\n"),
+        )
+        .unwrap();
+        cfg.state_db = tmp.0.join("rs-state.db");
+        let off = OffhostCfg::load(&cfg, &|k| (k == "HERMES_OFFHOST").then(|| "1".into())).unwrap();
+        off.beat_at(now(), |_u, _b| Ok(()));
+        let raw = fs::read_to_string(&off.local_path).unwrap();
+        assert!(!raw.contains(pat) && !raw.contains(aws));
+        assert!(raw.contains("[REDACTED]"));
+        assert!(raw.contains("raw line"));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn f2_sqlite_session_db_is_sanitised_not_dropped() {
+        let (tmp, mut cfg) = home();
+        let pat = concat!(
+            "github",
+            "_pat_",
+            "11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz"
+        );
+        let db = tmp.0.join("rs-state.db");
+        {
+            let store = crate::session_sqlite::SqliteStore::open_rw(&db).unwrap();
+            drop(store);
+            let c = rusqlite::Connection::open(&db).unwrap();
+            c.execute(
+                "INSERT INTO sessions (id, source, started_at) VALUES ('s1','api_server',1.0)",
+                [],
+            )
+            .unwrap();
+            c.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp) VALUES ('s1','user',?1,1.0)",
+                [format!("my token {pat} ok")],
+            )
+            .unwrap();
+            c.execute(
+                "INSERT INTO messages (session_id, role, content, timestamp) VALUES ('s1','assistant','fine',2.0)",
+                [],
+            )
+            .unwrap();
+        }
+        cfg.state_db = db.clone();
+        let (_kt, kf) = key_file();
+        let ext = tmp.0.join("ext").join("c.json");
+        let env = |k: &str| match k {
+            "HERMES_OFFHOST" => Some("1".into()),
+            "HERMES_OFFHOST_PATH" => Some(ext.display().to_string()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(kf.clone()),
+            _ => None,
+        };
+        let off = OffhostCfg::load(&cfg, &env).unwrap();
+        let beat = off.beat_at(now(), |_u, _b| Ok(()));
+        assert!(
+            beat.blockers.iter().all(|b| !b.contains("session_db")),
+            "{beat:?}"
+        );
+        let env_doc: Value = serde_json::from_slice(&fs::read(&ext).unwrap()).unwrap();
+        let snap = off.seal.as_ref().unwrap().open(&env_doc).unwrap();
+        let entry = snap["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["role"] == "session_db")
+            .unwrap()
+            .clone();
+        assert_eq!(entry["included"], true, "{entry}");
+        assert_eq!(entry["redacted_values"], 1);
+        let body = b64_decode(entry["b64"].as_str().unwrap()).unwrap();
+        assert!(!secret_like(&body));
+        // Disk loss -> resume brings the sessions back, redacted.
+        fs::remove_file(&db).unwrap();
+        let r = off.resume_at(now() + 5, |_u| panic!("no"));
+        assert!(r.restored.iter().any(|x| x == "session_db"), "{r:?}");
+        let c = rusqlite::Connection::open(&db).unwrap();
+        let rows: Vec<String> = c
+            .prepare("SELECT content FROM messages ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|x| x.unwrap())
+            .collect();
+        assert_eq!(
+            rows,
+            vec!["my token [REDACTED] ok".to_string(), "fine".into()]
+        );
     }
 
     #[test]

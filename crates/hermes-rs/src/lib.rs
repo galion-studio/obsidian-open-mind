@@ -19,6 +19,7 @@ pub mod delegate;
 pub mod http;
 pub mod mcp;
 pub mod offhost;
+pub mod offhost_guard;
 pub mod persona;
 pub mod provider;
 pub mod runs;

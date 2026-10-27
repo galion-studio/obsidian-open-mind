@@ -48,6 +48,7 @@ HERMES_OFFHOST=1
 HERMES_OFFHOST_PATH=/mnt/hermes-offhost
 HERMES_OFFHOST_URI=https://store.example/hermes/continuity.json
 HERMES_OFFHOST_TOKEN=...
+HERMES_OFFHOST_HMAC_FILE=/etc/hermes-rs/offhost.key
 HERMES_OFFHOST_SURVIVAL=/opt/galion/galion-light/state/survival.json
 HERMES_OFFHOST_INTERVAL_S=300
 HERMES_OFFHOST_STALE_S=21600
@@ -57,6 +58,8 @@ HERMES_OFFHOST_LOCAL=/var/lib/hermes-rs/offhost/continuity.json
 ```
 
 The token is an environment variable. It is not written into the snapshot, into `survival.json`, or into logs. Do not put it in the URI. Query strings are stripped from `external_state_uri`.
+
+The HMAC key file is required as soon as a path or URI is set (mode 0600, at least 32 bytes, not inside the store). Every snapshot is sealed with HMAC-SHA256; a resume refuses a tampered, unsigned or foreign-key snapshot and leaves local state alone. Primary and standby use the same key. Plain `http` is only allowed for loopback.
 
 `hermes-gateway --offhost-once` writes one snapshot and exits. `hermes-gateway --offhost-standby` resumes, then listens on loopback for `/health` only. Standby does not start cron, so `survival-cash` cannot double-fire, and it does not start a model provider.
 

@@ -63,7 +63,16 @@ See `deploy/survival/skills/galion/survival/SKILL.md`. Short form:
 - `HERMES_OFFHOST=1` turns the feature on. Default is off.
 - `HERMES_OFFHOST_PATH` is a directory or a `.json` file on storage that
   survives this VPS. A path on the same disk does not.
-- `HERMES_OFFHOST_URI` is `http` or `https`. No userinfo. Not a model host.
+- `HERMES_OFFHOST_URI` is `https` (plain `http` only for loopback). No
+  userinfo. Not a model host.
+- `HERMES_OFFHOST_HMAC_FILE` is required once a path or URI is set (else
+  exit 2). A regular file, mode 0600 or stricter, at least 32 bytes, at most
+  4 KiB, not inside the store. Snapshots are sealed with HMAC-SHA256 and a
+  resume refuses any snapshot that is tampered, unsigned or sealed with
+  another key; local state is then left alone. Primary and standby need the
+  same key. `--check-config` prints `sealed=<key id>`, never the key.
+  Session text, spend and the SQLite DB are redacted with the strict secret
+  filter before they leave the host (slot 314).
 - `HERMES_OFFHOST_TOKEN` is read at call time and passed to curl on stdin.
 - `HERMES_OFFHOST_SURVIVAL` is the survival.json path to patch. Unset means
   the cash file is not touched.

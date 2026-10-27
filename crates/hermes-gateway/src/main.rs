@@ -120,7 +120,7 @@ fn main() {
     }
     if args.iter().any(|a| a == "--check-config") {
         println!(
-            "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={} offhost={} role={} resume={} interval_s={} stale_s={} external={}",
+            "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={} offhost={} role={} resume={} interval_s={} stale_s={} external={} sealed={}",
             cfg.home.display(),
             cfg.host,
             cfg.port,
@@ -138,7 +138,8 @@ fn main() {
             off.resume,
             off.interval_s,
             off.stale_after_s,
-            off.external_state_uri().as_deref().unwrap_or("-")
+            off.external_state_uri().as_deref().unwrap_or("-"),
+            off.seal.as_ref().map(|k| k.id.as_str()).unwrap_or("no")
         );
         return;
     }

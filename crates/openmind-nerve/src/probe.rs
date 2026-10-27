@@ -152,6 +152,15 @@ pub fn http_probe(port: u16, path: &str, timeout: Duration) -> HttpProbe {
     }
 }
 
+/// Verdict for one deep route probe ([`crate::config::Spec::deep`]): the
+/// route exists and its handler runs. 2xx/3xx pass; 401/403/429 also pass
+/// (the route is there, an auth gate or lockout answered). 404 (route gone,
+/// N-307-1), 405, other 4xx, every 5xx (e.g. admin "not configured" 503) and
+/// no answer fail.
+pub fn deep_route_ok(code: Option<u16>) -> bool {
+    matches!(code, Some(200..=399 | 401 | 403 | 429))
+}
+
 /// cloudflared Prometheus metrics we care about.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct TunnelMetrics {
@@ -610,6 +619,17 @@ mod tests {
             parse_status_kb("Name:\tx\nVmRSS:\t  3992 kB\n", "VmRSS:"),
             Some(3992)
         );
+    }
+
+    #[test]
+    fn deep_route_verdicts() {
+        for c in [200, 204, 302, 399, 401, 403, 429] {
+            assert!(deep_route_ok(Some(c)), "{c}");
+        }
+        for c in [400, 404, 405, 410, 500, 502, 503] {
+            assert!(!deep_route_ok(Some(c)), "{c}");
+        }
+        assert!(!deep_route_ok(None));
     }
 
     #[test]

@@ -249,6 +249,25 @@ impl CompState {
             }
             bump(sev, what, &mut st);
         }
+        // Deep routes (N-307-1): the health path can pass while the routes
+        // behind it are gone. Degrading only, never hard: a restart cannot
+        // bring a missing route back, so the reflex must not loop on it.
+        for d in s
+            .extra
+            .get("deep")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if d.get("ok").and_then(Value::as_bool) == Some(false) {
+                let path = d.get("path").and_then(Value::as_str).unwrap_or("?");
+                let what = match d.get("http").and_then(Value::as_u64) {
+                    Some(c) => format!("deep route {path} HTTP {c}"),
+                    None => format!("deep route {path} down"),
+                };
+                bump(Status::Degrading, what, &mut st);
+            }
+        }
         if spec.kind == Kind::Tunnel {
             match s.tunnel_conns {
                 Some(0) => {
@@ -555,6 +574,62 @@ mod tests {
         assert_eq!(c.consecutive_down, 3);
         c.push(ok(300), &th);
         assert_eq!(c.consecutive_down, 0);
+    }
+
+    #[test]
+    fn console_deep_routes_404_degrade_not_hard() {
+        // N-307-1 / F-313-2: `/` answers (302) while admin + board are 404.
+        let th = Thresholds::default();
+        let mut c = CompState::new(spec("console"));
+        assert_eq!(c.spec.deep, crate::config::CONSOLE_DEEP);
+        let deep = |a: Option<u16>, b: Option<u16>| {
+            json!([
+                {"path": "/api/v1/admin", "http": a, "ok": crate::probe::deep_route_ok(a)},
+                {"path": "/api/v1/services", "http": b, "ok": crate::probe::deep_route_ok(b)},
+            ])
+        };
+        let mut s = ok(30);
+        s.http_code = Some(302);
+        s.extra = json!({"deep": deep(Some(200), Some(200))});
+        c.push(s, &th);
+        assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
+        for i in 2..=6u64 {
+            let mut s = ok(i * 30);
+            s.http_code = Some(302);
+            s.extra = json!({"deep": deep(Some(404), Some(404))});
+            c.push(s, &th);
+        }
+        assert_eq!(c.status, Status::Degrading, "{:?}", c.reasons);
+        assert!(c
+            .reasons
+            .contains(&"degrading: deep route /api/v1/admin HTTP 404".to_string()));
+        assert!(c
+            .reasons
+            .contains(&"degrading: deep route /api/v1/services HTTP 404".to_string()));
+        assert!(
+            !c.hard_down,
+            "a missing route must never arm the restart reflex"
+        );
+        assert_eq!(c.consecutive_down, 0);
+        // admin "not configured" 503 and a dead board both count; a gated 401 does not.
+        let mut s = ok(400);
+        s.extra = json!({"deep": deep(Some(503), None)});
+        c.push(s, &th);
+        assert!(c
+            .reasons
+            .iter()
+            .any(|r| r.ends_with("/api/v1/admin HTTP 503")));
+        assert!(c
+            .reasons
+            .iter()
+            .any(|r| r.ends_with("/api/v1/services down")));
+        let mut s = ok(430);
+        s.extra = json!({"deep": deep(Some(200), Some(401))});
+        c.push(s, &th);
+        assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
+        // No deep record (older capture or replay): unchanged behaviour.
+        c.push(ok(460), &th);
+        assert_eq!(c.status, Status::Healthy);
     }
 
     #[test]

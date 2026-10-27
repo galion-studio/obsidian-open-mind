@@ -16,6 +16,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(3);
+/// Per deep route probe (console admin/board, N-307-1); kept short so a
+/// slow board cannot stretch the cycle.
+const DEEP_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Map galion-health check names onto nerve component names.
 fn health_name(n: &str) -> &str {
@@ -220,6 +223,18 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
                         if let Some(b) = health_body_summary(&r.body) {
                             s.extra["health_body"] = b;
                         }
+                    }
+                    if r.ok() && !sp.deep.is_empty() {
+                        let deep: Vec<Value> = sp
+                            .deep
+                            .iter()
+                            .map(|path| {
+                                let d = probe::http_probe(p, path, DEEP_TIMEOUT);
+                                json!({"path": path, "http": d.code, "ok": probe::deep_route_ok(d.code),
+                                       "ms": d.code.map(|_| d.ms), "error": d.error})
+                            })
+                            .collect();
+                        s.extra["deep"] = Value::Array(deep);
                     }
                 }
             }

@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+# AS-BUILT mirror (slot 269, read-only capture 2026-10-27 18:23 CET +01:00) of
+# the LIVE /etc/systemd/system/galion-backup.timer. Unchanged by the Rust
+# cutover; kept here so the unit set is reviewable in one place.
+[Unit]
+Description=Galion backup every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:17:00
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

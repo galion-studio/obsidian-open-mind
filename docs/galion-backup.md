@@ -101,30 +101,44 @@ one std-only `crates/galion-tar` crate. galion-backup keeps only its tar
 names); the GNU writer itself moved there unchanged, and galion-deploy's ustar
 writer/reader is re-exported from it. See docs/galion-tar.md.
 
-## Deploy (NOT done; owner decision)
+## Deploy (DONE 2026-10-27 18:20 CET +01:00 by the t273u deploy; documented by slot 269)
 
-Nothing was installed, restarted or written on the VPS. Proposed cutover:
+The live route differs from the original proposal: instead of overwriting
+`/opt/galion/rust/bin/galion-backup` and the base unit, t273u installed a
+versioned binary and a drop-in, so rollback is one `rm` + `daemon-reload`.
 
-1. Copy the static `x86_64-unknown-linux-musl` release binary over
-   `/opt/galion/rust/bin/galion-backup` (it is a superset of the deployed
-   helper: same four subcommands + `run`).
-2. Replace the unit with `crates/galion-backup/deploy/galion-backup.service`
-   (only `ExecStart` changes to `galion-backup run`); keep the offsite
-   drop-in and the timer; `systemctl daemon-reload`.
-3. `systemctl start galion-backup.service` once, compare the archive listing
-   and `SHA256SUMS` with the previous bash archive, check the offsite hook
-   still logs `level=info msg=ok`.
-4. Keep `galion-backup.sh` on the box for one retention window (3 days) as
-   rollback (revert ExecStart).
+* Binary `/opt/galion/rust/bin/galion-backup-98466ab` (main-staging 98466ab,
+  static-pie x86_64 musl, sha256 `fb26d673…2163`). The old helper ELF
+  `galion-backup` (= `galion-backup-pre-t273u`, sha256 `3df3f88d…1d09`) and
+  `galion-backup.sh` (sha256 `0897efc0…80a4` = the parity oracle) stay in place.
+* Base unit unchanged (still `ExecStart=…/galion-backup.sh`), mirrored in
+  `crates/galion-backup/deploy/galion-backup.service`.
+* Drop-in `galion-backup.service.d/90-deploy-t273u.conf` resets ExecStart to
+  `galion-backup-98466ab run`, mirrored in
+  `crates/galion-backup/deploy/galion-backup.service.d/90-deploy-t273u.conf`.
+* ws/offsite drop-in `offsite.conf` and `galion-backup.timer` (mirrored)
+  unchanged.
+* Rollback: `rm /etc/systemd/system/galion-backup.service.d/90-deploy-t273u.conf; systemctl daemon-reload`.
+
+Checks: `tests/deploy_units.rs` (always on; systemd ExecStart reset
+semantics, rollback = script) and `tests/real_unit_live.rs` (GALION_REAL=1,
+read-only `systemctl cat/show` over ssh: live effective ExecStart and
+drop-in set = repo, last run success, live binary sha = recorded). Evidence:
+docs/real-tests/backup-rust-unit.md.
 
 ### Owner decisions
 
-* D1 Deploy now / after cutover-prep lands / never (keep bash).
+* D1 ~~Deploy now / later / never~~ decided: deployed (t273u).
 * D2 One backup implementation: galion-deploy pre-cutover calls
   `galion-backup run` (recommended) vs. two separate implementations.
 * D3 Cross builds need a C compiler for SQLite (rusqlite `bundled`); the box
   has none for aarch64/armv7/android, so the zig-cc stopgap (pending owner
   exception, see common-migrate-2) was used for verification only.
+* D-269-1 When to fold the drop-in into the base unit (and retire the .sh and
+  the pre-t273u ELF): proposal after 12 good timer runs (= the 3-day
+  retention window).
+* D-269-2 B2 `size_kb` (du on ZFS before block allocation): still faithful to
+  bash; live first Rust run logged `size_kb=2629` for an 18,729,100 B file.
 
 ## Performance (swarm/backup-perf, 2026-10-21 03:47 +02:00)
 

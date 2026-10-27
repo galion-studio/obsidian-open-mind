@@ -1,17 +1,22 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 3000 Galion / galion-studio
 # Copyright (c) 3000 Galion / galion-studio
-# PROPOSED replacement for /etc/systemd/system/galion-backup.service (not
-# deployed; owner decision). Only ExecStart changes: the Rust binary does what
-# /opt/galion/rust/bin/galion-backup.sh did. The ws/offsite drop-in
-# (galion-backup.service.d/offsite.conf: ExecStartPost / ExecStopPost
-# galion-offsite-encrypt.sh) and galion-backup.timer stay as they are.
+# Mirror of the LIVE base unit /etc/systemd/system/galion-backup.service
+# (read-only capture 2026-10-27 18:23 CET +01:00). The base unit still names
+# the bash script; since the t273u deploy (2026-10-27 18:20 CET) the drop-in
+# galion-backup.service.d/90-deploy-t273u.conf overrides ExecStart with the
+# Rust ELF (`galion-backup-98466ab run`). Removing that drop-in is the
+# rollback to the script. The ws/offsite drop-in (offsite.conf:
+# ExecStartPost / ExecStopPost galion-offsite-encrypt.sh) stays as is.
+# Earlier (slot 119) this file proposed changing ExecStart here directly; the
+# owner-approved route was a drop-in instead, which keeps the rollback a
+# single `rm` + daemon-reload.
 [Unit]
 Description=Galion snapshot backup to /var/backups/galion (ws/foundation)
 
 [Service]
 Type=oneshot
-ExecStart=/opt/galion/rust/bin/galion-backup run
+ExecStart=/opt/galion/rust/bin/galion-backup.sh
 Nice=19
 IOSchedulingClass=idle
 UMask=0077

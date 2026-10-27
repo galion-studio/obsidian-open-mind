@@ -5,7 +5,7 @@
 //! Slot 236 (cortex-api-load, T5.1 follow-ups F4/F5): API latency of the
 //! REAL release `gaia-cortex` under a connection flood and while the
 //! decider is stuck inside a call to a hung nerve. Box only, loopback only,
-//! slot ports 21060-21069.
+//! slot ports 21270-21279.
 //!
 //! Gated: `GALION_REAL=1`. Binary: `GALION_CORTEX_BIN` (default: this
 //! crate's binary). `GALION_LOAD_BASELINE=1` only records the numbers (to
@@ -35,8 +35,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const NERVE_PORT: u16 = 21060;
-const CORTEX_PORT: u16 = 21061;
+const NERVE_PORT: u16 = 21270;
+const CORTEX_PORT: u16 = 21271;
 const FLOOD: usize = 32;
 
 fn now_unix() -> i64 {

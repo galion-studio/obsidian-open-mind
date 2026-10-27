@@ -5,7 +5,7 @@
 //! Slot 237 (cortex-incident-backfill): the REAL release `gaia-cortex`
 //! against the REAL event-mode nerve (`openmind-nerve serve --mode event`,
 //! release build of `swarm/nerve-event-driven` bb287cc), box only, loopback
-//! only, slot 237 ports 21070-21079.
+//! only, slot 258 ports 21270-21279.
 //!
 //! Gated: `GALION_REAL=1` and `GALION_NERVE_BIN=<release openmind-nerve bb287cc>`.
 //! Optional negative control: `GALION_CORTEX_BASE_BIN=<release gaia-cortex e982210>`.
@@ -34,12 +34,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const NERVE_PORT: u16 = 21070;
-const CORTEX_PORT: u16 = 21071;
-const COMP_A: u16 = 21072;
-const BASE_CORTEX_PORT: u16 = 21073;
-const COMP_B: u16 = 21074;
-const COMP_C: u16 = 21075;
+const NERVE_PORT: u16 = 21270;
+const CORTEX_PORT: u16 = 21271;
+const COMP_A: u16 = 21272;
+const BASE_CORTEX_PORT: u16 = 21273;
+const COMP_B: u16 = 21274;
+const COMP_C: u16 = 21275;
 
 const ID_FAILURE_RESULT: &str = "d9b373ed55a64feb8242e02dbe79a49c";
 const ID_PROCESS_EXIT: &str = "98e322203f7a4ed290d09fe03c09fe15";

@@ -6,7 +6,7 @@
 //! REAL release event-mode nerve (`openmind-nerve serve --mode event`,
 //! `swarm/nerve-event-driven` bb287cc, the build live on the VPS), default
 //! nerve dedupe 600 s as on the VPS. Box only, loopback only, slot 235
-//! ports 21050-21059. Nothing touches systemd: the nerve is dry-run
+//! ports 21270-21279. Nothing touches systemd: the nerve is dry-run
 //! (`NERVE_DRY_RUN=1`, actions not live) and reads its journal from a FIFO.
 //!
 //! Gated: `GALION_REAL=1` and `GALION_NERVE_BIN=<release openmind-nerve>`.
@@ -30,9 +30,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const NERVE_PORT: u16 = 21050;
-const CORTEX_PORT: u16 = 21051;
-const DEAD_PORT: u16 = 21059;
+const NERVE_PORT: u16 = 21270;
+const CORTEX_PORT: u16 = 21271;
+const DEAD_PORT: u16 = 21279;
 
 const ID_FAILURE_RESULT: &str = "d9b373ed55a64feb8242e02dbe79a49c";
 const ID_PROCESS_EXIT: &str = "98e322203f7a4ed290d09fe03c09fe15";
@@ -297,7 +297,7 @@ fn gate() -> Option<PathBuf> {
     for p in [NERVE_PORT, CORTEX_PORT] {
         assert!(
             TcpListener::bind(("127.0.0.1", p)).is_ok(),
-            "port {p} busy (slot 235 range 21050-21059)"
+            "port {p} busy (slot 258 range 21270-21279)"
         );
     }
     Some(bin)

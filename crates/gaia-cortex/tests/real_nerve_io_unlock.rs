@@ -5,7 +5,7 @@
 //! Slot 247 (D-236-2, cortex-nerve-io-unlock): decision latency of the REAL
 //! release `gaia-cortex` against a stub nerve that accepts every connection
 //! and never answers (a hung / SIGSTOPped nerve). Box only, loopback only,
-//! slot ports 21170-21179.
+//! slot ports 21270-21279.
 //!
 //! Gated: `GALION_REAL=1`. Binary: `GALION_CORTEX_BIN` (default: this
 //! crate's binary). `GALION_IO_BASELINE=1` only records the numbers (to
@@ -33,8 +33,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const NERVE_PORT: u16 = 21170;
-const CORTEX_PORT: u16 = 21171;
+const NERVE_PORT: u16 = 21270;
+const CORTEX_PORT: u16 = 21271;
 
 fn now_unix() -> i64 {
     std::time::SystemTime::now() // repo-check: allow (unix seconds; printed through zagreb_time)

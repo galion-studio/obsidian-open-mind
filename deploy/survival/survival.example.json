@@ -1,0 +1,13 @@
+{
+  "cash_usd": null,
+  "lane": null,
+  "when": "2026-10-18T18:59:00+02:00",
+  "volume_used_pct": null,
+  "offhost_enabled": false,
+  "last_heartbeat": null,
+  "external_state_uri": null,
+  "resume_policy": "if_local_missing_or_stale",
+  "offhost_role": null,
+  "continuity_schema": 1,
+  "last_export_ok": null
+}

@@ -59,6 +59,18 @@ After wiring, `repo-check --only nerve --nerve-gaps` reports **1 gap**
 (was 6 on slot 277): the five crates above move from GAP to covered;
 guardian-tick remains (D-T24-3).
 
-## Evidence
+## Evidence (2026-10-27 18:03 CET +01:00)
 
-See CALL-RECORD DONE line for this slot (Europe/Zagreb CET +01:00).
+`GALION_REAL=1 REAL_WIRE_GAPS3_PORT_BASE=21570 cargo test --release -p openmind-nerve --test real_wire_gaps five_more_services_push_started_and_heartbeat -- --nocapture`
+
+```
+== 2026-10-27T18:03:47+01:00 gaps-3 stack up on base 21570; waiting for heartbeats
+-- pushed sources
+{"dropped":0,"source":"galion-boot","total":3}
+{"dropped":0,"source":"galion-voice-serve","total":3}
+{"dropped":0,"source":"openmind-discovery","total":3}
+== 2026-10-27T18:03:47+01:00 PASS: five crates wired; three long-running proven (slot 289)
+test five_more_services_push_started_and_heartbeat ... ok
+```
+
+`repo-check --only nerve --nerve-gaps`: `nerve coverage: 37 bins, 23 covered, 13 probe-only, 1 gap(s)` (was 18 covered / 6 gap on slot 277). Remaining GAP: guardian-tick (D-T24-3).

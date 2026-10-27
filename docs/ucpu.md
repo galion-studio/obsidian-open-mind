@@ -100,6 +100,14 @@ Release sizes in bytes (stripped, opt-level z, lto, codegen-units 1, panic abort
 armv7 (built for the qemu test): galion-one 709004, tuner 374444,
 openmind-memory 1583556, hermes-gateway 1717772.
 
+## hermes-gateway size (PR #12 follow-up)
+
+With default feature `coding` (hermes-tools) the x86_64 musl binary grew to
+~2.30 MiB on the PR #12 CI run (2026-10-21). `scripts/size-budget.sh` now
+allows 3 MiB so the gate stays useful without dropping coding from default.
+LIBSQLITE3_FLAGS trim above remains. Owner may later ask to re-tighten or to
+make `coding` non-default.
+
 ## hermes-gateway over budget: fixed
 
 At 13a296c the x86_64 musl hermes-gateway was 2,129,888 bytes, 32,736 over

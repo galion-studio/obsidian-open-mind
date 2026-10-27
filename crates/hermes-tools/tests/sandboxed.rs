@@ -22,8 +22,19 @@ fn skip() -> bool {
     let missing = ["git", "dd", "install"]
         .iter()
         .any(|b| hermes_tools::exec::system_bin(b).is_none());
-    if (f.landlock_abi < 1 && !f.userns) || missing {
-        eprintln!("SKIP: no landlock/userns or no git/dd/install on this machine");
+    if missing {
+        eprintln!("SKIP: no git/dd/install on this machine");
+        return true;
+    }
+    if f.landlock_abi < 1 && !f.userns {
+        eprintln!("SKIP: no landlock/userns on this machine");
+        return true;
+    }
+    // Sandboxed tool runs are VPS-only (RULES.md sandbox_vps_only). GitHub
+    // Actions sets CI=true and typically cannot write userns uid/gid maps
+    // (AppArmor), so every start refuses with the overflow-uid message.
+    if std::env::var_os("CI").is_some() {
+        eprintln!("SKIP: CI runner; hermes-tools sandboxed suite runs on the VPS");
         return true;
     }
     false

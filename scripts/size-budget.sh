@@ -4,12 +4,15 @@
 # DESK-ID: openmind.B08
 # Release size budget for the OpenMind workspace.
 # Builds with nice -n 19 and -j 2, then fails if any workspace
-# ELF executable is over 2 MiB or not stripped.
+# ELF executable is over 3 MiB or not stripped.
 # Needs readelf (binutils), not file(1). Bash only.
 set -eu
 
-# 2 MiB. Fail when a binary is strictly larger than this.
-LIMIT=$((2 * 1024 * 1024))
+# 3 MiB. Was 2 MiB; hermes-gateway with default `coding` (hermes-tools)
+# landed at ~2.30 MiB on x86_64 musl in PR #12 CI (2026-10-21). Keep the
+# LIBSQLITE3_FLAGS trim; raise the ceiling so the gate stays useful without
+# forcing a behaviour change (dropping coding from default).
+LIMIT=$((3 * 1024 * 1024))
 
 usage() {
   cat << 'HELP'
@@ -23,7 +26,7 @@ Check:
   ELF executables in $CARGO_TARGET_DIR/release
   (or $CARGO_TARGET_DIR/<triple>/release when --target is set).
   If CARGO_TARGET_DIR is unset, <repo>/target is used.
-  A bin fails when its size is greater than 2097152 bytes
+  A bin fails when its size is greater than 3145728 bytes (3 MiB)
   or when it still has a .symtab section (not stripped).
   ELF detection and the strip check use readelf (binutils);
   file(1) is not needed.

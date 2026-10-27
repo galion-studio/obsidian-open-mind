@@ -100,17 +100,26 @@ pub fn build(repo: &Path, jobs: u32) -> Result<String, String> {
 }
 
 pub fn locate(bin_dir: Option<&Path>, repo: &Path) -> Bins {
-    if let Some(d) = bin_dir {
-        return Bins {
-            dir: d.to_path_buf(),
-        };
-    }
-    let target = std::env::var_os("CARGO_TARGET_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| repo.join("target"));
-    Bins {
-        dir: target.join("release"),
-    }
+    // galion-boot refuses non-absolute argv[0]. CI passes `--bin-dir target/release`
+    // (relative); canonicalize so supervise can start.
+    let dir = if let Some(d) = bin_dir {
+        d.to_path_buf()
+    } else {
+        let target = std::env::var_os("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| repo.join("target"));
+        target.join("release")
+    };
+    let dir = if dir.is_absolute() {
+        dir.canonicalize().unwrap_or(dir)
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(&dir))
+            .ok()
+            .and_then(|p| p.canonicalize().ok())
+            .unwrap_or(dir)
+    };
+    Bins { dir }
 }
 
 pub fn tail_text(text: &str, n: usize) -> String {
@@ -220,6 +229,14 @@ impl Stack {
 
     /// Write fixtures and start the stub plus the supervisor.
     pub fn up(bins: Bins, out: &Path, base: u16, with_nerve: bool) -> Result<Stack, String> {
+        let out = if out.is_absolute() {
+            out.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map(|c| c.join(out))
+                .unwrap_or_else(|_| out.to_path_buf())
+        };
+        let out = out.canonicalize().unwrap_or(out);
         let fx = out.join("fixture");
         if fx.file_name().is_some_and(|n| n == "fixture") && fx.exists() {
             fs::remove_dir_all(&fx).map_err(|e| format!("clean {}: {e}", fx.display()))?;

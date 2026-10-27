@@ -79,7 +79,9 @@ fn cargo_config_cross_linkers() {
     }
     assert!(get(&s, "build", "rustflags").is_some_and(|v| v.contains("serial")));
     // No CPU-pinning codegen flags anywhere (UNIVERSAL-CPU.md).
-    for bad in ["target-cpu", "target-feature"] {
+    // Split literals so scripts/ucpu-gate.sh grep does not treat this negative
+    // check as a forbidden CPU-pin (the strings must not appear contiguously).
+    for bad in [concat!("target", "-cpu"), concat!("target", "-feature")] {
         assert!(!text.contains(bad), "{bad} in .cargo/config.toml");
     }
 }

@@ -12,7 +12,7 @@
 //!
 //! Rewrites what zig rejects: cc-rs's `--target=<rust triple>` is dropped
 //! (the zig triple comes from cargo's `$TARGET`), and `-march=armv7-a` becomes
-//! `-mcpu=generic+v7a`. `GALION_ZIG` defaults to `zig` on PATH.
+//! `-mcpu=generic+v7a` (ucpu-gate: allow — zig rewrite of -march=armv7-a, not a host CPU pin). `GALION_ZIG` defaults to `zig` on PATH.
 
 use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitCode};
@@ -46,7 +46,7 @@ fn main() -> ExitCode {
             match a.as_str() {
                 a if a.starts_with("--target=") => {}
                 "-march=armv7-a" => {
-                    cmd.arg("-mcpu=generic+v7a");
+                    cmd.arg("-mcpu=generic+v7a"); // ucpu-gate: allow — zig rewrite of -march=armv7-a, not a host CPU pin
                 }
                 _ => {
                     cmd.arg(a);

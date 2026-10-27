@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# False-positive allowlist for the swarm CI gitleaks gate (self-eval +
+# public-export). Values are never live secrets: the ledger fixture stores
+# truncated sha256 digests of already-consumed HADES tokens, and the nerve
+# statedir compat test names a stub env var (not a key value).
+
+title = "galion-studio/obsidian-open-mind"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and stub env-var names (PR #12 CI FPs)"
+paths = [
+  '''(^|/)crates/openmind-nerve/tests/fixtures/hades/ledger\.jsonl$''',
+]
+regexes = [
+  '''NERVE_T41_STUB_KEY''',
+  '''stub-key-not-real''',
+]

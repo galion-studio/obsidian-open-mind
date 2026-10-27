@@ -100,6 +100,10 @@ fn prose_path_still_refuses_all_82() {
     assert_eq!(n, 0);
 }
 
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock via SystemTime::now), refused under Miri isolation; run in the FS pass"
+)]
 #[test]
 fn typed_path_refuses_all_82_raw_and_header_wrapped() {
     let e = env("corpus");
@@ -125,6 +129,10 @@ fn typed_path_refuses_all_82_raw_and_header_wrapped() {
     );
 }
 
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock via SystemTime::now), refused under Miri isolation; run in the FS pass"
+)]
 #[test]
 fn legit_typed_plans_are_approved_once() {
     let e = env("legit");
@@ -152,6 +160,10 @@ fn legit_typed_plans_are_approved_once() {
     }
 }
 
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock via SystemTime::now), refused under Miri isolation; run in the FS pass"
+)]
 #[test]
 fn typed_specific_attacks_are_refused() {
     let e = env("typed-attacks");
@@ -208,6 +220,10 @@ fn typed_specific_attacks_are_refused() {
     ));
 }
 
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock via SystemTime::now), refused under Miri isolation; run in the FS pass"
+)]
 #[test]
 fn token_for_prose_does_not_approve_typed_and_vice_versa() {
     // The signature binds the exact bytes: a token signed for the prose
@@ -240,6 +256,10 @@ fn token_for_prose_does_not_approve_typed_and_vice_versa() {
     assert!(matches!(v, Verdict::Refused(_)));
 }
 
+#[cfg_attr(
+    miri,
+    ignore = "temp-dir ledger (FS + clock via SystemTime::now), refused under Miri isolation; run in the FS pass"
+)]
 #[test]
 fn typed_dry_run_and_disable() {
     let e = env("dry");

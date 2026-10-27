@@ -55,6 +55,8 @@ jobs:
 
   test:
     name: cargo test
+    # sandbox / hermes-tools sandboxed suite is VPS-only (RULES.md sandbox_vps_only);
+    # GH runners cannot write userns uid_map. Exclude like the local swarm gate.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -62,7 +64,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
-      - run: cargo test --workspace --locked
+      - run: cargo test --workspace --locked --exclude openmind-sandbox --exclude cgroup-detect --exclude hermes-tools
 
   omnode:
     name: omnode (edge/openmind-node, own workspace)

@@ -77,6 +77,11 @@ fn load(a: &Args) -> Result<config::File, String> {
 }
 
 fn run(cmd: &str, a: &Args) -> Result<i32, String> {
+    // NERVE push (no-op unless NERVE_URL is set): started; heartbeat on supervise.
+    nerve_client::event("galion-boot", "started", cmd);
+    if cmd == "supervise" {
+        nerve_client::start_heartbeat("galion-boot", 60);
+    }
     match cmd {
         "hardware" => {
             let dir = PathBuf::from(a.get("--state-dir").unwrap_or("target/test-out/boot/state"));

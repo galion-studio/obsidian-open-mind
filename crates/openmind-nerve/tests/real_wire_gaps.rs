@@ -2,12 +2,22 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Real-life test for slot 264 nerve-t24-wire-gaps (ports 21310-21319).
+//! Real-life tests for nerve wire-gaps.
 //!
-//! Builds and starts openmind-nerve plus the six live-first services that
-//! slot 226 listed as highest-value nerve-client gaps, each with
-//! `NERVE_URL` set. Asserts every source pushed a `started` event (and
-//! that a heartbeat has arrived). Gated by `GALION_REAL=1`.
+//! * Slot 264 (`six_live_first_services_push_started_and_heartbeat`): ports
+//!   21310-21319 — openmind-queue, galion-one, galion-health, galion-desk,
+//!   link-watch, tuner.
+//! * Slot 277 (`six_more_services_push_started_and_heartbeat`): ports
+//!   21470-21479 — galion-origin, room, hades-gate, galion-guard (long-running
+//!   started+heartbeat). galion-backup and galion-deploy are also wired at
+//!   their CLI entry points; repo-check covers them. One-shot CLIs are not
+//!   asserted here (process exit can race the nerve-client push worker).
+//!
+//! Builds and starts openmind-nerve plus the services under test, each with
+//! `NERVE_URL` set. Asserts every listed source pushed a `started` event and
+//! a heartbeat. Gated by `GALION_REAL=1`.
+//!
+//! Slot 264 stack (override with `REAL_WIRE_GAPS_PORT_BASE`, default 21310):
 //!
 //! | port  | process |
 //! |-------|---------|
@@ -20,9 +30,18 @@
 //! | 21316 | tuner |
 //! | (none)| link-watch (file writer; still pushes) |
 //!
-//! Override the base with `REAL_WIRE_GAPS_PORT_BASE` (default 21310).
+//! Slot 277 stack (override with `REAL_WIRE_GAPS2_PORT_BASE`, default 21470):
+//!
+//! | port  | process |
+//! |-------|---------|
+//! | 21470 | openmind-nerve serve |
+//! | 21471 | galion-origin |
+//! | 21472 | room --listen |
+//! | 21473 | hades-gate serve |
+//! | (none)| galion-guard run (dry-run) |
+//!
 //! Skip the build with `NERVE_WIRING_BIN_DIR` pointing at a release/ dir
-//! that already holds the seven binaries.
+//! that already holds the needed binaries.
 
 use serde_json::Value;
 use std::io::{Read, Write};
@@ -408,4 +427,281 @@ fn wait_listen(port: u16) {
         std::thread::sleep(Duration::from_millis(200));
     }
     panic!("port {port} did not accept");
+}
+
+// --- slot 277 nerve-t24-wire-gaps-2 -----------------------------------------
+
+fn gaps2_port_base() -> u16 {
+    std::env::var("REAL_WIRE_GAPS2_PORT_BASE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(21470)
+}
+fn gaps2_nerve_p() -> u16 {
+    gaps2_port_base()
+}
+fn gaps2_origin_p() -> u16 {
+    gaps2_port_base() + 1
+}
+fn gaps2_room_p() -> u16 {
+    gaps2_port_base() + 2
+}
+fn gaps2_hades_p() -> u16 {
+    gaps2_port_base() + 3
+}
+
+fn binaries_gaps2() -> PathBuf {
+    if let Some(d) = std::env::var_os("NERVE_WIRING_BIN_DIR") {
+        return PathBuf::from(d);
+    }
+    let td = target_dir().join("real-nerve-wire-gaps-2");
+    let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
+    let ok = Command::new(cargo)
+        .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+        .env("CARGO_TARGET_DIR", &td)
+        .args(["build", "-q", "-j", "2", "--release"])
+        .args([
+            "-p",
+            "openmind-nerve",
+            "-p",
+            "galion-origin",
+            "-p",
+            "room",
+            "-p",
+            "hades-gate",
+            "-p",
+            "galion-guard",
+            "-p",
+            "galion-backup",
+            "-p",
+            "galion-deploy",
+        ])
+        .status()
+        .expect("run cargo build")
+        .success();
+    assert!(ok, "release build of wire-gaps-2 stack failed");
+    td.join("release")
+}
+
+/// Slot 277: next highest-value remaining gaps on ports 21470-21479.
+/// Asserts started+heartbeat for the four long-running services we can keep
+/// alive on the box (galion-origin, room, hades-gate, galion-guard).
+/// galion-backup and galion-deploy are wired the same way; repo-check covers
+/// them. One-shot CLI exit can race the nerve-client push worker, so they
+/// are not asserted here.
+#[test]
+fn six_more_services_push_started_and_heartbeat() {
+    if std::env::var("GALION_REAL").as_deref() != Ok("1") {
+        eprintln!("SKIP: set GALION_REAL=1 to run the real-life wire-gaps-2 test");
+        return;
+    }
+    let bin = binaries_gaps2();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let work = std::env::temp_dir().join(format!("nerve-wire-gaps-2-{}-{now}", std::process::id()));
+    for d in ["data", "origin-root", "room-root", "hades", "guard"] {
+        std::fs::create_dir_all(work.join(d)).unwrap();
+    }
+    std::fs::write(work.join("room-root").join("README.md"), b"# room\n").unwrap();
+    std::fs::write(work.join("guard").join("auth.log"), b"").unwrap();
+    std::fs::write(
+        work.join("components.json"),
+        format!(
+            r#"[
+ {{"name":"galion-origin","port":{},"path":"/health","gaia":"AETHER","system":"origin"}},
+ {{"name":"room","port":{},"path":"/health","gaia":"AETHER","system":"room"}},
+ {{"name":"hades-gate","port":{},"path":"/health","gaia":"HADES","system":"hades-gate"}},
+ {{"name":"galion-guard","port":0,"path":"-","gaia":"AETHER","system":"guard"}}
+]"#,
+            gaps2_origin_p(),
+            gaps2_room_p(),
+            gaps2_hades_p()
+        ),
+    )
+    .unwrap();
+
+    // hades-gate: keygen + minimal config (box only; no live HADES).
+    let hades_dir = work.join("hades");
+    let seed = hades_dir.join("admin.seed");
+    let public = hades_dir.join("admin.pub");
+    let keygen = Command::new(bin.join("hades-gate"))
+        .args([
+            "keygen",
+            "--seed",
+            seed.to_str().unwrap(),
+            "--pub",
+            public.to_str().unwrap(),
+        ])
+        .status()
+        .expect("hades-gate keygen");
+    assert!(keygen.success(), "hades-gate keygen failed");
+    let hades_cfg = hades_dir.join("hades.toml");
+    std::fs::write(
+        &hades_cfg,
+        format!(
+            "admin_pubkey = \"{}\"\nledger = \"{}\"\ndisable_file = \"{}\"\n",
+            public.display(),
+            hades_dir.join("ledger.jsonl").display(),
+            hades_dir.join("DISABLED").display()
+        ),
+    )
+    .unwrap();
+
+    // galion-guard dry-run + file source (no nft, no root).
+    let guard_cfg = work.join("guard").join("guard.toml");
+    std::fs::write(
+        &guard_cfg,
+        format!(
+            r#"[guard]
+backend = "dry-run"
+state = "{state}"
+socket = "{socket}"
+dry_run_log = "{dry}"
+[sshd]
+source = "file"
+logpath = "{log}"
+poll_ms = 500
+"#,
+            state = work.join("guard").join("state.json").display(),
+            socket = work.join("guard").join("control.sock").display(),
+            dry = work.join("guard").join("dry.log").display(),
+            log = work.join("guard").join("auth.log").display(),
+        ),
+    )
+    .unwrap();
+
+    let nerve_url = format!("http://127.0.0.1:{}", gaps2_nerve_p());
+
+    let _nerve = {
+        let p = Command::new(bin.join("openmind-nerve"))
+            .arg("serve")
+            .env("NERVE_ADDR", format!("127.0.0.1:{}", gaps2_nerve_p()))
+            .env("NERVE_INTERVAL", "5")
+            .env("NERVE_DATA_DIR", work.join("data"))
+            .env("NERVE_COMPONENTS", work.join("components.json"))
+            .env("NERVE_SYSTEMD", "0")
+            .env("NERVE_JOURNAL", "0")
+            .env("NERVE_GALION_HEALTH_PORT", "0")
+            .env("NERVE_REFLEX", "0")
+            .env(
+                "NERVE_LISTEN_SCOPE",
+                format!("{}-{}", gaps2_port_base(), gaps2_port_base() + 9),
+            )
+            .stdout(Stdio::null())
+            .stderr(log_file(&work, "nerve.log"))
+            .spawn()
+            .expect("spawn openmind-nerve");
+        Proc(p)
+    };
+    wait_up(gaps2_nerve_p(), "/healthz");
+
+    let _origin = {
+        let mut c = Command::new(bin.join("galion-origin"));
+        c.env("ORIGIN_ADDR", format!("127.0.0.1:{}", gaps2_origin_p()))
+            .env("ORIGIN_ROOT", work.join("origin-root"))
+            .env("NERVE_URL", &nerve_url)
+            .env("NERVE_HEARTBEAT_S", "10")
+            .stdout(Stdio::null())
+            .stderr(log_file(&work, "origin.log"));
+        Proc(c.spawn().expect("spawn galion-origin"))
+    };
+
+    let _room = {
+        let mut c = Command::new(bin.join("room"));
+        c.arg("--listen")
+            .env("ROOM_BIND", format!("127.0.0.1:{}", gaps2_room_p()))
+            .env("ROOM_ROOT", work.join("room-root"))
+            .env("NERVE_URL", &nerve_url)
+            .env("NERVE_HEARTBEAT_S", "10")
+            .stdout(Stdio::null())
+            .stderr(log_file(&work, "room.log"));
+        Proc(c.spawn().expect("spawn room"))
+    };
+
+    let _hades = {
+        let mut c = Command::new(bin.join("hades-gate"));
+        c.args([
+            "serve",
+            "--config",
+            hades_cfg.to_str().unwrap(),
+            "--port",
+            &gaps2_hades_p().to_string(),
+        ])
+        .env("NERVE_URL", &nerve_url)
+        .env("NERVE_HEARTBEAT_S", "10")
+        .stdout(Stdio::null())
+        .stderr(log_file(&work, "hades.log"));
+        Proc(c.spawn().expect("spawn hades-gate"))
+    };
+
+    let _guard = {
+        let mut c = Command::new(bin.join("galion-guard"));
+        c.args(["run", "--config", guard_cfg.to_str().unwrap()])
+            .env("NERVE_URL", &nerve_url)
+            .env("NERVE_HEARTBEAT_S", "10")
+            .stdout(Stdio::null())
+            .stderr(log_file(&work, "guard.log"));
+        Proc(c.spawn().expect("spawn galion-guard"))
+    };
+
+    wait_up(gaps2_origin_p(), "/health");
+    wait_up(gaps2_room_p(), "/health");
+    wait_up(gaps2_hades_p(), "/health");
+
+    println!(
+        "== {} gaps-2 stack up on base {}; waiting for heartbeats",
+        stamp(),
+        gaps2_port_base()
+    );
+
+    let want = ["galion-origin", "room", "hades-gate", "galion-guard"];
+    let mut sig = Value::Null;
+    let t0 = Instant::now();
+    while t0.elapsed() < Duration::from_secs(25) {
+        sig = get_json(gaps2_nerve_p(), "/api/v1/signals");
+        if want
+            .iter()
+            .all(|n| has_started(&sig, n) && has_heartbeat(&sig, n))
+        {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    }
+
+    println!("-- pushed sources");
+    for s in sources(&sig) {
+        println!(
+            "{}",
+            serde_json::json!({
+                "source": s["source"],
+                "total": s["total"],
+                "dropped": s["dropped"],
+            })
+        );
+    }
+
+    for name in want {
+        assert!(
+            has_started(&sig, name),
+            "missing started event from {name}: {}",
+            source(&sig, name)
+        );
+        assert!(
+            has_heartbeat(&sig, name),
+            "missing heartbeat from {name}: {}",
+            source(&sig, name)
+        );
+    }
+
+    let _ = http_get(gaps2_origin_p(), "/health");
+    let _ = http_get(gaps2_room_p(), "/health");
+    let _ = http_get(gaps2_hades_p(), "/health");
+
+    println!(
+        "== {} PASS: six crates wired; four long-running proven (slot 277)",
+        stamp()
+    );
+    let _ = std::fs::remove_dir_all(&work);
 }

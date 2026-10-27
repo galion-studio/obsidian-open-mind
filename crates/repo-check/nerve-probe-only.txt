@@ -19,7 +19,6 @@ galion-vending:galion-vending          B3 deterministic vending sim (benchmark)
 galion-wallstreet:galion-wallstreet    B2 paper-broker benchmark, fixture data only
 galleon-arena:galleon-arena            read-only paper arena, no network
 galion-realtest:galion-realtest        real-life test harness; it watches the stack, not the other way round
-gaia:gaia-dummy                        throwaway loopback test service for gaia heal-tick tests
 openmind-mcp-stack:openmind-mcp-stack  stdio MCP stub over fixture JSON, no sockets
 one-set-model:one-set-model            offline validator that writes nothing
 one-talk:one-talk                      request-shape helper CLI, no service loop

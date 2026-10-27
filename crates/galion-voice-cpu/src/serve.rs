@@ -12,8 +12,11 @@
 //!   `{"text":"...","voice":"..."}`, answered with a 16-bit mono WAV;
 //! * `POST /v1/voice`: WAV in, transcript, echo reply, WAV out (round trip for
 //!   tests; no text model is wired in, so no paid API can be reached);
-//! * `GET /health`: 200 when at least one engine is loaded, 503 with the
-//!   reason otherwise. It never claims a model that is not loaded.
+//! * `GET /health`: 200 only when every engine this process was asked to
+//!   run is loaded, 503 with the reason otherwise (also while loading). The
+//!   body keeps the legacy `tts_server.py` fields (`ok`, `status`, `provider`,
+//!   `model`, `loaded`, `error`, `device`, `voices`, `bind`) and never claims a
+//!   model that is not loaded.
 //!
 //! Engines run one call at a time each (a `Mutex`), which keeps CPU use
 //! bounded on a shared box. There is no async runtime and no new crate.
@@ -21,7 +24,7 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 use crate::resample::{i16_to_f32, linear};
@@ -48,6 +51,9 @@ pub struct TtsSlot {
     pub name: String,
     pub voices: Vec<String>,
     pub default_voice: String,
+    /// Voices listed by `/health` when they differ from `voices` (legacy
+    /// Chatterbox lists only voices that have a reference clip).
+    pub health_voices: Option<Vec<String>>,
     pub engine: Mutex<Box<dyn TextToSpeech + Send>>,
 }
 
@@ -59,7 +65,17 @@ pub struct Engines {
     pub tts: Option<TtsSlot>,
     pub stt_missing: String,
     pub tts_missing: String,
+    /// Engines are still loading (health says "loading", 503).
+    pub loading: bool,
+    /// Engines this process was asked to run (a missing one fails health).
+    pub want_stt: bool,
+    pub want_tts: bool,
+    /// Listen address, echoed by `/health` like the legacy server.
+    pub bind: String,
 }
+
+/// The engines a running server answers with; swapped once loading ends.
+pub type EngineCell = RwLock<Arc<Engines>>;
 
 #[derive(Debug)]
 pub struct Request {
@@ -180,6 +196,33 @@ pub fn audio_part<'a>(content_type: &str, body: &'a [u8]) -> Result<&'a [u8], St
     Err("multipart has no \"file\" part".into())
 }
 
+/// The text value of multipart form field `name` (e.g. `language`), if any.
+pub fn form_field(content_type: &str, body: &[u8], name: &str) -> Option<String> {
+    let boundary = content_type
+        .split(';')
+        .filter_map(|p| p.trim().strip_prefix("boundary="))
+        .next()?
+        .trim_matches('"');
+    let delim = format!("--{boundary}");
+    let d = delim.as_bytes();
+    let want = format!("name=\"{}\"", name.to_ascii_lowercase());
+    let mut pos = 0;
+    while let Some(start) = find(&body[pos..], d).map(|i| pos + i + d.len()) {
+        let head_end = find(&body[start..], b"\r\n\r\n").map(|i| start + i)?;
+        let head = String::from_utf8_lossy(&body[start..head_end]).to_ascii_lowercase();
+        let data = head_end + 4;
+        let end = find(&body[data..], format!("\r\n{delim}").as_bytes())
+            .map(|i| data + i)
+            .unwrap_or(body.len());
+        if head.contains(&want) {
+            let v = String::from_utf8_lossy(&body[data..end]).trim().to_string();
+            return Some(v).filter(|v| !v.is_empty() && v.len() <= 32);
+        }
+        pos = end;
+    }
+    None
+}
+
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
     if needle.is_empty() || hay.len() < needle.len() {
         return None;
@@ -236,7 +279,9 @@ impl Engines {
             .tts
             .as_ref()
             .map(|t| {
-                t.voices
+                t.health_voices
+                    .as_ref()
+                    .unwrap_or(&t.voices)
                     .iter()
                     .map(|v| quote(v))
                     .collect::<Vec<_>>()
@@ -244,14 +289,40 @@ impl Engines {
             })
             .unwrap_or_default();
         let any = stt.is_some() || tts.is_some();
-        let status = match (stt.is_some(), tts.is_some()) {
-            (true, true) => "ok",
-            (false, false) => "unavailable",
-            _ => "partial",
+        let stt_ok = !self.want_stt || stt.is_some();
+        let tts_ok = !self.want_tts || tts.is_some();
+        let ok = !self.loading && any && stt_ok && tts_ok;
+        let status = if self.loading {
+            "loading"
+        } else if ok {
+            "ok"
+        } else if any {
+            "partial"
+        } else {
+            "unavailable"
         };
+        let mut errors = Vec::new();
+        if self.stt.is_none() && self.want_stt && !self.stt_missing.is_empty() {
+            errors.push(format!("stt: {}", self.stt_missing));
+        }
+        if self.tts.is_none() && self.want_tts && !self.tts_missing.is_empty() {
+            errors.push(format!("tts: {}", self.tts_missing));
+        }
+        let error = if self.loading || errors.is_empty() {
+            "null".to_string()
+        } else {
+            quote(&errors.join("; "))
+        };
+        // Legacy "model" names the mouth's model; an ear-only process names
+        // its STT model.
+        let model = tts
+            .clone()
+            .or_else(|| stt.clone())
+            .unwrap_or_else(|| "null".into());
         let body = format!(
-            "{{\"ok\":{any},\"status\":\"{status}\",\"provider\":\"galion-voice-cpu\",\
-             \"device\":\"cpu\",\"stt\":{},\"tts\":{},\"voices\":[{voices}],\
+            "{{\"ok\":{ok},\"status\":\"{status}\",\"provider\":\"local\",\"model\":{model},\
+             \"loaded\":{loaded},\"error\":{error},\"device\":\"cpu\",\"voices\":[{voices}],\
+             \"bind\":{bind},\"runtime\":\"galion-voice-cpu (Rust, candle)\",\"stt\":{},\"tts\":{},\
              \"stt_missing\":{},\"tts_missing\":{},\"rss_kb\":{},\"hwm_kb\":{}}}",
             stt.unwrap_or_else(|| "null".into()),
             tts.unwrap_or_else(|| "null".into()),
@@ -259,12 +330,23 @@ impl Engines {
             quote(&self.tts_missing),
             mem_kb("VmRSS"),
             mem_kb("VmHWM"),
+            loaded = ok,
+            bind = quote(&self.bind),
         );
-        Response::json(if any { 200 } else { 503 }, body)
+        Response::json(if ok { 200 } else { 503 }, body)
     }
 
     /// WAV bytes to text. Returns (text, audio seconds).
     pub fn transcribe_wav(&self, bytes: &[u8]) -> Result<(String, f32), (u16, String)> {
+        self.transcribe_wav_lang(bytes, None)
+    }
+
+    /// As [`Self::transcribe_wav`] with the request's `language` form field.
+    pub fn transcribe_wav_lang(
+        &self,
+        bytes: &[u8],
+        language: Option<&str>,
+    ) -> Result<(String, f32), (u16, String)> {
         let slot = self
             .stt
             .as_ref()
@@ -281,6 +363,9 @@ impl Engines {
             .engine
             .lock()
             .map_err(|_| (500, "stt engine poisoned".to_string()))?;
+        if let Some(l) = language {
+            eng.set_language(l);
+        }
         let rate = eng.sample_rate();
         let pcm = linear(&i16_to_f32(&w.samples), w.sample_rate, rate);
         // Whisper sees at most 30 s per call; longer audio goes in windows.
@@ -308,12 +393,12 @@ impl Engines {
             .as_ref()
             .ok_or_else(|| (503, format!("no text-to-speech: {}", self.tts_missing)))?;
         let text: String = text.split_whitespace().collect::<Vec<_>>().join(" ");
-        let text: String = text.chars().take(MAX_CHARS).collect();
         if text.is_empty() {
-            return Err((400, "empty text".into()));
+            return Err((400, "text required".into()));
         }
-        let voice = if slot.voices.iter().any(|v| v == voice) {
-            voice.to_string()
+        let voice = voice.trim().to_lowercase();
+        let voice = if slot.voices.contains(&voice) {
+            voice
         } else {
             slot.default_voice.clone()
         };
@@ -321,6 +406,7 @@ impl Engines {
             .engine
             .lock()
             .map_err(|_| (500, "tts engine poisoned".to_string()))?;
+        let text: String = text.chars().take(eng.max_chars()).collect();
         let rate = eng.sample_rate();
         let mut pcm: Vec<i16> = Vec::new();
         for chunk in eng.chunks(&text) {
@@ -339,9 +425,10 @@ impl Engines {
         let mut resp = match (req.method.as_str(), req.path.as_str()) {
             ("GET", "/health") => return self.health(),
             ("POST", "/v1/audio/transcriptions") | ("POST", "/stt") => {
+                let lang = form_field(&req.content_type, &req.body, "language");
                 match audio_part(&req.content_type, &req.body)
                     .map_err(|e| (400, e))
-                    .and_then(|a| self.transcribe_wav(a))
+                    .and_then(|a| self.transcribe_wav_lang(a, lang.as_deref()))
                 {
                     Ok((text, secs)) => Response::json(
                         200,
@@ -364,6 +451,15 @@ impl Engines {
                         status: 200,
                         content_type: "audio/wav",
                         headers: vec![
+                            // Legacy headers: wall/audio seconds, audio seconds.
+                            (
+                                "X-RTF".into(),
+                                format!(
+                                    "{:.3}",
+                                    t0.elapsed().as_secs_f64() / f64::from(secs.max(0.001))
+                                ),
+                            ),
+                            ("X-Duration".into(), format!("{:.3}", secs.max(0.001))),
                             ("X-Audio-S".into(), format!("{secs:.2}")),
                             ("X-Voice".into(), voice),
                         ],
@@ -517,12 +613,18 @@ pub fn read_request(s: &mut impl Read) -> Result<Request, Response> {
     })
 }
 
-fn serve_conn(engines: &Engines, mut s: TcpStream) {
+fn serve_conn(cell: &EngineCell, mut s: TcpStream) {
+    let t0 = Instant::now();
     let _ = s.set_read_timeout(Some(Duration::from_secs(30)));
     let _ = s.set_write_timeout(Some(Duration::from_secs(30)));
     let resp = match read_request(&mut s) {
         Ok(req) => {
-            let r = engines.handle(&req);
+            // Snapshot: a request keeps the engines it started with.
+            let engines = cell.read().map(|g| g.clone());
+            let r = match engines {
+                Ok(e) => e.handle(&req),
+                Err(_) => Response::error(500, "engine table poisoned"),
+            };
             eprintln!(
                 "voice: {} {} -> {} ({} B in, {} B out)",
                 req.method,
@@ -531,15 +633,36 @@ fn serve_conn(engines: &Engines, mut s: TcpStream) {
                 req.body.len(),
                 r.body.len()
             );
+            nerve_client::observe_request(
+                "galion-voice-serve",
+                &format!("{} {}", req.method, req.path),
+                r.status,
+                t0.elapsed(),
+            );
             r
         }
-        Err(r) => r,
+        Err(r) => {
+            nerve_client::observe_request(
+                "galion-voice-serve",
+                "bad-request",
+                r.status,
+                t0.elapsed(),
+            );
+            r
+        }
     };
     let _ = write_response(&mut s, &resp);
 }
 
 /// Accept loop: one thread per connection, at most [`MAX_CONNS`] at a time.
 pub fn serve(listener: TcpListener, engines: Arc<Engines>) {
+    serve_cell(listener, Arc::new(RwLock::new(engines)));
+}
+
+/// [`serve`] over a swappable engine table: start with `loading: true`, bind
+/// at once so `/health` answers truthfully, and store the loaded engines
+/// when they are ready.
+pub fn serve_cell(listener: TcpListener, engines: Arc<EngineCell>) {
     let live = Arc::new(AtomicUsize::new(0));
     for stream in listener.incoming() {
         let Ok(mut s) = stream else { continue };
@@ -657,6 +780,7 @@ mod tests {
                 name: "fake-tts".into(),
                 voices: vec!["a".into(), "b".into()],
                 default_voice: "a".into(),
+                health_voices: None,
                 engine: Mutex::new(Box::new(FakeTts)),
             }),
             ..Default::default()
@@ -745,6 +869,94 @@ mod tests {
         assert_eq!(r.status, 503);
         assert_eq!(none.handle(&req("GET", "/x", "", b"")).status, 404);
         assert_eq!(none.handle(&req("GET", "/synthesize", "", b"")).status, 405);
+    }
+
+    #[test]
+    fn health_loading_partial_and_legacy_fields() {
+        let loading = Engines {
+            loading: true,
+            want_tts: true,
+            bind: "127.0.0.1:19372".into(),
+            ..Default::default()
+        };
+        let r = loading.handle(&req("GET", "/health", "", b""));
+        assert_eq!(r.status, 503);
+        let b = String::from_utf8(r.body).unwrap();
+        for f in [
+            "\"ok\":false",
+            "\"status\":\"loading\"",
+            "\"provider\":\"local\"",
+            "\"model\":null",
+            "\"loaded\":false",
+            "\"error\":null",
+            "\"device\":\"cpu\"",
+            "\"voices\":[]",
+            "\"bind\":\"127.0.0.1:19372\"",
+        ] {
+            assert!(b.contains(f), "{f} in {b}");
+        }
+        // Asked for both, only the mouth loaded: 503 "partial" with the reason.
+        let mut e = both();
+        e.stt = None;
+        e.want_stt = true;
+        e.want_tts = true;
+        e.stt_missing = "no model dir".into();
+        let r = e.handle(&req("GET", "/health", "", b""));
+        assert_eq!(r.status, 503);
+        let b = String::from_utf8(r.body).unwrap();
+        assert!(
+            b.contains("\"status\":\"partial\"") && b.contains("\"error\":\"stt: no model dir\""),
+            "{b}"
+        );
+        // Mouth-only process (--stt none): healthy, error null, voices listed.
+        let mut e = both();
+        e.stt = None;
+        e.want_tts = true;
+        e.stt_missing = "disabled (--stt none)".into();
+        let r = e.handle(&req("GET", "/health", "", b""));
+        assert_eq!(r.status, 200);
+        let b = String::from_utf8(r.body).unwrap();
+        assert!(
+            b.contains("\"model\":\"fake-tts\"")
+                && b.contains("\"error\":null")
+                && b.contains("\"voices\":[\"a\",\"b\"]"),
+            "{b}"
+        );
+    }
+
+    #[test]
+    fn synth_legacy_headers_voice_case_and_language_field() {
+        let e = both();
+        let r = e.handle(&req(
+            "POST",
+            "/synthesize",
+            "application/json",
+            br#"{"text":"hi","voice":"  B "}"#,
+        ));
+        assert_eq!(r.status, 200);
+        assert!(r.headers.iter().any(|(k, v)| k == "X-Voice" && v == "b"));
+        assert!(r.headers.iter().any(|(k, _)| k == "X-RTF"));
+        assert!(r
+            .headers
+            .iter()
+            .any(|(k, v)| k == "X-Duration" && v.parse::<f32>().unwrap() > 0.0));
+        let r = e.handle(&req(
+            "POST",
+            "/synthesize",
+            "application/json",
+            br#"{"text":"hi","voice":"nobody"}"#,
+        ));
+        assert!(r.headers.iter().any(|(k, v)| k == "X-Voice" && v == "a"));
+        let mp = b"--B\r\nContent-Disposition: form-data; name=\"language\"\r\n\r\nde\r\n--B--\r\n";
+        assert_eq!(
+            form_field("multipart/form-data; boundary=B", mp, "language").as_deref(),
+            Some("de")
+        );
+        assert_eq!(
+            form_field("multipart/form-data; boundary=B", mp, "fast"),
+            None
+        );
+        assert_eq!(form_field("audio/wav", b"RIFF", "language"), None);
     }
 
     #[test]

@@ -362,6 +362,8 @@ pub fn serve(router: Router, opts: &ServeOpts) -> io::Result<ServeStats> {
                 "application/json",
                 br#"{"error":"busy"}"#,
                 &[],
+                "busy",
+                Instant::now(),
             );
             continue;
         }
@@ -396,6 +398,8 @@ fn handle(router: &Router, conn: &mut TcpStream, counters: &[AtomicU64; 4]) -> i
     let method = parts.next().unwrap_or("").to_string();
     let target = parts.next().unwrap_or("").to_string();
     let path = target.split('?').next().unwrap_or("").to_string();
+    let t0 = Instant::now();
+    let what = format!("{method} {path}");
     let len = headers
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("content-length"))
@@ -408,6 +412,8 @@ fn handle(router: &Router, conn: &mut TcpStream, counters: &[AtomicU64; 4]) -> i
             "application/json",
             br#"{"error":"body too large"}"#,
             &[],
+            &what,
+            t0,
         );
     }
     let mut body = vec![0; len];
@@ -415,7 +421,15 @@ fn handle(router: &Router, conn: &mut TcpStream, counters: &[AtomicU64; 4]) -> i
 
     let error = |msg: &str| serde_json::to_vec(&json!({"error": msg})).unwrap_or_default();
     match (method.as_str(), path.as_str()) {
-        ("GET", "/healthz") => respond(conn, 200, "application/json", br#"{"status":"ok"}"#, &[]),
+        ("GET", "/healthz") => respond(
+            conn,
+            200,
+            "application/json",
+            br#"{"status":"ok"}"#,
+            &[],
+            &what,
+            t0,
+        ),
         ("GET", "/v1/route") => match router.chain(Capability::Llm) {
             Ok(rows) => {
                 let v = json!({
@@ -425,9 +439,17 @@ fn handle(router: &Router, conn: &mut TcpStream, counters: &[AtomicU64; 4]) -> i
                         "id": r.id, "kind": kind_str(r.kind), "endpoint": r.endpoint,
                     })).collect::<Vec<_>>(),
                 });
-                respond(conn, 200, "application/json", v.to_string().as_bytes(), &[])
+                respond(
+                    conn,
+                    200,
+                    "application/json",
+                    v.to_string().as_bytes(),
+                    &[],
+                    &what,
+                    t0,
+                )
             }
-            Err(e) => respond(conn, 500, "application/json", &error(&e), &[]),
+            Err(e) => respond(conn, 500, "application/json", &error(&e), &[], &what, t0),
         },
         ("GET", "/v1/models")
         | ("POST", "/v1/chat/completions" | "/v1/completions" | "/v1/embeddings") => {
@@ -440,6 +462,8 @@ fn handle(router: &Router, conn: &mut TcpStream, counters: &[AtomicU64; 4]) -> i
                             "application/json",
                             &error("stream=true is not supported by this router"),
                             &[],
+                            &what,
+                            t0,
                         );
                     }
                     Ok(_) => {}
@@ -450,13 +474,17 @@ fn handle(router: &Router, conn: &mut TcpStream, counters: &[AtomicU64; 4]) -> i
                             "application/json",
                             &error("body is not JSON"),
                             &[],
+                            &what,
+                            t0,
                         );
                     }
                 }
             }
             let fwd = match router.forward(Capability::Llm, &method, &path, &body) {
                 Ok(f) => f,
-                Err(e) => return respond(conn, 500, "application/json", &error(&e), &[]),
+                Err(e) => {
+                    return respond(conn, 500, "application/json", &error(&e), &[], &what, t0)
+                }
             };
             let tried: Vec<String> = fwd
                 .attempts
@@ -492,9 +520,19 @@ fn handle(router: &Router, conn: &mut TcpStream, counters: &[AtomicU64; 4]) -> i
                     ("X-Galion-Provider", &provider),
                     ("X-Galion-Attempts", &attempts),
                 ],
+                &what,
+                t0,
             )
         }
-        _ => respond(conn, 404, "application/json", &error("not found"), &[]),
+        _ => respond(
+            conn,
+            404,
+            "application/json",
+            &error("not found"),
+            &[],
+            &what,
+            t0,
+        ),
     }
 }
 
@@ -504,7 +542,10 @@ fn respond(
     content_type: &str,
     body: &[u8],
     extra: &[(&str, &str)],
+    what: &str,
+    t0: Instant,
 ) -> io::Result<()> {
+    nerve_client::observe_request("openmind-discovery", what, status, t0.elapsed());
     let reason = match status {
         200 => "OK",
         400 => "Bad Request",

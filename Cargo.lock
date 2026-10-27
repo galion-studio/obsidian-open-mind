@@ -123,8 +123,6 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 [[package]]
 name = "candle-core"
 version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c15b675b80d994b2eadb20a4bbe434eabeb454eac3ee5e2b4cf6f147ee9be091"
 dependencies = [
  "byteorder",
  "float8",
@@ -174,6 +172,12 @@ name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e7648175b45a9a48536d676f68d918270699102aa8dab5496df06904c914600"
+
+[[package]]
+name = "cfg_aliases"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "cgroup-detect"
@@ -313,6 +317,7 @@ name = "desk-hermes"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
  "rusqlite",
  "serde",
  "serde_json",
@@ -576,6 +581,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "miniz_oxide",
+ "nerve-client",
  "rusqlite",
  "zagreb-time",
 ]
@@ -593,11 +599,21 @@ name = "galion-boot"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
  "openmind-survival",
  "serde",
  "serde_json",
  "toml",
  "zagreb-time",
+]
+
+[[package]]
+name = "galion-chatterbox"
+version = "0.1.0"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "serde_json",
 ]
 
 [[package]]
@@ -612,12 +628,16 @@ dependencies = [
 [[package]]
 name = "galion-deploy"
 version = "0.1.0"
+dependencies = [
+ "nerve-client",
+]
 
 [[package]]
 name = "galion-desk"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
  "openmind-config",
  "serde_json",
 ]
@@ -627,6 +647,7 @@ name = "galion-guard"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "nerve-client",
  "regex",
  "serde",
  "serde_json",
@@ -638,6 +659,7 @@ dependencies = [
 name = "galion-health"
 version = "0.1.0"
 dependencies = [
+ "nerve-client",
  "zagreb-time",
 ]
 
@@ -646,6 +668,7 @@ name = "galion-one"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
 ]
 
 [[package]]
@@ -653,6 +676,7 @@ name = "galion-origin"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
 ]
 
 [[package]]
@@ -683,7 +707,9 @@ version = "0.1.0"
 dependencies = [
  "candle-core",
  "candle-nn",
+ "galion-chatterbox",
  "galion-voice-core",
+ "nerve-client",
  "num-traits",
  "serde",
  "serde_json",
@@ -872,6 +898,7 @@ name = "hades-gate"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "nerve-client",
  "serde_json",
  "sha2",
  "zagreb-time",
@@ -1064,6 +1091,7 @@ name = "link-watch"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
  "openmind-config",
  "serde",
  "serde_json",
@@ -1116,6 +1144,18 @@ dependencies = [
 [[package]]
 name = "nerve-client"
 version = "0.1.0"
+
+[[package]]
+name = "nix"
+version = "0.31.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cf20d2fde8ff38632c426f1165ed7436270b44f199fc55284c38276f9db47c3d"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "cfg_aliases",
+ "libc",
+]
 
 [[package]]
 name = "num-complex"
@@ -1189,6 +1229,7 @@ dependencies = [
 name = "openmind-discovery"
 version = "0.1.0"
 dependencies = [
+ "nerve-client",
  "openmind-provider",
  "serde",
  "serde_json",
@@ -1261,6 +1302,7 @@ dependencies = [
 name = "openmind-queue"
 version = "0.1.0"
 dependencies = [
+ "nerve-client",
  "openmind-provider",
  "serde",
  "serde_json",
@@ -1315,15 +1357,23 @@ checksum = "4de7c2ad44427a636b27bf0b03eb29e713775ba1b45ff31a0618c19ee5adb215"
 
 [[package]]
 name = "paste"
-version = "1.0.15"
+version = "1.0.15+galion-pastey"
+dependencies = [
+ "pastey",
+]
+
+[[package]]
+name = "pastey"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
+checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
 
 [[package]]
 name = "persona-plex-relay"
 version = "0.1.0"
 dependencies = [
  "galion-voice-core",
+ "nerve-client",
  "opus-pure",
  "zagreb-time",
 ]
@@ -1548,6 +1598,7 @@ name = "room"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
 ]
 
 [[package]]
@@ -1906,6 +1957,7 @@ name = "tuner"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
 ]
 
 [[package]]
@@ -2180,13 +2232,14 @@ checksum = "e13084392c5e4bc371903e2935a5eaeed24905a7511356b883835e18a78f6879"
 
 [[package]]
 name = "zip"
-version = "7.4.0"
+version = "9.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc12baa6db2b15a140161ce53d72209dacea594230798c24774139b54ecaa980"
+checksum = "6e04976da629d3b04204ba8105b396a193af8ad2583b2c79bfb3ab8af580a11e"
 dependencies = [
  "crc32fast",
  "indexmap",
  "memchr",
+ "nix",
  "typed-path",
 ]
 

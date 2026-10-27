@@ -19,6 +19,7 @@ path = "src/main.rs"
 
 [dependencies]
 zagreb-time = { path = "../zagreb-time" }
+nerve-client = { path = "../nerve-client" }
 galion-voice-core = { path = "../galion-voice-core" }
 opus-pure = { version = "0.2.2", default-features = false, optional = true }
 

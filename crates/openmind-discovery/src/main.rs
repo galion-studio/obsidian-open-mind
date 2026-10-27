@@ -12,6 +12,8 @@ use std::io::{self, Write};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    // NERVE push (no-op unless NERVE_URL is set): started.
+    nerve_client::event("openmind-discovery", "started", "cli");
     match run(env::args().skip(1).collect()) {
         Ok(CliOut::Help) => {
             print!("{USAGE}");

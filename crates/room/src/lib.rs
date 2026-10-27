@@ -67,6 +67,13 @@ pub fn listen(cfg: Config) -> Result<(), RoomError> {
     let server = http::Server::bind(cfg, to_json(&objects))?;
     eprintln!("room: {} objects", objects.len());
     eprintln!("room: listening on {}", server.local_addr()?);
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event(
+        "room",
+        "started",
+        &format!("listening on {}", server.local_addr()?),
+    );
+    nerve_client::start_heartbeat("room", 60);
     server.run()
 }
 

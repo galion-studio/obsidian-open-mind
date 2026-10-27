@@ -26,6 +26,7 @@ repo-check --only portable,secrets         # subset
 | secrets | error | private-key blocks and token shapes (GitHub, Slack, AWS, Google, GitLab, `sk-` keys); only file:line is printed, never the value |
 | hosts | error | public IPv4 literals in `crates/`, `deploy/`, `.github/` (loopback, private, link-local, CGNAT, documentation ranges allowed) |
 | portable | error | inline asm, `core::arch`/`std::arch`, `#[target_feature]`, feature-detect macros, `target-cpu`/`target-feature` in TOML/CI, `openssl-sys` in Cargo.lock |
+| nerve | error | every workspace bin (Cargo rules: `[[bin]]`, `src/main.rs`, `src/bin/*`) reaches `nerve-client` through a normal non-optional dependency, directly or via another workspace crate, or is listed probe-only with a reason in `crates/repo-check/nerve-probe-only.txt`; stale or redundant entries warn, malformed ones error (Nerve T2.4) |
 
 Skipped: `.git`, `target`, `contrib` (vendored), `stage`, `node_modules`,
 binaries (NUL byte / non-UTF-8) and files over 2 MB. A line carrying the marker
@@ -33,3 +34,19 @@ binaries (NUL byte / non-UTF-8) and files over 2 MB. A line carrying the marker
 use it for a reviewed, cfg-gated arch path that has a portable fallback.
 
 Exit codes: 0 clean, 1 error findings, 2 usage or I/O error.
+
+## Nerve coverage gate (`nerve`, Nerve T2.4)
+
+```sh
+repo-check --only nerve --nerve-gaps     # per-bin table + one error per gap
+repo-check --only nerve --json           # adds "nerve_bins":[{package,bin,manifest,status,detail}]
+repo-check --nerve-allowlist other.txt   # repo-relative allowlist override
+repo-check --warn nerve                  # report gaps without failing
+```
+
+The gate reads the root `[workspace]` members/exclude and each member's
+`Cargo.toml` (std only, no `cargo metadata`). Dev- and build-dependencies and
+`optional = true` dependencies do not count. Allowlist lines are
+`package:bin  reason`; the reason is required. List only non-service tools
+(linters, benches, sims, mocks, stubs, test harnesses) and the nerve itself;
+live services and event-worthy tools stay gaps until nerve-client is wired.

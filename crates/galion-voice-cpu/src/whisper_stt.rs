@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Whisper (tiny / tiny.en) speech-to-text on CPU via candle.
+//! Whisper speech-to-text on CPU via candle: English-only models (tiny.en)
+//! and multilingual ones (large-v3-turbo, 128 mel bins).
 //!
-//! Model files live outside git (e.g. `/workspace/oom-models/whisper-tiny.en`):
-//! `model.safetensors`, `config.json`, `tokenizer.json`, `melfilters.bytes`.
-//! Greedy decoding, no timestamps, English-only prompt (`.en` models).
+//! Model files live outside git (e.g. `/workspace/oom-models/whisper-tiny.en`,
+//! `/workspace/oom-models/whisper-large-v3-turbo`): `model.safetensors`,
+//! `config.json`, `tokenizer.json`, optionally `melfilters.bytes` (otherwise the
+//! Slaney mel filter bank Whisper uses is computed here).
+//! Greedy decoding, no timestamps. Multilingual models get the prompt
+//! `<|startoftranscript|><|lang|><|transcribe|><|notimestamps|>`.
 //! The tokenizer is decoded here (GPT-2 byte-level BPE, decode direction only),
 //! so the `tokenizers` crate and its C regex dependency are not needed.
 
@@ -36,7 +40,12 @@ pub struct WhisperStt {
     sot: u32,
     eot: u32,
     no_timestamps: u32,
+    transcribe: Option<u32>,
+    special: HashMap<String, u32>,
     suppress: Vec<f32>,
+    begin_suppress: Vec<u32>,
+    /// Language code for multilingual models (`en`, `de`, ...).
+    pub language: String,
     pub context: EncoderContext,
     pub max_tokens: usize,
     device: Device,
@@ -104,13 +113,22 @@ impl WhisperStt {
         let cfg: Config =
             serde_json::from_str(&std::fs::read_to_string(dir.join("config.json")).map_err(err)?)
                 .map_err(err)?;
-        let fb = std::fs::read(dir.join("melfilters.bytes")).map_err(err)?;
-        let filters: Vec<f32> = fb
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .map(|b| f32::from_le_bytes(*b))
-            .collect();
+        let filters: Vec<f32> = match std::fs::read(dir.join("melfilters.bytes")) {
+            Ok(fb) => fb
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|b| f32::from_le_bytes(*b))
+                .collect(),
+            Err(_) => mel_filters_slaney(16_000.0, 400, cfg.num_mel_bins),
+        };
+        if filters.len() != cfg.num_mel_bins * 201 {
+            return Err(format!(
+                "mel filters: {} values, want {}x201",
+                filters.len(),
+                cfg.num_mel_bins
+            ));
+        }
         let (vocab, special) =
             load_vocab(&std::fs::read_to_string(dir.join("tokenizer.json")).map_err(err)?)?;
         let id = |s: &str| {
@@ -146,6 +164,13 @@ impl WhisperStt {
         for s in suppress.iter_mut().skip(no_timestamps as usize + 1) {
             *s = f32::NEG_INFINITY;
         }
+        // Multilingual vocabularies are larger than the English-only 51864.
+        let transcribe = if cfg.vocab_size > 51_864 {
+            special.get("<|transcribe|>").copied()
+        } else {
+            None
+        };
+        let begin_suppress = vec![eot, 220];
         Ok(WhisperStt {
             model,
             cfg,
@@ -154,7 +179,11 @@ impl WhisperStt {
             sot,
             eot,
             no_timestamps,
+            transcribe,
+            special,
             suppress,
+            begin_suppress,
+            language: "en".into(),
             context: EncoderContext::Full,
             max_tokens: 224,
             device,
@@ -176,7 +205,8 @@ impl WhisperStt {
         let mel = mel.narrow(2, 0, want)?;
         let feats = self.model.encoder.forward(&mel, true)?;
         let suppress = Tensor::new(self.suppress.as_slice(), &self.device)?;
-        let mut tokens = vec![self.sot, self.no_timestamps];
+        let mut tokens = self.prompt();
+        let start = tokens.len();
         // Budget ~8 tokens per second of audio: short VAD windows otherwise
         // fall into Whisper's repetition loops and burn CPU.
         let budget = (pcm16k.len() / 2_000 + 8).min(self.max_tokens);
@@ -190,21 +220,51 @@ impl WhisperStt {
                 .final_linear(&ys.i((..1, seq - 1..))?)?
                 .i(0)?
                 .i(0)?;
-            let next = logits
-                .broadcast_add(&suppress)?
-                .argmax(D::Minus1)?
-                .to_scalar::<u32>()?;
+            let mut logits = logits.broadcast_add(&suppress)?;
+            if i == 0 {
+                // Never open with end-of-text or a bare space.
+                let mut v = logits.to_vec1::<f32>()?;
+                for &t in &self.begin_suppress {
+                    if let Some(x) = v.get_mut(t as usize) {
+                        *x = f32::NEG_INFINITY;
+                    }
+                }
+                logits = Tensor::new(v.as_slice(), &self.device)?;
+            }
+            let next = logits.argmax(D::Minus1)?.to_scalar::<u32>()?;
             if next == self.eot {
                 break;
             }
             tokens.push(next);
-            if let Some(n) = repeating(&tokens[2..]) {
+            if let Some(n) = repeating(&tokens[start..]) {
                 let keep = tokens.len() - n;
                 tokens.truncate(keep);
                 break;
             }
         }
-        Ok(tokens[2..].to_vec())
+        Ok(tokens[start..].to_vec())
+    }
+
+    /// True for multilingual checkpoints (language + task prompt tokens).
+    pub fn is_multilingual(&self) -> bool {
+        self.transcribe.is_some()
+    }
+
+    /// Decoder prompt: SOT [lang transcribe] notimestamps.
+    fn prompt(&self) -> Vec<u32> {
+        let mut p = vec![self.sot];
+        if let Some(tr) = self.transcribe {
+            let lang = self
+                .special
+                .get(&format!("<|{}|>", self.language))
+                .or_else(|| self.special.get("<|en|>"));
+            if let Some(&l) = lang {
+                p.push(l);
+            }
+            p.push(tr);
+        }
+        p.push(self.no_timestamps);
+        p
     }
 
     pub fn decode_tokens(&self, ids: &[u32]) -> String {
@@ -225,6 +285,12 @@ impl SpeechToText for WhisperStt {
     fn transcribe(&mut self, pcm: &[f32]) -> Result<String, String> {
         let ids = self.run(pcm).map_err(err)?;
         Ok(self.decode_tokens(&ids))
+    }
+    fn set_language(&mut self, language: &str) {
+        let l = language.trim().to_ascii_lowercase();
+        if self.special.contains_key(&format!("<|{l}|>")) {
+            self.language = l;
+        }
     }
 }
 
@@ -278,5 +344,79 @@ mod loop_tests {
         assert!(repeating(&[5, 1, 2, 1, 2, 1, 2]).is_some());
         assert!(repeating(&[1, 2, 3, 4, 1, 2, 3, 5]).is_none());
         assert!(repeating(&[7, 7]).is_none());
+    }
+}
+
+fn hz_to_mel(f: f64) -> f64 {
+    let (f_sp, min_log_hz) = (200.0 / 3.0, 1000.0);
+    let logstep = 6.4f64.ln() / 27.0;
+    if f >= min_log_hz {
+        min_log_hz / f_sp + (f / min_log_hz).ln() / logstep
+    } else {
+        f / f_sp
+    }
+}
+
+fn mel_to_hz(m: f64) -> f64 {
+    let (f_sp, min_log_hz) = (200.0 / 3.0, 1000.0);
+    let min_log_mel = min_log_hz / f_sp;
+    let logstep = 6.4f64.ln() / 27.0;
+    if m >= min_log_mel {
+        min_log_hz * (logstep * (m - min_log_mel)).exp()
+    } else {
+        f_sp * m
+    }
+}
+
+/// The filter bank Whisper ships in `mel_filters.npz`: librosa
+/// `filters.mel(sr, n_fft, n_mels)` (Slaney scale and normalisation,
+/// 0 Hz to sr/2). Row-major (n_mels, n_fft/2+1).
+pub fn mel_filters_slaney(sr: f64, n_fft: usize, n_mels: usize) -> Vec<f32> {
+    let nb = n_fft / 2 + 1;
+    let (lo, hi) = (hz_to_mel(0.0), hz_to_mel(sr / 2.0));
+    let pts: Vec<f64> = (0..n_mels + 2)
+        .map(|i| mel_to_hz(lo + (hi - lo) * i as f64 / (n_mels + 1) as f64))
+        .collect();
+    let mut w = vec![0f32; n_mels * nb];
+    for m in 0..n_mels {
+        let enorm = 2.0 / (pts[m + 2] - pts[m]);
+        for k in 0..nb {
+            let f = k as f64 * sr / n_fft as f64;
+            let lower = (f - pts[m]) / (pts[m + 1] - pts[m]);
+            let upper = (pts[m + 2] - f) / (pts[m + 2] - pts[m + 1]);
+            w[m * nb + k] = (lower.min(upper).max(0.0) * enorm) as f32;
+        }
+    }
+    w
+}
+
+#[cfg(test)]
+mod mel_tests {
+    use super::mel_filters_slaney;
+
+    /// Same construction as the 80-bin bank shipped as melfilters.bytes for
+    /// tiny.en; compared against that file when it is present.
+    #[test]
+    fn slaney_bank_matches_shipped_file() {
+        let w = mel_filters_slaney(16_000.0, 400, 80);
+        assert_eq!(w.len(), 80 * 201);
+        let p = std::path::Path::new("/workspace/oom-models/whisper-tiny.en/melfilters.bytes");
+        if let Ok(b) = std::fs::read(p) {
+            let shipped: Vec<f32> = b
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .map(|c| f32::from_le_bytes(*c))
+                .collect();
+            let max = shipped
+                .iter()
+                .zip(&w)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0f32, f32::max);
+            assert!(max < 1e-5, "max diff {max}");
+        }
+        for m in 0..80 {
+            assert!(w[m * 201..(m + 1) * 201].iter().any(|&x| x > 0.0), "{m}");
+        }
     }
 }

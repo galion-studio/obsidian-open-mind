@@ -18,3 +18,4 @@ zagreb-time = { path = "../zagreb-time" }
 openmind-provider = { path = "../openmind-provider" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+nerve-client = { path = "../nerve-client" }

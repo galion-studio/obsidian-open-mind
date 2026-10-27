@@ -96,6 +96,8 @@ fn load_config(
 }
 
 fn main() -> ExitCode {
+    // NERVE push (no-op unless NERVE_URL is set): started.
+    nerve_client::event("persona-plex-relay", "started", "scaffold");
     let no_flags = std::env::args().nth(1).is_none();
     let path = match config_path() {
         Ok(p) => p,

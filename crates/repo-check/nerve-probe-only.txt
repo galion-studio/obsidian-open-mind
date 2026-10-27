@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# Nerve T2.4 coverage gate: workspace bins that are allowed to run WITHOUT
+# nerve-client ("probe-only"). One entry per line: `package:bin  reason`.
+# A reason is required. Only list tools that are not services and whose runs
+# the nerve has no use for (linters, benches, sims, mocks, fixtures, stubs, test
+# harnesses, offline validators) plus the nerve itself. Live services and
+# event-worthy tools (deploy, backup, guard, heal) are NOT listed here: they
+# show up as gaps until someone wires nerve-client into them.
+# repo-check --only nerve --nerve-gaps prints the current table.
+
+openmind-nerve:openmind-nerve          is the nerve; its own signals are in-process
+repo-check:repo-check                  read-only repo lint run by CI and agents, not a service
+bench-banking:bench-banking            B1 benchmark mock bank, local only, never a live service
+bench-scoreboard:bench-scoreboard      offline renderer of docs/bench/SCOREBOARD.md
+galion-bench:galion-bench-mock         benchmark mock HTTP server driven by JSONL fixtures
+galion-vending:galion-vending          B3 deterministic vending sim (benchmark)
+galion-wallstreet:galion-wallstreet    B2 paper-broker benchmark, fixture data only
+galleon-arena:galleon-arena            read-only paper arena, no network
+galion-realtest:galion-realtest        real-life test harness; it watches the stack, not the other way round
+openmind-mcp-stack:openmind-mcp-stack  stdio MCP stub over fixture JSON, no sockets
+one-set-model:one-set-model            offline validator that writes nothing
+one-talk:one-talk                      request-shape helper CLI, no service loop
+one-defence:one-defence                read-only one-shot report of health_checks rows

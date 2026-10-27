@@ -20,6 +20,8 @@ serde_json = { workspace = true }
 toml = { workspace = true }
 zagreb-time = { path = "../zagreb-time" }
 
+nerve-client = { path = "../nerve-client" }
+
 [dev-dependencies]
 # Source-address-bound TCP connects in the namespace test (already in Cargo.lock).
 libc = "0.2"

@@ -22,6 +22,8 @@ ed25519-dalek = { version = "2.2", default-features = false, features = ["std", 
 sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 zeroize = { version = "1", default-features = false }
 
+nerve-client = { path = "../nerve-client" }
+
 [lints.rust]
 # Set workspace-wide in .cargo/config.toml; checked by tests/simd_free.rs.
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(curve25519_dalek_backend, values("serial", "fiat", "simd"))'] }

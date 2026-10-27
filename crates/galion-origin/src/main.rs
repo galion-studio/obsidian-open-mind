@@ -22,8 +22,34 @@ fn main() {
         }
     };
     println!("galion-origin {VERSION} on {}", cfg.addr);
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event(
+        "galion-origin",
+        "started",
+        &format!("listening on {}", cfg.addr),
+    );
+    nerve_client::start_heartbeat("galion-origin", 60);
     let started = Instant::now();
-    let handler = move |req: &http::Request| http::Response::raw(render(&cfg, req, started));
+    let handler = move |req: &http::Request| {
+        let t0 = Instant::now();
+        let bytes = render(&cfg, req, started);
+        let status = if bytes.starts_with(b"HTTP/1.0 200") || bytes.starts_with(b"HTTP/1.1 200") {
+            200
+        } else if bytes.starts_with(b"HTTP/1.0 204") || bytes.starts_with(b"HTTP/1.1 204") {
+            204
+        } else if bytes.starts_with(b"HTTP/1.0 302") || bytes.starts_with(b"HTTP/1.1 302") {
+            302
+        } else if bytes.starts_with(b"HTTP/1.0 404") || bytes.starts_with(b"HTTP/1.1 404") {
+            404
+        } else if bytes.starts_with(b"HTTP/1.0 405") || bytes.starts_with(b"HTTP/1.1 405") {
+            405
+        } else {
+            500
+        };
+        let what = format!("{} {}", req.method(), req.path());
+        nerve_client::observe_request("galion-origin", &what, status, t0.elapsed());
+        http::Response::raw(bytes)
+    };
     if let Err(e) = http::serve(l, limits(), Arc::new(handler)) {
         eprintln!("galion-origin: serve: {e}");
         std::process::exit(1);

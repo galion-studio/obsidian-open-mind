@@ -67,6 +67,13 @@ fn main() -> ExitCode {
         }
     };
     eprintln!("tuner {} serving {}", settings.bind, settings.root);
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event(
+        "tuner",
+        "started",
+        &format!("listening on {}", settings.bind),
+    );
+    nerve_client::start_heartbeat("tuner", 60);
     let limits = http::Limits {
         // The old server read one 4 KiB buffer with a 5 s read timeout.
         max_head_bytes: 4096,
@@ -80,7 +87,20 @@ fn main() -> ExitCode {
     };
     let root = settings.root;
     let handler = move |req: &http::Request| {
-        http::Response::raw(tuner::respond(&req.raw_head, &root).unwrap_or_default())
+        let t0 = std::time::Instant::now();
+        let bytes = tuner::respond(&req.raw_head, &root).unwrap_or_default();
+        let status = if bytes.starts_with(b"HTTP/1.1 200") {
+            200
+        } else if bytes.starts_with(b"HTTP/1.1 404") {
+            404
+        } else if bytes.starts_with(b"HTTP/1.1 405") {
+            405
+        } else {
+            500
+        };
+        let what = format!("{} {}", req.method(), req.path());
+        nerve_client::observe_request("tuner", &what, status, t0.elapsed());
+        http::Response::raw(bytes)
     };
     match http::serve(listener, limits, Arc::new(handler)) {
         Ok(()) => ExitCode::SUCCESS,

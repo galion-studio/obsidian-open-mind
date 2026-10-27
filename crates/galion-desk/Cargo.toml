@@ -18,6 +18,7 @@ path = "src/main.rs"
 [dependencies]
 galion-common = { path = "../galion-common" }
 openmind-config = { path = "../openmind-config" }
+nerve-client = { path = "../nerve-client" }
 
 [dev-dependencies]
 serde_json = { workspace = true, features = ["preserve_order"] }

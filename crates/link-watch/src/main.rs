@@ -368,6 +368,14 @@ fn main() {
     let mut previous: Option<link_watch::WatchSignature> = None;
     let mut events = load_events(&log);
 
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event(
+        "link-watch",
+        "started",
+        &format!("watching out={}", out.display()),
+    );
+    nerve_client::start_heartbeat("link-watch", 60);
+
     loop {
         let (ok, ms, body) = probe(&ps_url, Duration::from_secs(3));
         let mut model = String::new();

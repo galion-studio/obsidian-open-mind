@@ -212,10 +212,14 @@ fn main() {
         "info",
         &format!("listening on {addr} checks={}", checks.len()),
     );
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event("galion-health", "started", &format!("listening on {addr}"));
+    nerve_client::start_heartbeat("galion-health", 60);
     // Cache results for 5 s so page reloads never fan out into probe storms.
     let cache: Arc<Mutex<Cache>> = Arc::new(Mutex::new((None, vec![], String::new(), vec![])));
     for stream in listener.incoming() {
         let Ok(mut s) = stream else { continue };
+        let t0 = Instant::now();
         let _ = s.set_read_timeout(Some(Duration::from_secs(3)));
         let mut buf = [0u8; 1024];
         let n = s.read(&mut buf).unwrap_or(0);
@@ -260,6 +264,21 @@ fn main() {
             _ => ("404 Not Found", "text/plain", "not found\n".into()),
         };
         drop(c);
+        let status_code: u16 = if status.starts_with("200") {
+            200
+        } else if status.starts_with("503") {
+            503
+        } else if status.starts_with("404") {
+            404
+        } else {
+            500
+        };
+        nerve_client::observe_request(
+            "galion-health",
+            &format!("GET {path}"),
+            status_code,
+            t0.elapsed(),
+        );
         let _ = write!(s, "HTTP/1.1 {status}\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{body}", body.len());
     }
 }

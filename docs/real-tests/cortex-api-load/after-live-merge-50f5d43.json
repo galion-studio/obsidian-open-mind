@@ -1,0 +1,196 @@
+{
+  "P0_quiet": {
+    "extra": {},
+    "health": {
+      "busy_snapshots": 0,
+      "codes": {
+        "200": 100
+      },
+      "max_ms": 0.41,
+      "n": 100,
+      "ok_200": 100,
+      "p50_ms": 0.06,
+      "p99_ms": 0.23
+    },
+    "stats": {
+      "busy_snapshots": 0,
+      "codes": {
+        "200": 100
+      },
+      "max_ms": 0.16,
+      "n": 100,
+      "ok_200": 100,
+      "p50_ms": 0.07,
+      "p99_ms": 0.16
+    }
+  },
+  "P1_flood": {
+    "extra": {
+      "flood_reconnects": 116
+    },
+    "health": {
+      "busy_snapshots": 0,
+      "codes": {
+        "200": 100
+      },
+      "max_ms": 2.34,
+      "n": 100,
+      "ok_200": 100,
+      "p50_ms": 0.23,
+      "p99_ms": 2.04
+    },
+    "stats": {
+      "busy_snapshots": 0,
+      "codes": {
+        "200": 100
+      },
+      "max_ms": 1.19,
+      "n": 100,
+      "ok_200": 100,
+      "p50_ms": 0.16,
+      "p99_ms": 0.89
+    }
+  },
+  "P2_hung_decider": {
+    "extra": {
+      "invalid_push_ms": 0,
+      "invalid_push_status": 400
+    },
+    "health": {
+      "busy_snapshots": 282,
+      "codes": {
+        "200": 282
+      },
+      "max_ms": 9.34,
+      "n": 282,
+      "ok_200": 282,
+      "p50_ms": 0.2,
+      "p99_ms": 7.9
+    },
+    "stats": {
+      "busy_snapshots": 282,
+      "codes": {
+        "200": 282
+      },
+      "max_ms": 6.68,
+      "n": 282,
+      "ok_200": 282,
+      "p50_ms": 0.14,
+      "p99_ms": 4.06
+    }
+  },
+  "P3_hung_and_flood": {
+    "extra": {
+      "flood_reconnects": 338
+    },
+    "health": {
+      "busy_snapshots": 285,
+      "codes": {
+        "200": 285
+      },
+      "max_ms": 3.91,
+      "n": 285,
+      "ok_200": 285,
+      "p50_ms": 0.23,
+      "p99_ms": 3.05
+    },
+    "stats": {
+      "busy_snapshots": 285,
+      "codes": {
+        "200": 285
+      },
+      "max_ms": 5.63,
+      "n": 285,
+      "ok_200": 285,
+      "p50_ms": 0.15,
+      "p99_ms": 4.51
+    }
+  },
+  "baseline_mode": false,
+  "binary": "/workspace/swarm/target/cortex-api-load/release/gaia-cortex",
+  "decided": [
+    {
+      "by": "unknown",
+      "status": "simulated",
+      "subject": "unit:galion-health.service"
+    },
+    {
+      "by": "unknown",
+      "status": "simulated",
+      "subject": "unit:galion-desk.service"
+    }
+  ],
+  "events_invalid_before_after": [
+    0,
+    2
+  ],
+  "final_stats": {
+    "actions_circuit_open": 0,
+    "actions_executed": 0,
+    "actions_failed": 0,
+    "actions_rate_limited": 0,
+    "actions_refused": 0,
+    "actions_requested": 2,
+    "actions_simulated": 2,
+    "actions_unknown": 2,
+    "alerts": 2,
+    "alerts_to_nerve": 0,
+    "batches": 2,
+    "busy": false,
+    "decisions": 2,
+    "decisions_suppressed": 0,
+    "escalations": 2,
+    "escalations_open": 2,
+    "events_duplicate": 0,
+    "events_housekeeping": 0,
+    "events_ignored": 0,
+    "events_in": 2,
+    "events_invalid": 2,
+    "handoffs": 0,
+    "handoffs_budget_stopped": 0,
+    "handoffs_duplicate": 0,
+    "handoffs_failed": 0,
+    "handoffs_rate_limited": 0,
+    "hermes_handoff": {
+      "budget_stopped": false,
+      "enabled": false,
+      "inbox": "/tmp/cortex-236-2188188/data/hermes-inbox",
+      "incidents_handed": 0,
+      "per_hour": 6,
+      "sent_last_hour": 0
+    },
+    "incidents_open": 2,
+    "incidents_opened_total": 2,
+    "last_batch": "2026-10-22T00:37:34+02:00",
+    "last_event": "2026-10-22T00:37:34+02:00",
+    "llm": {
+      "budget_usd_total": 15.0,
+      "calls_per_hour": 6,
+      "calls_this_process": 0,
+      "enabled": false,
+      "endpoint": "https://api.river.ai/v1",
+      "endpoint_guard": "ok",
+      "key_env": "RIVER_API_KEY",
+      "ledger": {
+        "calls_total": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "refused_total": 0,
+        "remaining_usd": 15.0,
+        "spent_usd": 0.0
+      },
+      "max_tokens": 400,
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "refusals": {}
+    },
+    "llm_calls": 0,
+    "llm_refused": 0,
+    "llm_skipped_disabled": 0,
+    "llm_spend_usd": 0.0,
+    "mode": "dry-run",
+    "nerve_restarts": 0,
+    "started": "2026-10-22T00:37:22+02:00"
+  },
+  "finished": "2026-10-22T00:37:43+02:00",
+  "stub_nerve_connections": 8
+}

@@ -256,6 +256,10 @@ pub struct Config {
     /// NERVE_UNOWNED_PORTS: listeners reported as "unknown owner" (default
     /// the five VPS ports 8431,8432,8433,8652,8653; empty string = none).
     pub unowned_ports: Vec<u16>,
+    /// Never-unroute hostnames for the route-removal plan (D-T42-4):
+    /// NERVE_PLANS_PROTECTED_HOSTS_FILE, NERVE_PLANS_PROTECTED_HOSTS, else
+    /// the built-in deploy/nerve/plans-protected-hosts.conf.
+    pub plans_protected: crate::protected_hosts::ProtectedHosts,
 }
 
 /// One tailed access log.
@@ -367,6 +371,7 @@ impl Config {
                 Some(s) => ports(&s),
                 None => crate::owners::VPS_UNOWNED_PORTS.to_vec(),
             },
+            plans_protected: crate::protected_hosts::ProtectedHosts::from_env(get),
         })
     }
 }

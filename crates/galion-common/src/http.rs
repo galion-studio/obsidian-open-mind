@@ -24,11 +24,12 @@
 //! replies, their own error bodies): [`serve_connections`] (the bounded
 //! accept loop), [`read_request`], [`handle_connection_with`] and [`drain`].
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// Server limits. The defaults suit small loopback JSON/static services.
@@ -50,6 +51,14 @@ pub struct Limits {
     /// Accept `Transfer-Encoding: chunked` request bodies (off by default;
     /// any other transfer coding is still refused with 501).
     pub accept_chunked: bool,
+    /// At the connection cap, close the oldest connection that has not yet
+    /// delivered a complete request (head + body) instead of refusing the
+    /// new one, so idle or slowloris connections cannot lock real clients
+    /// out for the head deadline. Live connections stay below twice
+    /// `max_connections` while evicted threads wind down. With nothing
+    /// to evict, a new connection waits up to [`EVICT_GRACE`] for a slot
+    /// before the 503. Off by default.
+    pub evict_idle: bool,
 }
 
 impl Default for Limits {
@@ -64,6 +73,7 @@ impl Default for Limits {
             max_connections: 32,
             thread_stack: 256 * 1024,
             accept_chunked: false,
+            evict_idle: false,
         }
     }
 }
@@ -778,14 +788,32 @@ where
 
 /// Like [`handle_connection`], but `on_error` builds the bytes sent for a
 /// refused request (a crate's own JSON error envelope, for example).
-pub fn handle_connection_with<F, E>(mut s: TcpStream, limits: &Limits, handler: &F, on_error: &E)
+pub fn handle_connection_with<F, E>(s: TcpStream, limits: &Limits, handler: &F, on_error: &E)
 where
+    F: Fn(&Request) -> Response + ?Sized,
+    E: Fn(Error) -> Vec<u8> + ?Sized,
+{
+    handle_connection_hooked(s, limits, handler, on_error, &|| {});
+}
+
+/// [`handle_connection_with`] with a hook called as soon as the request has
+/// been read (or reading failed), before the handler runs ([`serve`] uses it
+/// to end a connection's [`Limits::evict_idle`] eligibility).
+fn handle_connection_hooked<F, E>(
+    mut s: TcpStream,
+    limits: &Limits,
+    handler: &F,
+    on_error: &E,
+    read_done: &dyn Fn(),
+) where
     F: Fn(&Request) -> Response + ?Sized,
     E: Fn(Error) -> Vec<u8> + ?Sized,
 {
     let _ = s.set_nodelay(true);
     let _ = s.set_write_timeout(Some(limits.write_timeout));
-    match read_request(&mut s, limits) {
+    let got = read_request(&mut s, limits);
+    read_done();
+    match got {
         Ok(Some(req)) => {
             let reply = handler(&req);
             let bytes = reply.to_bytes(req.head.method == "HEAD");
@@ -806,13 +834,68 @@ where
     }
 }
 
-/// Accept forever on `listener`, one thread per connection, at most
-/// `limits.max_connections` at once (the rest get a 503).
-pub fn serve(listener: TcpListener, limits: Limits, handler: Arc<Handler>) -> io::Result<()> {
-    let conn: Arc<ConnHandler> =
-        Arc::new(move |s: TcpStream, l: &Limits| handle_connection(s, l, &*handler));
-    serve_connections(listener, limits, busy_bytes(), conn)
+/// Connections still reading their request, oldest first (for
+/// [`Limits::evict_idle`]).
+type Reading = Mutex<VecDeque<(u64, TcpStream)>>;
+
+fn reading_remove(r: &Reading, id: u64) {
+    let mut g = r.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(i) = g.iter().position(|(k, _)| *k == id) {
+        g.remove(i);
+    }
 }
+
+/// Close the oldest connection that is still reading its request. Its
+/// blocked read returns at once and its thread exits on its own.
+fn evict_oldest(r: &Reading) -> bool {
+    let oldest = r.lock().unwrap_or_else(|e| e.into_inner()).pop_front();
+    match oldest {
+        Some((_, s)) => {
+            let _ = s.shutdown(Shutdown::Both);
+            true
+        }
+        None => false,
+    }
+}
+
+/// At the cap with [`Limits::evict_idle`]: evict the oldest connection still
+/// reading its request; if none, queue the new one for up to
+/// [`EVICT_GRACE`] while finished connections wind down. `false` = refuse.
+fn make_room(limits: &Limits, live: &AtomicUsize, reading: &Reading) -> bool {
+    let deadline = Instant::now() + EVICT_GRACE;
+    loop {
+        let n = live.load(Ordering::SeqCst);
+        if n < limits.max_connections {
+            return true;
+        }
+        if n < limits.max_connections.saturating_mul(2) && evict_oldest(reading) {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// How long [`serve`] holds a new connection at the cap (evict mode) before
+/// it answers 503.
+pub const EVICT_GRACE: Duration = Duration::from_millis(100);
+
+/// Accept forever on `listener`, one thread per connection, at most
+/// `limits.max_connections` at once (the rest get a 503, or with
+/// [`Limits::evict_idle`] the oldest connection still reading its request
+/// is closed to make room).
+pub fn serve(listener: TcpListener, limits: Limits, handler: Arc<Handler>) -> io::Result<()> {
+    let conn: Arc<HookedConn> = Arc::new(move |s: TcpStream, l: &Limits, rd: &dyn Fn()| {
+        handle_connection_hooked(s, l, &*handler, &error_bytes, rd)
+    });
+    serve_hooked(listener, limits, busy_bytes(), conn, None)
+}
+
+/// A [`ConnHandler`] that also gets the "request read" hook (see
+/// [`Limits::evict_idle`]).
+type HookedConn = dyn Fn(TcpStream, &Limits, &dyn Fn()) + Send + Sync;
 
 /// Called on the accept thread each time a connection is refused at the cap
 /// (before the 503 is written). Must be cheap and never block: it runs on the
@@ -840,8 +923,24 @@ pub fn serve_connections_with(
     conn: Arc<ConnHandler>,
     on_busy: Option<Arc<BusyHook>>,
 ) -> io::Result<()> {
+    // A plain ConnHandler cannot say when its request is read, so with
+    // evict_idle its connection stays evictable until the handler returns.
+    let hooked: Arc<HookedConn> =
+        Arc::new(move |s: TcpStream, l: &Limits, _rd: &dyn Fn()| conn(s, l));
+    serve_hooked(listener, limits, busy, hooked, on_busy)
+}
+
+fn serve_hooked(
+    listener: TcpListener,
+    limits: Limits,
+    busy: Vec<u8>,
+    conn: Arc<HookedConn>,
+    on_busy: Option<Arc<BusyHook>>,
+) -> io::Result<()> {
     let limits = Arc::new(limits);
     let live = Arc::new(AtomicUsize::new(0));
+    let reading: Arc<Reading> = Arc::new(Mutex::new(VecDeque::new()));
+    let mut next_id = 0u64;
     loop {
         let s = match listener.accept() {
             Ok((s, _)) => s,
@@ -852,25 +951,40 @@ pub fn serve_connections_with(
                 continue;
             }
         };
-        if live.load(Ordering::SeqCst) >= limits.max_connections {
+        if live.load(Ordering::SeqCst) >= limits.max_connections
+            && !(limits.evict_idle && make_room(&limits, &live, &reading))
+        {
             if let Some(h) = &on_busy {
                 h();
             }
             reject_busy(s, &busy);
             continue;
         }
+        next_id = next_id.wrapping_add(1);
+        let id = next_id;
+        if limits.evict_idle {
+            if let Ok(c) = s.try_clone() {
+                reading
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .push_back((id, c));
+            }
+        }
         live.fetch_add(1, Ordering::SeqCst);
-        let (limits2, live2, conn2) = (limits.clone(), live.clone(), conn.clone());
+        let (limits2, live2, conn2, reading2) =
+            (limits.clone(), live.clone(), conn.clone(), reading.clone());
         let mut slot = Some(s);
         let spawned = std::thread::Builder::new()
             .stack_size(limits.thread_stack)
             .spawn(move || {
                 if let Some(s) = slot.take() {
-                    conn2(s, &limits2);
+                    conn2(s, &limits2, &|| reading_remove(&reading2, id));
                 }
+                reading_remove(&reading2, id);
                 live2.fetch_sub(1, Ordering::SeqCst);
             });
         if spawned.is_err() {
+            reading_remove(&reading, id);
             live.fetch_sub(1, Ordering::SeqCst);
         }
     }

@@ -7,7 +7,9 @@
 //! See docs/galion-backup.md for the line-by-line mapping.
 
 pub mod backup;
+pub mod gunzip;
 pub mod gzip;
+pub mod restore;
 pub mod sha256;
 pub mod sqlite;
 pub mod tarw;

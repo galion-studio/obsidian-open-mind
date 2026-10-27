@@ -8,8 +8,10 @@
 //!   verify <db>                  PRAGMA integrity_check + table count; exit 1 if not "ok"
 //!   schema <db>                  print user_version and schema_migrations rows (read-only)
 //!   migrate-baseline <db> <ver> <name>   create schema_migrations if missing, record baseline (idempotent)
+//!   restore-test [archive]       restore the newest (or given) archive into a temp dir and
+//!                                verify it (replaces galion-restore-test.sh; env GALION_BACKUP_DEST)
 
-use galion_backup::{backup, sqlite};
+use galion_backup::{backup, restore, sqlite};
 use std::path::Path;
 
 fn die(m: &str) -> ! {
@@ -49,6 +51,24 @@ fn main() {
                 if n { "recorded" } else { "already present" }
             );
         }
-        _ => die("usage: run | snapshot <src> <dst> | verify <db> | schema <db> | migrate-baseline <db> <ver> <name>"),
+        Some("restore-test") if a.len() <= 3 => {
+            // umask 077 like the .sh: the restored copies include secrets.
+            // SAFETY: umask only changes this process's file-creation mask.
+            unsafe {
+                libc::umask(0o077);
+            }
+            backup::install_signal_handlers();
+            let o = restore::Opts::from_env(a.get(2).map(|s| s.as_str()));
+            let mut out = std::io::stdout().lock();
+            match restore::run(&o, &mut out) {
+                Ok(()) => {}
+                Err(restore::Fail::Msg(m)) => die(&format!("restore-test: {m}")),
+                Err(restore::Fail::Signal(s)) => {
+                    eprintln!("galion-backup: restore-test: interrupted by signal {s}");
+                    std::process::exit(128 + s)
+                }
+            }
+        }
+        _ => die("usage: run | restore-test [archive] | snapshot <src> <dst> | verify <db> | schema <db> | migrate-baseline <db> <ver> <name>"),
     }
 }

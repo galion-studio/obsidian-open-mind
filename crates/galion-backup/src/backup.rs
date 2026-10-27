@@ -198,7 +198,7 @@ pub fn du_kb(p: &Path) -> io::Result<u64> {
     Ok((m.blocks() * 512).div_ceil(1024))
 }
 
-fn random_suffix() -> String {
+pub(crate) fn random_suffix() -> String {
     const CH: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     let mut b = [0u8; 6];
     if File::open("/dev/urandom")
@@ -347,6 +347,14 @@ pub fn existing_operands(o: &Opts) -> Vec<String> {
         all.push(format!("{DNS_DIR}/{}", String::from_utf8_lossy(&n)));
     }
     all.into_iter().filter(|p| o.src(p).exists()).collect()
+}
+
+/// The signal caught by [`install_signal_handlers`], if any.
+pub fn pending_signal() -> Option<i32> {
+    match SIGNAL.load(Ordering::SeqCst) {
+        0 => None,
+        s => Some(s),
+    }
 }
 
 fn sig_code() -> Option<i32> {

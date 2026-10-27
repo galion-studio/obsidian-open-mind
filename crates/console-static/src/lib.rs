@@ -15,16 +15,18 @@
 //!   the few redirects. Anything else is 404.
 //! - [`proxy`] forwards an allowlisted prefix set (default `/api/` and
 //!   `/_serverFn/`) to a loopback upstream, streaming the answer (SSE works).
-//! - [`api`] (`--local-api` / `--dist`) answers honest `/api/v1/health` and
-//!   unpaired session phone-gate locally so console-dist cutover prep does not
-//!   need the Node board for those paths.
+//! - [`api`] (`--local-api` / `--dist`) answers honest `/api/v1/health`, the
+//!   board catalog ([`board`]), admin-device pairing ([`admin`]) and the
+//!   session phone-gate in-process (Rust port of the former Node board API).
 //!
 //! std only, no dependencies, `#![forbid(unsafe_code)]`. Prefer this crate over
 //! adding axum/tower-http for ServeDir (licence-ok but not needed).
 
 #![forbid(unsafe_code)]
 
+pub mod admin;
 pub mod api;
+pub mod board;
 pub mod config;
 pub mod entry;
 pub mod http;
@@ -33,4 +35,5 @@ pub mod path;
 pub mod proxy;
 pub mod routes;
 pub mod server;
+pub mod sha256;
 pub mod site;

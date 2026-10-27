@@ -30,8 +30,15 @@ usage: galion-console-static --root DIR [options]
   --upstream ADDR      loopback IP:port that answers the API (e.g. 127.0.0.1:8081)
   --proxy-prefix P     path prefix sent upstream; repeatable
                        (default /api/ and /_serverFn/ when --upstream is set)
-  --local-api          answer honest /api/v1/health and unpaired session
-                       phone-gate in-process (before any proxy)
+  --local-api          answer /api/v1/health, the board catalog (services,
+                       domains, repos, catalog, ledger, docs, protocol,
+                       markers, boot), admin pairing and the session gate
+                       in-process (before any proxy)
+  --admin-store FILE   admin-device JSON store (hashes only) for
+                       /api/v1/admin and remote console hosts, e.g.
+                       /root/galion-secrets/admin-device.json; without it
+                       remote console hosts get 401 on /api/* (fail closed)
+  --admin-mirror FILE  second copy written after each store write
   --ui rust            render the ported pages in Rust (crates/console-ui):
                        server-side HTML, Rust-generated CSS, no JavaScript;
                        needs --upstream (or --dist/--local-api self-upstream)
@@ -117,6 +124,10 @@ pub struct Config {
     pub local_api: bool,
     /// True when `--dist` was passed (for logging / docs).
     pub dist_mode: bool,
+    /// `--admin-store`: admin-device hash store.
+    pub admin_store: Option<PathBuf>,
+    /// `--admin-mirror`: best-effort second copy of the store.
+    pub admin_mirror: Option<PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -171,6 +182,8 @@ impl Config {
         let mut files = console_ui::port4::HostFiles::default();
         let mut local_api = false;
         let mut dist_mode = false;
+        let mut admin_store = None;
+        let mut admin_mirror = None;
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             let mut val = |name: &str| {
@@ -275,6 +288,12 @@ impl Config {
                 "--model-file" => {
                     files.model_file = Some(abs_path(val("--model-file")?, "--model-file")?)
                 }
+                "--admin-store" => {
+                    admin_store = Some(abs_path(val("--admin-store")?, "--admin-store")?)
+                }
+                "--admin-mirror" => {
+                    admin_mirror = Some(abs_path(val("--admin-mirror")?, "--admin-mirror")?)
+                }
                 "--user-md" => files.user_md = Some(abs_path(val("--user-md")?, "--user-md")?),
                 "--allow-public-bind" => public = true,
                 "--quiet" => access_log = false,
@@ -311,6 +330,12 @@ impl Config {
         if upstream.is_none() && !prefixes.is_empty() {
             return Err(bad("--proxy-prefix needs --upstream"));
         }
+        if admin_mirror.is_some() && admin_store.is_none() {
+            return Err(bad("--admin-mirror needs --admin-store"));
+        }
+        if admin_store.is_some() && admin_store == admin_mirror {
+            return Err(bad("--admin-mirror must differ from --admin-store"));
+        }
         let routes_text = if dist_mode && routes.is_none() {
             Some(DIST_DEFAULT_ROUTES.to_string())
         } else {
@@ -334,6 +359,8 @@ impl Config {
             files,
             local_api,
             dist_mode,
+            admin_store,
+            admin_mirror,
         })
     }
 }
@@ -468,6 +495,29 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    #[test]
+    fn admin_store_flags() {
+        let c = Config::from_args(args(
+            "--dist /d --admin-store /s/admin-device.json --admin-mirror /m/admin-device.json",
+        ))
+        .unwrap();
+        assert_eq!(
+            c.admin_store.as_deref(),
+            Some(std::path::Path::new("/s/admin-device.json"))
+        );
+        assert!(c.admin_mirror.is_some());
+        assert!(Config::from_args(args("--dist /d --admin-mirror /m/a.json")).is_err());
+        assert!(Config::from_args(args("--dist /d --admin-store rel.json")).is_err());
+        assert!(Config::from_args(args(
+            "--dist /d --admin-store /a.json --admin-mirror /a.json"
+        ))
+        .is_err());
+        assert!(Config::from_args(args("--dist /d"))
+            .unwrap()
+            .admin_store
+            .is_none());
     }
 
     #[test]

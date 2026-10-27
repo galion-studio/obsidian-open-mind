@@ -30,10 +30,18 @@ ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
 ReadOnlyPaths=/opt/galion/console-dist
-# Note: without --upstream, only local-api paths + Rust UI degraded data work.
-# For full API parity during transition, add e.g.:
-#   --upstream 127.0.0.1:8088
-# and keep a Node API-only process on 8088 (separate owner change).
+# Board API (slot 303, swarm/console-board-api-parity): --local-api now serves
+# the board catalog (services, domains, repos, catalog, ledger, docs, protocol,
+# protocol/snapshot, markers GET/POST, boot) and the admin pairing gate.
+# Remote console hosts (cloudflared) need the admin store, owner decision
+# D-303-1 (STAGED, not applied):
+#   --admin-store /root/galion-secrets/admin-device.json
+#   --admin-mirror /workspace/galion-light/secrets/persist/admin-device.json
+# plus write access under ProtectSystem/ProtectHome (pairing writes hashes):
+#   ReadWritePaths=/root/galion-secrets /workspace/galion-light/secrets/persist
+# Without ReadWritePaths, already-paired cookies still verify (read-only) and
+# new pairing answers 503 "store not writable" (fails closed).
+# DynamicUser=yes cannot read /root; keep the live root unit or move the store.
 
 [Install]
 WantedBy=multi-user.target

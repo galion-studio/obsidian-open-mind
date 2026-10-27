@@ -10,3 +10,4 @@ description = "Loopback health dashboard: polls service ports + systemd states, 
 
 [dependencies]
 zagreb-time = { path = "../zagreb-time" }
+nerve-client = { path = "../nerve-client" }

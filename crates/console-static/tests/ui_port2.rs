@@ -464,8 +464,8 @@ fn spa_fallback_rust_owns_hermes() {
         "Rust keeps /hermes even with SPA fallback"
     );
     assert!(ui.owns("/hermes", false));
-    assert!(!ui.owns("/arena", true), "/arena still SPA-first");
-    assert!(!ui.owns("/bank", true), "/bank still SPA-first");
+    assert!(ui.owns("/arena", true), "/arena is Rust-first (slot 299)");
+    assert!(ui.owns("/bank", true), "/bank is Rust-first (slot 299)");
     for p in ["/context", "/gateway", "/guardian"] {
         assert!(ui.owns(p, true), "{p}");
     }

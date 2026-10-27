@@ -61,7 +61,7 @@ page, one cached sheet <=20 kB, header never blocks a page, and the 1.3 GB Vite 
 | `/guardian /keys /security /session` | 14.5-16.3 kB | show one "sign in to see this" card instead of each 401 tile | ~5-6 kB |
 | `/cache /hermes /context` | 21-28 kB | paginate lists (first 50 rows, `?page=`), sprite | ~10-12 kB |
 | `/instances /keys /markers` | render 7 ms | single-pass formatting, no re-escape of already-escaped parts | <2 ms |
-| `/arena /bank` | Rust page, SPA_FIRST when fallback set | see ruling R2 | - |
+| `/arena /bank` | Rust-first (slot 299), SPA_FIRST empty | read-only board / honest bank empty state | - |
 | `/soon`, `/md/$name` | 0.8-0.9 kB | keep | - |
 
 ## Open rulings (owner)
@@ -69,10 +69,12 @@ page, one cached sheet <=20 kB, header never blocks a page, and the 1.3 GB Vite 
   asserted in `css.rs` tests; `/console` links `/_ui/overview.<h>.css`. Light palette uses
   `:where(html:not([data-theme]))` under the system media query. Dead PORT1 `.road` dropped
   (PORT2 owns it). `/hermes` removed from SPA_FIRST (Rust-first).
-- **R2 SPA/JS for `/arena`, `/bank`, `/hermes`.** `/hermes` SPA_FIRST dropped (slot 254;
-  Rust page reads history live). Still open: keep `/arena` read-only in Rust (paid Breed
-  stays out until Slavik approves spend); `/bank` already says "no bank API yet" — drop
-  SPA_FIRST for both once the Vite process is retired. Consequence: zero JS on all routes.
+- **R2 SPA/JS for `/arena`, `/bank`, `/hermes`.** IMPLEMENTED. `/hermes` SPA_FIRST dropped (slot 254;
+  Rust page reads history live). `/arena` + `/bank` dropped in slot 299 (swarm/console-arena-bank-rust):
+  SPA_FIRST is now empty, so every ported route is Rust-first even with a fallback. `/arena` stays
+  read-only (paid Breed/Stop/Promote held until Slavik approves spend) and says why a board is missing
+  (404 no route / 401-403 / other status / down); `/bank` shows the honest empty state until a Rust
+  bank reader serves `/api/v1/bank` (owner decision: who serves it). Zero JS on all routes.
 - **R3 stale `real_console_ui`.** It asserts "Not in Rust yet" rooms that no longer exist. Recommend: delete it and
   keep `real_merge` as the single live route test (move its ports to a config env so other slots can reuse it).
 - **R4 (new) HTML gzip dependency.** `miniz_oxide` yes/no.

@@ -18,7 +18,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Largest file `/api/read` returns, in bytes.
 pub const MAX_READ_BYTES: u64 = 80_000;
@@ -262,11 +262,14 @@ pub fn handle(mut stream: TcpStream, cfg: &Config, page_json: &str) -> std::io::
     let n = stream.read(&mut buf)?;
     let head = String::from_utf8_lossy(&buf[..n]);
     let line = head.lines().next().unwrap_or("");
+    let t0 = Instant::now();
     let resp = if line.is_empty() {
         Response::new(400, "text/plain", "bad\n")
     } else {
         route(cfg, page_json, line)
     };
+    let what = line.split_whitespace().take(2).collect::<Vec<_>>().join(" ");
+    nerve_client::observe_request("room", &what, resp.status, t0.elapsed());
     stream.write_all(&resp.to_bytes())
 }
 

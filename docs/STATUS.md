@@ -40,7 +40,7 @@ The backlog percentages below were NOT re-run (2026-10-21 numbers stand).
 
 - Console cutover **DONE 2026-10-27 17:29 CET**: Vite :8080 replaced by staged
   console-dist served by srvx (Node), backup `/var/backups/console-switch-20261027-162802`
-  (CR:884; PB:11; RMR:16). Not to be redone. console.service is still Node, not Rust (CR:929).
+  (CR:884; PB:11; RMR:16). Not to be redone. console.service is still Node, not Rust (CR:930).
 - GitHub `main` still `13a296c`; PR #12 (`swarm/main-staging` `7c95348b` -> main) open,
   mergeable_state **unstable** (RMR:20; PB:19,22).
 - Live cortex still `gaia-cortex-bd6fbe6`. `swarm/cortex-live-merge-2` `1305dec` and
@@ -78,7 +78,7 @@ The backlog percentages below were NOT re-run (2026-10-21 numbers stand).
 | B08 | 1 | D | scripts/size-budget.sh, docs/low-end-profile.md |
 | B44 | 1 | D | scripts/sbom.sh, .github/workflows/sbom.yml |
 | B45 | 1 | D | SECURITY.md, docs/openssf.md (contact address still TODO) |
-| FE-1 | 2 | P | Vite dev replaced on live :8080 by console-dist/srvx 2026-10-27 17:29 CET (CALL-RECORD.md:884); still Node, Rust console not live (CALL-RECORD.md:929). Status not re-scored |
+| FE-1 | 2 | P | Vite dev replaced on live :8080 by console-dist/srvx 2026-10-27 17:29 CET (CALL-RECORD.md:884); still Node, Rust console not live (CALL-RECORD.md:930). Status not re-scored |
 | B61 | 1 | O | docs/console-prod.md checklist; 8080/health 404 |
 | B33 | 1 | D | NerveEvent in openmind-schema |
 | B40 | 2 | D | (not wired) - crates/openmind-nerve; NERVE-ALIGN says it is not wired |

@@ -21,3 +21,10 @@ openmind-config = { path = "../openmind-config" }
 
 [dev-dependencies]
 serde_json = { workspace = true, features = ["preserve_order"] }
+
+# Own main (harness = false): the test binary doubles as the DESK_HERMES_BIN
+# stub, so it can record exactly what galion-desk forks per /desk.
+[[test]]
+name = "real_mindpack_exec"
+path = "tests/real_mindpack_exec.rs"
+harness = false

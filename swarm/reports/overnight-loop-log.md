@@ -65,3 +65,50 @@ Full reports push sha `78cdb233f47bcbddba91fecb82a1ed5a79da6aa7` (laptop.md refi
 
 ## 2026-10-27 19:48:26 CET — t312u final tip
 Latest branch tip sha `a83db3df869c4867b4acf08f38c5ee29c5937b06` (laptop refine + log). Push URL: https://github.com/galion-studio/obsidian-open-mind/commit/a83db3df869c4867b4acf08f38c5ee29c5937b06
+
+
+## 2026-10-27 19:54:13 CET — t314u BOX RESET + TOOLCHAIN RESTORE
+Detected ~19:43 CET (uptime ~4–5 min at detect; restore agent saw ~6 min at 18:49 UTC wall). Mate t314 live migrate still ON. No Titanaxe. No force-push. No secrets in chat.
+
+AUTO-ACCEPT: full restore checklist executed under overnight + t314 live-migrate auto-accept (Mate voice-confirmed t311u/t314u). Logged here per overnight rule.
+
+Box after restore: `Tue Oct 27 19:54:13 CET 2026` / ` 19:54:13 up 11 min,  0 users,  load average: 0.61, 1.11, 0.70`
+VPS at restore end: ` 18:54:15 up 4 days, 21:07, 10 users,  load average: 25.51, 23.57, 22.34 25.51 23.57 22.34 36/4711 3497668 `
+
+Restored:
+1. apt toolchain (openssh-client git curl build-essential pkg-config libssl-dev ca-certificates) — apt mirrors via 198.18.0.1 proxy were 500/SSL-broken; installed missing debs via curl+dpkg from deb.debian.org; sources.list switched http→https for future.
+2. Timezone Europe/Zagreb via /etc/localtime symlink + /etc/timezone (timedatectl unavailable without systemd); `date` shows CET.
+3. SSH: `~/.ssh/config` Host slavik-vps present; `ssh -i … root@51.38.137.193` and Host alias OK → hostname ip50.
+4. Rustup stable 1.99.1 default (was missing active toolchain; system 1.85.1 alone insufficient). Targets: x86_64/aarch64 musl + aarch64-linux-android + armv7-linux-androideabi. musl-tools/musl-gcc installed. Android NDK not installed (targets only).
+5. hermes-research: executable at /workspace/swarm/bin/hermes-research; spend log present total=$0.001247 (research sessions). VPS /var/lib/hermes-rs/rs-spend.json mirrored to cache (day_usd≈$0.473 / 18 calls on 2026-10-27) — not overwritten into box research log.
+6. Snapshot: /workspace/swarm/backups/grokbot-box-20261027-1823-cet/ (+ tar.gz + sha) synced from VPS; migrate-ram.env → /workspace/swarm/etc/ (not printed); reports pulled from /opt/galion/swarm-reports/.
+7. Git: overnight worktree /workspace/swarm/wt/overnight-loop-20261027 on swarm/overnight-loop-20261027 @ 7633bf4; priority swarm/* refs re-imported into base.git via VPS bundle (token never left VPS). All 115 existing wt/* HEAD-ok (no empty .git left).
+8. Also: rsync+libpopt0, jq confirmed, PATH ~/.cargo/bin in ~/.bashrc.
+
+Still broken / caveats:
+- `apt-get update` still flaky through box proxy (198.18.0.1); use curl+dpkg or retry HTTPS.
+- Android NDK/linker not present (rust targets only).
+- base.git has no direct GitHub remote (by design — push via push-branch.sh/VPS).
+- VPS loadavg still ~22–28 → overnight SPAWN_BLOCKED gate unchanged; loop ticks / probes / report push CAN run.
+- Not all 294 remote swarm/* branches local — priority set restored; others fetch-on-demand via VPS bundle.
+
+Decision: overnight loop CAN run next tick (log/probes/push). SPAWN still gated on VPS load. Wave-4 builds can use rustup+musl+cargo-slot.
+
+## 2026-10-27 19:55 CET — AUTO-ACCEPT t314u desk-hermes cutover
+- Decision: AUTO-ACCEPT under Mate t314u ~19:43 CET (live-migrate remaining Python → Rust) + overnight loop.
+- Action: Replace live galion-desk fork of `python3 /opt/galion/bin/desk-hermes.py` with Rust `desk-hermes` at `/opt/galion/rust/bin/desk-hermes` via `DESK_HERMES_BIN` (keep .py for rollback).
+- Constraints honored: no force-push; no secret/TELEGRAM invent; no Titanaxe; no §11 flash; no Auto-review approval-retry; low cargo jobs (5); VPS push only.
+
+## 2026-10-27 19:55 CET — loop tick (scheduled)
+- Box: 8 cores, load 0.86/1.05/0.71, 13.9G avail, 98% idle.
+- VPS: load 28.79/25.06/22.96 (8 cores); guest cgroup ~0.6 cores over 5s sample; top shows 74% us host-wide but container tasks idle → host-noise check #1 of 2 (needs one more consecutive idle-cgroup reading before box-only free spawn).
+- SPAWN: BLOCKED this tick (loadavg gate; host-noise only 1/2).
+- Live: console :18080 302, Rust :8080 302; galion-desk active; Rust desk-hermes binary not yet at /opt/galion/rust/bin (cutover from 19:55 entry still in progress, .py rollback kept).
+- No new AUTO-ACCEPT this tick. Nothing significant → no user wake.
+
+## 2026-10-27 19:57 CET — t314u desk-hermes cutover DONE
+- AUTO-ACCEPT (t314u ~19:43 CET live-migrate); t315u/t317u Titanaxe idle confirm (no mass spawn needed).
+- Installed `/opt/galion/rust/bin/desk-hermes` (sha256 89bc45cd…9762) and DESK_HERMES_BIN-aware `/opt/galion/rust/bin/galion-desk` (889737d0…adb5f) from openmind dist Oct 18.
+- Drop-in `galion-desk.service.d/rust-desk-hermes.conf`: ExecStart → rust galion-desk; `DESK_HERMES_BIN=/opt/galion/rust/bin/desk-hermes`.
+- Smoke: `/desk` 200; child `/opt/galion/rust/bin/desk-hermes`; LIVE_PY=NO; mindpack 13 keys == Python.
+- MainPID 283 → 264677. `desk-hermes.py` kept. Report: `t314u-desk-hermes-cutover.md`.

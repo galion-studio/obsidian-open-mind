@@ -17,6 +17,8 @@ fn main() {
         );
         return;
     }
+    // NERVE push (no-op unless NERVE_URL is set): started.
+    nerve_client::event("desk-hermes", "started", "mindpack");
     let (home, db) = desk_hermes::paths(&|k| std::env::var(k).ok());
     println!(
         "{}",

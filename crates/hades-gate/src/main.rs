@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use hades_gate::approval::{unix_now, Approver, Request, Verdict};
 use hades_gate::config::Config;
@@ -246,6 +246,13 @@ fn serve(f: &HashMap<String, String>) -> Result<i32, String> {
     let listener = TcpListener::bind(("127.0.0.1", port))
         .map_err(|e| format!("bind 127.0.0.1:{port}: {}", e.kind()))?;
     eprintln!("hades-gate: serving on 127.0.0.1:{port} (dry-run)");
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event(
+        "hades-gate",
+        "started",
+        &format!("serving on 127.0.0.1:{port}"),
+    );
+    nerve_client::start_heartbeat("hades-gate", 60);
     for stream in listener.incoming() {
         let Ok(stream) = stream else { continue };
         if handle(stream, &approver) {
@@ -260,10 +267,26 @@ fn serve(f: &HashMap<String, String>) -> Result<i32, String> {
 fn handle(mut stream: TcpStream, approver: &Approver) -> bool {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(5)));
-    let (status, body, stop) = match read_request(&stream) {
-        Ok((method, path, body)) => route(&method, &path, &body, approver),
-        Err(e) => (400, serde_json::json!({"error": e}), false),
+    let t0 = Instant::now();
+    let (method, path, status, body, stop) = match read_request(&stream) {
+        Ok((method, path, body)) => {
+            let (status, body, stop) = route(&method, &path, &body, approver);
+            (method, path, status, body, stop)
+        }
+        Err(e) => (
+            String::new(),
+            String::new(),
+            400,
+            serde_json::json!({"error": e}),
+            false,
+        ),
     };
+    let what = if method.is_empty() {
+        "bad-request".to_string()
+    } else {
+        format!("{method} {path}")
+    };
+    nerve_client::observe_request("hades-gate", &what, status, t0.elapsed());
     let text = body.to_string();
     let reason = match status {
         200 => "OK",

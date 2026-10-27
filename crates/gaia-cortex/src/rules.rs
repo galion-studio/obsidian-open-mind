@@ -14,6 +14,7 @@
 //! | `R3-cap` | ... but the cortex hourly cap for the unit is used up | open circuit, alert + escalate |
 //! | `R3b-systemd-restarting` | failure with `unit.restart_scheduled` (systemd restarts it itself) | alert, no extra action (failure still counts toward flapping) |
 //! | `R4-unknown-unit` | failure of a unit no rule may restart | alert + escalate |
+//! | `R4b-sandbox-oom` | `oom.kill` on a `sbxtest*` unit / `sbxtest.slice` (sandbox memory cap) | info only, never escalate to Hermes |
 //! | `R5-recovered` | unit back to `active` / info state change | nothing (incident quiets) |
 //! | `R6-task-failed` | task/slot finished with `ok=false` | alert |
 //! | `R7-threshold` | threshold crossed: warn | alert; error+ | alert + escalate (LLM-eligible) |
@@ -243,6 +244,20 @@ impl Rules {
             } else {
                 v
             };
+        }
+        // Sandbox test OOM (sbxtest*): cgroup MemoryMax kills are expected
+        // during swarm sandbox runs. Log as info; never alert or escalate
+        // to Hermes (Mate approved hoff-1792623978-2, 2026-10-27).
+        if let Some(u) = s.unit.as_deref() {
+            if is_sbxtest_unit(u) && s.events.iter().any(|e| e.kind() == EventKind::Oom) {
+                return Verdict::new(
+                    "R4b-sandbox-oom",
+                    Sev::Info,
+                    format!(
+                        "{u}: sandbox OOM kill (sbxtest* memory cap); info only, no Hermes escalate"
+                    ),
+                );
+            }
         }
         // Nerve-side remediation outcomes.
         if lead_kind == EventKind::Remediation || lead_kind == EventKind::CircuitOpen {
@@ -557,4 +572,123 @@ pub fn abnormal_exit(e: &Event) -> bool {
             e.data.get("exit_code").and_then(Value::as_str),
             Some("killed" | "dumped")
         )
+}
+
+/// Throwaway swarm sandbox units: `sbxtest.slice` and any `sbxtest-*` service.
+pub fn is_sbxtest_unit(unit: &str) -> bool {
+    unit == "sbxtest.slice" || unit.starts_with("sbxtest")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn limits() -> Limits {
+        Limits {
+            restarts_per_unit_hour: 2,
+            flap_failures: 3,
+            flap_window_s: 600,
+            circuit_open_s: 3600,
+        }
+    }
+
+    fn rules() -> Rules {
+        Rules::new(Guard::new(&[]), &[], limits())
+    }
+
+    fn oom(unit: &str, seq: u64) -> Event {
+        let mut e = Event::new(
+            "journal",
+            "oom.kill",
+            "low",
+            json!({
+                "seq": seq,
+                "unit": unit,
+                "message_id": "fe6faa94e7774663a0da52717891d8ef",
+            }),
+        );
+        e.unit = Some(unit.to_string());
+        e.seq = Some(seq);
+        e.msg = Some(format!(
+            "{unit}: A process of this unit has been killed by the OOM killer."
+        ));
+        e
+    }
+
+    fn subject_of(e: Event) -> Subject {
+        let (key, unit) = subject_key(&e);
+        Subject {
+            key,
+            unit,
+            host: None,
+            events: vec![e],
+        }
+    }
+
+    /// Live VPS 2026-10-22 01:06 +02:00: seq 51 on sbxtest.slice must not
+    /// escalate (was R4-unknown-unit -> hoff-1792623984-3).
+    #[test]
+    fn sbxtest_slice_oom_seq51_is_info_no_escalate() {
+        let mut r = rules();
+        let s = subject_of(oom("sbxtest.slice", 51));
+        let v = r.decide(&s, false, 1_792_623_982);
+        assert_eq!(v.rule, "R4b-sandbox-oom");
+        assert_eq!(v.sev, Sev::Info);
+        assert!(!v.alert, "log only");
+        assert!(!v.escalate, "no Hermes handoff");
+        assert_eq!(v.outcome, Outcome::None);
+        assert!(
+            !r.books.contains_key("sbxtest.slice"),
+            "sandbox OOM must not open a flap book"
+        );
+    }
+
+    #[test]
+    fn sbxtest_service_oom_is_info_no_escalate() {
+        let mut r = rules();
+        for unit in [
+            "sbxtest-main-20261022-010534.service",
+            "sbxtest-main2-20261022-010534.service",
+        ] {
+            let s = subject_of(oom(unit, 48));
+            let v = r.decide(&s, false, 1_792_623_976);
+            assert_eq!(v.rule, "R4b-sandbox-oom", "{unit}");
+            assert!(!v.escalate, "{unit}");
+            assert_eq!(v.sev, Sev::Info, "{unit}");
+        }
+    }
+
+    #[test]
+    fn non_sandbox_oom_still_escalates_via_r4() {
+        let mut r = rules();
+        let s = subject_of(oom("mystery.service", 99));
+        let v = r.decide(&s, false, 1_792_623_976);
+        assert_eq!(v.rule, "R4-unknown-unit");
+        assert!(v.escalate);
+    }
+
+    #[test]
+    fn sbxtest_crash_without_oom_still_escalates() {
+        let mut r = rules();
+        let mut e = Event::new(
+            "journal",
+            "unit.failed",
+            "error",
+            json!({"seq": 7, "unit": "sbxtest-main-20261022-010534.service"}),
+        );
+        e.unit = Some("sbxtest-main-20261022-010534.service".into());
+        let s = subject_of(e);
+        let v = r.decide(&s, false, 1_792_623_976);
+        assert_eq!(v.rule, "R4-unknown-unit");
+        assert!(v.escalate);
+    }
+
+    #[test]
+    fn is_sbxtest_unit_matches_prefix_and_slice() {
+        assert!(is_sbxtest_unit("sbxtest.slice"));
+        assert!(is_sbxtest_unit("sbxtest-main-20261022-010534.service"));
+        assert!(!is_sbxtest_unit("galion-nerve.service"));
+        assert!(!is_sbxtest_unit("test.slice"));
+    }
 }

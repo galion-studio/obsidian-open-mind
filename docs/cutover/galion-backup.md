@@ -35,6 +35,7 @@ sha256sum /opt/galion/rust/bin/galion-backup.sh                            # 089
 
 Known log quirk (B2, confirmed 17:23): the run logs `size_kb=1` (14:17) because `du -k` runs before ZFS has allocated the blocks.
 The same file now shows `du -k` 18,191 KiB, and `stat` shows 18,612,783 B. The Rust port copies the same `du` behaviour (`crates/galion-backup/src/backup.rs`, `du_kb`).
+Slot 304 (swarm/backup-size-kb-fix, 2026-10-27 CET) switches the log field to the apparent length (`size_kb()`, = `du -k --apparent-size`); not deployed yet.
 
 ## 3. Prepared Rust cutover (NOT executed, needs approval)
 

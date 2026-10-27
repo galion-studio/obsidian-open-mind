@@ -137,8 +137,13 @@ docs/real-tests/backup-rust-unit.md.
 * D-269-1 When to fold the drop-in into the base unit (and retire the .sh and
   the pre-t273u ELF): proposal after 12 good timer runs (= the 3-day
   retention window).
-* D-269-2 B2 `size_kb` (du on ZFS before block allocation): still faithful to
-  bash; live first Rust run logged `size_kb=2629` for an 18,729,100 B file.
+* D-269-2 B2 `size_kb` (du on ZFS before block allocation): FIXED on
+  `swarm/backup-size-kb-fix` (slot 304, not deployed): `size_kb` is now the
+  apparent length in KiB rounded up (`du -k --apparent-size`), via
+  `backup::size_kb`; `du_kb` stays for the free-space path. Live runs logged
+  `size_kb=1` / `2629` for ~18.7 MB files; the fixed formula gives 18295 for
+  the 19:18 archive (18,733,188 B). Log line format unchanged (parity 26/26).
+  Goes live only with the next owner-approved binary swap.
 
 ## Performance (swarm/backup-perf, 2026-10-21 03:47 +02:00)
 

@@ -198,6 +198,16 @@ pub fn du_kb(p: &Path) -> io::Result<u64> {
     Ok((m.blocks() * 512).div_ceil(1024))
 }
 
+/// Archive size for the `size_kb=` log field: apparent file length in KiB,
+/// rounded up (`du -k --apparent-size`). D-269-2: `du_kb` (allocated
+/// blocks) right after the rename reads 1 or a fraction of the real size on
+/// ZFS because block allocation is deferred to the next txg sync; the file
+/// length is final once the archive is written and renamed.
+pub fn size_kb(p: &Path) -> io::Result<u64> {
+    let m = fs::symlink_metadata(p)?;
+    Ok(m.len().div_ceil(1024))
+}
+
 fn random_suffix() -> String {
     const CH: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     let mut b = [0u8; 6];
@@ -525,7 +535,7 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
             }
         }
     }
-    let size = match du_kb(&final_) {
+    let size = match size_kb(&final_) {
         Ok(k) => k,
         Err(e) => return err("du", e),
     };
@@ -550,5 +560,50 @@ mod tests {
             stamp_from_rfc3339("2026-12-01T06:17:00+01:00"),
             "20261201-061700+0100"
         );
+    }
+
+    fn scratch(name: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "galion-backup-sizekb-{}-{name}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn size_kb_is_apparent_length_rounded_up() {
+        let d = scratch("len");
+        for (len, want) in [(0u64, 0u64), (1, 1), (1023, 1), (1024, 1), (1025, 2)] {
+            let p = d.join(format!("f{len}"));
+            fs::write(&p, vec![7u8; len as usize]).unwrap();
+            assert_eq!(size_kb(&p).unwrap(), want, "len {len}");
+        }
+        // 18,729,100 B = live first Rust run (docs/galion-backup.md D-269-2).
+        let p = d.join("live");
+        let f = File::create(&p).unwrap();
+        f.set_len(18_729_100).unwrap();
+        assert_eq!(size_kb(&p).unwrap(), 18_291);
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn size_kb_ignores_unallocated_blocks() {
+        // A sparse file has (almost) no allocated blocks, like a fresh ZFS
+        // write before txg sync: du_kb is tiny, size_kb is the real length.
+        let d = scratch("sparse");
+        let p = d.join("sparse");
+        let f = File::create(&p).unwrap();
+        f.set_len(64 * 1024 * 1024).unwrap();
+        drop(f);
+        assert_eq!(size_kb(&p).unwrap(), 65_536);
+        assert!(du_kb(&p).unwrap() < 65_536, "fs allocated the sparse file");
+        let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn size_kb_missing_file_errors() {
+        assert!(size_kb(Path::new("/nonexistent/galion-backup-304")).is_err());
     }
 }

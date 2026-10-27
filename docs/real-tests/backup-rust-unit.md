@@ -92,7 +92,8 @@ can be re-run after it to see `rust ok runs=2`.
 B2 (known, docs/cutover/galion-backup.md): `size_kb` is `du -k` right after
 rename; on ZFS the blocks are not yet allocated, so bash logged 1 and Rust
 logged 2629. Faithful port; fixing it (use file length) is owner decision
-D-269-2. Nothing reads `size_kb` (offsite script reads the file itself).
+D-269-2. Fixed on swarm/backup-size-kb-fix (slot 304, see
+docs/real-tests/backup-size-kb-fix.md), not deployed. Nothing reads `size_kb` (offsite script reads the file itself).
 
 Disk: `/` 30 % used, 73,539,968 KiB free (MINFREE_KB default far below).
 

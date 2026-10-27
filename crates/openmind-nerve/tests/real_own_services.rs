@@ -4,7 +4,7 @@
 
 //! Slot 238 nerve-own-services (D-T44-2), real-life test on the box, gated
 //! with `GALION_REAL=1`. Runs the real `openmind-nerve` binary (release when
-//! built with `--release`), ports 21080-21089 only.
+//! built with `--release`), ports 21080-21089 by default (REAL_NERVE_PORT_BASE remaps).
 //!
 //! 1. `replay` over the live VPS listener table captured read-only on
 //!    2026-10-22 01:09:46 +02:00 (`ss -ltnp`, fixture
@@ -15,9 +15,9 @@
 //!    galion-nerve-shadow / gaia-cortex / openmind-queue.
 //! 2. The same table with `NERVE_UNOWNED_PORTS=8674`: the documented-unowned
 //!    override still wins over the built-in own-service list.
-//! 3. `serve` in both modes (legacy and `--mode event`) on :21080 with a
-//!    real stray listener on :21081 (held by this test, no unit): it is
-//!    still reported in `unmanaged_ports` with this process as the holder.
+//! 3. `serve` in both modes (legacy and `--mode event`) on the block base
+//!    port with a real stray listener on base+1 (held by this test, no unit):
+//!    it is still reported in `unmanaged_ports` with this process as the holder.
 
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -25,8 +25,40 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const NERVE: &str = "127.0.0.1:21080";
-const STRAY: u16 = 21081;
+/// Port block start. Default is slot 238's original range; slot 292
+/// (nerve-merge-4) moves the whole block at build time with
+/// `REAL_NERVE_PORT_BASE=<port>` (e.g. 21620) so merged re-runs stay inside
+/// their own slot range. Offsets inside the block are unchanged.
+const fn port_block(default: u16) -> u16 {
+    match option_env!("REAL_NERVE_PORT_BASE") {
+        None => default,
+        Some(s) => {
+            let b = s.as_bytes();
+            let mut i = 0;
+            let mut v: u32 = 0;
+            assert!(!b.is_empty(), "REAL_NERVE_PORT_BASE empty");
+            while i < b.len() {
+                assert!(b[i].is_ascii_digit(), "REAL_NERVE_PORT_BASE not a number");
+                v = v * 10 + (b[i] - b'0') as u32;
+                assert!(v <= 65_526, "REAL_NERVE_PORT_BASE too large");
+                i += 1;
+            }
+            v as u16
+        }
+    }
+}
+
+const BLOCK: u16 = port_block(21080);
+const NERVE_PORT: u16 = BLOCK;
+const STRAY: u16 = BLOCK + 1;
+const DEAD_PORT: u16 = BLOCK + 2;
+fn nerve_addr() -> String {
+    format!("127.0.0.1:{NERVE_PORT}")
+}
+
+fn listen_scope() -> String {
+    format!("{BLOCK}-{}", BLOCK + 9)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -154,7 +186,8 @@ fn real_replay_live_vps_listeners() {
 }
 
 fn get(path: &str) -> Option<(u16, String)> {
-    let mut s = TcpStream::connect_timeout(&NERVE.parse().ok()?, Duration::from_secs(2)).ok()?;
+    let mut s =
+        TcpStream::connect_timeout(&nerve_addr().parse().ok()?, Duration::from_secs(2)).ok()?;
     let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
     write!(s, "GET {path} HTTP/1.0\r\nHost: x\r\n\r\n").ok()?;
     let mut b = String::new();
@@ -164,17 +197,23 @@ fn get(path: &str) -> Option<(u16, String)> {
 }
 
 fn serve_once(mode_event: bool) {
-    let stray = TcpListener::bind(("127.0.0.1", STRAY)).expect("21081 free");
+    let stray = TcpListener::bind(("127.0.0.1", STRAY)).expect("stray port free");
     let dir = tmp(if mode_event { "event" } else { "legacy" });
     let comps = dir.join("components.json");
-    std::fs::write(&comps, r#"[{"name":"dead-svc","port":21082}]"#).unwrap();
+    std::fs::write(
+        &comps,
+        format!(r#"[{{"name":"dead-svc","port":{DEAD_PORT}}}]"#),
+    )
+    .unwrap();
     let mut c = Command::new(bin());
     c.arg("serve");
     if mode_event {
         c.args(["--mode", "event"]);
     }
+    let addr = nerve_addr();
+    let scope = listen_scope();
     let _nerve = Kill(
-        c.env("NERVE_ADDR", NERVE)
+        c.env("NERVE_ADDR", &addr)
             .env("NERVE_INTERVAL", "3")
             .env("NERVE_DATA_DIR", dir.join("data"))
             .env("NERVE_COMPONENTS", &comps)
@@ -183,7 +222,7 @@ fn serve_once(mode_event: bool) {
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
             .env("NERVE_DRY_RUN", "1")
-            .env("NERVE_LISTEN_SCOPE", "21080-21089")
+            .env("NERVE_LISTEN_SCOPE", &scope)
             .stderr(Stdio::null())
             .stdout(Stdio::null())
             .spawn()
@@ -210,7 +249,7 @@ fn serve_once(mode_event: bool) {
     if let Some(pid) = o["pid"].as_u64() {
         assert_eq!(pid, std::process::id() as u64, "{o}");
     }
-    let me = owner_of(ex, 21080);
+    let me = owner_of(ex, NERVE_PORT as u64);
     assert_eq!(me["owner"], "galion-nerve (self)", "{me}");
     eprintln!(
         "238 serve mode_event={mode_event} after {:.1}s: unmanaged {:?}; stray holder {} pid {}; finding {:?}",

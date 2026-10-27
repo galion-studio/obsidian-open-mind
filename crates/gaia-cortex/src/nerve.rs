@@ -45,6 +45,34 @@ pub trait NerveLink: Send {
     fn post_event(&mut self, ev: &Event) -> bool;
     /// Pull adapter (polling nerve): the newest events (`GET /events?n=N`).
     fn pull_events(&mut self, n: usize) -> Result<Vec<Event>, String>;
+    /// A second, independent link to the same nerve for the courier thread
+    /// (alert/escalation posts), so posts never queue behind an action call.
+    /// `None` (the default): posts go through this link, after the call.
+    fn fork(&self) -> Option<Box<dyn NerveLink>> {
+        None
+    }
+}
+
+/// An action answered by the cortex itself, never sent to the nerve
+/// (dry-run: simulated; live: refused).
+pub fn not_sent(req: &ActionRequest, why: &str) -> Outcome {
+    local(req, why)
+}
+
+/// Placeholder left in the engine once the decider thread owns the real
+/// link ([`crate::engine::run_decider`]): it never reaches the nerve.
+pub struct Detached;
+
+impl NerveLink for Detached {
+    fn request_action(&mut self, req: &ActionRequest) -> Outcome {
+        local(req, "nerve link is owned by the decider thread")
+    }
+    fn post_event(&mut self, _ev: &Event) -> bool {
+        false
+    }
+    fn pull_events(&mut self, _n: usize) -> Result<Vec<Event>, String> {
+        Ok(vec![])
+    }
 }
 
 fn local(req: &ActionRequest, why: &str) -> Outcome {
@@ -107,6 +135,7 @@ impl NerveLink for NoNerve {
     }
 }
 
+#[derive(Clone)]
 pub struct HttpNerve {
     pub addr: SocketAddr,
     pub host: String,
@@ -197,6 +226,10 @@ impl NerveLink for HttpNerve {
             .into_iter()
             .filter_map(Result::ok)
             .collect())
+    }
+
+    fn fork(&self) -> Option<Box<dyn NerveLink>> {
+        Some(Box::new(self.clone()))
     }
 }
 

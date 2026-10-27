@@ -13,12 +13,16 @@
 //!
 //! The decider thread blocks on its channel: with no events it does no work
 //! and makes no calls (no timers). Every burst is one `batch`.
+//!
+//! Nerve I/O never runs under the engine lock (slot 247): plan (lock) ->
+//! call the nerve (no lock, one lost reply stops the rest of the batch) ->
+//! commit (lock); alert/escalation posts go to a courier thread.
 
 use crate::config::Config;
 use crate::guard::Guard;
 use crate::handoff::{Handoff, Offer};
 use crate::llm::{Advisor, Choice};
-use crate::nerve::NerveLink;
+use crate::nerve::{NerveLink, Outcome as NerveOutcome};
 use crate::rules::{subject_key, Limits, Outcome, Rules, Subject, Verdict};
 use crate::sink::{Escalations, Jsonl};
 use crate::snapshot::Snapshot;
@@ -29,7 +33,8 @@ use nerve_cortex_contract::{
 use openmind_nerve::incident::{correlate_with, Correlator, Explain, Sev, Signal};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet, VecDeque};
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{sync_channel, Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -127,7 +132,6 @@ pub struct Stats {
     /// Sticky subjects past `incident_sticky_max_s` (off by default).
     pub incidents_resolved_stale: u64,
     pub alerts: u64,
-    pub alerts_to_nerve: u64,
     pub escalations: u64,
     pub handoffs: u64,
     pub handoffs_duplicate: u64,
@@ -158,6 +162,9 @@ pub struct Cortex {
     /// Re-reads the nerve ring for folded repeats (set by `serve` when
     /// `repeat_poll_s` > 0 and the stream is on).
     pub repeats: Option<Arc<crate::repeat::RepeatWatch>>,
+    /// Alert/escalation post counters, shared with the courier thread.
+    pub posts: Arc<PostCounters>,
+    outgoing: Vec<Post>,
     seen: HashSet<u64>,
     seen_order: VecDeque<u64>,
     last_said: BTreeMap<(String, &'static str), u64>,
@@ -224,6 +231,8 @@ impl Cortex {
                 ..Stats::default()
             },
             snap: Arc::new(Snapshot::default()),
+            posts: Arc::new(PostCounters::default()),
+            outgoing: vec![],
             seen: HashSet::new(),
             seen_order: VecDeque::new(),
             last_said: BTreeMap::new(),
@@ -444,7 +453,28 @@ impl Cortex {
     /// that have no event in this burst are carried into the correlator, so
     /// bursts of unrelated subjects no longer close an open incident; an
     /// incident whose subject cleared is resolved in that same burst.
+    /// Decide on one coalesced burst: plan, call the nerve, commit, deliver
+    /// the alert/escalation posts. One thread, no lock: the replay CLI and
+    /// the unit tests use it. The service's decider runs the same phases
+    /// with the engine lock released around the nerve calls
+    /// ([`run_decider`], slot 247).
     pub fn process(&mut self, evs: Vec<Event>, now: u64) -> Vec<Value> {
+        let plan = self.plan(evs, now);
+        let outcomes = call_actions(&mut *self.nerve, &plan);
+        let out = self.commit(plan, outcomes, now);
+        for p in self.take_posts() {
+            let ok = self.nerve.post_event(&p.event);
+            self.posts.note(p.alert, ok);
+        }
+        out
+    }
+
+    /// Phase 1 (engine lock held, no I/O to the nerve): admit, correlate,
+    /// decide every subject, build the action requests. A restart request
+    /// is reserved against its unit's hourly cap here, so the cap can never
+    /// be passed while the call is in flight; [`Cortex::commit`] releases
+    /// the reservation when the nerve says the restart did not run.
+    pub fn plan(&mut self, evs: Vec<Event>, now: u64) -> Vec<Pending> {
         self.stats.events_invalid += self.snap.take_invalid();
         let evs = self.admit(evs);
         if evs.is_empty() {
@@ -654,7 +684,7 @@ impl Cortex {
         }
         let mut out = vec![];
         let mut stack_wide_done = false;
-        for s in subjects.values() {
+        for s in subjects.into_values() {
             let cause = home.get(&s.key).cloned().unwrap_or_else(|| s.key.clone());
             let stack_wide = burst_stack_wide.contains(&s.key);
             if stack_wide && stack_wide_done {
@@ -667,9 +697,9 @@ impl Cortex {
                 .get(&cause)
                 .map(|i| i.id.clone())
                 .unwrap_or_else(|| format!("info:{}", s.key));
-            let v = self.rules.decide(s, stack_wide, now);
-            if let Some(d) = self.act(s, &incident, v, now) {
-                out.push(d);
+            let v = self.rules.decide(&s, stack_wide, now);
+            if let Some(p) = self.plan_one(s, incident, v, now) {
+                out.push(p);
             }
         }
         out
@@ -682,7 +712,13 @@ impl Cortex {
         }
     }
 
-    fn act(&mut self, s: &Subject, incident: &str, mut v: Verdict, now: u64) -> Option<Value> {
+    fn plan_one(
+        &mut self,
+        s: Subject,
+        incident: String,
+        mut v: Verdict,
+        now: u64,
+    ) -> Option<Pending> {
         // Duplicate alert/escalation for the same subject+rule within the cooldown.
         if v.outcome == Outcome::None && (v.alert || v.escalate) {
             let k = (s.key.clone(), v.rule);
@@ -703,7 +739,7 @@ impl Cortex {
                     choices.push(Choice::Restart(u.clone()));
                 }
             }
-            let summary = summary(s, incident, &v);
+            let summary = summary(&s, &incident, &v);
             match self.advisor.advise(v.sev, &summary, &choices, now) {
                 Ok(a) => {
                     self.stats.llm_calls += 1;
@@ -742,23 +778,68 @@ impl Cortex {
             }
         }
         let id = self.next_id("dec");
-        let mut action = Value::Null;
+        let mut req = None;
         if let Outcome::Restart(unit) = &v.outcome {
-            let req = ActionRequest {
+            req = Some(ActionRequest {
                 v: CONTRACT_VERSION,
                 request_id: format!("{id}-{incident}"),
                 source: CORTEX_SOURCE.to_string(),
                 ts: ts(now),
-                incident: incident.to_string(),
+                incident: incident.clone(),
                 action: ActionKind::Restart,
                 unit: unit.clone(),
                 dry_run: self.cfg.dry_run(),
                 rule: v.rule.to_string(),
                 decided_by,
                 reason: v.reason.clone(),
-            };
+            });
             self.stats.actions_requested += 1;
-            let o = self.nerve.request_action(&req);
+            // Reserve the cap slot before the call (released in commit).
+            self.rules.note_restart(unit, now);
+        }
+        Some(Pending {
+            id,
+            subject: s,
+            incident,
+            verdict: v,
+            llm,
+            decided_by,
+            req,
+        })
+    }
+
+    /// Phase 3 (engine lock held again): account the nerve's answers,
+    /// record the decisions, queue the alert/escalation posts (sent later
+    /// by [`Cortex::take_posts`]'s caller, outside the lock).
+    pub fn commit(
+        &mut self,
+        plan: Vec<Pending>,
+        outcomes: Vec<Option<NerveOutcome>>,
+        now: u64,
+    ) -> Vec<Value> {
+        let mut out = vec![];
+        let mut outcomes = outcomes.into_iter();
+        for p in plan {
+            let o = outcomes.next().flatten();
+            out.push(self.commit_one(p, o, now));
+        }
+        out
+    }
+
+    fn commit_one(&mut self, p: Pending, o: Option<NerveOutcome>, now: u64) -> Value {
+        let Pending {
+            id,
+            subject: s,
+            incident,
+            verdict: mut v,
+            llm,
+            decided_by,
+            req,
+        } = p;
+        let mut action = Value::Null;
+        if let Some(req) = req {
+            // No outcome = the call phase never ran (cannot happen; be safe).
+            let o = o.unwrap_or_else(|| crate::nerve::not_sent(&req, "no call made"));
             match o.status {
                 ActionStatus::Simulated => self.stats.actions_simulated += 1,
                 ActionStatus::Executed => self.stats.actions_executed += 1,
@@ -774,8 +855,8 @@ impl Cortex {
                 self.stats.actions_unknown += 1;
                 v.escalate = true;
             }
-            if unknown || matches!(o.status, ActionStatus::Simulated | ActionStatus::Executed) {
-                self.rules.note_restart(unit, now);
+            if !(unknown || matches!(o.status, ActionStatus::Simulated | ActionStatus::Executed)) {
+                self.rules.unnote_restart(&req.unit, now);
             }
             if matches!(
                 o.status,
@@ -801,10 +882,10 @@ impl Cortex {
         });
         self.decisions.push(d.clone());
         if v.alert {
-            self.alert(&id, s, incident, &v, now);
+            self.alert(&id, &s, &incident, &v, now);
         }
         if v.escalate {
-            self.escalate(&id, s, incident, &v, now);
+            self.escalate(&id, &s, &incident, &v, now);
         }
         eprintln!(
             "gaia-cortex {} {} {} {} -> {} ({})",
@@ -815,7 +896,12 @@ impl Cortex {
             d["outcome"].as_str().unwrap_or(""),
             d["action"]["status"].as_str().unwrap_or("no action")
         );
-        Some(d)
+        d
+    }
+
+    /// Alert/escalation events waiting to be posted to the nerve.
+    pub fn take_posts(&mut self) -> Vec<Post> {
+        std::mem::take(&mut self.outgoing)
     }
 
     fn alert(&mut self, dec: &str, s: &Subject, incident: &str, v: &Verdict, now: u64) {
@@ -826,10 +912,8 @@ impl Cortex {
         if let Some(p) = &self.outbox {
             let _ = crate::sink::append(p, &a);
         }
-        let ev = Event::new(CORTEX_SOURCE, "cortex.alert", v.sev.as_str(), a.clone());
-        if self.nerve.post_event(&ev) {
-            self.stats.alerts_to_nerve += 1;
-        }
+        let event = Event::new(CORTEX_SOURCE, "cortex.alert", v.sev.as_str(), a.clone());
+        self.outgoing.push(Post { event, alert: true });
         self.alerts.push(a);
     }
 
@@ -845,13 +929,16 @@ impl Cortex {
         if let Offer::Written(h) = &offer {
             e["handoff_id"] = json!(h);
         }
-        let ev = Event::new(
+        let event = Event::new(
             CORTEX_SOURCE,
             "cortex.escalation",
             v.sev.as_str(),
             json!({"id": id, "incident": incident, "subject": s.key, "rule": v.rule}),
         );
-        let _ = self.nerve.post_event(&ev);
+        self.outgoing.push(Post {
+            event,
+            alert: false,
+        });
         self.escalations.push(e);
     }
 
@@ -915,7 +1002,7 @@ impl Cortex {
             "caps": {"per_unit_hour": self.rules.limits.restarts_per_unit_hour, "total_hour": self.rules.limits.restarts_total_hour,
                      "flap_failures": self.rules.limits.flap_failures, "flap_window_s": self.rules.limits.flap_window_s},
             "repeat_watch": self.repeats.as_ref().map(|w| w.to_json(self.cfg.repeat_poll_s)),
-            "alerts": s.alerts, "alerts_to_nerve": s.alerts_to_nerve, "escalations": s.escalations,
+            "alerts": s.alerts, "alerts_to_nerve": self.posts.alerts_ok(), "nerve_posts": self.posts.json(), "escalations": s.escalations,
             "escalations_open": self.escalations.open.len(),
         });
         let more = json!({
@@ -974,7 +1061,7 @@ impl Cortex {
                "nerve": self.cfg.nerve_url.is_some(), "events_in": self.stats.events_in,
                "incidents_open": self.correlator.open.len(), "escalations_open": self.escalations.open.len(),
                "hermes_handoff": self.handoff.enabled, "handoffs": self.stats.handoffs,
-               "busy": false})
+               "busy": self.snap.busy()})
     }
 
     pub fn escalations_json(&self) -> Value {
@@ -1016,9 +1103,145 @@ fn summary(s: &Subject, incident: &str, v: &Verdict) -> String {
     )
 }
 
+/// One subject decided in [`Cortex::plan`], waiting for its nerve call.
+#[derive(Debug, Clone)]
+pub struct Pending {
+    pub id: String,
+    pub subject: Subject,
+    pub incident: String,
+    pub verdict: Verdict,
+    pub llm: Value,
+    pub decided_by: DecidedBy,
+    /// The restart request to send (`None` = no action, nothing to call).
+    pub req: Option<ActionRequest>,
+}
+
+/// An alert or escalation event for the nerve (`POST /event`).
+#[derive(Debug, Clone)]
+pub struct Post {
+    pub event: Event,
+    /// true = `cortex.alert` (counted in `alerts_to_nerve`), false = escalation.
+    pub alert: bool,
+}
+
+/// Outcome counters of the alert/escalation posts, shared with the courier
+/// thread (lock-free).
+#[derive(Debug, Default)]
+pub struct PostCounters {
+    alerts_ok: AtomicU64,
+    escalations_ok: AtomicU64,
+    failed: AtomicU64,
+    dropped: AtomicU64,
+    queued: AtomicU64,
+}
+
+impl PostCounters {
+    pub fn note(&self, alert: bool, ok: bool) {
+        let c = match (ok, alert) {
+            (true, true) => &self.alerts_ok,
+            (true, false) => &self.escalations_ok,
+            (false, _) => &self.failed,
+        };
+        c.fetch_add(1, Ordering::Relaxed);
+    }
+    pub fn alerts_ok(&self) -> u64 {
+        self.alerts_ok.load(Ordering::Relaxed)
+    }
+    pub fn json(&self) -> Value {
+        let g = |c: &AtomicU64| c.load(Ordering::Relaxed);
+        json!({"alerts_ok": g(&self.alerts_ok), "escalations_ok": g(&self.escalations_ok),
+               "failed": g(&self.failed), "dropped": g(&self.dropped), "queued": g(&self.queued)})
+    }
+}
+
+/// Longest courier queue; beyond it new posts are dropped and counted
+/// (`nerve_posts.dropped`). Alerts also live in alerts.jsonl / the outbox,
+/// so a drop loses only the nerve-side copy.
+pub const COURIER_CAP: usize = 1024;
+
+/// Sends alert/escalation posts to the nerve on its own thread, so a slow
+/// or hung nerve (3 s timeout per post) never delays a decision.
+pub struct Courier {
+    tx: SyncSender<Post>,
+    counters: Arc<PostCounters>,
+}
+
+impl Courier {
+    pub fn spawn(mut link: Box<dyn NerveLink>, counters: Arc<PostCounters>, cap: usize) -> Self {
+        let (tx, rx) = sync_channel::<Post>(cap);
+        let c = counters.clone();
+        std::thread::spawn(move || {
+            while let Ok(p) = rx.recv() {
+                let ok = link.post_event(&p.event);
+                c.note(p.alert, ok);
+                c.queued.fetch_sub(1, Ordering::Relaxed);
+            }
+        });
+        Courier { tx, counters }
+    }
+
+    /// Never blocks: a full queue drops the post (counted).
+    pub fn send(&self, p: Post) {
+        self.counters.queued.fetch_add(1, Ordering::Relaxed);
+        match self.tx.try_send(p) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) | Err(TrySendError::Disconnected(_)) => {
+                self.counters.queued.fetch_sub(1, Ordering::Relaxed);
+                self.counters.dropped.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
+/// Phase 2 (no engine lock): send the batch's action requests. Per-batch
+/// breaker: once one request is sent and its reply is lost (hung or slow
+/// nerve), the rest of the batch is not sent but answered locally (dry-run:
+/// simulated; live: refused and escalated), so one hung nerve costs a batch
+/// at most one request timeout (3 s), not 3 s per subject. The next batch
+/// tries the nerve again.
+pub fn call_actions(link: &mut dyn NerveLink, plan: &[Pending]) -> Vec<Option<NerveOutcome>> {
+    let mut hung: Option<String> = None;
+    plan.iter()
+        .map(|p| {
+            p.req.as_ref().map(|r| {
+                if let Some(why) = &hung {
+                    return crate::nerve::not_sent(
+                        r,
+                        &format!("not sent: the nerve did not answer an earlier request in this batch ({why})"),
+                    );
+                }
+                let o = link.request_action(r);
+                if o.by == "unknown" {
+                    hung = Some(r.request_id.clone());
+                }
+                o
+            })
+        })
+        .collect()
+}
+
+fn lock(cx: &Mutex<Cortex>) -> std::sync::MutexGuard<'_, Cortex> {
+    cx.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Decider loop: block until an event arrives, then gather the burst for
 /// `coalesce` and decide. No events = no wakeups.
+///
+/// The engine lock is held only for the in-memory phases (plan, commit);
+/// the nerve calls run without it (slot 247, D-236-2), so API reads and
+/// `POST /escalations/ack` never wait for a hung nerve. Alert/escalation
+/// posts go to a [`Courier`] thread; action requests stay on this thread
+/// (their answer decides the escalation and the cap) behind the per-batch
+/// breaker of [`call_actions`].
 pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: Duration) {
+    let (mut link, snap, counters) = {
+        let mut g = lock(&cx);
+        let link = std::mem::replace(&mut g.nerve, Box::new(crate::nerve::Detached));
+        (link, g.snap.clone(), g.posts.clone())
+    };
+    let courier = link
+        .fork()
+        .map(|l| Courier::spawn(l, counters.clone(), COURIER_CAP));
     while let Ok(first) = rx.recv() {
         let mut burst = first;
         let deadline = Instant::now() + coalesce;
@@ -1033,8 +1256,25 @@ pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: D
                 Err(RecvTimeoutError::Disconnected) => break,
             }
         }
-        let mut g = cx.lock().unwrap_or_else(|e| e.into_inner());
-        g.process(burst, now_secs());
-        g.publish();
+        let now = now_secs();
+        snap.set_busy(true);
+        let plan = lock(&cx).plan(burst, now);
+        let outcomes = call_actions(&mut *link, &plan);
+        let posts = {
+            let mut g = lock(&cx);
+            g.commit(plan, outcomes, now);
+            snap.set_busy(false);
+            g.publish();
+            g.take_posts()
+        };
+        for p in posts {
+            match &courier {
+                Some(c) => c.send(p),
+                None => {
+                    let ok = link.post_event(&p.event);
+                    counters.note(p.alert, ok);
+                }
+            }
+        }
     }
 }

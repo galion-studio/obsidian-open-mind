@@ -88,3 +88,11 @@ replacing service.
   skip filter (`crates/galion-one/src/main.rs:2436,2474,2541`), not a Node call.
 - Console Node bundle not served: GET 127.0.0.1:8080 `/server/index.mjs` 404, `/node_modules/` 404, `/` 302 (21:56 CET). Still re-check the console-serve source before Phase C.
 - `/srv/box-archive/2026-10-21` (11 G) retention is a separate owner decision.
+
+## 7. Dry-run tool (wave-4 slot 330, 2026-10-28)
+
+`crates/galion-pyarchive`: `galion-pyarchive plan [--out NEWDIR]` lists and hashes the Phase A set, proves 0
+active systemd unit/timer/cron/process references and prints the tar + `sha256sum -c` manifest plan plus the
+owner commands (not executed); `galion-pyarchive verify --manifest phase-a.sha256` re-checks right before
+Phase A. First VPS run 2026-10-28 00:18 CET: PASS, 5 files / 4 752 180 B, 0 active refs, 1 overridden
+(base `galion-desk.service` ExecStart, see `docs/real-tests/py-archive-tool.md` "Finding for Phase A").

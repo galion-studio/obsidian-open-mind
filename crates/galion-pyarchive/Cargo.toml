@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "galion-pyarchive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dry-run planner for the Phase A Python/Node archive (docs/py-archive-plan.md): lists the set, proves 0 live systemd unit/timer/cron/process references, writes a tar + SHA-256 manifest plan. Never moves or deletes anything."
+
+[dependencies]
+sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
+serde_json = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }

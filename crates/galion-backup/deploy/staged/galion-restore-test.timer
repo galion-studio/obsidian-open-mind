@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+# STAGED (wave-4 slot 326, 2026-10-28 CET +01:00): NOT INSTALLED.
+# Once a day, between the 00:17 and 06:17 backup runs (galion-backup.timer
+# is 00/6:17 local time, +5 min random delay; a restore test takes ~1.5 s on
+# the 18 MB archive, see docs/real-tests/restore-test-rust.md).
+[Unit]
+Description=Galion restore test once a day
+
+[Timer]
+OnCalendar=*-*-* 03:47:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

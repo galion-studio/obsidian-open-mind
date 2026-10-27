@@ -28,7 +28,13 @@ All times Europe/Zagreb (CEST, +02:00).
 subcommands the script called (`snapshot`, `verify`, `schema`,
 `migrate-baseline`; same output, same exit codes; moved from ws/foundation
 `crates/galion-backup/src/main.rs`) and **adds** `galion-backup run`, which
-does the whole script in-process:
+does the whole script in-process. Since slot 326 it also has
+`galion-backup restore-test [ARCHIVE]`, the Rust port of the VPS
+`galion-restore-test.sh` (mapping table in `src/restore.rs`, evidence in
+`docs/real-tests/restore-test-rust.md`, staged unit + timer in
+`deploy/staged/galion-restore-test.*`).
+
+`run` step by step:
 
 | Script step | Rust (`src/backup.rs`) |
 |---|---|

@@ -83,13 +83,26 @@ Gate: Step 1 is done, then there are at least 4 more clean timer runs (1 day)
 on the folded unit, and the owner says go.
 Read-only findings from `real_fold_gate` (2026-10-27 21:57 CET):
 
-- [ ] **Blocker:** `/opt/galion/rust/bin/galion-restore-test.sh` line 11 calls
+- [ ] **Blocker (code ready, slot 326, 2026-10-28 CET):** `/opt/galion/rust/bin/galion-restore-test.sh` line 11 calls
       `/opt/galion/rust/bin/galion-backup verify`. That is the pre-t273u helper
       ELF (`galion-backup`, the same file as `galion-backup-pre-t273u`, sha256
-      `3df3f88d…1d09`). Repoint it to `galion-backup-98466ab verify` (the Rust
-      main.rs supports `verify <db>`). Then run the restore drill once more and
-      expect the 43/43 shape (checksums ok, files restored, no MISSING) before
-      retiring the helper.
+      `3df3f88d…1d09`). Slot 326 ported the whole script to the Rust
+      subcommand `galion-backup restore-test [ARCHIVE]` (branch
+      `swarm/restore-test-rust`, code commit 2595481): stdout identical to the
+      .sh on all 12 real VPS archives, see docs/real-tests/restore-test-rust.md.
+      It also fixes **F-326-1**: the .sh exits 0 with `restore test ok` after
+      a checksum `FAILED` (`&&` list defeats `set -e`); Rust exits 1.
+      **D-326-1 (owner go needed, not done):** install the release musl ELF as
+      `/opt/galion/rust/bin/galion-backup-2595481` (0755 root), run
+      `galion-backup-2595481 restore-test` once by hand and expect the 12/12
+      shape (`checksums ok`, 4x `integrity=ok`, `files restored: 1794`, no
+      MISSING); then either replace the .sh body with
+      `exec /opt/galion/rust/bin/galion-backup-2595481 restore-test "$@"` or
+      archive it with the others below; optionally install the staged
+      `deploy/staged/galion-restore-test.{service,timer}` (daily 03:47,
+      sandboxed, NOT installed) and `systemctl enable --now
+      galion-restore-test.timer`. Rollback: disable the timer, remove the two
+      unit files; the .sh is untouched until then.
 - [ ] Repoint `/opt/galion/offsite/README.md` (lines 12, 46). It names
       `galion-backup.sh` and `galion-backup verify`. This is docs only.
 - [ ] Repoint the `/opt/galion/offsite/galion-offsite-encrypt.sh` comment

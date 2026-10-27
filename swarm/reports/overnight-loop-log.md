@@ -29,3 +29,30 @@ Decision: SPAWN_BLOCKED (1m and 5m both ~21.7, far above ~8–12 gate). Agents s
 Tests: first-pass provider suite already started 19:40:22 (t311u); not duplicated this iteration.
 Note: a process named link-watch still appears in VPS ps list (rule: no Python link-watch) — flag for review, not touched this run.
 No significant report writes; no VPS sync / git push this iteration.
+
+## 2026-10-27 19:43:29 CET — t312u GitHub push COMPLETE
+AUTO-ACCEPT (Mate voice-confirmed): preservation includes Galion GitHub after significant overnight results.
+Repo: galion-studio/obsidian-open-mind
+Branch: swarm/overnight-loop-20261027
+Commit: 202887d56ddbede97acfc47bebd262a6eedd2a39
+URL: https://github.com/galion-studio/obsidian-open-mind/commit/202887d56ddbede97acfc47bebd262a6eedd2a39
+VPS mirror: /opt/galion/swarm-reports/overnight-loop-log.md
+Path in repo: docs/swarm-overnight/overnight-loop-log.md
+
+
+## 2026-10-27 19:47:04 CET — t311u first-pass provider tests COMPLETE + t312u push notes
+AUTO-ACCEPT decisions:
+- AUTO-ACCEPT: proceed with River/OpenRouter/Hermes/Nerve/laptop probes under retuned caps (no Titanaxe).
+- AUTO-ACCEPT: attempt Hermes coding enable via documented ALLOW_NO_LANDLOCK+worktree; rolled back after /var/lib deny and /srv RO failures; coding remains OFF.
+Limits enforced on disk: CARGO_BUILD_JOBS=4 CARGO_TEST_JOBS=4 GALION_VPS_AGENT_CONCURRENCY=2 GALION_VPS_SSH_PROBERS_MAX=2; Hermes caps unchanged.
+Headline metrics:
+- River: 8/8 ok, err=0.0, lat_avg=1320ms, cost~$0.00011856
+- OpenRouter: 8/8 ok, err=0.0, lat_avg=2539ms, cost~$0.00026428 model=deepseek/deepseek-chat
+- Hermes :8642: health=200 models=200 chat=502×N (output truncated); coding OFF after failed enable attempts
+- Nerve :8670: health 200; see report (python clock coarse; ns samples in final push)
+- Laptop uncensored: NOT_FOUND
+Reports: overnight-test-river.md, overnight-test-openrouter.md, overnight-test-hermes.md, overnight-test-laptop.md
+t312u first push already: galion-studio/obsidian-open-mind @ swarm/overnight-loop-20261027 sha 9fa897b9978a31ea9e8917337a33c69524748b72
+
+### Nerve :8670 latency samples (2026-10-27 19:47:24 CET)
+status=200×5; latency_ms=[16,10,16,13,21]; avg≈15.2ms; system=degraded score=39 (from earlier health body).

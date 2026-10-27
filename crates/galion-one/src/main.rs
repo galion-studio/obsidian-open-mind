@@ -276,6 +276,13 @@ fn main() {
         std::process::exit(1);
     });
     eprintln!("one: listening");
+    // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
+    nerve_client::event(
+        "galion-one",
+        "started",
+        &format!("listening on {}", probe::one_bind(&probe::process_env)),
+    );
+    nerve_client::start_heartbeat("galion-one", 60);
     for stream in listener.incoming() {
         if let Ok(stream) = stream {
             thread::spawn(move || {

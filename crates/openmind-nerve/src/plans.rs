@@ -886,7 +886,7 @@ mod tests {
 
     #[test]
     fn public_ip_only() {
-        for ip in ["203.0.113.7", "51.15.0.1", "2a01:4f8::1"] {
+        for ip in ["203.0.113.7", "198.51.100.1", "2a01:4f8::1"] {
             assert!(public_ip(ip), "{ip}");
         }
         for ip in [

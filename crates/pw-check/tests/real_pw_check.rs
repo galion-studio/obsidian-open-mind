@@ -268,6 +268,12 @@ fn real_pw_check_against_local_console() {
     assert_eq!(res.status.code(), Some(1));
     assert!(err.contains("ERR_CONNECTION_REFUSED"), "{err}");
     assert!(!dir.join("out3/report.json").exists());
+    let left3 = std::fs::read_dir(std::env::temp_dir())
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("pw-check-"))
+        .count();
+    assert_eq!(left3, 0, "profile dir left after a failed run");
     eprintln!("S3 ok: {}", err.trim());
 
     stop.store(true, Ordering::SeqCst);

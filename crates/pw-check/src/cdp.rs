@@ -218,24 +218,42 @@ impl Browser {
         }
     }
 
-    pub fn close(mut self) {
-        let _ = self.call(None, "Browser.close", json!({}), Duration::from_secs(5));
-        let t0 = Instant::now();
-        while t0.elapsed() < Duration::from_secs(5) {
-            if let Ok(Some(_)) = self.child.try_wait() {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(50));
-        }
+    pub fn close(self) {
+        // Drop does the graceful Browser.close, the wait and the cleanup.
+        drop(self);
     }
 }
 
 impl Drop for Browser {
     fn drop(&mut self) {
         if let Ok(None) = self.child.try_wait() {
-            let _ = self.child.kill();
-            let _ = self.child.wait();
+            // Graceful first so Chromium's helper processes exit and stop writing
+            // into the profile dir; SIGKILL only if it does not go within 5 s.
+            self.next += 1;
+            let mut msg = serde_json::to_vec(
+                &json!({"id": self.next, "method": "Browser.close", "params": {}}),
+            )
+            .unwrap_or_default();
+            msg.push(0);
+            let _ = self.tx.write_all(&msg);
+            let t0 = Instant::now();
+            while t0.elapsed() < Duration::from_secs(5) {
+                if let Ok(Some(_)) = self.child.try_wait() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            if let Ok(None) = self.child.try_wait() {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+            }
         }
-        let _ = std::fs::remove_dir_all(&self.profile);
+        for _ in 0..10 {
+            let _ = std::fs::remove_dir_all(&self.profile);
+            std::thread::sleep(Duration::from_millis(100));
+            if !self.profile.exists() {
+                break;
+            }
+        }
     }
 }

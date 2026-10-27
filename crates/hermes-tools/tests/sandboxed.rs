@@ -18,6 +18,13 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 fn skip() -> bool {
+    // GH Actions runners often cannot write userns uid_map even after sysctl;
+    // cloud bc-06dcb59d enables userns in self-eval — keep this CI skip as
+    // belt-and-suspenders (RULES.md sandbox_vps_only).
+    if std::env::var_os("CI").is_some() {
+        eprintln!("SKIP: hermes-tools sandboxed suite is VPS-only (CI=set)");
+        return true;
+    }
     let f = openmind_sandbox::features();
     let missing = ["git", "dd", "install"]
         .iter()

@@ -4,13 +4,14 @@
 [package]
 name = "bench-banking"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "B1 banking benchmark: a local Revolut-shaped mock bank, a local-only client, a draft-only Hermes tool layer and the per-axis scorer. Never talks to a live bank."
 
 [dependencies]
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
-zagreb-time = { path = "../zagreb-time" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }
 # Shared harness (swarm/bench-harness ea8315c): Scorecard for the score file;
 # MockServer for the cross-check test.
-galion-bench = { path = "../galion-bench" }
+galion-bench = { path = "../galion-bench", version = "0.1.0" }

@@ -9,6 +9,7 @@
 [package]
 name = "persona-plex-relay"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Persona Plex v2: VPS relay scaffold for the voice-to-voice channel (auth, session, speaker verification policy; no inference)."
@@ -18,8 +19,8 @@ name = "persona-plex-relay"
 path = "src/main.rs"
 
 [dependencies]
-zagreb-time = { path = "../zagreb-time" }
-galion-voice-core = { path = "../galion-voice-core" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }
+galion-voice-core = { path = "../galion-voice-core", version = "0.1.0" }
 opus-pure = { version = "0.2.2", default-features = false, optional = true }
 
 [features]

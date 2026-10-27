@@ -3,6 +3,7 @@
 [package]
 name = "openmind-queue"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "POSEIDON systems for Gaia: a durable job queue (priorities, leases, retries, DLQ), per-agent quotas, hard-stop spend caps (numbers only) and a VRAM-pool registry with GPU -> LAN -> CPU routing. std HTTP, no async runtime."
@@ -14,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 # In-workspace crates only. serde/serde_json are existing workspace
 # dependencies (already in Cargo.lock); no new third-party crates.
-zagreb-time = { path = "../zagreb-time" }
-openmind-provider = { path = "../openmind-provider" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }
+openmind-provider = { path = "../openmind-provider", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }

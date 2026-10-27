@@ -4,6 +4,7 @@
 [package]
 name = "openmind-tulu"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Parse a DR Tulu llama-server fixture TOML. No process, no socket, no GPU."

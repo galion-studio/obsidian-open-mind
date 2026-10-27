@@ -4,6 +4,7 @@
 [package]
 name = "openmind-discovery"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "LAN device discovery: mDNS/DNS-SD browse and announce, an opt-in rate-limited /24 port probe, and pending OpenMind Provider rows that only an admin approve can admit."
@@ -15,8 +16,8 @@ path = "src/main.rs"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-openmind-provider = { path = "../openmind-provider" }
-zagreb-time = { path = "../zagreb-time" }
+openmind-provider = { path = "../openmind-provider", version = "0.1.0" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }
 # SO_REUSEADDR/SO_REUSEPORT and multicast interface selection, which std lacks.
 # MIT OR Apache-2.0. See docs/third-party/lan-discovery.md.
 socket2 = { version = "0.6", features = ["all"] }

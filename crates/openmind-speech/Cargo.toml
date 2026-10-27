@@ -4,6 +4,7 @@
 [package]
 name = "openmind-speech"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Parse whisper.cpp and piper fixture outputs on CPU. No process, no download, no GPU."

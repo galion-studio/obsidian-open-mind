@@ -3,6 +3,7 @@
 [package]
 name = "galion-desk"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "galion-desk: the operator's desk endpoint. Reads the pod, never writes it."
@@ -16,8 +17,8 @@ name = "galion-desk"
 path = "src/main.rs"
 
 [dependencies]
-galion-common = { path = "../galion-common" }
-openmind-config = { path = "../openmind-config" }
+galion-common = { path = "../galion-common", version = "0.1.0" }
+openmind-config = { path = "../openmind-config", version = "0.1.0" }
 
 [dev-dependencies]
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml

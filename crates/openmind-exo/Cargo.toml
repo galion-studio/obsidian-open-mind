@@ -4,6 +4,7 @@
 [package]
 name = "openmind-exo"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Parse exo fixture bodies for an OpenAI-compatible /v1/models and /health. No sockets and no GPU."

@@ -4,6 +4,7 @@
 [package]
 name = "openmind-provider"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "ComputeProvider trait, a JSON registry of approval state (Pending, Approved, Rejected), the fallback policy and route (folded in from openmind-fallback and openmind-route)."

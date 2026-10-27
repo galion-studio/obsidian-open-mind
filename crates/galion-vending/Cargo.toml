@@ -3,6 +3,7 @@
 [package]
 name = "galion-vending"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Deterministic long-horizon vending-machine business sim (benchmark B3): inventory truth, pricing, restock, cash drawer, theft/spoilage, durable log, score formula."
@@ -16,5 +17,5 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-zagreb-time = { path = "../zagreb-time" }
-galion-bench = { path = "../galion-bench" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }
+galion-bench = { path = "../galion-bench", version = "0.1.0" }

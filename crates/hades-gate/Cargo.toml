@@ -4,6 +4,7 @@
 [package]
 name = "hades-gate"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Admin approval gate. Dry-run by default. Signed (Ed25519), expiring, single-use approval tokens scoped to one action, target and plan hash; fsynced replay ledger; hard admin-safety rule. WouldApply is a decision only and never runs a command. kill and rotate are always refused. journal: one JSON record per decision."
@@ -13,7 +14,7 @@ name = "hades-gate"
 path = "src/main.rs"
 
 [dependencies]
-zagreb-time = { path = "../zagreb-time" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }
 serde_json = { workspace = true }
 # Ed25519 verify/sign. No default features: no precomputed tables ("fast"),
 # no rand. See docs/third-party/hades-approval.md.

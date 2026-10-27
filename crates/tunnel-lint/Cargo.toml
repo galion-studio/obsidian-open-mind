@@ -4,6 +4,7 @@
 [package]
 name = "tunnel-lint"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Read-only linter for a cloudflared ingress config.yml: flags routes to local ports where nothing listens."

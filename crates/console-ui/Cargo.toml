@@ -5,6 +5,7 @@
 [package]
 name = "console-ui"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Server-rendered Rust UI for the Galion console: HTML pages, a CSS sheet generated from Rust, the phone/host gate, and a loopback API client. std only, no JavaScript."

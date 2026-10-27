@@ -3,6 +3,7 @@
 [package]
 name = "room"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "room: a read-only view of the operator's files as one page."
@@ -16,4 +17,4 @@ name = "room"
 path = "src/main.rs"
 
 [dependencies]
-galion-common = { path = "../galion-common" }
+galion-common = { path = "../galion-common", version = "0.1.0" }

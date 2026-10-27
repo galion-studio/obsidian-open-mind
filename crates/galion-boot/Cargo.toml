@@ -4,14 +4,15 @@
 [package]
 name = "galion-boot"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "Boot/keep tool replacing keep.sh, stack-boot.sh, persist-boot.sh and hardware.sh: hardware probe, age-bundle secret restore, tunnel env file, systemd unit renderer, plain supervisor fallback, status."
 
 [dependencies]
-galion-common = { path = "../galion-common" }
-openmind-survival = { path = "../openmind-survival" }
-zagreb-time = { path = "../zagreb-time" }
+galion-common = { path = "../galion-common", version = "0.1.0" }
+openmind-survival = { path = "../openmind-survival", version = "0.1.0" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }

@@ -4,6 +4,7 @@
 [package]
 name = "hermes-bench"
 version.workspace = true
+publish = false
 edition.workspace = true
 license.workspace = true
 description = "hermes-rs adapters for the B1 banking / B2 Wall Street / B3 vending benchmark tool sets, and a `hermes-bench` runner with a pluggable agent (scripted, mock LLM, opt-in OpenRouter). Local mock / paper / sim only; no money-moving tool exists."
@@ -15,10 +16,10 @@ path = "src/main.rs"
 [dependencies]
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
 # default-features = false: no bundled SQLite (C) build; the bench needs no session DB.
-hermes-rs = { path = "../hermes-rs", default-features = false }
-bench-banking = { path = "../bench-banking" }
-galion-wallstreet = { path = "../galion-wallstreet" }
-galion-vending = { path = "../galion-vending" }
-galion-bench = { path = "../galion-bench" }
-bench-scoreboard = { path = "../bench-scoreboard" }
-zagreb-time = { path = "../zagreb-time" }
+hermes-rs = { path = "../hermes-rs", version = "0.1.0", default-features = false }
+bench-banking = { path = "../bench-banking", version = "0.1.0" }
+galion-wallstreet = { path = "../galion-wallstreet", version = "0.1.0" }
+galion-vending = { path = "../galion-vending", version = "0.1.0" }
+galion-bench = { path = "../galion-bench", version = "0.1.0" }
+bench-scoreboard = { path = "../bench-scoreboard", version = "0.1.0" }
+zagreb-time = { path = "../zagreb-time", version = "0.1.0" }

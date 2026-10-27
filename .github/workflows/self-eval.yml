@@ -162,7 +162,15 @@ jobs:
           targets: aarch64-unknown-linux-musl, armv7-unknown-linux-musleabihf
       - name: install qemu-user-static and zig cc
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q qemu-user-static
+          sudo apt-get update -q
+          # Ubuntu 26.04 made qemu-user-static a virtual package with no
+          # candidate. qemu-user-binfmt provides qemu-aarch64-static and
+          # qemu-arm-static. Older images still ship the real package.
+          if ! sudo apt-get install -y -q qemu-user-static; then
+            sudo apt-get install -y -q qemu-user-binfmt
+          fi
+          command -v qemu-aarch64-static
+          command -v qemu-arm-static
           echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
       - run: cargo test -p galion-realtest --test real_sh_ucpu -- --nocapture
         env:

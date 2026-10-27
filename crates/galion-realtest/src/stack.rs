@@ -235,6 +235,10 @@ impl Stack {
 
     /// Write fixtures and start the stub plus the supervisor.
     pub fn up(bins: Bins, out: &Path, base: u16, with_nerve: bool) -> Result<Stack, String> {
+        // CI passes `--out target/realtest/ci`. Voice and guardian then exec
+        // with that directory as cwd, so a relative config path does not
+        // resolve. Absolute fixture paths survive the chdir.
+        let out = absolute_dir(out);
         let fx = out.join("fixture");
         if fx.file_name().is_some_and(|n| n == "fixture") && fx.exists() {
             fs::remove_dir_all(&fx).map_err(|e| format!("clean {}: {e}", fx.display()))?;

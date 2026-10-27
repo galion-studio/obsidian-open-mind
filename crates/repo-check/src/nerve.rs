@@ -609,3 +609,238 @@ pub fn render_table(rows: &[BinStatus]) -> String {
     ));
     s
 }
+
+// ------------------------------------------------------------ wiring depth
+
+/// One wiring rule a directly covered package must meet (slot 327).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Wire {
+    /// `nerve_client::event(.., "started", ..)` somewhere in non-test src.
+    Started,
+    /// Serves HTTP (non-test `TcpListener::bind` / `Server::http`) but never
+    /// calls `nerve_client::observe_request`, so 5xx and slow requests are
+    /// invisible to the nerve.
+    ObserveRequest,
+    /// Neither `start_heartbeat` (long-lived) nor `nerve_client::flush`
+    /// (one-shot): a one-shot CLI exits before the push worker drains the
+    /// queue and its signals are silently lost.
+    HeartbeatOrFlush,
+}
+
+impl Wire {
+    pub const ALL: [Wire; 3] = [Wire::Started, Wire::ObserveRequest, Wire::HeartbeatOrFlush];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Wire::Started => "started",
+            Wire::ObserveRequest => "observe_request",
+            Wire::HeartbeatOrFlush => "heartbeat_or_flush",
+        }
+    }
+}
+
+/// Wiring verdict for one package that depends on nerve-client directly.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WiringRow {
+    pub package: String,
+    pub manifest: String,
+    pub serves_http: bool,
+    /// Rules not met (after exemptions).
+    pub missing: Vec<Wire>,
+    /// Rules exempted in source with `// nerve-wiring: exempt <rule> <reason>`.
+    pub exempt: Vec<(Wire, String)>,
+}
+
+/// The part of a source file before its first `#[cfg(test)]` line (test
+/// modules may bind listeners and call anything; they do not count).
+pub fn non_test(text: &str) -> &str {
+    let mut off = 0;
+    for line in text.split_inclusive('\n') {
+        if line.trim_start().starts_with("#[cfg(test)]") {
+            return &text[..off];
+        }
+        off += line.len();
+    }
+    text
+}
+
+/// Facts the wiring rules look at, over a crate's concatenated non-test src.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct WireFacts {
+    pub started: bool,
+    pub serves_http: bool,
+    pub observe: bool,
+    pub heartbeat: bool,
+    pub flush: bool,
+    pub exempt: Vec<(Wire, String)>,
+}
+
+pub fn wire_facts(src: &str) -> WireFacts {
+    let mut f = WireFacts::default();
+    let mut rest = src;
+    while let Some(i) = rest.find("nerve_client::event(") {
+        let tail = &rest[i..];
+        let end = tail.find(';').unwrap_or(tail.len()).min(400);
+        if tail[..end].contains("\"started\"") {
+            f.started = true;
+            break;
+        }
+        rest = &tail["nerve_client::event(".len()..];
+    }
+    f.serves_http = src.contains("TcpListener::bind(") || src.contains("Server::http(");
+    f.observe = src.contains("observe_request(");
+    f.heartbeat = src.contains("start_heartbeat(");
+    f.flush = src.contains("nerve_client::flush(");
+    for line in src.lines() {
+        let Some(m) = line.split("// nerve-wiring: exempt ").nth(1) else {
+            continue;
+        };
+        let (rule, why) = m
+            .trim()
+            .split_once(char::is_whitespace)
+            .unwrap_or((m.trim(), ""));
+        if let Some(w) = Wire::ALL.into_iter().find(|w| w.name() == rule) {
+            if !why.trim().is_empty() && !f.exempt.iter().any(|e| e.0 == w) {
+                f.exempt.push((w, why.trim().to_string()));
+            }
+        }
+    }
+    f
+}
+
+/// Rules a package with these facts misses (before exemptions).
+pub fn wire_missing(f: &WireFacts) -> Vec<Wire> {
+    let mut m = Vec::new();
+    if !f.started {
+        m.push(Wire::Started);
+    }
+    if f.serves_http && !f.observe {
+        m.push(Wire::ObserveRequest);
+    }
+    if !f.heartbeat && !f.flush {
+        m.push(Wire::HeartbeatOrFlush);
+    }
+    m
+}
+
+/// Wiring-depth check (slot 327): every workspace package that has at least
+/// one bin and depends on nerve-client DIRECTLY must push `started`, call
+/// `observe_request` when it serves HTTP, and either heartbeat or flush.
+/// Static text scan of `<crate>/src/**/*.rs` (non-test part). Misses are
+/// warnings (the dependency gate above stays the hard error).
+pub fn check_wiring(
+    root_manifest: Option<&str>,
+    files: &[String],
+    read: &dyn Fn(&str) -> Option<String>,
+) -> (Vec<Finding>, Vec<WiringRow>) {
+    let mut findings = Vec::new();
+    let mut rows = Vec::new();
+    let Some(root) = root_manifest else {
+        return (findings, rows);
+    };
+    let ws = parse_manifest(root);
+    let dirs: BTreeSet<String> = files
+        .iter()
+        .filter_map(|f| f.strip_suffix("/Cargo.toml"))
+        .filter(|d| ws.members.iter().any(|p| member_match(p, d)))
+        .filter(|d| !ws.exclude.iter().any(|p| member_match(p, d)))
+        .map(str::to_string)
+        .collect();
+    for dir in &dirs {
+        let rel = format!("{dir}/Cargo.toml");
+        let Some(text) = read(&rel) else { continue };
+        let m = parse_manifest(&text);
+        let Some(pkg) = m.package.clone() else {
+            continue;
+        };
+        if pkg == NERVE_CLIENT
+            || !m
+                .deps
+                .iter()
+                .any(|d| !d.optional && d.package == NERVE_CLIENT)
+        {
+            continue;
+        }
+        let prefix = format!("{dir}/");
+        let local: BTreeSet<String> = files
+            .iter()
+            .filter_map(|f| f.strip_prefix(&prefix))
+            .map(str::to_string)
+            .collect();
+        if bin_targets(&rel, &m, &local).is_empty() {
+            continue;
+        }
+        let src_prefix = format!("{dir}/src/");
+        let mut src = String::new();
+        for f in files
+            .iter()
+            .filter(|f| f.starts_with(&src_prefix) && f.ends_with(".rs"))
+        {
+            if let Some(t) = read(f) {
+                src.push_str(non_test(&t));
+                src.push('\n');
+            }
+        }
+        let facts = wire_facts(&src);
+        let missing: Vec<Wire> = wire_missing(&facts)
+            .into_iter()
+            .filter(|w| !facts.exempt.iter().any(|e| e.0 == *w))
+            .collect();
+        for w in &missing {
+            findings.push(Finding {
+                check: Check::Nerve,
+                level: Level::Warn,
+                file: rel.clone(),
+                line: 0,
+                msg: format!(
+                    "nerve wiring gap {pkg}: {} (wire it, or mark `// nerve-wiring: exempt {} <reason>` in src)",
+                    w.name(),
+                    w.name()
+                ),
+            });
+        }
+        rows.push(WiringRow {
+            package: pkg,
+            manifest: rel,
+            serves_http: facts.serves_http,
+            missing,
+            exempt: facts.exempt,
+        });
+    }
+    rows.sort_by(|a, b| a.package.cmp(&b.package));
+    (findings, rows)
+}
+
+/// One line per directly wired package plus a total line.
+pub fn render_wiring(rows: &[WiringRow]) -> String {
+    let mut s = String::new();
+    for r in rows {
+        let mut st = if r.missing.is_empty() {
+            "wired".to_string()
+        } else {
+            format!(
+                "GAP {}",
+                r.missing
+                    .iter()
+                    .map(|w| w.name())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            )
+        };
+        for (w, why) in &r.exempt {
+            st.push_str(&format!(" [exempt {}: {why}]", w.name()));
+        }
+        s.push_str(&format!(
+            "{:<22} {:<5} {st}\n",
+            r.package,
+            if r.serves_http { "http" } else { "-" }
+        ));
+    }
+    let gaps: usize = rows.iter().map(|r| r.missing.len()).sum();
+    let pk = rows.iter().filter(|r| !r.missing.is_empty()).count();
+    s.push_str(&format!(
+        "nerve wiring: {} direct packages, {pk} with gaps, {gaps} wiring gap(s)\n",
+        rows.len()
+    ));
+    s
+}

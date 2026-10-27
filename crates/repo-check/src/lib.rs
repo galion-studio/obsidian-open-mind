@@ -591,6 +591,8 @@ pub struct Report {
     pub findings: Vec<Finding>,
     /// Nerve coverage verdict per workspace bin (the `nerve` check).
     pub nerve_bins: Vec<nerve::BinStatus>,
+    /// Wiring-depth verdict per directly wired package (slot 327).
+    pub nerve_wiring: Vec<nerve::WiringRow>,
 }
 
 /// Scan the whole tree under `root`.
@@ -633,10 +635,14 @@ pub fn scan_tree_with(
         (nerve_allowlist, allow_text.as_deref()),
     );
     findings.extend(nerve_findings);
+    let (wiring_findings, nerve_wiring) =
+        nerve::check_wiring(root_manifest.as_deref(), &files, &read);
+    findings.extend(wiring_findings);
     Ok(Report {
         files_scanned,
         findings,
         nerve_bins,
+        nerve_wiring,
     })
 }
 

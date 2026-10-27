@@ -14,7 +14,14 @@ use std::path::Path;
 
 fn die(m: &str) -> ! {
     eprintln!("galion-backup: {m}");
-    std::process::exit(1)
+    exit(1)
+}
+
+/// Exit after a bounded flush of the nerve push queue (no-op without
+/// NERVE_URL), so one-shot runs do not lose `started` (slot 327).
+fn exit(code: i32) -> ! {
+    nerve_client::flush(std::time::Duration::from_millis(500));
+    std::process::exit(code)
 }
 
 fn main() {
@@ -30,7 +37,7 @@ fn main() {
             );
             nerve_client::start_heartbeat("galion-backup", 60);
             backup::install_signal_handlers();
-            std::process::exit(backup::run(&o));
+            exit(backup::run(&o));
         }
         Some("snapshot") if a.len() == 4 => {
             nerve_client::event(
@@ -46,7 +53,7 @@ fn main() {
             let (r, t) = sqlite::verify(Path::new(&a[2])).unwrap_or_else(|e| die(&e));
             println!("verify {} integrity={} tables={}", a[2], r, t);
             if r != "ok" {
-                std::process::exit(1)
+                exit(1)
             }
         }
         Some("schema") if a.len() == 3 => {
@@ -70,4 +77,5 @@ fn main() {
         }
         _ => die("usage: run | snapshot <src> <dst> | verify <db> | schema <db> | migrate-baseline <db> <ver> <name>"),
     }
+    nerve_client::flush(std::time::Duration::from_millis(500));
 }

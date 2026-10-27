@@ -24,4 +24,6 @@ fn main() {
         "{}",
         desk_hermes::render(&desk_hermes::mindpack(&home, &db))
     );
+    // One-shot: let the push worker deliver `started` before exit (slot 327).
+    nerve_client::flush(std::time::Duration::from_millis(500));
 }

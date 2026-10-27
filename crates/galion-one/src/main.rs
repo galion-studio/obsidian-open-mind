@@ -27,6 +27,7 @@
 mod cli;
 mod json;
 mod models_refresh;
+mod obs;
 mod persona;
 mod probe;
 mod services;
@@ -287,9 +288,12 @@ fn main() {
         if let Ok(stream) = stream {
             thread::spawn(move || {
                 let _ = stream.set_nodelay(true);
+                obs::begin();
                 if let Err(err) = handle(stream) {
                     eprintln!("one: {err}");
                 }
+                // NERVE push (no-op unless NERVE_URL is set): 5xx + slow requests.
+                obs::finish("galion-one");
             });
         }
     }
@@ -323,6 +327,7 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
         .split_once('?')
         .map(|(p, q)| (p.to_string(), q.to_string()))
         .unwrap_or((raw_path.to_string(), String::new()));
+    obs::what(&method, &path);
     let mut length = 0usize;
     let mut cookie = String::new();
     let mut file_name = String::new();
@@ -787,6 +792,7 @@ fn pull_hermes(heard: &str, mut on_delta: impl FnMut(&str) -> bool) -> bool {
 }
 
 fn begin_audio(stream: &mut TcpStream) -> std::io::Result<()> {
+    obs::status(200);
     stream.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nTransfer-Encoding: chunked\r\nCache-Control: no-store\r\nX-Accel-Buffering: no\r\nConnection: close\r\n\r\n")?;
     stream.flush()
 }
@@ -1269,9 +1275,12 @@ fn serve_tts() {
         if let Ok(stream) = stream {
             thread::spawn(move || {
                 let _ = stream.set_nodelay(true);
+                obs::begin();
                 if let Err(err) = tts_http(stream) {
                     eprintln!("voice: {err}");
                 }
+                // NERVE push: mouth (:8002) requests, named "mouth GET /health" etc.
+                obs::finish("galion-one");
             });
         }
     }
@@ -1334,6 +1343,7 @@ fn tts_http(mut stream: TcpStream) -> std::io::Result<()> {
     let mut parts = lines.next().unwrap_or("").split_whitespace();
     let method = parts.next().unwrap_or("");
     let path = parts.next().unwrap_or("/").split('?').next().unwrap_or("/");
+    obs::what(&format!("mouth {method}"), path);
     let mut length = 0usize;
     for line in lines {
         if let Some(rest) = line.to_ascii_lowercase().strip_prefix("content-length:") {
@@ -3404,6 +3414,7 @@ fn write_response(
     body: &[u8],
     token: Option<&str>,
 ) -> std::io::Result<()> {
+    obs::status(status);
     let reason = match status {
         200 => "OK",
         401 => "Unauthorized",

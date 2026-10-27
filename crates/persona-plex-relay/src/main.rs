@@ -96,8 +96,15 @@ fn load_config(
 }
 
 fn main() -> ExitCode {
-    // NERVE push (no-op unless NERVE_URL is set): started.
+    // NERVE push (no-op unless NERVE_URL is set): started. One-shot: flush the
+    // push queue (bounded) before exit or the signal is lost (slot 327).
     nerve_client::event("persona-plex-relay", "started", "scaffold");
+    let code = run();
+    nerve_client::flush(std::time::Duration::from_millis(500));
+    code
+}
+
+fn run() -> ExitCode {
     let no_flags = std::env::args().nth(1).is_none();
     let path = match config_path() {
         Ok(p) => p,

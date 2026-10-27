@@ -232,5 +232,7 @@ fn main() {
             eprintln!("galion-boot: {e}");
             2
         });
+    // Bounded flush of the nerve push queue so one-shot commands keep `started` (slot 327).
+    nerve_client::flush(std::time::Duration::from_millis(500));
     std::process::exit(code);
 }

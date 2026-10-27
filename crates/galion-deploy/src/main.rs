@@ -29,5 +29,7 @@ fn main() {
             galion_deploy::deploy::main(&args)
         }
     };
+    // Bounded flush of the nerve push queue so one-shot paths keep `started` (slot 327).
+    nerve_client::flush(std::time::Duration::from_millis(500));
     std::process::exit(code);
 }

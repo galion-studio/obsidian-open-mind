@@ -159,6 +159,7 @@ fn main() -> ExitCode {
     } else {
         if opts.nerve_gaps {
             print!("{}", nerve::render_table(&nerve_bins));
+            print!("{}", nerve::render_wiring(&report.nerve_wiring));
         }
         for f in &findings {
             let loc = if f.line == 0 {

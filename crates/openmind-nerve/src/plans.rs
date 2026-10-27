@@ -522,15 +522,15 @@ fn unit_restart(
         ));
     }
     let steps = vec![
-        format!("plan unit-restart for {unit}: {why}"),
-        format!("precondition: {unit} is active and {comp} still fails its check ({health}) at approval time; otherwise stop"),
-        format!("precondition: no deploy or other plan for {unit} is running"),
-        format!("record systemctl status {unit} and the last 200 journal lines of {unit} for the owner"),
-        format!("run systemctl restart {unit} once; no second restart without a new plan"),
+        format!("record plan unit-restart for {unit}: {why}"),
+        format!("verify precondition: {unit} is active and {comp} still fails its check ({health}) at approval time, otherwise stop"),
+        format!("verify precondition: no deploy or other plan for {unit} is running"),
+        format!("record the unit status of {unit} and the last 200 journal lines of {unit} for the owner"),
+        format!("restart {unit} once, no second restart without a new plan"),
         format!("verify: {unit} is active within 30 s and {comp} answers 200 on {health} within its grace period"),
         "verify: the nerve shows the incident resolving in the next cycles".to_string(),
-        format!("rollback: none needed for a restart; if {unit} does not come back, run galion-deploy rollback for {unit} (separate approval)"),
-        "nothing is deleted; no config, access, packet filter or DNS change".to_string(),
+        format!("record rollback: none needed for a restart, if {unit} does not come back the owner runs galion-deploy rollback for {unit} (separate approval)"),
+        "keep everything else: nothing is deleted, no config, access, packet filter or DNS change".to_string(),
     ];
     cx.push(Family::UnitRestart, &unit, key, cause, sev, steps, notes);
 }
@@ -541,15 +541,15 @@ fn stray_stop(cx: &mut Ctx<'_>, key: &str, cause: Option<&str>, sev: &str, port:
     }
     let target = format!("stray-listener-{port}");
     let steps = vec![
-        format!("plan stray-stop for the process listening on port {port}: {why}"),
-        format!("precondition: ss -ltnp shows exactly one process listening on :{port}; record its pid, uid, executable path and start time"),
-        format!("precondition: systemctl status <that pid> names no unit; if a unit owns it this is not a stray: stop here and add {port} to NERVE_KNOWN_PORTS instead (separate decision)"),
-        "precondition: the process is not part of the admin access path and not a HADES process".to_string(),
-        "send SIGTERM to that one pid only, wait up to 10 s; never signal a process group, no forced stop without a new plan".to_string(),
-        "keep its binary, working directory and logs for inspection; nothing is deleted".to_string(),
-        format!("verify: ss -ltn no longer lists :{port}; the nerve no longer reports :{port} as unmanaged"),
+        format!("record plan stray-stop for the process listening on port {port}: {why}"),
+        format!("verify precondition: ss -ltnp shows exactly one process listening on :{port}; record its pid, uid, executable path and start time"),
+        format!("verify precondition: the unit status of that pid names no unit, if a unit owns it this is not a stray: stop here and add {port} to NERVE_KNOWN_PORTS instead (separate decision)"),
+        "verify precondition: the process is not part of the admin access path and not a HADES process".to_string(),
+        "apply: send SIGTERM to that one pid only, wait up to 10 s, never signal a process group, no forced stop without a new plan".to_string(),
+        "keep its binary, working directory and logs for inspection, nothing is deleted".to_string(),
+        format!("verify: ss -ltn no longer lists :{port} and the nerve no longer reports :{port} as unmanaged"),
         "verify: every monitored component stays healthy in the next nerve cycles".to_string(),
-        "rollback: start the recorded executable again as the recorded uid from its recorded working directory".to_string(),
+        "record rollback: start the recorded executable again as the recorded uid from its recorded working directory".to_string(),
     ];
     let notes = vec![format!(
         "the precondition aborts when a unit owns :{port}: unknown to the nerve is not the same as stray"
@@ -651,34 +651,34 @@ fn ingress_removal(cx: &mut Ctx<'_>, key: &str, cause: Option<&str>, sev: &str, 
     rules.sort();
     let mut steps = vec![
         format!(
-            "plan ingress-rule-removal in the cloudflared tunnel config: {} route(s) to closed origin port(s)",
+            "record plan ingress-rule-removal in the cloudflared tunnel config: {} rule(s) to closed origin port(s)",
             rules.len()
         ),
-        "precondition: each port below still has no listener (ss -ltn) and still refuses tunnel dials in the cloudflared journal".to_string(),
-        "precondition: the owner confirms none of these services is coming back soon (else start it instead)".to_string(),
+        "verify precondition: each port below still has no listener (ss -ltn) and still refuses tunnel dials in the cloudflared journal".to_string(),
+        "verify precondition: the owner confirms none of these services is coming back soon (else start it instead)".to_string(),
         format!(
-            "precondition: no rule to remove names a never-unroute hostname (the VPS, DNS, mail, backup): {}; if one does, keep that rule",
+            "verify precondition: no rule to remove names a never-unroute hostname (the VPS, DNS, mail, backup): {}; keep that rule if one does",
             cx.keep.names().join(", ")
         ),
-        "copy the cloudflared config file to a dated backup next to it".to_string(),
+        "record a dated backup copy of the cloudflared config file next to it".to_string(),
     ];
     for (port, hosts) in &rules {
         steps.push(if hosts.is_empty() {
-            format!("remove only the ingress rule(s) whose service is http://localhost:{port}")
+            format!("apply: remove only the ingress rule(s) whose service is http://localhost:{port}")
         } else {
             format!(
-                "remove only the ingress rule(s) for {} whose service is http://localhost:{port}",
+                "apply: remove only the ingress rule(s) for {} whose service is http://localhost:{port}",
                 hosts.join(", ")
             )
         });
     }
     steps.extend([
         "keep every other rule and the catch-all http_status:404 rule last".to_string(),
-        "check the edited file with cloudflared tunnel ingress validate; on any error restore the backup and stop".to_string(),
-        "restart cloudflared once (reflex budget 1 per hour); the tunnel reconnects in seconds".to_string(),
+        "verify the edited file with cloudflared tunnel ingress validate, on any error restore the backup and stop".to_string(),
+        "restart cloudflared once (reflex budget 1 per hour), the tunnel reconnects in seconds".to_string(),
         "verify: those hostnames answer 404 from the catch-all, every other hostname answers as before, refused dials stop".to_string(),
-        "rollback: restore the backup file and restart cloudflared once".to_string(),
-        "DNS records of these hostnames are not changed by this plan (separate owner decision)".to_string(),
+        "record rollback: restore the backup file and restart cloudflared once".to_string(),
+        "keep the DNS records: DNS records of these hostnames are not changed by this plan (separate owner decision)".to_string(),
     ]);
     let notes = vec![
         "only the tunnel config changes; restarting cloudflared drops every tunnelled request for a few seconds".to_string(),
@@ -745,9 +745,9 @@ fn stream_plans(cx: &mut Ctx<'_>, state: &Value) {
         let per10 = ((thr.max(base * 4.0) * 10.0).ceil() as u64).max(20);
         let sev = if level == "flood" { "critical" } else { "warn" };
         let mut steps = vec![
-            format!("plan edge-rate-limit at Cloudflare for stream {stream} ({level})"),
-            format!("precondition: the nerve still reports stream {stream} at {level} at approval time; otherwise stop"),
-            format!("add one Cloudflare rate limiting rule for {scope}: more than {per10} requests per 10 s from one client address gets a managed challenge for 10 min"),
+            format!("record plan edge-rate-limit at Cloudflare for stream {stream} ({level})"),
+            format!("verify precondition: the nerve still reports stream {stream} at {level} at approval time, otherwise stop"),
+            format!("apply: add one Cloudflare rate limiting rule for {scope}: more than {per10} requests per 10 s from one client address gets a managed challenge for 10 min"),
         ];
         let single = v["shape"] == "single-source";
         let top = v["top_ips"][0]["ip"].as_str().and_then(clean);
@@ -761,13 +761,13 @@ fn stream_plans(cx: &mut Ctx<'_>, state: &Value) {
         }
         if let (true, Some(ip), None) = (single, top, &ban_note) {
             steps.push(format!(
-                "add one Cloudflare custom rule for {scope}: block client address {ip} (single source of the flood), review after 24 h"
+                "apply: add one Cloudflare custom rule for {scope}: block client address {ip} (the single client of the flood), review after 24 h"
             ));
         }
         steps.extend([
-            "no change on the host: no packet filter rule, no access change, no DNS change".to_string(),
+            "keep the host unchanged: no packet filter rule, no access change, no DNS change".to_string(),
             format!("verify: stream {stream} drops under its threshold ({thr:.1} req/s) within 5 min and the hostname still answers normal visitors"),
-            "rollback: remove the added Cloudflare rule(s); nothing else changed".to_string(),
+            "record rollback: remove the added Cloudflare rule(s), nothing else changed".to_string(),
         ]);
         let notes = vec![
             format!("limit = max(threshold {thr:.1} req/s, 4 x baseline {base:.2} req/s) x 10 s, at least 20; edge-host streams count failed requests only"),
@@ -815,26 +815,26 @@ fn rebind(cx: &mut Ctx<'_>, key: &str, cause: Option<&str>, sev: &str, port: u16
         ),
     };
     let mut steps = vec![
-        format!("plan rebind-loopback for {who}: port {port} listens on a public address"),
-        format!("precondition: ss -ltn still shows :{port} bound to a non-loopback address"),
-        format!("precondition: nothing outside this host calls :{port} directly (the tunnel reaches it over loopback)"),
+        format!("record plan rebind-loopback for {who}: port {port} listens on a public address"),
+        format!("verify precondition: ss -ltn still shows :{port} bound to a non-loopback address"),
+        format!("verify precondition: nothing outside this host calls :{port} directly (the tunnel reaches it over loopback)"),
     ];
     if owner.is_some() {
         steps.extend([
-            format!("copy the config file or unit drop-in of {target} that sets its bind address to a dated backup"),
-            format!("set the bind address of {target} to 127.0.0.1:{port}; change nothing else"),
-            format!("run systemctl daemon-reload and systemctl restart {target} once"),
+            format!("record a dated backup copy of the config file or unit drop-in of {target} that sets its bind address"),
+            format!("apply: set the bind address of {target} to 127.0.0.1:{port}, change nothing else"),
+            format!("restart {target} once after a unit daemon-reload"),
         ]);
     } else {
         steps.extend([
-            format!("identify the process on :{port} with ss -ltnp; if no unit owns it, use a stray-stop plan instead and stop here"),
-            format!("if a unit owns it: set its bind address to 127.0.0.1:{port} as above and restart that unit once"),
+            format!("read the process on :{port} with ss -ltnp, if no unit owns it use a stray-stop plan instead and stop here"),
+            format!("apply only if a unit owns it: set its bind address to 127.0.0.1:{port} as above and restart that unit once"),
         ]);
     }
     steps.extend([
         format!("verify: ss -ltn shows :{port} on 127.0.0.1 only and its health answers as before over loopback"),
-        "rollback: restore the backup, daemon-reload, restart once".to_string(),
-        "no packet filter, access or DNS change".to_string(),
+        "record rollback: restore the backup, daemon-reload, restart once".to_string(),
+        "keep packet filter, access and DNS unchanged".to_string(),
     ]);
     let notes = vec![
         "binding to loopback is preferred over a packet filter rule: it cannot lock anyone out"

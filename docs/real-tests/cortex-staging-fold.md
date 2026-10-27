@@ -120,3 +120,13 @@ No processes or listeners left on 21630-21639 afterwards.
 - **D-293-2**: ownership rows (pending Slavik): gaia-cortex + nerve-cortex-contract -> Nerve, xtask -> CargoBuild, or other owners Slavik prefers.
 - **D-293-3**: accept the corpus re-bless (66 D -> 70 C on the live captures) and the `NERVE_EDGE_HOSTS=0` pin for live-replay207, or change the flap rule.
 - **D-293-4**: once D-293-1 is settled, land this fold into main-staging (a separate, explicit step; this slot did not).
+
+## D-293-1 resolved with option A (2026-10-27T20:04:13+01:00 Europe/Zagreb)
+
+The T4.2 templates (all 5 families) were reworded into the S3.1 vocabulary. HADES was not touched.
+Every statement now starts with a PLAN_VERBS verb (`record plan ...`, `verify precondition: ...`,
+`apply: ...`, `restart ...`, `keep ...`, `record rollback: ...`). The words `route(s)`, `source` and `systemctl`
+are gone from plan text, and the `;` parts that did not start with a verb are now commas. The test
+expectations in `cortex_t42_plans` and `cortex_protected_hosts` follow the new wording.
+Results: `cortex_protected_hosts` 6/6, `cortex_t42_plans` 5/5, real `real_cortex_t42_on_the_box` with GALION_REAL=1 passes.
+The whole `openmind-nerve` test suite is green, clippy -D warnings is clean and fmt is clean.

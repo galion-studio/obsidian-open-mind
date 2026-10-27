@@ -122,11 +122,11 @@ fn well_formed(p: &Plan) {
     );
     assert!(!p.findings.is_empty(), "{}", p.id);
     assert!(
-        p.steps[0].starts_with(&format!("plan {}", p.family.as_str())),
+        p.steps[0].starts_with(&format!("record plan {}", p.family.as_str())),
         "{}",
         p.id
     );
-    for must in ["precondition:", "verify:", "rollback:"] {
+    for must in ["verify precondition:", "verify:", "record rollback:"] {
         assert!(
             p.steps.iter().any(|s| s.starts_with(must)),
             "{}: no {must}",

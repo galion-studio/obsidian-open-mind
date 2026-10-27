@@ -14,7 +14,8 @@
 //!    writes hashes only to store + mirror (0600, identical).
 //! B. drop-in without ReadWritePaths (store + mirror dirs 0500): paired
 //!    cookie still verifies, new pairing fails closed 503 "store not
-//!    writable", store bytes unchanged, board still 200.
+//!    writable", store bytes unchanged, board still 200; since slot 323
+//!    (F-313-1 fixed) wrong codes get the same 503 and then lock (429).
 //! C. binary swap only (live argv, no admin flags, on the new build):
 //!    board 200 but `/api/v1/admin` 503 "admin store not configured".
 //! D. mirror dir unwritable only: pairing still 200, mirror stays stale.
@@ -312,17 +313,16 @@ fn real_admin_flags_stage() {
         );
         assert!(admin_cookie(&p).is_none(), "no cookie when not stored");
         assert_eq!(std::fs::read(&store).unwrap(), before, "store unchanged");
-        // Finding F-313-1 (observed, not asserted): with the store read-only the
-        // fail counter cannot be written, so wrong codes never lock out and a
-        // right guess answers 503 instead of 401 (code oracle). The drop-in's
-        // ReadWritePaths is what prevents this on the VPS.
+        // F-313-1 fixed (slot 323): the CODE try above was charged in memory
+        // as attempt 1; wrong codes answer the same 503 as the right one,
+        // then the in-memory lock answers 429 for both (no oracle).
         let codes: Vec<u16> = (0..6)
             .map(|i| pair_json(b_at, &format!("WRONG{i}")).code)
             .collect();
         let right = pair_json(b_at, CODE).code;
-        eprintln!(
-            "B: F-313-1 RO store: 6 wrong codes -> {codes:?} (no 429), right code -> {right}"
-        );
+        assert_eq!(codes, vec![503, 503, 503, 503, 429, 429], "F-313-1 fixed");
+        assert_eq!(right, 429, "right code locked too");
+        eprintln!("B: F-313-1 fixed: RO store 6 wrong -> {codes:?}, right -> {right}");
         assert_eq!(
             std::fs::read(&store).unwrap(),
             before,

@@ -570,6 +570,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "miniz_oxide",
+ "nerve-client",
  "rusqlite",
  "zagreb-time",
 ]
@@ -615,6 +616,9 @@ dependencies = [
 [[package]]
 name = "galion-deploy"
 version = "0.1.0"
+dependencies = [
+ "nerve-client",
+]
 
 [[package]]
 name = "galion-desk"
@@ -631,6 +635,7 @@ name = "galion-guard"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "nerve-client",
  "regex",
  "serde",
  "serde_json",
@@ -659,6 +664,7 @@ name = "galion-origin"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
 ]
 
 [[package]]
@@ -879,6 +885,7 @@ name = "hades-gate"
 version = "0.1.0"
 dependencies = [
  "ed25519-dalek",
+ "nerve-client",
  "serde_json",
  "sha2",
  "zagreb-time",
@@ -1559,6 +1566,7 @@ name = "room"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "nerve-client",
 ]
 
 [[package]]

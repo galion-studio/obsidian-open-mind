@@ -17,6 +17,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 openmind-provider = { path = "../openmind-provider" }
 zagreb-time = { path = "../zagreb-time" }
+nerve-client = { path = "../nerve-client" }
 # SO_REUSEADDR/SO_REUSEPORT and multicast interface selection, which std lacks.
 # MIT OR Apache-2.0. See docs/third-party/lan-discovery.md.
 socket2 = { version = "0.6", features = ["all"] }

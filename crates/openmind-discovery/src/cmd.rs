@@ -502,6 +502,8 @@ fn serve_route(args: &[String]) -> Result<CliOut, CliError> {
         }
     };
     let registry = r.registry.display().to_string();
+    // Long-running HTTP path: heartbeat (no-op unless NERVE_URL is set).
+    nerve_client::start_heartbeat("openmind-discovery", 60);
     let stats = routing::serve(r, &routing::ServeOpts { bind, duration })
         .map_err(|e| fail(format!("serve-route {bind}: {e}")))?;
     Ok(CliOut::Report(json!({
@@ -649,6 +651,8 @@ fn announce(args: &[String]) -> Result<CliOut, CliError> {
         );
     }
     let until = Instant::now() + Duration::from_secs(secs);
+    // Long-running announce path: heartbeat (no-op unless NERVE_URL is set).
+    nerve_client::start_heartbeat("openmind-discovery", 60);
     let stats = announcer
         .run(until, |line| {
             eprintln!("{} {line}", zagreb_time::now_rfc3339());

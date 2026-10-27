@@ -370,11 +370,26 @@ pub fn parse_journal_lines(out: &str, units: &[&str]) -> Vec<JLine> {
 
 /// Per-unit counts from parsed journal lines.
 pub fn journal_counts(lines: &[JLine], units: &[&str]) -> HashMap<String, JournalCounts> {
+    journal_counts_since(lines, units, 0)
+}
+
+/// Like [`journal_counts`], but lines with a known timestamp older than
+/// `since` are skipped (`t == 0` unknown timestamps still count). Used so
+/// component "errors in 5 min" reflects a real 5-minute window even when
+/// the journal was scanned across a longer event-mode cycle gap (P-233-1).
+pub fn journal_counts_since(
+    lines: &[JLine],
+    units: &[&str],
+    since: u64,
+) -> HashMap<String, JournalCounts> {
     let mut m: HashMap<String, JournalCounts> = units
         .iter()
         .map(|u| (u.to_string(), JournalCounts::default()))
         .collect();
     for l in lines {
+        if since > 0 && l.t > 0 && l.t < since {
+            continue;
+        }
         let Some(c) = m.get_mut(&l.unit) else {
             continue;
         };
@@ -617,6 +632,39 @@ mod tests {
         assert_eq!((a.lines, a.errors, a.restart_notices), (4, 1, 1));
         assert_eq!(a.last_error.as_deref(), Some("bad"));
         assert_eq!(m["b.service"], JournalCounts::default());
+    }
+
+    #[test]
+    fn journal_counts_since_drops_older_than_window() {
+        let lines = vec![
+            JLine {
+                t: 1_000,
+                unit: "cloudflared.service".into(),
+                prio: 3,
+                msg: "old err".into(),
+            },
+            JLine {
+                t: 1_800,
+                unit: "cloudflared.service".into(),
+                prio: 3,
+                msg: "new err".into(),
+            },
+            JLine {
+                t: 0,
+                unit: "cloudflared.service".into(),
+                prio: 3,
+                msg: "unknown-ts err".into(),
+            },
+        ];
+        let all = journal_counts(&lines, &["cloudflared.service"]);
+        assert_eq!(all["cloudflared.service"].errors, 3);
+        let last5 = journal_counts_since(&lines, &["cloudflared.service"], 1_500);
+        // old (t=1000) dropped; new + unknown-ts kept
+        assert_eq!(last5["cloudflared.service"].errors, 2);
+        assert_eq!(
+            last5["cloudflared.service"].last_error.as_deref(),
+            Some("unknown-ts err")
+        );
     }
 
     #[test]

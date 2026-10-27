@@ -188,7 +188,16 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
                     .flatten();
                 s.mem_kb = i.memory_current.map(|b| b / 1024).or(s.rss_kb);
             }
-            if let Some(j) = journal.get(u) {
+            // P-233-1: "N errors in 5 min" must use the real last 5 minutes,
+            // not every line since the previous cycle (event-mode gaps ≈ 900 s).
+            // Full `lines` still go to the cortex via Collected.
+            let j5 = probe::journal_counts_since(&lines, &[u], now.saturating_sub(300));
+            if let Some(j) = j5.get(u) {
+                s.journal_errors = j.errors;
+                s.journal_warnings = j.warnings;
+                s.last_error = j.last_error.clone();
+            } else if let Some(j) = journal.get(u) {
+                // Fallback: unit missing from filtered map (should not happen).
                 s.journal_errors = j.errors;
                 s.journal_warnings = j.warnings;
                 s.last_error = j.last_error.clone();

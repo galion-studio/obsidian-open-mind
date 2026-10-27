@@ -20,3 +20,4 @@ miniz_oxide = { version = "0.8", default-features = false, features = ["with-all
 # umask, statvfs, getpwuid_r/getgrgid_r, signal, major/minor (already in Cargo.lock).
 libc = "0.2"
 zagreb-time = { path = "../zagreb-time" }
+nerve-client = { path = "../nerve-client" }

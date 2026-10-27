@@ -1,0 +1,11 @@
+{"open":[
+ {"id":"inc-ddos-1","cause":"ddos:edge-cloudflared","severity":"critical","state":"open","title":"request flood 1","components":["cloudflared"]},
+ {"id":"inc-ddos-2","cause":"ddos:edge-cloudflared-b","severity":"critical","state":"open","title":"request flood 2","components":["cloudflared"]},
+ {"id":"inc-ddos-3","cause":"ddos:edge-cloudflared-c","severity":"critical","state":"open","title":"request flood 3","components":["cloudflared"]},
+ {"id":"inc-edge-1","cause":"edge","severity":"error","state":"open","title":"edge closed origins","components":["cloudflared"]},
+ {"id":"inc-edge-2","cause":"edge-b","severity":"error","state":"open","title":"edge closed origins 2","components":["cloudflared"]},
+ {"id":"inc-hermes-1","cause":"hermes-rs","severity":"warn","state":"open","title":"hermes degrading","components":["hermes-rs"]},
+ {"id":"inc-hermes-2","cause":"hermes-rs-b","severity":"warn","state":"open","title":"hermes degrading 2","components":["hermes-rs"]},
+ {"id":"inc-cortex","cause":"gaia-cortex","severity":"error","state":"open","title":"cortex errors","components":["gaia-cortex"]},
+ {"id":"inc-one","cause":"galion-one","severity":"error","state":"open","title":"mouth loading","components":["galion-one-mouth"]}
+],"resolved":[]}

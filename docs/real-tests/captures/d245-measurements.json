@@ -1,0 +1,187 @@
+{
+  "measured_at": "2026-10-27T17:52:13+01:00 Europe/Zagreb CET",
+  "ports": "21420-21429",
+  "binaries": {
+    "merge2_or_merge3": "gaia-cortex-1305dec (merge-3 73583abf shares backfill/R11; not rebuilt)",
+    "live": "gaia-cortex-bd6fbe6 (copied read-only from VPS)"
+  },
+  "live_vps_capture_open": 5,
+  "runs": {
+    "merge2_live5_cap2": {
+      "health": {
+        "busy": false,
+        "escalations_open": 1,
+        "events_in": 5,
+        "handoffs": 1,
+        "hermes_handoff": true,
+        "incidents_open": 5,
+        "llm_enabled": false,
+        "mode": "dry-run",
+        "nerve": true,
+        "ok": true,
+        "service": "gaia-cortex",
+        "ts": "2026-10-27T17:51:05+01:00",
+        "version": "0.1.0"
+      },
+      "stats": {
+        "incidents_open": 5,
+        "alerts": 5,
+        "escalations": 1,
+        "handoffs": 1,
+        "nerve_incidents_backfilled": 5,
+        "nerve_incidents_known": 5,
+        "actions_requested": 0,
+        "actions_executed": 0,
+        "caps": {
+          "flap_failures": 3,
+          "flap_window_s": 900,
+          "per_unit_hour": 2,
+          "total_hour": 6
+        },
+        "hermes_handoff": {
+          "budget_stopped": false,
+          "enabled": true,
+          "inbox": "/workspace/swarm/scratch/cortex-d245-pack/run-m2-live5b/hermes-inbox",
+          "incidents_handed": 1,
+          "per_hour": 6,
+          "sent_last_hour": 1
+        }
+      },
+      "handoffs_fs": 1
+    },
+    "bd6_live5_cap3": {
+      "health": {
+        "busy": false,
+        "escalations_open": 0,
+        "events_in": 0,
+        "handoffs": 0,
+        "hermes_handoff": true,
+        "incidents_open": 0,
+        "llm_enabled": false,
+        "mode": "dry-run",
+        "nerve": true,
+        "ok": true,
+        "service": "gaia-cortex",
+        "ts": "2026-10-27T17:51:27+01:00",
+        "version": "0.1.0"
+      },
+      "stats": {
+        "incidents_open": 0,
+        "alerts": 0,
+        "escalations": 0,
+        "handoffs": 0,
+        "actions_requested": 0,
+        "actions_executed": 0,
+        "hermes_handoff": {
+          "budget_stopped": false,
+          "enabled": true,
+          "inbox": "/workspace/swarm/scratch/cortex-d245-pack/run-bd6-live5b/hermes-inbox",
+          "incidents_handed": 0,
+          "per_hour": 6,
+          "sent_last_hour": 0
+        }
+      },
+      "handoffs_fs": 0
+    },
+    "merge2_hist9_cap2": {
+      "health": {
+        "busy": false,
+        "escalations_open": 3,
+        "events_in": 9,
+        "handoffs": 3,
+        "hermes_handoff": true,
+        "incidents_open": 9,
+        "llm_enabled": false,
+        "mode": "dry-run",
+        "nerve": true,
+        "ok": true,
+        "service": "gaia-cortex",
+        "ts": "2026-10-27T17:51:50+01:00",
+        "version": "0.1.0"
+      },
+      "stats": {
+        "incidents_open": 9,
+        "alerts": 9,
+        "escalations": 3,
+        "handoffs": 3,
+        "nerve_incidents_backfilled": 9,
+        "nerve_incidents_known": 9,
+        "actions_requested": 0,
+        "actions_executed": 0,
+        "caps": {
+          "flap_failures": 3,
+          "flap_window_s": 900,
+          "per_unit_hour": 2,
+          "total_hour": 6
+        },
+        "hermes_handoff": {
+          "budget_stopped": false,
+          "enabled": true,
+          "inbox": "/workspace/swarm/scratch/cortex-d245-pack/run-m2-hist9b/hermes-inbox",
+          "incidents_handed": 3,
+          "per_hour": 6,
+          "sent_last_hour": 3
+        }
+      },
+      "handoffs_fs": 3
+    },
+    "bd6_hist9_cap3": {
+      "health": {
+        "busy": false,
+        "escalations_open": 0,
+        "events_in": 0,
+        "handoffs": 0,
+        "hermes_handoff": true,
+        "incidents_open": 0,
+        "llm_enabled": false,
+        "mode": "dry-run",
+        "nerve": true,
+        "ok": true,
+        "service": "gaia-cortex",
+        "ts": "2026-10-27T17:52:13+01:00",
+        "version": "0.1.0"
+      },
+      "stats": {
+        "incidents_open": 0,
+        "alerts": 0,
+        "escalations": 0,
+        "handoffs": 0,
+        "actions_requested": 0,
+        "actions_executed": 0,
+        "hermes_handoff": {
+          "budget_stopped": false,
+          "enabled": true,
+          "inbox": "/workspace/swarm/scratch/cortex-d245-pack/run-bd6-hist9b/hermes-inbox",
+          "incidents_handed": 0,
+          "per_hour": 6,
+          "sent_last_hour": 0
+        }
+      },
+      "handoffs_fs": 0
+    },
+    "merge2_live5_cap3": {
+      "stats": {
+        "incidents_open": 5,
+        "alerts": 5,
+        "escalations": 1,
+        "handoffs": 1,
+        "nerve_incidents_backfilled": 5,
+        "caps": {
+          "flap_failures": 3,
+          "flap_window_s": 900,
+          "per_unit_hour": 3,
+          "total_hour": 6
+        },
+        "hermes_handoff": {
+          "budget_stopped": false,
+          "enabled": true,
+          "inbox": "/workspace/swarm/scratch/cortex-d245-pack/run-m2-live5-cap3/hermes-inbox",
+          "incidents_handed": 1,
+          "per_hour": 6,
+          "sent_last_hour": 1
+        }
+      },
+      "handoffs_fs": 1
+    }
+  }
+}

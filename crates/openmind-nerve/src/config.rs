@@ -60,6 +60,12 @@ pub struct Spec {
     pub note: &'static str,
     /// Correlation group: signals of one group are one incident.
     pub group: &'static str,
+    /// Deep route probes (N-307-1 / F-313-2): extra loopback GETs run after
+    /// the health path answers. Any answer other than 2xx/3xx/401/403/429
+    /// (see [`crate::probe::deep_route_ok`]), or none, on any of them
+    /// marks the component degrading (never a hard failure: a restart cannot
+    /// bring a missing route back, so the reflex must not act on it).
+    pub deep: &'static [&'static str],
 }
 
 const fn svc(
@@ -85,8 +91,15 @@ const fn svc(
         expected: true,
         note: "",
         group: name,
+        deep: &[],
     }
 }
+
+/// Console routes the nerve checks beyond `/` (which the Rust serve answers
+/// with a 302 even when the board API and the admin pairing gate are gone):
+/// `/api/v1/admin` is the gate the UI and phones ask first, and
+/// `/api/v1/services` is the first board route the console pages read.
+pub const CONSOLE_DEEP: &[&str] = &["/api/v1/admin", "/api/v1/services"];
 
 /// The Galion stack on the LXC (2026-10-18). Ports from `ss -ltnp`.
 pub fn default_specs(voice_unit: Option<String>, voice_port: Option<u16>) -> Vec<Spec> {
@@ -104,7 +117,10 @@ pub fn default_specs(voice_unit: Option<String>, voice_port: Option<u16>) -> Vec
             unit: None,
             ..svc("galion-one-mouth", "", Some(8002), "/health", "AETHER", "speech-io", 0)
         },
-        svc("console", "console.service", Some(8080), "/", "HEPHAESTUS", "console", 3),
+        Spec {
+            deep: CONSOLE_DEEP,
+            ..svc("console", "console.service", Some(8080), "/", "HEPHAESTUS", "console", 3)
+        },
         svc("galion-health", "galion-health.service", Some(8660), "/status.json", "DEMETER", "guardian-tick", 3),
         Spec {
             kind: Kind::Tunnel,
@@ -338,7 +354,8 @@ fn leak(s: &str) -> &'static str {
 /// Keys: name (required), unit, port, path ("/health"), metrics_port, kind
 /// (service|tunnel), gaia ("AETHER"), system, group (name), critical (true),
 /// expected (true), restarts_per_hour (0: file-defined components are never
-/// restarted unless asked), note. The host and the nerve itself are added
+/// restarted unless asked), note, deep (array of extra loopback paths, e.g.
+/// `["/api/v1/admin"]`; none by default). The host and the nerve itself are added
 /// when the file does not list them.
 pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
     let v: serde_json::Value =
@@ -362,6 +379,7 @@ pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
             other => return Err(format!("components[{i}]: kind {other:?} (service|tunnel)")),
         };
         let b = |k: &str, d: bool| c.get(k).and_then(|x| x.as_bool()).unwrap_or(d);
+        let deep = parse_deep(c.get("deep")).map_err(|e| format!("components[{i}]: {e}"))?;
         out.push(Spec {
             name: leak(name),
             unit: s("unit").map(leak),
@@ -382,6 +400,7 @@ pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
             expected: b("expected", true),
             note: leak(s("note").unwrap_or("")),
             group: leak(s("group").unwrap_or(name)),
+            deep,
         });
     }
     let base = default_specs(None, None);
@@ -393,6 +412,29 @@ pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
         }
     }
     Ok(out)
+}
+
+/// `deep`: optional array of loopback paths (max 8, each starting with `/`,
+/// printable ASCII without spaces, at most 128 bytes) probed after the
+/// health path; see [`Spec::deep`].
+fn parse_deep(v: Option<&serde_json::Value>) -> Result<&'static [&'static str], String> {
+    let Some(v) = v else {
+        return Ok(&[]);
+    };
+    let arr = v.as_array().ok_or("deep: expected an array of paths")?;
+    if arr.len() > 8 {
+        return Err(format!("deep: {} paths (max 8)", arr.len()));
+    }
+    let mut out: Vec<&'static str> = vec![];
+    for p in arr {
+        let p = p.as_str().ok_or("deep: paths must be strings")?;
+        let printable = p.bytes().all(|b| b.is_ascii_graphic());
+        if !p.starts_with('/') || p.len() > 128 || !printable {
+            return Err(format!("deep: bad path {p:?}"));
+        }
+        out.push(leak(p));
+    }
+    Ok(Box::leak(out.into_boxed_slice()))
 }
 
 /// The component table for this config: the file when set, else built-in.
@@ -467,6 +509,30 @@ mod file_tests {
         assert!(parse_specs(r#"[{"name":"a"},{"name":"a"}]"#).is_err());
         assert!(parse_specs(r#"[{"name":"a","gaia":"ZEUS"}]"#).is_err());
         assert!(parse_specs("{}").is_err());
+        let d = parse_specs(r#"[{"name":"console","port":19103,"path":"/","deep":["/api/v1/admin","/api/v1/services"]}]"#).unwrap();
+        assert_eq!(d[0].deep, ["/api/v1/admin", "/api/v1/services"]);
+        assert!(s[0].deep.is_empty(), "no deep probes unless asked");
+        for bad in [
+            r#""/x""#,
+            r#"["x"]"#,
+            r#"["/a b"]"#,
+            r#"["/a\r\nX: y"]"#,
+            r#"[1]"#,
+        ] {
+            let t = format!(r#"[{{"name":"c","deep":{bad}}}]"#);
+            assert!(parse_specs(&t).is_err(), "{t}");
+        }
+        let nine = format!(r#"[{{"name":"c","deep":[{}]}}]"#, [r#""/a""#; 9].join(","));
+        assert!(parse_specs(&nine).is_err());
+        let con = default_specs(None, None)
+            .into_iter()
+            .find(|x| x.name == "console")
+            .unwrap();
+        assert_eq!(con.deep, CONSOLE_DEEP);
+        assert!(default_specs(None, None)
+            .iter()
+            .filter(|x| x.name != "console")
+            .all(|x| x.deep.is_empty()));
         let a = parse_access_logs("tuner=/tmp/t.log@tuner, edge=/var/log/x.log,bad");
         assert_eq!(a.len(), 2);
         assert_eq!(a[0].component.as_deref(), Some("tuner"));

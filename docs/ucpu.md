@@ -150,3 +150,11 @@ kills the sandboxed child, and `seccomp::available()` reports false.
 - The armv7 omnode seccomp filter is compile-checked, and its numbers are
   checked against the kernel table. It has not been enforced on a real ARM
   kernel (qemu-user does not run seccomp filters the way a native kernel does).
+
+## hermes-gateway back under 2 MiB (slot 329, 2026-10-28)
+
+After enroll, coding tools and later work hermes-gateway was 2,313,344 B (x86_64 musl) and size-budget.sh had a
+2.5 MiB exception. Slot 329 brought it to 2,080,128 B and removed the exception. This supersedes "Kept on purpose:
+FTS5 and JSON" above: FTS5 stays, JSON is now omitted (`SQLITE_OMIT_JSON`) after a read-only scan of the schemas of
+every SQLite file on the VPS found no JSON function. Other steps: C unwind tables off, more SQLite OMIT flags, RELR
+relocations on x86_64 musl (rust-lld), sha2 `force-soft-compact`. Details in docs/real-tests/hermes-gateway-2mib.md.

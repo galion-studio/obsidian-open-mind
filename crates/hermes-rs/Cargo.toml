@@ -24,5 +24,8 @@ nerve-client = { path = "../nerve-client" }
 rusqlite = { version = "0.32", default-features = false, features = ["bundled"], optional = true }
 # Device enrollment (src/enroll): Ed25519 strict verify, SHA-256, OS randomness.
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
-sha2 = { version = "0.10", default-features = false, features = ["std"] }
+# force-soft-compact (slot 329): portable rolled-loop SHA-256/512, no
+# SHA-NI/SSE/AVX2 intrinsics or cpufeatures runtime dispatch (no-SIMD rule,
+# same idea as hades-gate force-soft); ~20 KB smaller hermes-gateway.
+sha2 = { version = "0.10", default-features = false, features = ["std", "force-soft-compact"] }
 getrandom = "0.2"

@@ -54,7 +54,7 @@ Ports **21440–21449** unused (no GALION_REAL needed for this dry-run).
 
 ## Blockers for a live main merge
 
-Recorded 2026-10-27 17:52:33 +0100. Dry-run itself is **green*** (FF + all gates above). Remaining publish/main-merge
+Recorded 2026-10-27 17:52:33 +0100. Dry-run itself is **green** (FF + all gates above). Remaining publish/main-merge
 blockers are **outside** this tree merge (see `docs/launch/PUBLISH-BLOCKERS-20261027.md`
 if present), notably:
 

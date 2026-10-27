@@ -16,6 +16,7 @@ pub mod delegate;
 pub mod enroll;
 pub mod http;
 pub mod mcp;
+pub mod notify;
 pub mod persona;
 pub mod provider;
 pub mod runs;

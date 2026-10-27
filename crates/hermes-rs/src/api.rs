@@ -29,6 +29,9 @@ pub struct Gateway {
     pub jobs: Option<Arc<crate::cron::Scheduler>>,
     /// Device enrollment (`/openmind/*`); `None` = disabled, every such path is 404.
     pub enroll: Option<Arc<crate::enroll::Enroll>>,
+    /// Owner notify channel (`POST /v1/notify`); a logged no-op until
+    /// TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are in the env (docs/hermes-notify.md).
+    pub notify: Arc<crate::notify::Notifier>,
 }
 
 /// Holds one agent slot (`gateway.api_server.max_concurrent_runs`).
@@ -88,6 +91,7 @@ impl Gateway {
             runs: crate::runs::Runs::default(),
             jobs: None,
             enroll: None,
+            notify: Arc::new(crate::notify::Notifier::disabled()),
         }
     }
 
@@ -183,6 +187,8 @@ impl Gateway {
                 None => Response::json(200, &json!({"jobs": []})),
             },
             ("GET", ["api", "spend"]) => Response::json(200, &self.agent.spend.status()),
+            ("POST", ["v1", "notify"]) => self.owner_notify(&req),
+            ("GET", ["v1", "notify", "status"]) => Response::json(200, &self.notify.status()),
             _ => error(
                 404,
                 &format!("Not found: {} {}", m, path),
@@ -557,6 +563,30 @@ impl Gateway {
             200,
             &json!({"object": "list", "session_id": id, "data": msgs}),
         )
+    }
+
+    /// `POST /v1/notify` `{"text", "kind"?}` (gateway key required): send one
+    /// owner notification. Always 200 with `{"notify": <outcome>}` once the
+    /// body is valid, so callers record the outcome (`no-channel-configured`
+    /// included) instead of retrying.
+    fn owner_notify(&self, req: &Request) -> Response {
+        let b = match req.json() {
+            Ok(b) => b,
+            Err(e) => return error(400, &e, "invalid_request_error", None),
+        };
+        let Some(text) = b["text"].as_str() else {
+            return error(
+                400,
+                "text (string) is required",
+                "invalid_request_error",
+                None,
+            );
+        };
+        if text.len() > 64 * 1024 {
+            return error(413, "text too long", "invalid_request_error", None);
+        }
+        let kind = b["kind"].as_str().unwrap_or("note");
+        Response::json(200, &self.notify.send(kind, text).to_json())
     }
 
     fn lock_model(&self, id: &str, req: &Request) -> Response {

@@ -17,6 +17,9 @@
 //! events to the nerve (bounded queue, never blocks a request).
 //! Device enrollment (`/openmind/*`) is off unless HERMES_RS_ENROLL=1 and
 //! HERMES_RS_ENROLL_URL are set; see docs/hermes-enroll.md.
+//! Owner notify (`POST /v1/notify`, `hermes-gateway notify`) is a logged
+//! no-op unless TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID are in the env; see
+//! docs/hermes-notify.md.
 
 use hermes_rs::api::Gateway;
 use hermes_rs::config::Config;
@@ -91,9 +94,57 @@ fn open_store(cfg: &Config) -> Result<Arc<dyn SessionStore>, String> {
     Ok(Arc::new(hermes_rs::session::Layered { primary, legacy }))
 }
 
+fn notify_cmd(args: &[String]) -> i32 {
+    use std::io::Read;
+    let mut kind = "note".to_string();
+    let mut text: Option<String> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--kind" => kind = it.next().cloned().unwrap_or_default(),
+            "--text" => text = it.next().cloned(),
+            _ => {
+                eprintln!("usage: hermes-gateway notify [--kind K] [--text T]  (text from stdin without --text)");
+                return 2;
+            }
+        }
+    }
+    let text = match text {
+        Some(t) => t,
+        None => {
+            let mut s = String::new();
+            if std::io::stdin()
+                .take(64 * 1024)
+                .read_to_string(&mut s)
+                .is_err()
+            {
+                eprintln!("notify: stdin is not UTF-8 text");
+                return 2;
+            }
+            s
+        }
+    };
+    let n = hermes_rs::notify::Notifier::from_env(
+        &env,
+        Box::new(hermes_rs::notify::CurlTransport::default()),
+    );
+    let o = n.send(&kind, &text);
+    println!("{}", o.to_json());
+    match o {
+        hermes_rs::notify::Outcome::Sent | hermes_rs::notify::Outcome::NoChannelConfigured => 0,
+        _ => 1,
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mock = args.iter().any(|a| a == "--mock");
+    // `hermes-gateway notify [--kind K] [--text T]` (text from stdin without
+    // --text): one owner notification, straight from the env, no config, no
+    // port. Prints the outcome JSON (never the token).
+    if args.first().map(String::as_str) == Some("notify") {
+        std::process::exit(notify_cmd(&args[1..]));
+    }
     let cfg = match Config::load(&env) {
         Ok(c) => c,
         Err(e) => {
@@ -212,6 +263,12 @@ fn main() {
             std::process::exit(2);
         }
     }
+    let notifier = hermes_rs::notify::Notifier::from_env(
+        &env,
+        Box::new(hermes_rs::notify::CurlTransport::default()),
+    );
+    log(&format!("notify: {}", notifier.status()["channel"]));
+    gw.notify = Arc::new(notifier);
     let gw = Arc::new(gw);
     if cfg.cron_enabled {
         sched.spawn();

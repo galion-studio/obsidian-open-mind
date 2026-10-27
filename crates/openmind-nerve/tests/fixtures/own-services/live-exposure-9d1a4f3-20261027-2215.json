@@ -1,0 +1,117 @@
+{
+  "captured": "2026-10-27T22:15:01+01:00",
+  "source": "VPS 127.0.0.1:8670 /state .cortex.exposure, live openmind-nerve-9d1a4f3 serve --mode event, read-only GET 2026-10-27 22:26 CET",
+  "exposure": {
+    "listeners_judged": 19,
+    "ownership": [
+      {
+        "documented_unowned": false,
+        "gaia": null,
+        "owner": "sshd",
+        "port": 22
+      },
+      {
+        "documented_unowned": false,
+        "gaia": null,
+        "owner": "postfix",
+        "port": 25
+      },
+      {
+        "documented_unowned": false,
+        "gaia": null,
+        "owner": "systemd-resolved",
+        "port": 53
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "AETHER",
+        "owner": "galion-one-mouth",
+        "port": 8002
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "HEPHAESTUS",
+        "owner": "console",
+        "port": 8080
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "ELEUTHIA",
+        "owner": "galion-one",
+        "port": 8091
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "APOLLO",
+        "owner": "openmind-memory",
+        "port": 8420
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "ARTEMIS",
+        "owner": "hermes-rs",
+        "port": 8642
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "HEPHAESTUS",
+        "owner": "galion-desk",
+        "port": 8646
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "DEMETER",
+        "owner": "tuner",
+        "port": 8650
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "DEMETER",
+        "owner": "galion-health",
+        "port": 8660
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "AETHER",
+        "owner": "galion-nerve (self)",
+        "port": 8670
+      },
+      {
+        "documented_unowned": false,
+        "gaia": null,
+        "owner": "tanga-serve",
+        "port": 8671
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "AETHER",
+        "owner": "gaia-cortex",
+        "port": 8674
+      },
+      {
+        "documented_unowned": false,
+        "gaia": null,
+        "owner": "unknown owner",
+        "port": 18080
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "POSEIDON",
+        "owner": "openmind-queue",
+        "port": 19120
+      },
+      {
+        "documented_unowned": false,
+        "gaia": "AETHER",
+        "owner": "cloudflared",
+        "port": 20241
+      }
+    ],
+    "public_expected": [
+      "*:22"
+    ],
+    "unmanaged_ports": [
+      18080
+    ]
+  }
+}

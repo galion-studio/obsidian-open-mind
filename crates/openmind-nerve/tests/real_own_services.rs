@@ -88,16 +88,29 @@ fn tmp(tag: &str) -> PathBuf {
 }
 
 fn capture_dir(tag: &str) -> PathBuf {
-    let d = tmp(tag);
-    let ss = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/own-services/ss-ltnp-vps-20261022-0110.txt"),
+    capture_dir_from(
+        tag,
+        "ss-ltnp-vps-20261022-0110.txt",
+        "2026-10-22T01:09:46+02:00",
     )
-    .unwrap();
+}
+
+fn fixture(name: &str) -> String {
+    std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/own-services")
+            .join(name),
+    )
+    .unwrap()
+}
+
+fn capture_dir_from(tag: &str, ss_fixture: &str, ts: &str) -> PathBuf {
+    let d = tmp(tag);
+    let ss = fixture(ss_fixture);
     std::fs::write(d.join("ss.txt"), ss).unwrap();
     std::fs::write(
         d.join("state-1.json"),
-        r#"{"ts":"2026-10-22T01:09:46+02:00","components":[{"name":"lxc-host","status":"healthy","host":{"disk_total_kb":100,"disk_avail_kb":75,"ram_total_kb":100,"ram_avail_kb":90,"load1":0.5}}],"probe_errors":[]}"#,
+        format!(r#"{{"ts":"{ts}""#) + r#","components":[{"name":"lxc-host","status":"healthy","host":{"disk_total_kb":100,"disk_avail_kb":75,"ram_total_kb":100,"ram_avail_kb":90,"load1":0.5}}],"probe_errors":[]}"#,
     )
     .unwrap();
     d
@@ -270,4 +283,71 @@ fn real_serve_strays_still_reported() {
     }
     serve_once(false);
     serve_once(true);
+}
+
+/// Slot 316 (nerve-merge-5): replay of the live VPS listener table captured
+/// read-only on 2026-10-27 22:26 +01:00 (`ss -ltnp`) must give the same
+/// listener ownership as the live nerve openmind-nerve-9d1a4f3 reported in
+/// its /state at 22:15 +01:00 (same listeners: the newest one, :18080
+/// console-rust-primary, was up since 18:28 +01:00). Before the own-services
+/// fold, merge-4 5dac9b4a would add :8674 and :19120 to unmanaged_ports.
+#[test]
+fn real_replay_matches_live_9d1a4f3_20261027() {
+    if !real() {
+        return;
+    }
+    let dir = capture_dir_from(
+        "live1027",
+        "ss-ltnp-vps-20261027-2226.txt",
+        "2026-10-27T22:26:10+01:00",
+    );
+    let st = replay(&dir, &[]);
+    let ex = &st["cortex"]["exposure"];
+    let live: serde_json::Value =
+        serde_json::from_str(&fixture("live-exposure-9d1a4f3-20261027-2215.json")).unwrap();
+    let lex = &live["exposure"];
+    assert_eq!(ports(&ex["unmanaged_ports"]), [18080], "{ex}");
+    assert_eq!(
+        ports(&ex["unmanaged_ports"]),
+        ports(&lex["unmanaged_ports"]),
+        "unmanaged differs from live"
+    );
+    let key = |e: &serde_json::Value| -> Vec<(u64, String, String)> {
+        let mut v: Vec<_> = e["ownership"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|o| {
+                (
+                    o["port"].as_u64().unwrap(),
+                    o["owner"].as_str().unwrap_or("").to_string(),
+                    o["gaia"].as_str().unwrap_or("-").to_string(),
+                )
+            })
+            .collect();
+        v.sort();
+        v
+    };
+    assert_eq!(key(ex), key(lex), "ownership differs from live 9d1a4f3");
+    for (p, owner, gaia) in [
+        (8674, "gaia-cortex", "AETHER"),
+        (19120, "openmind-queue", "POSEIDON"),
+    ] {
+        let o = owner_of(ex, p);
+        assert_eq!(
+            (o["owner"].as_str(), o["gaia"].as_str()),
+            (Some(owner), Some(gaia)),
+            "{o}"
+        );
+    }
+    assert_eq!(
+        unmanaged_title(&st).as_deref(),
+        Some("1 loopback listener(s) no monitored unit owns: :18080")
+    );
+    eprintln!(
+        "316 live-parity replay: unmanaged {:?}; {} listeners judged == live 9d1a4f3",
+        ex["unmanaged_ports"],
+        key(ex).len()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

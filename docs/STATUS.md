@@ -32,6 +32,26 @@ done + half partial: 67.4 % unweighted, 67.2 % weighted
 owner-blocked: 23.6 % of items
 ```
 
+## Live snapshot 2026-10-27 17:40 CET (+01:00), swarm/docs-status-gates-20261027
+
+Docs-only refresh on main-staging `7c95348b`. Sources: `/workspace/swarm/CALL-RECORD.md`
+(CR), `PUBLISH-BLOCKERS-20261027.md` (PB), `RUST-MIGRATION-RESUME-20261027.md` (RMR).
+The backlog percentages below were NOT re-run (2026-10-21 numbers stand).
+
+- Console cutover **DONE 2026-10-27 17:29 CET**: Vite :8080 replaced by staged
+  console-dist served by srvx (Node), backup `/var/backups/console-switch-20261027-162802`
+  (CR:884; PB:11; RMR:16). Not to be redone. console.service is still Node, not Rust (CR:929).
+- GitHub `main` still `13a296c`; PR #12 (`swarm/main-staging` `7c95348b` -> main) open,
+  mergeable_state **unstable** (RMR:20; PB:19,22).
+- Live cortex still `gaia-cortex-bd6fbe6`. `swarm/cortex-live-merge-2` `1305dec` and
+  `swarm/cortex-sandbox-oom-info` `c68d8cb` are pushed, **not deployed**; c68d8cb does not
+  cherry-pick onto bd6fbe6 (CR:882; RMR:14,33,37; PB:12-13).
+- Wave-4 owner_ceiling raised 250 -> 400 at 17:30:19 CET, concurrency 18/18/6 (CR:886;
+  PB:4-5); slots 250-265 in flight from 17:31:37 CET (CR:888).
+- Nerve flood false-alarm / zero-baseline: not coded yet, slot 252 nerve-flood-baseline in
+  progress since 17:33:50 CET (CR:918; PB:16; RMR: nerve-flood-zero-baseline MISSING, CR:899).
+- Mouth / voice 503 still open (CR:884 "left alone"; PB:26).
+
 | ID | Size | Status | Evidence |
 |---|---|---|---|
 | GAIA-1 | 2 | P | Partial, pending `swarm/gaia-land`: canonical ws/gaia (11 crates, 52 systems, approval-token HADES path) is on a GitHub branch, not on main; the VPS dry-run gaia-core left the workspace in the 2026-10-20 merge |
@@ -50,7 +70,7 @@ owner-blocked: 23.6 % of items
 | B43 | 1 | D | scripts/self-check.sh PASS 8 |
 | LAUNCH-2 | 1 | P | The checklist exists; the AWAITING-APPROVAL boxes are all unchecked |
 | B21 | 1 | O | Galion One now has a unit (galion-one.service). The Restart=always drop-ins and guardian timer are staged, ... |
-| B51 | 2 | O | docs/dist-switch.md is staged. Spare-port runs PASS (REAL-*-2). Cutover approval: "no" |
+| B51 | 2 | O | docs/dist-switch.md staged. Console dist cutover DONE 2026-10-27 17:29 CET (CALL-RECORD.md:884); other dist cutovers (cortex 1305dec/c68d8cb) still not deployed (RUST-MIGRATION-RESUME-20261027.md:33,37). Status not re-scored |
 | OMNODE-2 | 2 | O | VPS edge/openmind-node still on `landlock = "0.4"`; no omnode process |
 | PHONE-1 | 2 | O | Needs the HTTPS host |
 | B42 | 1 | P | SPDX headers in 526/526 .rs files under crates/ (`scripts/spdx-scan.sh`, integration-5 0d68f46, 2026-10-21T23:48:30+02:00). `REUSE.toml` and `LICENSES/` (MIT.txt, Apache-2.0.txt) are present on swarm/integration-1 8fd26f6 and swarm/integration-5 0d68f46, but not on main 13a296c, so the row stays P until a merge reaches main (rule below). REUSE gate 7 (`scripts/public-export.sh`, comply 0.1.1): integration-1 PASS (1053 total, 1007 passed, 0 failed, 46 skipped; 2026-10-21T23:49:31+02:00); integration-5 FAIL (1502 total, 1431 passed, 7 failed, 64 skipped; 2026-10-21T23:48:30+02:00): two .rs test fixtures that hold an HTML SPDX string (crates/bench-banking/src/axes.rs:1131, crates/bench-scoreboard/src/lib.rs:119) and five vendored candle-core test binaries (vendor/candle-core/tests/*.pt, *.npy, *.npz, *.pth) without `.license` companions. Fix (not docs, not done here): add the two .rs files to REUSE.toml annotation 2, the way crates/gaia-minerva/src/lib.rs is, and annotate vendor/candle-core (upstream MIT OR Apache-2.0) |
@@ -58,7 +78,7 @@ owner-blocked: 23.6 % of items
 | B08 | 1 | D | scripts/size-budget.sh, docs/low-end-profile.md |
 | B44 | 1 | D | scripts/sbom.sh, .github/workflows/sbom.yml |
 | B45 | 1 | D | SECURITY.md, docs/openssf.md (contact address still TODO) |
-| FE-1 | 2 | N | Console still runs vite dev; no fix commits |
+| FE-1 | 2 | P | Vite dev replaced on live :8080 by console-dist/srvx 2026-10-27 17:29 CET (CALL-RECORD.md:884); still Node, Rust console not live (CALL-RECORD.md:929). Status not re-scored |
 | B61 | 1 | O | docs/console-prod.md checklist; 8080/health 404 |
 | B33 | 1 | D | NerveEvent in openmind-schema |
 | B40 | 2 | D | (not wired) - crates/openmind-nerve; NERVE-ALIGN says it is not wired |
@@ -397,8 +417,8 @@ refill).
 | 237 | `swarm/cortex-incident-backfill` | - | - | not started |
 | 238 | `swarm/nerve-own-services` | - | - | not started |
 | 239 | `swarm/memory-schema-mergefix` | - | - | not started |
-| 240 | `swarm/serde-pin-mergefix` | - | - | not started |
-| 241 | `swarm/no-openrouter-mergefix` | - | - | not started |
-| 242 | `swarm/shared-tar-mergefix` | - | - | not started |
-| 243 | `swarm/console-v2-audit` | - | - | not started |
-| 244 | `swarm/hermes-gateway-rss` | - | - | not started |
+| 240 | `swarm/serde-pin-mergefix` | `4137301` | CALL-RECORD.md:870 | done; push pending in record |
+| 241 | `swarm/no-openrouter-mergefix` | `4b835a6` | CALL-RECORD.md:856 | LOCAL on purpose (D-241-1/2) |
+| 242 | `swarm/shared-tar-mergefix` | `4eca4b7` | CALL-RECORD.md:856 | LOCAL, push blocked (D-242-1) |
+| 243 | `swarm/console-v2-audit` | `2a01231` | CALL-RECORD.md:899 | pushed (on GH per record) |
+| 244 | `swarm/hermes-gateway-rss` | `7117d54` | CALL-RECORD.md:927 | pushed 2026-10-27 17:34:50 CET |

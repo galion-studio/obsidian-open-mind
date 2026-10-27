@@ -72,6 +72,28 @@ Other numbers on integration-5 0d68f46:
 - GitHub `main` is still 13a296c (branch listing, 2026-10-21T23:50:33+02:00),
   so none of these gates is on main yet.
 
+## State on 2026-10-27 17:40 CET (+01:00), main-staging 7c95348b
+
+Not re-measured (no gate script run); facts from the swarm record.
+
+- Merge path: PR #12 `swarm/main-staging` `7c95348b` -> `main` is open with mergeable_state
+  **unstable**; `main` is still `13a296c` (RUST-MIGRATION-RESUME-20261027.md:20,42;
+  PUBLISH-BLOCKERS-20261027.md:19,22-23). `7c95348b` itself is the PR #12 CI-fix commit
+  (clippy, seccomp test, miri skip, REUSE CC0-1.0 / string-SPDX overrides / candle-core
+  annotation: `git log -1 7c95348b`), i.e. the REUSE gate-7 fix proposed below is on staging,
+  not on main. Box-side CI fixer slot 251 pr12-ci-green started 17:33:45 CET (CALL-RECORD.md:915).
+- Console: live cutover to console-dist/srvx **DONE 17:29 CET** (CALL-RECORD.md:884). From
+  the VPS IP the public https host returns a Cloudflare 403 challenge; origin OK on loopback
+  (PUBLISH-BLOCKERS-20261027.md:27).
+- Cortex: live `bd6fbe6`; `1305dec` + `c68d8cb` pushed, not deployed; deploy needs owner OK
+  on D-245-1/2 (CALL-RECORD.md:882; PUBLISH-BLOCKERS-20261027.md:24).
+- Mouth / voice 503 + closed tunnel ports still open (PUBLISH-BLOCKERS-20261027.md:26).
+- Nerve flood false-alarm detector: slot 252 in progress (CALL-RECORD.md:918).
+- Hermes notify channel: "no-channel-configured" (PUBLISH-BLOCKERS-20261027.md:25).
+- Wave-4 ceiling 400, slots 250+ in flight (CALL-RECORD.md:886,888).
+- Owner-only rows in the table below (SEC-1..5, LAUNCH-1/2, contact, settings) have no new
+  evidence of being done as of this date.
+
 ## Still needing the owner (not done by the swarm, by rule)
 
 | ID | Gate | Owner action | Blocks launch? |

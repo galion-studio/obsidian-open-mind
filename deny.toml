@@ -1,16 +1,27 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 3000 Galion / galion-studio
 #
-# cargo-deny policy for the public launch (2026-10-31).
-# Run:  cargo deny --all-features check licenses bans sources
-#       (advisories needs the RustSec DB fetched over the network)
-# The same file is used for edge/openmind-node:
-#       cargo deny --manifest-path edge/openmind-node/Cargo.toml --config deny.toml check
-# Allowed licences = docs/swarm RULES.md "Open-source borrowing":
-#   MIT, Apache-2.0, MIT OR Apache-2.0, BSD-2/3, ISC, Zlib, Unicode-3.0, 0BSD, CC0.
+# cargo-deny policy — slot 288 swarm/cargo-deny-gate (2026-10-27 CET +01:00).
+# Follow-up to swarm/apache-allowlist-memo 56993b7a.
+#
+# POLICY
+# - House licence for our crates: MIT (enforced).
+# - Transitive allow-list = RULES.md "Open-source borrowing" MINUS plain
+#   Apache-2.0 (that arm is owner-pending; see [licenses] exceptions and
+#   docs/decisions/apache-2-allow-list.md AP-1..AP-6).
+# - Dual MIT OR Apache-2.0 crates pass via the MIT arm (no exception needed).
+# - Plain Apache-2.0-only crates must appear in the owner-pending exceptions
+#   list below until Slavik picks option A/B/C in the apache-allowlist memo.
+#
+# Run (box):
+#   export PATH=/workspace/swarm/tools/bin:$PATH
+#   cargo deny --offline check licenses bans sources
+#   cargo deny check advisories   # needs RustSec DB (network)
+# Same file for edge/openmind-node:
+#   cargo deny --manifest-path edge/openmind-node/Cargo.toml --config deny.toml check
+#
 # Anything else (GPL, LGPL, AGPL, MPL-only, SSPL, BUSL, non-commercial,
-# missing licence) fails the check. An SPDX expression passes when it can be
-# satisfied from this list (for example "Unlicense OR MIT" passes via MIT).
+# missing licence) fails. An SPDX OR expression passes when any arm is allowed.
 
 [graph]
 all-features = true
@@ -27,7 +38,12 @@ targets = [
 version = 2
 allow = [
     "MIT",
-    "Apache-2.0",
+    # OWNER-PENDING AP-4 / L7 (docs/security/tooling-licence-memo.md on
+    # swarm/sec-tooling-licence-memo; also apache-2-allow-list.md AP-4).
+    # Relaxation of Apache-2.0 for compiled-in runtime (libunwind / wasi).
+    # Three crates already declare it as an OR choice and pass via MIT today:
+    # wasi 0.11.1, wasip2 1.0.4, wit-bindgen 0.57.1.
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
@@ -35,13 +51,26 @@ allow = [
     "Unicode-3.0",
     "0BSD",
     "CC0-1.0",
+    # Plain "Apache-2.0" is intentionally NOT in this list.
+    # Owner-pending: see exceptions below + docs/decisions/apache-2-allow-list.md.
 ]
 # Below this, cargo-deny refuses to guess a licence from a LICENSE file.
 confidence-threshold = 0.93
-# The allow-list is the RULES.md list; entries no crate uses yet are fine.
+# Allow-list entries with no current user (e.g. CC0-1.0) are fine.
 unused-allowed-license = "allow"
-# No per-crate exceptions. Adding one needs the owner's approval.
-exceptions = []
+# ---------------------------------------------------------------------------
+# OWNER-PENDING Apache-2.0 list (exceptions).
+# Each row is an Apache-2.0-only crate that would fail MIT-enforcing deny
+# without this exception. Remove the row (and the crate) if Slavik picks
+# option B; keep / promote plain Apache-2.0 into allow if option A.
+# Reason notes live in docs/security/cargo-deny-gate-20261027.md (cargo-deny
+# 0.20.2 exceptions accept only allow + crate/name keys).
+# ---------------------------------------------------------------------------
+exceptions = [
+    # OWNER-PENDING AP-1: safetensors 0.7.0 Apache-2.0-only; transitive via
+    # candle-core/candle-nn (voice). Option A keeps; option B drops/replaces.
+    { allow = ["Apache-2.0"], crate = "safetensors" },
+]
 
 [licenses.private]
 # Workspace crates are unpublished but declare MIT; keep checking them.
@@ -49,12 +78,13 @@ ignore = false
 
 [bans]
 multiple-versions = "warn"
-# "warn", not "deny": the only wildcards today are intra-workspace path deps
-# in crates that lack `publish = false` (cargo-deny then treats them as
-# public). Flip to "deny" once every crate sets `publish = false`.
+# "warn", not "deny": 66/69 workspace crates still lack `publish = false`, so
+# path deps look like public wildcards (slot 201 sec-deny-wildcards not on
+# main-staging tip). Flip to "deny" once every crate sets publish = false.
+# Offenders listed in docs/security/cargo-deny-gate-20261027.md.
 wildcards = "warn"
 allow-wildcard-paths = true
-# Hard rule 1: no openssl.
+# Hard rule 1: no openssl / no Python bridge.
 deny = [
     { crate = "openssl", reason = "RULES.md hard rule 1: no openssl" },
     { crate = "openssl-sys", reason = "RULES.md hard rule 1: no openssl" },
@@ -71,4 +101,6 @@ allow-git = []
 [advisories]
 version = 2
 yanked = "deny"
+# No ignored advisories on this tip (paste/zip cleared on earlier branches;
+# main-staging 98466ab is green — see gate doc).
 ignore = []

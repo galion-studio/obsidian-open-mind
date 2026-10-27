@@ -473,12 +473,24 @@ pub struct HubInner {
     /// Stop / restart jobs (`unit.stopping`) per unit, last hour: the engine
     /// counts restarts that follow one as planned, not as degradation (slot 310).
     pub planned_stops: HashMap<String, VecDeque<u64>>,
+    /// Unplanned failures (`unit.failed`, `unit.exit`, ... above Info) per unit,
+    /// last hour: a crash in a restart window wins over a stop job (slot 310).
+    pub unit_crashes: HashMap<String, VecDeque<u64>>,
 }
 
 impl HubInner {
     /// Remember a stop job of `unit` at `t` (kept 1 h, at most 64 per unit).
     pub fn note_planned_stop(&mut self, unit: &str, t: u64) {
         let q = self.planned_stops.entry(unit.to_string()).or_default();
+        q.push_back(t);
+        while q.len() > 64 || q.front().is_some_and(|x| *x + 3600 < t) {
+            q.pop_front();
+        }
+    }
+
+    /// Remember an unplanned failure of `unit` at `t` (kept 1 h, at most 64 per unit).
+    pub fn note_unit_crash(&mut self, unit: &str, t: u64) {
+        let q = self.unit_crashes.entry(unit.to_string()).or_default();
         q.push_back(t);
         while q.len() > 64 || q.front().is_some_and(|x| *x + 3600 < t) {
             q.pop_front();
@@ -502,6 +514,7 @@ impl Hub {
                 config: Value::Null,
                 units: Value::Null,
                 planned_stops: HashMap::new(),
+                unit_crashes: HashMap::new(),
             }),
             cv: Condvar::new(),
             tx: Mutex::new(None),

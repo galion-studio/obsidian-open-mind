@@ -146,14 +146,18 @@ impl CompState {
 
     /// Add a sample: derives CPU %, detects restarts, updates the verdict.
     pub fn push(&mut self, s: Sample, th: &Thresholds) {
-        self.push_planned(s, th, &[]);
+        self.push_planned(s, th, &[], &[]);
     }
 
     /// Like [`push`](Self::push); `stops` = times of journal stop / restart jobs
     /// of this unit. A restart detected between the previous sample and this one
     /// with an unused stop job in that window is planned (operator, cutover,
     /// cortex restart) and goes to `planned_restarts`, not `restarts`.
-    pub fn push_planned(&mut self, mut s: Sample, th: &Thresholds, stops: &[u64]) {
+    /// `crashes` = times of unplanned failures of this unit (`unit.failed`,
+    /// `unit.exit`, ... not inside a stop job): a crash in the window wins, the
+    /// restart is counted (VPS 2026-10-27 19:52 CET: operator restart of hermes-rs,
+    /// then the new invocation crashed with exit 2 in the same second).
+    pub fn push_planned(&mut self, mut s: Sample, th: &Thresholds, stops: &[u64], crashes: &[u64]) {
         if let Some(p) = self.hist.back() {
             if let (Some(a), Some(b)) = (p.cpu_nsec, s.cpu_nsec) {
                 let dt = s.t.saturating_sub(p.t) as f64;
@@ -171,7 +175,12 @@ impl CompState {
                 // multiset match: two stop jobs in the same second explain two restarts
                 let mut used: Vec<u64> = self.planned_used.iter().copied().collect();
                 let mut planned = 0;
-                for t in stops.iter().copied().filter(|t| *t > lo && *t <= s.t) {
+                let crashed = crashes.iter().any(|t| *t > lo && *t <= s.t);
+                let window = stops
+                    .iter()
+                    .copied()
+                    .filter(|t| !crashed && *t > lo && *t <= s.t);
+                for t in window {
                     if planned >= n {
                         break;
                     }
@@ -641,32 +650,43 @@ mod tests {
     fn planned_restarts_do_not_degrade() {
         let th = Thresholds::default();
         let mut c = CompState::new(spec("tuner"));
-        c.push_planned(ok(1000), &th, &[]);
+        c.push_planned(ok(1000), &th, &[], &[]);
         // operator restart at 1010, cortex restart at 1012 (VPS 17:25:04 / 17:25:06 shape)
         let stops = vec![1010, 1012];
         let mut s = ok(1030);
         s.pid = 11;
-        c.push_planned(s, &th, &stops);
+        c.push_planned(s, &th, &stops, &[]);
         assert_eq!((c.restarts_1h(1030), c.planned_restarts_1h(1030)), (0, 1));
         assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
         let mut s = ok(1060);
         s.pid = 12;
         s.n_restarts = 2; // counter says 2 restarts in this window
-        c.push_planned(s, &th, &[1010, 1012, 1050, 1050]);
+        c.push_planned(s, &th, &[1010, 1012, 1050, 1050], &[]);
         assert_eq!((c.restarts_1h(1060), c.planned_restarts_1h(1060)), (0, 3));
         assert_eq!(c.to_json(1060)["planned_restarts_1h"], 3);
         // a crash: no stop job in the window -> counted, degrading
         let mut s = ok(1090);
         s.pid = 13;
-        c.push_planned(s, &th, &[1010, 1012, 1050, 1050]);
+        c.push_planned(s, &th, &[1010, 1012, 1050, 1050], &[]);
         assert_eq!((c.restarts_1h(1090), c.planned_restarts_1h(1090)), (1, 3));
         assert_eq!(c.status, Status::Degrading, "{:?}", c.reasons);
         // a stop job older than the previous sample (minus PLANNED_SLACK_S) never
         // explains a later restart
         let mut s = ok(1200);
         s.pid = 14;
-        c.push_planned(s, &th, &[1010, 1012, 1050, 1050, 1080]);
+        c.push_planned(s, &th, &[1010, 1012, 1050, 1050, 1080], &[]);
         assert_eq!(c.restarts_1h(1200), 2);
+        // crash wins: a stop job and a crash of the new invocation in the same
+        // window (VPS hermes-rs 2026-10-27 19:52 CET shape) -> counted
+        let mut s = ok(1230);
+        s.pid = 15;
+        c.push_planned(s, &th, &[1220], &[1220]);
+        assert_eq!((c.restarts_1h(1230), c.planned_restarts_1h(1230)), (3, 3));
+        // a crash outside the window does not cancel a later planned restart
+        let mut s = ok(1260);
+        s.pid = 16;
+        c.push_planned(s, &th, &[1220, 1250], &[1220]);
+        assert_eq!((c.restarts_1h(1260), c.planned_restarts_1h(1260)), (3, 4));
     }
 
     #[test]

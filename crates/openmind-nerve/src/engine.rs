@@ -227,11 +227,20 @@ impl Engine {
         self.skipped = col.skipped;
         let cycle_ms_prev = self.last_cycle_ms;
         // Journal stop / restart jobs per unit (event mode only, slot 310).
-        let planned: HashMap<String, std::collections::VecDeque<u64>> = lock(&self.shared)
+        type Times = HashMap<String, std::collections::VecDeque<u64>>;
+        let (planned, crashes): (Times, Times) = lock(&self.shared)
             .evt
             .as_ref()
-            .map(|h| h.lock().planned_stops.clone())
+            .map(|h| {
+                let g = h.lock();
+                (g.planned_stops.clone(), g.unit_crashes.clone())
+            })
             .unwrap_or_default();
+        let times = |m: &Times, u: Option<&str>| -> Vec<u64> {
+            u.and_then(|u| m.get(u))
+                .map(|q| q.iter().copied().collect())
+                .unwrap_or_default()
+        };
         for c in self.comps.iter_mut() {
             if let Some(mut s) = col.samples.get(c.spec.name).cloned() {
                 if c.spec.kind == Kind::SelfNerve {
@@ -240,13 +249,9 @@ impl Engine {
                         s.extra["degraded"] = json!(format!("cycle took {cycle_ms_prev} ms"));
                     }
                 }
-                let stops: Vec<u64> = c
-                    .spec
-                    .unit
-                    .and_then(|u| planned.get(u))
-                    .map(|q| q.iter().copied().collect())
-                    .unwrap_or_default();
-                c.push_planned(s, &self.th, &stops);
+                let stops = times(&planned, c.spec.unit);
+                let crashed = times(&crashes, c.spec.unit);
+                c.push_planned(s, &self.th, &stops, &crashed);
             }
         }
         // Cortex inputs: sliding journal window, listeners, request streams.

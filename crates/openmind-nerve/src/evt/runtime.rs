@@ -305,9 +305,11 @@ impl Runtime {
         let now = self.now();
         // Unit faults / recoveries are seen before the hub dedupe: a repeated
         // failure inside the dedupe window still cancels an armed recovery.
-        if ev.kind == "unit.stopping" {
-            if let Some(u) = &ev.unit {
+        if let Some(u) = &ev.unit {
+            if ev.kind == "unit.stopping" {
                 self.hub.lock().note_planned_stop(u, ev.t);
+            } else if ev.severity > Severity::Info && is_crash_kind(&ev.kind) {
+                self.hub.lock().note_unit_crash(u, ev.t);
             }
         }
         let touches_units = ev.unit.is_some() && ev.source != super::recover::SOURCE;
@@ -602,6 +604,20 @@ impl Runtime {
             self.hub.lock().stats.wake(label, now);
         }
     }
+}
+
+/// Unit failure kinds that make a restart unplanned even after a stop job
+/// (`unit.planned_stop` is the tagged, planned form and is not one of them).
+fn is_crash_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "unit.failed"
+            | "unit.exit"
+            | "unit.spawn_failed"
+            | "unit.start_failed"
+            | "unit.start_limit"
+            | "oom.kill"
+    )
 }
 
 #[cfg(test)]

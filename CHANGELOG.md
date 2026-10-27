@@ -124,7 +124,7 @@ Gate evidence on staging 7e2a12e1: 367 suites, 1951 passed / 0 failed / 18 ignor
 - `whitepaper-update` (cc00dc4)
 - `whitepaper-vending` (5ddd828)
 
-### Not in this release (skipped at merge time, 45 branches)
+### Not in this release (skipped at merge time, 52 branches)
 - `bench-ws-ecb-data` (03714aa): merge conflict: crates/galion-wallstreet/src/http.rs crates/galion-wallstreet/src/main.rs
 - `ci-fuzz-workflow` (3a188b9): gate fail: GATE b10-ci-1 REPOCHECK FAIL (log logs/b10-ci-1)
 - `ci-realtest-with-nerve` (7a95e06): merge conflict: crates/galion-realtest/tests/real_stack.rs

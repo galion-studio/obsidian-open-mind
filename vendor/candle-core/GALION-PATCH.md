@@ -38,3 +38,18 @@ Modified 2026-10-21 by Grok Bot for galion-studio (swarm/candle-zip-fix), only s
 Each source change carries a `galion candle-zip-fix` comment. Nothing else differs from the published crate.
 Remove this directory and the `[patch.crates-io]` entry in the workspace `Cargo.toml` once a candle release
 requires zip >= 9 (as of 2026-10-21 neither 0.9.2, 0.10.x, 0.11.0 nor upstream main does).
+
+7. GPU / accelerator features removed (2026-10-27, swarm/cpu-only-rust, Mate t276u job1), so
+   Galion cannot enable CUDA, cuDNN, NCCL, Metal, MKL or Accelerate through this crate:
+   - `Cargo.toml` / `Cargo.toml.orig`: deleted the `cuda`, `cudnn`, `nccl`, `metal`, `mkl`,
+     `accelerate` feature arms and the optional deps `cudarc`, `candle-kernels`,
+     `candle-metal-kernels`, `accelerate-src`, `intel-mkl-src`, `objc2-metal`,
+     `objc2-foundation`, `libc` (only used by those arms). Left `default = []` and `ug`.
+   - Removed the `cuda_basics`, `cuda_sum_benchmark` and `metal_basics` examples (they
+     required the deleted features).
+   - Upstream `cfg(feature = "cuda"|"metal")` modules stay in the tree as inert source; without
+     the feature arms they never compile. The existing `dummy_cuda_backend` remains the only
+     `cuda` module name visible to CPU builds.
+   Voice crates already depended on candle with `default-features = false`. Nerve, cortex,
+   hermes, memory and console never depended on candle. This patch makes accidental
+   `--features cuda` / `candle-core/cuda` a Cargo resolution error instead of a GPU build.

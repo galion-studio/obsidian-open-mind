@@ -31,35 +31,10 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/huggingface/candle"
 
 [features]
-accelerate = [
-    "dep:libc",
-    "dep:accelerate-src",
-]
-cuda = [
-    "cudarc",
-    "dep:candle-kernels",
-    "candle-ug?/cuda",
-    "float8/cuda",
-]
-cudnn = [
-    "cuda",
-    "cudarc/cudnn",
-]
 default = []
-metal = [
-    "dep:objc2-metal",
-    "dep:objc2-foundation",
-    "dep:candle-metal-kernels",
-    "candle-ug?/metal",
-]
-mkl = [
-    "dep:libc",
-    "dep:intel-mkl-src",
-]
-nccl = [
-    "cuda",
-    "cudarc/nccl",
-]
+# Galion CPU-only (GALION-PATCH.md item 7): cuda/cudnn/nccl/metal/mkl/accelerate
+# feature arms and their optional deps removed. Upstream source still has
+# cfg(feature = "cuda"|"metal") modules; they never compile in this tree.
 ug = ["dep:candle-ug"]
 
 [lib]
@@ -69,20 +44,6 @@ path = "src/lib.rs"
 [[example]]
 name = "basics"
 path = "examples/basics.rs"
-
-[[example]]
-name = "cuda_basics"
-path = "examples/cuda_basics.rs"
-required-features = ["cuda"]
-
-[[example]]
-name = "cuda_sum_benchmark"
-path = "examples/cuda_sum_benchmark.rs"
-
-[[example]]
-name = "metal_basics"
-path = "examples/metal_basics.rs"
-required-features = ["metal"]
 
 [[test]]
 name = "bilinear_tests"
@@ -141,37 +102,8 @@ name = "bench_main"
 path = "benches/bench_main.rs"
 harness = false
 
-[dependencies.accelerate-src]
-version = "0.3.2"
-optional = true
-
 [dependencies.byteorder]
 version = "1.4.3"
-
-[dependencies.candle-kernels]
-version = "0.9.2"
-optional = true
-
-[dependencies.candle-metal-kernels]
-version = "0.9.2"
-optional = true
-
-[dependencies.cudarc]
-version = "0.19.0"
-features = [
-    "std",
-    "cublas",
-    "cublaslt",
-    "curand",
-    "driver",
-    "nvrtc",
-    "f16",
-    "f8",
-    "cuda-version-from-build-system",
-    "dynamic-linking",
-]
-optional = true
-default-features = false
 
 [dependencies.float8]
 version = "0.6.0"
@@ -192,15 +124,6 @@ features = [
     "rand_distr",
 ]
 
-[dependencies.intel-mkl-src]
-version = "0.8.1"
-features = ["mkl-static-lp64-iomp"]
-optional = true
-
-[dependencies.libc]
-version = "0.2.147"
-optional = true
-
 [dependencies.libm]
 version = "0.2.15"
 
@@ -213,14 +136,6 @@ version = "0.2.15"
 
 [dependencies.num_cpus]
 version = "1.15.0"
-
-[dependencies.objc2-foundation]
-version = "0.3.1"
-optional = true
-
-[dependencies.objc2-metal]
-version = "0.3.1"
-optional = true
 
 [dependencies.rand]
 version = "0.9.0"

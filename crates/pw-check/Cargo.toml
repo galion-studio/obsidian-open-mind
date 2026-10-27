@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+[package]
+name = "pw-check"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust port of /opt/galion/bin/pw.py: headless-Chromium check of console pages (title, h1, svg count, theme toggle, dock words, overflow, page errors, 390x844 screenshot). Talks CDP over --remote-debugging-pipe; no Playwright, no Node, no Python."
+
+[lib]
+name = "pw_check"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pw-check"
+path = "src/main.rs"
+
+[dependencies]
+# fd 3/4 plumbing for --remote-debugging-pipe (pipe2, fcntl, dup2). Already in Cargo.lock (galion-backup, galion-guard).
+libc = "0.2"
+serde = { workspace = true }
+serde_json = { workspace = true }

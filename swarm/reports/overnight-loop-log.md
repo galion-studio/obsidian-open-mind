@@ -56,3 +56,9 @@ t312u first push already: galion-studio/obsidian-open-mind @ swarm/overnight-loo
 
 ### Nerve :8670 latency samples (2026-10-27 19:47:24 CET)
 status=200×5; latency_ms=[16,10,16,13,21]; avg≈15.2ms; system=degraded score=39 (from earlier health body).
+
+## 2026-10-27 19:47:53 CET — t312u reports push
+Copied overnight-*.md → VPS `/opt/galion/swarm-reports/`.
+GitHub: galion-studio/obsidian-open-mind branch `swarm/overnight-loop-20261027`.
+First log-only push sha `9fa897b9978a31ea9e8917337a33c69524748b72`.
+Full reports push sha `78cdb233f47bcbddba91fecb82a1ed5a79da6aa7` (laptop.md refined in follow-up).

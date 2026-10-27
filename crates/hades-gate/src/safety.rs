@@ -17,10 +17,15 @@
 //! * plans the reviewer cannot read: non-ASCII text, shell substitution, `eval`,
 //!   encoded payloads.
 //!
-//! This is a deny list on top of an allow list (only `heal-apply`, `switch`
-//! and `rollback` can be approved at all). It is deliberately over-cautious:
-//! a false refusal costs the admin one manual step, a false approval could
-//! cost them their box.
+//! Two layers, both must pass. The deny-list (specific reasons) runs first;
+//! the guard is the **allow-list** of plan steps ([`OPERATOR_SCRIPTS`],
+//! [`SERVICE_PREFIXES`], one template per step, a validator per argument):
+//! a line that is not an allow-listed step is refused. On top of that only
+//! `heal-apply`, `switch` and `rollback` can be approved at all. Deliberately
+//! over-cautious: a false refusal costs the admin one manual step, a false
+//! approval could cost them their box. The S3.1 adversarial corpus
+//! (`tests/attacks/mod.rs`) found 81 deny-list bypasses in 138 attacks; all are
+//! refused now (docs/real-tests/hades-adversarial.md).
 
 /// Longest plan the gate will review.
 pub const MAX_PLAN_BYTES: usize = 64 * 1024;
@@ -38,6 +43,8 @@ pub enum Hazard {
     ProtectedTarget(&'static str),
     /// The plan cannot be reviewed as plain text.
     Opaque(&'static str),
+    /// Not on the allow-list of plan steps (or a bad argument to one).
+    NotAllowListed(&'static str),
 }
 
 impl Hazard {
@@ -52,6 +59,9 @@ impl Hazard {
             }
             Self::ProtectedTarget(m) => format!("admin-safety: protected target refused ({m})"),
             Self::Opaque(m) => format!("admin-safety: plan cannot be reviewed ({m})"),
+            Self::NotAllowListed(m) => {
+                format!("admin-safety: not an allow-listed plan step ({m})")
+            }
         }
     }
 }
@@ -254,6 +264,16 @@ pub fn review_target(target: &str) -> Result<(), Hazard> {
             return Err(Hazard::ProtectedTarget(multi));
         }
     }
+    // Structure: lower-case [a-z0-9] parts joined by `.` `_` `-`; no `..`,
+    // no `:` port, no `@` user, no leading or trailing punctuation.
+    let shape = target.split(['.', '_', '-']).all(|p| {
+        !p.is_empty()
+            && p.bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+    });
+    if !shape {
+        return Err(Hazard::NotAllowListed("target name"));
+    }
     Ok(())
 }
 
@@ -292,9 +312,349 @@ pub fn review_plan(plan: &[u8]) -> Result<(), Hazard> {
             return Err(*hazard);
         }
     }
-    Ok(())
+    review_allow_list(&String::from_utf8_lossy(plan))
 }
 
+// ---------------------------------------------------------------------------
+// Allow-list (security plan S3.1, 2026-10-20). The deny-list above is kept as
+// a first layer because its reasons are specific, but it is NOT the guard:
+// 81 of 138 adversarial plans got past it with a valid token
+// (docs/real-tests/hades-adversarial.md). The guard is this allow-list. Every
+// non-empty plan line must be one of the step templates below, and every
+// argument slot has its own validator. A line that matches no template is
+// refused, so an unknown command can never be approved.
+// ---------------------------------------------------------------------------
+
+/// Services a plan may name: ours only, by name prefix.
+pub const SERVICE_PREFIXES: &[&str] = &["galion-", "gaia-", "openmind-", "hermes-"];
+
+/// The operator scripts a plan may name, exactly (paths relative to the repo).
+pub const OPERATOR_SCRIPTS: &[&str] = &[
+    "deploy/rollback.sh",
+    "deploy/rollback-console.sh",
+    "deploy/switch.sh",
+    "deploy/switch-console.sh",
+];
+
+/// Box test ports for `gaia heal-tick` (`gaia_live::heal::TEST_PORTS`).
+const TEST_PORTS: std::ops::RangeInclusive<u16> = 19000..=19999;
+
+/// Fixed tail of the `start [...]` step in the gaia heal-apply plan v1.
+const START_TAIL: &str = " detached in its own process group, stdin closed, no shell";
+
+/// Absolute-path arguments of a started program may not point here.
+const SYSTEM_ROOTS: &[&str] = &[
+    "/etc",
+    "/boot",
+    "/dev",
+    "/proc",
+    "/sys",
+    "/root",
+    "/bin",
+    "/sbin",
+    "/usr",
+    "/lib",
+    "/lib64",
+    "/home",
+    "/run",
+    "/var/spool",
+    "/var/log",
+];
+
+/// Bytes allowed in a plan line other than the `start [...]` step.
+fn plain_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric()
+        || matches!(
+            b,
+            b' ' | b'\t' | b'.' | b',' | b':' | b'/' | b'_' | b'-' | b'(' | b')'
+        )
+}
+
+/// Bytes allowed inside one argv string of the `start [...]` step.
+fn arg_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'/' | b':' | b'=' | b'-')
+}
+
+const fn bad(why: &'static str) -> Hazard {
+    Hazard::NotAllowListed(why)
+}
+
+/// One of our services: `galion-tuner`, `gaia-dummy`, ... and not protected.
+fn service(s: &str) -> Result<(), Hazard> {
+    let shape = !s.is_empty()
+        && s.len() <= 48
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && !s.ends_with('-')
+        && !s.contains("--")
+        && SERVICE_PREFIXES
+            .iter()
+            .any(|p| s.len() > p.len() && s.starts_with(p));
+    if !shape {
+        return Err(bad(
+            "service name (ours only: galion-*, gaia-*, openmind-*, hermes-*)",
+        ));
+    }
+    review_target(s)
+}
+
+/// An HTTP path for a read-only probe: `/health`, `/v1/status`, ...
+fn endpoint(p: &str) -> Result<(), Hazard> {
+    let Some(rest) = p.strip_prefix('/') else {
+        return Err(bad("endpoint must be an absolute URL path"));
+    };
+    let ok = p.len() <= 128
+        && !rest.is_empty()
+        && rest.split('/').all(|c| {
+            !c.is_empty()
+                && c != "."
+                && c != ".."
+                && c.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-' | b'.')
+                })
+        });
+    if ok {
+        Ok(())
+    } else {
+        Err(bad("endpoint path"))
+    }
+}
+
+fn number(s: &str, range: std::ops::RangeInclusive<u32>) -> Result<u32, Hazard> {
+    if s.is_empty() || s.len() > 5 || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(bad("number"));
+    }
+    s.parse::<u32>()
+        .ok()
+        .filter(|n| range.contains(n))
+        .ok_or(bad("number out of range"))
+}
+
+/// `127.0.0.1:PORT` or `localhost:PORT`; returns the port.
+fn loopback(h: &str) -> Result<u16, Hazard> {
+    let port = h
+        .strip_prefix("127.0.0.1:")
+        .or_else(|| h.strip_prefix("localhost:"))
+        .ok_or(bad("host must be 127.0.0.1:PORT or localhost:PORT"))?;
+    let n = number(port, 1..=65535)?;
+    u16::try_from(n).map_err(|_| bad("port"))
+}
+
+/// `2026-10-20` or `2026-10-20-abc123`.
+fn release_id(s: &str) -> Result<(), Hazard> {
+    let b = s.as_bytes();
+    let date = b.len() >= 10
+        && b[..10].iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        });
+    let suffix = match &b[10.min(b.len())..] {
+        [] => true,
+        [b'-', rest @ ..] => {
+            !rest.is_empty()
+                && rest.len() <= 16
+                && rest
+                    .iter()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+        }
+        _ => false,
+    };
+    if date && suffix {
+        Ok(())
+    } else {
+        Err(bad("release id (YYYY-MM-DD[-tag])"))
+    }
+}
+
+fn script(s: &str) -> Result<(), Hazard> {
+    if OPERATOR_SCRIPTS.contains(&s) {
+        Ok(())
+    } else {
+        Err(bad("operator script (exact allow-list only)"))
+    }
+}
+
+/// `(box test ports 19000-19999 only)` range, inside the test ports.
+fn port_range(s: &str) -> Result<std::ops::RangeInclusive<u16>, Hazard> {
+    let (a, b) = s.split_once('-').ok_or(bad("port range"))?;
+    let (a, b) = (number(a, 1..=65535)?, number(b, 1..=65535)?);
+    let (a, b) = (
+        u16::try_from(a).map_err(|_| bad("port"))?,
+        u16::try_from(b).map_err(|_| bad("port"))?,
+    );
+    if a <= b && TEST_PORTS.contains(&a) && TEST_PORTS.contains(&b) {
+        Ok(a..=b)
+    } else {
+        Err(bad(
+            "port range must be inside the box test ports 19000-19999",
+        ))
+    }
+}
+
+/// An absolute path argument that does not reach system or admin dirs.
+fn safe_abs_path(p: &str) -> Result<(), Hazard> {
+    let ok = p.len() > 1
+        && !p.ends_with('/')
+        && !p.contains("//")
+        && p[1..]
+            .split('/')
+            .all(|c| !c.is_empty() && c != "." && c != "..")
+        && !SYSTEM_ROOTS
+            .iter()
+            .any(|r| p == *r || p.strip_prefix(r).is_some_and(|t| t.starts_with('/')));
+    if ok {
+        Ok(())
+    } else {
+        Err(bad("path argument (system dir, traversal or root)"))
+    }
+}
+
+/// `start ["/abs/prog","--port","19231"] detached in its own process group,
+/// stdin closed, no shell` (gaia heal-apply plan v1). The program's file name
+/// must be one of our services; it is returned so the caller can require a
+/// matching `service <name> ...` line.
+fn start_step(line: &str) -> Result<String, Hazard> {
+    let lower = line.to_ascii_lowercase();
+    if !lower.starts_with("start [") || !lower.ends_with(START_TAIL) {
+        return Err(bad(
+            "start step must be: start [argv] detached ..., no shell",
+        ));
+    }
+    let argv = &line["start ".len()..line.len() - START_TAIL.len()];
+    let inner = argv
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .ok_or(bad("start argv must be a JSON array of strings"))?;
+    let mut args = Vec::new();
+    for item in inner.split(',') {
+        let s = item
+            .strip_prefix('"')
+            .and_then(|s| s.strip_suffix('"'))
+            .ok_or(bad("start argv must be a JSON array of plain strings"))?;
+        if s.is_empty() || s.len() > 256 || !s.bytes().all(arg_byte) || s.contains("..") {
+            return Err(bad("start argv string (plain bytes only, no traversal)"));
+        }
+        args.push(s);
+    }
+    if args.len() > 32 {
+        return Err(bad("start argv too long"));
+    }
+    let (prog, rest) = args.split_first().ok_or(bad("start argv is empty"))?;
+    if !prog.starts_with('/') {
+        return Err(bad("start program must be an absolute path"));
+    }
+    safe_abs_path(prog)?;
+    let name = prog.rsplit('/').next().unwrap_or_default();
+    service(name)?;
+    for arg in rest {
+        let value = arg.split_once('=').map_or(*arg, |(_, v)| v);
+        for p in [*arg, value] {
+            if p.starts_with('/') {
+                safe_abs_path(p)?;
+            }
+        }
+    }
+    Ok(name.to_owned())
+}
+
+/// What one line told us, for the cross-line check.
+enum Step {
+    Plain,
+    /// `service X on ...` or `at most N restarts of X ...`.
+    Names(String),
+    /// `start [...]` with this program name.
+    Starts(String),
+}
+
+fn step(line: &str) -> Result<Step, Hazard> {
+    if line.len() >= 6 && line[..6].eq_ignore_ascii_case("start ") {
+        return start_step(line).map(Step::Starts);
+    }
+    if !line.bytes().all(plain_byte) {
+        return Err(bad("character not allowed in a plan step (letters, digits, space and . , : / _ - ( ) only)"));
+    }
+    let lower = line.to_ascii_lowercase();
+    let w: Vec<&str> = lower.split_whitespace().collect();
+    match w.as_slice() {
+        ["restart", svc] => service(svc)?,
+        ["verify", ep] => endpoint(ep)?,
+        ["verify", ep, "on", host] => {
+            endpoint(ep)?;
+            loopback(host)?;
+        }
+        ["verify", ep, "on", "the", "previous" | "current" | "new", "release"] => endpoint(ep)?,
+        ["switch", "dist/bin", "to", "release", id] => release_id(id)?,
+        ["switch", "dist/bin", "to", "the", "previous", "release"]
+        | ["read", "the", "current", "and", "the", "previous", "release"]
+        | ["keep", "the", "failed", "release", "for", "inspection"]
+        | ["take", "the", "heal-dry", "findings", "from", "demeter"]
+        | ["append", "every", "action", "to", "actions.jsonl"]
+        | ["record", "the", "plan", "in", "lineage"]
+        | ["record", "the", "result", "on", "the", "nerve"]
+        | ["gaia", "heal-apply", "plan", "v1", "(box", "test", "service)"] => {}
+        ["operator", "runs", s] => script(s)?,
+        ["operator", "runs", s, "(console:", c] => {
+            script(s)?;
+            script(c.strip_suffix(')').ok_or(bad("operator console script"))?)?;
+        }
+        ["apply", "at", "most", n, "allow-listed", "fixes"] => {
+            number(n, 0..=999)?;
+        }
+        ["wait", n, "seconds"] => {
+            number(n, 1..=3600)?;
+        }
+        ["probe", "get", ep, "must", "answer", "status", "ok"] => endpoint(ep)?,
+        ["service", svc, "on", host, "(box", "test", "ports", range, "only)"] => {
+            service(svc)?;
+            let port = loopback(host)?;
+            if !port_range(range)?.contains(&port) {
+                return Err(bad("service port outside its stated test range"));
+            }
+            return Ok(Step::Names((*svc).to_owned()));
+        }
+        ["at", "most", n, "restarts", "of", svc, "per", "rolling", "hour"] => {
+            number(n, 1..=10)?;
+            service(svc)?;
+            return Ok(Step::Names((*svc).to_owned()));
+        }
+        [first, ..] if VERBS.contains(first) => {
+            return Err(bad("arguments do not fit the allow-listed step"))
+        }
+        _ => return Err(bad("plan step is not an allow-listed verb")),
+    }
+    Ok(Step::Plain)
+}
+
+/// First words of the allow-listed step templates (for clearer reasons).
+const VERBS: &[&str] = &[
+    "restart", "verify", "switch", "read", "keep", "take", "append", "record", "gaia", "operator",
+    "apply", "wait", "probe", "service", "at", "start",
+];
+
+/// Every non-empty line must be an allow-listed step. A `start` step must be
+/// for a program whose name is a service the plan also names.
+fn review_allow_list(text: &str) -> Result<(), Hazard> {
+    let mut named = Vec::new();
+    let mut started = Vec::new();
+    for raw in text.split('\n') {
+        let line = raw.trim_matches(|c| c == ' ' || c == '\t');
+        if line.is_empty() {
+            continue;
+        }
+        match step(line)? {
+            Step::Plain => {}
+            Step::Names(s) => named.push(s),
+            Step::Starts(s) => started.push(s),
+        }
+    }
+    if started.iter().any(|s| !named.contains(s)) {
+        return Err(bad("start program is not the service the plan names"));
+    }
+    Ok(())
+}
 #[cfg(test)]
 mod tests {
     use super::*;

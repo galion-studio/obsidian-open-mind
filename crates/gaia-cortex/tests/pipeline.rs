@@ -864,3 +864,46 @@ fn unresolved_incident_handed_to_hermes_once() {
     assert_eq!(cx.stats.handoffs_budget_stopped, 1);
     assert_eq!(cx.stats_json()["hermes_handoff"]["budget_stopped"], true);
 }
+
+/// Mate approved hoff-1792623978-2: sbxtest* oom.kill (live seq 51 shape) is
+/// info only — no alert, no Hermes handoff.
+#[test]
+fn sbxtest_oom_is_info_no_hermes_handoff() {
+    let mut c = cfg();
+    c.actions = "live".into();
+    c.hermes.enabled = true;
+    let inbox = c.data_dir.join("hermes-inbox");
+    let (mut cx, nerve, _) = cortex(c);
+    let d = cx.process(
+        vec![ev(
+            "oom.kill",
+            "low",
+            json!({
+                "seq": 51,
+                "unit": "sbxtest.slice",
+                "group": "sandbox",
+                "message_id": "fe6faa94e7774663a0da52717891d8ef",
+            }),
+        )],
+        1_792_623_982,
+    );
+    assert_eq!(d.len(), 1);
+    assert_eq!(d[0]["rule"], "R4b-sandbox-oom");
+    assert_eq!(d[0]["severity"], "info");
+    assert_eq!(d[0]["escalate"], false);
+    assert_eq!(d[0]["alert"], false);
+    assert_eq!(d[0]["outcome"], "none");
+    assert!(nerve.reqs.lock().unwrap().is_empty());
+    let handoffs: Vec<_> = std::fs::read_dir(&inbox)
+        .map(|r| {
+            r.flatten()
+                .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    assert!(
+        handoffs.is_empty(),
+        "sandbox OOM must not create a Hermes handoff: {handoffs:?}"
+    );
+    assert_eq!(cx.stats.handoffs, 0);
+}

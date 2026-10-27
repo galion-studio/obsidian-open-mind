@@ -8,7 +8,7 @@
 //! full probe cycles an hour). In event mode the main thread sleeps in the
 //! kernel until something happens:
 //!
-//! - [`journal`]: one `journalctl -f -o json` child with server-side
+//! - [`journal`]: one `journalctl -f -o json` child (default) or in-process `sdjournal` follower (`journal-native` feature + `NERVE_EVT_JOURNALCTL=native`) with server-side
 //!   matches (systemd unit failures, exits, restarts, start-limit hits, OOM
 //!   kills on every unit; started/stopped/finished of tracked units; kernel
 //!   err+). Blocking pipe read.
@@ -31,6 +31,8 @@ pub mod coalesce;
 pub mod escalate;
 pub mod inventory;
 pub mod journal;
+#[cfg(feature = "journal-native")]
+pub mod journal_native;
 pub mod pidwatch;
 pub mod runtime;
 pub mod stats;

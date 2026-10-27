@@ -1,0 +1,7 @@
+box_journalctl_rss_kb=7444
+nerve_replay_rss_kb=10932
+nerve_native_rss_kb=10904
+native_journalctl_children=0
+native_spec=native:/var/log/journal
+vps_live_nerve_rss_kb=8088
+vps_live_journalctl_rss_kb=50264

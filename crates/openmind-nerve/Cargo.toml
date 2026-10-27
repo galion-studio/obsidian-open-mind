@@ -15,10 +15,19 @@ path = "src/lib.rs"
 name = "openmind-nerve"
 path = "src/main.rs"
 
+[features]
+default = []
+# In-process systemd journal follower via pure-Rust `sdjournal` (MIT).
+# Off by default: live still uses `journalctl -f`. Enable with
+# `--features journal-native` and `NERVE_EVT_JOURNALCTL=native` (or `native:DIR`).
+journal-native = ["dep:sdjournal"]
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 zagreb-time = { path = "../zagreb-time" }
+# Pure Rust journal reader (MIT). Optional; see feature `journal-native`.
+sdjournal = { version = "=0.1.22", optional = true }
 
 [dev-dependencies]
 zagreb-time = { path = "../zagreb-time" }

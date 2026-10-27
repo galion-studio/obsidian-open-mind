@@ -30,6 +30,7 @@ mod http_plain;
 mod inflate;
 mod json;
 mod models_refresh;
+mod mouth_stub;
 mod pdf_crypt;
 mod pdf_text;
 mod persona;
@@ -1285,7 +1286,7 @@ fn serve_tts() {
 /// What :8002 /health answers. It used to hard-code a Chatterbox/CUDA body
 /// and, with no worker, a permanent `"status":"loading"` 503. Now it tells
 /// the truth: with GALION_MOUTH set it passes the remote voice service's own
-/// health through (one GET, 3 s), otherwise it says no backend is configured.
+/// health through (one GET, 3 s), otherwise it answers 503 with reason "voice not deployed" (shared with galion-mouth-stub).
 fn mouth_health() -> (u16, Vec<u8>) {
     if mouth_remote() {
         let addr = mouth_addr();
@@ -1308,11 +1309,7 @@ fn mouth_health() -> (u16, Vec<u8>) {
         );
         return (200, body.into_bytes());
     }
-    let body = format!(
-        "{{\"ok\":false,\"status\":\"unavailable\",\"provider\":\"{}\",\"loaded\":false,\"reason\":\"no speech backend configured; set GALION_MOUTH to a galion-voice-serve address\"}}",
-        m.name()
-    );
-    (503, body.into_bytes())
+    mouth_stub::unavailable_health()
 }
 
 fn tts_http(mut stream: TcpStream) -> std::io::Result<()> {

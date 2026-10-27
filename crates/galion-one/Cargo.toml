@@ -11,6 +11,10 @@ description = "Galion One: the operator's own ear, mind and mouth on one box."
 name = "galion-one"
 path = "src/main.rs"
 
+[[bin]]
+name = "galion-mouth-stub"
+path = "src/bin/galion-mouth-stub.rs"
+
 [dependencies]
 galion-common = { path = "../galion-common" }
 

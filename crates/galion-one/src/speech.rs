@@ -7,7 +7,7 @@
 // talk to it over stdin/stdout. That spawn is gone (B14). What is left is
 // this seam: `Mouth` is what the :8002 server and the /voice route call.
 // Today `local()` is the `Unavailable` stub. With no GALION_MOUTH set, :8002
-// /health answers 503 `"status":"unavailable"` with the reason (it used to
+// /health answers 503 `"status":"unavailable"` with reason "voice not deployed" (it used to
 // claim a Chatterbox/CUDA model that was "loading" forever) and /synthesize
 // returns {"error":"voice"} (500) at once.
 //

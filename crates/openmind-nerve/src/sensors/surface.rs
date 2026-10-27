@@ -265,6 +265,11 @@ pub fn check(t: &Target, lim: &Limits, resolve: &ResolveFn) -> Outcome {
         http: None,
         proxied: false,
     };
+    // Egress guard: never reach an LLM provider, not even for a status GET.
+    if crate::egress::mentions_forbidden(&t.host) || crate::egress::check_path(&t.path).is_err() {
+        o.dns = Err("egress guard: LLM provider / endpoint target refused".into());
+        return o;
+    }
     let addrs = match resolve(&t.host, t.port) {
         Ok(a) if !a.is_empty() => a,
         Ok(_) => {

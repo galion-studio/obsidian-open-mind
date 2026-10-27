@@ -129,6 +129,14 @@ Checked on crates.io 2026-10-27 ~21:05 CET (licence from the crate's published m
 | **P3** | Hermes on the phone: read-only Hermes status card, then owner-confirmed actions through HADES approval (never money moves) | HADES admin key (hermes-core G9) |
 | **P4** | Galion OS on-device (galion-box sandbox, gold image, adb bridge) | **§11 answers 1 and 7 + handset gate** |
 
+### P1 client (slot 319, done on swarm/android-admin-pairing)
+
+`galion-admin-console client-status|client-pair|client-resume|client-get|client-forget`: Rust pairing
+client for the `/api/v1/admin` contract of console-static `--admin-store` (303) and of `serve` (307).
+Loopback only, code from stdin/file, creds 0600, node id output only. Real tests: box,
+VPS throwaway as nobody, live read-only (still 404). See docs/real-tests/android-admin-pairing.md.
+It is the tool to verify P1 the moment D-303-1/D-313-1 lands (`client-status` 404 -> `paired=..`).
+
 ## 7. Owner decisions
 
 * **D-307-1** P1 shape: separate loopback unit (a) or linked into console-static (b)? Rec: (b) for one binary, (a) first if we want it live tonight with an easy rollback.

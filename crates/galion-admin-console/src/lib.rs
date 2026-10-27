@@ -21,6 +21,7 @@
 //! `serde_json` for the nerve summary.
 
 pub mod audit;
+pub mod client;
 pub mod pairing;
 pub mod server;
 pub mod status;

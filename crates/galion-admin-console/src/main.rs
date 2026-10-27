@@ -11,8 +11,12 @@
 //! galion-admin-console devices --state DIR
 //! galion-admin-console revoke --state DIR NODE
 //! galion-admin-console audit-verify --state DIR
+//! galion-admin-console client-status|client-pair|client-resume|client-get PATH|client-forget
+//!     --client-state DIR --console 127.0.0.1:PORT [--console-host HOST] [--origin URL]
+//!     [client-pair: --code-stdin | --code-file FILE] [--label L]
 //! ```
-//! Exit codes: 0 ok, 1 runtime error, 2 usage / refused config, 4 audit chain broken.
+//! Exit codes: 0 ok, 1 runtime error, 2 usage / refused config, 3 not paired /
+//! refused (client), 4 audit chain broken, 5 pairing locked (client).
 
 use galion_admin_console::audit::{self, Verify};
 use galion_admin_console::pairing::{Store, DEFAULT_TTL};
@@ -26,7 +30,7 @@ use std::sync::Arc;
 fn usage(msg: &str) -> ! {
     eprintln!("galion-admin-console: {msg}");
     eprintln!(
-        "usage: galion-admin-console serve|issue-code|devices|revoke|audit-verify --state DIR ..."
+        "usage: galion-admin-console serve|issue-code|devices|revoke|audit-verify --state DIR ...\n       galion-admin-console client-status|client-pair|client-resume|client-get PATH|client-forget --client-state DIR --console 127.0.0.1:PORT ..."
     );
     exit(2)
 }
@@ -51,6 +55,10 @@ struct Args {
     origin: Option<String>,
     insecure_cookie: bool,
     ttl: i64,
+    client_state: Option<PathBuf>,
+    code_stdin: bool,
+    code_file: Option<PathBuf>,
+    label: Option<String>,
     rest: Vec<String>,
 }
 
@@ -67,6 +75,10 @@ fn parse() -> Args {
         origin: None,
         insecure_cookie: false,
         ttl: DEFAULT_TTL,
+        client_state: None,
+        code_stdin: false,
+        code_file: None,
+        label: None,
         rest: vec![],
     };
     while let Some(k) = it.next() {
@@ -90,6 +102,10 @@ fn parse() -> Args {
                 a.origin = Some(o)
             }
             "--insecure-cookie" => a.insecure_cookie = true,
+            "--client-state" => a.client_state = Some(val().into()),
+            "--code-stdin" => a.code_stdin = true,
+            "--code-file" => a.code_file = Some(val().into()),
+            "--label" => a.label = Some(val()),
             "--ttl" => {
                 a.ttl = val()
                     .parse()
@@ -104,9 +120,127 @@ fn parse() -> Args {
     a
 }
 
+fn client_main(a: &Args) -> ! {
+    use galion_admin_console::client::{self, ClientError, Target};
+    let fail = |what: &str, e: ClientError| -> ! {
+        eprintln!("galion-admin-console: {what}: {e}");
+        exit(match e {
+            ClientError::NotLoopback | ClientError::Invalid(_) => 2,
+            ClientError::Refused | ClientError::Origin | ClientError::NoCreds => 3,
+            ClientError::Locked(_) => 5,
+            _ => 1,
+        })
+    };
+    let dir = a
+        .client_state
+        .clone()
+        .or_else(|| a.state.clone())
+        .unwrap_or_else(|| usage("client commands need --client-state DIR"));
+    if a.cmd == "client-forget" {
+        match client::forget(&dir) {
+            Ok(true) => println!("forgot local credentials"),
+            Ok(false) => println!("no local credentials"),
+            Err(e) => fail("forget", e),
+        }
+        exit(0)
+    }
+    let addr = a
+        .console
+        .unwrap_or_else(|| usage("client commands need --console 127.0.0.1:PORT"));
+    let mut t = Target::new(addr, &a.console_host).unwrap_or_else(|e| fail("target", e));
+    if let Some(o) = &a.origin {
+        t.origin = o.clone();
+    }
+    let show = |p: &client::Paired| {
+        println!(
+            "paired node={} device={} cookie=HttpOnly:{} Secure:{} SameSite:{}",
+            p.creds.node(),
+            if p.device_issued {
+                "issued"
+            } else if p.creds.has_device() {
+                "kept"
+            } else {
+                "none"
+            },
+            p.attrs.http_only,
+            p.attrs.secure,
+            if p.attrs.same_site.is_empty() {
+                "-"
+            } else {
+                &p.attrs.same_site
+            }
+        );
+    };
+    match a.cmd.as_str() {
+        "client-status" => {
+            let creds = match client::load(&dir) {
+                Ok(c) => Some(c),
+                Err(ClientError::NoCreds) => None,
+                Err(e) => fail("creds", e),
+            };
+            let s = client::session(&t, creds.as_ref()).unwrap_or_else(|e| fail("status", e));
+            println!(
+                "paired={} you={} local={}",
+                s.paired,
+                s.you,
+                creds
+                    .as_ref()
+                    .map(|c| c.node())
+                    .unwrap_or_else(|| "none".into())
+            );
+            exit(if s.you { 0 } else { 3 })
+        }
+        "client-pair" => {
+            let code = if a.code_stdin {
+                let mut s = String::new();
+                let _ = std::io::stdin().read_line(&mut s);
+                s
+            } else if let Some(f) = &a.code_file {
+                std::fs::read_to_string(f).unwrap_or_else(|e| {
+                    eprintln!("galion-admin-console: --code-file: {}", e.kind());
+                    exit(2)
+                })
+            } else {
+                usage("client-pair needs --code-stdin or --code-file FILE (never argv)")
+            };
+            let p = client::pair_code(&t, &code, a.label.as_deref())
+                .unwrap_or_else(|e| fail("pair", e));
+            client::save(&dir, &p.creds).unwrap_or_else(|e| fail("save", e));
+            show(&p);
+        }
+        "client-resume" => {
+            let c = client::load(&dir).unwrap_or_else(|e| fail("creds", e));
+            let p = client::resume(&t, &c).unwrap_or_else(|e| fail("resume", e));
+            client::save(&dir, &p.creds).unwrap_or_else(|e| fail("save", e));
+            show(&p);
+        }
+        "client-get" => {
+            let path = a
+                .rest
+                .first()
+                .unwrap_or_else(|| usage("client-get needs PATH"));
+            let c = client::load(&dir).unwrap_or_else(|e| fail("creds", e));
+            let r = client::get(&t, &c, path).unwrap_or_else(|e| fail("get", e));
+            let body = r.text();
+            if c.leaks_into(&body) {
+                eprintln!("galion-admin-console: reply echoed a credential; not printed");
+                exit(1)
+            }
+            eprintln!("status {}", r.status);
+            println!("{body}");
+            exit(if r.status < 400 { 0 } else { 1 })
+        }
+        other => usage(&format!("unknown command {other}")),
+    }
+    exit(0)
+}
+
 fn main() {
     galion_common::build_info::exit_if_version("galion-admin-console", env!("CARGO_PKG_VERSION"));
     let a = parse();
+    if a.cmd.starts_with("client-") {
+        client_main(&a)
+    }
     let state = a
         .state
         .clone()

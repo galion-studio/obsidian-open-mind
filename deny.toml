@@ -60,6 +60,15 @@ deny = [
     { crate = "openssl-sys", reason = "RULES.md hard rule 1: no openssl" },
     { crate = "native-tls", reason = "pulls openssl on Linux" },
     { crate = "pyo3", reason = "RULES.md hard rule 1: Rust only, no Python" },
+    { crate = "cudarc", reason = "CPU-only: no CUDA (nerve/cortex/hermes/memory/console + voice)" },
+    { crate = "candle-kernels", reason = "CPU-only: no CUDA kernels" },
+    { crate = "candle-metal-kernels", reason = "CPU-only: no Metal" },
+    { crate = "accelerate-src", reason = "CPU-only: no Apple Accelerate" },
+    { crate = "intel-mkl-src", reason = "CPU-only: no Intel MKL" },
+    { crate = "opencl3", reason = "CPU-only: no OpenCL" },
+    { crate = "ocl", reason = "CPU-only: no OpenCL" },
+    { crate = "cl-sys", reason = "CPU-only: no OpenCL" },
+    { crate = "objc2-metal", reason = "CPU-only: no Metal" },
 ]
 
 [sources]

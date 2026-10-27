@@ -104,7 +104,7 @@ impl Check {
             Check::Utc => "UTC clock reads or Z-suffixed timestamps in crates/ outside zagreb-time (CHECKS C6, review)",
             Check::Secrets => "no private-key blocks or token-shaped strings (matches are never printed)",
             Check::Hosts => "no public IPv4 literals in crates/, deploy/, .github/",
-            Check::Portable => "no inline asm, arch intrinsics, target-cpu/target-feature, openssl-sys (UNIVERSAL-CPU.md)",
+            Check::Portable => "no inline asm, arch intrinsics, target-cpu/target-feature, openssl-sys, CUDA/OpenCL/Metal/MKL crates (UNIVERSAL-CPU.md, CPU-only)",
             Check::Deps => "serde_json features are pinned once in the root [workspace.dependencies] (preserve_order); member crates use { workspace = true } with no features",
         }
     }
@@ -283,13 +283,14 @@ pub fn scan_text(path: &str, text: &str) -> Vec<Finding> {
                     Check::Portable,
                     path,
                     i + 1,
-                    format!("{bad} needs a C toolchain per target; use rustls or no TLS"),
+                    format!("{bad} is forbidden on CPU-only Galion builds (no OpenSSL/CUDA/OpenCL/Metal/MKL)"),
                 ));
             }
         }
     }
     if file_name(path) == "Cargo.toml" {
         dep_pins(path, text, &mut out);
+        gpu_features_forbidden(path, text, &mut out);
     }
     out
 }
@@ -538,7 +539,18 @@ const PORTABLE_RS: &[&str] = &[
 
 const PORTABLE_CFG: &[&str] = &[concat!("target-", "cpu"), concat!("target-", "feature")];
 
-const NON_PORTABLE_CRATES: &[&str] = &["openssl-sys"];
+const NON_PORTABLE_CRATES: &[&str] = &[
+    "openssl-sys",
+    "cudarc",
+    "candle-kernels",
+    "candle-metal-kernels",
+    "accelerate-src",
+    "intel-mkl-src",
+    "opencl3",
+    "ocl",
+    "cl-sys",
+    "objc2-metal",
+];
 
 // ---------------------------------------------------------------- walking
 
@@ -633,6 +645,49 @@ fn is_pinned_dep_key(line: &str) -> bool {
     t.strip_prefix(PINNED_DEP)
         .and_then(|rest| rest.chars().next())
         .is_some_and(|c| c == ' ' || c == '=' || c == '.' || c == '\t')
+}
+
+/// Forbid enabling CUDA / Metal / OpenCL / MKL / Accelerate features in
+/// workspace and crate manifests. `vendor/` is patched separately (see
+/// `vendor/candle-core/GALION-PATCH.md` item 7) and is skipped here.
+pub fn gpu_features_forbidden(path: &str, text: &str, out: &mut Vec<Finding>) {
+    if under(path, &["vendor"]) {
+        return;
+    }
+    const BAD: &[&str] = &[
+        "\"cuda\"",
+        "\"cudnn\"",
+        "\"nccl\"",
+        "\"metal\"",
+        "\"mkl\"",
+        "\"accelerate\"",
+        "\"opencl\"",
+        "candle-core/cuda",
+        "candle-nn/cuda",
+        "candle-core/metal",
+        "candle-nn/metal",
+        "candle-core/cudnn",
+        "candle-core/mkl",
+        "candle-core/accelerate",
+    ];
+    for (i, line) in text.lines().enumerate() {
+        let n = i + 1;
+        let t = line.trim();
+        if t.starts_with('#') || line.contains(ALLOW_MARKER) {
+            continue;
+        }
+        for pat in BAD {
+            if t.contains(pat) {
+                out.push(finding(
+                    Check::Portable,
+                    path,
+                    n,
+                    format!("GPU/accelerator feature {pat} is forbidden (CPU-only Galion)"),
+                ));
+                break;
+            }
+        }
+    }
 }
 
 /// Cargo unifies features over the packages in one build, so a member crate

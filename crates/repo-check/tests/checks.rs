@@ -203,6 +203,15 @@ fn portable_rust_and_config() {
     let lock = format!("[[package]]\nname = \"{}-sys\"\n", "openssl");
     assert_eq!(checks("Cargo.lock", &lock), vec![Check::Portable]);
     assert!(checks("Cargo.lock", "[[package]]\nname = \"rustls\"\n").is_empty());
+    let cudarc = "[[package]]\nname = \"cudarc\"\n";
+    assert_eq!(checks("Cargo.lock", cudarc), vec![Check::Portable]);
+    let cuda_feat = "# SPDX-License-Identifier: MIT\n# SPDX-FileCopyrightText: 3000 Galion / galion-studio\n[dependencies]\ncandle-core = { version = \"0.9\", features = [\"cuda\"] }\n";
+    assert_eq!(
+        checks("crates/a/Cargo.toml", cuda_feat),
+        vec![Check::Portable]
+    );
+    // vendor/ is skipped (patched candle may mention cuda in comments/history).
+    assert!(checks("vendor/candle-core/Cargo.toml", "cuda = [\"cudarc\"]\n").is_empty());
 }
 
 #[test]

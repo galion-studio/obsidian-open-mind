@@ -73,10 +73,13 @@ SPDX-License-Identifier = "MIT"
 # 6. Files that embed SPDX tags inside string literals or tables (test
 #    fixtures, unit-renderer templates). Their real header is MIT; override so
 #    the embedded examples are not read as the file's own licensing.
+#    deps_pin.rs holds a TOML header string; comply 0.1.1 reads it as the
+#    file's licence expression (launch-gates run 40544656043).
 [[annotations]]
 path = [
     "crates/galion-boot/src/units.rs",
     "crates/repo-check/tests/checks.rs",
+    "crates/repo-check/tests/deps_pin.rs",
     "crates/repo-check/README.md",
 ]
 precedence = "override"

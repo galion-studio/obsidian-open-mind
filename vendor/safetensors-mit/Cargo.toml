@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Clean-room MIT drop-in for the `safetensors` 0.7 API subset that candle-core / candle-nn 0.9.2 use.
+# It is named `safetensors` only so `[patch.crates-io]` can swap it in; it is NOT the Hugging Face crate
+# and contains none of its code. See docs/security/safetensors-mit-alt.md (slot 295, AP-1 follow-up).
+[package]
+name = "safetensors"
+version = "0.7.0"
+edition = "2021"
+license = "MIT"
+description = "Galion clean-room MIT reader/writer for the safetensors file format (API-compatible subset)"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", default-features = false, features = ["std"] }
+serde_json = { version = "1", default-features = false, features = ["std"] }

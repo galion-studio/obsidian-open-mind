@@ -61,6 +61,9 @@ Probed by temporarily dropping the exception and plain Apache-2.0 from allow
 |---|---|---|---|---|
 | safetensors | 0.7.0 | Apache-2.0 only | transitive via candle-core / candle-nn (voice / chatterbox) | **AP-1** |
 
+Update 2026-10-27 19:40 CET (slot 295, `swarm/safetensors-mit-alt`): prototype MIT replacement `vendor/safetensors-mit`
+removes this offender and the AP-1 exception; see docs/security/safetensors-mit-alt.md (owner decision ST-1).
+
 No other registry package on this tip is Apache-2.0-only.
 
 Also noted (pass via MIT arm today; relevant to AP-4):

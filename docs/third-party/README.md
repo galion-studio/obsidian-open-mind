@@ -50,7 +50,7 @@ spelling of `OR`. Counts are packages:
 | `MIT OR Zlib OR Apache-2.0` | 1 | MIT or Apache-2.0 |
 | `MIT OR Apache-2.0 OR LGPL-2.1-or-later` | 1 | MIT (the LGPL branch is **not** used) |
 | `MIT OR Apache-2.0 OR BSD-1-Clause` | 1 | MIT or Apache-2.0 (BSD-1-Clause is not on the allow-list) |
-| `Apache-2.0` | 1 | Apache-2.0 |
+| `Apache-2.0` | 0 on swarm/safetensors-mit-alt (was 1: safetensors 0.7.0, now replaced by MIT vendor/safetensors-mit) | Apache-2.0 |
 | `0BSD OR MIT OR Apache-2.0` | 1 | MIT or Apache-2.0 |
 | `(MIT OR Apache-2.0) AND Unicode-3.0` | 1 | (MIT or Apache-2.0) and Unicode-3.0, both allowed |
 
@@ -182,7 +182,7 @@ in the graph: `cargo tree -i <crate> --all-features --target all -e normal,build
 | rusqlite | 0.32.1 | MIT | `desk-hermes`, `galion-backup`, `hermes-rs`, `one-defence`, `openmind-memory` | [cutover-prep](cutover-prep.md), [desk-linkwatch](desk-linkwatch.md), [memory-real](memory-real.md), [rust-ports](rust-ports.md) |
 | rustc_version | 0.4.1 | MIT OR Apache-2.0 | transitive | [hades-approval](hades-approval.md) |
 | rustversion | 1.0.23 | MIT OR Apache-2.0 | transitive | none (transitive only) |
-| safetensors | 0.7.0 | Apache-2.0 | transitive | [voice-mouth](voice-mouth.md) |
+| safetensors (Galion clean-room, `vendor/safetensors-mit`, replaces registry 0.7.0 via `[patch.crates-io]`) | 0.7.0-compatible | MIT | transitive (candle) | [safetensors-mit-alt](safetensors-mit-alt.md) — OWNER-PENDING AP-1 option C; registry safetensors 0.7.0 (Apache-2.0) no longer in Cargo.lock on this branch |
 | same-file | 1.0.6 | Unlicense/MIT | transitive | none (transitive only) |
 | semver | 1.0.28 | MIT OR Apache-2.0 | transitive | [hades-approval](hades-approval.md) |
 | seq-macro | 0.3.6 | MIT OR Apache-2.0 | transitive | [voice-mouth](voice-mouth.md) |

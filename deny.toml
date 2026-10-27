@@ -67,9 +67,10 @@ unused-allowed-license = "allow"
 # 0.20.2 exceptions accept only allow + crate/name keys).
 # ---------------------------------------------------------------------------
 exceptions = [
-    # OWNER-PENDING AP-1: safetensors 0.7.0 Apache-2.0-only; transitive via
-    # candle-core/candle-nn (voice). Option A keeps; option B drops/replaces.
-    { allow = ["Apache-2.0"], crate = "safetensors" },
+    # AP-1 (slot 295, swarm/safetensors-mit-alt): the Apache-2.0-only registry `safetensors`
+    # 0.7.0 is replaced by the clean-room MIT vendor/safetensors-mit via [patch.crates-io],
+    # so no exception is needed. If the owner rejects option C, drop the patch line in
+    # Cargo.toml and restore: { allow = ["Apache-2.0"], crate = "safetensors" },
 ]
 
 [licenses.private]

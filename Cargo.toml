@@ -84,3 +84,8 @@ strip = true
 [patch.crates-io]
 candle-core = { path = "vendor/candle-core" }
 paste = { path = "vendor/paste-pastey" }
+# AP-1 (slot 295): `safetensors` 0.7.0 is Apache-2.0-only. vendor/safetensors-mit is a clean-room MIT
+# reader/writer exposing the same API subset candle-core / candle-nn 0.9.2 use, named `safetensors` so this
+# patch can swap it in. Parity on all 7 real model files: docs/real-tests/safetensors-mit-alt.md.
+# OWNER-PENDING AP-1 option C; remove this line to fall back to upstream (then restore the deny.toml exception).
+safetensors = { path = "vendor/safetensors-mit" }

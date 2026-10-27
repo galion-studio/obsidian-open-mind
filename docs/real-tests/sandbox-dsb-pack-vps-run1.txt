@@ -1,0 +1,56 @@
+RUN 2026-10-27 21:05:43 +0100
+
+running 8 tests
+test real_staged_link_env_and_proc_are_contained ... HOST link.env mode 666 (exists)
+Fs: status=Exited(0) proc_view=Masked { static_files: 6, live_files: 0 } err=None
+LINKENV=HIDDEN
+OPTGALION=0
+
+CANARY=HIDDEN
+PIDDIRS=0
+SELF=no
+P1=no
+PROCFILES=cpuinfo,loadavg,meminfo,stat,uptime,version,
+LAYERS rlimits=Enforced env=Enforced workdir=Enforced workdir_quota=Enforced no_new_privs=Enforced userns=Enforced net=Enforced pidns=Enforced mountns=Enforced ro_root=Enforced hide_home=Enforced proc=Enforced landlock=NotEnforced("kernel has no landlock") caps=Enforced fds=Enforced cgroup=NotEnforced("no cgroup_parent in policy; no pids.max / memory.max for the tree")
+Git: status=Exited(0) proc_view=Masked { static_files: 6, live_files: 0 } err=None
+LINKENV=HIDDEN
+OPTGALION=0
+
+CANARY=HIDDEN
+PIDDIRS=0
+SELF=no
+P1=no
+PROCFILES=cpuinfo,loadavg,meminfo,stat,uptime,version,
+LAYERS rlimits=Enforced env=Enforced workdir=Enforced workdir_quota=Enforced no_new_privs=Enforced userns=Enforced net=Enforced pidns=Enforced mountns=Enforced ro_root=Enforced hide_home=Enforced proc=Enforced landlock=NotEnforced("kernel has no landlock") caps=Enforced fds=Enforced cgroup=NotEnforced("no cgroup_parent in policy; no pids.max / memory.max for the tree")
+Cargo: status=Exited(0) proc_view=Masked { static_files: 6, live_files: 0 } err=None
+LINKENV=HIDDEN
+OPTGALION=0
+
+CANARY=HIDDEN
+PIDDIRS=0
+SELF=no
+P1=no
+PROCFILES=cpuinfo,loadavg,meminfo,stat,uptime,version,
+LAYERS rlimits=Enforced env=Enforced workdir=Enforced workdir_quota=Enforced no_new_privs=Enforced userns=Enforced net=Enforced pidns=Enforced mountns=Enforced ro_root=Enforced hide_home=Enforced proc=Enforced landlock=NotEnforced("kernel has no landlock") caps=Enforced fds=Enforced cgroup=NotEnforced("no cgroup_parent in policy; no pids.max / memory.max for the tree")
+CONTROL (no hide): CANARY=READABLE
+
+ok
+test real_staged_workdir_quota_is_enospc_not_host_fill ... WDQ status=Exited(0) proc_view=Masked { static_files: 6, live_files: 0 } quota=Some(WorkdirQuota { limit_bytes: 16777216, limit_inodes: 1024, in_bytes: 0, in_entries: 1, in_skipped: 0, used_bytes: 16777216, copied_out: true, out_complete: true, out_bytes: 16777216, out_entries: 65, out_unchanged: 0, out_skipped: 0, errno: 0 })
+WROTE=64
+-                  16384 16384         0 100% /var/tmp/sandbox-test-20261027-210518/work/dsb305-319193-real-wdq/wt
+
+HOST worktree bytes after copy back: 16777216
+ok
+test staged_dropin_keeps_namespaces_and_cgroups_usable ... ok
+test staged_dropin_sets_the_required_keys ... FINDING: staged drop-in relies on the 512 MiB workdir default
+ok
+test staged_policy_has_workdir_quota_and_no_net ... ok
+test staged_policy_hides_opt_galion_and_link_env ... ok
+test staged_policy_masks_proc_for_every_kind ... ok
+test staged_unit_user_is_reported_for_d_sb4 ... D-SB4: staged hermes-rs User= set: false, DynamicUser= set: false (false/false = runs as root)
+ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+EXIT=0
+END 2026-10-27 21:05:44 +0100

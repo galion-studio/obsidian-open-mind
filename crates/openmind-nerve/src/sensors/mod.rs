@@ -294,7 +294,8 @@ impl Sensors {
 #[cfg(not(all(
     feature = "sensor-rustsec",
     feature = "sensor-drift",
-    feature = "sensor-ingress-lint"
+    feature = "sensor-ingress-lint",
+    feature = "sensor-memory-freshness"
 )))]
 pub(crate) fn compiled_out(env: Env, var: &str, feature: &str) -> bool {
     let set = env(var).is_some_and(|v| !v.trim().is_empty());

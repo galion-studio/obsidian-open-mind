@@ -58,7 +58,7 @@ const S385: [(&str, &str); 3] = [
     ("drift", "sensor-drift"),
     ("ingress-lint", "sensor-ingress-lint"),
 ];
-const ALL_FEATURES: [&str; 11] = [
+const ALL_FEATURES: [&str; 12] = [
     "sensor-rustsec",
     "rustsec-snapshot",
     "sensor-drift",
@@ -70,6 +70,8 @@ const ALL_FEATURES: [&str; 11] = [
     "sensor-hades",
     "sensor-event-feed",
     "sensor-edgerate",
+    // Slot 424: staged memory freshness (slot 405), off unless NERVE_MEMFRESH_BIN.
+    "sensor-memory-freshness",
 ];
 
 struct Kill(Child);
@@ -367,6 +369,13 @@ fn real_s2_sensor_gates() {
             "table: singles add to {sum} B, the seven together save {} B",
             d - s
         );
+        // Slot 424: the staged memory freshness sensor (slot 405) is gated too.
+        let f = "sensor-memory-freshness";
+        let b = build(&format!("minus-{f}"), &features_without(&[f]), &dir);
+        let n = size(&b);
+        assert!(n <= d, "minus {f}: {n} B above default {d} B");
+        eprintln!("table memory-freshness ({f}): {n} B, saves {} B", d - n);
+        let _ = std::fs::remove_file(&b);
     }
 
     // All gated sensors switched on.

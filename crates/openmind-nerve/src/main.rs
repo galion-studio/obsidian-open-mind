@@ -89,6 +89,7 @@ fn main() -> ExitCode {
             e.write_files = false;
             e.alerts.path = None;
             e.alerts.to_journal = false;
+            e.alerts.webhook = None;
             e.cycle();
             print_report(&e, &args)
         }
@@ -188,6 +189,10 @@ fn serve(cfg: Config, args: &[String]) -> ExitCode {
         e.cfg.data_dir.display(),
         ev.as_ref().map(|x| x.lock().map(|l| l.path.display().to_string()).unwrap_or_default()).unwrap_or_else(|| "off".into()),
         e.comps.len()
+    );
+    eprintln!(
+        "<6>openmind-nerve alerts external: {}",
+        e.alerts.external_status()
     );
     let event_mode = opt(args, "--mode")
         .or_else(|| std::env::var("NERVE_MODE").ok())

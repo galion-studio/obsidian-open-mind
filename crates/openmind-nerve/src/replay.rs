@@ -172,6 +172,7 @@ pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
     e.write_files = false;
     e.alerts.path = None;
     e.alerts.to_journal = false;
+    e.alerts.webhook = None;
     let units: Vec<&'static str> = e.comps.iter().filter_map(|c| c.spec.unit).collect();
     let mut hits: Vec<(String, Option<String>, Hit)> = vec![];
     for (name, text) in &access {

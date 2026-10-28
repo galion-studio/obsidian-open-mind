@@ -109,6 +109,8 @@ impl Engine {
             cfg.telegram_env.clone(),
             cfg.ext_alerts_per_hour,
         );
+        let mut alerts = alerts;
+        alerts.set_webhook(cfg.alert_webhook.clone());
         let now = now_secs();
         let shared = Shared {
             detector: Detector {
@@ -500,7 +502,7 @@ impl Engine {
             "reflex": {"budgets": self.reflex.budgets_json(now), "recent": self.reflex.recent.iter().rev().take(10).collect::<Vec<_>>(),
                         "limits": {"restarts_per_hour_default": 3, "cloudflared_per_hour": 1, "max_actions_per_cycle": MAX_ACTIONS_PER_CYCLE, "rollback_per_unit_per_day": 1, "fail_cycles": self.cfg.fail_cycles},
                         "scaling": "single LXC: restarts/rollback only, no scaling"},
-            "alerts": {"recent": self.alerts.recent.iter().rev().take(10).collect::<Vec<_>>(), "external": self.alerts.ext_status},
+            "alerts": {"recent": self.alerts.recent.iter().rev().take(10).collect::<Vec<_>>(), "external": self.alerts.external_status(), "webhook": self.alerts.webhook_json()},
             "probe_errors": self.probe_errors,
             "probes_skipped": self.skipped,
         })
@@ -670,11 +672,15 @@ impl Engine {
         );
         add(
             "alerts-channel",
-            "info",
+            if self.alerts.webhook_error.is_some() {
+                "warn"
+            } else {
+                "info"
+            },
             "galion-nerve",
             format!(
                 "journald + alerts.json; external: {}",
-                self.alerts.ext_status
+                self.alerts.external_status()
             ),
         );
         add(

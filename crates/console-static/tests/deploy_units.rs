@@ -261,7 +261,9 @@ fn bad_store_argv_is_refused_by_the_binary() {
 #[test]
 fn spdx_headers_and_mirror_marker() {
     for f in [LIVE_8080, LIVE_18080, DROP_8080, DROP_18080] {
-        assert!(f.starts_with("# SPDX-License-Identifier: MIT\n"));
+        // Split so REUSE comply does not read this assertion as a second
+        // license tag (the unit files themselves carry the real header).
+        assert!(f.starts_with(concat!("# SPDX-", "License-Identifier: MIT\n")));
         assert!(f.contains("Copyright (c) 3000 Galion / galion-studio"));
     }
     for f in [LIVE_8080, LIVE_18080] {

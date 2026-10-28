@@ -370,8 +370,14 @@ pub fn run(
         }
         // 4. proposal + notification; nothing is changed.
         let ppath = cfg.state_dir.join("proposals").join(format!("{id}.md"));
+        // The written proposal still starts with a real SPDX header. The tag is
+        // split in this source file so REUSE comply does not parse the template
+        // as a second license expression.
         let md = format!(
-            "<!-- SPDX-License-Identifier: MIT -->\n<!-- Copyright (c) 3000 Galion / galion-studio -->\n# Hermes proposal {id}\n\n- {head}\n- received {ts}\n- model {model}, cost ${cost:.4}, Hermes total ${total:.4} of ${:.2}\n- status: AWAITING MATE APPROVAL. Nothing was changed. Cortex restarts (allowlist) need no approval; every code, config or service change does.\n\n{text}\n",
+            concat!(
+                "<!-- SPDX-",
+                "License-Identifier: MIT -->\n<!-- Copyright (c) 3000 Galion / galion-studio -->\n# Hermes proposal {id}\n\n- {head}\n- received {ts}\n- model {model}, cost ${cost:.4}, Hermes total ${total:.4} of ${:.2}\n- status: AWAITING MATE APPROVAL. Nothing was changed. Cortex restarts (allowlist) need no approval; every code, config or service change does.\n\n{text}\n"
+            ),
             cfg.budget_usd
         );
         let _ = std::fs::write(&ppath, md);

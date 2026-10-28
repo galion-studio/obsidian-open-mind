@@ -25,3 +25,15 @@ regexes = ['''NERVE_EVT_LLM_KEY_ENV''']
 description = "galion-admin real_cli sentinel. The test asserts this argument is absent from the audit log. Not a credential."
 regexTarget = "line"
 regexes = ['''hunter2-SECRET''']
+
+# fetch-depth 0 scans every branch, not only main-staging. These two commits
+# are not ancestors of the land. The values are fixtures: a fake sk- shaped
+# key the survival card test asserts never reaches the page, and public ids
+# of throwaway hermes-offhost keys the real-test record says were deleted.
+[[allowlists]]
+description = "survival card fixture key (d1302286). Not on main-staging."
+commits = ["d1302286398df540c45a68a1c3289bdca9d6135a"]
+
+[[allowlists]]
+description = "hermes-offhost-keyrot real-test ids (6845c350). Not on main-staging."
+commits = ["6845c350bf9662a443d750892d63aeab935c4d3c"]

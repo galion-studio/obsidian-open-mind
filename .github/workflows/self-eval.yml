@@ -65,6 +65,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+      - name: fetch musl graphs for the offline feature-pin cargo tree
+        run: |
+          cargo fetch --locked --target x86_64-unknown-linux-musl
+          cargo fetch --locked --target aarch64-unknown-linux-musl
       - name: allow unprivileged user namespaces (hermes-tools sandbox)
         run: |
           set -eu

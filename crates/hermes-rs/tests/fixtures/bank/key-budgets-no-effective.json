@@ -1,0 +1,1 @@
+{"data":{"limit":30,"limit_remaining":22,"budgets":[{"scope":"member","limit_usd":40,"spend_usd":10,"remaining_usd":30,"reset_interval":"daily","resets_at":"2026-10-29T00:00:00.000Z"},{"scope":"workspace","limit_usd":20,"spend_usd":15,"remaining_usd":5,"reset_interval":null,"resets_at":null}],"usage_weekly":7,"usage_monthly":7}}

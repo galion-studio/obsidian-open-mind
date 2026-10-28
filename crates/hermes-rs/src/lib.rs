@@ -10,6 +10,7 @@
 
 pub mod agent;
 pub mod api;
+pub mod bank;
 pub mod config;
 pub mod cron;
 pub mod delegate;

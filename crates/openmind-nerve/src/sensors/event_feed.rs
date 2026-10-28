@@ -430,7 +430,8 @@ fn clean_title(s: &str, max: usize) -> String {
             }
         })
         .collect();
-    let t = masked.join(" ");
+    // Slot 435 (D-422-2): also IPv6, host:port and host names.
+    let t = crate::redact::redact(&masked.join(" "));
     if t.chars().count() > max {
         format!("{}...", t.chars().take(max).collect::<String>())
     } else {
@@ -439,8 +440,9 @@ fn clean_title(s: &str, max: usize) -> String {
 }
 
 fn short(s: &str) -> String {
+    // Slot 435 (D-422-2): detail reaches /state evidence; no raw addresses.
     let s: String = s.chars().filter(|c| !c.is_control()).take(200).collect();
-    s
+    crate::redact::redact(&s)
 }
 
 /// `data.<k>` or top-level `<k>` (survival lines have no `data`).
@@ -683,6 +685,33 @@ mod tests {
     use crate::logscan::LogInsights;
     use crate::sensors::Sensors;
     use std::io::Write;
+
+    /// Slot 435 (D-422-1): the hub fold cause must equal this sensor's.
+    #[test]
+    fn hub_fold_src_matches_event_feed_src() {
+        for s in [
+            "t158",
+            "gaia",
+            "a b\tc",
+            "x\u{7}y",
+            "",
+            "ž/1",
+            &"k".repeat(70),
+        ] {
+            assert_eq!(clean(s, 48), crate::server::event_feed_src(s), "{s:?}");
+        }
+    }
+
+    /// Slot 435 (D-422-2): titles and details carry no raw address.
+    #[test]
+    fn titles_and_details_redact_v6_and_hosts() {
+        let t = clean_title(
+            "flood from [2001:db8::7]:443 via edge.example.org and 10.0.0.5",
+            200,
+        );
+        assert_eq!(t, "flood from <addr> via <host> and <addr>");
+        assert_eq!(short("dial nerve:8670 ::1"), "dial <host> <addr>");
+    }
 
     // 2026-10-21 01:00:00+02:00
     const NOW: u64 = 1_792_537_200;

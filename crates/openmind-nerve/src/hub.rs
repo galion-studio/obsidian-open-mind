@@ -24,6 +24,10 @@ pub struct Signal {
     pub name: String,
     pub value: Option<f64>,
     pub msg: String,
+    /// `Some("gaia:<src>")` for a signal made from a `POST /event` (server.rs
+    /// `event_signal`): the event-feed sensor's cause for the same event.
+    /// Used only when [`Hub::fold_event_cause`] is on (D-422-1, slot 435).
+    pub event_cause: Option<String>,
 }
 
 impl Signal {
@@ -72,6 +76,7 @@ pub fn parse_signal(body: &str, now: u64) -> Result<Signal, String> {
             .and_then(Value::as_f64)
             .filter(|f| f.is_finite()),
         msg: clean(v.get("msg").and_then(Value::as_str).unwrap_or(""), 300),
+        event_cause: None,
     })
 }
 
@@ -90,11 +95,21 @@ pub struct SourceState {
 pub struct Hub {
     pub sources: HashMap<String, SourceState>,
     pub rejected: u64,
+    /// D-422-1 (slot 435), default OFF (`NERVE_HUB_EVENT_FOLD=1` turns it on):
+    /// signals made from `POST /event` open their incident under the
+    /// event-feed cause `gaia:<src>` instead of the source's own group, so one
+    /// pushed error is one incident, scored once.
+    pub fold_event_cause: bool,
 }
 
 impl Hub {
     /// Accept a signal. Err on rate limit or source-table overflow.
-    pub fn ingest(&mut self, s: Signal) -> Result<(), String> {
+    pub fn ingest(&mut self, mut s: Signal) -> Result<(), String> {
+        // D-422-2 (slot 435): pushed text reaches /state (hub `recent`), the
+        // incident messages and the self-eval deductions; no raw address or
+        // host name may ride along.
+        s.msg = crate::redact::redact(&s.msg);
+        s.name = crate::redact::redact(&s.name);
         if !self.sources.contains_key(&s.source) && self.sources.len() >= MAX_SOURCES {
             self.rejected += 1;
             return Err("too many sources".into());
@@ -178,6 +193,10 @@ impl Hub {
     /// - event `conn_cap` -> Warn, cause = the group;
     /// - event `started` -> Info (shown inside an incident, never opens one);
     /// - heartbeat with `dropped=N>0` -> Info.
+    ///
+    /// Messages carry no raw address or host name (D-422-2, [`crate::redact`]).
+    /// With [`Hub::fold_event_cause`] on, `POST /event` signals use their
+    /// `event_cause` (`gaia:<src>`) as the group (D-422-1).
     pub fn incident_signals(&self, since: u64, map: SourceMap) -> Vec<crate::incident::Signal> {
         use crate::incident::{Sev, Signal as ISig};
         let mut out = vec![];
@@ -185,53 +204,73 @@ impl Hub {
         names.sort();
         for n in names {
             let st = &self.sources[n];
-            let (group, comp) = map(n);
+            let (own, comp) = map(n);
             let new: Vec<&Signal> = st.recent.iter().filter(|s| s.t >= since).collect();
-            let mut push = |cause: String, sev: Sev, filt: &dyn Fn(&Signal) -> bool, what: &str| {
-                let hits: Vec<&&Signal> = new.iter().filter(|s| filt(s)).collect();
-                if let Some(last) = hits.last() {
-                    out.push(ISig::new(
-                        &cause,
-                        &comp,
-                        sev,
-                        format!(
-                            "pushed {} {what} in {PUSH_WINDOW}; last: {}",
-                            hits.len(),
-                            last.msg
-                        ),
-                    ));
+            // D-422-1 (slot 435): with the fold on, /event-made signals go
+            // under their event-feed cause `gaia:<src>`; everything else (and
+            // everything with the fold off) keeps the source's own group.
+            let base = |s: &Signal| -> String {
+                match (&s.event_cause, self.fold_event_cause) {
+                    (Some(c), true) => c.clone(),
+                    _ => own.clone(),
                 }
             };
-            push(
-                group.clone(),
-                Sev::Error,
-                &|s| s.kind == "error",
-                "error(s)",
-            );
-            push(
-                group.clone(),
-                Sev::Warn,
-                &|s| s.kind == "event" && s.name == "slow_request",
-                "slow request(s)",
-            );
-            push(
-                format!("spend-cap:{group}"),
-                Sev::Warn,
-                &|s| s.kind == "event" && s.name == "spend_cap",
-                "spend-cap hit report(s)",
-            );
-            push(
-                group.clone(),
-                Sev::Warn,
-                &|s| s.kind == "event" && s.name == "conn_cap",
-                "connection-cap hit report(s)",
-            );
-            push(
-                group.clone(),
-                Sev::Info,
-                &|s| s.kind == "event" && s.name == "started",
-                "start(s)",
-            );
+            let mut groups: Vec<String> = vec![];
+            for s in &new {
+                let g = base(s);
+                if !groups.contains(&g) {
+                    groups.push(g);
+                }
+            }
+            for group in groups {
+                let mine: Vec<&Signal> = new.iter().copied().filter(|s| base(s) == group).collect();
+                let mut push =
+                    |cause: String, sev: Sev, filt: &dyn Fn(&Signal) -> bool, what: &str| {
+                        let hits: Vec<&&Signal> = mine.iter().filter(|s| filt(s)).collect();
+                        if let Some(last) = hits.last() {
+                            out.push(ISig::new(
+                                &cause,
+                                &comp,
+                                sev,
+                                format!(
+                                    "pushed {} {what} in {PUSH_WINDOW}; last: {}",
+                                    hits.len(),
+                                    crate::redact::redact(&last.msg)
+                                ),
+                            ));
+                        }
+                    };
+                push(
+                    group.clone(),
+                    Sev::Error,
+                    &|s| s.kind == "error",
+                    "error(s)",
+                );
+                push(
+                    group.clone(),
+                    Sev::Warn,
+                    &|s| s.kind == "event" && s.name == "slow_request",
+                    "slow request(s)",
+                );
+                push(
+                    format!("spend-cap:{group}"),
+                    Sev::Warn,
+                    &|s| s.kind == "event" && s.name == "spend_cap",
+                    "spend-cap hit report(s)",
+                );
+                push(
+                    group.clone(),
+                    Sev::Warn,
+                    &|s| s.kind == "event" && s.name == "conn_cap",
+                    "connection-cap hit report(s)",
+                );
+                push(
+                    group.clone(),
+                    Sev::Info,
+                    &|s| s.kind == "event" && s.name == "started",
+                    "start(s)",
+                );
+            }
         }
         out
     }
@@ -279,6 +318,7 @@ mod tests {
             name: "n".into(),
             value: Some(1.0),
             msg: String::new(),
+            event_cause: None,
         };
         for i in 0..PER_SOURCE_PER_MIN {
             h.ingest(mk(100, if i % 2 == 0 { "error" } else { "metric" }))
@@ -304,6 +344,7 @@ mod tests {
             name: name.into(),
             value: None,
             msg: msg.into(),
+            event_cause: None,
         };
         h.ingest(mk(90, "error", "http_5xx", "old")).unwrap();
         h.ingest(mk(100, "event", "started", "listening")).unwrap();
@@ -334,5 +375,82 @@ mod tests {
             .contains("call cap"));
         assert!(find("g-hermes-rs", Sev::Info).is_some());
         assert!(h.incident_signals(200, &map).is_empty());
+    }
+
+    fn ev(t: u64, src: &str, msg: &str) -> Signal {
+        Signal {
+            t,
+            source: src.into(),
+            kind: "error".into(),
+            name: "ddos".into(),
+            value: None,
+            msg: msg.into(),
+            event_cause: Some(format!("gaia:{src}")),
+        }
+    }
+
+    /// D-422-2: no raw address reaches the hub's stored text or the
+    /// incident message (IPv4, IPv4:port, IPv6, [v6]:port, host:port).
+    #[test]
+    fn pushed_text_is_redacted() {
+        let mut h = Hub::default();
+        let raw = r#"{"title":"edge flood on 10.0.0.5:443","fix":"ban 10.0.0.5","v6":"[2001:db8::7]:8443","h":"edge.example.org:443"}"#;
+        h.ingest(ev(100, "t158", raw)).unwrap();
+        let map = |s: &str| (s.to_string(), s.to_string());
+        let v = h.incident_signals(0, &map);
+        assert_eq!(v.len(), 1);
+        for text in [v[0].msg.clone(), h.to_json(100).to_string()] {
+            for bad in ["10.0.0.5", "2001:db8", "edge.example.org", ":443"] {
+                assert!(!text.contains(bad), "{bad} in {text}");
+            }
+            assert!(text.contains("<addr>") && text.contains("<host>"), "{text}");
+        }
+        // /signal path too.
+        let s = parse_signal(
+            r#"{"source":"hermes-rs","kind":"error","msg":"dial ::1 and nerve:8670"}"#,
+            5,
+        )
+        .unwrap();
+        h.ingest(s).unwrap();
+        assert_eq!(
+            h.sources["hermes-rs"].recent[0].msg,
+            "dial <addr> and <host>"
+        );
+    }
+
+    /// D-422-1: fold off (default) keeps the source group; on, the /event
+    /// signal uses `gaia:<src>` and a /signal push from the same source
+    /// stays under its own group.
+    #[test]
+    fn event_cause_fold_is_off_by_default() {
+        let mut h = Hub::default();
+        assert!(!h.fold_event_cause);
+        h.ingest(ev(100, "t158", "boom")).unwrap();
+        let map = |s: &str| (format!("g-{s}"), s.to_string());
+        let v = h.incident_signals(0, &map);
+        assert_eq!(
+            v.iter().map(|s| s.cause.as_str()).collect::<Vec<_>>(),
+            ["g-t158"]
+        );
+        h.fold_event_cause = true;
+        let v = h.incident_signals(0, &map);
+        assert_eq!(
+            v.iter().map(|s| s.cause.as_str()).collect::<Vec<_>>(),
+            ["gaia:t158"]
+        );
+        assert!(v[0].msg.starts_with("pushed 1 error(s)"), "{}", v[0].msg);
+        let mut s = ev(101, "t158", "5xx");
+        s.event_cause = None;
+        h.ingest(s).unwrap();
+        let mut c: Vec<String> = h
+            .incident_signals(0, &map)
+            .into_iter()
+            .map(|s| format!("{} {}", s.cause, &s.msg[..17]))
+            .collect();
+        c.sort();
+        assert_eq!(
+            c,
+            ["g-t158 pushed 1 error(s)", "gaia:t158 pushed 1 error(s)"]
+        );
     }
 }

@@ -54,6 +54,7 @@ pub mod incident;
 pub mod logscan;
 pub mod owners;
 pub mod probe;
+pub mod redact;
 pub mod reflex;
 pub mod reflex_audit;
 pub mod replay;

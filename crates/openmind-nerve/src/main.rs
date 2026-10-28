@@ -261,6 +261,9 @@ fn serve(cfg: Config, args: &[String]) -> ExitCode {
         "<6>openmind-nerve alerts external: {}",
         e.alerts.external_status()
     );
+    if e.cfg.hub_event_fold {
+        eprintln!("<6>openmind-nerve hub event fold: on (POST /event signals use cause gaia:<src>, D-422-1)");
+    }
     let event_mode = opt(args, "--mode")
         .or_else(|| std::env::var("NERVE_MODE").ok())
         .is_some_and(|m| m.trim() == "event");

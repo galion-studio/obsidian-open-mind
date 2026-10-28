@@ -134,3 +134,15 @@ unit that had a stop job; any panic in the journal.
   `/health` carry commit + Zagreb commit date; NOT in the staged 58a12e61 pair binary.
 - F-357-2: `docs/merges/nerve-merge-6.md` says the live table has 13 entries; the
   live file has **12** (read 2026-10-28 05:2x CET), staged has 13.
+
+## Update 2026-10-28 18:50 CET (slot 412): pair is live, next cortex candidate
+
+The 58a12e6 + 9baa450 pair above went live 2026-10-28 17:37 CET (t334u). The
+next cortex candidate is `swarm/cortex-live-merge-5` **5026d9cf**
+(`gaia-cortex-5026d9c-llm`, sha256 `d5b71ef94a2632bbc782cb4e33affa7e80d8ad3f25111cc4d085d4a06162de7e`,
+1 159 968 B; staged drop-in `deploy/staged/cortex-live-merge-5/gaia-cortex.service.d/93-merge5-5026d9c.conf`).
+Rollback for that step is the live `91-pair-58a12e6.conf` (just remove 93). The
+nerve stays 9baa450. F-357-1 (cortex half) is fixed in that candidate: `--version`
+and `/health` carry the commit. Checklist: `docs/real-tests/cortex-live-merge-5.md`.
+`pair.json` is left as the record of the deployed pair (the `pair_preflight` test
+still checks it).

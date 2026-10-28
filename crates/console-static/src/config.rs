@@ -52,6 +52,16 @@ usage: galion-console-static --root DIR [options]
                        e.g. /opt/galion/galion-light/one/model; default none
   --user-md FILE       USER.md shown on /md/user,
                        e.g. /opt/galion/hermes/memories/USER.md; default none
+  --arena-root DIR     arena files (board.jsonl, champions/current.json,
+                       spend.json, STOP) for an in-process read-only
+                       GET /api/arena (port of `arena.py status`; non-GET
+                       -> 405), e.g. /workspace/arena; needs --local-api
+  --data-upstream ADDR loopback IP:port that answers the data routes the
+                       local API does not (GET/HEAD only, same API gate),
+                       e.g. 127.0.0.1:18080; needs --local-api; works with
+                       --dist self-upstream
+  --data-path P        exact path for --data-upstream; repeatable
+                       (default /api/arena and /api/v1/bank)
   --console-host HOST  extra host treated as a console host (repeatable),
                        e.g. the machine public IP (the TSX had
                        the two server IPs hard-coded; pass them here)
@@ -128,6 +138,13 @@ pub struct Config {
     pub admin_store: Option<PathBuf>,
     /// `--admin-mirror`: best-effort second copy of the store.
     pub admin_mirror: Option<PathBuf>,
+    /// `--arena-root`: arena files for the in-process `GET /api/arena`.
+    pub arena_root: Option<PathBuf>,
+    /// `--data-upstream`: loopback reader for [`Config::data_paths`] (GET/HEAD only).
+    pub data_upstream: Option<SocketAddr>,
+    /// Exact API paths sent to `--data-upstream` when local-api does not answer
+    /// them (default `/api/arena`, `/api/v1/bank`).
+    pub data_paths: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -151,6 +168,18 @@ fn bad(m: impl Into<String>) -> ArgsError {
 
 fn valid_prefix(p: &str) -> bool {
     p.len() > 1 && p.ends_with('/') && crate::path::sanitize(p).as_deref() == Ok(p)
+}
+
+/// Default `--data-path` list when `--data-upstream` is set.
+pub const DATA_DEFAULT_PATHS: &[&str] = &["/api/arena", "/api/v1/bank"];
+
+/// An exact data path: sanitized, under `/api/`, no trailing slash or query.
+fn valid_data_path(p: &str) -> bool {
+    p.starts_with("/api/")
+        && p.len() > "/api/".len()
+        && !p.ends_with('/')
+        && !p.contains('?')
+        && crate::path::sanitize(p).as_deref() == Ok(p)
 }
 
 fn resolve_dist_root(dir: PathBuf) -> PathBuf {
@@ -184,6 +213,9 @@ impl Config {
         let mut dist_mode = false;
         let mut admin_store = None;
         let mut admin_mirror = None;
+        let mut arena_root = None;
+        let mut data_upstream: Option<SocketAddr> = None;
+        let mut data_paths: Vec<String> = Vec::new();
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             let mut val = |name: &str| {
@@ -294,6 +326,27 @@ impl Config {
                 "--admin-mirror" => {
                     admin_mirror = Some(abs_path(val("--admin-mirror")?, "--admin-mirror")?)
                 }
+                "--arena-root" => {
+                    arena_root = Some(abs_path(val("--arena-root")?, "--arena-root")?)
+                }
+                "--data-upstream" => {
+                    let u: SocketAddr = val("--data-upstream")?
+                        .parse()
+                        .map_err(|_| bad("--data-upstream must be IP:port"))?;
+                    if !u.ip().is_loopback() {
+                        return Err(bad("--data-upstream must be a loopback address"));
+                    }
+                    data_upstream = Some(u);
+                }
+                "--data-path" => {
+                    let p = val("--data-path")?;
+                    if !valid_data_path(&p) {
+                        return Err(bad(format!(
+                            "bad --data-path {p:?} (exact path under /api/, e.g. /api/v1/bank)"
+                        )));
+                    }
+                    data_paths.push(p);
+                }
                 "--user-md" => files.user_md = Some(abs_path(val("--user-md")?, "--user-md")?),
                 "--allow-public-bind" => public = true,
                 "--quiet" => access_log = false,
@@ -336,6 +389,22 @@ impl Config {
         if admin_store.is_some() && admin_store == admin_mirror {
             return Err(bad("--admin-mirror must differ from --admin-store"));
         }
+        if (arena_root.is_some() || data_upstream.is_some()) && !local_api {
+            return Err(bad(
+                "--arena-root / --data-upstream need --local-api or --dist (the API gate)",
+            ));
+        }
+        if !data_paths.is_empty() && data_upstream.is_none() {
+            return Err(bad("--data-path needs --data-upstream"));
+        }
+        if data_upstream.is_some_and(|u| {
+            u.port() == bind.port() && (u.ip() == bind.ip() || bind.ip().is_unspecified())
+        }) {
+            return Err(bad("--data-upstream must not be --bind (would loop)"));
+        }
+        if data_upstream.is_some() && data_paths.is_empty() {
+            data_paths = DATA_DEFAULT_PATHS.iter().map(|s| s.to_string()).collect();
+        }
         let routes_text = if dist_mode && routes.is_none() {
             Some(DIST_DEFAULT_ROUTES.to_string())
         } else {
@@ -361,6 +430,9 @@ impl Config {
             dist_mode,
             admin_store,
             admin_mirror,
+            arena_root,
+            data_upstream,
+            data_paths,
         })
     }
 }
@@ -537,5 +609,47 @@ mod tests {
         let d = Config::from_args(args("--root /srv/c --shell none --local-api")).unwrap();
         assert_eq!(d.shell, "none");
         assert!(d.local_api);
+    }
+
+    #[test]
+    fn arena_root_and_data_upstream() {
+        let c = Config::from_args(args(
+            "--dist /d --ui rust --bind 127.0.0.1:22060 --arena-root /workspace/arena --data-upstream 127.0.0.1:18080",
+        ))
+        .unwrap();
+        assert_eq!(
+            c.arena_root.as_deref(),
+            Some(std::path::Path::new("/workspace/arena"))
+        );
+        assert_eq!(c.data_upstream.unwrap().to_string(), "127.0.0.1:18080");
+        assert_eq!(c.data_paths, vec!["/api/arena", "/api/v1/bank"]);
+        // Self-upstream stays without prefix proxying.
+        assert_eq!(c.upstream, Some(c.bind));
+        assert!(c.proxy_prefixes.is_empty());
+        let c = Config::from_args(args(
+            "--dist /d --data-upstream 127.0.0.1:18080 --data-path /api/v1/bank",
+        ))
+        .unwrap();
+        assert_eq!(c.data_paths, vec!["/api/v1/bank"]);
+        for bad_args in [
+            "--root /r --arena-root /workspace/arena",
+            "--root /r --data-upstream 127.0.0.1:18080",
+            "--dist /d --arena-root rel/arena",
+            "--dist /d --arena-root /a/../b",
+            "--dist /d --data-upstream 10.0.0.1:18080",
+            "--dist /d --data-upstream nope",
+            "--dist /d --data-path /api/v1/bank",
+            "--dist /d --bind 127.0.0.1:22061 --data-upstream 127.0.0.1:22061",
+            "--dist /d --bind 0.0.0.0:22061 --allow-public-bind --data-upstream 127.0.0.1:22061",
+            "--dist /d --data-upstream 127.0.0.1:1 --data-path /api/",
+            "--dist /d --data-upstream 127.0.0.1:1 --data-path /api/x/",
+            "--dist /d --data-upstream 127.0.0.1:1 --data-path /other",
+            "--dist /d --data-upstream 127.0.0.1:1 --data-path /api/../x",
+            "--dist /d --data-upstream 127.0.0.1:1 --data-path /api/x?y=1",
+        ] {
+            assert!(Config::from_args(args(bad_args)).is_err(), "{bad_args}");
+        }
+        let c = Config::from_args(args("--dist /d")).unwrap();
+        assert!(c.arena_root.is_none() && c.data_upstream.is_none() && c.data_paths.is_empty());
     }
 }

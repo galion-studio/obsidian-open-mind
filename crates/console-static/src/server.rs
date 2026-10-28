@@ -226,6 +226,7 @@ fn handle_request(
             board: &state.board,
             admin: state.admin.as_ref(),
             extra_hosts: &state.cfg.extra_hosts,
+            arena: state.cfg.arena_root.as_deref(),
         };
         if let Some(reply) = crate::api::try_handle(&req, &ctx) {
             let mut extra = format!(
@@ -250,6 +251,36 @@ fn handle_request(
                 *next_carry = carry;
                 return true;
             }
+            return false;
+        }
+    }
+
+    // Data routes the local API did not answer (it already ran the gate:
+    // anything that reaches here passed host + loopback/admin checks).
+    if let Some(up) = state.cfg.data_upstream {
+        let p = clean.split('?').next().unwrap_or(&clean);
+        if state.cfg.local_api && state.cfg.data_paths.iter().any(|d| d == p) {
+            if method != "GET" && method != "HEAD" {
+                let body = crate::arena::HELD;
+                let _ = http::write_head(
+                    stream,
+                    405,
+                    "Content-Type: application/json\r\nAllow: GET, HEAD\r\nCache-Control: no-store\r\n",
+                    body.len() as u64,
+                    false,
+                )
+                .and_then(|_| {
+                    if head_only {
+                        Ok(())
+                    } else {
+                        stream.write_all(body.as_bytes())
+                    }
+                });
+                log(state, method, &clean, 405);
+                return false;
+            }
+            let code = proxy::forward(stream, head, carry, up, 0);
+            log(state, method, &clean, code);
             return false;
         }
     }

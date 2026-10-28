@@ -45,6 +45,8 @@ pub struct ApiCtx<'a> {
     pub board: &'a Board,
     pub admin: Option<&'a AdminStore>,
     pub extra_hosts: &'a [String],
+    /// `--arena-root`: answer `GET /api/arena` from these files ([`crate::arena`]).
+    pub arena: Option<&'a std::path::Path>,
 }
 
 /// One request as the handlers see it.
@@ -177,6 +179,15 @@ pub fn try_handle(req: &ApiRequest<'_>, ctx: &ApiCtx<'_>) -> Option<ApiReply> {
     if !loopback_host && !is_admin() {
         return Some(phone_required());
     }
+    if let (Some(root), "/api/arena") = (ctx.arena, path) {
+        return Some(match req.method {
+            "GET" | "HEAD" => {
+                let (status, body) = crate::arena::reply(root);
+                json_reply(status, body)
+            }
+            _ => json_reply(405, crate::arena::HELD.into()),
+        });
+    }
     let b = ctx.board;
     let ok = |v: Value| Some(json_reply(200, v.to_json()));
     match (req.method, path) {
@@ -265,6 +276,7 @@ mod tests {
             board: &board,
             admin: None,
             extra_hosts: &[],
+            arena: None,
         };
         call(&ctx, "GET", path, h, loopback, b"")
     }
@@ -350,6 +362,7 @@ mod tests {
             board: &board,
             admin: None,
             extra_hosts: &[],
+            arena: None,
         };
         let h = head("localhost", None);
         let r = call(
@@ -377,6 +390,82 @@ mod tests {
     }
 
     #[test]
+    fn arena_route_local_reader_and_gate() {
+        let dir = std::env::temp_dir().join(format!("console-api-arena-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("board.jsonl"), "{\"id\":\"g1-0\"}\n").unwrap();
+        let board = Board::new();
+        let ctx = ApiCtx {
+            board: &board,
+            admin: None,
+            extra_hosts: &[],
+            arena: Some(&dir),
+        };
+        let h = head("127.0.0.1", None);
+        let r = call(&ctx, "GET", "/api/arena", &h, true, b"").unwrap();
+        assert_eq!(r.status, 200);
+        let v = json::parse(r.body.as_bytes()).unwrap();
+        assert_eq!(v.get("ok").as_bool(), Some(true));
+        assert_eq!(v.get("rows").as_array().len(), 1);
+        assert_eq!(
+            call(&ctx, "GET", "/api/arena?x=1", &h, true, b"")
+                .unwrap()
+                .status,
+            200
+        );
+        for m in ["POST", "PUT", "DELETE"] {
+            let r = call(
+                &ctx,
+                m,
+                "/api/arena",
+                &h,
+                true,
+                br#"{"action":"generation"}"#,
+            )
+            .unwrap();
+            assert_eq!(r.status, 405, "{m}");
+        }
+        // Gate still first: foreign host, remote peer, unpaired remote host.
+        assert_eq!(
+            call(
+                &ctx,
+                "GET",
+                "/api/arena",
+                &head("evil.example", None),
+                true,
+                b""
+            )
+            .unwrap()
+            .status,
+            401
+        );
+        assert_eq!(
+            call(&ctx, "GET", "/api/arena", &h, false, b"")
+                .unwrap()
+                .status,
+            401
+        );
+        assert_eq!(
+            call(
+                &ctx,
+                "GET",
+                "/api/arena",
+                &head("console.galion.app", None),
+                true,
+                b""
+            )
+            .unwrap()
+            .status,
+            401
+        );
+        // No arena root: not ours (404 or data upstream), bank never local.
+        assert!(get(&h, "/api/arena", true).is_none());
+        assert!(call(&ctx, "GET", "/api/v1/bank", &h, true, b"").is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn admin_pairing_unlocks_remote_console_host() {
         let dir = std::env::temp_dir().join(format!("console-api-admin-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -389,6 +478,7 @@ mod tests {
             board: &board,
             admin: Some(&store),
             extra_hosts: &[],
+            arena: None,
         };
         let h = head("console.galion.app", None);
         let r = call(&ctx, "GET", "/api/v1/admin", &h, true, b"").unwrap();

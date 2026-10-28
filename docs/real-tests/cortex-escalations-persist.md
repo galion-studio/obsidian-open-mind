@@ -23,7 +23,7 @@ VPS read-only. Nothing deployed, no live config change. Hermes research not used
 ## GALION_REAL: `tests/real_escalation_persist.rs` (release cortex, port 23010)
 
 `GALION_REAL=1 cargo test --release -p gaia-cortex --test real_escalation_persist -- --nocapture --test-threads 1`
-Passed 3 times: 23:33:41 (glibc release), 23:38:37 (static x86_64 musl,
+Passed twice: 23:33:41 (glibc release), 23:38:37 (static x86_64 musl,
 `GALION_CORTEX_BIN`, 1,123,104 B). Output of the musl run:
 
 ```

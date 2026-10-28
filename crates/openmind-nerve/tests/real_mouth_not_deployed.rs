@@ -279,6 +279,6 @@ fn real_mouth_not_deployed() {
             i["cause"]
         );
     }
-    assert_eq!(open.len(), 3, "{incs}");
+    assert_eq!(open.len(), 3, "one incident per mouth: {incs}");
     let _ = std::fs::remove_dir_all(&dir);
 }

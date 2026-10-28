@@ -214,7 +214,14 @@ fn real_ingress_lint_on_the_box() {
         .iter()
         .filter_map(|s| s["name"].as_str())
         .collect();
-    assert_eq!(names.last(), Some(&"ingress-lint"), "{names:?}");
+    // Slot 422 (F-383-3): registered, not necessarily last: main-staging
+    // dad7984a (2026-10-21T23:36:05+02:00) registers edge-rate after it and
+    // turned the same "last sensor" asserts in the unit tests into contains.
+    assert_eq!(
+        names.iter().filter(|n| **n == "ingress-lint").count(),
+        1,
+        "{names:?}"
+    );
     eprintln!(
         "phase 1 ({:.1} s, cycle {}): {:?}",
         p1.as_secs_f64(),

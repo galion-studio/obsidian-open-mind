@@ -97,3 +97,76 @@ Not changed (owner decisions below): persistence across restarts (F-417-2) and u
   yes, as a follow-up slot; small, but it changes the id format the console/Hermes may read.
 - **D-417-4** Install 387's 92-hermes-exclude.conf too? It stops test-unit Hermes tickets
   (cost), but it does not lower `escalations_open`; 417 is what does. Rec: both, same deploy.
+
+## Slot 431: open escalations survive a restart, ids are unique (D-417-3)
+
+Wave-4 slot 431 `cortex-escalations-persist`, 2026-10-28 (Europe/Zagreb, CET +01:00).
+Branch `swarm/cortex-escalations-persist` off `cortex-escalations-diag` 9ece3df4. Fixes
+F-417-2 and F-417-3. Nothing deployed, no live config change.
+
+### Reload at start (F-417-2)
+
+`Escalations::load` (crates/gaia-cortex/src/sink.rs) replays `escalations.jsonl` once when the
+cortex starts:
+
+- a record line (has `id`) opens the item; its open time for `escalation_max_age_s` comes from the
+  record's own `ts` (`zagreb_time::to_unix`), so the age keeps counting across restarts;
+- `{"ack":id}` removes the item; `{"close":id,...}` removes it and puts it in the `closed` ring
+  (`closed_why` / `closed_ts` from the close line), so `closed_recent` survives too;
+- an ack/close removes the **most recently opened** item with that id (legacy logs hold one
+  `esc-<N>` per process);
+- a line that is not a JSON object (a torn last line after a crash mid-append) is skipped and
+  counted; if the file does not end in `\n`, one `\n` is appended so the next record starts on its
+  own line (the only write `load` ever makes; it never creates the file);
+- the 200-item ring cap applies as before.
+
+Counters stay "since this start": `/escalations` `total` and `closed_total` start at 0.
+New in `/stats`: `escalations_reloaded` (open items rebuilt), `escalations_reload_skipped`,
+`escalation_epoch`. One stderr line per start when the file has lines:
+`gaia-cortex: escalations reloaded: Reload { lines, opened, acked, closed, unmatched, skipped, repaired_newline, open, max_epoch }, id epoch N`.
+
+Reload is always on (no switch). An older binary ignores the file content at start, so rollback
+is the previous binary.
+
+### Ids (F-417-3): read this if you parse escalation ids (console, Hermes)
+
+| Shape | Written by | Unique? |
+|---|---|---|
+| `esc-<N>` | builds up to slot 417 (live 58a12e6 included) | no: `N` restarts at 1 per process (`esc-3` x4 in the live file) |
+| `esc-<epoch>-<seq>` | slot 431 on | yes: `<epoch>` = unix second the process started, bumped to `max(epoch in log) + 1` when needed; `<seq>` = the process-wide decision/alert/escalation counter (the same counter as `dec-<seq>`, so ids grow 3, 6, 9 ...) |
+
+- `gaia_cortex::sink::parse_esc_id` reads both shapes (`EscId::Legacy(N)` / `EscId::Unique{start,n}`);
+  anything else is `None`.
+- Treat ids as opaque strings. `POST /escalations/ack?id=` matches the full string, either shape.
+- The guarantee is "never equal to an id already in the log": a process that writes no escalation
+  may share its epoch with the next start (seen in the real test: run 3 wrote none, run 4 got the
+  same second), which cannot collide.
+- `dec-<N>`, `al-<N>` and Hermes `hoff-<unix>-<N>` are unchanged. No repo code outside gaia-cortex
+  parses escalation ids (searched: console worktrees, hermes-rs, openmind-nerve; the nerve only
+  lists `/escalations` as a handoff path). The Hermes ticket embeds the escalation object as-is.
+- Legacy duplicate ids share the newest open time when reloaded (they never expire early).
+
+### First deploy effect (live file measured 2026-10-28 23:34 CET, read-only)
+
+The live `/var/lib/gaia-cortex/escalations.jsonl` is 37 lines, 0 ack / 0 close, last write
+2026-10-28 06:29 CET, sha256 prefix 33c21973a75e0e8b = byte-identical to
+`tests/fixtures/escalations-live-20261028.jsonl`. Live cortex 58a12e6 `/health`
+`escalations_open` 0 (in-memory, emptied by the 17:37:56 restart).
+
+- Default config: the first start of this build reopens **all 37** (oldest 2026-10-21) -
+  `escalations_open` 0 -> 37.
+- With drop-in 93 (`CORTEX_ESCALATION_AUTOCLOSE=1`, `CORTEX_ESCALATION_MAX_AGE_S=21600`): still 37
+  at start, then the first burst (any event) closes all 37 as `expired` with 37 close lines;
+  the next restart stays at 0. Measured with the real release binary (real test phase B).
+
+### Owner decisions (slot 431)
+
+- **D-431-1** Ship reload + new ids with the next cortex deploy? Rec: **yes**, together with
+  drop-in 93 (D-417-1/2), so the 37-item legacy backlog closes on the first burst instead of
+  showing up as 37 open.
+- **D-431-2** Without drop-in 93: accept 37 reopened legacy items until acked, or clear them first?
+  Options: A ship with 93 (rec); B ack them after deploy (37 `POST /escalations/ack`, a live
+  state change that needs approval); C archive the old file before the first start (a VPS write
+  in /var/lib/gaia-cortex; needs approval). Rec: A.
+- **D-431-3** No off switch for reload was added (fewer knobs; rollback = old binary). Add
+  `CORTEX_ESCALATION_RELOAD=0` later if wanted? Rec: no.

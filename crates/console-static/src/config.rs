@@ -62,6 +62,20 @@ usage: galion-console-static --root DIR [options]
                        --dist self-upstream
   --data-path P        exact path for --data-upstream; repeatable
                        (default /api/arena and /api/v1/bank)
+  --survival-file FILE survival.json whose age GET /api/v1/survival reports
+                       (mtime only, never the content), e.g.
+                       /opt/galion/galion-light/state/survival.json; needs
+                       --local-api
+  --survival-writer BIN absolute writer run when the file is older than
+                       --survival-refresh-s (no shell, no args, cleared env),
+                       e.g. /opt/galion/rust/bin/galion-survival
+  --survival-refresh-s N  refresh age in seconds (60..3600, default 900)
+  --survival-mode M    on-request (GET /bank, /api/v1/bank, /api/v1/survival
+                       start a due run; default) or interval (in-process
+                       check every min(N, 60) s); no systemd timer either way
+  --survival-env K=V   writer env (repeatable; GALION_LIGHT_ROOT,
+                       GALION_HERMES_ROOT, GALION_SURVIVAL_DISK,
+                       OPENROUTER_KEY_FILE only)
   --console-host HOST  extra host treated as a console host (repeatable),
                        e.g. the machine public IP (the TSX had
                        the two server IPs hard-coded; pass them here)
@@ -145,6 +159,8 @@ pub struct Config {
     /// Exact API paths sent to `--data-upstream` when local-api does not answer
     /// them (default `/api/arena`, `/api/v1/bank`).
     pub data_paths: Vec<String>,
+    /// `--survival-*`: timer-free survival.json refresh ([`crate::survival`]).
+    pub survival: Option<crate::survival::SurvivalConfig>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -216,6 +232,11 @@ impl Config {
         let mut arena_root = None;
         let mut data_upstream: Option<SocketAddr> = None;
         let mut data_paths: Vec<String> = Vec::new();
+        let mut survival_file = None;
+        let mut survival_writer = None;
+        let mut survival_refresh: Option<u64> = None;
+        let mut survival_mode: Option<crate::survival::Mode> = None;
+        let mut survival_env: Vec<(String, String)> = Vec::new();
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             let mut val = |name: &str| {
@@ -347,6 +368,37 @@ impl Config {
                     }
                     data_paths.push(p);
                 }
+                "--survival-file" => {
+                    survival_file = Some(abs_path(val("--survival-file")?, "--survival-file")?)
+                }
+                "--survival-writer" => {
+                    survival_writer =
+                        Some(abs_path(val("--survival-writer")?, "--survival-writer")?)
+                }
+                "--survival-refresh-s" => {
+                    let n: u64 = val("--survival-refresh-s")?
+                        .parse()
+                        .map_err(|_| bad("--survival-refresh-s must be a number"))?;
+                    if !(crate::survival::REFRESH_MIN_S..=crate::survival::REFRESH_MAX_S)
+                        .contains(&n)
+                    {
+                        return Err(bad("--survival-refresh-s must be 60..3600"));
+                    }
+                    survival_refresh = Some(n);
+                }
+                "--survival-mode" => {
+                    let m = val("--survival-mode")?;
+                    survival_mode = Some(crate::survival::Mode::parse(&m).ok_or_else(|| {
+                        bad(format!(
+                            "--survival-mode must be on-request or interval, not {m:?}"
+                        ))
+                    })?);
+                }
+                "--survival-env" => {
+                    let e = crate::survival::parse_env(&val("--survival-env")?).map_err(bad)?;
+                    survival_env.retain(|(k, _)| *k != e.0);
+                    survival_env.push(e);
+                }
                 "--user-md" => files.user_md = Some(abs_path(val("--user-md")?, "--user-md")?),
                 "--allow-public-bind" => public = true,
                 "--quiet" => access_log = false,
@@ -405,6 +457,41 @@ impl Config {
         if data_upstream.is_some() && data_paths.is_empty() {
             data_paths = DATA_DEFAULT_PATHS.iter().map(|s| s.to_string()).collect();
         }
+        let survival = match survival_file {
+            None => {
+                if survival_writer.is_some()
+                    || survival_refresh.is_some()
+                    || survival_mode.is_some()
+                    || !survival_env.is_empty()
+                {
+                    return Err(bad(
+                        "--survival-writer/-refresh-s/-mode/-env need --survival-file",
+                    ));
+                }
+                None
+            }
+            Some(file) => {
+                if !local_api {
+                    return Err(bad(
+                        "--survival-file needs --local-api or --dist (the API gate)",
+                    ));
+                }
+                let mode = survival_mode.unwrap_or(crate::survival::Mode::OnRequest);
+                if survival_writer.is_none() && mode == crate::survival::Mode::Interval {
+                    return Err(bad("--survival-mode interval needs --survival-writer"));
+                }
+                if survival_writer.is_none() && !survival_env.is_empty() {
+                    return Err(bad("--survival-env needs --survival-writer"));
+                }
+                Some(crate::survival::SurvivalConfig {
+                    file,
+                    writer: survival_writer,
+                    refresh_s: survival_refresh.unwrap_or(crate::survival::REFRESH_DEFAULT_S),
+                    mode,
+                    env: survival_env,
+                })
+            }
+        };
         let routes_text = if dist_mode && routes.is_none() {
             Some(DIST_DEFAULT_ROUTES.to_string())
         } else {
@@ -433,6 +520,7 @@ impl Config {
             arena_root,
             data_upstream,
             data_paths,
+            survival,
         })
     }
 }
@@ -651,5 +739,52 @@ mod tests {
         }
         let c = Config::from_args(args("--dist /d")).unwrap();
         assert!(c.arena_root.is_none() && c.data_upstream.is_none() && c.data_paths.is_empty());
+    }
+    #[test]
+    fn survival_flags() {
+        let c = Config::from_args(args(
+            "--dist /d --survival-file /s/survival.json --survival-writer /b/galion-survival --survival-refresh-s 120 --survival-mode interval --survival-env GALION_LIGHT_ROOT=/var/tmp/r --survival-env GALION_LIGHT_ROOT=/var/tmp/q",
+        ))
+        .unwrap();
+        let s = c.survival.unwrap();
+        assert_eq!(s.file, std::path::PathBuf::from("/s/survival.json"));
+        assert_eq!(
+            s.writer.as_deref(),
+            Some(std::path::Path::new("/b/galion-survival"))
+        );
+        assert_eq!(s.refresh_s, 120);
+        assert_eq!(s.mode, crate::survival::Mode::Interval);
+        assert_eq!(
+            s.env,
+            vec![("GALION_LIGHT_ROOT".to_string(), "/var/tmp/q".to_string())]
+        );
+        // Defaults: on-request, 900 s, status-only without a writer.
+        let d = Config::from_args(args("--dist /d --survival-file /s/survival.json"))
+            .unwrap()
+            .survival
+            .unwrap();
+        assert_eq!(
+            (d.refresh_s, d.mode, d.writer),
+            (900, crate::survival::Mode::OnRequest, None)
+        );
+        assert!(Config::from_args(args("--dist /d"))
+            .unwrap()
+            .survival
+            .is_none());
+        for bad_args in [
+            "--root /r --survival-file /s/x.json",
+            "--dist /d --survival-writer /b/w",
+            "--dist /d --survival-file s.json",
+            "--dist /d --survival-file /s/x.json --survival-writer w",
+            "--dist /d --survival-file /s/../x.json",
+            "--dist /d --survival-file /s/x.json --survival-refresh-s 59",
+            "--dist /d --survival-file /s/x.json --survival-refresh-s 3601",
+            "--dist /d --survival-file /s/x.json --survival-mode timer",
+            "--dist /d --survival-file /s/x.json --survival-mode interval",
+            "--dist /d --survival-file /s/x.json --survival-env GALION_LIGHT_ROOT=/x",
+            "--dist /d --survival-file /s/x.json --survival-writer /w --survival-env OPENROUTER_API_KEY=k",
+        ] {
+            assert!(Config::from_args(args(bad_args)).is_err(), "{bad_args}");
+        }
     }
 }

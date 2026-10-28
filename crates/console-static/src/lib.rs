@@ -38,3 +38,4 @@ pub mod routes;
 pub mod server;
 pub mod sha256;
 pub mod site;
+pub mod survival;

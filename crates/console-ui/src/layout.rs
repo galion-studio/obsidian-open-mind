@@ -24,6 +24,9 @@ pub struct Frame<'a> {
     pub light: Option<bool>,
     /// Path of the page being rendered (dock/menu highlighting, theme back link).
     pub path: &'a str,
+    /// `Some(s)`: `<meta http-equiv="refresh" content="s">` (no-JS reload;
+    /// `/bank` uses it so a stale snapshot is replaced without a click).
+    pub refresh_s: Option<u64>,
 }
 
 /// Origin indicator in the header.
@@ -70,10 +73,14 @@ pub fn document(f: &Frame<'_>, body_attrs: &str, body: &str) -> String {
 <meta name=\"color-scheme\" content=\"{scheme}\">\
 <meta name=\"description\" content=\"Lightweight operator console for the Galion Studio fleet. API-first. CPU-safe.\">\
 <link rel=\"icon\" type=\"image/svg+xml\" href=\"/_ui/favicon.svg\">\
-<link rel=\"stylesheet\" href=\"{css}\">{extra}</head>\
+<link rel=\"stylesheet\" href=\"{css}\">{extra}{refresh}</head>\
 <body{body_attrs}>{body}</body></html>\n",
         title = esc(f.title),
         css = esc(f.css_href),
+        refresh = match f.refresh_s {
+            Some(s) => format!("<meta http-equiv=\"refresh\" content=\"{s}\">"),
+            None => String::new(),
+        },
         extra = match f.extra_css_href {
             Some(h) => format!(
                 "<link rel=\"stylesheet\" href=\"{}\">",
@@ -196,6 +203,7 @@ mod tests {
             extra_css_href: None,
             light: Some(false),
             path: "/services",
+            refresh_s: None,
         };
         let html = console(&f, Origin::Up, "<p>body</p>");
         assert!(html.contains("<title>Galion &lt;Console&gt;</title>"));

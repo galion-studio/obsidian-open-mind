@@ -47,6 +47,8 @@ pub struct ApiCtx<'a> {
     pub extra_hosts: &'a [String],
     /// `--arena-root`: answer `GET /api/arena` from these files ([`crate::arena`]).
     pub arena: Option<&'a std::path::Path>,
+    /// `--survival-file`: `GET /api/v1/survival` ([`crate::survival`]).
+    pub survival: Option<&'a crate::survival::Refresher>,
 }
 
 /// One request as the handlers see it.
@@ -188,6 +190,12 @@ pub fn try_handle(req: &ApiRequest<'_>, ctx: &ApiCtx<'_>) -> Option<ApiReply> {
             _ => json_reply(405, crate::arena::HELD.into()),
         });
     }
+    if let (Some(sv), "/api/v1/survival") = (ctx.survival, path) {
+        return Some(match req.method {
+            "GET" | "HEAD" => json_reply(200, sv.status_json()),
+            _ => json_reply(405, r#"{"ok":false,"error":"read-only: GET only"}"#.into()),
+        });
+    }
     let b = ctx.board;
     let ok = |v: Value| Some(json_reply(200, v.to_json()));
     match (req.method, path) {
@@ -277,6 +285,7 @@ mod tests {
             admin: None,
             extra_hosts: &[],
             arena: None,
+            survival: None,
         };
         call(&ctx, "GET", path, h, loopback, b"")
     }
@@ -363,6 +372,7 @@ mod tests {
             admin: None,
             extra_hosts: &[],
             arena: None,
+            survival: None,
         };
         let h = head("localhost", None);
         let r = call(
@@ -401,6 +411,7 @@ mod tests {
             admin: None,
             extra_hosts: &[],
             arena: Some(&dir),
+            survival: None,
         };
         let h = head("127.0.0.1", None);
         let r = call(&ctx, "GET", "/api/arena", &h, true, b"").unwrap();
@@ -479,6 +490,7 @@ mod tests {
             admin: Some(&store),
             extra_hosts: &[],
             arena: None,
+            survival: None,
         };
         let h = head("console.galion.app", None);
         let r = call(&ctx, "GET", "/api/v1/admin", &h, true, b"").unwrap();
@@ -534,5 +546,56 @@ mod tests {
             401
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn survival_status_route_gated_read_only() {
+        let dir = std::env::temp_dir().join(format!("console-api-surv-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        std::fs::write(dir.join("survival.json"), "{}\n").unwrap();
+        let sv = crate::survival::Refresher::new(crate::survival::SurvivalConfig {
+            file: dir.join("survival.json"),
+            writer: None,
+            refresh_s: 900,
+            mode: crate::survival::Mode::OnRequest,
+            env: vec![],
+        });
+        let board = Board::new();
+        let ctx = ApiCtx {
+            board: &board,
+            admin: None,
+            extra_hosts: &[],
+            arena: None,
+            survival: Some(&sv),
+        };
+        let h = head("127.0.0.1:8080", None);
+        let r = call(&ctx, "GET", "/api/v1/survival", &h, true, b"").unwrap();
+        assert_eq!(r.status, 200);
+        let v = json::parse(r.body.as_bytes()).unwrap();
+        assert_eq!(v.get("exists").as_bool(), Some(true));
+        assert_eq!(v.get("ok").as_bool(), Some(true));
+        assert!(!r.body.contains("{}"), "content never echoed");
+        assert_eq!(
+            call(&ctx, "POST", "/api/v1/survival", &h, true, b"")
+                .unwrap()
+                .status,
+            405
+        );
+        // Gate: loopback host from a remote peer, and a foreign host.
+        assert_eq!(
+            call(&ctx, "GET", "/api/v1/survival", &h, false, b"")
+                .unwrap()
+                .status,
+            401
+        );
+        let f = head("evil.example", None);
+        assert_eq!(
+            call(&ctx, "GET", "/api/v1/survival", &f, true, b"")
+                .unwrap()
+                .status,
+            401
+        );
+        // Without --survival-file the route is not ours.
+        assert!(get(&h, "/api/v1/survival", true).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

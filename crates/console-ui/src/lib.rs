@@ -300,6 +300,7 @@ impl Ui {
                 _ => None,
             },
             path: req.path,
+            refresh_s: None,
         }
     }
 
@@ -847,9 +848,14 @@ impl Ui {
             "/bank" => Some("/api/v1/bank"),
             _ => None,
         };
-        let (origin, got, desk) = std::thread::scope(|s| {
+        let (origin, got, desk, surv) = std::thread::scope(|s| {
             let o = s.spawn(|| self.origin(&fwd));
             let g = s.spawn(|| api.map(|p| self.get_json_why(up, p, &fwd)));
+            // Survival card (slot 408): the staged console-static status
+            // route, read in parallel with the bank snapshot.
+            let sv = s.spawn(|| {
+                (req.path == "/bank").then(|| self.get_json_why(up, "/api/v1/survival", &fwd))
+            });
             let d = s.spawn(|| {
                 if req.path == "/cache" {
                     self.desk()
@@ -861,6 +867,7 @@ impl Ui {
                 o.join().unwrap_or(Origin::Down),
                 g.join().ok().flatten(),
                 d.join().ok().flatten(),
+                sv.join().ok().flatten(),
             )
         });
         let got = got.unwrap_or(Err(None));
@@ -886,7 +893,14 @@ impl Ui {
                     Err(Some(c)) => pages::bank::Miss::Status(*c),
                     _ => pages::bank::Miss::Down,
                 };
-                pages::bank::body(got.as_ref().map_err(|_| miss))
+                let card = match surv.as_ref() {
+                    Some(Ok(v)) => pages::survival::card(Ok(v)),
+                    Some(Err(Some(c))) => {
+                        pages::survival::card(Err(pages::survival::Miss::Status(*c)))
+                    }
+                    _ => pages::survival::card(Err(pages::survival::Miss::Down)),
+                };
+                pages::bank::body_with(got.as_ref().map_err(|_| miss), &card)
             }
             _ => pages::cache::body(desk.as_ref()),
         };
@@ -894,7 +908,10 @@ impl Ui {
             "Galion Console · {}",
             rooms::exact(req.path).map(|r| r.label).unwrap_or("Console")
         );
-        let f = self.frame(req, &title);
+        let mut f = self.frame(req, &title);
+        if req.path == "/bank" {
+            f.refresh_s = Some(pages::bank::refresh_s(got.as_ref().ok()));
+        }
         Reply::html(200, layout::console(&f, origin, &body))
     }
 
@@ -992,6 +1009,7 @@ mod tests {
             extra_css_href: None,
             light: Some(false),
             path: "/agents",
+            refresh_s: None,
         };
         let mut all = String::new();
         all.push_str(&layout::console(
@@ -1039,7 +1057,22 @@ mod tests {
         let bank =
             json::parse(br#"{"purses":[{"name":"n","usd":1,"note":"x"}],"note":"y"}"#).unwrap();
         all.push_str(&pages::bank::body(Ok(&bank)));
+        let stale = json::parse(br#"{"asOf":"2026-10-27T18:19:00+01:00","purses":[{"name":"r","source":"survival","asOf":"2026-10-27T18:19:00+01:00"}]}"#).unwrap();
+        all.push_str(&pages::bank::body_at(Ok(&stale), 1_793_156_400));
         all.push_str(&pages::bank::body(Err(pages::bank::Miss::Status(404))));
+        // Survival card (slot 408): every state.
+        let sv = json::parse(br#"{"exists":true,"asOf":"2026-10-27T18:19:50+01:00","stale":true,"writer":"/w","lastStart":"2026-10-28T04:00:00+01:00","lastExit":1,"runs":1,"failures":1}"#).unwrap();
+        all.push_str(&pages::bank::body_with(
+            Ok(&bank),
+            &pages::survival::card(Ok(&sv)),
+        ));
+        all.push_str(&pages::survival::card(Err(pages::survival::Miss::Status(
+            404,
+        ))));
+        all.push_str(&pages::survival::card(Err(pages::survival::Miss::Status(
+            401,
+        ))));
+        all.push_str(&pages::survival::card(Err(pages::survival::Miss::Down)));
         let desk = json::parse(br#"{"mindpack":{"cache":{"read":1},"cached":[{"id":"c"}],"stores":[{"name":"s","n":1,"bytes":1}],"models":[{"name":"m"}],"recent":[{"name":"f","at":1,"bytes":1}]}}"#).unwrap();
         all.push_str(&pages::cache::body(Some(&desk)));
         all.push_str(&pages::cache::body(None));

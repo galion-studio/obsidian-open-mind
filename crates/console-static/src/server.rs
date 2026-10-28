@@ -41,6 +41,8 @@ pub struct State {
     pub board: crate::board::Board,
     /// Admin-device store (`--admin-store`).
     pub admin: Option<crate::admin::AdminStore>,
+    /// Timer-free survival.json refresh (`--survival-file`).
+    pub survival: Option<std::sync::Arc<crate::survival::Refresher>>,
     active: AtomicUsize,
 }
 
@@ -60,6 +62,7 @@ impl State {
             .admin_store
             .clone()
             .map(|p| crate::admin::AdminStore::new(p, cfg.admin_mirror.clone()));
+        let survival = cfg.survival.clone().map(crate::survival::Refresher::new);
         State {
             site,
             routes,
@@ -67,6 +70,7 @@ impl State {
             ui,
             board: crate::board::Board::new(),
             admin,
+            survival,
             active: AtomicUsize::new(0),
         }
     }
@@ -193,6 +197,17 @@ fn handle_request(
         }
     };
 
+    // On-request survival refresh: a due run starts on its own thread; the
+    // request itself is answered as usual (no wait).
+    if let Some(sv) = &state.survival {
+        if sv.cfg.mode == crate::survival::Mode::OnRequest
+            && (method == "GET" || method == "HEAD")
+            && crate::survival::is_trigger(&clean)
+        {
+            sv.kick();
+        }
+    }
+
     let mut carry = carry;
     if state.cfg.local_api {
         let peer = stream.peer_addr().ok();
@@ -227,6 +242,7 @@ fn handle_request(
             admin: state.admin.as_ref(),
             extra_hosts: &state.cfg.extra_hosts,
             arena: state.cfg.arena_root.as_deref(),
+            survival: state.survival.as_deref(),
         };
         if let Some(reply) = crate::api::try_handle(&req, &ctx) {
             let mut extra = format!(

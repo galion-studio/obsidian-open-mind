@@ -19,6 +19,20 @@
 # binary cannot use anyway.
 LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_SOUNDEX -USQLITE_ENABLE_COLUMN_METADATA -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION"
 
+# Android C compiler fallback (slot 399, fmt-android-baseline, 2026-10-28 CET
+# +01:00). A plain `cargo check --target aarch64-linux-android` (or
+# armv7-linux-androideabi) used to fail in libsqlite3-sys: cc-rs wants
+# <triple>-clang and <triple>-ar from the NDK. scripts/android-cc.sh uses an
+# NDK clang when one is on PATH or in $ANDROID_NDK_HOME, else zig cc with musl
+# headers (compile only, the same trick scripts/ucpu-gate.sh check uses);
+# scripts/android-ar.sh picks llvm-ar, zig ar or ar. Only these two
+# Android triples read these variables; musl/glibc builds are untouched. An
+# exported CC_/AR_<triple> still wins: cargo [env] never overrides a set variable.
+CC_aarch64_linux_android = { value = "scripts/android-cc.sh", relative = true }
+CC_armv7_linux_androideabi = { value = "scripts/android-cc.sh", relative = true }
+AR_aarch64_linux_android = { value = "scripts/android-ar.sh", relative = true }
+AR_armv7_linux_androideabi = { value = "scripts/android-ar.sh", relative = true }
+
 # curve25519-dalek (via ed25519-dalek in crates/hades-gate) would otherwise
 # compile its AVX2 SIMD backend on x86_64. Project rule: no SIMD. "serial"
 # is the portable pure-Rust backend on every target. A RUSTFLAGS env var

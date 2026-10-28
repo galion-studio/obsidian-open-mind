@@ -73,13 +73,22 @@ fn stat_at(dir: i32, name: &CStr) -> Result<libc::stat, i32> {
     }
 }
 
+// `stat.st_mode` is `c_uint` (u32) on armv7 Android while `mode_t` is u16
+// there; on Linux musl/glibc and aarch64 Android both are u32 and the cast is
+// the identity. File type and permission bits all sit in the low 16 bits
+// (S_IFMT = 0o170000), so the narrowing cannot drop a bit we use.
+#[allow(clippy::unnecessary_cast)]
+fn mode(st: &libc::stat) -> libc::mode_t {
+    st.st_mode as libc::mode_t
+}
+
 fn kind(st: &libc::stat) -> libc::mode_t {
-    st.st_mode & libc::S_IFMT
+    mode(st) & libc::S_IFMT
 }
 
 fn perm(st: &libc::stat) -> libc::mode_t {
     // strip set-uid / set-gid; keep sticky and rwx
-    st.st_mode & 0o1777
+    mode(st) & 0o1777
 }
 
 fn times(st: &libc::stat) -> [libc::timespec; 2] {

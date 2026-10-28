@@ -59,3 +59,8 @@ linker = "rust-lld"
 # overrides it. Host (x86_64-unknown-linux-gnu) builds and tests are unchanged.
 [target.x86_64-unknown-linux-musl]
 linker = "rust-lld"
+
+# `cargo xtask <task>`: the Rust CI task runner (crates/xtask, docs/ci.md).
+# Every .github/workflows step calls one of its subcommands.
+[alias]
+xtask = "run --locked --quiet -p xtask --"

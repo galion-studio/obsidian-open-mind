@@ -1,0 +1,15 @@
+{
+  "about": "Replay regression corpus (cortex plan T5.3, slot 193, 2026-10-21 +02:00). Every saved capture with its expected verdict file in expected/<name>.json. fixture:<dir> = tests/fixtures/<dir> (synthetic, committed). live:<dir> = $NERVE_CAPTURE_ROOT/<dir> (default /workspace/swarm/nerve-capture; read-only VPS captures, kept on the box, never committed: they hold real journal lines). Checked by tests/replay_corpus.rs and `cargo xtask replay-corpus`; re-bless with REPLAY_CORPUS_BLESS=1 only for an intended verdict change, and say why in the commit.",
+  "captures": [
+    {"name": "fixture-cortex-replay", "source": "fixture:cortex-replay", "env": {}, "note": "synthetic golden: every built-in sensor fires once (16/F since T3.2)"},
+    {"name": "fixture-cortex-sshd", "source": "fixture:cortex-sshd", "env": {"NERVE_SSHD": "1"}, "note": "synthetic ssh credential flood (T2.1 sshd sensor)"},
+    {"name": "live-replay1", "source": "live:replay1", "env": {}, "note": "VPS 2026-10-20 19:25 +02:00, old galion-nerve"},
+    {"name": "live-replay158", "source": "live:replay158", "env": {}, "note": "VPS 2026-10-21 08:24 +02:00 (slot 158)"},
+    {"name": "live-replay179", "source": "live:replay179", "env": {}, "note": "VPS 2026-10-21 09:16 +02:00 (slot 179)"},
+    {"name": "live-replay186", "source": "live:replay186", "env": {}, "note": "VPS 2026-10-21 12:39 +02:00 (slot 186), openmind-nerve aa77864 live"},
+    {"name": "live-replay192", "source": "live:replay192", "env": {}, "note": "VPS 2026-10-21 14:48 +02:00 (slot 192)"},
+    {"name": "live-replay193", "source": "live:replay193", "env": {}, "note": "VPS 2026-10-21 15:22 +02:00 (slot 193, this corpus)"},
+    {"name": "live-replay200", "source": "live:replay200", "env": {}, "note": "VPS 2026-10-21 19:44 +02:00 (slot 200 nerve-t23-specs); listed by slot 324 cortex-replay-golden-fix 2026-10-27 +01:00: was on the box but missing here, so every_saved_capture_is_in_the_corpus failed"},
+    {"name": "live-replay207", "source": "live:replay207", "env": {}, "note": "VPS 2026-10-21 19:52 +02:00 (slot 207 cortex-t31-calibrate, event-mode bb287cc, single snapshot); listed by slot 324. No NERVE_EDGE_HOSTS pin needed on this lineage: the T2.12 edge-host warn opens in hold cycles 10-12 (66 D -> 61 D -> 66 D) and clears, grade stays D, no flap (the C->D->C flap and D-293-3 pin are only on cortex-staging-fold)"}
+  ]
+}

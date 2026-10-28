@@ -355,7 +355,10 @@ fn size_budget_table() {
         assert!(b <= BUDGET && w < b, "{l}");
     }
     // Slot 415 merge: the 376 table never exceeds the 373 one-budget table row.
-    assert!(BUDGET <= tsv_budget(), "SIZE_BUDGET ceiling above size-budget.tsv");
+    assert!(
+        BUDGET <= tsv_budget(),
+        "SIZE_BUDGET ceiling above size-budget.tsv"
+    );
     // Real sizes seen 2026-10-28: live 9d1a4f3 fine, tree 0d545118 warns,
     // one byte over the ceiling fails, unknown label fails.
     assert_eq!(budget_verdict("x86_64", LIVE_SIZE), Ok(None));
@@ -800,7 +803,10 @@ fn real_cross_target() {
         assert!(!e.has_interp, "{label}: has PT_INTERP (not static)");
         let size = bytes.len() as u64;
         let ceiling = tsv_budget();
-        assert!(size <= ceiling, "{label}: {size} B over {ceiling} B budget (size-budget.tsv)");
+        assert!(
+            size <= ceiling,
+            "{label}: {size} B over {ceiling} B budget (size-budget.tsv)"
+        );
         let budget = if mode == PinMode::Aa77864 {
             None
         } else {

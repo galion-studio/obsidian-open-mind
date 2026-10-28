@@ -66,7 +66,9 @@ candidate (and keeps `SyslogIdentifier=hermes-gateway`). It sets no environment 
 so the coding-off live shape stays. `95-` sorts after the live `90-deploy-t291u.conf`, so it wins while present.
 `crates/hermes-gateway/tests/staged_candidate.rs` pins all of that.
 
-. (slot 434, D-416-3, if adopted) On the box: `cargo xtask release-recipe verify <dir>/hermes-gateway-989958be`
+## Deploy-window runbook (for the owner-approved D-373-3 window only)
+
+0. (slot 434, D-416-3, if adopted) On the box: `cargo xtask release-recipe verify <dir>/hermes-gateway-989958be`
    with the committed `config/release/recipes/hermes-gateway-989958be.recipe` next to it; it must print
    `verify OK` (see `docs/release/hermes-gateway-recipe-20261028.md`).
 1. Copy the candidate to the VPS: `install -m 0755 hermes-gateway /opt/galion/rust/bin/hermes-gateway-989958be`

@@ -263,7 +263,10 @@ fn rust_pages_match_live_api() {
             None,
         );
         wait_for("ssh forward", 20, || answers(up));
-        eprintln!("real: forward {up} -> VPS 8080, {pulse} -> VPS 8091 (ssh -N)");
+        eprintln!(
+            "real: forward {}, {pulse} -> VPS 8091 (ssh -N)",
+            routes::api_forward_label(&api_target, &up.to_string())
+        );
         Some((k, local))
     };
 

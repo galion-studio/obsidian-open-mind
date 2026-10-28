@@ -122,6 +122,28 @@ pub fn run() -> ExitCode {
         cfg.upstream.map(|u| u.to_string()).unwrap_or_else(|| "none".into()),
         cfg.proxy_prefixes
     );
+    if let Some(a) = &cfg.arena_root {
+        if !a.is_dir() {
+            // Not fatal (a late mount must not crash-loop the unit): the
+            // reader answers the script defaults until the folder appears.
+            eprintln!(
+                "galion-console-static: warning: --arena-root {} is not a directory; /api/arena shows defaults",
+                a.display()
+            );
+        }
+    }
+    eprintln!(
+        "galion-console-static: api owner_routes {} pulse {} hermes {} arena_root {} data_upstream {} data_paths {:?}",
+        cfg.owner_routes,
+        addr_or_none(cfg.pulse),
+        addr_or_none(cfg.hermes),
+        cfg.arena_root
+            .as_ref()
+            .map(|r| r.display().to_string())
+            .unwrap_or_else(|| "none".into()),
+        addr_or_none(cfg.data_upstream),
+        cfg.data_paths
+    );
     let state = Arc::new(State::new(site, routes, cfg));
     match server::serve(listener, state) {
         Ok(()) => ExitCode::SUCCESS,
@@ -130,4 +152,8 @@ pub fn run() -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn addr_or_none(a: Option<std::net::SocketAddr>) -> String {
+    a.map(|a| a.to_string()).unwrap_or_else(|| "none".into())
 }

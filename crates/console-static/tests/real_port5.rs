@@ -237,8 +237,8 @@ fn real_port5_rooms_against_live_vps() {
         get(api_at(), "/api/v1/health", "").0 == 200
     });
     eprintln!(
-        "real: forward {api_at}->8080 {nerve_at}->8670 (ssh -N, GET only)",
-        api_at = api_at(),
+        "real: forward {api} {nerve_at}->8670 (ssh -N, GET only)",
+        api = routes::api_forward_label(&api_target, api_at()),
         nerve_at = nerve_at()
     );
     let before = nerve_watch("before");

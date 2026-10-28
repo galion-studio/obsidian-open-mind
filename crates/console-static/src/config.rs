@@ -61,13 +61,17 @@ usage: galion-console-static --root DIR [options]
                        e.g. 127.0.0.1:18080; needs --local-api; works with
                        --dist self-upstream
   --data-path P        exact path for --data-upstream; repeatable
-                       (default /api/arena and /api/v1/bank)
+                       (default /api/arena and /api/v1/bank; with
+                       --owner-routes the default is /api/arena only, so the
+                       retired /api/v1/bank answers 410 unless passed here)
   --owner-routes       (needs --local-api) forward the Node-era rows owned by
                        another Rust service: /api/v1/analytics, /api/v1/awake
                        -> --pulse; /api/hermes/health -> --hermes /health
                        (exact path, GET/HEAD, no Cookie/Authorization sent);
                        answer retired Node-era rows (instances, keys, mesh, ...)
-                       with 410 Gone JSON instead of 404 (slot 395)
+                       with 410 Gone JSON instead of 404 (slot 395); needs
+                       --arena-root (or --data-path /api/arena) so /api/arena
+                       is answered too (slot 413)
   --hermes ADDR        loopback hermes-rs for --owner-routes, e.g. 127.0.0.1:8642
   --console-host HOST  extra host treated as a console host (repeatable),
                        e.g. the machine public IP (the TSX had
@@ -182,7 +186,11 @@ fn valid_prefix(p: &str) -> bool {
     p.len() > 1 && p.ends_with('/') && crate::path::sanitize(p).as_deref() == Ok(p)
 }
 
-/// Default `--data-path` list when `--data-upstream` is set.
+/// The arena row: answered by `--arena-root` or a `--data-path`.
+pub const ARENA_PATH: &str = "/api/arena";
+
+/// Default `--data-path` list when `--data-upstream` is set (minus the
+/// [`crate::owners::RETIRED`] rows when `--owner-routes` is set, F-395-3).
 pub const DATA_DEFAULT_PATHS: &[&str] = &["/api/arena", "/api/v1/bank"];
 
 /// An exact data path: sanitized, under `/api/`, no trailing slash or query.
@@ -435,7 +443,23 @@ impl Config {
             return Err(bad("--data-upstream must not be --bind (would loop)"));
         }
         if data_upstream.is_some() && data_paths.is_empty() {
-            data_paths = DATA_DEFAULT_PATHS.iter().map(|s| s.to_string()).collect();
+            // F-395-3 (slot 413): with --owner-routes the default list drops
+            // the retired rows (D-384-2: /api/v1/bank answers 410), so the
+            // data proxy never wins over the 410 by default. An explicit
+            // `--data-path /api/v1/bank` is the owner's opt-in and is kept.
+            data_paths = DATA_DEFAULT_PATHS
+                .iter()
+                .filter(|p| !(owner_routes && crate::owners::is_retired(p)))
+                .map(|s| s.to_string())
+                .collect();
+        }
+        // F-395-2 (slot 413): --owner-routes is the full Node-era route set;
+        // without an arena reader `/api/arena` would be a bare 404 on a
+        // console that otherwise answers every row. Refuse at startup.
+        if owner_routes && arena_root.is_none() && !data_paths.iter().any(|p| p == ARENA_PATH) {
+            return Err(bad(
+                "--owner-routes needs --arena-root DIR (or --data-upstream with --data-path /api/arena): /api/arena would 404",
+            ));
         }
         let routes_text = if dist_mode && routes.is_none() {
             Some(DIST_DEFAULT_ROUTES.to_string())

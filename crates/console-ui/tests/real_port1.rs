@@ -212,7 +212,10 @@ fn port1_rooms_match_the_live_services() {
     wait_for("ssh forward", 20, || {
         matches!(get(up, "/api/v1/health"), Some((200, _, _)))
     });
-    eprintln!("real: forward {up}->8080, {desk}->8646, {nerve}->8670 (ssh -N, read-only)");
+    eprintln!(
+        "real: forward {}, {desk}->8646, {nerve}->8670 (ssh -N, read-only)",
+        routes::api_forward_label(&api_target, &up.to_string())
+    );
 
     // 3. The front.
     let log = std::env::temp_dir().join("console-port-1-real.log");

@@ -55,6 +55,14 @@ fn fake_owner(who: &'static str, status: u16, seen: Seen) -> SocketAddr {
     addr
 }
 
+/// Empty arena root under the temp dir (the reader answers the script
+/// defaults for an empty folder).
+fn arena_dir() -> std::path::PathBuf {
+    let d = std::env::temp_dir().join(format!("owner-routes-arena-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    d
+}
+
 fn start(extra: &[String]) -> SocketAddr {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = l.local_addr().unwrap();
@@ -64,6 +72,12 @@ fn start(extra: &[String]) -> SocketAddr {
         .collect();
     args.push(addr.to_string());
     args.extend_from_slice(extra);
+    // Slot 413 (F-395-2): --owner-routes needs an arena reader; give it an
+    // empty throwaway root unless the test brings its own.
+    if extra.iter().any(|a| a == "--owner-routes") && !extra.iter().any(|a| a == "--arena-root") {
+        args.push("--arena-root".into());
+        args.push(arena_dir().display().to_string());
+    }
     let cfg = Config::from_args(args).unwrap();
     let state = Arc::new(State::new(
         Site::default(),
@@ -224,9 +238,97 @@ fn flags_validate() {
         "needs --owner-routes"
     );
     assert!(base(&["--local-api", "--owner-routes", "--hermes", "10.0.0.1:1"]).is_err());
-    let c = base(&["--local-api", "--owner-routes", "--hermes", "127.0.0.1:1"]).unwrap();
+    let c = base(&[
+        "--local-api",
+        "--owner-routes",
+        "--hermes",
+        "127.0.0.1:1",
+        "--arena-root",
+        "/workspace/arena",
+    ])
+    .unwrap();
     assert!(c.owner_routes && c.hermes.is_some());
     assert!(!base(&["--local-api"]).unwrap().owner_routes);
+}
+
+/// F-395-2 (slot 413): --owner-routes refuses to start when nothing answers
+/// /api/arena; an --arena-root or an arena --data-path satisfies it.
+#[test]
+fn owner_routes_refuse_without_arena_reader() {
+    let base = |x: &[&str]| {
+        let mut v: Vec<String> = ["--ui", "rust", "--local-api", "--bind", "127.0.0.1:22839"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        v.extend(x.iter().map(|s| s.to_string()));
+        Config::from_args(v)
+    };
+    let e = base(&["--owner-routes"]).unwrap_err().to_string();
+    assert!(e.contains("--owner-routes needs --arena-root"), "{e}");
+    let e = base(&[
+        "--owner-routes",
+        "--data-upstream",
+        "127.0.0.1:1",
+        "--data-path",
+        "/api/v1/bank",
+    ])
+    .unwrap_err()
+    .to_string();
+    assert!(e.contains("/api/arena would 404"), "{e}");
+    assert!(base(&["--owner-routes", "--arena-root", "/workspace/arena"]).is_ok());
+    let c = base(&["--owner-routes", "--data-upstream", "127.0.0.1:1"]).unwrap();
+    assert_eq!(
+        c.data_paths,
+        vec!["/api/arena"],
+        "F-395-3 default drops bank"
+    );
+    // Without --owner-routes nothing changes (live argv has no flag).
+    assert!(base(&[]).is_ok());
+    let c = base(&["--data-upstream", "127.0.0.1:1"]).unwrap();
+    assert_eq!(c.data_paths, vec!["/api/arena", "/api/v1/bank"]);
+}
+
+/// F-395-3 (slot 413): with --owner-routes the retired /api/v1/bank 410 wins
+/// over the default data proxy; only an explicit --data-path sends it on.
+#[test]
+fn retired_bank_410_wins_over_default_data_proxy() {
+    let seen: Seen = Arc::default();
+    let data = fake_owner("data", 200, Arc::clone(&seen));
+    let a = start(&[
+        "--owner-routes".into(),
+        "--data-upstream".into(),
+        data.to_string(),
+    ]);
+    let r = get(a, "/api/v1/bank");
+    assert_eq!(r.code, 410, "{}", r.body);
+    assert!(r.body.contains(r#""route":"/api/v1/bank""#), "{}", r.body);
+    // Arena: in-process reader (empty root -> script defaults), not proxied.
+    let r = get(a, "/api/arena");
+    assert_eq!(r.code, 200, "{}", r.body);
+    assert!(r.body.contains(r#""ok":true"#), "{}", r.body);
+    assert!(
+        seen.lock().unwrap().is_empty(),
+        "nothing reached data upstream"
+    );
+
+    // Owner opt-in: explicit --data-path /api/v1/bank forwards.
+    let b = start(&[
+        "--owner-routes".into(),
+        "--data-upstream".into(),
+        data.to_string(),
+        "--data-path".into(),
+        "/api/v1/bank".into(),
+    ]);
+    let r = get(b, "/api/v1/bank");
+    assert_eq!(r.code, 200, "{}", r.body);
+    assert!(r.body.contains(r#""who":"data""#), "{}", r.body);
+    assert_eq!(seen.lock().unwrap().len(), 1);
+
+    // No --owner-routes (live argv): default data proxy still has bank.
+    let c = start(&["--data-upstream".into(), data.to_string()]);
+    let r = get(c, "/api/v1/bank");
+    assert!(r.body.contains(r#""who":"data""#), "{}", r.body);
+    assert_eq!(seen.lock().unwrap().len(), 2);
 }
 
 /// The console lists and the slot 384 route MAP agree: every retired MAP row

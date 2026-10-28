@@ -236,8 +236,8 @@ fn real_route31_hermes_rust_first_against_live_vps() {
         get(api_at(), "/api/v1/health").code == 200
     });
     eprintln!(
-        "real: forward {api_at}->8080 {nerve_at}->8670 (ssh -N, GET only)",
-        api_at = api_at(),
+        "real: forward {api} {nerve_at}->8670 (ssh -N, GET only)",
+        api = routes::api_forward_label(&api_target, api_at()),
         nerve_at = nerve_at()
     );
     let before = nerve_watch("before");

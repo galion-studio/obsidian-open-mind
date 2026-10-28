@@ -57,8 +57,10 @@ pub const OWNER_ROUTES: &[OwnerRoute] = &[
 ];
 
 /// Node-era rows with no Rust provider (D-384-2 lists them for the owner).
-/// `/api/v1/bank` is here too: it still goes to `--data-upstream` first when
-/// that is configured (the data proxy runs before this module).
+/// `/api/v1/bank` is here too. With `--owner-routes` the default
+/// `--data-path` list leaves it out (F-395-3, slot 413), so it answers 410;
+/// only an explicit `--data-path /api/v1/bank` (the owner's D-384-2 call)
+/// sends it to `--data-upstream` (the data proxy runs before this module).
 pub const RETIRED: &[&str] = &[
     "/api/v1/bank",
     "/api/v1/instances",

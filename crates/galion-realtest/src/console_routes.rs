@@ -424,12 +424,14 @@ pub fn api_target(default_bin: Option<&str>) -> ApiTarget {
 }
 
 /// Arguments for the box-local console API (the live :8080 command line
-/// `--ui rust --local-api` plus `--owner-routes`). `admin_store` is a
-/// throwaway path (never the live store); `pulse`, `hermes`, `desk` are the
-/// box ends of the read-only forwards.
+/// `--ui rust --local-api` plus `--owner-routes`). `admin_store` and
+/// `arena_root` are throwaway paths (never the live store or arena; slot
+/// 413: `--owner-routes` refuses to start without an arena reader);
+/// `pulse`, `hermes`, `desk` are the box ends of the read-only forwards.
 pub fn local_api_args(
     bind: &str,
     admin_store: &std::path::Path,
+    arena_root: &std::path::Path,
     pulse: Option<&str>,
     hermes: Option<&str>,
     desk: Option<&str>,
@@ -447,6 +449,8 @@ pub fn local_api_args(
     .map(|s| s.to_string())
     .collect();
     a.push(admin_store.display().to_string());
+    a.push("--arena-root".into());
+    a.push(arena_root.display().to_string());
     for (flag, v) in [("--pulse", pulse), ("--hermes", hermes), ("--desk", desk)] {
         if let Some(v) = v {
             a.push(flag.into());
@@ -482,7 +486,9 @@ impl LocalApi {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("local api temp dir");
         let store = dir.join("admin-device.json");
-        let args = local_api_args(bind, &store, pulse, hermes, desk);
+        let arena = dir.join("arena");
+        std::fs::create_dir_all(&arena).expect("local api arena dir");
+        let args = local_api_args(bind, &store, &arena, pulse, hermes, desk);
         let child = std::process::Command::new(bin)
             .args(&args)
             .stdin(std::process::Stdio::null())
@@ -542,6 +548,21 @@ pub fn api_forward_args(target: &ApiTarget, api_at: &str) -> Vec<String> {
     match target {
         ApiTarget::Vps => vec!["-L".into(), format!("{api_at}:127.0.0.1:8080")],
         ApiTarget::Local(_) => Vec::new(),
+    }
+}
+
+/// What answers the console API port, for the `real: forward` log line
+/// (F-395-4, slot 413): `ADDR->8080` only when the port really is the ssh
+/// forward of the live :8080; a local build names itself instead.
+pub fn api_forward_label(target: &ApiTarget, api_at: &str) -> String {
+    match target {
+        ApiTarget::Vps => format!("{api_at}->8080"),
+        ApiTarget::Local(bin) => format!(
+            "{api_at}=local {} ({API_VAR}=local)",
+            bin.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| bin.display().to_string())
+        ),
     }
 }
 
@@ -697,16 +718,34 @@ mod tests {
         let a = local_api_args(
             "127.0.0.1:1",
             std::path::Path::new("/tmp/s.json"),
+            std::path::Path::new("/tmp/arena"),
             Some("127.0.0.1:2"),
             None,
             Some("127.0.0.1:3"),
         );
         let s = a.join(" ");
         assert!(s.starts_with(
-            "--ui rust --local-api --owner-routes --bind 127.0.0.1:1 --admin-store /tmp/s.json"
+            "--ui rust --local-api --owner-routes --bind 127.0.0.1:1 --admin-store /tmp/s.json --arena-root /tmp/arena"
         ));
         assert!(s.contains("--pulse 127.0.0.1:2") && s.contains("--desk 127.0.0.1:3"));
         assert!(!s.contains("--hermes"));
+    }
+
+    #[test]
+    fn forward_label_names_real_upstream() {
+        assert_eq!(
+            api_forward_label(&ApiTarget::Vps, "127.0.0.1:22830"),
+            "127.0.0.1:22830->8080"
+        );
+        let l = api_forward_label(
+            &ApiTarget::Local("/t/release/galion-console-static".into()),
+            "127.0.0.1:22830",
+        );
+        assert_eq!(
+            l,
+            "127.0.0.1:22830=local galion-console-static (CONSOLE_REAL_API=local)"
+        );
+        assert!(!l.contains("8080"), "F-395-4: {l}");
     }
 
     #[test]

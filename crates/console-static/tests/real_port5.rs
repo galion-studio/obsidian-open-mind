@@ -243,27 +243,43 @@ fn real_port5_rooms_against_live_vps() {
     let (hc, health) = live_json(api_at(), "/api/v1/health");
     assert_eq!(hc, 200);
     let target = health.get("target");
-    let ssh_line = console_ui::pages::node::ssh_command(target).expect("live ssh target");
-    let ip = target.get("publicIp").as_str().expect("live publicIp");
-    let t = Instant::now();
-    let (c, _, page) = get(bind_at(), "/node", "");
-    eprintln!(
-        "real: /node {c} {} B in {} ms",
-        page.len(),
-        t.elapsed().as_millis()
-    );
-    assert_eq!(c, 200);
-    assert!(page.contains(&esc(&ssh_line)), "ssh line");
-    assert!(page.contains(&format!(
-        "<span>Last IP</span><span class=\"muted mono\">{}</span>",
-        esc(ip)
-    )));
-    assert!(!page.contains("did not load") && !page.contains("no usable SSH"));
-    eprintln!(
-        "real: /node ok: ssh line and Last IP equal live health target (pod {}, sshPort {})",
-        target.get("podId").as_str().unwrap_or("?"),
-        target.get("sshPort").to_json()
-    );
+    if target.is_null() && routes::mode() != routes::Mode::Node {
+        // D-375-1: the Rust /api/v1/health has no `target` (route map row);
+        // /node must not invent an ssh line or an IP.
+        let (c, _, page) = get(bind_at(), "/node", "");
+        assert_eq!(c, 200);
+        assert!(
+            page.contains("no usable SSH") || routes::page_says_unavailable(&page),
+            "/node: no honest miss"
+        );
+        assert!(!page.contains("ssh -p"), "/node: ssh line without a target");
+        eprintln!(
+            "real: /node: live Rust health {} has no target -> room states the miss",
+            health.get("implementation").as_str().unwrap_or("?")
+        );
+    } else {
+        let ssh_line = console_ui::pages::node::ssh_command(target).expect("live ssh target");
+        let ip = target.get("publicIp").as_str().expect("live publicIp");
+        let t = Instant::now();
+        let (c, _, page) = get(bind_at(), "/node", "");
+        eprintln!(
+            "real: /node {c} {} B in {} ms",
+            page.len(),
+            t.elapsed().as_millis()
+        );
+        assert_eq!(c, 200);
+        assert!(page.contains(&esc(&ssh_line)), "ssh line");
+        assert!(page.contains(&format!(
+            "<span>Last IP</span><span class=\"muted mono\">{}</span>",
+            esc(ip)
+        )));
+        assert!(!page.contains("did not load") && !page.contains("no usable SSH"));
+        eprintln!(
+            "real: /node ok: ssh line and Last IP equal live health target (pod {}, sshPort {})",
+            target.get("podId").as_str().unwrap_or("?"),
+            target.get("sshPort").to_json()
+        );
+    }
 
     // /security: each of the three admin-only sources, as the live API answers it.
     let t = Instant::now();
@@ -280,6 +296,7 @@ fn real_port5_rooms_against_live_vps() {
         ("Incidents", "/api/v3/guardian/incidents"),
     ] {
         let (lc, lv) = live_json(api_at(), path);
+        routes::decide(path, lc);
         if lc == 200 {
             assert!(!page.contains(&format!("{label} did not load")), "{label}");
         } else {
@@ -295,6 +312,7 @@ fn real_port5_rooms_against_live_vps() {
 
     // /session list, one file, a refused name, and the zip through the proxy.
     let (lc, lv) = live_json(api_at(), "/api/v1/session");
+    routes::decide("/api/v1/session", lc);
     let (c, _, page) = get(bind_at(), "/session", "");
     assert_eq!(c, 200);
     if lc == 200 {

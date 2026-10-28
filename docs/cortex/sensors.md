@@ -143,3 +143,11 @@ Registered last in `Sensors::from_env` (after `hades`), so the T2.0 run order an
   `NERVE_EVENT_FEED_FILE=/var/lib/galion-nerve/events.jsonl,/var/lib/galion-survival/nerve.jsonl` (example paths).
 - `POST /event` is unauthenticated (cortex plan section 8 item 6): anything on the box can create findings. Bounds:
   128 subjects, cleaned ids/titles, unknown kinds capped at error, optional source allow-list. Not a substitute for auth.
+
+## memory-freshness sensor (wave-4 slot 405, swarm/memory-freshness-sensor; D-388-3 prep, STAGED, off by default)
+
+Registered last in `Sensors::from_env` (after `edge-rate`), so existing run order and incident ids are unchanged.
+
+| name | file | finding ids | signals | reads | env |
+|---|---|---|---|---|---|
+| `memory-freshness` | sensors/memory_freshness.rs | `memory-stale` (bleeding, warn, cause `memory-freshness`), info `memory-freshness-unknown` / `memory-freshness-note` | `memory-freshness` (warn -> incident -> alert) on exit 3 only | runs `<NERVE_MEMFRESH_BIN> freshness <dir> <instance> <max_age_h>` (slot 388 CLI, read-only SQLite) on a background thread every `NERVE_MEMFRESH_EVERY_S` when `live`; argv only, empty env + fixed PATH, stdout cap 16 KiB, kill after timeout; parses allow-listed summary keys only | `NERVE_MEMFRESH_BIN` (absolute; off when unset), `_DATA_DIR` (/var/lib/memory-tencentdb), `_INSTANCE` (galion), `_MAX_AGE_H` (24), `_EVERY_S` (900), `_TIMEOUT_MS` (10000), `_COMPONENT` (openmind-memory) |

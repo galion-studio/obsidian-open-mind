@@ -6,7 +6,8 @@
 //!
 //! * [`check_target`]: the service must listen on 127.0.0.1 on a port inside
 //!   the operator-given range, and that range must sit inside
-//!   [`TEST_PORTS`] (19000-19999). Live stack ports (8080, 8091, 8420, 8642,
+//!   [`TEST_PORTS`] (19000-19999; real tests only may move it inside
+//!   19000-22999 with `GAIA_TEST_PORTS`, see [`test_ports`]). Live stack ports (8080, 8091, 8420, 8642,
 //!   8650, 8670, ...) are therefore always refused. The start command must be
 //!   an absolute path to a program that is not a service manager, shell,
 //!   remote shell or killer, and it must name the target port.
@@ -84,8 +85,81 @@ pub struct TestTarget {
     pub argv: Vec<String>,
 }
 
-/// Refuse anything that is not a box-local test service.
+/// Env var for a TEST-ONLY override of [`TEST_PORTS`] (slot 423, D-383-2 b).
+/// Value `"LO-HI"` (or one port). Honoured only when `GALION_REAL=1` (the
+/// real-test switch) and only inside [`TEST_PORTS_OVERRIDE_BOUNDS`]; it
+/// replaces the box test range, it never adds live stack ports.
+pub const TEST_PORTS_ENV: &str = "GAIA_TEST_PORTS";
+/// The swarm slot port ranges on the box (19000-22999). A
+/// [`TEST_PORTS_ENV`] override outside this is refused. Every live stack
+/// port (8080, 8091, 8420, 8642, 8650, 8670, ...) is below it.
+pub const TEST_PORTS_OVERRIDE_BOUNDS: RangeInclusive<u16> = 19000..=22999;
+
+/// The box test range in force, from explicit inputs (pure, for tests):
+/// `value` is the [`TEST_PORTS_ENV`] value, `real` whether `GALION_REAL=1`.
+///
+/// * unset or empty: [`TEST_PORTS`] (production default, unchanged);
+/// * set without `real`: refused (a stray override never reaches a
+///   production heal-tick; fail closed, nothing is restarted);
+/// * set with `real`: must parse as `LO-HI` with `LO <= HI`, both inside
+///   [`TEST_PORTS_OVERRIDE_BOUNDS`], else refused.
+pub fn test_ports_from(value: Option<&str>, real: bool) -> Result<RangeInclusive<u16>, String> {
+    let v = match value.map(str::trim) {
+        None | Some("") => return Ok(TEST_PORTS),
+        Some(v) => v,
+    };
+    if !real {
+        return Err(format!(
+            "{TEST_PORTS_ENV}={v:?} is a real-test override and needs GALION_REAL=1; unset it (production range {}-{})",
+            TEST_PORTS.start(),
+            TEST_PORTS.end()
+        ));
+    }
+    let r = parse_range(v).map_err(|e| format!("{TEST_PORTS_ENV}: {e}"))?;
+    if r.is_empty()
+        || !TEST_PORTS_OVERRIDE_BOUNDS.contains(r.start())
+        || !TEST_PORTS_OVERRIDE_BOUNDS.contains(r.end())
+    {
+        return Err(format!(
+            "{TEST_PORTS_ENV}={v:?} is outside the override bounds {}-{}",
+            TEST_PORTS_OVERRIDE_BOUNDS.start(),
+            TEST_PORTS_OVERRIDE_BOUNDS.end()
+        ));
+    }
+    Ok(r)
+}
+
+/// [`test_ports_from`] with the process environment.
+pub fn test_ports() -> Result<RangeInclusive<u16>, String> {
+    let v = std::env::var(TEST_PORTS_ENV).ok();
+    let real = std::env::var("GALION_REAL").as_deref() == Ok("1");
+    test_ports_from(v.as_deref(), real)
+}
+
+/// Refuse anything that is not a box-local test service. The box test range
+/// is [`test_ports`] (default [`TEST_PORTS`]); see [`check_target_in`].
 pub fn check_target(t: &TestTarget, allowed: &RangeInclusive<u16>) -> Result<(), String> {
+    check_target_in(t, allowed, &test_ports()?)
+}
+
+/// [`check_target`] against an explicit box test range (pure, for tests).
+pub fn check_target_in(
+    t: &TestTarget,
+    allowed: &RangeInclusive<u16>,
+    test_ports: &RangeInclusive<u16>,
+) -> Result<(), String> {
+    if test_ports.is_empty()
+        || !TEST_PORTS_OVERRIDE_BOUNDS.contains(test_ports.start())
+        || !TEST_PORTS_OVERRIDE_BOUNDS.contains(test_ports.end())
+    {
+        return Err(format!(
+            "test range {}-{} is outside the override bounds {}-{}",
+            test_ports.start(),
+            test_ports.end(),
+            TEST_PORTS_OVERRIDE_BOUNDS.start(),
+            TEST_PORTS_OVERRIDE_BOUNDS.end()
+        ));
+    }
     if t.name.is_empty()
         || t.name.len() > 48
         || !t
@@ -99,15 +173,15 @@ pub fn check_target(t: &TestTarget, allowed: &RangeInclusive<u16>) -> Result<(),
         ));
     }
     if allowed.is_empty()
-        || !TEST_PORTS.contains(allowed.start())
-        || !TEST_PORTS.contains(allowed.end())
+        || !test_ports.contains(allowed.start())
+        || !test_ports.contains(allowed.end())
     {
         return Err(format!(
             "allowed range {}-{} is outside the test range {}-{}",
             allowed.start(),
             allowed.end(),
-            TEST_PORTS.start(),
-            TEST_PORTS.end()
+            test_ports.start(),
+            test_ports.end()
         ));
     }
     if !allowed.contains(&t.port) {

@@ -7,7 +7,8 @@
 //! a throwaway loopback HTTP service for the Gaia live heal tests. `GET
 //! /health` answers `{"status":"ok","service":"gaia-dummy","pid":N,
 //! "started":"<Europe/Zagreb>","mode":"..."}`; everything else is 404. It
-//! binds 127.0.0.1 only and refuses ports outside 19000-19999.
+//! binds 127.0.0.1 only and refuses ports outside 19000-19999 (a real test may
+//! move that inside 19000-22999 with `GAIA_TEST_PORTS` + `GALION_REAL=1`).
 //!
 //! Fault modes (Gaia S3.1 loop tests):
 //! * `ok` (default): serves forever.
@@ -44,8 +45,19 @@ fn exit_after(ms: u64) {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
     let port: Option<u16> = arg(&args, "--port").and_then(|p| p.parse().ok());
-    let Some(port) = port.filter(|p| (19000..=19999).contains(p)) else {
-        eprintln!("usage: gaia-dummy --port P [--mode ok|hang|flap|crash] [--up-ms MS] [--once-file F]   (P in 19000-19999)");
+    let range = match gaia_live::heal::test_ports() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("gaia-dummy: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let Some(port) = port.filter(|p| range.contains(p)) else {
+        eprintln!(
+            "usage: gaia-dummy --port P [--mode ok|hang|flap|crash] [--up-ms MS] [--once-file F]   (P in {}-{}; GAIA_TEST_PORTS with GALION_REAL=1 may move it inside 19000-22999)",
+            range.start(),
+            range.end()
+        );
         return ExitCode::from(2);
     };
     let mode = arg(&args, "--mode").unwrap_or("ok");

@@ -106,14 +106,17 @@ pub struct HealTick {
 /// closed), which is the intent for a box test service.
 #[must_use]
 pub fn heal_plan(t: &TestTarget) -> Vec<String> {
+    // Default range unless a real test set GAIA_TEST_PORTS (slot 423); the
+    // plan names the range in force so the signed bytes are honest.
+    let range = heal::test_ports().unwrap_or(heal::TEST_PORTS);
     let mut plan = vec![
         PLAN_HEADER.to_string(),
         format!(
             "restart box test service {} on 127.0.0.1:{} (box test ports {}-{} only)",
             t.name,
             t.port,
-            heal::TEST_PORTS.start(),
-            heal::TEST_PORTS.end()
+            range.start(),
+            range.end()
         ),
         format!("verify GET {} answers status ok", t.health_path),
         format!(

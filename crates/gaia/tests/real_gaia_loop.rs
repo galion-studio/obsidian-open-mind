@@ -8,8 +8,11 @@
 //! `gaia-dummy` fault services on 127.0.0.1:19601-19603. The dummies sit in
 //! 19600-19609 because the heal apply path only ever touches 19000-19999
 //! (`gaia_live::heal::TEST_PORTS`, a safety guard this test does not widen).
+//! Since slot 423 a run may move the block above 19999 with GAIA_TEST_PORTS=LO-HI (honoured only with
+//! GALION_REAL=1, inside 19000-22999); the dummy block is checked against
+//! that range and the nerve port may share it (never a dummy port).
 //! Since slot 363 the nerve port (`GAIA_LOOP_NERVE_PORT`) and the dummy block
-//! (`GAIA_LOOP_DUMMY_PORT_BASE`, must stay in 19000-19999) are env knobs;
+//! (`GAIA_LOOP_DUMMY_PORT_BASE`, must stay in the heal test range) are env knobs;
 //! unset = the ports above.
 //!
 //! Three `gaia heal-tick --loop` processes run at once, sharing one
@@ -32,7 +35,7 @@
 //! --release -p gaia --test real_gaia_loop -- --nocapture`.
 
 use gaia::live_heal::heal_plan;
-use gaia_live::heal::{TestTarget, TEST_PORTS};
+use gaia_live::heal::{test_ports, TestTarget};
 use galion_realtest::ports;
 use hades_gate::adapter::gaia_plan_bytes;
 use hades_gate::approval::unix_now;
@@ -65,17 +68,24 @@ fn p() -> &'static Ports {
     P.get_or_init(|| {
         let n = ports::base_from_env(NERVE_PORT_ENV, DEFAULT_NERVE_PORT, 1);
         let d = ports::base_from_env(DUMMY_BASE_ENV, DEFAULT_DUMMY_BASE, 10);
+        // Slot 423: the range in force (GAIA_TEST_PORTS with GALION_REAL=1,
+        // inside 19000-22999; unset = 19000-19999). This process and every
+        // child gaia read the same env, so signed plan hashes agree.
+        let tp = test_ports().unwrap_or_else(|e| panic!("{e}"));
         assert!(
-            TEST_PORTS.contains(&d) && TEST_PORTS.contains(&(d + 9)),
+            tp.contains(&d) && tp.contains(&(d + 9)),
             "{DUMMY_BASE_ENV}: {d}-{} must lie inside the heal test range {}-{}",
             d + 9,
-            TEST_PORTS.start(),
-            TEST_PORTS.end()
+            tp.start(),
+            tp.end()
         );
+        // The nerve may share the block (one 10-port slot range) but never
+        // a dummy port d+1..=d+3.
         assert!(
-            !(d..=d + 9).contains(&n),
-            "{NERVE_PORT_ENV} {n} overlaps the dummy block {d}-{}",
-            d + 9
+            !(d + 1..=d + 3).contains(&n),
+            "{NERVE_PORT_ENV} {n} overlaps a dummy port {}-{}",
+            d + 1,
+            d + 3
         );
         Ports {
             nerve: format!("127.0.0.1:{n}"),

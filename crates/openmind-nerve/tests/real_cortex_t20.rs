@@ -13,7 +13,8 @@
 //! - each merged branch contributes a finding from its fixtures
 //!   (rustsec lock, drift manifest, surface 503, proc-owner stray);
 //! - `/api/v1/cortex/events` (cortex-s2-d) serves B33 JSONL;
-//! - the whole cycle stays inside the budget (< 50 ms, RSS < 8 MiB).
+//! - the whole cycle stays inside the budget (< 50 ms, RSS < 8 MiB in release;
+//!   a debug build holds only anonymous memory to it, slot 401 F-383-9).
 
 use openmind_schema::NerveEvent;
 use serde_json::Value;
@@ -25,6 +26,7 @@ use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
 use galion_realtest::ports::Block;
+use galion_realtest::rss::{check_budget, Sample};
 
 /// Slot 383 (real-ports-batch-3): PORT +0; `CORTEX_T20_REAL_PORT_BASE`
 /// moves the block, unset keeps the old 19740-19749.
@@ -83,17 +85,6 @@ fn serve(port: u16, reply: &'static [u8]) {
             let _ = c.write_all(reply);
         }
     });
-}
-
-fn rss_kib(pid: u32) -> u64 {
-    std::fs::read_to_string(format!("/proc/{pid}/status"))
-        .ok()
-        .and_then(|s| {
-            s.lines()
-                .find(|l| l.starts_with("VmRSS:"))
-                .and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
-        })
-        .unwrap_or(0)
 }
 
 #[test]
@@ -221,7 +212,7 @@ fn real_cortex_t20_all_sensors_on_the_box() {
     sources.sort_unstable();
     sources.dedup();
     let cycle_ms = st["cycle_ms"].as_u64().unwrap_or(u64::MAX);
-    let rss = rss_kib(nerve.0.id());
+    let mem = Sample::of(nerve.0.id());
     let us: Vec<String> = st["cortex_sensors"]
         .as_array()
         .unwrap()
@@ -229,15 +220,24 @@ fn real_cortex_t20_all_sensors_on_the_box() {
         .map(|s| format!("{}={}", s["name"].as_str().unwrap_or("?"), s["us"]))
         .collect();
     eprintln!(
-        "serve :{port} cycle {}: cycle_ms {cycle_ms}, rss {rss} KiB, sensors us [{}]",
+        "serve :{port} cycle {}: cycle_ms {cycle_ms}, {mem}, sensors us [{}]",
         st["cycle"],
         us.join(" "),
         port = PORT()
     );
     eprintln!("finding ids {got:?}");
     eprintln!("feed: {} B33 line(s), sources {sources:?}", feed.len());
-    assert!(cycle_ms < 50, "cycle budget: {cycle_ms} ms");
-    assert!(rss > 0 && rss < 8 * 1024, "RSS budget: {rss} KiB");
+    // 50 ms is a release budget; unoptimised debug sensors run 2-4x slower
+    // (slot 401: proc-owner 3.1 ms release vs 12 ms debug on a loaded box).
+    let cycle_budget = if cfg!(debug_assertions) { 200 } else { 50 };
+    assert!(
+        cycle_ms < cycle_budget,
+        "cycle budget: {cycle_ms} ms >= {cycle_budget} ms"
+    );
+    // Slot 401 (F-383-9): VmRSS budget in release, anon-only in debug.
+    if let Err(e) = check_budget(mem, 8 * 1024, !cfg!(debug_assertions)) {
+        panic!("{e}");
+    }
     drop(nerve);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
 use galion_realtest::ports::Block;
+use galion_realtest::rss::{check_budget, Sample};
 
 /// Slot 383 (real-ports-batch-3): nerve A +0, origins +1..+4, nerve B +5;
 /// `INGRESS_LINT_REAL_PORT_BASE` moves the block, unset keeps the old 20290-20299.
@@ -89,17 +90,6 @@ fn serve(port: u16) {
             let _ = c.write_all(b"HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n");
         }
     });
-}
-
-fn rss_kib(pid: u32) -> u64 {
-    std::fs::read_to_string(format!("/proc/{pid}/status"))
-        .ok()
-        .and_then(|s| {
-            s.lines()
-                .find(|l| l.starts_with("VmRSS:"))
-                .and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
-        })
-        .unwrap_or(0)
 }
 
 fn nerve(port: u16, dir: &Path, config: &Path) -> Kill {
@@ -255,7 +245,7 @@ fn real_ingress_lint_on_the_box() {
     }
     assert!(n >= 1, "ingress-lint event in feed: {body}");
     let cycle_ms = st["cycle_ms"].as_u64().unwrap_or(u64::MAX);
-    let rss = rss_kib(a.0.id());
+    let mem = Sample::of(a.0.id());
     let us = st["cortex_sensors"]
         .as_array()
         .unwrap()
@@ -263,9 +253,17 @@ fn real_ingress_lint_on_the_box() {
         .find(|s| s["name"] == "ingress-lint")
         .map(|s| s["us"].clone())
         .unwrap_or_default();
-    eprintln!("nerve A: cycle_ms {cycle_ms}, rss {rss} KiB, ingress-lint {us} us, feed events from ingress-lint {n}");
-    assert!(cycle_ms < 50, "cycle budget: {cycle_ms} ms");
-    assert!(rss > 0 && rss < 8 * 1024, "RSS budget: {rss} KiB");
+    eprintln!("nerve A: cycle_ms {cycle_ms}, {mem}, ingress-lint {us} us, feed events from ingress-lint {n}");
+    // 50 ms is a release budget; debug builds get 200 ms (slot 401).
+    let cycle_budget = if cfg!(debug_assertions) { 200 } else { 50 };
+    assert!(
+        cycle_ms < cycle_budget,
+        "cycle budget: {cycle_ms} ms >= {cycle_budget} ms"
+    );
+    // Slot 401 (F-383-9): VmRSS budget in release, anon-only in debug.
+    if let Err(e) = check_budget(mem, 8 * 1024, !cfg!(debug_assertions)) {
+        panic!("{e}");
+    }
 
     // Nerve B: symlink into a cloudflared dir with credentials-like text.
     let creds = dir.join("cloudflared/config.yml");

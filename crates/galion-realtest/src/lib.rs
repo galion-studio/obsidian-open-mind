@@ -13,6 +13,7 @@ pub mod http;
 pub mod live;
 pub mod ports;
 pub mod report;
+pub mod rss;
 pub mod scenarios;
 pub mod sha256;
 pub mod stack;

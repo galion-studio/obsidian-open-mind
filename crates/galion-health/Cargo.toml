@@ -10,3 +10,7 @@ description = "Loopback health dashboard: polls service ports + systemd states, 
 
 [dependencies]
 zagreb-time = { path = "../zagreb-time" }
+
+[dev-dependencies]
+# Port-base env for tests/real_fixes.rs (slot 363); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

@@ -488,6 +488,7 @@ dependencies = [
  "gaia-live",
  "gaia-minerva",
  "gaia-poseidon",
+ "galion-realtest",
  "hades-gate",
  "serde_json",
  "zagreb-time",
@@ -658,6 +659,7 @@ dependencies = [
 name = "galion-health"
 version = "0.2.0"
 dependencies = [
+ "galion-realtest",
  "zagreb-time",
 ]
 
@@ -720,6 +722,7 @@ name = "galion-wallstreet"
 version = "0.1.0"
 dependencies = [
  "galion-bench",
+ "galion-realtest",
  "serde",
  "serde_json",
  "zagreb-time",
@@ -969,6 +972,7 @@ dependencies = [
  "bench-banking",
  "bench-scoreboard",
  "galion-bench",
+ "galion-realtest",
  "galion-vending",
  "galion-wallstreet",
  "hermes-rs",

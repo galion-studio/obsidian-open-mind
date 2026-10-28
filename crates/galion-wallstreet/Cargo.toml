@@ -20,3 +20,5 @@ zagreb-time = { path = "../zagreb-time" }
 # Shared harness (swarm/bench-harness): MockServer + client + Scorecard, tests only,
 # so the shipped binary links no HTTP client at all.
 galion-bench = { path = "../galion-bench" }
+# Port-base env for GALION_REAL tests (slot 363); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

@@ -16,7 +16,8 @@
 //!    default = aa77864 as measured on the VPS 2026-10-21 21:02 +02:00);
 //! 4. runs each binary (`aarch64` under qemu user mode) on slot ports
 //!    20870-20872 against one live service thread (:20873) and one dead
-//!    port (:20874): `GET /health`, `POST /signal`, `GET /state`,
+//!    port (:20874) (block movable with `NERVE_XT_PORT_BASE`, slot 363):
+//!    `GET /health`, `POST /signal`, `GET /state`,
 //!    `GET /api/v1/signals`, and compares the answers across targets;
 //! 5. `cargo check` for aarch64-linux-android and armv7-unknown-linux-musleabihf.
 //!
@@ -36,8 +37,21 @@ use std::time::{Duration, Instant};
 const LIVE_SHA: &str = "f0994b6db1fd8ed87c16bd72c9583c2894ec4dd5ba89d407016877322aed6a68";
 const LIVE_SIZE: u64 = 1_213_216;
 const BUDGET: u64 = 2 * 1024 * 1024;
-const PORT_SVC: u16 = 20873;
-const PORT_DEAD: u16 = 20874;
+/// Slot 363 (real-test-port-env): 5-port block, first port from
+/// `NERVE_XT_PORT_BASE` (unset = 20870, slot 217): nerves on +0..+2, live
+/// service thread on +3, dead component on +4.
+const PORT_BASE_ENV: &str = "NERVE_XT_PORT_BASE";
+const DEFAULT_PORT_BASE: u16 = 20870;
+
+fn port_base() -> u16 {
+    galion_realtest::ports::base_from_env(PORT_BASE_ENV, DEFAULT_PORT_BASE, 5)
+}
+fn port_svc() -> u16 {
+    port_base() + 3
+}
+fn port_dead() -> u16 {
+    port_base() + 4
+}
 
 // ---------------------------------------------------------------- SHA-256
 // FIPS 180-4, straight from the spec; used only to fingerprint the binaries.
@@ -267,7 +281,9 @@ fn smoke(label: &str, prog: &Path, args: &[&Path], port: u16, dir: &Path) -> Smo
     std::fs::write(
         &comps,
         format!(
-            r#"[{{"name":"xt-live","port":{PORT_SVC}}},{{"name":"xt-dead","port":{PORT_DEAD},"gaia":"APOLLO"}}]"#
+            r#"[{{"name":"xt-live","port":{svc}}},{{"name":"xt-dead","port":{dead},"gaia":"APOLLO"}}]"#,
+            svc = port_svc(),
+            dead = port_dead()
         ),
     )
     .unwrap();
@@ -285,7 +301,10 @@ fn smoke(label: &str, prog: &Path, args: &[&Path], port: u16, dir: &Path) -> Smo
         .env("NERVE_DRY_RUN", "1")
         .env("NERVE_ROLLBACK", "0")
         .env("NERVE_DISK_PATH", &data)
-        .env("NERVE_LISTEN_SCOPE", "20870-20879")
+        .env(
+            "NERVE_LISTEN_SCOPE",
+            format!("{}-{}", port_base(), port_base() + 4),
+        )
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let t = Instant::now();
@@ -416,7 +435,8 @@ fn real_cross_target() {
 
     // 2. qemu smoke -----------------------------------------------------
     let qemu = find_qemu().expect("qemu-aarch64 not found (set NERVE_XT_QEMU)");
-    let svc = TcpListener::bind(("127.0.0.1", PORT_SVC)).expect("20873 free");
+    let svc = TcpListener::bind(("127.0.0.1", port_svc()))
+        .unwrap_or_else(|e| panic!("live-service port {} not free: {e}", port_svc()));
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 1024];
@@ -425,8 +445,9 @@ fn real_cross_target() {
         }
     });
     assert!(
-        TcpStream::connect(("127.0.0.1", PORT_DEAD)).is_err(),
-        "20874 must be free (dead component)"
+        TcpStream::connect(("127.0.0.1", port_dead())).is_err(),
+        "{} must be free (dead component)",
+        port_dead()
     );
     // --version under qemu (sanity: the aarch64 binary really executes).
     let v = Command::new(&qemu)
@@ -441,9 +462,19 @@ fn real_cross_target() {
     );
 
     let runs = [
-        ("x86_64", bins[0].1.clone(), None, 20870u16),
-        ("aarch64", bins[1].1.clone(), Some(qemu.clone()), 20871),
-        ("x86_64-live-recipe", bins[2].1.clone(), None, 20872),
+        ("x86_64", bins[0].1.clone(), None, port_base()),
+        (
+            "aarch64",
+            bins[1].1.clone(),
+            Some(qemu.clone()),
+            port_base() + 1,
+        ),
+        (
+            "x86_64-live-recipe",
+            bins[2].1.clone(),
+            None,
+            port_base() + 2,
+        ),
     ];
     let mut smokes = Vec::new();
     let mut report_smoke = Vec::new();

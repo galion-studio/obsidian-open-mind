@@ -401,6 +401,28 @@ pub fn stuck_loading(c: &CompState, now: u64, grace: u64) -> Option<u64> {
     (loading && c.status != Status::Healthy && c.status_since > 0 && age > grace).then_some(age)
 }
 
+/// Seconds a non-healthy component has answered 503 with an honest
+/// `"status":"unavailable"` body (nothing deployed behind it, e.g. the
+/// galion-one mouth with no voice backend), if it has been so for longer than
+/// `grace`. Not "stuck loading": nothing is loading, a restart changes
+/// nothing (slot 358, inc-865945dd).
+pub fn not_deployed(c: &CompState, now: u64, grace: u64) -> Option<u64> {
+    let s = c.latest()?;
+    let unavailable = s.http_code == Some(503)
+        && s.extra
+            .get("health_body")
+            .and_then(|b| b.get("status"))
+            .and_then(Value::as_str)
+            == Some("unavailable");
+    let age = now.saturating_sub(c.status_since);
+    (unavailable
+        && stuck_loading(c, now, grace).is_none()
+        && c.status != Status::Healthy
+        && c.status_since > 0
+        && age > grace)
+        .then_some(age)
+}
+
 /// Severity of a component's verdict as an incident signal.
 pub fn comp_sev(c: &CompState, now: u64, grace: u64) -> Option<Sev> {
     let base = match c.status {
@@ -430,6 +452,11 @@ pub fn component_signals(comps: &[CompState], now: u64, grace: u64) -> Vec<Signa
         };
         if let Some(age) = stuck_loading(c, now, grace) {
             msg.push_str(&format!(" -- stuck loading for {}", dur(age)));
+        } else if let Some(age) = not_deployed(c, now, grace) {
+            msg.push_str(&format!(
+                " -- not deployed for {} (honest 503, nothing loading)",
+                dur(age)
+            ));
         }
         if let Some(b) = c.latest().and_then(|s| s.extra.get("health_body")) {
             msg.push_str(&format!(" [health body {b}]"));
@@ -590,5 +617,74 @@ mod tests {
         assert_eq!((m.sev, m.cause.as_str()), (Sev::Error, "galion-one"));
         assert!(cx.signals.iter().any(|s| s.cause == "edge"));
         assert!(!cx.ddos_firing);
+    }
+
+    /// Slot 358 (inc-865945dd): the live galion-one 40454f9 mouth body
+    /// (hard-coded "loading") vs the honest main-staging / galion-mouth-stub
+    /// body ("unavailable", "voice not deployed").
+    fn mouth_after(body: Value, mouth_extra: bool, age: u64, now: u64) -> CompState {
+        let th = Thresholds::default();
+        let mut c = comps()
+            .into_iter()
+            .find(|c| c.spec.name == "galion-one-mouth")
+            .unwrap();
+        let mut extra = json!({ "health_body": body });
+        if mouth_extra {
+            extra["mouth"] = json!("model loading");
+        }
+        let s = Sample {
+            t: now,
+            present: true,
+            http_code: Some(503),
+            extra,
+            ..Default::default()
+        };
+        c.status = Status::Degrading;
+        c.status_since = now - age;
+        c.push(s, &th);
+        c.status = Status::Degrading;
+        c.status_since = now - age;
+        c
+    }
+
+    #[test]
+    fn honest_unavailable_is_not_deployed_not_stuck_loading() {
+        let now = 1_792_520_000;
+        let legacy = mouth_after(
+            json!({"ok": false, "status": "loading", "provider": "local", "model": "chatterbox", "loaded": false}),
+            true,
+            11 * 3600,
+            now,
+        );
+        assert_eq!(stuck_loading(&legacy, now, 900), Some(11 * 3600));
+        assert_eq!(not_deployed(&legacy, now, 900), None);
+        assert_eq!(comp_sev(&legacy, now, 900), Some(Sev::Error));
+        let honest = mouth_after(
+            json!({"ok": false, "status": "unavailable", "provider": "stub", "model": null, "loaded": false,
+                   "reason": "voice not deployed; set GALION_MOUTH to a galion-voice-serve address"}),
+            false,
+            11 * 3600,
+            now,
+        );
+        assert_eq!(stuck_loading(&honest, now, 900), None);
+        assert_eq!(not_deployed(&honest, now, 900), Some(11 * 3600));
+        assert_eq!(comp_sev(&honest, now, 900), Some(Sev::Warn));
+        // Within grace: neither.
+        let young = mouth_after(json!({"status": "unavailable"}), false, 60, now);
+        assert_eq!(not_deployed(&young, now, 900), None);
+        let sig = component_signals(&[legacy, honest], now, 900);
+        assert_eq!(sig.len(), 2);
+        assert!(
+            sig[0].msg.contains("stuck loading for 11.0 h"),
+            "{}",
+            sig[0].msg
+        );
+        assert!(
+            sig[1].msg.contains("not deployed for 11.0 h"),
+            "{}",
+            sig[1].msg
+        );
+        assert!(!sig[1].msg.contains("stuck loading"), "{}", sig[1].msg);
+        assert!(sig[1].msg.contains("voice not deployed"), "{}", sig[1].msg);
     }
 }

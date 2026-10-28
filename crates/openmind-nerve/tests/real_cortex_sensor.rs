@@ -139,11 +139,12 @@ fn real_cortex_sensors_on_the_box() {
     .unwrap();
     support::canon(&mut want);
     support::t32_delta(&mut want); // T3.2 member floor: scanner 5 -> 10, score 21 -> 16
+    support::s358_delta(&mut want); // slot 358: no-restart advice for a hard-coded loading body
     assert_eq!(got, want);
     let (_, md) = replay(&fx.join("cortex-replay"), &dir.join("replay-data"), true);
     assert_eq!(
         support::drop_correlation_md(&support::drop_edge_hosts_md(&md)),
-        support::t32_delta_md(&support::expected_md(&fx))
+        support::s358_delta_md(&support::t32_delta_md(&support::expected_md(&fx)))
     );
     eprintln!(
         "replay fixture: score {} grade {} pass {} (= pre-trait golden)",

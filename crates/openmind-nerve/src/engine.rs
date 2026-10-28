@@ -1012,7 +1012,9 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
                 next: if top.contains("disk") || top.contains("RAM available") {
                     "free disk/RAM on the host (old build dirs, logs, caches); deleting anything needs the owner's approval".into()
                 } else if top.contains("stuck loading") {
-                    "the dependency never finished loading: read its logs, check the model files, then restart that one service (owner approval)".into()
+                    "the dependency never finished loading: read its logs and check the model files; if no model worker exists behind it (body unchanged across restarts, e.g. galion-one mouth 40454f9) a restart will not help: deploy the backend or an honest build (owner approval)".into()
+                } else if top.contains("not deployed for") {
+                    "nothing is deployed behind it (honest 503 unavailable): a restart will not help; deploying the backend is an owner decision".into()
                 } else {
                     "read the unit journal; the reflex restarts allowlisted units within budget".into()
                 },

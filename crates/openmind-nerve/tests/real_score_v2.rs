@@ -174,6 +174,7 @@ fn real_score_v2_on_the_box() {
     )
     .unwrap();
     support::t32_delta(&mut want); // T3.2 member floor: scanner 5 -> 10, score 21 -> 16
+    support::s358_delta(&mut want); // slot 358: no-restart advice for a hard-coded loading body
     assert_eq!(
         (
             r["score"].as_u64(),

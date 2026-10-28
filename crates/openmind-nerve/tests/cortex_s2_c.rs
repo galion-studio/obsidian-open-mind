@@ -171,6 +171,7 @@ fn replay_with_both_sensors_on_keeps_the_golden() {
     support::canon(&mut want);
     support::strip_empty_last(&mut want);
     support::t32_delta(&mut want); // T3.2 member floor: scanner 5 -> 10, score 21 -> 16
+    support::s358_delta(&mut want); // slot 358: no-restart advice for a hard-coded loading body
     assert_eq!(got, want, "replay must not read the host or the network");
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -43,6 +43,7 @@ fn replay_matches_the_pre_trait_build() {
     support::canon(&mut want);
     support::strip_empty_last(&mut want);
     support::t32_delta(&mut want); // T3.2 member floor: scanner 5 -> 10, score 21 -> 16
+    support::s358_delta(&mut want); // slot 358: no-restart advice for a hard-coded loading body
     let mut got = sh.report.clone();
     // T2.12 edge-host streams are additive (checked in edge_host_streams_from_the_journal).
     support::drop_edge_hosts(&mut got);
@@ -55,8 +56,8 @@ fn replay_matches_the_pre_trait_build() {
         support::drop_correlation_md(&support::drop_edge_hosts_md(
             &support::strip_nerve_wiring_md(&sh.report_md),
         )),
-        support::t32_delta_md(&support::strip_nerve_wiring_md(&support::expected_md(
-            &fixture()
+        support::s358_delta_md(&support::t32_delta_md(&support::strip_nerve_wiring_md(
+            &support::expected_md(&fixture())
         ))),
         "markdown differs from the pre-trait golden"
     );

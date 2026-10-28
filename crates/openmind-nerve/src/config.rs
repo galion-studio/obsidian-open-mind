@@ -107,7 +107,7 @@ pub fn default_specs(voice_unit: Option<String>, voice_port: Option<u16>) -> Vec
         svc("tuner", "tuner.service", Some(8650), "/health", "DEMETER", "tuner", 3),
         svc("galion-one", "galion-one.service", Some(8091), "/health", "ELEUTHIA", "galion-one", 3),
         Spec {
-            note: "Galion One mouth (TTS); 503 while the model loads",
+            note: "Galion One mouth (TTS); 503 \"unavailable\" while no voice backend is deployed (GALION_MOUTH unset)",
             group: "galion-one",
             critical: false,
             unit: None,

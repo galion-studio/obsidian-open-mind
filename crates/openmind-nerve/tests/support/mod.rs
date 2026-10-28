@@ -290,3 +290,42 @@ pub fn t32_delta_md(md: &str) -> String {
         1,
     )
 }
+
+/// Slot 358 (inc-865945dd): stuck-loading advice no longer says "restart"
+/// when no unit owns the listener (live galion-one 40454f9 hard-codes the
+/// mouth's "loading" body; a restart never clears it). Old -> new text.
+pub const S358_TEXT: [(&str, &str); 2] = [
+    (
+        "check the voice/model process logs and the model files, then restart that one service (owner approval)",
+        "no unit owns this listener: it is served by its group's process. If the body never changes across that process's restarts the loading state is hard-coded (no model worker exists): deploy the backend or a build with an honest /health; a restart will not help (owner approval)",
+    ),
+    (
+        "the dependency never finished loading: read its logs, check the model files, then restart that one service (owner approval)",
+        "the dependency never finished loading: read its logs and check the model files; if no model worker exists behind it (body unchanged across restarts, e.g. galion-one mouth 40454f9) a restart will not help: deploy the backend or an honest build (owner approval)",
+    ),
+];
+
+/// [`S358_TEXT`] applied to a JSON golden (every string value, exact match).
+pub fn s358_delta(want: &mut Value) {
+    match want {
+        Value::String(s) => {
+            for (old, new) in S358_TEXT {
+                if s == old {
+                    *s = new.to_string();
+                }
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(s358_delta),
+        Value::Object(o) => o.values_mut().for_each(s358_delta),
+        _ => {}
+    }
+}
+
+/// [`S358_TEXT`] applied to a markdown golden.
+pub fn s358_delta_md(md: &str) -> String {
+    let mut out = md.to_string();
+    for (old, new) in S358_TEXT {
+        out = out.replace(old, new);
+    }
+    out
+}

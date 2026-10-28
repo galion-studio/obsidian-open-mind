@@ -83,13 +83,16 @@ pub struct Collected {
 }
 
 /// Summary of a non-2xx JSON health body (`status`, `model`, `loaded`,
-/// `ok`, `error`, `provider`): what a 503 actually says. Other keys are
-/// dropped so no payload is echoed.
+/// `ok`, `error`, `provider`, `reason`): what a 503 actually says (slot 358:
+/// `reason` kept so an honest "voice not deployed" shows up). Other keys are
+/// dropped so no payload is echoed; strings are cut at 80 chars.
 pub fn health_body_summary(body: &str) -> Option<Value> {
     let v: Value = serde_json::from_str(body.trim()).ok()?;
     let o = v.as_object()?;
     let mut m = serde_json::Map::new();
-    for k in ["status", "model", "loaded", "ok", "error", "provider"] {
+    for k in [
+        "status", "model", "loaded", "ok", "error", "provider", "reason",
+    ] {
         if let Some(x) = o.get(k) {
             let x = match x {
                 Value::String(s) => Value::from(s.chars().take(80).collect::<String>()),
@@ -408,5 +411,16 @@ mod body_tests {
         );
         assert!(health_body_summary("busy").is_none());
         assert!(health_body_summary("{}").is_none());
+    }
+
+    #[test]
+    fn health_body_keeps_honest_reason() {
+        // Slot 358: the honest galion-one / galion-mouth-stub body (main-staging).
+        let b = health_body_summary(r#"{"ok":false,"status":"unavailable","provider":"stub","model":null,"loaded":false,"reason":"voice not deployed; set GALION_MOUTH to a galion-voice-serve address"}"#).unwrap();
+        assert_eq!(b["status"], "unavailable");
+        assert_eq!(b["model"], Value::Null);
+        let r = b["reason"].as_str().unwrap();
+        assert!(r.starts_with("voice not deployed"), "{r}");
+        assert!(r.chars().count() <= 80, "{r}");
     }
 }

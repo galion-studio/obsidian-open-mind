@@ -1,0 +1,6 @@
+SPDX-License-Identifier: MIT
+SPDX-FileCopyrightText: 3000 Galion / galion-studio
+Copyright (c) 3000 Galion / galion-studio
+
+bank-snap.example.json: example BankSnap contract for GET /api/v1/bank (wave-4 slot 351).
+Made-up numbers, not live balances.

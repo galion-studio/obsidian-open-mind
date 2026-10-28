@@ -1020,6 +1020,7 @@ name = "hermes-gateway"
 version = "0.1.0"
 dependencies = [
  "galion-feature-pin",
+ "galion-realtest",
  "hermes-rs",
  "hermes-tools",
  "rusqlite",

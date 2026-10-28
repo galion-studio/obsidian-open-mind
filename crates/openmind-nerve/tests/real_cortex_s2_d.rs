@@ -26,7 +26,17 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
-const PORT: u16 = 19580;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): PORT +0; `CORTEX_S2D_REAL_PORT_BASE`
+/// moves the block, unset keeps the old
+/// 19580-19589.
+static PORTS: Block = Block::new("CORTEX_S2D_REAL_PORT_BASE", 19580, 10);
+
+#[allow(non_snake_case)]
+fn PORT() -> u16 {
+    PORTS.port(0)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -48,7 +58,7 @@ fn http(port: u16, path: &str) -> Option<(String, String)> {
 }
 
 fn state() -> Value {
-    http(PORT, "/api/v1/state")
+    http(PORT(), "/api/v1/state")
         .and_then(|(_, b)| serde_json::from_str(&b).ok())
         .unwrap_or_default()
 }
@@ -252,7 +262,7 @@ fn real_cortex_s2_d_feed_and_hades_sensor() {
     .unwrap();
 
     // 2. The nerve.
-    let svc = TcpListener::bind(("127.0.0.1", PORT + 1)).expect("19581 free");
+    let svc = TcpListener::bind(("127.0.0.1", PORT() + 1)).expect("slot port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 1024];
@@ -262,12 +272,12 @@ fn real_cortex_s2_d_feed_and_hades_sensor() {
     });
     std::fs::write(
         dir.join("components.json"),
-        format!(r#"[{{"name":"live-svc","port":{}}}]"#, PORT + 1),
+        format!(r#"[{{"name":"live-svc","port":{}}}]"#, PORT() + 1),
     )
     .unwrap();
     let mut c = Command::new(BIN);
     c.arg("serve")
-        .env("NERVE_ADDR", format!("127.0.0.1:{PORT}"))
+        .env("NERVE_ADDR", format!("127.0.0.1:{}", PORT()))
         .env("NERVE_INTERVAL", "5")
         .env("NERVE_DATA_DIR", dir.join("data"))
         .env("NERVE_COMPONENTS", dir.join("components.json"))
@@ -275,7 +285,7 @@ fn real_cortex_s2_d_feed_and_hades_sensor() {
         .env("NERVE_JOURNAL", "0")
         .env("NERVE_GALION_HEALTH_PORT", "0")
         .env("NERVE_REFLEX", "0")
-        .env("NERVE_LISTEN_SCOPE", "19580-19589")
+        .env("NERVE_LISTEN_SCOPE", PORTS.range())
         .env("NERVE_HADES_LEDGER", dir.join("ledger.jsonl"))
         .env("NERVE_HADES_AUDIT", dir.join("audit.jsonl"))
         .env("NERVE_HADES_DISABLE_FILE", dir.join("hades.disabled"))
@@ -336,7 +346,7 @@ fn real_cortex_s2_d_feed_and_hades_sensor() {
     );
 
     // The feed: JSONL, B33, counts/ids only.
-    let (head, body) = http(PORT, "/api/v1/cortex/events").unwrap();
+    let (head, body) = http(PORT(), "/api/v1/cortex/events").unwrap();
     assert!(head.starts_with("HTTP/1.1 200"), "{head}");
     assert!(head.contains("application/x-ndjson"), "{head}");
     let evs: Vec<NerveEvent> = body
@@ -373,9 +383,9 @@ fn real_cortex_s2_d_feed_and_hades_sensor() {
         body.lines().find(|l| l.contains("\"hades\"")).unwrap()
     );
     // Cursor: nothing new for the current cycle, then the next one.
-    let (_, same) = http(PORT, &format!("/api/v1/cortex/events?since={cycle}")).unwrap();
+    let (_, same) = http(PORT(), &format!("/api/v1/cortex/events?since={cycle}")).unwrap();
     let (_, env) = http(
-        PORT,
+        PORT(),
         &format!("/api/v1/cortex/events?since={}&format=json", cycle - 1),
     )
     .unwrap();
@@ -403,14 +413,14 @@ fn real_cortex_s2_d_feed_and_hades_sensor() {
     let st = wait("hades-off", |s| {
         hades_ids(s).iter().any(|f| f == "hades-off:info")
     });
-    let (_, body) = http(PORT, "/api/v1/cortex/events").unwrap();
+    let (_, body) = http(PORT(), "/api/v1/cortex/events").unwrap();
     assert!(!body.contains("hades-off"), "info findings are not events");
     eprintln!("disabled: cycle {} {:?}", st["cycle"], hades_ids(&st));
     assert_eq!(gate(&hg, &["enable", "--config", &cfg]).0, 0);
 
     // Window 25 s: everything clears.
     let st = wait("clear", |s| hades_ids(s).is_empty());
-    let (_, body) = http(PORT, "/api/v1/cortex/events").unwrap();
+    let (_, body) = http(PORT(), "/api/v1/cortex/events").unwrap();
     assert!(!body.contains("\"hades\""), "{body}");
     let rss = std::fs::read_to_string(format!("/proc/{}/status", nerve.0.id()))
         .ok()

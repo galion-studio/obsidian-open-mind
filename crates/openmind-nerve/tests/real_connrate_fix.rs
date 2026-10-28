@@ -25,9 +25,25 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
-const SVC: u16 = 20481;
-const ID_PORT: u16 = 20480;
-const FLOW_PORT: u16 = 20482;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): SVC +1, ID_PORT +0, FLOW_PORT +2; `NERVE_CONNRATE_REAL_PORT_BASE`
+/// moves the block, unset keeps the old
+/// 20480-20489.
+static PORTS: Block = Block::new("NERVE_CONNRATE_REAL_PORT_BASE", 20480, 10);
+
+#[allow(non_snake_case)]
+fn SVC() -> u16 {
+    PORTS.port(1)
+}
+#[allow(non_snake_case)]
+fn ID_PORT() -> u16 {
+    PORTS.port(0)
+}
+#[allow(non_snake_case)]
+fn FLOW_PORT() -> u16 {
+    PORTS.port(2)
+}
 const INTERVAL_S: u64 = 10;
 
 struct Kill(Child);
@@ -73,7 +89,7 @@ fn conn_finding(st: &Value) -> Option<Value> {
     st["cortex"]["bleeding"]
         .as_array()?
         .iter()
-        .find(|f| f["id"] == format!("conn-rate-{SVC}"))
+        .find(|f| f["id"] == format!("conn-rate-{}", SVC()))
         .cloned()
 }
 
@@ -128,9 +144,9 @@ fn spawn(port: u16, dir: &std::path::Path, formula: Option<&str>) -> Kill {
         .env("NERVE_JOURNAL", "0")
         .env("NERVE_GALION_HEALTH_PORT", "0")
         .env("NERVE_REFLEX", "0")
-        .env("NERVE_LISTEN_SCOPE", "20480-20489")
+        .env("NERVE_LISTEN_SCOPE", PORTS.range())
         .env("NERVE_EDGE_HOSTS", "0")
-        .env("NERVE_CONNRATE_PORTS", SVC.to_string())
+        .env("NERVE_CONNRATE_PORTS", SVC().to_string())
         .env_remove("NERVE_CONNRATE_FORMULA")
         .env_remove("NERVE_SENSORS_OFF")
         .stderr(Stdio::null());
@@ -151,13 +167,13 @@ fn real_connrate_b41flow_under_steady_load() {
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(
         dir.join("components.json"),
-        format!(r#"[{{"name":"s178-svc","port":{SVC}}}]"#),
+        format!(r#"[{{"name":"s178-svc","port":{}}}]"#, SVC()),
     )
     .unwrap();
 
     // Live service: answer and close (server closes first -> TIME-WAIT on
     // the server row, like hermes-rs answering HTTP/1.0 probes).
-    let svc = TcpListener::bind(("127.0.0.1", SVC)).expect("20481 free");
+    let svc = TcpListener::bind(("127.0.0.1", SVC())).expect("slot port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 512];
@@ -166,8 +182,8 @@ fn real_connrate_b41flow_under_steady_load() {
         }
     });
 
-    let id_nerve = spawn(ID_PORT, &dir, None);
-    let flow_nerve = spawn(FLOW_PORT, &dir, Some("b41flow"));
+    let id_nerve = spawn(ID_PORT(), &dir, None);
+    let flow_nerve = spawn(FLOW_PORT(), &dir, Some("b41flow"));
 
     // Steady ~20/s load (one connection every 50 ms, paced on a clock).
     let stop = Arc::new(AtomicBool::new(false));
@@ -177,7 +193,7 @@ fn real_connrate_b41flow_under_steady_load() {
         let t0 = Instant::now();
         let mut k: u64 = 0;
         while !stop2.load(Ordering::Relaxed) {
-            if let Ok(mut s) = TcpStream::connect(("127.0.0.1", SVC)) {
+            if let Ok(mut s) = TcpStream::connect(("127.0.0.1", SVC())) {
                 let _ = s.write_all(b"GET / HTTP/1.0\r\n\r\n");
                 let mut x = Vec::new();
                 let _ = s.read_to_end(&mut x);
@@ -194,14 +210,14 @@ fn real_connrate_b41flow_under_steady_load() {
     // Warm-up past the 60 s TIME-WAIT window so the pool is flat.
     let t_load = Instant::now();
     std::thread::sleep(Duration::from_secs(75));
-    let mut c_id = cycle(&state(ID_PORT));
-    let mut c_flow = cycle(&state(FLOW_PORT));
+    let mut c_id = cycle(&state(ID_PORT()));
+    let mut c_flow = cycle(&state(FLOW_PORT()));
     let mut rows = vec![];
     for _ in 0..3 {
         let m0 = made.load(Ordering::Relaxed);
         let t0 = Instant::now();
-        let a = next_cycle(ID_PORT, c_id);
-        let b = next_cycle(FLOW_PORT, c_flow);
+        let a = next_cycle(ID_PORT(), c_id);
+        let b = next_cycle(FLOW_PORT(), c_flow);
         c_id = cycle(&a);
         c_flow = cycle(&b);
         let client = (made.load(Ordering::Relaxed) - m0) as f64 / t0.elapsed().as_secs_f64();
@@ -209,7 +225,7 @@ fn real_connrate_b41flow_under_steady_load() {
         let fb = conn_finding(&b).unwrap_or_else(|| panic!("b41flow: no finding {}", b["cortex"]));
         let (ra, rb, g) = (title_rate(&fa), title_rate(&fb), old_growth(&fb));
         eprintln!(
-            "t+{:.0}s client {client:.1}/s | :{ID_PORT} cycle {c_id} identity: {} [{}] ev={} us={} | :{FLOW_PORT} cycle {c_flow} b41flow: {} [{}] ev3={} old-b41 {g:.2}/s us={}",
+            "t+{:.0}s client {client:.1}/s | :{id_port} cycle {c_id} identity: {} [{}] ev={} us={} | :{flow_port} cycle {c_flow} b41flow: {} [{}] ev3={} old-b41 {g:.2}/s us={}",
             t_load.elapsed().as_secs_f64(),
             fa["title"],
             fa["severity"],
@@ -219,6 +235,8 @@ fn real_connrate_b41flow_under_steady_load() {
             fb["severity"],
             fb["evidence"][3],
             sensor_us(&b),
+            id_port = ID_PORT(),
+            flow_port = FLOW_PORT(),
         );
         assert_eq!(
             fa["evidence"].as_array().unwrap().len(),
@@ -253,8 +271,8 @@ fn real_connrate_b41flow_under_steady_load() {
     while t.elapsed() < Duration::from_secs(4 * INTERVAL_S + 10)
         && (a_clear.is_none() || b_clear.is_none())
     {
-        let a = next_cycle(ID_PORT, c_id);
-        let b = next_cycle(FLOW_PORT, c_flow);
+        let a = next_cycle(ID_PORT(), c_id);
+        let b = next_cycle(FLOW_PORT(), c_flow);
         c_id = cycle(&a);
         c_flow = cycle(&b);
         if a_clear.is_none() && conn_finding(&a).is_none() {

@@ -61,7 +61,7 @@ pub fn sample_from_state(c: &Value, t: u64) -> Sample {
     }
     Sample {
         t,
-        present: c["status"].as_str() != Some("absent"),
+        present: c["status"].as_str() != Some("absent") && !reported_not_found(c),
         unit_active: st("unit_state"),
         unit_sub: st("unit_sub"),
         unit_result: None,
@@ -92,6 +92,18 @@ pub fn sample_from_state(c: &Value, t: u64) -> Sample {
         health_says: c.get("galion_health_ok").and_then(Value::as_bool),
         extra,
     }
+}
+
+/// Slot 420: the live nerve marks a vanished unit (systemd LoadState
+/// not-found) with the reason `<level>: unit/endpoint not found`; replay must
+/// feed it back as a missing sample, not as a present-but-inactive unit
+/// (which read "degrading: unit inactive" and hid the not-found path).
+fn reported_not_found(c: &Value) -> bool {
+    c["reasons"].as_array().is_some_and(|r| {
+        r.iter()
+            .filter_map(Value::as_str)
+            .any(|s| s.ends_with(": unit/endpoint not found"))
+    })
 }
 
 pub struct ReplayOut {

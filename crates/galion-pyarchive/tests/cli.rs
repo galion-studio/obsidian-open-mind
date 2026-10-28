@@ -443,3 +443,108 @@ fn no_override_means_no_unit_rollback_section() {
     assert!(!txt.contains("OVERRIDDEN-BASE"), "{txt}");
     assert!(txt.contains("# ROLLBACK of Phase A (file level"));
 }
+
+// ---- wave-4 slot 372: the two staged owner options (D-345-1 / D-345-2) ----
+
+const STAGED_BASE: &str = include_str!("../../../deploy/staged/galion-desk/galion-desk.service");
+const STAGED_DROPIN: &str =
+    include_str!("../../../deploy/staged/galion-desk/rust-desk-hermes.conf");
+const BASE: &str = "/etc/systemd/system/galion-desk.service";
+
+/// The installed form: the repo-only `# SPDX-` / `# STAGED` marker lines are
+/// filtered out by the install step (`grep -v -e '^# SPDX-' -e '^# STAGED'`).
+fn installed(s: &str) -> String {
+    s.lines()
+        .filter(|l| !l.starts_with("# SPDX-") && !l.starts_with("# STAGED"))
+        .map(|l| format!("{l}\n"))
+        .collect()
+}
+
+fn exec_lines(s: &str) -> Vec<&str> {
+    s.lines()
+        .filter(|l| l.starts_with("ExecStart=") || l.starts_with("Environment="))
+        .collect()
+}
+
+#[test]
+fn staged_fold_d345_1_removes_the_trap() {
+    // Same effective ExecStart/Environment as the live base + drop-in merge.
+    let live_drop = "[Service]\nExecStart=\nExecStart=/opt/galion/rust/bin/galion-desk\nEnvironment=DESK_BIND=127.0.0.1:8646\nEnvironment=DESK_HERMES_BIN=/opt/galion/rust/bin/desk-hermes\n";
+    let merged: Vec<&str> = exec_lines(live_drop)
+        .into_iter()
+        .filter(|l| *l != "ExecStart=")
+        .collect();
+    assert_eq!(exec_lines(STAGED_BASE), merged);
+    assert!(STAGED_BASE.contains("[Install]\nWantedBy=multi-user.target\n"));
+    assert!(STAGED_BASE.contains("Restart=on-failure\nRestartSec=2\n"));
+    assert!(!STAGED_BASE.contains("/opt/galion/bin/"));
+    let inst = installed(STAGED_BASE);
+    assert!(inst.starts_with("# Folded per D-345-1"), "{inst}");
+    assert!(!inst.contains("STAGED"), "{inst}");
+
+    let f = Fx::new("fold");
+    f.w(BASE, &installed(STAGED_BASE));
+    fs::remove_dir_all(f.p("/etc/systemd/system/galion-desk.service.d")).unwrap();
+    let before = f.snapshot();
+    let (c, j) = f.json(&["plan"]);
+    assert_eq!(c, 0, "{j}");
+    assert_eq!(j["verdict"], "PASS", "{j}");
+    assert_eq!(j["counts"]["active"], 0, "{j}");
+    assert!(j["overridden_base"].as_array().unwrap().is_empty(), "{j}");
+    let (_, txt) = f.run(&["plan"]);
+    assert!(!txt.contains("OVERRIDDEN-BASE"), "{txt}");
+    assert!(!txt.contains("STALE"), "{txt}");
+    // Negative control: fold done but drop-in forgotten -> still no trap
+    // (drop-in only re-sets the same Rust path), no stale note either.
+    f.w(DROPIN, &installed(STAGED_DROPIN));
+    let (c, j) = f.json(&["plan"]);
+    assert_eq!(c, 0, "{j}");
+    assert!(j["overridden_base"].as_array().unwrap().is_empty(), "{j}");
+    fs::remove_dir_all(f.p("/etc/systemd/system/galion-desk.service.d")).unwrap();
+    assert_eq!(before, f.snapshot(), "plan changed the scanned tree");
+}
+
+#[test]
+fn staged_reword_d345_2_keeps_flag_drops_stale_note() {
+    // Drop-in assignments unchanged vs live: only comments differ.
+    let f = Fx::new("reword");
+    let live = fs::read_to_string(f.p(DROPIN)).unwrap();
+    let body = |s: &str| -> Vec<String> {
+        s.lines()
+            .filter(|l| !l.trim_start().starts_with('#'))
+            .map(String::from)
+            .collect()
+    };
+    let staged_body = body(STAGED_DROPIN);
+    // The fixture drop-in lacks DESK_BIND; compare against the live VPS file.
+    assert_eq!(
+        staged_body,
+        vec![
+            "[Service]",
+            "ExecStart=",
+            "ExecStart=/opt/galion/rust/bin/galion-desk",
+            "Environment=DESK_BIND=127.0.0.1:8646",
+            "Environment=DESK_HERMES_BIN=/opt/galion/rust/bin/desk-hermes",
+        ]
+    );
+    assert_ne!(body(&live), staged_body); // fixture is the older 345 shape
+    let inst = installed(STAGED_DROPIN);
+    assert!(inst.starts_with("# t314u 2026-10-27"), "{inst}");
+    assert_eq!(inst.lines().count(), 8);
+    f.w(DROPIN, &installed(STAGED_DROPIN));
+    let (c, j) = f.json(&["plan"]);
+    assert_eq!(c, 0, "{j}");
+    let ob = j["overridden_base"].as_array().unwrap();
+    assert_eq!(ob.len(), 1, "{j}");
+    assert_eq!(ob[0]["by_line"], 6, "{j}");
+    assert!(
+        ob[0]["stale_rollback_notes"].as_array().unwrap().is_empty(),
+        "{j}"
+    );
+    let steps = ob[0]["safe_rollback"].to_string();
+    assert!(!steps.contains("STALE"), "{steps}");
+    assert!(steps.contains("sha256sum -c -"), "{steps}");
+    let (_, txt) = f.run(&["plan"]);
+    assert!(txt.contains("OVERRIDDEN-BASE galion-desk.service"), "{txt}");
+    assert!(!txt.contains("STALE ROLLBACK NOTE"), "{txt}");
+}

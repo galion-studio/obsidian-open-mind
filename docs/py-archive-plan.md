@@ -130,3 +130,7 @@ change): **D-345-1** fold `ExecStart=/opt/galion/rust/bin/galion-desk` + the two
 unit and drop the drop-in before Phase A (removes the trap entirely; needs a unit-edit approval), or **D-345-2**
 keep the drop-in and reword its line-2 comment to "restore phase-a files first (docs/py-archive-plan.md §8)".
 Evidence: `docs/real-tests/py-archive-rollback-note.md`.
+
+Slot 372 (2026-10-28) staged both options, not installed: `deploy/staged/galion-desk/galion-desk.service` (D-345-1)
+and `deploy/staged/galion-desk/rust-desk-hermes.conf` (D-345-2), with diff, install, verify and rollback steps in
+`docs/ops/pyarchive-base-unit-stage.md`. A rollback note whose line says "restore … first" is no longer flagged stale.

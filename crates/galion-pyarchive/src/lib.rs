@@ -3,6 +3,7 @@
 
 //! Phase A Python archive planner (wave-4 slot 330, follow-up of slot 308;
 //! slot 345 adds overridden-base unit flags with an exact safe rollback;
+//! slot 372 stops flagging rollback notes that already say "restore ... first";
 //! `docs/py-archive-plan.md`).
 //!
 //! Read-only by design: this crate only reads files, symlinks and `/proc`.
@@ -768,7 +769,11 @@ pub fn scan_refs(root: &Path, targets: &[String], procs: bool) -> Scan {
     scan
 }
 
-/// Comment lines mentioning a rollback in one unit file (redacted).
+/// Comment lines mentioning a rollback in one unit file (redacted) that are
+/// STALE after Phase A: they do not say to restore the archived files first.
+/// A line counts as safe (slot 372, D-345-2 wording) when it says both
+/// "restore" and "first", e.g. "# Rollback: restore Phase A files first ...,
+/// then rm this drop-in".
 fn rollback_comments(root: &Path, f: &str) -> Vec<(String, usize, String)> {
     let Ok(text) = read_text(&real(root, f)) else {
         return Vec::new();
@@ -777,11 +782,21 @@ fn rollback_comments(root: &Path, f: &str) -> Vec<(String, usize, String)> {
         .enumerate()
         .filter(|(_, l)| {
             let t = l.trim_start();
+            let low = t.to_ascii_lowercase();
             (t.starts_with('#') || t.starts_with(';'))
-                && t.to_ascii_lowercase().contains("rollback")
+                && low.contains("rollback")
+                && !restore_first(&low)
         })
         .map(|(i, l)| (f.to_string(), i + 1, redact(l)))
         .collect()
+}
+
+/// True when a (lower-cased) rollback note already says to restore first.
+pub fn restore_first(low: &str) -> bool {
+    match (low.find("restore"), low.rfind("first")) {
+        (Some(r), Some(f)) => r < f,
+        _ => false,
+    }
 }
 
 /// Record every overridden assignment that names a target, with the line that
@@ -1057,6 +1072,18 @@ mod tests {
         assert!(parse_manifest("").is_err());
         assert!(parse_manifest("zz  /x").is_err());
         assert!(parse_manifest(&format!("{}  rel/path", "a".repeat(64))).is_err());
+    }
+
+    #[test]
+    fn restore_first_wording() {
+        assert!(restore_first(
+            "# rollback: restore phase a files first (docs/py-archive-plan.md \u{a7}8), then rm this drop-in"
+        ));
+        assert!(!restore_first(
+            "# rollback: rm this drop-in; systemctl daemon-reload; systemctl restart galion-desk"
+        ));
+        assert!(!restore_first("# rollback first, restore later"));
+        assert!(!restore_first("# rollback: restore the drop-in"));
     }
 
     #[test]

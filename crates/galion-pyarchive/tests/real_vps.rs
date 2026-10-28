@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-//! Real-life runs (gated: GALION_REAL=1).
+//! Real-life runs (gated: GALION_REAL=1). Slot 372 adds `tests/real_vps_stage.rs`
+//! for the staged galion-desk unit options.
 //!
 //! * box: the built binary scans the real `/` of the build box (Phase A files
 //!   are absent there, so the verdict must be FAIL with 5 missing and 0 active).

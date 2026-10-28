@@ -313,6 +313,7 @@ pub fn replay_dir_with(
     e.write_files = false;
     e.alerts.path = None;
     e.alerts.to_journal = false;
+    e.alerts.webhook = None;
     let interval = e.cfg.interval_s.max(1);
     setup(&mut e);
     let units: Vec<&'static str> = e.comps.iter().filter_map(|c| c.spec.unit).collect();

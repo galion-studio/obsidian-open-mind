@@ -8,6 +8,7 @@
 //! env file at send time, passed to curl on stdin, never logged; alert text
 //! only; capped per hour).
 
+use crate::alert_sink::{Webhook, WebhookConfig};
 use crate::util::{now_secs, ts, write_atomic};
 use serde_json::{json, Value};
 use std::collections::{HashMap, VecDeque};
@@ -97,6 +98,10 @@ pub struct Alerts {
     pub ext_status: String,
     /// What happened loading `alerts.json` (None when clean).
     pub load_note: Option<String>,
+    /// Slot 382: optional loopback webhook sink (off by default).
+    pub webhook: Option<Webhook>,
+    /// Configured but rejected webhook (reason, no URL echo beyond it).
+    pub webhook_error: Option<String>,
     /// When false nothing is printed (tests).
     pub to_journal: bool,
 }
@@ -139,6 +144,39 @@ impl Alerts {
             ext_sent: VecDeque::new(),
             ext_status,
             to_journal: true,
+            webhook: None,
+            webhook_error: None,
+        }
+    }
+
+    /// Attach the webhook sink from config (`Ok(None)` = off).
+    pub fn set_webhook(&mut self, cfg: Result<Option<WebhookConfig>, String>) {
+        match cfg {
+            Ok(c) => {
+                self.webhook = c.map(Webhook::new);
+                self.webhook_error = None;
+            }
+            Err(e) => {
+                self.webhook = None;
+                self.webhook_error = Some(e);
+            }
+        }
+    }
+
+    /// External channels in one line (Telegram status + webhook status).
+    pub fn external_status(&self) -> String {
+        match (&self.webhook, &self.webhook_error) {
+            (Some(w), _) => format!("{}; {}", w.status(), self.ext_status),
+            (None, Some(e)) => format!("webhook REJECTED ({e}); {}", self.ext_status),
+            (None, None) => self.ext_status.clone(),
+        }
+    }
+
+    pub fn webhook_json(&self) -> Value {
+        match (&self.webhook, &self.webhook_error) {
+            (Some(w), _) => w.to_json(),
+            (None, Some(e)) => json!({"configured": false, "rejected": e}),
+            (None, None) => json!({"configured": false}),
         }
     }
 
@@ -166,6 +204,9 @@ impl Alerts {
             if let Ok(s) = serde_json::to_string_pretty(&v) {
                 let _ = write_atomic(p, s.as_bytes());
             }
+        }
+        if let Some(w) = self.webhook.as_mut() {
+            w.offer(now, sev, component, key, msg);
         }
         if sev != Severity::Info {
             self.external(

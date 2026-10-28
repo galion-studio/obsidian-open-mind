@@ -39,6 +39,7 @@
 //!   [`replay`]: run captured live data through the same pipeline.
 
 pub mod access;
+pub mod alert_sink;
 pub mod alerts;
 pub mod build_info;
 pub mod collect;

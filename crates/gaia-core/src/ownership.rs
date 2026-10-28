@@ -1,9 +1,4 @@
-// SPDX-License-Identifie// galion-feature-pin, galion-jsonout from release-repro-unify (wave-4 slot 325).
-// gaia-cortex, nerve-cortex-contract, xtask from cortex-live-merge-3 via
-// cortex-staging-fold (wave-4 slot 293), merged in release-bins-add (slot 337).
-assert_eq!(
-CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-61: MIT
+// SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
 //! The Gaia ownership registry: every workspace crate and every known live

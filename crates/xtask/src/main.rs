@@ -7,6 +7,7 @@
 // command. Same shape as swarm/ci-workflow-rust 38a26cb (the full runner):
 // merging the two adds `mod replay_corpus;` and one match arm there.
 
+mod release_recipe;
 mod replay_corpus;
 
 use std::process::ExitCode;
@@ -29,10 +30,13 @@ fn main() -> ExitCode {
     };
     let result = match task.as_str() {
         "-h" | "--help" | "help" => {
-            print!("{USAGE}");
+            print!("{USAGE}{}", release_recipe::USAGE);
             Ok(())
         }
         "replay-corpus" => replay_corpus::run(rest),
+        "release-recipe" => release_recipe::run(rest),
+        // Internal: the C compiler shim `release-recipe build --cc zig` puts in CC_<triple>.
+        "zig-cc" => release_recipe::zig_cc(rest),
         other => Err(format!("unknown task '{other}' (try: cargo xtask help)")),
     };
     match result {

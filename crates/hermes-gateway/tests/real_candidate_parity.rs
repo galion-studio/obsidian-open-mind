@@ -17,7 +17,7 @@
 //!   preflight + one real fs_read tool run in the sandbox). sandbox_vps_only:
 //!   refused when the box marker /workspace/swarm/RULES.md exists.
 //!
-//! Ports 22860-22863, loopback only, `--mock` (no network, no spend).
+//! Ports 22860-22863 (or HERMES_PARITY_PORT_BASE..+3), loopback only, `--mock` (no network, no spend).
 
 use serde_json::{json, Value};
 use std::fs;
@@ -27,10 +27,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const P_LIVE: u16 = 22860;
-const P_CAND: u16 = 22861;
-const P_LIVE_CODING: u16 = 22862;
-const P_CAND_CODING: u16 = 22863;
+/// First of the four ports; `HERMES_PARITY_PORT_BASE` moves them (slot 434 ran on 23040-23043).
+fn port(offset: u16) -> u16 {
+    std::env::var("HERMES_PARITY_PORT_BASE")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(22860)
+        + offset
+}
 const API: &str = "t416-parity-gateway-key";
 const DROPIN: &str =
     include_str!("../../../deploy/staged/hermes-rs.service.d/95-gateway-candidate.conf");
@@ -272,9 +276,9 @@ fn real_candidate_parity() {
 
     // P2 --check-config with the live unit shape (coding off).
     let (lh, ch) = (fresh(&root, "live"), fresh(&root, "cand"));
-    let (lc, lo) = check_config(&live, &lh, P_LIVE, &[]);
+    let (lc, lo) = check_config(&live, &lh, port(0), &[]);
     // Same port for both: --check-config never binds, it only prints it.
-    let (cc, co) = check_config(&cand, &ch, P_LIVE, &[]);
+    let (cc, co) = check_config(&cand, &ch, port(0), &[]);
     let first = |s: &str| {
         s.lines()
             .next()
@@ -310,16 +314,16 @@ fn real_candidate_parity() {
             "hermes/ticket".to_string(),
         ),
     ];
-    let (lb, _) = check_config(&live, &lh, P_LIVE, &bad);
-    let (cb, cbo) = check_config(&cand, &ch, P_CAND, &bad);
+    let (lb, _) = check_config(&live, &lh, port(0), &bad);
+    let (cb, cbo) = check_config(&cand, &ch, port(1), &bad);
     println!("P2 /var/lib worktree --check-config: live exit {lb}, candidate exit {cb}");
     assert_eq!(cb, 2, "{cbo}");
     assert!(cbo.contains("coding=error"), "{cbo}");
 
     // P3 HTTP parity, both started like the live unit (coding runtime OFF).
-    let gl = start(&live, &lh, P_LIVE, &[]);
-    let gc = start(&cand, &ch, P_CAND, &[]);
-    let (ul, uc) = (wait_up(P_LIVE), wait_up(P_CAND));
+    let gl = start(&live, &lh, port(0), &[]);
+    let gc = start(&cand, &ch, port(1), &[]);
+    let (ul, uc) = (wait_up(port(0)), wait_up(port(1)));
     println!("P3 up: live {ul} ms, candidate {uc} ms");
     let routes: [(&str, &str, bool); 9] = [
         ("GET", "/health", false),
@@ -333,21 +337,21 @@ fn real_candidate_parity() {
         ("GET", "/no/such/route", true),
     ];
     for (m, p, auth) in routes {
-        let (a, ab) = http(P_LIVE, m, p, auth, None);
-        let (b, bb) = http(P_CAND, m, p, auth, None);
+        let (a, ab) = http(port(0), m, p, auth, None);
+        let (b, bb) = http(port(1), m, p, auth, None);
         println!("P3 {m} {p} auth={auth}: live {a} candidate {b}");
         assert_eq!(a, b, "{m} {p} status");
         assert_eq!(json_of(&ab), json_of(&bb), "{m} {p} body");
     }
-    let (a, ac) = chat(P_LIVE, "parity ping 416");
-    let (b, bc) = chat(P_CAND, "parity ping 416");
+    let (a, ac) = chat(port(0), "parity ping 416");
+    let (b, bc) = chat(port(1), "parity ping 416");
     println!("P3 chat: live {a} {ac:?}, candidate {b} {bc:?}");
     assert_eq!((a, &ac), (b, &bc));
     assert_eq!(ac, "echo: parity ping 416");
 
     // P4 tools list, coding off: what a client can reach must be identical.
-    let tl = tools_seen(P_LIVE, "{}");
-    let tc = tools_seen(P_CAND, "{}");
+    let tl = tools_seen(port(0), "{}");
+    let tc = tools_seen(port(1), "{}");
     println!("P4 tools (coding off): live {tl:?}, candidate {tc:?}");
     assert_eq!(tl, tc);
     assert!(
@@ -363,8 +367,8 @@ fn real_candidate_parity() {
         );
     }
     drop((gl, gc));
-    assert_eq!(http(P_LIVE, "GET", "/health", false, None).0, 0);
-    assert_eq!(http(P_CAND, "GET", "/health", false, None).0, 0);
+    assert_eq!(http(port(0), "GET", "/health", false, None).0, 0);
+    assert_eq!(http(port(1), "GET", "/health", false, None).0, 0);
 
     // P5 sandboxed preflight + one sandboxed tool run (VPS only).
     if !on("HERMES_PARITY_SANDBOX") {
@@ -376,8 +380,8 @@ fn real_candidate_parity() {
         );
         let mut results = vec![];
         for (who, exe, port) in [
-            ("live", &live, P_LIVE_CODING),
-            ("candidate", &cand, P_CAND_CODING),
+            ("live", &live, port(2)),
+            ("candidate", &cand, port(3)),
         ] {
             let home = fresh(&root, &format!("{who}-coding"));
             let wt = fresh(&root, &format!("{who}-wt"));
@@ -478,7 +482,7 @@ fn real_candidate_parity() {
         assert_eq!(results[0].2, results[1].2, "same preflight notes");
     }
     let _ = fs::remove_dir_all(&root);
-    for p in P_LIVE..=P_CAND_CODING {
+    for p in port(0)..=port(3) {
         assert_eq!(
             http(p, "GET", "/health", false, None).0,
             0,

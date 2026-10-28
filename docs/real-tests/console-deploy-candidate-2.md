@@ -71,7 +71,7 @@ main **7ba85b60** contains live **5aa31927** (behind 584). It does **not** conta
 not on the box, so no local merge-tree vs main was run; a PR of this branch into main needs a
 merge from main first (both sides touch console-static).
 
-## Gates and artifacts (box, 2026-10-28 ~19:05-19:20 CET +01:00)
+## Gates and artifacts (box, 2026-10-28 ~18:50-18:55 CET +01:00)
 - `cargo fmt --check` ok; `cargo clippy --workspace --all-targets --exclude openmind-sandbox
   --exclude cgroup-detect -- -D warnings` ok; `cargo test --workspace --exclude
   openmind-sandbox --exclude cgroup-detect --exclude hermes-tools` (GALION_REAL unset):

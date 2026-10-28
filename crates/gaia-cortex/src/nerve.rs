@@ -18,6 +18,7 @@
 //! one is refused: the cortex never runs a command.
 
 use crate::config::nerve_cortex_addr;
+use crate::contact::{NerveContact, Stream};
 use galion_common::http::{send, ClientError, ClientRequest};
 use nerve_cortex_contract::{
     parse_events, ActionRequest, ActionResult, ActionStatus, Event, NERVE_ACTIONS_PATH,
@@ -25,6 +26,7 @@ use nerve_cortex_contract::{
 };
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Where the action ended up and how.
@@ -140,6 +142,8 @@ pub struct HttpNerve {
     pub addr: SocketAddr,
     pub host: String,
     pub timeout: Duration,
+    /// Every call's outcome is recorded here (slot 347: `/health` `nerve`).
+    pub contact: Arc<NerveContact>,
 }
 
 impl HttpNerve {
@@ -149,12 +153,26 @@ impl HttpNerve {
             addr,
             host: addr.to_string(),
             timeout: Duration::from_millis(3000),
+            contact: Arc::new(NerveContact::default()),
         })
+    }
+
+    /// Share the cortex's reachability record (forks share it too).
+    pub fn with_contact(mut self, c: Arc<NerveContact>) -> Self {
+        self.contact = c;
+        self
     }
 
     fn post(&self, path: &str, body: &str) -> Result<(u16, String), ClientError> {
         let req = ClientRequest::post(path, &self.host, "application/json", body.as_bytes());
-        send(self.addr, &req, self.timeout, 256 * 1024).map(|r| (r.status, r.text()))
+        let r = send(self.addr, &req, self.timeout, 256 * 1024).map(|r| (r.status, r.text()));
+        match &r {
+            // Any HTTP answer means the nerve is there (403/429 are its policy).
+            Ok((c, _)) if *c < 500 => self.contact.ok(),
+            Ok((c, _)) => self.contact.fail(&format!("POST {path}: HTTP {c}")),
+            Err(e) => self.contact.fail(&format!("POST {path}: {e}")),
+        }
+        r
     }
 }
 
@@ -217,11 +235,16 @@ impl NerveLink for HttpNerve {
     fn pull_events(&mut self, n: usize) -> Result<Vec<Event>, String> {
         let path = format!("{NERVE_EVENTS_PATH}?n={n}");
         let req = ClientRequest::get(&path, &self.host);
-        let r =
-            send(self.addr, &req, self.timeout, 4 * 1024 * 1024).map_err(|e| format!("{e:?}"))?;
+        let r = send(self.addr, &req, self.timeout, 4 * 1024 * 1024).map_err(|e| {
+            let m = format!("{e:?}");
+            self.contact.fail(&format!("GET {path}: {m}"));
+            m
+        })?;
         if r.status != 200 {
+            self.contact.fail(&format!("GET {path}: HTTP {}", r.status));
             return Err(format!("GET {path}: HTTP {}", r.status));
         }
+        self.contact.ok();
         Ok(parse_events(&r.text())
             .into_iter()
             .filter_map(Result::ok)
@@ -253,6 +276,39 @@ pub fn stream_once(
     idle_timeout: Duration,
     on_event: &mut dyn FnMut(Event) -> bool,
 ) -> StreamEnd {
+    stream_once_seen(addr, since, idle_timeout, None, on_event)
+}
+
+/// [`stream_once`] that also records reachability (slot 347): a 200 answer
+/// and every line read (events and keepalives) count as contact; the
+/// stream is `connected` while it reads and `down` once it ends (the
+/// caller records the failure, it knows whether it was asked to stop).
+pub fn stream_once_seen(
+    addr: SocketAddr,
+    since: &mut Option<u64>,
+    idle_timeout: Duration,
+    contact: Option<&NerveContact>,
+    on_event: &mut dyn FnMut(Event) -> bool,
+) -> StreamEnd {
+    let end = stream_inner(addr, since, idle_timeout, contact, on_event);
+    if let Some(c) = contact {
+        c.set_stream(Stream::Down);
+    }
+    end
+}
+
+fn stream_inner(
+    addr: SocketAddr,
+    since: &mut Option<u64>,
+    idle_timeout: Duration,
+    contact: Option<&NerveContact>,
+    on_event: &mut dyn FnMut(Event) -> bool,
+) -> StreamEnd {
+    let seen = || {
+        if let Some(c) = contact {
+            c.ok();
+        }
+    };
     let mut s = match TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
         Ok(s) => s,
         Err(e) => return StreamEnd::Io(format!("connect: {e}")),
@@ -299,11 +355,16 @@ pub fn stream_once(
     if code != 200 {
         return StreamEnd::Status(code);
     }
+    seen();
+    if let Some(c) = contact {
+        c.set_stream(Stream::Connected);
+    }
     loop {
         line.clear();
         match r.read_line(&mut line) {
             Ok(0) => return StreamEnd::Io("eof".into()),
             Ok(_) => {
+                seen();
                 let l = line.trim();
                 // Chunk-size lines (hex) are skipped if a proxy chunked the stream.
                 if l.is_empty() || (chunked && !l.starts_with('{')) {

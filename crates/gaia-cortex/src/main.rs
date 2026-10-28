@@ -194,6 +194,7 @@ fn serve_main(cfg: Config) -> ExitCode {
             .and_then(gaia_cortex::nerve::HttpNerve::new)
         {
             let tx = tx.clone();
+            let n = n.with_contact(cx.lock().unwrap_or_else(|e| e.into_inner()).contact.clone());
             std::thread::spawn(move || pull_loop(n, tx, Duration::from_secs(pull_every)));
         }
     }
@@ -292,13 +293,18 @@ fn subscribe(
     cx: Arc<Mutex<gaia_cortex::engine::Cortex>>,
 ) {
     use gaia_cortex::nerve::{
-        nerve_incidents, nerve_instance, resume_since, stream_once, StreamEnd,
+        nerve_incidents, nerve_instance, resume_since, stream_once_seen, StreamEnd,
     };
+    let contact = cx.lock().unwrap_or_else(|e| e.into_inner()).contact.clone();
+    contact.set_stream(gaia_cortex::contact::Stream::Down);
     let mut since: Option<u64> = None;
     let mut instance: Option<String> = None;
     let mut backoff = Duration::from_secs(1);
     loop {
         let now = nerve_instance(addr, Duration::from_secs(3));
+        if now.is_some() {
+            contact.ok();
+        }
         let (s, restarted) = resume_since(
             since,
             instance.as_deref(),
@@ -326,6 +332,7 @@ fn subscribe(
         // before it was listening), and resolve the ones the nerve dropped
         // while the stream was down (slot 237).
         if let Some(snap) = nerve_incidents(addr, Duration::from_secs(3)) {
+            contact.ok();
             let evs = cx
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -342,10 +349,22 @@ fn subscribe(
         }
         let started = std::time::Instant::now();
         let mut got = 0u64;
-        let end = stream_once(addr, &mut since, Duration::from_secs(11 * 60), &mut |e| {
-            got += 1;
-            tx.send(vec![e]).is_ok()
-        });
+        let end = stream_once_seen(
+            addr,
+            &mut since,
+            Duration::from_secs(11 * 60),
+            Some(&contact),
+            &mut |e| {
+                got += 1;
+                tx.send(vec![e]).is_ok()
+            },
+        );
+        match &end {
+            StreamEnd::Stopped => {}
+            // The nerve answered, it just has no stream (polling mode).
+            StreamEnd::Status(404) | StreamEnd::Status(405) => contact.ok(),
+            other => contact.fail(&format!("stream ended: {other:?}")),
+        }
         let wait = match end {
             StreamEnd::Stopped => return,
             StreamEnd::Status(404) | StreamEnd::Status(405) => {

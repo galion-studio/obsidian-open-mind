@@ -182,9 +182,11 @@ fn positive_control_listen_is_seen_by_strace_and_stays_in_the_namespace() {
         &["timeout", "-s", "KILL", "2", bin, "--listen"],
         &[("ROOM_BIND", "127.0.0.1:0"), ("ROOM_ROOT", &root)],
     );
-    // strace re-raises the KILL, so the run ends by signal (-1) or 137.
+    // GNU timeout exits 124 when the limit fires (Ubuntu 26.04 runners).
+    // Older strace builds re-raise the KILL, so the same run is -1 or 137.
+    // The listen proof is the trace below, not which of those codes came back.
     assert!(
-        matches!(run.code, -1 | 137),
+        matches!(run.code, -1 | 124 | 137),
         "code={} stderr={} trace={}",
         run.code,
         run.stderr,

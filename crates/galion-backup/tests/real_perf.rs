@@ -627,12 +627,22 @@ fn measure_env(root: &Path, which: Impl, dest: &str, extra: &[(&str, &str)]) -> 
             wall,
             user: tv(ru.ru_utime),
             sys: tv(ru.ru_stime),
-            maxrss_kb: ru.ru_maxrss,
+            maxrss_kb: ru_maxrss_kb(ru.ru_maxrss),
             tree_peak_kb: peak,
             procs: seen.len(),
         },
         out,
     )
+}
+// Widen libc::rusage.ru_maxrss (i32 on linux-armv7, i64 on x86_64/aarch64).
+// i64::from(v) trips clippy::useless_conversion on 64-bit hosts.
+#[cfg(target_pointer_width = "32")]
+fn ru_maxrss_kb(v: i32) -> i64 {
+    i64::from(v)
+}
+#[cfg(target_pointer_width = "64")]
+fn ru_maxrss_kb(v: i64) -> i64 {
+    v
 }
 
 fn median(mut v: Vec<f64>) -> f64 {

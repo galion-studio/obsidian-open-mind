@@ -14,10 +14,12 @@
 //!
 //! Build: bundled SQLite C code is compiled with `zig cc` through the Rust
 //! wrapper `galion-ccwrap` (this crate's bin; replaces the shell wrappers).
-//! Needs `ZIG=/path/to/zig` (or zig on PATH), qemu-aarch64-static,
-//! qemu-arm-static, rustup targets aarch64-unknown-linux-musl and
-//! armv7-unknown-linux-musleabihf. With `GALION_REAL_BIN_DIR` the prebuilt
-//! `<dir>/../<triple>/release` binaries are used instead.
+//! Needs `ZIG=/path/to/zig` (or zig on PATH), a qemu-user emulator
+//! (`qemu-aarch64-static` or `qemu-aarch64`, and the arm pair), rustup
+//! targets aarch64-unknown-linux-musl and armv7-unknown-linux-musleabihf.
+//! Ubuntu 26.04 dropped the `-static` names; the dynamic `qemu-user`
+//! binaries run the same static musl ELFs. With `GALION_REAL_BIN_DIR` the
+//! prebuilt `<dir>/../<triple>/release` binaries are used instead.
 //!
 //!   GALION_REAL=1 ZIG=... cargo test -p galion-realtest --test real_sh_ucpu -- --nocapture
 
@@ -30,13 +32,19 @@ use std::time::Duration;
 
 const BASE: u16 = PORT_BASE + 5;
 const PKGS: [&str; 4] = ["galion-one", "tuner", "openmind-memory", "hermes-gateway"];
-const ARCHES: [(&str, &str, &str); 2] = [
+const ARCHES: [(&str, &str, &str, &str); 2] = [
     (
         "aarch64-unknown-linux-musl",
         "qemu-aarch64-static",
+        "qemu-aarch64",
         "AArch64",
     ),
-    ("armv7-unknown-linux-musleabihf", "qemu-arm-static", "ARM"),
+    (
+        "armv7-unknown-linux-musleabihf",
+        "qemu-arm-static",
+        "qemu-arm",
+        "ARM",
+    ),
 ];
 /// Not a secret: a throwaway key for the local mock gateway only.
 const MOCK_KEY: &str = "ucpu-real-test-key-not-secret";
@@ -100,10 +108,16 @@ fn real_sh_ucpu() {
         return;
     }
     let mut ck = Checks::default();
-    for q in ["qemu-aarch64-static", "qemu-arm-static"] {
-        assert!(have(q), "missing {q} (apt: qemu-user-static)");
-    }
-    for (triple, qemu, machine) in ARCHES {
+    for (triple, qemu_static, qemu_dyn, machine) in ARCHES {
+        let qemu = if have(qemu_static) {
+            qemu_static
+        } else if have(qemu_dyn) {
+            qemu_dyn
+        } else {
+            panic!(
+                "missing {qemu_static} and {qemu_dyn} (apt: qemu-user, or qemu-user-static on older Ubuntu)"
+            );
+        };
         let mut args = Vec::new();
         for p in PKGS {
             args.extend(["-p", p]);

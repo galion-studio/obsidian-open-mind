@@ -29,6 +29,7 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use galion_realtest::console_routes as routes;
 use galion_realtest::ports::Block;
 
 /// Slot 375 (real-ports-batch-2): port block movable by `PORT3_REAL_PORT_BASE`; unset keeps

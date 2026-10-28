@@ -36,6 +36,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use galion_realtest::console_routes as routes;
 use galion_realtest::ports::Block;
 
 /// Slot 375 (real-ports-batch-2): port block movable by `PORT5_REAL_PORT_BASE`; unset keeps

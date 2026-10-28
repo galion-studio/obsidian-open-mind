@@ -39,6 +39,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use galion_realtest::console_routes as routes;
 use galion_realtest::ports::Block;
 
 /// Slot 375 (real-ports-batch-2): port block movable by `PORT4_REAL_PORT_BASE`; unset keeps

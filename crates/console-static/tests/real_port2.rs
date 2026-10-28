@@ -26,6 +26,7 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use galion_realtest::console_routes as routes;
 use galion_realtest::ports::Block;
 
 /// Slot 375 (real-ports-batch-2): port block movable by `PORT2_REAL_PORT_BASE`; unset keeps
@@ -265,6 +266,7 @@ fn real_port2_rooms_against_live_vps() {
 
     // /guardian unpaired: the page states the live refusal.
     let (gc, gv) = live_json(api_at(), "/api/v3/guardian/status");
+    routes::decide("/api/v3/guardian/status", gc);
     let (c, page) = get(bind_at(), "/guardian");
     assert_eq!(c, 200);
     if gc == 200 {
@@ -282,50 +284,68 @@ fn real_port2_rooms_against_live_vps() {
 
     // /hermes: thread list and the first thread.
     let (hc, hist) = live_json(api_at(), "/api/hermes/history");
-    assert_eq!(hc, 200);
-    let items = hist.get("items").as_array();
-    let t = Instant::now();
-    let (c, page) = get(bind_at(), "/hermes");
-    eprintln!(
-        "real: /hermes {c} {} B in {} ms",
-        page.len(),
-        t.elapsed().as_millis()
-    );
-    assert_eq!(c, 200);
-    assert!(page.contains(&format!("Threads · {} ", items.len())));
-    assert!(!page.contains("did not load"), "{page}");
-    assert!(!page.contains("127.0.0.1:8642"), "bind address hidden");
-    let shown = items.len().min(console_ui::pages::hermes::MAX_THREADS);
-    assert_eq!(count(&page, "href=\"/hermes?id="), shown);
-    let first = items
-        .iter()
-        .filter_map(|t| t.get("id").as_str())
-        .find(|i| console_ui::pages::hermes::id_ok(i))
-        .expect("a thread id");
-    let (tc, thread) = live_json(api_at(), &console_ui::pages::hermes::thread_path(first));
-    assert_eq!(tc, 200);
-    let n = thread.get("items").as_array().len();
-    let (c, page) = get(
-        bind_at(),
-        &format!("/hermes?id={}", console_ui::html::url_enc(first)),
-    );
-    assert_eq!(c, 200);
-    assert!(
-        page.contains(&format!("<p class=\"small\">{n} items ·")),
-        "thread items {n}"
-    );
-    let msgs = page
-        .split("<ul class=\"msgs\">")
-        .nth(1)
-        .unwrap_or("")
-        .split("</ul>")
-        .next()
-        .unwrap_or("");
-    assert_eq!(count(msgs, "<li"), n);
-    eprintln!(
-        "real: /hermes threads {} (listed {shown}), thread items {n}",
-        items.len()
-    );
+    if routes::decide("/api/hermes/history", hc) == routes::Live::Gone {
+        // D-375-1: no thread list on the live Rust console (owner hermes-rs
+        // /api/sessions, bearer key only); the room must say so, list nothing.
+        let (c, page) = get(bind_at(), "/hermes");
+        assert_eq!(c, 200);
+        assert!(
+            routes::page_says_unavailable(&page),
+            "/hermes: no honest miss"
+        );
+        assert_eq!(
+            count(&page, "href=\"/hermes?id="),
+            0,
+            "/hermes: threads without data"
+        );
+        assert!(!page.contains("127.0.0.1:8642"), "bind address hidden");
+        eprintln!("real: /hermes live history {hc} -> room states the miss, 0 threads");
+    } else {
+        assert_eq!(hc, 200);
+        let items = hist.get("items").as_array();
+        let t = Instant::now();
+        let (c, page) = get(bind_at(), "/hermes");
+        eprintln!(
+            "real: /hermes {c} {} B in {} ms",
+            page.len(),
+            t.elapsed().as_millis()
+        );
+        assert_eq!(c, 200);
+        assert!(page.contains(&format!("Threads · {} ", items.len())));
+        assert!(!page.contains("did not load"), "{page}");
+        assert!(!page.contains("127.0.0.1:8642"), "bind address hidden");
+        let shown = items.len().min(console_ui::pages::hermes::MAX_THREADS);
+        assert_eq!(count(&page, "href=\"/hermes?id="), shown);
+        let first = items
+            .iter()
+            .filter_map(|t| t.get("id").as_str())
+            .find(|i| console_ui::pages::hermes::id_ok(i))
+            .expect("a thread id");
+        let (tc, thread) = live_json(api_at(), &console_ui::pages::hermes::thread_path(first));
+        assert_eq!(tc, 200);
+        let n = thread.get("items").as_array().len();
+        let (c, page) = get(
+            bind_at(),
+            &format!("/hermes?id={}", console_ui::html::url_enc(first)),
+        );
+        assert_eq!(c, 200);
+        assert!(
+            page.contains(&format!("<p class=\"small\">{n} items ·")),
+            "thread items {n}"
+        );
+        let msgs = page
+            .split("<ul class=\"msgs\">")
+            .nth(1)
+            .unwrap_or("")
+            .split("</ul>")
+            .next()
+            .unwrap_or("");
+        assert_eq!(count(msgs, "<li"), n);
+        eprintln!(
+            "real: /hermes threads {} (listed {shown}), thread items {n}",
+            items.len()
+        );
+    }
 
     // No script anywhere, and the nerve still sees the same components healthy.
     for p in ["/context", "/gateway", "/guardian", "/hermes"] {

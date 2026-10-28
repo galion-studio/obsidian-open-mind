@@ -82,7 +82,7 @@ The slot 312 recipe note "the package set matters" can be dropped once this land
   branch adding `features = ["serde-json"]` to galion-common must switch to `galion-jsonout`.
 - D-325-2: gaia-cortex (`--features llm-advisor`) and galion-console-serve (branch
   console-rust-serve-impl) are built in separate commands; add them to `RELEASE_BINS` when they
-  land on main-staging.
+  land on main-staging. Done on `swarm/release-bins-add` (slot 337, docs/decisions/release-bins-add.md).
 - D-325-3: aarch64 byte proof not run (no C cross compiler / zig on the box, D-318-3); the aarch64
   feature graph is covered by the guard.
 - D-325-4: Gaia ownership rows for the two new crates are judgement calls (pending Slavik):

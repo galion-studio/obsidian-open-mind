@@ -34,6 +34,16 @@ nerve event -> cortex rules -> restart (live, via nerve POST /actions)
   raises `HANDOFF_BUDGET_USD` (hard max 20 in code) and removes the file.
 - Stats: `GET /stats` -> `handoffs*`, `hermes_handoff{enabled, sent_last_hour,
   incidents_handed, budget_stopped}`; `GET /health` -> `hermes_handoff`.
+- Test-unit exclusion (wave-4 slot 387, staged, default OFF): `hermes.exclude_units`
+  / `CORTEX_HERMES_EXCLUDE_UNITS` (comma list of unit globs, `*` `?`, case-insensitive)
+  skips the inbox file for matching units only. Rules, breakers, alerts, incidents and
+  the escalation record are unchanged; the escalation says `"handoff":"excluded"` +
+  `handoff_excluded_by`, `/stats` counts `handoffs_excluded` and shows
+  `hermes_handoff.exclude_units`. Excluded units use no rate slot and no dedupe entry.
+  Patterns need a 4-char literal prefix and must not match a production unit (reflex
+  allow/deny lists, guard protected units, live VPS service list), else the cortex
+  refuses to start. Staged drop-in: `deploy/staged/cortex-handoff-exclude/`. Evidence:
+  `docs/real-tests/cortex-handoff-exclude.md`.
 
 Deploy files: `deploy/gaia-cortex/` (`86-hermes-boss.conf`,
 `gaia-hermes-handoff.{path,service}`, `cortex-escalation.SKILL.md` ->

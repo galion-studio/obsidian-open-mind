@@ -36,6 +36,8 @@ pub enum Offer {
     Duplicate,
     RateLimited,
     BudgetStopped,
+    /// The unit matched `hermes.exclude_units` (the pattern); no inbox file.
+    Excluded(String),
     Failed(String),
 }
 
@@ -47,6 +49,7 @@ impl Offer {
             Offer::Duplicate => "duplicate",
             Offer::RateLimited => "rate-limited",
             Offer::BudgetStopped => "budget-stopped",
+            Offer::Excluded(_) => "excluded",
             Offer::Failed(_) => "failed",
         }
     }
@@ -58,6 +61,7 @@ pub struct Handoff {
     state_path: Option<PathBuf>,
     per_hour: u32,
     subject_window_s: u64,
+    exclude: Vec<String>,
     incidents: HashSet<String>,
     incident_order: VecDeque<String>,
     subjects: BTreeMap<String, u64>,
@@ -98,6 +102,7 @@ impl Handoff {
             state_path,
             per_hour: per_hour.min(HARD_MAX_PER_HOUR),
             subject_window_s,
+            exclude: vec![],
             incidents: HashSet::new(),
             incident_order: VecDeque::new(),
             subjects: BTreeMap::new(),
@@ -109,6 +114,17 @@ impl Handoff {
             let _ = std::fs::create_dir_all(&h.inbox);
         }
         h
+    }
+
+    /// Unit-name glob patterns never handed to Hermes (validated by the
+    /// config; see [`crate::handoff_exclude`]).
+    pub fn with_exclude(mut self, pats: Vec<String>) -> Self {
+        self.exclude = pats;
+        self
+    }
+
+    pub fn exclude(&self) -> &[String] {
+        &self.exclude
     }
 
     pub fn disabled() -> Self {
@@ -181,6 +197,12 @@ impl Handoff {
         if !self.enabled {
             return Offer::Disabled;
         }
+        // Before any dedupe/rate bookkeeping: an excluded unit uses no slot.
+        if let Some(p) = crate::handoff_exclude::ticket_unit(ticket)
+            .and_then(|u| crate::handoff_exclude::matching(&self.exclude, u))
+        {
+            return Offer::Excluded(p.to_string());
+        }
         let incident = ticket["incident"].as_str().unwrap_or("").to_string();
         let skey = format!(
             "{}|{}",
@@ -230,7 +252,7 @@ impl Handoff {
     pub fn to_json(&self, now: u64) -> Value {
         json!({"enabled": self.enabled, "inbox": self.inbox, "per_hour": self.per_hour,
                "sent_last_hour": self.sent_last_hour(now), "incidents_handed": self.incidents.len(),
-               "budget_stopped": self.enabled && self.budget_stopped()})
+               "budget_stopped": self.enabled && self.budget_stopped(), "exclude_units": self.exclude})
     }
 }
 
@@ -312,6 +334,51 @@ mod tests {
         assert_eq!(json_files(&inbox), 0);
         let mut off = Handoff::disabled();
         assert_eq!(off.offer(&ticket("i", "s"), 10), Offer::Disabled);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn excluded_units_write_nothing_and_use_no_slot() {
+        let d = tmpdir("excl");
+        let inbox = d.join("inbox");
+        let mut h = Handoff::new(true, inbox.clone(), None, 6, 3600)
+            .with_exclude(vec!["noloop*".into(), "sbxtest*".into()]);
+        for i in 0..10 {
+            let mut t = ticket(
+                &format!("t{i}"),
+                &format!("unit:noloop370-t{i}-20261028062409.service"),
+            );
+            t["unit"] = json!(format!("noloop370-t{i}-20261028062409.service"));
+            assert_eq!(h.offer(&t, 100 + i), Offer::Excluded("noloop*".into()));
+        }
+        assert_eq!(
+            h.offer(&ticket("s", "unit:sbxtest.slice"), 120),
+            Offer::Excluded("sbxtest*".into())
+        );
+        assert_eq!(json_files(&inbox), 0);
+        assert_eq!(h.sent_last_hour(130), 0, "no rate slot used");
+        // a real unit in the same minute is still handed over, all 6 slots free
+        for i in 0..6 {
+            let mut t = ticket(&format!("r{i}"), &format!("unit:real{i}.service"));
+            t["unit"] = json!(format!("real{i}.service"));
+            assert!(matches!(h.offer(&t, 130), Offer::Written(_)));
+        }
+        assert_eq!(json_files(&inbox), 6);
+        // unit-less subjects are never excluded
+        assert_eq!(
+            h.offer(&ticket("n", "nerve-incident:noloop"), 131),
+            Offer::RateLimited
+        );
+        assert_eq!(
+            h.to_json(131)["exclude_units"],
+            json!(["noloop*", "sbxtest*"])
+        );
+        // disabled wins over excluded
+        let mut off = Handoff::disabled().with_exclude(vec!["noloop*".into()]);
+        assert_eq!(
+            off.offer(&ticket("i", "unit:noloop1.service"), 1),
+            Offer::Disabled
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 

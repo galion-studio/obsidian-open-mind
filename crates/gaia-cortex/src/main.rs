@@ -14,6 +14,7 @@
 //! CORTEX_PULL_EVERY_S (0 = off), CORTEX_ACTIONS (dry-run|live), CORTEX_COALESCE_MS,
 //! CORTEX_OUTBOX, CORTEX_INCIDENT_QUIET_S (one-shot incidents, default 1800), CORTEX_LLM_ENABLED (default off),
 //! CORTEX_HERMES_HANDOFF (default off), CORTEX_HERMES_INBOX, CORTEX_HERMES_PER_HOUR (max 6),
+//! CORTEX_HERMES_EXCLUDE_UNITS (comma list of unit globs never handed to Hermes, default none),
 //! CORTEX_REPEAT_POLL_S (default 30, 0 = off: re-read the nerve ring for repeats it folded into
 //! watched failure events).
 

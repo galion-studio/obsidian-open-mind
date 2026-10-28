@@ -1,0 +1,140 @@
+[
+  {
+    "name": "openmind-memory",
+    "unit": "openmind-memory.service",
+    "port": 8420,
+    "path": "/health",
+    "gaia": "APOLLO",
+    "system": "memory-gateway",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "hermes-rs",
+    "unit": "hermes-rs.service",
+    "port": 8642,
+    "path": "/health",
+    "gaia": "ARTEMIS",
+    "system": "hermes-agents",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "link-watch-rs",
+    "unit": "link-watch-rs.service",
+    "path": "",
+    "gaia": "APOLLO",
+    "system": "link-watch",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "galion-desk",
+    "unit": "galion-desk.service",
+    "port": 8646,
+    "path": "/health",
+    "gaia": "HEPHAESTUS",
+    "system": "galion-desk",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "tuner",
+    "unit": "tuner.service",
+    "port": 8650,
+    "path": "/health",
+    "gaia": "DEMETER",
+    "system": "tuner",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "galion-one",
+    "unit": "galion-one.service",
+    "port": 8091,
+    "path": "/health",
+    "gaia": "ELEUTHIA",
+    "system": "galion-one",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "galion-one-mouth",
+    "port": 8002,
+    "path": "/health",
+    "gaia": "AETHER",
+    "system": "speech-io",
+    "group": "galion-one",
+    "critical": false,
+    "note": "Galion One mouth (TTS); 503 while the model loads",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "console",
+    "unit": "console.service",
+    "port": 8080,
+    "path": "/",
+    "gaia": "HEPHAESTUS",
+    "system": "console",
+    "restarts_per_hour": 0,
+    "deep": [
+      "/api/v1/admin",
+      "/api/v1/services"
+    ]
+  },
+  {
+    "name": "console-rust-primary",
+    "unit": "console-rust-primary.service",
+    "port": 18080,
+    "path": "/",
+    "gaia": "HEPHAESTUS",
+    "system": "console",
+    "group": "console",
+    "critical": false,
+    "deep": [
+      "/api/v1/admin",
+      "/api/v1/services"
+    ],
+    "note": "Rust console primary (galion-console-serve on 127.0.0.1:18080, D-316-1); alert-only, never restarted",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "galion-health",
+    "unit": "galion-health.service",
+    "port": 8660,
+    "path": "/status.json",
+    "gaia": "DEMETER",
+    "system": "guardian-tick",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "cloudflared",
+    "unit": "cloudflared.service",
+    "kind": "tunnel",
+    "metrics_port": 20241,
+    "path": "",
+    "gaia": "AETHER",
+    "system": "tunnels",
+    "group": "edge",
+    "note": "named tunnel; PROTECTED: alert-only, never restarted (Mate 2026-10-21)",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "tuner-quick",
+    "unit": "tuner-quick.service",
+    "kind": "tunnel",
+    "metrics_port": 20242,
+    "path": "",
+    "gaia": "AETHER",
+    "system": "tunnels",
+    "group": "edge",
+    "critical": false,
+    "note": "tuner quick tunnel; never restarted",
+    "restarts_per_hour": 0
+  },
+  {
+    "name": "voice-worker",
+    "unit": "galion-voice.service",
+    "path": "/health",
+    "gaia": "AETHER",
+    "system": "voice-relay",
+    "expected": false,
+    "critical": false,
+    "note": "ws/voice KittenTTS worker; not deployed yet",
+    "restarts_per_hour": 0
+  }
+]

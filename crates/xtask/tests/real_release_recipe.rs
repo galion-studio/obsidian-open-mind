@@ -117,7 +117,7 @@ fn gw_cmd(exe: &Path, home: &Path, port: u16) -> Command {
         .env("HERMES_RS_CRON_STATE", home.join("rs-cron-state.json"))
         .env("HERMES_RS_CRON_OUTPUT", home.join("rs-cron-output"))
         .env("HERMES_RS_MCP", "0")
-        .env("API_SERVER_KEY", "t434-recipe-key");
+        .env("API_SERVER_KEY", "t434-release-recipe-key");
     c
 }
 
@@ -173,10 +173,11 @@ fn real_release_recipe() {
     fs::create_dir_all(&home).unwrap();
     let cc = gw_cmd(&art, &home, port).arg("--check-config").output().unwrap();
     assert_eq!(cc.status.code(), Some(0), "R2 --check-config: {}", text(&cc));
+    let log = fs::File::create(home.join("gateway.log")).unwrap();
     let mut child = gw_cmd(&art, &home, port)
         .arg("--mock")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(log.try_clone().unwrap()))
+        .stderr(Stdio::from(log))
         .spawn()
         .unwrap();
     let up = Instant::now();
@@ -190,7 +191,12 @@ fn real_release_recipe() {
     }
     let _ = child.kill();
     let _ = child.wait();
-    assert_eq!(health.0, 200, "R2 /health");
+    assert_eq!(
+        health.0,
+        200,
+        "R2 /health; log: {}",
+        fs::read_to_string(home.join("gateway.log")).unwrap_or_default()
+    );
     assert!(health.1.contains("hermes-rs"), "R2 body {}", health.1);
     println!("R2 /health 200 in {:?}: {}", up.elapsed(), health.1.trim());
     std::thread::sleep(Duration::from_millis(200));

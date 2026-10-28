@@ -39,9 +39,20 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-const BIND: &str = "127.0.0.1:20080";
-const API: &str = "127.0.0.1:20081";
-const NERVE: &str = "127.0.0.1:20082";
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `PORT4_REAL_PORT_BASE`; unset keeps
+/// the old 20080 block.
+static PORTS: Block = Block::new("PORT4_REAL_PORT_BASE", 20080, 10);
+fn api_at() -> &'static str {
+    PORTS.addr(1)
+}
+fn bind_at() -> &'static str {
+    PORTS.addr(0)
+}
+fn nerve_at() -> &'static str {
+    PORTS.addr(2)
+}
 
 /// The read-only probe run on the VPS (no redirection to files, no writes).
 const PROBE: &str = r#"set -u
@@ -134,7 +145,7 @@ fn wait_for(what: &str, secs: u64, mut ok: impl FnMut() -> bool) {
 }
 
 fn nerve_watch(tag: &str) -> Vec<String> {
-    let (c, b) = get(NERVE, "/state");
+    let (c, b) = get(nerve_at(), "/state");
     assert_eq!(c, 200, "nerve /state");
     let v = json::parse(b.as_bytes()).unwrap_or(Value::Null);
     let mut out = Vec::new();
@@ -331,20 +342,37 @@ fn real_port4_rooms_against_live_vps() {
             "ExitOnForwardFailure=yes",
             "-N",
         ])
-        .args(["-L", &format!("{API}:127.0.0.1:8080")])
-        .args(["-L", &format!("{NERVE}:127.0.0.1:8670")])
+        .args(["-L", &format!("{api_at}:127.0.0.1:8080", api_at = api_at())])
+        .args([
+            "-L",
+            &format!("{nerve_at}:127.0.0.1:8670", nerve_at = nerve_at()),
+        ])
         .arg(&vps)
         .stdin(Stdio::null())
         .spawn()
         .expect("ssh");
     let _ssh = Kill(ssh, "ssh forward");
-    wait_for("ssh forward", 25, || get(API, "/api/v1/health").0 == 200);
-    eprintln!("real: forward {API}->8080 {NERVE}->8670 (ssh -N, GET only)");
+    wait_for("ssh forward", 25, || {
+        get(api_at(), "/api/v1/health").0 == 200
+    });
+    eprintln!(
+        "real: forward {api_at}->8080 {nerve_at}->8670 (ssh -N, GET only)",
+        api_at = api_at(),
+        nerve_at = nerve_at()
+    );
     let before = nerve_watch("before");
 
     let bin = env!("CARGO_BIN_EXE_galion-console-static");
     let child = Command::new(bin)
-        .args(["--ui", "rust", "--upstream", API, "--bind", BIND, "--quiet"])
+        .args([
+            "--ui",
+            "rust",
+            "--upstream",
+            api_at(),
+            "--bind",
+            bind_at(),
+            "--quiet",
+        ])
         .arg("--memory-root")
         .arg(&mem)
         .arg("--model-file")
@@ -356,11 +384,11 @@ fn real_port4_rooms_against_live_vps() {
         .spawn()
         .expect("start binary");
     let _srv = Kill(child, "galion-console-static");
-    wait_for("binary", 10, || TcpStream::connect(BIND).is_ok());
+    wait_for("binary", 10, || TcpStream::connect(bind_at()).is_ok());
 
     // /memory vs VPS find.
     let t = Instant::now();
-    let (c, page) = get(BIND, "/memory");
+    let (c, page) = get(bind_at(), "/memory");
     eprintln!(
         "real: /memory {c} {} B in {} ms",
         page.len(),
@@ -399,16 +427,16 @@ fn real_port4_rooms_against_live_vps() {
         ("persona", "persona.md", psize, "zpersona"),
         ("user", "USER.md", usize_, "zuser"),
     ] {
-        let (c, page) = get(BIND, &format!("/md/{name}"));
+        let (c, page) = get(bind_at(), &format!("/md/{name}"));
         assert_eq!(c, 200, "/md/{name}");
         let want = format!("{title} · {size} bytes · {}", kv[zone_key].trim());
         assert!(page.contains(&want), "/md/{name}: want {want}");
         assert!(!page.to_ascii_lowercase().contains("<script"));
         eprintln!("real: /md/{name} shows \"{want}\" (= VPS stat + TZ=Europe/Zagreb date)");
     }
-    let (c, _) = get(BIND, "/md/other");
+    let (c, _) = get(bind_at(), "/md/other");
     assert_eq!(c, 404);
-    let (lc, lpage) = get_accept(API, "/md/user", "127.0.0.1", "text/html");
+    let (lc, lpage) = get_accept(api_at(), "/md/user", "127.0.0.1", "text/html");
     assert_eq!(lc, 200, "live Node /md/user");
     eprintln!(
         "real: live Node /md/user on a loopback Host: {lc} {} B, {} (the TSX stub route; the middleware skips the file on loopback)",
@@ -417,7 +445,7 @@ fn real_port4_rooms_against_live_vps() {
     );
 
     // /mesh vs live GET /api/mesh.
-    let (mc, mb) = get(API, "/api/mesh");
+    let (mc, mb) = get(api_at(), "/api/mesh");
     assert_eq!(mc, 200, "live /api/mesh");
     let board = json::parse(mb.as_bytes()).unwrap();
     let lines: Vec<&str> = board
@@ -428,7 +456,7 @@ fn real_port4_rooms_against_live_vps() {
         .collect();
     let phase = board.get("phase").as_str().unwrap_or("");
     let t = Instant::now();
-    let (c, page) = get(BIND, "/mesh");
+    let (c, page) = get(bind_at(), "/mesh");
     eprintln!(
         "real: /mesh {c} {} B in {} ms; live phase {phase:?}, {} score line(s)",
         page.len(),
@@ -453,7 +481,7 @@ fn real_port4_rooms_against_live_vps() {
 
     // Gate: public host, no cookie -> live /api/v1/admin says not paired.
     for p in ["/memory", "/mesh", "/md/user"] {
-        let (c, page) = get_host(BIND, p, "console.galion.app");
+        let (c, page) = get_host(bind_at(), p, "console.galion.app");
         assert_eq!(c, 200, "{p}");
         assert!(page.contains("/_ui/pair"), "{p}: pairing page");
         assert!(!page.contains("p4-n") && !page.contains("bytes ·"), "{p}");
@@ -461,7 +489,7 @@ fn real_port4_rooms_against_live_vps() {
     eprintln!("real: public host unpaired -> pairing page for all 3 rooms (live /api/v1/admin)");
 
     for p in ["/memory", "/mesh", "/md/user", "/md/persona"] {
-        let (_, b) = get(BIND, p);
+        let (_, b) = get(bind_at(), p);
         assert!(!b.to_ascii_lowercase().contains("<script"), "{p}");
     }
     let after = nerve_watch("after");

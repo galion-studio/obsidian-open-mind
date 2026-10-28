@@ -26,10 +26,23 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const BIND: &str = "127.0.0.1:20390";
-const API: &str = "127.0.0.1:20391";
-const DESK: &str = "127.0.0.1:20392";
-const NERVE: &str = "127.0.0.1:20393";
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `MERGE_REAL_PORT_BASE`; unset keeps
+/// the old 20390 block.
+static PORTS: Block = Block::new("MERGE_REAL_PORT_BASE", 20390, 10);
+fn api_at() -> &'static str {
+    PORTS.addr(1)
+}
+fn bind_at() -> &'static str {
+    PORTS.addr(0)
+}
+fn desk_at() -> &'static str {
+    PORTS.addr(2)
+}
+fn nerve_at() -> &'static str {
+    PORTS.addr(3)
+}
 
 struct Kill(Child, &'static str);
 impl Drop for Kill {
@@ -82,7 +95,7 @@ fn wait_for(what: &str, secs: u64, mut ok: impl FnMut() -> bool) {
 }
 
 fn nerve_watch(tag: &str) -> Vec<String> {
-    let (c, b) = get(NERVE, "/state");
+    let (c, b) = get(nerve_at(), "/state");
     assert_eq!(c, 200, "nerve /state");
     let v = json::parse(b.as_bytes()).unwrap_or(Value::Null);
     let mut out = Vec::new();
@@ -123,16 +136,29 @@ fn real_merged_console_against_live_vps() {
             "ExitOnForwardFailure=yes",
             "-N",
         ])
-        .args(["-L", &format!("{API}:127.0.0.1:8080")])
-        .args(["-L", &format!("{DESK}:127.0.0.1:8646")])
-        .args(["-L", &format!("{NERVE}:127.0.0.1:8670")])
+        .args(["-L", &format!("{api_at}:127.0.0.1:8080", api_at = api_at())])
+        .args([
+            "-L",
+            &format!("{desk_at}:127.0.0.1:8646", desk_at = desk_at()),
+        ])
+        .args([
+            "-L",
+            &format!("{nerve_at}:127.0.0.1:8670", nerve_at = nerve_at()),
+        ])
         .arg(&vps)
         .stdin(Stdio::null())
         .spawn()
         .expect("ssh");
     let _ssh = Kill(ssh, "ssh forward");
-    wait_for("ssh forward", 25, || get(API, "/api/v1/health").0 == 200);
-    eprintln!("real: forward {API}->8080 {DESK}->8646 {NERVE}->8670 (ssh -N, GET only)");
+    wait_for("ssh forward", 25, || {
+        get(api_at(), "/api/v1/health").0 == 200
+    });
+    eprintln!(
+        "real: forward {api_at}->8080 {desk_at}->8646 {nerve_at}->8670 (ssh -N, GET only)",
+        api_at = api_at(),
+        desk_at = desk_at(),
+        nerve_at = nerve_at()
+    );
     let before = nerve_watch("before");
 
     let bin = env!("CARGO_BIN_EXE_galion-console-static");
@@ -141,11 +167,11 @@ fn real_merged_console_against_live_vps() {
             "--ui",
             "rust",
             "--upstream",
-            API,
+            api_at(),
             "--desk",
-            DESK,
+            desk_at(),
             "--bind",
-            BIND,
+            bind_at(),
             "--quiet",
         ])
         .stdout(Stdio::null())
@@ -153,7 +179,7 @@ fn real_merged_console_against_live_vps() {
         .spawn()
         .expect("start binary");
     let _srv = Kill(child, "galion-console-static");
-    wait_for("binary", 10, || TcpStream::connect(BIND).is_ok());
+    wait_for("binary", 10, || TcpStream::connect(bind_at()).is_ok());
 
     let mut paths: Vec<&str> = console_ui::PORTED.to_vec();
     for r in console_ui::rooms::ROOMS {
@@ -170,14 +196,14 @@ fn real_merged_console_against_live_vps() {
         // (`--memory-root`), which `real_port4` mirrors from the VPS; without one the
         // merged front answers a clean 404, checked below.
         if p.starts_with("/md/") {
-            let (c, page) = get(BIND, p);
+            let (c, page) = get(bind_at(), p);
             eprintln!("real: GET {p} -> {c} (no --memory-root; real_port4 covers it)");
             assert_eq!(c, 404, "{p}");
             assert_eq!(page.matches("<script").count(), 0, "{p}");
             continue;
         }
         let t = Instant::now();
-        let (c, page) = get(BIND, p);
+        let (c, page) = get(bind_at(), p);
         let scripts = page.matches("<script").count();
         eprintln!(
             "real: GET {p} -> {c} {} B in {} ms, <script>: {scripts}",
@@ -190,11 +216,11 @@ fn real_merged_console_against_live_vps() {
         assert!(page.contains("<html"), "{p}");
         total += 1;
     }
-    let (c, ov) = get(BIND, "/console");
+    let (c, ov) = get(bind_at(), "/console");
     assert_eq!(c, 200);
     assert!(ov.contains("31 of 31 routes in Rust"), "overview count");
     eprintln!("real: {total} routes 200 (+ /md/user 404 without --memory-root), 0 placeholders, overview says 31 of 31 routes in Rust");
-    assert_eq!(get(BIND, "/nope").0, 404);
+    assert_eq!(get(bind_at(), "/nope").0, 404);
 
     let after = nerve_watch("after");
     assert_eq!(before.len(), after.len(), "nerve components changed");

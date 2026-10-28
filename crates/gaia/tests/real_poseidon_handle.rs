@@ -29,9 +29,20 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const QUEUE: &str = "127.0.0.1:20880";
-const IMPOSTOR: &str = "127.0.0.1:20881";
-const LOOKALIKE: &str = "127.0.0.1:20882";
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `POSEIDON_HANDLE_REAL_PORT_BASE`; unset keeps
+/// the old 20880 block.
+static PORTS: Block = Block::new("POSEIDON_HANDLE_REAL_PORT_BASE", 20880, 10);
+fn impostor_at() -> &'static str {
+    PORTS.addr(1)
+}
+fn lookalike_at() -> &'static str {
+    PORTS.addr(2)
+}
+fn queue_at() -> &'static str {
+    PORTS.addr(0)
+}
 
 fn real() -> bool {
     if std::env::var("GALION_REAL").ok().as_deref() != Some("1") {
@@ -58,7 +69,7 @@ impl Drop for Queue {
 
 fn start(data: &std::path::Path) -> Queue {
     let mut child = Command::new(bin("openmind-queue"))
-        .args(["serve", "--bind", QUEUE, "--data"])
+        .args(["serve", "--bind", queue_at(), "--data"])
         .arg(data)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -67,7 +78,7 @@ fn start(data: &std::path::Path) -> Queue {
     for _ in 0..50 {
         // Ready = the queue's own CLI gets 200 from /healthz (not just a bind).
         let ok = Command::new(bin("openmind-queue"))
-            .args(["get", "/healthz", "--addr", QUEUE])
+            .args(["get", "/healthz", "--addr", queue_at()])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -80,14 +91,17 @@ fn start(data: &std::path::Path) -> Queue {
     }
     let _ = child.kill();
     let _ = child.wait();
-    panic!("openmind-queue did not come up on {QUEUE}");
+    panic!(
+        "openmind-queue did not come up on {queue_at}",
+        queue_at = queue_at()
+    );
 }
 
 /// Operator call with the queue's own CLI (Gaia never does these).
 fn op(args: &[&str]) -> Value {
     let out = Command::new(bin("openmind-queue"))
         .args(args)
-        .args(["--addr", QUEUE])
+        .args(["--addr", queue_at()])
         .output()
         .unwrap();
     assert!(
@@ -153,7 +167,7 @@ fn a_real_queue_every_system_and_verb() {
         r#"{"id":"gpu0","kind":"gpu","vram_gb":24,"state":"approved"}"#,
     ]);
 
-    let mut g = gaia::poseidon::booted_with_queue(QueueConfig::new(QUEUE).unwrap());
+    let mut g = gaia::poseidon::booted_with_queue(QueueConfig::new(queue_at()).unwrap());
     assert_eq!(state(&g), Lifecycle::Running);
 
     // Read-only batch: every system x {status, plan, run, execute}.
@@ -367,10 +381,10 @@ fn b_impostor_gets_only_healthz() {
     if !real() {
         return;
     }
-    let seen = serve(IMPOSTOR, |_| {
+    let seen = serve(impostor_at(), |_| {
         r#"{"ok":true,"service":"galion-one","version":"9"}"#.into()
     });
-    let mut g = gaia::poseidon::booted_with_queue(QueueConfig::new(IMPOSTOR).unwrap());
+    let mut g = gaia::poseidon::booted_with_queue(QueueConfig::new(impostor_at()).unwrap());
     for s in System::COMPUTE {
         for v in [Verb::Status, Verb::Plan] {
             let r = go(&mut g, s, v, "");
@@ -411,7 +425,7 @@ fn c_lookalike_breaking_the_contract() {
     if !real() {
         return;
     }
-    let seen = serve(LOOKALIKE, |line| {
+    let seen = serve(lookalike_at(), |line| {
         if line.starts_with("GET /healthz") {
             r#"{"ok":true,"function":"POSEIDON","service":"openmind-queue","version":"0.0.0-fake"}"#
                 .into()
@@ -421,7 +435,7 @@ fn c_lookalike_breaking_the_contract() {
             r#"{"function":"POSEIDON","system":"queues","verb":"status","outcome":"maybe","summary":"?"}"#.into()
         }
     });
-    let mut g = gaia::poseidon::booted_with_queue(QueueConfig::new(LOOKALIKE).unwrap());
+    let mut g = gaia::poseidon::booted_with_queue(QueueConfig::new(lookalike_at()).unwrap());
     let r = go(&mut g, System::Queues, Verb::Status, "");
     assert_eq!(
         (r.outcome, r.metric_value("off_contract")),

@@ -29,7 +29,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use galion_realtest::ports::Block;
+
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
+
+/// Slot 383 (real-ports-batch-3): nerve +0, live service +1; `CORTEX_S2B_REAL_PORT_BASE`
+/// moves the block, unset keeps the old 19560-19569.
+static PORTS: Block = Block::new("CORTEX_S2B_REAL_PORT_BASE", 19560, 10);
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -170,8 +176,10 @@ fn real_drift_and_conn_rate_on_the_box() {
     .unwrap();
     let bin_mib = std::fs::metadata(BIN).unwrap().len() as f64 / 1048576.0;
 
-    // Live service on :19561.
-    let svc = TcpListener::bind("127.0.0.1:19561").expect("19561 free");
+    let (p0, p1) = (PORTS.port(0), PORTS.port(1));
+    let cr_id = format!("conn-rate-{p1}");
+    // Live service on +1 (:19561 by default).
+    let svc = TcpListener::bind(PORTS.addr(1)).expect("svc port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 512];
@@ -180,11 +188,11 @@ fn real_drift_and_conn_rate_on_the_box() {
         }
     });
     let comps = dir.join("components.json");
-    std::fs::write(&comps, r#"[{"name":"s2b-svc","port":19561}]"#).unwrap();
+    std::fs::write(&comps, format!(r#"[{{"name":"s2b-svc","port":{p1}}}]"#)).unwrap();
 
     let mut c = Command::new(BIN);
     c.arg("serve")
-        .env("NERVE_ADDR", "127.0.0.1:19560")
+        .env("NERVE_ADDR", PORTS.addr(0))
         .env("NERVE_INTERVAL", "5")
         .env("NERVE_DATA_DIR", dir.join("data"))
         .env("NERVE_COMPONENTS", &comps)
@@ -192,10 +200,10 @@ fn real_drift_and_conn_rate_on_the_box() {
         .env("NERVE_JOURNAL", "0")
         .env("NERVE_GALION_HEALTH_PORT", "0")
         .env("NERVE_REFLEX", "0")
-        .env("NERVE_LISTEN_SCOPE", "19560-19569")
+        .env("NERVE_LISTEN_SCOPE", PORTS.range())
         .env("NERVE_DRIFT_MANIFEST", &manifest)
         .env("NERVE_DRIFT_ROOT", dir.join("deployed"))
-        .env("NERVE_CONNRATE_PORTS", "19561")
+        .env("NERVE_CONNRATE_PORTS", p1.to_string())
         .env_remove("NERVE_SENSORS_OFF")
         .env_remove("NERVE_DRIFT_BUDGET_KIB")
         .stderr(Stdio::null());
@@ -203,7 +211,7 @@ fn real_drift_and_conn_rate_on_the_box() {
 
     // 1. Clean. Default budget 2 MiB/cycle: the binary needs ~MiB/2 cycles.
     let cycles_needed = (bin_mib / 2.0).ceil() as u64 + 2;
-    let st = wait_state(19560, 5 * cycles_needed + 20, |s| {
+    let st = wait_state(p0, 5 * cycles_needed + 20, |s| {
         s["cycle"].as_u64().unwrap_or(0) >= cycles_needed
     });
     let names: Vec<&str> = st["cortex_sensors"]
@@ -232,9 +240,9 @@ fn real_drift_and_conn_rate_on_the_box() {
         "clean manifest: {}",
         st["cortex"]
     );
-    assert!(finding(&st, "conn-rate-19561").is_none());
+    assert!(finding(&st, &cr_id).is_none());
     eprintln!(
-        "serve :19560 cycle {} clean (binary {bin_mib:.1} MiB hashed at 2 MiB/cycle): {}; cycle_ms {}; rss {} KiB",
+        "serve :{p0} cycle {} clean (binary {bin_mib:.1} MiB hashed at 2 MiB/cycle): {}; cycle_ms {}; rss {} KiB",
         st["cycle"],
         sensor_us(&st),
         st["cycle_ms"],
@@ -246,7 +254,7 @@ fn real_drift_and_conn_rate_on_the_box() {
     let k = b.len() / 2;
     b[k] ^= 0xff;
     std::fs::write(&copy, &b).unwrap();
-    let st = wait_state(19560, 5 * cycles_needed + 20, |s| {
+    let st = wait_state(p0, 5 * cycles_needed + 20, |s| {
         finding(s, "drift-s2b-svc").is_some()
     });
     let f = finding(&st, "drift-s2b-svc").expect("drift reported");
@@ -277,7 +285,7 @@ fn real_drift_and_conn_rate_on_the_box() {
     eprintln!("cycle {}: patched -> event {evs}", st["cycle"]);
     b[k] ^= 0xff;
     std::fs::write(&copy, &b).unwrap();
-    let st = wait_state(19560, 5 * cycles_needed + 20, |s| {
+    let st = wait_state(p0, 5 * cycles_needed + 20, |s| {
         s["cycle"].as_u64().is_some() && event(s, "drift").is_none()
     });
     assert!(event(&st, "drift").is_none(), "{}", st["cortex"]);
@@ -290,7 +298,7 @@ fn real_drift_and_conn_rate_on_the_box() {
     let made2 = made.clone();
     let load = std::thread::spawn(move || {
         while !stop2.load(Ordering::Relaxed) {
-            if let Ok(mut s) = TcpStream::connect("127.0.0.1:19561") {
+            if let Ok(mut s) = TcpStream::connect(PORTS.addr(1)) {
                 let _ = s.write_all(b"GET / HTTP/1.0\r\n\r\n");
                 let mut x = Vec::new();
                 let _ = s.read_to_end(&mut x);
@@ -300,10 +308,10 @@ fn real_drift_and_conn_rate_on_the_box() {
         }
     });
     let t0 = Instant::now();
-    let st = wait_state(19560, 40, |s| finding(s, "conn-rate-19561").is_some());
+    let st = wait_state(p0, 40, |s| finding(s, &cr_id).is_some());
     stop.store(true, Ordering::Relaxed);
     load.join().unwrap();
-    let f = finding(&st, "conn-rate-19561").expect("conn-rate reported");
+    let f = finding(&st, &cr_id).expect("conn-rate reported");
     assert_eq!(
         (f["kind"].as_str(), f["source"].as_str()),
         (Some("bleeding"), Some("s2b-svc"))
@@ -325,14 +333,10 @@ fn real_drift_and_conn_rate_on_the_box() {
         serde_json::to_string(&ev).unwrap(),
         sensor_us(&st)
     );
-    let st = wait_state(19560, 30, |s| {
-        s["cycle"].as_u64().is_some() && finding(s, "conn-rate-19561").is_none()
+    let st = wait_state(p0, 30, |s| {
+        s["cycle"].as_u64().is_some() && finding(s, &cr_id).is_none()
     });
-    assert!(
-        finding(&st, "conn-rate-19561").is_none(),
-        "{}",
-        st["cortex"]
-    );
+    assert!(finding(&st, &cr_id).is_none(), "{}", st["cortex"]);
     eprintln!(
         "cycle {}: load stopped -> conn-rate cleared; cycle_ms {}; rss {} KiB",
         st["cycle"],

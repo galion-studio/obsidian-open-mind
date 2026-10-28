@@ -94,6 +94,7 @@ pub fn limits(max_body: usize, max_conns: usize) -> common::Limits {
         max_connections: max_conns,
         thread_stack: 512 * 1024,
         accept_chunked: false,
+        evict_idle: false,
     }
 }
 

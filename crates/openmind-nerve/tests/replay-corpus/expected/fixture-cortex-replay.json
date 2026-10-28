@@ -1,0 +1,253 @@
+{
+  "name": "fixture-cortex-replay",
+  "source": "fixture:cortex-replay",
+  "env": {},
+  "capture": [
+    {
+      "file": "README.md",
+      "bytes": 1139,
+      "fnv64": "2c85e0e21c298318"
+    },
+    {
+      "file": "access-tuner.log",
+      "bytes": 63960,
+      "fnv64": "870f31bf6b5d9140"
+    },
+    {
+      "file": "body-8002.json",
+      "bytes": 87,
+      "fnv64": "85ae6978e2f45147"
+    },
+    {
+      "file": "journal.jsonl",
+      "bytes": 25423,
+      "fnv64": "84d0727f17a7746f"
+    },
+    {
+      "file": "ss.txt",
+      "bytes": 230,
+      "fnv64": "c32704769b71f279"
+    },
+    {
+      "file": "state-0.json",
+      "bytes": 2079,
+      "fnv64": "5f93bd211392731d"
+    },
+    {
+      "file": "state-1.json",
+      "bytes": 2079,
+      "fnv64": "4789f54112837dbd"
+    },
+    {
+      "file": "state-2.json",
+      "bytes": 2079,
+      "fnv64": "1ba2a3b7fd82a8af"
+    }
+  ],
+  "result": {
+    "capture_cycles": 3,
+    "hold_cycles": 20,
+    "final": {
+      "score": 16,
+      "grade": "F",
+      "pass": false,
+      "system": "failing",
+      "incidents": [
+        {
+          "cause": "ddos:tuner",
+          "severity": "critical",
+          "members": []
+        },
+        {
+          "cause": "edge",
+          "severity": "error",
+          "members": [
+            "bleeding:edge-dead-origins error",
+            "bleeding:error-rate-cloudflared warn"
+          ]
+        },
+        {
+          "cause": "galion-desk",
+          "severity": "warn",
+          "members": [
+            "bleeding:restarts-galion-desk warn"
+          ]
+        },
+        {
+          "cause": "galion-one",
+          "severity": "error",
+          "members": [
+            "bleeding:stuck-loading-galion-one-mouth error"
+          ]
+        },
+        {
+          "cause": "scan:console",
+          "severity": "warn",
+          "members": [
+            "vulnerability:scanner-probes-console error"
+          ]
+        }
+      ],
+      "findings": [
+        "bleeding:edge-dead-origins error",
+        "bleeding:error-rate-cloudflared warn",
+        "bleeding:memory-heavy-console info",
+        "bleeding:restarts-galion-desk warn",
+        "bleeding:stuck-loading-galion-one-mouth error",
+        "incidents:inc-#b#ec# error",
+        "incidents:inc-#e critical",
+        "incidents:inc-#e#c#c warn",
+        "incidents:inc-#f# warn",
+        "incidents:inc-f#ae#b#b error",
+        "vulnerabilities:public-listener-# error",
+        "vulnerabilities:scanner-probes-console error",
+        "vulnerabilities:unmanaged-listeners warn"
+      ],
+      "checks": [
+        "error ddos tuner",
+        "error incident ddos:tuner",
+        "error incident edge",
+        "error incident galion-one",
+        "error vulnerability console",
+        "error vulnerability host",
+        "info alerts-channel galion-nerve",
+        "info bleeding console",
+        "info component cloudflared",
+        "info component gaia",
+        "info component galion-desk",
+        "info component galion-one-mouth",
+        "info component voice-worker",
+        "info coverage galion-backup",
+        "info coverage galion-nerve-shadow",
+        "info coverage hades-gate",
+        "info coverage openmind-queue",
+        "info coverage tanga-proto",
+        "info mode galion-nerve",
+        "info push galion-nerve",
+        "warn bleeding cloudflared",
+        "warn bleeding galion-desk",
+        "warn bleeding galion-one-mouth",
+        "warn incident galion-desk",
+        "warn incident scan:console",
+        "warn vulnerability host"
+      ],
+      "deductions": [
+        "10 vulnerability (error): port # listens on #.#.#.# (not loopback)",
+        "10 warn incident: scanner/exploit probes against console",
+        "15 error incident: edge: tunnel routes # public hostname(s) to # closed origin port(s) :# :#: #.# failed requests/min over # min",
+        "15 error incident: galion-one: galion-one-mouth degrading: health probe HTTP # -- stuck loading for #.# d [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+        "25 critical incident: request flood on tuner (stream tuner)",
+        "4 vulnerability (warn): # loopback listener(s) no monitored unit owns: :# :#",
+        "5 warn incident: galion-desk: degrading: # restart(s) in the last hour"
+      ]
+    },
+    "held": {
+      "score": 41,
+      "grade": "F",
+      "pass": false,
+      "system": "degraded",
+      "incidents": [
+        {
+          "cause": "edge",
+          "severity": "error",
+          "members": [
+            "bleeding:edge-dead-origins error"
+          ]
+        },
+        {
+          "cause": "galion-desk",
+          "severity": "warn",
+          "members": [
+            "bleeding:restarts-galion-desk warn"
+          ]
+        },
+        {
+          "cause": "galion-one",
+          "severity": "error",
+          "members": [
+            "bleeding:stuck-loading-galion-one-mouth error"
+          ]
+        },
+        {
+          "cause": "scan:console",
+          "severity": "warn",
+          "members": [
+            "vulnerability:scanner-probes-console error"
+          ]
+        }
+      ],
+      "findings": [
+        "bleeding:edge-dead-origins error",
+        "bleeding:memory-heavy-console info",
+        "bleeding:restarts-galion-desk warn",
+        "bleeding:stuck-loading-galion-one-mouth error",
+        "incidents:inc-#b#ec# error",
+        "incidents:inc-#e#c#c warn",
+        "incidents:inc-#f# warn",
+        "incidents:inc-f#ae#b#b error",
+        "vulnerabilities:public-listener-# error",
+        "vulnerabilities:scanner-probes-console error",
+        "vulnerabilities:unmanaged-listeners warn"
+      ],
+      "checks": [
+        "error incident edge",
+        "error incident galion-one",
+        "error vulnerability console",
+        "error vulnerability host",
+        "info alerts-channel galion-nerve",
+        "info bleeding console",
+        "info component gaia",
+        "info component galion-desk",
+        "info component galion-one-mouth",
+        "info component voice-worker",
+        "info coverage galion-backup",
+        "info coverage galion-nerve-shadow",
+        "info coverage hades-gate",
+        "info coverage openmind-queue",
+        "info coverage tanga-proto",
+        "info mode galion-nerve",
+        "info push galion-nerve",
+        "warn bleeding cloudflared",
+        "warn bleeding galion-desk",
+        "warn bleeding galion-one-mouth",
+        "warn incident galion-desk",
+        "warn incident scan:console",
+        "warn vulnerability host"
+      ],
+      "deductions": [
+        "10 vulnerability (error): port # listens on #.#.#.# (not loopback)",
+        "10 warn incident: scanner/exploit probes against console",
+        "15 error incident: edge: tunnel routes # public hostname(s) to # closed origin port(s) :# :#: #.# failed requests/min over # min",
+        "15 error incident: galion-one: galion-one-mouth degrading: health probe HTTP # -- stuck loading for #.# d [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+        "4 vulnerability (warn): # loopback listener(s) no monitored unit owns: :# :#",
+        "5 warn incident: galion-desk: degrading: # restart(s) in the last hour"
+      ]
+    },
+    "timeline": [
+      "46 F",
+      "16 F",
+      "16 F",
+      "16 F",
+      "16 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F",
+      "41 F"
+    ],
+    "flaps": []
+  }
+}

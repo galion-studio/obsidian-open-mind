@@ -11,10 +11,15 @@
 //!   tuner and galion-one (pure Rust) for aarch64 musl with every
 //!   `CARGO_TARGET_*_LINKER` and `RUSTFLAGS` removed from the environment,
 //!   checks the ELF (AArch64, static: no PT_INTERP, no PT_DYNAMIC), then runs
-//!   both under `qemu-aarch64-static` on 127.0.0.1:20150-20152 and probes
-//!   their real HTTP endpoints. When `CC_aarch64_unknown_linux_musl` is set
-//!   (a C cross compiler, e.g. the zig cc wrapper in docs/toolchain-aarch64.md)
-//!   it also builds openmind-memory (bundled SQLite) and probes it on 20153.
+//!   both under `qemu-aarch64-static` on 127.0.0.1:base..base+2 and probes
+//!   their real HTTP endpoints. When a C cross compiler is available
+//!   (`CC_aarch64_unknown_linux_musl` set, or `aarch64-linux-musl-gcc` on PATH,
+//!   e.g. the slot 338 zig cc wrappers in /workspace/swarm/bin) it also builds
+//!   openmind-memory (bundled SQLite) and probes it on base+3.
+//! * Ports: `REAL_TOOLCHAIN_AARCH64_PORT_BASE` (default 20150) .. +3; they must
+//!   be free before the run (a foreign listener would fake a pass).
+//!   `REAL_TOOLCHAIN_AARCH64_REQUIRE_C=1` fails instead of skipping the SQLite
+//!   part when no C cross compiler is found.
 //!   It uses its own target dir (`<target>/toolchain-aarch64-real`) so the
 //!   nested cargo never waits on the outer `cargo test` lock.
 
@@ -22,7 +27,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-use galion_realtest::http;
+use galion_realtest::{http, ports};
+
+/// Old fixed range (slot 145); the default when the env var is unset.
+const DEFAULT_PORT_BASE: u16 = 20150;
+const PORT_SPAN: u16 = 4;
+const PORT_ENV: &str = "REAL_TOOLCHAIN_AARCH64_PORT_BASE";
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -148,7 +158,36 @@ fn real_aarch64_build_and_run() {
         .map(PathBuf::from)
         .unwrap_or_else(|| root().join("target"));
     let td = base.join("toolchain-aarch64-real");
-    let with_c = std::env::var_os("CC_aarch64_unknown_linux_musl").is_some();
+    let base_port = ports::base_from_env(PORT_ENV, DEFAULT_PORT_BASE, PORT_SPAN);
+    let addr = |i: u16| format!("127.0.0.1:{}", base_port + i);
+    let cc_env = std::env::var_os("CC_aarch64_unknown_linux_musl").is_some();
+    let cc_path = which("aarch64-linux-musl-gcc");
+    let with_c = cc_env || cc_path.is_some();
+    eprintln!(
+        "ports {}-{} ({PORT_ENV}); C cross cc: {}",
+        base_port,
+        base_port + PORT_SPAN - 1,
+        if cc_env {
+            "CC_aarch64_unknown_linux_musl".to_string()
+        } else if let Some(p) = &cc_path {
+            p.display().to_string()
+        } else {
+            "none (SQLite part skipped)".to_string()
+        }
+    );
+    if std::env::var("REAL_TOOLCHAIN_AARCH64_REQUIRE_C").as_deref() == Ok("1") {
+        assert!(
+            with_c,
+            "REAL_TOOLCHAIN_AARCH64_REQUIRE_C=1 but no aarch64 C cross compiler"
+        );
+    }
+    for i in 0..PORT_SPAN {
+        assert!(
+            !http::port_open(&addr(i)),
+            "{} already in use: pick a free range with {PORT_ENV}",
+            addr(i)
+        );
+    }
     let mut pkgs = vec!["tuner", "galion-one"];
     if with_c {
         pkgs.push("openmind-memory");
@@ -217,7 +256,7 @@ fn real_aarch64_build_and_run() {
         spawn(
             "tuner",
             &[
-                ("TUNER_ADDR", p("127.0.0.1:20150")),
+                ("TUNER_ADDR", PathBuf::from(addr(0))),
                 ("TUNER_ROOT", work.join("www")),
             ],
         ),
@@ -225,8 +264,8 @@ fn real_aarch64_build_and_run() {
             "galion-one",
             &[
                 ("GALION_HOME", work.join("one")),
-                ("ONE_BIND", p("127.0.0.1:20151")),
-                ("ONE_MOUTH_BIND", p("127.0.0.1:20152")),
+                ("ONE_BIND", PathBuf::from(addr(1))),
+                ("ONE_MOUTH_BIND", PathBuf::from(addr(2))),
                 ("ONE_NO_WARM", p("1")),
             ],
         ),
@@ -236,20 +275,24 @@ fn real_aarch64_build_and_run() {
             "openmind-memory",
             &[
                 ("OPENMIND_MEMORY_HOST", p("127.0.0.1")),
-                ("OPENMIND_MEMORY_PORT", p("20153")),
+                (
+                    "OPENMIND_MEMORY_PORT",
+                    PathBuf::from((base_port + 3).to_string()),
+                ),
                 ("OPENMIND_MEMORY_DATA_DIR", work.join("mem")),
             ],
         ));
     }
     let mut checks = vec![
-        ("127.0.0.1:20150", "/health", "\"ok\":true"),
-        ("127.0.0.1:20150", "/", "slot145 aarch64"),
-        ("127.0.0.1:20151", "/health", "ok"),
+        (addr(0), "/health", "\"ok\":true"),
+        (addr(0), "/", "slot145 aarch64"),
+        (addr(1), "/health", "ok"),
     ];
     if with_c {
-        checks.push(("127.0.0.1:20153", "/health", "status"));
+        checks.push((addr(3), "/health", "status"));
     }
     for (addr, path, want) in checks {
+        let addr = addr.as_str();
         assert!(wait_up(addr, 60), "{addr}: nothing listening");
         let r = http::get(addr, path).unwrap_or_else(|e| panic!("GET {addr}{path}: {e}"));
         let body = r.text();
@@ -266,7 +309,7 @@ fn real_aarch64_build_and_run() {
     }
     if with_c {
         let r = http::post_json(
-            "127.0.0.1:20153",
+            &addr(3),
             "/capture",
             &[],
             r#"{"session_key":"slot145","user_content":"aarch64 rust-lld write","assistant_content":"stored under qemu"}"#,
@@ -275,7 +318,7 @@ fn real_aarch64_build_and_run() {
         eprintln!("POST /capture -> {}", r.status);
         assert!(r.status < 300, "capture status {}", r.status);
         let r = http::post_json(
-            "127.0.0.1:20153",
+            &addr(3),
             "/search/conversations",
             &[],
             r#"{"query":"rust-lld","session_key":"slot145"}"#,
@@ -289,5 +332,13 @@ fn real_aarch64_build_and_run() {
         assert!(r.text().contains("rust-lld"), "SQLite read-back under qemu");
     }
     drop(kids);
+    for i in 0..PORT_SPAN {
+        assert!(
+            !http::port_open(&addr(i)),
+            "{} still open after stop",
+            addr(i)
+        );
+    }
+    eprintln!("all {PORT_SPAN} ports closed after stop");
     let _ = std::fs::remove_dir_all(&work);
 }

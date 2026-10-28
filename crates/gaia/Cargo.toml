@@ -34,3 +34,7 @@ zagreb-time = { path = "../zagreb-time" }
 # Signed, expiring, single-use, scope-bound approvals for heal-tick
 # (adapter::check_gaia + replay ledger). Pure Rust; see docs/third-party/gaia-hades-tokens.md.
 hades-gate = { path = "../hades-gate" }
+
+[dev-dependencies]
+# Port-base env for GALION_REAL tests (slot 363); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

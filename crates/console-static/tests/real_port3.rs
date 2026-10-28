@@ -29,9 +29,20 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const BIND: &str = "127.0.0.1:20070";
-const API: &str = "127.0.0.1:20071";
-const NERVE: &str = "127.0.0.1:20073";
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `PORT3_REAL_PORT_BASE`; unset keeps
+/// the old 20070 block.
+static PORTS: Block = Block::new("PORT3_REAL_PORT_BASE", 20070, 10);
+fn api_at() -> &'static str {
+    PORTS.addr(1)
+}
+fn bind_at() -> &'static str {
+    PORTS.addr(0)
+}
+fn nerve_at() -> &'static str {
+    PORTS.addr(3)
+}
 
 struct Kill(Child, &'static str);
 impl Drop for Kill {
@@ -94,7 +105,7 @@ fn s<'a>(v: &'a Value, k: &str) -> &'a str {
 
 /// `name:port status` of the nerve components next to the console.
 fn nerve_watch(tag: &str) -> Vec<String> {
-    let (c, v) = live_json(NERVE, "/state");
+    let (c, v) = live_json(nerve_at(), "/state");
     assert_eq!(c, 200, "nerve /state");
     let mut out = Vec::new();
     for comp in v.get("components").as_array() {
@@ -120,7 +131,7 @@ fn nerve_watch(tag: &str) -> Vec<String> {
 
 fn timed(path: &str) -> (u16, String) {
     let t = Instant::now();
-    let (c, page) = get(BIND, path);
+    let (c, page) = get(bind_at(), path);
     eprintln!(
         "real: {path} {c} {} B in {} ms",
         page.len(),
@@ -145,32 +156,49 @@ fn real_port3_rooms_against_live_vps() {
             "ExitOnForwardFailure=yes",
             "-N",
         ])
-        .args(["-L", &format!("{API}:127.0.0.1:8080")])
-        .args(["-L", &format!("{NERVE}:127.0.0.1:8670")])
+        .args(["-L", &format!("{api_at}:127.0.0.1:8080", api_at = api_at())])
+        .args([
+            "-L",
+            &format!("{nerve_at}:127.0.0.1:8670", nerve_at = nerve_at()),
+        ])
         .arg(&vps)
         .stdin(Stdio::null())
         .spawn()
         .expect("ssh");
     let _ssh = Kill(ssh, "ssh forward");
-    wait_for("ssh forward", 25, || get(API, "/api/v1/health").0 == 200);
-    eprintln!("real: forward {API}->8080 {NERVE}->8670 (ssh -N, GET only)");
+    wait_for("ssh forward", 25, || {
+        get(api_at(), "/api/v1/health").0 == 200
+    });
+    eprintln!(
+        "real: forward {api_at}->8080 {nerve_at}->8670 (ssh -N, GET only)",
+        api_at = api_at(),
+        nerve_at = nerve_at()
+    );
     let before = nerve_watch("before");
-    let (mc0, ring0) = live_json(API, "/api/v1/markers");
+    let (mc0, ring0) = live_json(api_at(), "/api/v1/markers");
     assert_eq!(mc0, 200, "live markers");
 
     let bin = env!("CARGO_BIN_EXE_galion-console-static");
     let child = Command::new(bin)
-        .args(["--ui", "rust", "--upstream", API, "--bind", BIND, "--quiet"])
+        .args([
+            "--ui",
+            "rust",
+            "--upstream",
+            api_at(),
+            "--bind",
+            bind_at(),
+            "--quiet",
+        ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .expect("start binary");
     let _srv = Kill(child, "galion-console-static");
-    wait_for("binary", 10, || TcpStream::connect(BIND).is_ok());
+    wait_for("binary", 10, || TcpStream::connect(bind_at()).is_ok());
 
     // /instances vs live GET /api/v1/instances + /api/v1/laptop.
-    let (ic, inst) = live_json(API, "/api/v1/instances");
-    let (lc, laptop) = live_json(API, "/api/v1/laptop");
+    let (ic, inst) = live_json(api_at(), "/api/v1/instances");
+    let (lc, laptop) = live_json(api_at(), "/api/v1/laptop");
     assert_eq!(ic, 200, "live instances");
     assert_eq!(lc, 200, "live laptop");
     let (c, page) = timed("/instances");
@@ -246,7 +274,7 @@ fn real_port3_rooms_against_live_vps() {
     );
 
     // /keys: live list without a paired cookie.
-    let (kc, kv) = live_json(API, "/api/v1/keys");
+    let (kc, kv) = live_json(api_at(), "/api/v1/keys");
     let (c, page) = timed("/keys");
     assert_eq!(c, 200);
     if kc == 200 {
@@ -276,7 +304,7 @@ fn real_port3_rooms_against_live_vps() {
     // /markers vs live ring.
     let (c, page) = timed("/markers");
     assert_eq!(c, 200);
-    let (_, ring) = live_json(API, "/api/v1/markers");
+    let (_, ring) = live_json(api_at(), "/api/v1/markers");
     let items = ring.get("items").as_array();
     let capn = ring.get("cap").as_f64().unwrap_or(42.0) as usize;
     assert!(page.contains(&format!("Ring of {capn} · {} stored", items.len())));
@@ -292,7 +320,7 @@ fn real_port3_rooms_against_live_vps() {
         let mut ms = Vec::new();
         for _ in 0..5 {
             let t = Instant::now();
-            let (c, b) = get(BIND, p);
+            let (c, b) = get(bind_at(), p);
             ms.push(t.elapsed().as_millis());
             assert_eq!(c, 200, "{p}");
             assert!(!b.to_ascii_lowercase().contains("<script"), "{p}");
@@ -302,7 +330,7 @@ fn real_port3_rooms_against_live_vps() {
 
     // The live ring did not change (only GETs were sent) and the nerve
     // still sees the same components, none down.
-    let (_, ring1) = live_json(API, "/api/v1/markers");
+    let (_, ring1) = live_json(api_at(), "/api/v1/markers");
     assert_eq!(
         ring0.get("count").to_json(),
         ring1.get("count").to_json(),

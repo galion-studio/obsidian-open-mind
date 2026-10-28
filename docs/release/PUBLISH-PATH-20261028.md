@@ -8,6 +8,10 @@ DONE lines in `/workspace/swarm/CALL-RECORD.md`) and fresh **read-only** checks 
 (GitHub API, VPS loopback GETs / `systemctl`, local `git merge-tree`, 15:36-15:40 CET; evidence in
 `docs/real-tests/publish-path-refresh.md`). **Nothing was applied, deployed or merged.** You decide.
 
+> **Update 2026-10-28 18:05 CET (slot 418):** steps 1 (half: D-318-2 done, D-361-1 open), 2, 3 and 4 below are done;
+> step 5 (PR #12 merge) is next once CI is green. Live: console 5aa31927, cortex 58a12e6, nerve 9baa450. The
+> sections 0 and 2 below are the 15:40 snapshot. Open decisions: `docs/decisions/OWNER-DECISIONS-DIGEST-20261028-3.md`.
+
 ## 0. The answer in four lines
 1. **Landing is now two branches, not five steps.** Slot 373 `swarm/land-order-gateway-size` **83e573e2** already
    contains the whole D-359-1 order *plus* the gateway size fix; slot 374 `swarm/pr12-flake-bundle` **d50478db**
@@ -51,20 +55,30 @@ Also done, smaller: 363 0d545118, 366 b859ffb3, 368 bfb102c8, 370 f82c95f2, 372 
 
 1. **Security, no restart (B4, B5)** — say "D-318-2 yes" (chmod 600 `link.env`, staged 356 b8520146) and
    "D-361-1 yes" (restore test swap, 361 2b24e88b). ~5 min in a VPS window. Unchanged since this morning.
+   **Status 18:03 CET: half done.** D-318-2 applied 16:05 (Mate t332u): `link.env` is **600 root:root** (checked 18:03).
+   **D-361-1 is still open**: live `galion-restore-test.sh` is still the plain .sh (no `.pre361`). Say "D-361-1 yes".
 2. **Push the 7 local branches (B11)** from the parent: 334 f68def1d, 346 4828997d, 347 7fc44a00, 349 99cc25bd,
    351 65fa0271, 369 720548e0, 385 8f40f18e. Only **347** sits on the publish path (cortex `/health nerve` honesty
    for the cortex window); the rest can follow.
+   **Status 18:03 CET: DONE.** 385 pushed 15:49, the other six 16:05 (Mate t332u), 403 8887a0cb 17:53. No local-only branches left on this path.
 3. **Land onto main-staging (B1-B3) = two merges, already rehearsed** — merge 373 **83e573e2**, then 374 **d50478db**
    (0 conflicts, merged tree 76ece348, base 3f015986 = main-staging 38a07700 tree). Decisions: D-373-1 (this order),
    D-373-2 (carry F-373-1), D-374-1 (keep 5d03a5ce). Then re-run CI on PR #12. ~1 h of CI time.
    Leave the test-only branches (375, 376, 386, 390) for a **separate test batch after the publish**: against the
    373+374 tree they conflict in test files and a comment in `.cargo/config.toml` (386: 2 files, 390: 2 files);
    none of them is needed to publish.
+   **Status 18:03 CET: DONE** 17:58 CET (t334u): main-staging ef99947c (373) + b4fe2383 (374) + 3 CI fixes, head 3250d07d.
+   Test-only batch is slot 415 (post-publish-test-batch).
 4. **One deploy window (B6, B7)** — console 5aa31927 (343 drop-ins; consider D-364-1 board parity), then cortex
    58a12e61, then nerve 9baa450c, per runbook 357; rollback 2d846fb8 / 73583ab / 9d1a4f3. ~30 min.
    Build with GALION_BUILD_COMMIT + SOURCE_DATE_EPOCH if you take the 377 stamp (D-377-2). Watch the 11 open
    cortex escalations before and after.
+   **Status 18:03 CET: DONE** 17:30-17:41 CET (Mate t334u; report `/workspace/swarm/reports/core-stack-live-20261028.md`):
+   console 5aa31927 on :18080 + :8080, cortex 58a12e6, nerve 9baa450 + components 283db8c3, all NRestarts 0, no rollback.
+   Cortex escalations_open 0 at 18:03 (was 11). D-396-3 (503 wording) deferred.
 5. **Merge PR #12 into main** = the publish step (your or Mate's go; never force-push).
+   **Status 18:03 CET: NEXT.** PR #12 is on main-staging 3250d07d; CI not green yet (combined status pending,
+   mergeable_state unstable). Merge when green.
 6. **After the publish, before real users**: alert channel (B9: now pick D-382-1 A ntfy without a token, or give the
    Telegram token), crate ownership rows (B10), mouth option (B8: D-358-1 / D-358-3).
 

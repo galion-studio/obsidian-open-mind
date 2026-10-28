@@ -8,16 +8,61 @@
 //! inotify (task dir + record file), pidfd (`NERVE_EVT_PIDS`), HTTP
 //! (`POST /event`, `POST /actions`), and the paid-escalation slot against
 //! an in-test stub (no real provider, no key, loopback only).
-//! Ports 20760-20769. Runs on the box (no sandbox, no root needed).
+//! Runs on the box (no sandbox, no root needed).
+//!
+//! Ports (slot 390, nerve-evt-mode-port, 2026-10-28 CET +01:00; F-373-2):
+//! the suite used fixed ports 20760-20769 shared by every swarm slot, so two
+//! concurrent workspace runs collided (a failed stub bind, or a health probe
+//! answered by another slot's nerve) and the e2e test could hang forever on
+//! the blocking journal-FIFO open once its nerve was gone. Now:
+//! - default: ephemeral loopback ports. The stub binds `127.0.0.1:0`; each
+//!   nerve gets a kernel-picked free port and the test waits for the nerve's
+//!   own `listening on <addr>` stderr line (so a foreign listener can never
+//!   pass the health wait); a lost bind race is retried on a new port.
+//! - `NERVE_EVT_IT_PORT_BASE=<base>` (via `galion_realtest::ports`): fixed
+//!   block `base..base+9` (e2e nerve +0, paid stub +2, paid nerve +3,
+//!   dead component +9) for runs that must stay inside a slot range.
+//! - the FIFO writer open is bounded (30 s) and fails fast if the nerve died.
 
+use galion_realtest::ports::parse_base;
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
+const PORT_ENV: &str = "NERVE_EVT_IT_PORT_BASE";
+const PORT_SPAN: u16 = 10;
+const OFF_E2E: u16 = 0;
+const OFF_STUB: u16 = 2;
+const OFF_PAID: u16 = 3;
+const OFF_DEAD: u16 = 9;
+
+/// Fixed block base from `NERVE_EVT_IT_PORT_BASE`, or `None` = ephemeral.
+fn fixed_base() -> Option<u16> {
+    let raw = std::env::var(PORT_ENV).ok()?;
+    // default is unused when the var is set; parse_base validates the span
+    Some(parse_base(Some(&raw), 0, PORT_SPAN).unwrap_or_else(|e| panic!("{PORT_ENV}: {e}")))
+}
+
+/// A loopback port nothing listens on right now (kernel-picked, then freed).
+fn ephemeral_port() -> u16 {
+    TcpListener::bind("127.0.0.1:0")
+        .and_then(|l| l.local_addr())
+        .expect("ephemeral bind")
+        .port()
+}
+
+/// Port for block offset `off`: fixed block when the env is set, else ephemeral.
+fn port_for(off: u16) -> u16 {
+    match fixed_base() {
+        Some(b) => b + off,
+        None => ephemeral_port(),
+    }
+}
 
 fn http(port: u16, method: &str, path: &str, body: &str) -> (u16, String) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).expect("connect");
@@ -57,11 +102,25 @@ fn wait_until(what: &str, secs: u64, mut f: impl FnMut() -> bool) {
 struct Nerve {
     child: Child,
     port: u16,
+    /// nerve stderr, drained by a thread (an undrained pipe could block it)
+    err: Arc<Mutex<String>>,
 }
 impl Drop for Nerve {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+    }
+}
+impl Nerve {
+    /// Panics with the nerve's stderr if the process has exited.
+    fn assert_alive(&mut self, what: &str) {
+        if let Ok(Some(st)) = self.child.try_wait() {
+            panic!(
+                "nerve on :{} exited ({st}) during {what}; stderr:\n{}",
+                self.port,
+                self.err.lock().unwrap()
+            );
+        }
     }
 }
 
@@ -72,43 +131,122 @@ fn tmp(name: &str) -> PathBuf {
     d
 }
 
-fn start(port: u16, dir: &Path, extra: &[(&str, String)]) -> Nerve {
-    std::fs::write(dir.join("components.json"), r#"[{"name":"evt-it-dead","port":20769,"path":"/health","gaia":"DEMETER","system":"tuner"}]"#).unwrap();
-    let mut c = Command::new(BIN);
-    c.args([
-        "serve",
-        "--mode",
-        "event",
-        "--listen",
-        &format!("127.0.0.1:{port}"),
-        "--log",
-        &dir.join("events.jsonl").display().to_string(),
-    ])
-    .env_clear()
-    .env("PATH", std::env::var("PATH").unwrap_or_default())
-    .env("NERVE_DATA_DIR", dir.join("data"))
-    .env("NERVE_COMPONENTS", dir.join("components.json"))
-    .env("NERVE_DRY_RUN", "1")
-    .env("NERVE_SYSTEMD", "0")
-    .env("NERVE_JOURNAL", "0")
-    .env("NERVE_GALION_HEALTH_PORT", "0")
-    .env("NERVE_EVT_DEBOUNCE", "1")
-    .env("NERVE_EVT_MAX_WAIT", "4")
-    .env("NERVE_EVT_CYCLE_DEBOUNCE", "1")
-    .env("NERVE_EVT_CYCLE_MIN_GAP", "5")
-    .stdin(Stdio::null())
-    .stdout(Stdio::null())
-    .stderr(Stdio::piped());
+/// Start an event-mode nerve on block offset `off` (or an ephemeral port).
+/// Ready = its own `listening on 127.0.0.1:<port>` line was printed (bind
+/// succeeded in THIS process) and `/health` is 200 while it is still alive.
+/// An ephemeral port lost to a race (bind error) is retried on a new port.
+fn start(off: u16, dir: &Path, extra: &[(&str, String)]) -> Nerve {
     std::fs::create_dir_all(dir.join("data")).unwrap();
-    for (k, v) in extra {
-        c.env(k, v);
+    let dead = port_for(OFF_DEAD);
+    std::fs::write(
+        dir.join("components.json"),
+        format!(r#"[{{"name":"evt-it-dead","port":{dead},"path":"/health","gaia":"DEMETER","system":"tuner"}}]"#),
+    )
+    .unwrap();
+    let fixed = fixed_base().is_some();
+    let tries = if fixed { 1 } else { 5 };
+    let mut last = String::new();
+    for _ in 0..tries {
+        let port = port_for(off);
+        let mut c = Command::new(BIN);
+        c.args([
+            "serve",
+            "--mode",
+            "event",
+            "--listen",
+            &format!("127.0.0.1:{port}"),
+            "--log",
+            &dir.join("events.jsonl").display().to_string(),
+        ])
+        .env_clear()
+        .env("PATH", std::env::var("PATH").unwrap_or_default())
+        .env("NERVE_DATA_DIR", dir.join("data"))
+        .env("NERVE_COMPONENTS", dir.join("components.json"))
+        .env("NERVE_DRY_RUN", "1")
+        .env("NERVE_SYSTEMD", "0")
+        .env("NERVE_JOURNAL", "0")
+        .env("NERVE_GALION_HEALTH_PORT", "0")
+        .env("NERVE_EVT_DEBOUNCE", "1")
+        .env("NERVE_EVT_MAX_WAIT", "4")
+        .env("NERVE_EVT_CYCLE_DEBOUNCE", "1")
+        .env("NERVE_EVT_CYCLE_MIN_GAP", "5")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+        for (k, v) in extra {
+            c.env(k, v);
+        }
+        let mut child = c.spawn().expect("spawn nerve");
+        let err = Arc::new(Mutex::new(String::new()));
+        let pipe = child.stderr.take().unwrap();
+        let e2 = err.clone();
+        std::thread::spawn(move || {
+            for l in BufReader::new(pipe).lines().map_while(Result::ok) {
+                let mut g = e2.lock().unwrap();
+                g.push_str(&l);
+                g.push('\n');
+            }
+        });
+        let mut n = Nerve { child, port, err };
+        let want = format!("listening on 127.0.0.1:{port} ");
+        let t = Instant::now();
+        let mut exited = false;
+        while !n.err.lock().unwrap().contains(&want) {
+            if let Ok(Some(_)) = n.child.try_wait() {
+                exited = true;
+                break;
+            }
+            assert!(
+                t.elapsed() < Duration::from_secs(30),
+                "timeout waiting for nerve listen line on :{port}; stderr:\n{}",
+                n.err.lock().unwrap()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if exited {
+            // give the drain thread a moment to collect the last lines
+            std::thread::sleep(Duration::from_millis(100));
+            last = n.err.lock().unwrap().clone();
+            if !fixed && last.contains("bind 127.0.0.1:") {
+                eprintln!("evt_mode: port {port} lost to a bind race, retrying");
+                continue;
+            }
+            panic!("nerve on :{port} exited at start; stderr:\n{last}");
+        }
+        wait_until("health", 30, || {
+            TcpStream::connect(("127.0.0.1", port)).is_ok()
+                && http(port, "GET", "/health", "").0 == 200
+        });
+        n.assert_alive("start");
+        return n;
     }
-    let child = c.spawn().expect("spawn nerve");
-    let n = Nerve { child, port };
-    wait_until("health", 30, || {
-        TcpStream::connect(("127.0.0.1", port)).is_ok() && http(port, "GET", "/health", "").0 == 200
+    panic!("nerve could not bind after {tries} ephemeral ports; last stderr:\n{last}");
+}
+
+/// Open the journal FIFO for write without hanging forever: the open blocks
+/// until the nerve opens the read end, so do it on a helper thread and give
+/// up (with the nerve's stderr) after 30 s or as soon as the nerve exits.
+fn open_fifo_writer(fifo: &Path, n: &mut Nerve) -> std::fs::File {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let p = fifo.to_path_buf();
+    std::thread::spawn(move || {
+        let _ = tx.send(std::fs::OpenOptions::new().write(true).open(&p));
     });
-    n
+    let t = Instant::now();
+    loop {
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(r) => return r.expect("open journal fifo for write"),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                n.assert_alive("journal fifo open");
+                assert!(
+                    t.elapsed() < Duration::from_secs(30),
+                    "journal fifo open timed out (nerve never opened the read end); stderr:\n{}",
+                    n.err.lock().unwrap()
+                );
+            }
+            Err(e) => panic!("fifo open thread: {e}"),
+        }
+    }
 }
 
 fn mkfifo(p: &Path) {
@@ -129,8 +267,8 @@ fn event_mode_end_to_end() {
     let record = dir.join("swarm-record.md");
     std::fs::write(&record, "- old START line\n").unwrap();
     let mut sleeper = Command::new("sleep").arg("3").spawn().unwrap();
-    let n = start(
-        20760,
+    let mut n = start(
+        OFF_E2E,
         &dir,
         &[
             ("NERVE_EVT_JOURNALCTL", format!("replay:{}", fifo.display())),
@@ -143,7 +281,7 @@ fn event_mode_end_to_end() {
     );
     let p = n.port;
     // the FIFO writer stays open for the whole test
-    let mut j = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+    let mut j = open_fifo_writer(&fifo, &mut n);
 
     // 1. contract endpoints exist; health stays 200
     wait_until("inventory", 30, || {
@@ -376,12 +514,14 @@ fn event_mode_end_to_end() {
 #[test]
 fn openrouter_endpoint_refused_at_start() {
     let dir = tmp("or");
+    let or_listen = format!("127.0.0.1:{}", fixed_base().map_or(0, |b| b + 1));
     for url in [
         "https://openrouter.ai/api/v1/chat/completions",
         "http://127.0.0.1:8642/v1/chat/completions",
     ] {
         let out = Command::new(BIN)
-            .args(["serve", "--mode", "event", "--listen", "127.0.0.1:20761"])
+            // binds before the refusal check: fixed block base+1, else port 0
+            .args(["serve", "--mode", "event", "--listen", &or_listen])
             .env("NERVE_DATA_DIR", &dir)
             .env("NERVE_EVT_ESCALATE", "openai")
             .env("NERVE_EVT_LLM_ENDPOINT", url)
@@ -402,7 +542,13 @@ fn paid_slot_against_stub_respects_caps() {
     let dir = tmp("paid");
     let fifo = dir.join("journal.fifo");
     mkfifo(&fifo);
-    let stub = TcpListener::bind("127.0.0.1:20762").unwrap();
+    // fixed block: base+2; default: kernel-picked port (no shared fixed port)
+    let stub = match fixed_base() {
+        Some(b) => TcpListener::bind(("127.0.0.1", b + OFF_STUB)),
+        None => TcpListener::bind("127.0.0.1:0"),
+    }
+    .expect("stub bind");
+    let stub_port = stub.local_addr().unwrap().port();
     let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(bool, bool, String)>::new()));
     let s2 = seen.clone();
     std::thread::spawn(move || {
@@ -444,15 +590,15 @@ fn paid_slot_against_stub_respects_caps() {
             let _ = write!(c, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{resp}", resp.len());
         }
     });
-    let n = start(
-        20763,
+    let mut n = start(
+        OFF_PAID,
         &dir,
         &[
             ("NERVE_EVT_JOURNALCTL", format!("replay:{}", fifo.display())),
             ("NERVE_EVT_ESCALATE", "openai".into()),
             (
                 "NERVE_EVT_LLM_ENDPOINT",
-                "http://127.0.0.1:20762/v1/chat/completions".into(),
+                format!("http://127.0.0.1:{stub_port}/v1/chat/completions"),
             ),
             ("NERVE_EVT_LLM_MODEL", "stub-model".into()),
             ("NERVE_EVT_LLM_KEY_ENV", "NERVE_IT_STUB_KEY".into()),
@@ -465,7 +611,7 @@ fn paid_slot_against_stub_respects_caps() {
         ],
     );
     let p = n.port;
-    let mut j = std::fs::OpenOptions::new().write(true).open(&fifo).unwrap();
+    let mut j = open_fifo_writer(&fifo, &mut n);
     let st = get_json(p, "/stats");
     assert_eq!(st["config"]["escalate"]["paid_enabled"], true);
     assert!(

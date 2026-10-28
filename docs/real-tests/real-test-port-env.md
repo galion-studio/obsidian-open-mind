@@ -16,7 +16,7 @@ All times Europe/Zagreb (CET +01:00).
 | Test | Env var | Default | Span | Layout |
 |---|---|---|---|---|
 | `openmind-nerve/tests/real_cross_target.rs` | `NERVE_XT_PORT_BASE` | 20870 | 5 | nerves +0..+2, live svc +3, dead +4; `NERVE_LISTEN_SCOPE` = block |
-| same | `NERVE_XT_LIVE_PIN` (new) | 1 | - | `0` = report the aa77864 binary pin instead of asserting it (see F-363-2) |
+| same | `NERVE_XT_LIVE_PIN` (new) | 1 | - | `0` = report the aa77864 binary pin instead of asserting it (see F-363-2); slot 376: superseded by `NERVE_XT_PIN` (default now `budget`, see nerve-xt-pin-refresh.md) |
 | `gaia/tests/real_gaia_loop.rs` | `GAIA_LOOP_NERVE_PORT` | 20300 | 1 | nerve |
 | same | `GAIA_LOOP_DUMMY_PORT_BASE` | 19600 | 10 | `--allow-ports` = block, dummies +1..+3; must stay inside `gaia_live::heal::TEST_PORTS` 19000-19999 (guard not widened) |
 | `galion-health/tests/real_fixes.rs` | `GALION_HEALTH_REAL_PORT_BASE` | 20190 | 5 | health +0, upstream +1, black hole +2, raw +3, closed +4 |

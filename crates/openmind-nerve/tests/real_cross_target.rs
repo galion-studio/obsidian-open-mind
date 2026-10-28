@@ -12,8 +12,17 @@
 //! 2. checks every binary is a static ELF of the right machine, under the
 //!    2 MiB budget, and records its size and SHA-256 (in-test SHA-256, no
 //!    extra tool or crate);
-//! 3. compares with the live binary (`NERVE_XT_LIVE_SHA`/`NERVE_XT_LIVE_SIZE`,
-//!    default = aa77864 as measured on the VPS 2026-10-21 21:02 +02:00);
+//! 3. checks the pin chosen by `NERVE_XT_PIN` (slot 376, D-363-2):
+//!    - `budget` (default): no binary pin; every binary must fit its row of
+//!      the size-budget table [`SIZE_BUDGET`], and the solo and live-recipe
+//!      x86_64 builds (separate target dirs, different package sets) must be
+//!      bit-identical (tree-level reproducibility);
+//!    - `live`: everything in `budget`, plus a `git archive` of the live
+//!      nerve commit (`NERVE_XT_LIVE_REV`, default 9d1a4f3) is rebuilt with the
+//!      deploy recipe and must equal the VPS binary bit for bit
+//!      (`NERVE_XT_LIVE_SHA`/`NERVE_XT_LIVE_SIZE`, default = 9d1a4f3 as read on
+//!      the VPS 2026-10-28 08:10 +01:00); the rebuilt binary is smoked too;
+//!    - `aa77864`: the old slot-217 pin (only passes on the aa77864 tree);
 //! 4. runs each binary (`aarch64` under qemu user mode) on slot ports
 //!    20870-20872 against one live service thread (:20873) and one dead
 //!    port (:20874) (block movable with `NERVE_XT_PORT_BASE`, slot 363):
@@ -24,8 +33,10 @@
 //! Knobs: `NERVE_XT_DIR` (nested target dir, default `<workspace>/target/xt`),
 //! `NERVE_XT_JOBS` (default 2), `NERVE_XT_QEMU` (qemu-aarch64 path),
 //! `NERVE_XT_REPORT` (JSON report path, default `<NERVE_XT_DIR>/report.json`).
-//! Slot 363: `NERVE_XT_PORT_BASE` (5-port block, default 20870) and
-//! `NERVE_XT_LIVE_PIN=0` (report the aa77864 binary pin instead of asserting).
+//! Slot 363: `NERVE_XT_PORT_BASE` (5-port block, default 20870). Slot 376:
+//! `NERVE_XT_PIN` = `budget` | `live` | `aa77864`; the slot-363 knob
+//! `NERVE_XT_LIVE_PIN` still works when `NERVE_XT_PIN` is unset (`0` = budget,
+//! `1` = aa77864).
 
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -36,9 +47,31 @@ use std::time::{Duration, Instant};
 
 /// VPS `/opt/galion/rust/bin/openmind-nerve-aa77864`, read-only sha256sum/stat
 /// 2026-10-21 21:02:28 +02:00 (docs/real-tests/nerve-cross-target.md).
-const LIVE_SHA: &str = "f0994b6db1fd8ed87c16bd72c9583c2894ec4dd5ba89d407016877322aed6a68";
-const LIVE_SIZE: u64 = 1_213_216;
+/// Used only by `NERVE_XT_PIN=aa77864` (the slot-217 pin).
+const AA77864_SHA: &str = "f0994b6db1fd8ed87c16bd72c9583c2894ec4dd5ba89d407016877322aed6a68";
+const AA77864_SIZE: u64 = 1_213_216;
+/// Live nerve since 2026-10-27 18:15 +01:00 (deploy t273u):
+/// `/opt/galion/rust/bin/openmind-nerve-9d1a4f3`, read-only sha256sum/ls on the
+/// VPS 2026-10-28 08:10:06 +01:00 (docs/real-tests/nerve-xt-pin-refresh.md).
+/// Commit is the tip of swarm/nerve-deploy-t273u.
+const LIVE_REV: &str = "9d1a4f3";
+const LIVE_SHA: &str = "d0c70b879e5866bb105707d881686757b5732168da2c016f791316ec3f521d45";
+const LIVE_SIZE: u64 = 1_458_760;
+/// Deploy recipe of the live binary (reproduced bit for bit on the box
+/// 2026-10-28 ~08:12 +01:00): `-p openmind-nerve` alone, x86_64 musl, release,
+/// `--locked`, linker rust-lld. The default x86_64 linker gives 1 463 072 B.
+const LIVE_RECIPE_LINKER: &str = "rust-lld";
+/// Hard ceiling from the low-end profile (every Rust service binary < 2 MiB).
 const BUDGET: u64 = 2 * 1024 * 1024;
+/// Size-budget table (slot 376, `NERVE_XT_PIN=budget`/`live`): label ->
+/// (budget bytes, warn bytes). Over budget fails; over warn only prints.
+/// Warn = 90 % of the ceiling so growth shows up before the hard stop.
+const SIZE_BUDGET: [(&str, u64, u64); 4] = [
+    ("x86_64", BUDGET, BUDGET / 10 * 9),
+    ("aarch64", BUDGET, BUDGET / 10 * 9),
+    ("x86_64-live-recipe", BUDGET, BUDGET / 10 * 9),
+    ("live-pin", BUDGET, BUDGET / 10 * 9),
+];
 /// Slot 363 (real-test-port-env): 5-port block, first port from
 /// `NERVE_XT_PORT_BASE` (unset = 20870, slot 217): nerves on +0..+2, live
 /// service thread on +3, dead component on +4.
@@ -55,14 +88,165 @@ fn port_dead() -> u16 {
     port_base() + 4
 }
 
-/// `NERVE_XT_LIVE_PIN` (slot 363): unset or `1` = enforce the aa77864 pin,
-/// `0` = report only. Any other value is an error.
-fn live_pin() -> bool {
-    match std::env::var("NERVE_XT_LIVE_PIN").as_deref() {
-        Err(_) | Ok("1") => true,
-        Ok("0") => false,
-        Ok(v) => panic!("NERVE_XT_LIVE_PIN must be 0 or 1, got {v:?}"),
+/// Which pin the test enforces (slot 376, D-363-2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PinMode {
+    /// No binary pin: size-budget table + solo == recipe (default).
+    Budget,
+    /// Budget, plus rebuild the live commit and match the VPS binary.
+    Live,
+    /// Slot-217 aa77864 pin (passes only on the aa77864 tree).
+    Aa77864,
+}
+
+/// `NERVE_XT_PIN` wins; else the slot-363 knob `NERVE_XT_LIVE_PIN`
+/// (`0` = budget, `1` = aa77864); both unset = budget.
+fn pin_mode_from(pin: Option<&str>, legacy: Option<&str>) -> Result<PinMode, String> {
+    match pin {
+        Some("budget") => return Ok(PinMode::Budget),
+        Some("live") => return Ok(PinMode::Live),
+        Some("aa77864") => return Ok(PinMode::Aa77864),
+        Some(v) => {
+            return Err(format!(
+                "NERVE_XT_PIN must be budget, live or aa77864, got {v:?}"
+            ))
+        }
+        None => {}
     }
+    match legacy {
+        None => Ok(PinMode::Budget),
+        Some("0") => Ok(PinMode::Budget),
+        Some("1") => Ok(PinMode::Aa77864),
+        Some(v) => Err(format!("NERVE_XT_LIVE_PIN must be 0 or 1, got {v:?}")),
+    }
+}
+
+fn pin_mode() -> PinMode {
+    let pin = std::env::var("NERVE_XT_PIN").ok();
+    let legacy = std::env::var("NERVE_XT_LIVE_PIN").ok();
+    pin_mode_from(pin.as_deref(), legacy.as_deref()).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Size-budget verdict for one binary: `Err` = over budget or unknown label,
+/// `Ok(Some(_))` = warning, `Ok(None)` = fine.
+fn budget_verdict(label: &str, size: u64) -> Result<Option<String>, String> {
+    let Some(&(_, budget, warn)) = SIZE_BUDGET.iter().find(|r| r.0 == label) else {
+        return Err(format!("{label}: no row in SIZE_BUDGET"));
+    };
+    if size > budget {
+        return Err(format!(
+            "{label}: {size} B over budget {budget} B by {} B",
+            size - budget
+        ));
+    }
+    if size > warn {
+        return Ok(Some(format!(
+            "{label}: {size} B above warn {warn} B, headroom {} B to {budget} B",
+            budget - size
+        )));
+    }
+    Ok(None)
+}
+
+/// Pin verdict: the binary rebuilt from the pinned commit must equal the
+/// pinned VPS binary (SHA-256 and size).
+fn pin_verdict(rev: &str, want: (&str, u64), got: (&str, u64)) -> Result<(), String> {
+    if got.0 == want.0 && got.1 == want.1 {
+        return Ok(());
+    }
+    Err(format!(
+        "rebuild of {rev} = {} {} B, pinned VPS binary = {} {} B: either the live nerve was redeployed (bump NERVE_XT_LIVE_REV/SHA/SIZE after a read-only sha256sum on the VPS) or the toolchain/recipe changed",
+        got.0, got.1, want.0, want.1
+    ))
+}
+
+#[test]
+fn pin_mode_parsing() {
+    use PinMode::*;
+    assert_eq!(pin_mode_from(None, None), Ok(Budget));
+    assert_eq!(pin_mode_from(Some("budget"), None), Ok(Budget));
+    assert_eq!(pin_mode_from(Some("live"), None), Ok(Live));
+    assert_eq!(pin_mode_from(Some("aa77864"), None), Ok(Aa77864));
+    assert_eq!(pin_mode_from(None, Some("0")), Ok(Budget));
+    assert_eq!(pin_mode_from(None, Some("1")), Ok(Aa77864));
+    // NERVE_XT_PIN wins over the slot-363 knob.
+    assert_eq!(pin_mode_from(Some("live"), Some("1")), Ok(Live));
+    assert!(pin_mode_from(Some("yes"), None).is_err());
+    assert!(pin_mode_from(Some(""), None).is_err());
+    assert!(pin_mode_from(None, Some("2")).is_err());
+}
+
+#[test]
+fn size_budget_table() {
+    // Every label the test builds has a row; budgets never exceed the ceiling.
+    for l in ["x86_64", "aarch64", "x86_64-live-recipe", "live-pin"] {
+        assert!(SIZE_BUDGET.iter().any(|r| r.0 == l), "{l}");
+    }
+    for (l, b, w) in SIZE_BUDGET {
+        assert!(b <= BUDGET && w < b, "{l}");
+    }
+    // Real sizes seen 2026-10-28: live 9d1a4f3 fine, tree 0d545118 warns,
+    // one byte over the ceiling fails, unknown label fails.
+    assert_eq!(budget_verdict("x86_64", LIVE_SIZE), Ok(None));
+    assert!(budget_verdict("x86_64", 1_930_048).unwrap().is_some());
+    assert_eq!(
+        budget_verdict("aarch64", BUDGET).map(|w| w.is_some()),
+        Ok(true)
+    );
+    assert!(budget_verdict("aarch64", BUDGET + 1).is_err());
+    assert!(budget_verdict("riscv64", 1).is_err());
+}
+
+#[test]
+fn live_pin_verdict() {
+    assert!(pin_verdict(LIVE_REV, (LIVE_SHA, LIVE_SIZE), (LIVE_SHA, LIVE_SIZE)).is_ok());
+    // Default-linker rebuild of 9d1a4f3 (measured): different bytes -> fail.
+    let e = pin_verdict(
+        LIVE_REV,
+        (LIVE_SHA, LIVE_SIZE),
+        (
+            "64ce3aa03bd55a9c698f5c42c4616c6987163d2523fa1ac89aff0187571213f8",
+            1_463_072,
+        ),
+    )
+    .unwrap_err();
+    assert!(e.contains("redeployed"), "{e}");
+    // Same size, different hash still fails.
+    assert!(pin_verdict(LIVE_REV, (LIVE_SHA, LIVE_SIZE), (AA77864_SHA, LIVE_SIZE)).is_err());
+}
+
+/// `git archive <rev>` of the workspace repo into `dst` (fresh), so the live
+/// commit is rebuilt from its own tree no matter what is checked out.
+fn export_rev(rev: &str, dst: &Path) {
+    let _ = std::fs::remove_dir_all(dst);
+    std::fs::create_dir_all(dst).unwrap();
+    let ok = Command::new("git")
+        .args(["cat-file", "-e", &format!("{rev}^{{commit}}")])
+        .current_dir(root())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    assert!(
+        ok,
+        "commit {rev} not in this repo: git fetch <remote> swarm/nerve-deploy-t273u (or set NERVE_XT_LIVE_REV)"
+    );
+    let mut archive = Command::new("git")
+        .args(["archive", "--format=tar", rev])
+        .current_dir(root())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("git archive");
+    let st = Command::new("tar")
+        .args(["-x", "-C"])
+        .arg(dst)
+        .stdin(archive.stdout.take().unwrap())
+        .status()
+        .expect("tar -x");
+    let gs = archive.wait().expect("git archive wait");
+    assert!(
+        gs.success() && st.success(),
+        "git archive | tar -x of {rev} failed"
+    );
 }
 
 // ---------------------------------------------------------------- SHA-256
@@ -234,13 +418,25 @@ fn cargo() -> String {
 }
 
 fn run_cargo(args: &[&str], dir: &Path) -> (bool, f64, String) {
+    run_cargo_in(args, dir, &root(), &[])
+}
+
+/// `run_cargo` in another source tree (`cwd`) with extra env (slot 376: the
+/// live-pin rebuild of an exported commit with the deploy linker).
+fn run_cargo_in(
+    args: &[&str],
+    dir: &Path,
+    cwd: &Path,
+    extra_env: &[(&str, &str)],
+) -> (bool, f64, String) {
     let jobs = std::env::var("NERVE_XT_JOBS").unwrap_or_else(|_| "2".into());
     let t = Instant::now();
     let out = Command::new(cargo())
         .args(args)
         .args(["-j", &jobs, "--target-dir"])
         .arg(dir)
-        .current_dir(root())
+        .current_dir(cwd)
+        .envs(extra_env.iter().copied())
         .env("CARGO_INCREMENTAL", "0")
         .env(
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",
@@ -385,11 +581,19 @@ fn real_cross_target() {
         .map(PathBuf::from)
         .unwrap_or_else(|_| root().join("target/xt"));
     std::fs::create_dir_all(&xt).unwrap();
-    let live_sha = std::env::var("NERVE_XT_LIVE_SHA").unwrap_or_else(|_| LIVE_SHA.into());
+    let mode = pin_mode();
+    // Pinned VPS binary for the chosen mode (budget mode only reports it).
+    let (def_rev, def_sha, def_size) = match mode {
+        PinMode::Aa77864 => ("aa77864", AA77864_SHA, AA77864_SIZE),
+        _ => (LIVE_REV, LIVE_SHA, LIVE_SIZE),
+    };
+    let live_rev = std::env::var("NERVE_XT_LIVE_REV").unwrap_or_else(|_| def_rev.into());
+    let live_sha = std::env::var("NERVE_XT_LIVE_SHA").unwrap_or_else(|_| def_sha.into());
     let live_size: u64 = std::env::var("NERVE_XT_LIVE_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(LIVE_SIZE);
+        .unwrap_or(def_size);
+    eprintln!("[xt] pin mode {mode:?}, pinned VPS binary {live_rev} {live_sha} {live_size} B");
 
     // 1. builds -------------------------------------------------------
     let x86 = "x86_64-unknown-linux-musl";
@@ -405,13 +609,13 @@ fn real_cross_target() {
     ];
     let mut bins = Vec::new();
     let mut report_bins = Vec::new();
-    for (label, target, pkgs) in builds {
-        let dir = xt.join(label);
-        let mut args = vec!["build", "--release", "--locked", "--target", target];
-        args.extend_from_slice(pkgs);
-        let (ok, secs, tail) = run_cargo(&args, &dir);
-        assert!(ok, "{label}: cargo build failed: {tail}");
-        let bin = dir.join(target).join("release/openmind-nerve");
+    let mut warnings = Vec::new();
+    let mut record = |label: &str,
+                      target: &str,
+                      pkgs: &[&str],
+                      bin: PathBuf,
+                      secs: f64,
+                      bins: &mut Vec<(String, PathBuf, String, u64)>| {
         let bytes = std::fs::read(&bin).expect("binary");
         let e = elf(&bytes);
         let want_machine = if target == a64 { 0xB7 } else { 0x3E };
@@ -419,41 +623,101 @@ fn real_cross_target() {
         assert!(!e.has_interp, "{label}: has PT_INTERP (not static)");
         let size = bytes.len() as u64;
         assert!(size < BUDGET, "{label}: {size} B over 2 MiB budget");
+        let budget = if mode == PinMode::Aa77864 {
+            None
+        } else {
+            match budget_verdict(label, size) {
+                Err(e) => panic!("size budget: {e}"),
+                Ok(w) => {
+                    if let Some(w) = &w {
+                        eprintln!("[xt] WARN size budget: {w}");
+                        warnings.push(w.clone());
+                    }
+                    w
+                }
+            }
+        };
         let sha = sha256(&bytes);
         eprintln!(
             "[xt] {label:<20} {size:>9} B  sha256 {sha}  pie={} build {secs:.1} s",
             e.pie
         );
+        let row = SIZE_BUDGET.iter().find(|r| r.0 == label);
         report_bins.push(json!({
             "label": label, "target": target, "packages": pkgs, "size": size,
             "sha256": sha, "pie": e.pie, "static": !e.has_interp,
             "e_machine": format!("{:#x}", e.machine), "build_s": (secs * 10.0).round() / 10.0,
             "size_vs_live": size as i64 - live_size as i64, "equals_live": sha == live_sha,
+            "budget": row.map(|r| r.1), "warn": row.map(|r| r.2),
+            "headroom": row.map(|r| r.1 as i64 - size as i64), "budget_warning": budget,
         }));
-        bins.push((label, bin, sha, size));
+        bins.push((label.to_string(), bin, sha, size));
+    };
+    for (label, target, pkgs) in builds {
+        let dir = xt.join(label);
+        let mut args = vec!["build", "--release", "--locked", "--target", target];
+        args.extend_from_slice(pkgs);
+        let (ok, secs, tail) = run_cargo(&args, &dir);
+        assert!(ok, "{label}: cargo build failed: {tail}");
+        let bin = dir.join(target).join("release/openmind-nerve");
+        record(label, target, pkgs, bin, secs, &mut bins);
     }
-    // The live recipe must reproduce the live binary bit for bit; the solo
-    // build differs only by serde_json preserve_order (feature unification).
-    // Slot 363: `NERVE_XT_LIVE_PIN=0` skips the aa77864-era pin (recipe ==
-    // live SHA, solo != live, preserve_order wire order) so the build + qemu
-    // smoke part can run on a later commit; default (unset/1) keeps it.
-    let pin = live_pin();
+    // Live pin (slot 376, option A): rebuild the live commit from its own
+    // tree with the deploy recipe; must equal the VPS binary bit for bit.
+    if mode == PinMode::Live {
+        let src = xt.join(format!("pin-src-{live_rev}"));
+        export_rev(&live_rev, &src);
+        let dir = xt.join(format!("pin-{live_rev}"));
+        let pkgs: &[&str] = &["-p", "openmind-nerve"];
+        let mut args = vec!["build", "--release", "--locked", "--target", x86];
+        args.extend_from_slice(pkgs);
+        let (ok, secs, tail) = run_cargo_in(
+            &args,
+            &dir,
+            &src,
+            &[(
+                "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER",
+                LIVE_RECIPE_LINKER,
+            )],
+        );
+        assert!(ok, "live-pin {live_rev}: cargo build failed: {tail}");
+        let bin = dir.join(x86).join("release/openmind-nerve");
+        record("live-pin", x86, pkgs, bin, secs, &mut bins);
+        let (_, _, sha, size) = &bins[3];
+        if let Err(e) = pin_verdict(&live_rev, (&live_sha, live_size), (sha, *size)) {
+            panic!("live pin: {e}");
+        }
+        eprintln!("[xt] live pin OK: rebuild of {live_rev} == VPS binary {live_sha} {live_size} B");
+        let _ = std::fs::remove_dir_all(&src);
+    }
     let (_, _, recipe_sha, recipe_size) = &bins[2];
-    if pin {
-        assert_eq!(
-            recipe_sha, &live_sha,
-            "live recipe no longer reproduces the VPS binary"
-        );
-        assert_eq!(*recipe_size, live_size);
-        assert_ne!(
-            bins[0].2, live_sha,
-            "solo -p openmind-nerve build now equals live (preserve_order no longer differs?)"
-        );
-    } else {
-        eprintln!(
-            "[xt] NERVE_XT_LIVE_PIN=0: live pin NOT checked (recipe {recipe_sha} {recipe_size} B vs pinned {live_sha} {live_size} B; solo == recipe: {})",
-            bins[0].2 == *recipe_sha
-        );
+    match mode {
+        PinMode::Aa77864 => {
+            // Slot 217: the live recipe must reproduce aa77864 bit for bit;
+            // the solo build differs only by serde_json preserve_order.
+            assert_eq!(
+                recipe_sha, &live_sha,
+                "live recipe no longer reproduces the VPS binary"
+            );
+            assert_eq!(*recipe_size, live_size);
+            assert_ne!(
+                bins[0].2, live_sha,
+                "solo -p openmind-nerve build now equals live (preserve_order no longer differs?)"
+            );
+        }
+        PinMode::Budget | PinMode::Live => {
+            // Tree-level reproducibility: two target dirs, two package sets,
+            // one binary (serde_json preserve_order is unified since 8555a8f7).
+            assert_eq!(
+                bins[0].2, *recipe_sha,
+                "solo and live-recipe x86_64 builds differ: the nerve binary depends on what is co-built (feature unification)"
+            );
+            assert_eq!(bins[0].3, *recipe_size);
+            eprintln!(
+                "[xt] solo == recipe ({recipe_sha} {recipe_size} B); vs pinned VPS {live_rev}: {:+} B",
+                *recipe_size as i64 - live_size as i64
+            );
+        }
     }
 
     // 2. qemu smoke -----------------------------------------------------
@@ -484,7 +748,7 @@ fn real_cross_target() {
         "qemu --version: {ver:?}"
     );
 
-    let runs = [
+    let mut runs = vec![
         ("x86_64", bins[0].1.clone(), None, port_base()),
         (
             "aarch64",
@@ -499,6 +763,11 @@ fn real_cross_target() {
             port_base() + 2,
         ),
     ];
+    // The rebuilt live binary reuses +2 after the recipe run (runs are
+    // sequential and every port is checked closed after its run).
+    if mode == PinMode::Live {
+        runs.push(("live-pin", bins[3].1.clone(), None, port_base() + 2));
+    }
     let mut smokes = Vec::new();
     let mut report_smoke = Vec::new();
     for (label, bin, emu, port) in runs {
@@ -553,15 +822,15 @@ fn real_cross_target() {
         x.state["system"]["status"], a.state["system"]["status"],
         "system verdict x86 vs aarch64"
     );
-    // Live recipe (preserve_order on): same key set, source (insertion) order on
-    // the wire; solo builds (BTreeMap) send keys sorted.
     assert_eq!(sorted(keys(&r.health)), sorted(keys(&x.health)));
     assert_eq!(sorted(keys(&r.state)), sorted(keys(&x.state)));
     let xo = wire_order(&x.health_raw, &x.health);
     let ao = wire_order(&a.health_raw, &a.health);
     let ro = wire_order(&r.health_raw, &r.health);
     assert_eq!(ao, xo, "/health wire order x86_64 vs aarch64");
-    if pin {
+    if mode == PinMode::Aa77864 {
+        // Live recipe (preserve_order on): insertion order on the wire; solo
+        // builds (BTreeMap) send keys sorted.
         assert_eq!(
             xo,
             sorted(xo.clone()),
@@ -573,10 +842,33 @@ fn real_cross_target() {
             "live recipe order {ro:?}"
         );
     } else {
-        // Unpinned (later commits): serde_json preserve_order is unified, so
-        // solo and recipe must now agree on the wire order too.
-        assert_eq!(ro, xo, "/health wire order recipe vs solo (unpinned)");
-        eprintln!("[xt] /health wire order (not pinned, all 3 equal): {ro:?}");
+        // serde_json preserve_order is unified, so solo and recipe must agree
+        // on the wire order too.
+        assert_eq!(ro, xo, "/health wire order recipe vs solo");
+        eprintln!("[xt] /health wire order (all 3 equal): {ro:?}");
+    }
+    let mut live_pin_report = Value::Null;
+    if mode == PinMode::Live {
+        // Same /health key set as the tree (no field dropped or added since
+        // the live commit); wire order is reported, not asserted (the live
+        // 9d1a4f3 build sends keys sorted, the tree sends insertion order).
+        let l = &smokes[3];
+        assert_eq!(
+            sorted(keys(&l.health)),
+            sorted(keys(&x.health)),
+            "/health key set live-pin vs tree"
+        );
+        let lo = wire_order(&l.health_raw, &l.health);
+        eprintln!(
+            "[xt] live-pin /health wire order {lo:?} (sorted: {}), tree order equal: {}",
+            lo == sorted(lo.clone()),
+            lo == xo
+        );
+        live_pin_report = json!({
+            "rev": live_rev, "wire_order": lo, "wire_sorted": lo == sorted(lo.clone()),
+            "wire_equals_tree": lo == xo,
+            "state_keys_equal_tree": sorted(keys(&l.state)) == sorted(keys(&x.state)),
+        });
     }
 
     // 3. cargo check for android / armv7 --------------------------------
@@ -600,8 +892,11 @@ fn real_cross_target() {
     }
 
     let report = json!({
-        "slot": 217, "started": started, "finished": zagreb_time::now_rfc3339(),
-        "live": {"sha256": live_sha, "size": live_size, "pinned": pin},
+        "slot": 217, "pin_slot": 376, "started": started, "finished": zagreb_time::now_rfc3339(),
+        "pin_mode": format!("{mode:?}").to_lowercase(),
+        "live": {"rev": live_rev, "sha256": live_sha, "size": live_size, "pinned": mode != PinMode::Budget},
+        "live_pin": live_pin_report,
+        "size_budget_warnings": warnings,
         "port_base": port_base(),
         "binaries": report_bins, "smoke": report_smoke, "check": report_check,
         "qemu": qemu.display().to_string(), "qemu_version_out": ver,

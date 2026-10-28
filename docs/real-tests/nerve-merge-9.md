@@ -77,11 +77,13 @@ stamped commit, so the run's HEAD is given.
 | live 9baa450c (host cc) | 1 479 456 | 617 696 | 29.5 | 8c9d7a5fa4f84d6d... | - |
 | slot 424 default (host cc) | 2 016 064 | 81 088 | 3.9 | - | - |
 
+Second full run 23:32-23:34 at dbc871e1 (after the warning-count assert, rc 0, 148 s): same sizes; run 1 = run 2 sha256 default e54fb6bc7df6921b..., lean + edge-rate 187c50e7f6c2da1c..., (d) 14f7ab6451bdeb6c...; warnings 0 / 0 / 1. So every recipe was built 4 times (2 per run), all byte-identical within a commit.
+
 rust-lld saves 2 680 B on default vs slot 424's host-cc build; the tuner
 fold adds a few hundred bytes. aarch64 musl default 1 658 184 B, armv7 musl
 default 1 728 204 B (real_cross_target).
 
-## Tests (box, 23:07-23:35 CET)
+## Tests (box, 23:07-23:35 CET; repo-check 23:31 PASS 2229 files 0 errors 89 warnings, no-python ok, spdx 0 missing; workspace excl. openmind-sandbox, cgroup-detect, hermes-tools: clippy -D ok, tests 401 suites 2105 passed 0 failed 18 ignored)
 
 - `cargo fmt --check` ok; clippy `-D warnings` nerve default + lean ok
   (workspace run below).

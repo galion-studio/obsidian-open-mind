@@ -456,6 +456,8 @@ fn real_candidate_parity() {
                         .unwrap_or(l)
                         .trim()
                         .to_string()
+                        // Paths differ only by the per-binary dir prefix.
+                        .replace(&format!("/{who}-"), "/<bin>-")
                 })
                 .collect();
             println!(

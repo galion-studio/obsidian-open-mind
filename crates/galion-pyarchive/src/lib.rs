@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-//! Phase A Python archive planner (wave-4 slot 330, follow-up of slot 308
+//! Phase A Python archive planner (wave-4 slot 330, follow-up of slot 308;
+//! slot 345 adds overridden-base unit flags with an exact safe rollback;
 //! `docs/py-archive-plan.md`).
 //!
 //! Read-only by design: this crate only reads files, symlinks and `/proc`.
@@ -28,6 +29,9 @@ pub const EARLIEST: &str = "2026-11-03T20:05:00+01:00";
 pub struct Item {
     pub path: &'static str,
     pub why: &'static str,
+    /// Other Phase A paths this one needs at run time (restored together on
+    /// rollback). The old desk ELF spawns `python3 desk-hermes.py`.
+    pub needs: &'static [&'static str],
 }
 
 /// The Phase A set. `__pycache__` is a directory and is expanded to its files.
@@ -35,22 +39,27 @@ pub const PHASE_A: &[Item] = &[
     Item {
         path: "/opt/galion/bin/desk-hermes.py",
         why: "rollback copy since desk cutover 2026-10-27 19:56 CET (Rust desk-hermes live)",
+        needs: &[],
     },
     Item {
         path: "/opt/galion/bin/galion-desk",
         why: "old ELF that spawns python3 desk-hermes.py; replaced by /opt/galion/rust/bin/galion-desk",
+        needs: &["/opt/galion/bin/desk-hermes.py"],
     },
     Item {
         path: "/opt/galion/bin/pw.py",
         why: "dead Playwright script; /opt/galion/bin/pw -> rust/bin/pw-check since 2026-10-27 20:02 CET",
+        needs: &[],
     },
     Item {
         path: "/opt/galion/bin/__pycache__",
         why: "bytecode cache of pw.py",
+        needs: &[],
     },
     Item {
         path: "/opt/galion/bin/replicate-picture.py",
         why: "dead; /opt/galion/bin/replicate-picture -> rust/bin/replicate-picture since 2026-10-27 20:02 CET",
+        needs: &[],
     },
 ];
 
@@ -251,6 +260,29 @@ pub struct Scan {
     pub units_scanned: usize,
     pub cron_files_scanned: usize,
     pub procs_scanned: usize,
+    /// Base unit lines that name a Phase A file but are overridden by a
+    /// drop-in: removing that drop-in (a typical "rollback") revives them.
+    pub overrides: Vec<Override>,
+}
+
+/// A base-unit assignment that names a Phase A file and is only kept dead by
+/// a drop-in (wave-4 slot 345).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Override {
+    pub unit: String,
+    pub base_file: String,
+    pub base_line: usize,
+    pub section: String,
+    pub key: String,
+    pub target: String,
+    /// Drop-in (or later fragment line) whose assignment is now effective.
+    pub by_file: String,
+    pub by_line: usize,
+    pub by_text: String,
+    /// Comment lines in the overriding drop-in that describe a rollback
+    /// (file, line, redacted text). Usually "rm this drop-in ...": unsafe
+    /// once the target is archived.
+    pub rollback_notes: Vec<(String, usize, String)>,
 }
 
 impl Scan {
@@ -596,6 +628,7 @@ fn scan_units(root: &Path, dirs: &[&str], targets: &[String], scan: &mut Scan) {
                 });
             }
         }
+        collect_overrides(root, &unit, &assigns, &live, targets, scan);
     }
 }
 
@@ -735,6 +768,152 @@ pub fn scan_refs(root: &Path, targets: &[String], procs: bool) -> Scan {
     scan
 }
 
+/// Comment lines mentioning a rollback in one unit file (redacted).
+fn rollback_comments(root: &Path, f: &str) -> Vec<(String, usize, String)> {
+    let Ok(text) = read_text(&real(root, f)) else {
+        return Vec::new();
+    };
+    text.lines()
+        .enumerate()
+        .filter(|(_, l)| {
+            let t = l.trim_start();
+            (t.starts_with('#') || t.starts_with(';'))
+                && t.to_ascii_lowercase().contains("rollback")
+        })
+        .map(|(i, l)| (f.to_string(), i + 1, redact(l)))
+        .collect()
+}
+
+/// Record every overridden assignment that names a target, with the line that
+/// overrides it and any rollback note in that drop-in.
+fn collect_overrides(
+    root: &Path,
+    unit: &str,
+    assigns: &[Assign],
+    live: &[bool],
+    targets: &[String],
+    scan: &mut Scan,
+) {
+    for (j, a) in assigns.iter().enumerate() {
+        if live[j] {
+            continue;
+        }
+        let hits = matching(&a.text, targets);
+        if hits.is_empty() {
+            continue;
+        }
+        // Effective replacement: the last live non-empty assignment of the
+        // same key after j; else the reset line itself (`Key=`).
+        let same = |k: &Assign| k.section == a.section && k.key == a.key;
+        let by = assigns
+            .iter()
+            .enumerate()
+            .skip(j + 1)
+            .rfind(|(i, k)| same(k) && live[*i] && !k.value.is_empty())
+            .or_else(|| {
+                assigns
+                    .iter()
+                    .enumerate()
+                    .skip(j + 1)
+                    .rfind(|(_, k)| same(k))
+            });
+        let Some((_, b)) = by else { continue };
+        let notes = if b.file != a.file {
+            rollback_comments(root, &b.file)
+        } else {
+            Vec::new()
+        };
+        for tg in hits {
+            scan.overrides.push(Override {
+                unit: unit.to_string(),
+                base_file: a.file.clone(),
+                base_line: a.line,
+                section: a.section.clone(),
+                key: a.key.clone(),
+                target: tg.to_string(),
+                by_file: b.file.clone(),
+                by_line: b.line,
+                by_text: redact(&b.text),
+                rollback_notes: notes.clone(),
+            });
+        }
+    }
+}
+
+/// Logical path -> file name inside [`ARCHIVE_DIR`] used by the Phase A `mv`.
+pub fn archived_name(path: &str) -> String {
+    format!(
+        "{ARCHIVE_DIR}/{}",
+        path.trim_start_matches('/').replace('/', "__")
+    )
+}
+
+/// Phase A paths a target needs at run time (its own path first).
+pub fn with_needs(target: &str) -> Vec<String> {
+    let mut v = vec![target.to_string()];
+    if let Some(it) = PHASE_A.iter().find(|i| i.path == target) {
+        for n in it.needs {
+            if !v.iter().any(|x| x == n) {
+                v.push((*n).to_string());
+            }
+        }
+    }
+    v
+}
+
+/// Exact safe rollback for one overridden base unit, AFTER Phase A ran.
+/// Text only, never executed: restore the archived target (and what it
+/// needs), prove the bytes, and only then remove the overriding drop-in.
+pub fn safe_rollback(o: &Override, manifest_path: &str) -> Vec<String> {
+    let files = with_needs(&o.target);
+    let mut v = Vec::new();
+    v.push(format!(
+        "# {}: base {}:{} {}= names archived {}; kept dead only by {}:{}",
+        o.unit, o.base_file, o.base_line, o.key, o.target, o.by_file, o.by_line
+    ));
+    for (f, l, _) in &o.rollback_notes {
+        v.push(format!(
+            "# STALE rollback note {f}:{l} (\"rm this drop-in\") is UNSAFE after Phase A: do steps 1-3 first"
+        ));
+    }
+    v.push("# 1. restore the archived file(s) to their exact paths (mode kept by mv):".into());
+    for f in &files {
+        v.push(format!("mv -n {} {f}", archived_name(f)));
+    }
+    v.push("# 2. prove the bytes before systemd can start them:".into());
+    let pat = files
+        .iter()
+        .map(|f| format!("  {}$", f.replace('.', "\\.")))
+        .collect::<Vec<_>>()
+        .join("|");
+    v.push(format!(
+        "grep -E '{pat}' {manifest_path} | sha256sum -c -   # expect {} OK",
+        files.len()
+    ));
+    v.push(format!(
+        "test -x {}   # base ExecStart must exist and be executable",
+        o.target
+    ));
+    v.push(format!(
+        "# 3. only now the unit rollback: remove {} (unit-edit approval), then:",
+        o.by_file
+    ));
+    v.push("systemctl daemon-reload".into());
+    v.push(format!(
+        "systemctl show -p ExecStart {}   # must show {}",
+        o.unit, o.target
+    ));
+    v.push(format!(
+        "systemctl restart {} && systemctl is-active {}",
+        o.unit, o.unit
+    ));
+    v.push(format!(
+        "# Never remove {} while {} is archived: {} would fail to start (Restart= loop).",
+        o.by_file, o.target, o.unit
+    ));
+    v
+}
+
 /// `sha256sum -c` compatible manifest (two spaces, absolute paths).
 pub fn manifest(entries: &[Entry]) -> String {
     entries
@@ -770,7 +949,7 @@ pub fn parse_manifest(text: &str) -> Result<Vec<(String, String)>, String> {
 
 /// The commands the owner would run for Phase A. Text only: nothing here is
 /// executed by this crate.
-pub fn proposed_commands(entries: &[Entry]) -> String {
+pub fn proposed_commands(entries: &[Entry], overrides: &[Override]) -> String {
     let tar = format!("{ARCHIVE_DIR}/phase-a.tar");
     let mut s = String::new();
     s.push_str(&format!(
@@ -790,14 +969,31 @@ pub fn proposed_commands(entries: &[Entry]) -> String {
     s.push_str(&format!(
         "sha256sum -c {ARCHIVE_DIR}/phase-a.sha256   # originals still match\n"
     ));
-    s.push_str(
-        "# then move each original into the archive dir (rollback = mv back or tar -xPf):\n",
-    );
+    s.push_str("# then move each original into the archive dir:\n");
     for e in entries {
-        let rel = e.path.trim_start_matches('/').replace('/', "__");
-        s.push_str(&format!("mv {} {ARCHIVE_DIR}/{rel}\n", e.path));
+        s.push_str(&format!("mv -n {} {}\n", e.path, archived_name(&e.path)));
     }
     s.push_str("# watch nerve /state 15 min; galion-desk must stay active.\n");
+    s.push_str("\n# ROLLBACK of Phase A (file level, exact; restores bytes and mode):\n");
+    for e in entries {
+        s.push_str(&format!("mv -n {} {}\n", archived_name(&e.path), e.path));
+    }
+    s.push_str(&format!(
+        "sha256sum -c {ARCHIVE_DIR}/phase-a.sha256   # all OK (or: tar -xPf {tar} then the same check)\n"
+    ));
+    if !overrides.is_empty() {
+        s.push_str(&format!(
+            "\n# OVERRIDDEN-BASE UNITS ({}): a unit rollback that removes the drop-in revives the base line.\n# Safe order per unit (unit-level rollback AFTER Phase A):\n",
+            overrides.len()
+        ));
+        let man = format!("{ARCHIVE_DIR}/phase-a.sha256");
+        for o in overrides {
+            for l in safe_rollback(o, &man) {
+                s.push_str(&l);
+                s.push('\n');
+            }
+        }
+    }
     s
 }
 

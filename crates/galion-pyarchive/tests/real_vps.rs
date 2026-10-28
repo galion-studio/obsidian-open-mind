@@ -7,7 +7,7 @@
 //!   are absent there, so the verdict must be FAIL with 5 missing and 0 active).
 //! * VPS (also needs GALION_PYARCHIVE_SSH=user@host and GALION_PYARCHIVE_BIN=
 //!   path to a static x86_64 musl release build): copy the binary to a fresh
-//!   /tmp/pyarchive-330-<ts>/ (tmpfiles-cleaned), run `plan --json` read-only
+//!   /tmp/pyarchive-345-<ts>/ (tmpfiles-cleaned), run `plan --json` read-only
 //!   against `/`, and assert PASS with 5 files and 0 active references, then
 //!   `stat` the Phase A files again to prove nothing moved. Nothing is deleted.
 
@@ -94,7 +94,7 @@ fn real_vps_plan_read_only() {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
-    let dir = format!("/tmp/pyarchive-330-{ts}");
+    let dir = format!("/tmp/pyarchive-345-{ts}");
     assert!(ssh(&target, &format!("mkdir -m 0700 {dir}"))
         .status
         .success());
@@ -137,4 +137,31 @@ fn real_vps_plan_read_only() {
     assert_eq!(v.status.code(), Some(0), "verify not PASS");
     assert_eq!(j["files"].as_array().unwrap().len(), 5);
     assert_eq!(j["counts"]["active"], 0);
+    // slot 345: the overridden base galion-desk ExecStart is flagged with an
+    // exact safe rollback (restore archive first, then the drop-in).
+    let ob = j["overridden_base"].as_array().unwrap();
+    for o in ob {
+        eprintln!(
+            "vps overridden-base: {} {}:{} {}= -> {} by {}:{} notes {}",
+            o["unit"],
+            o["base_file"],
+            o["base_line"],
+            o["key"],
+            o["target"],
+            o["by_file"],
+            o["by_line"],
+            o["stale_rollback_notes"]
+        );
+        for s in o["safe_rollback"].as_array().unwrap() {
+            eprintln!("  {}", s.as_str().unwrap());
+        }
+    }
+    assert_eq!(ob.len(), 1);
+    assert_eq!(ob[0]["unit"], "galion-desk.service");
+    assert_eq!(ob[0]["target"], "/opt/galion/bin/galion-desk");
+    assert_eq!(
+        ob[0]["by_file"],
+        "/etc/systemd/system/galion-desk.service.d/rust-desk-hermes.conf"
+    );
+    assert!(!ob[0]["stale_rollback_notes"].as_array().unwrap().is_empty());
 }

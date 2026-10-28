@@ -91,3 +91,6 @@ credential line redacted; missing file FAIL; `--out` + `verify` PASS then tamper
 `rust-desk-hermes.conf` overrides it. The drop-in's documented rollback ("rm this drop-in; daemon-reload; restart") would
 start the old ELF again, which after Phase A would be gone. Before/with Phase A: either fold the Rust ExecStart into the
 base unit (separate unit-edit approval) or change the rollback note to "restore from phase-a.tar first".
+
+Follow-up (slot 345, 2026-10-28 03:28 CET): fixed. `plan` now flags this as `OVERRIDDEN-BASE` with the exact safe
+rollback order; see `docs/py-archive-plan.md` §8 and `docs/real-tests/py-archive-rollback-note.md`.

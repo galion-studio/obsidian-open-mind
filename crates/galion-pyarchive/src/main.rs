@@ -5,8 +5,8 @@
 //! Reads only. Never moves, deletes or chmods anything on the scanned tree.
 
 use galion_pyarchive::{
-    list, manifest, parse_manifest, proposed_commands, real, scan_refs, sha256_file, Class,
-    Listing, Scan, ARCHIVE_DIR, EARLIEST, PHASE_A,
+    list, manifest, parse_manifest, proposed_commands, real, safe_rollback, scan_refs, sha256_file,
+    with_needs, Class, Listing, Scan, ARCHIVE_DIR, EARLIEST, PHASE_A,
 };
 use serde_json::json;
 use std::fs;
@@ -126,6 +126,14 @@ fn report_json(cmd: &str, root: &Path, l: &Listing, s: &Scan, extra: serde_json:
             "class": r.class.as_str(), "kind": r.kind, "source": r.source,
             "line": r.line, "target": r.target, "text": r.text,
         })).collect::<Vec<_>>(),
+        "overridden_base": s.overrides.iter().map(|o| json!({
+            "unit": o.unit, "base_file": o.base_file, "base_line": o.base_line,
+            "section": o.section, "key": o.key, "target": o.target,
+            "by_file": o.by_file, "by_line": o.by_line, "by_text": o.by_text,
+            "restore_together": with_needs(&o.target),
+            "stale_rollback_notes": o.rollback_notes.iter().map(|(f, l, t)| json!({"file": f, "line": l, "text": t})).collect::<Vec<_>>(),
+            "safe_rollback": safe_rollback(o, &format!("{ARCHIVE_DIR}/phase-a.sha256")),
+        })).collect::<Vec<_>>(),
         "unreadable": s.unreadable,
         "extra": extra,
     });
@@ -195,8 +203,39 @@ fn report_text(cmd: &str, root: &Path, l: &Listing, s: &Scan, extra: &str) -> St
         o.push_str(
             "\nWARNING rollback dependency: an overridden unit line still names a Phase A file.\n\
              Removing the overriding drop-in (the documented rollback) would start the old path again.\n\
-             After archiving, rollback must restore from the tarball first.\n",
+             After archiving, rollback must restore from the archive first (exact steps below).\n",
         );
+    }
+    if !s.overrides.is_empty() {
+        o.push_str(&format!(
+            "\noverridden-base units ({}):\n",
+            s.overrides.len()
+        ));
+        for ov in &s.overrides {
+            o.push_str(&format!(
+                "  OVERRIDDEN-BASE {} {}:{} [{}] {}= -> {}  overridden by {}:{}  | {}\n",
+                ov.unit,
+                ov.base_file,
+                ov.base_line,
+                ov.section,
+                ov.key,
+                ov.target,
+                ov.by_file,
+                ov.by_line,
+                ov.by_text
+            ));
+            o.push_str(&format!(
+                "    restore together: {}\n",
+                with_needs(&ov.target).join(" ")
+            ));
+            for (f, l, t) in &ov.rollback_notes {
+                o.push_str(&format!("    STALE ROLLBACK NOTE {f}:{l}  | {t}\n"));
+            }
+            o.push_str("    safe rollback (after Phase A, not executed):\n");
+            for l in safe_rollback(ov, &format!("{ARCHIVE_DIR}/phase-a.sha256")) {
+                o.push_str(&format!("      {l}\n"));
+            }
+        }
     }
     o.push_str(extra);
     o.push_str(&format!(
@@ -227,7 +266,7 @@ fn plan(o: &Opts) -> Result<bool, String> {
     let s = scan_refs(&o.root, &targets_of(&l), o.procs);
     let man = manifest(&l.entries);
     let files: String = l.entries.iter().map(|e| format!("{}\n", e.path)).collect();
-    let cmds = proposed_commands(&l.entries);
+    let cmds = proposed_commands(&l.entries, &s.overrides);
     let extra = format!("\nmanifest (sha256sum -c format):\n{man}\nproposed commands:\n{cmds}");
     let text = report_text("plan", &o.root, &l, &s, &extra);
     let js = report_json(

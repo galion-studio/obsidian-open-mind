@@ -71,7 +71,7 @@ OS daemons. Clock per item starts at the cutover time.
 
 | Phase | Earliest date (CET) | Items | Action (needs owner OK; see `docs/swarm/plans/vps-ops.md` — "Slavik approves each kill; the archive move; each unit-file edit") |
 |---|---|---|---|
-| A | 2026-11-03 20:05 | `bin/desk-hermes.py`, old `bin/galion-desk` ELF, `bin/pw.py` + `__pycache__`, `bin/replicate-picture.py` (cutovers 2026-10-27 19:56–20:03) | `mv` into `/opt/galion/archive/py-bin-20261103/` with `sha256sum` manifest; then remove the comment line in the desk drop-in only if folding it into the unit (separate unit-edit approval). Rollback = `mv` back. |
+| A | 2026-11-03 20:05 | `bin/desk-hermes.py`, old `bin/galion-desk` ELF, `bin/pw.py` + `__pycache__`, `bin/replicate-picture.py` (cutovers 2026-10-27 19:56–20:03) | `mv -n` into `/opt/galion/archive/py-bin-20261103/` with `sha256sum` manifest (exact commands from `galion-pyarchive plan`). **Rollback = restore first**: `mv -n` each archived file back to its exact path and `sha256sum -c` it; only after that may any unit-level rollback run. The desk drop-in note "rm this drop-in; daemon-reload; restart" is **unsafe after Phase A** (the base unit still says `ExecStart=/opt/galion/bin/galion-desk`, see §8). Either fold the Rust ExecStart into the base unit first (separate unit-edit approval) or follow the §8 order. |
 | B | 2026-11-03 20:05 | `archive/py-units-20261027/*` | keep the two masked unit files 30 more days, then delete together with `systemctl unmask`-free cleanup (units stay masked until files are gone; then `daemon-reload`). |
 | C | any time (already >7 days: hermes-rs, link-watch-rs live since ≤ 2026-10-18) | `tooling/hermes-agent` + venv, `galion-light/shadow/hermes-agent`, `crew-skills`, `galion-light/{scripts,one,guardian}/*.py`, 4 venvs, `console-dist/server` + `node_modules`, `console-ide`, `tooling/node` | Pack each tree to `tar --zstd` under `/srv/box-archive/2026-11-py/` with manifest + sha256, verify by listing the tarball, then remove the source tree. Order: venvs → Hermes V1 → console Node → scripts. One tree per change, nerve watched 15 min after each. Frees ≈ 1.6 G. |
 | D | after C | `from-grok-build`, `galion-src`, `hermes/archive`, `arena/homes`, `galion-light/tulu` | Retention decision for Slavik (history/model tooling, not code paths). |
@@ -96,3 +96,37 @@ active systemd unit/timer/cron/process references and prints the tar + `sha256su
 owner commands (not executed); `galion-pyarchive verify --manifest phase-a.sha256` re-checks right before
 Phase A. First VPS run 2026-10-28 00:18 CET: PASS, 5 files / 4 752 180 B, 0 active refs, 1 overridden
 (base `galion-desk.service` ExecStart, see `docs/real-tests/py-archive-tool.md` "Finding for Phase A").
+
+## 8. Rollback note fix: overridden-base units (wave-4 slot 345, 2026-10-28)
+
+Slot 330 found that `/etc/systemd/system/galion-desk.service` line 6 is still
+`ExecStart=/opt/galion/bin/galion-desk` (the old ELF, which itself spawns `python3 /opt/galion/bin/desk-hermes.py`).
+Only the drop-in `galion-desk.service.d/rust-desk-hermes.conf` (`ExecStart=` reset + line 6
+`ExecStart=/opt/galion/rust/bin/galion-desk`) keeps it dead. That drop-in's line 2 says
+"Rollback: rm this drop-in; systemctl daemon-reload; systemctl restart galion-desk". That was true on 2026-10-27,
+but after Phase A it would restart into a missing file and loop on `Restart=on-failure`.
+
+`galion-pyarchive plan` now lists every such unit as `OVERRIDDEN-BASE` (JSON `overridden_base[]`): base file:line,
+key, archived target, the overriding drop-in file:line, the Phase A files to restore together (`needs`: the old
+desk ELF needs `desk-hermes.py`), any **STALE ROLLBACK NOTE** comment in that drop-in, and this exact safe order
+(text only, never executed by the tool):
+
+```
+# 1. restore the archived file(s) to their exact paths (mode kept by mv):
+mv -n /opt/galion/archive/py-bin-20261103/opt__galion__bin__galion-desk /opt/galion/bin/galion-desk
+mv -n /opt/galion/archive/py-bin-20261103/opt__galion__bin__desk-hermes.py /opt/galion/bin/desk-hermes.py
+# 2. prove the bytes before systemd can start them:
+grep -E '  /opt/galion/bin/galion-desk$|  /opt/galion/bin/desk-hermes\.py$' /opt/galion/archive/py-bin-20261103/phase-a.sha256 | sha256sum -c -   # expect 2 OK
+test -x /opt/galion/bin/galion-desk
+# 3. only now the unit rollback: remove the drop-in (unit-edit approval), then:
+systemctl daemon-reload
+systemctl show -p ExecStart galion-desk.service   # must show /opt/galion/bin/galion-desk
+systemctl restart galion-desk.service && systemctl is-active galion-desk.service
+```
+
+The plan's proposed commands also gained a file-level `# ROLLBACK of Phase A` block: one `mv -n` per file, the
+exact inverse of the archive `mv -n`, then `sha256sum -c` of the manifest. Owner choice (not done here, no live
+change): **D-345-1** fold `ExecStart=/opt/galion/rust/bin/galion-desk` + the two `Environment=` lines into the base
+unit and drop the drop-in before Phase A (removes the trap entirely; needs a unit-edit approval), or **D-345-2**
+keep the drop-in and reword its line-2 comment to "restore phase-a files first (docs/py-archive-plan.md §8)".
+Evidence: `docs/real-tests/py-archive-rollback-note.md`.

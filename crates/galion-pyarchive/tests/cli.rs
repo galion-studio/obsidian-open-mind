@@ -39,7 +39,7 @@ impl Fx {
         );
         f.w(
             "/etc/systemd/system/galion-desk.service.d/rust-desk-hermes.conf",
-            "# (old /opt/galion/bin/galion-desk + desk-hermes.py left untouched).\n[Service]\nExecStart=\nExecStart=/opt/galion/rust/bin/galion-desk\nEnvironment=DESK_HERMES_BIN=/opt/galion/rust/bin/desk-hermes\n",
+            "# t314u 2026-10-27: cut over live galion-desk to Rust desk-hermes.\n# Rollback: rm this drop-in; systemctl daemon-reload; systemctl restart galion-desk\n# (old /opt/galion/bin/galion-desk + desk-hermes.py left untouched).\n[Service]\nExecStart=\nExecStart=/opt/galion/rust/bin/galion-desk\nEnvironment=DESK_HERMES_BIN=/opt/galion/rust/bin/desk-hermes\n",
         );
         f.w(
             "/lib/systemd/system/guardian-tick.timer",
@@ -291,4 +291,155 @@ fn refuses_out_in_live_tree_and_bad_usage() {
     assert_eq!(f.run(&["verify"]).0, 2);
     assert_eq!(f.run(&["delete"]).0, 2);
     assert_eq!(f.run(&["plan", "--bogus"]).0, 2);
+}
+
+// ---- wave-4 slot 345: overridden-base units get an exact safe rollback ----
+
+const DROPIN: &str = "/etc/systemd/system/galion-desk.service.d/rust-desk-hermes.conf";
+
+fn pos(t: &str, needle: &str) -> usize {
+    t.find(needle)
+        .unwrap_or_else(|| panic!("missing {needle:?} in:\n{t}"))
+}
+
+#[test]
+fn overridden_base_is_flagged_with_exact_safe_rollback() {
+    let f = Fx::new("ovb");
+    let before = f.snapshot();
+    let (c, j) = f.json(&["plan"]);
+    assert_eq!(c, 0, "{j}");
+    let ob = j["overridden_base"].as_array().unwrap();
+    assert_eq!(ob.len(), 1, "{j}");
+    let o = &ob[0];
+    assert_eq!(o["unit"], "galion-desk.service");
+    assert_eq!(o["base_file"], "/etc/systemd/system/galion-desk.service");
+    assert_eq!(o["base_line"], 4);
+    assert_eq!(o["section"], "[Service]");
+    assert_eq!(o["key"], "ExecStart");
+    assert_eq!(o["target"], "/opt/galion/bin/galion-desk");
+    assert_eq!(o["by_file"], DROPIN);
+    assert_eq!(o["by_line"], 6);
+    assert_eq!(o["by_text"], "ExecStart=/opt/galion/rust/bin/galion-desk");
+    assert_eq!(
+        o["restore_together"],
+        serde_json::json!([
+            "/opt/galion/bin/galion-desk",
+            "/opt/galion/bin/desk-hermes.py"
+        ])
+    );
+    let notes = o["stale_rollback_notes"].as_array().unwrap();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0]["line"], 2);
+    assert!(notes[0]["text"]
+        .as_str()
+        .unwrap()
+        .contains("rm this drop-in"));
+    let steps: Vec<&str> = o["safe_rollback"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s.as_str().unwrap())
+        .collect();
+    let t = steps.join("\n");
+    // Order: restore both files, prove bytes, test -x, THEN drop-in + reload.
+    let a = pos(&t, "mv -n /opt/galion/archive/py-bin-20261103/opt__galion__bin__galion-desk /opt/galion/bin/galion-desk");
+    let b = pos(&t, "mv -n /opt/galion/archive/py-bin-20261103/opt__galion__bin__desk-hermes.py /opt/galion/bin/desk-hermes.py");
+    let c2 = pos(&t, "sha256sum -c -   # expect 2 OK");
+    let d = pos(&t, "test -x /opt/galion/bin/galion-desk");
+    let e = pos(&t, &format!("remove {DROPIN}"));
+    let g = pos(&t, "systemctl daemon-reload");
+    let h = pos(&t, "systemctl show -p ExecStart galion-desk.service");
+    assert!(a < b && b < c2 && c2 < d && d < e && e < g && g < h, "{t}");
+    assert!(
+        t.contains(r"/opt/galion/bin/galion-desk$|  /opt/galion/bin/desk-hermes\.py$"),
+        "{t}"
+    );
+    assert!(t.contains("STALE rollback note"));
+    // Text report and proposed commands carry the same flag.
+    let (c, txt) = f.run(&["plan"]);
+    assert_eq!(c, 0);
+    assert!(
+        txt.contains(
+            "OVERRIDDEN-BASE galion-desk.service /etc/systemd/system/galion-desk.service:4"
+        ),
+        "{txt}"
+    );
+    assert!(
+        txt.contains(&format!("STALE ROLLBACK NOTE {DROPIN}:2")),
+        "{txt}"
+    );
+    assert!(txt.contains("# OVERRIDDEN-BASE UNITS (1)"), "{txt}");
+    assert!(txt.contains("# ROLLBACK of Phase A (file level"), "{txt}");
+    // Archive mv and rollback mv are exact inverses for every file.
+    for p in [
+        "/opt/galion/bin/desk-hermes.py",
+        "/opt/galion/bin/galion-desk",
+        "/opt/galion/bin/pw.py",
+        "/opt/galion/bin/__pycache__/pw.cpython-312.pyc",
+        "/opt/galion/bin/replicate-picture.py",
+    ] {
+        let arch = format!(
+            "/opt/galion/archive/py-bin-20261103/{}",
+            p.trim_start_matches('/').replace('/', "__")
+        );
+        assert!(txt.contains(&format!("mv -n {p} {arch}\n")), "{p}");
+        assert!(txt.contains(&format!("mv -n {arch} {p}\n")), "{p}");
+    }
+    assert_eq!(before, f.snapshot(), "plan changed the scanned tree");
+}
+
+#[test]
+fn override_without_note_and_bare_reset() {
+    let f = Fx::new("ovb2");
+    // Drop-in without a rollback comment.
+    f.w(
+        DROPIN,
+        "[Service]\nExecStart=\nExecStart=/opt/galion/rust/bin/galion-desk\n",
+    );
+    // A second unit whose base names pw.py and whose drop-in only resets it.
+    f.w(
+        "/etc/systemd/system/pw-old.service",
+        "[Service]\nExecStart=/opt/galion/bin/pw.py --x\n",
+    );
+    f.w(
+        "/etc/systemd/system/pw-old.service.d/off.conf",
+        "# rollback: delete this file\n[Service]\nExecStart=\n",
+    );
+    let (c, j) = f.json(&["plan"]);
+    assert_eq!(c, 0, "{j}");
+    let ob = j["overridden_base"].as_array().unwrap();
+    assert_eq!(ob.len(), 2, "{j}");
+    let desk = ob
+        .iter()
+        .find(|o| o["unit"] == "galion-desk.service")
+        .unwrap();
+    assert!(desk["stale_rollback_notes"].as_array().unwrap().is_empty());
+    let pw = ob.iter().find(|o| o["unit"] == "pw-old.service").unwrap();
+    assert_eq!(
+        pw["by_file"],
+        "/etc/systemd/system/pw-old.service.d/off.conf"
+    );
+    assert_eq!(pw["by_line"], 3);
+    assert_eq!(pw["by_text"], "ExecStart=");
+    assert_eq!(
+        pw["restore_together"],
+        serde_json::json!(["/opt/galion/bin/pw.py"])
+    );
+    assert_eq!(pw["stale_rollback_notes"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn no_override_means_no_unit_rollback_section() {
+    let f = Fx::new("ovb3");
+    f.w(
+        "/etc/systemd/system/galion-desk.service",
+        "[Service]\nExecStart=/opt/galion/rust/bin/galion-desk\n",
+    );
+    f.w(DROPIN, "[Service]\nEnvironment=DESK_BIND=127.0.0.1:8646\n");
+    let (c, j) = f.json(&["plan"]);
+    assert_eq!(c, 0, "{j}");
+    assert!(j["overridden_base"].as_array().unwrap().is_empty());
+    let (_, txt) = f.run(&["plan"]);
+    assert!(!txt.contains("OVERRIDDEN-BASE"), "{txt}");
+    assert!(txt.contains("# ROLLBACK of Phase A (file level"));
 }

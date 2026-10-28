@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "nerve-cortex-contract"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Wire contract between the event-driven nerve and the cortex: B33 event envelope + event kinds (nerve -> cortex), action request/result (cortex -> nerve). serde + serde_json only."
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -37,6 +37,10 @@ pub struct State {
     pub cfg: Config,
     /// Rust-rendered pages (`--ui rust`).
     pub ui: Option<console_ui::Ui>,
+    /// Board catalog + marker ring (`--local-api`).
+    pub board: crate::board::Board,
+    /// Admin-device store (`--admin-store`).
+    pub admin: Option<crate::admin::AdminStore>,
     active: AtomicUsize,
 }
 
@@ -52,11 +56,17 @@ impl State {
             })),
             _ => None,
         };
+        let admin = cfg
+            .admin_store
+            .clone()
+            .map(|p| crate::admin::AdminStore::new(p, cfg.admin_mirror.clone()));
         State {
             site,
             routes,
             cfg,
             ui,
+            board: crate::board::Board::new(),
+            admin,
             active: AtomicUsize::new(0),
         }
     }
@@ -182,6 +192,98 @@ fn handle_request(
             return keep;
         }
     };
+
+    let mut carry = carry;
+    if state.cfg.local_api {
+        let peer = stream.peer_addr().ok();
+        let peer_loopback = peer.is_some_and(|p| p.ip().is_loopback());
+        let mut api_body = Vec::new();
+        if crate::api::wants_body(method, &clean) {
+            match read_small_body(stream, head, std::mem::take(&mut carry)) {
+                Ok(b) => api_body = b,
+                Err(code) => {
+                    let text = match code {
+                        411 => "Length Required\n",
+                        413 => "Content Too Large\n",
+                        _ => "Bad Request\n",
+                    };
+                    let _ = http::write_simple(stream, code, "", text, head_only, false);
+                    log(state, method, &clean, code);
+                    return false;
+                }
+            }
+            // Body consumed here; do not reuse the connection.
+            keep = false;
+        }
+        let req = crate::api::ApiRequest {
+            method,
+            path: &clean,
+            head,
+            peer_loopback,
+            body: &api_body,
+        };
+        let ctx = crate::api::ApiCtx {
+            board: &state.board,
+            admin: state.admin.as_ref(),
+            extra_hosts: &state.cfg.extra_hosts,
+            arena: state.cfg.arena_root.as_deref(),
+        };
+        if let Some(reply) = crate::api::try_handle(&req, &ctx) {
+            let mut extra = format!(
+                "Content-Type: {}\r\nCache-Control: no-store\r\n",
+                reply.content_type
+            );
+            if let Some(c) = &reply.set_cookie {
+                let c: String = c.chars().filter(|ch| *ch != '\r' && *ch != '\n').collect();
+                extra.push_str(&format!("Set-Cookie: {c}\r\n"));
+            }
+            let ok = http::write_head(stream, reply.status, &extra, reply.body.len() as u64, keep)
+                .and_then(|_| {
+                    if head_only {
+                        Ok(())
+                    } else {
+                        stream.write_all(reply.body.as_bytes())
+                    }
+                })
+                .and_then(|_| stream.flush());
+            log(state, method, &clean, reply.status);
+            if keep && ok.is_ok() {
+                *next_carry = carry;
+                return true;
+            }
+            return false;
+        }
+    }
+
+    // Data routes the local API did not answer (it already ran the gate:
+    // anything that reaches here passed host + loopback/admin checks).
+    if let Some(up) = state.cfg.data_upstream {
+        let p = clean.split('?').next().unwrap_or(&clean);
+        if state.cfg.local_api && state.cfg.data_paths.iter().any(|d| d == p) {
+            if method != "GET" && method != "HEAD" {
+                let body = crate::arena::HELD;
+                let _ = http::write_head(
+                    stream,
+                    405,
+                    "Content-Type: application/json\r\nAllow: GET, HEAD\r\nCache-Control: no-store\r\n",
+                    body.len() as u64,
+                    false,
+                )
+                .and_then(|_| {
+                    if head_only {
+                        Ok(())
+                    } else {
+                        stream.write_all(body.as_bytes())
+                    }
+                });
+                log(state, method, &clean, 405);
+                return false;
+            }
+            let code = proxy::forward(stream, head, carry, up, 0);
+            log(state, method, &clean, code);
+            return false;
+        }
+    }
 
     if let Some(up) = state.cfg.upstream {
         if state
@@ -391,4 +493,33 @@ fn serve_ui(
         })
         .and_then(|_| stream.flush());
     (reply.status, keep && ok.is_ok())
+}
+
+/// Read a small Content-Length body for a local API POST. Errors are the
+/// HTTP status to answer (411 chunked, 413 too large, 400 bad/short).
+fn read_small_body(
+    stream: &mut TcpStream,
+    head: &RequestHead,
+    carry: Vec<u8>,
+) -> Result<Vec<u8>, u16> {
+    if head.header("transfer-encoding").is_some() {
+        return Err(411);
+    }
+    let n: usize = match head.header("content-length") {
+        None => return Ok(Vec::new()),
+        Some(v) => v.trim().parse().map_err(|_| 400u16)?,
+    };
+    if n > crate::api::MAX_API_BODY {
+        return Err(413);
+    }
+    let mut body = carry;
+    while body.len() < n {
+        let mut buf = [0u8; 1024];
+        match stream.read(&mut buf) {
+            Ok(0) | Err(_) => return Err(400),
+            Ok(k) => body.extend_from_slice(&buf[..k]),
+        }
+    }
+    body.truncate(n);
+    Ok(body)
 }

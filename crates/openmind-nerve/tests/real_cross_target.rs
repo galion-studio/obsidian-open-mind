@@ -35,7 +35,31 @@ use std::time::{Duration, Instant};
 /// 2026-10-21 21:02:28 +02:00 (docs/real-tests/nerve-cross-target.md).
 const LIVE_SHA: &str = "f0994b6db1fd8ed87c16bd72c9583c2894ec4dd5ba89d407016877322aed6a68";
 const LIVE_SIZE: u64 = 1_213_216;
-const BUDGET: u64 = 2 * 1024 * 1024;
+/// openmind-nerve budget from the one budget table,
+/// config/release/size-budget.tsv (slot 353); same lookup as
+/// scripts/size-budget.sh: the `openmind-nerve` row, else `default`.
+fn budget() -> u64 {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/release/size-budget.tsv"
+    );
+    let text = std::fs::read_to_string(path).expect("config/release/size-budget.tsv");
+    let mut default = None;
+    let mut own = None;
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("");
+        let mut it = line.split_whitespace();
+        if let (Some(k), Some(v)) = (it.next(), it.next()) {
+            let v: u64 = v.parse().expect("budget bytes");
+            match k {
+                "default" => default = Some(v),
+                "openmind-nerve" => own = Some(v),
+                _ => {}
+            }
+        }
+    }
+    own.or(default).expect("budget row")
+}
 const PORT_SVC: u16 = 20873;
 const PORT_DEAD: u16 = 20874;
 
@@ -387,7 +411,8 @@ fn real_cross_target() {
         assert_eq!(e.machine, want_machine, "{label}: wrong e_machine");
         assert!(!e.has_interp, "{label}: has PT_INTERP (not static)");
         let size = bytes.len() as u64;
-        assert!(size < BUDGET, "{label}: {size} B over 2 MiB budget");
+        let budget = budget();
+        assert!(size <= budget, "{label}: {size} B over {budget} B budget");
         let sha = sha256(&bytes);
         eprintln!(
             "[xt] {label:<20} {size:>9} B  sha256 {sha}  pie={} build {secs:.1} s",

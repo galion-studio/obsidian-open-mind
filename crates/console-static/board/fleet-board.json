@@ -1,0 +1,538 @@
+{
+"fleetId": "galion-control", "fleetVersion": "3.8.3-board", "project": 42, "githubOwner": "galion-studio",
+"domains":
+[
+  {
+    "host": "console.galion.app",
+    "brand": "Ops",
+    "role": "Console IDE — operator control",
+    "serviceId": "console",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "console.galion.studio",
+    "brand": "Ops",
+    "role": "Console IDE alias",
+    "serviceId": "console",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "galion.studio",
+    "brand": "Studio",
+    "role": "Primary studio surface",
+    "serviceId": "studio-surface",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "galion.app",
+    "brand": "App",
+    "role": "Workplace / assistant surface",
+    "serviceId": "app-surface",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "merlinelement.com",
+    "brand": "Merlin Element",
+    "role": "Design brand surface",
+    "serviceId": "merlin-surface",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "mc.galion.studio",
+    "brand": "Play",
+    "role": "GALION game presence (status only)",
+    "serviceId": "mc-status",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "developer.galion.app",
+    "brand": "NexusLang",
+    "role": "Developer console surface",
+    "serviceId": "dev-surface",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "api.galion.studio",
+    "brand": "Studio",
+    "role": "Studio catalog API",
+    "serviceId": "catalog-api",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "api.galion.app",
+    "brand": "App",
+    "role": "App gateway API",
+    "serviceId": "edge-gateway",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "api.developer.galion.app",
+    "brand": "NexusLang",
+    "role": "Developer API",
+    "serviceId": "catalog-api",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "status.galion.app",
+    "brand": "Ops",
+    "role": "Public status page",
+    "serviceId": "status-page",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "docs.galion.studio",
+    "brand": "Studio",
+    "role": "Documentation surface",
+    "serviceId": "docs-surface",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "dashboard.galion.studio",
+    "brand": "Ops",
+    "role": "Operator console",
+    "serviceId": "console",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "sentialink.com",
+    "brand": "SentiaLink",
+    "role": "Splash / coming-soon",
+    "serviceId": "sentia-surface",
+    "origin": "cloudflare"
+  },
+  {
+    "host": "play.galion.studio",
+    "brand": "Play",
+    "role": "Play portal (no game runtime)",
+    "serviceId": "mc-status",
+    "origin": "cloudflare"
+  }
+]
+,
+"services":
+[
+  {
+    "id": "console",
+    "name": "Control console",
+    "kind": "console",
+    "weight": "light",
+    "summary": "This operator desk. Fleet, domains, API playground.",
+    "repo": "galion-initiative-web",
+    "hosts": ["dashboard.galion.studio"],
+    "port": 8080,
+    "defaultOn": true
+  },
+  {
+    "id": "edge-gateway",
+    "name": "Edge gateway",
+    "kind": "edge",
+    "weight": "light",
+    "summary": "Single HTTP edge. Health, catalog, routing. No tokens.",
+    "repo": "nexuslang-v2",
+    "hosts": ["api.galion.app"],
+    "port": 8080,
+    "defaultOn": true
+  },
+  {
+    "id": "catalog-api",
+    "name": "Catalog API",
+    "kind": "api",
+    "weight": "light",
+    "summary": "Repos, domains, services as JSON. The API world.",
+    "repo": "nexuslang-v2",
+    "hosts": ["api.galion.studio", "api.developer.galion.app"],
+    "port": 8080,
+    "defaultOn": true
+  },
+  {
+    "id": "status-page",
+    "name": "Status page",
+    "kind": "surface",
+    "weight": "light",
+    "summary": "Public origin board. What is up, what is held.",
+    "hosts": ["status.galion.app"],
+    "port": 8080,
+    "defaultOn": true
+  },
+  {
+    "id": "studio-surface",
+    "name": "Studio surface",
+    "kind": "surface",
+    "weight": "light",
+    "summary": "galion.studio landing. No image/video generation.",
+    "repo": "nexuslang-v2",
+    "hosts": ["galion.studio"],
+    "port": 8080,
+    "defaultOn": true
+  },
+  {
+    "id": "app-surface",
+    "name": "App surface",
+    "kind": "surface",
+    "weight": "light",
+    "summary": "galion.app landing. Assistant UI shell only.",
+    "repo": "nexuslang-v2",
+    "hosts": ["galion.app"],
+    "port": 8080,
+    "defaultOn": true
+  },
+  {
+    "id": "merlin-surface",
+    "name": "Merlin Element",
+    "kind": "surface",
+    "weight": "light",
+    "summary": "Brand presence for merlinelement.com.",
+    "repo": "merlin-element-showcase",
+    "hosts": ["merlinelement.com"],
+    "port": 8080,
+    "defaultOn": true
+  },
+  {
+    "id": "dev-surface",
+    "name": "Developer surface",
+    "kind": "surface",
+    "weight": "light",
+    "summary": "developer.galion.app shell. IDE and compiler stay off.",
+    "repo": "nexuslang-v2",
+    "hosts": ["developer.galion.app"],
+    "port": 8080,
+    "defaultOn": false
+  },
+  {
+    "id": "docs-surface",
+    "name": "Docs",
+    "kind": "surface",
+    "weight": "light",
+    "summary": "Lightweight docs index for the fleet.",
+    "repo": "galion-initiative-web",
+    "hosts": ["docs.galion.studio"],
+    "port": 8080,
+    "defaultOn": true
+  },
+  {
+    "id": "downloader-api",
+    "name": "Downloader API",
+    "kind": "api",
+    "weight": "light",
+    "summary": "Universal downloader HTTP surface. Transcription off.",
+    "repo": "galion-universal-downloader",
+    "hosts": [],
+    "port": 3000,
+    "defaultOn": false
+  },
+  {
+    "id": "mc-status",
+    "name": "Play presence",
+    "kind": "surface",
+    "weight": "light",
+    "summary": "mc.galion.studio presence page. Game server stays off.",
+    "repo": "project-mc.galion.studio",
+    "hosts": ["mc.galion.studio", "play.galion.studio"],
+    "port": 8080,
+    "defaultOn": true
+  },
+  {
+    "id": "sentia-surface",
+    "name": "SentiaLink",
+    "kind": "surface",
+    "weight": "light",
+    "summary": "Splash page for sentialink.com.",
+    "repo": "SentiaLink",
+    "hosts": ["sentialink.com"],
+    "port": 8080,
+    "defaultOn": false
+  },
+  {
+    "id": "ai-generation",
+    "name": "Generation stack",
+    "kind": "held",
+    "weight": "heavy",
+    "summary": "Image, video, tokens, OpenRouter. Held on CPU pod.",
+    "repo": "nexuslang-v2",
+    "hosts": [],
+    "port": 8000,
+    "defaultOn": false
+  },
+  {
+    "id": "voice-gpu",
+    "name": "Voice / Whisper",
+    "kind": "held",
+    "weight": "heavy",
+    "summary": "Whisper is on the GPU and kept hot. The rest of voice stays off.",
+    "repo": "nexuslang-v2",
+    "hosts": ["voice.galion.app"],
+    "port": 8000,
+    "defaultOn": false
+  },
+  {
+    "id": "search-cluster",
+    "name": "Elasticsearch",
+    "kind": "held",
+    "weight": "heavy",
+    "summary": "Grokopedia search cluster. Too heavy for first light.",
+    "repo": "nexuslang-v2",
+    "hosts": [],
+    "port": 9200,
+    "defaultOn": false
+  },
+  {
+    "id": "game-runtime",
+    "name": "GALION runtime",
+    "kind": "held",
+    "weight": "heavy",
+    "summary": "Custom game client/server. Not part of API-first boot.",
+    "repo": "project-mc.galion.studio",
+    "hosts": ["mc.galion.studio"],
+    "port": 25565,
+    "defaultOn": false
+  }
+]
+,
+"chillExtra":
+[
+  {
+    "id": "docker-compose",
+    "name": "Docker compose pack",
+    "summary": "Full stack compose stays in the fridge. No containers this pass."
+  },
+  {
+    "id": "nexuslang-ide",
+    "name": "NexusLang compiler / IDE",
+    "summary": "developer.galion.app runtime. Surface can wait; compiler sleeps."
+  },
+  {
+    "id": "helium-browser",
+    "name": "Helium",
+    "summary": "Browser fork. Not an origin."
+  }
+]
+,
+"repos":
+[
+  {
+    "name": "galion-console",
+    "visibility": "private",
+    "language": "TypeScript",
+    "updated": "2026-09-21",
+    "sizeKb": 0,
+    "role": "Operator console (Next 14). Light panels kept; auth/workforce held.",
+    "weight": "light"
+  },
+  {
+    "name": "galion-api-docs",
+    "visibility": "private",
+    "language": "Markdown",
+    "updated": "2026-09-21",
+    "sizeKb": 0,
+    "role": "v3 API docs (voice/images/agents). Heavy APIs held.",
+    "weight": "light"
+  },
+  {
+    "name": "galion-backend",
+    "visibility": "private",
+    "language": "Python",
+    "updated": "2026-01-20",
+    "sizeKb": 0,
+    "role": "FastAPI v3/v5. Voice, GPU, Postgres. Fridge.",
+    "weight": "heavy"
+  },
+  {
+    "name": "galion-app",
+    "visibility": "private",
+    "language": "TypeScript",
+    "updated": "2026-01-20",
+    "sizeKb": 0,
+    "role": "Public galion.app frontend. Fridge this pass.",
+    "weight": "heavy"
+  },
+  {
+    "name": "galion-docs",
+    "visibility": "private",
+    "language": "Markdown",
+    "updated": "2026-01-20",
+    "sizeKb": 0,
+    "role": "Platform docs + Cloudflare/RunPod notes.",
+    "weight": "light"
+  },
+  {
+    "name": "nexuslang",
+    "visibility": "private",
+    "language": "Python",
+    "updated": "2026-01-20",
+    "sizeKb": 0,
+    "role": "Language + RunPod compose. Fridge.",
+    "weight": "heavy"
+  },
+  {
+    "name": "nexuslang-v2",
+    "visibility": "public",
+    "language": "Python",
+    "updated": "2025-12-22",
+    "sizeKb": 35829,
+    "role": "Main multi-domain server, RunPod compose, API gateway",
+    "weight": "heavy"
+  },
+  {
+    "name": "galion-initiative-web",
+    "visibility": "public",
+    "language": "TypeScript",
+    "updated": "2025-12-29",
+    "sizeKb": 8598,
+    "role": "Initiative site + The Machine operator console",
+    "weight": "light"
+  },
+  {
+    "name": "galion-universal-downloader",
+    "visibility": "public",
+    "language": "JavaScript",
+    "updated": "2025-12-28",
+    "sizeKb": 4091,
+    "role": "Universal download API, 36+ platforms",
+    "weight": "light"
+  },
+  {
+    "name": "project-mc.galion.studio",
+    "visibility": "public",
+    "language": "Python",
+    "updated": "2025-11-23",
+    "sizeKb": 922,
+    "role": "GALION play platform (runtime held)",
+    "weight": "heavy"
+  },
+  {
+    "name": "helium",
+    "visibility": "fork",
+    "language": null,
+    "updated": "2025-12-11",
+    "sizeKb": 23306,
+    "role": "Helium browser fork — not in this boot",
+    "weight": "heavy"
+  },
+  {
+    "name": "mmee",
+    "visibility": "public",
+    "language": "CSS",
+    "updated": "2024-10-21",
+    "sizeKb": 2538,
+    "role": "Hugo / Cloudflare Pages theme",
+    "weight": "light"
+  },
+  {
+    "name": "coming-soon",
+    "visibility": "fork",
+    "language": null,
+    "updated": "2024-10-21",
+    "sizeKb": 1487,
+    "role": "Hugo coming-soon theme",
+    "weight": "light"
+  },
+  {
+    "name": "SentiaLink",
+    "visibility": "public",
+    "language": "Astro",
+    "updated": "2023-06-02",
+    "sizeKb": 1353,
+    "role": "sentialink.com splash",
+    "weight": "light"
+  },
+  {
+    "name": "galion-agi-web",
+    "visibility": "public",
+    "language": null,
+    "updated": "2025-12-01",
+    "sizeKb": 0,
+    "role": "AGI site placeholder",
+    "empty": true,
+    "weight": "light"
+  },
+  {
+    "name": "merlin-element-showcase",
+    "visibility": "public",
+    "language": null,
+    "updated": "2025-11-10",
+    "sizeKb": 0,
+    "role": "Merlin Element showcase (empty)",
+    "empty": true,
+    "weight": "light"
+  },
+  {
+    "name": "merlin",
+    "visibility": "public",
+    "language": null,
+    "updated": "2024-10-28",
+    "sizeKb": 0,
+    "role": "Merlin brand repo (empty)",
+    "empty": true,
+    "weight": "light"
+  },
+  {
+    "name": "xDrop",
+    "visibility": "public",
+    "language": "Java",
+    "updated": "2019-01-10",
+    "sizeKb": 44,
+    "role": "Legacy Minecraft drop plugin",
+    "weight": "light"
+  },
+  {
+    "name": "xDrops",
+    "visibility": "public",
+    "language": "Java",
+    "updated": "2019-01-10",
+    "sizeKb": 37,
+    "role": "Legacy drop plugin variant",
+    "weight": "light"
+  },
+  {
+    "name": "TestDrop",
+    "visibility": "public",
+    "language": null,
+    "updated": "2018-01-04",
+    "sizeKb": 0,
+    "role": "Legacy test plugin (empty)",
+    "empty": true,
+    "weight": "light"
+  }
+]
+,
+"apiCatalog":
+[
+  { "method": "GET", "path": "/api/v1/health", "title": "Light origin health", "source": "console v3", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/health", "title": "Compat health", "source": "galion-backend", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v3/health", "title": "v3 health (CPU, no GPU check)", "source": "galion-backend", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/domains", "title": "Domain map", "source": "console v3", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/services", "title": "Service catalog", "source": "console v3", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/admin/services", "title": "Admin services (light)", "source": "galion-console", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/repos", "title": "GitHub inventory", "source": "console v3", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/cloudflare", "title": "DNS CNAME plan", "source": "galion-docs", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/protocol", "title": "GLP spec", "source": "console WS", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/protocol/snapshot", "title": "All light frames", "source": "console WS", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/analytics", "title": "Analytics snapshot", "source": "analytics-v2", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/analytics/health", "title": "Health score", "source": "analytics-v2", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/analytics/overview", "title": "Overview board", "source": "analytics-v2", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/analytics/infrastructure", "title": "Infrastructure board", "source": "analytics-v2", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/analytics/services", "title": "Service board", "source": "analytics-v2", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/analytics/agents", "title": "Agent board", "source": "analytics-v2", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/markers", "title": "Marker ring", "source": "analytics trail", "zone": "live", "vram": false },
+  { "method": "POST", "path": "/api/v1/markers", "title": "Ingest marker", "source": "analytics trail", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/markers/stream", "title": "SSE heartbeats", "source": "analytics trail", "zone": "live", "vram": false },
+  { "method": "POST", "path": "/api/v1/boot", "title": "Boot active zone", "source": "galion-console", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/ping", "title": "Ping public hosts", "source": "console v3", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/ledger", "title": "In-console ledger", "source": "console v3", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/catalog", "title": "This paper trail", "source": "console v3", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/v1/docs", "title": "OpenAPI lite", "source": "galion-api-docs", "zone": "live", "vram": false },
+  { "method": "POST", "path": "/api/v3/voice/transcribe", "title": "Whisper STT", "source": "galion-api-docs", "zone": "held", "vram": true },
+  { "method": "POST", "path": "/api/v3/voice/tts", "title": "TTS", "source": "galion-api-docs", "zone": "held", "vram": true },
+  { "method": "WS", "path": "/api/v3/voice/stream", "title": "Voice stream", "source": "voice v5 protocol", "zone": "held", "vram": true },
+  { "method": "GET", "path": "/api/v3/voice/voices", "title": "TTS voices", "source": "galion-api-docs", "zone": "held", "vram": true },
+  { "method": "POST", "path": "/api/v3/images/generate", "title": "Image gen", "source": "galion-api-docs", "zone": "held", "vram": true },
+  { "method": "POST", "path": "/api/v3/images/edit", "title": "Image edit", "source": "galion-api-docs", "zone": "held", "vram": true },
+  { "method": "POST", "path": "/api/v3/chat/completions", "title": "Chat completions", "source": "galion-api-docs", "zone": "held", "vram": true },
+  { "method": "POST", "path": "/api/v3/agents/run", "title": "Autonomous agent", "source": "galion-api-docs", "zone": "held", "vram": true },
+  { "method": "POST", "path": "/conversations/message", "title": "Conversation message", "source": "galion-docs api-reference", "zone": "held", "vram": true },
+  { "method": "GET", "path": "/api/v3/workflows/{id}/status", "title": "Workflow status", "source": "galion-api-docs", "zone": "held", "vram": true },
+  { "method": "WS", "path": "/admin/ws/all", "title": "Admin websocket", "source": "galion-console", "zone": "held", "vram": false },
+  { "method": "GET", "path": "/api/v3/guardian/status", "title": "Guardian", "source": "galion-console", "zone": "live", "vram": false },
+  { "method": "GET", "path": "/api/workforce/agents", "title": "Workforce agents", "source": "galion-console", "zone": "held", "vram": true }
+]
+}

@@ -157,3 +157,7 @@ swarm/candle-zip-rebase merges candle-zip-fix a4f49b5 onto integration-4 42de672
 ## shared-tar-mergefix row (2026-10-22 01:15 CEST +02:00, pending Slavik)
 
 swarm/shared-tar-mergefix (wave-4 slot 242) merges swarm/main-staging into shared-tar-crate 820740e. shared-tar-crate adds the std-only `galion-tar` crate (galion-backup and galion-deploy now share it), and `every_workspace_crate_is_mapped` failed on it, which is why the main merge skipped 820740e. One row, a judgement call (`"pending_slavik": true`): survival / DEMETER, next to `galion-backup`, its main user; alternatives deploy-switch / HEPHAESTUS (galion-deploy) or core (shared plumbing like `galion-common`). Counts: 68 crates, 56 system crates; systems with a crate unchanged (survival already had one).
+
+## release-repro-unify rows (2026-10-27 23:08 CET +01:00, pending Slavik)
+
+swarm/release-repro-unify (wave-4 slot 325) adds two crates so solo `-p` release builds are byte-identical to the full-set build, and `every_workspace_crate_is_mapped` failed on them. Two rows, both judgement calls (`"pending_slavik": true`): `galion-feature-pin` (doc-only feature pins for the release bins) at release-artifacts / HEPHAESTUS, alternative cargo-build / HEPHAESTUS; `galion-jsonout` (the serde_json helpers split out of `galion-common`, so `galion-common` has no features) at zagreb-clock / AETHER next to `galion-common`, alternative core. Counts: two more crates and two more system crates; release-artifacts gains its first crate.

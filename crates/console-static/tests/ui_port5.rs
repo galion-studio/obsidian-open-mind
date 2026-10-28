@@ -444,10 +444,23 @@ fn session_room_list_doc_and_name_rule() {
         .map(|s| s.path.clone())
         .collect();
     assert!(named.is_empty(), "bad names reached the API: {named:?}");
-    // The zip link goes through the /api/ proxy to the console API.
+    // The zip link goes through the /api/ proxy; unpaired phones are refused
+    // before upstream, and a paired download gets Android attachment headers.
     let r = get(a, "/api/v1/session-pack", "127.0.0.1", "");
+    assert_eq!(r.code, 401);
+    assert!(r.body.contains("phone required"));
+    let r = get(
+        a,
+        "/api/v1/session-pack",
+        "127.0.0.1",
+        "Cookie: galion_admin=good\r\n",
+    );
     assert_eq!(r.code, 200);
     assert!(r.head.to_ascii_lowercase().contains("application/zip"));
+    assert!(r
+        .head
+        .contains("Content-Disposition: attachment; filename=\"build-session.zip\""));
+    assert!(r.head.contains("Cache-Control: no-store"));
 }
 
 #[test]

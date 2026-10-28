@@ -11,7 +11,7 @@ SIMD, `#![forbid(unsafe_code)]`, zero dependencies by default.
 | `hex` | lower-case encode, strict decode | small local copies |
 | `base64` | RFC 4648 `encode` (std, padded), `encode_url` (URL-safe, no pad), strict `decode` | galion-one `b64`/`b64url`, one-talk `b64_encode` |
 | `json` | JSON string escaping; `string_ascii` = CPython `ensure_ascii` | hand-built JSON in several crates |
-| `jsonout` (feature `serde-json`) | CPython `json.dumps` formatter over `serde_json::Value` | desk-hermes and link-watch `jsonout.rs` |
+| ~~`jsonout`~~ | moved to the crate `galion-jsonout` (slot 325, D-312-4: no features on galion-common) | desk-hermes and link-watch `jsonout.rs` |
 | `time` | Europe/Zagreb RFC 3339 (`now_rfc3339`, `from_unix`, `label`, `require_rfc3339`) without chrono; same output as `zagreb-time` | alternative to zagreb-time for dependency-free crates |
 | `http` | strict request parser (opt-in chunked bodies), bounded one-request-per-connection server, one-shot client | tuner, galion-origin, hermes-rs, openmind-memory, galion-desk and room accept loops; galion-boot, openmind-memory `post_json`, galion-desk, link-watch, openmind-survival and one-talk clients |
 

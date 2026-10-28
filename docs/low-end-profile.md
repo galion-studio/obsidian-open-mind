@@ -17,7 +17,7 @@ The workspace release profile is the low-end size profile. It is already set in 
 | panic | `"abort"` | No unwind tables. A panic ends the process. Smaller binary. |
 | strip | `true` | Symbols removed. `file(1)` must report `stripped`, not `not stripped`. |
 
-Budget: 2 MiB means `2 * 1024 * 1024 = 2097152` bytes. `scripts/size-budget.sh` fails when any workspace ELF executable is strictly larger than that, or is not stripped. A binary of exactly 2097152 bytes passes the size check.
+Budget: 2 MiB means `2 * 1024 * 1024 = 2097152` bytes. `scripts/size-budget.sh` fails when any workspace ELF executable is strictly larger than that, or is not stripped. A binary of exactly 2097152 bytes passes the size check. Since slot 353 (2026-10-28 CET +01:00) the per-binary budgets live in one table, `config/release/size-budget.tsv` (`default` row plus one row per release binary, all 2097152 today); the script, ucpu-gate.sh, self-check.sh, CI and the Rust size tests all read it, and `crates/galion-realtest/tests/size_budget_gate.rs` enforces that no row is above 2 MiB.
 
 ## Size check
 

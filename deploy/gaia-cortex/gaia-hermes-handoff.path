@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+# Cortex -> Hermes boss handoff (Mate t217, 2026-10-21 +02:00). inotify, no timer, no poll.
+[Unit]
+Description=Gaia cortex -> Hermes boss handoff inbox watcher
+
+[Path]
+PathExistsGlob=/var/lib/gaia-cortex/hermes-inbox/*.json
+Unit=gaia-hermes-handoff.service
+TriggerLimitIntervalSec=600
+TriggerLimitBurst=12
+
+[Install]
+WantedBy=paths.target

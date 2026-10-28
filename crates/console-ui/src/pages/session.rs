@@ -9,7 +9,8 @@
 //! Data: `GET /api/v1/session` (`{ok, items:[{name, bytes}]}`) and
 //! `GET /api/v1/session?name=<file>` (the markdown text); both need the
 //! paired phone (admin cookie, forwarded as for every room). The zip link
-//! is `/api/v1/session-pack`, served by the console API through the
+//! is `/api/v1/session-pack`. The front refuses the download without the
+//! admin cookie (Android-safe headers are forced on the way out). The API
 //! `/api/` proxy as before.
 //!
 //! Differences from the TSX, on purpose:

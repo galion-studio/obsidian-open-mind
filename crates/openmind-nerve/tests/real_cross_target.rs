@@ -32,7 +32,15 @@
 //!    port (:20874) (block movable with `NERVE_XT_PORT_BASE`, slot 363):
 //!    `GET /health`, `POST /signal`, `GET /state`,
 //!    `GET /api/v1/signals`, and compares the answers across targets;
-//! 5. `cargo check` for aarch64-linux-android and armv7-unknown-linux-musleabihf.
+//! 5. `cargo check` for aarch64-linux-android and armv7-linux-androideabi.
+//!
+//! Slot 409 (xt-linker-pins-arm): every cargo run strips all per-target
+//! linker/rustflags env vars ([`ambient_env_vars`]), so x86_64, aarch64 and
+//! armv7 musl link from the COMMITTED `.cargo/config.toml` alone (asserted
+//! at HEAD); armv7 musl is built, ELF32-checked and smoked under qemu-arm
+//! (`NERVE_XT_QEMU_ARM`) on port base+1 after aarch64, with the same parity
+//! asserts; android is check-only and unpinned (no NDK, D-409-1). The VPS
+//! now runs 9baa450c (see `LIVE2_*`); 9d1a4f3 stays the default pin.
 //!
 //! Knobs: `NERVE_XT_DIR` (nested target dir, default `<workspace>/target/xt`),
 //! `NERVE_XT_JOBS` (default 2), `NERVE_XT_QEMU` (qemu-aarch64 path),
@@ -114,6 +122,22 @@ fn ambient_env_vars() -> Vec<String> {
 const LIVE_DEFAULT_LINKER_SHA: &str =
     "64ce3aa03bd55a9c698f5c42c4616c6987163d2523fa1ac89aff0187571213f8";
 const LIVE_DEFAULT_LINKER_SIZE: u64 = 1_463_072;
+
+/// Slot 409: the VPS moved to nerve 9baa450c (swarm/nerve-merge-6) at
+/// 2026-10-28 17:40:13 +01:00; 9d1a4f3 above stays on disk as the rollback
+/// binary and remains the default pin (its committed-config rebuild is the
+/// slot-386 proof). VPS read-only 18:39:22 +01:00: ExecStart
+/// openmind-nerve-9baa450, sha256 below, NRestarts 0. Rebuild recipe:
+/// `NERVE_XT_PIN=live NERVE_XT_LIVE_REV=9baa450c NERVE_XT_LIVE_SHA=<this>
+/// NERVE_XT_LIVE_SIZE=1479456 NERVE_XT_LIVE_CONFIG=archive` (its own config
+/// has no linker line, so it was linked by the host `cc`; F-409-1).
+const LIVE2_REV: &str = "9baa450c";
+const LIVE2_SHA: &str = "8c9d7a5fa4f84d6d56d6185dfd5b71171c8ba5b17bf49c0bde7fb5503f6593da";
+const LIVE2_SIZE: u64 = 1_479_456;
+/// 9baa450c rebuilt with this tree's committed rust-lld line (default
+/// `committed` mode), 2026-10-28 18:45 +01:00: NOT the live bytes.
+const LIVE2_RUSTLLD_SHA: &str = "0b8ed7c4de2d65f65277926c47b442ffe834a63d631242f33f75acf2b3770de4";
+const LIVE2_RUSTLLD_SIZE: u64 = 1_473_704;
 
 /// Where the live-pin rebuild gets its x86_64 linker (slot 386, D-376-2):
 /// `NERVE_XT_LIVE_CONFIG`.
@@ -1262,4 +1286,21 @@ fn elf_reader_32_and_64() {
             pie: false
         }
     );
+}
+
+/// Slot 409 (F-409-1): the live nerve 9baa450c was linked by the host `cc`
+/// (its tree has no x86_64 linker line); the committed rust-lld pin gives a
+/// different, 5 752 B smaller binary. Both measured on the box 2026-10-28
+/// 18:45 +01:00; the archive-config rebuild equals the VPS bytes.
+#[test]
+fn live2_linker_split() {
+    assert!(pin_verdict(
+        LIVE2_REV,
+        (LIVE2_SHA, LIVE2_SIZE),
+        (LIVE2_RUSTLLD_SHA, LIVE2_RUSTLLD_SIZE)
+    )
+    .is_err());
+    assert!(pin_verdict(LIVE2_REV, (LIVE2_SHA, LIVE2_SIZE), (LIVE2_SHA, LIVE2_SIZE)).is_ok());
+    assert_eq!(LIVE2_SIZE - LIVE2_RUSTLLD_SIZE, 5_752);
+    assert!(budget_verdict("live-pin", LIVE2_SIZE).unwrap().is_none());
 }

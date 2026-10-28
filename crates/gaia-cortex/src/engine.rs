@@ -1066,7 +1066,8 @@ impl Cortex {
 
     pub fn health_json(&self) -> Value {
         // `nerve` = real reachability (slot 347, F-337-1), not just "configured".
-        let mut v = json!({"ok": true, "service": "gaia-cortex", "version": env!("CARGO_PKG_VERSION"), "ts": ts(now_secs()),
+        // `commit` / `build` = deterministic build stamp (slot 377, D-377-2).
+        let mut v = json!({"ok": true, "service": "gaia-cortex", "version": env!("CARGO_PKG_VERSION"), "commit": crate::build_info::COMMIT, "build": crate::build_info::json(), "ts": ts(now_secs()),
                "mode": if self.cfg.dry_run() { "dry-run" } else { "live" }, "llm_enabled": self.cfg.llm.enabled,
                "events_in": self.stats.events_in,
                "incidents_open": self.correlator.open.len(), "escalations_open": self.escalations.open.len(),

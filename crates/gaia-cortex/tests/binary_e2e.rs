@@ -150,6 +150,9 @@ fn binary_subscribes_decides_and_asks_nerve() {
     assert_eq!(h["ok"], true);
     assert_eq!(h["mode"], "dry-run");
     assert_eq!(h["llm_enabled"], false);
+    // F-357-1 build stamp: same commit as --version, Zagreb date or unknown.
+    assert_eq!(h["commit"], gaia_cortex::build_info::COMMIT);
+    assert_eq!(h["build"], gaia_cortex::build_info::json());
     // Stream -> decision -> POST /actions (dry-run) -> alert POST /event.
     assert!(
         wait_for(&|| get(port, "/stats")["actions_simulated"] == 1, 10),
@@ -276,4 +279,17 @@ fn health_nerve_none_without_url() {
     assert_eq!(h["nerve_contact"]["state"], "none");
     assert_eq!(h["nerve_contact"]["stream"], "off");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn version_prints_build_stamp() {
+    let out = Command::new(env!("CARGO_BIN_EXE_gaia-cortex"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let v = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(v.trim_end(), gaia_cortex::build_info::version_line());
+    assert!(v.contains(" (commit "), "{v}");
+    assert!(!v.contains('Z'), "{v}");
 }

@@ -8,6 +8,7 @@
 //! Pipeline: [`engine`]; rules: [`rules`]; never-act list: [`guard`];
 //! advisor (OFF by default): [`llm`]; nerve link: [`nerve`]; API: [`server`] (reads from [`snapshot`] while the decider is busy).
 
+pub mod build_info;
 pub mod config;
 pub mod contact;
 pub mod dispatch;

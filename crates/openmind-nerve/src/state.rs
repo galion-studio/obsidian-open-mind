@@ -263,9 +263,19 @@ impl CompState {
         };
         if !s.present {
             return if spec.expected {
+                // Slot 420: honour `critical` here too (the Spec contract: a
+                // failing probe on a non-critical component only degrades
+                // it). Before, a vanished non-critical unit (the transient
+                // tuner-quick, gone since the 2026-10-22 reboot) read
+                // "failing" on the live nerve.
+                let lvl = if spec.critical {
+                    Status::Failing
+                } else {
+                    Status::Degrading
+                };
                 (
-                    Status::Failing,
-                    vec!["failing: unit/endpoint not found".into()],
+                    lvl,
+                    vec![format!("{}: unit/endpoint not found", lvl.as_str())],
                     false,
                 )
             } else {
@@ -843,6 +853,37 @@ mod tests {
         m.push(s, &th);
         assert_eq!(m.status, Status::Degrading);
         assert!(!m.hard_down);
+    }
+
+    #[test]
+    fn missing_unit_honours_critical() {
+        // Slot 420: live nerve 9baa450 showed the vanished transient
+        // tuner-quick (expected, not critical) as "failing".
+        let th = Thresholds::default();
+        let gone = || Sample {
+            t: 1,
+            present: false,
+            unit_active: Some("inactive".into()),
+            unit_sub: Some("dead".into()),
+            ..Default::default()
+        };
+        let mut q = CompState::new(spec("tuner-quick"));
+        assert!(q.spec.expected && !q.spec.critical);
+        q.push(gone(), &th);
+        assert_eq!(q.status, Status::Degrading, "{:?}", q.reasons);
+        assert_eq!(q.reasons, vec!["degrading: unit/endpoint not found"]);
+        assert!(!q.hard_down);
+        let mut c = CompState::new(spec("cloudflared"));
+        assert!(c.spec.critical);
+        c.push(gone(), &th);
+        assert_eq!(c.status, Status::Failing, "{:?}", c.reasons);
+        assert_eq!(c.reasons, vec!["failing: unit/endpoint not found"]);
+        let mut r = CompState::new(Spec {
+            expected: false,
+            ..spec("tuner-quick")
+        });
+        r.push(gone(), &th);
+        assert_eq!(r.status, Status::Absent);
     }
 
     #[test]

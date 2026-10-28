@@ -439,6 +439,14 @@ mod tests {
         let w = inc("x", Sev::Warn, &["x"]);
         let s = score(&[&w], &Cortex::default(), &[], &[]);
         assert_eq!((s.score, s.pass), (95, true));
+        // Slot 420: live 9baa450 cycle at 2026-10-28 20:10 +01:00: edge
+        // (cloudflared + tuner-quick) 17 + galion-one 15 = 68 D; with the
+        // vanished tuner-quick out of the edge incident: 15 + 15 = 70 C.
+        let edge2 = inc("edge", Sev::Error, &["cloudflared", "tuner-quick"]);
+        let s = score(&[&edge2, &b], &Cortex::default(), &[], &[]);
+        assert_eq!((s.score, s.grade, s.pass), (68, "D", false));
+        let s = score(&[&a, &b], &Cortex::default(), &[], &[]);
+        assert_eq!((s.score, s.grade, s.pass), (70, "C", false));
         let c = inc("stack-wide", Sev::Critical, &["a", "b", "c", "d", "e"]);
         assert_eq!(
             score(&[&c], &Cortex::default(), &[], &[]).score,

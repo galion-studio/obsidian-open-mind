@@ -4,8 +4,8 @@
 //! The probes. Each returns a [`ProbeResult`] stamped by `zagreb-time`.
 
 use crate::{level_for_percent, Level};
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use galion_common::http;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, SystemTime};
@@ -49,7 +49,8 @@ impl Runner for SystemRunner {
     }
 }
 
-/// HTTP/1.0 GET to 127.0.0.1:port, 2.5 s timeouts, no TLS. Ok when 2xx/3xx.
+/// HTTP/1.0 GET to 127.0.0.1:port through the galion-common client, 2.5 s
+/// for the whole exchange, no TLS. Ok when 2xx/3xx.
 pub fn check_http(name: &str, port: u16, path: &str) -> ProbeResult {
     match http_status(port, path) {
         Ok(code) => ProbeResult::new(name, (200..400).contains(&code), format!("status {code}")),
@@ -58,29 +59,28 @@ pub fn check_http(name: &str, port: u16, path: &str) -> ProbeResult {
 }
 
 fn http_status(port: u16, path: &str) -> Result<u16, String> {
-    let t = Duration::from_millis(2500);
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    let mut s = TcpStream::connect_timeout(&addr, t).map_err(|e| format!("connect: {e}"))?;
-    s.set_read_timeout(Some(t)).map_err(|e| e.to_string())?;
-    s.set_write_timeout(Some(t)).map_err(|e| e.to_string())?;
-    let req = format!("GET {path} HTTP/1.0\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
-    s.write_all(req.as_bytes())
-        .map_err(|e| format!("write: {e}"))?;
-    let mut buf = [0u8; 256];
-    let mut got = 0;
-    while got < buf.len() && !buf[..got].contains(&b'\n') {
-        match s.read(&mut buf[got..]) {
-            Ok(0) => break,
-            Ok(n) => got += n,
-            Err(e) => return Err(format!("read: {e}")),
+    let req = get_request(path, "127.0.0.1");
+    // Only the status line is needed: stop after 256 bytes.
+    http::send_prefix(addr, &req, Duration::from_millis(2500), 256)
+        .map(|r| r.status)
+        .map_err(|e| client_error(e, usize::MAX))
+}
+
+/// `GET <path> HTTP/1.0` with `Host` and `Connection: close`, nothing else.
+fn get_request<'a>(path: &'a str, host: &str) -> http::ClientRequest<'a> {
+    http::ClientRequest::get(path, host)
+}
+
+/// Error text for a probe detail, as before: `connect: ...`, `write: ...`,
+/// `read: ...` or `bad status line: <first line, at most max_line bytes>`.
+fn client_error(e: http::ClientError, max_line: usize) -> String {
+    match e {
+        http::ClientError::BadStatus(line) => {
+            format!("bad status line: {}", truncate(&line, max_line))
         }
+        e => e.to_string(),
     }
-    let line = String::from_utf8_lossy(&buf[..got]);
-    let line = line.lines().next().unwrap_or("");
-    line.split_whitespace()
-        .nth(1)
-        .and_then(|c| c.parse().ok())
-        .ok_or_else(|| format!("bad status line: {line}"))
 }
 
 /// `systemctl is-active <unit>`; ok only when stdout is `active`.
@@ -180,7 +180,7 @@ pub fn check_freshness(path: &Path, max_age_secs: u64) -> ProbeResult {
         Ok(t) => t,
         Err(e) => return ProbeResult::new(&name, false, e.to_string()),
     };
-    let age = SystemTime::now()
+    let age = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(mtime)
         .unwrap_or_default()
         .as_secs();
@@ -221,7 +221,8 @@ pub struct HttpOutcome {
 }
 
 /// Plain HTTP/1.0 GET to `addr` (callers pass a loopback default from their
-/// config). Reads at most 4 KiB: enough for the status line and a short body.
+/// config) through the galion-common client. Reads at most 4 KiB: enough for
+/// the status line and a short body.
 pub fn http_get(addr: SocketAddr, path: &str, timeout: Duration) -> HttpOutcome {
     let started = std::time::Instant::now();
     let result = http_get_inner(addr, path, timeout);
@@ -232,34 +233,11 @@ pub fn http_get(addr: SocketAddr, path: &str, timeout: Duration) -> HttpOutcome 
 }
 
 fn http_get_inner(addr: SocketAddr, path: &str, t: Duration) -> Result<(u16, String), String> {
-    let mut s = TcpStream::connect_timeout(&addr, t).map_err(|e| format!("connect: {e}"))?;
-    s.set_read_timeout(Some(t)).map_err(|e| e.to_string())?;
-    s.set_write_timeout(Some(t)).map_err(|e| e.to_string())?;
-    let req = format!("GET {path} HTTP/1.0\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
-    s.write_all(req.as_bytes())
-        .map_err(|e| format!("write: {e}"))?;
-    let mut buf = vec![0u8; 4096];
-    let mut got = 0;
-    while got < buf.len() {
-        match s.read(&mut buf[got..]) {
-            Ok(0) => break,
-            Ok(n) => got += n,
-            Err(e) if got == 0 => return Err(format!("read: {e}")),
-            Err(_) => break,
-        }
-    }
-    let text = String::from_utf8_lossy(&buf[..got]);
-    let line = text.lines().next().unwrap_or("");
-    let code = line
-        .split_whitespace()
-        .nth(1)
-        .and_then(|c| c.parse().ok())
-        .ok_or_else(|| format!("bad status line: {}", truncate(line, 80)))?;
-    let body = text
-        .split_once("\r\n\r\n")
-        .map(|(_, b)| truncate(b, 240).to_string())
-        .unwrap_or_default();
-    Ok((code, body))
+    let host = addr.to_string();
+    let req = get_request(path, &host);
+    let resp = http::send_prefix(addr, &req, t, 4096).map_err(|e| client_error(e, 80))?;
+    let body = resp.text();
+    Ok((resp.status, truncate(&body, 240).to_string()))
 }
 
 /// Cut a string to at most `n` bytes on a char boundary.

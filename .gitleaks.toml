@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# False positives from gitleaks 8.30.1 on PR #12 (actions/runs/39692890293
+# and the launch-gates gitleaks-dir gate). History is not rewritten: this
+# allowlist is applied by the scanner to every commit it reads.
+# The ledger values are 16-hex SHA-256 prefixes in a test fixture. The nerve
+# line names the env var that would hold a key; it is not a credential.
+
+title = "galion"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "HADES ledger fixture: token_sha256_16 prefixes, not credentials"
+paths = ['''crates/openmind-nerve/tests/fixtures/hades/ledger\.jsonl''']
+
+[[allowlists]]
+description = "NERVE_EVT_LLM_KEY_ENV stores an env-var name, not a key"
+regexTarget = "line"
+regexes = ['''NERVE_EVT_LLM_KEY_ENV''']
+
+[[allowlists]]
+description = "galion-admin real_cli sentinel. The test asserts this argument is absent from the audit log. Not a credential."
+regexTarget = "line"
+regexes = ['''hunter2-SECRET''']
+
+# fetch-depth 0 scans every branch, not only main-staging. These two commits
+# are not ancestors of the land. The values are fixtures: a fake sk- shaped
+# key the survival card test asserts never reaches the page, and public ids
+# of throwaway hermes-offhost keys the real-test record says were deleted.
+[[allowlists]]
+description = "survival card fixture key (d1302286). Not on main-staging."
+commits = ["d1302286398df540c45a68a1c3289bdca9d6135a"]
+
+[[allowlists]]
+description = "hermes-offhost-keyrot real-test ids (6845c350). Not on main-staging."
+commits = ["6845c350bf9662a443d750892d63aeab935c4d3c"]

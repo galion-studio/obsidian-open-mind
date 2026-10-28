@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# SYNTHETIC symbol universe for the paper broker. Tickers are invented; any match with a real listing is accidental.
+ticker,name,sector,status,note
+GLXA,Galaxia Compute,Technology,tradable,
+OMND,Open Mind Systems,Technology,tradable,
+HRMS,Hermes Freight,Logistics,tradable,
+POSD,Poseidon Energy,Energy,tradable,
+ZGRB,Zagreb Savings Bank,Financials,tradable,
+RSTR,Restricta Holdings,Industrials,restricted,on the house restricted list (pending deal; no research or trading)
+HLTD,Haltwell Mining,Materials,halted,exchange trading halt in the fixture window

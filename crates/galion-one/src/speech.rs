@@ -6,15 +6,18 @@
 // Galion One used to spawn the Python Chatterbox worker (tts/worker.py) and
 // talk to it over stdin/stdout. That spawn is gone (B14). What is left is
 // this seam: `Mouth` is what the :8002 server and the /voice route call.
-// Today `local()` is the `Unavailable` stub, so :8002 /health says
-// "loading" (503) and /synthesize returns {"error":"voice"} (500), the same
-// answers the live binary gives when no worker is up, but at once instead of
-// after a 90 s wait.
+// Today `local()` is the `Unavailable` stub. With no GALION_MOUTH set, :8002
+// /health answers 503 `"status":"unavailable"` with the reason (it used to
+// claim a Chatterbox/CUDA model that was "loading" forever) and /synthesize
+// returns {"error":"voice"} (500) at once.
 //
-// Integration point for the speech stream: galion-voice-core (ws/voice)
-// implements `Mouth` (or wraps a CPU TTS child such as piper behind the
-// framed protocol below) and `local()` returns it. A remote mouth set with
-// GALION_MOUTH keeps going through HTTP in main.rs and never reaches here.
+// The CPU speech backend lives out of process: `galion-voice-serve`
+// (crates/galion-voice-cpu, Whisper tiny.en + KittenTTS nano, licence-gated,
+// no downloads) speaks both the ear contract (/v1/audio/transcriptions) and
+// the mouth contract (/synthesize). Point GALION_MOUTH (and GALION_EAR) at it;
+// :8002 /health then passes that service's health through. It stays out of
+// this binary on purpose: it needs ~450 MB RSS and the galion-one unit is
+// capped at MemoryMax=128M.
 
 use std::io::{self, Read};
 

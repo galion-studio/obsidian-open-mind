@@ -5,20 +5,25 @@
 //! Rust only. See docs/phone-instance.md.
 
 mod announce;
+mod boot;
 mod config;
 mod discover;
 mod dns;
 mod doctor;
+mod enroll;
 mod identity;
 mod pair;
 mod sandbox;
 mod seccomp;
+mod seccomp_table;
 mod sysinfo;
+mod tunnel;
 mod util;
 mod wifi;
 mod zagreb;
 
 use identity::Identity;
+use std::io::Read as _;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -35,11 +40,35 @@ USAGE: omnode [--config FILE] <command>
                            polite LAN discovery, JSON on stdout
   announce [--seconds N] [--dry-run]
                            advertise _openmind._tcp over mDNS (0 = until stopped)
-  pair [URL] [--no-qr] [--dry-run]
-                           signed pairing payload + QR; --dry-run prints the HTTP plan, sends nothing
+  pair URL [--state DIR] [--insecure-http] [--via-curl] [--no-qr] [--no-tunnel] [--wait S]
+           [--poll-ms MS] [--tunnel-secs S] [--verbose]
+                           enroll this device: creates/loads the key, sends the signed request, prints a
+                           QR + short CODE, waits for the owner (exit 4 refused, 5 timed out), stores the
+                           credential (600), then keeps the outbound tunnel up (dials out, never listens)
+  pair [URL] --dry-run | --offline [--no-qr] [--state DIR] [--now UNIX]
+                           print only: --dry-run the HTTP plan, --offline the signed payload + QR
+                           (--now backdates it: Hermes must refuse an expired payload)
+  tunnel [--state DIR] [--insecure-http] [--via-curl] [--secs S] [--verbose]
+                           (re)open the outbound tunnel with the stored credential (exit 2 if refused)
+  enroll request URL [--state DIR] [--insecure-http]
+                           send the signed payload to Hermes (POST URL); exit 3 = waiting for owner
+  enroll claim [--state DIR] [--insecure-http]
+                           after approval: signed claim, stores the scoped credential (600, never printed)
+  enroll status [--state DIR] [--scope S] [--insecure-http]
+                           does Hermes accept this node (and scope S) now? exit 2 if not
+  pair verify FILE --url URL [--now UNIX]
+                           fail-closed check of a pairing payload (what Hermes runs); exit 2 if refused
+  boot [--state DIR] [--listen IP:PORT] [--allow-lan] [--code-ttl S] [--code-file F]
+       [--new-code] [--require-seccomp]
+                           edge boot path: first-boot identity, seccomp self-test, one-time pairing
+                           code, loopback HTTP (/health, /v1/node, POST /v1/pair, /v1/whoami)
   sandbox run [--wall S] [--cpu S] [--mem MB] [--allow-net] [--require-isolation]
               [--no-landlock] [--no-seccomp] [--no-namespaces] [--keep] -- CMD [ARGS...]
   sandbox check            report which isolation this platform provides
+  sandbox selftest         install the seccomp deny-list in a child and try denied syscalls
+  sandbox denylist [--markdown] [--check FILE]
+                           seccomp deny-list parity across x86_64/aarch64/armv7 (no syscalls tried);
+                           --markdown prints docs/security/denylist-parity.md; exit 2 on any gap
   doctor                   what this device can do (SSID, namespaces, landlock, CPU)
   version
 
@@ -125,6 +154,9 @@ fn real_main() -> ExitCode {
         None
     };
     let dir = Identity::dir_default();
+    if cmd == "enroll" {
+        return enroll_cmd(&cfg, sub.as_deref(), a, &dir);
+    }
     let r: Result<(), String> = (|| match (cmd.as_str(), sub.as_deref()) {
         ("version", None) => {
             println!(
@@ -228,9 +260,138 @@ fn real_main() -> ExitCode {
                 announce::run(&cfg, &id, secs)
             }
         }
+        ("boot", None) => {
+            let state_dir = a
+                .value("--state")?
+                .map(PathBuf::from)
+                .unwrap_or(dir.clone());
+            let o = boot::Opts {
+                state_dir,
+                listen: a
+                    .value("--listen")?
+                    .unwrap_or_else(|| boot::DEFAULT_LISTEN.into()),
+                allow_lan: a.flag("--allow-lan"),
+                code_ttl: a
+                    .num("--code-ttl")?
+                    .map(|v| v.clamp(1, 86_400) as i64)
+                    .unwrap_or(boot::DEFAULT_CODE_TTL),
+                code_file: a.value("--code-file")?.map(PathBuf::from),
+                new_code: a.flag("--new-code"),
+                require_seccomp: a.flag("--require-seccomp"),
+            };
+            a.done()?;
+            boot::install_signal_handlers();
+            let b = boot::start(&o)?;
+            println!("{}", boot::boot_event(&b));
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            boot::serve(&b)
+        }
+        ("pair", Some("verify")) => {
+            let url = a
+                .value("--url")?
+                .ok_or("pair verify: --url URL is required")?;
+            let now = a
+                .num("--now")?
+                .map(|v| v as i64)
+                .unwrap_or_else(zagreb::now_unix);
+            let file = if a.0.first().is_some_and(|s| !s.starts_with('-')) {
+                a.0.remove(0)
+            } else {
+                return Err(
+                    "pair verify: give the JSON file `omnode pair` printed (- for stdin)".into(),
+                );
+            };
+            a.done()?;
+            let text = if file == "-" {
+                let mut s = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin().take(1 << 16), &mut s)
+                    .map_err(|e| e.to_string())?;
+                s
+            } else {
+                std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?
+            };
+            match pair::verify_document(&text, &url, now) {
+                Ok(v) => {
+                    print_json(&serde_json::json!({"ok": true, "verified": v}));
+                    Ok(())
+                }
+                Err(e) => {
+                    print_json(&serde_json::json!({"ok": false, "error": e}));
+                    Err(format!("pair verify: refused: {e}"))
+                }
+            }
+        }
+        ("sandbox", Some("denylist")) => {
+            let md = a.flag("--markdown");
+            let check_file = a.value("--check")?;
+            a.done()?;
+            let doc = seccomp_table::markdown();
+            if md {
+                print!("{doc}");
+                return Ok(());
+            }
+            let viol = seccomp_table::check();
+            let arch = seccomp_table::Arch::current();
+            let live: Vec<u32> = seccomp::denied().collect();
+            let table: Vec<u32> = arch.map(|a| a.denied().collect()).unwrap_or_default();
+            let live_matches = arch.is_some() && live == table;
+            let doc_current = match &check_file {
+                Some(f) => {
+                    Some(std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}"))? == doc)
+                }
+                None => None,
+            };
+            print_json(&serde_json::json!({
+                "arch": arch.map(|a| a.name()),
+                "audit_arch": format!("{:#010x}", seccomp::AUDIT_ARCH),
+                "denied_live": live,
+                "denied_live_count": live.len(),
+                "live_matches_table": live_matches,
+                "parity_ok": viol.is_empty(),
+                "violations": viol,
+                "counts": seccomp_table::ARCHES.iter().map(|a| (a.name(), a.denied().count())).collect::<std::collections::BTreeMap<_, _>>(),
+                "doc_current": doc_current,
+            }));
+            if !viol.is_empty() {
+                return Err(format!("deny-list parity: {} violations", viol.len()));
+            }
+            if !live_matches {
+                return Err("compiled deny-list differs from the parity table".into());
+            }
+            if doc_current == Some(false) {
+                return Err("parity doc is stale; regenerate with --markdown".into());
+            }
+            Ok(())
+        }
+        ("sandbox", Some("selftest")) => {
+            a.done()?;
+            let t = seccomp::self_test();
+            print_json(&t);
+            if t.enforced {
+                Ok(())
+            } else {
+                Err("seccomp deny-list is not enforced on this device".into())
+            }
+        }
         ("pair", url) => {
             let no_qr = a.flag("--no-qr");
             let dry = a.flag("--dry-run");
+            let offline = a.flag("--offline");
+            let no_tunnel = a.flag("--no-tunnel");
+            let verbose = a.flag("--verbose");
+            let net = enroll::Net::new(a.flag("--insecure-http"), a.flag("--via-curl"));
+            let wait = a.num("--wait")?;
+            let poll_ms = a.num("--poll-ms")?.unwrap_or(3000).clamp(200, 60_000);
+            let tunnel_secs = a.num("--tunnel-secs")?;
+            let pair_dir = a
+                .value("--state")?
+                .map(PathBuf::from)
+                .unwrap_or(dir.clone());
+            let now = a
+                .num("--now")?
+                .map(|v| v as i64)
+                .unwrap_or_else(zagreb::now_unix);
             let url = {
                 let positional = url.map(String::from).or_else(|| {
                     if a.0.first().is_some_and(|s| !s.starts_with('-')) {
@@ -244,8 +405,17 @@ fn real_main() -> ExitCode {
                     .ok_or("pair: give an enroll URL or set [pair] enroll_url")?
             };
             a.done()?;
-            let id = Identity::load(&dir)?;
-            let (p, sig, warns) = pair::build(&cfg, &id, &url, &wifi::observe(true))?;
+            let id = if dry || offline || pair_dir.join("node.key").exists() {
+                Identity::load(&pair_dir)?
+            } else {
+                let id = Identity::init(&pair_dir)?;
+                println!(
+                    "new device key created in {} (mode 600, never leaves this device)",
+                    pair_dir.display()
+                );
+                id
+            };
+            let (p, sig, warns) = pair::build_at(&cfg, &id, &url, &wifi::observe(true), now)?;
             for w in warns {
                 eprintln!("warning: {w}");
             }
@@ -264,25 +434,55 @@ fn real_main() -> ExitCode {
                         },
                         "body": body,
                     },
+                    "code": enroll::pairing_code(&p.public_key, &p.nonce),
                     "note": "Nothing was sent. Hermes enrolls only after the owner approves.",
                 }));
-            } else {
+                return Ok(());
+            }
+            if offline {
                 print_json(&body);
                 if !no_qr {
                     let q = pair::qr_payload(&id, &p);
                     println!(
-                        "
-QR ({} chars, signed short form):
-{}",
+                        "\nQR ({} chars, signed short form):\n{}",
                         q.len(),
                         pair::qr_text(&q)?
                     );
                 }
-                println!("STUB: nothing was sent. v0.1 would POST the JSON above to {url}");
-                println!("Hermes enrolls the device only after the owner approves it.");
-                println!("Tip: `omnode pair --dry-run {url}` prints the HTTP plan only.");
+                println!("Nothing was sent (--offline). `omnode pair {url}` sends it and waits for the owner.");
+                return Ok(());
             }
-            Ok(())
+            pair_flow(
+                &pair_dir,
+                &id,
+                &url,
+                &p,
+                &body,
+                net,
+                PairOpts {
+                    no_qr,
+                    no_tunnel,
+                    verbose,
+                    wait,
+                    poll: std::time::Duration::from_millis(poll_ms),
+                    tunnel_secs,
+                },
+            )
+        }
+        ("tunnel", None) => {
+            let net = enroll::Net::new(a.flag("--insecure-http"), a.flag("--via-curl"));
+            let verbose = a.flag("--verbose");
+            let secs = a.num("--secs")?;
+            let tdir = a
+                .value("--state")?
+                .map(PathBuf::from)
+                .unwrap_or(dir.clone());
+            a.done()?;
+            let id = Identity::load(&tdir)?;
+            match tunnel::run(&tdir, &id, &tunnel::Opts { net, secs, verbose })? {
+                tunnel::End::Deadline => Ok(()),
+                tunnel::End::Refused(r) => Err(format!("tunnel refused: {r}; pair again")),
+            }
         }
         ("sandbox", Some(s @ ("run" | "check"))) => {
             let mut o = sandbox::Opts::from_cfg(&cfg.sandbox);
@@ -333,5 +533,221 @@ QR ({} chars, signed short form):
     match r {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => die(e),
+    }
+}
+
+/// `omnode enroll request|claim|status`: exit 0 done, 3 waiting for the
+/// owner, 2 refused or error. The credential is never printed.
+fn enroll_cmd(
+    cfg: &config::Config,
+    sub: Option<&str>,
+    mut a: Args,
+    default_dir: &std::path::Path,
+) -> ExitCode {
+    let r: Result<enroll::Outcome, String> = (|| {
+        let dir = a
+            .value("--state")?
+            .map(PathBuf::from)
+            .unwrap_or_else(|| default_dir.to_path_buf());
+        let allow_http = enroll::Net::new(a.flag("--insecure-http"), a.flag("--via-curl"));
+        match sub {
+            Some("request") => {
+                let url = if a.0.first().is_some_and(|s| !s.starts_with('-')) {
+                    a.0.remove(0)
+                } else {
+                    cfg.pair
+                        .enroll_url
+                        .clone()
+                        .ok_or("enroll request: give the Hermes enroll URL")?
+                };
+                a.done()?;
+                let id = Identity::load(&dir)?;
+                let (p, sig, warns) = pair::build(cfg, &id, &url, &wifi::observe(true))?;
+                for w in warns {
+                    eprintln!("warning: {w}");
+                }
+                let doc = serde_json::json!({"payload": p, "signature": sig, "signed_string": p.canonical()});
+                eprintln!(
+                    "omnode: asking Hermes to enroll {} (fingerprint {}); the owner must approve this fingerprint",
+                    id.state.device_id,
+                    id.fingerprint()
+                );
+                enroll::request(&dir, &url, &doc, allow_http)
+            }
+            Some("claim") => {
+                a.done()?;
+                let id = Identity::load(&dir)?;
+                enroll::claim(&dir, &id, allow_http)
+            }
+            Some("status") => {
+                let scope = a.value("--scope")?;
+                a.done()?;
+                enroll::status(&dir, scope.as_deref(), allow_http)
+            }
+            _ => Err("enroll: use `enroll request URL`, `enroll claim` or `enroll status`".into()),
+        }
+    })();
+    match r {
+        Ok(enroll::Outcome::Done(v)) => {
+            print_json(&serde_json::json!({"ok": true, "result": v}));
+            ExitCode::SUCCESS
+        }
+        Ok(enroll::Outcome::Pending(v)) => {
+            print_json(&serde_json::json!({"ok": true, "status": "pending", "result": v}));
+            ExitCode::from(3)
+        }
+        Err(e) => {
+            print_json(&serde_json::json!({"ok": false, "error": e}));
+            die(e)
+        }
+    }
+}
+
+struct PairOpts {
+    no_qr: bool,
+    no_tunnel: bool,
+    verbose: bool,
+    /// Give up waiting for the owner after this many seconds (default: the
+    /// expiry Hermes announced).
+    wait: Option<u64>,
+    poll: std::time::Duration,
+    /// Stop the tunnel after this many seconds (tests); default: run until killed.
+    tunnel_secs: Option<u64>,
+}
+
+fn out(msg: &str) {
+    use std::io::Write;
+    println!("{msg}");
+    let _ = std::io::stdout().flush();
+}
+
+/// Exit codes of `omnode pair`: 0 done, 2 error, 4 refused by the owner,
+/// 5 not approved in time, 6 credential refused by the tunnel.
+fn pair_exit(code: i32, msg: &str) -> ! {
+    eprintln!("omnode: {msg}");
+    std::process::exit(code)
+}
+
+/// `omnode pair URL`: send the signed request, show QR + short code, wait
+/// for the owner, store the credential, then keep the outbound tunnel up.
+fn pair_flow(
+    dir: &std::path::Path,
+    id: &Identity,
+    url: &str,
+    p: &pair::Payload,
+    doc: &serde_json::Value,
+    net: enroll::Net,
+    o: PairOpts,
+) -> Result<(), String> {
+    let code = enroll::pairing_code(&p.public_key, &p.nonce);
+    out(&format!(
+        "omnode pair: asking Hermes at {url} to enroll this device"
+    ));
+    let pending = match enroll::request(dir, url, doc, net)? {
+        enroll::Outcome::Pending(v) | enroll::Outcome::Done(v) => v,
+    };
+    let h = &pending["hermes"];
+    if h["code"].as_str() != Some(code.as_str()) {
+        return Err(format!(
+            "Hermes answered with code {} but this device computed {code}; not continuing (version mismatch or tampering)",
+            h["code"]
+        ));
+    }
+    let expires_unix = h["pending_expires_unix"].as_i64().unwrap_or(p.expires_unix);
+    if !o.no_qr {
+        let q = pair::qr_payload(id, p);
+        out(&format!("\n{}", pair::qr_text(&q)?));
+        out(&format!(
+            "(QR: signed short form, {} chars: device id, public key, nonce)",
+            q.len()
+        ));
+    }
+    out("");
+    out(&format!("  CODE         {code}"));
+    out(&format!("  device       {}", id.state.device_id));
+    out(&format!("  fingerprint  {}", id.fingerprint()));
+    out(&format!(
+        "  approve by   {}",
+        h["pending_expires"].as_str().unwrap_or("?")
+    ));
+    out("");
+    out(&format!(
+        "The owner approves on the Hermes host with:  hermes-gateway enroll approve {code}"
+    ));
+    out(&format!(
+        "(or refuses with: hermes-gateway enroll reject {code}). Waiting for the owner..."
+    ));
+    let local_deadline = match o.wait {
+        Some(w) => zagreb::now_unix() + w as i64,
+        None => expires_unix + 5,
+    };
+    let mut last = String::new();
+    loop {
+        if zagreb::now_unix() > local_deadline {
+            pair_exit(
+                5,
+                "the owner did not approve in time; run `omnode pair` again for a new code",
+            );
+        }
+        std::thread::sleep(o.poll);
+        let (c, v) = match enroll::poll(url, id, net) {
+            Ok(x) => x,
+            Err(e) => {
+                out(&format!("  (status poll failed: {e}; retrying)"));
+                continue;
+            }
+        };
+        let st = v["status"].as_str().unwrap_or("").to_string();
+        if st != last {
+            out(&format!(
+                "  {} status: {st} (HTTP {c})",
+                zagreb::now_rfc3339()
+            ));
+            last = st.clone();
+        }
+        match (c, st.as_str()) {
+            (202, "pending") => continue,
+            (200, "approved") => break,
+            (403, "rejected") => pair_exit(4, "the owner refused this device"),
+            (410, "expired") => pair_exit(
+                5,
+                "the owner did not approve in time; run `omnode pair` again for a new code",
+            ),
+            (403, "revoked") => pair_exit(4, "this device was revoked by the owner"),
+            (429, _) => continue,
+            _ => {
+                return Err(format!(
+                    "unexpected status from Hermes (HTTP {c}): {}",
+                    v["error"].as_str().unwrap_or("")
+                ))
+            }
+        }
+    }
+    match enroll::claim(dir, id, net)? {
+        enroll::Outcome::Done(v) => out(&format!(
+            "approved: scopes {} until {}; credential stored in {} (mode 600, never printed)",
+            v["hermes"]["scopes"],
+            v["hermes"]["expires"].as_str().unwrap_or("?"),
+            v["credential_file"].as_str().unwrap_or("?")
+        )),
+        enroll::Outcome::Pending(_) => {
+            return Err("Hermes still says pending after approval".into())
+        }
+    }
+    if o.no_tunnel {
+        out("--no-tunnel: not opening the tunnel; start it with `omnode tunnel`");
+        return Ok(());
+    }
+    match tunnel::run(
+        dir,
+        id,
+        &tunnel::Opts {
+            net,
+            secs: o.tunnel_secs,
+            verbose: o.verbose,
+        },
+    )? {
+        tunnel::End::Deadline => Ok(()),
+        tunnel::End::Refused(r) => pair_exit(6, &format!("tunnel refused: {r}; pair again")),
     }
 }

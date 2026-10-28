@@ -93,6 +93,7 @@ Rate, without a listener and without a packet capture:
 
 1. Over 10 seconds, once per cortex cycle, read the kernel socket table for local port 8420 (`ss`, no bind).
 2. `rate_per_s` is the growth of ESTAB plus TIME-WAIT, divided by 10. A flat TIME-WAIT count means zero new connections.
+   *Note (cortex-connrate-fix, slot 178, 2026-10-21 +02:00): under a steady load this growth reads ~0 (arrivals and 60 s TIME-WAIT expiries cancel; VPS :8642 1.37-1.44/s real vs 0.00-0.03/s). The corrected count formula is ESTAB+TIME-WAIT delta plus the TIME-WAIT entries aged out in the interval; the sensor ships it opt-in (`NERVE_CONNRATE_FORMULA=b41flow`). Amending this spec line is Slavik's decision: docs/cortex/conn-rate-formula.md.*
 3. After that sample, one `GET /health` records `status` and `connect`. That single GET is not added to the rate.
 4. Do not call `/metrics`, `/ready`, `/status`, or `/`. They answered 401. Do not send a cookie or a key to get past that.
 

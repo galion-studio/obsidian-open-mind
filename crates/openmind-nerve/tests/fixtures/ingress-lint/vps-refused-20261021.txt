@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# Refused origin dials in the VPS cloudflared journal, 2026-10-21 07:13:03..08:13:03 +02:00 (read-only journalctl, counts only:
+# no hostnames, no client addresses). Columns: port, refused dials, of which "Request failed" lines.
+3004 40 20
+3005 78 39
+3010 10 5
+3011 488 244
+3020 6 3
+4000 572 286
+4001 1040 520
+4003 56 28
+4020 6 3
+4042 548 274
+4060 1034 517
+4444 30 15

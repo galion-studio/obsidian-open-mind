@@ -13,9 +13,20 @@ name = "hermes-gateway"
 path = "src/main.rs"
 
 [features]
-default = ["sqlite"]
+default = ["sqlite", "coding"]
 sqlite = ["hermes-rs/sqlite"]
+# Sandboxed coding tools (fs_read, fs_write, git, cargo). Compiled in, but
+# OFF at run time unless HERMES_RS_CODING_WORKTREE is set.
+coding = ["dep:hermes-tools"]
 
 [dependencies]
+# Release reproducibility (D-312-4): same dependency features alone and in the release set.
+galion-feature-pin = { path = "../galion-feature-pin" }
 hermes-rs = { path = "../hermes-rs", default-features = false }
+hermes-tools = { path = "../hermes-tools", optional = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# real_size_2mib builds a Python-shaped legacy state.db (FTS5 + trigger).
+# Same rusqlite as hermes-rs (already in Cargo.lock); test-only.
+rusqlite = { version = "0.32", default-features = false, features = ["bundled"] }

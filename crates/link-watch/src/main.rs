@@ -26,6 +26,12 @@
 //!                          means no network call and `"france": "unconfigured"`,
 //!                          unless the config file sets `hosts.remote_probe`)
 //!   LINK_WATCH_ONCE        if set, run exactly one iteration and exit
+//!   LINK_WATCH_URLS        optional public http(s) URLs to GET (comma or space
+//!                          separated, at most 8); results go under a trailing
+//!                          `urls` key, present only when this is set
+//!   LINK_WATCH_URLS_EVERY  seconds between two GETs of one URL (default 300,
+//!                          clamped to 60..=86400; remembered across restarts
+//!                          through the previous link.json)
 //!
 //! A present file supplies `http://{hosts.ollama}:{ports.ollama}`,
 //! `http://{hosts.hermes}:{ports.hermes}`, and, when `hosts.remote_probe` is
@@ -37,13 +43,13 @@
 mod jsonout;
 
 use jsonout::{json_str, to_json_compat};
+use link_watch::http::probe;
+use link_watch::urls::{self, UrlWatch};
 use link_watch::{watch_decision, WatchFacts};
 use openmind_config::ConfigError;
 use serde_json::{Map, Value};
-use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Built-in defaults used when the OpenMind config file is missing.
 /// Only loopback and local state paths live here; the remote probe has
@@ -214,105 +220,18 @@ fn utc_stamp_clock(secs: i64) -> String {
 }
 
 fn unix_now() -> i64 {
-    SystemTime::now()
+    SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0)
 }
 
 fn unix_now_f64() -> f64 {
-    SystemTime::now()
+    SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
 }
-
-// ---------------------------------------------------------------------------
-// Tiny blocking HTTP/1.1 client (no TLS, no redirects - the probes are plain
-// loopback HTTP, exactly like the Python urllib calls).
-// ---------------------------------------------------------------------------
-
-fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() || haystack.len() < needle.len() {
-        return None;
-    }
-    haystack.windows(needle.len()).position(|w| w == needle)
-}
-
-fn dechunk(mut data: &[u8]) -> Option<Vec<u8>> {
-    let mut out = Vec::new();
-    loop {
-        let nl = find(data, b"\r\n")?;
-        let line = String::from_utf8_lossy(&data[..nl]);
-        let size_str = line.split(';').next()?.trim();
-        let size = usize::from_str_radix(size_str, 16).ok()?;
-        data = &data[nl + 2..];
-        if size == 0 {
-            break;
-        }
-        if data.len() < size {
-            return None;
-        }
-        out.extend_from_slice(&data[..size]);
-        data = &data[size..];
-        if data.len() >= 2 {
-            data = &data[2..];
-        }
-    }
-    Some(out)
-}
-
-fn http_get(url: &str, timeout: Duration) -> Option<(u16, Vec<u8>)> {
-    let rest = url.strip_prefix("http://")?;
-    let (hostport, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, "/"),
-    };
-    if hostport.is_empty() {
-        return None;
-    }
-    let addr = if hostport.contains(':') {
-        hostport.to_string()
-    } else {
-        format!("{hostport}:80")
-    };
-    let sock = addr.to_socket_addrs().ok()?.next()?;
-    let mut stream = TcpStream::connect_timeout(&sock, timeout).ok()?;
-    stream.set_read_timeout(Some(timeout)).ok()?;
-    stream.set_write_timeout(Some(timeout)).ok()?;
-    let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: {hostport}\r\nUser-Agent: link-watch\r\nAccept: */*\r\nConnection: close\r\n\r\n"
-    );
-    stream.write_all(request.as_bytes()).ok()?;
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).ok()?;
-    let sep = find(&buf, b"\r\n\r\n")?;
-    let head = &buf[..sep];
-    let raw_body = &buf[sep + 4..];
-    let first_line_end = find(head, b"\r\n").unwrap_or(head.len());
-    let status_line = String::from_utf8_lossy(&head[..first_line_end]);
-    let status: u16 = status_line.split_whitespace().nth(1)?.parse().ok()?;
-    let headers = String::from_utf8_lossy(head).to_ascii_lowercase();
-    let body = if headers.contains("transfer-encoding: chunked") {
-        dechunk(raw_body)?
-    } else {
-        raw_body.to_vec()
-    };
-    Some((status, body))
-}
-
-/// CPython `probe(url, timeout)`: `(ok, milliseconds, body)`.
-fn probe(url: &str, timeout: Duration) -> (bool, i64, Vec<u8>) {
-    let started = Instant::now();
-    let got = http_get(url, timeout);
-    let ms = started.elapsed().as_millis() as i64;
-    match got {
-        Some((status, body)) if (200..400).contains(&status) => (true, ms, body),
-        _ => (false, ms, Vec::new()),
-    }
-}
-
-// ---------------------------------------------------------------------------
 
 fn trim_base(base: &str) -> &str {
     base.trim_end_matches('/')
@@ -392,6 +311,14 @@ fn model_from_tags(body: &[u8]) -> String {
 }
 
 fn main() {
+    galion_common::build_info::exit_if_version("link-watch", env!("CARGO_PKG_VERSION"));
+    if std::env::args()
+        .nth(1)
+        .is_some_and(|a| a == "--help" || a == "-h")
+    {
+        println!("link-watch: writes link.json every 3 s (LINK_WATCH_ONCE=1: once). See the crate docs for LINK_WATCH_* settings.");
+        return;
+    }
     let settings = match resolve(&|key| std::env::var(key).ok()) {
         Ok(settings) => settings,
         Err(err) => {
@@ -408,6 +335,26 @@ fn main() {
         france,
     } = settings;
     let once = env_flag("LINK_WATCH_ONCE");
+    let url_list = match std::env::var("LINK_WATCH_URLS") {
+        Ok(raw) => match urls::parse_urls(&raw) {
+            Ok(list) => list,
+            Err(err) => {
+                eprintln!("link-watch: LINK_WATCH_URLS: {err}");
+                std::process::exit(1);
+            }
+        },
+        Err(_) => Vec::new(),
+    };
+    let mut url_watch = if url_list.is_empty() {
+        None
+    } else {
+        let previous: Value = std::fs::read(&out)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or(Value::Null);
+        let every = urls::every_secs(std::env::var("LINK_WATCH_URLS_EVERY").ok().as_deref());
+        Some(UrlWatch::new(url_list, every, &previous))
+    };
 
     let ps_url = format!("{}/api/ps", trim_base(&ollama));
     let tags_url = format!("{}/api/tags", trim_base(&ollama));
@@ -467,7 +414,16 @@ fn main() {
         }
         events = decision.events;
         previous = Some(decision.signature);
-        write_json(&out, &decision.report);
+        let mut report = decision.report;
+        if let Some(watch) = url_watch.as_mut() {
+            watch.tick(unix_now(), Duration::from_millis(500), &mut |url| {
+                urls::fetch(url, unix_now(), zagreb_time::now_rfc3339())
+            });
+            if let Value::Object(map) = &mut report {
+                map.insert("urls".to_owned(), watch.report());
+            }
+        }
+        write_json(&out, &report);
 
         if once {
             break;

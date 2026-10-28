@@ -1,0 +1,183 @@
+{
+  "P0_quiet": {
+    "extra": {},
+    "health": {
+      "busy_snapshots": 0,
+      "codes": {
+        "200": 100
+      },
+      "max_ms": 2.98,
+      "n": 100,
+      "ok_200": 100,
+      "p50_ms": 0.06,
+      "p99_ms": 1.94
+    },
+    "stats": {
+      "busy_snapshots": 0,
+      "codes": {
+        "200": 100
+      },
+      "max_ms": 0.98,
+      "n": 100,
+      "ok_200": 100,
+      "p50_ms": 0.07,
+      "p99_ms": 0.66
+    }
+  },
+  "P1_flood": {
+    "extra": {
+      "flood_reconnects": 151
+    },
+    "health": {
+      "busy_snapshots": 0,
+      "codes": {
+        "200": 100
+      },
+      "max_ms": 7.84,
+      "n": 100,
+      "ok_200": 100,
+      "p50_ms": 1.52,
+      "p99_ms": 7.66
+    },
+    "stats": {
+      "busy_snapshots": 0,
+      "codes": {
+        "200": 100
+      },
+      "max_ms": 8.97,
+      "n": 100,
+      "ok_200": 100,
+      "p50_ms": 0.63,
+      "p99_ms": 7.95
+    }
+  },
+  "P2_hung_decider": {
+    "extra": {
+      "invalid_push_ms": 0,
+      "invalid_push_status": 400
+    },
+    "health": {
+      "busy_snapshots": 282,
+      "codes": {
+        "200": 282
+      },
+      "max_ms": 5.06,
+      "n": 282,
+      "ok_200": 282,
+      "p50_ms": 0.21,
+      "p99_ms": 4.58
+    },
+    "stats": {
+      "busy_snapshots": 282,
+      "codes": {
+        "200": 282
+      },
+      "max_ms": 5.06,
+      "n": 282,
+      "ok_200": 282,
+      "p50_ms": 0.15,
+      "p99_ms": 4.07
+    }
+  },
+  "P3_hung_and_flood": {
+    "extra": {
+      "flood_reconnects": 358
+    },
+    "health": {
+      "busy_snapshots": 282,
+      "codes": {
+        "200": 282
+      },
+      "max_ms": 12.12,
+      "n": 282,
+      "ok_200": 282,
+      "p50_ms": 0.24,
+      "p99_ms": 5.16
+    },
+    "stats": {
+      "busy_snapshots": 282,
+      "codes": {
+        "200": 282
+      },
+      "max_ms": 7.92,
+      "n": 282,
+      "ok_200": 282,
+      "p50_ms": 0.12,
+      "p99_ms": 4.18
+    }
+  },
+  "baseline_mode": false,
+  "binary": "/workspace/swarm/target/cortex-api-load/release/gaia-cortex",
+  "decided": [
+    {
+      "by": "unknown",
+      "status": "simulated",
+      "subject": "unit:galion-health.service"
+    },
+    {
+      "by": "unknown",
+      "status": "simulated",
+      "subject": "unit:galion-desk.service"
+    }
+  ],
+  "events_invalid_before_after": [
+    0,
+    2
+  ],
+  "final_stats": {
+    "actions_circuit_open": 0,
+    "actions_executed": 0,
+    "actions_failed": 0,
+    "actions_rate_limited": 0,
+    "actions_refused": 0,
+    "actions_requested": 2,
+    "actions_simulated": 2,
+    "actions_unknown": 2,
+    "alerts": 2,
+    "alerts_to_nerve": 0,
+    "batches": 2,
+    "busy": false,
+    "decisions": 2,
+    "decisions_suppressed": 0,
+    "escalations": 2,
+    "escalations_open": 2,
+    "events_duplicate": 0,
+    "events_housekeeping": 0,
+    "events_ignored": 0,
+    "events_in": 2,
+    "events_invalid": 2,
+    "incidents_open": 2,
+    "incidents_opened_total": 2,
+    "last_batch": "2026-10-22T00:34:35+02:00",
+    "last_event": "2026-10-22T00:34:35+02:00",
+    "llm": {
+      "budget_usd_total": 15.0,
+      "calls_per_hour": 6,
+      "calls_this_process": 0,
+      "enabled": false,
+      "endpoint": "https://api.river.ai/v1",
+      "endpoint_guard": "ok",
+      "key_env": "RIVER_API_KEY",
+      "ledger": {
+        "calls_total": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "refused_total": 0,
+        "remaining_usd": 15.0,
+        "spent_usd": 0.0
+      },
+      "max_tokens": 400,
+      "model": "deepseek-ai/DeepSeek-V4.1-Flash",
+      "refusals": {}
+    },
+    "llm_calls": 0,
+    "llm_refused": 0,
+    "llm_skipped_disabled": 0,
+    "llm_spend_usd": 0.0,
+    "mode": "dry-run",
+    "nerve_restarts": 0,
+    "started": "2026-10-22T00:34:22+02:00"
+  },
+  "finished": "2026-10-22T00:34:44+02:00",
+  "stub_nerve_connections": 8
+}

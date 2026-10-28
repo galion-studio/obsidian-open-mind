@@ -1,0 +1,320 @@
+rehearsal ff-tuner: root /workspace/swarm/sim/deploy-rust/root-ff-tuner port 19910, galion-deploy /workspace/swarm/target/galion-deploy-fastfail/release/galion-deploy (sha 4c63fd33a20185d4), sim bins /workspace/swarm/sim/deploy-sim/bin
+simsup pid 3533326, root /workspace/swarm/sim/deploy-rust/root-ff-tuner
+CHECK PASS  old tuner serving (200)
+
+[2026-10-21T04:11:25.690+02:00] == L1 matrix: broken (exits 1 at start), truncated ELF (exec fails), hang (alive, never binds)
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-ff-tuner/bad/sim-broken http://127.0.0.1:19910/health   (direct backend, outer limit 120s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-21T04:11:29+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-ff-tuner/var/backups/galion/deploy/tuner-20261021-041126+0200.bin sha_old=067c56bede5a sha_new=cf3c5ab9b1c9
+ts=2026-10-21T04:11:49+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Scheduled restart job, restart counter is at 6.
+  | tuner.service: Started (pid 3536605): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 7.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Started (pid 3536625): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 8.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Started (pid 3536640): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 9.
+  | tuner.service: Started (pid 3536656): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+ts=2026-10-21T04:11:50+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=24328
+  probe| probe http://127.0.0.1:19910/health interval=5ms tries=4834 ok=872 fail=3962 outages=1
+  probe| outage first_fail=2026-10-21T04:11:29.107+02:00 last_fail=2026-10-21T04:11:49.294+02:00 next_ok=2026-10-21T04:11:49.299+02:00 fail_span_ms=20187 until_ok_ms=20192 tries=3962 kinds=Refusedx3962
+  probe| longest_gap_between_ok_ms=20197
+CHECK PASS  tuner L1 sim-broken FAILFAST=off: exit 3, old sha, unit active, healthy (exit 3, deploy 24328 ms, outage 20192 ms, crash-loop line false)
+DOWNTIME ff-tuner tuner L1 sim-broken FAILFAST=off 20192 ms
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-ff-tuner/bad/sim-broken http://127.0.0.1:19910/health   (direct backend, GALION_DEPLOY_FAILFAST=1, outer limit 120s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-21T04:11:53+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-ff-tuner/var/backups/galion/deploy/tuner-20261021-041150+0200.bin sha_old=067c56bede5a sha_new=cf3c5ab9b1c9
+ts=2026-10-21T04:11:53+02:00 svc=galion-deploy level=info msg="fail-fast armed" unit=tuner crash_limit=1 nrestarts_base=9 state=active/
+ts=2026-10-21T04:11:55+02:00 svc=galion-deploy level=error msg="crash loop: 1 crash(es) of the new build since the deploy restart (limit 1); failing fast" unit=tuner after_ms=2031 nrestarts=10 state=active/
+ts=2026-10-21T04:11:55+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 9.
+  | tuner.service: Started (pid 3536656): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Started (pid 3536682): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner 127.0.0.1:19910 serving /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/www
+  | tuner.service: Stopping (SIGTERM to pid 3536682)...
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | tuner.service: Started (pid 3538523): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 10.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Started (pid 3538768): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+ts=2026-10-21T04:11:56+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=6248
+  probe| probe http://127.0.0.1:19910/health interval=5ms tries=1285 ok=871 fail=414 outages=1
+  probe| outage first_fail=2026-10-21T04:11:53.780+02:00 last_fail=2026-10-21T04:11:55.893+02:00 next_ok=2026-10-21T04:11:55.898+02:00 fail_span_ms=2113 until_ok_ms=2118 tries=414 kinds=Refusedx414
+  probe| longest_gap_between_ok_ms=2123
+CHECK PASS  tuner L1 sim-broken FAILFAST=1: exit 3, old sha, unit active, healthy (exit 3, deploy 6248 ms, outage 2118 ms, crash-loop line true)
+DOWNTIME ff-tuner tuner L1 sim-broken FAILFAST=1 2118 ms
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-ff-tuner/bad/sim-broken http://127.0.0.1:19910/health   (direct backend, GALION_DEPLOY_FAILFAST=2, outer limit 120s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-21T04:12:00+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-ff-tuner/var/backups/galion/deploy/tuner-20261021-041157+0200.bin sha_old=067c56bede5a sha_new=cf3c5ab9b1c9
+ts=2026-10-21T04:12:00+02:00 svc=galion-deploy level=info msg="fail-fast armed" unit=tuner crash_limit=2 nrestarts_base=10 state=activating/
+ts=2026-10-21T04:12:04+02:00 svc=galion-deploy level=error msg="crash loop: 2 crash(es) of the new build since the deploy restart (limit 2); failing fast" unit=tuner after_ms=4080 nrestarts=12 state=activating/
+ts=2026-10-21T04:12:04+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Started (pid 3538774): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner 127.0.0.1:19910 serving /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/www
+  | tuner.service: Stopping (SIGTERM to pid 3538774)...
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Started (pid 3540810): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 11.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Started (pid 3541806): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 12.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Started (pid 3542033): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+ts=2026-10-21T04:12:05+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=8292
+  probe| probe http://127.0.0.1:19910/health interval=5ms tries=1684 ok=867 fail=817 outages=1
+  probe| outage first_fail=2026-10-21T04:12:00.352+02:00 last_fail=2026-10-21T04:12:04.508+02:00 next_ok=2026-10-21T04:12:04.513+02:00 fail_span_ms=4156 until_ok_ms=4161 tries=817 kinds=Refusedx817
+  probe| longest_gap_between_ok_ms=4166
+CHECK PASS  tuner L1 sim-broken FAILFAST=2: exit 3, old sha, unit active, healthy (exit 3, deploy 8292 ms, outage 4161 ms, crash-loop line true)
+DOWNTIME ff-tuner tuner L1 sim-broken FAILFAST=2 4161 ms
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-ff-tuner/bad/sim-broken http://127.0.0.1:19910/health   (direct backend, GALION_DEPLOY_FAILFAST=3, outer limit 120s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-21T04:12:08+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-ff-tuner/var/backups/galion/deploy/tuner-20261021-041205+0200.bin sha_old=067c56bede5a sha_new=cf3c5ab9b1c9
+ts=2026-10-21T04:12:09+02:00 svc=galion-deploy level=info msg="fail-fast armed" unit=tuner crash_limit=3 nrestarts_base=12 state=activating/
+ts=2026-10-21T04:12:15+02:00 svc=galion-deploy level=error msg="crash loop: 3 crash(es) of the new build since the deploy restart (limit 3); failing fast" unit=tuner after_ms=6135 nrestarts=15 state=activating/
+ts=2026-10-21T04:12:15+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Started (pid 3543766): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 13.
+  | tuner.service: Started (pid 3543792): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 14.
+  | tuner.service: Started (pid 3543827): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 15.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Started (pid 3543901): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+ts=2026-10-21T04:12:16+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=10371
+  probe| probe http://127.0.0.1:19910/health interval=5ms tries=2094 ok=877 fail=1217 outages=1
+  probe| outage first_fail=2026-10-21T04:12:08.997+02:00 last_fail=2026-10-21T04:12:15.210+02:00 next_ok=2026-10-21T04:12:15.215+02:00 fail_span_ms=6213 until_ok_ms=6218 tries=1217 kinds=Refusedx1217
+  probe| longest_gap_between_ok_ms=6223
+CHECK PASS  tuner L1 sim-broken FAILFAST=3: exit 3, old sha, unit active, healthy (exit 3, deploy 10371 ms, outage 6218 ms, crash-loop line true)
+DOWNTIME ff-tuner tuner L1 sim-broken FAILFAST=3 6218 ms
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-ff-tuner/var/tmp/galion-cutover/tuner-truncated http://127.0.0.1:19910/health   (direct backend, outer limit 120s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-21T04:12:19+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-ff-tuner/var/backups/galion/deploy/tuner-20261021-041216+0200.bin sha_old=067c56bede5a sha_new=abb37569abb0
+ts=2026-10-21T04:12:39+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Scheduled restart job, restart counter is at 20.
+  | tuner.service: Started (pid 3545216): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 21.
+  | tuner.service: Started (pid 3545274): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 22.
+  | tuner.service: Started (pid 3545287): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 23.
+  | tuner.service: Started (pid 3545323): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 24.
+  | tuner.service: Started (pid 3545358): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+ts=2026-10-21T04:12:40+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=24329
+  probe| probe http://127.0.0.1:19910/health interval=5ms tries=4831 ok=875 fail=3956 outages=1
+  probe| outage first_fail=2026-10-21T04:12:19.698+02:00 last_fail=2026-10-21T04:12:39.875+02:00 next_ok=2026-10-21T04:12:39.880+02:00 fail_span_ms=20177 until_ok_ms=20182 tries=3956 kinds=Refusedx3956
+  probe| longest_gap_between_ok_ms=20187
+CHECK PASS  tuner L1 tuner-truncated FAILFAST=off: exit 3, old sha, unit active, healthy (exit 3, deploy 24329 ms, outage 20182 ms, crash-loop line false)
+DOWNTIME ff-tuner tuner L1 tuner-truncated FAILFAST=off 20182 ms
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-ff-tuner/var/tmp/galion-cutover/tuner-truncated http://127.0.0.1:19910/health   (direct backend, GALION_DEPLOY_FAILFAST=2, outer limit 120s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-21T04:12:44+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-ff-tuner/var/backups/galion/deploy/tuner-20261021-041241+0200.bin sha_old=067c56bede5a sha_new=abb37569abb0
+ts=2026-10-21T04:12:44+02:00 svc=galion-deploy level=info msg="fail-fast armed" unit=tuner crash_limit=2 nrestarts_base=24 state=active/
+ts=2026-10-21T04:12:48+02:00 svc=galion-deploy level=error msg="crash loop: 2 crash(es) of the new build since the deploy restart (limit 2); failing fast" unit=tuner after_ms=4083 nrestarts=26 state=activating/
+ts=2026-10-21T04:12:48+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 24.
+  | tuner.service: Started (pid 3545358): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner 127.0.0.1:19910 serving /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/www
+  | tuner.service: Started (pid 3545370): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Stopping (SIGTERM to pid 3545370)...
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | tuner.service: Started (pid 3546332): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 25.
+  | tuner.service: Started (pid 3546352): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 26.
+  | tuner.service: Started (pid 3546376): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+ts=2026-10-21T04:12:49+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=8343
+  probe| probe http://127.0.0.1:19910/health interval=5ms tries=1695 ok=879 fail=816 outages=1
+  probe| outage first_fail=2026-10-21T04:12:44.385+02:00 last_fail=2026-10-21T04:12:48.548+02:00 next_ok=2026-10-21T04:12:48.553+02:00 fail_span_ms=4163 until_ok_ms=4168 tries=816 kinds=Refusedx816
+  probe| longest_gap_between_ok_ms=4173
+CHECK PASS  tuner L1 tuner-truncated FAILFAST=2: exit 3, old sha, unit active, healthy (exit 3, deploy 8343 ms, outage 4168 ms, crash-loop line true)
+DOWNTIME ff-tuner tuner L1 tuner-truncated FAILFAST=2 4168 ms
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-ff-tuner/bad/sim-hang http://127.0.0.1:19910/health   (direct backend, GALION_DEPLOY_FAILFAST=2, outer limit 120s)
+ts=2026-10-21T04:12:54+02:00 svc=galion-deploy level=warn msg="/workspace/swarm/sim/deploy-rust/root-ff-tuner/bad/sim-hang --version did not exit within 5s; killed its process group" unit=tuner
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-21T04:12:58+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-ff-tuner/var/backups/galion/deploy/tuner-20261021-041249+0200.bin sha_old=067c56bede5a sha_new=d3a31fa16959
+ts=2026-10-21T04:12:58+02:00 svc=galion-deploy level=info msg="fail-fast armed" unit=tuner crash_limit=2 nrestarts_base=26 state=active/
+ts=2026-10-21T04:13:18+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Started (pid 3545370): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Stopping (SIGTERM to pid 3545370)...
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | tuner.service: Started (pid 3546332): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 25.
+  | tuner.service: Started (pid 3546352): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 26.
+  | tuner.service: Started (pid 3546376): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner 127.0.0.1:19910 serving /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/www
+  | tuner.service: Started (pid 3546381): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Stopping (SIGTERM to pid 3546381)...
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | tuner.service: Started (pid 3548313): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | sim-hang: started with ""; sleeping forever, never binding
+ts=2026-10-21T04:13:19+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=29815
+  probe| probe http://127.0.0.1:19910/health interval=5ms tries=5903 ok=1860 fail=4043 outages=1
+  probe| outage first_fail=2026-10-21T04:12:58.065+02:00 last_fail=2026-10-21T04:13:18.701+02:00 next_ok=2026-10-21T04:13:18.706+02:00 fail_span_ms=20636 until_ok_ms=20641 tries=4043 kinds=Refusedx4043
+  probe| longest_gap_between_ok_ms=20646
+CHECK PASS  tuner L1 sim-hang FAILFAST=2: exit 3, old sha, unit active, healthy (exit 3, deploy 29815 ms, outage 20641 ms, crash-loop line false)
+DOWNTIME ff-tuner tuner L1 sim-hang FAILFAST=2 20641 ms
+CHECK PASS  fail-fast 2 cuts the broken-build outage to under half of the 20 s window (off 20192 ms, FAILFAST=2 4161 ms)
+CHECK PASS  hang build: no crash, so fail-fast cannot help (full window, no crash-loop line) (20641 ms)
+
+[2026-10-21T04:13:19.772+02:00] == healthy deploy with FAILFAST=1: no false alarm
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-ff-tuner/var/tmp/galion-cutover/tuner-new http://127.0.0.1:19910/health   (direct backend, GALION_DEPLOY_FAILFAST=1, outer limit 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-21T04:13:23+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-ff-tuner/var/backups/galion/deploy/tuner-20261021-041320+0200.bin sha_old=067c56bede5a sha_new=47a17df2234f
+ts=2026-10-21T04:13:23+02:00 svc=galion-deploy level=info msg="fail-fast armed" unit=tuner crash_limit=1 nrestarts_base=26 state=active/
+ts=2026-10-21T04:13:24+02:00 svc=galion-deploy level=info msg="deployed" unit=tuner health=http://127.0.0.1:19910/health
+  -> exit=0 elapsed_ms=4180
+  probe| probe http://127.0.0.1:19910/health interval=2ms tries=2143 ok=2142 fail=1 outages=1
+  probe| outage first_fail=2026-10-21T04:13:23.169+02:00 last_fail=2026-10-21T04:13:23.169+02:00 next_ok=2026-10-21T04:13:23.171+02:00 fail_span_ms=0 until_ok_ms=2 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=24
+CHECK PASS  healthy FAILFAST=1: exit 0, new sha, no crash-loop line, armed line logged (exit 0, 4180 ms, outage 2 ms)
+DOWNTIME ff-tuner tuner swap FAILFAST=1 2 ms
+
+[2026-10-21T04:13:24.272+02:00] == transient: the first start of a GOOD build fails (port still taken), the automatic restart 2 s later succeeds
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-ff-tuner/var/tmp/galion-cutover/tuner-new http://127.0.0.1:19910/health   (direct backend, GALION_DEPLOY_FAILFAST=1, SKIP_DATA_BACKUP=1, outer limit 90s)
+ts=2026-10-21T04:13:24+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-ff-tuner/var/backups/galion/deploy/tuner-20261021-041324+0200.bin sha_old=067c56bede5a sha_new=47a17df2234f
+ts=2026-10-21T04:13:24+02:00 svc=galion-deploy level=info msg="fail-fast armed" unit=tuner crash_limit=1 nrestarts_base=26 state=active/
+ts=2026-10-21T04:13:26+02:00 svc=galion-deploy level=error msg="crash loop: 1 crash(es) of the new build since the deploy restart (limit 1); failing fast" unit=tuner after_ms=2032 nrestarts=27 state=active/
+ts=2026-10-21T04:13:26+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | tuner 127.0.0.1:19910 serving /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/www
+  | tuner.service: Started (pid 3551574): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Stopping (SIGTERM to pid 3551574)...
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | tuner.service: Started (pid 3553455): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner 127.0.0.1:19910 serving /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/www
+  | tuner.service: Stopping (SIGTERM to pid 3553455)...
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | tuner.service: Started (pid 3553974): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner 127.0.0.1:19910 serving /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/www
+  | tuner.service: Stopping (SIGTERM to pid 3553974)...
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | tuner.service: Started (pid 3553987): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner: bind 127.0.0.1:19910: Address in use (os error 98)
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 27.
+  | tuner.service: Started (pid 3554006): /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+  | tuner 127.0.0.1:19910 serving /workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/www
+ts=2026-10-21T04:13:27+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=3217
+transient FAILFAST=1: exit 3, 3217 ms, crash-loop line true
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-ff-tuner/var/tmp/galion-cutover/tuner-new http://127.0.0.1:19910/health   (direct backend, GALION_DEPLOY_FAILFAST=2, SKIP_DATA_BACKUP=1, outer limit 90s)
+ts=2026-10-21T04:13:27+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-ff-tuner/var/backups/galion/deploy/tuner-20261021-041327+0200.bin sha_old=067c56bede5a sha_new=47a17df2234f
+ts=2026-10-21T04:13:27+02:00 svc=galion-deploy level=info msg="fail-fast armed" unit=tuner crash_limit=2 nrestarts_base=27 state=active/
+ts=2026-10-21T04:13:29+02:00 svc=galion-deploy level=info msg="deployed" unit=tuner health=http://127.0.0.1:19910/health
+  -> exit=0 elapsed_ms=2192
+transient FAILFAST=2: exit 0, 2192 ms, crash-loop line false
+CHECK PASS  transient FAILFAST=2: the good build is kept (exit 0) (exit 0, 2192 ms)
+FINDING transient FAILFAST=1: exit 3 (3 = a good build was rolled back after one crash), crash-loop line true
+
+[2026-10-21T04:13:29.839+02:00] == table
+ROW tuner sim-broken FAILFAST=off: exit 3, deploy 24328 ms, outage 20192 ms, crash-loop false
+ROW tuner sim-broken FAILFAST=1: exit 3, deploy 6248 ms, outage 2118 ms, crash-loop true
+ROW tuner sim-broken FAILFAST=2: exit 3, deploy 8292 ms, outage 4161 ms, crash-loop true
+ROW tuner sim-broken FAILFAST=3: exit 3, deploy 10371 ms, outage 6218 ms, crash-loop true
+ROW tuner tuner-truncated FAILFAST=off: exit 3, deploy 24329 ms, outage 20182 ms, crash-loop false
+ROW tuner tuner-truncated FAILFAST=2: exit 3, deploy 8343 ms, outage 4168 ms, crash-loop true
+ROW tuner sim-hang FAILFAST=2: exit 3, deploy 29815 ms, outage 20641 ms, crash-loop false
+tuner.service active result=success pid=3554068 restarts=28 exec=/workspace/swarm/sim/deploy-rust/root-ff-tuner/opt/galion/tuner/bin/tuner
+
+simsup stopped; leftover listeners on :19910: 0
+
+== summary ff-tuner: 12 pass, 0 fail
+  old tuner serving|PASS|200
+  tuner L1 sim-broken FAILFAST=off: exit 3, old sha, unit active, healthy|PASS|exit 3, deploy 24328 ms, outage 20192 ms, crash-loop line false
+  tuner L1 sim-broken FAILFAST=1: exit 3, old sha, unit active, healthy|PASS|exit 3, deploy 6248 ms, outage 2118 ms, crash-loop line true
+  tuner L1 sim-broken FAILFAST=2: exit 3, old sha, unit active, healthy|PASS|exit 3, deploy 8292 ms, outage 4161 ms, crash-loop line true
+  tuner L1 sim-broken FAILFAST=3: exit 3, old sha, unit active, healthy|PASS|exit 3, deploy 10371 ms, outage 6218 ms, crash-loop line true
+  tuner L1 tuner-truncated FAILFAST=off: exit 3, old sha, unit active, healthy|PASS|exit 3, deploy 24329 ms, outage 20182 ms, crash-loop line false
+  tuner L1 tuner-truncated FAILFAST=2: exit 3, old sha, unit active, healthy|PASS|exit 3, deploy 8343 ms, outage 4168 ms, crash-loop line true
+  tuner L1 sim-hang FAILFAST=2: exit 3, old sha, unit active, healthy|PASS|exit 3, deploy 29815 ms, outage 20641 ms, crash-loop line false
+  fail-fast 2 cuts the broken-build outage to under half of the 20 s window|PASS|off 20192 ms, FAILFAST=2 4161 ms
+  hang build: no crash, so fail-fast cannot help (full window, no crash-loop line)|PASS|20641 ms
+  healthy FAILFAST=1: exit 0, new sha, no crash-loop line, armed line logged|PASS|exit 0, 4180 ms, outage 2 ms
+  transient FAILFAST=2: the good build is kept (exit 0)|PASS|exit 0, 2192 ms
+  DOWNTIME tuner L1 sim-broken FAILFAST=off 20192 ms
+  DOWNTIME tuner L1 sim-broken FAILFAST=1 2118 ms
+  DOWNTIME tuner L1 sim-broken FAILFAST=2 4161 ms
+  DOWNTIME tuner L1 sim-broken FAILFAST=3 6218 ms
+  DOWNTIME tuner L1 tuner-truncated FAILFAST=off 20182 ms
+  DOWNTIME tuner L1 tuner-truncated FAILFAST=2 4168 ms
+  DOWNTIME tuner L1 sim-hang FAILFAST=2 20641 ms
+  DOWNTIME tuner swap FAILFAST=1 2 ms
+log: /workspace/swarm/sim/deploy-rust/runs/ff-tuner-20261021-041125+0200.log

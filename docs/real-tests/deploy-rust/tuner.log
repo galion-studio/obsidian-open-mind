@@ -1,0 +1,367 @@
+rehearsal tuner: root /workspace/swarm/sim/deploy-rust/root-tuner port 19390, galion-deploy /workspace/swarm/target/deploy-rust/release/galion-deploy (sha da2b5fba83e00ce2), sim bins /workspace/swarm/sim/deploy-sim/bin
+simsup pid 2641970, root /workspace/swarm/sim/deploy-rust/root-tuner
+CHECK PASS  old tuner serving before cutover (200 on http://127.0.0.1:19390/health)
+
+[2026-10-20T23:20:48.500+02:00] == 3.1 copy the artefact into the stage dir and verify SHA256SUMS
+CHECK PASS  3.1 artefact sha256 verified (sha 47a17df2234fdd5c)
+
+[2026-10-20T23:20:48.519+02:00] == 3.2 preflight (read-only, no bind)
+CHECK PASS  3.2 --version answers without binding (tuner 0.1.0)
+CHECK PASS  3.2 --check (5)
+
+[2026-10-20T23:20:48.522+02:00] == 3.3 swap: galion-deploy tuner <new> <health> (probe every 2 ms)
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/var/tmp/galion-cutover/tuner-x86_64-unknown-linux-musl http://127.0.0.1:19390/health   (direct backend, outer limit 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:20:51+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232048+0200.bin sha_old=067c56bede5a sha_new=47a17df2234f
+ts=2026-10-20T23:20:52+02:00 svc=galion-deploy level=info msg="deployed" unit=tuner health=http://127.0.0.1:19390/health
+  -> exit=0 elapsed_ms=4131
+  probe| probe http://127.0.0.1:19390/health interval=2ms tries=1919 ok=1918 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T23:20:51.923+02:00 last_fail=2026-10-20T23:20:51.923+02:00 next_ok=2026-10-20T23:20:51.925+02:00 fail_span_ms=0 until_ok_ms=2 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=11
+CHECK PASS  3.3 deploy exit 0 (exit 0)
+CHECK PASS  3.3 downtime < 1 s (longest outage 2 ms)
+DOWNTIME tuner swap 2 ms
+backup of the old binary: /workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232048+0200.bin
+
+[2026-10-20T23:20:52.956+02:00] == 3.4 health after the switch
+CHECK PASS  3.4 running binary is the new sha (47a17df2234fdd5c)
+CHECK PASS  3.4 / is 200 2356 and /nope is 404 (200 2356 / 404)
+CHECK PASS  3.4 all routes byte-identical to the live fixtures (21/21)
+
+[2026-10-20T23:20:52.972+02:00] == rollback level 2 (manual): galion-deploy tuner <backup> <health>
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232048+0200.bin http://127.0.0.1:19390/health   (direct backend, outer limit 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:20:56+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232053+0200.bin sha_old=47a17df2234f sha_new=067c56bede5a
+ts=2026-10-20T23:20:57+02:00 svc=galion-deploy level=info msg="deployed" unit=tuner health=http://127.0.0.1:19390/health
+  -> exit=0 elapsed_ms=4160
+  probe| probe http://127.0.0.1:19390/health interval=2ms tries=1988 ok=1987 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T23:20:56.399+02:00 last_fail=2026-10-20T23:20:56.399+02:00 next_ok=2026-10-20T23:20:56.401+02:00 fail_span_ms=0 until_ok_ms=2 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=12
+CHECK PASS  L2 manual rollback exit 0 and old sha back (exit 0, sha 067c56bede5ad249, outage 2 ms)
+DOWNTIME tuner rollback-L2 2 ms
+
+[2026-10-20T23:20:57.440+02:00] == forward again, then rollback level 3 (last resort, no galion-deploy)
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/var/tmp/galion-cutover/tuner-x86_64-unknown-linux-musl http://127.0.0.1:19390/health   (direct backend, outer limit 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:21:00+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232057+0200.bin sha_old=067c56bede5a sha_new=47a17df2234f
+ts=2026-10-20T23:21:01+02:00 svc=galion-deploy level=info msg="deployed" unit=tuner health=http://127.0.0.1:19390/health
+  -> exit=0 elapsed_ms=4479
+CHECK PASS  re-deploy new exit 0 (exit 0)
+$ ctl restart tuner
+  -> exit=0
+  probe| probe http://127.0.0.1:19390/health interval=2ms tries=158 ok=157 fail=1 outages=1
+  probe| outage first_fail=2026-10-20T23:21:02.242+02:00 last_fail=2026-10-20T23:21:02.242+02:00 next_ok=never fail_span_ms=0 tries=1 kinds=Refusedx1
+  probe| longest_gap_between_ok_ms=3
+  probe| NOTE: service was still down when the probe stopped
+CHECK PASS  L3 last resort: old sha back and healthy (sha 067c56bede5ad249, 22 ms for install+mv+restart)
+DOWNTIME tuner rollback-L3 0 ms
+
+[2026-10-20T23:21:02.248+02:00] == rollback level 1 (automatic): broken binary (valid ELF, exits 1 at start)
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/bad/sim-broken http://127.0.0.1:19390/health   (direct backend, outer limit 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:21:05+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232102+0200.bin sha_old=067c56bede5a sha_new=cf3c5ab9b1c9
+ts=2026-10-20T23:21:25+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Scheduled restart job, restart counter is at 6.
+  | tuner.service: Started (pid 2663234): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 7.
+  | tuner.service: Started (pid 2665530): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 8.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Started (pid 2667665): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+  | tuner.service: Scheduled restart job, restart counter is at 9.
+  | sim-broken: refusing to serve (deliberately broken build)
+  | tuner.service: Started (pid 2669095): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=exited, status=1/FAILURE
+  | tuner.service: Failed with result 'exit-code'.
+ts=2026-10-20T23:21:27+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=24563
+  probe| probe http://127.0.0.1:19390/health interval=5ms tries=4718 ok=869 fail=3849 outages=1
+  probe| outage first_fail=2026-10-20T23:21:05.660+02:00 last_fail=2026-10-20T23:21:25.976+02:00 next_ok=2026-10-20T23:21:25.981+02:00 fail_span_ms=20316 until_ok_ms=20321 tries=3849 kinds=Refusedx3849
+  probe| longest_gap_between_ok_ms=20327
+CHECK PASS  L1 broken binary: exit 3 (rolled back ok), old sha, unit active, healthy, no manual recovery (exit 3, unit active, start-limit hits during the run 0, outage 20321 ms)
+DOWNTIME tuner L1 broken binary 20321 ms
+
+[2026-10-20T23:21:27.136+02:00] == rollback level 1 (automatic): truncated ELF, then 3 more runs back to back (start-limit pressure)
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/var/tmp/galion-cutover/tuner-truncated http://127.0.0.1:19390/health   (direct backend, outer limit 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:21:30+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232127+0200.bin sha_old=067c56bede5a sha_new=abb37569abb0
+ts=2026-10-20T23:21:50+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Scheduled restart job, restart counter is at 15.
+  | tuner.service: Started (pid 2676972): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 16.
+  | tuner.service: Started (pid 2677201): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 17.
+  | tuner.service: Started (pid 2677489): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 18.
+  | tuner.service: Started (pid 2678033): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 19.
+  | tuner.service: Started (pid 2679033): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+ts=2026-10-20T23:21:51+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=24339
+  probe| probe http://127.0.0.1:19390/health interval=5ms tries=4786 ok=848 fail=3938 outages=1
+  probe| outage first_fail=2026-10-20T23:21:30.522+02:00 last_fail=2026-10-20T23:21:50.751+02:00 next_ok=2026-10-20T23:21:50.757+02:00 fail_span_ms=20229 until_ok_ms=20235 tries=3938 kinds=Refusedx3938
+  probe| longest_gap_between_ok_ms=20240
+CHECK PASS  L1 truncated ELF: exit 3 (rolled back ok), old sha, unit active, healthy, no manual recovery (exit 3, unit active, start-limit hits during the run 0, outage 20235 ms)
+DOWNTIME tuner L1 truncated ELF 20235 ms
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/var/tmp/galion-cutover/tuner-truncated http://127.0.0.1:19390/health   (direct backend, outer limit 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:21:55+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232152+0200.bin sha_old=067c56bede5a sha_new=abb37569abb0
+ts=2026-10-20T23:22:15+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Scheduled restart job, restart counter is at 24.
+  | tuner.service: Started (pid 2683550): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 25.
+  | tuner.service: Started (pid 2683739): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 26.
+  | tuner.service: Started (pid 2684002): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 27.
+  | tuner.service: Started (pid 2684195): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 28.
+  | tuner.service: Started (pid 2684400): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+ts=2026-10-20T23:22:16+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=24310
+  probe| probe http://127.0.0.1:19390/health interval=5ms tries=4819 ok=866 fail=3953 outages=1
+  probe| outage first_fail=2026-10-20T23:21:55.198+02:00 last_fail=2026-10-20T23:22:15.389+02:00 next_ok=2026-10-20T23:22:15.394+02:00 fail_span_ms=20191 until_ok_ms=20196 tries=3953 kinds=Refusedx3953
+  probe| longest_gap_between_ok_ms=20201
+CHECK PASS  L1 truncated ELF run 2: exit 3 (rolled back ok), old sha, unit active, healthy, no manual recovery (exit 3, unit active, start-limit hits during the run 0, outage 20196 ms)
+DOWNTIME tuner L1 truncated ELF run 2 20196 ms
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/var/tmp/galion-cutover/tuner-truncated http://127.0.0.1:19390/health   (direct backend, outer limit 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:22:19+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232216+0200.bin sha_old=067c56bede5a sha_new=abb37569abb0
+ts=2026-10-20T23:22:39+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Scheduled restart job, restart counter is at 33.
+  | tuner.service: Started (pid 2687408): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 34.
+  | tuner.service: Started (pid 2687466): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 35.
+  | tuner.service: Started (pid 2687630): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 36.
+  | tuner.service: Started (pid 2687820): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 37.
+  | tuner.service: Started (pid 2688117): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+ts=2026-10-20T23:22:41+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=24326
+  probe| probe http://127.0.0.1:19390/health interval=5ms tries=4817 ok=863 fail=3954 outages=1
+  probe| outage first_fail=2026-10-20T23:22:19.848+02:00 last_fail=2026-10-20T23:22:40.038+02:00 next_ok=2026-10-20T23:22:40.043+02:00 fail_span_ms=20190 until_ok_ms=20195 tries=3954 kinds=Otherx1,Refusedx3953
+  probe| longest_gap_between_ok_ms=20200
+CHECK PASS  L1 truncated ELF run 3: exit 3 (rolled back ok), old sha, unit active, healthy, no manual recovery (exit 3, unit active, start-limit hits during the run 0, outage 20195 ms)
+DOWNTIME tuner L1 truncated ELF run 3 20195 ms
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/var/tmp/galion-cutover/tuner-truncated http://127.0.0.1:19390/health   (direct backend, outer limit 90s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:22:44+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232241+0200.bin sha_old=067c56bede5a sha_new=abb37569abb0
+ts=2026-10-20T23:23:04+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Scheduled restart job, restart counter is at 42.
+  | tuner.service: Started (pid 2690367): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 43.
+  | tuner.service: Started (pid 2691953): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 44.
+  | tuner.service: Started (pid 2693158): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 45.
+  | tuner.service: Started (pid 2693213): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 46.
+  | tuner.service: Started (pid 2694070): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+ts=2026-10-20T23:23:05+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=24318
+  probe| probe http://127.0.0.1:19390/health interval=5ms tries=4817 ok=873 fail=3944 outages=1
+  probe| outage first_fail=2026-10-20T23:22:44.504+02:00 last_fail=2026-10-20T23:23:04.680+02:00 next_ok=2026-10-20T23:23:04.685+02:00 fail_span_ms=20176 until_ok_ms=20181 tries=3944 kinds=Refusedx3944
+  probe| longest_gap_between_ok_ms=20186
+CHECK PASS  L1 truncated ELF run 4: exit 3 (rolled back ok), old sha, unit active, healthy, no manual recovery (exit 3, unit active, start-limit hits during the run 0, outage 20181 ms)
+DOWNTIME tuner L1 truncated ELF run 4 20181 ms
+
+[2026-10-20T23:23:05.731+02:00] == hang A (F1): sim-hang never answers --version; galion-deploy as shipped (default 5 s bound)
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/bad/sim-hang http://127.0.0.1:19390/health   (direct backend, outer limit 90s)
+ts=2026-10-20T23:23:11+02:00 svc=galion-deploy level=warn msg="/workspace/swarm/sim/deploy-rust/root-tuner/bad/sim-hang --version did not exit within 5s; killed its process group" unit=tuner
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:23:14+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232306+0200.bin sha_old=067c56bede5a sha_new=d3a31fa16959
+ts=2026-10-20T23:23:34+02:00 svc=galion-deploy level=error msg="health failed, rolling back" unit=tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 44.
+  | tuner.service: Started (pid 2693158): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 45.
+  | tuner.service: Started (pid 2693213): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Scheduled restart job, restart counter is at 46.
+  | tuner.service: Started (pid 2694070): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner.service: Main process exited, code=killed, status=11/SEGV
+  | tuner.service: Failed with result 'signal'.
+  | tuner.service: Started (pid 2694939): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | tuner 127.0.0.1:19390 serving /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/www
+  | tuner.service: Stopping (SIGTERM to pid 2694939)...
+  | tuner.service: Stopped after 2 ms (code=killed, status=15/TERM).
+  | tuner.service: Started (pid 2699305): /workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+  | sim-hang: started with ""; sleeping forever, never binding
+ts=2026-10-20T23:23:35+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner
+  -> exit=3 elapsed_ms=29458
+  probe| probe http://127.0.0.1:19390/health interval=5ms tries=5836 ok=1853 fail=3983 outages=1
+  probe| outage first_fail=2026-10-20T23:23:14.132+02:00 last_fail=2026-10-20T23:23:34.455+02:00 next_ok=2026-10-20T23:23:34.460+02:00 fail_span_ms=20323 until_ok_ms=20328 tries=3983 kinds=Refusedx3983
+  probe| longest_gap_between_ok_ms=20334
+CHECK PASS  hang A: version step bounded, install, health fails, auto rollback (exit 3), no orphan (exit 3, 29458 ms, orphans [], outage 20328 ms)
+DOWNTIME tuner auto-rollback-hang 20328 ms
+
+[2026-10-20T23:23:35.496+02:00] == hang C (F1): new tuner installed but DOWN; manual rollback (L2) to the OLD binary, which ignores --version and serves
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/var/tmp/galion-cutover/tuner-x86_64-unknown-linux-musl http://127.0.0.1:19390/health   (direct backend, outer limit 60s)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:23:38+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232335+0200.bin sha_old=067c56bede5a sha_new=47a17df2234f
+ts=2026-10-20T23:23:39+02:00 svc=galion-deploy level=info msg="deployed" unit=tuner health=http://127.0.0.1:19390/health
+  -> exit=0 elapsed_ms=4117
+forward first: exit 0
+$ ctl stop tuner
+  -> exit=0
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232335+0200.bin http://127.0.0.1:19390/health   (direct backend, outer limit 60s)
+2 s in: unit inactive; GET http://127.0.0.1:19390/health -> 200 from '/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232335+0200.bin --version' (pids [2704250])
+ts=2026-10-20T23:23:44+02:00 svc=galion-deploy level=warn msg="/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232335+0200.bin --version did not exit within 5s; killed its process group" unit=tuner
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:23:47+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232339+0200.bin sha_old=47a17df2234f sha_new=067c56bede5a
+ts=2026-10-20T23:23:48+02:00 svc=galion-deploy level=info msg="deployed" unit=tuner health=http://127.0.0.1:19390/health
+  -> exit=0 elapsed_ms=9127
+CHECK PASS  hang C: completes on its own (exit 0), old sha, healthy, the stray --version was killed (exit 0, 9127 ms (was: hung until the outer timeout, 124), stray --version pids during [2704250], after [])
+
+[2026-10-20T23:23:48.764+02:00] == F6: SIGTERM / SIGHUP / SIGINT in the health window of a broken deploy
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/bad/sim-broken http://127.0.0.1:19390/health   (direct backend, outer limit 90s)
+  (new binary on disk: true; sending SIGTERM to galion-deploy pid 2705992)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:23:51+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232348+0200.bin sha_old=067c56bede5a sha_new=cf3c5ab9b1c9
+ts=2026-10-20T23:23:53+02:00 svc=galion-deploy level=warn msg="interrupted by SIGTERM, rolling back" unit=tuner
+ts=2026-10-20T23:23:54+02:00 svc=galion-deploy level=warn msg="SIGTERM received during rollback; ignored until it finished"
+ts=2026-10-20T23:23:54+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner reason=interrupted
+  -> exit=5 elapsed_ms=5679
+CHECK PASS  F6 SIGTERM after install: exit 5, old sha back, healthy, journal gone (exit 5 after 5679 ms)
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/bad/sim-broken http://127.0.0.1:19390/health   (direct backend, outer limit 90s)
+  (new binary on disk: true; sending SIGHUP to galion-deploy pid 2707078)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:23:57+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232354+0200.bin sha_old=067c56bede5a sha_new=cf3c5ab9b1c9
+ts=2026-10-20T23:23:59+02:00 svc=galion-deploy level=warn msg="interrupted by SIGHUP, rolling back" unit=tuner
+ts=2026-10-20T23:24:00+02:00 svc=galion-deploy level=warn msg="SIGHUP received during rollback; ignored until it finished"
+ts=2026-10-20T23:24:00+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner reason=interrupted
+  -> exit=5 elapsed_ms=5682
+CHECK PASS  F6 SIGHUP after install: exit 5, old sha back, healthy, journal gone (exit 5 after 5682 ms)
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/bad/sim-broken http://127.0.0.1:19390/health   (direct backend, outer limit 90s)
+  (new binary on disk: true; sending SIGINT to galion-deploy pid 2708188)
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:24:03+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232400+0200.bin sha_old=067c56bede5a sha_new=cf3c5ab9b1c9
+ts=2026-10-20T23:24:04+02:00 svc=galion-deploy level=warn msg="interrupted by SIGINT, rolling back" unit=tuner
+ts=2026-10-20T23:24:05+02:00 svc=galion-deploy level=warn msg="SIGINT received during rollback; ignored until it finished"
+ts=2026-10-20T23:24:05+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner reason=interrupted
+  -> exit=5 elapsed_ms=5711
+CHECK PASS  F6 SIGINT after install: exit 5, old sha back, healthy, journal gone (exit 5 after 5711 ms)
+
+[2026-10-20T23:24:05.850+02:00] == F6: SIGKILL (uncatchable) in the health window; the journal survives; the lock refuses a second deploy; --recover restores
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/bad/sim-broken http://127.0.0.1:19390/health   (direct backend, outer limit 90s)
+$ galion-deploy tuner /workspace/swarm/sim/deploy-rust/root-tuner/var/tmp/galion-cutover/tuner-x86_64-unknown-linux-musl http://127.0.0.1:19390/health   (direct backend, outer limit 30s)
+ts=2026-10-20T23:24:09+02:00 svc=galion-deploy level=error msg="another galion-deploy (pid 2708520) is deploying tuner; journal /workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner.journal"
+  -> exit=1 elapsed_ms=40
+galion-backup.sh (sim stub): sleeping 3 s like the real snapshot
+ts=2026-10-20T23:24:08+02:00 svc=galion-deploy level=info msg="backup" unit=tuner target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232405+0200.bin sha_old=067c56bede5a sha_new=cf3c5ab9b1c9
+  -> exit=137 elapsed_ms=3625
+journal after SIGKILL:
+# galion-deploy rollback journal: a deploy of tuner is in flight (or was killed).
+# The next `galion-deploy tuner ...` or `galion-deploy --recover tuner` restores the backup.
+pid=2708520
+started=2026-10-20T23:24:05+02:00
+phase=verify
+unit=tuner
+target=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232405+0200.bin
+new=/workspace/swarm/sim/deploy-rust/root-tuner/bad/sim-broken
+sha_old=067c56bede5a
+sha_new=cf3c5ab9b1c9
+health=http://127.0.0.1:19390/health
+
+$ galion-deploy --recover tuner   (direct backend, outer limit 60s)
+ts=2026-10-20T23:24:09+02:00 svc=galion-deploy level=warn msg="found the journal of an interrupted deploy" unit=tuner pid=2708520 started=2026-10-20T23:24:05+02:00 phase=verify backup=/workspace/swarm/sim/deploy-rust/root-tuner/var/backups/galion/deploy/tuner-20261020-232405+0200.bin
+ts=2026-10-20T23:24:10+02:00 svc=galion-deploy level=warn msg="rolled back ok" unit=tuner reason=recovered-interrupted-deploy
+  -> exit=3 elapsed_ms=1065
+CHECK PASS  F6 SIGKILL: lock held (2nd deploy exit 1), journal phase=verify kept, --recover exit 3, old sha, healthy (2nd deploy exit 1, killed exit 137, sha after kill cf3c5ab9b1c9a488, --recover exit 3)
+
+[2026-10-20T23:24:10.547+02:00] == end state
+tuner.service active result=success pid=2709242 restarts=46 exec=/workspace/swarm/sim/deploy-rust/root-tuner/opt/galion/tuner/bin/tuner
+
+CHECK PASS  F3: distinct exit codes seen (0 deployed, 1 refused, 3 rolled back, 5 interrupted); pruning kept <= 5 versions incl. old and new (codes {0, 1, 3, 5, 137}, 6 backup files, 2 distinct)
+simsup stopped; leftover listeners on :19390: 0
+
+== summary tuner: 24 pass, 0 fail
+  old tuner serving before cutover|PASS|200 on http://127.0.0.1:19390/health
+  3.1 artefact sha256 verified|PASS|sha 47a17df2234fdd5c
+  3.2 --version answers without binding|PASS|tuner 0.1.0
+  3.2 --check|PASS|5
+  3.3 deploy exit 0|PASS|exit 0
+  3.3 downtime < 1 s|PASS|longest outage 2 ms
+  3.4 running binary is the new sha|PASS|47a17df2234fdd5c
+  3.4 / is 200 2356 and /nope is 404|PASS|200 2356 / 404
+  3.4 all routes byte-identical to the live fixtures|PASS|21/21
+  L2 manual rollback exit 0 and old sha back|PASS|exit 0, sha 067c56bede5ad249, outage 2 ms
+  re-deploy new exit 0|PASS|exit 0
+  L3 last resort: old sha back and healthy|PASS|sha 067c56bede5ad249, 22 ms for install+mv+restart
+  L1 broken binary: exit 3 (rolled back ok), old sha, unit active, healthy, no manual recovery|PASS|exit 3, unit active, start-limit hits during the run 0, outage 20321 ms
+  L1 truncated ELF: exit 3 (rolled back ok), old sha, unit active, healthy, no manual recovery|PASS|exit 3, unit active, start-limit hits during the run 0, outage 20235 ms
+  L1 truncated ELF run 2: exit 3 (rolled back ok), old sha, unit active, healthy, no manual recovery|PASS|exit 3, unit active, start-limit hits during the run 0, outage 20196 ms
+  L1 truncated ELF run 3: exit 3 (rolled back ok), old sha, unit active, healthy, no manual recovery|PASS|exit 3, unit active, start-limit hits during the run 0, outage 20195 ms
+  L1 truncated ELF run 4: exit 3 (rolled back ok), old sha, unit active, healthy, no manual recovery|PASS|exit 3, unit active, start-limit hits during the run 0, outage 20181 ms
+  hang A: version step bounded, install, health fails, auto rollback (exit 3), no orphan|PASS|exit 3, 29458 ms, orphans [], outage 20328 ms
+  hang C: completes on its own (exit 0), old sha, healthy, the stray --version was killed|PASS|exit 0, 9127 ms (was: hung until the outer timeout, 124), stray --version pids during [2704250], after []
+  F6 SIGTERM after install: exit 5, old sha back, healthy, journal gone|PASS|exit 5 after 5679 ms
+  F6 SIGHUP after install: exit 5, old sha back, healthy, journal gone|PASS|exit 5 after 5682 ms
+  F6 SIGINT after install: exit 5, old sha back, healthy, journal gone|PASS|exit 5 after 5711 ms
+  F6 SIGKILL: lock held (2nd deploy exit 1), journal phase=verify kept, --recover exit 3, old sha, healthy|PASS|2nd deploy exit 1, killed exit 137, sha after kill cf3c5ab9b1c9a488, --recover exit 3
+  F3: distinct exit codes seen (0 deployed, 1 refused, 3 rolled back, 5 interrupted); pruning kept <= 5 versions incl. old and new|PASS|codes {0, 1, 3, 5, 137}, 6 backup files, 2 distinct
+  DOWNTIME swap 2 ms
+  DOWNTIME rollback-L2 2 ms
+  DOWNTIME rollback-L3 0 ms
+  DOWNTIME L1 broken binary 20321 ms
+  DOWNTIME L1 truncated ELF 20235 ms
+  DOWNTIME L1 truncated ELF run 2 20196 ms
+  DOWNTIME L1 truncated ELF run 3 20195 ms
+  DOWNTIME L1 truncated ELF run 4 20181 ms
+  DOWNTIME auto-rollback-hang 20328 ms
+log: /workspace/swarm/sim/deploy-rust/runs/tuner-20261020-232048+0200.log

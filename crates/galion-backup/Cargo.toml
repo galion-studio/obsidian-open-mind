@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-backup"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Periodic Galion backup (Rust port of galion-backup.sh: SQLite online snapshots, files tar, SHA256SUMS, 0600 tar.gz, rotation) plus the snapshot/verify/schema/migrate-baseline helpers."
+
+[[bin]]
+name = "galion-backup"
+path = "src/main.rs"
+
+[dependencies]
+# Same pin/features as openmind-memory (already in Cargo.lock).
+rusqlite = { workspace = true }
+# Pure-Rust deflate for the .tar.gz (no SIMD feature). gzip framing + CRC32 are ours.
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+# umask, statvfs, getpwuid_r/getgrgid_r (uname/gname for galion-tar), signal (already in Cargo.lock).
+libc = "0.2"
+# Shared std-only tar writer/reader (GNU tree writer moved there from src/tarw.rs).
+galion-tar = { path = "../galion-tar" }
+zagreb-time = { path = "../zagreb-time" }

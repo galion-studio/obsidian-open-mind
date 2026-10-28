@@ -25,7 +25,14 @@ const FS_READ: &[&str] = &[
     "/dev/random",
 ];
 
-const HIDE: &[&str] = &["/root", "/home", "/run/secrets"];
+/// Directories covered by an empty read-only tmpfs in every tool preset.
+///
+/// `/opt/galion` holds the live deployment (checkouts, Hermes state, publish
+/// dirs). On the VPS a world-readable `.env` under it was readable from the
+/// sandbox (S8, swarm/sandbox-real-problems 334c633), so tools never see it.
+/// A tool whose workdir, write root, read root or program lies under
+/// `/opt/galion` keeps it visible, and the outcome reports that (`hide_home`).
+const HIDE: &[&str] = &["/root", "/home", "/run/secrets", "/opt/galion"];
 
 const ALLOW_RO: &[&str] = &["PATH", "LANG", "LC_ALL", "TZ"];
 const ALLOW_BUILD: &[&str] = &["PATH", "LANG", "LC_ALL", "TZ", "TERM"];
@@ -67,6 +74,8 @@ pub struct Preset {
     namespaces: bool,
     ro_root: bool,
     hide_paths: &'static [&'static str],
+    workdir_tmpfs_bytes: u64,
+    workdir_tmpfs_inodes: u64,
 }
 
 impl Preset {
@@ -90,6 +99,9 @@ impl Preset {
             namespaces: true,
             ro_root: true,
             hide_paths: HIDE,
+            // Total work dir cap: a private 64 MiB tmpfs (ENOSPC past it).
+            workdir_tmpfs_bytes: 64 * 1024 * 1024,
+            workdir_tmpfs_inodes: 0,
         }
     }
 
@@ -115,6 +127,11 @@ impl Preset {
             nofile: 1024,
             fsize_bytes: 512 * 1024 * 1024,
             output_cap: 256 * 1024,
+            // Sources + target dir together. tmpfs pages are memory and are
+            // charged to the run cgroup (mem 1 GiB): half of it is left for
+            // the compiler (VPS q9/S9e: a full tmpfs at memory.max is an OOM
+            // kill of the whole run, supervisor included, nothing copied back).
+            workdir_tmpfs_bytes: 512 * 1024 * 1024,
             ..Self::base()
         }
     }
@@ -194,6 +211,15 @@ impl Preset {
             namespaces: self.namespaces,
             ro_root: self.ro_root,
             hide_paths: paths(self.hide_paths),
+            // Callers opt in by setting a delegated parent (cgroup-detect).
+            cgroup_parent: None,
+            cgroup_pids_max: 64,
+            cgroup_mem_bytes: self.mem_bytes,
+            cgroup_cpu_pct: 0,
+            workdir_tmpfs_bytes: self.workdir_tmpfs_bytes,
+            workdir_tmpfs_inodes: self.workdir_tmpfs_inodes,
+            // Never the host /proc: masked when no private proc can be mounted.
+            proc_fallback: crate::ProcFallback::Mask,
         }
     }
 }

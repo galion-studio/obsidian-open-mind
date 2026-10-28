@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-deploy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Backup -> atomic install -> restart -> health check -> automatic rollback, for one systemd (or simsup) unit. Rust replacement for deploy/foundation/galion-deploy."
+publish = false
+
+# std only: no third-party dependencies, not even libc (the four libc calls are
+# declared in src/sys.rs). galion-tar is our own std-only tar crate.
+[dependencies]
+galion-tar = { path = "../galion-tar" }
+
+[[bin]]
+name = "galion-deploy"
+path = "src/main.rs"

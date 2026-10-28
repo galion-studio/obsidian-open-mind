@@ -13,6 +13,7 @@ pub mod api;
 pub mod config;
 pub mod cron;
 pub mod delegate;
+pub mod enroll;
 pub mod http;
 pub mod mcp;
 pub mod persona;
@@ -37,7 +38,7 @@ pub fn new_id(prefix: &str) -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let n = SEQ.fetch_add(1, Ordering::Relaxed);
-    let t = std::time::SystemTime::now()
+    let t = std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);

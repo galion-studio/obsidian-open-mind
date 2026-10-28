@@ -1,0 +1,73 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# Coding swarm settings snapshot, 2026-10-20 20:40 CEST (+02:00).
+# Rules live in /workspace/swarm/RULES.md and WAVE2.md on the build box.
+
+[limits]
+owner_ceiling = 250                    # set by Slavik
+auto_accept = true                     # set by Slavik
+measured_concurrent_limit = "18-20"    # agents that keep running at once, measured 2026-10-20
+measurement_notes = [
+  "20:14 burst of 15 new agents: 11 stopped by the request limit, 4 kept running",
+  "20:34 restart to 16 concurrent: all kept running",
+  "20:38 7 planners added (22 running): 4 stopped (2 coding, 2 planners), 18 kept running",
+]
+# Set by Slavik (relayed by Mate) 2026-10-21 04:33 CEST (+02:00).
+# owner_ceiling (250) is the SWARM ceiling, not the Grok Bot's own limit.
+per_sector_agent_limit = "PLACEHOLDER: maximum agents per sector on the Grok Bot comes from the Grok Bot's data-center hard-coded limit; exact number pending from Slavik"
+per_sector_agent_limit_source = "Grok Bot data-center hard-coded limit (not stored on this computer)"
+per_sector_agent_limit_status = "pending Slavik"
+grok_bot_permissions_note = "The Grok Bot's own permissions and limits are hard-coded in the data center and not kept in any file on this computer; no permissions.json or similar exists (searched 2026-10-21 04:32 CEST +02:00)."
+
+[planners]
+structure = "one planner per sector, not per task"
+sectors = ["gaia", "nerve", "cortex", "vps-ops", "integration-ci", "security", "docs-whitepaper"]
+brief = "/workspace/swarm/plans/PLANNER-BRIEF.md"
+outputs = "/workspace/swarm/plans/<sector>.md"
+target_group_size = 50                 # owner target per task; planners also state the useful maximum
+realistic_schedule_size = 16
+
+[rules]
+language = "Rust only; no Python"
+licences = "MIT or permissive only, each borrowed piece documented with licence, source URL and purpose"
+branches = "swarm/<slug> based on main; never push to main, never force-push, no PRs (owner merges)"
+ports = "slot NN uses 19NN0-19NN9; real-harness 19500-19551"
+vps = "read-only; working copy /opt/galion/openmind at 2f5a730 untouched; no deploys without owner approval"
+timezone = "Europe/Zagreb with explicit offset"
+
+[priority_rules]
+# TOP PRIORITY, cross-cutting. Set by Slavik 2026-10-20 20:56 CEST (+02:00).
+# Applies to all software in PROJECT 42 / Gaia (swarm, POSEIDON and everything in it).
+rank = 1
+good_company = "Slavik values good company and productive conversations: the kind where you leave with more than you came in with."
+applies_to = "all software, agents, personas, reports and conversations in the project"
+meaning = "Every interaction (voice, chat, agent report, UI) must leave Slavik with more than he came in with: real substance, a useful next step or insight, no filler, no wasted turns."
+
+[standing_rules]
+# Set by Slavik 2026-10-20 20:41 CEST (+02:00).
+rust_only = "Rust only for everything, no exceptions. No Python or other languages; non-Rust components are rewritten as proper Rust implementations, not quick ports."
+# Set by Slavik (relayed by Mate) 2026-10-21 04:30 CEST (+02:00).
+sandbox_vps_only = "The sandbox (openmind-sandbox, cgroup-detect, real_escape / real_sh_sandbox and any sandboxed tool run) is RUN only on the VPS, never on the development machine (Grok Bot box). Binaries may be built on the box, but every sandbox test and run happens on the VPS as an ordinary non-root user in a throwaway test folder (/var/tmp/sandbox-test-<ts>), never in /opt/galion/openmind, and is cleaned up afterwards (folder, processes, cgroups, temp user). Local cargo test runs exclude openmind-sandbox and cgroup-detect."
+# Set by Slavik (relayed by Mate) 2026-10-21 04:38 CEST (+02:00).
+no_skip_extensive_testing = "Every agent must test its work extensively before finishing. No agent may skip its assigned task, or mark it done, without running the tests and reporting the real numbers. Results must be verified against real data on the real server (the VPS), not mocks or paper runs; mocks may supplement but never replace the real-server check. The new Rust infrastructure must be observed in real time through the nerve (127.0.0.1:8670 /state on the VPS) and, once deployed, the cortex; until the cortex is live, say so and use the nerve. Real-server checks stay inside each task's VPS permissions (read-only unless the task says otherwise), never print or copy secrets, and sandbox runs follow sandbox_vps_only."
+
+[non_rust_on_vps]
+# Read-only inventory 2026-10-20 20:43 CEST (+02:00). Flagged for replacement.
+console = "Node + Vite dev server on 127.0.0.1:8080 (/opt/galion/console-ide); UI source is TypeScript/TSX"
+fail2ban = "Python (OS package), SSH ban daemon"
+networkd_dispatcher = "Python (Ubuntu OS package)"
+cloudflared = "Go (Cloudflare binary): cloudflared.service and tuner-quick.service"
+postfix = "C (OS mail server)"
+tts_server = "Python /opt/galion/galion-light/tts/tts_server.py + worker.py: on disk, NOT running on the VPS (Chatterbox runs on the GPU pod)"
+already_rust = ["galion-one", "galion-desk", "galion-health", "galion-nerve", "hermes-rs", "link-watch-rs", "openmind-memory", "tuner", "tanga-serve"]
+
+[revolut]
+# Lift recorded 2026-10-20 22:56 CEST (+02:00). Slavik typed (relayed by Mate):
+# "Revolut bank is allowed on the current Rust V2 redesign of V1 Hermes Python build."
+standing_ban = "lifted"
+lifted_at = "2026-10-20 22:56 CEST (+02:00)"
+scope = "Hermes Rust V2 redesign of V1 Hermes Python build; admin-phone link design and mocks"
+allowed = ["design", "UI", "fixtures", "mock HTTP", "read-only reachability probes", "phone app surface"]
+forbidden = ["any transfer", "any order", "any top-up", "any withdrawal", "any buy/sell", "acting on Slavik's behalf", "storing card PANs"]
+needs_separate_approval = "live mutating Revolut API calls"

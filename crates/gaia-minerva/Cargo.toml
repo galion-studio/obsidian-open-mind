@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "gaia-minerva"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gaia MINERVA: security audit (repo-check, secret scan), guardian watchdog and alerting, vision decoding, sandbox policy review; cracks the rogue swarm's code."
+
+[dependencies]
+gaia-core = { path = "../gaia-core" }
+repo-check = { path = "../repo-check" }

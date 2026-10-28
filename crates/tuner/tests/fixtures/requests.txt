@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Route matrix for the tuner parity diff. One request per line:
+# <name> <printf-format of the raw request>. GET only (read-only on live).
+root               GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+index              GET /index.html HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+app-js             GET /app.js HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+pitch-js           GET /pitch.js HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+style-css          GET /style.css HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+health             GET /health HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+health-query       GET /health?probe=1 HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+root-query         GET /?a=1&b=2 HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+index-query        GET /index.html?v=3 HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+nope               GET /nope HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+health-upper       GET /HEALTH HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+double-slash       GET // HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+app-js-slash       GET /app.js/ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+traversal          GET /../etc/passwd HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+encoded-traversal  GET /%2e%2e/etc/passwd HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+test-js            GET /test/test.js HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+src-main           GET /src/main.rs HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+favicon            GET /favicon.ico HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n
+http10             GET /health HTTP/1.0\r\n\r\n
+bare-get           GET\r\n\r\n
+no-version         GET /health\r\n\r\n

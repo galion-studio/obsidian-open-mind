@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# galion-vending: simulated supplier for a Hermes tool adapter, shaped like the
+# sim's own supplier (same SKUs and base unit costs as world::CATALOG; a test
+# checks they agree). Fake data only. No real supplier, no real payment.
+{"id":"catalog","path":"/supplier/catalog","body":{"currency":"EUR","delivery_fee_cents":500,"lead_days":1,"simulated":true,"items":[{"sku":"water","unit_cost_cents":40,"capacity":60},{"sku":"cola","unit_cost_cents":60,"capacity":60},{"sku":"chips","unit_cost_cents":50,"capacity":50},{"sku":"candy","unit_cost_cents":35,"capacity":50},{"sku":"sandwich","unit_cost_cents":180,"capacity":24,"shelf_life_days":3},{"sku":"yogurt","unit_cost_cents":90,"capacity":24,"shelf_life_days":5}],"at":"{{now}}"}}
+{"id":"order-flaky","method":"POST","path":"/supplier/orders","body_contains":"\"sku\"","times":1,"status":503,"body":{"error":"mock: supplier busy, retry"}}
+{"id":"order","method":"POST","path":"/supplier/orders","body_contains":"\"sku\"","status":201,"body":{"order_id":"po-{{hit}}","status":"accepted","simulated":true,"at":"{{now}}"}}
+{"id":"pay-refused","method":"*","path":"/supplier/pay*","status":403,"body":{"error":"mock: no real payments in benchmarks"}}

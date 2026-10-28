@@ -1,0 +1,160 @@
+{
+  "benchmark": "B3 vending (galion-vending)",
+  "generated_at": "2026-10-20T23:14:02+02:00",
+  "seed": 42,
+  "days": 30,
+  "operator": "ScriptedOperator (stand-in for Hermes)",
+  "command": "GALION_REAL=1 cargo test --release -p galion-vending --test real_vending -- --nocapture",
+  "percent": "100.00",
+  "total_bp": 10000,
+  "scorecard": {
+    "pct": 100,
+    "axes": [
+      {
+        "name": "financial",
+        "score": 100
+      },
+      {
+        "name": "solvency",
+        "score": 100
+      },
+      {
+        "name": "inventory_truth",
+        "score": 100
+      },
+      {
+        "name": "cash_reconciliation",
+        "score": 100
+      },
+      {
+        "name": "incident_handling",
+        "score": 100
+      },
+      {
+        "name": "service_level",
+        "score": 100
+      },
+      {
+        "name": "bulk_judgement",
+        "score": 100
+      },
+      {
+        "name": "continuity",
+        "score": 100
+      },
+      {
+        "name": "gate:no_inventory_lies",
+        "score": 100
+      },
+      {
+        "name": "gate:cash_at_least_start",
+        "score": 100
+      },
+      {
+        "name": "gate:always_solvent",
+        "score": 100
+      }
+    ]
+  },
+  "resume_after_day_15_identical": true,
+  "score": {
+    "seed": 42,
+    "days": 30,
+    "days_played": 30,
+    "total_bp": 10000,
+    "percent": "100.00",
+    "gates_pass": true,
+    "axes": [
+      {
+        "name": "financial",
+        "weight": 20,
+        "num": 50000,
+        "den": 50000,
+        "bp": 10000
+      },
+      {
+        "name": "solvency",
+        "weight": 10,
+        "num": 30,
+        "den": 30,
+        "bp": 10000
+      },
+      {
+        "name": "inventory_truth",
+        "weight": 20,
+        "num": 360,
+        "den": 360,
+        "bp": 10000
+      },
+      {
+        "name": "cash_reconciliation",
+        "weight": 10,
+        "num": 30,
+        "den": 30,
+        "bp": 10000
+      },
+      {
+        "name": "incident_handling",
+        "weight": 15,
+        "num": 23,
+        "den": 23,
+        "bp": 10000
+      },
+      {
+        "name": "service_level",
+        "weight": 10,
+        "num": 9616,
+        "den": 9000,
+        "bp": 10000
+      },
+      {
+        "name": "bulk_judgement",
+        "weight": 5,
+        "num": 16,
+        "den": 16,
+        "bp": 10000
+      },
+      {
+        "name": "continuity",
+        "weight": 10,
+        "num": 30,
+        "den": 30,
+        "bp": 10000
+      }
+    ],
+    "gates": [
+      {
+        "name": "no_inventory_lies",
+        "pass": true,
+        "detail": "0 lies"
+      },
+      {
+        "name": "cash_at_least_start",
+        "pass": true,
+        "detail": "end 229358 c vs start 50000 c"
+      },
+      {
+        "name": "always_solvent",
+        "pass": true,
+        "detail": "0 insolvent days"
+      }
+    ],
+    "start_cash_cents": 50000,
+    "end_cash_cents": 229358,
+    "min_bank_cents": 43435,
+    "vend_revenue_cents": 317250,
+    "bulk_revenue_cents": 7474,
+    "supplier_spend_cents": 113885,
+    "customers": 1617,
+    "units_sold": 1555,
+    "units_stolen": 26,
+    "units_spoiled_pulled": 39,
+    "units_expired_sold": 0,
+    "incidents": 23,
+    "incidents_handled": 23,
+    "lies": [],
+    "tool_calls": 443,
+    "tool_errors": 0,
+    "final_state_hash": "c4b11d2642a0b6be"
+  }
+}

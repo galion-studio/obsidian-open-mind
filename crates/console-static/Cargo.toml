@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "console-static"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Production front for the Galion console (B61): serves console-dist/static (or SPA client), optional --local-api health/session gate, Rust UI pages, and proxies remaining /api/* to a loopback upstream. Alias binary: galion-console-serve."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "galion-console-static"
+path = "src/main.rs"
+
+[[bin]]
+name = "galion-console-serve"
+path = "src/bin/galion-console-serve.rs"
+
+[dependencies]
+console-ui = { path = "../console-ui" }

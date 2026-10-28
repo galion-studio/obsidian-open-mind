@@ -6,12 +6,39 @@ name = "openmind-nerve"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Append-only JSONL nerve log: Europe/Zagreb timestamps, size rotation, caller-supplied path."
+description = "NERVE + CORTEX: the Galion signals hub. Pull probes (health endpoints, systemd, journald, access logs) and POST /signal ingest, incident correlation, cortex view (vulnerabilities, bleeding, DDoS rate anomalies), self-eval scoring, one loopback JSON API and a dashboard. Also the append-only JSONL nerve writer. std + serde + serde_json + zagreb-time."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "openmind-nerve"
+path = "src/main.rs"
 
 [dependencies]
+# Release reproducibility (D-312-4): same dependency features alone and in the release set.
+galion-feature-pin = { path = "../galion-feature-pin" }
 serde = { workspace = true }
 serde_json = { workspace = true }
+semver = "1"
 zagreb-time = { path = "../zagreb-time" }
+galion-common = { path = "../galion-common" }
+tunnel-lint = { path = "../tunnel-lint" }
 
 [dev-dependencies]
+# T4.2 tests: every plan template must pass the real hades-gate admin-safety review.
+hades-gate = { path = "../hades-gate" }
+# Sign throwaway test approvals (same version and features as hades-gate; already in Cargo.lock).
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }
 zagreb-time = { path = "../zagreb-time" }
+openmind-schema = { path = "../openmind-schema" }
+# T3.6 consumer compatibility (tests/consumer_compat.rs): the real consumer crates,
+# so their own HTTP clients and contract tables are what is checked. All path
+# crates of this workspace; none depends on openmind-nerve (no cycle).
+nerve-client = { path = "../nerve-client" }
+gaia-live = { path = "../gaia-live" }
+galion-realtest = { path = "../galion-realtest" }
+galion-deploy = { path = "../galion-deploy" }
+toml = { workspace = true }
+# Fuzz/property targets (T5.2) also drive the ingress YAML parser; path crate, no deps.
+tunnel-lint = { path = "../tunnel-lint" }

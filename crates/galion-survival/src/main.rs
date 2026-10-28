@@ -251,7 +251,11 @@ fn receipt(earn: &Path) -> bool {
         let Ok(row) = serde_json::from_str::<Value>(line) else {
             continue;
         };
-        if row.get("buyer").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).is_some()
+        if row
+            .get("buyer")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .is_some()
             && row.get("price").is_some()
             && row
                 .get("delivery")

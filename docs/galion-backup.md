@@ -95,6 +95,12 @@ with `GALION_BACKUP_DEST` pointed elsewhere and `GALION_BACKUP_KEEP` high)
 or link `galion_backup::backup::run` as a library, so there is one
 implementation of "what a Galion backup contains". Owner decision below.
 
+Shared tar (swarm/shared-tar-crate, 2026-10-21 +02:00): both tools now use the
+one std-only `crates/galion-tar` crate. galion-backup keeps only its tar
+*policy* in `src/tarw.rs` (exclude set + libc `getpwuid_r`/`getgrgid_r`
+names); the GNU writer itself moved there unchanged, and galion-deploy's ustar
+writer/reader is re-exported from it. See docs/galion-tar.md.
+
 ## Deploy (NOT done; owner decision)
 
 Nothing was installed, restarted or written on the VPS. Proposed cutover:

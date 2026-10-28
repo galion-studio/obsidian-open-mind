@@ -25,4 +25,4 @@ galion-common = { path = "../galion-common", features = ["serde-json"] }
 # READ-ONLY regardless.
 rusqlite = { version = "0.32", default-features = false, features = ["bundled"] }
 serde = { workspace = true }
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml

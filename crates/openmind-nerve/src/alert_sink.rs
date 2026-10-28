@@ -422,7 +422,7 @@ mod tests {
             "http://10.0.0.1/x",
             "http://0.0.0.0:80/x",
             "http://ntfy.sh/topic",
-            "http://[::ffff:8.8.8.8]/x",
+            "http://[::ffff:192.0.2.8]/x",
             "http://user:pw@127.0.0.1/x",
             "http://127.0.0.1/x?auth=abc",
             "http://127.0.0.1/x#frag",
@@ -472,7 +472,8 @@ mod tests {
             .is_err());
         }
         assert!(
-            WebhookConfig::from_env(&env(&[("NERVE_ALERT_WEBHOOK", "http://1.2.3.4/a")])).is_err()
+            WebhookConfig::from_env(&env(&[("NERVE_ALERT_WEBHOOK", "http://198.51.100.4/a")]))
+                .is_err()
         );
     }
 

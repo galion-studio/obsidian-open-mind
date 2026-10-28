@@ -23,3 +23,7 @@ openmind-mcp-stack:openmind-mcp-stack  stdio MCP stub over fixture JSON, no sock
 one-set-model:one-set-model            offline validator that writes nothing
 one-talk:one-talk                      request-shape helper CLI, no service loop
 one-defence:one-defence                read-only one-shot report of health_checks rows
+galion-realtest:galion-ccwrap          build-time cc wrapper for the real-test harness, not a service (slot 424 merge)
+tunnel-lint:tunnel-lint                read-only cloudflared ingress linter, one-shot, not a service (slot 424 merge)
+guardian-tick:guardian-tick            reaches the nerve through openmind-nerve's event file (`heal --nerve PATH`), not nerve-client (slot 424 merge)
+console-static:galion-console-static   INTERIM gap from the main-staging merge (slot 424): live console front, wire nerve-client at its next deploy (D-424-3), then drop this line

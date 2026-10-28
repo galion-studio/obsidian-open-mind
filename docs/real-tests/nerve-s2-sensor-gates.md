@@ -59,12 +59,12 @@
 | live 9d1a4f3 (VPS, rust-lld) | 1 458 760 | 638 392 | d0c70b87 |
 | default (this branch) | 1 930 048 | 167 104 | 865e2ec8 |
 | default minus `sensor-sshd` | 1 917 760 | 179 392 | - |
-| minus `sensor-connrate` | 1 909 568 | 200 480 | - |
+| minus `sensor-connrate` | 1 909 568 | 187 584 | - |
 | minus `sensor-proc-owner` | 1 884 992 | 212 160 | - |
 | minus `sensor-surface` | 1 880 896 | 216 256 | - |
 | minus `sensor-hades` | 1 905 472 | 191 680 | - |
 | minus `sensor-event-feed` | 1 897 280 | 199 872 | - |
-| minus `sensor-edgerate` | 1 909 568 | 200 480 | - |
+| minus `sensor-edgerate` | 1 909 568 | 187 584 | - |
 | `s2-off`: 385's four features only (seven out) | 1 737 536 | 359 616 | 6a82f475 |
 | `--no-default-features --features sensor-edgerate` | 1 569 600 | 527 552 | 3cdb0992 |
 | `--no-default-features` (lean, all ten S2 out) | 1 553 216 | 543 936 | 2c35d022 |

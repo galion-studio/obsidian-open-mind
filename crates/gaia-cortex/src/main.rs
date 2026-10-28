@@ -40,7 +40,7 @@ fn opt(args: &[String], k: &str) -> Option<String> {
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--version") {
-        println!("gaia-cortex {}", env!("CARGO_PKG_VERSION"));
+        println!("{}", gaia_cortex::build_info::version_line());
         return ExitCode::SUCCESS;
     }
     let cmd = args

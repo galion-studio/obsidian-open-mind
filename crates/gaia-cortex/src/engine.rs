@@ -1062,7 +1062,7 @@ impl Cortex {
     }
 
     pub fn health_json(&self) -> Value {
-        json!({"ok": true, "service": "gaia-cortex", "version": env!("CARGO_PKG_VERSION"), "ts": ts(now_secs()),
+        json!({"ok": true, "service": "gaia-cortex", "version": env!("CARGO_PKG_VERSION"), "commit": crate::build_info::COMMIT, "build": crate::build_info::json(), "ts": ts(now_secs()),
                "mode": if self.cfg.dry_run() { "dry-run" } else { "live" }, "llm_enabled": self.cfg.llm.enabled,
                "nerve": self.cfg.nerve_url.is_some(), "events_in": self.stats.events_in,
                "incidents_open": self.correlator.open.len(), "escalations_open": self.escalations.open.len(),

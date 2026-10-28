@@ -7,7 +7,7 @@
 //! `<dir>/<triple>/<bin>-<tag>` are the stripped musl artifacts and
 //! `GALION_RELEASE_TAG=<tag>` (for example `38a0770`). Only artifacts for the
 //! host triple are started. Each service is started alone on a port in the
-//! slot range 21820-21829, probed with real HTTP GETs, then killed, so ports
+//! slot range 21820-21829 (or `GALION_RELEASE_PORT_BASE`), probed with real HTTP GETs, then killed, so ports
 //! are reused and never overlap. Optional extra artifacts (gaia-cortex,
 //! galion-console-serve) are probed when `GALION_RELEASE_CORTEX` /
 //! `GALION_RELEASE_CONSOLE_SERVE` name them. No sandbox code is run.
@@ -21,8 +21,18 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const P0: u16 = 21820;
-const P1: u16 = 21821;
+/// Port base (default 21820, the slot 312 range). Override with
+/// `GALION_RELEASE_PORT_BASE=<base>` so another slot can run the test in its
+/// own range: service on base, second service on base+1, dead upstream on
+/// base+9 (slot 339 uses 22090).
+fn ports() -> (u16, u16, u16) {
+    let base = std::env::var("GALION_RELEASE_PORT_BASE")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .filter(|b| *b <= u16::MAX - 9)
+        .unwrap_or(21820);
+    (base, base + 1, base + 9)
+}
 
 fn enabled() -> Option<(PathBuf, String)> {
     if std::env::var("GALION_REAL").as_deref() != Ok("1") {
@@ -137,6 +147,7 @@ fn report(name: &str, port: u16, path: &str, r: &(u16, String)) {
 
 #[test]
 fn release_artifacts_health() {
+    let (p0, p1, dead_port) = ports();
     let Some((dir, tag)) = enabled() else { return };
     let bin = |n: &str| dir.join(format!("{n}-{tag}"));
     let mut n = 0;
@@ -184,14 +195,14 @@ fn release_artifacts_health() {
             &[
                 "serve",
                 "--listen",
-                &format!("127.0.0.1:{P0}"),
+                &format!("127.0.0.1:{p0}"),
                 "--mode",
                 "event",
             ],
             &[],
         );
-        let r = wait_get(P0, "/health", &mut k.0);
-        report("openmind-nerve", P0, "/health", &r);
+        let r = wait_get(p0, "/health", &mut k.0);
+        report("openmind-nerve", p0, "/health", &r);
         assert_eq!(r.0, 200);
         assert!(r.1.contains("\"service\":\"openmind-nerve\""));
         n += 1;
@@ -203,24 +214,24 @@ fn release_artifacts_health() {
             &bin("tuner"),
             &[],
             &[
-                ("TUNER_ADDR", format!("127.0.0.1:{P0}")),
+                ("TUNER_ADDR", format!("127.0.0.1:{p0}")),
                 ("TUNER_ROOT", root.display().to_string()),
             ],
         );
-        let r = wait_get(P0, "/health", &mut k.0);
-        report("tuner", P0, "/health", &r);
+        let r = wait_get(p0, "/health", &mut k.0);
+        report("tuner", p0, "/health", &r);
         assert_eq!(r.0, 200);
         assert!(r.1.contains("\"ok\":true"));
         n += 1;
     }
-    // galion-health checks a live tuner on P1
+    // galion-health checks a live tuner on p1
     {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../tuner/www");
         let _t = spawn(
             &bin("tuner"),
             &[],
             &[
-                ("TUNER_ADDR", format!("127.0.0.1:{P1}")),
+                ("TUNER_ADDR", format!("127.0.0.1:{p1}")),
                 ("TUNER_ROOT", root.display().to_string()),
             ],
         );
@@ -228,12 +239,12 @@ fn release_artifacts_health() {
             &bin("galion-health"),
             &[],
             &[
-                ("GALION_HEALTH_ADDR", format!("127.0.0.1:{P0}")),
-                ("GALION_HEALTH_CHECKS", format!("{P1}=/health")),
+                ("GALION_HEALTH_ADDR", format!("127.0.0.1:{p0}")),
+                ("GALION_HEALTH_CHECKS", format!("{p1}=/health")),
             ],
         );
-        let r = wait_get(P0, "/", &mut k.0);
-        report("galion-health", P0, "/", &r);
+        let r = wait_get(p0, "/", &mut k.0);
+        report("galion-health", p0, "/", &r);
         assert_eq!(r.0, 200);
         assert!(r.1.contains("galion-health"));
         n += 1;
@@ -246,14 +257,14 @@ fn release_artifacts_health() {
             &[
                 "serve",
                 "--bind",
-                &format!("127.0.0.1:{P0}"),
+                &format!("127.0.0.1:{p0}"),
                 "--data",
                 d.to_str().unwrap(),
             ],
             &[],
         );
-        let r = wait_get(P0, "/healthz", &mut k.0);
-        report("openmind-queue", P0, "/healthz", &r);
+        let r = wait_get(p0, "/healthz", &mut k.0);
+        report("openmind-queue", p0, "/healthz", &r);
         assert_eq!(r.0, 200);
         assert!(r.1.contains("\"service\":\"openmind-queue\""));
         drop(k);
@@ -268,12 +279,12 @@ fn release_artifacts_health() {
             &[],
             &[
                 ("OPENMIND_MEMORY_HOST", "127.0.0.1".into()),
-                ("OPENMIND_MEMORY_PORT", P0.to_string()),
+                ("OPENMIND_MEMORY_PORT", p0.to_string()),
                 ("OPENMIND_MEMORY_DATA_DIR", d.display().to_string()),
             ],
         );
-        let r = wait_get(P0, "/health", &mut k.0);
-        report("openmind-memory", P0, "/health", &r);
+        let r = wait_get(p0, "/health", &mut k.0);
+        report("openmind-memory", p0, "/health", &r);
         assert_eq!(r.0, 200);
         drop(k);
         // galion-backup on the real SQLite file the memory service just wrote
@@ -315,13 +326,13 @@ fn release_artifacts_health() {
                 ("HOME", d.display().to_string()),
                 ("HERMES_HOME", d.display().to_string()),
                 ("HERMES_RS_HOST", "127.0.0.1".into()),
-                ("HERMES_RS_PORT", P0.to_string()),
+                ("HERMES_RS_PORT", p0.to_string()),
                 ("HERMES_RS_MCP", "0".into()),
                 ("API_SERVER_KEY", "r312-throwaway-test-key-0000".into()),
             ],
         );
-        let r = wait_get(P0, "/health", &mut k.0);
-        report("hermes-gateway", P0, "/health", &r);
+        let r = wait_get(p0, "/health", &mut k.0);
+        report("hermes-gateway", p0, "/health", &r);
         assert_eq!(r.0, 200);
         drop(k);
         let _ = std::fs::remove_dir_all(d);
@@ -332,7 +343,7 @@ fn release_artifacts_health() {
         let d = tmp("one");
         std::fs::create_dir_all(d.join("home")).unwrap();
         std::fs::write(d.join("hermes.env"), "").unwrap();
-        let dead = "127.0.0.1:21829".to_string();
+        let dead = format!("127.0.0.1:{dead_port}");
         let mut k = spawn(
             &bin("galion-one"),
             &[],
@@ -340,8 +351,8 @@ fn release_artifacts_health() {
                 ("HOME", d.join("home").display().to_string()),
                 ("GALION_HOME", d.join("home").display().to_string()),
                 ("ONE_NO_WARM", "1".into()),
-                ("ONE_BIND", format!("127.0.0.1:{P0}")),
-                ("ONE_MOUTH_BIND", format!("127.0.0.1:{P1}")),
+                ("ONE_BIND", format!("127.0.0.1:{p0}")),
+                ("ONE_MOUTH_BIND", format!("127.0.0.1:{p1}")),
                 ("ONE_HERMES_DIR", d.join("hermes").display().to_string()),
                 ("ONE_HERMES_ENV", d.join("hermes.env").display().to_string()),
                 (
@@ -354,8 +365,8 @@ fn release_artifacts_health() {
                 ("GALION_MEMORY", dead),
             ],
         );
-        let r = wait_get(P0, "/health", &mut k.0);
-        report("galion-one", P0, "/health", &r);
+        let r = wait_get(p0, "/health", &mut k.0);
+        report("galion-one", p0, "/health", &r);
         assert_eq!(r, (200, "ok\n".to_string()));
         drop(k);
         let _ = std::fs::remove_dir_all(d);
@@ -372,13 +383,13 @@ fn release_artifacts_health() {
                     "OPENMIND_CONFIG",
                     d.join("missing.toml").display().to_string(),
                 ),
-                ("DESK_BIND", format!("127.0.0.1:{P0}")),
+                ("DESK_BIND", format!("127.0.0.1:{p0}")),
                 ("DESK_STATE_DIR", d.display().to_string()),
-                ("DESK_OLLAMA", "127.0.0.1:21829".into()),
+                ("DESK_OLLAMA", format!("127.0.0.1:{dead_port}")),
             ],
         );
-        let r = wait_get(P0, "/health", &mut k.0);
-        report("galion-desk", P0, "/health", &r);
+        let r = wait_get(p0, "/health", &mut k.0);
+        report("galion-desk", p0, "/health", &r);
         assert_eq!(r.0, 200);
         drop(k);
         let _ = std::fs::remove_dir_all(d);
@@ -392,15 +403,15 @@ fn release_artifacts_health() {
             &bin("galion-console-static"),
             &[
                 "--bind",
-                &format!("127.0.0.1:{P0}"),
+                &format!("127.0.0.1:{p0}"),
                 "--quiet",
                 "--root",
                 d.to_str().unwrap(),
             ],
             &[],
         );
-        let r = wait_get(P0, "/", &mut k.0);
-        report("galion-console-static", P0, "/", &r);
+        let r = wait_get(p0, "/", &mut k.0);
+        report("galion-console-static", p0, "/", &r);
         assert_eq!(r.0, 200);
         assert!(r.1.contains("r312"));
         drop(k);
@@ -414,15 +425,15 @@ fn release_artifacts_health() {
             &dir.join(&name),
             &["serve"],
             &[
-                ("CORTEX_LISTEN", format!("127.0.0.1:{P0}")),
+                ("CORTEX_LISTEN", format!("127.0.0.1:{p0}")),
                 ("CORTEX_DATA_DIR", d.display().to_string()),
-                ("CORTEX_NERVE_URL", "http://127.0.0.1:21829".into()),
+                ("CORTEX_NERVE_URL", format!("http://127.0.0.1:{dead_port}")),
                 ("CORTEX_ACTIONS", "dry-run".into()),
                 ("CORTEX_PULL_EVERY_S", "0".into()),
             ],
         );
-        let r = wait_get(P0, "/health", &mut k.0);
-        report(&name, P0, "/health", &r);
+        let r = wait_get(p0, "/health", &mut k.0);
+        report(&name, p0, "/health", &r);
         assert_eq!(r.0, 200);
         assert!(r.1.contains("\"service\":\"gaia-cortex\""));
         drop(k);
@@ -437,18 +448,18 @@ fn release_artifacts_health() {
             &dir.join(&name),
             &[
                 "--bind",
-                &format!("127.0.0.1:{P0}"),
+                &format!("127.0.0.1:{p0}"),
                 "--dist",
                 d.to_str().unwrap(),
             ],
             &[],
         );
-        let r = wait_get(P0, "/", &mut k.0);
-        report(&name, P0, "/", &r);
+        let r = wait_get(p0, "/", &mut k.0);
+        report(&name, p0, "/", &r);
         // --dist mode answers / with a 302 to the board entry page (as live :8080).
         assert!(r.0 == 200 || r.0 == 302, "{r:?}");
-        let h = wait_get(P0, "/api/v1/health", &mut k.0);
-        report(&name, P0, "/api/v1/health", &h);
+        let h = wait_get(p0, "/api/v1/health", &mut k.0);
+        report(&name, p0, "/api/v1/health", &h);
         assert_eq!(h.0, 200);
         drop(k);
         let _ = std::fs::remove_dir_all(d);

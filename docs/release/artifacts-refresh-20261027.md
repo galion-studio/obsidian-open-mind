@@ -18,6 +18,8 @@
 
 Exact command (the package set matters, D-312-4), once per target:
 
+> 2026-10-28 (slot 339): with release-repro-unify 6ffb2570 underneath, the package set no longer changes bytes (`docs/release/release-pair-check-20261028.md`). The list below stays the recommended single command.
+
 ```
 cargo build --release --locked -j 4 --target <x86_64|aarch64>-unknown-linux-musl \
   -p openmind-nerve -p hermes-gateway -p openmind-memory -p openmind-queue -p galion-one \
@@ -134,4 +136,5 @@ The hermes-gateway 2.5 MiB cap matched only the exact file name `hermes-gateway`
 - **D-312-2** Merge the `size-budget.sh` tagged-name fix (section 6) into main-staging.
 - **D-312-3** Add `--version` to galion-console-static/serve and galion-backup (one line each via `galion_common::build_info`), so every release binary self-reports its commit.
 - **D-312-4** Pin the release package set: artifact bytes depend on which `-p` packages are built together (feature unification). This matrix is reproducible 12/12 with the exact set in `docs/real-tests/release-artifacts-refresh.md` section 2; solo builds differ.
+  Resolved by slot 325 release-repro-unify (proven on the combined tree by slot 339, `docs/release/release-pair-check-20261028.md`).
 - Still open from earlier slots: **D-294-1/2** (size trim + coding opt-in, would put hermes-gateway x86_64 under 2 MiB), **D-275-2** / **D-293-4** (land gaia-cortex in main-staging), console-rust-serve-impl landing.

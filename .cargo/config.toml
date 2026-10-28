@@ -46,3 +46,27 @@ linker = "rust-lld"
 
 [target.armv7-unknown-linux-musleabihf]
 linker = "rust-lld"
+
+# x86_64 musl linker (slot 386, nerve-xt-rustlld-pin, 2026-10-28 CET +01:00;
+# F-376-4 / D-376-2). The live nerve openmind-nerve-9d1a4f3 (VPS sha256
+# d0c70b87..., 1 458 760 B) was linked with rust-lld through an uncommitted
+# edit in the deploy worktree; with the host `cc` (GNU ld) the same commit
+# links to a different 1 463 072 B binary. Committing the line makes every
+# x86_64 musl release reproducible from git alone (proof:
+# crates/openmind-nerve/tests/real_cross_target.rs NERVE_XT_PIN=live-config,
+# docs/real-tests/nerve-xt-rustlld-pin.md). Same rules as above: linker only,
+# no codegen or CPU flags, CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER still
+# overrides it. Host (x86_64-unknown-linux-gnu) builds and tests are unchanged.
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"
+
+# Android (slot 409, xt-linker-pins-arm, 2026-10-28 CET +01:00): deliberately
+# NOT pinned. aarch64-linux-android / armv7-linux-androideabi link
+# dynamically against bionic (-lc -ldl -lm -llog -lunwind) and the crt
+# objects of the Android NDK; with no NDK, the host `cc` fails ("Relocations
+# in generic ELF (EM: 183)") and rust-lld fails ("unable to find library
+# -lc"). RULES.md only asks `cargo check` for android, which needs no linker.
+# Linking android binaries needs an NDK decision first (D-409-1,
+# docs/real-tests/xt-linker-pins-arm.md). aarch64 and armv7 musl above are
+# proven from this file alone with every linker env var removed
+# (real_cross_target, slot 409).

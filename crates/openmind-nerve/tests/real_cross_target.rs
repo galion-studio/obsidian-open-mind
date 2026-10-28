@@ -22,13 +22,25 @@
 //!      deploy recipe and must equal the VPS binary bit for bit
 //!      (`NERVE_XT_LIVE_SHA`/`NERVE_XT_LIVE_SIZE`, default = 9d1a4f3 as read on
 //!      the VPS 2026-10-28 08:10 +01:00); the rebuilt binary is smoked too;
+//!      slot 386: the x86_64 linker comes from this tree's COMMITTED
+//!      `.cargo/config.toml` overlaid on the archive, linker env removed
+//!      (`NERVE_XT_LIVE_CONFIG` = `committed` default | `env` slot-376 way |
+//!      `archive` negative control without the line);
 //!    - `aa77864`: the old slot-217 pin (only passes on the aa77864 tree);
 //! 4. runs each binary (`aarch64` under qemu user mode) on slot ports
 //!    20870-20872 against one live service thread (:20873) and one dead
 //!    port (:20874) (block movable with `NERVE_XT_PORT_BASE`, slot 363):
 //!    `GET /health`, `POST /signal`, `GET /state`,
 //!    `GET /api/v1/signals`, and compares the answers across targets;
-//! 5. `cargo check` for aarch64-linux-android and armv7-unknown-linux-musleabihf.
+//! 5. `cargo check` for aarch64-linux-android and armv7-linux-androideabi.
+//!
+//! Slot 409 (xt-linker-pins-arm): every cargo run strips all per-target
+//! linker/rustflags env vars ([`ambient_env_vars`]), so x86_64, aarch64 and
+//! armv7 musl link from the COMMITTED `.cargo/config.toml` alone (asserted
+//! at HEAD); armv7 musl is built, ELF32-checked and smoked under qemu-arm
+//! (`NERVE_XT_QEMU_ARM`) on port base+1 after aarch64, with the same parity
+//! asserts; android is check-only and unpinned (no NDK, D-409-1). The VPS
+//! now runs 9baa450c (see `LIVE2_*`); 9d1a4f3 stays the default pin.
 //!
 //! Knobs: `NERVE_XT_DIR` (nested target dir, default `<workspace>/target/xt`),
 //! `NERVE_XT_JOBS` (default 2), `NERVE_XT_QEMU` (qemu-aarch64 path),
@@ -61,14 +73,213 @@ const LIVE_SIZE: u64 = 1_458_760;
 /// 2026-10-28 ~08:12 +01:00): `-p openmind-nerve` alone, x86_64 musl, release,
 /// `--locked`, linker rust-lld. The default x86_64 linker gives 1 463 072 B.
 const LIVE_RECIPE_LINKER: &str = "rust-lld";
+/// Env var that overrides the x86_64 musl linker from `.cargo/config.toml`.
+const X86_LINKER_ENV: &str = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER";
+/// Cross triples this test builds or checks (slot 409, xt-linker-pins-arm).
+const XT_TRIPLES: [&str; 5] = [
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "armv7-unknown-linux-musleabihf",
+    "aarch64-linux-android",
+    "armv7-linux-androideabi",
+];
+
+/// `aarch64-unknown-linux-musl` -> `AARCH64_UNKNOWN_LINUX_MUSL` (cargo env form).
+fn triple_env(triple: &str) -> String {
+    triple.to_ascii_uppercase().replace('-', "_")
+}
+
+/// Every env var that would beat the committed `.cargo/config.toml` for a
+/// build (slot 409): per-target `LINKER`/`RUSTFLAGS` for [`XT_TRIPLES`] plus
+/// the global rustflags/target knobs. `run_cargo_env` removes ALL of them, so
+/// every build and check in this test picks its linker from the committed
+/// config alone (before slot 409 the test itself exported
+/// `CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld`, which hid a
+/// missing aarch64 line). The live-pin `env` mode adds its var back on purpose.
+fn ambient_env_vars() -> Vec<String> {
+    let mut v: Vec<String> = XT_TRIPLES
+        .iter()
+        .flat_map(|t| {
+            let u = triple_env(t);
+            [
+                format!("CARGO_TARGET_{u}_LINKER"),
+                format!("CARGO_TARGET_{u}_RUSTFLAGS"),
+            ]
+        })
+        .collect();
+    for k in [
+        "RUSTFLAGS",
+        "CARGO_ENCODED_RUSTFLAGS",
+        "CARGO_BUILD_RUSTFLAGS",
+        "CARGO_BUILD_TARGET",
+    ] {
+        v.push(k.to_string());
+    }
+    v
+}
+/// Default-linker (host `cc`, GNU ld) rebuild of 9d1a4f3, measured 2026-10-28
+/// ~08:12 +01:00 (slot 376) and again by slot 386 (`NERVE_XT_LIVE_CONFIG=archive`).
+const LIVE_DEFAULT_LINKER_SHA: &str =
+    "64ce3aa03bd55a9c698f5c42c4616c6987163d2523fa1ac89aff0187571213f8";
+const LIVE_DEFAULT_LINKER_SIZE: u64 = 1_463_072;
+
+/// Slot 409: the VPS moved to nerve 9baa450c (swarm/nerve-merge-6) at
+/// 2026-10-28 17:40:13 +01:00; 9d1a4f3 above stays on disk as the rollback
+/// binary and remains the default pin (its committed-config rebuild is the
+/// slot-386 proof). VPS read-only 18:39:22 +01:00: ExecStart
+/// openmind-nerve-9baa450, sha256 below, NRestarts 0. Rebuild recipe:
+/// `NERVE_XT_PIN=live NERVE_XT_LIVE_REV=9baa450c NERVE_XT_LIVE_SHA=<this>
+/// NERVE_XT_LIVE_SIZE=1479456 NERVE_XT_LIVE_CONFIG=archive` (its own config
+/// has no linker line, so it was linked by the host `cc`; F-409-1).
+const LIVE2_REV: &str = "9baa450c";
+const LIVE2_SHA: &str = "8c9d7a5fa4f84d6d56d6185dfd5b71171c8ba5b17bf49c0bde7fb5503f6593da";
+const LIVE2_SIZE: u64 = 1_479_456;
+/// 9baa450c rebuilt with this tree's committed rust-lld line (default
+/// `committed` mode), 2026-10-28 18:45 +01:00: NOT the live bytes.
+const LIVE2_RUSTLLD_SHA: &str = "0b8ed7c4de2d65f65277926c47b442ffe834a63d631242f33f75acf2b3770de4";
+const LIVE2_RUSTLLD_SIZE: u64 = 1_473_704;
+
+/// Where the live-pin rebuild gets its x86_64 linker (slot 386, D-376-2):
+/// `NERVE_XT_LIVE_CONFIG`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LiveConfig {
+    /// Default: this tree's committed `.cargo/config.toml` (`git show
+    /// HEAD:.cargo/config.toml`) overlaid on the archive, linker env removed.
+    Committed,
+    /// Slot 376: the archive's own config plus the linker env var.
+    Env,
+    /// Negative control: the archive's own config, linker env removed (what a
+    /// deploy gets without the committed line; must NOT reproduce).
+    Archive,
+}
+
+fn live_config_from(v: Option<&str>) -> Result<LiveConfig, String> {
+    match v {
+        None | Some("committed") => Ok(LiveConfig::Committed),
+        Some("env") => Ok(LiveConfig::Env),
+        Some("archive") => Ok(LiveConfig::Archive),
+        Some(v) => Err(format!(
+            "NERVE_XT_LIVE_CONFIG must be committed, env or archive, got {v:?}"
+        )),
+    }
+}
+
+fn live_config_mode() -> LiveConfig {
+    let v = std::env::var("NERVE_XT_LIVE_CONFIG").ok();
+    live_config_from(v.as_deref()).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Linker set for `[target.<triple>]` in a cargo config text (tiny line
+/// parser: section headers and `linker = "..."`; enough for our own file).
+fn config_linker(text: &str, triple: &str) -> Option<String> {
+    let want = format!("[target.{triple}]");
+    let mut inside = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            inside = line == want;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("linker") {
+            let v = rest.trim_start().strip_prefix('=')?.trim();
+            return Some(v.trim_matches('"').to_string());
+        }
+    }
+    None
+}
+
+/// `git show HEAD:.cargo/config.toml` of this repo (the COMMITTED config,
+/// not the working copy).
+fn committed_config() -> String {
+    let out = Command::new("git")
+        .args(["show", "HEAD:.cargo/config.toml"])
+        .current_dir(root())
+        .output()
+        .expect("git show HEAD:.cargo/config.toml");
+    assert!(
+        out.status.success(),
+        "no committed .cargo/config.toml at HEAD"
+    );
+    String::from_utf8(out.stdout).expect("config utf-8")
+}
+
+/// Replace the exported tree's `.cargo/config.toml` with this tree's
+/// committed one.
+fn overlay_committed_config(src: &Path) {
+    let text = committed_config();
+    assert_eq!(
+        config_linker(&text, "x86_64-unknown-linux-musl").as_deref(),
+        Some(LIVE_RECIPE_LINKER),
+        "committed .cargo/config.toml has no x86_64 musl rust-lld linker line (D-376-2)"
+    );
+    std::fs::create_dir_all(src.join(".cargo")).unwrap();
+    std::fs::write(src.join(".cargo/config.toml"), text).unwrap();
+}
+
+#[test]
+fn live_config_parsing() {
+    assert_eq!(live_config_from(None), Ok(LiveConfig::Committed));
+    assert_eq!(
+        live_config_from(Some("committed")),
+        Ok(LiveConfig::Committed)
+    );
+    assert_eq!(live_config_from(Some("env")), Ok(LiveConfig::Env));
+    assert_eq!(live_config_from(Some("archive")), Ok(LiveConfig::Archive));
+    assert!(live_config_from(Some("")).is_err());
+    assert!(live_config_from(Some("yes")).is_err());
+}
+
+#[test]
+fn config_linker_parser() {
+    let t = "[env]\nX = \"1\"\n[target.aarch64-unknown-linux-musl]\nlinker = \"rust-lld\"\n\n[target.x86_64-unknown-linux-musl]\n# c\nlinker=\"cc\"\n";
+    assert_eq!(
+        config_linker(t, "aarch64-unknown-linux-musl").as_deref(),
+        Some("rust-lld")
+    );
+    assert_eq!(
+        config_linker(t, "x86_64-unknown-linux-musl").as_deref(),
+        Some("cc")
+    );
+    assert_eq!(config_linker(t, "armv7-unknown-linux-musleabihf"), None);
+    assert_eq!(
+        config_linker("[env]\nlinker = \"x\"\n", "x86_64-unknown-linux-musl"),
+        None
+    );
+}
+
+/// Always on (slot 386, D-376-2): the repo's own config (working copy, so a
+/// local edit that drops the line fails before commit) links every musl
+/// target with rust-lld, and the 9d1a4f3 config did not (the reason the
+/// live recipe needed an uncommitted edit).
+#[test]
+fn repo_config_pins_rust_lld() {
+    let text = std::fs::read_to_string(root().join(".cargo/config.toml")).unwrap();
+    for t in [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl",
+        "armv7-unknown-linux-musleabihf",
+    ] {
+        assert_eq!(config_linker(&text, t).as_deref(), Some("rust-lld"), "{t}");
+    }
+    // Default-linker rebuild of the live commit is a different binary.
+    assert!(pin_verdict(
+        LIVE_REV,
+        (LIVE_SHA, LIVE_SIZE),
+        (LIVE_DEFAULT_LINKER_SHA, LIVE_DEFAULT_LINKER_SIZE)
+    )
+    .is_err());
+}
 /// Hard ceiling from the low-end profile (every Rust service binary < 2 MiB).
 const BUDGET: u64 = 2 * 1024 * 1024;
 /// Size-budget table (slot 376, `NERVE_XT_PIN=budget`/`live`): label ->
 /// (budget bytes, warn bytes). Over budget fails; over warn only prints.
 /// Warn = 90 % of the ceiling so growth shows up before the hard stop.
-const SIZE_BUDGET: [(&str, u64, u64); 4] = [
+const SIZE_BUDGET: [(&str, u64, u64); 5] = [
     ("x86_64", BUDGET, BUDGET / 10 * 9),
     ("aarch64", BUDGET, BUDGET / 10 * 9),
+    ("armv7", BUDGET, BUDGET / 10 * 9),
     ("x86_64-live-recipe", BUDGET, BUDGET / 10 * 9),
     ("live-pin", BUDGET, BUDGET / 10 * 9),
 ];
@@ -179,7 +390,13 @@ fn pin_mode_parsing() {
 #[test]
 fn size_budget_table() {
     // Every label the test builds has a row; budgets never exceed the ceiling.
-    for l in ["x86_64", "aarch64", "x86_64-live-recipe", "live-pin"] {
+    for l in [
+        "x86_64",
+        "aarch64",
+        "armv7",
+        "x86_64-live-recipe",
+        "live-pin",
+    ] {
         assert!(SIZE_BUDGET.iter().any(|r| r.0 == l), "{l}");
     }
     for (l, b, w) in SIZE_BUDGET {
@@ -345,14 +562,24 @@ struct Elf {
 
 fn elf(b: &[u8]) -> Elf {
     assert!(b.len() > 64 && &b[..4] == b"\x7fELF", "not an ELF");
-    assert_eq!(b[4], 2, "not ELF64");
     assert_eq!(b[5], 1, "not little-endian");
     let u16_at = |o: usize| u16::from_le_bytes([b[o], b[o + 1]]);
     let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
     let u64_at = |o: usize| u64::from_le_bytes(b[o..o + 8].try_into().unwrap());
-    let phoff = u64_at(32) as usize;
-    let phentsize = u16_at(54) as usize;
-    let phnum = u16_at(56) as usize;
+    // Slot 409: ELF32 too (armv7 musl); same e_type/e_machine offsets.
+    let (phoff, phentsize, phnum) = match b[4] {
+        2 => (
+            u64_at(32) as usize,
+            u16_at(54) as usize,
+            u16_at(56) as usize,
+        ),
+        1 => (
+            u32_at(28) as usize,
+            u16_at(42) as usize,
+            u16_at(44) as usize,
+        ),
+        c => panic!("unknown ELF class {c}"),
+    };
     let has_interp = (0..phnum).any(|i| u32_at(phoff + i * phentsize) == 3); // PT_INTERP
     Elf {
         machine: u16_at(18),
@@ -418,33 +645,35 @@ fn cargo() -> String {
 }
 
 fn run_cargo(args: &[&str], dir: &Path) -> (bool, f64, String) {
-    run_cargo_in(args, dir, &root(), &[])
+    run_cargo_env(args, dir, &root(), &[], &[])
 }
 
 /// `run_cargo` in another source tree (`cwd`) with extra env (slot 376: the
-/// live-pin rebuild of an exported commit with the deploy linker).
-fn run_cargo_in(
+/// live-pin rebuild of an exported commit) and env vars removed (slot 386:
+/// prove the committed config alone picks the linker).
+fn run_cargo_env(
     args: &[&str],
     dir: &Path,
     cwd: &Path,
     extra_env: &[(&str, &str)],
+    remove_env: &[&str],
 ) -> (bool, f64, String) {
+    let mut cmd = Command::new(cargo());
+    for k in ambient_env_vars() {
+        cmd.env_remove(k);
+    }
+    for k in remove_env {
+        cmd.env_remove(k);
+    }
     let jobs = std::env::var("NERVE_XT_JOBS").unwrap_or_else(|_| "2".into());
     let t = Instant::now();
-    let out = Command::new(cargo())
+    let out = cmd
         .args(args)
         .args(["-j", &jobs, "--target-dir"])
         .arg(dir)
         .current_dir(cwd)
         .envs(extra_env.iter().copied())
         .env("CARGO_INCREMENTAL", "0")
-        .env(
-            "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",
-            std::env::var("CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER")
-                .unwrap_or_else(|_| "rust-lld".into()),
-        )
-        .env_remove("RUSTFLAGS")
-        .env_remove("CARGO_ENCODED_RUSTFLAGS")
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .output()
@@ -454,12 +683,14 @@ fn run_cargo_in(
     (out.status.success(), t.elapsed().as_secs_f64(), tail)
 }
 
-fn find_qemu() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("NERVE_XT_QEMU") {
+/// qemu user-mode binary: env knob first, else the first of `names` on PATH
+/// (`NERVE_XT_QEMU` for aarch64, slot 409 `NERVE_XT_QEMU_ARM` for armv7).
+fn find_qemu(knob: &str, names: &[&str]) -> Option<PathBuf> {
+    if let Ok(p) = std::env::var(knob) {
         return Some(PathBuf::from(p));
     }
     let path = std::env::var("PATH").unwrap_or_default();
-    for name in ["qemu-aarch64-static", "qemu-aarch64"] {
+    for name in names {
         for d in path.split(':') {
             let p = Path::new(d).join(name);
             if p.is_file() {
@@ -594,11 +825,26 @@ fn real_cross_target() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(def_size);
     eprintln!("[xt] pin mode {mode:?}, pinned VPS binary {live_rev} {live_sha} {live_size} B");
+    // Slot 409: the COMMITTED config (HEAD) must carry every musl linker
+    // line, since run_cargo_env strips all linker env vars.
+    let head_cfg = committed_config();
+    for t in &XT_TRIPLES[..3] {
+        assert_eq!(
+            config_linker(&head_cfg, t).as_deref(),
+            Some("rust-lld"),
+            "committed .cargo/config.toml: no rust-lld linker for {t}"
+        );
+    }
+    eprintln!(
+        "[xt] linker env removed for every cargo run: {:?}",
+        ambient_env_vars()
+    );
 
     // 1. builds -------------------------------------------------------
     let x86 = "x86_64-unknown-linux-musl";
     let a64 = "aarch64-unknown-linux-musl";
-    let builds: [(&str, &str, &[&str]); 3] = [
+    let arm = "armv7-unknown-linux-musleabihf";
+    let builds: [(&str, &str, &[&str]); 4] = [
         ("x86_64", x86, &["-p", "openmind-nerve"]),
         ("aarch64", a64, &["-p", "openmind-nerve"]),
         (
@@ -606,6 +852,8 @@ fn real_cross_target() {
             x86,
             &["-p", "openmind-nerve", "-p", "openmind-memory"],
         ),
+        // Slot 409: armv7 musl is linked and smoked too (was cargo check only).
+        ("armv7", arm, &["-p", "openmind-nerve"]),
     ];
     let mut bins = Vec::new();
     let mut report_bins = Vec::new();
@@ -618,7 +866,11 @@ fn real_cross_target() {
                       bins: &mut Vec<(String, PathBuf, String, u64)>| {
         let bytes = std::fs::read(&bin).expect("binary");
         let e = elf(&bytes);
-        let want_machine = if target == a64 { 0xB7 } else { 0x3E };
+        let want_machine = match target {
+            t if t == a64 => 0xB7,
+            t if t == arm => 0x28,
+            _ => 0x3E,
+        };
         assert_eq!(e.machine, want_machine, "{label}: wrong e_machine");
         assert!(!e.has_interp, "{label}: has PT_INTERP (not static)");
         let size = bytes.len() as u64;
@@ -671,19 +923,25 @@ fn real_cross_target() {
         let pkgs: &[&str] = &["-p", "openmind-nerve"];
         let mut args = vec!["build", "--release", "--locked", "--target", x86];
         args.extend_from_slice(pkgs);
-        let (ok, secs, tail) = run_cargo_in(
-            &args,
-            &dir,
-            &src,
-            &[(
-                "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER",
-                LIVE_RECIPE_LINKER,
-            )],
-        );
+        // Slot 386 (D-376-2): by default the linker comes from the committed
+        // `.cargo/config.toml` of THIS tree (HEAD, not the working copy),
+        // overlaid on the archive, with every linker env var removed; `env`
+        // is the slot-376 way (archive config + linker env var).
+        let cfg = live_config_mode();
+        let (env, rm): (Vec<(&str, &str)>, Vec<&str>) = match cfg {
+            LiveConfig::Committed => {
+                overlay_committed_config(&src);
+                (Vec::new(), vec![X86_LINKER_ENV])
+            }
+            LiveConfig::Env => (vec![(X86_LINKER_ENV, LIVE_RECIPE_LINKER)], Vec::new()),
+            LiveConfig::Archive => (Vec::new(), vec![X86_LINKER_ENV]),
+        };
+        eprintln!("[xt] live-pin config {cfg:?}");
+        let (ok, secs, tail) = run_cargo_env(&args, &dir, &src, &env, &rm);
         assert!(ok, "live-pin {live_rev}: cargo build failed: {tail}");
         let bin = dir.join(x86).join("release/openmind-nerve");
         record("live-pin", x86, pkgs, bin, secs, &mut bins);
-        let (_, _, sha, size) = &bins[3];
+        let (_, _, sha, size) = bins.last().expect("live-pin binary");
         if let Err(e) = pin_verdict(&live_rev, (&live_sha, live_size), (sha, *size)) {
             panic!("live pin: {e}");
         }
@@ -721,7 +979,10 @@ fn real_cross_target() {
     }
 
     // 2. qemu smoke -----------------------------------------------------
-    let qemu = find_qemu().expect("qemu-aarch64 not found (set NERVE_XT_QEMU)");
+    let qemu = find_qemu("NERVE_XT_QEMU", &["qemu-aarch64-static", "qemu-aarch64"])
+        .expect("qemu-aarch64 not found (set NERVE_XT_QEMU)");
+    let qemu_arm = find_qemu("NERVE_XT_QEMU_ARM", &["qemu-arm-static", "qemu-arm"])
+        .expect("qemu-arm not found (set NERVE_XT_QEMU_ARM)");
     let svc = TcpListener::bind(("127.0.0.1", port_svc()))
         .unwrap_or_else(|e| panic!("live-service port {} not free: {e}", port_svc()));
     std::thread::spawn(move || {
@@ -736,17 +997,23 @@ fn real_cross_target() {
         "{} must be free (dead component)",
         port_dead()
     );
-    // --version under qemu (sanity: the aarch64 binary really executes).
-    let v = Command::new(&qemu)
-        .arg(&bins[1].1)
-        .arg("--version")
-        .output()
-        .expect("qemu --version");
-    let ver = String::from_utf8_lossy(&v.stdout).trim().to_string();
-    assert!(
-        ver.starts_with("openmind-nerve "),
-        "qemu --version: {ver:?}"
-    );
+    // --version under qemu (sanity: the aarch64 / armv7 binaries really execute).
+    let qemu_version = |q: &Path, bin: &Path| {
+        let v = Command::new(q)
+            .arg(bin)
+            .arg("--version")
+            .output()
+            .expect("qemu --version");
+        let ver = String::from_utf8_lossy(&v.stdout).trim().to_string();
+        assert!(
+            ver.starts_with("openmind-nerve "),
+            "qemu --version {}: {ver:?}",
+            bin.display()
+        );
+        ver
+    };
+    let ver = qemu_version(&qemu, &bins[1].1);
+    let ver_arm = qemu_version(&qemu_arm, &bins[3].1);
 
     let mut runs = vec![
         ("x86_64", bins[0].1.clone(), None, port_base()),
@@ -763,10 +1030,17 @@ fn real_cross_target() {
             port_base() + 2,
         ),
     ];
+    // Slot 409: armv7 under qemu-arm reuses +1 after the aarch64 run.
+    runs.push((
+        "armv7",
+        bins[3].1.clone(),
+        Some(qemu_arm.clone()),
+        port_base() + 1,
+    ));
     // The rebuilt live binary reuses +2 after the recipe run (runs are
     // sequential and every port is checked closed after its run).
     if mode == PinMode::Live {
-        runs.push(("live-pin", bins[3].1.clone(), None, port_base() + 2));
+        runs.push(("live-pin", bins[4].1.clone(), None, port_base() + 2));
     }
     let mut smokes = Vec::new();
     let mut report_smoke = Vec::new();
@@ -828,6 +1102,23 @@ fn real_cross_target() {
     let ao = wire_order(&a.health_raw, &a.health);
     let ro = wire_order(&r.health_raw, &r.health);
     assert_eq!(ao, xo, "/health wire order x86_64 vs aarch64");
+    // Slot 409: armv7 (32-bit, qemu-arm) answers like x86_64 too.
+    let v7 = &smokes[3];
+    assert_eq!(
+        keys(&x.health),
+        keys(&v7.health),
+        "health keys x86 vs armv7"
+    );
+    assert_eq!(keys(&x.state), keys(&v7.state), "state keys x86 vs armv7");
+    assert_eq!(
+        x.state["system"]["status"], v7.state["system"]["status"],
+        "system verdict x86 vs armv7"
+    );
+    assert_eq!(
+        wire_order(&v7.health_raw, &v7.health),
+        xo,
+        "/health wire order x86_64 vs armv7"
+    );
     if mode == PinMode::Aa77864 {
         // Live recipe (preserve_order on): insertion order on the wire; solo
         // builds (BTreeMap) send keys sorted.
@@ -852,7 +1143,7 @@ fn real_cross_target() {
         // Same /health key set as the tree (no field dropped or added since
         // the live commit); wire order is reported, not asserted (the live
         // 9d1a4f3 build sends keys sorted, the tree sends insertion order).
-        let l = &smokes[3];
+        let l = &smokes[4];
         assert_eq!(
             sorted(keys(&l.health)),
             sorted(keys(&x.health)),
@@ -871,9 +1162,15 @@ fn real_cross_target() {
         });
     }
 
-    // 3. cargo check for android / armv7 --------------------------------
+    // 3. cargo check for android ----------------------------------------
+    // Slot 409: armv7 musl moved to the build + smoke list above. Android
+    // links dynamically against bionic (-lc -ldl -lm -llog -lunwind), which
+    // only the Android NDK ships; with no NDK on the box neither the default
+    // `cc` nor rust-lld can link it (docs/real-tests/xt-linker-pins-arm.md,
+    // D-409-1), so android stays `cargo check` (RULES.md hard rule 1) and is
+    // deliberately NOT pinned in `.cargo/config.toml`.
     let mut report_check = Vec::new();
-    for target in ["aarch64-linux-android", "armv7-unknown-linux-musleabihf"] {
+    for target in ["aarch64-linux-android", "armv7-linux-androideabi"] {
         let (ok, secs, tail) = run_cargo(
             &[
                 "check",
@@ -887,8 +1184,10 @@ fn real_cross_target() {
         );
         assert!(ok, "{target}: cargo check failed: {tail}");
         eprintln!("[xt] check {target} ok {secs:.1} s");
-        report_check
-            .push(json!({"target": target, "ok": ok, "secs": (secs * 10.0).round() / 10.0}));
+        report_check.push(
+            json!({"target": target, "ok": ok, "secs": (secs * 10.0).round() / 10.0,
+                "link": "not attempted: needs the Android NDK bionic sysroot (D-409-1)"}),
+        );
     }
 
     let report = json!({
@@ -900,10 +1199,108 @@ fn real_cross_target() {
         "port_base": port_base(),
         "binaries": report_bins, "smoke": report_smoke, "check": report_check,
         "qemu": qemu.display().to_string(), "qemu_version_out": ver,
+        "qemu_arm": qemu_arm.display().to_string(), "qemu_arm_version_out": ver_arm,
+        "linker_slot": 409, "linker_env_removed": ambient_env_vars(),
+        "config_linkers": XT_TRIPLES.iter().map(|t| json!({"target": t,
+            "linker": config_linker(&committed_config(), t)})).collect::<Vec<_>>(),
     });
     let out = std::env::var("NERVE_XT_REPORT")
         .map(PathBuf::from)
         .unwrap_or_else(|_| xt.join("report.json"));
     std::fs::write(&out, serde_json::to_string_pretty(&report).unwrap()).unwrap();
     eprintln!("[xt] report {}", out.display());
+}
+
+/// Slot 409: every `[target.<triple>]` table in the repo config has its
+/// linker env var in the strip list (so a future pin is always tested from
+/// the committed config), the musl triples are pinned and android is not
+/// (no NDK: a rust-lld pin would only trade one link error for another).
+#[test]
+fn ambient_env_covers_config_targets() {
+    let text = std::fs::read_to_string(root().join(".cargo/config.toml")).unwrap();
+    let strip = ambient_env_vars();
+    for line in text.lines().map(str::trim) {
+        if let Some(t) = line
+            .strip_prefix("[target.")
+            .and_then(|r| r.strip_suffix(']'))
+        {
+            let k = format!("CARGO_TARGET_{}_LINKER", triple_env(t));
+            assert!(strip.contains(&k), "{k} not stripped by run_cargo_env");
+        }
+    }
+    for t in &XT_TRIPLES[..3] {
+        assert_eq!(config_linker(&text, t).as_deref(), Some("rust-lld"), "{t}");
+    }
+    for t in &XT_TRIPLES[3..] {
+        assert_eq!(config_linker(&text, t), None, "{t} pinned without an NDK");
+    }
+    assert_eq!(
+        triple_env("armv7-unknown-linux-musleabihf"),
+        "ARMV7_UNKNOWN_LINUX_MUSLEABIHF"
+    );
+    for k in ["RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "CARGO_BUILD_TARGET"] {
+        assert!(strip.iter().any(|s| s == k), "{k}");
+    }
+}
+
+/// Slot 409: the ELF reader handles ELF32 (armv7) and ELF64 headers.
+#[test]
+fn elf_reader_32_and_64() {
+    // ELF32 ARM, ET_DYN, one PT_LOAD program header at 52 (no PT_INTERP).
+    let mut e32 = vec![0u8; 52 + 32 + 16];
+    e32[..4].copy_from_slice(b"\x7fELF");
+    e32[4] = 1;
+    e32[5] = 1;
+    e32[16] = 3;
+    e32[18] = 0x28;
+    e32[28..32].copy_from_slice(&52u32.to_le_bytes());
+    e32[42] = 32;
+    e32[44] = 1;
+    e32[52] = 1; // PT_LOAD
+    assert_eq!(
+        elf(&e32),
+        Elf {
+            machine: 0x28,
+            has_interp: false,
+            pie: true
+        }
+    );
+    e32[52] = 3; // PT_INTERP
+    assert!(elf(&e32).has_interp);
+    // ELF64 x86_64, ET_EXEC, one PT_INTERP header at 64.
+    let mut e64 = vec![0u8; 64 + 56];
+    e64[..4].copy_from_slice(b"\x7fELF");
+    e64[4] = 2;
+    e64[5] = 1;
+    e64[16] = 2;
+    e64[18] = 0x3E;
+    e64[32..40].copy_from_slice(&64u64.to_le_bytes());
+    e64[54] = 56;
+    e64[56] = 1;
+    e64[64] = 3;
+    assert_eq!(
+        elf(&e64),
+        Elf {
+            machine: 0x3E,
+            has_interp: true,
+            pie: false
+        }
+    );
+}
+
+/// Slot 409 (F-409-1): the live nerve 9baa450c was linked by the host `cc`
+/// (its tree has no x86_64 linker line); the committed rust-lld pin gives a
+/// different, 5 752 B smaller binary. Both measured on the box 2026-10-28
+/// 18:45 +01:00; the archive-config rebuild equals the VPS bytes.
+#[test]
+fn live2_linker_split() {
+    assert!(pin_verdict(
+        LIVE2_REV,
+        (LIVE2_SHA, LIVE2_SIZE),
+        (LIVE2_RUSTLLD_SHA, LIVE2_RUSTLLD_SIZE)
+    )
+    .is_err());
+    assert!(pin_verdict(LIVE2_REV, (LIVE2_SHA, LIVE2_SIZE), (LIVE2_SHA, LIVE2_SIZE)).is_ok());
+    assert_eq!(LIVE2_SIZE - LIVE2_RUSTLLD_SIZE, 5_752);
+    assert!(budget_verdict("live-pin", LIVE2_SIZE).unwrap().is_none());
 }

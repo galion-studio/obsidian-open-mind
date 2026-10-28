@@ -8,6 +8,10 @@ DONE lines in `/workspace/swarm/CALL-RECORD.md`) and fresh **read-only** checks 
 (GitHub API, VPS loopback GETs / `systemctl`, local `git merge-tree`, 15:36-15:40 CET; evidence in
 `docs/real-tests/publish-path-refresh.md`). **Nothing was applied, deployed or merged.** You decide.
 
+> **Update 2026-10-28 21:45 CET (slot 429):** step 5 is **DONE**: PR #12 merged into main 18:09:32 CET (Mate t334u),
+> merge commit **7ba85b60** (main head unchanged at 21:41). The app is published. Only D-361-1 remains from step 1.
+> Post-publish decisions: `docs/decisions/OWNER-DECISIONS-DIGEST-20261028-4.md`.
+>
 > **Update 2026-10-28 18:05 CET (slot 418):** steps 1 (half: D-318-2 done, D-361-1 open), 2, 3 and 4 below are done;
 > step 5 (PR #12 merge) is next once CI is green. Live: console 5aa31927, cortex 58a12e6, nerve 9baa450. The
 > sections 0 and 2 below are the 15:40 snapshot. Open decisions: `docs/decisions/OWNER-DECISIONS-DIGEST-20261028-3.md`.
@@ -79,6 +83,7 @@ Also done, smaller: 363 0d545118, 366 b859ffb3, 368 bfb102c8, 370 f82c95f2, 372 
 5. **Merge PR #12 into main** = the publish step (your or Mate's go; never force-push).
    **Status 18:03 CET: NEXT.** PR #12 is on main-staging 3250d07d; CI not green yet (combined status pending,
    mergeable_state unstable). Merge when green.
+   **Status 21:41 CET: DONE.** Merged 18:09:32 CET (Mate t334u), merge commit 7ba85b60, no force-push; checked via GitHub API 21:41.
 6. **After the publish, before real users**: alert channel (B9: now pick D-382-1 A ntfy without a token, or give the
    Telegram token), crate ownership rows (B10), mouth option (B8: D-358-1 / D-358-3).
 

@@ -33,6 +33,7 @@ pub mod security;
 pub mod services;
 pub mod session;
 pub mod status;
+pub mod survival;
 
 use crate::json::Value;
 

@@ -382,6 +382,22 @@ pub fn body(snap: Result<&Value, Miss>) -> String {
     body_at(snap, now)
 }
 
+/// [`body`] plus an extra card (the survival card, slot 408) placed after
+/// Cash, before the page's closing tag.
+pub fn body_with(snap: Result<&Value, Miss>, card: &str) -> String {
+    insert_card(body(snap), card)
+}
+
+/// Put `card` before the closing `</div>` of a page body.
+pub fn insert_card(mut out: String, card: &str) -> String {
+    if !card.is_empty() && out.ends_with("</div>") {
+        out.truncate(out.len() - "</div>".len());
+        out.push_str(card);
+        out.push_str("</div>");
+    }
+    out
+}
+
 /// [`body`] at a given Unix time (tests).
 pub fn body_at(snap: Result<&Value, Miss>, now: i64) -> String {
     let null = Value::Null;
@@ -461,6 +477,27 @@ mod tests {
 
     fn sv(s: &str) -> Value {
         Value::Str(s.into())
+    }
+
+    #[test]
+    fn survival_card_goes_inside_the_page_after_cash() {
+        let b = body_with(
+            Err(Miss::Status(404)),
+            "<section aria-label=\"Survival\">x</section>",
+        );
+        assert!(
+            b.ends_with("<section aria-label=\"Survival\">x</section></div>"),
+            "{b}"
+        );
+        assert!(
+            b.find("aria-label=\"Cash\"").unwrap() < b.find("aria-label=\"Survival\"").unwrap()
+        );
+        assert_eq!(
+            b.matches("</div>").count(),
+            body(Err(Miss::Status(404))).matches("</div>").count()
+        );
+        assert_eq!(body_with(Err(Miss::Down), ""), body(Err(Miss::Down)));
+        assert_eq!(insert_card("<p>".into(), "c"), "<p>");
     }
 
     #[test]

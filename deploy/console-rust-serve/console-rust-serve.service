@@ -42,6 +42,8 @@ ReadOnlyPaths=/opt/galion/console-dist
 # Without ReadWritePaths, already-paired cookies still verify (read-only) and
 # new pairing answers 503 "store not writable" (fails closed).
 # DynamicUser=yes cannot read /root; keep the live root unit or move the store.
+# Slot 313: concrete staged drop-ins for the live units are in
+# deploy/console-rust-serve/{console,console-rust-primary}.service.d/60-admin-store.conf.
 
 [Install]
 WantedBy=multi-user.target

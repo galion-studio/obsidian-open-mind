@@ -351,8 +351,8 @@ mod tests {
         // -3, -4, -5; merged in console-port-merge).
         let spa = ui.spa_fallbacks(true);
         // main-staging: with console-port-merge every room is ported; /arena and
-        // /bank were SPA_FIRST there. console-v2 (slot 299, 389 lineage) made them
-        // Rust-first too: no SPA fallback (same fix as release-bins-add, slot 337).
+        // /bank were SPA_FIRST there. console-v2 (slot 299, merged here by
+        // release-bins-add slot 337) made them Rust-first too: no SPA fallback.
         assert!(spa.is_empty(), "{spa:?}");
         assert_eq!(spa.len() + PORTED.len() + 1 - crate::SPA_FIRST.len(), 31);
         assert!(!spa.contains(&"/hermes"));

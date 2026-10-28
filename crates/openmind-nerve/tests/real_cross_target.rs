@@ -216,6 +216,42 @@ const SIZE_BUDGET: [(&str, u64, u64); 4] = [
     ("x86_64-live-recipe", BUDGET, BUDGET / 10 * 9),
     ("live-pin", BUDGET, BUDGET / 10 * 9),
 ];
+
+/// openmind-nerve row of the one budget table, config/release/size-budget.tsv
+/// (slot 353, now on main 7ba85b60); same lookup as scripts/size-budget.sh:
+/// the `openmind-nerve` row, else `default`. Rehearsal slot 407 keeps the
+/// slot-376 `SIZE_BUDGET` const table and pins it to the shared table here.
+fn tsv_budget() -> u64 {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/release/size-budget.tsv"
+    );
+    let text = std::fs::read_to_string(path).expect("config/release/size-budget.tsv");
+    let mut default = None;
+    let mut own = None;
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("");
+        let mut it = line.split_whitespace();
+        if let (Some(k), Some(v)) = (it.next(), it.next()) {
+            let v: u64 = v.parse().expect("budget bytes");
+            match k {
+                "default" => default = Some(v),
+                "openmind-nerve" => own = Some(v),
+                _ => {}
+            }
+        }
+    }
+    own.or(default).expect("budget row")
+}
+
+#[test]
+fn budget_matches_size_budget_tsv() {
+    assert_eq!(
+        BUDGET,
+        tsv_budget(),
+        "BUDGET must equal the openmind-nerve row of config/release/size-budget.tsv"
+    );
+}
 /// Slot 363 (real-test-port-env): 5-port block, first port from
 /// `NERVE_XT_PORT_BASE` (unset = 20870, slot 217): nerves on +0..+2, live
 /// service thread on +3, dead component on +4.

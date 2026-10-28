@@ -7,9 +7,9 @@
 //! `json.dumps(row)` with no `separators=` argument), so `spaced` is set to
 //! `true` there. Non-ASCII code points are escaped as `\uXXXX` exactly like
 //! `ensure_ascii=True` (the CPython default). The implementation is shared
-//! with desk-hermes in `galion_common::jsonout`.
+//! with desk-hermes in the `galion-jsonout` crate.
 
-pub use galion_common::jsonout::{json_str, to_json_compat, truthy};
+pub use galion_jsonout::{json_str, to_json_compat, truthy};
 
 #[cfg(test)]
 mod tests {

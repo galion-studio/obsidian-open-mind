@@ -18,6 +18,16 @@
 //! it); writes are atomic (temp + rename, mode 0600); hashes compare in
 //! constant time on the decoded bytes; one in-process lock serialises
 //! read-modify-write.
+//!
+//! Fail-closed lockout (slot 323, fixes F-313-1): the fail counter and the
+//! lock also live in process memory, so a store that cannot be written
+//! (read-only dir, full disk, swapped file reset to `fails:0`) never turns
+//! off the lockout. Every code attempt first *charges* one fail (memory +
+//! store) BEFORE the code is compared; if that write fails the answer is a
+//! uniform `503 "store not writable"` whether the code was right or wrong,
+//! so a read-only store is no longer a code oracle (it used to be 401 for
+//! wrong, 503 for right, with no lock). A right code then refunds the
+//! charge (fails 0) when the new token is stored.
 
 use crate::sha256;
 use console_ui::json::{self, Value};
@@ -42,7 +52,15 @@ pub const MAX_STORE: u64 = 64 * 1024;
 pub struct AdminStore {
     path: PathBuf,
     mirror: Option<PathBuf>,
-    lock: Mutex<()>,
+    lock: Mutex<Guard>,
+}
+
+/// In-process copy of the lockout state; the effective value is the max of
+/// this and the store, so neither a read-only nor a reset store unlocks.
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+struct Guard {
+    fails: f64,
+    locked_until: f64,
 }
 
 /// Store could not be read safely (permissions, corrupt JSON, too large).
@@ -221,7 +239,7 @@ impl AdminStore {
         AdminStore {
             path,
             mirror,
-            lock: Mutex::new(()),
+            lock: Mutex::new(Guard::default()),
         }
     }
 
@@ -279,7 +297,14 @@ impl AdminStore {
         Ok((!hashes_of(&s).is_empty(), token_ok(&s, &token)))
     }
 
-    fn issue(&self, store: &Value, device_hash: &str, device: String, secure: bool) -> Pair {
+    fn issue(
+        &self,
+        g: &mut Guard,
+        store: &Value,
+        device_hash: &str,
+        device: String,
+        secure: bool,
+    ) -> Pair {
         let token = match random_token() {
             Ok(t) => t,
             Err(_) => {
@@ -323,6 +348,8 @@ impl AdminStore {
                 error: "store not writable",
             };
         }
+        // Stored: refund the charged attempt and drop the lock.
+        *g = Guard::default();
         let cookie = format!(
             "{COOKIE}={token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000{}",
             if secure { "; Secure" } else { "" }
@@ -335,8 +362,14 @@ impl AdminStore {
 
     /// `pairAdmin()`. `secure` = Host ends with galion.app or a trusted
     /// X-Forwarded-Proto says https.
+    ///
+    /// Order: read store (unreadable -> 503, never overwritten) -> paired
+    /// device secret resumes (bypasses the lock, as in the TS) -> lock
+    /// (store OR memory) -> 429 -> charge one fail (memory, then store; a
+    /// failed store write -> uniform 503 before the code is looked at) ->
+    /// compare code -> wrong 401 / right issues a token and refunds.
     pub fn pair(&self, code: &str, device: &str, secure: bool) -> Pair {
-        let _g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
+        let mut g = self.lock.lock().unwrap_or_else(|e| e.into_inner());
         let store = match self.read() {
             Ok(s) => s,
             Err(_) => {
@@ -350,27 +383,45 @@ impl AdminStore {
         if let Some(dh) = store.get("deviceHash").as_str() {
             if !presented.is_empty() && !dh.is_empty() && same(dh, presented) {
                 let dh = dh.to_string();
-                return self.issue(&store, &dh, String::new(), secure);
+                return self.issue(&mut g, &store, &dh, String::new(), secure);
             }
         }
-        if let Some(until) = store.get("lockedUntil").as_f64() {
-            if now_ms() < until {
-                return Pair::Err {
-                    status: 429,
-                    error: "too many attempts",
-                };
-            }
+        let now = now_ms();
+        let until = store
+            .get("lockedUntil")
+            .as_f64()
+            .unwrap_or(0.0)
+            .max(g.locked_until);
+        if now < until {
+            return Pair::Err {
+                status: 429,
+                error: "too many attempts",
+            };
+        }
+        // Charge the attempt BEFORE comparing the code.
+        let fails = store
+            .get("fails")
+            .as_f64()
+            .filter(|f| f.is_finite() && *f >= 0.0)
+            .unwrap_or(0.0)
+            .max(g.fails)
+            + 1.0;
+        g.fails = fails;
+        let mut charged = store.clone();
+        set(&mut charged, "fails", Value::Num(fails));
+        if fails >= MAX_FAILS {
+            g.locked_until = g.locked_until.max(now + LOCK_MS);
+            set(&mut charged, "lockedUntil", Value::Num(g.locked_until));
+        }
+        if self.write(&charged).is_err() {
+            return Pair::Err {
+                status: 503,
+                error: "store not writable",
+            };
         }
         let given = code.trim().to_uppercase();
         let code_hash = store.get("codeHash").as_str().unwrap_or("");
         if code_hash.is_empty() || given.is_empty() || !same(code_hash, &given) {
-            let fails = store.get("fails").as_f64().unwrap_or(0.0) + 1.0;
-            let mut next = store.clone();
-            set(&mut next, "fails", Value::Num(fails));
-            if fails >= MAX_FAILS {
-                set(&mut next, "lockedUntil", Value::Num(now_ms() + LOCK_MS));
-            }
-            let _ = self.write(&next);
             return Pair::Err {
                 status: 401,
                 error: "wrong code",
@@ -386,7 +437,7 @@ impl AdminStore {
             }
         };
         let dh = sha_hex(&secret);
-        self.issue(&store, &dh, secret, secure)
+        self.issue(&mut g, &charged, &dh, secret, secure)
     }
 }
 
@@ -568,6 +619,152 @@ mod tests {
             Pair::Err { status: 503, .. }
         ));
         assert_eq!(fs::read(&path).unwrap(), b"{not json");
+        let _ = fs::remove_dir_all(d);
+    }
+
+    fn chmod(p: &Path, m: u32) {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(p, fs::Permissions::from_mode(m)).unwrap();
+    }
+
+    /// root ignores directory modes; those tests then only log a skip.
+    fn ro_dir_blocks(d: &Path) -> bool {
+        let probe = d.join(".probe");
+        let blocked = fs::write(&probe, b"x").is_err();
+        let _ = fs::remove_file(&probe);
+        blocked
+    }
+
+    fn seeded(name: &str, extra: &str) -> (PathBuf, PathBuf, AdminStore) {
+        let d = tmp(name);
+        let path = d.join("admin-device.json");
+        write_atomic(
+            &path,
+            format!("{{\"codeHash\":\"{}\"{extra}}}\n", sha_hex("RIGHT")).as_bytes(),
+        )
+        .unwrap();
+        let st = AdminStore::new(path.clone(), None);
+        (d, path, st)
+    }
+
+    fn status(p: Pair) -> u16 {
+        match p {
+            Pair::Ok { .. } => 200,
+            Pair::Err { status, .. } => status,
+        }
+    }
+
+    #[test]
+    fn f313_1_read_only_store_is_uniform_and_still_locks() {
+        let (d, path, st) = seeded("ro", "");
+        let before = fs::read(&path).unwrap();
+        chmod(&d, 0o500);
+        if !ro_dir_blocks(&d) {
+            chmod(&d, 0o700);
+            eprintln!("skip: running as root, dir modes not enforced");
+            let _ = fs::remove_dir_all(d);
+            return;
+        }
+        // Right and wrong codes answer the same while the store is RO.
+        let right = st.pair("right", "", false);
+        let wrong = st.pair("wrong", "", false);
+        assert_eq!(right, wrong, "no code oracle on a read-only store");
+        assert_eq!(
+            right,
+            Pair::Err {
+                status: 503,
+                error: "store not writable"
+            }
+        );
+        // 3 more attempts -> 5 charged -> locked in memory.
+        let more: Vec<u16> = (0..3).map(|_| status(st.pair("x", "", false))).collect();
+        assert_eq!(more, vec![503, 503, 503]);
+        assert_eq!(status(st.pair("right", "", false)), 429);
+        assert_eq!(status(st.pair("wrong", "", false)), 429);
+        assert_eq!(fs::read(&path).unwrap(), before, "RO store never touched");
+        // Store becomes writable again: the memory lock still holds.
+        chmod(&d, 0o700);
+        assert_eq!(status(st.pair("right", "", false)), 429);
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn reset_store_does_not_unlock() {
+        let (d, path, st) = seeded("reset", "");
+        for _ in 0..5 {
+            assert_eq!(status(st.pair("wrong", "", false)), 401);
+        }
+        assert_eq!(status(st.pair("right", "", false)), 429);
+        // Tamper: someone swaps the store back to a clean, unlocked copy.
+        for tampered in [
+            format!("{{\"codeHash\":\"{}\",\"fails\":0}}", sha_hex("RIGHT")),
+            format!("{{\"codeHash\":\"{}\",\"fails\":-99}}", sha_hex("RIGHT")),
+            format!(
+                "{{\"codeHash\":\"{}\",\"fails\":\"0\",\"lockedUntil\":1}}",
+                sha_hex("RIGHT")
+            ),
+        ] {
+            write_atomic(&path, tampered.as_bytes()).unwrap();
+            assert_eq!(status(st.pair("right", "", false)), 429, "{tampered}");
+        }
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn charge_before_compare_then_refund_on_success() {
+        let (d, path, st) = seeded("charge", ",\"fails\":3");
+        assert_eq!(status(st.pair("wrong", "", false)), 401);
+        let s = st.read().unwrap();
+        assert_eq!(s.get("fails").as_f64(), Some(4.0));
+        assert!(s.get("lockedUntil").is_null());
+        // 5th attempt is the right code: charged (lock written) then refunded.
+        assert_eq!(status(st.pair("right", "", false)), 200);
+        let s = st.read().unwrap();
+        assert_eq!(s.get("fails").as_f64(), Some(0.0));
+        assert!(s.get("lockedUntil").is_null());
+        assert_eq!(*st.lock.lock().unwrap(), Guard::default());
+        // Wrong code: fails persisted even though the answer is 401.
+        assert_eq!(status(st.pair("nope", "", false)), 401);
+        assert!(fs::read_to_string(&path).unwrap().contains(r#""fails":1"#));
+        let _ = fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn expired_lock_relocks_on_next_wrong_but_right_code_still_pairs() {
+        let (d, _path, st) = seeded("expired", ",\"fails\":5,\"lockedUntil\":1");
+        assert_eq!(status(st.pair("wrong", "", false)), 401);
+        assert_eq!(status(st.pair("right", "", false)), 429, "relocked");
+        let (d2, _p2, st2) = seeded("expired2", ",\"fails\":7,\"lockedUntil\":1");
+        assert_eq!(status(st2.pair("right", "", false)), 200);
+        let _ = fs::remove_dir_all(d);
+        let _ = fs::remove_dir_all(d2);
+    }
+
+    #[test]
+    fn read_only_store_device_resume_and_existing_cookie() {
+        let dev = "devsecret-devsecret-devsecret";
+        let tok = "already-paired-token";
+        let extra = format!(
+            ",\"deviceHash\":\"{}\",\"tokenHashes\":[\"{}\"]",
+            sha_hex(dev),
+            sha_hex(tok)
+        );
+        let (d, _path, st) = seeded("rodev", &extra);
+        chmod(&d, 0o500);
+        if !ro_dir_blocks(&d) {
+            chmod(&d, 0o700);
+            let _ = fs::remove_dir_all(d);
+            return;
+        }
+        // Existing cookie still verifies (read-only is fine for reads).
+        assert!(st.is_admin(Some(&format!("galion_admin={tok}"))));
+        // Right device, wrong device, right code, wrong code: all 503.
+        let all: Vec<u16> = [("", dev), ("", "wrong-device"), ("right", ""), ("x", "")]
+            .iter()
+            .map(|(c, v)| status(st.pair(c, v, false)))
+            .collect();
+        assert_eq!(all, vec![503, 503, 503, 503]);
+        chmod(&d, 0o700);
         let _ = fs::remove_dir_all(d);
     }
 }

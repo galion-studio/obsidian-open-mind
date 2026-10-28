@@ -332,6 +332,8 @@ name = "desk-hermes"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "galion-feature-pin",
+ "galion-jsonout",
  "rusqlite",
  "serde",
  "serde_json",
@@ -636,8 +638,6 @@ dependencies = [
 name = "galion-common"
 version = "0.1.0"
 dependencies = [
- "serde",
- "serde_json",
  "zagreb-time",
 ]
 
@@ -655,6 +655,15 @@ dependencies = [
  "galion-common",
  "openmind-config",
  "serde_json",
+]
+
+[[package]]
+name = "galion-feature-pin"
+version = "0.1.0"
+dependencies = [
+ "galion-common",
+ "indexmap",
+ "serde",
 ]
 
 [[package]]
@@ -677,6 +686,15 @@ version = "0.2.0"
 dependencies = [
  "galion-realtest",
  "zagreb-time",
+]
+
+[[package]]
+name = "galion-jsonout"
+version = "0.1.0"
+dependencies = [
+ "galion-common",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1010,9 +1028,11 @@ dependencies = [
 name = "hermes-gateway"
 version = "0.1.0"
 dependencies = [
+ "galion-feature-pin",
  "galion-realtest",
  "hermes-rs",
  "hermes-tools",
+ "rusqlite",
  "serde_json",
 ]
 
@@ -1124,6 +1144,7 @@ name = "link-watch"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "galion-jsonout",
  "openmind-config",
  "serde",
  "serde_json",
@@ -1291,6 +1312,7 @@ name = "openmind-memory"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "galion-feature-pin",
  "nerve-client",
  "rusqlite",
  "serde",
@@ -1306,6 +1328,7 @@ dependencies = [
  "gaia-live",
  "galion-common",
  "galion-deploy",
+ "galion-feature-pin",
  "galion-realtest",
  "hades-gate",
  "nerve-client",
@@ -1334,6 +1357,7 @@ dependencies = [
 name = "openmind-queue"
 version = "0.1.0"
 dependencies = [
+ "galion-feature-pin",
  "openmind-provider",
  "serde",
  "serde_json",

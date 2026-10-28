@@ -18,9 +18,10 @@ use std::time::{Duration, Instant};
 
 use galion_realtest::ports::Block;
 
-/// Slot 375 (real-ports-batch-2): port block movable by `LANDING_REAL_PORT_BASE`; unset keeps
-/// the old 19400 block.
-static PORTS: Block = Block::new("LANDING_REAL_PORT_BASE", 19400, 10);
+/// Slot 375 (real-ports-batch-2): port block movable by `LANDING_REAL_PORT_BASE`.
+/// Unset keeps main's slot-254 block 21230-21239 (BIND 21232, dead upstream 21233);
+/// rehearsal slot 407 kept main's default when folding slot 383 onto main 7ba85b60.
+static PORTS: Block = Block::new("LANDING_REAL_PORT_BASE", 21230, 10);
 fn bind_at() -> &'static str {
     PORTS.addr(2)
 }

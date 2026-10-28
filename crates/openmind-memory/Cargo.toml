@@ -13,9 +13,11 @@ name = "openmind-memory"
 path = "src/main.rs"
 
 [dependencies]
+# Release reproducibility (D-312-4): same dependency features alone and in the release set.
+galion-feature-pin = { path = "../galion-feature-pin" }
 galion-common = { path = "../galion-common" }
 # bundled: SQLite (with FTS5) is compiled from the amalgamation; no system lib, no openssl.
-rusqlite = { version = "0.32", default-features = false, features = ["bundled", "backup"] }
+rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
 zagreb-time = { path = "../zagreb-time" }

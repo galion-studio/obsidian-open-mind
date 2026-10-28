@@ -39,8 +39,8 @@ fn plan_is_dry_run_for_hades() {
 #[test]
 fn ownership_counts() {
     let j = gaia::ownership_json();
-    assert_eq!(num(&j, &["crates_total"]), 72); // main-staging: +tunnel-lint, +console-static, +console-ui, +galion-tar; survival-refresh-writer: +galion-survival; cortex-handoff-exclude: +gaia-cortex, +nerve-cortex-contract, +xtask
-    assert_eq!(num(&j, &["system_crates"]), 60); // main-staging: +tunnel-lint, +console-static, +console-ui, +galion-tar; survival-refresh-writer: +galion-survival; cortex-handoff-exclude: +gaia-cortex, +nerve-cortex-contract, +xtask
+    assert_eq!(num(&j, &["crates_total"]), 74); // main-staging: +tunnel-lint, +console-static, +console-ui, +galion-tar; cortex-staging-fold: +gaia-cortex, +nerve-cortex-contract, +xtask; slot 325: +galion-feature-pin, +galion-jsonout; survival-refresh-writer slot 389: +galion-survival
+    assert_eq!(num(&j, &["system_crates"]), 62); // main-staging: +tunnel-lint, +console-static, +console-ui, +galion-tar; cortex-staging-fold: +gaia-cortex, +nerve-cortex-contract, +xtask; slot 325: +galion-feature-pin, +galion-jsonout; survival-refresh-writer slot 389: +galion-survival
     assert_eq!(num(&j, &["systems_total"]), 52);
 }
 

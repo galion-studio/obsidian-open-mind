@@ -125,8 +125,10 @@ pub const CRATES: &[CrateOwner] = &[
     c("galion-common", S(System::ZagrebClock), "pending Slavik: shared std-only helpers (SHA-256, hex, base64, JSON, Zagreb time, small HTTP/1.1 server/client); nearest system is the Zagreb clock it carries; alternative: core"),
     c("galion-deploy", S(System::DeploySwitch), "pending Slavik: backup -> atomic install -> restart -> health -> automatic rollback for one unit (replaces deploy/foundation/galion-deploy); executes, unlike the plan-only switch scripts; alternative rollback/HADES"),
     c("galion-desk", S(System::GalionDesk), "operator desk endpoint (:8646)"),
+    c("galion-feature-pin", S(System::ReleaseArtifacts), "pending Slavik: doc-only crate pinning dependency features so solo -p release builds match the full-set build byte for byte (release-repro-unify, wave-4 slot 325); alternative cargo-build/HEPHAESTUS"),
     c("galion-guard", S(System::GuardianWatchdog), "pending Slavik: Rust SSH ban daemon replacing the fail2ban sshd jail (nft timeout sets); security watch like one-defence; alternative tunnels/AETHER"),
     c("galion-health", S(System::GuardianWatchdog), "pending Slavik: loopback health dashboard polling service ports and systemd states (nerve T1.2a); same system as its galion-health unit in UNITS; alternatives guardian-tick/DEMETER or alerting/MINERVA"),
+    c("galion-jsonout", S(System::ZagrebClock), "pending Slavik: serde_json output helpers split out of galion-common (jsonout) so galion-common has no features (release-repro-unify, wave-4 slot 325); same system as galion-common; alternative: core"),
     c("galion-one", S(System::GalionOne), "Galion One, the persona the stack embodies (:8091, :8002)"),
     c("galion-origin", S(System::Origin), "origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin)"),
     c("galion-realtest", S(System::RepoCheck), "pending Slavik: platform-wide real-life test harness (self-evaluation); alternative cargo-build/HEPHAESTUS"),
@@ -353,12 +355,13 @@ mod tests {
         // tunnel-lint from tunnel-audit (main-staging 2026-10-21).
         // console-static, console-ui from the console pair (main-staging 2026-10-21).
         // galion-tar from shared-tar-crate via shared-tar-mergefix (wave-4 slot 242).
-        // galion-survival from survival-refresh-writer (wave-4 slot 389; rehearsal slot 407).
+        // galion-feature-pin, galion-jsonout from release-repro-unify (wave-4 slot 325).
+        // galion-survival from survival-refresh-writer (wave-4 slot 389; rehearsal slot 407 phase 2 on main 7ba85b60).
         // gaia-cortex, nerve-cortex-contract, xtask from cortex-live-merge-3 via
-        // cortex-handoff-exclude (wave-4 slot 387; same entries as cortex-staging-fold slot 293).
+        // cortex-staging-fold (wave-4 slot 293), merged by release-bins-add (slot 337).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            60
+            62
         );
     }
 
@@ -398,8 +401,10 @@ mod tests {
                 "galion-chatterbox",
                 "galion-common",
                 "galion-deploy",
+                "galion-feature-pin",
                 "galion-guard",
                 "galion-health",
+                "galion-jsonout",
                 "galion-realtest",
                 "galion-survival",
                 "galion-tar",

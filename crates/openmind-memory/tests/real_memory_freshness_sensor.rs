@@ -57,7 +57,11 @@ fn mem_bin() -> PathBuf {
             "set OPENMIND_MEMORY_BIN to an openmind-memory >= 1d7164b4 release build \
              (this branch's openmind-memory has no `freshness` subcommand; D-405-3)",
         );
-    assert!(b.is_file(), "OPENMIND_MEMORY_BIN {} is not a file", b.display());
+    assert!(
+        b.is_file(),
+        "OPENMIND_MEMORY_BIN {} is not a file",
+        b.display()
+    );
     b
 }
 

@@ -513,11 +513,17 @@ impl Cortex {
         let sigs: Vec<Signal> = subjects
             .values()
             .map(|s| {
-                let sev = if s.recovered() { Sev::Info } else { s.sev() };
+                // A planned stop (slot 309) is not a failing signal: no incident.
+                let planned = self.rules.planned_stop(s, now).is_some();
+                let sev = if s.recovered() || planned {
+                    Sev::Info
+                } else {
+                    s.sev()
+                };
                 let lead = s.lead().map(|e| e.kind.clone()).unwrap_or_default();
                 let mut g =
                     Signal::new(&s.key, &s.key, sev, format!("{} x{}", lead, s.events.len()));
-                g.hard = s.failures() > 0;
+                g.hard = s.failures() > 0 && !planned;
                 g
             })
             .collect();

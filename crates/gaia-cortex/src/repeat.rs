@@ -100,14 +100,23 @@ impl RepeatWatch {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Watch a nerve failure event the cortex just decided on. Events
+    /// Watch a nerve failure event the cortex just decided on (and, slot
+    /// 309, a unit stop/restart job marker and a unit exit with a non-zero
+    /// status, so a folded restart reaches the rules with its marker AND its
+    /// exit status: a folded crash loop the cortex restarts keeps its crash
+    /// evidence and is never mistaken for a planned stop). Events
     /// without a nerve `seq` or `key` (push, socket, replay) and repeat
     /// events themselves are not watched. Returns true when newly watched.
     pub fn arm(&self, e: &Event, now: u64) -> bool {
         let (Some(seq), Some(_)) = (e.seq, e.key.as_ref()) else {
             return false;
         };
-        if seq == 0 || e.repeat_of().is_some() || !is_failure(e) {
+        if seq == 0
+            || e.repeat_of().is_some()
+            || !(is_failure(e)
+                || crate::rules::stop_marker(e).is_some()
+                || crate::rules::exit_evidence(e))
+        {
             return false;
         }
         let mut g = self.lock();

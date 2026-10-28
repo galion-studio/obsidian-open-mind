@@ -130,5 +130,7 @@ unit that had a stop job; any panic in the journal.
   assertions changed) — not prepared here.
 - Still open from merge-3: D-245-1, D-245-2, D-247-1..5 (unchanged by this pair).
 - F-357-1: no commit id in `--version` of either binary (sha256 is the identity).
+  Cortex side fixed on `swarm/cortex-version-commit` (slot 377): `--version` and
+  `/health` carry commit + Zagreb commit date; NOT in the staged 58a12e61 pair binary.
 - F-357-2: `docs/merges/nerve-merge-6.md` says the live table has 13 entries; the
   live file has **12** (read 2026-10-28 05:2x CET), staged has 13.

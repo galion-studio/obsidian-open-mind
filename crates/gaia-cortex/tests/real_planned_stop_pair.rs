@@ -9,7 +9,7 @@
 //! bdde4a07: rule R5b-planned-stop). Journal = the REAL VPS lines of
 //! console.service 2026-10-27 17:25:04 / 17:25:06 / 17:28:29 +01:00
 //! (fixtures/console-planned-restart-20261027.jsonl) through the nerve's FIFO
-//! journal replay. Box only, loopback only, slot 328 ports 21980-21989. The
+//! journal replay. Box only, loopback only, slot 328 ports 21980-21989 (REAL_CORTEX_PORT_BASE remaps). The
 //! nerve is dry-run (`NERVE_DRY_RUN=1`); nothing touches systemd.
 //!
 //! The two branches cannot be merged textually (11 files of openmind-nerve and
@@ -43,9 +43,34 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const NERVE_PORT: u16 = 21980;
-const CORTEX_PORT: u16 = 21981;
-const DEAD_PORT: u16 = 21989;
+/// Port block start. Default is the writing slot's original range; merge
+/// slots (e.g. 341 cortex-live-merge-4) move the whole block at build time
+/// with `REAL_CORTEX_PORT_BASE=<port>` so merged re-runs stay inside their
+/// own slot range. Offsets inside the block are unchanged (+0 nerve,
+/// +1 cortex, +9 dead component).
+const fn port_block(default: u16) -> u16 {
+    match option_env!("REAL_CORTEX_PORT_BASE") {
+        None => default,
+        Some(s) => {
+            let b = s.as_bytes();
+            let mut i = 0;
+            let mut v: u32 = 0;
+            assert!(!b.is_empty(), "REAL_CORTEX_PORT_BASE empty");
+            while i < b.len() {
+                assert!(b[i].is_ascii_digit(), "REAL_CORTEX_PORT_BASE not a number");
+                v = v * 10 + (b[i] - b'0') as u32;
+                assert!(v <= 65_526, "REAL_CORTEX_PORT_BASE too large");
+                i += 1;
+            }
+            v as u16
+        }
+    }
+}
+
+const BLOCK: u16 = port_block(21980);
+const NERVE_PORT: u16 = BLOCK;
+const CORTEX_PORT: u16 = BLOCK + 1;
+const DEAD_PORT: u16 = BLOCK + 9;
 
 const ID_STOPPING: &str = "de5b426a63be47a7b6ac3eaac82e2f6f";
 const ID_STOPPED: &str = "9d1aaa27d60140bd96365438aad20286";
@@ -395,7 +420,8 @@ fn gate() -> Option<(PathBuf, PathBuf, Option<PathBuf>)> {
     for p in [NERVE_PORT, CORTEX_PORT] {
         assert!(
             TcpListener::bind(("127.0.0.1", p)).is_ok(),
-            "port {p} busy (slot 328 range 21980-21989)"
+            "port {p} busy (block {BLOCK}-{}; default slot 328 21980-21989)",
+            BLOCK + 9
         );
     }
     Some((

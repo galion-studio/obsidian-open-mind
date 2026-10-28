@@ -35,6 +35,7 @@ default = [
     "sensor-hades",
     "sensor-event-feed",
     "sensor-edgerate",
+    "sensor-memory-freshness",
 ]
 # T2.4 rustsec sensor (pulls semver).
 sensor-rustsec = ["dep:semver"]
@@ -67,6 +68,10 @@ sensor-hades = []
 sensor-event-feed = []
 # T2.12 per-hostname edge rate (on unless NERVE_EDGE_HOSTS=0/off/false/no).
 sensor-edgerate = []
+# Staged memory freshness check (slot 405, D-405-1; slot 424 gate): runs
+# `openmind-memory freshness` read-only when NERVE_MEMFRESH_BIN is set. No crate
+# pulled; the feature only drops its code from a lean build.
+sensor-memory-freshness = []
 
 # In-process systemd journal follower via pure-Rust `sdjournal` (MIT).
 # Off by default: live still uses `journalctl -f`. Enable with

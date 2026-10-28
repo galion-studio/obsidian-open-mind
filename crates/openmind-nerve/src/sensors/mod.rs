@@ -49,6 +49,8 @@ pub mod hades;
 #[cfg(feature = "sensor-ingress-lint")]
 pub mod ingress_lint;
 pub mod listeners;
+#[cfg(feature = "sensor-memory-freshness")]
+pub mod memory_freshness;
 #[cfg(feature = "sensor-proc-owner")]
 pub mod proc_owner;
 #[cfg(feature = "sensor-rustsec")]
@@ -216,6 +218,12 @@ impl Sensors {
         s.add_opt(edgerate::EdgeRate::from_env(env));
         #[cfg(not(feature = "sensor-edgerate"))]
         compiled_out_if(env, "edge-rate", "sensor-edgerate");
+        // Staged memory freshness check (slot 405, D-405-1; off unless
+        // NERVE_MEMFRESH_BIN is set), gated like the S2 sensors (slot 424).
+        #[cfg(feature = "sensor-memory-freshness")]
+        s.add_opt(memory_freshness::MemoryFreshness::from_env(env));
+        #[cfg(not(feature = "sensor-memory-freshness"))]
+        compiled_out(env, "NERVE_MEMFRESH_BIN", "sensor-memory-freshness");
         let off: Vec<String> = env("NERVE_SENSORS_OFF")
             .unwrap_or_default()
             .split(',')

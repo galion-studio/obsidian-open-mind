@@ -95,7 +95,7 @@ cloudflared ──> 127.0.0.1:8080  galion-console-static (Rust, std only, ~0.5 
 
 The front serves an **already-built** asset set and never builds anything.
 The set used for every test here is `/workspace/swarm/artifacts/console-static/out/`
-(`client/` 36 files, 871 756 B, + `routes.txt`, `BUILD-INFO.txt`,
+(`client/` 37 files, 871 756 B, pinned by `deploy/console-static/asset-set.2169d1c.manifest`, + `routes.txt`, `BUILD-INFO.txt`,
 `npm-licences.tsv`). It was produced at 2026-10-20T20:36:44+02:00 from a
 `git archive` of console-ide 2169d1c (tracked files only) with Vite 8.3.4 in
 TanStack Start SPA mode, **before** the Rust-only rule; Node/npm/Vite are no

@@ -11,7 +11,8 @@
 //! Run with: `GALION_REAL=1 GAIA_NERVE_BIN=/path/openmind-nerve cargo test -p gaia --test real_gaia_live`.
 
 use gaia::live_heal::heal_plan;
-use gaia_live::heal::TestTarget;
+use gaia_live::heal::{TestTarget, TEST_PORTS};
+use galion_realtest::ports::Block;
 use hades_gate::adapter::gaia_plan_bytes;
 use hades_gate::approval::unix_now;
 use hades_gate::token::{plan_hash, Claims};
@@ -20,9 +21,30 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-const NERVE: &str = "127.0.0.1:19233";
-const PORT: u16 = 19234;
-const ALLOW: &str = "19230-19239";
+/// Slot 375 (real-ports-batch-2): the block is movable by
+/// `GAIA_LIVE_REAL_PORT_BASE` (unset = 19230-19239): nerve +3, dummy +4,
+/// `--allow-ports` = the whole block. The block must stay inside
+/// `gaia_live::heal::TEST_PORTS` (19000-19999); that safety guard of the heal
+/// apply path is not widened, so a base outside it is a test error.
+static PORTS: Block = Block::new("GAIA_LIVE_REAL_PORT_BASE", 19230, 10);
+
+fn ports_checked() -> &'static Block {
+    let (lo, hi) = (PORTS.base(), PORTS.port(9));
+    assert!(
+        TEST_PORTS.contains(&lo) && TEST_PORTS.contains(&hi),
+        "{}: {lo}-{hi} must lie inside the heal test range {}-{}",
+        PORTS.var(),
+        TEST_PORTS.start(),
+        TEST_PORTS.end()
+    );
+    &PORTS
+}
+fn nerve_at() -> &'static str {
+    ports_checked().addr(3)
+}
+fn dummy_port() -> u16 {
+    ports_checked().port(4)
+}
 
 struct Kill(Vec<Child>, Vec<u32>);
 impl Drop for Kill {
@@ -42,7 +64,7 @@ impl Drop for Kill {
 
 fn get(path: &str) -> String {
     use std::io::{Read, Write};
-    let mut s = std::net::TcpStream::connect(NERVE).unwrap();
+    let mut s = std::net::TcpStream::connect(nerve_at()).unwrap();
     write!(
         s,
         "GET {path} HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
@@ -65,7 +87,7 @@ fn wait_port(port: u16) {
 
 fn dummy_pid() -> Option<u32> {
     use std::io::{Read, Write};
-    let mut s = std::net::TcpStream::connect(("127.0.0.1", PORT)).ok()?;
+    let mut s = std::net::TcpStream::connect(("127.0.0.1", dummy_port())).ok()?;
     write!(
         s,
         "GET /health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"
@@ -131,25 +153,25 @@ fn real_kill_detect_plan_signed_approve_restart_cap_and_nerve() {
     .unwrap();
     let target = TestTarget {
         name: "gaia-dummy".into(),
-        port: PORT,
+        port: dummy_port(),
         health_path: "/health".into(),
-        argv: vec![dummy.into(), "--port".into(), PORT.to_string()],
+        argv: vec![dummy.into(), "--port".into(), dummy_port().to_string()],
     };
 
     let nerve = Command::new(&nerve_bin)
-        .args(["serve", "--listen", NERVE, "--log"])
+        .args(["serve", "--listen", nerve_at(), "--log"])
         .arg(dir.join("nerve.jsonl"))
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
     let first = Command::new(dummy)
-        .args(["--port", &PORT.to_string()])
+        .args(["--port", &dummy_port().to_string()])
         .stderr(Stdio::null())
         .spawn()
         .unwrap();
     let mut guard = Kill(vec![nerve, first], vec![]);
-    wait_port(19233);
-    wait_port(PORT);
+    wait_port(ports_checked().port(3));
+    wait_port(dummy_port());
 
     let tick = |token: Option<&Path>| {
         let mut cmd = Command::new(gaia);
@@ -159,11 +181,11 @@ fn real_kill_detect_plan_signed_approve_restart_cap_and_nerve() {
             "--service",
             "gaia-dummy",
             "--port",
-            &PORT.to_string(),
+            &dummy_port().to_string(),
             "--allow-ports",
-            ALLOW,
+            &ports_checked().range(),
             "--nerve",
-            NERVE,
+            nerve_at(),
             "--state",
         ])
         .arg(dir.join("state"))
@@ -173,7 +195,7 @@ fn real_kill_detect_plan_signed_approve_restart_cap_and_nerve() {
             cmd.arg("--token-file").arg(t);
         }
         let out = cmd
-            .args(["--", dummy, "--port", &PORT.to_string()])
+            .args(["--", dummy, "--port", &dummy_port().to_string()])
             .output()
             .unwrap();
         (

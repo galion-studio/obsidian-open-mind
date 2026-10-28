@@ -29,9 +29,21 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const BIND: &str = "127.0.0.1:20400";
-const API: &str = "127.0.0.1:20401";
-const NERVE: &str = "127.0.0.1:20403";
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `ROUTE31_REAL_PORT_BASE`; unset keeps
+/// the old 20400 block.
+static PORTS: Block = Block::new("ROUTE31_REAL_PORT_BASE", 20400, 10);
+fn api_at() -> &'static str {
+    PORTS.addr(1)
+}
+fn bind_at() -> &'static str {
+    PORTS.addr(0)
+}
+fn nerve_at() -> &'static str {
+    PORTS.addr(3)
+}
+
 const CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
 struct Kill(Child, &'static str);
@@ -122,7 +134,7 @@ fn wait_for(what: &str, secs: u64, mut ok: impl FnMut() -> bool) {
 }
 
 fn nerve_watch(tag: &str) -> Vec<String> {
-    let (c, v) = live_json(NERVE, "/state");
+    let (c, v) = live_json(nerve_at(), "/state");
     assert_eq!(c, 200, "nerve /state");
     let mut out = Vec::new();
     for comp in v.get("components").as_array() {
@@ -185,20 +197,37 @@ fn real_route31_hermes_rust_first_against_live_vps() {
             "ExitOnForwardFailure=yes",
             "-N",
         ])
-        .args(["-L", &format!("{API}:127.0.0.1:8080")])
-        .args(["-L", &format!("{NERVE}:127.0.0.1:8670")])
+        .args(["-L", &format!("{api_at}:127.0.0.1:8080", api_at = api_at())])
+        .args([
+            "-L",
+            &format!("{nerve_at}:127.0.0.1:8670", nerve_at = nerve_at()),
+        ])
         .arg(&vps)
         .stdin(Stdio::null())
         .spawn()
         .expect("ssh");
     let _ssh = Kill(ssh, "ssh forward");
-    wait_for("ssh forward", 25, || get(API, "/api/v1/health").code == 200);
-    eprintln!("real: forward {API}->8080 {NERVE}->8670 (ssh -N, GET only)");
+    wait_for("ssh forward", 25, || {
+        get(api_at(), "/api/v1/health").code == 200
+    });
+    eprintln!(
+        "real: forward {api_at}->8080 {nerve_at}->8670 (ssh -N, GET only)",
+        api_at = api_at(),
+        nerve_at = nerve_at()
+    );
     let before = nerve_watch("before");
 
     let bin = env!("CARGO_BIN_EXE_galion-console-static");
     let child = Command::new(bin)
-        .args(["--ui", "rust", "--upstream", API, "--bind", BIND, "--quiet"])
+        .args([
+            "--ui",
+            "rust",
+            "--upstream",
+            api_at(),
+            "--bind",
+            bind_at(),
+            "--quiet",
+        ])
         .args(["--root", root.to_str().unwrap()])
         .args(["--routes", routes_file.to_str().unwrap()])
         .args(["--proxy-prefix", "/api/"])
@@ -207,15 +236,18 @@ fn real_route31_hermes_rust_first_against_live_vps() {
         .spawn()
         .expect("start binary");
     let srv = Kill(child, "galion-console-static");
-    wait_for("binary", 10, || TcpStream::connect(BIND).is_ok());
-    eprintln!("real: binary on {BIND} with --root (SPA fallback) + 31 page routes");
+    wait_for("binary", 10, || TcpStream::connect(bind_at()).is_ok());
+    eprintln!(
+        "real: binary on {bind_at} with --root (SPA fallback) + 31 page routes",
+        bind_at = bind_at()
+    );
 
     // /hermes is the Rust room, against live data.
-    let (hc, hist) = live_json(API, "/api/hermes/history");
+    let (hc, hist) = live_json(api_at(), "/api/hermes/history");
     assert_eq!(hc, 200, "live /api/hermes/history");
     let items = hist.get("items").as_array();
     let t = Instant::now();
-    let r = get(BIND, "/hermes");
+    let r = get(bind_at(), "/hermes");
     eprintln!(
         "real: /hermes {} {} B in {} ms",
         r.code,
@@ -239,11 +271,11 @@ fn real_route31_hermes_rust_first_against_live_vps() {
         .filter_map(|t| t.get("id").as_str())
         .find(|i| console_ui::pages::hermes::id_ok(i))
         .expect("a thread id");
-    let (tc, th) = live_json(API, &console_ui::pages::hermes::thread_path(first));
+    let (tc, th) = live_json(api_at(), &console_ui::pages::hermes::thread_path(first));
     assert_eq!(tc, 200);
     let n = th.get("items").as_array().len();
     let r = get(
-        BIND,
+        bind_at(),
         &format!("/hermes?id={}", console_ui::html::url_enc(first)),
     );
     assert_eq!(r.code, 200);
@@ -258,7 +290,7 @@ fn real_route31_hermes_rust_first_against_live_vps() {
     for m in ["POST", "PUT", "DELETE"] {
         let body = "input=x";
         let r = raw(
-            BIND,
+            bind_at(),
             &format!(
                 "{m} /hermes HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
@@ -273,7 +305,7 @@ fn real_route31_hermes_rust_first_against_live_vps() {
 
     // Every live-source route: Rust or SPA, as spa_fallbacks says.
     let ui = console_ui::Ui::new(console_ui::UiConfig {
-        upstream: API.parse().unwrap(),
+        upstream: api_at().parse().unwrap(),
         pulse: None,
         extra_hosts: vec![],
         desk: None,
@@ -282,7 +314,7 @@ fn real_route31_hermes_rust_first_against_live_vps() {
     let fallbacks = ui.spa_fallbacks(true);
     let mut rust = Vec::new();
     for p in LIVE_SRC_ROUTES {
-        let r = get(BIND, p);
+        let r = get(bind_at(), p);
         let spa = r.body.contains("old-spa-shell");
         if fallbacks.contains(p) {
             assert_eq!(r.code, 200, "{p}");
@@ -300,8 +332,8 @@ fn real_route31_hermes_rust_first_against_live_vps() {
     assert!(!fallbacks.contains(&"/hermes"));
 
     // The old SPA's Hermes API path through the proxy (GET only).
-    let r = get(BIND, "/api/hermes/health");
-    let direct = get(API, "/api/hermes/health").code;
+    let r = get(bind_at(), "/api/hermes/health");
+    let direct = get(api_at(), "/api/hermes/health").code;
     assert_eq!(r.code, direct, "proxy answer equals a direct GET");
     eprintln!(
         "real: proxy GET /api/hermes/health -> {} (direct {direct})",

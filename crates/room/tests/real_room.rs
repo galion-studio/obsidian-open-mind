@@ -4,7 +4,7 @@
 //! Real-life room sessions on the box. Gated: runs only with `GALION_REAL=1`
 //! (see `crates/galion-realtest/tests/real_sh_room.rs`, which builds release and sets it).
 //!
-//! Uses the swarm slot-08 ports: `ROOM_REAL_PORT` (default 19081) on the host
+//! Uses `ROOM_REAL_PORT` (default slot-08 19081; any valid port since slot 375) on the host
 //! and `ROOM_REAL_PORT + 1` inside a private network namespace.
 
 mod common;
@@ -21,11 +21,9 @@ fn real() -> Option<u16> {
         println!("SKIP room real: set GALION_REAL=1");
         return None;
     }
-    let port = std::env::var("ROOM_REAL_PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(19081);
-    assert!((19080..=19088).contains(&port), "slot 08 owns 19080-19089");
+    // Slot 375 (real-ports-batch-2): any valid port pair from env (bad value
+    // = panic naming the var); unset keeps slot 08's 19081/19082.
+    let port = galion_realtest::ports::base_from_env("ROOM_REAL_PORT", 19081, 2);
     Some(port)
 }
 

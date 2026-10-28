@@ -121,11 +121,27 @@ fn hardware_profiles() {
 }
 
 /// A stand-in for `age -d -i ID BUNDLE`: the "bundle" is a plain tar.
+///
+/// Other tests in this binary spawn processes in parallel. A `fork` that
+/// lands while the script's write fd is open keeps that fd until the child
+/// `exec`s, and exec of the script then fails with ETXTBSY ("Text file busy",
+/// seen once in 20 full workspace runs, slot 350). So before handing the path
+/// out, wait until the script itself can be executed (bounded, ~2 s).
 fn fake_age(dir: &Path) -> String {
     let p = dir.join("fake-age");
     std::fs::write(&p, "#!/bin/sh\n[ \"$1\" = -d ] && [ \"$2\" = -i ] && [ -f \"$3\" ] || exit 1\nexec cat \"$4\"\n").unwrap();
     std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
-    p.to_string_lossy().into_owned()
+    const ETXTBSY: i32 = 26;
+    for _ in 0..400 {
+        match std::process::Command::new(&p).status() {
+            Ok(_) => return p.to_string_lossy().into_owned(),
+            Err(e) if e.raw_os_error() == Some(ETXTBSY) => {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Err(e) => panic!("fake-age not executable: {e}"),
+        }
+    }
+    panic!("fake-age still busy (ETXTBSY) after ~2 s");
 }
 
 #[test]

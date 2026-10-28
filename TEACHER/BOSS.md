@@ -72,7 +72,7 @@ Before each wave, re-read the current versions of:
    MIT/SPDX header on new files, C9 production untouched. Grade with the CHECKS rubric.
 5. Mark **PASS** (score >= 7 and no hard-rule break) or **REDO** (send the exact failing output back to a fresh subagent, max 2 redos, then FAIL and move on).
 6. **[SUPERSEDED: SoT 2, 5, commit on the branch and open a PR]** On PASS commit only the ticket's own paths (never `git add -A`; other teams have untracked files here):
-   `git -C /opt/galion/openmind add <paths> && git -C /opt/galion/openmind commit -m "B03: <summary> ($(TZ=Europe/Zagreb date -Iseconds))"`.
+   `git -C /opt/galion/openmind add <paths> && git -C /opt/galion/openmind commit -m "B03: <summary> ($(TZ=Europe/Zagreb date -Iseconds))"`. <!-- repo-check: allow (superseded; banned by D-391-2, 2026-10-28 CET) -->
 7. Anything that would need a production change (unit install, service switch, live file change) goes into `TEACHER/STAGED.md`
    as a new section "awaiting Slavik's approval", never applied.
 

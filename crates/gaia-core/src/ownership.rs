@@ -132,6 +132,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("galion-one", S(System::GalionOne), "Galion One, the persona the stack embodies (:8091, :8002)"),
     c("galion-origin", S(System::Origin), "origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin)"),
     c("galion-realtest", S(System::RepoCheck), "pending Slavik: platform-wide real-life test harness (self-evaluation); alternative cargo-build/HEPHAESTUS"),
+    c("galion-report-push", S(System::RepoCheck), "pending Slavik: report commit/push in its own clone with the openmind write guard (D-391-2, slot 419); alternative deploy-switch/HEPHAESTUS"),
     c("galion-tar", S(System::Survival), "pending Slavik: shared std-only tar crate (GNU tree writer + ustar writer/reader + streaming reader) used by galion-backup and galion-deploy; same system as galion-backup, its main user; alternative deploy-switch/HEPHAESTUS (galion-deploy) or core (shared plumbing like galion-common)"),
     c("galion-vending", S(System::EcosystemCensus), "pending Slavik: B3 deterministic vending business sim benchmark; alternative: a new bench system"),
     c("galion-voice-core", S(System::VoiceRelay), "full-duplex framing, VAD, jitter buffer, barge-in"),
@@ -357,9 +358,10 @@ mod tests {
         // galion-feature-pin, galion-jsonout from release-repro-unify (wave-4 slot 325).
         // gaia-cortex, nerve-cortex-contract, xtask from cortex-live-merge-3 via
         // cortex-staging-fold (wave-4 slot 293), merged by release-bins-add (slot 337).
+        // galion-report-push from openmind-write-guard (wave-4 slot 419).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            61
+            62
         );
     }
 
@@ -404,6 +406,7 @@ mod tests {
                 "galion-health",
                 "galion-jsonout",
                 "galion-realtest",
+                "galion-report-push",
                 "galion-tar",
                 "galion-vending",
                 "galion-wallstreet",

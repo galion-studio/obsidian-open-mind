@@ -45,7 +45,7 @@ and timestamped" needs reproducible builds and one timestamp format. §10: every
 - A worker does not grade its own work: when a subagent reports done, YOU run CHECKS.md for that ticket and grade with the rubric.
 - Write progress to /opt/galion/openmind/TEACHER/PROGRESS.md (append-only, newest at bottom, Zagreb timestamps):
   `- 2026-10-18T19:20:00+02:00 | T1 | S1 | PASS 9/10 | cargo test ok, fmt ok, clippy ok | next: T2`
-- Commit after each passed ticket: `git -C /opt/galion/openmind commit -m "T1: ... (2026-10-18T19:20:00+02:00)"`.
+- [SUPERSEDED 2026-10-28 by D-391-2: no git writes in the live tree; commit in your own clone] Commit after each passed ticket: `git -C /opt/galion/openmind commit -m "T1: ... (2026-10-18T19:20:00+02:00)"`. <!-- repo-check: allow (historical lesson text) -->
 - If a check fails: send the subagent back with the exact failing output (max 2 retries), then record FAIL and move on.
 - The teacher (Grok Bot) will review and may send corrections into this same session. Corrections override your plan.
 

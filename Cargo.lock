@@ -715,6 +715,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-report-push"
+version = "0.1.0"
+dependencies = [
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-tar"
 version = "0.1.0"
 

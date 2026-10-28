@@ -127,6 +127,9 @@ Push command (from the parent side): `push-branch.sh /workspace/swarm/wt/<slug> 
 
 ## 6. Shortest path to publishing (ranked)
 
+> **Superseded 2026-10-28 15:40 CET (+01:00)** by `docs/release/PUBLISH-PATH-20261028.md` (slot 392):
+> landing is now 373 83e573e2 then 374 d50478db (0 conflicts), and 7 branches are local only.
+
 1. **Security, 2 commands, no restart** (B4, B5): say "D-318-2 yes" and "D-361-1 yes". ~5 min in a VPS window.
 2. **Push the 5 local branches** (B11). ~2 min from the parent; unblocks 347 for the cortex window.
 3. **Land onto main-staging** (B1-B3): D-359-1 order, then 353/329 size, then 360 + 350 flakes. Re-run CI on PR #12;

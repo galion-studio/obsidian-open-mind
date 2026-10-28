@@ -12,7 +12,7 @@ use crate::state::Sample;
 use crate::util::run;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const HTTP_TIMEOUT: Duration = Duration::from_secs(3);
@@ -290,6 +290,15 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
                 } else {
                     s.present = false;
                 }
+            }
+            Kind::Restore => {
+                // Read-only: the log of the last restore-test run. A missing
+                // log is a warning when the component is expected, else
+                // "absent" (not set up yet). The unit (if any) only adds its
+                // failed state; inactive is the normal state of a oneshot.
+                let r = crate::restore::read_log(Path::new(sp.log), now, sp.max_age_h);
+                s.present = sp.expected || r["state"] != "never";
+                s.extra["restore"] = r;
             }
             Kind::SelfNerve => {
                 s.present = true;

@@ -28,6 +28,8 @@
 //! - [`owners`]: port ownership map ("unknown owner" + process from /proc);
 //!   the cortex also names the owning Gaia function of each incident.
 //! - [`score`]: the explained self-eval score.
+//! - [`restore`]: the backup restore-test component (reads its log only:
+//!   never recorded, stale, failed, unfinished -> warn).
 //! - [`reflex`]: allowlisted, rate-limited auto-remediation with an audit log.
 //! - [`alerts`]: journald + alerts.json.
 //! - [`evt`]: event-driven mode (`NERVE_MODE=event`): kernel-blocking sources,
@@ -49,6 +51,7 @@ pub mod owners;
 pub mod probe;
 pub mod reflex;
 pub mod replay;
+pub mod restore;
 pub mod score;
 pub mod sensors;
 pub mod server;

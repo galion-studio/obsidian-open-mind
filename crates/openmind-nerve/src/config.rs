@@ -35,6 +35,10 @@ pub enum Kind {
     Gaia,
     /// galion-nerve itself.
     SelfNerve,
+    /// Backup restore test (slot 378): reads the restore-test log only and
+    /// warns when it is missing, stale, failed or unfinished
+    /// ([`crate::restore`]). Never restarted, never hard down.
+    Restore,
 }
 
 /// One monitored component.
@@ -66,6 +70,11 @@ pub struct Spec {
     /// marks the component degrading (never a hard failure: a restart cannot
     /// bring a missing route back, so the reflex must not act on it).
     pub deep: &'static [&'static str],
+    /// [`Kind::Restore`]: the restore-test log file read each cycle (empty
+    /// for other kinds).
+    pub log: &'static str,
+    /// [`Kind::Restore`]: warn when the log is older than this many hours.
+    pub max_age_h: u64,
 }
 
 const fn svc(
@@ -92,6 +101,8 @@ const fn svc(
         note: "",
         group: name,
         deep: &[],
+        log: "",
+        max_age_h: 0,
     }
 }
 
@@ -352,7 +363,7 @@ fn leak(s: &str) -> &'static str {
 /// ```
 ///
 /// Keys: name (required), unit, port, path ("/health"), metrics_port, kind
-/// (service|tunnel), gaia ("AETHER"), system, group (name), critical (true),
+/// (service|tunnel|restore), gaia ("AETHER"), system, group (name), critical (true),
 /// expected (true), restarts_per_hour (0: file-defined components are never
 /// restarted unless asked), note, deep (array of extra loopback paths, e.g.
 /// `["/api/v1/admin"]`; none by default). The host and the nerve itself are added
@@ -376,7 +387,22 @@ pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
         let kind = match s("kind").unwrap_or("service") {
             "service" => Kind::Service,
             "tunnel" => Kind::Tunnel,
-            other => return Err(format!("components[{i}]: kind {other:?} (service|tunnel)")),
+            "restore" => Kind::Restore,
+            other => {
+                return Err(format!(
+                    "components[{i}]: kind {other:?} (service|tunnel|restore)"
+                ))
+            }
+        };
+        let (log, max_age_h) = if kind == Kind::Restore {
+            parse_restore(c).map_err(|e| format!("components[{i}]: {e}"))?
+        } else {
+            if c.get("log").is_some() || c.get("max_age_h").is_some() {
+                return Err(format!(
+                    "components[{i}]: log/max_age_h only for kind \"restore\""
+                ));
+            }
+            ("", 0)
         };
         let b = |k: &str, d: bool| c.get(k).and_then(|x| x.as_bool()).unwrap_or(d);
         let deep = parse_deep(c.get("deep")).map_err(|e| format!("components[{i}]: {e}"))?;
@@ -392,15 +418,21 @@ pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
             kind,
             gaia: leak(gaia),
             gaia_system: leak(s("system").unwrap_or(name)),
-            restarts_per_hour: c
-                .get("restarts_per_hour")
-                .and_then(|x| x.as_u64())
-                .unwrap_or(0) as u32,
+            // A restore test is never restarted by the nerve.
+            restarts_per_hour: if kind == Kind::Restore {
+                0
+            } else {
+                c.get("restarts_per_hour")
+                    .and_then(|x| x.as_u64())
+                    .unwrap_or(0) as u32
+            },
             critical: b("critical", true),
             expected: b("expected", true),
             note: leak(s("note").unwrap_or("")),
             group: leak(s("group").unwrap_or(name)),
             deep,
+            log,
+            max_age_h,
         });
     }
     let base = default_specs(None, None);
@@ -435,6 +467,40 @@ fn parse_deep(v: Option<&serde_json::Value>) -> Result<&'static [&'static str], 
         out.push(leak(p));
     }
     Ok(Box::leak(out.into_boxed_slice()))
+}
+
+/// `kind: "restore"` keys: `log` (required, absolute path, at most 4096
+/// bytes, no `..` components) and `max_age_h` (1..=744, default
+/// [`crate::restore::DEFAULT_MAX_AGE_H`]). `port`, `metrics_port` and `deep`
+/// are refused: the component reads the log file only.
+fn parse_restore(c: &serde_json::Value) -> Result<(&'static str, u64), String> {
+    for k in ["port", "metrics_port", "deep"] {
+        if c.get(k).is_some() {
+            return Err(format!(
+                "kind \"restore\" takes no {k:?} (reads the log only)"
+            ));
+        }
+    }
+    let log = c
+        .get("log")
+        .and_then(|x| x.as_str())
+        .ok_or("kind \"restore\" needs \"log\" (path of the restore-test log)")?;
+    let p = std::path::Path::new(log);
+    let bad = !p.is_absolute()
+        || log.len() > 4096
+        || log.contains('\0')
+        || p.components().any(|c| c == std::path::Component::ParentDir);
+    if bad {
+        return Err(format!("log: bad path {log:?} (absolute, no ..)"));
+    }
+    let max_age_h = match c.get("max_age_h") {
+        None => crate::restore::DEFAULT_MAX_AGE_H,
+        Some(v) => match v.as_u64() {
+            Some(h) if (1..=744).contains(&h) => h,
+            _ => return Err(format!("max_age_h: {v} (1..=744 hours)")),
+        },
+    };
+    Ok((leak(log), max_age_h))
 }
 
 /// The component table for this config: the file when set, else built-in.
@@ -539,6 +605,38 @@ mod file_tests {
         assert_eq!(a[1].component, None);
         let c = Config::from_env(&|_| None).unwrap();
         assert_eq!(c.known_ports, vec![25, 53, 8670, 8671, 20241, 20242]);
+        assert!(default_specs(None, None)
+            .iter()
+            .all(|x| x.kind != Kind::Restore && x.log.is_empty()));
         assert!(c.reflex && c.journal);
+    }
+
+    #[test]
+    fn restore_kind_parses_and_refuses() {
+        let s = parse_specs(r#"[{"name":"restore-test","kind":"restore","log":"/var/log/galion/restore-test.log","unit":"galion-restore-test.service","gaia":"APOLLO","critical":false,"restarts_per_hour":5}]"#).unwrap();
+        assert_eq!(s[0].kind, Kind::Restore);
+        assert_eq!(s[0].log, "/var/log/galion/restore-test.log");
+        assert_eq!(s[0].max_age_h, crate::restore::DEFAULT_MAX_AGE_H);
+        assert_eq!(s[0].restarts_per_hour, 0, "never restarted, even if asked");
+        assert_eq!((s[0].port, s[0].metrics_port), (None, None));
+        let h = parse_specs(r#"[{"name":"r","kind":"restore","log":"/x.log","max_age_h":50}]"#)
+            .unwrap();
+        assert_eq!(h[0].max_age_h, 50);
+        for bad in [
+            r#"[{"name":"r","kind":"restore"}]"#,
+            r#"[{"name":"r","kind":"restore","log":"rel.log"}]"#,
+            r#"[{"name":"r","kind":"restore","log":"/var/log/../etc/x"}]"#,
+            r#"[{"name":"r","kind":"restore","log":"/x","max_age_h":0}]"#,
+            r#"[{"name":"r","kind":"restore","log":"/x","max_age_h":745}]"#,
+            r#"[{"name":"r","kind":"restore","log":"/x","max_age_h":"26"}]"#,
+            r#"[{"name":"r","kind":"restore","log":"/x","port":1}]"#,
+            r#"[{"name":"r","kind":"restore","log":"/x","deep":["/a"]}]"#,
+            r#"[{"name":"r","kind":"restore","log":"/x","metrics_port":2}]"#,
+            r#"[{"name":"r","log":"/x"}]"#,
+            r#"[{"name":"r","kind":"tunnel","max_age_h":3}]"#,
+            r#"[{"name":"r","kind":"backup"}]"#,
+        ] {
+            assert!(parse_specs(bad).is_err(), "{bad}");
+        }
     }
 }

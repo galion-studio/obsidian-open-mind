@@ -136,5 +136,18 @@
     "critical": false,
     "note": "ws/voice KittenTTS worker; not deployed yet",
     "restarts_per_hour": 0
+  },
+  {
+    "name": "restore-test",
+    "unit": "galion-restore-test.service",
+    "kind": "restore",
+    "log": "/var/log/galion/restore-test.log",
+    "max_age_h": 26,
+    "gaia": "DEMETER",
+    "system": "survival",
+    "group": "survival",
+    "critical": false,
+    "note": "backup restore test (galion-backup restore-test, slot 361); reads its log only: warns when never recorded, stale > 26 h, failed or unfinished; never restarted (slot 378)",
+    "restarts_per_hour": 0
   }
 ]

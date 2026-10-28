@@ -165,7 +165,9 @@ impl CompState {
                     s.cpu_pct = Some(((b - a) as f64 / 1e9 / dt * 100.0 * 10.0).round() / 10.0);
                 }
             }
-            if p.present && s.present {
+            // A restore test is a oneshot: every daily run has a new PID and
+            // enter time. That is its job, not a restart (slot 378).
+            if p.present && s.present && self.spec.kind != Kind::Restore {
                 let by_counter = s.n_restarts.saturating_sub(p.n_restarts);
                 let by_pid = p.pid != 0 && s.pid != 0 && p.pid != s.pid;
                 let by_enter =
@@ -276,14 +278,19 @@ impl CompState {
                 )
             };
         }
-        let sev = if spec.critical {
+        // A restore test only ever warns (slot 378): never hard down, and
+        // inactive / activating is the normal life of its oneshot unit.
+        let restore = spec.kind == Kind::Restore;
+        let sev = if spec.critical && !restore {
             Status::Failing
         } else {
             Status::Degrading
         };
         match s.unit_active.as_deref() {
+            Some("inactive") | Some("activating") | Some("deactivating") | Some("reloading")
+                if restore => {}
             Some("failed") => {
-                hard = true;
+                hard = !restore;
                 bump(
                     sev,
                     format!(
@@ -547,6 +554,13 @@ impl CompState {
                         format!("RAM available {av:.0}%"),
                         &mut st,
                     );
+                }
+            }
+        }
+        if restore {
+            if let Some(r) = s.extra.get("restore") {
+                for w in crate::restore::reasons(r, now) {
+                    bump(Status::Degrading, w, &mut st);
                 }
             }
         }
@@ -889,5 +903,107 @@ mod tiny_tests {
             c.push(s, &th);
         }
         assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
+    }
+
+    fn restore_spec() -> Spec {
+        crate::config::parse_specs(r#"[{"name":"restore-test","kind":"restore","log":"/nonexistent/restore-test.log","unit":"galion-restore-test.service","gaia":"APOLLO","critical":true}]"#)
+            .unwrap()
+            .remove(0)
+    }
+
+    fn restore_sample(t: u64, unit: &str, pid: u32, enter: u64, r: Value) -> Sample {
+        Sample {
+            t,
+            present: true,
+            unit_active: Some(unit.into()),
+            unit_result: Some(
+                if unit == "failed" {
+                    "exit-code"
+                } else {
+                    "success"
+                }
+                .into(),
+            ),
+            pid,
+            active_enter: enter,
+            extra: json!({ "restore": r }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn restore_component_only_warns() {
+        let th = Thresholds::default();
+        let now = 1_800_000_000;
+        let ok =
+            json!({"state": "ok", "mtime": now - 60, "max_age_h": 26, "log": "/l", "missing": []});
+        let mut c = CompState::new(restore_spec());
+        // Oneshot life: inactive between runs, activating while it runs, a
+        // new pid / enter time each run: healthy, no "restart".
+        c.push(restore_sample(now, "inactive", 0, 0, ok.clone()), &th);
+        assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
+        c.push(
+            restore_sample(now + 30, "activating", 41, 5, ok.clone()),
+            &th,
+        );
+        c.push(restore_sample(now + 60, "inactive", 0, 9, ok.clone()), &th);
+        c.push(
+            restore_sample(now + 90, "activating", 77, 99, ok.clone()),
+            &th,
+        );
+        assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
+        assert_eq!(c.restarts_1h(now + 90), 0);
+        // Failed unit + failed log: degrading (critical ignored), never hard.
+        let bad = json!({"state": "failed", "mtime": now + 100, "max_age_h": 26, "log": "/l",
+            "line": "galion-backup: restore-test: /a.tar.gz: checksum check FAILED: 1 mismatched; NOT verified"});
+        for i in 0..5 {
+            c.push(
+                restore_sample(now + 120 + i * 30, "failed", 0, 99, bad.clone()),
+                &th,
+            );
+        }
+        assert_eq!(c.status, Status::Degrading, "{:?}", c.reasons);
+        assert!(!c.hard_down);
+        assert_eq!(c.consecutive_down, 0);
+        assert!(
+            c.reasons
+                .iter()
+                .any(|r| r == "degrading: unit failed (result exit-code)"),
+            "{:?}",
+            c.reasons
+        );
+        assert!(
+            c.reasons
+                .iter()
+                .any(|r| r
+                    .starts_with("degrading: restore test FAILED: galion-backup: restore-test:")),
+            "{:?}",
+            c.reasons
+        );
+        // Stale ok log.
+        let mut c = CompState::new(restore_spec());
+        let old = json!({"state": "ok", "mtime": now - 30 * 3600, "max_age_h": 26, "log": "/l", "missing": []});
+        c.push(restore_sample(now, "inactive", 0, 0, old), &th);
+        assert_eq!(c.status, Status::Degrading);
+        assert!(
+            c.reasons[0].starts_with("degrading: restore test stale: last run 30 h ago"),
+            "{:?}",
+            c.reasons
+        );
+        // Never recorded.
+        let mut c = CompState::new(restore_spec());
+        c.push(
+            restore_sample(
+                now,
+                "inactive",
+                0,
+                0,
+                json!({"state": "never", "log": "/l"}),
+            ),
+            &th,
+        );
+        assert_eq!(c.status, Status::Degrading);
+        assert!(c.reasons[0].contains("never recorded"), "{:?}", c.reasons);
+        assert!(!c.hard_down);
     }
 }

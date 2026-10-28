@@ -14,11 +14,15 @@
 //! 2. `deep` routes on `console` and `console-rust-primary` (N-307-1): the
 //!    live nerve reads this file, not the built-in table, so without them the
 //!    deep console probe of slot 315 would stay off after a deploy.
+//! 3. (slot 378) a `restore-test` component (`kind: "restore"`) appended
+//!    after `voice-worker`: reads `/var/log/galion/restore-test.log` only and
+//!    warns when the backup restore test was never recorded, is stale
+//!    (> 26 h), failed or did not finish. Never restarted, never hard down.
 //!
 //! Hermetic (no network, no binary): parses both files with the same parser
 //! the nerve uses at start-up.
 
-use openmind_nerve::config::{parse_specs, Spec, CONSOLE_DEEP};
+use openmind_nerve::config::{parse_specs, Kind, Spec, CONSOLE_DEEP};
 use std::path::Path;
 
 fn read(rel: &str) -> String {
@@ -65,6 +69,8 @@ fn staged_is_live_plus_console_rust_primary() {
     let mut expect = names(&lv);
     let at = expect.iter().position(|n| *n == "console").unwrap() + 1;
     expect.insert(at, "console-rust-primary");
+    let at = expect.iter().position(|n| *n == "voice-worker").unwrap() + 1;
+    expect.insert(at, "restore-test");
     assert_eq!(names(&st), expect);
     for l in &lv {
         let s = st.iter().find(|s| s.name == l.name).unwrap();
@@ -110,4 +116,33 @@ fn console_rust_primary_spec() {
     assert_eq!(ports.len(), n, "duplicate component port");
     // Every staged component is never restarted, like the live table.
     assert!(st.iter().all(|s| s.restarts_per_hour == 0));
+}
+
+#[test]
+fn restore_test_spec() {
+    let st = staged();
+    let r = st.iter().find(|s| s.name == "restore-test").unwrap();
+    assert_eq!(r.kind, Kind::Restore);
+    assert_eq!(r.log, "/var/log/galion/restore-test.log");
+    assert_eq!(r.max_age_h, 26, "daily 03:47 timer + 10 min jitter + slack");
+    assert_eq!(r.unit, Some("galion-restore-test.service"));
+    assert_eq!((r.port, r.metrics_port, r.deep), (None, None, &[][..]));
+    assert_eq!(
+        (r.gaia, r.gaia_system, r.group),
+        ("DEMETER", "survival", "survival"),
+        "same Gaia system as galion-backup (docs/gaia-ownership.md)"
+    );
+    assert_eq!(r.restarts_per_hour, 0);
+    assert!(!r.critical && r.expected);
+    // The staged drop-in writes exactly the file the component reads.
+    let dropin = read("../../deploy/staged/nerve/galion-restore-test.service.d/50-nerve-log.conf");
+    assert!(dropin.contains(&format!("StandardOutput=truncate:{}", r.log)));
+    assert!(dropin.contains("StandardError=inherit"));
+    assert!(dropin.contains("STAGED") && dropin.contains("NOT INSTALLED"));
+    // Only one restore component, and no other component reads a log.
+    assert_eq!(st.iter().filter(|s| s.kind == Kind::Restore).count(), 1);
+    assert!(st
+        .iter()
+        .filter(|s| s.kind != Kind::Restore)
+        .all(|s| s.log.is_empty()));
 }

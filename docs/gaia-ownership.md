@@ -69,6 +69,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `galion-one` | system | galion-one | ELEUTHIA | Galion One, the persona the stack embodies (:8091, :8002) |
 | `galion-origin` | system | origin | AETHER | origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin) |
 | `galion-realtest` | system | repo-check | MINERVA | pending Slavik: platform-wide real-life test harness (self-evaluation); alternative cargo-build/HEPHAESTUS |
+| `galion-report-push` | system | repo-check | MINERVA | pending Slavik: report commit/push in its own clone with the openmind write guard (D-391-2, slot 419); alternative deploy-switch/HEPHAESTUS |
 | `galion-tar` | system | survival | DEMETER | pending Slavik: shared std-only tar crate (GNU tree writer, ustar writer/reader, streaming reader) used by galion-backup and galion-deploy (shared-tar-crate, main-staging via slot 242) |
 | `galion-voice-core` | system | voice-relay | AETHER | full-duplex framing, VAD, jitter buffer, barge-in |
 | `galion-voice-cpu` | system | speech-io | AETHER | on-device CPU STT -> text model -> TTS pipeline (Whisper-tiny via candle); speech on CPU like openmind-speech |
@@ -126,6 +127,7 @@ integration-1 brought 7 crates the registry did not know; `every_workspace_crate
 | `galion-chatterbox` | speech-io / AETHER | yes | voice-relay / AETHER (it serves the legacy mouth API through galion-voice-serve). Arrived with voice-rust inside candle-zip-fix (slot 154). |
 | `galion-common` | zagreb-clock / AETHER | yes | core; it is shared plumbing (SHA-256, base64, JSON, Zagreb time, HTTP/1.1) with no natural system. |
 | `galion-realtest` | repo-check / MINERVA | yes | cargo-build / HEPHAESTUS. |
+| `galion-report-push` | repo-check / MINERVA | yes | deploy-switch / HEPHAESTUS. |
 | `galion-voice-cpu` | speech-io / AETHER | no | Same place as `openmind-speech` (STT/TTS on CPU). |
 | `hermes-tools` | terminal / HEPHAESTUS | yes | hermes-agents / ARTEMIS. It runs through openmind-sandbox (terminal). |
 | `nerve-client` | nerve / AETHER | no | Same system as `openmind-nerve`. |
@@ -157,3 +159,5 @@ swarm/candle-zip-rebase merges candle-zip-fix a4f49b5 onto integration-4 42de672
 ## shared-tar-mergefix row (2026-10-22 01:15 CEST +02:00, pending Slavik)
 
 swarm/shared-tar-mergefix (wave-4 slot 242) merges swarm/main-staging into shared-tar-crate 820740e. shared-tar-crate adds the std-only `galion-tar` crate (galion-backup and galion-deploy now share it), and `every_workspace_crate_is_mapped` failed on it, which is why the main merge skipped 820740e. One row, a judgement call (`"pending_slavik": true`): survival / DEMETER, next to `galion-backup`, its main user; alternatives deploy-switch / HEPHAESTUS (galion-deploy) or core (shared plumbing like `galion-common`). Counts: 68 crates, 56 system crates; systems with a crate unchanged (survival already had one).
+
+swarm/openmind-write-guard (wave-4 slot 419) adds the std-only `galion-report-push` crate (report commit/push in its own clone behind the openmind write guard, D-391-2). One row, a judgement call (`"pending_slavik": true`): repo-check / MINERVA, next to `repo-check` whose `openmind` check it pairs with; alternative deploy-switch / HEPHAESTUS. Counts: 69 crates, 57 system crates.

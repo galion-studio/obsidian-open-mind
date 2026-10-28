@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-report-push"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Report commit/push helper with the openmind write guard (D-391-2): refuses any git work tree, git dir or env redirect under /opt/galion/openmind and always works in its own clone. Std only plus zagreb-time."
+publish = false
+
+[dependencies]
+zagreb-time = { path = "../zagreb-time" }

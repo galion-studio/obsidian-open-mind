@@ -96,7 +96,7 @@ that string in its HTML/API (checked `/`, `/overview`, `/api/v1/overview`).
 | | action | VPS write | live risk | note |
 |---|---|---|---|---|
 | A (recommended) | **accept 202887d5 as the documented state now**, update the pin text to "HEAD 202887d5 = GitHub main 13a296ce + 2 report-only commits, branch swarm/overnight-loop-20261027" | none | none | tree now matches the swarm base everyone builds from; nothing to roll back |
-| B | restore: `git -C /opt/galion/openmind checkout main` (back to 2f5a730) in a maintenance window | yes (507 paths) | very low (no service runs tracked files) | brings back the exact old wording; touches the tree a second time |
+| B | restore: `git -C /opt/galion/openmind checkout main` (back to 2f5a730) in a maintenance window | yes (507 paths) | very low (no service runs tracked files) | brings back the exact old wording; touches the tree a second time | <!-- repo-check: allow (rejected option, D-391-1 = A) -->
 | C | detach at `13a296ce` (`checkout --detach 13a296ce`) | yes (2 files) | none | cleanest content (pure GitHub main, off any swarm branch); still a write |
 
 Recommendation: **A now**, and **C** in the next owner maintenance window if

@@ -53,10 +53,11 @@ pub enum Check {
     Hosts,
     Portable,
     Deps,
+    Openmind,
 }
 
 impl Check {
-    pub const ALL: [Check; 9] = [
+    pub const ALL: [Check; 10] = [
         Check::License,
         Check::Spdx,
         Check::Cjk,
@@ -66,6 +67,7 @@ impl Check {
         Check::Hosts,
         Check::Portable,
         Check::Deps,
+        Check::Openmind,
     ];
 
     pub fn name(self) -> &'static str {
@@ -79,6 +81,7 @@ impl Check {
             Check::Hosts => "hosts",
             Check::Portable => "portable",
             Check::Deps => "deps",
+            Check::Openmind => "openmind",
         }
     }
 
@@ -106,6 +109,7 @@ impl Check {
             Check::Hosts => "no public IPv4 literals in crates/, deploy/, .github/",
             Check::Portable => "no inline asm, arch intrinsics, target-cpu/target-feature, openssl-sys (UNIVERSAL-CPU.md)",
             Check::Deps => "serde_json features are pinned once in the root [workspace.dependencies] (preserve_order); member crates use { workspace = true } with no features",
+            Check::Openmind => "no cd / git -C / GIT_DIR into the live VPS tree /opt/galion/openmind (D-391-2): git write subcommands are errors, cd and read-only git are warnings",
         }
     }
 }
@@ -291,6 +295,7 @@ pub fn scan_text(path: &str, text: &str) -> Vec<Finding> {
     if file_name(path) == "Cargo.toml" {
         dep_pins(path, text, &mut out);
     }
+    openmind_writes(path, text, &mut out);
     out
 }
 
@@ -723,4 +728,243 @@ pub fn json_escape(s: &str) -> String {
         }
     }
     o
+}
+
+// ---------------------------------------------------------------- openmind
+
+/// The live VPS working copy (hard rule 3, D-391-2). Built with `concat!` so
+/// this file does not flag itself.
+pub const LIVE_TREE: &str = concat!("/opt/galion/", "openmind");
+
+/// git subcommands that only read (still warned: `status` refreshes the
+/// index unless `GIT_OPTIONAL_LOCKS=0`, and the tree should not be anyone's
+/// working directory). Anything not listed here counts as a write.
+pub const GIT_READ_ONLY: &[&str] = &[
+    "status",
+    "log",
+    "show",
+    "diff",
+    "rev-parse",
+    "ls-files",
+    "ls-tree",
+    "cat-file",
+    "describe",
+    "blame",
+    "grep",
+    "for-each-ref",
+    "rev-list",
+    "shortlog",
+    "show-ref",
+    "name-rev",
+    "merge-base",
+    "reflog",
+    "count-objects",
+    "fsck",
+    "verify-commit",
+    "var",
+    "help",
+    "version",
+];
+
+/// Read-only use of a subcommand that can also write, judged by its first
+/// argument (`git remote -v`, `git branch --show-current`, `git config --get`,
+/// `git stash list`, `git worktree list`).
+pub fn git_read_only(sub: &str, rest: &[&str]) -> bool {
+    if GIT_READ_ONLY.contains(&sub) {
+        return true;
+    }
+    let first = rest.first().copied().unwrap_or("");
+    match sub {
+        "remote" => matches!(first, "" | "-v" | "--verbose" | "show" | "get-url"),
+        "branch" => matches!(
+            first,
+            "" | "-a"
+                | "-r"
+                | "-v"
+                | "-vv"
+                | "--list"
+                | "--show-current"
+                | "--contains"
+                | "--merged"
+        ),
+        "tag" => matches!(first, "" | "-l" | "--list" | "--contains"),
+        "config" => matches!(
+            first,
+            "--get" | "--get-all" | "--get-regexp" | "-l" | "--list"
+        ),
+        "stash" | "worktree" | "notes" => first == "list",
+        _ => false,
+    }
+}
+
+/// `p` is the live tree or below it (component-wise; `openmind-old` is not).
+fn in_live_tree(p: &str) -> bool {
+    p.strip_prefix(LIVE_TREE)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// Strip shell/markdown punctuation around a token.
+fn bare(tok: &str) -> &str {
+    let junk = |c: char| "\"'`()${};&|<>[],*".contains(c) || c == '\\';
+    tok.trim_matches(junk)
+        .trim_end_matches(['.', ':'])
+        .trim_matches(junk)
+}
+
+fn openmind_finding(path: &str, n: usize, level: Level, msg: String, out: &mut Vec<Finding>) {
+    out.push(Finding {
+        check: Check::Openmind,
+        level,
+        file: path.to_string(),
+        line: n,
+        msg,
+    });
+}
+
+/// Flag scripts, units, code and docs that point git (or a shell) at the
+/// live tree. Errors: a git write subcommand aimed at it (`git -C`,
+/// `--git-dir`, `--work-tree`, `git clone ... <tree>`), `GIT_DIR=` /
+/// `GIT_WORK_TREE=` set to it, or `cd <tree> && git <write>` on one line.
+/// Warnings: `cd` / `pushd` / `WorkingDirectory=` / `.current_dir(` into it
+/// and read-only git there. Use a separate clone (galion-report-push).
+pub fn openmind_writes(path: &str, text: &str, out: &mut Vec<Finding>) {
+    if !text.contains(LIVE_TREE) {
+        return;
+    }
+    // Shell scripts: a `cd <tree>` stays in force for later lines until the
+    // next cd/popd (the 2026-10-27 overnight push pattern).
+    let shell = ext(path) == "sh";
+    let mut sticky = false;
+    for (i, line) in text.lines().enumerate() {
+        let n = i + 1;
+        if line.contains(ALLOW_MARKER) {
+            continue;
+        }
+        if !line.contains(LIVE_TREE) && !(sticky && line.contains("git")) {
+            if shell
+                && line
+                    .split_whitespace()
+                    .any(|t| matches!(bare(t), "cd" | "pushd" | "popd"))
+            {
+                sticky = false;
+            }
+            continue;
+        }
+        let toks: Vec<&str> = line.split_whitespace().map(bare).collect();
+        let mut cd_into = sticky;
+        let mut flagged = false;
+        let mut k = 0;
+        while k < toks.len() {
+            let t = toks[k];
+            // cd / pushd into the tree.
+            if t == "cd" || t == "pushd" || t == "popd" {
+                cd_into = t != "popd" && toks.get(k + 1).is_some_and(|v| in_live_tree(v));
+                if shell {
+                    sticky = cd_into;
+                }
+                k += if t == "popd" { 1 } else { 2 };
+                continue;
+            }
+            // GIT_DIR=/GIT_WORK_TREE= redirects.
+            for var in ["GIT_DIR=", "GIT_WORK_TREE=", "GIT_COMMON_DIR="] {
+                if let Some(v) = t.strip_prefix(var) {
+                    if in_live_tree(bare(v)) {
+                        openmind_finding(
+                            path,
+                            n,
+                            Level::Error,
+                            format!("{var} points git at the live tree; use your own clone"),
+                            out,
+                        );
+                        flagged = true;
+                    }
+                }
+            }
+            if t == "git" || t.ends_with("/git") {
+                let mut j = k + 1;
+                let mut into = false;
+                while j < toks.len() {
+                    let o = toks[j];
+                    let (opt, inline) = match o.split_once('=') {
+                        Some((a, b)) if a.starts_with("--") => (a, Some(b)),
+                        _ => (o, None),
+                    };
+                    match opt {
+                        "-C" | "--git-dir" | "--work-tree" => {
+                            let v = match inline {
+                                Some(v) => v,
+                                None => {
+                                    j += 1;
+                                    toks.get(j).copied().unwrap_or("")
+                                }
+                            };
+                            if in_live_tree(bare(v)) {
+                                into = true;
+                            }
+                        }
+                        "-c" => j += 1,
+                        _ if o.starts_with('-') => {}
+                        _ => break,
+                    }
+                    j += 1;
+                }
+                let sub = toks.get(j).copied().unwrap_or("");
+                let clone_into = sub == "clone" && toks[j + 1..].iter().any(|v| in_live_tree(v));
+                let target = into || cd_into;
+                if clone_into || (target && !sub.is_empty()) {
+                    let rest = &toks[(j + 1).min(toks.len())..];
+                    let write = clone_into || !git_read_only(sub, rest);
+                    let how = if clone_into {
+                        "git clone into the live tree"
+                    } else if into {
+                        "git -C/--git-dir/--work-tree into the live tree"
+                    } else {
+                        "cd into the live tree, then git"
+                    };
+                    if write {
+                        openmind_finding(
+                            path,
+                            n,
+                            Level::Error,
+                            format!(
+                                "{how} with write subcommand `{sub}` (D-391-2); use your own clone"
+                            ),
+                            out,
+                        );
+                    } else {
+                        openmind_finding(
+                            path,
+                            n,
+                            Level::Warn,
+                            format!("{how}, read-only `{sub}`; set GIT_OPTIONAL_LOCKS=0"),
+                            out,
+                        );
+                    }
+                    flagged = true;
+                }
+                k = j + 1;
+                continue;
+            }
+            k += 1;
+        }
+        let workdir = line
+            .split_whitespace()
+            .filter_map(|t| t.strip_prefix("WorkingDirectory="))
+            .any(|v| in_live_tree(bare(v)));
+        let rust_cd = line.contains(".current_dir(") && {
+            let lit = format!("\"{LIVE_TREE}");
+            line.match_indices(&lit)
+                .any(|(at, _)| in_live_tree(line[at + 1..].split('"').next().unwrap_or("")))
+        };
+        let cd_here = line.contains(LIVE_TREE) && cd_into;
+        if !flagged && (cd_here || workdir || rust_cd) {
+            openmind_finding(
+                path,
+                n,
+                Level::Warn,
+                "working directory set to the live tree; no git writes there (D-391-2)".into(),
+                out,
+            );
+        }
+    }
 }

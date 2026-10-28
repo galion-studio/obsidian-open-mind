@@ -551,6 +551,11 @@ mod tests {
         std::thread::sleep(Duration::from_millis(300));
         assert_eq!(hub.lock().stats.wakes_total(), 0, "no wake without events");
         // burst: 30 events, 3 distinct keys, high -> one batch
+        // Hold the hub lock while sending so the loop blocks on its first
+        // publish and the rest queue up: the whole burst is then one drained
+        // wake, however the threads are scheduled (a busy box used to let the
+        // loop wake per event; wakes 9 > 8 seen in a full ws run, slot 360).
+        let hold = hub.lock();
         for i in 0..30 {
             let u = [
                 "hermes-rs.service",
@@ -567,6 +572,7 @@ mod tests {
             NerveEvent::new("journal", "unit.failed", Severity::Low, "x").unit("run-u1.service"),
         )))
         .unwrap();
+        drop(hold);
         std::thread::sleep(Duration::from_millis(2600));
         let st = hub.stats_json(now_secs());
         tx.send(Input::Stop).unwrap();
@@ -584,6 +590,8 @@ mod tests {
         assert_eq!(b.len(), 1);
         assert_eq!(b[0].data["events"].as_array().unwrap().len(), 3);
         // wakes: event delivery (1-2, drained) + timers (deferred cycle, debounce) — far below 31
+        // the held lock makes the burst exactly one journal wake
+        assert_eq!(st["wakes_by"]["journal"], 1, "{st}");
         let w = st["wakes_total"].as_u64().unwrap();
         assert!((2..=8).contains(&w), "wakes {w}: {st}");
     }

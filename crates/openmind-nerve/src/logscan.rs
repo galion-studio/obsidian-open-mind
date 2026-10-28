@@ -60,6 +60,11 @@ pub struct DeadOrigin {
     pub refusals: u32,
     pub first: u64,
     pub last: u64,
+    /// Per-event stamps so [`LogInsights::expire`] can drop old counts
+    /// (F-380-1: without these, merge kept lifetime totals while the
+    /// window shrunk → ~37x inflated failed-requests/min).
+    refusal_at: Vec<u64>,
+    failed_at: Vec<u64>,
 }
 
 /// A scanner path seen in a unit's log.
@@ -152,6 +157,9 @@ pub fn insights(lines: &[JLine]) -> LogInsights {
                 ..Default::default()
             });
             d.refusals += 1;
+            if l.t > 0 {
+                d.refusal_at.push(l.t);
+            }
             d.first = if d.first == 0 { l.t } else { d.first.min(l.t) };
             d.last = d.last.max(l.t);
             if let Some(s) = after(m, "originService=") {
@@ -159,6 +167,9 @@ pub fn insights(lines: &[JLine]) -> LogInsights {
             }
             if m.contains("Request failed") {
                 d.failed_requests += 1;
+                if l.t > 0 {
+                    d.failed_at.push(l.t);
+                }
                 if let Some(h) = dest_host(m) {
                     if d.hosts.len() < 32 {
                         d.hosts.insert(h);
@@ -191,6 +202,7 @@ pub fn insights(lines: &[JLine]) -> LogInsights {
     for d in li.dead_origins.values_mut() {
         if d.failed_requests == 0 {
             d.failed_requests = d.refusals;
+            d.failed_at = d.refusal_at.clone();
         }
     }
     li
@@ -205,8 +217,15 @@ impl LogInsights {
                 first: d.first,
                 ..Default::default()
             });
-            e.refusals += d.refusals;
-            e.failed_requests += d.failed_requests;
+            e.refusal_at.extend(d.refusal_at.iter().copied());
+            e.failed_at.extend(d.failed_at.iter().copied());
+            e.refusals = e.refusal_at.len() as u32;
+            e.failed_requests = e.failed_at.len() as u32;
+            if e.first == 0 {
+                e.first = d.first;
+            } else if d.first > 0 {
+                e.first = e.first.min(d.first);
+            }
             e.last = e.last.max(d.last);
             if e.service.is_empty() {
                 e.service = d.service.clone();
@@ -239,9 +258,33 @@ impl LogInsights {
     }
 
     /// Drop everything older than `cutoff` (sliding window).
+    ///
+    /// Recounts dead-origin refusals/failed_requests from the retained
+    /// per-event stamps (F-380-1). Keeping lifetime counters while bumping
+    /// `window_first` was inflating failed-requests/min by ~37x on the live
+    /// nerve.
     pub fn expire(&mut self, cutoff: u64) {
         self.edge_failures.retain(|t| *t >= cutoff);
-        self.dead_origins.retain(|_, d| d.last >= cutoff);
+        self.dead_origins.retain(|_, d| {
+            d.refusal_at.retain(|t| *t >= cutoff);
+            d.failed_at.retain(|t| *t >= cutoff);
+            d.refusals = d.refusal_at.len() as u32;
+            d.failed_requests = d.failed_at.len() as u32;
+            if d.failed_requests == 0 && d.refusals > 0 {
+                // Keep the "error=-only" fallback coherent after a trim.
+                d.failed_requests = d.refusals;
+                d.failed_at = d.refusal_at.clone();
+            }
+            d.first = d.refusal_at.iter().copied().min().unwrap_or(0);
+            d.last = d
+                .refusal_at
+                .iter()
+                .chain(d.failed_at.iter())
+                .copied()
+                .max()
+                .unwrap_or(0);
+            d.last >= cutoff && (d.refusals > 0 || d.failed_requests > 0)
+        });
         self.scans.retain(|_, s| s.last >= cutoff);
         if self.window_first < cutoff {
             self.window_first = cutoff;
@@ -331,5 +374,90 @@ mod tests {
             refused_port("dial tcp [::1]:4001: connect: connection reset"),
             None
         );
+    }
+
+    /// F-380-1: engine-like merge of NEW lines each heartbeat, then expire
+    /// to LOG_WINDOW, must not keep lifetime failed_requests (was ~37x live).
+    #[test]
+    fn expire_drops_old_failed_request_counts() {
+        let line = |t: u64| {
+            jl(
+                t,
+                "cloudflared.service",
+                "ERR Request failed error=\"dial tcp [::1]:3011: connect: connection refused\" dest=https://ex.test/",
+            )
+        };
+        // 18 h of traffic, heartbeat every 900 s, one failure every 2 s
+        // → true rate 30 failed/min. Without recount-on-expire, lifetime
+        // counts (~32k) over a 1800 s window → ~1080/min (~36x).
+        let window = 1800u64;
+        let end = 18 * 3600u64;
+        let mut acc = LogInsights::default();
+        let mut last = 0u64;
+        let mut now = 900u64;
+        while now <= end {
+            let mut lines = Vec::new();
+            let mut t = last;
+            while t < now {
+                if t.is_multiple_of(2) {
+                    lines.push(line(t));
+                }
+                t += 1;
+            }
+            last = now;
+            acc.merge(insights(&lines));
+            acc.expire(now.saturating_sub(window));
+            now += 900;
+        }
+        let d = acc.dead_origins.get(&3011).expect("port 3011");
+        // In-window failures: timestamps in [end-window, end) with t%2==0.
+        let expect = (window / 2) as u32;
+        assert_eq!(
+            d.failed_requests, expect,
+            "expire must keep only in-window failures, got {} want {expect}",
+            d.failed_requests
+        );
+        assert_eq!(d.refusals, expect);
+        assert_eq!(acc.edge_failures.len() as u32, expect);
+        assert!(d.first >= end - window, "first={}", d.first);
+        let span = acc.window_last.saturating_sub(acc.window_first).max(60);
+        let per_min = d.failed_requests as f64 * 60.0 / span as f64;
+        assert!(
+            (per_min - 30.0).abs() < 2.0,
+            "rate {per_min} failed/min over span {span} (want ~30)"
+        );
+    }
+
+    /// After expire, counts match a fresh insights() of only the in-window lines.
+    #[test]
+    fn expire_matches_single_window_insights() {
+        let mut lines = Vec::new();
+        for t in 1000..1100u64 {
+            lines.push(jl(
+                t,
+                "cloudflared.service",
+                "ERR Request failed error=\"dial tcp [::1]:4001: connect: connection refused\" dest=https://a.test/",
+            ));
+        }
+        for t in 2000..2050u64 {
+            lines.push(jl(
+                t,
+                "cloudflared.service",
+                "ERR Request failed error=\"dial tcp [::1]:4001: connect: connection refused\" dest=https://a.test/",
+            ));
+        }
+        let mut acc = insights(&lines);
+        acc.expire(2000);
+        let fresh = insights(
+            &lines
+                .into_iter()
+                .filter(|l| l.t >= 2000)
+                .collect::<Vec<_>>(),
+        );
+        assert_eq!(
+            acc.dead_origins[&4001].failed_requests,
+            fresh.dead_origins[&4001].failed_requests
+        );
+        assert_eq!(acc.edge_failures.len(), fresh.edge_failures.len());
     }
 }

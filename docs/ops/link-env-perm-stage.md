@@ -117,5 +117,5 @@ Not flagged by the check but seen in the same pass (not secrets, still worth an 
 1. **D-318-2 yes/no**: run Step 1 (`chmod 600`, one command, no restart). Rollback `chmod 666`.
 2. **D-356-1**: patch `install.sh`/`play.sh` in galion-light as in Step 2.
 3. **D-356-2**: Step 3 drop-in (EnvironmentFile) yes/no; it needs a galion-one restart.
-4. **D-356-3**: `chmod -R o-w` (and `+t` where shared) for the 18 dirs and the 53 console-dist files; separate window, list above.
+4. **D-356-3**: `chmod -R o-w` (and `+t` where shared) for the 18 dirs and the 53 console-dist files; separate window, list above. Staged per path by slot 379: docs/ops/world-writable-dirs-stage.md, deploy/staged/world-writable-dirs/.
 5. **D-356-4**: confirm `migrate-ram.env` holds no secret (else `chmod 600`).

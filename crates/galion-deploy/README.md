@@ -113,6 +113,16 @@ quick-tunnel transient unit, the tuner static/source tree, `/var/lib/galion-nerv
 deploy tool itself. Secret trees and secret-like names are never read. Exit 0 written and
 verified, 1 failed, 2 usage. Runbook: `docs/ops/cutover-tuner-nerve.md`.
 
+## Static tree install (`dist-install`, slot 379)
+```
+galion-deploy dist-install SRC DEST    # dirs 755, files 644, executables 755; swap in; keep DEST.old-<stamp>
+galion-deploy dist-check DIR           # group/other-writable or set-id entries -> exit 1
+galion-deploy dist-rollback DEST OLD   # OLD back to DEST, current -> DEST.failed-<stamp>
+```
+Never copies a source mode (the live console-dist was unpacked 666/777).
+Refuses absolute/escaping symlinks and special files; a failed copy leaves DEST
+untouched. See docs/ops/world-writable-dirs-stage.md (D-356-3).
+
 ## Callers to know about
 
 - openmind-nerve (swarm/nerve) launches `/opt/galion/rust/bin/galion-deploy` through

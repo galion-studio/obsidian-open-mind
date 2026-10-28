@@ -26,6 +26,7 @@
 pub mod backend;
 pub mod backup;
 pub mod deploy;
+pub mod dist;
 pub mod files;
 pub mod http;
 pub mod journal;

@@ -10,6 +10,9 @@ fn main() {
     let code = match args.first().map(String::as_str) {
         Some("backup") => galion_deploy::backup::main_backup(&args[1..]),
         Some("backup-verify") => galion_deploy::backup::main_verify(&args[1..]),
+        Some(c @ ("dist-install" | "dist-check" | "dist-rollback")) => {
+            galion_deploy::dist::main(c, &args[1..])
+        }
         _ => {
             galion_deploy::sys::install_handlers();
             galion_deploy::deploy::main(&args)

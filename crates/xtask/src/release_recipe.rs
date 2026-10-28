@@ -263,8 +263,11 @@ fn clean_cmd(prog: impl AsRef<std::ffi::OsStr>) -> Command {
     c
 }
 
+/// Env pairs (`CC_<triple>`, `AR_<triple>`) for the cargo build.
+type EnvPairs = Vec<(String, String)>;
+
 /// (env pairs for the cargo build, cc path, ar description).
-fn cc_env(spec: &Spec) -> Result<(Vec<(String, String)>, String, String), String> {
+fn cc_env(spec: &Spec) -> Result<(EnvPairs, String, String), String> {
     let (suffix, gcc, zig_triple) = triple_tools(&spec.target)?;
     match spec.cc.as_str() {
         "gcc" => {

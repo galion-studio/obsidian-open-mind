@@ -24,6 +24,8 @@
 //! Knobs: `NERVE_XT_DIR` (nested target dir, default `<workspace>/target/xt`),
 //! `NERVE_XT_JOBS` (default 2), `NERVE_XT_QEMU` (qemu-aarch64 path),
 //! `NERVE_XT_REPORT` (JSON report path, default `<NERVE_XT_DIR>/report.json`).
+//! Slot 363: `NERVE_XT_PORT_BASE` (5-port block, default 20870) and
+//! `NERVE_XT_LIVE_PIN=0` (report the aa77864 binary pin instead of asserting).
 
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -51,6 +53,16 @@ fn port_svc() -> u16 {
 }
 fn port_dead() -> u16 {
     port_base() + 4
+}
+
+/// `NERVE_XT_LIVE_PIN` (slot 363): unset or `1` = enforce the aa77864 pin,
+/// `0` = report only. Any other value is an error.
+fn live_pin() -> bool {
+    match std::env::var("NERVE_XT_LIVE_PIN").as_deref() {
+        Err(_) | Ok("1") => true,
+        Ok("0") => false,
+        Ok(v) => panic!("NERVE_XT_LIVE_PIN must be 0 or 1, got {v:?}"),
+    }
 }
 
 // ---------------------------------------------------------------- SHA-256
@@ -422,16 +434,27 @@ fn real_cross_target() {
     }
     // The live recipe must reproduce the live binary bit for bit; the solo
     // build differs only by serde_json preserve_order (feature unification).
+    // Slot 363: `NERVE_XT_LIVE_PIN=0` skips the aa77864-era pin (recipe ==
+    // live SHA, solo != live, preserve_order wire order) so the build + qemu
+    // smoke part can run on a later commit; default (unset/1) keeps it.
+    let pin = live_pin();
     let (_, _, recipe_sha, recipe_size) = &bins[2];
-    assert_eq!(
-        recipe_sha, &live_sha,
-        "live recipe no longer reproduces the VPS binary"
-    );
-    assert_eq!(*recipe_size, live_size);
-    assert_ne!(
-        bins[0].2, live_sha,
-        "solo -p openmind-nerve build now equals live (preserve_order no longer differs?)"
-    );
+    if pin {
+        assert_eq!(
+            recipe_sha, &live_sha,
+            "live recipe no longer reproduces the VPS binary"
+        );
+        assert_eq!(*recipe_size, live_size);
+        assert_ne!(
+            bins[0].2, live_sha,
+            "solo -p openmind-nerve build now equals live (preserve_order no longer differs?)"
+        );
+    } else {
+        eprintln!(
+            "[xt] NERVE_XT_LIVE_PIN=0: live pin NOT checked (recipe {recipe_sha} {recipe_size} B vs pinned {live_sha} {live_size} B; solo == recipe: {})",
+            bins[0].2 == *recipe_sha
+        );
+    }
 
     // 2. qemu smoke -----------------------------------------------------
     let qemu = find_qemu().expect("qemu-aarch64 not found (set NERVE_XT_QEMU)");
@@ -537,17 +560,24 @@ fn real_cross_target() {
     let xo = wire_order(&x.health_raw, &x.health);
     let ao = wire_order(&a.health_raw, &a.health);
     let ro = wire_order(&r.health_raw, &r.health);
-    assert_eq!(
-        xo,
-        sorted(xo.clone()),
-        "solo x86_64 /health keys not sorted"
-    );
     assert_eq!(ao, xo, "/health wire order x86_64 vs aarch64");
-    assert_eq!(
-        ro.first().map(String::as_str),
-        Some("status"),
-        "live recipe order {ro:?}"
-    );
+    if pin {
+        assert_eq!(
+            xo,
+            sorted(xo.clone()),
+            "solo x86_64 /health keys not sorted"
+        );
+        assert_eq!(
+            ro.first().map(String::as_str),
+            Some("status"),
+            "live recipe order {ro:?}"
+        );
+    } else {
+        // Unpinned (later commits): serde_json preserve_order is unified, so
+        // solo and recipe must now agree on the wire order too.
+        assert_eq!(ro, xo, "/health wire order recipe vs solo (unpinned)");
+        eprintln!("[xt] /health wire order (not pinned, all 3 equal): {ro:?}");
+    }
 
     // 3. cargo check for android / armv7 --------------------------------
     let mut report_check = Vec::new();
@@ -571,7 +601,8 @@ fn real_cross_target() {
 
     let report = json!({
         "slot": 217, "started": started, "finished": zagreb_time::now_rfc3339(),
-        "live": {"sha256": live_sha, "size": live_size},
+        "live": {"sha256": live_sha, "size": live_size, "pinned": pin},
+        "port_base": port_base(),
         "binaries": report_bins, "smoke": report_smoke, "check": report_check,
         "qemu": qemu.display().to_string(), "qemu_version_out": ver,
     });

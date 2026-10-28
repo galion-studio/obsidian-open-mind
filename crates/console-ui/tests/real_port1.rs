@@ -33,6 +33,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use galion_realtest::console_routes as routes;
 use galion_realtest::ports::Block;
 
 /// Slot 375 (real-ports-batch-2): port block movable by `PORT1_REAL_PORT_BASE`; unset keeps
@@ -49,6 +50,10 @@ fn nerve_at() -> &'static str {
 }
 fn up_at() -> &'static str {
     PORTS.addr(9)
+}
+/// Slot 384: galion-one :8091, the Rust owner of `/api/v1/analytics`.
+fn one_at() -> &'static str {
+    PORTS.addr(6)
 }
 
 struct Kill(Child, &'static str);
@@ -179,6 +184,7 @@ fn port1_rooms_match_the_live_services() {
         .args(["-L", &format!("{up}:127.0.0.1:8080")])
         .args(["-L", &format!("{desk}:127.0.0.1:8646")])
         .args(["-L", &format!("{nerve}:127.0.0.1:8670")])
+        .args(["-L", &format!("{}:127.0.0.1:8091", one_at())])
         .arg(std::env::var("PORT1_VPS").expect("set PORT1_VPS=user@host (the VPS)"))
         .stdin(Stdio::null())
         .spawn()
@@ -219,7 +225,24 @@ fn port1_rooms_match_the_live_services() {
     );
     let html = page(front, "/analytics");
     has(&html, "This pod", "/analytics");
-    if ac == 401 {
+    if routes::decide("/api/v1/analytics", ac) == routes::Live::Gone {
+        // D-375-1 option A: the live Rust console has no analytics route (its
+        // owner is galion-one :8091, same unpaired 401); the room must say the
+        // read failed instead of inventing numbers.
+        assert!(
+            routes::page_says_unavailable(&html),
+            "/analytics: no honest miss"
+        );
+        if routes::mode() == routes::Mode::Rust {
+            let one: SocketAddr = one_at().parse().unwrap();
+            let (oc, ob, _) = get(one, "/api/v1/analytics").expect("galion-one analytics");
+            eprintln!(
+                "real: Rust owner galion-one :8091 /api/v1/analytics -> {oc} {:?}",
+                String::from_utf8_lossy(&ob)
+            );
+            assert!(oc == 401 || oc == 200, "galion-one analytics {oc}");
+        }
+    } else if ac == 401 {
         has(&html, "The analytics API did not answer.", "/analytics");
         has(&html, "paired phones only", "/analytics");
     } else {
@@ -240,37 +263,61 @@ fn port1_rooms_match_the_live_services() {
         b.len(),
         t.as_secs_f64()
     );
-    assert_eq!(c, 200);
-    let arena = json::parse(&b).expect("arena json");
-    let html = page(front, "/arena");
-    let spend = pages::arena::spend_line(Some(&arena));
-    has(&html, &spend, "/arena spend");
-    let rows = arena.get("rows").as_array();
-    for r in rows {
-        if let Some(id) = r.get("id").as_str() {
-            has(&html, id, "/arena row");
-        }
+    let arena_gone = routes::decide("/api/arena", c) == routes::Live::Gone;
+    if !arena_gone {
+        assert_eq!(c, 200);
     }
-    let shown = html.matches("<span class=\"who\">").count();
-    assert_eq!(shown, rows.len(), "/arena rows");
-    assert!(
-        !html.contains("<form method=\"post\""),
-        "/arena has no actions"
-    );
-    eprintln!(
-        "real: /arena spend {spend:?}, rows {} (live) = {shown} (page), champion {}",
-        rows.len(),
-        if arena.get("champion").is_null() {
-            "none"
-        } else {
-            "set"
+    let html = page(front, "/arena");
+    // Sentinel that never occurs in a page while the live arena is gone.
+    let mut spend = String::from("\u{1}no-live-arena");
+    if arena_gone {
+        assert!(
+            routes::page_says_unavailable(&html),
+            "/arena: no honest miss"
+        );
+        assert!(
+            !html.contains("<span class=\"who\">"),
+            "/arena: rows without data"
+        );
+        assert!(
+            !html.contains("<form method=\"post\""),
+            "/arena has no actions"
+        );
+        eprintln!("real: /arena live {c} -> room states the miss, 0 rows, no actions");
+    } else {
+        let arena = json::parse(&b).expect("arena json");
+        spend = pages::arena::spend_line(Some(&arena));
+        has(&html, &spend, "/arena spend");
+        let rows = arena.get("rows").as_array();
+        for r in rows {
+            if let Some(id) = r.get("id").as_str() {
+                has(&html, id, "/arena row");
+            }
         }
-    );
+        let shown = html.matches("<span class=\"who\">").count();
+        assert_eq!(shown, rows.len(), "/arena rows");
+        assert!(
+            !html.contains("<form method=\"post\""),
+            "/arena has no actions"
+        );
+        eprintln!(
+            "real: /arena spend {spend:?}, rows {} (live) = {shown} (page), champion {}",
+            rows.len(),
+            if arena.get("champion").is_null() {
+                "none"
+            } else {
+                "set"
+            }
+        );
+    }
 
     // 4c. /bank vs live GET /api/v1/bank.
     let (bc, bb, _) = get(up, "/api/v1/bank").expect("live bank");
     let bb = String::from_utf8_lossy(&bb).into_owned();
     eprintln!("real: live GET /api/v1/bank (Accept: application/json) -> {bc} {bb:?}");
+    if bc != 500 {
+        routes::decide("/api/v1/bank", bc);
+    }
     let bc = if bc == 500 && bb.contains("Only HTML requests are supported here") {
         404
     } else {
@@ -337,6 +384,8 @@ fn port1_rooms_match_the_live_services() {
     // methods must be refused by the front itself (405) before any upstream
     // call; a console host without the phone cookie gets the pairing page and
     // none of the live data; a public host gets "Soon online.".
+    let (adc, _, _) = get(up, "/api/v1/admin").expect("live admin");
+    let admin_gone = routes::decide("/api/v1/admin", adc) == routes::Live::Gone;
     for p in ["/analytics", "/arena", "/bank", "/cache"] {
         for m in ["POST", "PUT", "DELETE"] {
             let r = raw(front, &format!("{m} {p} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
@@ -362,9 +411,10 @@ fn port1_rooms_match_the_live_services() {
             front,
             &format!("GET {p} HTTP/1.1\r\nHost: console.galion.app\r\nConnection: close\r\n\r\n"),
         );
+        let code: u16 = r.get(9..12).and_then(|c| c.parse().ok()).unwrap_or(0);
         assert!(
-            r.contains("This phone"),
-            "{p}: unpaired console host gets pairing"
+            routes::gate_ok(code, &r, admin_gone),
+            "{p}: unpaired console host gets pairing (or fails closed while /api/v1/admin is gone)"
         );
         assert!(
             !r.contains(&console_ui::html::esc(&spend))
@@ -377,7 +427,7 @@ fn port1_rooms_match_the_live_services() {
         );
         assert!(r.contains("Soon online."), "{p}: public host");
     }
-    eprintln!("real: POST/PUT/DELETE x4 pages -> 405 (Allow: GET, HEAD); HEAD x4 -> 200 empty; unpaired console host -> pairing page, no live data; public host -> Soon online.");
+    eprintln!("real: POST/PUT/DELETE x4 pages -> 405 (Allow: GET, HEAD); HEAD x4 -> 200 empty; unpaired console host -> pairing page (admin gone on live: {admin_gone} -> 503 fail-closed), no live data; public host -> Soon online.");
 
     // 5. Nerve /state (observation only) and the live TS console paths.
     match get(nerve, "/state") {

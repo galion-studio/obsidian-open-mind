@@ -9,6 +9,7 @@
 //! * `live`: READ-ONLY probe of the live VPS (GET / `systemctl is-active` /
 //!   `ss` over ssh) and the public endpoints, compared with the contract.
 
+pub mod console_routes;
 pub mod http;
 pub mod live;
 pub mod ports;

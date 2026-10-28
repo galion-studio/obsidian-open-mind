@@ -300,6 +300,7 @@ impl Ui {
                 _ => None,
             },
             path: req.path,
+            refresh_s: None,
         }
     }
 
@@ -894,7 +895,10 @@ impl Ui {
             "Galion Console · {}",
             rooms::exact(req.path).map(|r| r.label).unwrap_or("Console")
         );
-        let f = self.frame(req, &title);
+        let mut f = self.frame(req, &title);
+        if req.path == "/bank" {
+            f.refresh_s = Some(pages::bank::refresh_s(got.as_ref().ok()));
+        }
         Reply::html(200, layout::console(&f, origin, &body))
     }
 
@@ -992,6 +996,7 @@ mod tests {
             extra_css_href: None,
             light: Some(false),
             path: "/agents",
+            refresh_s: None,
         };
         let mut all = String::new();
         all.push_str(&layout::console(
@@ -1039,6 +1044,8 @@ mod tests {
         let bank =
             json::parse(br#"{"purses":[{"name":"n","usd":1,"note":"x"}],"note":"y"}"#).unwrap();
         all.push_str(&pages::bank::body(Ok(&bank)));
+        let stale = json::parse(br#"{"asOf":"2026-10-27T18:19:00+01:00","purses":[{"name":"r","source":"survival","asOf":"2026-10-27T18:19:00+01:00"}]}"#).unwrap();
+        all.push_str(&pages::bank::body_at(Ok(&stale), 1_793_156_400));
         all.push_str(&pages::bank::body(Err(pages::bank::Miss::Status(404))));
         let desk = json::parse(br#"{"mindpack":{"cache":{"read":1},"cached":[{"id":"c"}],"stores":[{"name":"s","n":1,"bytes":1}],"models":[{"name":"m"}],"recent":[{"name":"f","at":1,"bytes":1}]}}"#).unwrap();
         all.push_str(&pages::cache::body(Some(&desk)));

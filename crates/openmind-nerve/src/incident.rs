@@ -366,7 +366,10 @@ fn member_home<'a>(
         .map(|(k, _)| k.as_str())
 }
 
-fn short_id(cause: &str, opened: u64) -> String {
+/// Incident id: FNV-1a of the cause and the opening instant (UTC seconds), so
+/// the id names one incident episode; the same cause opened at another
+/// instant (e.g. a replay on another night) gets another id by design.
+pub fn short_id(cause: &str, opened: u64) -> String {
     // FNV-1a: stable, dependency-free, not security relevant.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in cause.bytes().chain(opened.to_le_bytes()) {
@@ -505,6 +508,17 @@ impl Correlator {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_id_names_one_episode_across_the_fold() {
+        // 2026-10-25 02:30+02:00 and 02:30+01:00 are one hour apart: two
+        // episodes, two ids; the same instant always gives the same id.
+        let (a, b) = (1_792_888_200, 1_792_891_800);
+        assert_eq!(short_id("edge", a), short_id("edge", a));
+        assert_ne!(short_id("edge", a), short_id("edge", b));
+        assert_ne!(short_id("edge", a), short_id("galion-one", a));
+        assert_eq!(short_id("edge", a).len(), 12);
+    }
 
     fn ex(c: &str, s: &[Signal]) -> Explain {
         Explain {

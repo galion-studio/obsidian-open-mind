@@ -312,11 +312,26 @@ fn capture(dir: &Path, snaps: &[Value], t0: u64, n: u64) {
     std::fs::write(dir.join("access-tuner.log"), log).unwrap();
 }
 
+/// One open incident of a replay report.
+#[derive(Debug, Clone, PartialEq)]
+struct Inc {
+    id: String,
+    opened: String,
+    cycles: u64,
+    duration_s: u64,
+}
+
 struct Out {
     ts: String,
     score: Value,
+    /// Cortex finding ids with every incident id (`inc-<fnv(cause, opened)>`)
+    /// replaced by `incident:<cause>`: an incident id names one episode, so
+    /// the same cause opened on another night has another id by design
+    /// (slot 402, F-383-8). The raw ids are checked in [`check_incidents`].
     ids: BTreeSet<String>,
+    raw_ids: BTreeSet<String>,
     causes: BTreeSet<String>,
+    incs: std::collections::BTreeMap<String, Inc>,
     notes: String,
 }
 
@@ -329,7 +344,20 @@ fn replay(dir: &Path) -> Out {
         .output()
         .expect("run replay");
     let r: Value = serde_json::from_slice(&out.stdout).expect("report JSON");
-    let ids = r["cortex"]
+    let mut incs = std::collections::BTreeMap::new();
+    for i in r["incidents"].as_array().into_iter().flatten() {
+        let cause = i["cause"].as_str().unwrap_or("").to_string();
+        incs.insert(
+            cause,
+            Inc {
+                id: i["id"].as_str().unwrap_or("").into(),
+                opened: i["opened"].as_str().unwrap_or("").into(),
+                cycles: i["cycles"].as_u64().unwrap_or(0),
+                duration_s: i["duration_s"].as_u64().unwrap_or(0),
+            },
+        );
+    }
+    let raw_ids: BTreeSet<String> = r["cortex"]
         .as_object()
         .into_iter()
         .flat_map(|o| o.values())
@@ -337,18 +365,40 @@ fn replay(dir: &Path) -> Out {
         .flatten()
         .filter_map(|x| x["id"].as_str().map(str::to_string))
         .collect();
-    let causes = r["incidents"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|i| i["cause"].as_str().map(str::to_string))
+    let ids = raw_ids
+        .iter()
+        .map(|id| {
+            incs.iter()
+                .find(|(_, i)| &i.id == id)
+                .map_or_else(|| id.clone(), |(c, _)| format!("incident:{c}"))
+        })
         .collect();
     Out {
         ts: r["ts"].as_str().unwrap_or("").into(),
         score: r["score"].clone(),
         ids,
-        causes,
+        raw_ids,
+        causes: incs.keys().cloned().collect(),
+        incs,
         notes: String::from_utf8_lossy(&out.stderr).into_owned(),
+    }
+}
+
+/// Every incident of a replay opened once, on the first replayed cycle
+/// `first` (no re-open in the repeated 02:00-03:00 hour), stayed open for
+/// all `n` cycles, spans exactly the real elapsed time, and carries the id
+/// derived from its cause and opening instant.
+fn check_incidents(o: &Out, first: &str, n: u64) {
+    let at = openmind_nerve::util::parse_rfc3339(first).expect(first);
+    for (cause, i) in &o.incs {
+        assert_eq!(i.opened, first, "{cause}: opened {i:?}");
+        assert_eq!(i.cycles, n, "{cause}: re-opened or skipped {i:?}");
+        assert_eq!(i.duration_s, (n - 1) * 30, "{cause}: duration {i:?}");
+        assert_eq!(
+            i.id,
+            openmind_nerve::incident::short_id(cause, at),
+            "{cause}: id"
+        );
     }
 }
 
@@ -361,10 +411,11 @@ fn real_vps_state_replayed_through_the_fold_matches_an_ordinary_night() {
     assert!(!snaps.is_empty());
     for s in &snaps {
         eprintln!(
-            "live snapshot ts {} components {} system {}",
+            "live snapshot ts {} components {} system {} open incidents {}",
             s["ts"],
             s["components"].as_array().map_or(0, Vec::len),
-            s["system"]["status"]
+            s["system"]["status"],
+            s["incidents"]["open"].as_array().map_or(0, Vec::len)
         );
     }
     let base = std::env::temp_dir().join(format!("nerve-real-dst-replay-{}", std::process::id()));
@@ -374,21 +425,24 @@ fn real_vps_state_replayed_through_the_fold_matches_an_ordinary_night() {
     capture(&fold_dir, &snaps, FOLD - 35 * 60, n);
     capture(&ctl_dir, &snaps, CONTROL, n);
     let f = replay(&fold_dir);
+    let f2 = replay(&fold_dir);
     let c = replay(&ctl_dir);
     eprintln!(
-        "fold: ts {} score {} findings {:?} causes {:?}\n{}",
+        "fold: ts {} score {} findings {:?} raw {:?} incidents {:?}\n{}",
         f.ts,
         f.score,
         f.ids,
-        f.causes,
+        f.raw_ids,
+        f.incs,
         f.notes.trim()
     );
     eprintln!(
-        "control: ts {} score {} findings {} causes {:?}\n{}",
+        "control: ts {} score {} findings {:?} raw {:?} incidents {:?}\n{}",
         c.ts,
         c.score,
-        c.ids.len(),
-        c.causes,
+        c.ids,
+        c.raw_ids,
+        c.incs,
         c.notes.trim()
     );
     assert_eq!(f.ts, "2026-10-25T02:35:00+01:00");
@@ -399,6 +453,11 @@ fn real_vps_state_replayed_through_the_fold_matches_an_ordinary_night() {
         "{}",
         f.notes
     );
+    // Deterministic: the same capture replays to the same raw ids.
+    assert_eq!(f.raw_ids, f2.raw_ids, "fold replay not deterministic");
+    assert_eq!(f.incs, f2.incs, "fold replay not deterministic");
+    check_incidents(&f, "2026-10-25T02:25:00+02:00", n);
+    check_incidents(&c, "2026-10-21T02:25:00+02:00", n);
     assert_eq!(f.score, c.score, "score differs at the fold");
     assert_eq!(f.ids, c.ids, "findings differ at the fold");
     assert_eq!(f.causes, c.causes, "incidents differ at the fold");

@@ -469,6 +469,7 @@ impl Engine {
         }
         let sh = lock(&self.shared);
         let signals = sh.hub.to_json(now);
+        let event_mode = sh.evt.is_some();
         drop(sh);
         let sc = self
             .score
@@ -484,6 +485,14 @@ impl Engine {
             "cycle": self.cycle,
             "interval_s": self.cfg.interval_s,
             "cycle_ms": self.last_cycle_ms,
+            // N-332-1 / slot 344: in event mode `interval_s` is NOT the full
+            // cycle cadence (start + heartbeat + debounced after events).
+            "cadence": if event_mode {
+                "event: full cycle at start, every NERVE_EVT_HEARTBEAT (default 900 s) and debounced after stack events; interval_s unused"
+            } else {
+                "poll: full cycle every interval_s"
+            },
+            "probe_parallel": self.cfg.probe_parallel,
             "mode": self.mode(),
             "system": {"status": self.system_status(), "components_worst": self.worst().as_str(), "counts": counts,
                        "score": sc["score"], "grade": sc["grade"], "pass": sc["pass"], "verdict": sc["verdict"],

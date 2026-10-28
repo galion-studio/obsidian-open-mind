@@ -155,6 +155,7 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
         }
         None => HashMap::new(),
     };
+    let mut http_jobs: Vec<HttpJob> = vec![];
     let mut out = HashMap::new();
     for sp in specs {
         let mut s = Sample {
@@ -212,30 +213,14 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
                     s.present = sp.port.is_some();
                 }
                 if let Some(p) = sp.port.filter(|_| s.present) {
-                    let r = probe::http_probe(p, sp.path, HTTP_TIMEOUT);
-                    s.http_code = r.code;
-                    s.latency_ms = r.code.map(|_| r.ms);
-                    s.probe_error = r.error.clone();
-                    if sp.name == "galion-one-mouth" && r.body.contains("\"loading\"") {
-                        s.extra["mouth"] = json!("model loading");
-                    }
-                    if !r.ok() {
-                        if let Some(b) = health_body_summary(&r.body) {
-                            s.extra["health_body"] = b;
-                        }
-                    }
-                    if r.ok() && !sp.deep.is_empty() {
-                        let deep: Vec<Value> = sp
-                            .deep
-                            .iter()
-                            .map(|path| {
-                                let d = probe::http_probe(p, path, DEEP_TIMEOUT);
-                                json!({"path": path, "http": d.code, "ok": probe::deep_route_ok(d.code),
-                                       "ms": d.code.map(|_| d.ms), "error": d.error})
-                            })
-                            .collect();
-                        s.extra["deep"] = Value::Array(deep);
-                    }
+                    // Probed after this loop on up to `probe_parallel`
+                    // threads (slot 344, N-332-1).
+                    http_jobs.push(HttpJob {
+                        name: sp.name,
+                        port: p,
+                        path: sp.path,
+                        deep: sp.deep,
+                    });
                 }
             }
             Kind::Tunnel => {
@@ -301,6 +286,14 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
         }
         out.insert(sp.name.to_string(), s);
     }
+    for (job, done) in http_jobs
+        .iter()
+        .zip(run_http_jobs(&http_jobs, cfg.probe_parallel))
+    {
+        if let Some(s) = out.get_mut(job.name) {
+            apply_http(s, job, done);
+        }
+    }
     let listeners = probe::listeners();
     // Holders of listeners nobody owns (in scope), for "unknown owner".
     let port_procs = match &listeners {
@@ -323,6 +316,97 @@ pub fn collect(specs: &[Spec], cfg: &Config, hub: &Hub, since: u64, now: u64) ->
         listeners,
         port_procs,
         skipped,
+    }
+}
+
+/// One component's HTTP health probe (+ deep routes), slot 344.
+#[derive(Debug, Clone)]
+pub struct HttpJob {
+    pub name: &'static str,
+    pub port: u16,
+    pub path: &'static str,
+    pub deep: &'static [&'static str],
+}
+
+/// Result of an [`HttpJob`]: the health probe and, when it passed, the deep
+/// route records.
+#[derive(Debug, Clone)]
+pub struct HttpDone {
+    pub probe: probe::HttpProbe,
+    pub deep: Option<Vec<Value>>,
+}
+
+fn run_http_job(j: &HttpJob) -> HttpDone {
+    let r = probe::http_probe(j.port, j.path, HTTP_TIMEOUT);
+    let deep = (r.ok() && !j.deep.is_empty()).then(|| {
+        j.deep
+            .iter()
+            .map(|path| {
+                let d = probe::http_probe(j.port, path, DEEP_TIMEOUT);
+                json!({"path": path, "http": d.code, "ok": probe::deep_route_ok(d.code),
+                       "ms": d.code.map(|_| d.ms), "error": d.error})
+            })
+            .collect()
+    });
+    HttpDone { probe: r, deep }
+}
+
+/// Run the jobs on at most `parallel` threads (the caller is one of them),
+/// results in job order. N-332-1 / slot 344: the old walk was sequential, so
+/// k hung components cost k x 3 s (+2 s per deep route) per cycle; now the
+/// cycle pays about ceil(slow / parallel) x the per-job budget. A failed
+/// thread spawn only lowers the parallelism (the caller drains the queue).
+pub fn run_http_jobs(jobs: &[HttpJob], parallel: usize) -> Vec<HttpDone> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
+    let workers = parallel.clamp(1, 16).min(jobs.len());
+    if workers <= 1 {
+        return jobs.iter().map(run_http_job).collect();
+    }
+    let next = AtomicUsize::new(0);
+    let slots: Mutex<Vec<Option<HttpDone>>> = Mutex::new(vec![None; jobs.len()]);
+    let work = || loop {
+        let i = next.fetch_add(1, Ordering::Relaxed);
+        let Some(j) = jobs.get(i) else { break };
+        let d = run_http_job(j);
+        slots.lock().unwrap_or_else(|e| e.into_inner())[i] = Some(d);
+    };
+    std::thread::scope(|sc| {
+        for _ in 1..workers {
+            let spawned = std::thread::Builder::new()
+                .name("nerve-probe".into())
+                .stack_size(256 * 1024)
+                .spawn_scoped(sc, work);
+            if spawned.is_err() {
+                break;
+            }
+        }
+        work();
+    });
+    slots
+        .into_inner()
+        .unwrap_or_else(|e| e.into_inner())
+        .into_iter()
+        .zip(jobs)
+        .map(|(d, j)| d.unwrap_or_else(|| run_http_job(j)))
+        .collect()
+}
+
+fn apply_http(s: &mut Sample, job: &HttpJob, done: HttpDone) {
+    let r = done.probe;
+    s.http_code = r.code;
+    s.latency_ms = r.code.map(|_| r.ms);
+    s.probe_error = r.error.clone();
+    if job.name == "galion-one-mouth" && r.body.contains("\"loading\"") {
+        s.extra["mouth"] = json!("model loading");
+    }
+    if !r.ok() {
+        if let Some(b) = health_body_summary(&r.body) {
+            s.extra["health_body"] = b;
+        }
+    }
+    if let Some(deep) = done.deep {
+        s.extra["deep"] = Value::Array(deep);
     }
 }
 
@@ -359,5 +443,58 @@ mod body_tests {
         );
         assert!(health_body_summary("busy").is_none());
         assert!(health_body_summary("{}").is_none());
+    }
+
+    #[test]
+    fn http_jobs_run_bounded_parallel_in_order() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        // One listener that accepts and never answers (holds sockets), one
+        // that answers 200 at once.
+        let hang = TcpListener::bind("127.0.0.1:0").unwrap();
+        let hp = hang.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut held = vec![];
+            for s in hang.incoming().flatten().take(16) {
+                held.push(s);
+            }
+            std::thread::sleep(std::time::Duration::from_secs(10));
+        });
+        let ok = TcpListener::bind("127.0.0.1:0").unwrap();
+        let op = ok.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for mut s in ok.incoming().flatten().take(16) {
+                let mut b = [0u8; 512];
+                let _ = s.read(&mut b);
+                let _ = s.write_all(b"HTTP/1.0 200 OK\r\n\r\nok");
+            }
+        });
+        let mut jobs = vec![];
+        for i in 0..7 {
+            let port = if i == 3 { op } else { hp };
+            jobs.push(HttpJob {
+                name: "x",
+                port,
+                path: "/health",
+                deep: &[],
+            });
+        }
+        let t = std::time::Instant::now();
+        let out = run_http_jobs(&jobs, 8);
+        let el = t.elapsed();
+        assert_eq!(out.len(), 7);
+        assert_eq!(out[3].probe.code, Some(200), "{:?}", out[3]);
+        for (i, d) in out.iter().enumerate().filter(|(i, _)| *i != 3) {
+            assert_eq!(d.probe.code, None, "job {i}: {d:?}");
+            assert!(
+                d.probe.error.as_deref().unwrap_or("").contains("timeout"),
+                "{d:?}"
+            );
+        }
+        // 6 hung jobs: sequential = 6 x 3 s = 18 s; parallel ~ one budget.
+        assert!(el < HTTP_TIMEOUT * 2, "took {el:?}");
+        // parallel 1 keeps the sequential path (and the same order)
+        let one = run_http_jobs(&jobs[3..4], 1);
+        assert_eq!(one[0].probe.code, Some(200));
     }
 }

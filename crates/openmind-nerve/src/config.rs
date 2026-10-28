@@ -229,6 +229,11 @@ pub struct Config {
     /// NERVE_UNOWNED_PORTS: listeners reported as "unknown owner" (default
     /// the five VPS ports 8431,8432,8433,8652,8653; empty string = none).
     pub unowned_ports: Vec<u16>,
+    /// NERVE_PROBE_PARALLEL: HTTP health probes run on at most this many
+    /// threads per cycle (default 8, 1..=16; 1 = the old sequential walk).
+    /// N-332-1 / slot 344: a hung or slow-drip component must not stretch
+    /// the cycle by one timeout per component.
+    pub probe_parallel: usize,
 }
 
 /// One tailed access log.
@@ -334,6 +339,7 @@ impl Config {
                 Some(s) => ports(&s),
                 None => crate::owners::VPS_UNOWNED_PORTS.to_vec(),
             },
+            probe_parallel: num("NERVE_PROBE_PARALLEL", 8).clamp(1, 16) as usize,
         })
     }
 }

@@ -18,6 +18,17 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
 
 ## What one cycle does (default every 30 s, about 25 ms of CPU)
 
+Cadence: in the polling mode a full cycle runs every `NERVE_INTERVAL` (30 s).
+In event mode (`serve --mode event`, the live VPS unit) the full cycle runs at
+start, on the heartbeat (`NERVE_EVT_HEARTBEAT`, 900 s) and debounced after
+stack events, so `cycle` moves about 4-6 times an hour while `interval_s` still
+reads 30; `/api/v1/state` says which in `cadence` (N-332-1, slot 344).
+
+HTTP health probes run on up to `NERVE_PROBE_PARALLEL` threads (default 8,
+1..16; 1 = sequential), and every loopback HTTP call has a total deadline
+(3 s health, 2 s deep route), so hung or slow-drip components cost about one
+budget per cycle, not one per component (`tests/real_cycle_latency.rs`).
+
 1. **Ingest**: health endpoint of every component, `systemctl show` batch,
    /proc RSS, `journalctl -o json` (zerolog `ERR`/`WRN` are counted even at
    journald priority 6, which is how cloudflared logs), cloudflared metrics,

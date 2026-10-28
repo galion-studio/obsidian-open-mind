@@ -87,6 +87,13 @@ pub struct HttpReply {
 
 /// Minimal HTTP/1.0 client for loopback probes (no TLS, no redirects).
 /// `body` turns the request into a POST with `application/json`.
+///
+/// `timeout` is the TOTAL budget for connect + write + read (slot 344,
+/// N-332-1): a peer that accepts and never answers, or drips one byte per
+/// second, costs at most `timeout` (+ scheduling slack), never one timeout
+/// per read call. When the budget runs out before the header block ended
+/// (`\r\n\r\n`), the reply is an error; a complete header with a body still
+/// streaming keeps the old behaviour (status from the header, body so far).
 pub fn http(
     addr: SocketAddr,
     path: &str,
@@ -94,9 +101,11 @@ pub fn http(
     timeout: Duration,
 ) -> Result<HttpReply, String> {
     let t = Instant::now();
+    let deadline = t + timeout;
+    let left = || deadline.saturating_duration_since(Instant::now());
     let mut s = TcpStream::connect_timeout(&addr, timeout).map_err(|e| format!("connect: {e}"))?;
-    let _ = s.set_read_timeout(Some(timeout));
-    let _ = s.set_write_timeout(Some(timeout));
+    let floor = Duration::from_millis(1);
+    let _ = s.set_write_timeout(Some(left().max(floor)));
     let req = match body {
         Some(b) => format!(
             "POST {path} HTTP/1.0\r\nHost: {addr}\r\nUser-Agent: galion-nerve\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
@@ -108,14 +117,55 @@ pub fn http(
     };
     s.write_all(req.as_bytes())
         .map_err(|e| format!("write: {e}"))?;
+    const MAX: usize = 512 * 1024;
     let mut buf = Vec::new();
-    let _ = s.take(512 * 1024).read_to_end(&mut buf);
+    let mut chunk = [0u8; 8192];
+    let mut timed_out = false;
+    while buf.len() < MAX {
+        let rem = left();
+        if rem.is_zero() {
+            timed_out = true;
+            break;
+        }
+        let _ = s.set_read_timeout(Some(rem.max(floor)));
+        match s.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => buf.extend_from_slice(&chunk[..n.min(MAX - buf.len())]),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                timed_out = true;
+                break;
+            }
+            Err(_) => break,
+        }
+    }
     let ms = t.elapsed().as_millis() as u64;
     if buf.is_empty() {
-        return Err("empty reply".into());
+        return Err(if timed_out {
+            format!("timeout after {ms} ms (no reply)")
+        } else {
+            "empty reply".into()
+        });
     }
     let text = String::from_utf8_lossy(&buf);
-    let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+    let Some((head, body)) = text.split_once("\r\n\r\n") else {
+        if timed_out {
+            return Err(format!(
+                "timeout after {ms} ms (incomplete header, {} B)",
+                buf.len()
+            ));
+        }
+        return parse_reply(&text, "", ms);
+    };
+    parse_reply(head, body, ms)
+}
+
+fn parse_reply(head: &str, body: &str, ms: u64) -> Result<HttpReply, String> {
     let code = head
         .split_whitespace()
         .nth(1)
@@ -347,5 +397,93 @@ mod time_tests {
             ts(parse_rfc3339("2026-10-20T19:06:05+02:00").unwrap()),
             "2026-10-20T19:06:05+02:00"
         );
+    }
+
+    /// Loopback server on an ephemeral port running `serve` per connection.
+    fn serve_once(
+        serve: impl FnOnce(std::net::TcpStream) + Send + 'static,
+    ) -> (SocketAddr, std::thread::JoinHandle<()>) {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let a = l.local_addr().unwrap();
+        let h = std::thread::spawn(move || {
+            if let Ok((s, _)) = l.accept() {
+                serve(s);
+            }
+        });
+        (a, h)
+    }
+
+    #[test]
+    fn http_hung_peer_costs_one_timeout() {
+        // N-332-1 / slot 344: accept, read the request, never answer.
+        let (a, h) = serve_once(|mut s| {
+            let mut b = [0u8; 512];
+            let _ = s.read(&mut b);
+            std::thread::sleep(Duration::from_millis(1500));
+        });
+        let t = Instant::now();
+        let r = http(a, "/health", None, Duration::from_millis(400));
+        let el = t.elapsed();
+        assert!(r.as_ref().is_err_and(|e| e.contains("timeout")), "{r:?}");
+        assert!(el < Duration::from_millis(900), "{el:?}");
+        h.join().unwrap();
+    }
+
+    #[test]
+    fn http_slow_drip_is_bounded_by_total_deadline() {
+        // A status line, then one header byte every 100 ms for 3 s. The old
+        // per-read timeout never fired (each read got a byte); the total
+        // deadline must stop it and call it an error (header never ended).
+        let (a, h) = serve_once(|mut s| {
+            let mut b = [0u8; 512];
+            let _ = s.read(&mut b);
+            let _ = s.write_all(b"HTTP/1.0 200 OK\r\nX-Drip: ");
+            for _ in 0..30 {
+                if s.write_all(b"a").is_err() {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+        let t = Instant::now();
+        let r = http(a, "/health", None, Duration::from_millis(500));
+        let el = t.elapsed();
+        assert!(
+            r.as_ref().is_err_and(|e| e.contains("incomplete header")),
+            "{r:?}"
+        );
+        assert!(el < Duration::from_millis(1000), "{el:?}");
+        h.join().unwrap();
+    }
+
+    #[test]
+    fn http_full_header_then_stall_keeps_status() {
+        // Old behaviour kept: a complete header block whose body never ends
+        // still yields its status code once the budget is spent.
+        let (a, h) = serve_once(|mut s| {
+            let mut b = [0u8; 512];
+            let _ = s.read(&mut b);
+            let _ = s.write_all(b"HTTP/1.0 503 Service Unavailable\r\nContent-Length: 99\r\n\r\n{\"status\":\"loading\"");
+            std::thread::sleep(Duration::from_millis(1200));
+        });
+        let r = http(a, "/health", None, Duration::from_millis(400)).unwrap();
+        assert_eq!(r.code, 503);
+        assert!(r.body.contains("loading"));
+        h.join().unwrap();
+    }
+
+    #[test]
+    fn http_normal_reply_and_refused() {
+        let (a, h) = serve_once(|mut s| {
+            let mut b = [0u8; 512];
+            let _ = s.read(&mut b);
+            let _ = s.write_all(b"HTTP/1.0 200 OK\r\n\r\n{\"ok\":true}");
+        });
+        let r = http(a, "/health", None, Duration::from_secs(2)).unwrap();
+        assert_eq!((r.code, r.body.as_str()), (200, "{\"ok\":true}"));
+        h.join().unwrap();
+        // nothing listens any more
+        let r = http(a, "/health", None, Duration::from_secs(2));
+        assert!(r.is_err_and(|e| e.starts_with("connect:")));
     }
 }

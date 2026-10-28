@@ -156,7 +156,7 @@ fn real_cortex_merge_all_on_the_box() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", &PORTS.range())
+            .env("NERVE_LISTEN_SCOPE", PORTS.range())
             .env("NERVE_EVENT_FEED_FILE", &log)
             .env_remove("NERVE_SENSORS_OFF")
             .env_remove("NERVE_EDGE_HOSTS")

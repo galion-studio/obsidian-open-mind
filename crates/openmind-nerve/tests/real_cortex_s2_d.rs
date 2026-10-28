@@ -285,7 +285,7 @@ fn real_cortex_s2_d_feed_and_hades_sensor() {
         .env("NERVE_JOURNAL", "0")
         .env("NERVE_GALION_HEALTH_PORT", "0")
         .env("NERVE_REFLEX", "0")
-        .env("NERVE_LISTEN_SCOPE", &PORTS.range())
+        .env("NERVE_LISTEN_SCOPE", PORTS.range())
         .env("NERVE_HADES_LEDGER", dir.join("ledger.jsonl"))
         .env("NERVE_HADES_AUDIT", dir.join("audit.jsonl"))
         .env("NERVE_HADES_DISABLE_FILE", dir.join("hades.disabled"))

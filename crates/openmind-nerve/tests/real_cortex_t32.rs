@@ -302,7 +302,7 @@ fn real_cortex_t32_on_the_box() {
         .env("NERVE_JOURNAL", "0")
         .env("NERVE_GALION_HEALTH_PORT", "0")
         .env("NERVE_REFLEX", "0")
-        .env("NERVE_LISTEN_SCOPE", &PORTS.range())
+        .env("NERVE_LISTEN_SCOPE", PORTS.range())
         .env("NERVE_SSHD", "1")
         .env("NERVE_SSHD_AUTH_LOG", &auth)
         .env(

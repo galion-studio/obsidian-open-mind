@@ -144,7 +144,7 @@ fn spawn(port: u16, dir: &std::path::Path, formula: Option<&str>) -> Kill {
         .env("NERVE_JOURNAL", "0")
         .env("NERVE_GALION_HEALTH_PORT", "0")
         .env("NERVE_REFLEX", "0")
-        .env("NERVE_LISTEN_SCOPE", &PORTS.range())
+        .env("NERVE_LISTEN_SCOPE", PORTS.range())
         .env("NERVE_EDGE_HOSTS", "0")
         .env("NERVE_CONNRATE_PORTS", SVC().to_string())
         .env_remove("NERVE_CONNRATE_FORMULA")

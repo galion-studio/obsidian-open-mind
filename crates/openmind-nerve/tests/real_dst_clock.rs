@@ -149,7 +149,7 @@ fn real_serve_writes_offset_named_self_evals_and_prunes_legacy() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", &PORTS.range())
+            .env("NERVE_LISTEN_SCOPE", PORTS.range())
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn nerve"),

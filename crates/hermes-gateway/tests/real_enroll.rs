@@ -918,13 +918,21 @@ fn real_enroll() {
         .to_string(),
     );
     let o = b.run(&["enroll", "claim", "--state", &b.st()]);
+    // Slot 422 (F-383-5): since omnode-enroll 17e15db6 (2026-10-21T17:10+02:00,
+    // enroll/mod.rs OUTCOME_TTL "so the waiting device gets a clear answer
+    // instead of 'not enrolled'") a refused device is told 403 "the owner
+    // refused this device"; this test (c28374e7) predates it. Test refreshed,
+    // no behaviour change.
+    let err = sv(&js(&o.out)["error"]);
     t.check(
         "rejected B: claim refused",
         "2 true",
         format!(
             "{} {}",
             o.rc,
-            sv(&js(&o.out)["error"]).contains("not enrolled")
+            err.contains("(HTTP 403)")
+                && err.contains("the owner refused this device")
+                && !err.contains("not enrolled")
         ),
     );
     let cred_b = b.state.join("hermes-credential.json");

@@ -37,6 +37,7 @@ release_artifacts_health: 21 checks passed -> test result: ok. 1 passed; 0 faile
 ```
 
 Without `GALION_REAL=1` the test skips (1 passed, 0.01 s).
+Set `GALION_RELEASE_PORT_BASE=<base>` to run in another slot range (service base, second service base+1, dead upstream base+9; default 21820).
 
 Failures found and fixed in the test during the run (not product bugs): galion-console-static needs `_shell.html` under `--root`; `--dist` answers `/` with 302 (same as live).
 Product findings: galion-console-static and galion-backup have no `--version` (D-312-3).
@@ -54,6 +55,8 @@ aarch64 artifacts were **not executed**: no qemu-user on the box (apt failed wit
 | openmind-queue / galion-health vs slot 275 (other tip, other day) | bit-identical sha256 |
 
 So the artifact bytes depend on which packages are built together (D-312-4): a release recipe must name the exact `-p` set (or build each binary alone) to be reproducible.
+
+> 2026-10-28 (slot 339): on top of release-repro-unify 6ffb2570 this is fixed: solo and partial builds equal the full set (14/14 x86_64, 3/3 aarch64 sampled). See `docs/release/release-pair-check-20261028.md`.
 
 ## 3. VPS read-only (2026-10-27 22:00:32 CET, `logs/vps-ro-probe.log`)
 

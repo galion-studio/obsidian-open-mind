@@ -158,3 +158,12 @@ After enroll, coding tools and later work hermes-gateway was 2,313,344 B (x86_64
 FTS5 and JSON" above: FTS5 stays, JSON is now omitted (`SQLITE_OMIT_JSON`) after a read-only scan of the schemas of
 every SQLite file on the VPS found no JSON function. Other steps: C unwind tables off, more SQLite OMIT flags, RELR
 relocations on x86_64 musl (rust-lld), sha2 `force-soft-compact`. Details in docs/real-tests/hermes-gateway-2mib.md.
+
+## One size-budget table (slot 353, 2026-10-28 CET +01:00)
+
+Three versions of scripts/size-budget.sh had drifted: 7427f96e (2.5 MiB gateway exception, tagged names
+included), 6ffb2570 (exception for the untagged name only, so `hermes-gateway-124a212` at 2,198,288 B failed)
+and a0d099c2 (no exceptions). Slot 353 merges a0d099c2 onto release-pair-check 7427f96e and moves every budget
+into `config/release/size-budget.tsv`. Release artifact names are looked up without their commit tag
+(`<bin>-<7..40 hex>[-suffix]`). On the merged tree hermes-gateway x86_64 musl is 1,944,432 B (152,720 B
+headroom) and aarch64 musl 1,883,296 B. Evidence: docs/real-tests/size-budget-gateway-fix.md.

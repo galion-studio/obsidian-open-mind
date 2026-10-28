@@ -11,9 +11,12 @@
 //! | 21991 | `hermes-gateway --mock` |
 //! | 21992 | stub OpenAI-compatible upstream inside this test (SSE) |
 //!
+//! `HG2_PORT_BASE=<base>` shifts all three (base, base+1, base+2).
+//!
 //! `HG2_BIN` = binary under test (default: this crate's own build). When it
 //! is set (the x86_64 musl release artifact), the test also checks the size
-//! budget (<= 2 MiB = 2,097,152 B) and, with readelf on PATH, that the file
+//! budget (the `hermes-gateway` row of config/release/size-budget.tsv,
+//! 2 MiB) and, with readelf on PATH, that the file
 //! is stripped and carries the packed `.relr.dyn` relocations.
 //!
 //! What the trimmed SQLite build must still do (LIBSQLITE3_FLAGS in
@@ -30,10 +33,52 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const KEY: &str = "hg2-test-key-0123456789abcdef";
-const BUDGET: u64 = 2 * 1024 * 1024;
-const P_GW: u16 = 21990;
-const P_MOCK: u16 = 21991;
-const P_UP: u16 = 21992;
+/// Port base (default 21990, the slot 329 range). `HG2_PORT_BASE=<base>`
+/// moves the gateway to base, `--mock` to base+1 and the stub upstream to
+/// base+2, so another slot can run this test in its own range (slot 353:
+/// 22230).
+fn port_base() -> u16 {
+    std::env::var("HG2_PORT_BASE")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .filter(|b| *b >= 1024 && *b <= u16::MAX - 2)
+        .unwrap_or(21990)
+}
+fn p_gw() -> u16 {
+    port_base()
+}
+fn p_mock() -> u16 {
+    port_base() + 1
+}
+fn p_up() -> u16 {
+    port_base() + 2
+}
+
+/// hermes-gateway budget from the one budget table,
+/// config/release/size-budget.tsv (slot 353); same lookup as
+/// scripts/size-budget.sh: the `hermes-gateway` row, else `default`.
+fn budget() -> u64 {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../config/release/size-budget.tsv"
+    );
+    let text = std::fs::read_to_string(path).expect("config/release/size-budget.tsv");
+    let mut default = None;
+    let mut own = None;
+    for line in text.lines() {
+        let line = line.split('#').next().unwrap_or("");
+        let mut it = line.split_whitespace();
+        if let (Some(k), Some(v)) = (it.next(), it.next()) {
+            let v: u64 = v.parse().expect("budget bytes");
+            match k {
+                "default" => default = Some(v),
+                "hermes-gateway" => own = Some(v),
+                _ => {}
+            }
+        }
+    }
+    own.or(default).expect("budget row")
+}
 
 fn real() -> bool {
     std::env::var("GALION_REAL").is_ok_and(|v| v == "1")
@@ -206,7 +251,10 @@ fn spawn_gateway(work: &Path, port: u16, mock: bool, legacy: &Path) -> Proc {
         .env("HERMES_RS_DAILY_USD_CAP", "0")
         // never a paid provider: loopback stub only
         .env("HERMES_RS_PROVIDER_LOOPBACK_ONLY", "1")
-        .env("OPENROUTER_BASE_URL", format!("http://127.0.0.1:{P_UP}/v1"))
+        .env(
+            "OPENROUTER_BASE_URL",
+            format!("http://127.0.0.1:{}/v1", p_up()),
+        )
         .stdout(Stdio::null())
         .stderr(
             std::fs::OpenOptions::new()
@@ -271,11 +319,12 @@ fn real_size_2mib() {
     println!("[{}] bin {}", zagreb_now(), bin.display());
     if std::env::var("HG2_BIN").is_ok() {
         let size = std::fs::metadata(&bin).unwrap().len();
+        let budget = budget();
         println!(
-            "SIZE {size} B (budget {BUDGET} B, headroom {} B)",
-            BUDGET as i64 - size as i64
+            "SIZE {size} B (budget {budget} B, headroom {} B)",
+            budget as i64 - size as i64
         );
-        assert!(size <= BUDGET, "hermes-gateway {size} B > {BUDGET} B");
+        assert!(size <= budget, "hermes-gateway {size} B > {budget} B");
         if let Ok(o) = Command::new("readelf").arg("-SW").arg(&bin).output() {
             let s = String::from_utf8_lossy(&o.stdout);
             assert!(!s.contains(".symtab"), "binary not stripped");
@@ -296,26 +345,27 @@ fn real_size_2mib() {
 
     let stop = Arc::new(AtomicBool::new(false));
     let hits = Arc::new(AtomicU64::new(0));
-    stub_upstream(P_UP, stop.clone(), hits.clone());
+    stub_upstream(p_up(), stop.clone(), hits.clone());
 
     // 1. production path (CurlProvider -> stub upstream)
-    let gw = spawn_gateway(&work, P_GW, false, &legacy);
-    let up = wait_up(P_GW);
+    let gw = spawn_gateway(&work, p_gw(), false, &legacy);
+    let up = wait_up(p_gw());
     println!(
-        "[{}] gateway :{P_GW} /health 200 after {} ms",
+        "[{}] gateway :{} /health 200 after {} ms",
         zagreb_now(),
+        p_gw(),
         up.as_millis()
     );
-    let h = http(P_GW, "GET", "/health", &[], "");
+    let h = http(p_gw(), "GET", "/health", &[], "");
     println!("GET /health -> {} {}", h.code, h.body.trim());
     assert_eq!(h.code, 200);
-    let m = http(P_GW, "GET", "/v1/models", &[], "");
+    let m = http(p_gw(), "GET", "/v1/models", &[], "");
     println!("GET /v1/models -> {} {}", m.code, m.body.trim());
     assert_eq!(m.code, 200);
     assert!(m.body.contains("hermes-agent"));
 
     let t = Instant::now();
-    let c1 = chat(P_GW, "hello 2mib", None);
+    let c1 = chat(p_gw(), "hello 2mib", None);
     let sid = c1.header("X-Hermes-Session-Id").expect("session id header");
     println!(
         "POST /v1/chat/completions -> {} in {} ms, session {sid}, body has 'stub answer ok': {}",
@@ -325,7 +375,7 @@ fn real_size_2mib() {
     );
     assert_eq!(c1.code, 200, "{}", c1.body);
     assert!(c1.body.contains("stub answer ok"));
-    let c2 = chat(P_GW, "second turn", Some(&sid));
+    let c2 = chat(p_gw(), "second turn", Some(&sid));
     println!(
         "POST /v1/chat/completions (turn 2, same session) -> {}",
         c2.code
@@ -333,7 +383,7 @@ fn real_size_2mib() {
     assert_eq!(c2.code, 200, "{}", c2.body);
 
     let own = http(
-        P_GW,
+        p_gw(),
         "GET",
         &format!("/api/sessions/{sid}/messages"),
         &[],
@@ -347,7 +397,7 @@ fn real_size_2mib() {
     assert_eq!(own.code, 200);
     assert_eq!(roles(&own.body), 4, "{}", own.body);
 
-    let old = http(P_GW, "GET", "/api/sessions/s-py/messages", &[], "");
+    let old = http(p_gw(), "GET", "/api/sessions/s-py/messages", &[], "");
     println!(
         "GET /api/sessions/s-py/messages (legacy FTS5 db, read-only) -> {} roles {}",
         old.code,
@@ -362,7 +412,7 @@ fn real_size_2mib() {
     );
     assert!(old.body.contains("legacy answer"));
 
-    let list = http(P_GW, "GET", "/api/sessions?limit=10", &[], "");
+    let list = http(p_gw(), "GET", "/api/sessions?limit=10", &[], "");
     println!(
         "GET /api/sessions -> {} has own {} has legacy {}",
         list.code,
@@ -374,10 +424,10 @@ fn real_size_2mib() {
 
     // 2. restart on the same rs-state.db: the session is persisted by SQLite
     drop(gw);
-    let gw2 = spawn_gateway(&work, P_GW, false, &legacy);
-    let up2 = wait_up(P_GW);
+    let gw2 = spawn_gateway(&work, p_gw(), false, &legacy);
+    let up2 = wait_up(p_gw());
     let again = http(
-        P_GW,
+        p_gw(),
         "GET",
         &format!("/api/sessions/{sid}/messages"),
         &[],
@@ -392,7 +442,7 @@ fn real_size_2mib() {
     assert_eq!(again.code, 200);
     assert_eq!(roles(&again.body), 4);
     let unauth = {
-        let mut s = TcpStream::connect(("127.0.0.1", P_GW)).unwrap();
+        let mut s = TcpStream::connect(("127.0.0.1", p_gw())).unwrap();
         s.write_all(b"GET /v1/models HTTP/1.0\r\nHost: x\r\n\r\n")
             .unwrap();
         let mut o = String::new();
@@ -404,13 +454,15 @@ fn real_size_2mib() {
     drop(gw2);
 
     // 3. --mock gateway (shadow / smoke mode)
-    let mock = spawn_gateway(&work, P_MOCK, true, &legacy);
-    wait_up(P_MOCK);
-    let mc = chat(P_MOCK, "mock hello", None);
-    let mf = chat(P_MOCK, "mock-fail please", None);
+    let mock = spawn_gateway(&work, p_mock(), true, &legacy);
+    wait_up(p_mock());
+    let mc = chat(p_mock(), "mock hello", None);
+    let mf = chat(p_mock(), "mock-fail please", None);
     println!(
-        "--mock :{P_MOCK} chat -> {}, mock-fail -> {}",
-        mc.code, mf.code
+        "--mock :{} chat -> {}, mock-fail -> {}",
+        p_mock(),
+        mc.code,
+        mf.code
     );
     assert_eq!(mc.code, 200);
     assert_eq!(mf.code, 502);

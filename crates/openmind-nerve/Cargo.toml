@@ -26,6 +26,10 @@ galion-common = { path = "../galion-common" }
 tunnel-lint = { path = "../tunnel-lint" }
 
 [dev-dependencies]
+# T4.2 tests: every plan template must pass the real hades-gate admin-safety review.
+hades-gate = { path = "../hades-gate" }
+# Sign throwaway test approvals (same version and features as hades-gate; already in Cargo.lock).
+ed25519-dalek = { version = "2.2", default-features = false, features = ["std", "zeroize"] }
 zagreb-time = { path = "../zagreb-time" }
 openmind-schema = { path = "../openmind-schema" }
 # T3.6 consumer compatibility (tests/consumer_compat.rs): the real consumer crates,

@@ -1,4 +1,9 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifie// galion-feature-pin, galion-jsonout from release-repro-unify (wave-4 slot 325).
+// gaia-cortex, nerve-cortex-contract, xtask from cortex-live-merge-3 via
+// cortex-staging-fold (wave-4 slot 293), merged in release-bins-add (slot 337).
+assert_eq!(
+CRATES.iter().filter(|r| r.role.system().is_some()).count(),
+61: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
 //! The Gaia ownership registry: every workspace crate and every known live
@@ -110,6 +115,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("gaia-apollo", F(FunctionId::Apollo), "APOLLO function crate"),
     c("gaia-artemis", F(FunctionId::Artemis), "ARTEMIS function crate"),
     c("gaia-core", Core, "GAIA core: orchestrator, ownership table, bus, Alpha registry, lineage"),
+    c("gaia-cortex", S(System::Nerve), "pending Slavik: event-driven cortex (gaia-cortex, live as gaia-cortex.service): reads nerve events, opens incidents, plans fixes, hands off to Hermes; same system as the nerve it consumes (folded onto main-staging by cortex-staging-fold, wave-4 slot 293); alternative: GuardianWatchdog/Alerting (MINERVA)"),
     c("gaia-demeter", F(FunctionId::Demeter), "DEMETER function crate"),
     c("gaia-eleuthia", F(FunctionId::Eleuthia), "ELEUTHIA function crate"),
     c("gaia-hades", F(FunctionId::Hades), "HADES function crate (plans only, approval-gated)"),
@@ -145,6 +151,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("hermes-tools", S(System::Terminal), "pending Slavik: sandboxed coding tools for hermes-rs, run through openmind-sandbox; alternative hermes-agents/ARTEMIS"),
     c("link-watch", S(System::LinkWatch), "laptop link intake"),
     c("nerve-client", S(System::Nerve), "fire-and-forget signal push to galion-nerve over loopback; a nerve signal line"),
+    c("nerve-cortex-contract", S(System::Nerve), "pending Slavik: wire contract between the event-driven nerve and the cortex (B33 event envelope, action request/result); a nerve signal line"),
     c("one-defence", S(System::GuardianWatchdog), "read-only health_checks rows and a defence note; security watch (was HEPHAESTUS)"),
     c("one-set-model", S(System::GalionOne), "Galion One plan/action model lane, validated, writes nothing (was HEPHAESTUS)"),
     c("one-talk", S(System::GalionOne), "Galion One hear/reply request shapes (was HEPHAESTUS)"),
@@ -168,6 +175,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("room", S(System::Room), "read-only page of the operator files agents share"),
     c("tuner", S(System::Tuner), "ukulele tuner static server (:8650)"),
     c("tunnel-lint", S(System::Nerve), "pending Slavik: read-only cloudflared ingress lint (tunnel-audit d35ef73), used by the nerve ingress-lint sensor"),
+    c("xtask", S(System::CargoBuild), "pending Slavik: cargo xtask CI task runner (every .github/workflows step calls one of its subcommands, incl. replay-corpus); HEPHAESTUS build tooling; alternative: RepoCheck (MINERVA self-eval)"),
     c("zagreb-time", S(System::ZagrebClock), "Europe/Zagreb RFC 3339 with explicit offset (was GAIA)"),
 ];
 
@@ -352,9 +360,11 @@ mod tests {
         // console-static, console-ui from the console pair (main-staging 2026-10-21).
         // galion-tar from shared-tar-crate via shared-tar-mergefix (wave-4 slot 242).
         // galion-feature-pin, galion-jsonout from release-repro-unify (wave-4 slot 325).
+        // gaia-cortex, nerve-cortex-contract, xtask from cortex-live-merge-3 via
+        // cortex-staging-fold (wave-4 slot 293), merged by release-bins-add (slot 337).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            58
+            61
         );
     }
 
@@ -387,6 +397,7 @@ mod tests {
                 "bench-scoreboard",
                 "console-static",
                 "console-ui",
+                "gaia-cortex",
                 "gaia-live",
                 "galion-backup",
                 "galion-bench",
@@ -403,8 +414,10 @@ mod tests {
                 "galion-wallstreet",
                 "hermes-bench",
                 "hermes-tools",
+                "nerve-cortex-contract",
                 "openmind-queue",
-                "tunnel-lint"
+                "tunnel-lint",
+                "xtask"
             ]
         );
         assert!(crate_owner("gaia-live")

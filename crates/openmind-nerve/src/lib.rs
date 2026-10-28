@@ -35,6 +35,8 @@
 //! - [`evt`]: event-driven mode (`NERVE_MODE=event`): kernel-blocking sources,
 //!   dedupe/debounce, delegated escalation, inventory, NDJSON stream, actions.
 //! - [`feed`]: the cortex B33 event feed (`GET /api/v1/cortex/events`).
+//! - [`plans`]: HADES plan templates per fix family from cortex incidents
+//!   (T4.2; text only, `GET /api/v1/cortex/plans`, never executed).
 //! - [`engine`]: the loop; [`server`]: the loopback JSON API and dashboard;
 //!   [`replay`]: run captured live data through the same pipeline.
 
@@ -42,6 +44,7 @@ pub mod access;
 pub mod alerts;
 pub mod collect;
 pub mod config;
+pub mod corpus;
 pub mod cortex;
 pub mod egress;
 pub mod engine;
@@ -51,7 +54,9 @@ pub mod hub;
 pub mod incident;
 pub mod logscan;
 pub mod owners;
+pub mod plans;
 pub mod probe;
+pub mod protected_hosts;
 pub mod reflex;
 pub mod reflex_audit;
 pub mod replay;

@@ -51,3 +51,13 @@ linker = "rust-lld"
 # Every .github/workflows step calls one of its subcommands.
 [alias]
 xtask = "run --locked --quiet -p xtask --"
+
+# x86_64 musl links with rust-lld too (slot 348 nerve-size-headroom,
+# 2026-10-28 CET +01:00; same line as slot 329 hermes-gateway-2mib, owner
+# D-329-2 "yes"). CI (self-eval.yml) and scripts/ucpu-gate.sh already export
+# this linker; setting it here makes a plain
+# `cargo build --target x86_64-unknown-linux-musl` link the same way, so the
+# lld-only size flags in crates/openmind-nerve/build.rs apply there too.
+# Linker choice only: no codegen or CPU flags (UNIVERSAL-CPU.md).
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"

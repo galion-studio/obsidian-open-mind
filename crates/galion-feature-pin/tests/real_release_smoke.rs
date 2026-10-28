@@ -6,7 +6,8 @@
 //!
 //! Gated: `GALION_REAL=1` and `GALION_RELEASE_BINS_DIR=<dir>` holding the
 //! full-set binaries kept by `real_release_repro` (`<work>/out/<triple>/full`).
-//! Each service is started alone on the slot 337 ports 22070-22079, probed
+//! Each service is started alone on the slot 337 ports 22070-22079 (or
+//! `GALION_SMOKE_PORT_BASE`..+9), probed
 //! with real HTTP GETs, then killed. The cortex runs dry-run, with no nerve
 //! (nothing listens on the nerve port) and LLM off; the console runs the live
 //! `--dist --ui rust --local-api` argv on a throwaway dist dir. No network,
@@ -21,10 +22,17 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const CORTEX_PORT: u16 = 22070;
-const CONSOLE_PORT: u16 = 22071;
-const CONSOLE_PULSE: u16 = 22078;
-const NO_NERVE_PORT: u16 = 22079;
+/// Default port base: the slot 337 ports 22070-22079. `GALION_SMOKE_PORT_BASE`
+/// moves the whole block (base+0 cortex, +1 console, +8 console pulse, +9 the
+/// dead nerve port) so another slot can run this on its own range (slot 348).
+const DEFAULT_PORT_BASE: u16 = 22070;
+
+fn port_base() -> u16 {
+    std::env::var("GALION_SMOKE_PORT_BASE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_PORT_BASE)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -111,7 +119,10 @@ fn new_release_bins_answer_on_their_release_bytes() {
         return;
     };
     let dir = PathBuf::from(dir);
-    for p in [CORTEX_PORT, CONSOLE_PORT, CONSOLE_PULSE, NO_NERVE_PORT] {
+    let base = port_base();
+    let (cortex_port, console_port, console_pulse, no_nerve_port) =
+        (base, base + 1, base + 8, base + 9);
+    for p in [cortex_port, console_port, console_pulse, no_nerve_port] {
         assert!(free(p), "port {p} busy before the test");
     }
     let mut n = 0usize;
@@ -141,19 +152,19 @@ fn new_release_bins_answer_on_their_release_bytes() {
             &cortex,
             &["serve"],
             &[
-                ("CORTEX_LISTEN", format!("127.0.0.1:{CORTEX_PORT}")),
+                ("CORTEX_LISTEN", format!("127.0.0.1:{cortex_port}")),
                 ("CORTEX_DATA_DIR", d.display().to_string()),
                 (
                     "CORTEX_NERVE_URL",
-                    format!("http://127.0.0.1:{NO_NERVE_PORT}"),
+                    format!("http://127.0.0.1:{no_nerve_port}"),
                 ),
                 ("CORTEX_ACTIONS", "dry-run".into()),
                 ("CORTEX_PULL_EVERY_S", "0".into()),
                 ("CORTEX_LLM_ENABLED", "0".into()),
             ],
         );
-        let h = wait_get(CORTEX_PORT, "/health", &mut k.0);
-        show("gaia-cortex", CORTEX_PORT, "/health", &h);
+        let h = wait_get(cortex_port, "/health", &mut k.0);
+        show("gaia-cortex", cortex_port, "/health", &h);
         assert_eq!(h.0, 200);
         assert!(h.1.contains("\"service\":\"gaia-cortex\""), "{}", h.1);
         assert!(h.1.contains("\"mode\":\"dry-run\""), "{}", h.1);
@@ -166,13 +177,13 @@ fn new_release_bins_answer_on_their_release_bytes() {
             "/alerts",
             "/escalations",
         ] {
-            let r = wait_get(CORTEX_PORT, path, &mut k.0);
-            show("gaia-cortex", CORTEX_PORT, path, &r);
+            let r = wait_get(cortex_port, path, &mut k.0);
+            show("gaia-cortex", cortex_port, path, &r);
             assert_eq!(r.0, 200, "{path}");
             n += 1;
         }
-        let r = wait_get(CORTEX_PORT, "/nope", &mut k.0);
-        show("gaia-cortex", CORTEX_PORT, "/nope", &r);
+        let r = wait_get(cortex_port, "/nope", &mut k.0);
+        show("gaia-cortex", cortex_port, "/nope", &r);
         assert_eq!(r.0, 404);
         n += 1;
     }
@@ -187,8 +198,8 @@ fn new_release_bins_answer_on_their_release_bytes() {
     )
     .unwrap();
     {
-        let bind = format!("127.0.0.1:{CONSOLE_PORT}");
-        let pulse = format!("127.0.0.1:{CONSOLE_PULSE}");
+        let bind = format!("127.0.0.1:{console_port}");
+        let pulse = format!("127.0.0.1:{console_pulse}");
         let mut k = spawn(
             &serve,
             &[
@@ -205,31 +216,31 @@ fn new_release_bins_answer_on_their_release_bytes() {
             ],
             &[],
         );
-        let r = wait_get(CONSOLE_PORT, "/", &mut k.0);
-        show("galion-console-serve", CONSOLE_PORT, "/", &r);
+        let r = wait_get(console_port, "/", &mut k.0);
+        show("galion-console-serve", console_port, "/", &r);
         assert!(r.0 == 200 || r.0 == 302, "{r:?}");
         n += 1;
-        let h = wait_get(CONSOLE_PORT, "/api/v1/health", &mut k.0);
-        show("galion-console-serve", CONSOLE_PORT, "/api/v1/health", &h);
+        let h = wait_get(console_port, "/api/v1/health", &mut k.0);
+        show("galion-console-serve", console_port, "/api/v1/health", &h);
         assert_eq!(h.0, 200);
         n += 1;
-        let p = wait_get(CONSOLE_PORT, "/api/v1/ping", &mut k.0);
-        show("galion-console-serve", CONSOLE_PORT, "/api/v1/ping", &p);
+        let p = wait_get(console_port, "/api/v1/ping", &mut k.0);
+        show("galion-console-serve", console_port, "/api/v1/ping", &p);
         assert_eq!(p.0, 200);
         n += 1;
-        let s = wait_get(CONSOLE_PORT, "/api/v1/session", &mut k.0);
-        show("galion-console-serve", CONSOLE_PORT, "/api/v1/session", &s);
+        let s = wait_get(console_port, "/api/v1/session", &mut k.0);
+        show("galion-console-serve", console_port, "/api/v1/session", &s);
         assert_eq!(s.0, 401, "unpaired session must be 401");
         n += 1;
-        let t = wait_get(CONSOLE_PORT, "/../etc/passwd", &mut k.0);
-        show("galion-console-serve", CONSOLE_PORT, "/../etc/passwd", &t);
+        let t = wait_get(console_port, "/../etc/passwd", &mut k.0);
+        show("galion-console-serve", console_port, "/../etc/passwd", &t);
         assert!(t.0 >= 400, "path traversal must be refused: {t:?}");
         assert!(!t.1.contains("root:"), "leaked a host file");
         n += 1;
     }
     let _ = std::fs::remove_dir_all(&d);
 
-    for p in [CORTEX_PORT, CONSOLE_PORT, CONSOLE_PULSE, NO_NERVE_PORT] {
+    for p in [cortex_port, console_port, console_pulse, no_nerve_port] {
         assert!(free(p), "port {p} still busy after the test");
     }
     assert!(RELEASE_BINS.iter().any(|r| r.bin == "gaia-cortex"));

@@ -139,8 +139,19 @@ pub fn branch_ok(b: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Refuse a worktree that is, contains or lives inside a denied root.
-pub fn worktree_ok(wt: &Path, extra_deny: &[PathBuf]) -> Result<(), String> {
+/// Actionable hint appended to a deny overlap (slot 355: the 2026-10-27
+/// 19:45 CET crash loop came from a worktree under /var/lib, which the
+/// deny list refuses, while the unit only lets the gateway write there).
+pub const DENY_HINT: &str = "pick a dedicated path outside the deny list (e.g. /srv/hermes-coding/worktree) and add its parent to the unit's ReadWritePaths; see docs/ops/hermes-rs-crashloop-r3.md";
+
+/// Hint for a write error on a coding path (ProtectSystem=strict makes every
+/// path outside ReadWritePaths read-only inside the unit).
+pub const RW_HINT: &str = "is the path inside the unit's ReadWritePaths (ProtectSystem=strict) and writable by the service user?";
+
+/// The path-only part of [`worktree_ok`]: too close to /, or overlapping a
+/// denied root. Does not touch the filesystem, so staged drop-ins can be
+/// checked against the same rule in tests.
+pub fn worktree_path_ok(wt: &Path, extra_deny: &[PathBuf]) -> Result<(), String> {
     if wt.parent().is_none() || wt.components().count() < 3 {
         return Err(format!(
             "worktree {} is too close to / (need at least two levels)",
@@ -155,12 +166,18 @@ pub fn worktree_ok(wt: &Path, extra_deny: &[PathBuf]) -> Result<(), String> {
     for d in &deny {
         if wt.starts_with(d) || d.starts_with(wt) {
             return Err(format!(
-                "worktree {} overlaps the denied path {}",
+                "worktree {} overlaps the denied path {} ({DENY_HINT})",
                 wt.display(),
                 d.display()
             ));
         }
     }
+    Ok(())
+}
+
+/// Refuse a worktree that is, contains or lives inside a denied root.
+pub fn worktree_ok(wt: &Path, extra_deny: &[PathBuf]) -> Result<(), String> {
+    worktree_path_ok(wt, extra_deny)?;
     let git = wt.join(".git");
     match std::fs::symlink_metadata(&git) {
         Ok(m) if m.is_dir() => Ok(()),
@@ -323,11 +340,103 @@ impl CodingConfig {
                 .recursive(true)
                 .mode(0o700)
                 .create(&d)
-                .map_err(|e| format!("mkdir {}: {e}", d.display()))?;
+                .map_err(|e| format!("mkdir {}: {e} ({RW_HINT})", d.display()))?;
         }
         if let Some(p) = self.audit_path.parent() {
-            std::fs::create_dir_all(p).map_err(|e| format!("mkdir {}: {e}", p.display()))?;
+            std::fs::create_dir_all(p)
+                .map_err(|e| format!("mkdir {}: {e} ({RW_HINT})", p.display()))?;
         }
         Ok(())
+    }
+}
+
+/// Nearest existing ancestor of `p` (or `p` itself).
+fn existing_ancestor(p: &Path) -> Option<&Path> {
+    p.ancestors().find(|a| a.exists())
+}
+
+/// Why `p` could not be created or written, judged from its nearest existing
+/// ancestor, without creating anything: read-only mount (as seen from this
+/// process's mount namespace) or no write permission. `None` = looks fine.
+pub fn write_problem(p: &Path) -> Option<String> {
+    use std::os::unix::ffi::OsStrExt;
+    let Some(a) = existing_ancestor(p) else {
+        return Some(format!("{}: no existing ancestor", p.display()));
+    };
+    let c = std::ffi::CString::new(a.as_os_str().as_bytes()).ok()?;
+    // SAFETY: `c` is a valid NUL-terminated path; `st` is a plain C struct
+    // that statvfs fully initialises on success.
+    let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(c.as_ptr(), &mut st) } == 0 && st.f_flag & libc::ST_RDONLY != 0 {
+        return Some(format!(
+            "{}: {} is on a read-only file system ({RW_HINT})",
+            p.display(),
+            a.display()
+        ));
+    }
+    // SAFETY: valid NUL-terminated path, no pointers kept.
+    if unsafe { libc::access(c.as_ptr(), libc::W_OK) } != 0 {
+        let e = std::io::Error::last_os_error();
+        return Some(format!(
+            "{}: {} is not writable: {e} ({RW_HINT})",
+            p.display(),
+            a.display()
+        ));
+    }
+    None
+}
+
+impl CodingConfig {
+    /// Non-mutating check of every path the coding tools must write
+    /// (state/stage, target, audit dir). Used by `hermes-gateway
+    /// --check-config` so a bad drop-in is caught before a restart, not by a
+    /// crash loop.
+    pub fn write_problems(&self) -> Vec<String> {
+        let audit_parent = self.audit_path.parent().map(Path::to_path_buf);
+        [
+            Some(self.state_dir.join("stage")),
+            Some(self.target_dir.clone()),
+            audit_parent,
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(|p| write_problem(&p))
+        .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn var_lib_worktree_is_denied_with_hint() {
+        let e = worktree_path_ok(Path::new("/var/lib/hermes-rs/coding-worktree"), &[]).unwrap_err();
+        assert!(e.contains("overlaps the denied path /var/lib"), "{e}");
+        assert!(e.contains("ReadWritePaths"), "{e}");
+    }
+
+    #[test]
+    fn srv_worktree_path_is_allowed() {
+        assert!(worktree_path_ok(Path::new("/srv/hermes-coding/worktree"), &[]).is_ok());
+    }
+
+    #[test]
+    fn write_problem_sees_unwritable_and_ok() {
+        // Fresh temp dir for the ok case, a 0500 dir for the denied case.
+        let d = std::env::temp_dir().join(format!("ht355-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        assert_eq!(write_problem(&d.join("a/b")), None);
+        let ro = d.join("ro");
+        std::fs::create_dir_all(&ro).unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o500)).unwrap();
+        // root ignores mode bits; only assert when not root.
+        if unsafe { libc::geteuid() } != 0 {
+            let e = write_problem(&ro.join("x")).unwrap();
+            assert!(e.contains("not writable"), "{e}");
+        }
+        std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::remove_dir_all(&d).unwrap();
     }
 }

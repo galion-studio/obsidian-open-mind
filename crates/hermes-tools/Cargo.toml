@@ -16,4 +16,5 @@ path = "src/bin/hermes-mock-model.rs"
 [dependencies]
 hermes-rs = { path = "../hermes-rs", default-features = false }
 openmind-sandbox = { path = "../openmind-sandbox" }
+libc = "0.2"
 serde_json = { workspace = true }

@@ -305,7 +305,11 @@ fn real_build_stamp_reproducible() {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(4096);
-        assert!(za - zz <= max, "stamp grew the nerve by {} B (max {max})", za - zz);
+        assert!(
+            za - zz <= max,
+            "stamp grew the nerve by {} B (max {max})",
+            za - zz
+        );
     }
 
     let va = version(&a);

@@ -14,7 +14,14 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+use galion_realtest::ports::Block;
+
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
+
+/// Slot 383 (real-ports-batch-3): delegate nerve +0, refuse-test listen +1, hermes decoy +7,
+/// dead component +8, OpenRouter decoy +9; `NO_OPENROUTER_REAL_PORT_BASE` moves the block,
+/// unset keeps the old 21110-21119.
+static PORTS: Block = Block::new("NO_OPENROUTER_REAL_PORT_BASE", 21110, 10);
 
 fn real() -> bool {
     std::env::var("GALION_REAL").as_deref() == Ok("1")
@@ -62,8 +69,8 @@ fn delegate_handoff_with_openrouter_env_present() {
         eprintln!("skip: set GALION_REAL=1");
         return;
     }
-    let port = 21110;
-    let decoy = TcpListener::bind("127.0.0.1:21119").unwrap();
+    let port = PORTS.port(0);
+    let decoy = TcpListener::bind(PORTS.addr(9)).unwrap();
     decoy.set_nonblocking(true).unwrap();
     let dir = tmp("delegate");
     let fifo = dir.join("journal.fifo");
@@ -74,7 +81,10 @@ fn delegate_handoff_with_openrouter_env_present() {
         .success());
     std::fs::write(
         dir.join("components.json"),
-        r#"[{"name":"real-241-dead","port":21118,"path":"/health","gaia":"DEMETER","system":"tuner"}]"#,
+        format!(
+            r#"[{{"name":"real-241-dead","port":{},"path":"/health","gaia":"DEMETER","system":"tuner"}}]"#,
+            PORTS.port(8)
+        ),
     )
     .unwrap();
     let mut child = Command::new(BIN)
@@ -99,7 +109,10 @@ fn delegate_handoff_with_openrouter_env_present() {
         .env("NERVE_EVT_JOURNALCTL", format!("replay:{}", fifo.display()))
         // Present but ignored: a dummy key value and a base URL at the decoy.
         .env("OPENROUTER_API_KEY", "dummy-value-241-not-a-key")
-        .env("OPENROUTER_BASE_URL", "http://127.0.0.1:21119/api/v1")
+        .env(
+            "OPENROUTER_BASE_URL",
+            format!("http://{}/api/v1", PORTS.addr(9)),
+        )
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
@@ -165,17 +178,18 @@ fn llm_endpoints_refused_at_start() {
         eprintln!("skip: set GALION_REAL=1");
         return;
     }
-    let decoy = TcpListener::bind("127.0.0.1:21117").unwrap();
+    let decoy = TcpListener::bind(PORTS.addr(7)).unwrap();
     decoy.set_nonblocking(true).unwrap();
     let dir = tmp("refuse");
+    let hermes_url = format!("http://hermes.local:{}/v1/chat/completions", PORTS.port(7));
     for url in [
         "https://openrouter.ai/api/v1/chat/completions",
         "https://openrouter%2Eai/api/v1/chat/completions",
         "http://127.0.0.1:8642/v1/chat/completions",
-        "http://hermes.local:21117/v1/chat/completions",
+        hermes_url.as_str(),
     ] {
         let out = Command::new(BIN)
-            .args(["serve", "--mode", "event", "--listen", "127.0.0.1:21111"])
+            .args(["serve", "--mode", "event", "--listen", PORTS.addr(1)])
             .env("NERVE_DATA_DIR", dir.join("data"))
             .env("NERVE_EVT_ESCALATE", "openai")
             .env("NERVE_EVT_LLM_ENDPOINT", url)
@@ -190,10 +204,7 @@ fn llm_endpoints_refused_at_start() {
             err.lines().last().unwrap_or("")
         );
     }
-    assert!(
-        TcpStream::connect(("127.0.0.1", 21111)).is_err(),
-        "never listened"
-    );
+    assert!(TcpStream::connect(PORTS.addr(1)).is_err(), "never listened");
     assert!(decoy.accept().is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }

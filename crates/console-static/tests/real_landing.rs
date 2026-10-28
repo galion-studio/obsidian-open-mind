@@ -16,8 +16,18 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const BIND: &str = "127.0.0.1:21232";
-const DEAD_UPSTREAM: &str = "127.0.0.1:21233";
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `LANDING_REAL_PORT_BASE`.
+/// Unset keeps main's slot-254 block 21230-21239 (BIND 21232, dead upstream 21233);
+/// rehearsal slot 407 kept main's default when folding slot 383 onto main 7ba85b60.
+static PORTS: Block = Block::new("LANDING_REAL_PORT_BASE", 21230, 10);
+fn bind_at() -> &'static str {
+    PORTS.addr(2)
+}
+fn dead_upstream_at() -> &'static str {
+    PORTS.addr(3)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -28,7 +38,7 @@ impl Drop for Kill {
 }
 
 fn get(path: &str, extra: &str) -> (u16, String, String) {
-    let mut s = TcpStream::connect(BIND).expect("connect");
+    let mut s = TcpStream::connect(bind_at()).expect("connect");
     s.set_read_timeout(Some(Duration::from_secs(15))).unwrap();
     write!(
         s,
@@ -59,9 +69,9 @@ fn real_landing_overview() {
             "--ui",
             "rust",
             "--upstream",
-            DEAD_UPSTREAM,
+            dead_upstream_at(),
             "--bind",
-            BIND,
+            bind_at(),
             "--quiet",
         ])
         .stdout(Stdio::null())
@@ -70,7 +80,7 @@ fn real_landing_overview() {
         .expect("start binary");
     let _guard = Kill(child);
     let t0 = Instant::now();
-    while TcpStream::connect(BIND).is_err() {
+    while TcpStream::connect(bind_at()).is_err() {
         assert!(
             t0.elapsed() < Duration::from_secs(10),
             "server did not start"

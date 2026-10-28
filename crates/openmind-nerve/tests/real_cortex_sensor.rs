@@ -27,7 +27,13 @@ use std::time::{Duration, Instant};
 #[allow(dead_code)] // shared golden helpers; each test uses a subset
 mod support;
 
+use galion_realtest::ports::Block;
+
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
+
+/// Slot 383 (real-ports-batch-3): nerve +0, live +1, dead +2, stray +3, 2nd nerve +4, 2nd stray +5;
+/// `CORTEX_SENSOR_REAL_PORT_BASE` moves the block, unset keeps the old 19430-19439.
+static PORTS: Block = Block::new("CORTEX_SENSOR_REAL_PORT_BASE", 19430, 10);
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -95,7 +101,7 @@ fn spawn(port: u16, dir: &Path, comps: &Path, extra: &[(&str, &str)]) -> Kill {
         .env("NERVE_JOURNAL", "0")
         .env("NERVE_GALION_HEALTH_PORT", "0")
         .env("NERVE_REFLEX", "0")
-        .env("NERVE_LISTEN_SCOPE", "19430-19439")
+        .env("NERVE_LISTEN_SCOPE", PORTS.range())
         .env_remove("NERVE_SENSORS_OFF")
         .stderr(Stdio::null());
     for (k, v) in extra {
@@ -164,8 +170,9 @@ fn real_cortex_sensors_on_the_box() {
         eprintln!("replay1 live capture not on this box: skipped");
     }
 
-    // 2. Serve on 19430: stray listener appears, then clears.
-    let svc = TcpListener::bind("127.0.0.1:19431").expect("19431 free");
+    let [p0, p1, p2, p3, p4, p5] = [0, 1, 2, 3, 4, 5].map(|o| PORTS.port(o));
+    // 2. Serve on nerve +0 (19430 by default): stray listener appears, then clears.
+    let svc = TcpListener::bind(PORTS.addr(1)).expect("svc port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 1024];
@@ -176,12 +183,14 @@ fn real_cortex_sensors_on_the_box() {
     let comps = dir.join("components.json");
     std::fs::write(
         &comps,
-        r#"[{"name":"live-svc","port":19431},{"name":"dead-svc","port":19432,"gaia":"APOLLO"}]"#,
+        format!(
+            r#"[{{"name":"live-svc","port":{p1}}},{{"name":"dead-svc","port":{p2},"gaia":"APOLLO"}}]"#
+        ),
     )
     .unwrap();
-    let stray = TcpListener::bind("127.0.0.1:19433").expect("19433 free");
-    let nerve = spawn(19430, &dir, &comps, &[]);
-    let st = wait_state(19430, |s| unmanaged(s).is_some());
+    let stray = TcpListener::bind(PORTS.addr(3)).expect("stray port free");
+    let nerve = spawn(p0, &dir, &comps, &[]);
+    let st = wait_state(p0, |s| unmanaged(s).is_some());
     let names: Vec<&str> = st["cortex_sensors"]
         .as_array()
         .expect("cortex_sensors")
@@ -203,7 +212,7 @@ fn real_cortex_sensors_on_the_box() {
     let f = unmanaged(&st).expect("stray listener reported");
     assert_eq!(
         f["title"],
-        "1 loopback listener(s) no monitored unit owns: :19433"
+        format!("1 loopback listener(s) no monitored unit owns: :{p3}").as_str()
     );
     assert_eq!(
         (f["kind"].as_str(), f["source"].as_str()),
@@ -226,10 +235,10 @@ fn real_cortex_sensors_on_the_box() {
         "{}",
         ev.ts
     );
-    let cortex = get(19430, "/api/v1/cortex").unwrap();
+    let cortex = get(p0, "/api/v1/cortex").unwrap();
     assert_eq!(
         cortex["exposure"]["unmanaged_ports"],
-        serde_json::json!([19433])
+        serde_json::json!([p3])
     );
     let us: Vec<u64> = st["cortex_sensors"]
         .as_array()
@@ -238,14 +247,14 @@ fn real_cortex_sensors_on_the_box() {
         .filter_map(|s| s["us"].as_u64())
         .collect();
     eprintln!(
-        "serve :19430 cycle {}: sensors {names:?} us {us:?}, cycle_ms {}, rss {} KiB; event {}",
+        "serve :{p0} cycle {}: sensors {names:?} us {us:?}, cycle_ms {}, rss {} KiB; event {}",
         st["cycle"],
         st["cycle_ms"],
         rss_kib(nerve.0.id()),
         serde_json::to_string(&ev).unwrap()
     );
     drop(stray);
-    let st = wait_state(19430, |s| {
+    let st = wait_state(p0, |s| {
         s["cycle"].as_u64().unwrap_or(0) > 0 && unmanaged(s).is_none()
     });
     assert!(
@@ -259,15 +268,15 @@ fn real_cortex_sensors_on_the_box() {
         .iter()
         .any(|e| e["source"] == "listeners"));
     eprintln!(
-        "serve :19430 cycle {}: stray gone, finding cleared",
+        "serve :{p0} cycle {}: stray gone, finding cleared",
         st["cycle"]
     );
     drop(nerve);
 
     // 3. NERVE_SENSORS_OFF=listeners on 19434.
-    let stray = TcpListener::bind("127.0.0.1:19435").expect("19435 free");
-    let nerve = spawn(19434, &dir, &comps, &[("NERVE_SENSORS_OFF", "listeners")]);
-    let st = wait_state(19434, |s| s["cycle"].as_u64().unwrap_or(0) >= 2);
+    let stray = TcpListener::bind(PORTS.addr(5)).expect("stray port free");
+    let nerve = spawn(p4, &dir, &comps, &[("NERVE_SENSORS_OFF", "listeners")]);
+    let st = wait_state(p4, |s| s["cycle"].as_u64().unwrap_or(0) >= 2);
     let names: Vec<&str> = st["cortex_sensors"]
         .as_array()
         .unwrap()
@@ -280,7 +289,7 @@ fn real_cortex_sensors_on_the_box() {
     );
     assert!(unmanaged(&st).is_none());
     assert!(st["cortex"]["exposure"].is_null());
-    eprintln!("serve :19434 NERVE_SENSORS_OFF=listeners cycle {}: sensors {names:?}, stray :19435 not reported", st["cycle"]);
+    eprintln!("serve :{p4} NERVE_SENSORS_OFF=listeners cycle {}: sensors {names:?}, stray :{p5} not reported", st["cycle"]);
     drop(stray);
     drop(nerve);
     let _ = std::fs::remove_dir_all(&dir);

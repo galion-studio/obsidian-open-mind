@@ -209,11 +209,15 @@ name = "console-static"
 version = "0.1.0"
 dependencies = [
  "console-ui",
+ "galion-realtest",
 ]
 
 [[package]]
 name = "console-ui"
 version = "0.1.0"
+dependencies = [
+ "galion-realtest",
+]
 
 [[package]]
 name = "const-oid"
@@ -698,6 +702,7 @@ name = "galion-one"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "galion-realtest",
  "zagreb-time",
 ]
 
@@ -717,6 +722,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-survival"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-tar"
 version = "0.1.0"
 
@@ -725,15 +739,6 @@ name = "galion-vending"
 version = "0.1.0"
 dependencies = [
  "galion-bench",
- "serde",
- "serde_json",
- "zagreb-time",
-]
-
-[[package]]
-name = "galion-survival"
-version = "0.1.0"
-dependencies = [
  "serde",
  "serde_json",
  "zagreb-time",
@@ -1024,6 +1029,7 @@ name = "hermes-gateway"
 version = "0.1.0"
 dependencies = [
  "galion-feature-pin",
+ "galion-realtest",
  "hermes-rs",
  "hermes-tools",
  "rusqlite",
@@ -1646,6 +1652,7 @@ name = "room"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "galion-realtest",
 ]
 
 [[package]]

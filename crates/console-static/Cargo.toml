@@ -22,3 +22,7 @@ path = "src/bin/galion-console-serve.rs"
 
 [dependencies]
 console-ui = { path = "../console-ui" }
+
+[dev-dependencies]
+# Port-base env for GALION_REAL tests (slot 375); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

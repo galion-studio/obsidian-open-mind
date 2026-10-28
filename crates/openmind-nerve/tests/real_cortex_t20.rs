@@ -24,7 +24,16 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
-const PORT: u16 = 19740;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): PORT +0; `CORTEX_T20_REAL_PORT_BASE`
+/// moves the block, unset keeps the old 19740-19749.
+static PORTS: Block = Block::new("CORTEX_T20_REAL_PORT_BASE", 19740, 10);
+
+#[allow(non_snake_case)]
+fn PORT() -> u16 {
+    PORTS.port(0)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -46,7 +55,7 @@ fn http(port: u16, path: &str) -> Option<(String, String)> {
 }
 
 fn state() -> Value {
-    http(PORT, "/api/v1/state")
+    http(PORT(), "/api/v1/state")
         .and_then(|(_, b)| serde_json::from_str(&b).ok())
         .unwrap_or_default()
 }
@@ -96,20 +105,27 @@ fn real_cortex_t20_all_sensors_on_the_box() {
     let fx = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let dir = std::env::temp_dir().join(format!("nerve-real-t20-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    serve(19741, b"HTTP/1.0 200 OK\r\nContent-Length: 3\r\n\r\nok\n");
     serve(
-        19742,
+        PORTS.port(1),
+        b"HTTP/1.0 200 OK\r\nContent-Length: 3\r\n\r\nok\n",
+    );
+    serve(
+        PORTS.port(2),
         b"HTTP/1.0 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n",
     );
     let comps = dir.join("components.json");
-    std::fs::write(&comps, r#"[{"name":"t20-svc","port":19741}]"#).unwrap();
+    std::fs::write(
+        &comps,
+        format!(r#"[{{"name":"t20-svc","port":{}}}]"#, PORTS.port(1)),
+    )
+    .unwrap();
     let lock = fx.join("rustsec/Cargo.lock");
     let manifest = fx.join("drift/SHA256SUMS");
     let deployed = fx.join("drift/deployed");
     let nerve = Kill(
         Command::new(BIN)
             .arg("serve")
-            .env("NERVE_ADDR", format!("127.0.0.1:{PORT}"))
+            .env("NERVE_ADDR", format!("127.0.0.1:{}", PORT()))
             .env("NERVE_INTERVAL", "5")
             .env("NERVE_DATA_DIR", dir.join("data"))
             .env("NERVE_COMPONENTS", &comps)
@@ -117,7 +133,7 @@ fn real_cortex_t20_all_sensors_on_the_box() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "19740-19749")
+            .env("NERVE_LISTEN_SCOPE", PORTS.range())
             .env_remove("NERVE_SENSORS_OFF")
             .env("NERVE_SSHD", "1")
             .env("NERVE_SSHD_AUTH_LOG", "0")
@@ -125,11 +141,15 @@ fn real_cortex_t20_all_sensors_on_the_box() {
             .env("NERVE_RUSTSEC_COMPONENT", "t20-svc")
             .env("NERVE_DRIFT_MANIFEST", &manifest)
             .env("NERVE_DRIFT_ROOT", &deployed)
-            .env("NERVE_CONNRATE_PORTS", "19741=t20-svc")
+            .env("NERVE_CONNRATE_PORTS", format!("{}=t20-svc", PORTS.port(1)))
             .env("NERVE_PROC_OWNER_USERS", "root")
             .env(
                 "NERVE_SURFACE_TARGETS",
-                "http://127.0.0.1:19741/@200,http://127.0.0.1:19742/@200",
+                format!(
+                    "http://{}/@200,http://{}/@200",
+                    PORTS.addr(1),
+                    PORTS.addr(2)
+                ),
             )
             .env("NERVE_HADES", "1")
             .stderr(Stdio::null())
@@ -191,7 +211,7 @@ fn real_cortex_t20_all_sensors_on_the_box() {
     for e in st["cortex_events"].as_array().unwrap() {
         let _: NerveEvent = serde_json::from_value(e.clone()).expect("B33 event");
     }
-    let (head, body) = http(PORT, "/api/v1/cortex/events").expect("feed");
+    let (head, body) = http(PORT(), "/api/v1/cortex/events").expect("feed");
     assert!(head.starts_with("HTTP/1.1 200"), "{head}");
     let feed: Vec<NerveEvent> = body
         .lines()
@@ -209,9 +229,10 @@ fn real_cortex_t20_all_sensors_on_the_box() {
         .map(|s| format!("{}={}", s["name"].as_str().unwrap_or("?"), s["us"]))
         .collect();
     eprintln!(
-        "serve :{PORT} cycle {}: cycle_ms {cycle_ms}, rss {rss} KiB, sensors us [{}]",
+        "serve :{port} cycle {}: cycle_ms {cycle_ms}, rss {rss} KiB, sensors us [{}]",
         st["cycle"],
-        us.join(" ")
+        us.join(" "),
+        port = PORT()
     );
     eprintln!("finding ids {got:?}");
     eprintln!("feed: {} B33 line(s), sources {sources:?}", feed.len());

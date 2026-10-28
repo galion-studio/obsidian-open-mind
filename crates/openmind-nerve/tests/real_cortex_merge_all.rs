@@ -28,7 +28,17 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
-const NERVE: u16 = 20280;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): NERVE +0; `CORTEX_MERGE_ALL_REAL_PORT_BASE`
+/// moves the block, unset keeps the old
+/// 20280-20289.
+static PORTS: Block = Block::new("CORTEX_MERGE_ALL_REAL_PORT_BASE", 20280, 10);
+
+#[allow(non_snake_case)]
+fn NERVE() -> u16 {
+    PORTS.port(0)
+}
 const SRC: &str = "t158";
 
 struct Kill(Child);
@@ -40,7 +50,7 @@ impl Drop for Kill {
 }
 
 fn http(method: &str, path: &str, body: &str) -> Option<(u16, String)> {
-    let addr = format!("127.0.0.1:{NERVE}").parse().ok()?;
+    let addr = format!("127.0.0.1:{}", NERVE()).parse().ok()?;
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).ok()?;
     let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
     write!(
@@ -138,7 +148,7 @@ fn real_cortex_merge_all_on_the_box() {
             .arg("serve")
             .arg("--log")
             .arg(&log)
-            .env("NERVE_ADDR", format!("127.0.0.1:{NERVE}"))
+            .env("NERVE_ADDR", format!("127.0.0.1:{}", NERVE()))
             .env("NERVE_INTERVAL", "3")
             .env("NERVE_DATA_DIR", dir.join("data"))
             .env("NERVE_COMPONENTS", &comps)
@@ -146,7 +156,7 @@ fn real_cortex_merge_all_on_the_box() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "20280-20289")
+            .env("NERVE_LISTEN_SCOPE", PORTS.range())
             .env("NERVE_EVENT_FEED_FILE", &log)
             .env_remove("NERVE_SENSORS_OFF")
             .env_remove("NERVE_EDGE_HOSTS")
@@ -170,8 +180,10 @@ fn real_cortex_merge_all_on_the_box() {
     let base = score(&st);
     assert!(mine(&st).is_empty());
     eprintln!(
-        "1. serve :{NERVE} cycle {}: sensors {names:?}; start score {base} {}",
-        st["cycle"], st["self_eval"]["grade"]
+        "1. serve :{nerve} cycle {}: sensors {names:?}; start score {base} {}",
+        st["cycle"],
+        st["self_eval"]["grade"],
+        nerve = NERVE()
     );
 
     // 2. warn ddos: own deduction (score v2), B33 event without title/fix.

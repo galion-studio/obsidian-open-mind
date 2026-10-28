@@ -21,7 +21,13 @@ use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use galion_realtest::ports::Block;
+
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
+
+/// Slot 383 (real-ports-batch-3): nerve +0, live service +1, wildcard stray +3, loopback stray +4;
+/// `CORTEX_TITLES_REAL_PORT_BASE` moves the block, unset keeps the old 19750-19759.
+static PORTS: Block = Block::new("CORTEX_TITLES_REAL_PORT_BASE", 19750, 10);
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -58,9 +64,11 @@ fn real_state_cortex_events_carry_no_titles() {
         eprintln!("skipped: set GALION_REAL=1");
         return;
     }
+    let (nerve_port, svc_port, wild_port, stray_port) =
+        (PORTS.port(0), PORTS.port(1), PORTS.port(3), PORTS.port(4));
     let dir = std::env::temp_dir().join(format!("nerve-real-titles-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
-    let svc = TcpListener::bind("127.0.0.1:19751").expect("19751 free");
+    let svc = TcpListener::bind(PORTS.addr(1)).expect("svc port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 1024];
@@ -69,15 +77,19 @@ fn real_state_cortex_events_carry_no_titles() {
         }
     });
     let comps = dir.join("components.json");
-    std::fs::write(&comps, r#"[{"name":"live-svc","port":19751}]"#).unwrap();
+    std::fs::write(
+        &comps,
+        format!(r#"[{{"name":"live-svc","port":{svc_port}}}]"#),
+    )
+    .unwrap();
     // Never accepted; dropped at the end of the test.
-    let wild = TcpListener::bind("0.0.0.0:19753").expect("19753 free");
-    let stray = TcpListener::bind("127.0.0.1:19754").expect("19754 free");
+    let wild = TcpListener::bind(("0.0.0.0", wild_port)).expect("wild port free");
+    let stray = TcpListener::bind(PORTS.addr(4)).expect("stray port free");
     let t0 = Instant::now();
     let nerve = Kill(
         Command::new(BIN)
             .arg("serve")
-            .env("NERVE_ADDR", "127.0.0.1:19750")
+            .env("NERVE_ADDR", PORTS.addr(0))
             .env("NERVE_INTERVAL", "5")
             .env("NERVE_DATA_DIR", dir.join("data"))
             .env("NERVE_COMPONENTS", &comps)
@@ -85,15 +97,16 @@ fn real_state_cortex_events_carry_no_titles() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "19750-19759")
+            .env("NERVE_LISTEN_SCOPE", PORTS.range())
             .env_remove("NERVE_SENSORS_OFF")
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn nerve"),
     );
-    let want = ["public-listener-19753", "unmanaged-listeners"];
+    let public_id = format!("public-listener-{wild_port}");
+    let want = [public_id.as_str(), "unmanaged-listeners"];
     let (raw, st) = loop {
-        let raw = get_raw(19750, "/api/v1/state").unwrap_or_default();
+        let raw = get_raw(nerve_port, "/api/v1/state").unwrap_or_default();
         let st: Value = serde_json::from_str(&raw).unwrap_or_default();
         let have = ids(&st);
         if want.iter().all(|w| have.iter().any(|h| h == w))
@@ -109,8 +122,11 @@ fn real_state_cortex_events_carry_no_titles() {
     }
     // The operator shape keeps the detail (loopback API, unchanged).
     let titles = st["cortex"]["vulnerabilities"].to_string();
-    assert!(titles.contains("port 19753 listens on 0.0.0.0"), "{titles}");
-    assert!(titles.contains(":19754"), "{titles}");
+    assert!(
+        titles.contains(&format!("port {wild_port} listens on 0.0.0.0")),
+        "{titles}"
+    );
+    assert!(titles.contains(&format!(":{stray_port}")), "{titles}");
     // The B33 events carry none of it.
     let evs = &st["cortex_events"];
     let ev = evs
@@ -128,22 +144,25 @@ fn real_state_cortex_events_carry_no_titles() {
     assert_eq!(ev["data"]["findings"], 2);
     assert_eq!(
         ev["data"]["top"],
-        serde_json::json!({"id": "public-listener-19753", "component": "host",
+        serde_json::json!({"id": public_id, "component": "host",
                            "cause": null, "evidence_n": 1})
     );
     let all = evs.to_string();
     for leak in [
-        "0.0.0.0",
-        "listens on",
-        ":19753",
-        ":19754",
-        "\"title\"",
-        "\"fix\"",
+        "0.0.0.0".to_string(),
+        "listens on".to_string(),
+        format!(":{wild_port}"),
+        format!(":{stray_port}"),
+        "\"title\"".to_string(),
+        "\"fix\"".to_string(),
     ] {
-        assert!(!all.contains(leak), "{leak} leaked in cortex_events: {all}");
+        assert!(
+            !all.contains(leak.as_str()),
+            "{leak} leaked in cortex_events: {all}"
+        );
     }
     eprintln!(
-        "serve :19750 cycle {} ({} ms to both findings), state {} bytes; cortex_events {}",
+        "serve :{nerve_port} cycle {} ({} ms to both findings), state {} bytes; cortex_events {}",
         st["cycle"],
         t0.elapsed().as_millis(),
         raw.len(),

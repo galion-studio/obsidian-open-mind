@@ -14,8 +14,20 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const ONE: &str = "127.0.0.1:19057";
-const MOUTH: &str = "127.0.0.1:19058";
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): block movable by `ONE_PROBE_REAL_PORT_BASE`
+/// (unset = 19057): one +0, mouth +1, dead upstream +2.
+static PORTS: Block = Block::new("ONE_PROBE_REAL_PORT_BASE", 19057, 3);
+fn one_at() -> &'static str {
+    PORTS.addr(0)
+}
+fn mouth_at() -> &'static str {
+    PORTS.addr(1)
+}
+fn dead_at() -> &'static str {
+    PORTS.addr(2)
+}
 
 struct Kill(Child, PathBuf);
 impl Drop for Kill {
@@ -69,16 +81,16 @@ fn real_galion_one_on_spare_ports() {
         .env("PATH", "/usr/bin:/bin")
         .env("HOME", dir.join("home"))
         .env("ONE_NO_WARM", "1")
-        .env("ONE_BIND", ONE)
-        .env("ONE_MOUTH_BIND", MOUTH)
+        .env("ONE_BIND", one_at())
+        .env("ONE_MOUTH_BIND", mouth_at())
         .env("GALION_HOME", dir.join("home"))
         .env("ONE_HERMES_DIR", dir.join("hermes"))
         .env("ONE_HERMES_ENV", dir.join("hermes.env"))
         .env("ONE_DEVICE_STORE", dir.join("missing-store.json"))
-        .env("GALION_MIND", "127.0.0.1:19059")
-        .env("GALION_EAR", "127.0.0.1:19059")
-        .env("GALION_EYE", "127.0.0.1:19059")
-        .env("GALION_MEMORY", "127.0.0.1:19059")
+        .env("GALION_MIND", dead_at())
+        .env("GALION_EAR", dead_at())
+        .env("GALION_EYE", dead_at())
+        .env("GALION_MEMORY", dead_at())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -86,16 +98,19 @@ fn real_galion_one_on_spare_ports() {
     let _guard = Kill(child, dir.clone());
 
     let start = Instant::now();
-    while get(ONE, "/health", "").is_none() {
+    while get(one_at(), "/health", "").is_none() {
         assert!(start.elapsed() < Duration::from_secs(10), "no /health");
         std::thread::sleep(Duration::from_millis(100));
     }
-    assert_eq!(get(ONE, "/health", "").unwrap(), (200, "ok\n".to_string()));
+    assert_eq!(
+        get(one_at(), "/health", "").unwrap(),
+        (200, "ok\n".to_string())
+    );
 
     // ONE-PROBE: the `one` pulse dials our own bind and comes up.
     let mut awake = String::new();
     while start.elapsed() < Duration::from_secs(10) {
-        awake = get(ONE, "/api/v1/awake", "").unwrap().1;
+        awake = get(one_at(), "/api/v1/awake", "").unwrap().1;
         if awake.contains(r#"{"id":"one","ok":true"#) {
             break;
         }
@@ -103,18 +118,24 @@ fn real_galion_one_on_spare_ports() {
     }
     assert!(awake.contains(r#"{"id":"one","ok":true"#), "{awake}");
 
-    let link = get(ONE, "/link", "").unwrap().1;
-    assert!(link.contains(r#""mouth":"127.0.0.1:19058""#), "{link}");
+    let link = get(one_at(), "/link", "").unwrap().1;
+    assert!(
+        link.contains(&format!(r#""mouth":"{}""#, mouth_at())),
+        "{link}"
+    );
 
-    let (code, services) = get(ONE, "/api/v1/services", "").unwrap();
+    let (code, services) = get(one_at(), "/api/v1/services", "").unwrap();
     assert_eq!(code, 200);
     assert_eq!(
         services,
-        r#"{"services":[{"id":"hermes-rs","port":19059,"ok":false,"ms":0},{"id":"openmind-memory","port":19059,"ok":false,"ms":0},{"id":"link-watch-rs","port":null,"ok":false,"ms":0}]}"#
+        format!(
+            r#"{{"services":[{{"id":"hermes-rs","port":{p},"ok":false,"ms":0}},{{"id":"openmind-memory","port":{p},"ok":false,"ms":0}},{{"id":"link-watch-rs","port":null,"ok":false,"ms":0}}]}}"#,
+            p = PORTS.port(2)
+        )
     );
 
     // Fail closed: no store, so no cookie and no forged cookie is accepted.
-    assert_eq!(get(ONE, "/me", "").unwrap().1, r#"{"you":false}"#);
+    assert_eq!(get(one_at(), "/me", "").unwrap().1, r#"{"you":false}"#);
     for path in [
         "/api/v1/analytics",
         "/session",
@@ -123,7 +144,7 @@ fn real_galion_one_on_spare_ports() {
         "/models",
     ] {
         for cookie in ["", "Cookie: galion_admin=forged\r\n"] {
-            let (code, body) = get(ONE, path, cookie).unwrap();
+            let (code, body) = get(one_at(), path, cookie).unwrap();
             assert_eq!(
                 (code, body.as_str()),
                 (401, r#"{"error":"pair"}"#),
@@ -131,7 +152,7 @@ fn real_galion_one_on_spare_ports() {
             );
         }
     }
-    assert_eq!(get(ONE, "/nope", "").unwrap().0, 404);
-    let (code, body) = get(MOUTH, "/health", "").unwrap();
+    assert_eq!(get(one_at(), "/nope", "").unwrap().0, 404);
+    let (code, body) = get(mouth_at(), "/health", "").unwrap();
     assert_eq!(code, 503, "{body}");
 }

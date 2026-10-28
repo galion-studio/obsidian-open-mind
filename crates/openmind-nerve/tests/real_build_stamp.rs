@@ -279,7 +279,16 @@ fn real_build_stamp_reproducible() {
     assert_eq!(sa, sb, "archive builds in two dirs must be byte-identical");
     assert_eq!(sa, sc, "env-stamped archive build = git checkout build");
     assert_ne!(sa, sd, "unstamped build differs only by the stamp");
-    assert_eq!(size(&a), size(&d), "the stamp should not change the size");
+    // Slot 430 (F-430-2): with the committed x86_64 musl rust-lld pin
+    // (D-409-2) lld packs sections without GNU ld's page slack, so the longer
+    // stamp strings (40-hex commit + RFC 3339 date vs `unknown`) move the size
+    // by a few bytes (128 B seen). Allow up to one 4 KiB page.
+    let stamp_drift = size(&a).abs_diff(size(&d));
+    log(format!("stamp size drift A-D {stamp_drift} B"));
+    assert!(
+        stamp_drift <= 4096,
+        "the stamp should not change the size by more than a page: {stamp_drift} B"
+    );
 
     // Size delta vs the unstamped base (F-376-1).
     let zbase = std::env::var("NERVE_STAMP_BASE").unwrap_or_else(|_| "9baa450c".into());

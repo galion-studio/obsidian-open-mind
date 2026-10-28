@@ -97,7 +97,6 @@ impl Drop for Kill {
 #[derive(Debug)]
 struct Resp {
     code: u16,
-    head: String,
     body: String,
 }
 
@@ -105,7 +104,6 @@ fn req(at: &str, method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]
     let Ok(mut s) = TcpStream::connect(at) else {
         return Resp {
             code: 0,
-            head: String::new(),
             body: String::new(),
         };
     };
@@ -133,7 +131,7 @@ fn req(at: &str, method: &str, path: &str, headers: &[(&str, &str)], body: &[u8]
         .and_then(|c| c.parse().ok())
         .unwrap_or(0);
     let body = String::from_utf8_lossy(raw.get(p + 4..).unwrap_or(&[])).to_string();
-    Resp { code, head, body }
+    Resp { code, body }
 }
 
 fn local(at: &str, method: &str, path: &str) -> Resp {

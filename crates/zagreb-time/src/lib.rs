@@ -79,6 +79,16 @@ pub fn require_rfc3339(ts: &str) -> Result<(), StampReject> {
     Ok(())
 }
 
+/// Read back a stamp written by [`from_unix`] / [`now_rfc3339`] as a unix
+/// second. Only Europe/Zagreb stamps ([`require_rfc3339`]) are accepted, so a
+/// `Z` or `+00:00` stamp gives `None`.
+pub fn to_unix(ts: &str) -> Option<i64> {
+    require_rfc3339(ts).ok()?;
+    DateTime::<chrono::FixedOffset>::parse_from_rfc3339(ts)
+        .ok()
+        .map(|d| d.timestamp())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -183,5 +193,19 @@ mod tests {
             "now_rfc3339 must use +01:00 or +02:00: {now}"
         );
         assert_eq!(require_rfc3339(&now), Ok(()));
+    }
+
+    #[test]
+    fn to_unix_round_trips_from_unix_across_the_dst_switch() {
+        for s in [
+            secs("2026-10-25T00:59:59Z"),
+            secs("2026-10-25T01:00:00Z"),
+            1_792_616_787,
+        ] {
+            assert_eq!(to_unix(&from_unix(s)), Some(s));
+        }
+        assert_eq!(to_unix("2026-10-18T16:56:00Z"), None);
+        assert_eq!(to_unix("2026-10-18T16:56:00+00:00"), None);
+        assert_eq!(to_unix("garbage"), None);
     }
 }

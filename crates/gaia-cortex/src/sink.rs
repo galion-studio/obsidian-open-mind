@@ -104,7 +104,10 @@ impl Escalations {
     fn trim_open(&mut self) {
         while self.open.len() > RING {
             if let Some(old) = self.open.pop_front() {
-                if let Some(id) = old["id"].as_str() {
+                if let Some(id) = old["id"]
+                    .as_str()
+                    .filter(|id| !self.open.iter().any(|v| v["id"] == *id))
+                {
                     self.opened_at.remove(id);
                 }
             }
@@ -158,7 +161,6 @@ impl Escalations {
                 continue;
             }
             n += 1;
-            self.opened_at.remove(&id);
             if let Some(p) = &self.log.path {
                 let _ = append(
                     p,
@@ -173,8 +175,155 @@ impl Escalations {
             }
         }
         self.open = keep;
+        // Forget open times only for ids no longer open: a legacy log can
+        // hold one `esc-<N>` per process (slot 431 reload), and those share
+        // the newest open time (never expire early).
+        let still: std::collections::HashSet<&str> =
+            self.open.iter().filter_map(|v| v["id"].as_str()).collect();
+        self.opened_at.retain(|k, _| still.contains(k.as_str()));
         self.closed_total += n as u64;
         n
+    }
+}
+
+/// An escalation id, either shape (wave-4 slot 431, D-417-3).
+///
+/// - `esc-<N>`: up to slot 417. `N` restarts at 1 in every process, so the
+///   same id appears once per process in `escalations.jsonl` (`esc-3` x4 in
+///   the live file of 2026-10-28).
+/// - `esc-<start-unix>-<N>`: from slot 431. `<start-unix>` is the process
+///   epoch (unix second the cortex started, bumped past every epoch already
+///   in the log), so ids are unique across restarts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EscId {
+    Legacy(u64),
+    Unique { start: u64, n: u64 },
+}
+
+/// Parse an escalation id of either shape; `None` for anything else.
+pub fn parse_esc_id(id: &str) -> Option<EscId> {
+    let rest = id.strip_prefix("esc-")?;
+    let num = |s: &str| -> Option<u64> {
+        if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        s.parse().ok()
+    };
+    match rest.split_once('-') {
+        None => num(rest).map(EscId::Legacy),
+        Some((a, b)) => Some(EscId::Unique {
+            start: num(a)?,
+            n: num(b)?,
+        }),
+    }
+}
+
+/// What [`Escalations::load`] found in `escalations.jsonl`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Reload {
+    /// Non-empty lines read.
+    pub lines: usize,
+    /// Escalation records (lines with an `id`).
+    pub opened: usize,
+    /// `{"ack":id}` / `{"close":id}` lines that matched an open item.
+    pub acked: usize,
+    pub closed: usize,
+    /// ack/close lines whose id was not open (already gone / never seen).
+    pub unmatched: usize,
+    /// Lines that are not JSON objects (a torn last line after a crash).
+    pub skipped: usize,
+    /// The file did not end in a newline; one was appended so the next
+    /// record starts on its own line.
+    pub repaired_newline: bool,
+    /// Open items after the replay (after the ring cap).
+    pub open: usize,
+    /// Largest `<start-unix>` of a new-shape id in the log.
+    pub max_epoch: Option<u64>,
+}
+
+impl Escalations {
+    /// Open the queue and rebuild `open` (and the `closed` ring) from
+    /// `path`: every escalation record minus the ones a later
+    /// `{"ack":id}` / `{"close":id}` line removed (wave-4 slot 431, F-417-2).
+    /// An ack/close removes the most recent open item with that id, so a
+    /// legacy log with one `esc-3` per process still replays correctly.
+    /// A missing file is an empty queue. Unparsable lines are skipped; a
+    /// missing final newline is repaired so appends stay line-aligned.
+    /// `log.total` and `closed_total` stay counters since this start.
+    pub fn load(path: Option<PathBuf>) -> (Self, Reload) {
+        let mut q = Escalations::new(path);
+        let mut r = Reload::default();
+        let Some(p) = q.log.path.clone() else {
+            return (q, r);
+        };
+        let Ok(bytes) = std::fs::read(&p) else {
+            return (q, r);
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            r.lines += 1;
+            let Ok(Value::Object(m)) = serde_json::from_str::<Value>(line) else {
+                r.skipped += 1;
+                continue;
+            };
+            let v = Value::Object(m);
+            if let Some(id) = v["ack"].as_str() {
+                match q.take_latest(id) {
+                    Some(_) => r.acked += 1,
+                    None => r.unmatched += 1,
+                }
+            } else if let Some(id) = v["close"].as_str() {
+                match q.take_latest(id) {
+                    Some(mut item) => {
+                        r.closed += 1;
+                        item["closed_why"] = v["why"].clone();
+                        item["closed_ts"] = v["ts"].clone();
+                        q.closed.push_back(item);
+                        while q.closed.len() > RING {
+                            q.closed.pop_front();
+                        }
+                    }
+                    None => r.unmatched += 1,
+                }
+            } else if let Some(id) = v["id"].as_str().map(str::to_string) {
+                r.opened += 1;
+                if let Some(EscId::Unique { start, .. }) = parse_esc_id(&id) {
+                    r.max_epoch = Some(r.max_epoch.map_or(start, |m| m.max(start)));
+                }
+                // Open time from the record's own Zagreb stamp, so
+                // `escalation_max_age_s` keeps counting across restarts.
+                if let Some(t) = v["ts"].as_str().and_then(zagreb_time::to_unix) {
+                    if let Ok(t) = u64::try_from(t) {
+                        q.opened_at.insert(id, t);
+                    }
+                }
+                q.open.push_back(v);
+                q.trim_open();
+            } else {
+                r.skipped += 1;
+            }
+        }
+        if bytes.last().is_some_and(|b| *b != b'\n') {
+            if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(&p) {
+                r.repaired_newline = f.write_all(b"\n").is_ok();
+            }
+        }
+        r.open = q.open.len();
+        (q, r)
+    }
+
+    /// Remove and return the most recently opened item with this id.
+    fn take_latest(&mut self, id: &str) -> Option<Value> {
+        let i = self.open.iter().rposition(|v| v["id"] == id)?;
+        let item = self.open.remove(i)?;
+        if !self.open.iter().any(|v| v["id"] == id) {
+            self.opened_at.remove(id);
+        }
+        Some(item)
     }
 }
 
@@ -187,7 +336,8 @@ mod tests {
     }
 
     fn tmp(tag: &str) -> PathBuf {
-        let p = std::env::temp_dir().join(format!("gaia-cortex-417-{tag}-{}", std::process::id()));
+        let p =
+            std::env::temp_dir().join(format!("gaia-cortex-417-431-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_file(&p);
         p
     }
@@ -237,5 +387,164 @@ mod tests {
         assert!(q.opened_at.is_empty());
         assert_eq!(q.expire(1_000, 1, "T"), 0);
         assert_eq!(q.closed_total, 0);
+    }
+
+    // ---- slot 431: reload across restarts + process-unique ids ----
+
+    fn esc_at(id: &str, inc: &str, ts: &str) -> Value {
+        json!({"id": id, "incident": inc, "subject": "unit:x.service", "ts": ts})
+    }
+
+    #[test]
+    fn parse_esc_id_reads_both_shapes() {
+        assert_eq!(parse_esc_id("esc-42"), Some(EscId::Legacy(42)));
+        assert_eq!(
+            parse_esc_id("esc-1793224800-7"),
+            Some(EscId::Unique {
+                start: 1_793_224_800,
+                n: 7
+            })
+        );
+        for bad in [
+            "esc-",
+            "esc-x",
+            "esc-1-",
+            "esc--1",
+            "esc-1-2-3",
+            "al-3",
+            "dec-1",
+            "esc-+1",
+            "",
+        ] {
+            assert_eq!(parse_esc_id(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
+    fn restart_keeps_open_items_and_their_open_time() {
+        let p = tmp("restart");
+        {
+            let mut q = Escalations::new(Some(p.clone()));
+            q.push_at(esc_at("esc-100-1", "inc-a", "2026-10-28T06:25:10+01:00"), 1);
+            q.push_at(esc_at("esc-100-2", "inc-b", "2026-10-28T06:25:40+01:00"), 2);
+        } // process "dies"
+        let (q, r) = Escalations::load(Some(p.clone()));
+        assert_eq!(q.open.len(), 2);
+        assert_eq!(q.open[0]["id"], "esc-100-1");
+        assert_eq!(r.opened, 2);
+        assert_eq!(r.open, 2);
+        assert_eq!(r.max_epoch, Some(100));
+        assert!(!r.repaired_newline);
+        // Open time comes from the record's ts, not from the restart.
+        let t = zagreb_time::to_unix("2026-10-28T06:25:10+01:00").unwrap() as u64;
+        assert_eq!(q.opened_at.get("esc-100-1"), Some(&t));
+        assert_eq!(q.log.total, 0, "total counts pushes since this start");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn closed_and_acked_items_stay_closed_after_restart() {
+        let p = tmp("closed");
+        {
+            let mut q = Escalations::new(Some(p.clone()));
+            q.push_at(esc_at("esc-100-1", "inc-a", "2026-10-28T06:00:00+01:00"), 1);
+            q.push_at(esc_at("esc-100-2", "inc-b", "2026-10-28T06:00:01+01:00"), 2);
+            q.push_at(esc_at("esc-100-3", "inc-c", "2026-10-28T06:00:02+01:00"), 3);
+            assert!(q.ack("esc-100-1", "2026-10-28T07:00:00+01:00"));
+            assert_eq!(
+                q.close_incident("inc-b", "incident-cleared", "2026-10-28T07:00:01+01:00"),
+                1
+            );
+        }
+        let (mut q, r) = Escalations::load(Some(p.clone()));
+        assert_eq!((r.opened, r.acked, r.closed, r.unmatched), (3, 1, 1, 0));
+        assert_eq!(q.open.len(), 1);
+        assert_eq!(q.open[0]["id"], "esc-100-3");
+        assert_eq!(q.closed.len(), 1);
+        assert_eq!(q.closed[0]["id"], "esc-100-2");
+        assert_eq!(q.closed[0]["closed_why"], "incident-cleared");
+        assert_eq!(q.closed_total, 0, "closed_total counts since this start");
+        assert!(!q.opened_at.contains_key("esc-100-1"));
+        // A second restart changes nothing (load itself writes nothing).
+        let before = std::fs::read_to_string(&p).unwrap();
+        q.ack("esc-100-3", "2026-10-28T08:00:00+01:00");
+        drop(q);
+        let (q, _) = Escalations::load(Some(p.clone()));
+        assert!(q.open.is_empty());
+        let after = std::fs::read_to_string(&p).unwrap();
+        assert_eq!(after.lines().count(), before.lines().count() + 1);
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn torn_last_line_is_skipped_and_the_file_is_realigned() {
+        let p = tmp("torn");
+        let good = esc_at("esc-100-1", "inc-a", "2026-10-28T06:00:00+01:00");
+        let torn = r#"{"id":"esc-100-2","incident":"inc-b","subj"#;
+        std::fs::write(&p, format!("{good}\n{torn}")).unwrap();
+        let (mut q, r) = Escalations::load(Some(p.clone()));
+        assert_eq!((r.lines, r.opened, r.skipped), (2, 1, 1));
+        assert!(r.repaired_newline);
+        assert_eq!(q.open.len(), 1);
+        // The next record lands on its own line, so the restart after
+        // that still reads it.
+        q.push_at(esc_at("esc-200-1", "inc-c", "2026-10-28T07:00:00+01:00"), 5);
+        drop(q);
+        let (q, r) = Escalations::load(Some(p.clone()));
+        assert_eq!((r.opened, r.skipped, r.repaired_newline), (2, 1, false));
+        let ids: Vec<&str> = q.open.iter().map(|v| v["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["esc-100-1", "esc-200-1"]);
+        assert_eq!(r.max_epoch, Some(200));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn legacy_duplicate_ids_ack_only_the_latest_and_missing_file_is_empty() {
+        let p = tmp("legacy");
+        let lines = [
+            esc_at("esc-3", "inc-1", "2026-10-21T19:06:00+02:00").to_string(),
+            esc_at("esc-3", "inc-2", "2026-10-22T10:00:00+02:00").to_string(),
+            json!({"ack": "esc-3", "ts": "2026-10-22T10:05:00+02:00"}).to_string(),
+            json!({"ack": "esc-99", "ts": "2026-10-22T10:05:00+02:00"}).to_string(),
+            "not json".into(),
+            "[1,2]".into(),
+            "{\"neither\":1}".into(),
+            String::new(),
+        ];
+        std::fs::write(&p, lines.join("\n") + "\n").unwrap();
+        let (q, r) = Escalations::load(Some(p.clone()));
+        assert_eq!(q.open.len(), 1);
+        assert_eq!(q.open[0]["incident"], "inc-1", "ack hit the newest esc-3");
+        assert_eq!(
+            (r.acked, r.unmatched, r.skipped, r.max_epoch),
+            (1, 1, 3, None)
+        );
+        let _ = std::fs::remove_file(&p);
+        let (q, r) = Escalations::load(Some(p.clone()));
+        assert!(q.open.is_empty());
+        assert_eq!(r, Reload::default());
+        assert!(!p.exists(), "load never creates the file");
+        let (q, _) = Escalations::load(None);
+        assert!(q.open.is_empty());
+    }
+
+    #[test]
+    fn reload_respects_the_ring_cap() {
+        let p = tmp("cap");
+        let body: String = (0..RING + 25)
+            .map(|i| {
+                format!(
+                    "{}\n",
+                    esc_at(&format!("esc-100-{i}"), "inc", "2026-10-28T06:00:00+01:00")
+                )
+            })
+            .collect();
+        std::fs::write(&p, body).unwrap();
+        let (q, r) = Escalations::load(Some(p.clone()));
+        assert_eq!(q.open.len(), RING);
+        assert_eq!(r.open, RING);
+        assert_eq!(q.open[0]["id"], "esc-100-25");
+        assert_eq!(q.opened_at.len(), RING);
+        let _ = std::fs::remove_file(&p);
     }
 }

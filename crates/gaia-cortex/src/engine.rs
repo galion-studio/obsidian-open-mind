@@ -137,6 +137,10 @@ pub struct Stats {
     /// `escalation_autoclose`) / because they reached `escalation_max_age_s`.
     pub escalations_closed_incident: u64,
     pub escalations_closed_expired: u64,
+    /// Slot 431: open escalations rebuilt from `escalations.jsonl` at start,
+    /// and lines skipped there (torn last line / not a JSON object).
+    pub escalations_reloaded: u64,
+    pub escalations_reload_skipped: u64,
     pub handoffs: u64,
     pub handoffs_duplicate: u64,
     pub handoffs_rate_limited: u64,
@@ -174,6 +178,8 @@ pub struct Cortex {
     seen_order: VecDeque<u64>,
     last_said: BTreeMap<(String, &'static str), u64>,
     seq: u64,
+    /// Slot 431: process epoch in escalation ids (`esc-<epoch>-<seq>`).
+    esc_epoch: u64,
     /// Last non-info signal per subject that has not cleared yet (F3).
     active: BTreeMap<String, Active>,
     /// Nerve cause -> the nerve's short incident id (or the cause itself
@@ -200,6 +206,14 @@ impl Cortex {
     pub fn new(cfg: Config, guard: Guard, nerve: Box<dyn NerveLink>) -> Self {
         let dir = cfg.data_dir.clone();
         let file = |n: &str| Some(dir.join(n));
+        // Slot 431 (F-417-2/3): rebuild the open escalation queue from the
+        // log, and pick an id epoch no earlier process in that log used.
+        let (escalations, reload) = Escalations::load(file("escalations.jsonl"));
+        let started = now_secs();
+        let esc_epoch = reload.max_epoch.map_or(started, |m| started.max(m + 1));
+        if reload.lines > 0 {
+            eprintln!("gaia-cortex: escalations reloaded: {reload:?}, id epoch {esc_epoch}");
+        }
         let rules = Rules::new(
             guard,
             &cfg.restart_allow,
@@ -219,7 +233,7 @@ impl Cortex {
             decisions: Jsonl::new(file("decisions.jsonl")),
             alerts: Jsonl::new(file("alerts.jsonl")),
             outbox: cfg.outbox.clone(),
-            escalations: Escalations::new(file("escalations.jsonl")),
+            escalations,
             handoff: Handoff::new(
                 cfg.hermes.enabled,
                 cfg.hermes
@@ -234,6 +248,8 @@ impl Cortex {
             repeats: None,
             stats: Stats {
                 started: ts(now_secs()),
+                escalations_reloaded: reload.open as u64,
+                escalations_reload_skipped: reload.skipped as u64,
                 ..Stats::default()
             },
             snap: Arc::new(Snapshot::default()),
@@ -243,6 +259,7 @@ impl Cortex {
             seen_order: VecDeque::new(),
             last_said: BTreeMap::new(),
             seq: 0,
+            esc_epoch,
             active: BTreeMap::new(),
             nerve_incs: BTreeMap::new(),
             resolved_by: VecDeque::new(),
@@ -951,7 +968,9 @@ impl Cortex {
     }
 
     fn escalate(&mut self, dec: &str, s: &Subject, incident: &str, v: &Verdict, now: u64) {
-        let id = self.next_id("esc");
+        // Slot 431 (D-417-3): id esc-<process epoch>-<seq>, unique across restarts (next_id bumps seq).
+        self.next_id("esc");
+        let id = format!("esc-{}-{}", self.esc_epoch, self.seq);
         let lead = s.lead().map(Event::to_json).unwrap_or(Value::Null);
         let mut e = json!({"id": id, "ts": ts(now), "decision": dec, "incident": incident, "subject": s.key,
                        "rule": v.rule, "severity": v.sev.as_str(), "reason": v.reason, "lead_event": lead,
@@ -1042,6 +1061,8 @@ impl Cortex {
             "alerts": s.alerts, "alerts_to_nerve": self.posts.alerts_ok(), "nerve_posts": self.posts.json(), "escalations": s.escalations,
             "escalations_open": self.escalations.open.len(),
             "escalations_closed_incident": s.escalations_closed_incident, "escalations_closed_expired": s.escalations_closed_expired,
+            "escalations_reloaded": s.escalations_reloaded, "escalations_reload_skipped": s.escalations_reload_skipped,
+            "escalation_epoch": self.esc_epoch,
         });
         let more = json!({
             "nerve_incidents_known": self.nerve_incs.len(), "nerve_incidents_backfilled": s.nerve_incidents_backfilled,

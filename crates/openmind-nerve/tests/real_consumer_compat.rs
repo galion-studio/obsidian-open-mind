@@ -33,9 +33,25 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const NERVE: u16 = 20500;
-const DUMMY: u16 = 20501;
-const NERVE_NOLOG: u16 = 20502;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): NERVE +0, DUMMY +1, NERVE_NOLOG +2; `NERVE_CONSUMER_REAL_PORT_BASE`
+/// moves the block, unset keeps the old
+/// 20500-20509.
+static PORTS: Block = Block::new("NERVE_CONSUMER_REAL_PORT_BASE", 20500, 10);
+
+#[allow(non_snake_case)]
+fn NERVE() -> u16 {
+    PORTS.port(0)
+}
+#[allow(non_snake_case)]
+fn DUMMY() -> u16 {
+    PORTS.port(1)
+}
+#[allow(non_snake_case)]
+fn NERVE_NOLOG() -> u16 {
+    PORTS.port(2)
+}
 
 fn real() -> bool {
     std::env::var("GALION_REAL").as_deref() == Ok("1")
@@ -81,7 +97,7 @@ fn path_of(url: &str) -> &str {
 
 /// Box-local dummy service: every request gets 200 {"ok":true}.
 fn dummy(port: u16) {
-    let l = TcpListener::bind(addr(port)).expect("dummy port 20501 free");
+    let l = TcpListener::bind(addr(port)).expect("dummy port slot port free");
     std::thread::spawn(move || {
         for c in l.incoming() {
             let Ok(mut s) = c else { continue };
@@ -99,7 +115,7 @@ fn start_nerve(port: u16, dir: &Path, log: bool) -> Proc {
     let comps = dir.join("components.json");
     std::fs::write(
         &comps,
-        format!(r#"[{{"name":"t36-dummy","port":{DUMMY},"path":"/health","gaia":"DEMETER","unit":"t36-dummy.service","restarts_per_hour":1}}]"#),
+        format!(r#"[{{"name":"t36-dummy","port":{},"path":"/health","gaia":"DEMETER","unit":"t36-dummy.service","restarts_per_hour":1}}]"#, DUMMY()),
     )
     .unwrap();
     let mut c = Command::new(env!("CARGO_BIN_EXE_openmind-nerve"));
@@ -203,9 +219,9 @@ fn box_binary() {
         stamp(),
         env!("CARGO_BIN_EXE_openmind-nerve")
     );
-    dummy(DUMMY);
-    let n = start_nerve(NERVE, &dir, true);
-    let a = addr(NERVE);
+    dummy(DUMMY());
+    let n = start_nerve(NERVE(), &dir, true);
+    let a = addr(NERVE());
     let rows: Vec<_> = live::VPS
         .iter()
         .filter(|p| p.service == "galion-nerve")
@@ -221,7 +237,7 @@ fn box_binary() {
     }
 
     // Phase 1: after the first real engine cycle.
-    let st = wait_cycle(NERVE, 1);
+    let st = wait_cycle(NERVE(), 1);
     println!(
         "phase1 cycle {} mode {} system {}",
         st["cycle"], st["mode"], st["system"]["status"]
@@ -330,7 +346,7 @@ fn box_binary() {
                 "gaia-live",
                 "heal.restart",
                 "info",
-                serde_json::json!({"service": "t36-dummy", "port": DUMMY}),
+                serde_json::json!({"service": "t36-dummy", "port": DUMMY()}),
             )
         });
         println!("gaia-live post() = {r:?} ({us} us)");
@@ -375,7 +391,7 @@ fn box_binary() {
         println!("routes: {line}");
     }
     // gaia restart-counter contract on the engine's real /state.
-    let st = wait_cycle(NERVE, 2);
+    let st = wait_cycle(NERVE(), 2);
     let c = gaia_contract(&st);
     println!(
         "gaia /state contract on real engine state (cycle {}): {c:?}",
@@ -405,7 +421,7 @@ fn box_binary() {
         .unwrap()
         .write_all(b"{\"ts\":\"2026-10-21T09:0")
         .unwrap();
-    let n2 = start_nerve(NERVE, &dir, true);
+    let n2 = start_nerve(NERVE(), &dir, true);
     gaia_live::nerve::post(a, "gaia-live", "after-crash", "info", serde_json::json!({})).unwrap();
     let t = gaia_live::nerve::tail(a, 1000).unwrap();
     println!(
@@ -418,9 +434,9 @@ fn box_binary() {
     drop(n2);
 
     // B2: no event log -> gaia-live POST /event 404.
-    let n3 = start_nerve(NERVE_NOLOG, &dir, false);
+    let n3 = start_nerve(NERVE_NOLOG(), &dir, false);
     let e = gaia_live::nerve::post(
-        addr(NERVE_NOLOG),
+        addr(NERVE_NOLOG()),
         "gaia-live",
         "k",
         "info",
@@ -431,7 +447,7 @@ fn box_binary() {
     assert!(e.contains("404"));
     drop(n3);
     let log_tail =
-        std::fs::read_to_string(dir.join(format!("nerve-{NERVE}.log"))).unwrap_or_default();
+        std::fs::read_to_string(dir.join(format!("nerve-{}.log", NERVE()))).unwrap_or_default();
     for l in log_tail
         .lines()
         .filter(|l| l.contains("listening") || l.contains("skipped"))

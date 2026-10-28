@@ -3,7 +3,8 @@
 // Copyright (c) 3000 Galion / galion-studio
 
 //! Real-life test on the box (gated: `GALION_REAL=1`). Starts the real
-//! `openmind-nerve serve` binary on 127.0.0.1:19105 (slot 10 range) against
+//! `openmind-nerve serve` binary on 127.0.0.1:19105 (slot 10 range; block movable
+//! by `NERVE_BOX_REAL_PORT_BASE`, slot 383) against
 //! one live HTTP service (a thread here, :19106) and one dead port (:19107),
 //! then floods the nerve's API and expects the DDoS detector to fire.
 //! The full scenario with tuner and room is `scripts/real/nerve.sh`.
@@ -12,6 +13,12 @@ use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
+
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): nerve +0, live service +1, dead port +2; `NERVE_BOX_REAL_PORT_BASE`
+/// moves the block, unset keeps the old 19105-19107.
+static PORTS: Block = Block::new("NERVE_BOX_REAL_PORT_BASE", 19105, 3);
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -23,8 +30,7 @@ impl Drop for Kill {
 
 fn get(path: &str) -> Option<(u16, String)> {
     let mut s =
-        TcpStream::connect_timeout(&"127.0.0.1:19105".parse().ok()?, Duration::from_secs(2))
-            .ok()?;
+        TcpStream::connect_timeout(&PORTS.addr(0).parse().ok()?, Duration::from_secs(2)).ok()?;
     let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
     write!(s, "GET {path} HTTP/1.0\r\nHost: x\r\n\r\n").ok()?;
     let mut b = String::new();
@@ -45,7 +51,7 @@ fn real_nerve_on_the_box() {
         eprintln!("skipped: set GALION_REAL=1");
         return;
     }
-    let svc = TcpListener::bind("127.0.0.1:19106").expect("19106 free");
+    let svc = TcpListener::bind(PORTS.addr(1)).expect("live-svc port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 1024];
@@ -58,13 +64,17 @@ fn real_nerve_on_the_box() {
     let comps = dir.join("components.json");
     std::fs::write(
         &comps,
-        r#"[{"name":"live-svc","port":19106},{"name":"dead-svc","port":19107,"gaia":"APOLLO"}]"#,
+        format!(
+            r#"[{{"name":"live-svc","port":{}}},{{"name":"dead-svc","port":{},"gaia":"APOLLO"}}]"#,
+            PORTS.port(1),
+            PORTS.port(2)
+        ),
     )
     .unwrap();
     let _nerve = Kill(
         Command::new(env!("CARGO_BIN_EXE_openmind-nerve"))
             .arg("serve")
-            .env("NERVE_ADDR", "127.0.0.1:19105")
+            .env("NERVE_ADDR", PORTS.addr(0))
             .env("NERVE_INTERVAL", "5")
             .env("NERVE_DATA_DIR", dir.join("data"))
             .env("NERVE_COMPONENTS", &comps)
@@ -72,7 +82,7 @@ fn real_nerve_on_the_box() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "19105-19107")
+            .env("NERVE_LISTEN_SCOPE", PORTS.range())
             .env("NERVE_DDOS_MIN_RPS", "5")
             .env("NERVE_DDOS_MIN_REQUESTS", "200")
             .stderr(Stdio::null())

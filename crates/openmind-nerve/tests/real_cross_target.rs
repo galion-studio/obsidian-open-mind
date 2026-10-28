@@ -12,17 +12,35 @@
 //! 2. checks every binary is a static ELF of the right machine, under the
 //!    2 MiB budget, and records its size and SHA-256 (in-test SHA-256, no
 //!    extra tool or crate);
-//! 3. compares with the live binary (`NERVE_XT_LIVE_SHA`/`NERVE_XT_LIVE_SIZE`,
-//!    default = aa77864 as measured on the VPS 2026-10-21 21:02 +02:00);
+//! 3. checks the pin chosen by `NERVE_XT_PIN` (slot 376, D-363-2):
+//!    - `budget` (default): no binary pin; every binary must fit its row of
+//!      the size-budget table [`SIZE_BUDGET`], and the solo and live-recipe
+//!      x86_64 builds (separate target dirs, different package sets) must be
+//!      bit-identical (tree-level reproducibility);
+//!    - `live`: everything in `budget`, plus a `git archive` of the live
+//!      nerve commit (`NERVE_XT_LIVE_REV`, default 9d1a4f3) is rebuilt with the
+//!      deploy recipe and must equal the VPS binary bit for bit
+//!      (`NERVE_XT_LIVE_SHA`/`NERVE_XT_LIVE_SIZE`, default = 9d1a4f3 as read on
+//!      the VPS 2026-10-28 08:10 +01:00); the rebuilt binary is smoked too;
+//!      slot 386: the x86_64 linker comes from this tree's COMMITTED
+//!      `.cargo/config.toml` overlaid on the archive, linker env removed
+//!      (`NERVE_XT_LIVE_CONFIG` = `committed` default | `env` slot-376 way |
+//!      `archive` negative control without the line);
+//!    - `aa77864`: the old slot-217 pin (only passes on the aa77864 tree);
 //! 4. runs each binary (`aarch64` under qemu user mode) on slot ports
 //!    20870-20872 against one live service thread (:20873) and one dead
-//!    port (:20874): `GET /health`, `POST /signal`, `GET /state`,
+//!    port (:20874) (block movable with `NERVE_XT_PORT_BASE`, slot 363):
+//!    `GET /health`, `POST /signal`, `GET /state`,
 //!    `GET /api/v1/signals`, and compares the answers across targets;
 //! 5. `cargo check` for aarch64-linux-android and armv7-unknown-linux-musleabihf.
 //!
 //! Knobs: `NERVE_XT_DIR` (nested target dir, default `<workspace>/target/xt`),
 //! `NERVE_XT_JOBS` (default 2), `NERVE_XT_QEMU` (qemu-aarch64 path),
 //! `NERVE_XT_REPORT` (JSON report path, default `<NERVE_XT_DIR>/report.json`).
+//! Slot 363: `NERVE_XT_PORT_BASE` (5-port block, default 20870). Slot 376:
+//! `NERVE_XT_PIN` = `budget` | `live` | `aa77864`; the slot-363 knob
+//! `NERVE_XT_LIVE_PIN` still works when `NERVE_XT_PIN` is unset (`0` = budget,
+//! `1` = aa77864).
 
 use serde_json::{json, Value};
 use std::io::{Read, Write};
@@ -31,14 +49,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// VPS `/opt/galion/rust/bin/openmind-nerve-aa77864`, read-only sha256sum/stat
-/// 2026-10-21 21:02:28 +02:00 (docs/real-tests/nerve-cross-target.md).
-const LIVE_SHA: &str = "f0994b6db1fd8ed87c16bd72c9583c2894ec4dd5ba89d407016877322aed6a68";
-const LIVE_SIZE: u64 = 1_213_216;
-/// openmind-nerve budget from the one budget table,
+/// Slot 415 merge (373 + 376): openmind-nerve hard ceiling from the one budget table,
 /// config/release/size-budget.tsv (slot 353); same lookup as
 /// scripts/size-budget.sh: the `openmind-nerve` row, else `default`.
-fn budget() -> u64 {
+fn tsv_budget() -> u64 {
     let path = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../config/release/size-budget.tsv"
@@ -60,8 +74,354 @@ fn budget() -> u64 {
     }
     own.or(default).expect("budget row")
 }
-const PORT_SVC: u16 = 20873;
-const PORT_DEAD: u16 = 20874;
+/// VPS `/opt/galion/rust/bin/openmind-nerve-aa77864`, read-only sha256sum/stat
+/// 2026-10-21 21:02:28 +02:00 (docs/real-tests/nerve-cross-target.md).
+/// Used only by `NERVE_XT_PIN=aa77864` (the slot-217 pin).
+const AA77864_SHA: &str = "f0994b6db1fd8ed87c16bd72c9583c2894ec4dd5ba89d407016877322aed6a68";
+const AA77864_SIZE: u64 = 1_213_216;
+/// Live nerve since 2026-10-27 18:15 +01:00 (deploy t273u):
+/// `/opt/galion/rust/bin/openmind-nerve-9d1a4f3`, read-only sha256sum/ls on the
+/// VPS 2026-10-28 08:10:06 +01:00 (docs/real-tests/nerve-xt-pin-refresh.md).
+/// Commit is the tip of swarm/nerve-deploy-t273u.
+const LIVE_REV: &str = "9d1a4f3";
+const LIVE_SHA: &str = "d0c70b879e5866bb105707d881686757b5732168da2c016f791316ec3f521d45";
+const LIVE_SIZE: u64 = 1_458_760;
+/// Deploy recipe of the live binary (reproduced bit for bit on the box
+/// 2026-10-28 ~08:12 +01:00): `-p openmind-nerve` alone, x86_64 musl, release,
+/// `--locked`, linker rust-lld. The default x86_64 linker gives 1 463 072 B.
+const LIVE_RECIPE_LINKER: &str = "rust-lld";
+/// Env var that overrides the x86_64 musl linker from `.cargo/config.toml`.
+const X86_LINKER_ENV: &str = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER";
+/// Default-linker (host `cc`, GNU ld) rebuild of 9d1a4f3, measured 2026-10-28
+/// ~08:12 +01:00 (slot 376) and again by slot 386 (`NERVE_XT_LIVE_CONFIG=archive`).
+const LIVE_DEFAULT_LINKER_SHA: &str =
+    "64ce3aa03bd55a9c698f5c42c4616c6987163d2523fa1ac89aff0187571213f8";
+const LIVE_DEFAULT_LINKER_SIZE: u64 = 1_463_072;
+
+/// Where the live-pin rebuild gets its x86_64 linker (slot 386, D-376-2):
+/// `NERVE_XT_LIVE_CONFIG`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LiveConfig {
+    /// Default: this tree's committed `.cargo/config.toml` (`git show
+    /// HEAD:.cargo/config.toml`) overlaid on the archive, linker env removed.
+    Committed,
+    /// Slot 376: the archive's own config plus the linker env var.
+    Env,
+    /// Negative control: the archive's own config, linker env removed (what a
+    /// deploy gets without the committed line; must NOT reproduce).
+    Archive,
+}
+
+fn live_config_from(v: Option<&str>) -> Result<LiveConfig, String> {
+    match v {
+        None | Some("committed") => Ok(LiveConfig::Committed),
+        Some("env") => Ok(LiveConfig::Env),
+        Some("archive") => Ok(LiveConfig::Archive),
+        Some(v) => Err(format!(
+            "NERVE_XT_LIVE_CONFIG must be committed, env or archive, got {v:?}"
+        )),
+    }
+}
+
+fn live_config_mode() -> LiveConfig {
+    let v = std::env::var("NERVE_XT_LIVE_CONFIG").ok();
+    live_config_from(v.as_deref()).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Linker set for `[target.<triple>]` in a cargo config text (tiny line
+/// parser: section headers and `linker = "..."`; enough for our own file).
+fn config_linker(text: &str, triple: &str) -> Option<String> {
+    let want = format!("[target.{triple}]");
+    let mut inside = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            inside = line == want;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("linker") {
+            let v = rest.trim_start().strip_prefix('=')?.trim();
+            return Some(v.trim_matches('"').to_string());
+        }
+    }
+    None
+}
+
+/// `git show HEAD:.cargo/config.toml` of this repo (the COMMITTED config,
+/// not the working copy).
+fn committed_config() -> String {
+    let out = Command::new("git")
+        .args(["show", "HEAD:.cargo/config.toml"])
+        .current_dir(root())
+        .output()
+        .expect("git show HEAD:.cargo/config.toml");
+    assert!(
+        out.status.success(),
+        "no committed .cargo/config.toml at HEAD"
+    );
+    String::from_utf8(out.stdout).expect("config utf-8")
+}
+
+/// Replace the exported tree's `.cargo/config.toml` with this tree's
+/// committed one.
+fn overlay_committed_config(src: &Path) {
+    let text = committed_config();
+    assert_eq!(
+        config_linker(&text, "x86_64-unknown-linux-musl").as_deref(),
+        Some(LIVE_RECIPE_LINKER),
+        "committed .cargo/config.toml has no x86_64 musl rust-lld linker line (D-376-2)"
+    );
+    std::fs::create_dir_all(src.join(".cargo")).unwrap();
+    std::fs::write(src.join(".cargo/config.toml"), text).unwrap();
+}
+
+#[test]
+fn live_config_parsing() {
+    assert_eq!(live_config_from(None), Ok(LiveConfig::Committed));
+    assert_eq!(
+        live_config_from(Some("committed")),
+        Ok(LiveConfig::Committed)
+    );
+    assert_eq!(live_config_from(Some("env")), Ok(LiveConfig::Env));
+    assert_eq!(live_config_from(Some("archive")), Ok(LiveConfig::Archive));
+    assert!(live_config_from(Some("")).is_err());
+    assert!(live_config_from(Some("yes")).is_err());
+}
+
+#[test]
+fn config_linker_parser() {
+    let t = "[env]\nX = \"1\"\n[target.aarch64-unknown-linux-musl]\nlinker = \"rust-lld\"\n\n[target.x86_64-unknown-linux-musl]\n# c\nlinker=\"cc\"\n";
+    assert_eq!(
+        config_linker(t, "aarch64-unknown-linux-musl").as_deref(),
+        Some("rust-lld")
+    );
+    assert_eq!(
+        config_linker(t, "x86_64-unknown-linux-musl").as_deref(),
+        Some("cc")
+    );
+    assert_eq!(config_linker(t, "armv7-unknown-linux-musleabihf"), None);
+    assert_eq!(
+        config_linker("[env]\nlinker = \"x\"\n", "x86_64-unknown-linux-musl"),
+        None
+    );
+}
+
+/// Always on (slot 386, D-376-2): the repo's own config (working copy, so a
+/// local edit that drops the line fails before commit) links every musl
+/// target with rust-lld, and the 9d1a4f3 config did not (the reason the
+/// live recipe needed an uncommitted edit).
+#[test]
+fn repo_config_pins_rust_lld() {
+    let text = std::fs::read_to_string(root().join(".cargo/config.toml")).unwrap();
+    for t in [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl",
+        "armv7-unknown-linux-musleabihf",
+    ] {
+        assert_eq!(config_linker(&text, t).as_deref(), Some("rust-lld"), "{t}");
+    }
+    // Default-linker rebuild of the live commit is a different binary.
+    assert!(pin_verdict(
+        LIVE_REV,
+        (LIVE_SHA, LIVE_SIZE),
+        (LIVE_DEFAULT_LINKER_SHA, LIVE_DEFAULT_LINKER_SIZE)
+    )
+    .is_err());
+}
+/// Hard ceiling from the low-end profile (every Rust service binary < 2 MiB).
+const BUDGET: u64 = 2 * 1024 * 1024;
+/// Size-budget table (slot 376, `NERVE_XT_PIN=budget`/`live`): label ->
+/// (budget bytes, warn bytes). Over budget fails; over warn only prints.
+/// Warn = 90 % of the ceiling so growth shows up before the hard stop.
+const SIZE_BUDGET: [(&str, u64, u64); 4] = [
+    ("x86_64", BUDGET, BUDGET / 10 * 9),
+    ("aarch64", BUDGET, BUDGET / 10 * 9),
+    ("x86_64-live-recipe", BUDGET, BUDGET / 10 * 9),
+    ("live-pin", BUDGET, BUDGET / 10 * 9),
+];
+/// Slot 363 (real-test-port-env): 5-port block, first port from
+/// `NERVE_XT_PORT_BASE` (unset = 20870, slot 217): nerves on +0..+2, live
+/// service thread on +3, dead component on +4.
+const PORT_BASE_ENV: &str = "NERVE_XT_PORT_BASE";
+const DEFAULT_PORT_BASE: u16 = 20870;
+
+fn port_base() -> u16 {
+    galion_realtest::ports::base_from_env(PORT_BASE_ENV, DEFAULT_PORT_BASE, 5)
+}
+fn port_svc() -> u16 {
+    port_base() + 3
+}
+fn port_dead() -> u16 {
+    port_base() + 4
+}
+
+/// Which pin the test enforces (slot 376, D-363-2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PinMode {
+    /// No binary pin: size-budget table + solo == recipe (default).
+    Budget,
+    /// Budget, plus rebuild the live commit and match the VPS binary.
+    Live,
+    /// Slot-217 aa77864 pin (passes only on the aa77864 tree).
+    Aa77864,
+}
+
+/// `NERVE_XT_PIN` wins; else the slot-363 knob `NERVE_XT_LIVE_PIN`
+/// (`0` = budget, `1` = aa77864); both unset = budget.
+fn pin_mode_from(pin: Option<&str>, legacy: Option<&str>) -> Result<PinMode, String> {
+    match pin {
+        Some("budget") => return Ok(PinMode::Budget),
+        Some("live") => return Ok(PinMode::Live),
+        Some("aa77864") => return Ok(PinMode::Aa77864),
+        Some(v) => {
+            return Err(format!(
+                "NERVE_XT_PIN must be budget, live or aa77864, got {v:?}"
+            ))
+        }
+        None => {}
+    }
+    match legacy {
+        None => Ok(PinMode::Budget),
+        Some("0") => Ok(PinMode::Budget),
+        Some("1") => Ok(PinMode::Aa77864),
+        Some(v) => Err(format!("NERVE_XT_LIVE_PIN must be 0 or 1, got {v:?}")),
+    }
+}
+
+fn pin_mode() -> PinMode {
+    let pin = std::env::var("NERVE_XT_PIN").ok();
+    let legacy = std::env::var("NERVE_XT_LIVE_PIN").ok();
+    pin_mode_from(pin.as_deref(), legacy.as_deref()).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Size-budget verdict for one binary: `Err` = over budget or unknown label,
+/// `Ok(Some(_))` = warning, `Ok(None)` = fine.
+fn budget_verdict(label: &str, size: u64) -> Result<Option<String>, String> {
+    let Some(&(_, budget, warn)) = SIZE_BUDGET.iter().find(|r| r.0 == label) else {
+        return Err(format!("{label}: no row in SIZE_BUDGET"));
+    };
+    if size > budget {
+        return Err(format!(
+            "{label}: {size} B over budget {budget} B by {} B",
+            size - budget
+        ));
+    }
+    if size > warn {
+        return Ok(Some(format!(
+            "{label}: {size} B above warn {warn} B, headroom {} B to {budget} B",
+            budget - size
+        )));
+    }
+    Ok(None)
+}
+
+/// Pin verdict: the binary rebuilt from the pinned commit must equal the
+/// pinned VPS binary (SHA-256 and size).
+fn pin_verdict(rev: &str, want: (&str, u64), got: (&str, u64)) -> Result<(), String> {
+    if got.0 == want.0 && got.1 == want.1 {
+        return Ok(());
+    }
+    Err(format!(
+        "rebuild of {rev} = {} {} B, pinned VPS binary = {} {} B: either the live nerve was redeployed (bump NERVE_XT_LIVE_REV/SHA/SIZE after a read-only sha256sum on the VPS) or the toolchain/recipe changed",
+        got.0, got.1, want.0, want.1
+    ))
+}
+
+#[test]
+fn pin_mode_parsing() {
+    use PinMode::*;
+    assert_eq!(pin_mode_from(None, None), Ok(Budget));
+    assert_eq!(pin_mode_from(Some("budget"), None), Ok(Budget));
+    assert_eq!(pin_mode_from(Some("live"), None), Ok(Live));
+    assert_eq!(pin_mode_from(Some("aa77864"), None), Ok(Aa77864));
+    assert_eq!(pin_mode_from(None, Some("0")), Ok(Budget));
+    assert_eq!(pin_mode_from(None, Some("1")), Ok(Aa77864));
+    // NERVE_XT_PIN wins over the slot-363 knob.
+    assert_eq!(pin_mode_from(Some("live"), Some("1")), Ok(Live));
+    assert!(pin_mode_from(Some("yes"), None).is_err());
+    assert!(pin_mode_from(Some(""), None).is_err());
+    assert!(pin_mode_from(None, Some("2")).is_err());
+}
+
+#[test]
+fn size_budget_table() {
+    // Every label the test builds has a row; budgets never exceed the ceiling.
+    for l in ["x86_64", "aarch64", "x86_64-live-recipe", "live-pin"] {
+        assert!(SIZE_BUDGET.iter().any(|r| r.0 == l), "{l}");
+    }
+    for (l, b, w) in SIZE_BUDGET {
+        assert!(b <= BUDGET && w < b, "{l}");
+    }
+    // Slot 415 merge: the 376 table never exceeds the 373 one-budget table row.
+    assert!(
+        BUDGET <= tsv_budget(),
+        "SIZE_BUDGET ceiling above size-budget.tsv"
+    );
+    // Real sizes seen 2026-10-28: live 9d1a4f3 fine, tree 0d545118 warns,
+    // one byte over the ceiling fails, unknown label fails.
+    assert_eq!(budget_verdict("x86_64", LIVE_SIZE), Ok(None));
+    assert!(budget_verdict("x86_64", 1_930_048).unwrap().is_some());
+    assert_eq!(
+        budget_verdict("aarch64", BUDGET).map(|w| w.is_some()),
+        Ok(true)
+    );
+    assert!(budget_verdict("aarch64", BUDGET + 1).is_err());
+    assert!(budget_verdict("riscv64", 1).is_err());
+}
+
+#[test]
+fn live_pin_verdict() {
+    assert!(pin_verdict(LIVE_REV, (LIVE_SHA, LIVE_SIZE), (LIVE_SHA, LIVE_SIZE)).is_ok());
+    // Default-linker rebuild of 9d1a4f3 (measured): different bytes -> fail.
+    let e = pin_verdict(
+        LIVE_REV,
+        (LIVE_SHA, LIVE_SIZE),
+        (
+            "64ce3aa03bd55a9c698f5c42c4616c6987163d2523fa1ac89aff0187571213f8",
+            1_463_072,
+        ),
+    )
+    .unwrap_err();
+    assert!(e.contains("redeployed"), "{e}");
+    // Same size, different hash still fails.
+    assert!(pin_verdict(LIVE_REV, (LIVE_SHA, LIVE_SIZE), (AA77864_SHA, LIVE_SIZE)).is_err());
+}
+
+/// `git archive <rev>` of the workspace repo into `dst` (fresh), so the live
+/// commit is rebuilt from its own tree no matter what is checked out.
+fn export_rev(rev: &str, dst: &Path) {
+    let _ = std::fs::remove_dir_all(dst);
+    std::fs::create_dir_all(dst).unwrap();
+    let ok = Command::new("git")
+        .args(["cat-file", "-e", &format!("{rev}^{{commit}}")])
+        .current_dir(root())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    assert!(
+        ok,
+        "commit {rev} not in this repo: git fetch <remote> swarm/nerve-deploy-t273u (or set NERVE_XT_LIVE_REV)"
+    );
+    let mut archive = Command::new("git")
+        .args(["archive", "--format=tar", rev])
+        .current_dir(root())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("git archive");
+    let st = Command::new("tar")
+        .args(["-x", "-C"])
+        .arg(dst)
+        .stdin(archive.stdout.take().unwrap())
+        .status()
+        .expect("tar -x");
+    let gs = archive.wait().expect("git archive wait");
+    assert!(
+        gs.success() && st.success(),
+        "git archive | tar -x of {rev} failed"
+    );
+}
 
 // ---------------------------------------------------------------- SHA-256
 // FIPS 180-4, straight from the spec; used only to fingerprint the binaries.
@@ -232,13 +592,31 @@ fn cargo() -> String {
 }
 
 fn run_cargo(args: &[&str], dir: &Path) -> (bool, f64, String) {
+    run_cargo_env(args, dir, &root(), &[], &[])
+}
+
+/// `run_cargo` in another source tree (`cwd`) with extra env (slot 376: the
+/// live-pin rebuild of an exported commit) and env vars removed (slot 386:
+/// prove the committed config alone picks the linker).
+fn run_cargo_env(
+    args: &[&str],
+    dir: &Path,
+    cwd: &Path,
+    extra_env: &[(&str, &str)],
+    remove_env: &[&str],
+) -> (bool, f64, String) {
+    let mut cmd = Command::new(cargo());
+    for k in remove_env {
+        cmd.env_remove(k);
+    }
     let jobs = std::env::var("NERVE_XT_JOBS").unwrap_or_else(|_| "2".into());
     let t = Instant::now();
-    let out = Command::new(cargo())
+    let out = cmd
         .args(args)
         .args(["-j", &jobs, "--target-dir"])
         .arg(dir)
-        .current_dir(root())
+        .current_dir(cwd)
+        .envs(extra_env.iter().copied())
         .env("CARGO_INCREMENTAL", "0")
         .env(
             "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER",
@@ -291,7 +669,9 @@ fn smoke(label: &str, prog: &Path, args: &[&Path], port: u16, dir: &Path) -> Smo
     std::fs::write(
         &comps,
         format!(
-            r#"[{{"name":"xt-live","port":{PORT_SVC}}},{{"name":"xt-dead","port":{PORT_DEAD},"gaia":"APOLLO"}}]"#
+            r#"[{{"name":"xt-live","port":{svc}}},{{"name":"xt-dead","port":{dead},"gaia":"APOLLO"}}]"#,
+            svc = port_svc(),
+            dead = port_dead()
         ),
     )
     .unwrap();
@@ -309,7 +689,10 @@ fn smoke(label: &str, prog: &Path, args: &[&Path], port: u16, dir: &Path) -> Smo
         .env("NERVE_DRY_RUN", "1")
         .env("NERVE_ROLLBACK", "0")
         .env("NERVE_DISK_PATH", &data)
-        .env("NERVE_LISTEN_SCOPE", "20870-20879")
+        .env(
+            "NERVE_LISTEN_SCOPE",
+            format!("{}-{}", port_base(), port_base() + 4),
+        )
         .stdout(Stdio::null())
         .stderr(Stdio::null());
     let t = Instant::now();
@@ -378,11 +761,19 @@ fn real_cross_target() {
         .map(PathBuf::from)
         .unwrap_or_else(|_| root().join("target/xt"));
     std::fs::create_dir_all(&xt).unwrap();
-    let live_sha = std::env::var("NERVE_XT_LIVE_SHA").unwrap_or_else(|_| LIVE_SHA.into());
+    let mode = pin_mode();
+    // Pinned VPS binary for the chosen mode (budget mode only reports it).
+    let (def_rev, def_sha, def_size) = match mode {
+        PinMode::Aa77864 => ("aa77864", AA77864_SHA, AA77864_SIZE),
+        _ => (LIVE_REV, LIVE_SHA, LIVE_SIZE),
+    };
+    let live_rev = std::env::var("NERVE_XT_LIVE_REV").unwrap_or_else(|_| def_rev.into());
+    let live_sha = std::env::var("NERVE_XT_LIVE_SHA").unwrap_or_else(|_| def_sha.into());
     let live_size: u64 = std::env::var("NERVE_XT_LIVE_SIZE")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(LIVE_SIZE);
+        .unwrap_or(def_size);
+    eprintln!("[xt] pin mode {mode:?}, pinned VPS binary {live_rev} {live_sha} {live_size} B");
 
     // 1. builds -------------------------------------------------------
     let x86 = "x86_64-unknown-linux-musl";
@@ -398,6 +789,54 @@ fn real_cross_target() {
     ];
     let mut bins = Vec::new();
     let mut report_bins = Vec::new();
+    let mut warnings = Vec::new();
+    let mut record = |label: &str,
+                      target: &str,
+                      pkgs: &[&str],
+                      bin: PathBuf,
+                      secs: f64,
+                      bins: &mut Vec<(String, PathBuf, String, u64)>| {
+        let bytes = std::fs::read(&bin).expect("binary");
+        let e = elf(&bytes);
+        let want_machine = if target == a64 { 0xB7 } else { 0x3E };
+        assert_eq!(e.machine, want_machine, "{label}: wrong e_machine");
+        assert!(!e.has_interp, "{label}: has PT_INTERP (not static)");
+        let size = bytes.len() as u64;
+        let ceiling = tsv_budget();
+        assert!(
+            size <= ceiling,
+            "{label}: {size} B over {ceiling} B budget (size-budget.tsv)"
+        );
+        let budget = if mode == PinMode::Aa77864 {
+            None
+        } else {
+            match budget_verdict(label, size) {
+                Err(e) => panic!("size budget: {e}"),
+                Ok(w) => {
+                    if let Some(w) = &w {
+                        eprintln!("[xt] WARN size budget: {w}");
+                        warnings.push(w.clone());
+                    }
+                    w
+                }
+            }
+        };
+        let sha = sha256(&bytes);
+        eprintln!(
+            "[xt] {label:<20} {size:>9} B  sha256 {sha}  pie={} build {secs:.1} s",
+            e.pie
+        );
+        let row = SIZE_BUDGET.iter().find(|r| r.0 == label);
+        report_bins.push(json!({
+            "label": label, "target": target, "packages": pkgs, "size": size,
+            "sha256": sha, "pie": e.pie, "static": !e.has_interp,
+            "e_machine": format!("{:#x}", e.machine), "build_s": (secs * 10.0).round() / 10.0,
+            "size_vs_live": size as i64 - live_size as i64, "equals_live": sha == live_sha,
+            "budget": row.map(|r| r.1), "warn": row.map(|r| r.2),
+            "headroom": row.map(|r| r.1 as i64 - size as i64), "budget_warning": budget,
+        }));
+        bins.push((label.to_string(), bin, sha, size));
+    };
     for (label, target, pkgs) in builds {
         let dir = xt.join(label);
         let mut args = vec!["build", "--release", "--locked", "--target", target];
@@ -405,43 +844,76 @@ fn real_cross_target() {
         let (ok, secs, tail) = run_cargo(&args, &dir);
         assert!(ok, "{label}: cargo build failed: {tail}");
         let bin = dir.join(target).join("release/openmind-nerve");
-        let bytes = std::fs::read(&bin).expect("binary");
-        let e = elf(&bytes);
-        let want_machine = if target == a64 { 0xB7 } else { 0x3E };
-        assert_eq!(e.machine, want_machine, "{label}: wrong e_machine");
-        assert!(!e.has_interp, "{label}: has PT_INTERP (not static)");
-        let size = bytes.len() as u64;
-        let budget = budget();
-        assert!(size <= budget, "{label}: {size} B over {budget} B budget");
-        let sha = sha256(&bytes);
-        eprintln!(
-            "[xt] {label:<20} {size:>9} B  sha256 {sha}  pie={} build {secs:.1} s",
-            e.pie
-        );
-        report_bins.push(json!({
-            "label": label, "target": target, "packages": pkgs, "size": size,
-            "sha256": sha, "pie": e.pie, "static": !e.has_interp,
-            "e_machine": format!("{:#x}", e.machine), "build_s": (secs * 10.0).round() / 10.0,
-            "size_vs_live": size as i64 - live_size as i64, "equals_live": sha == live_sha,
-        }));
-        bins.push((label, bin, sha, size));
+        record(label, target, pkgs, bin, secs, &mut bins);
     }
-    // The live recipe must reproduce the live binary bit for bit; the solo
-    // build differs only by serde_json preserve_order (feature unification).
+    // Live pin (slot 376, option A): rebuild the live commit from its own
+    // tree with the deploy recipe; must equal the VPS binary bit for bit.
+    if mode == PinMode::Live {
+        let src = xt.join(format!("pin-src-{live_rev}"));
+        export_rev(&live_rev, &src);
+        let dir = xt.join(format!("pin-{live_rev}"));
+        let pkgs: &[&str] = &["-p", "openmind-nerve"];
+        let mut args = vec!["build", "--release", "--locked", "--target", x86];
+        args.extend_from_slice(pkgs);
+        // Slot 386 (D-376-2): by default the linker comes from the committed
+        // `.cargo/config.toml` of THIS tree (HEAD, not the working copy),
+        // overlaid on the archive, with every linker env var removed; `env`
+        // is the slot-376 way (archive config + linker env var).
+        let cfg = live_config_mode();
+        let (env, rm): (Vec<(&str, &str)>, Vec<&str>) = match cfg {
+            LiveConfig::Committed => {
+                overlay_committed_config(&src);
+                (Vec::new(), vec![X86_LINKER_ENV])
+            }
+            LiveConfig::Env => (vec![(X86_LINKER_ENV, LIVE_RECIPE_LINKER)], Vec::new()),
+            LiveConfig::Archive => (Vec::new(), vec![X86_LINKER_ENV]),
+        };
+        eprintln!("[xt] live-pin config {cfg:?}");
+        let (ok, secs, tail) = run_cargo_env(&args, &dir, &src, &env, &rm);
+        assert!(ok, "live-pin {live_rev}: cargo build failed: {tail}");
+        let bin = dir.join(x86).join("release/openmind-nerve");
+        record("live-pin", x86, pkgs, bin, secs, &mut bins);
+        let (_, _, sha, size) = &bins[3];
+        if let Err(e) = pin_verdict(&live_rev, (&live_sha, live_size), (sha, *size)) {
+            panic!("live pin: {e}");
+        }
+        eprintln!("[xt] live pin OK: rebuild of {live_rev} == VPS binary {live_sha} {live_size} B");
+        let _ = std::fs::remove_dir_all(&src);
+    }
     let (_, _, recipe_sha, recipe_size) = &bins[2];
-    assert_eq!(
-        recipe_sha, &live_sha,
-        "live recipe no longer reproduces the VPS binary"
-    );
-    assert_eq!(*recipe_size, live_size);
-    assert_ne!(
-        bins[0].2, live_sha,
-        "solo -p openmind-nerve build now equals live (preserve_order no longer differs?)"
-    );
+    match mode {
+        PinMode::Aa77864 => {
+            // Slot 217: the live recipe must reproduce aa77864 bit for bit;
+            // the solo build differs only by serde_json preserve_order.
+            assert_eq!(
+                recipe_sha, &live_sha,
+                "live recipe no longer reproduces the VPS binary"
+            );
+            assert_eq!(*recipe_size, live_size);
+            assert_ne!(
+                bins[0].2, live_sha,
+                "solo -p openmind-nerve build now equals live (preserve_order no longer differs?)"
+            );
+        }
+        PinMode::Budget | PinMode::Live => {
+            // Tree-level reproducibility: two target dirs, two package sets,
+            // one binary (serde_json preserve_order is unified since 8555a8f7).
+            assert_eq!(
+                bins[0].2, *recipe_sha,
+                "solo and live-recipe x86_64 builds differ: the nerve binary depends on what is co-built (feature unification)"
+            );
+            assert_eq!(bins[0].3, *recipe_size);
+            eprintln!(
+                "[xt] solo == recipe ({recipe_sha} {recipe_size} B); vs pinned VPS {live_rev}: {:+} B",
+                *recipe_size as i64 - live_size as i64
+            );
+        }
+    }
 
     // 2. qemu smoke -----------------------------------------------------
     let qemu = find_qemu().expect("qemu-aarch64 not found (set NERVE_XT_QEMU)");
-    let svc = TcpListener::bind(("127.0.0.1", PORT_SVC)).expect("20873 free");
+    let svc = TcpListener::bind(("127.0.0.1", port_svc()))
+        .unwrap_or_else(|e| panic!("live-service port {} not free: {e}", port_svc()));
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 1024];
@@ -450,8 +922,9 @@ fn real_cross_target() {
         }
     });
     assert!(
-        TcpStream::connect(("127.0.0.1", PORT_DEAD)).is_err(),
-        "20874 must be free (dead component)"
+        TcpStream::connect(("127.0.0.1", port_dead())).is_err(),
+        "{} must be free (dead component)",
+        port_dead()
     );
     // --version under qemu (sanity: the aarch64 binary really executes).
     let v = Command::new(&qemu)
@@ -465,11 +938,26 @@ fn real_cross_target() {
         "qemu --version: {ver:?}"
     );
 
-    let runs = [
-        ("x86_64", bins[0].1.clone(), None, 20870u16),
-        ("aarch64", bins[1].1.clone(), Some(qemu.clone()), 20871),
-        ("x86_64-live-recipe", bins[2].1.clone(), None, 20872),
+    let mut runs = vec![
+        ("x86_64", bins[0].1.clone(), None, port_base()),
+        (
+            "aarch64",
+            bins[1].1.clone(),
+            Some(qemu.clone()),
+            port_base() + 1,
+        ),
+        (
+            "x86_64-live-recipe",
+            bins[2].1.clone(),
+            None,
+            port_base() + 2,
+        ),
     ];
+    // The rebuilt live binary reuses +2 after the recipe run (runs are
+    // sequential and every port is checked closed after its run).
+    if mode == PinMode::Live {
+        runs.push(("live-pin", bins[3].1.clone(), None, port_base() + 2));
+    }
     let mut smokes = Vec::new();
     let mut report_smoke = Vec::new();
     for (label, bin, emu, port) in runs {
@@ -524,24 +1012,54 @@ fn real_cross_target() {
         x.state["system"]["status"], a.state["system"]["status"],
         "system verdict x86 vs aarch64"
     );
-    // Live recipe (preserve_order on): same key set, source (insertion) order on
-    // the wire; solo builds (BTreeMap) send keys sorted.
     assert_eq!(sorted(keys(&r.health)), sorted(keys(&x.health)));
     assert_eq!(sorted(keys(&r.state)), sorted(keys(&x.state)));
     let xo = wire_order(&x.health_raw, &x.health);
     let ao = wire_order(&a.health_raw, &a.health);
     let ro = wire_order(&r.health_raw, &r.health);
-    assert_eq!(
-        xo,
-        sorted(xo.clone()),
-        "solo x86_64 /health keys not sorted"
-    );
     assert_eq!(ao, xo, "/health wire order x86_64 vs aarch64");
-    assert_eq!(
-        ro.first().map(String::as_str),
-        Some("status"),
-        "live recipe order {ro:?}"
-    );
+    if mode == PinMode::Aa77864 {
+        // Live recipe (preserve_order on): insertion order on the wire; solo
+        // builds (BTreeMap) send keys sorted.
+        assert_eq!(
+            xo,
+            sorted(xo.clone()),
+            "solo x86_64 /health keys not sorted"
+        );
+        assert_eq!(
+            ro.first().map(String::as_str),
+            Some("status"),
+            "live recipe order {ro:?}"
+        );
+    } else {
+        // serde_json preserve_order is unified, so solo and recipe must agree
+        // on the wire order too.
+        assert_eq!(ro, xo, "/health wire order recipe vs solo");
+        eprintln!("[xt] /health wire order (all 3 equal): {ro:?}");
+    }
+    let mut live_pin_report = Value::Null;
+    if mode == PinMode::Live {
+        // Same /health key set as the tree (no field dropped or added since
+        // the live commit); wire order is reported, not asserted (the live
+        // 9d1a4f3 build sends keys sorted, the tree sends insertion order).
+        let l = &smokes[3];
+        assert_eq!(
+            sorted(keys(&l.health)),
+            sorted(keys(&x.health)),
+            "/health key set live-pin vs tree"
+        );
+        let lo = wire_order(&l.health_raw, &l.health);
+        eprintln!(
+            "[xt] live-pin /health wire order {lo:?} (sorted: {}), tree order equal: {}",
+            lo == sorted(lo.clone()),
+            lo == xo
+        );
+        live_pin_report = json!({
+            "rev": live_rev, "wire_order": lo, "wire_sorted": lo == sorted(lo.clone()),
+            "wire_equals_tree": lo == xo,
+            "state_keys_equal_tree": sorted(keys(&l.state)) == sorted(keys(&x.state)),
+        });
+    }
 
     // 3. cargo check for android / armv7 --------------------------------
     let mut report_check = Vec::new();
@@ -564,8 +1082,12 @@ fn real_cross_target() {
     }
 
     let report = json!({
-        "slot": 217, "started": started, "finished": zagreb_time::now_rfc3339(),
-        "live": {"sha256": live_sha, "size": live_size},
+        "slot": 217, "pin_slot": 376, "started": started, "finished": zagreb_time::now_rfc3339(),
+        "pin_mode": format!("{mode:?}").to_lowercase(),
+        "live": {"rev": live_rev, "sha256": live_sha, "size": live_size, "pinned": mode != PinMode::Budget},
+        "live_pin": live_pin_report,
+        "size_budget_warnings": warnings,
+        "port_base": port_base(),
         "binaries": report_bins, "smoke": report_smoke, "check": report_check,
         "qemu": qemu.display().to_string(), "qemu_version_out": ver,
     });

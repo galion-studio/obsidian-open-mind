@@ -30,3 +30,5 @@ serde_json = { workspace = true }
 # real_size_2mib builds a Python-shaped legacy state.db (FTS5 + trigger).
 # Same rusqlite as hermes-rs (already in Cargo.lock); test-only.
 rusqlite = { version = "0.32", default-features = false, features = ["bundled"] }
+# Port-base env for GALION_REAL tests (slot 383); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

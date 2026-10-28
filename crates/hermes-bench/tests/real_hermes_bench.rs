@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
 
-//! GALION_REAL=1 real-life test (slot 59, ports 19600-19609 only):
+//! GALION_REAL=1 real-life test (slot 59, ports 19600-19609 by default;
+//! `HERMES_BENCH_REAL_PORT_BASE` moves the block, slot 363):
 //! builds the sibling server binaries (release), starts them on loopback,
 //! starts the real `hermes-bench` binary against them and runs all three
 //! benchmarks through the Hermes tool layer, first with the scripted agent,
-//! then with the mock LLM over the OpenAI wire (127.0.0.1:19605). Asserts
+//! then with the mock llm over the OpenAI wire (127.0.0.1:19605). Asserts
 //! 100 % on each, renders the Hermes scoreboard with bench-scoreboard, kills
 //! everything and checks the ports are free again.
 //!
@@ -20,10 +21,30 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_hermes-bench");
-const BANK: u16 = 19600;
-const WS: u16 = 19601;
-const VEND: u16 = 19602;
-const LLM: u16 = 19605;
+/// Slot 363 (real-test-port-env): 10-port block from `HERMES_BENCH_REAL_PORT_BASE`
+/// (unset = 19600, slot 59): bank +0, wallstreet +1, vending +2, mock llm +5.
+const PORT_BASE_ENV: &str = "HERMES_BENCH_REAL_PORT_BASE";
+const DEFAULT_PORT_BASE: u16 = 19600;
+
+#[derive(Clone, Copy)]
+struct Ports {
+    base: u16,
+    bank: u16,
+    ws: u16,
+    vend: u16,
+    llm: u16,
+}
+
+fn ports() -> Ports {
+    let base = galion_realtest::ports::base_from_env(PORT_BASE_ENV, DEFAULT_PORT_BASE, 10);
+    Ports {
+        base,
+        bank: base,
+        ws: base + 1,
+        vend: base + 2,
+        llm: base + 5,
+    }
+}
 
 fn real() -> bool {
     std::env::var("GALION_REAL").as_deref() == Ok("1")
@@ -65,8 +86,10 @@ fn port_free(port: u16) -> bool {
 
 fn start(bin: &Path, args: &[&str], port: u16, name: &'static str) -> Proc {
     assert!(
-        (19600..=19609).contains(&port),
-        "slot 59 owns 19600-19609 only"
+        (ports().base..=ports().base + 9).contains(&port),
+        "port {port} outside this run's block {}-{}",
+        ports().base,
+        ports().base + 9
     );
     assert!(port_free(port), "port {port} busy before start");
     let c = Command::new(bin)
@@ -111,6 +134,13 @@ fn build_siblings() {
 }
 
 fn run_bench(agent: &str, out: &Path, log: &Path) -> String {
+    let Ports {
+        bank,
+        ws,
+        vend,
+        llm,
+        ..
+    } = ports();
     let o = Command::new(BIN)
         .args([
             "run",
@@ -119,15 +149,15 @@ fn run_bench(agent: &str, out: &Path, log: &Path) -> String {
             "--agent",
             agent,
             "--bank-url",
-            &format!("http://127.0.0.1:{BANK}"),
+            &format!("http://127.0.0.1:{bank}"),
             "--ws-url",
-            &format!("http://127.0.0.1:{WS}"),
+            &format!("http://127.0.0.1:{ws}"),
             "--vend-url",
-            &format!("http://127.0.0.1:{VEND}"),
+            &format!("http://127.0.0.1:{vend}"),
             "--vend-log",
             log.to_str().unwrap(),
             "--llm-port",
-            &LLM.to_string(),
+            &llm.to_string(),
             "--out",
             out.to_str().unwrap(),
             "--sha",
@@ -166,6 +196,13 @@ fn read(p: &Path) -> Value {
 
 #[test]
 fn real_all_three_benchmarks_through_hermes() {
+    let Ports {
+        bank,
+        ws,
+        vend,
+        llm,
+        ..
+    } = ports();
     if !real() {
         eprintln!("skipped: set GALION_REAL=1");
         return;
@@ -184,14 +221,14 @@ fn real_all_three_benchmarks_through_hermes() {
     {
         let _bank = start(
             &d.join("bench-banking"),
-            &["mock", "--port", &BANK.to_string()],
-            BANK,
+            &["mock", "--port", &bank.to_string()],
+            bank,
             "bench-banking mock",
         );
         let _ws = start(
             &d.join("galion-wallstreet"),
-            &["serve", "--bind", &format!("127.0.0.1:{WS}")],
-            WS,
+            &["serve", "--bind", &format!("127.0.0.1:{ws}")],
+            ws,
             "galion-wallstreet serve",
         );
         let _vend = start(
@@ -199,7 +236,7 @@ fn real_all_three_benchmarks_through_hermes() {
             &[
                 "serve",
                 "--port",
-                &VEND.to_string(),
+                &vend.to_string(),
                 "--seed",
                 "42",
                 "--days",
@@ -207,7 +244,7 @@ fn real_all_three_benchmarks_through_hermes() {
                 "--log",
                 log.to_str().unwrap(),
             ],
-            VEND,
+            vend,
             "galion-vending serve",
         );
 
@@ -232,8 +269,8 @@ fn real_all_three_benchmarks_through_hermes() {
         let v3 = read(&out.join("hermes-vending.mock-llm.score.json"));
         assert_eq!(v3["final_state_hash"], b3["final_state_hash"]);
         assert!(
-            port_free(LLM),
-            "mock LLM port {LLM} still bound after the run"
+            port_free(llm),
+            "mock llm port {llm} still bound after the run"
         );
 
         for agent in ["scripted", "mock-llm"] {
@@ -273,12 +310,12 @@ fn real_all_three_benchmarks_through_hermes() {
                 "-s",
                 "-X",
                 "POST",
-                &format!("http://127.0.0.1:{VEND}/v1/shutdown"),
+                &format!("http://127.0.0.1:{vend}/v1/shutdown"),
             ])
             .output();
     }
-    for p in [BANK, WS, VEND, LLM] {
+    for p in [bank, ws, vend, llm] {
         assert!(port_free(p), "port {p} still bound");
     }
-    println!("all ports 19600/19601/19602/19605 free again");
+    println!("all ports {bank}/{ws}/{vend}/{llm} free again");
 }

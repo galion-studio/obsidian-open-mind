@@ -27,8 +27,11 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
-const A: u16 = 20290;
-const B: u16 = 20295;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): nerve A +0, origins +1..+4, nerve B +5;
+/// `INGRESS_LINT_REAL_PORT_BASE` moves the block, unset keeps the old 20290-20299.
+static PORTS: Block = Block::new("INGRESS_LINT_REAL_PORT_BASE", 20290, 10);
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -113,7 +116,7 @@ fn nerve(port: u16, dir: &Path, config: &Path) -> Kill {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "20290-20299")
+            .env("NERVE_LISTEN_SCOPE", PORTS.range())
             .env_remove("NERVE_SENSORS_OFF")
             .env("NERVE_INGRESS_LINT_CONFIG", config)
             .stderr(Stdio::null())
@@ -134,16 +137,23 @@ fn wait(port: u16, secs: u64, ok: impl Fn(&Value) -> bool) -> Value {
     }
 }
 
+/// Origin port `@N` in the configs below is block offset N (see `cfg`).
+fn cfg(t: &str) -> String {
+    (1..=4).fold(t.to_string(), |s, o| {
+        s.replace(&format!("@{o}"), &PORTS.port(o).to_string())
+    })
+}
+
 const CFG1: &str = "tunnel: 00000000-0000-0000-0000-000000000000
 credentials-file: /nonexistent/never-read.json
 ingress:
 - hostname: up.t26.invalid
-  service: http://127.0.0.1:20291
+  service: http://127.0.0.1:@1
 - hostname: late.t26.invalid
-  service: http://localhost:20292
+  service: http://localhost:@2
 - hostname: gone.t26.invalid
   path: ^/api
-  service: http://127.0.0.1:20293
+  service: http://127.0.0.1:@3
 - service: http_status:404
 ";
 
@@ -151,13 +161,13 @@ const CFG2: &str = "tunnel: 00000000-0000-0000-0000-000000000000
 credentials-file: /nonexistent/never-read.json
 ingress:
 - hostname: up.t26.invalid
-  service: http://127.0.0.1:20291
+  service: http://127.0.0.1:@1
 - hostname: late.t26.invalid
-  service: http://localhost:20292
+  service: http://localhost:@2
 - hostname: new.t26.invalid
-  service: http://127.0.0.1:20294
+  service: http://127.0.0.1:@4
 - hostname: extra.t26.invalid
-  service: http://127.0.0.1:20294
+  service: http://127.0.0.1:@4
 - service: http_status:404
 ";
 
@@ -167,7 +177,13 @@ fn real_ingress_lint_on_the_box() {
         eprintln!("skipped: set GALION_REAL=1");
         return;
     }
-    for p in [20292u16, 20293, 20294] {
+    let [a_port, p1, p2, p3, p4, b_port] = [0, 1, 2, 3, 4, 5].map(|o| PORTS.port(o));
+    let (c2, c3, c4) = (
+        format!("ingress-closed-{p2}"),
+        format!("ingress-closed-{p3}"),
+        format!("ingress-closed-{p4}"),
+    );
+    for p in [p2, p3, p4] {
         assert!(
             TcpListener::bind(("127.0.0.1", p)).is_ok(),
             ":{p} must be free"
@@ -175,24 +191,18 @@ fn real_ingress_lint_on_the_box() {
     }
     let dir = std::env::temp_dir().join(format!("nerve-real-t26-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("cloudflared")).unwrap();
-    serve(20291);
+    serve(p1);
     let copy = dir.join("ingress-copy.yml");
-    std::fs::write(&copy, CFG1).unwrap();
+    std::fs::write(&copy, cfg(CFG1)).unwrap();
 
     // Phase 1.
-    let a = nerve(A, &dir, &copy);
+    let a = nerve(a_port, &dir, &copy);
     let t0 = Instant::now();
-    let st = wait(A, 40, |st| {
-        ids(st) == ["ingress-closed-20292", "ingress-closed-20293"]
-            && st["cycle"].as_u64().unwrap_or(0) >= 2
+    let st = wait(a_port, 40, |st| {
+        ids(st) == [c2.as_str(), c3.as_str()] && st["cycle"].as_u64().unwrap_or(0) >= 2
     });
     let p1 = t0.elapsed();
-    assert_eq!(
-        ids(&st),
-        ["ingress-closed-20292", "ingress-closed-20293"],
-        "{}",
-        st["cortex"]
-    );
+    assert_eq!(ids(&st), [c2.as_str(), c3.as_str()], "{}", st["cortex"]);
     for f in findings(&st) {
         assert_eq!(f["severity"], "warn", "{f}");
         assert_eq!(f["kind"], "bleeding");
@@ -212,13 +222,13 @@ fn real_ingress_lint_on_the_box() {
         ids(&st)
     );
 
-    // Phase 2: listener appears on :20292, copy rewritten (different size).
-    serve(20292);
-    std::fs::write(&copy, CFG2).unwrap();
+    // Phase 2: listener appears on +2, copy rewritten (different size).
+    serve(p2);
+    std::fs::write(&copy, cfg(CFG2)).unwrap();
     let t1 = Instant::now();
-    let st = wait(A, 30, |st| ids(st) == ["ingress-closed-20294"]);
+    let st = wait(a_port, 30, |st| ids(st) == [c4.as_str()]);
     let p2 = t1.elapsed();
-    assert_eq!(ids(&st), ["ingress-closed-20294"], "{}", st["cortex"]);
+    assert_eq!(ids(&st), [c4.as_str()], "{}", st["cortex"]);
     let f = &findings(&st)[0];
     assert!(f["title"].as_str().unwrap().contains("2 route(s)"), "{f}");
     eprintln!(
@@ -230,7 +240,7 @@ fn real_ingress_lint_on_the_box() {
     );
 
     // Phase 3: events + budget.
-    let (head, body) = http(A, "/api/v1/cortex/events").expect("feed");
+    let (head, body) = http(a_port, "/api/v1/cortex/events").expect("feed");
     assert!(head.starts_with("HTTP/1.1 200"), "{head}");
     let mut n = 0;
     for l in body.lines() {
@@ -266,10 +276,10 @@ fn real_ingress_lint_on_the_box() {
     .unwrap();
     let link = dir.join("innocent-copy.yml");
     std::os::unix::fs::symlink(&creds, &link).unwrap();
-    let b = nerve(B, &dir, &link);
-    let st = wait(B, 30, |st| !ids(st).is_empty());
+    let b = nerve(b_port, &dir, &link);
+    let st = wait(b_port, 30, |st| !ids(st).is_empty());
     assert_eq!(ids(&st), ["ingress-config-refused"], "{}", st["cortex"]);
-    let all = http(B, "/api/v1/state").unwrap().1 + &http(B, "/api/v1/cortex").unwrap().1;
+    let all = http(b_port, "/api/v1/state").unwrap().1 + &http(b_port, "/api/v1/cortex").unwrap().1;
     assert!(!all.contains("T26-MARKER"), "refused content never shown");
     eprintln!(
         "nerve B (symlink -> cloudflared/): {:?}, evidence {:?}",

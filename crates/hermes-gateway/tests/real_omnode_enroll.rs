@@ -29,8 +29,20 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const HERMES: &str = env!("CARGO_BIN_EXE_hermes-gateway");
-const P: u16 = 22000;
-const PT: u16 = 22001;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): PT +1, P +0; `OMNODE_ENROLL_REAL_PORT_BASE`
+/// moves the block, unset keeps the old 22000-22009.
+static PORTS: Block = Block::new("OMNODE_ENROLL_REAL_PORT_BASE", 22000, 10);
+
+#[allow(non_snake_case)]
+fn P() -> u16 {
+    PORTS.port(0)
+}
+#[allow(non_snake_case)]
+fn PT() -> u16 {
+    PORTS.port(1)
+}
 
 fn real() -> bool {
     std::env::var("GALION_REAL").as_deref() == Ok("1")
@@ -397,8 +409,8 @@ fn real_omnode_enroll() {
         return;
     }
     let mut t = T { pass: 0, fail: 0 };
-    for p in P..=PT {
-        assert!((22000..=22009).contains(&p));
+    for p in P()..=PT() {
+        assert!((PORTS.base()..=PORTS.port(9)).contains(&p));
         assert!(port_free(p), "port {p} busy before start");
     }
     println!("== 0. build {}", ts());
@@ -440,14 +452,14 @@ fn real_omnode_enroll() {
         omnode,
         phone,
     };
-    env.start(P, &[]);
-    env.start(PT, &[("HERMES_RS_ENROLL_PENDING_TTL", "3")]);
+    env.start(P(), &[]);
+    env.start(PT(), &[("HERMES_RS_ENROLL_PENDING_TTL", "3")]);
 
     println!(
         "== 1. laptop omnode (x86_64): pair, owner approves by code, tunnel {}",
         ts()
     );
-    let (mut a, a_st) = env.pair(false, "laptop", P, &["--tunnel-secs", "60"]);
+    let (mut a, a_st) = env.pair(false, "laptop", P(), &["--tunnel-secs", "60"]);
     t.yes("laptop shows its CODE", a.wait_for("  CODE ", 15), a.text());
     let code = a.code();
     let dev = a.device();
@@ -470,7 +482,7 @@ fn real_omnode_enroll() {
         mode(&a_st.join("node.key")) == "600",
         mode(&a_st.join("node.key")),
     );
-    let (c, out) = env.owner(P, &["pending"]);
+    let (c, out) = env.owner(P(), &["pending"]);
     println!(
         "  owner> hermes-gateway enroll pending\n{}",
         out.trim_end()
@@ -486,9 +498,9 @@ fn real_omnode_enroll() {
         &out,
     );
     // wrong code first: nothing approved
-    let (c, _) = env.owner(P, &["approve", "0000-0000"]);
+    let (c, _) = env.owner(P(), &["approve", "0000-0000"]);
     t.check("approve with a wrong code", "1", c.to_string());
-    let (c, out) = env.owner(P, &["approve", &code.to_lowercase()]);
+    let (c, out) = env.owner(P(), &["approve", &code.to_lowercase()]);
     t.check("owner approve CODE (typed lower case)", "0", c.to_string());
     t.yes(
         "approve answer says approved",
@@ -516,9 +528,9 @@ fn real_omnode_enroll() {
     t.check(
         "laptop omnode outbound connections to hermes",
         "1",
-        conns_to(pid, P).to_string(),
+        conns_to(pid, P()).to_string(),
     );
-    let (_, out) = env.owner(P, &["devices"]);
+    let (_, out) = env.owner(P(), &["devices"]);
     let d = js(&out);
     let dv = d["devices"]
         .as_array()
@@ -539,7 +551,7 @@ fn real_omnode_enroll() {
         !out.contains(&token) && !out.contains("token_sha256"),
         "",
     );
-    let (c, out) = env.owner(P, &["ping", &dev]);
+    let (c, out) = env.owner(P(), &["ping", &dev]);
     println!(
         "  owner> hermes-gateway enroll ping {dev}\n    {}",
         out.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -558,9 +570,9 @@ fn real_omnode_enroll() {
     t.yes("pings flow", a.wait_for("ping 2 at", 10), a.text());
 
     println!("== 2. refusal, timeout, signature/expiry/replay {}", ts());
-    let (mut r, _) = env.pair(false, "refused", P, &[]);
+    let (mut r, _) = env.pair(false, "refused", P(), &[]);
     t.yes("refused: CODE shown", r.wait_for("  CODE ", 15), r.text());
-    let (c, _) = env.owner(P, &["reject", &r.code()]);
+    let (c, _) = env.owner(P(), &["reject", &r.code()]);
     t.check("owner reject CODE", "0", c.to_string());
     t.check(
         "refused device exit code",
@@ -572,7 +584,7 @@ fn real_omnode_enroll() {
         r.text().contains("the owner refused this device"),
         r.text(),
     );
-    let (mut x, _) = env.pair(false, "late", PT, &[]);
+    let (mut x, _) = env.pair(false, "late", PT(), &[]);
     t.yes("timeout: CODE shown", x.wait_for("  CODE ", 15), x.text());
     t.check(
         "unapproved device exit code (3 s window)",
@@ -584,13 +596,13 @@ fn real_omnode_enroll() {
         x.text().contains("did not approve in time"),
         x.text(),
     );
-    let (_, out) = env.owner(PT, &["approve", &x.code()]);
+    let (_, out) = env.owner(PT(), &["approve", &x.code()]);
     t.yes(
         "owner can not approve after the timeout",
         out.contains("no pending request"),
         &out,
     );
-    let (_, out) = env.owner(PT, &["pending"]);
+    let (_, out) = env.owner(PT(), &["pending"]);
     t.yes(
         "owner list shows it as expired",
         out.contains("expired"),
@@ -610,7 +622,7 @@ fn real_omnode_enroll() {
             &probe_home,
             &[
                 "pair",
-                &Env::url(P),
+                &Env::url(P()),
                 "--dry-run",
                 "--state",
                 probe_home.join(".config/openmind").to_str().unwrap(),
@@ -627,7 +639,7 @@ fn real_omnode_enroll() {
     let _ = probe_st;
     let mut bad = doc.clone();
     bad["payload"]["capabilities"] = serde_json::json!(["cpu", "admin"]);
-    let (c, b) = http(P, "POST", "/openmind/enroll", Some(&bad.to_string()));
+    let (c, b) = http(P(), "POST", "/openmind/enroll", Some(&bad.to_string()));
     t.check(
         "tampered payload",
         "400 true",
@@ -636,9 +648,9 @@ fn real_omnode_enroll() {
             js(&b)["error"].as_str().unwrap_or("").contains("signature")
         ),
     );
-    let (c, _) = http(P, "POST", "/openmind/enroll", Some(&doc.to_string()));
+    let (c, _) = http(P(), "POST", "/openmind/enroll", Some(&doc.to_string()));
     t.check("fresh payload", "202", c.to_string());
-    let (c, b) = http(P, "POST", "/openmind/enroll", Some(&doc.to_string()));
+    let (c, b) = http(P(), "POST", "/openmind/enroll", Some(&doc.to_string()));
     t.check(
         "same payload replayed",
         "409 nonce already used",
@@ -654,7 +666,7 @@ fn real_omnode_enroll() {
             &probe_home,
             &[
                 "pair",
-                &Env::url(P),
+                &Env::url(P()),
                 "--dry-run",
                 "--now",
                 &(now - 1000).to_string(),
@@ -665,7 +677,7 @@ fn real_omnode_enroll() {
         .output()
         .unwrap();
     let old = js(&String::from_utf8_lossy(&o.stdout))["would_send"]["body"].to_string();
-    let (c, b) = http(P, "POST", "/openmind/enroll", Some(&old));
+    let (c, b) = http(P(), "POST", "/openmind/enroll", Some(&old));
     t.check(
         "expired payload",
         "400 true",
@@ -674,9 +686,9 @@ fn real_omnode_enroll() {
             js(&b)["error"].as_str().unwrap_or("").contains("expired")
         ),
     );
-    let (c, _) = http(P, "GET", "/openmind/node/tunnel", None);
+    let (c, _) = http(P(), "GET", "/openmind/node/tunnel", None);
     t.check("tunnel without a credential", "401", c.to_string());
-    let (c, _) = http(P, "GET", "/openmind/enroll/pending", None);
+    let (c, _) = http(P(), "GET", "/openmind/enroll/pending", None);
     t.check("owner route without the key", "401", c.to_string());
 
     println!(
@@ -684,10 +696,10 @@ fn real_omnode_enroll() {
         ts()
     );
     let phone_dev = if env.phone.is_some() {
-        let (q, q_st) = env.pair(true, "phone", P, &["--via-curl", "--tunnel-secs", "60"]);
+        let (q, q_st) = env.pair(true, "phone", P(), &["--via-curl", "--tunnel-secs", "60"]);
         t.yes("phone: CODE shown", q.wait_for("  CODE ", 60), q.text());
         let qd = q.device();
-        let (c, _) = env.owner(P, &["approve", &q.code()]);
+        let (c, _) = env.owner(P(), &["approve", &q.code()]);
         t.check("owner approves the phone", "0", c.to_string());
         t.yes("phone: tunnel UP", q.wait_for("tunnel: UP", 40), q.text());
         t.check(
@@ -695,7 +707,7 @@ fn real_omnode_enroll() {
             "600",
             mode(&q_st.join("hermes-credential.json")),
         );
-        let (c, out) = env.owner(P, &["ping", &qd]);
+        let (c, out) = env.owner(P(), &["ping", &qd]);
         t.check("owner ping to the phone", "0", c.to_string());
         println!(
             "    phone ping: {}",
@@ -726,13 +738,13 @@ fn real_omnode_enroll() {
         "== 4. restart keeps the device; tunnel reconnects; revoke closes it {}",
         ts()
     );
-    env.stop(P);
+    env.stop(P());
     t.yes(
         "laptop notices the restart",
         a.wait_for("connection lost", 15) || a.wait_for("stream ended", 1),
         a.text(),
     );
-    env.start(P, &[]);
+    env.start(P(), &[]);
     let before = a.text().matches("tunnel: UP").count();
     let t0 = Instant::now();
     let mut back = false;
@@ -748,13 +760,13 @@ fn real_omnode_enroll() {
         back,
         a.text(),
     );
-    let (_, out) = env.owner(P, &["devices"]);
+    let (_, out) = env.owner(P(), &["devices"]);
     t.yes(
         "device still active after restart",
         out.contains(&dev) && out.contains("\"active\""),
         &out,
     );
-    let (c, _) = env.owner(P, &["revoke", &dev]);
+    let (c, _) = env.owner(P(), &["revoke", &dev]);
     t.check("owner revoke", "0", c.to_string());
     t.check(
         "laptop exit after revoke",
@@ -794,14 +806,14 @@ fn real_omnode_enroll() {
     drop(a);
     drop(r);
     drop(x);
-    for port in [P, PT] {
+    for port in [P(), PT()] {
         env.stop(port);
     }
     std::thread::sleep(Duration::from_millis(300));
-    for p in P..=PT {
+    for p in P()..=PT() {
         t.yes(&format!("port {p} free after teardown"), port_free(p), "");
     }
-    for port in [P, PT] {
+    for port in [P(), PT()] {
         let log =
             std::fs::read_to_string(work.join(format!("hermes-{port}.log"))).unwrap_or_default();
         t.yes(

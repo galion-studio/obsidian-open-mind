@@ -33,7 +33,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use galion_realtest::ports::Block;
+
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
+
+/// Slot 383 (real-ports-batch-3): nerve +0, live +1, dead +2, strays +3 +4;
+/// `SCORE_V2_REAL_PORT_BASE` moves the block, unset keeps the old 19780-19789.
+static PORTS: Block = Block::new("SCORE_V2_REAL_PORT_BASE", 19780, 10);
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -216,8 +222,9 @@ fn real_score_v2_on_the_box() {
         eprintln!("replay1 live capture not on this box: skipped");
     }
 
-    // 3. Serve on 19780.
-    let svc = TcpListener::bind("127.0.0.1:19781").expect("19781 free");
+    let [p0, p1, p2, p3, p4] = [0, 1, 2, 3, 4].map(|o| PORTS.port(o));
+    // 3. Serve on nerve +0 (19780 by default).
+    let svc = TcpListener::bind(PORTS.addr(1)).expect("svc port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 1024];
@@ -228,43 +235,49 @@ fn real_score_v2_on_the_box() {
     let comps = dir.join("components.json");
     std::fs::write(
         &comps,
-        r#"[{"name":"live-svc","port":19781},{"name":"dead-svc","port":19782}]"#,
+        format!(r#"[{{"name":"live-svc","port":{p1}}},{{"name":"dead-svc","port":{p2}}}]"#),
     )
     .unwrap();
     let strays = [
-        TcpListener::bind("127.0.0.1:19783").expect("19783 free"),
-        TcpListener::bind("127.0.0.1:19784").expect("19784 free"),
+        TcpListener::bind(PORTS.addr(3)).expect("stray port free"),
+        TcpListener::bind(PORTS.addr(4)).expect("stray port free"),
     ];
     let _nerve = Kill(
         Command::new(BIN)
             .arg("serve")
-            .env("NERVE_ADDR", "127.0.0.1:19780")
+            .env("NERVE_ADDR", PORTS.addr(0))
             .env("NERVE_INTERVAL", "5")
             .env("NERVE_REPORT_EVERY", "1")
-            .env("NERVE_DATA_DIR", dir.join("data-19780"))
+            .env("NERVE_DATA_DIR", dir.join(format!("data-{p0}")))
             .env("NERVE_COMPONENTS", &comps)
             .env("NERVE_SYSTEMD", "0")
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "19780-19789")
+            .env("NERVE_LISTEN_SCOPE", PORTS.range())
             .env_remove("NERVE_SENSORS_OFF")
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn nerve"),
     );
+    let strays_txt = format!("{p3} :{p4}");
     let stray_ded = |r: &Value| {
         r["deductions"]
             .as_array()
             .map(|a| {
                 a.iter()
-                    .filter(|d| d["what"].as_str().unwrap_or("").contains("19783 :19784"))
+                    .filter(|d| {
+                        d["what"]
+                            .as_str()
+                            .unwrap_or("")
+                            .contains(strays_txt.as_str())
+                    })
                     .cloned()
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default()
     };
-    let r = wait_eval(19780, |r| {
+    let r = wait_eval(p0, |r| {
         !stray_ded(r).is_empty() && !r["incidents"].as_array().unwrap().is_empty()
     });
     let sd = stray_ded(&r);
@@ -272,7 +285,8 @@ fn real_score_v2_on_the_box() {
     assert_eq!(sd[0]["points"], 4);
     assert_eq!(
         sd[0]["what"],
-        "vulnerability (warn): 2 loopback listener(s) no monitored unit owns: :19783 :19784"
+        format!("vulnerability (warn): 2 loopback listener(s) no monitored unit owns: :{p3} :{p4}")
+            .as_str()
     );
     let (c, s) = check(&r);
     let points: Vec<u64> = r["deductions"]
@@ -282,20 +296,20 @@ fn real_score_v2_on_the_box() {
         .map(|d| d["points"].as_u64().unwrap())
         .collect();
     eprintln!(
-        "serve :19780 cycle {} (strays up): score {} grade {} pass {}; deductions {points:?}; incidents {:?}; findings covered {c} / scored {s}",
+        "serve :{p0} cycle {} (strays up): score {} grade {} pass {}; deductions {points:?}; incidents {:?}; findings covered {c} / scored {s}",
         r["cycle"], r["score"], r["grade"], r["pass"],
         r["incidents"].as_array().unwrap().iter().map(|i| format!("{} {}", i["cause"], i["severity"])).collect::<Vec<_>>()
     );
     let before = r["score"].as_u64().unwrap();
     drop(strays);
-    let r = wait_eval(19780, |r| {
+    let r = wait_eval(p0, |r| {
         r["cycle"].as_u64().unwrap_or(0) > 0 && stray_ded(r).is_empty()
     });
     assert!(stray_ded(&r).is_empty(), "stray deduction cleared: {r}");
     assert_eq!(r["score"].as_u64().unwrap(), (before + 4).min(100));
     let (c, s) = check(&r);
     eprintln!(
-        "serve :19780 cycle {} (strays gone): score {} grade {} pass {}; findings covered {c} / scored {s}",
+        "serve :{p0} cycle {} (strays gone): score {} grade {} pass {}; findings covered {c} / scored {s}",
         r["cycle"], r["score"], r["grade"], r["pass"]
     );
     let _ = std::fs::remove_dir_all(&dir);

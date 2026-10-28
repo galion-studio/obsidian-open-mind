@@ -39,10 +39,28 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const HERMES: &str = env!("CARGO_BIN_EXE_hermes-gateway");
-const P: u16 = 19720;
-const PA: u16 = 19721;
-const PB: u16 = 19722;
-const PPROBE: u16 = 19723;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): PPROBE +3, PA +1, PB +2, P +0; `HERMES_ENROLL_REAL_PORT_BASE`
+/// moves the block, unset keeps the old 19720-19729.
+static PORTS: Block = Block::new("HERMES_ENROLL_REAL_PORT_BASE", 19720, 10);
+
+#[allow(non_snake_case)]
+fn P() -> u16 {
+    PORTS.port(0)
+}
+#[allow(non_snake_case)]
+fn PA() -> u16 {
+    PORTS.port(1)
+}
+#[allow(non_snake_case)]
+fn PB() -> u16 {
+    PORTS.port(2)
+}
+#[allow(non_snake_case)]
+fn PPROBE() -> u16 {
+    PORTS.port(3)
+}
 
 fn real() -> bool {
     std::env::var("GALION_REAL").as_deref() == Ok("1")
@@ -240,14 +258,14 @@ impl Env {
     }
 
     fn start_hermes(&mut self, t: &mut T, log: &str, extra: &[(&str, String)]) {
-        assert!(port_free(P), "port {P} busy");
+        assert!(port_free(P()), "port {} busy", P());
         let child = self
-            .hermes_cmd(P, extra, &self.work.join(log))
+            .hermes_cmd(P(), extra, &self.work.join(log))
             .spawn()
             .expect("spawn hermes-gateway");
         self.hermes = Some(child);
         for _ in 0..100 {
-            if http(P, "GET", "/health", None, None).0 == 200 {
+            if http(P(), "GET", "/health", None, None).0 == 200 {
                 return;
             }
             std::thread::sleep(Duration::from_millis(100));
@@ -278,7 +296,7 @@ impl Env {
         let log = self.work.join("probe.log");
         let _ = fs::remove_file(&log);
         let mut c = self
-            .hermes_cmd(PPROBE, extra, &log)
+            .hermes_cmd(PPROBE(), extra, &log)
             .spawn()
             .expect("spawn probe");
         let t0 = Instant::now();
@@ -391,10 +409,12 @@ fn real_enroll() {
         eprintln!("skipped: set GALION_REAL=1 for the hermes-enroll real-life test");
         return;
     }
-    for p in [P, PA, PB, PPROBE] {
+    for p in [P(), PA(), PB(), PPROBE()] {
         assert!(
-            (19720..=19729).contains(&p),
-            "slot 102 owns 19720-19729 only"
+            (PORTS.base()..=PORTS.port(9)).contains(&p),
+            "{} block is {} only",
+            PORTS.var(),
+            PORTS.range()
         );
         assert!(port_free(p), "port {p} busy before start");
     }
@@ -424,7 +444,7 @@ fn real_enroll() {
     for d in ["hermes", "a", "b"] {
         fs::create_dir_all(work.join(d)).unwrap();
     }
-    let url = format!("http://127.0.0.1:{P}/openmind/enroll");
+    let url = format!("http://127.0.0.1:{}/openmind/enroll", P());
     let mut env = Env {
         work: work.clone(),
         key: rand_hex(24),
@@ -452,14 +472,14 @@ fn real_enroll() {
     t.check(
         "off: GET /openmind/node/whoami",
         "404",
-        http(P, "GET", "/openmind/node/whoami", None, None)
+        http(P(), "GET", "/openmind/node/whoami", None, None)
             .0
             .to_string(),
     );
     t.check(
         "off: POST /openmind/enroll",
         "404",
-        http(P, "POST", "/openmind/enroll", Some("{}"), None)
+        http(P(), "POST", "/openmind/enroll", Some("{}"), None)
             .0
             .to_string(),
     );
@@ -488,7 +508,7 @@ fn real_enroll() {
             on(),
             (
                 "HERMES_RS_ENROLL_URL",
-                format!("http://127.0.0.1:{PPROBE}/enroll"),
+                format!("http://127.0.0.1:{}/enroll", PPROBE()),
             ),
         ],
     );
@@ -538,7 +558,7 @@ fn real_enroll() {
         xdg: w("b"),
         state: w("b/openmind"),
     };
-    for (n, port, d) in [(&a, PA, "a"), (&b, PB, "b")] {
+    for (n, port, d) in [(&a, PA(), "a"), (&b, PB(), "b")] {
         let listen = format!("127.0.0.1:{port}");
         let code = w(d).join("code").display().to_string();
         let child = n
@@ -561,7 +581,7 @@ fn real_enroll() {
             .expect("spawn omnode boot");
         env.procs.push(child);
     }
-    for port in [PA, PB] {
+    for port in [PA(), PB()] {
         let mut up = "no";
         for _ in 0..150 {
             if http(port, "GET", "/v1/node", None, None).0 == 200 {
@@ -572,8 +592,8 @@ fn real_enroll() {
         }
         t.check(&format!("omnode on {port} up"), "yes", up);
     }
-    let na = js(&http(PA, "GET", "/v1/node", None, None).1);
-    let nb = js(&http(PB, "GET", "/v1/node", None, None).1);
+    let na = js(&http(PA(), "GET", "/v1/node", None, None).1);
+    let nb = js(&http(PB(), "GET", "/v1/node", None, None).1);
     let dev_a = sv(&na["device_id"]);
     let dev_b = sv(&nb["device_id"]);
     let fp_a = a.fingerprint();
@@ -613,11 +633,11 @@ fn real_enroll() {
     t.check(
         "pending list without owner key",
         "401",
-        http(P, "GET", "/openmind/enroll/pending", None, None)
+        http(P(), "GET", "/openmind/enroll/pending", None, None)
             .0
             .to_string(),
     );
-    let (c, body) = http(P, "GET", "/openmind/enroll/pending", None, Some(&key));
+    let (c, body) = http(P(), "GET", "/openmind/enroll/pending", None, Some(&key));
     t.check("pending list (owner)", "200", c.to_string());
     let pfp = js(&body)["pending"]
         .as_array()
@@ -643,7 +663,7 @@ fn real_enroll() {
         "approve with wrong fingerprint",
         "409",
         http(
-            P,
+            P(),
             "POST",
             "/openmind/enroll/approve",
             Some(&bad),
@@ -657,12 +677,12 @@ fn real_enroll() {
     t.check(
         "approve without owner key",
         "401",
-        http(P, "POST", "/openmind/enroll/approve", Some(&appr), None)
+        http(P(), "POST", "/openmind/enroll/approve", Some(&appr), None)
             .0
             .to_string(),
     );
     let (c, body) = http(
-        P,
+        P(),
         "POST",
         "/openmind/enroll/approve",
         Some(&appr),
@@ -728,14 +748,14 @@ fn real_enroll() {
     t.check(
         "node token on the owner API (/v1/models)",
         "401",
-        http(P, "GET", "/v1/models", None, Some(&tok_a))
+        http(P(), "GET", "/v1/models", None, Some(&tok_a))
             .0
             .to_string(),
     );
     t.check(
         "node token on owner enroll routes",
         "401",
-        http(P, "GET", "/openmind/enroll/devices", None, Some(&tok_a))
+        http(P(), "GET", "/openmind/enroll/devices", None, Some(&tok_a))
             .0
             .to_string(),
     );
@@ -743,7 +763,7 @@ fn real_enroll() {
     t.check(
         "owner API unchanged: mock chat with owner key",
         "200",
-        http(P, "POST", "/v1/chat/completions", Some(chat), Some(&key))
+        http(P(), "POST", "/v1/chat/completions", Some(chat), Some(&key))
             .0
             .to_string(),
     );
@@ -769,13 +789,13 @@ fn real_enroll() {
     };
     let doc_b = doc(None);
     let doc_b_s = doc_b.to_string();
-    let (c, body) = http(P, "POST", "/openmind/enroll", Some(&doc_b_s), None);
+    let (c, body) = http(P(), "POST", "/openmind/enroll", Some(&doc_b_s), None);
     t.check(
         "B: first POST of its payload",
         "202 pending",
         format!("{c} {}", sv(&js(&body)["status"])),
     );
-    let (c, body) = http(P, "POST", "/openmind/enroll", Some(&doc_b_s), None);
+    let (c, body) = http(P(), "POST", "/openmind/enroll", Some(&doc_b_s), None);
     t.check(
         "B: same payload replayed",
         "409 nonce already used",
@@ -786,7 +806,7 @@ fn real_enroll() {
         .unwrap()
         .as_secs();
     let old = doc(Some(now - 1000)).to_string();
-    let (c, body) = http(P, "POST", "/openmind/enroll", Some(&old), None);
+    let (c, body) = http(P(), "POST", "/openmind/enroll", Some(&old), None);
     t.check(
         "B: expired payload (created 1000 s ago)",
         "400 true",
@@ -803,7 +823,7 @@ fn real_enroll() {
             .unwrap()
             .push("money".into())
     });
-    let (c, body) = http(P, "POST", "/openmind/enroll", Some(&t1), None);
+    let (c, body) = http(P(), "POST", "/openmind/enroll", Some(&t1), None);
     t.check(
         "tampered capabilities",
         "400 signature does not verify",
@@ -816,7 +836,7 @@ fn real_enroll() {
     t.check(
         "tampered expires_unix",
         "400",
-        http(P, "POST", "/openmind/enroll", Some(&t2), None)
+        http(P(), "POST", "/openmind/enroll", Some(&t2), None)
             .0
             .to_string(),
     );
@@ -828,7 +848,7 @@ fn real_enroll() {
     t.check(
         "foreign public key",
         "400",
-        http(P, "POST", "/openmind/enroll", Some(&t3), None)
+        http(P(), "POST", "/openmind/enroll", Some(&t3), None)
             .0
             .to_string(),
     );
@@ -838,7 +858,7 @@ fn real_enroll() {
     t.check(
         "payload for another server",
         "400",
-        http(P, "POST", "/openmind/enroll", Some(&t4), None)
+        http(P(), "POST", "/openmind/enroll", Some(&t4), None)
             .0
             .to_string(),
     );
@@ -846,11 +866,11 @@ fn real_enroll() {
     t.check(
         "unknown field",
         "400",
-        http(P, "POST", "/openmind/enroll", Some(&t5), None)
+        http(P(), "POST", "/openmind/enroll", Some(&t5), None)
             .0
             .to_string(),
     );
-    let (c, body) = http(P, "GET", "/openmind/node/whoami", None, Some(&forged));
+    let (c, body) = http(P(), "GET", "/openmind/node/whoami", None, Some(&forged));
     t.check(
         "unenrolled: forged token",
         "401 not enrolled",
@@ -859,7 +879,7 @@ fn real_enroll() {
     t.check(
         "unenrolled: no token",
         "401",
-        http(P, "GET", "/openmind/node/whoami", None, None)
+        http(P(), "GET", "/openmind/node/whoami", None, None)
             .0
             .to_string(),
     );
@@ -887,9 +907,15 @@ fn real_enroll() {
     t.check(
         "owner rejects B",
         "200",
-        http(P, "POST", "/openmind/enroll/reject", Some(&rej), Some(&key))
-            .0
-            .to_string(),
+        http(
+            P(),
+            "POST",
+            "/openmind/enroll/reject",
+            Some(&rej),
+            Some(&key),
+        )
+        .0
+        .to_string(),
     );
     let o = b.run(&["enroll", "claim", "--state", &b.st()]);
     t.check(
@@ -918,7 +944,7 @@ fn real_enroll() {
     );
     let appr_b = format!(r#"{{"device_id":"{dev_b}","fingerprint":"{fp_b}","scopes":["cpu"]}}"#);
     let (c, body) = http(
-        P,
+        P(),
         "POST",
         "/openmind/enroll/approve",
         Some(&appr_b),
@@ -957,21 +983,27 @@ fn real_enroll() {
     t.check(
         "revoke without owner key",
         "401",
-        http(P, "POST", "/openmind/enroll/revoke", Some(&rev), None)
+        http(P(), "POST", "/openmind/enroll/revoke", Some(&rev), None)
             .0
             .to_string(),
     );
     t.check(
         "revoke A (owner)",
         "200",
-        http(P, "POST", "/openmind/enroll/revoke", Some(&rev), Some(&key))
-            .0
-            .to_string(),
+        http(
+            P(),
+            "POST",
+            "/openmind/enroll/revoke",
+            Some(&rev),
+            Some(&key),
+        )
+        .0
+        .to_string(),
     );
     t.check(
         "A's credential refused after revoke",
         "401",
-        http(P, "GET", "/openmind/node/whoami", None, Some(&tok_a))
+        http(P(), "GET", "/openmind/node/whoami", None, Some(&tok_a))
             .0
             .to_string(),
     );
@@ -1002,7 +1034,7 @@ fn real_enroll() {
             sv(&js(&o.out)["error"]).contains("device revoked")
         ),
     );
-    let (c, body) = http(P, "GET", "/openmind/node/whoami", None, Some(&tok_b));
+    let (c, body) = http(P(), "GET", "/openmind/node/whoami", None, Some(&tok_b));
     t.check(
         "B unaffected",
         format!("200 {dev_b}"),
@@ -1015,23 +1047,23 @@ fn real_enroll() {
     t.check(
         "after restart: A still refused",
         "401",
-        http(P, "GET", "/openmind/node/whoami", None, Some(&tok_a))
+        http(P(), "GET", "/openmind/node/whoami", None, Some(&tok_a))
             .0
             .to_string(),
     );
-    let (c, body) = http(P, "GET", "/openmind/node/whoami", None, Some(&tok_b));
+    let (c, body) = http(P(), "GET", "/openmind/node/whoami", None, Some(&tok_b));
     t.check(
         "after restart: B's credential still accepted",
         "200 cpu",
         format!("{c} {}", join(&js(&body)["scopes"])),
     );
-    let (c, body) = http(P, "POST", "/openmind/enroll", Some(&doc_b_s), None);
+    let (c, body) = http(P(), "POST", "/openmind/enroll", Some(&doc_b_s), None);
     t.check(
         "after restart: replayed nonce still refused",
         "409 nonce already used",
         format!("{c} {}", sv(&js(&body)["error"])),
     );
-    let (_, body) = http(P, "GET", "/openmind/enroll/devices", None, Some(&key));
+    let (_, body) = http(P(), "GET", "/openmind/enroll/devices", None, Some(&key));
     let mut want = [format!("{dev_a}:revoked"), format!("{dev_b}:active")];
     want.sort();
     let mut got: Vec<String> = js(&body)["devices"]
@@ -1111,7 +1143,7 @@ fn real_enroll() {
         println!("  {}", l.replace(&work.display().to_string(), "$WORK"));
     }
     drop(env);
-    for p in [P, PA, PB, PPROBE] {
+    for p in [P(), PA(), PB(), PPROBE()] {
         t.check(
             &format!("port {p} free after teardown"),
             "true",

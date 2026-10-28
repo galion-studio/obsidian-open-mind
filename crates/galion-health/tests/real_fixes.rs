@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
-//! Real-life test for galion-health v0.2.0 (swarm/health-fixes, wave-4 slot 149, ports 20190-20199).
+//! Real-life test for galion-health v0.2.0 (swarm/health-fixes, wave-4 slot 149, ports 20190-20199;
+//! base movable with GALION_HEALTH_REAL_PORT_BASE since slot 363 — offsets below are +0..+4).
 //! Builds the RELEASE binary (or uses GALION_HEALTH_BIN), starts it on 127.0.0.1:20190 with a fake
 //! HTTP upstream (20191), a black-hole upstream that accepts and never answers (20192), raw TCP
 //! (20193) and a closed port (20194), runs every scenario, prints one PASS/FAIL line per scenario
@@ -9,6 +10,7 @@
 //! `GALION_REAL=1 cargo test -p galion-health --test real_fixes -- --ignored --nocapture`.
 //! Pointing GALION_HEALTH_BIN at the v0.1.0 (health-land f4a66ea) binary shows which scenarios it
 //! fails (findings 1 and 2); the test then fails, as it should.
+use galion_realtest::ports;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
@@ -17,11 +19,32 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const ADDR: &str = "127.0.0.1:20190";
-const UP: u16 = 20191;
-const HOLE: u16 = 20192;
-const RAW: u16 = 20193;
-const CLOSED: u16 = 20194;
+/// First port of the 5-port block (slot 363, real-test-port-env): health on +0,
+/// fake upstream +1, black hole +2, raw TCP +3, closed +4. Unset = 20190 (slot 149).
+const PORT_BASE_ENV: &str = "GALION_HEALTH_REAL_PORT_BASE";
+const DEFAULT_PORT_BASE: u16 = 20190;
+
+struct Ports {
+    addr: String,
+    up: u16,
+    hole: u16,
+    raw: u16,
+    closed: u16,
+}
+
+fn net() -> &'static Ports {
+    static P: std::sync::OnceLock<Ports> = std::sync::OnceLock::new();
+    P.get_or_init(|| {
+        let b = ports::base_from_env(PORT_BASE_ENV, DEFAULT_PORT_BASE, 5);
+        Ports {
+            addr: format!("127.0.0.1:{b}"),
+            up: b + 1,
+            hole: b + 2,
+            raw: b + 3,
+            closed: b + 4,
+        }
+    })
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -49,7 +72,7 @@ fn release_bin() -> PathBuf {
 
 fn start(bin: &PathBuf, checks: &str, workers: Option<&str>) -> Kill {
     let mut c = Command::new(bin);
-    c.env("GALION_HEALTH_ADDR", ADDR)
+    c.env("GALION_HEALTH_ADDR", &net().addr)
         .env("GALION_HEALTH_CHECKS", checks)
         .env("GALION_LOG_FORMAT", "json")
         .stderr(Stdio::null());
@@ -59,7 +82,7 @@ fn start(bin: &PathBuf, checks: &str, workers: Option<&str>) -> Kill {
     let k = Kill(c.spawn().expect("spawn galion-health"));
     let t0 = Instant::now();
     loop {
-        if let Ok(s) = TcpStream::connect(ADDR) {
+        if let Ok(s) = TcpStream::connect(&net().addr) {
             drop(s); // an empty connection: v0.2.0 closes it silently
             break;
         }
@@ -73,7 +96,7 @@ fn start(bin: &PathBuf, checks: &str, workers: Option<&str>) -> Kill {
 /// Sends `parts` with `gap` between them, then reads the whole reply.
 /// Err carries the I/O error text (e.g. "Connection reset by peer").
 fn raw(parts: &[&[u8]], gap: Duration, timeout: Duration) -> Result<(String, String), String> {
-    let mut s = TcpStream::connect(ADDR).map_err(|e| format!("connect: {e}"))?;
+    let mut s = TcpStream::connect(&net().addr).map_err(|e| format!("connect: {e}"))?;
     s.set_read_timeout(Some(timeout)).unwrap();
     for (i, p) in parts.iter().enumerate() {
         if i > 0 {
@@ -103,7 +126,7 @@ fn status(h: &str) -> &str {
 }
 
 fn upstream_ok(stop: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
-    let l = TcpListener::bind(("127.0.0.1", UP)).expect("bind 20191");
+    let l = TcpListener::bind(("127.0.0.1", net().up)).expect("bind port");
     l.set_nonblocking(true).unwrap();
     std::thread::spawn(move || {
         while !stop.load(Ordering::Relaxed) {
@@ -123,7 +146,7 @@ fn upstream_ok(stop: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
 
 /// Accepts and holds connections without ever answering (a hung upstream).
 fn upstream_hole(stop: Arc<AtomicBool>) -> std::thread::JoinHandle<()> {
-    let l = TcpListener::bind(("127.0.0.1", HOLE)).expect("bind 20192");
+    let l = TcpListener::bind(("127.0.0.1", net().hole)).expect("bind port");
     l.set_nonblocking(true).unwrap();
     std::thread::spawn(move || {
         let mut held = Vec::new();
@@ -167,14 +190,14 @@ fn real_v020_fixes() {
     let stop = Arc::new(AtomicBool::new(false));
     let up = upstream_ok(stop.clone());
     let hole = upstream_hole(stop.clone());
-    let _raw = TcpListener::bind(("127.0.0.1", RAW)).expect("bind 20193");
+    let _raw = TcpListener::bind(("127.0.0.1", net().raw)).expect("bind port");
     let mut r = Report(Vec::new());
 
     // --version
     // v0.1.0 has no --version and would start serving: pin its address to ours and kill it after 2 s.
     let mut vc = Command::new(&bin)
         .arg("--version")
-        .env("GALION_HEALTH_ADDR", ADDR)
+        .env("GALION_HEALTH_ADDR", &net().addr)
         .env("GALION_HEALTH_CHECKS", "n|-|0|-")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -190,14 +213,18 @@ fn real_v020_fixes() {
     r.add("version", vs == "galion-health 0.2.0", format!("{vs:?}"));
 
     // A) parity + finding 1 on an all-green spec.
-    let green = format!("up|-|{UP}|/health;raw|-|{RAW}|-;noprobe|-|0|-");
+    let green = format!(
+        "up|-|{}|/health;raw|-|{}|-;noprobe|-|0|-",
+        net().up,
+        net().raw
+    );
     {
         let _k = start(&bin, &green, None);
         let a = get("/status.json");
         let ok = matches!(&a, Ok((h, b)) if h.starts_with("HTTP/1.1 200 OK")
             && h.contains("Content-Type: application/json") && h.contains("Cache-Control: no-store")
             && b.starts_with("{\"ok\":true,\"checked_at\":\"")
-            && b.contains("\"name\":\"up\",\"unit\":\"-\",\"unit_state\":\"n/a\",\"port\":20191,\"http\":\"200\"")
+            && b.contains(&format!("\"name\":\"up\",\"unit\":\"-\",\"unit_state\":\"n/a\",\"port\":{},\"http\":\"200\"", net().up))
             && b.contains("\"http\":\"tcp-open\""));
         r.add(
             "parity /status.json",
@@ -286,7 +313,9 @@ fn real_v020_fixes() {
         );
 
         // Finding 2a: idle (slow-loris) clients must not block others.
-        let idle: Vec<TcpStream> = (0..2).map(|_| TcpStream::connect(ADDR).unwrap()).collect();
+        let idle: Vec<TcpStream> = (0..2)
+            .map(|_| TcpStream::connect(&net().addr).unwrap())
+            .collect();
         std::thread::sleep(Duration::from_millis(100));
         let t = Instant::now();
         let q = get("/healthz");
@@ -314,7 +343,9 @@ fn real_v020_fixes() {
 
     // B) finding 2b: 12 hung upstreams + 10 concurrent clients with a cold cache.
     std::thread::sleep(Duration::from_millis(200));
-    let hung: Vec<String> = (0..12).map(|i| format!("h{i}|-|{HOLE}|/health")).collect();
+    let hung: Vec<String> = (0..12)
+        .map(|i| format!("h{i}|-|{}|/health", net().hole))
+        .collect();
     let hung = hung.join(";");
     {
         let k = start(&bin, &hung, None);
@@ -385,7 +416,9 @@ fn real_v020_fixes() {
     std::thread::sleep(Duration::from_millis(200));
     {
         let _k = start(&bin, &green, Some("1"));
-        let idle: Vec<TcpStream> = (0..33).map(|_| TcpStream::connect(ADDR).unwrap()).collect();
+        let idle: Vec<TcpStream> = (0..33)
+            .map(|_| TcpStream::connect(&net().addr).unwrap())
+            .collect();
         std::thread::sleep(Duration::from_millis(300));
         let t = Instant::now();
         let q = raw(
@@ -409,7 +442,11 @@ fn real_v020_fixes() {
     // D) closed port -> down, /healthz 503 (parity with v0.1.0 test 2).
     std::thread::sleep(Duration::from_millis(200));
     {
-        let _k = start(&bin, &format!("gone|-|{CLOSED}|/health;up|-|{UP}|/"), None);
+        let _k = start(
+            &bin,
+            &format!("gone|-|{}|/health;up|-|{}|/", net().closed, net().up),
+            None,
+        );
         let h = get("/healthz");
         r.add(
             "closed port -> 503 failing: gone",
@@ -419,7 +456,8 @@ fn real_v020_fixes() {
         let j = get("/status.json").map(|x| x.1).unwrap_or_default();
         r.add(
             "closed port -> http down",
-            j.starts_with("{\"ok\":false,") && j.contains("\"port\":20194,\"http\":\"down\""),
+            j.starts_with("{\"ok\":false,")
+                && j.contains(&format!("\"port\":{},\"http\":\"down\"", net().closed)),
             String::new(),
         );
     }

@@ -13,7 +13,14 @@ use serde_json::Value;
 use std::process::{Child, Command, Stdio};
 use std::time::Duration;
 
-const ADDR: &str = "127.0.0.1:19241";
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `GAIA_POSEIDON_REAL_PORT_BASE`; unset keeps
+/// the old 19240 block.
+static PORTS: Block = Block::new("GAIA_POSEIDON_REAL_PORT_BASE", 19240, 10);
+fn addr_at() -> &'static str {
+    PORTS.addr(1)
+}
 
 fn bin(name: &str) -> String {
     let t = std::env::var("CARGO_TARGET_DIR")
@@ -23,28 +30,31 @@ fn bin(name: &str) -> String {
 
 fn start(data: &std::path::Path) -> Child {
     let mut child = Command::new(bin("openmind-queue"))
-        .args(["serve", "--bind", ADDR, "--data"])
+        .args(["serve", "--bind", addr_at(), "--data"])
         .arg(data)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .expect("start release openmind-queue (build it first)");
     for _ in 0..50 {
-        if std::net::TcpStream::connect(ADDR).is_ok() {
+        if std::net::TcpStream::connect(addr_at()).is_ok() {
             return child;
         }
         std::thread::sleep(Duration::from_millis(100));
     }
     let _ = child.kill();
     let _ = child.wait();
-    panic!("openmind-queue did not come up on {ADDR}");
+    panic!(
+        "openmind-queue did not come up on {addr_at}",
+        addr_at = addr_at()
+    );
 }
 
 /// Operator call with the queue's own CLI (Gaia never does these).
 fn op(args: &[&str]) {
     let st = Command::new(bin("openmind-queue"))
         .args(args)
-        .args(["--addr", ADDR])
+        .args(["--addr", addr_at()])
         .stdout(Stdio::null())
         .status()
         .unwrap();
@@ -56,7 +66,7 @@ fn gaia(args: &[&str]) -> (i32, Value) {
     let out = Command::new(bin("gaia"))
         .arg("poseidon")
         .args(args)
-        .args(["--queue", ADDR, "--compact"])
+        .args(["--queue", addr_at(), "--compact"])
         .output()
         .expect("run release gaia");
     let v: Value = serde_json::from_slice(&out.stdout).unwrap_or(Value::Null);

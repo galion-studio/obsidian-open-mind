@@ -18,3 +18,5 @@ galion-common = { path = "../galion-common" }
 # Test-only cross-check of the dependency-free Zagreb clock (src/zagreb.rs)
 # against the tz database. Not linked into the binary.
 zagreb-time = { path = "../zagreb-time" }
+# Port-base env for tests/real_one_probe.rs (slot 375); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

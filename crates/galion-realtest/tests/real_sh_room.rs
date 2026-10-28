@@ -7,7 +7,8 @@
 //! private user+net namespace (invisible from the host), session 3 the
 //! no-flag page under `strace` (zero network syscalls) plus a `--listen`
 //! positive control, then a leftover-process check. Never touches 4020,
-//! the VPS or any live service. Ports 19840 (host) and 19841 (netns).
+//! the VPS or any live service. Ports 19840 (host) and 19841 (netns);
+//! `REAL_SH_ROOM_PORT_BASE` moves both (slot 375).
 //!
 //!   GALION_REAL=1 cargo test --release -p galion-realtest --test real_sh_room -- --nocapture
 //!
@@ -20,8 +21,9 @@ use sh3::*;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-const HOST: u16 = PORT_BASE;
-const NS: u16 = PORT_BASE + 1;
+/// Slot 375 (real-ports-batch-2): host port = `REAL_SH_ROOM_PORT_BASE`
+/// (unset = sh3 `PORT_BASE` 19840), netns port = base + 1.
+const PORT_BASE_ENV: &str = "REAL_SH_ROOM_PORT_BASE";
 
 fn fixture() -> Scratch {
     let s = Scratch::new("room-real");
@@ -95,28 +97,30 @@ fn real_sh_room() {
             "none (static)"
         }
     ));
-    require_free(&[HOST, NS]);
+    let host = galion_realtest::ports::base_from_env(PORT_BASE_ENV, PORT_BASE, 2);
+    let ns = host + 1;
+    require_free(&[host, ns]);
     let fx = fixture();
     let root = fx.path("root");
     let rs = root.to_string_lossy().to_string();
     let mut procs = Procs::default();
 
     // Session 1: host loopback, hostile requests.
-    say(format!("session 1: host loopback 127.0.0.1:{HOST}"));
+    say(format!("session 1: host loopback 127.0.0.1:{host}"));
     let log1 = fx.path("s1.err");
     let pid1 = procs.spawn(
         "room-host",
         Command::new(&bin)
             .arg("--listen")
-            .env("ROOM_BIND", format!("127.0.0.1:{HOST}"))
+            .env("ROOM_BIND", format!("127.0.0.1:{host}"))
             .env("ROOM_ROOT", &root)
             .stdout(Stdio::null())
             .stderr(std::fs::File::create(&log1).unwrap()),
     );
     say(format!("  stderr: {}", wait_listening(&log1)));
-    let h = get(HOST, "/health");
+    let h = get(host, "/health");
     ck.ok("health", status_of(&h) == 200 && body_of(&h) == "ok\n", "");
-    let objs = body_of(&get(HOST, "/api/objects"));
+    let objs = body_of(&get(host, "/api/objects"));
     ck.ok(
         "objects listed, secret hidden",
         objs.contains("\"kind\":\"") && !objs.contains("secret-keys"),
@@ -127,7 +131,7 @@ fn real_sh_room() {
         ),
     );
     let guide = get(
-        HOST,
+        host,
         &format!(
             "/api/read?path={}",
             enc(&format!("{rs}/galion-light/docs/guide.md"))
@@ -143,21 +147,21 @@ fn real_sh_room() {
         ("symlink escape", format!("{rs}/galion-src/escape.md")),
         ("/etc/passwd", "/etc/passwd".to_string()),
     ] {
-        let r = get(HOST, &format!("/api/read?path={}", enc(&p)));
+        let r = get(host, &format!("/api/read?path={}", enc(&p)));
         ck.ok(
             &format!("read {what} held"),
             status_of(&r) == 404 && body_of(&r) == "held\n",
             &format!("{}", status_of(&r)),
         );
     }
-    let bad = get(HOST, "/api/read?path=%a%C3%A9%");
+    let bad = get(host, "/api/read?path=%a%C3%A9%");
     ck.ok(
         "bad escape answered (old decoder panicked)",
         status_of(&bad) == 404,
         &format!("{}", status_of(&bad)),
     );
     let post = raw(
-        HOST,
+        host,
         b"POST /api/objects HTTP/1.1\r\nContent-Length: 0\r\n\r\n",
         Duration::from_secs(5),
     );
@@ -168,21 +172,21 @@ fn real_sh_room() {
     );
     ck.ok(
         "health after hostile requests",
-        status_of(&get(HOST, "/health")) == 200,
+        status_of(&get(host, "/health")) == 200,
         "",
     );
     procs.stop("room-host");
     ck.ok(
         "session 1 teardown",
-        !alive(pid1) && !port_open(HOST),
-        &format!("pid {pid1} gone, :{HOST} closed"),
+        !alive(pid1) && !port_open(host),
+        &format!("pid {pid1} gone, :{host} closed"),
     );
 
     // Session 2: private network namespace. A holder process owns the
     // namespace; `nsenter` brings lo up and starts room inside it (no shell).
     if userns {
         say(format!(
-            "session 2: private network namespace on 127.0.0.1:{NS}"
+            "session 2: private network namespace on 127.0.0.1:{ns}"
         ));
         let holder = procs.spawn(
             "netns-holder",
@@ -219,7 +223,7 @@ fn real_sh_room() {
                 .args(ns_args(holder))
                 .arg(&bin)
                 .arg("--listen")
-                .env("ROOM_BIND", format!("127.0.0.1:{NS}"))
+                .env("ROOM_BIND", format!("127.0.0.1:{ns}"))
                 .env("ROOM_ROOT", &root)
                 .stdout(Stdio::null())
                 .stderr(std::fs::File::create(&log2).unwrap()),
@@ -229,8 +233,8 @@ fn real_sh_room() {
         ck.ok("netns room listening", line.contains("listening on"), "");
         ck.ok(
             "host cannot reach the netns listener",
-            !port_open(NS),
-            &format!(":{NS} refused on the host"),
+            !port_open(ns),
+            &format!(":{ns} refused on the host"),
         );
         if have("curl") {
             let inner = run(Command::new("nsenter").args(ns_args(holder)).args([
@@ -238,7 +242,7 @@ fn real_sh_room() {
                 "-s",
                 "-m",
                 "3",
-                &format!("http://127.0.0.1:{NS}/health"),
+                &format!("http://127.0.0.1:{ns}/health"),
             ]));
             ck.ok(
                 "curl inside the namespace answers ok",

@@ -523,6 +523,18 @@ impl Store {
 
     /// `searchL0TextFallback`: l0_fts when it has rows, else a LIKE scan.
     pub fn l0_text_fallback(&self, raw: &str, limit: usize) -> Vec<String> {
+        self.l0_text_fallback_scoped(raw, None, limit)
+    }
+
+    /// [`Self::l0_text_fallback`] limited to one `session_key` (slot 426,
+    /// `/recall` `scope: "session"`). The filter runs in SQL before the
+    /// limit, so other sessions can neither leak in nor starve the list.
+    pub fn l0_text_fallback_scoped(
+        &self,
+        raw: &str,
+        session_key: Option<&str>,
+        limit: usize,
+    ) -> Vec<String> {
         let q = raw.trim();
         if q.is_empty() {
             return Vec::new();
@@ -532,7 +544,7 @@ impl Store {
                 return Vec::new();
             };
             return self
-                .search_l0_fts(&fq, limit)
+                .search_l0_fts_session(&fq, session_key, limit)
                 .into_iter()
                 .map(|h| h.message_text)
                 .filter(|t| !t.is_empty())
@@ -549,20 +561,30 @@ impl Store {
             })
             .collect();
         let conn = self.lock();
-        let res = conn
-            .prepare_cached(
-                "SELECT message_text FROM l0_conversations WHERE message_text LIKE ? ESCAPE '\\' \
-                 ORDER BY timestamp DESC LIMIT ?",
-            )
-            .and_then(|mut st| {
-                let rows = st.query_map(params![format!("%{escaped}%"), limit as i64], |r| {
-                    Ok(s(r, 0))
-                })?;
-                Ok(rows
+        let sql = if session_key.is_some() {
+            "SELECT message_text FROM l0_conversations WHERE message_text LIKE ?1 ESCAPE '\\' \
+             AND session_key = ?3 ORDER BY timestamp DESC LIMIT ?2"
+        } else {
+            "SELECT message_text FROM l0_conversations WHERE message_text LIKE ?1 ESCAPE '\\' \
+             ORDER BY timestamp DESC LIMIT ?2"
+        };
+        let pat = format!("%{escaped}%");
+        let res = conn.prepare_cached(sql).and_then(|mut st| {
+            let rows: Vec<String> = match session_key {
+                Some(sk) => st
+                    .query_map(params![pat, limit as i64, sk], |r| Ok(s(r, 0)))?
                     .filter_map(Result::ok)
-                    .filter(|t| !t.is_empty())
-                    .collect::<Vec<_>>())
-            });
+                    .collect(),
+                None => st
+                    .query_map(params![pat, limit as i64], |r| Ok(s(r, 0)))?
+                    .filter_map(Result::ok)
+                    .collect(),
+            };
+            Ok(rows
+                .into_iter()
+                .filter(|t| !t.is_empty())
+                .collect::<Vec<_>>())
+        });
         res.unwrap_or_default()
     }
 
@@ -1098,5 +1120,42 @@ mod tests {
             Some(vec![(3, "baseline".to_string())])
         );
         assert_eq!((info.l0_rows, info.l0_fts_rows), (1, 1));
+    }
+
+    /// Slot 426: the scoped L0 fallback keeps other sessions out on both
+    /// paths (FTS and LIKE), with the session filter before the limit.
+    #[test]
+    fn l0_text_fallback_scoped_keeps_other_sessions_out() {
+        let s = Store::open(&tmp("scoped"), false).unwrap();
+        // Ten newer rows of session b would fill a limit-1 global list.
+        s.upsert_l0(&rec("a1", "sa", 1, "code word heliotrope one"))
+            .unwrap();
+        for i in 0..10 {
+            s.upsert_l0(&rec(
+                &format!("b{i}"),
+                "sb",
+                10 + i,
+                "code word heliotrope two",
+            ))
+            .unwrap();
+        }
+        for pass in ["fts", "like"] {
+            if pass == "like" {
+                s.lock().execute("DELETE FROM l0_fts", []).unwrap();
+                assert_eq!(s.count("l0_fts"), 0);
+            }
+            let all = s.l0_text_fallback("heliotrope", 20);
+            assert_eq!(all.len(), 11, "{pass}: {all:?}");
+            let a = s.l0_text_fallback_scoped("heliotrope", Some("sa"), 1);
+            assert_eq!(a, vec!["code word heliotrope one".to_string()], "{pass}");
+            let b = s.l0_text_fallback_scoped("heliotrope", Some("sb"), 20);
+            assert_eq!(b.len(), 10, "{pass}");
+            assert!(b.iter().all(|t| t.ends_with("two")), "{pass}: {b:?}");
+            assert!(s
+                .l0_text_fallback_scoped("heliotrope", Some("sc"), 20)
+                .is_empty());
+            // LIKE metacharacters stay literal with the filter on.
+            assert!(s.l0_text_fallback_scoped("%", Some("sa"), 20).is_empty());
+        }
     }
 }

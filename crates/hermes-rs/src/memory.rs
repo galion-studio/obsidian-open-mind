@@ -57,6 +57,9 @@ pub struct MemoryCfg {
     pub capture_timeout: Duration,
     /// Env var names tried for the Bearer key (value read at startup only).
     pub key_envs: Vec<String>,
+    /// Slot 426 (D-403-2): recall from every session of `user_id` instead of
+    /// only this memory key. Off by default; explicit opt-in only.
+    pub cross_session: bool,
 }
 
 impl std::fmt::Debug for MemoryCfg {
@@ -68,6 +71,7 @@ impl std::fmt::Debug for MemoryCfg {
             .field("recall_timeout", &self.recall_timeout)
             .field("capture_timeout", &self.capture_timeout)
             .field("key_envs", &self.key_envs)
+            .field("cross_session", &self.cross_session)
             .finish()
     }
 }
@@ -81,6 +85,7 @@ impl Default for MemoryCfg {
             recall_timeout: Duration::from_millis(3000),
             capture_timeout: Duration::from_millis(10_000),
             key_envs: KEY_ENVS.iter().map(|s| s.to_string()).collect(),
+            cross_session: false,
         }
     }
 }
@@ -111,12 +116,16 @@ impl MemoryCfg {
         if let Some(ms) = m["capture_timeout_ms"].as_u64() {
             self.capture_timeout = Duration::from_millis(ms.clamp(100, 60_000));
         }
+        if let Some(b) = m["cross_session"].as_bool() {
+            self.cross_session = b;
+        }
     }
 
     /// Env overrides: `HERMES_RS_MEMORY`, `HERMES_RS_MEMORY_URL` (else the
     /// plugin's `MEMORY_TENCENTDB_GATEWAY_HOST`/`_PORT`),
     /// `HERMES_RS_MEMORY_USER`, `HERMES_RS_MEMORY_RECALL_MS`,
-    /// `HERMES_RS_MEMORY_CAPTURE_MS`, `HERMES_RS_MEMORY_KEY_ENV`.
+    /// `HERMES_RS_MEMORY_CAPTURE_MS`, `HERMES_RS_MEMORY_KEY_ENV`,
+    /// `HERMES_RS_MEMORY_CROSS_SESSION`.
     pub fn apply_env(&mut self, get: &dyn Fn(&str) -> Option<String>) -> Result<(), String> {
         if let Some(x) = get("HERMES_RS_MEMORY") {
             self.enabled = truthy(&x).ok_or("bad HERMES_RS_MEMORY (use 1/0)")?;
@@ -150,6 +159,10 @@ impl MemoryCfg {
         }
         if let Some(k) = get("HERMES_RS_MEMORY_KEY_ENV") {
             self.key_envs = vec![k];
+        }
+        if let Some(x) = get("HERMES_RS_MEMORY_CROSS_SESSION") {
+            self.cross_session =
+                truthy(&x).ok_or("bad HERMES_RS_MEMORY_CROSS_SESSION (use 1/0)")?;
         }
         if self.enabled {
             parse_url(&self.url)?;
@@ -247,6 +260,9 @@ pub struct Stats {
     pub recall_ok: AtomicU64,
     pub recall_hit: AtomicU64,
     pub recall_err: AtomicU64,
+    /// Session-scoped recalls whose reply did not confirm `scope: "session"`
+    /// (an older openmind-memory that ignores the field): context dropped.
+    pub recall_unscoped: AtomicU64,
     pub capture_ok: AtomicU64,
     pub capture_err: AtomicU64,
     pub capture_dropped: AtomicU64,
@@ -403,16 +419,42 @@ impl MemoryClient {
         nerve_client::cap_hit("hermes-rs", "memory_error", &format!("{what}: {e}"));
     }
 
+    /// `"session"` (default) or `"all"` (`cross_session` opt-in), the
+    /// openmind-memory `/recall` `scope` this client asks for.
+    pub fn scope(&self) -> &'static str {
+        if self.cfg.cross_session {
+            "all"
+        } else {
+            "session"
+        }
+    }
+
     /// Recall for one turn: the fenced block to append to the user message
     /// (empty when nothing was recalled or the call failed).
+    ///
+    /// Session scope (slot 426): unless `cross_session` is on, the request
+    /// carries `scope: "session"` and the reply must echo it. An older
+    /// server ignores the field and answers from every session, so a reply
+    /// without the echo is dropped (fail closed, `recall_unscoped` +1).
     pub fn recall(&self, query: &str, session_key: &str) -> String {
         if query.trim().is_empty() || session_key.is_empty() {
             return String::new();
         }
-        let body = json!({"query": query, "session_key": session_key, "user_id": self.cfg.user_id});
+        let scope = self.scope();
+        let body = json!({"query": query, "session_key": session_key, "user_id": self.cfg.user_id,
+                          "scope": scope});
         match self.post("/recall", &body, self.cfg.recall_timeout) {
             Ok(v) => {
                 self.stats.recall_ok.fetch_add(1, Ordering::Relaxed);
+                if scope == "session" && v["scope"] != "session" {
+                    self.stats.recall_unscoped.fetch_add(1, Ordering::Relaxed);
+                    nerve_client::cap_hit(
+                        "hermes-rs",
+                        "memory_unscoped",
+                        "recall reply without scope=session (server too old?); context dropped",
+                    );
+                    return String::new();
+                }
                 let ctx = v["context"].as_str().unwrap_or("");
                 if ctx.trim().is_empty() {
                     return String::new();
@@ -476,8 +518,9 @@ impl MemoryClient {
     pub fn status(&self) -> Value {
         let s = &self.stats;
         let g = |a: &AtomicU64| a.load(Ordering::Relaxed);
-        json!({"enabled": true, "url": self.cfg.url, "key_set": self.key.is_some(),
+        json!({"enabled": true, "url": self.cfg.url, "key_set": self.key.is_some(), "scope": self.scope(),
                "recall_ok": g(&s.recall_ok), "recall_hit": g(&s.recall_hit), "recall_err": g(&s.recall_err),
+               "recall_unscoped": g(&s.recall_unscoped),
                "capture_ok": g(&s.capture_ok), "capture_err": g(&s.capture_err),
                "capture_dropped": g(&s.capture_dropped), "capture_inflight": s.inflight.load(Ordering::SeqCst)})
     }
@@ -661,7 +704,7 @@ mod tests {
     fn recall_wire_and_block() {
         let (url, h) = serve_once(
             200,
-            r#"{"context":"likes teal","memory_count":0,"code":0}"#,
+            r#"{"context":"likes teal","memory_count":0,"code":0,"scope":"session"}"#,
             0,
         );
         let c = client(&url, true);
@@ -672,7 +715,7 @@ mod tests {
         let body: Value = serde_json::from_str(req.split_once("\r\n\r\n").unwrap().1).unwrap();
         assert_eq!(
             body,
-            json!({"query": "what colour", "session_key": "api-abc", "user_id": "default"})
+            json!({"query": "what colour", "session_key": "api-abc", "user_id": "default", "scope": "session"})
         );
         assert!(b.contains("## memory-tencentdb Memory\nlikes teal"), "{b}");
         assert_eq!(c.stats.recall_hit.load(Ordering::Relaxed), 1);
@@ -724,5 +767,75 @@ mod tests {
         c.capture_bg("u".into(), "a".into(), "s".into());
         assert_eq!(c.stats.capture_dropped.load(Ordering::Relaxed), 1);
         assert_eq!(c.stats.inflight.load(Ordering::SeqCst), MAX_INFLIGHT);
+    }
+
+    fn client_cross(url: &str) -> Arc<MemoryClient> {
+        let cfg = MemoryCfg {
+            enabled: true,
+            url: url.into(),
+            recall_timeout: Duration::from_millis(400),
+            cross_session: true,
+            ..Default::default()
+        };
+        MemoryClient::from_cfg(&cfg, &|_k: &str| None)
+            .unwrap()
+            .unwrap()
+    }
+
+    /// Slot 426: session scope is the default and fails closed against a
+    /// server that does not echo it (8887a0cb-era openmind-memory).
+    #[test]
+    fn session_scope_default_fails_closed_on_unscoped_reply() {
+        let c = MemoryCfg::default();
+        assert!(!c.cross_session);
+        // Old server: ignores `scope`, answers from every session.
+        let (url, h) = serve_once(200, r#"{"context":"other chat secret","code":0}"#, 0);
+        let c = client(&url, true);
+        assert_eq!(c.scope(), "session");
+        assert_eq!(c.recall("secret", "api-b"), "");
+        let req = h.join().unwrap();
+        let body: Value = serde_json::from_str(req.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(body["scope"], "session");
+        assert_eq!(c.stats.recall_unscoped.load(Ordering::Relaxed), 1);
+        assert_eq!(c.stats.recall_hit.load(Ordering::Relaxed), 0);
+        assert_eq!(c.stats.recall_err.load(Ordering::Relaxed), 0);
+        assert_eq!(c.status()["recall_unscoped"], 1);
+        assert_eq!(c.status()["scope"], "session");
+        // A wrong echo is not a confirmation either.
+        let (url, h) = serve_once(200, r#"{"context":"x","scope":"all"}"#, 0);
+        let c = client(&url, true);
+        assert_eq!(c.recall("x", "api-b"), "");
+        let _ = h.join();
+        assert_eq!(c.stats.recall_unscoped.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn cross_session_is_an_explicit_opt_in() {
+        let mut c = MemoryCfg::default();
+        c.apply_env(&env_of(&[("HERMES_RS_MEMORY_CROSS_SESSION", "1")]))
+            .unwrap();
+        assert!(c.cross_session);
+        c.apply_env(&env_of(&[("HERMES_RS_MEMORY_CROSS_SESSION", "0")]))
+            .unwrap();
+        assert!(!c.cross_session);
+        assert!(c
+            .apply_env(&env_of(&[("HERMES_RS_MEMORY_CROSS_SESSION", "all")]))
+            .is_err());
+        let mut y = MemoryCfg::default();
+        y.apply_yaml(&json!({"cross_session": true}));
+        assert!(y.cross_session);
+        y.apply_yaml(&json!({"cross_session": "yes"}));
+        assert!(y.cross_session, "non-bool YAML is ignored, not flipped");
+        // Opt-in client asks for "all" and accepts an old server's reply.
+        let (url, h) = serve_once(200, r#"{"context":"likes teal"}"#, 0);
+        let c = client_cross(&url);
+        assert_eq!(c.scope(), "all");
+        let b = c.recall("teal", "api-a");
+        let req = h.join().unwrap();
+        let body: Value = serde_json::from_str(req.split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(body["scope"], "all");
+        assert!(b.contains("likes teal"), "{b}");
+        assert_eq!(c.stats.recall_unscoped.load(Ordering::Relaxed), 0);
+        assert!(format!("{:?}", c.cfg).contains("cross_session: true"));
     }
 }

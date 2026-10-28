@@ -21,7 +21,7 @@ Python Hermes `memory_tencentdb` plugin had, so the long-term memory store stops
 | Bearer key from `TDAI_GATEWAY_API_KEY` | key read once from `MEMORY_TENCENTDB_GATEWAY_API_KEY`, else `TDAI_GATEWAY_API_KEY` (name overridable by `HERMES_RS_MEMORY_KEY_ENV`); never logged, `Debug` prints `key_set` only |
 
 Session key for both calls: the run's `session_key` when non-empty, else the run id
-(`api::memory_key`). Capture runs only for completed runs with non-empty final text.
+(`api::memory_key`). Recall is **scoped to that key** by default (slot 426, below). Capture runs only for completed runs with non-empty final text.
 The stored transcript keeps the plain user text (no fence), so the block is not replayed into
 later turns (upstream also only adds it to the API copy).
 
@@ -46,14 +46,38 @@ recall_hit, recall_err, capture_ok, capture_err, capture_dropped, capture_inflig
 | env | `HERMES_RS_MEMORY_URL`, else `http://$MEMORY_TENCENTDB_GATEWAY_HOST:$MEMORY_TENCENTDB_GATEWAY_PORT` | `http://127.0.0.1:8420` |
 | env | `HERMES_RS_MEMORY_USER` | `default` |
 | env | `HERMES_RS_MEMORY_RECALL_MS` (100-30000), `HERMES_RS_MEMORY_CAPTURE_MS` (100-60000) | 3000 / 10000 |
-| YAML | `hermes_rs.memory.{enabled,url,user_id,recall_timeout_ms,capture_timeout_ms}` | off |
+| env | `HERMES_RS_MEMORY_CROSS_SESSION` (`1`/`0`, anything else is a config error) | off (session scope) |
+| YAML | `hermes_rs.memory.{enabled,url,user_id,recall_timeout_ms,capture_timeout_ms,cross_session}` | off |
 
 The Python-era `memory.provider: memory_tencentdb` / `memory_enabled: true` keys that are still in
 the live `/opt/galion/hermes/config.yaml` are **ignored on purpose**, so deploying this binary
 alone changes nothing on live (checked read-only 2026-10-28 17:29 +01:00: no `hermes_rs:` block).
 
+## Session scope (slot 426, F-403-1 / D-403-2 prep)
+
+Written 2026-10-28 21:58 (+01:00) Europe/Zagreb, branch `swarm/hermes-memory-session-scope` off
+8887a0cb. Slot 403 found (F-403-1) that recall crossed sessions: a fact said in one chat came
+back in any other chat of the same `user_id`, because openmind-memory's L0 fallback and L1
+keyword search are global. Now:
+
+- The client sends `scope: "session"` on every `/recall` unless cross-session recall is opted
+  in (`HERMES_RS_MEMORY_CROSS_SESSION=1` or `hermes_rs.memory.cross_session: true`), which
+  sends `scope: "all"` (the old behaviour).
+- openmind-memory honours `scope` (docs/memory-api.md) and echoes it.
+- **Fail closed:** a session-scoped recall whose reply does not echo `scope: "session"` (an
+  older openmind-memory, e.g. the live one today) is dropped: no memory block, `recall_unscoped`
+  +1, nerve `cap_hit("hermes-rs","memory_unscoped")`. Capture is not affected. So the gateway
+  must be deployed together with (or after) an openmind-memory from this branch, or recall stays
+  empty until it is.
+- The memory key stays D-403-4's: `X-Hermes-Session-Key` when given, else the session id
+  (`api-...`); a chat without a key only recalls inside its own session id.
+- `/health/detailed` `memory` gains `scope` (`session`/`all`) and `recall_unscoped`; the start
+  log says `scope=session|all`.
+
 ## How to enable on live (only after the owner says yes to D-403-1)
 
+0. Deploy openmind-memory from this branch first (slot 426: without it the default
+   session-scoped recall fails closed and recalls nothing; capture still works).
 1. Deploy a hermes-gateway built from this branch the usual staged way (:18xxx rehearsal, then
    swap), nothing else changes while the switch is off.
 2. Add a systemd drop-in for `hermes-rs.service` with `Environment=HERMES_RS_MEMORY=1`. The URL

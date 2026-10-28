@@ -516,3 +516,84 @@ fn read_only_mode_writes_nothing() {
     );
     assert_eq!(b["total"], json!(1));
 }
+
+/// Slot 426 (D-403-2): `/recall` `scope`. Absent = legacy reply (no `scope`
+/// key, spans sessions); `"all"` = same, echoed; `"session"` = only this
+/// session's L0/L1 rows, echoed; anything else = 400.
+#[test]
+fn recall_scope_session_and_all() {
+    let dir = tmpdir("scope");
+    {
+        let st = Store::open(&dir.join("instances/galion/vectors.db"), false).unwrap();
+        st.insert_l1(
+            "r1",
+            "User keeps a teal kayak",
+            "episodic",
+            50,
+            "",
+            "sa",
+            "",
+            "{}",
+        )
+        .unwrap();
+    }
+    let a = app(&dir, None, &[("OPENMIND_MEMORY_RECALL_INCLUDE_L1", "1")]);
+    for (sk, text) in [("sa", "locker word heliotrope"), ("sb", "bike")] {
+        let (s, _) = call(
+            &a,
+            "POST",
+            "/capture",
+            json!({"user_content": text, "assistant_content": "ok", "session_key": sk}),
+            &[],
+        );
+        assert_eq!(s, 200);
+    }
+    let recall = |sk: &str, q: &str, scope: Option<Value>| {
+        let mut b = json!({"query": q, "session_key": sk});
+        if let Some(sc) = scope {
+            b["scope"] = sc;
+        }
+        call(&a, "POST", "/recall", b, &[])
+    };
+    // Legacy: session sb sees sa's L0 text and L1 line; reply has no scope key.
+    let (s, b) = recall("sb", "heliotrope", None);
+    assert_eq!(s, 200);
+    assert_eq!(b["context"], json!("locker word heliotrope"));
+    assert!(b.get("scope").is_none(), "{b}");
+    let (_, b) = recall("sb", "teal kayak", None);
+    assert_eq!(b["memory_count"], json!(1));
+    // "all" == legacy plus the echo.
+    let (_, b) = recall("sb", "heliotrope", Some(json!("all")));
+    assert_eq!(b["context"], json!("locker word heliotrope"));
+    assert_eq!(b["scope"], json!("all"));
+    // "session": nothing from sa reaches sb.
+    let (s, b) = recall("sb", "heliotrope", Some(json!("session")));
+    assert_eq!(s, 200);
+    assert_eq!(
+        b,
+        json!({"context": "", "memory_count": 0, "code": 0, "message": "ok", "retryable": false, "scope": "session"})
+    );
+    let (_, b) = recall("sb", "teal kayak", Some(json!("session")));
+    assert_eq!(b["memory_count"], json!(0), "{b}");
+    assert!(!b["context"].as_str().unwrap().contains("kayak"), "{b}");
+    // ...while sa still recalls its own L0 text and L1 line.
+    let (_, b) = recall("sa", "heliotrope", Some(json!("session")));
+    assert_eq!(b["context"], json!("locker word heliotrope"));
+    let (_, b) = recall("sa", "teal kayak", Some(json!("session")));
+    assert_eq!(b["memory_count"], json!(1), "{b}");
+    assert!(b["context"].as_str().unwrap().contains("teal kayak"), "{b}");
+    // null = absent; bad values are refused, never treated as "all".
+    let (s, b) = recall("sb", "heliotrope", Some(Value::Null));
+    assert_eq!((s, b.get("scope").is_none()), (200, true));
+    for bad in [json!("SESSION"), json!("global"), json!(1), json!(true)] {
+        let (s, b) = recall("sb", "heliotrope", Some(bad.clone()));
+        assert_eq!(
+            (s, b),
+            (
+                400,
+                json!({"error": "scope must be \"session\" or \"all\""})
+            ),
+            "{bad}"
+        );
+    }
+}

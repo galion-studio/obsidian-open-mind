@@ -165,7 +165,32 @@ pub struct ReplayOut {
 /// Replay a capture directory. `cfg` supplies thresholds/ports; reflexes,
 /// alerts and file writes are forced off.
 pub fn replay_dir(dir: &Path, cfg: Config) -> Result<ReplayOut, String> {
-    replay_dir_with(dir, cfg, 0, &mut |_| {})
+    replay_dir_full(
+        dir,
+        cfg,
+        &|k| std::env::var(k).ok(),
+        0,
+        0,
+        &mut |_| {},
+        &mut |_, _, _| {},
+    )
+}
+
+/// [`replay_dir`] plus `hold` extra cycles after the last snapshot: the last
+/// snapshot's samples again, `interval_s` apart, with no new journal lines
+/// or access hits (a quiet host that stays as captured; journal lines
+/// captured after the last snapshot still land in their window). `env`
+/// holds the cortex sensor settings (`NERVE_SSHD`, ...). `on_cycle(k, t,
+/// engine)` runs after every cycle (capture cycles first, then hold cycles);
+/// the replay regression corpus uses it for its no-flap check.
+pub fn replay_dir_hold(
+    dir: &Path,
+    cfg: Config,
+    env: crate::sensors::Env,
+    hold: usize,
+    on_cycle: &mut dyn FnMut(usize, u64, &Engine),
+) -> Result<ReplayOut, String> {
+    replay_dir_full(dir, cfg, env, 0, hold, &mut |_| {}, on_cycle)
 }
 
 /// The last captured snapshot moved `k` cycles past the capture: cumulative
@@ -222,6 +247,30 @@ pub fn replay_dir_with(
     cfg: Config,
     stretch: usize,
     setup: &mut dyn FnMut(&mut Engine),
+) -> Result<ReplayOut, String> {
+    replay_dir_full(
+        dir,
+        cfg,
+        &|k| std::env::var(k).ok(),
+        stretch,
+        0,
+        setup,
+        &mut |_, _, _| {},
+    )
+}
+
+/// The general replay: `stretch` extra cycles (see [`replay_dir_with`]), then
+/// `hold` quiet cycles (see [`replay_dir_hold`]); `setup` runs before the
+/// first cycle, `on_cycle(k, t, engine)` after every cycle.
+#[allow(clippy::too_many_arguments)]
+pub fn replay_dir_full(
+    dir: &Path,
+    cfg: Config,
+    env: crate::sensors::Env,
+    stretch: usize,
+    hold: usize,
+    setup: &mut dyn FnMut(&mut Engine),
+    on_cycle: &mut dyn FnMut(usize, u64, &Engine),
 ) -> Result<ReplayOut, String> {
     let rd = std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut states: Vec<(u64, Value)> = vec![];
@@ -307,7 +356,7 @@ pub fn replay_dir_with(
         health.len(),
         bodies.keys().collect::<Vec<_>>()
     ));
-    let mut e = Engine::new(cfg)?;
+    let mut e = Engine::new_with_env(cfg, env)?;
     e.reflexes_enabled = false;
     e.live = false;
     e.write_files = false;
@@ -358,6 +407,24 @@ pub fn replay_dir_with(
         notes.push(format!(
             "stretched {stretch} cycle(s) of {interval} s past the capture (last window {} journal line(s) repeated)",
             tail.len()
+        ));
+    }
+    if hold > 0 {
+        // Quiet hold cycles: the last planned snapshot again, no new access
+        // hits; journal lines captured after it still land in their window.
+        let (mut last_t, last_v) = plan.last().map(|p| (p.0, p.1.clone())).unwrap_or_default();
+        for _ in 0..hold {
+            let t = last_t + interval;
+            let win: Vec<JLine> = lines
+                .iter()
+                .filter(|l| l.t > last_t && l.t <= t)
+                .cloned()
+                .collect();
+            plan.push((t, last_v.clone(), win));
+            last_t = t;
+        }
+        notes.push(format!(
+            "{hold} hold cycle(s) of the last snapshot, {interval} s apart"
         ));
     }
     for (k, (t, v, win)) in plan.iter().enumerate() {
@@ -441,6 +508,7 @@ pub fn replay_dir_with(
             vec![]
         };
         e.cycle_with(col, h, *t, Instant::now());
+        on_cycle(k, *t, &e);
     }
     Ok(ReplayOut {
         cycles: plan.len(),

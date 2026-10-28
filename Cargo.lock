@@ -527,6 +527,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gaia-cortex"
+version = "0.1.0"
+dependencies = [
+ "galion-common",
+ "nerve-cortex-contract",
+ "openmind-nerve",
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "gaia-demeter"
 version = "0.1.0"
 dependencies = [
@@ -692,6 +704,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-survival"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-tar"
 version = "0.1.0"
 
@@ -700,15 +721,6 @@ name = "galion-vending"
 version = "0.1.0"
 dependencies = [
  "galion-bench",
- "serde",
- "serde_json",
- "zagreb-time",
-]
-
-[[package]]
-name = "galion-survival"
-version = "0.1.0"
-dependencies = [
  "serde",
  "serde_json",
  "zagreb-time",
@@ -1154,6 +1166,14 @@ name = "nerve-client"
 version = "0.1.0"
 
 [[package]]
+name = "nerve-cortex-contract"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "nix"
 version = "0.31.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1282,10 +1302,12 @@ dependencies = [
 name = "openmind-nerve"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek",
  "gaia-live",
  "galion-common",
  "galion-deploy",
  "galion-realtest",
+ "hades-gate",
  "nerve-client",
  "openmind-schema",
  "semver",
@@ -2130,6 +2152,10 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
+
+[[package]]
+name = "xtask"
+version = "0.1.0"
 
 [[package]]
 name = "yoke"

@@ -10,6 +10,7 @@
 //! - `GET /api/v1/cortex`     vulnerabilities, bleeding, ddos, exposure
 //! - `GET /api/v1/ddos`       per-stream request-rate verdicts
 //! - `GET /api/v1/cortex/events` the cortex B33 event feed, JSONL (see [`crate::feed`])
+//! - `GET /api/v1/cortex/plans` HADES plan templates (T4.2, see [`crate::plans`]); text only
 //! - `GET /api/v1/self-eval`  the scored report (`.md` for markdown)
 //! - `GET /api/v1/signals` `/api/v1/alerts` `/api/v1/audit`
 //! - `POST /api/v1/signal`    push one signal (nerve-client wire format)
@@ -362,6 +363,7 @@ pub fn route(
                 ("GET", "/state") | ("GET", "/state.json") => (200, j, g.state.to_string()),
                 ("GET", "/incidents") => (200, j, g.state["incidents"].to_string()),
                 ("GET", "/cortex") => (200, j, g.state["cortex"].to_string()),
+                ("GET", "/cortex/plans") => (200, j, g.state["cortex_plans"].to_string()),
                 ("GET", "/ddos") => (200, j, g.state["cortex"]["ddos"].to_string()),
                 ("GET", "/cortex/events") => {
                     let (ct, body) =
@@ -669,6 +671,7 @@ mod tests {
             "/api/v1/ddos",
             "/api/v1/cortex/events",
             "/cortex/events",
+            "/api/v1/cortex/plans",
             "/api/v1/self-eval",
             "/state",
             "/healthz",

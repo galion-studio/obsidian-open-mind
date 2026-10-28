@@ -62,3 +62,12 @@ value (text and JSON); inside-root refusal; operator list over `git archive HEAD
   3 incidents (galion-one mouth stuck loading, edge; unrelated to this slot).
 - cortex 127.0.0.1:8674 /health 200: live, ok, incidents_open 2, escalations 0.
 - Nothing written on the VPS.
+
+## Final launch-gate run on the branch (2026-10-28 21:52 CET +01:00)
+
+`scripts/public-export.sh --online` on bd2f0460: gates 1-9 PASS (REUSE 2278/2210/0/68,
+SBOM 74 files / 235 components), gate 10 WARN 65 IPv4 (was 71; only resolvers,
+CDN anycast, fixtures, section numbers left), 0 quick tunnels (was 1); 0 FAIL.
+repo-check --copyright 2299 files 0 errors; deny over the export 0 errors;
+gitleaks history (repo config) no leaks; spdx 0 missing; no-python ok.
+real_deny_cli re-run on the final code 2/2.

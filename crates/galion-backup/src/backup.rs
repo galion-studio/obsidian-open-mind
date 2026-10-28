@@ -29,13 +29,46 @@ pub const DBS: &[(&str, &str)] = &[
         "/var/lib/memory-tencentdb/instances/galion/vectors.db",
         "memory-vectors.db",
     ),
-    (
-        "/var/lib/memory-tencentdb/vectors.db",
-        "memory-root-vectors.db",
-    ),
+    (LEGACY_ROOT_DB, "memory-root-vectors.db"),
     ("/var/lib/hermes-rs/rs-state.db", "hermes-rs-state.db"),
     ("/opt/galion/hermes/state.db", "hermes-legacy-state.db"),
 ];
+
+/// Legacy root memory DB (wave-4 slots 406/427, D-406-1/D-406-3). Unread by
+/// any live service; the owner archives it with docs/ops/legacy-vectors-archive.md.
+/// Stays in [`DBS`] (same MAP order, rollback still backs it up) but:
+/// absent + archive marker -> one `level=info` skip line instead of the
+/// 6-hourly `missing db` warn; present but empty (F-406-2: a memory server
+/// started without `OPENMIND_MEMORY_INSTANCE_ID` recreates it empty) -> NOT
+/// backed up, `level=warn` line. Never opened when absent, so never created.
+pub const LEGACY_ROOT_DB: &str = "/var/lib/memory-tencentdb/vectors.db";
+
+/// The runbook archives to `/var/backups/memory-legacy-root-<TS>/` with a
+/// `SHA256SUMS` whose first line names `vectors.db`: that file is the marker.
+pub const LEGACY_ARCHIVE_PARENT: &str = "/var/backups";
+pub const LEGACY_ARCHIVE_PREFIX: &str = "memory-legacy-root-";
+
+/// Newest (by name = timestamp) archive dir whose `SHA256SUMS` has a
+/// `<64 hex>  vectors.db` line; absolute path as on the VPS. Read-only.
+pub fn legacy_archive_marker(o: &Opts) -> Option<String> {
+    let mut names: Vec<String> = fs::read_dir(o.src(LEGACY_ARCHIVE_PARENT))
+        .ok()?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.starts_with(LEGACY_ARCHIVE_PREFIX) && n.len() > LEGACY_ARCHIVE_PREFIX.len())
+        .collect();
+    names.sort();
+    names.into_iter().rev().find_map(|n| {
+        let abs = format!("{LEGACY_ARCHIVE_PARENT}/{n}");
+        let sums = fs::read_to_string(o.src(&abs).join("SHA256SUMS")).ok()?;
+        sums.lines()
+            .any(|l| {
+                let (h, f) = l.split_once("  ").unwrap_or(("", ""));
+                h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit()) && f == "vectors.db"
+            })
+            .then_some(abs)
+    })
+}
 
 /// Plain files and trees, in the script's order (DBs and -wal/-shm excluded).
 pub const FILES: &[&str] = &[
@@ -423,8 +456,14 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
             return c;
         }
         let p = o.src(src);
+        let legacy = *src == LEGACY_ROOT_DB;
         if !p.is_file() {
-            log(&format!("level=warn msg=\"missing db {src}\""));
+            match legacy.then(|| legacy_archive_marker(o)).flatten() {
+                Some(m) => log(&format!(
+                    "level=info msg=\"legacy db archived, skipped {src}\" marker={m}"
+                )),
+                None => log(&format!("level=warn msg=\"missing db {src}\"")),
+            }
             continue;
         }
         let dst = s.join("db").join(name);
@@ -441,6 +480,17 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
                 Ok((r, _)) => r == "ok",
             },
         };
+        // F-406-2 guard: an empty recreated legacy root DB is never backed up
+        // (a check error keeps the snapshot: fail safe).
+        if ok && legacy && sqlite::has_content(&dst) == Ok(false) {
+            if let Err(e) = fs::remove_file(&dst) {
+                return err("rm empty legacy snapshot", e);
+            }
+            log(&format!(
+                "level=warn msg=\"empty legacy db not backed up {src}\" hint=\"check OPENMIND_MEMORY_INSTANCE_ID (F-406-2)\""
+            ));
+            continue;
+        }
         let ok = ok
             && OpenOptions::new()
                 .append(true)

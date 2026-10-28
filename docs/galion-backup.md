@@ -41,6 +41,7 @@ does the whole script in-process:
 | `exec 9>DEST/.lock; flock -n 9` else `level=warn msg="already running"`, exit 0 | `File::try_lock` (flock) on the same file (0600) |
 | `mktemp -d DEST/.work-XXXXXX` + `trap 'rm -rf' EXIT` | 0700 dir, removed on every return path and on SIGTERM/SIGINT/SIGHUP (exit 128+sig, like bash) |
 | `snap` x4: missing -> `level=warn msg="missing db SRC"`; snapshot + verify + `MAP` line; failure -> `level=error msg="snapshot failed SRC"`, abort exit 1 | same order, same messages (stderr of the helper identical too), online backup API in-process |
+| (none) | wave-4 slot 427 (D-406-3, Rust only): legacy root `/var/lib/memory-tencentdb/vectors.db` absent + archive marker `/var/backups/memory-legacy-root-*/SHA256SUMS` -> `level=info msg="legacy db archived, skipped SRC" marker=DIR` instead of the warn; present but with no content rows (F-406-2) -> not backed up, `level=warn msg="empty legacy db not backed up SRC"`; see docs/ops/legacy-vectors-archive.md section 6. Root present with rows = unchanged (parity 26/26) |
 | `FILES` list + `dns-backup-*.json` glob, keep `[ -e ]` | same list/order; glob sorted bytewise (LANG=C) |
 | `tar -C / --exclude='*.db' '*.db-wal' '*.db-shm' '.backup' -cf files.tar ...` (exit 1 tolerated) | own GNU-format tar writer: same members in the same (readdir) order, same headers; **byte-identical files.tar** in the parity test |
 | `find . -type f ! -name SHA256SUMS \| sort -z \| xargs -0 sha256sum > SHA256SUMS` | own SHA-256, same lines, C-locale order; byte-identical |

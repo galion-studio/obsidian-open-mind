@@ -83,3 +83,58 @@ pub fn migrate_baseline(db: &Path, ver: i64, name: &str) -> Result<bool, String>
         .map_err(|e| e.to_string())?;
     Ok(n == 1)
 }
+
+/// Tables that only describe a store, never hold its content (wave-4 slot
+/// 427): a fresh openmind-memory DB may fill them on first open.
+const META_TABLES: &[&str] = &["schema_migrations", "embedding_meta"];
+
+/// Does the (snapshot) DB hold any content rows? Counts rows of every
+/// ordinary table except `sqlite_*`, [`META_TABLES`] and the shadow tables of
+/// virtual (FTS5) tables (`<vtab>_data`, `_config`, ...: FTS5 writes rows
+/// there on CREATE). Read-only open, never creates the file. Errors are
+/// returned so the caller can fail safe (keep the backup).
+pub fn has_content(db: &Path) -> Result<bool, String> {
+    let c = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("open: {e}"))?;
+    let mut st = c
+        .prepare("SELECT name, type, coalesce(sql, '') FROM sqlite_master WHERE type='table' ORDER BY name")
+        .map_err(|e| e.to_string())?;
+    let rows: Vec<(String, String, String)> = st
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .map_err(|e| e.to_string())?
+        .collect::<Result<_, _>>()
+        .map_err(|e| e.to_string())?;
+    let vtabs: Vec<String> = rows
+        .iter()
+        .filter(|(_, _, sql)| {
+            sql.trim_start()
+                .to_ascii_uppercase()
+                .starts_with("CREATE VIRTUAL")
+        })
+        .map(|(n, _, _)| format!("{n}_"))
+        .collect();
+    for (name, _, sql) in &rows {
+        let virt = sql
+            .trim_start()
+            .to_ascii_uppercase()
+            .starts_with("CREATE VIRTUAL");
+        if virt
+            || name.starts_with("sqlite_")
+            || META_TABLES.contains(&name.as_str())
+            || vtabs.iter().any(|v| name.starts_with(v.as_str()))
+        {
+            continue;
+        }
+        let q = format!(
+            "SELECT EXISTS (SELECT 1 FROM \"{}\")",
+            name.replace('"', "\"\"")
+        );
+        let any: i64 = c
+            .query_row(&q, [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        if any != 0 {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}

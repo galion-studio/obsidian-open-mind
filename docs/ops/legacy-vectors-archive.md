@@ -155,20 +155,74 @@ throwaway copy of the live data files; `crates/galion-backup/tests/fake_tree.rs`
 `legacy_root_memory_db_archived_then_restored` runs the real backup library
 before/after. Numbers in docs/real-tests/legacy-vectors-archive-plan.md.
 
+## 6. galion-backup after the archive (slot 427, D-406-3 staged, NOT deployed)
+
+Branch `swarm/backup-drop-legacy-root` off this branch (7aba14ec). The
+legacy root entry stays in `DBS` (same `db/MAP` order, so a rollback is
+backed up again with no code change), but `galion-backup run` now behaves
+like this (2026-10-28 21:45 CET box sim, docs/real-tests/backup-drop-legacy-root.md):
+
+| Root `vectors.db` state | Live `galion-backup-98466ab` | Slot 427 build |
+|---|---|---|
+| present with rows (VPS today: 4 l0 rows) | snapshot + MAP line | **same** (same log, MAP, layout; bash parity 26/26) |
+| absent + archive marker (`/var/backups/memory-legacy-root-*/SHA256SUMS` with a `<sha256>  vectors.db` line, written by step 2) | `level=warn msg="missing db ..."` every 6 h | one `level=info msg="legacy db archived, skipped /var/lib/memory-tencentdb/vectors.db" marker=/var/backups/memory-legacy-root-<TS>`, no warn |
+| absent, no marker | warn | **same** warn (an unexplained loss stays visible) |
+| present but EMPTY (F-406-2 server without `OPENMIND_MEMORY_INSTANCE_ID`, or a 0-byte file) | snapshots the empty DB into every archive | **not backed up**; `level=warn msg="empty legacy db not backed up ..." hint="check OPENMIND_MEMORY_INSTANCE_ID (F-406-2)"`; source never written |
+
+Exit stays 0 in all four; the instance DB and both hermes DBs are unchanged.
+"Empty" = no row in any ordinary table other than `schema_migrations`,
+`embedding_meta` and FTS5 shadow tables, counted on the snapshot copy (the
+live file is still opened once, read-only, as before). If the count errors,
+the snapshot is kept (fail safe). An absent path is never opened, so the
+backup can never create the root DB.
+
+### Step 6 (OWNER; after steps 0-5, only if D-406-3 = yes and D-427-1 = deploy)
+
+Deploying is its own approved step; this slot did nothing on the VPS.
+
+```sh
+# 6a. marker present (step 2 wrote it); prints a path and a count only
+ls -d /var/backups/memory-legacy-root-*/SHA256SUMS
+head -1 /var/backups/memory-legacy-root-*/SHA256SUMS | grep -c '  vectors.db$'   # 1
+# 6b. install the slot-427 galion-backup next to galion-backup-98466ab in
+#     /opt/galion/rust/bin, point galion-backup.service ExecStart at it,
+#     systemctl daemon-reload. No restart: it is a oneshot run by the timer.
+# 6c. after the next timer run:
+journalctl -u galion-backup.service -n 5 --no-pager
+#   level=info msg="legacy db archived, skipped ..." marker=... ; level=info msg="ok" ... ; no level=warn
+# 6d. end of D-406-2 retention (30 d): delete the payload, KEEP the marker
+rm -r $A/moved $A/legacy-root-vectors.tar      # $A/SHA256SUMS stays (2 hash lines, no data)
+```
+
+Rollback of step 6: ExecStart back to `galion-backup-98466ab` (then the old
+warn line returns). The archive rollback in section 4 works with either
+binary: a root DB with rows is backed up again on the next run.
+
 ## Owner decisions
 
 - **D-406-1 (= D-388-2) archive now?** Recommended **yes**, with the runbook
   above (owner runs it; this slot changed nothing). Alternative: keep it;
   `freshness` already labels it `stray_root_db` and ignores it.
-- **D-406-2 retention of `$A`:** recommended keep 30 days, then delete; the
+- **D-406-2 retention of `$A`:** recommended keep 30 days, then delete;
+  with the slot 427 build keep `$A/SHA256SUMS` (the skip marker, section 6); the
   rolling backups lose it 3 days after step 4.
 - **D-406-3 drop the root entry from galion-backup `DBS`** (Rust + the old
   .sh) after D-406-1, to stop a 6-hourly `missing db` warn line; code change
   + deploy in its own slot. Not needed for correctness (exit 0).
+  **Staged by slot 427** (`swarm/backup-drop-legacy-root`): see section 6.
 - **D-406-4 `.metadata/manifest.json`:** leave (recommended; unread) or add
   it to the archive.
 - **D-388-4 done here:** slot 367 note corrected in
   docs/real-tests/memory-search-local-time.md.
+- **D-427-1 (slot 427) deploy the staged galion-backup?** Recommended
+  **yes, after D-406-1**, with runbook step 6 (or folded into the next
+  galion-backup deploy). Alternatives: keep `galion-backup-98466ab` (one
+  harmless warn line per run); or remove the entry from `DBS` outright
+  (then a rolled-back root DB is silently NOT backed up, and an empty
+  recreated one is not flagged: not recommended).
+- **D-427-2** skip line `level=info` (recommended, auditable) vs fully silent.
+- **D-427-3** amend D-406-2: at retention end keep `$A/SHA256SUMS` as the
+  marker (recommended); deleting all of `$A` brings the warn line back.
 
 ## Findings
 

@@ -410,3 +410,199 @@ fn legacy_root_memory_db_archived_then_restored() {
     assert!(list.contains("/db/memory-root-vectors.db"), "{list}");
     let _ = fs::remove_dir_all(&t);
 }
+
+// ---------------------------------------------------------------- slot 427
+// D-406-3 staged: legacy root DB skipped quietly once archived (marker),
+// never backed up or created when empty (F-406-2). Instance DBs unchanged.
+
+const ROOT_DB: &str = "var/lib/memory-tencentdb/vectors.db";
+
+fn move_trio_away(root: &Path, away: &Path) {
+    fs::create_dir_all(away).unwrap();
+    for x in ["", "-wal", "-shm"] {
+        let p = root.join(format!("{ROOT_DB}{x}"));
+        if p.exists() {
+            fs::rename(&p, away.join(format!("vectors.db{x}"))).unwrap();
+        }
+    }
+}
+
+fn write_marker(root: &Path, ts: &str, sums: &str) -> String {
+    let d = root.join(format!("var/backups/memory-legacy-root-{ts}"));
+    fs::create_dir_all(&d).unwrap();
+    fs::write(d.join("SHA256SUMS"), sums).unwrap();
+    format!("/var/backups/memory-legacy-root-{ts}")
+}
+
+const GOOD_SUMS: &str = "cb0a3a5a0eba869a5aa2159ceda6f1355199c31c45209d42087e263f2e6e748d  vectors.db\n\
+                         f2602059f2602059f2602059f2602059f2602059f2602059f2602059f2602059  legacy-root-vectors.tar\n";
+
+fn archive_listing(dest: &Path) -> (String, String) {
+    let a = backup::newest_first(backup::archives(dest))[0].clone();
+    let top = a
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .trim_end_matches(".tar.gz")
+        .to_string();
+    let list = tar_list(&["-tzf"], &a);
+    let o = Command::new("tar")
+        .arg("-xzOf")
+        .arg(&a)
+        .arg(format!("{top}/db/MAP"))
+        .output()
+        .unwrap();
+    assert!(o.status.success());
+    (list, String::from_utf8(o.stdout).unwrap())
+}
+
+const MAP3: &str = "/var/lib/memory-tencentdb/instances/galion/vectors.db memory-vectors.db\n\
+                    /var/lib/hermes-rs/rs-state.db hermes-rs-state.db\n\
+                    /opt/galion/hermes/state.db hermes-legacy-state.db\n";
+
+#[test]
+fn legacy_marker_detection() {
+    let t = tmp("marker427");
+    let root = t.join("root");
+    let o = opts(&root, &t.join("dest"));
+    assert_eq!(backup::legacy_archive_marker(&o), None, "no /var/backups");
+    fs::create_dir_all(root.join("var/backups/galion")).unwrap();
+    assert_eq!(backup::legacy_archive_marker(&o), None, "no archive dir");
+    // Dir without SHA256SUMS, bad hash, wrong file name: not a marker.
+    fs::create_dir_all(root.join("var/backups/memory-legacy-root-20261029-090000+0100")).unwrap();
+    write_marker(&root, "20261029-100000+0100", "nothex  vectors.db\n");
+    write_marker(
+        &root,
+        "20261029-110000+0100",
+        "cb0a3a5a0eba869a5aa2159ceda6f1355199c31c45209d42087e263f2e6e748d  vectors.db-wal\n",
+    );
+    write_marker(&root, "", GOOD_SUMS); // bare prefix: ignored
+    assert_eq!(backup::legacy_archive_marker(&o), None);
+    let m1 = write_marker(&root, "20261029-120000+0100", GOOD_SUMS);
+    assert_eq!(backup::legacy_archive_marker(&o), Some(m1.clone()));
+    // Newest valid wins; a newer invalid one is skipped.
+    let m2 = write_marker(&root, "20261030-080000+0100", GOOD_SUMS);
+    write_marker(&root, "20261031-080000+0100", "garbage\n");
+    assert_eq!(backup::legacy_archive_marker(&o), Some(m2));
+    assert_ne!(m1, backup::legacy_archive_marker(&o).unwrap());
+    let _ = fs::remove_dir_all(&t);
+}
+
+#[test]
+fn legacy_root_archived_with_marker_skipped_and_never_created() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let t = tmp("legacy427a");
+    let root = t.join("root");
+    let dest = t.join("dest");
+    build_tree(&root);
+    move_trio_away(&root, &t.join("away"));
+    write_marker(&root, "20261029-120000+0100", GOOD_SUMS);
+    assert_eq!(backup::run(&opts(&root, &dest)), 0);
+    let (list, map) = archive_listing(&dest);
+    assert_eq!(map, MAP3);
+    assert!(!list.contains("memory-root-vectors.db"), "{list}");
+    for x in ["", "-wal", "-shm"] {
+        assert!(
+            !root.join(format!("{ROOT_DB}{x}")).exists(),
+            "backup must never create the root DB{x}"
+        );
+    }
+    // The marker dir itself is outside every FILES path: not in files.tar.
+    let _ = fs::remove_dir_all(&t);
+}
+
+#[test]
+fn legacy_root_empty_db_never_backed_up() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let t = tmp("legacy427b");
+    let root = t.join("root");
+    let dest = t.join("dest");
+    build_tree(&root);
+    move_trio_away(&root, &t.join("away"));
+    // F-406-2 shape: the memory schema, FTS5 + meta rows, 0 content rows.
+    let p = root.join(ROOT_DB);
+    let c = rusqlite::Connection::open(&p).unwrap();
+    c.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         CREATE TABLE embedding_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+         INSERT INTO embedding_meta VALUES ('model', 'none');
+         CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT);
+         INSERT INTO schema_migrations VALUES (1, 'baseline');
+         CREATE TABLE l1_records (record_id TEXT PRIMARY KEY, content TEXT);
+         CREATE TABLE l0_conversations (record_id TEXT PRIMARY KEY, session_key TEXT);
+         CREATE VIRTUAL TABLE l0_fts USING fts5(message_text, record_id UNINDEXED);",
+    )
+    .unwrap();
+    drop(c);
+    let before = fs::read(&p).unwrap();
+    assert!(!galion_backup::sqlite::has_content(&p).unwrap());
+    assert_eq!(backup::run(&opts(&root, &dest)), 0, "warn, exit 0");
+    let (list, map) = archive_listing(&dest);
+    assert_eq!(map, MAP3);
+    assert!(!list.contains("memory-root-vectors.db"), "{list}");
+    assert_eq!(fs::read(&p).unwrap(), before, "source untouched");
+
+    // 0-byte file (e.g. `touch`): also empty, also not backed up.
+    for x in ["-wal", "-shm"] {
+        let _ = fs::remove_file(root.join(format!("{ROOT_DB}{x}")));
+    }
+    fs::write(&p, b"").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert_eq!(backup::run(&opts(&root, &dest)), 0);
+    let (list, map) = archive_listing(&dest);
+    assert_eq!(map, MAP3);
+    assert!(!list.contains("memory-root-vectors.db"), "{list}");
+    assert_eq!(fs::metadata(&p).unwrap().len(), 0, "still 0 bytes");
+
+    // One content row -> backed up again (rollback / real data kept).
+    fs::remove_file(&p).unwrap();
+    let c = rusqlite::Connection::open(&p).unwrap();
+    c.execute_batch(
+        "CREATE VIRTUAL TABLE l0_fts USING fts5(message_text);
+         CREATE TABLE l0_conversations (record_id TEXT PRIMARY KEY);
+         INSERT INTO l0_conversations VALUES ('r1');",
+    )
+    .unwrap();
+    drop(c);
+    assert!(galion_backup::sqlite::has_content(&p).unwrap());
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    assert_eq!(backup::run(&opts(&root, &dest)), 0);
+    let (list, map) = archive_listing(&dest);
+    assert!(list.contains("/db/memory-root-vectors.db"), "{list}");
+    assert_eq!(map.lines().count(), 4);
+    assert_eq!(
+        map.lines().nth(1),
+        Some("/var/lib/memory-tencentdb/vectors.db memory-root-vectors.db"),
+        "same MAP order as before"
+    );
+    let _ = fs::remove_dir_all(&t);
+}
+
+#[test]
+fn has_content_ignores_only_meta_and_shadow_tables() {
+    let t = tmp("hc427");
+    let p = t.join("x.db");
+    let c = rusqlite::Connection::open(&p).unwrap();
+    c.execute_batch(
+        "CREATE VIRTUAL TABLE l1_fts USING fts5(content);
+         INSERT INTO l1_fts VALUES ('only in the fts index');
+         CREATE TABLE embedding_meta (k, v); INSERT INTO embedding_meta VALUES (1, 2);",
+    )
+    .unwrap();
+    // FTS rows live in shadow tables (l1_fts_content/_data): not content of
+    // the store itself (it always mirrors l0/l1 rows).
+    assert!(!galion_backup::sqlite::has_content(&p).unwrap());
+    c.execute_batch("CREATE TABLE \"we\"\"ird\" (a); INSERT INTO \"we\"\"ird\" VALUES (1);")
+        .unwrap();
+    assert!(
+        galion_backup::sqlite::has_content(&p).unwrap(),
+        "quoted name counted"
+    );
+    drop(c);
+    assert!(
+        galion_backup::sqlite::has_content(&t.join("missing.db")).is_err(),
+        "read-only open never creates"
+    );
+    assert!(!t.join("missing.db").exists());
+    let _ = fs::remove_dir_all(&t);
+}

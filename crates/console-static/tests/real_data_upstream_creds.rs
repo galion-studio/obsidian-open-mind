@@ -426,7 +426,7 @@ fn real_api_upstream_still_gets_cookie() {
     let log: Log = Arc::new(Mutex::new(Vec::new()));
     capturing_reader(API, Arc::clone(&log));
     let root = tmp("root");
-    std::fs::write(root.join("index.html"), "<p>x</p>").unwrap();
+    std::fs::write(root.join("_shell.html"), "<p>x</p>").unwrap();
     let rs = root.to_str().unwrap().to_string();
     let _g = start(BIND, &["--root", &rs, "--upstream", API]);
     let (c, h, _) = send(

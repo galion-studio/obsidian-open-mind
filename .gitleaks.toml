@@ -20,3 +20,8 @@ paths = ['''crates/openmind-nerve/tests/fixtures/hades/ledger\.jsonl''']
 description = "NERVE_EVT_LLM_KEY_ENV stores an env-var name, not a key"
 regexTarget = "line"
 regexes = ['''NERVE_EVT_LLM_KEY_ENV''']
+
+[[allowlists]]
+description = "galion-admin real_cli sentinel. The test asserts this argument is absent from the audit log. Not a credential."
+regexTarget = "line"
+regexes = ['''hunter2-SECRET''']

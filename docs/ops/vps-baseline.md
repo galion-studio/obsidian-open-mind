@@ -4,7 +4,7 @@
 
 - Plan task: wave-4 slot 182 `vps-baseline-2` (READ-ONLY refresh of S1.1). Branch `swarm/vps-baseline-2` off `swarm/vps-baseline` f403eeb.
 - The 2026-10-20 22:52 CEST (+02:00) ledger is kept unchanged as [vps-baseline-20261020.md](vps-baseline-20261020.md). §5 below is the diff against it.
-- Host: 51.38.137.193 (`ip50`). LXC container on ZFS: 8 vCPU, 16 GB, no swap.
+- Host: <vps-public-ip> (`ip50`). LXC container on ZFS: 8 vCPU, 16 GB, no swap.
 - Probe windows (remote shell `TZ=Europe/Zagreb`): batch 1 **2026-10-21 11:23:08**, batch 2 **11:23:38**, batch 3 **11:23:59**, batch 4 **11:24:22**, all CEST (+02:00).
   A stability re-check ran at 11:25:46 (all 14 PIDs, exe sha and NRestarts unchanged; see docs/real-tests/vps-baseline-2.md).
 - Method: **read-only**, same as the 20 Oct run: `ssh … 'nice -n 10 bash -s'` heredoc batches with `systemctl show/cat/list-units/list-timers`, `ss -ltnp`,

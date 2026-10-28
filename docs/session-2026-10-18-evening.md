@@ -42,7 +42,7 @@ Rebuilt at `/opt/galion/tuner` (plain JS McLeod pitch detection + Rust std-only 
 | Strings recognized | G4 392, C4 261.63, E4 329.63, A4 440 (plus low G3 196) |
 | Test | 46 tones |
 | Old version backup | `/opt/galion/backups/tuner-20261018-191738+0200/` |
-| Temporary public URL | `https://tapes-collectors-battle-enables.trycloudflare.com` via transient unit `tuner-quick` (quick tunnel; URL changes if restarted) |
+| Temporary public URL | `https://<quick-tunnel-name>.trycloudflare.com` via transient unit `tuner-quick` (quick tunnel; URL changes if restarted) |
 | Pending DNS | `tuner.galion.app` CNAME `tuner` → `b2c049f7-7d08-4ec9-a7bc-eecfa76484a6.cfargotunnel.com` (Slavik adds); then ingress on the main tunnel and retire `tuner-quick` |
 | Note | `tuner.galleon.app` does not exist (`galleon.app` is not on Cloudflare) |
 

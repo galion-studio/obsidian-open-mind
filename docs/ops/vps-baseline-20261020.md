@@ -3,7 +3,7 @@
 # VPS baseline ledger 2026-10-20 (the "before" picture; superseded by vps-baseline.md 2026-10-21)
 
 - Plan task: `vps-ops` S1.1 (/workspace/swarm/plans/vps-ops.md). Branch `swarm/vps-baseline` off main 13a296c.
-- Host: 51.38.137.193 (`ip50`). It is an LXC container on a ZFS subvolume: 8 vCPU, 16 GB, no swap.
+- Host: <vps-public-ip> (`ip50`). It is an LXC container on a ZFS subvolume: 8 vCPU, 16 GB, no swap.
 - Probe windows: session 1 ran from **2026-10-20 22:52:32 to 22:52:35 CEST (+02:00)**. Session 2 ran at **22:53:09 CEST (+02:00)**.
   The remote shell ran with `TZ=Europe/Zagreb`, so every time below is CEST (+02:00) unless it says otherwise.
 - Method: **read-only**. Two batched ssh sessions under `nice -n 10`. Commands used: `systemctl show -p … / cat / is-enabled / list-units / list-unit-files / list-timers`,
@@ -158,7 +158,7 @@ The repo baseline is main 13a296c: `deploy/*.service`, `deploy/staged/*`, `deplo
     These match the plan: galion-deploy sha `86207af5…`, working copy 2f5a730, the tuner sha, the transient tuner-quick, 12 project units active, and 2 deploy backups.
 
 ## 6. Re-running this baseline (read-only)
-The probe was two heredoc batches sent as `ssh -i ~/.ssh/id_ed25519_vps -o IdentitiesOnly=yes root@51.38.137.193 'nice -n 10 bash -s'`. No script was added to the repo (Rust-only rule).
+The probe was two heredoc batches sent as `ssh -i ~/.ssh/id_ed25519_vps -o IdentitiesOnly=yes root@<vps-public-ip> 'nice -n 10 bash -s'`. No script was added to the repo (Rust-only rule).
 For each unit it ran:
 - `systemctl show <u>.service -p Id,LoadState,ActiveState,SubState,UnitFileState,FragmentPath,DropInPaths,Restart,RestartUSec,StartLimitIntervalUSec,StartLimitBurst,StartLimitAction,NRestarts,MainPID,ExecMainStartTimestamp,WorkingDirectory,User,StandardOutput,StandardError,EnvironmentFiles,MemoryCurrent,MemoryMax,CPUQuotaPerSecUSec,TasksMax,Nice,ExecStart,Transient`. The `Environment` property is deliberately absent.
 - `systemctl cat`, with every `Environment=` line replaced by its variable names.

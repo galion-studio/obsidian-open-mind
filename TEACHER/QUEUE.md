@@ -26,7 +26,7 @@ W7: B06, B15, B29 | W8: B07, B16, B22 | W9: B08, B23, B30 | then remaining ticke
 ## Group 1: Rust foundation for low-end CPU-only commercial devices (priority 1 of Slavik's list)
 
 ### B01 | G1 | P1 | S | link-watch: no hard-coded public host
-- Goal: remove `DEFAULT_FRANCE` (`http://54.37.161.82`) from `crates/link-watch/src/main.rs`. The probe URL comes only from config/env (`LINK_WATCH_FRANCE_URL`); when unset the probe reports `"unconfigured"` instead of calling a fixed IP. Ollama/Hermes loopback defaults stay but move to one `Defaults` struct.
+- Goal: remove `DEFAULT_FRANCE` (`http://<france-server-ip>`) from `crates/link-watch/src/main.rs`. The probe URL comes only from config/env (`LINK_WATCH_FRANCE_URL`); when unset the probe reports `"unconfigured"` instead of calling a fixed IP. Ollama/Hermes loopback defaults stay but move to one `Defaults` struct.
 - Files: edit `crates/link-watch/src/main.rs` (+ tests in the crate). Add a STAGED.md note (behaviour change for the staged unit: env line needed).
 - Accept: `rg -n '54\.37\.161\.82' crates/` empty; existing JSON keys unchanged (golden test vs a fixture from the current output schema); C1 C2 C3 C6 C7 C8; size + RSS recorded.
 

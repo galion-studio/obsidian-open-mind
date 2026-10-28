@@ -2,7 +2,7 @@
 <!-- Copyright (c) 3000 Galion / galion-studio -->
 # Real-server record: vps-baseline-2 (slot 182), 2026-10-21 CEST (+02:00)
 
-Docs-only, READ-ONLY row: no build, no binary started, nothing written on the VPS. Evidence = live reads of the production VPS (51.38.137.193) over ssh, `nice -n 10`, `TZ=Europe/Zagreb`.
+Docs-only, READ-ONLY row: no build, no binary started, nothing written on the VPS. Evidence = live reads of the production VPS (<vps-public-ip>) over ssh, `nice -n 10`, `TZ=Europe/Zagreb`.
 Secret handling: `Environment=` values were replaced by names on the VPS before output; no EnvironmentFile or secrets dir was read; the output was grepped for key/token/secret/password (only hit: the comment "no secrets" in openmind-queue.service).
 
 | Batch | Time (+02:00) | What | Result |

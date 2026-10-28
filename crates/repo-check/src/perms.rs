@@ -323,6 +323,10 @@ pub enum Reason {
     /// group/other-writable entry inside an installed tree (`--plan-tree`) ->
     /// 755 dirs / 755 executables / 644 files
     TreeNormalize,
+    /// other-writable entry inside a tree given with `--plan-ow-tree` ->
+    /// `o-w` only (group bits kept; for large third-party trees such as a
+    /// venv where group-writable is the install default) (slot 398)
+    TreeOtherWritable,
 }
 
 impl Reason {
@@ -331,6 +335,7 @@ impl Reason {
             Reason::DirOtherWritable => "dir-o+w-no-sticky",
             Reason::SecretWritable => "secret-o+w",
             Reason::TreeNormalize => "tree-normalize",
+            Reason::TreeOtherWritable => "tree-o-w",
         }
     }
     pub fn parse(s: &str) -> Option<Self> {
@@ -338,6 +343,7 @@ impl Reason {
             "dir-o+w-no-sticky" => Some(Reason::DirOtherWritable),
             "secret-o+w" => Some(Reason::SecretWritable),
             "tree-normalize" => Some(Reason::TreeNormalize),
+            "tree-o-w" => Some(Reason::TreeOtherWritable),
             _ => None,
         }
     }
@@ -391,6 +397,14 @@ fn under(path: &str, prefix: &str) -> bool {
 /// example `/opt/galion/console-dist`) whose group/other-writable entries are
 /// normalized to 755/644 even when they are not secret-like.
 pub fn build_plan(entries: &[StatEntry], trees: &[String]) -> Plan {
+    build_plan_ow(entries, trees, &[])
+}
+
+/// Like [`build_plan`], plus `ow_trees`: inside those trees every
+/// other-writable dir or file (no symlinks, no specials) loses `o+w` only
+/// (reason `tree-o-w`); `trees` wins when a path is under both. Sticky dirs
+/// under an `ow_tree` are planned too (`o-w` keeps the sticky bit) (slot 398).
+pub fn build_plan_ow(entries: &[StatEntry], trees: &[String], ow_trees: &[String]) -> Plan {
     let dirs = dir_modes(entries);
     let mut plan = Plan::default();
     for e in entries {
@@ -398,6 +412,11 @@ pub fn build_plan(entries: &[StatEntry], trees: &[String]) -> Plan {
         let in_tree = trees.iter().any(|t| under(&e.path, t));
         let (new, reason) = if in_tree && e.kind != Kind::Other && m & (O_W | G_W) != 0 {
             (normalized_mode(m, e.kind), Reason::TreeNormalize)
+        } else if e.kind != Kind::Other
+            && m & O_W != 0
+            && ow_trees.iter().any(|t| under(&e.path, t))
+        {
+            (m & !O_W, Reason::TreeOtherWritable)
         } else if e.kind == Kind::Dir && m & O_W != 0 && m & STICKY == 0 {
             (m & !O_W, Reason::DirOtherWritable)
         } else if e.kind == Kind::File && m & O_W != 0 && is_secret_like(&e.path) {

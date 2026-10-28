@@ -1,0 +1,21 @@
+# chmod plan, built 2026-10-28T16:45:26+01:00 by repo-check 0.1.0 from 35490 stat entries; o-w trees /opt/galion/tts/venv, /opt/galion/stt/venv, /opt/galion/vision/venv
+# hidden (not planned, parent dir has no o+x): 0
+# owner review (not root:root): none
+# path	type	owner	old	new	reason
+/opt/galion/tts/venv/lib/python3.11/site-packages/transformers/models/vaultgemma	d	root:root	777	775	tree-o-w
+/opt/galion/stt/venv/lib/python3.11/site-packages/huggingface_hub/utils/__pycache__/_git_credential.cpython-311.pyc	f	root:root	666	664	tree-o-w
+/opt/galion/stt/venv/lib/python3.11/site-packages/huggingface_hub/utils/_git_credential.py	f	root:root	666	664	tree-o-w
+/opt/galion/stt/venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem	f	root:root	666	664	tree-o-w
+/opt/galion/tts/venv/lib/python3.11/site-packages/huggingface_hub/utils/__pycache__/_git_credential.cpython-311.pyc	f	root:root	666	664	tree-o-w
+/opt/galion/tts/venv/lib/python3.11/site-packages/huggingface_hub/utils/_git_credential.py	f	root:root	666	664	tree-o-w
+/opt/galion/tts/venv/lib/python3.11/site-packages/transformers/models/vaultgemma/__pycache__/configuration_vaultgemma.cpython-311.pyc	f	root:root	666	664	tree-o-w
+/opt/galion/tts/venv/lib/python3.11/site-packages/transformers/models/vaultgemma/__pycache__/modeling_vaultgemma.cpython-311.pyc	f	root:root	666	664	tree-o-w
+/opt/galion/tts/venv/lib/python3.11/site-packages/transformers/models/vaultgemma/__pycache__/modular_vaultgemma.cpython-311.pyc	f	root:root	666	664	tree-o-w
+/opt/galion/tts/venv/lib/python3.11/site-packages/transformers/models/vaultgemma/configuration_vaultgemma.py	f	root:root	666	664	tree-o-w
+/opt/galion/tts/venv/lib/python3.11/site-packages/transformers/models/vaultgemma/modeling_vaultgemma.py	f	root:root	666	664	tree-o-w
+/opt/galion/tts/venv/lib/python3.11/site-packages/transformers/models/vaultgemma/modular_vaultgemma.py	f	root:root	666	664	tree-o-w
+/opt/galion/vision/venv/lib/python3.11/site-packages/huggingface_hub/utils/__pycache__/_git_credential.cpython-311.pyc	f	root:root	666	664	tree-o-w
+/opt/galion/vision/venv/lib/python3.11/site-packages/huggingface_hub/utils/_git_credential.py	f	root:root	666	664	tree-o-w
+/opt/galion/vision/venv/lib/python3.11/site-packages/pip/_vendor/certifi/cacert.pem	f	root:root	666	664	tree-o-w
+/opt/galion/vision/venv/lib/python3.11/site-packages/playwright/_impl/__pycache__/_credentials.cpython-311.pyc	f	root:root	666	664	tree-o-w
+/opt/galion/vision/venv/lib/python3.11/site-packages/playwright/_impl/_credentials.py	f	root:root	666	664	tree-o-w

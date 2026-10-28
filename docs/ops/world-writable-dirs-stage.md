@@ -143,3 +143,10 @@ galion-deploy dist-rollback DEST OLD   # put OLD back (DEST -> DEST.failed-<stam
    multi-user writer is ever planned.
 5. **F-379-1**: confirm the 10:08 CET removal of `tooling/hermes-agent` and
    `galion-light/shadow/*` was intended.
+
+## Refresh 2026-10-28 16:40 CET (slot 398)
+
+Re-verified read-only: all 69 rows still present and pending, 0 drift; a fresh
+plan gives identical rows, so nothing was dropped. `link.env` is now 600
+(D-318-2 applied 16:05 CET). New supplementary 17-row venv plan
+(`venv-o-w/`, `--plan-ow-tree`). See docs/ops/chmod-plan-refresh.md.

@@ -12,7 +12,7 @@ use std::process::ExitCode;
 const USAGE: &str =
     "usage: repo-check [--root DIR] [--json] [--only a,b] [--warn a,b] [--error a,b]
                   [--copyright TEXT] [--list] [--stat-list FILE|-]
-                  [--chmod-plan [--plan-tree DIR]... [--plan-reasons R] [--rollback] [--sh]] [--plan-verify PLAN]
+                  [--chmod-plan [--plan-tree DIR]... [--plan-ow-tree DIR]... [--plan-reasons R] [--rollback] [--sh]] [--plan-verify PLAN]
   --root DIR        tree to scan (default .)
   --json            JSON report on stdout (Europe/Zagreb timestamp)
   --only a,b        run only these checks
@@ -27,8 +27,10 @@ const USAGE: &str =
                     findings; nothing is changed
   --plan-tree DIR   also normalize group/other-writable entries under DIR to
                     755 dirs / 755 executables / 644 files (repeatable)
+  --plan-ow-tree DIR  only remove o+w (keep group bits) from other-writable
+                    entries under DIR, reason tree-o-w (repeatable)
   --plan-reasons R  keep only rows with these reasons (dir-o+w-no-sticky,
-                    secret-o+w, tree-normalize)
+                    secret-o+w, tree-normalize, tree-o-w)
   --rollback        print the reverse plan (old and new swapped)
   --sh              print guarded sh commands instead of TSV (each path only
                     when its mode and owner still match the plan)
@@ -46,6 +48,7 @@ struct Opts {
     stat_list: Option<String>,
     chmod_plan: bool,
     plan_trees: Vec<String>,
+    plan_ow_trees: Vec<String>,
     rollback: bool,
     sh: bool,
     plan_verify: Option<String>,
@@ -70,6 +73,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
         stat_list: None,
         chmod_plan: false,
         plan_trees: Vec::new(),
+        plan_ow_trees: Vec::new(),
         rollback: false,
         sh: false,
         plan_verify: None,
@@ -97,6 +101,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
             "--stat-list" => o.stat_list = Some(val("--stat-list")?),
             "--chmod-plan" => o.chmod_plan = true,
             "--plan-tree" => o.plan_trees.push(val("--plan-tree")?),
+            "--plan-ow-tree" => o.plan_ow_trees.push(val("--plan-ow-tree")?),
             "--rollback" => o.rollback = true,
             "--sh" => o.sh = true,
             "--plan-verify" => o.plan_verify = Some(val("--plan-verify")?),
@@ -121,9 +126,17 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
     if o.chmod_plan && o.plan_verify.is_some() {
         return Err("use either --chmod-plan or --plan-verify".into());
     }
-    if !o.chmod_plan && (o.rollback || o.sh || !o.plan_trees.is_empty() || o.plan_reasons.is_some())
+    if !o.chmod_plan
+        && (o.rollback
+            || o.sh
+            || !o.plan_trees.is_empty()
+            || !o.plan_ow_trees.is_empty()
+            || o.plan_reasons.is_some())
     {
-        return Err("--plan-tree, --plan-reasons, --rollback and --sh need --chmod-plan".into());
+        return Err(
+            "--plan-tree, --plan-ow-tree, --plan-reasons, --rollback and --sh need --chmod-plan"
+                .into(),
+        );
     }
     Ok(o)
 }
@@ -312,7 +325,7 @@ fn plan_main(opts: &Opts) -> ExitCode {
             ExitCode::SUCCESS
         };
     }
-    let mut plan = perms::build_plan(&entries, &opts.plan_trees);
+    let mut plan = perms::build_plan_ow(&entries, &opts.plan_trees, &opts.plan_ow_trees);
     if let Some(rs) = &opts.plan_reasons {
         plan.rows.retain(|r| rs.contains(&r.reason));
     }
@@ -322,7 +335,7 @@ fn plan_main(opts: &Opts) -> ExitCode {
         plan.rows.clone()
     };
     let title = format!(
-        "{} plan, built {ts} by repo-check {} from {} stat entries{}\nhidden (not planned, parent dir has no o+x): {}\nowner review (not root:root): {}",
+        "{} plan, built {ts} by repo-check {} from {} stat entries{}{}\nhidden (not planned, parent dir has no o+x): {}\nowner review (not root:root): {}",
         if opts.rollback { "ROLLBACK" } else { "chmod" },
         env!("CARGO_PKG_VERSION"),
         entries.len(),
@@ -330,6 +343,11 @@ fn plan_main(opts: &Opts) -> ExitCode {
             String::new()
         } else {
             format!("; trees {}", opts.plan_trees.join(", "))
+        },
+        if opts.plan_ow_trees.is_empty() {
+            String::new()
+        } else {
+            format!("; o-w trees {}", opts.plan_ow_trees.join(", "))
         },
         plan.hidden.len(),
         if plan.review.is_empty() {

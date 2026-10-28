@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Startup index of the built console (`dist/client`).
+//! Startup index of the built console (`dist/client` or `console-dist/static`).
 //!
 //! The tree is walked once. A file is listed only when it is a regular file
 //! (symlinks are skipped, never followed), every path segment passes
@@ -51,7 +51,9 @@ fn etag_for(meta: &fs::Metadata) -> String {
 impl Site {
     /// Index `root`. `shell` is the HTML shell file name relative to root
     /// (e.g. `_shell.html`); it is served only for page routes, never at its
-    /// own URL. Fails when root is missing or the shell is missing.
+    /// own URL. Pass `"none"` (or empty) when the tree has no shell — used by
+    /// `--dist` for console-dist/static (assets only; pages come from `--ui rust`).
+    /// Fails when root is missing, or when a real shell name is given but absent.
     pub fn load(root: &Path, shell: &str) -> io::Result<Site> {
         // The root itself may be a `current -> <rev>` symlink; resolve it once.
         // Symlinks *inside* the tree are never followed.
@@ -65,6 +67,10 @@ impl Site {
         }
         let mut site = Site::default();
         site.walk(&root, String::new(), 0)?;
+        let shell = shell.trim();
+        if shell.is_empty() || shell == "none" {
+            return Ok(site);
+        }
         let shell_key = format!("/{}", shell.trim_start_matches('/'));
         let shell_entry = site.files.remove(&shell_key).ok_or_else(|| {
             io::Error::new(
@@ -145,7 +151,7 @@ impl Site {
         self.files.get(url_path)
     }
 
-    /// The HTML shell (always present after a successful load).
+    /// The HTML shell when one was configured (SPA mode).
     pub fn shell(&self) -> Option<&Entry> {
         self.shell.as_ref()
     }

@@ -38,6 +38,8 @@ use gate::Decision;
 use json::Value;
 use layout::{Frame, Origin};
 use std::net::SocketAddr;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// Pages rendered in Rust, in port order.
 pub const PORTED: &[&str] = &[
@@ -83,16 +85,23 @@ pub const PORTED: &[&str] = &[
     "/session",
 ];
 
-/// Ported pages the pre-built SPA keeps while a fallback is configured,
-/// because the Rust page is not yet a full replacement (owner decisions in
-/// docs/console-port-1.md): `/arena` reads the board but does not breed,
-/// stop or promote (Breed is a paid run); `/bank` needs a `/api/v1/bank`
-/// the console API does not serve yet. Without a fallback the Rust page
-/// answers.
-pub const SPA_FIRST: &[&str] = &["/arena", "/bank"];
+/// Ported pages the pre-built SPA keeps while a fallback is configured.
+/// Empty since wave 4 slot 299: every ported room is Rust-first. `/hermes`
+/// went Rust-first in slot 254; `/arena` and `/bank` followed in slot 299
+/// (console V2 R2): `/arena` is a read-only board (Breed/Stop/Promote stay
+/// held until Slavik approves the spend) and `/bank` renders the `BankSnap`
+/// from `/api/v1/bank` or explains why there is none. Neither page needs
+/// browser JS, so the SPA keeps no route. Kept as a (now empty) list so a
+/// future room can opt back in without an API change.
+pub const SPA_FIRST: &[&str] = &[];
 
 /// Largest form body accepted (pairing code or a command name).
 pub const MAX_FORM: usize = 4096;
+
+/// How long a shared /api/v1/health answer is reused for the header
+/// origin-dot (and for rooms that only need that payload). Single-flight
+/// under [`Ui::cached_health`].
+pub const HEALTH_CACHE_TTL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone)]
 pub struct UiConfig {
@@ -188,6 +197,19 @@ pub struct Ui {
     css: String,
     css_href: String,
     css_etag: String,
+    overview_css: String,
+    overview_css_href: String,
+    overview_css_etag: String,
+    sprite_href: String,
+    sprite_etag: String,
+    sprite: String,
+    /// Shared /api/v1/health payload + stamp; see [`HEALTH_CACHE_TTL`].
+    health: Mutex<HealthSlot>,
+}
+
+struct HealthSlot {
+    at: Option<Instant>,
+    value: Option<Value>,
 }
 
 /// The TanStack console answers a path it has no route for with
@@ -215,11 +237,23 @@ impl Ui {
     pub fn new(cfg: UiConfig) -> Ui {
         let css = css::sheet();
         let h = css::fnv64(css.as_bytes());
+        let overview_css = css::overview_sheet();
+        let oh = css::fnv64(overview_css.as_bytes());
         Ui {
             cfg,
             css_href: format!("/_ui/console.{h:016x}.css"),
             css_etag: format!("\"{h:016x}\""),
             css,
+            overview_css_href: format!("/_ui/overview.{oh:016x}.css"),
+            overview_css_etag: format!("\"{oh:016x}\""),
+            overview_css,
+            sprite_href: icons::sprite_href().to_string(),
+            sprite_etag: icons::sprite_etag().to_string(),
+            sprite: icons::sprite_body().to_string(),
+            health: Mutex::new(HealthSlot {
+                at: None,
+                value: None,
+            }),
         }
     }
 
@@ -232,9 +266,7 @@ impl Ui {
     /// room is (unported rooms get a "not in Rust yet" page).
     pub fn owns(&self, path: &str, spa_fallback: bool) -> bool {
         path.starts_with("/_ui/")
-            || (PORTED.contains(&path)
-                && !(spa_fallback
-                    && (SPA_FIRST.contains(&path) || port2::SPA_FIRST.contains(&path))))
+            || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || port4::owns(path)
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
@@ -261,12 +293,14 @@ impl Ui {
         Frame {
             title,
             css_href: &self.css_href,
+            extra_css_href: None,
             light: match gate::cookie(req.cookie, "galion_theme").as_deref() {
                 Some("light") => Some(true),
                 Some("dark") => Some(false),
                 _ => None,
             },
             path: req.path,
+            refresh_s: None,
         }
     }
 
@@ -307,6 +341,33 @@ impl Ui {
                         let v = json::parse(&r.body).unwrap_or(Value::Null);
                         if v.get("you").as_bool() == Some(true) {
                             Ok(())
+                        } else if let Some(dev) = gate::cookie(req.cookie, "galion_device")
+                            .filter(|d| gate::device_token_ok(d))
+                        {
+                            // Android admin resume (SPA used localStorage + JS).
+                            // Server-side POST keeps zero-JS and SameSite cookies.
+                            match self.resume_device(req, &dev) {
+                                Ok(reply) => Err(reply),
+                                Err(clear) => {
+                                    let f = self.frame(req, "Admin");
+                                    let mut out = Reply::html(
+                                        200,
+                                        layout::document(
+                                            &f,
+                                            "",
+                                            &pages::gate::pair(safe_back(req.path), None),
+                                        ),
+                                    );
+                                    if clear {
+                                        out.headers.push((
+                                            "Set-Cookie".into(),
+                                            "galion_device=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0"
+                                                .into(),
+                                        ));
+                                    }
+                                    Err(out)
+                                }
+                            }
                         } else {
                             let f = self.frame(req, "Admin");
                             Err(Reply::html(
@@ -333,7 +394,9 @@ impl Ui {
 
     pub fn handle(&self, req: &Request<'_>) -> Reply {
         match req.path {
-            p if p == self.css_href => return self.stylesheet(req),
+            p if p == self.css_href => return self.stylesheet(req, false),
+            p if p == self.overview_css_href => return self.stylesheet(req, true),
+            p if p == self.sprite_href => return self.sprite(req),
             "/_ui/favicon.svg" => {
                 return Reply {
                     status: 200,
@@ -403,8 +466,13 @@ impl Ui {
         }
     }
 
-    fn stylesheet(&self, req: &Request<'_>) -> Reply {
+    fn stylesheet(&self, req: &Request<'_>, overview: bool) -> Reply {
         let _ = req;
+        let (etag, body) = if overview {
+            (&self.overview_css_etag, self.overview_css.as_bytes())
+        } else {
+            (&self.css_etag, self.css.as_bytes())
+        };
         Reply {
             status: 200,
             headers: vec![
@@ -413,9 +481,25 @@ impl Ui {
                     "Cache-Control".into(),
                     "public, max-age=31536000, immutable".into(),
                 ),
-                ("ETag".into(), self.css_etag.clone()),
+                ("ETag".into(), etag.clone()),
             ],
-            body: self.css.as_bytes().to_vec(),
+            body: body.to_vec(),
+        }
+    }
+
+    fn sprite(&self, req: &Request<'_>) -> Reply {
+        let _ = req;
+        Reply {
+            status: 200,
+            headers: vec![
+                ("Content-Type".into(), "image/svg+xml".into()),
+                (
+                    "Cache-Control".into(),
+                    "public, max-age=31536000, immutable".into(),
+                ),
+                ("ETag".into(), self.sprite_etag.clone()),
+            ],
+            body: self.sprite.as_bytes().to_vec(),
         }
     }
 
@@ -432,6 +516,55 @@ impl Ui {
             format!("galion_theme={to}; Path=/; Max-Age=31536000; SameSite=Lax"),
         ));
         r
+    }
+
+    /// Whether Set-Cookie should carry `Secure` (HTTPS console host or
+    /// trusted loopback proxy that forwarded `https`).
+    fn cookie_secure(req: &Request<'_>) -> bool {
+        let host = gate::normalize_host(req.host);
+        host.ends_with("galion.app")
+            || host.ends_with("galion.studio")
+            || req
+                .forwarded_proto
+                .map(|p| p.split(',').any(|x| x.trim() == "https"))
+                .unwrap_or(false)
+    }
+
+    fn device_set_cookie(req: &Request<'_>, device: &str) -> String {
+        let mut c =
+            format!("galion_device={device}; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000");
+        if Self::cookie_secure(req) {
+            c.push_str("; Secure");
+        }
+        c
+    }
+
+    /// POST `{device}` to `/api/v1/admin`. `Ok` = redirect with admin cookie.
+    /// `Err(true)` = clear a refused device cookie; `Err(false)` = soft miss.
+    fn resume_device(&self, req: &Request<'_>, device: &str) -> Result<Reply, bool> {
+        let back = safe_back(req.path).to_string();
+        let body = json::obj(&[("device", Value::Str(device.to_string()))]).to_json();
+        let mut fwd = self.forward(req);
+        fwd.cookie = None;
+        match client::call(
+            self.cfg.upstream,
+            "POST",
+            "/api/v1/admin",
+            &fwd,
+            Some(("application/json", body.as_bytes())),
+        ) {
+            Ok(r) if r.status == 200 => {
+                let mut out = Reply::redirect(303, &back);
+                for c in r.header_all("set-cookie") {
+                    if c.starts_with("galion_admin=") {
+                        out.headers.push(("Set-Cookie".into(), c.to_string()));
+                    }
+                }
+                Ok(out)
+            }
+            Ok(r) if r.status == 401 || r.status == 429 => Err(true),
+            _ => Err(false),
+        }
     }
 
     fn pair(&self, req: &Request<'_>) -> Reply {
@@ -451,14 +584,25 @@ impl Ui {
             .unwrap_or("")
             .trim()
             .to_string();
+        let device = html::form_get(&form, "device")
+            .unwrap_or("")
+            .trim()
+            .to_string();
         let f = self.frame(req, "Admin");
-        if code.is_empty() {
+        let mut fields: Vec<(&str, Value)> = Vec::new();
+        if !code.is_empty() {
+            fields.push(("code", Value::Str(code)));
+        }
+        if gate::device_token_ok(&device) {
+            fields.push(("device", Value::Str(device)));
+        }
+        if fields.is_empty() {
             return Reply::html(
                 200,
                 layout::document(&f, "", &pages::gate::pair(&back, Some("Enter the code."))),
             );
         }
-        let body = json::obj(&[("code", Value::Str(code))]).to_json();
+        let body = json::obj(&fields).to_json();
         let mut fwd = self.forward(req);
         fwd.cookie = None;
         match client::call(
@@ -473,6 +617,18 @@ impl Ui {
                 for c in r.header_all("set-cookie") {
                     if c.starts_with("galion_admin=") {
                         out.headers.push(("Set-Cookie".into(), c.to_string()));
+                    }
+                }
+                // First pair returns a one-time device secret; keep it as an
+                // HttpOnly cookie so Android can resume without JavaScript.
+                if let Ok(v) = json::parse(&r.body) {
+                    if let Some(dev) = v
+                        .get("device")
+                        .as_str()
+                        .filter(|d| gate::device_token_ok(d))
+                    {
+                        out.headers
+                            .push(("Set-Cookie".into(), Self::device_set_cookie(req, dev)));
                     }
                 }
                 out
@@ -497,8 +653,34 @@ impl Ui {
         }
     }
 
+    /// Shared `/api/v1/health` lookup: one upstream GET at most every
+    /// [`HEALTH_CACHE_TTL`] (single-flight under the mutex) so chrome pages
+    /// do not re-hit the API on every render for the header origin-dot.
+    fn cached_health(&self, fwd: &Forward) -> Option<Value> {
+        {
+            let g = self.health.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(at) = g.at {
+                if at.elapsed() < HEALTH_CACHE_TTL {
+                    return g.value.clone();
+                }
+            }
+        }
+        // Fetch while holding the lock so concurrent chrome renders share one
+        // upstream round-trip (single-flight).
+        let mut g = self.health.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(at) = g.at {
+            if at.elapsed() < HEALTH_CACHE_TTL {
+                return g.value.clone();
+            }
+        }
+        let v = self.get_json(self.cfg.upstream, "/api/v1/health", fwd);
+        g.at = Some(Instant::now());
+        g.value = v.clone();
+        v
+    }
+
     fn origin(&self, fwd: &Forward) -> Origin {
-        match self.get_json(self.cfg.upstream, "/api/v1/health", fwd) {
+        match self.cached_health(fwd) {
             Some(h) if h.get("status").as_str() == Some("healthy") => Origin::Up,
             _ => Origin::Down,
         }
@@ -517,7 +699,7 @@ impl Ui {
     fn status(&self, req: &Request<'_>) -> Reply {
         let fwd = self.forward(req);
         let (health, services, domains, pulse) = std::thread::scope(|s| {
-            let h = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/health", &fwd));
+            let h = s.spawn(|| self.cached_health(&fwd));
             let sv = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/services", &fwd));
             let d = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/domains", &fwd));
             let p = s.spawn(|| self.pulse());
@@ -579,7 +761,7 @@ impl Ui {
         };
         let fwd = self.forward(req);
         let (health, got) = std::thread::scope(|s| {
-            let h = s.spawn(|| self.get_json(self.cfg.upstream, "/api/v1/health", &fwd));
+            let h = s.spawn(|| self.cached_health(&fwd));
             let hs: Vec<_> = apis
                 .iter()
                 .map(|p| s.spawn(|| self.get_json(self.cfg.upstream, p, &fwd)))
@@ -620,7 +802,8 @@ impl Ui {
         let fwd = self.forward(req);
         let origin = self.origin(&fwd);
         let body = pages::overview::body(PORTED.len() + 1);
-        let f = self.frame(req, "Galion Studio · Project overview");
+        let mut f = self.frame(req, "Galion Studio · Project overview");
+        f.extra_css_href = Some(&self.overview_css_href);
         Reply::html(200, layout::console(&f, origin, &body))
     }
 
@@ -692,7 +875,13 @@ impl Ui {
                 };
                 pages::analytics::body(got.as_ref().map_err(|_| miss), board)
             }
-            "/arena" => pages::arena::body(got.as_ref().ok()),
+            "/arena" => {
+                let miss = match &got {
+                    Err(Some(c)) => pages::arena::Miss::Status(*c),
+                    _ => pages::arena::Miss::Down,
+                };
+                pages::arena::body(got.as_ref().map_err(|_| miss))
+            }
             "/bank" => {
                 let miss = match &got {
                     Err(Some(c)) => pages::bank::Miss::Status(*c),
@@ -706,7 +895,10 @@ impl Ui {
             "Galion Console · {}",
             rooms::exact(req.path).map(|r| r.label).unwrap_or("Console")
         );
-        let f = self.frame(req, &title);
+        let mut f = self.frame(req, &title);
+        if req.path == "/bank" {
+            f.refresh_s = Some(pages::bank::refresh_s(got.as_ref().ok()));
+        }
         Reply::html(200, layout::console(&f, origin, &body))
     }
 
@@ -740,7 +932,7 @@ impl Ui {
                 };
             }
         }
-        let health = self.get_json(self.cfg.upstream, "/api/v1/health", &fwd);
+        let health = self.cached_health(&fwd);
         let origin = match &health {
             Some(h) if h.get("status").as_str() == Some("healthy") => Origin::Up,
             _ => Origin::Down,
@@ -775,6 +967,20 @@ mod tests {
     }
 
     #[test]
+    fn device_cookie_marks_secure_on_galion_hosts() {
+        let mut req = Request {
+            host: "console.galion.app",
+            ..Request::default()
+        };
+        assert!(Ui::cookie_secure(&req));
+        assert!(Ui::device_set_cookie(&req, "abcdefghijklmnopqrstuv").contains("; Secure"));
+        req.host = "127.0.0.1";
+        assert!(!Ui::cookie_secure(&req));
+        req.forwarded_proto = Some("https");
+        assert!(Ui::cookie_secure(&req));
+    }
+
+    #[test]
     fn every_emitted_class_is_styled() {
         // Render each page with sample data and check class names exist in the sheet.
         let defined = css::defined_classes();
@@ -787,8 +993,10 @@ mod tests {
         let f = Frame {
             title: "t",
             css_href: "/c.css",
+            extra_css_href: None,
             light: Some(false),
             path: "/agents",
+            refresh_s: None,
         };
         let mut all = String::new();
         all.push_str(&layout::console(
@@ -830,11 +1038,14 @@ mod tests {
             "",
         ));
         let arena = json::parse(br#"{"spend":{"cap_usd":2,"spent_usd":0,"generations":0,"max_generations":3},"champion":{"id":"c"},"error":"x","rows":[{"id":"r","answer":"a","mutation":"m"}]}"#).unwrap();
-        all.push_str(&pages::arena::body(Some(&arena)));
-        all.push_str(&pages::arena::body(None));
+        all.push_str(&pages::arena::body(Ok(&arena)));
+        all.push_str(&pages::arena::body(Err(pages::arena::Miss::Down)));
+        all.push_str(&pages::arena::body(Err(pages::arena::Miss::Status(404))));
         let bank =
             json::parse(br#"{"purses":[{"name":"n","usd":1,"note":"x"}],"note":"y"}"#).unwrap();
         all.push_str(&pages::bank::body(Ok(&bank)));
+        let stale = json::parse(br#"{"asOf":"2026-10-27T18:19:00+01:00","purses":[{"name":"r","source":"survival","asOf":"2026-10-27T18:19:00+01:00"}]}"#).unwrap();
+        all.push_str(&pages::bank::body_at(Ok(&stale), 1_793_156_400));
         all.push_str(&pages::bank::body(Err(pages::bank::Miss::Status(404))));
         let desk = json::parse(br#"{"mindpack":{"cache":{"read":1},"cached":[{"id":"c"}],"stores":[{"name":"s","n":1,"bytes":1}],"models":[{"name":"m"}],"recent":[{"name":"f","at":1,"bytes":1}]}}"#).unwrap();
         all.push_str(&pages::cache::body(Some(&desk)));

@@ -461,6 +461,9 @@ fn spa_fallback_serves_rust_hermes() {
     });
     assert!(ui.owns("/hermes", true), "console-route-31: Rust-first");
     assert!(ui.owns("/hermes", false));
+    // slot 407 rehearsal: union with 389 lineage (slot 299) - /arena and /bank are Rust-first.
+    assert!(ui.owns("/arena", true), "/arena is Rust-first (slot 299)");
+    assert!(ui.owns("/bank", true), "/bank is Rust-first (slot 299)");
     for p in ["/context", "/gateway", "/guardian", "/hermes"] {
         assert!(ui.owns(p, true), "{p}");
     }

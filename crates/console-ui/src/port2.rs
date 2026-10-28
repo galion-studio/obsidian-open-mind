@@ -351,7 +351,7 @@ mod tests {
         // -3, -4, -5; merged in console-port-merge).
         let spa = ui.spa_fallbacks(true);
         // main-staging: with console-port-merge every room is ported; only the
-        // SPA_FIRST rooms (/arena, /bank: writes held) stay with the SPA.
+        // crate::SPA_FIRST is empty since slot 299 (/arena, /bank Rust-first); kept generic.
         assert_eq!(spa, ["/arena", "/bank"]);
         assert_eq!(spa.len() + PORTED.len() + 1 - crate::SPA_FIRST.len(), 31);
         assert!(!spa.contains(&"/hermes"));

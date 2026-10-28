@@ -706,6 +706,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-survival"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-voice-core"
 version = "0.1.0"
 

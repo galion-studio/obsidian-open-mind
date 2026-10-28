@@ -121,10 +121,28 @@ fn answer(mut s: TcpStream, log: Log) {
     let paired = cookie.contains("galion_admin=good");
     let (code, ctype, extra, out): (u16, &str, String, String) = match (first.split(' ').next().unwrap_or(""), path) {
         ("GET", "/api/v1/admin") => (200, "application/json", String::new(), format!("{{\"ok\":true,\"paired\":true,\"you\":{paired}}}")),
+        ("GET", "/api/v1/session-pack") if paired => (
+            200,
+            "application/zip",
+            "Content-Disposition: inline\r\n".into(),
+            "PK\u{3}\u{4}zip".into(),
+        ),
+        ("GET", "/api/v1/session-pack") => (
+            401,
+            "application/json",
+            String::new(),
+            "{\"error\":\"phone required\"}".into(),
+        ),
         ("POST", "/api/v1/admin") if body.contains("\"code\":\"RIGHT\"") => (
             200,
             "application/json",
             "Set-Cookie: galion_admin=good; HttpOnly; Path=/; SameSite=Lax\r\nSet-Cookie: other=x\r\n".into(),
+            "{\"ok\":true,\"you\":true,\"device\":\"devSecretToken01ab\"}".into(),
+        ),
+        ("POST", "/api/v1/admin") if body.contains("\"device\":\"devSecretToken01ab\"") => (
+            200,
+            "application/json",
+            "Set-Cookie: galion_admin=good; HttpOnly; Path=/; SameSite=Lax\r\n".into(),
             "{\"ok\":true,\"you\":true,\"device\":\"\"}".into(),
         ),
         ("POST", "/api/v1/admin") => (401, "application/json", String::new(), "{\"error\":\"wrong code\"}".into()),
@@ -478,6 +496,11 @@ fn pairing_form_flow() {
         .head
         .contains("Set-Cookie: galion_admin=good; HttpOnly; Path=/; SameSite=Lax"));
     assert!(
+        r.head.contains("Set-Cookie: galion_device=devSecretToken01ab; HttpOnly; Path=/; SameSite=Lax; Max-Age=31536000; Secure"),
+        "device resume cookie: {}",
+        r.head
+    );
+    assert!(
         !r.head.contains("other=x"),
         "only the admin cookie is relayed"
     );
@@ -514,6 +537,61 @@ fn pairing_form_flow() {
         .filter(|l| l.starts_with("POST /api/v1/admin"))
         .count();
     assert_eq!(posts, 3);
+}
+
+#[test]
+fn android_device_resume_and_session_pack_gate() {
+    let (a, log) = start(&[]);
+    // Unpaired console host with a sealed device cookie: silent resume.
+    let r = get(
+        a,
+        "/agents",
+        "console.galion.app",
+        "Cookie: galion_device=devSecretToken01ab\r\n",
+    );
+    assert_eq!(r.code, 303, "{}", r.head);
+    assert!(r.head.contains("Location: /agents"));
+    assert!(r
+        .head
+        .contains("Set-Cookie: galion_admin=good; HttpOnly; Path=/; SameSite=Lax"));
+    // Bad device is cleared so the 5-fail lock is not burned on every load.
+    let r = get(
+        a,
+        "/agents",
+        "console.galion.app",
+        "Cookie: galion_device=notAValidDeviceXX\r\n",
+    );
+    assert_eq!(r.code, 200, "{}", r.head);
+    assert!(r.body.contains("action=\"/_ui/pair"));
+    assert!(r
+        .head
+        .contains("galion_device=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0"));
+    // /api/v1/session-pack: no cookie -> 401 phone required (proxy harden).
+    let r = get(a, "/api/v1/session-pack", "console.galion.app", "");
+    assert_eq!(r.code, 401);
+    assert!(r.body.contains("phone required"));
+    assert!(r.head.to_ascii_lowercase().contains("application/json"));
+    // With admin cookie the pack is fetched and Android download headers forced.
+    let r = get(
+        a,
+        "/api/v1/session-pack",
+        "console.galion.app",
+        "Cookie: galion_admin=good\r\n",
+    );
+    assert_eq!(r.code, 200, "{}", r.head);
+    assert!(r.head.contains("Content-Type: application/zip"));
+    assert!(r
+        .head
+        .contains("Content-Disposition: attachment; filename=\"build-session.zip\""));
+    assert!(r.head.contains("Cache-Control: no-store"));
+    assert!(r.body.starts_with("PK"));
+    let posts = log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|l| l.starts_with("POST /api/v1/admin"))
+        .count();
+    assert!(posts >= 2, "resume posts: {posts}");
 }
 
 #[test]
@@ -816,4 +894,67 @@ fn landing_overview() {
     // Off the console hosts it stays the quiet Soon page.
     let r = get(a, "/console", "galion.app", "");
     assert!(!r.body.contains("Sector map"));
+}
+
+/// V2 sprite + cached health (slot 276): chrome pages reference
+/// `/_ui/i.<hash>.svg#id` (immutable), and N rapid chrome renders cost the
+/// upstream a single `/api/v1/health` GET within the TTL.
+#[test]
+fn sprite_and_health_cache() {
+    let (a, _) = start(&[]);
+    let r = get(a, "/services", "127.0.0.1", "");
+    assert_eq!(r.code, 200, "{}", r.head);
+    assert!(
+        r.body.contains("<use href=\"/_ui/i."),
+        "chrome icons use the sprite"
+    );
+    assert!(
+        !r.body.contains("<path d=\"M6 6h12v4H6z"),
+        "services path must not be inlined in the page"
+    );
+    let href = r
+        .body
+        .split("<use href=\"")
+        .nth(1)
+        .unwrap()
+        .split('#')
+        .next()
+        .unwrap()
+        .to_string();
+    assert!(
+        href.starts_with("/_ui/i.") && href.ends_with(".svg"),
+        "{href}"
+    );
+    let spr = get(a, &href, "127.0.0.1", "");
+    assert_eq!(spr.code, 200, "{}", spr.head);
+    assert!(spr.head.contains("immutable"), "{}", spr.head);
+    assert!(spr.head.contains("image/svg+xml"), "{}", spr.head);
+    assert!(spr.body.contains("id=\"services\""), "sprite symbols");
+    assert!(spr.body.contains("id=\"desk\""), "sprite symbols");
+    assert!(
+        spr.body.matches("<symbol ").count() >= 40,
+        "symbol count {}",
+        spr.body.matches("<symbol ").count()
+    );
+    assert_eq!(
+        get(a, "/_ui/i.0000000000000000.svg", "127.0.0.1", "").code,
+        404
+    );
+
+    // Fresh server so the health slot starts empty; 16 chrome renders share
+    // one upstream /api/v1/health within HEALTH_CACHE_TTL.
+    let (a, log) = start(&[]);
+    for _ in 0..8 {
+        assert_eq!(get(a, "/data", "127.0.0.1", "").code, 200);
+        assert_eq!(get(a, "/console", "127.0.0.1", "").code, 200);
+    }
+    let calls: Vec<String> = log.lock().unwrap().clone();
+    let health_hits = calls
+        .iter()
+        .filter(|l| l.starts_with("GET /api/v1/health "))
+        .count();
+    assert_eq!(
+        health_hits, 1,
+        "8×/data + 8×/console must share one cached health GET, got {health_hits}: {calls:?}"
+    );
 }

@@ -13,7 +13,7 @@
 //! :8080 and :18080) that the drop-in closes. Nerve `/state` read.
 //!
 //! Gated: `GALION_REAL=1 CONSOLE_UNIT_LIVE=1 cargo test -p console-static --test real_admin_flags_live -- --nocapture`
-//! Env: `CONSOLE_UNIT_SSH` (default `root@51.38.137.193`), key
+//! Env: `CONSOLE_UNIT_SSH` (default ssh alias `slavik-vps`), key
 //! `~/.ssh/id_ed25519_vps`.
 
 mod units;
@@ -25,7 +25,7 @@ const LIVE_18080: &str =
     include_str!("../../../deploy/console-rust-serve/live/console-rust-primary.service");
 
 fn ssh(cmd: &str) -> String {
-    let host = std::env::var("CONSOLE_UNIT_SSH").unwrap_or_else(|_| "root@51.38.137.193".into());
+    let host = std::env::var("CONSOLE_UNIT_SSH").unwrap_or_else(|_| "slavik-vps".into());
     let key = format!("{}/.ssh/id_ed25519_vps", std::env::var("HOME").unwrap());
     let out = Command::new("ssh")
         .args([

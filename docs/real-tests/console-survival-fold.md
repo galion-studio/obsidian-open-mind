@@ -59,6 +59,12 @@ Required regressions on the fold tree (GALION_REAL=1, release):
   real_admin_flags_stage 1/1, real_v2_merge 1/1, real_landing 1/1, real_console_rust_serve 1/1,
   real_pairing_e2e 1/1, real_arena_bank 3/3.
 
+repo-check: base 4f763ade FAILED (2 `hosts` errors: hard-coded VPS IPv4 default in
+tests/real_admin_flags_live.rs); fixed here (default ssh alias `slavik-vps`, env override kept) ->
+repo-check 900 files 0 errors 58 warnings PASS. real_admin_flags_live itself still asserts the
+pre-17:29 state (no drop-ins, binary 2d846fb8), so its live leg is stale since the 5aa31927 install
+(F-425-3, not run live here).
+
 Gates: `cargo fmt --all --check` ok; `cargo clippy --workspace --all-targets --exclude
 openmind-sandbox --exclude cgroup-detect -- -D warnings` ok; `cargo test --workspace --exclude
 openmind-sandbox --exclude cgroup-detect` (GALION_REAL unset; hermes-tools not in this lineage)
@@ -109,6 +115,8 @@ fresh, RSS 1196 kB, decoy key 0 hits in the file.
   hid the `--admin-store` lines; the byte-exact `cat` + sha256 showed the installed file equals the
   slot 343 candidate. The mirror is now checked byte-for-byte by the live leg.
 - F-425-2: survival.json is still 27+ h stale on live; nothing refreshes it until D-425-1.
+- F-425-3: real_admin_flags_live expects the pre-17:29 live state; needs a refresh to the 5aa31927
+  drop-ins (not done here; real_survival_fold carries the current drift check for the primary).
 
 ## Owner decisions
 - **D-425-1** (covers D-389-1, D-389-2 = interval 900 s, D-408-1): install `70-survival.conf` on

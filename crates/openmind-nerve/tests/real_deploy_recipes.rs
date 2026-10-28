@@ -296,7 +296,7 @@ fn real_deploy_recipes_reproducible_under_budget() {
         let (k, lines, h) = serve(&b1, port, &tmp.join(format!("{name}/run")));
         let warns = lines
             .iter()
-            .filter(|l| l.to_ascii_lowercase().contains("warn"))
+            .filter(|l| l.starts_with("<4>") || l.to_ascii_lowercase().contains("warn"))
             .count();
         for l in &lines {
             log(format!("{name} :{port} startup {l}"));
@@ -307,6 +307,10 @@ fn real_deploy_recipes_reproducible_under_budget() {
         ));
         assert_eq!(h["status"], "ok");
         assert_eq!(h["commit"], head.as_str());
+        // The live unit sets no NERVE_EDGE_HOSTS: only a build without
+        // `sensor-edgerate` warns (one line, slot 404 D-404-3).
+        let want = usize::from(*name == "d-lean");
+        assert_eq!(warns, want, "recipe {name}: startup warning lines");
         drop(k);
         rows.push(format!(
             "| {name} | {sz} | {} | {:.1} % | {} | {warns} |",

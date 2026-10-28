@@ -52,7 +52,7 @@ export CC_aarch64_unknown_linux_musl=$W/cc-aarch64 AR_aarch64_unknown_linux_musl
 cargo build --release --workspace --target aarch64-unknown-linux-musl   # no LINKER env needed
 ```
 
-(On the box zig is at `/workspace/tools/zig-x86_64-linux-0.15.2/zig`.)
+(On the swarm box, since slot 338: verified zig 0.15.2 at `/workspace/swarm/tools/zig-0.15.2/zig` and cc-rs-named wrappers `aarch64-linux-musl-gcc` / `arm-linux-musleabihf-gcc` in `/workspace/swarm/bin`, so with that dir on PATH no `CC_*` env is needed; see `docs/cross-cc-restore.md`.)
 
 ## Verified
 See `docs/real-tests/toolchain-aarch64.md`. Short version: all 27 workspace

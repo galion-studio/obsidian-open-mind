@@ -45,6 +45,16 @@ pub fn unavailable() -> String {
         .to_string()
 }
 
+/// The console API answered, but it has no admin route (404/405, or the
+/// TanStack "no route" 500): sign-in is not set up on this console. Still
+/// served as 503 (fail-closed), but the text no longer blames a dead API
+/// (F-396-3 / D-396-3, slot 410).
+pub fn admin_not_set_up() -> String {
+    "<main class=\"gate\"><p class=\"k\">Admin</p><h1>Admin sign-in is not set up on this console</h1>\
+<p class=\"lede\">The console API answered, but it has no admin sign-in route, so the pairing check cannot run and nothing is shown. Trying again will not help until the operator turns admin sign-in on.</p></main>"
+        .to_string()
+}
+
 /// Brand line per host for the `/soon` room (console-ide
 /// `src/components/coming-soon.tsx` `COPY`).
 pub const SOON_COPY: &[(&str, &str, &str)] = &[

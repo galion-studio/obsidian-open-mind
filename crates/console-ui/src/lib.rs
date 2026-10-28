@@ -221,6 +221,21 @@ fn no_route(status: u16, body: &[u8]) -> bool {
             && String::from_utf8_lossy(body).contains("Only HTML requests are supported here"))
 }
 
+/// The admin gate got an answer that means "admin sign-in is not set up on
+/// this console": 404 (2d846fb8 `--local-api`, live 2026-10-27 19:28 CET to
+/// 2026-10-28 17:35 CET), the TanStack no-route 500, 405 (route exists for
+/// other methods only), or the 5aa31927+ console API without `--admin-store`:
+/// `503 {"error":"admin store not configured"}`. Other 503s (store
+/// unreadable/not writable, real outages) keep "not answering".
+fn admin_missing(status: u16, body: &[u8]) -> bool {
+    no_route(status, body)
+        || status == 405
+        || (status == 503
+            && json::parse(body)
+                .ok()
+                .is_some_and(|v| v.get("error").as_str() == Some("admin store not configured")))
+}
+
 /// `back=` targets must be one of our own page paths (no open redirect).
 fn safe_back(back: &str) -> &str {
     let known = PORTED.contains(&back)
@@ -379,6 +394,17 @@ impl Ui {
                             ))
                         }
                     }
+                    // F-396-3: the API answered but has no admin route (live
+                    // --local-api without --admin-store answered 404 from
+                    // 2026-10-27 19:28 CET). Still 503, fail-closed.
+                    Ok(r) if admin_missing(r.status, &r.body) => {
+                        let f = self.frame(req, "Admin");
+                        Err(Reply::html(
+                            503,
+                            layout::document(&f, "", &pages::gate::admin_not_set_up()),
+                        ))
+                    }
+                    // Connect error, timeout, 5xx and any other answer.
                     _ => {
                         let f = self.frame(req, "Admin");
                         Err(Reply::html(
@@ -639,6 +665,12 @@ impl Ui {
                     "",
                     &pages::gate::pair(&back, Some("Too many attempts. Wait 15 minutes.")),
                 ),
+            ),
+            // Same F-396-3 split for the pairing POST: no admin route is not
+            // "code refused" (that would send the owner retrying codes).
+            Ok(r) if admin_missing(r.status, &r.body) => Reply::html(
+                503,
+                layout::document(&f, "", &pages::gate::admin_not_set_up()),
             ),
             Ok(_) => Reply::html(
                 401,
@@ -955,6 +987,44 @@ mod tests {
     }
 
     #[test]
+    fn admin_missing_splits_no_route_from_down() {
+        // F-396-3 / slot 410: answers that mean "no admin route here".
+        assert!(admin_missing(404, b""));
+        assert!(admin_missing(405, b"Method Not Allowed"));
+        assert!(admin_missing(
+            503,
+            br#"{"error":"admin store not configured"}"#
+        ));
+        assert!(!admin_missing(
+            503,
+            br#"{"error":"admin store unreadable"}"#
+        ));
+        assert!(!admin_missing(503, br#"{"error":"store not writable"}"#));
+        assert!(!admin_missing(503, b"admin store not configured"));
+        assert!(admin_missing(
+            500,
+            br#"{"error":"Only HTML requests are supported here"}"#
+        ));
+        // Everything else keeps "Console API is not answering".
+        for s in [500u16, 502, 503, 504, 401, 403, 429, 302] {
+            assert!(!admin_missing(s, b"{\"error\":\"boom\"}"), "{s}");
+        }
+    }
+
+    #[test]
+    fn gate_texts_differ_and_fail_closed_copy() {
+        let missing = pages::gate::admin_not_set_up();
+        let down = pages::gate::unavailable();
+        assert!(missing.contains("Admin sign-in is not set up on this console"));
+        assert!(!missing.contains("not answering"));
+        assert!(down.contains("Console API is not answering"));
+        assert!(!down.contains("not set up"));
+        for b in [&missing, &down] {
+            assert!(!b.contains("<form") && !b.contains("<script"));
+        }
+    }
+
+    #[test]
     fn back_targets_are_ours() {
         assert_eq!(safe_back("/agents"), "/agents");
         assert_eq!(safe_back("https://evil.example"), "/console");
@@ -1010,6 +1080,8 @@ mod tests {
         all.push_str(&pages::status::body(Some(true), &svcs, &domains, &[]));
         all.push_str(&pages::gate::pair("/agents", Some("x")));
         all.push_str(&pages::gate::links());
+        all.push_str(&pages::gate::unavailable());
+        all.push_str(&pages::gate::admin_not_set_up());
         all.push_str(&pages::not_ported::body(&rooms::ROOMS[0], PORTED));
         let cat = json::parse(br#"{"owner":"o","public":1,"privateVisible":1,"items":[{"name":"a","visibility":"fork","empty":true,"weight":"heavy","role":"r","method":"GET","path":"/p","title":"t","source":"s","zone":"live","host":"h","brand":"b","serviceId":"a"},{"method":"POST","path":"/q","title":"t","source":"s","zone":"held"}],"steps":["one"],"tunnel":{"cname":"c"},"zones":[{"zone":"z","records":[{"type":"CNAME","name":"@","host":"z"}]}],"target":{"provider":"cpu","pod":"p","podId":"p"},"compose":"x","caddy":"y","services":[{"name":"n","weight":"heavy","summary":"s"}],"fridge":[{"name":"f","summary":"s"}]}"#).unwrap();
         all.push_str(&pages::catalog::domains(Some(&cat), Some(&services)));

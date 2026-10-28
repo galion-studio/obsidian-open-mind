@@ -350,8 +350,8 @@ mod tests {
         // 13 live-src routes are still the SPA's (ported on console-port-1,
         // -3, -4, -5; merged in console-port-merge).
         let spa = ui.spa_fallbacks(true);
-        // main-staging: with console-port-merge every room is ported; only the
-        // crate::SPA_FIRST is empty since slot 299 (/arena, /bank Rust-first); kept generic.
+        // main-staging: with console-port-merge every room is ported; slot 299
+        // (389 lineage) made /arena and /bank Rust-first, so crate::SPA_FIRST is empty.
         assert_eq!(spa, ["/arena", "/bank"]);
         assert_eq!(spa.len() + PORTED.len() + 1 - crate::SPA_FIRST.len(), 31);
         assert!(!spa.contains(&"/hermes"));

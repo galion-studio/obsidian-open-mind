@@ -141,6 +141,10 @@ fn every_egress_site_is_guarded() {
                     code.contains("egress::check_addr") && code.contains("egress::check_path")
                 }
                 "sensors/surface.rs" => code.contains("egress::mentions_forbidden"),
+                // Slot 382 loopback alert webhook (folded in slot 424).
+                "alert_sink.rs" => {
+                    code.contains("egress::check_addr") && code.contains("egress::check_path")
+                }
                 _ => false,
             };
             if !guarded {
@@ -280,4 +284,22 @@ fn surface_probe_never_resolves_an_llm_target() {
         &resolve,
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+/// Slot 424: the slot 382 loopback alert webhook shares the egress guard, so
+/// an LLM endpoint path or a forbidden provider name is refused at config
+/// time even on loopback (and `send` re-checks the address).
+#[test]
+fn alert_webhook_refuses_llm_paths() {
+    use openmind_nerve::alert_sink::parse_url;
+    assert!(parse_url("http://127.0.0.1:2586/galion").is_ok());
+    for bad in [
+        "http://127.0.0.1:9/v1/chat/completions",
+        "http://127.0.0.1:9/p/x/api/generate",
+        "http://127.0.0.1:9/api/v1/chat",
+        "http://127.0.0.1:9/openrouter/hook",
+    ] {
+        let e = parse_url(bad).expect_err(bad);
+        assert!(e.contains("egress guard"), "{bad}: {e}");
+    }
 }

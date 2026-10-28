@@ -141,6 +141,9 @@ pub fn parse_url(url: &str) -> Result<(SocketAddr, String, String), String> {
         IpAddr::V6(_) if host != "localhost" => format!("[{host}]"),
         _ => host,
     };
+    // Same guard as the built-in client: no LLM / paid endpoint path, no
+    // forbidden provider name (slot 424, no paid LLM egress).
+    crate::egress::check_path(&path)?;
     Ok((SocketAddr::new(ip, port), host, path))
 }
 
@@ -354,10 +357,9 @@ impl Webhook {
 }
 
 fn send(addr: SocketAddr, req: &[u8]) -> Result<u16, String> {
-    // Defence in depth: never leave the host even if cfg was built by hand.
-    if !addr.ip().is_loopback() {
-        return Err("non-loopback target refused".into());
-    }
+    // Defence in depth: never leave the host even if cfg was built by hand
+    // (shared nerve/cortex egress guard, no paid LLM egress; slot 424).
+    crate::egress::check_addr(&addr)?;
     let mut s = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)
         .map_err(|e| format!("connect: {}", e.kind()))?;
     let _ = s.set_read_timeout(Some(IO_TIMEOUT));

@@ -570,7 +570,7 @@ fn is_word_byte(b: u8) -> bool {
 /// True when `hay[at..at + n]` is not glued to a longer token: an entry that
 /// starts (ends) with a digit or letter must not be preceded (followed) by
 /// another digit/letter/`_`/`-`, and a digit edge must not touch a `.digit`
-/// either (so `1.2.3.4` does not match inside `11.2.3.45` or `1.2.3.4.5`).
+/// either (so `192.0.2.4` does not match inside `192.0.2.45` or `192.0.2.4.5`).
 fn deny_bounded(hay: &[u8], at: usize, n: usize) -> bool {
     let first = hay[at];
     let last = hay[at + n - 1];

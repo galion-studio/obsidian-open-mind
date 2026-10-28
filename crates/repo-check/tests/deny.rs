@@ -47,14 +47,13 @@ fn one_finding_per_line_even_with_repeats() {
 
 #[test]
 fn ip_boundaries_do_not_match_longer_numbers() {
-    let deny = list(&["3.0.113.7"]);
+    let deny = list(&["192.0.2.7"]);
     for s in [
-        "203.0.113.7",
-        "3.0.113.77",
-        "13.0.113.7",
-        "3.0.113.7.5",
-        "v3.0.113.7",
-        "1.3.0.113.7",
+        "192.0.2.77",
+        "1192.0.2.7",
+        "192.0.2.7.5",
+        "v192.0.2.7",
+        "10.192.0.2.7",
     ] {
         assert!(
             deny_hits("a.md", s.as_bytes(), &deny).is_empty(),
@@ -62,11 +61,11 @@ fn ip_boundaries_do_not_match_longer_numbers() {
         );
     }
     for s in [
-        "3.0.113.7",
-        "(3.0.113.7)",
-        "ip=3.0.113.7.",
-        "http://3.0.113.7:80/",
-        "`3.0.113.7`",
+        "192.0.2.7",
+        "(192.0.2.7)",
+        "ip=192.0.2.7.",
+        "http://192.0.2.7:80/",
+        "`192.0.2.7`",
     ] {
         assert_eq!(
             deny_hits("a.md", s.as_bytes(), &deny).len(),

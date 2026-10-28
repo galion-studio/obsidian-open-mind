@@ -60,6 +60,11 @@ AR_aarch64_linux_android=$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
 CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$CC_aarch64_linux_android
 ```
 
+Plain `cargo check --target aarch64-linux-android` (or `armv7-linux-androideabi`)
+without the gate also works since slot 399: `.cargo/config.toml` `[env]` points
+`CC_`/`AR_<triple>` at `scripts/android-cc.sh` / `android-ar.sh` (NDK clang if found,
+else zig cc with musl headers, check only). An exported `CC_<triple>` wins.
+
 Simpler path for phones: Termux runs Linux binaries, and the static
 `aarch64-unknown-linux-musl` binaries need no libc at all (`DT_NEEDED` = 0),
 so they are the recommended phone artefact. Proven here only under qemu-user,

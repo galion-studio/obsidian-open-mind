@@ -21,6 +21,9 @@ in this folder, and the real-test evidence from the wave-4 branches logged in `/
   `vps-live` = an approved live change on the VPS (deploy slots only). `docs` = doc or plan work, no binary.
 - **Number**: the headline result as the record states it. **Evidence** is `file:line` where that number is written.
 - `GALION_REAL=1` tests skip without that variable, so a plain `cargo test` does not run them.
+- Sandbox real tests (real_escape, real_workdir_quota, real_sh_sandbox, hermes-tools real_ticket and
+  real_default_512_mib_cap_stops_fs_write) also need `GALION_REAL_SANDBOX=1` and refuse to run anywhere but the VPS,
+  even when `GALION_REAL` is ambient (crate `vps-sandbox-gate`, F-383-10; see [realtest-real-env-guard](realtest-real-env-guard.md)).
 
 ## A. Records on integration-4 42de672 (`docs/real-tests/`)
 

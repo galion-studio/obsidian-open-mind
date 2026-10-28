@@ -4,20 +4,23 @@
 //! repo-check CLI. Read-only: scans the tree, prints findings, exits 1 when
 //! any finding is at error level, 2 on usage or I/O errors.
 
-use repo_check::{json_escape, scan_tree, Check, Level};
+use repo_check::{json_escape, parse_deny_list, scan_tree_with, Check, Level};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 const USAGE: &str =
     "usage: repo-check [--root DIR] [--json] [--only a,b] [--warn a,b] [--error a,b]
-                  [--copyright TEXT] [--list]
+                  [--copyright TEXT] [--deny-file FILE] [--list]
   --root DIR        tree to scan (default .)
   --json            JSON report on stdout (Europe/Zagreb timestamp)
   --only a,b        run only these checks
   --warn a,b        downgrade these checks to warnings
   --error a,b       upgrade these checks to errors
   --copyright TEXT  the LICENSE copyright line must contain TEXT
+  --deny-file FILE  operator deny-list (one literal per line, # comments);
+                    must live outside --root; hits name file:line and the
+                    entry number only, never the value (check `deny`)
   --list            list the checks and exit
 exit: 0 clean, 1 error findings, 2 usage/io error";
 
@@ -27,6 +30,7 @@ struct Opts {
     only: Option<Vec<Check>>,
     levels: HashMap<Check, Level>,
     copyright: Option<String>,
+    deny_file: Option<PathBuf>,
     list: bool,
 }
 
@@ -44,6 +48,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
         only: None,
         levels: HashMap::new(),
         copyright: None,
+        deny_file: None,
         list: false,
     };
     let mut it = args;
@@ -64,12 +69,34 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
                 }
             }
             "--copyright" => o.copyright = Some(val("--copyright")?),
+            "--deny-file" => o.deny_file = Some(PathBuf::from(val("--deny-file")?)),
             "--list" => o.list = true,
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
     Ok(o)
+}
+
+/// Read the deny-list, refusing a file inside the scanned tree (it would be
+/// committed next to what it protects, and would match itself).
+fn load_deny(file: &Path, root: &Path) -> Result<Vec<String>, String> {
+    let f = file
+        .canonicalize()
+        .map_err(|e| format!("cannot read --deny-file {}: {e}", file.display()))?;
+    let r = root
+        .canonicalize()
+        .map_err(|e| format!("cannot scan {}: {e}", root.display()))?;
+    if f.starts_with(&r) {
+        return Err(format!(
+            "--deny-file {} is inside --root {}; keep it outside the tree",
+            file.display(),
+            root.display()
+        ));
+    }
+    let text = std::fs::read_to_string(&f)
+        .map_err(|e| format!("cannot read --deny-file {}: {e}", file.display()))?;
+    Ok(parse_deny_list(&text))
 }
 
 fn main() -> ExitCode {
@@ -89,7 +116,17 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    let report = match scan_tree(&opts.root, opts.copyright.as_deref()) {
+    let deny = match &opts.deny_file {
+        None => Vec::new(),
+        Some(f) => match load_deny(f, &opts.root) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("repo-check: {e}");
+                return ExitCode::from(2);
+            }
+        },
+    };
+    let report = match scan_tree_with(&opts.root, opts.copyright.as_deref(), &deny) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("repo-check: cannot scan {}: {e}", opts.root.display());

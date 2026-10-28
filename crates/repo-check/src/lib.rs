@@ -53,10 +53,11 @@ pub enum Check {
     Hosts,
     Portable,
     Deps,
+    Deny,
 }
 
 impl Check {
-    pub const ALL: [Check; 9] = [
+    pub const ALL: [Check; 10] = [
         Check::License,
         Check::Spdx,
         Check::Cjk,
@@ -66,6 +67,7 @@ impl Check {
         Check::Hosts,
         Check::Portable,
         Check::Deps,
+        Check::Deny,
     ];
 
     pub fn name(self) -> &'static str {
@@ -79,6 +81,7 @@ impl Check {
             Check::Hosts => "hosts",
             Check::Portable => "portable",
             Check::Deps => "deps",
+            Check::Deny => "deny",
         }
     }
 
@@ -106,6 +109,7 @@ impl Check {
             Check::Hosts => "no public IPv4 literals in crates/, deploy/, .github/",
             Check::Portable => "no inline asm, arch intrinsics, target-cpu/target-feature, openssl-sys (UNIVERSAL-CPU.md)",
             Check::Deps => "serde_json features are pinned once in the root [workspace.dependencies] (preserve_order); member crates use { workspace = true } with no features",
+            Check::Deny => "operator deny-list literals (--deny-file, kept outside the tree) appear in no file, text or binary; reports file:line and entry number only, never the value; allow marker ignored",
         }
     }
 }
@@ -540,6 +544,114 @@ const PORTABLE_CFG: &[&str] = &[concat!("target-", "cpu"), concat!("target-", "f
 
 const NON_PORTABLE_CRATES: &[&str] = &["openssl-sys"];
 
+// ---------------------------------------------------------------- deny
+
+/// Files larger than this are not read by the `deny` check.
+pub const DENY_MAX_FILE_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Parse an operator deny-list: one literal per line (an IP, a host name, a
+/// user name ...). Blank lines and lines starting with `#` are ignored;
+/// entries are trimmed. Entries shorter than 4 bytes are dropped because they
+/// would match almost anything. The list itself must live outside the scanned
+/// tree (the CLI refuses a file inside `--root`): it names exactly what must
+/// not be published.
+pub fn parse_deny_list(text: &str) -> Vec<String> {
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#') && l.len() >= 4)
+        .map(str::to_string)
+        .collect()
+}
+
+fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
+}
+
+/// True when `hay[at..at + n]` is not glued to a longer token: an entry that
+/// starts (ends) with a digit or letter must not be preceded (followed) by
+/// another digit/letter/`_`/`-`, and a digit edge must not touch a `.digit`
+/// either (so `1.2.3.4` does not match inside `11.2.3.45` or `1.2.3.4.5`).
+fn deny_bounded(hay: &[u8], at: usize, n: usize) -> bool {
+    let first = hay[at];
+    let last = hay[at + n - 1];
+    if is_word_byte(first) && at > 0 {
+        let p = hay[at - 1];
+        if is_word_byte(p) {
+            return false;
+        }
+        if first.is_ascii_digit() && p == b'.' && at > 1 && hay[at - 2].is_ascii_digit() {
+            return false;
+        }
+    }
+    let end = at + n;
+    if is_word_byte(last) && end < hay.len() {
+        let q = hay[end];
+        if is_word_byte(q) {
+            return false;
+        }
+        if last.is_ascii_digit()
+            && q == b'.'
+            && end + 1 < hay.len()
+            && hay[end + 1].is_ascii_digit()
+        {
+            return false;
+        }
+    }
+    true
+}
+
+/// `deny` check over one file's raw bytes (text or binary). Every hit is an
+/// error and names the file, the line (0 for binaries) and the 1-based entry
+/// number only: the matched value is never put into the finding, so reports
+/// and CI logs cannot leak it. The `repo-check: allow` marker does NOT silence
+/// this check. Token boundaries apply to text only: compilers pack string
+/// literals back to back in binaries, so there any exact match counts.
+pub fn deny_hits(path: &str, bytes: &[u8], deny: &[String]) -> Vec<Finding> {
+    let mut out = Vec::new();
+    if deny.is_empty() {
+        return out;
+    }
+    let binary = bytes.contains(&0) || std::str::from_utf8(bytes).is_err();
+    for (idx, entry) in deny.iter().enumerate() {
+        let needle = entry.as_bytes();
+        let n = needle.len();
+        if n == 0 || n > bytes.len() {
+            continue;
+        }
+        let mut last_line = usize::MAX;
+        let mut line = 1;
+        let mut counted = 0;
+        let mut at = 0;
+        while at + n <= bytes.len() {
+            if &bytes[at..at + n] == needle && (binary || deny_bounded(bytes, at, n)) {
+                line += bytes[counted..at].iter().filter(|&&b| b == b'\n').count();
+                counted = at;
+                let report_line = if binary { 0 } else { line };
+                if report_line != last_line {
+                    last_line = report_line;
+                    out.push(finding(
+                        Check::Deny,
+                        path,
+                        report_line,
+                        format!(
+                            "operator deny-list entry #{} found{}; redact it (value not printed)",
+                            idx + 1,
+                            if binary { " in a binary file" } else { "" }
+                        ),
+                    ));
+                    if binary {
+                        break;
+                    }
+                }
+                at += n;
+            } else {
+                at += 1;
+            }
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------- walking
 
 /// Every regular file under `root` (relative, `/`-separated, sorted), skipping
@@ -594,12 +706,29 @@ pub struct Report {
 
 /// Scan the whole tree under `root`.
 pub fn scan_tree(root: &Path, expect_copyright: Option<&str>) -> std::io::Result<Report> {
+    scan_tree_with(root, expect_copyright, &[])
+}
+
+/// [`scan_tree`] plus the `deny` check against an operator deny-list (see
+/// [`parse_deny_list`]). With an empty list it is identical to `scan_tree`.
+pub fn scan_tree_with(
+    root: &Path,
+    expect_copyright: Option<&str>,
+    deny: &[String],
+) -> std::io::Result<Report> {
     let files = walk(root)?;
     let root_license = read_text(&root.join("LICENSE"));
     let mut findings = check_license(root_license.as_deref(), expect_copyright);
     let mut files_scanned = 0;
     for rel in &files {
         findings.extend(scan_path(rel));
+        if !deny.is_empty() {
+            let p = root.join(rel);
+            let small = std::fs::metadata(&p).is_ok_and(|m| m.len() <= DENY_MAX_FILE_BYTES);
+            if let (true, Ok(bytes)) = (small, std::fs::read(&p)) {
+                findings.extend(deny_hits(rel, &bytes, deny));
+            }
+        }
         let Some(text) = read_text(&root.join(rel)) else {
             continue;
         };

@@ -16,7 +16,8 @@
 //!   C  `git clone` checkout of HEAD, no env (stamp from git)
 //!   D  `git archive HEAD`, no env (no git -> `unknown`)
 //!   Z  `git archive $NERVE_STAMP_BASE` (default 9baa450c, no stamp code):
-//!      size delta only; `NERVE_STAMP_BASE=` (empty) skips it.
+//!      size delta, at most `NERVE_STAMP_MAX_DELTA` (4096) B;
+//!      `NERVE_STAMP_BASE=` (empty) skips it.
 //!
 //! Asserts sha256(A) = sha256(B) = sha256(C), D differs, then serves A, C, D
 //! on 127.0.0.1:22630-22632 (REAL_NERVE_PORT_BASE moves the block) and checks
@@ -297,8 +298,14 @@ fn real_build_stamp_reproducible() {
             version(&z),
             format!("openmind-nerve {}", env!("CARGO_PKG_VERSION"))
         );
-        // Budget guard: the stamp must cost at most one 4 KiB page.
-        assert!(za - zz <= 4096, "stamp grew the nerve by {} B", za - zz);
+        // Budget guard (F-376-1): the stamp costs at most one 4 KiB page vs
+        // the base. NERVE_STAMP_MAX_DELTA widens it when HEAD carries more
+        // than the stamp on top of NERVE_STAMP_BASE.
+        let max: i64 = std::env::var("NERVE_STAMP_MAX_DELTA")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(4096);
+        assert!(za - zz <= max, "stamp grew the nerve by {} B (max {max})", za - zz);
     }
 
     let va = version(&a);

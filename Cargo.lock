@@ -209,11 +209,15 @@ name = "console-static"
 version = "0.1.0"
 dependencies = [
  "console-ui",
+ "galion-realtest",
 ]
 
 [[package]]
 name = "console-ui"
 version = "0.1.0"
+dependencies = [
+ "galion-realtest",
+]
 
 [[package]]
 name = "const-oid"
@@ -1591,6 +1595,7 @@ name = "room"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "galion-realtest",
 ]
 
 [[package]]

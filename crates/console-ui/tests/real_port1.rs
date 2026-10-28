@@ -33,6 +33,24 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `PORT1_REAL_PORT_BASE`; unset keeps
+/// the old 20050 block.
+static PORTS: Block = Block::new("PORT1_REAL_PORT_BASE", 20050, 10);
+fn desk_at() -> &'static str {
+    PORTS.addr(8)
+}
+fn front_at() -> &'static str {
+    PORTS.addr(0)
+}
+fn nerve_at() -> &'static str {
+    PORTS.addr(7)
+}
+fn up_at() -> &'static str {
+    PORTS.addr(9)
+}
+
 struct Kill(Child, &'static str);
 impl Drop for Kill {
     fn drop(&mut self) {
@@ -41,11 +59,6 @@ impl Drop for Kill {
         eprintln!("real: stopped {}", self.1);
     }
 }
-
-const FRONT: &str = "127.0.0.1:20050";
-const UP: &str = "127.0.0.1:20059";
-const DESK: &str = "127.0.0.1:20058";
-const NERVE: &str = "127.0.0.1:20057";
 
 fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -117,10 +130,10 @@ fn port1_rooms_match_the_live_services() {
         return;
     }
     eprintln!("real: start {}", now());
-    let front: SocketAddr = FRONT.parse().unwrap();
-    let up: SocketAddr = UP.parse().unwrap();
-    let desk: SocketAddr = DESK.parse().unwrap();
-    let nerve: SocketAddr = NERVE.parse().unwrap();
+    let front: SocketAddr = front_at().parse().unwrap();
+    let up: SocketAddr = up_at().parse().unwrap();
+    let desk: SocketAddr = desk_at().parse().unwrap();
+    let nerve: SocketAddr = nerve_at().parse().unwrap();
 
     // 1. Release build.
     let st = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()))
@@ -181,13 +194,13 @@ fn port1_rooms_match_the_live_services() {
     let child = Command::new(&bin)
         .args([
             "--bind",
-            FRONT,
+            front_at(),
             "--ui",
             "rust",
             "--upstream",
-            UP,
+            up_at(),
             "--desk",
-            DESK,
+            desk_at(),
         ])
         .stdout(Stdio::null())
         .stderr(std::fs::File::create(&log).unwrap())

@@ -35,6 +35,84 @@ pub fn base_from_env(var: &str, default: u16, span: u16) -> u16 {
     parse_base(raw.as_deref(), default, span).unwrap_or_else(|e| panic!("{var}: {e}"))
 }
 
+/// A loopback port block for one real-test file (slot 375,
+/// real-ports-batch-2, 2026-10-28 CET +01:00): `127.0.0.1:base+off`, with
+/// `base` read once from env `var` (unset = `default`, bad value = panic
+/// naming the var). Meant to sit in a `static` so call sites get
+/// `&'static str` addresses without leaking per call:
+///
+/// ```
+/// use galion_realtest::ports::Block;
+/// static PORTS: Block = Block::new("MY_TEST_PORT_BASE", 20060, 10);
+/// assert_eq!(PORTS.port(3), PORTS.base() + 3);
+/// assert!(PORTS.addr(3).starts_with("127.0.0.1:"));
+/// ```
+pub struct Block {
+    var: &'static str,
+    default: u16,
+    span: u16,
+    cell: std::sync::OnceLock<(u16, Vec<String>)>,
+}
+
+impl Block {
+    /// `span` ports from `base`; nothing is read until first use.
+    pub const fn new(var: &'static str, default: u16, span: u16) -> Self {
+        Block {
+            var,
+            default,
+            span,
+            cell: std::sync::OnceLock::new(),
+        }
+    }
+
+    fn get(&self) -> &(u16, Vec<String>) {
+        self.cell.get_or_init(|| {
+            let base = base_from_env(self.var, self.default, self.span);
+            let addrs = (0..self.span)
+                .map(|o| format!("127.0.0.1:{}", base + o))
+                .collect();
+            (base, addrs)
+        })
+    }
+
+    /// First port of the block.
+    pub fn base(&self) -> u16 {
+        self.get().0
+    }
+
+    /// `base + off`; panics if `off` is outside the block.
+    pub fn port(&self, off: u16) -> u16 {
+        assert!(
+            off < self.span,
+            "{}: offset {off} >= span {}",
+            self.var,
+            self.span
+        );
+        self.base() + off
+    }
+
+    /// `"127.0.0.1:<base+off>"`; panics if `off` is outside the block.
+    pub fn addr(&self, off: u16) -> &str {
+        assert!(
+            off < self.span,
+            "{}: offset {off} >= span {}",
+            self.var,
+            self.span
+        );
+        &self.get().1[usize::from(off)]
+    }
+
+    /// `"<base>-<base+span-1>"` (e.g. for `--allow-ports`).
+    pub fn range(&self) -> String {
+        format!("{}-{}", self.base(), self.base() + self.span - 1)
+    }
+
+    /// The env var name (for messages).
+    pub fn var(&self) -> &'static str {
+        self.var
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_base;
@@ -58,5 +136,23 @@ mod tests {
         }
         assert!(parse_base(Some("65533"), 20150, 4).is_err());
         assert!(parse_base(Some("22240"), 20150, 0).is_err());
+    }
+
+    #[test]
+    fn block_default_addresses() {
+        static B: super::Block = super::Block::new("GALION_PORTS_TEST_UNSET_375", 20060, 4);
+        assert_eq!(B.base(), 20060);
+        assert_eq!(B.port(3), 20063);
+        assert_eq!(B.addr(0), "127.0.0.1:20060");
+        assert_eq!(B.addr(3), "127.0.0.1:20063");
+        assert_eq!(B.range(), "20060-20063");
+        assert_eq!(B.var(), "GALION_PORTS_TEST_UNSET_375");
+    }
+
+    #[test]
+    #[should_panic(expected = "offset 4 >= span 4")]
+    fn block_offset_outside_span_panics() {
+        static B: super::Block = super::Block::new("GALION_PORTS_TEST_UNSET_375B", 20060, 4);
+        let _ = B.addr(4);
     }
 }

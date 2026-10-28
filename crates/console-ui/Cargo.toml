@@ -13,3 +13,7 @@ description = "Server-rendered Rust UI for the Galion console: HTML pages, a CSS
 path = "src/lib.rs"
 
 [dependencies]
+
+[dev-dependencies]
+# Port-base env for GALION_REAL tests (slot 375); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

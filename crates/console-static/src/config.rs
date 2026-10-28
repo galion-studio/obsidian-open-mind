@@ -58,6 +58,10 @@ usage: galion-console-static --root DIR [options]
                        -> 405), e.g. /workspace/arena; needs --local-api
   --data-upstream ADDR loopback IP:port that answers the data routes the
                        local API does not (GET/HEAD only, same API gate),
+                       forwards only Host, Accept, Accept-Language,
+                       User-Agent, If-None-Match, If-Modified-Since,
+                       Cache-Control (never Cookie or Authorization) and
+                       drops the reader's Set-Cookie;
                        e.g. 127.0.0.1:18080; needs --local-api; works with
                        --dist self-upstream
   --data-path P        exact path for --data-upstream; repeatable

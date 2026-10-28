@@ -4,7 +4,7 @@
 
 //! Real-life test for the Desk landing (`/console`, the project overview):
 //! starts the real `galion-console-static` binary with `--ui rust` on the
-//! box (slot 40 ports 19400-19409), probes it over loopback HTTP and stops
+//! box (slot 40 ports 19400-19409, movable by LANDING_REAL_PORT_BASE), probes it over loopback HTTP and stops
 //! it. The API upstream is a closed loopback port on purpose: the overview
 //! is static facts and must render with the API down (header dot "down").
 //!
@@ -27,6 +27,7 @@ fn bind_at() -> &'static str {
 fn dead_upstream_at() -> &'static str {
     PORTS.addr(3)
 }
+
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -115,16 +116,30 @@ fn real_landing_overview() {
         body.matches("<svg class=\"ov-svg\"").count()
     );
 
-    let css_href = body
+    let sheets: Vec<&str> = body
         .split("rel=\"stylesheet\" href=\"")
-        .nth(1)
-        .and_then(|s| s.split('"').next())
-        .unwrap()
-        .to_string();
-    let (c, _, css) = get(&css_href, "");
+        .skip(1)
+        .filter_map(|s| s.split('"').next())
+        .collect();
+    assert_eq!(
+        sheets.len(),
+        2,
+        "base + overview stylesheets on /console: {sheets:?}"
+    );
+    assert!(sheets[0].contains("/_ui/console."), "{:?}", sheets[0]);
+    assert!(sheets[1].contains("/_ui/overview."), "{:?}", sheets[1]);
+    let (c, _, css) = get(sheets[0], "");
     assert_eq!(c, 200);
     assert!(css.contains("prefers-color-scheme:light"));
-    println!("GET {css_href} -> {c}, {} bytes", css.len());
+    assert!(
+        !css.contains("ov-card"),
+        "base sheet must not include overview rules"
+    );
+    println!("GET {} -> {c}, {} bytes (base)", sheets[0], css.len());
+    let (c, _, ocss) = get(sheets[1], "");
+    assert_eq!(c, 200);
+    assert!(ocss.contains("ov-card"));
+    println!("GET {} -> {c}, {} bytes (overview)", sheets[1], ocss.len());
 
     let (c, h, _) = get("/", "");
     assert_eq!(c, 302);

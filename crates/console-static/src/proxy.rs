@@ -24,6 +24,73 @@ pub const MAX_RESPONSE_HEAD: usize = 64 * 1024;
 /// Methods the console API uses. Anything else (CONNECT, TRACE, ...) is 405.
 pub const METHODS: &[&str] = &["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
 
+/// Exact path of the build-session zip (query string ignored).
+pub fn session_pack_path(target: &str) -> bool {
+    let path = target.split('?').next().unwrap_or(target);
+    path == "/api/v1/session-pack"
+}
+
+/// Defence in depth: the zip needs a paired phone cookie before we even
+/// open the upstream. Matches the API's `phone required` body.
+pub fn has_admin_cookie(cookie: Option<&str>) -> bool {
+    cookie
+        .unwrap_or("")
+        .split(';')
+        .map(str::trim)
+        .any(|p| p.starts_with("galion_admin=") && p.len() > "galion_admin=".len())
+}
+
+/// Force Android-friendly download headers on a successful pack response.
+/// Keeps upstream status/body; replaces or adds Content-Type,
+/// Content-Disposition, Cache-Control, nosniff.
+pub fn harden_session_pack_head(raw: &[u8]) -> Option<(Vec<u8>, u16)> {
+    let (head, code) = rewrite_response_head(raw)?;
+    if code != 200 {
+        return Some((head, code));
+    }
+    let text = std::str::from_utf8(&head).ok()?;
+    let text = text.strip_suffix("\r\n\r\n")?;
+    let mut lines = text.split("\r\n");
+    let status = lines.next()?;
+    let mut out = String::from(status);
+    out.push_str("\r\n");
+    for l in lines {
+        let (k, _) = match l.split_once(':') {
+            Some(kv) => kv,
+            None => continue,
+        };
+        if k.eq_ignore_ascii_case("content-type")
+            || k.eq_ignore_ascii_case("content-disposition")
+            || k.eq_ignore_ascii_case("cache-control")
+            || k.eq_ignore_ascii_case("x-content-type-options")
+        {
+            continue;
+        }
+        out.push_str(l);
+        out.push_str("\r\n");
+    }
+    out.push_str("Content-Type: application/zip\r\n");
+    out.push_str("Content-Disposition: attachment; filename=\"build-session.zip\"\r\n");
+    out.push_str("Cache-Control: no-store\r\n");
+    out.push_str("X-Content-Type-Options: nosniff\r\n");
+    out.push_str("Connection: close\r\n\r\n");
+    Some((out.into_bytes(), code))
+}
+
+fn refuse_phone(client: &mut TcpStream, head_only: bool) -> u16 {
+    let body = "{\"error\":\"phone required\"}";
+    let head = format!(
+        "HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = client.write_all(head.as_bytes());
+    if !head_only {
+        let _ = client.write_all(body.as_bytes());
+    }
+    let _ = client.flush();
+    401
+}
+
 const HOP_BY_HOP: &[&str] = &[
     "connection",
     "keep-alive",
@@ -169,6 +236,22 @@ pub fn forward(
     max_body: u64,
 ) -> u16 {
     let head_only = head.method == "HEAD";
+    if session_pack_path(&head.target) {
+        if head.method != "GET" && head.method != "HEAD" {
+            let _ = http::write_simple(
+                client,
+                405,
+                "Allow: GET, HEAD\r\n",
+                "Method Not Allowed\n",
+                head_only,
+                false,
+            );
+            return 405;
+        }
+        if !has_admin_cookie(head.header("cookie")) {
+            return refuse_phone(client, head_only);
+        }
+    }
     let fail = |c: &mut TcpStream, code: u16| {
         let _ = http::write_simple(
             c,
@@ -247,7 +330,12 @@ pub fn forward(
             Err(_) => return fail(client, 502),
         }
     };
-    let Some((new_head, code)) = rewrite_response_head(&buf[..end]) else {
+    let rewritten = if session_pack_path(&head.target) {
+        harden_session_pack_head(&buf[..end])
+    } else {
+        rewrite_response_head(&buf[..end])
+    };
+    let Some((new_head, code)) = rewritten else {
         return fail(client, 502);
     };
     if client.write_all(&new_head).is_err() {
@@ -359,5 +447,38 @@ mod tests {
             .starts_with("HTTP/1.1 401 Unauthorized\r\n"));
         assert!(rewrite_response_head(b"SSH-2.0\r\n\r\n").is_none());
         assert!(rewrite_response_head(b"HTTP/1.1 999 X\r\n\r\n").is_none());
+    }
+
+    #[test]
+    fn session_pack_path_and_cookie() {
+        assert!(session_pack_path("/api/v1/session-pack"));
+        assert!(session_pack_path("/api/v1/session-pack?x=1"));
+        assert!(!session_pack_path("/api/v1/session"));
+        assert!(!session_pack_path("/api/v1/session-pack/extra"));
+        assert!(has_admin_cookie(Some("a=1; galion_admin=tok; b=2")));
+        assert!(!has_admin_cookie(Some("galion_admin=")));
+        assert!(!has_admin_cookie(None));
+    }
+
+    #[test]
+    fn session_pack_head_hardened() {
+        let (h, code) = harden_session_pack_head(
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: inline\r\nCache-Control: public\r\nContent-Length: 3\r\n\r\n",
+        )
+        .unwrap();
+        assert_eq!(code, 200);
+        let h = String::from_utf8(h).unwrap();
+        assert!(h.contains("Content-Type: application/zip\r\n"));
+        assert!(h.contains("Content-Disposition: attachment; filename=\"build-session.zip\"\r\n"));
+        assert!(h.contains("Cache-Control: no-store\r\n"));
+        assert!(h.contains("X-Content-Type-Options: nosniff\r\n"));
+        assert!(!h.contains("application/octet-stream"));
+        assert!(!h.contains("inline"));
+        let (h, code) = harden_session_pack_head(
+            b"HTTP/1.1 401 Unauthorized\r\nContent-Type: application/json\r\n\r\n",
+        )
+        .unwrap();
+        assert_eq!(code, 401);
+        assert!(String::from_utf8(h).unwrap().contains("application/json"));
     }
 }

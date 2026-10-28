@@ -319,7 +319,7 @@ fn port1_rooms_are_gated() {
 }
 
 #[test]
-fn spa_keeps_arena_and_bank_when_it_exists() {
+fn rust_owns_arena_and_bank_even_with_a_spa() {
     let ui = console_ui::Ui::new(console_ui::UiConfig {
         upstream: "127.0.0.1:9".parse().unwrap(),
         pulse: None,
@@ -327,12 +327,16 @@ fn spa_keeps_arena_and_bank_when_it_exists() {
         desk: None,
         files: Default::default(),
     });
-    for p in ["/analytics", "/cache"] {
+    // Slot 299: /arena and /bank are Rust-first; the SPA keeps no route.
+    assert!(console_ui::SPA_FIRST.is_empty());
+    for p in ["/analytics", "/arena", "/bank", "/cache"] {
         assert!(ui.owns(p, true) && ui.owns(p, false), "{p}");
+        assert!(console_ui::PORTED.contains(&p));
     }
-    for p in console_ui::SPA_FIRST {
-        assert!(!ui.owns(p, true), "{p} stays on the SPA");
-        assert!(ui.owns(p, false), "{p} is Rust without a fallback");
-        assert!(console_ui::PORTED.contains(p));
+    for p in console_ui::PORTED {
+        assert!(
+            ui.owns(p, true),
+            "{p} must be Rust-first with a SPA fallback"
+        );
     }
 }

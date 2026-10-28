@@ -459,8 +459,13 @@ fn spa_fallback_serves_rust_hermes() {
         desk: None,
         files: Default::default(),
     });
-    assert!(ui.owns("/hermes", true), "console-route-31: Rust-first");
+    assert!(
+        ui.owns("/hermes", true),
+        "Rust keeps /hermes even with SPA fallback"
+    );
     assert!(ui.owns("/hermes", false));
+    assert!(ui.owns("/arena", true), "/arena is Rust-first (slot 299)");
+    assert!(ui.owns("/bank", true), "/bank is Rust-first (slot 299)");
     for p in ["/context", "/gateway", "/guardian", "/hermes"] {
         assert!(ui.owns(p, true), "{p}");
     }

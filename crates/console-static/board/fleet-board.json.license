@@ -1,0 +1,8 @@
+SPDX-License-Identifier: MIT
+SPDX-FileCopyrightText: 3000 Galion / galion-studio
+Copyright (c) 3000 Galion / galion-studio
+
+fleet-board.json: data copy of DOMAINS, SERVICES, CHILL_EXTRA, REPOS (console-ide
+src/lib/fleet.ts) and API_CATALOG (src/lib/api-catalog.ts) of the former Node
+board galion-control 3.8.3-board. Machine target (addresses, ssh keys) is NOT
+included. Converted 2026-10-27 (CET +01:00) for wave-4 slot 303.

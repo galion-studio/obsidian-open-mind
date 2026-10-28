@@ -17,6 +17,8 @@ use crate::rooms::{self, Room, Zone, DOCK, ROOMS};
 pub struct Frame<'a> {
     pub title: &'a str,
     pub css_href: &'a str,
+    /// Second stylesheet (overview `ov-*`), linked only on `/console`.
+    pub extra_css_href: Option<&'a str>,
     /// `Some(true)` light, `Some(false)` dark (the `galion_theme` cookie);
     /// `None` follows the system (`prefers-color-scheme`).
     pub light: Option<bool>,
@@ -68,10 +70,17 @@ pub fn document(f: &Frame<'_>, body_attrs: &str, body: &str) -> String {
 <meta name=\"color-scheme\" content=\"{scheme}\">\
 <meta name=\"description\" content=\"Lightweight operator console for the Galion Studio fleet. API-first. CPU-safe.\">\
 <link rel=\"icon\" type=\"image/svg+xml\" href=\"/_ui/favicon.svg\">\
-<link rel=\"stylesheet\" href=\"{css}\"></head>\
+<link rel=\"stylesheet\" href=\"{css}\">{extra}</head>\
 <body{body_attrs}>{body}</body></html>\n",
         title = esc(f.title),
         css = esc(f.css_href),
+        extra = match f.extra_css_href {
+            Some(h) => format!(
+                "<link rel=\"stylesheet\" href=\"{}\">",
+                esc(h)
+            ),
+            None => String::new(),
+        },
     )
 }
 
@@ -184,6 +193,7 @@ mod tests {
         let f = Frame {
             title: "Galion <Console>",
             css_href: "/_ui/console.x.css",
+            extra_css_href: None,
             light: Some(false),
             path: "/services",
         };
@@ -193,6 +203,11 @@ mod tests {
         assert!(html.contains("href=\"/_ui/theme?to=light&amp;back=/services\""));
         assert!(html.contains("data-theme=\"dark\""));
         assert!(!html.contains("<script"));
+        assert!(html.contains("<use href=\"/_ui/i."), "sprite use in chrome");
+        assert!(
+            !html.contains("M6 6h12v4H6z"),
+            "services icon path not inlined"
+        );
         assert_eq!(html.matches("<li><a href=").count(), DOCK.len());
     }
 }

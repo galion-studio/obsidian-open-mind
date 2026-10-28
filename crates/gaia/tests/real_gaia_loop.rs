@@ -8,6 +8,9 @@
 //! `gaia-dummy` fault services on 127.0.0.1:19601-19603. The dummies sit in
 //! 19600-19609 because the heal apply path only ever touches 19000-19999
 //! (`gaia_live::heal::TEST_PORTS`, a safety guard this test does not widen).
+//! Since slot 363 the nerve port (`GAIA_LOOP_NERVE_PORT`) and the dummy block
+//! (`GAIA_LOOP_DUMMY_PORT_BASE`, must stay in 19000-19999) are env knobs;
+//! unset = the ports above.
 //!
 //! Three `gaia heal-tick --loop` processes run at once, sharing one
 //! hades-gate (one replay ledger, one global restart ledger), each with its
@@ -29,7 +32,8 @@
 //! --release -p gaia --test real_gaia_loop -- --nocapture`.
 
 use gaia::live_heal::heal_plan;
-use gaia_live::heal::TestTarget;
+use gaia_live::heal::{TestTarget, TEST_PORTS};
+use galion_realtest::ports;
 use hades_gate::adapter::gaia_plan_bytes;
 use hades_gate::approval::unix_now;
 use hades_gate::token::{plan_hash, Claims};
@@ -39,14 +43,52 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const NERVE: &str = "127.0.0.1:20300";
-const NERVE_PORT: u16 = 20300;
-const ALLOW: &str = "19600-19609";
-const SVCS: [(&str, u16); 3] = [
-    ("dummy-hang", 19601),
-    ("dummy-flap", 19602),
-    ("dummy-crash", 19603),
-];
+/// Slot 363 (real-test-port-env): both port blocks are movable by env; unset
+/// keeps slot 160's 20300 / 19600. The nerve may sit anywhere (one port);
+/// the dummy block (10 ports, dummies on +1..+3) must stay inside
+/// `gaia_live::heal::TEST_PORTS` (19000-19999) - that safety guard is not
+/// widened here, so a bad dummy base is a test error, not a silent retarget.
+const NERVE_PORT_ENV: &str = "GAIA_LOOP_NERVE_PORT";
+const DEFAULT_NERVE_PORT: u16 = 20300;
+const DUMMY_BASE_ENV: &str = "GAIA_LOOP_DUMMY_PORT_BASE";
+const DEFAULT_DUMMY_BASE: u16 = 19600;
+
+struct Ports {
+    nerve: String,
+    nerve_port: u16,
+    allow: String,
+    svcs: [(&'static str, u16); 3],
+}
+
+fn p() -> &'static Ports {
+    static P: std::sync::OnceLock<Ports> = std::sync::OnceLock::new();
+    P.get_or_init(|| {
+        let n = ports::base_from_env(NERVE_PORT_ENV, DEFAULT_NERVE_PORT, 1);
+        let d = ports::base_from_env(DUMMY_BASE_ENV, DEFAULT_DUMMY_BASE, 10);
+        assert!(
+            TEST_PORTS.contains(&d) && TEST_PORTS.contains(&(d + 9)),
+            "{DUMMY_BASE_ENV}: {d}-{} must lie inside the heal test range {}-{}",
+            d + 9,
+            TEST_PORTS.start(),
+            TEST_PORTS.end()
+        );
+        assert!(
+            !(d..=d + 9).contains(&n),
+            "{NERVE_PORT_ENV} {n} overlaps the dummy block {d}-{}",
+            d + 9
+        );
+        Ports {
+            nerve: format!("127.0.0.1:{n}"),
+            nerve_port: n,
+            allow: format!("{d}-{}", d + 9),
+            svcs: [
+                ("dummy-hang", d + 1),
+                ("dummy-flap", d + 2),
+                ("dummy-crash", d + 3),
+            ],
+        }
+    })
+}
 
 fn stamp() -> String {
     zagreb_time::now_rfc3339()
@@ -89,7 +131,7 @@ fn our_dummies() -> Vec<u32> {
         let is_dummy = args.first().is_some_and(|a| a.ends_with("/gaia-dummy"));
         let ours = args
             .iter()
-            .any(|a| SVCS.iter().any(|(_, p)| a == &p.to_string()));
+            .any(|a| p().svcs.iter().any(|(_, p)| a == &p.to_string()));
         let zombie = std::fs::read_to_string(format!("/proc/{pid}/stat"))
             .map(|s| {
                 s.rsplit_once(") ")
@@ -217,7 +259,7 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
     let nerve_bin = std::env::var("GAIA_NERVE_BIN").expect("GAIA_NERVE_BIN");
     let gaia = env!("CARGO_BIN_EXE_gaia");
     let dummy = env!("CARGO_BIN_EXE_gaia-dummy");
-    for p in std::iter::once(NERVE_PORT).chain(SVCS.iter().map(|s| s.1)) {
+    for p in std::iter::once(p().nerve_port).chain(p().svcs.iter().map(|s| s.1)) {
         assert!(!open(p), "port {p} is busy before the test");
     }
     assert!(our_dummies().is_empty(), "leftover dummies before the test");
@@ -260,7 +302,8 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
         }
         v
     };
-    let targets: Vec<TestTarget> = SVCS
+    let targets: Vec<TestTarget> = p()
+        .svcs
         .iter()
         .map(|(n, p)| target(n, *p, argv(n, *p)))
         .collect();
@@ -272,9 +315,9 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
         }
     }
 
-    eprintln!("[{}] start openmind-nerve on {NERVE}", stamp());
+    eprintln!("[{}] start openmind-nerve on {}", stamp(), p().nerve);
     let nerve = Command::new(&nerve_bin)
-        .args(["serve", "--listen", NERVE, "--log"])
+        .args(["serve", "--listen", &p().nerve, "--log"])
         .arg(&nerve_log)
         .stderr(Stdio::null())
         .spawn()
@@ -283,8 +326,8 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
         kids: vec![nerve],
         dir: dir.clone(),
     };
-    wait_port(NERVE_PORT);
-    eprintln!("nerve GET /health: {}", http_get(NERVE_PORT, "/health"));
+    wait_port(p().nerve_port);
+    eprintln!("nerve GET /health: {}", http_get(p().nerve_port, "/health"));
     for t in &targets {
         let c = Command::new(&t.argv[0])
             .args(&t.argv[1..])
@@ -313,7 +356,13 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
             "--port",
         ])
         .arg(t.port.to_string())
-        .args(["--allow-ports", ALLOW, "--nerve", NERVE, "--state"])
+        .args([
+            "--allow-ports",
+            &p().allow,
+            "--nerve",
+            &p().nerve,
+            "--state",
+        ])
         .arg(dir.join(state))
         .arg("--hades-config")
         .arg(&config)
@@ -399,7 +448,7 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
         assert_eq!(z, 0, "loop {pid} has zombie children");
     }
     // The live nerve tail agrees with the log (GET, as an observer would).
-    let tail: Value = serde_json::from_str(&http_get(NERVE_PORT, "/events?n=1000")).unwrap();
+    let tail: Value = serde_json::from_str(&http_get(p().nerve_port, "/events?n=1000")).unwrap();
     assert!(tail
         .as_array()
         .unwrap()
@@ -519,7 +568,13 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
     let out = Command::new(gaia)
         .args(["heal-tick", "--compact", "--service", &flap.name, "--port"])
         .arg(flap.port.to_string())
-        .args(["--allow-ports", ALLOW, "--nerve", NERVE, "--state"])
+        .args([
+            "--allow-ports",
+            &p().allow,
+            "--nerve",
+            &p().nerve,
+            "--state",
+        ])
         .arg(dir.join("state-brand-new"))
         .arg("--hades-config")
         .arg(&config)
@@ -609,12 +664,15 @@ fn real_supervised_loop_hang_flap_crash_global_budget() {
         "leftover dummies: {:?}",
         our_dummies()
     );
-    for p in std::iter::once(NERVE_PORT).chain(SVCS.iter().map(|s| s.1)) {
+    for p in std::iter::once(p().nerve_port).chain(p().svcs.iter().map(|s| s.1)) {
         assert!(!open(p), "port {p} still open after teardown");
     }
     eprintln!(
-        "[{}] teardown: 0 dummies, ports 20300 + 19601-19603 closed",
-        stamp()
+        "[{}] teardown: 0 dummies, ports {} + {}-{} closed",
+        stamp(),
+        p().nerve_port,
+        p().svcs[0].1,
+        p().svcs[2].1
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

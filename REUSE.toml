@@ -27,6 +27,13 @@ path = [
     "docs/real-tests/**",
     # Its test fixture SAMPLE is a string holding an SPDX header line (swarm/integration-1).
     "crates/gaia-minerva/src/lib.rs",
+    # main-staging 2026-10-22: tests and fixtures that hold SPDX header lines as strings.
+    "crates/bench-banking/src/axes.rs",
+    "crates/bench-scoreboard/src/lib.rs",
+    "crates/console-ui/src/css.rs",
+    "crates/galion-realtest/tests/miri_workflow.rs",
+    "crates/openmind-nerve/examples/rustsec_snapshot.rs",
+    "edge/openmind-node/src/seccomp_table.rs",
 ]
 precedence = "override"
 SPDX-FileCopyrightText = "3000 Galion / galion-studio"
@@ -66,10 +73,13 @@ SPDX-License-Identifier = "MIT"
 # 6. Files that embed SPDX tags inside string literals or tables (test
 #    fixtures, unit-renderer templates). Their real header is MIT; override so
 #    the embedded examples are not read as the file's own licensing.
+#    deps_pin.rs holds a TOML header string; comply 0.1.1 reads it as the
+#    file's licence expression (launch-gates run 40544656043).
 [[annotations]]
 path = [
     "crates/galion-boot/src/units.rs",
     "crates/repo-check/tests/checks.rs",
+    "crates/repo-check/tests/deps_pin.rs",
     "crates/repo-check/README.md",
 ]
 precedence = "override"
@@ -80,3 +90,14 @@ SPDX-License-Identifier = "MIT"
 #    committed release binaries) use `<file>.license` companions, per REUSE
 #    spec 3.3 section "Comment headers / .license files". The binaries are
 #    export-ignored from the public tree (.gitattributes).
+
+# main-staging 2026-10-22: vendored, patched candle-core (candle-zip-fix),
+# upstream https://github.com/huggingface/candle, MIT OR Apache-2.0 (texts in
+# LICENSES/). GALION-PATCH.md keeps its own Galion header ("closest").
+[[annotations]]
+path = "vendor/candle-core/**"
+precedence = "closest"
+SPDX-FileCopyrightText = "The HuggingFace Inc. team and the candle contributors"
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+# Its binary test fixtures carry .license sidecars.

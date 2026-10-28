@@ -1,0 +1,363 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
+// Copyright (c) 3000 Galion / galion-studio
+
+//! Streaming reverse proxy for the allowlisted API prefixes.
+//!
+//! One upstream connection per request (`Connection: close` both ways), so
+//! the response is streamed byte for byte until the upstream closes. That
+//! keeps Server-Sent Events (`/api/v1/markers/stream`, hermes run events)
+//! working without parsing chunked framing. The `Host` header is forwarded
+//! unchanged: the console's phone gate decides by Host.
+
+use crate::http::{self, RequestHead};
+use std::io::{self, Read, Write};
+use std::net::{IpAddr, SocketAddr, TcpStream};
+use std::time::Duration;
+
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Idle limit while waiting for upstream bytes (SSE heartbeats are far shorter).
+pub const UPSTREAM_IDLE: Duration = Duration::from_secs(300);
+/// Largest upstream response head accepted.
+pub const MAX_RESPONSE_HEAD: usize = 64 * 1024;
+
+/// Methods the console API uses. Anything else (CONNECT, TRACE, ...) is 405.
+pub const METHODS: &[&str] = &["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"];
+
+const HOP_BY_HOP: &[&str] = &[
+    "connection",
+    "keep-alive",
+    "proxy-connection",
+    "proxy-authorization",
+    "proxy-authenticate",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+];
+
+fn is_hop(name: &str, listed: &[String]) -> bool {
+    HOP_BY_HOP.iter().any(|h| name.eq_ignore_ascii_case(h))
+        || listed.iter().any(|l| name.eq_ignore_ascii_case(l))
+}
+
+/// Request-body length, or the status to answer instead.
+pub fn body_len(head: &RequestHead, max_body: u64) -> Result<u64, u16> {
+    if head.header("transfer-encoding").is_some() {
+        // Chunked uploads are not proxied; browsers send Content-Length for
+        // fetch() bodies and FormData.
+        return Err(411);
+    }
+    match head.header("content-length") {
+        None => Ok(0),
+        Some(v) if !v.is_empty() && v.len() <= 19 && v.bytes().all(|b| b.is_ascii_digit()) => {
+            let n: u64 = v.parse().map_err(|_| 400u16)?;
+            if n > max_body {
+                Err(413)
+            } else {
+                Ok(n)
+            }
+        }
+        Some(_) => Err(400),
+    }
+}
+
+/// The request head sent upstream.
+pub fn upstream_head(head: &RequestHead, client_ip: IpAddr) -> String {
+    let listed: Vec<String> = head
+        .header("connection")
+        .unwrap_or("")
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut out = format!("{} {} HTTP/1.1\r\n", head.method, head.target);
+    let mut xff = None;
+    let mut proto = None;
+    for (k, v) in &head.headers {
+        if is_hop(k, &listed) {
+            continue;
+        }
+        if k.eq_ignore_ascii_case("x-forwarded-for") {
+            xff = Some(v.clone());
+            continue;
+        }
+        if k.eq_ignore_ascii_case("x-forwarded-proto") {
+            proto = Some(v.clone());
+            continue;
+        }
+        if k.eq_ignore_ascii_case("x-forwarded-host") {
+            continue;
+        }
+        out.push_str(k);
+        out.push_str(": ");
+        out.push_str(v);
+        out.push_str("\r\n");
+    }
+    let xff = match xff {
+        Some(prev) => format!("{prev}, {client_ip}"),
+        None => client_ip.to_string(),
+    };
+    out.push_str(&format!("X-Forwarded-For: {xff}\r\n"));
+    let proto = proto
+        .filter(|p| p == "http" || p == "https")
+        .unwrap_or_else(|| "http".to_string());
+    out.push_str(&format!("X-Forwarded-Proto: {proto}\r\n"));
+    if let Some(h) = head.header("host") {
+        out.push_str(&format!("X-Forwarded-Host: {h}\r\n"));
+    }
+    out.push_str("Connection: close\r\n\r\n");
+    out
+}
+
+/// Rewrite the upstream response head: drop hop-by-hop connection headers,
+/// force `Connection: close`, add nosniff when missing. Returns the new head
+/// and the status code.
+pub fn rewrite_response_head(raw: &[u8]) -> Option<(Vec<u8>, u16)> {
+    let text = std::str::from_utf8(raw).ok()?;
+    let text = text.strip_suffix("\r\n\r\n")?;
+    let mut lines = text.split("\r\n");
+    let status_line = lines.next()?;
+    let mut parts = status_line.splitn(3, ' ');
+    let version = parts.next()?;
+    if version != "HTTP/1.1" && version != "HTTP/1.0" {
+        return None;
+    }
+    let code: u16 = parts.next()?.parse().ok()?;
+    if !(100..=599).contains(&code) {
+        return None;
+    }
+    let mut out = format!(
+        "HTTP/1.1 {code} {}\r\n",
+        parts
+            .next()
+            .filter(|r| !r.is_empty())
+            .unwrap_or(http::reason(code))
+    );
+    let mut nosniff = false;
+    let mut chunked = false;
+    for l in lines {
+        let (k, v) = l.split_once(':')?;
+        if k.eq_ignore_ascii_case("connection") || k.eq_ignore_ascii_case("keep-alive") {
+            continue;
+        }
+        if k.eq_ignore_ascii_case("transfer-encoding") {
+            chunked = v.to_ascii_lowercase().contains("chunked");
+        }
+        if k.eq_ignore_ascii_case("x-content-type-options") {
+            nosniff = true;
+        }
+        out.push_str(l);
+        out.push_str("\r\n");
+    }
+    let _ = chunked; // chunked framing passes through unchanged to the client.
+    if !nosniff {
+        out.push_str("X-Content-Type-Options: nosniff\r\n");
+    }
+    out.push_str("Connection: close\r\n\r\n");
+    Some((out.into_bytes(), code))
+}
+
+/// Forward one request. `carry` holds body bytes already read after the head.
+/// Returns the status for the access log. The caller closes the client
+/// connection afterwards.
+pub fn forward(
+    client: &mut TcpStream,
+    head: &RequestHead,
+    mut carry: Vec<u8>,
+    upstream: SocketAddr,
+    max_body: u64,
+) -> u16 {
+    let head_only = head.method == "HEAD";
+    let fail = |c: &mut TcpStream, code: u16| {
+        let _ = http::write_simple(
+            c,
+            code,
+            "",
+            &format!("{}\n", http::reason(code)),
+            head_only,
+            false,
+        );
+        code
+    };
+    if !METHODS.contains(&head.method.as_str()) {
+        let _ = http::write_simple(
+            client,
+            405,
+            "Allow: GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS\r\n",
+            "Method Not Allowed\n",
+            head_only,
+            false,
+        );
+        return 405;
+    }
+    let len = match body_len(head, max_body) {
+        Ok(n) => n,
+        Err(code) => return fail(client, code),
+    };
+    let client_ip = client
+        .peer_addr()
+        .map(|a| a.ip())
+        .unwrap_or(IpAddr::from([127, 0, 0, 1]));
+    let mut up = match TcpStream::connect_timeout(&upstream, CONNECT_TIMEOUT) {
+        Ok(s) => s,
+        Err(_) => return fail(client, 502),
+    };
+    let _ = up.set_read_timeout(Some(UPSTREAM_IDLE));
+    let _ = up.set_write_timeout(Some(Duration::from_secs(30)));
+    let _ = up.set_nodelay(true);
+    if up
+        .write_all(upstream_head(head, client_ip).as_bytes())
+        .is_err()
+    {
+        return fail(client, 502);
+    }
+    // Body: bytes already buffered first, then exactly the rest.
+    carry.truncate(len.min(carry.len() as u64) as usize);
+    if up.write_all(&carry).is_err() {
+        return fail(client, 502);
+    }
+    let rest = len - carry.len() as u64;
+    if rest > 0 {
+        let mut limited = (&mut *client).take(rest);
+        match io::copy(&mut limited, &mut up) {
+            Ok(n) if n == rest => {}
+            _ => return fail(client, 400),
+        }
+    }
+    let _ = up.flush();
+    // Response head.
+    let mut buf: Vec<u8> = Vec::with_capacity(8192);
+    let mut chunk = [0u8; 8192];
+    let end = loop {
+        if let Some(end) = http::head_end(&buf) {
+            break end;
+        }
+        if buf.len() > MAX_RESPONSE_HEAD {
+            return fail(client, 502);
+        }
+        match up.read(&mut chunk) {
+            Ok(0) => return fail(client, 502),
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+            Err(e)
+                if e.kind() == io::ErrorKind::WouldBlock || e.kind() == io::ErrorKind::TimedOut =>
+            {
+                return fail(client, 504)
+            }
+            Err(_) => return fail(client, 502),
+        }
+    };
+    let Some((new_head, code)) = rewrite_response_head(&buf[..end]) else {
+        return fail(client, 502);
+    };
+    if client.write_all(&new_head).is_err() {
+        return code;
+    }
+    if !head_only {
+        if client.write_all(&buf[end..]).is_err() {
+            return code;
+        }
+        let _ = client.flush();
+        // Stream until the upstream closes; flush per read so SSE frames go
+        // out immediately.
+        loop {
+            match up.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => {
+                    if client.write_all(&chunk[..n]).is_err() || client.flush().is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    let _ = client.flush();
+    code
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn head(raw: &str) -> RequestHead {
+        http::parse_head(raw.as_bytes()).unwrap()
+    }
+
+    #[test]
+    fn strips_hop_by_hop_and_adds_forwarded() {
+        let h = head("POST /api/v1/markers HTTP/1.1\r\nHost: console.galion.app\r\nConnection: keep-alive, X-Secret-Hop\r\nX-Secret-Hop: 1\r\nUpgrade: websocket\r\nX-Forwarded-For: 10.0.0.4\r\nX-Forwarded-Proto: https\r\nX-Forwarded-Host: evil\r\nContent-Length: 2\r\n\r\n");
+        let up = upstream_head(&h, "127.0.0.1".parse().unwrap());
+        assert!(up.starts_with("POST /api/v1/markers HTTP/1.1\r\n"));
+        assert!(up.contains("Host: console.galion.app\r\n"));
+        assert!(up.contains("Content-Length: 2\r\n"));
+        assert!(up.contains("X-Forwarded-For: 10.0.0.4, 127.0.0.1\r\n"));
+        assert!(up.contains("X-Forwarded-Proto: https\r\n"));
+        assert!(up.contains("X-Forwarded-Host: console.galion.app\r\n"));
+        assert!(!up.contains("evil"));
+        assert!(!up.to_ascii_lowercase().contains("upgrade"));
+        assert!(!up.contains("X-Secret-Hop"));
+        assert!(up.ends_with("Connection: close\r\n\r\n"));
+    }
+
+    #[test]
+    fn body_rules() {
+        assert_eq!(
+            body_len(&head("GET /a HTTP/1.1\r\nHost: x\r\n\r\n"), 10),
+            Ok(0)
+        );
+        assert_eq!(
+            body_len(
+                &head("POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\n"),
+                10
+            ),
+            Ok(5)
+        );
+        assert_eq!(
+            body_len(
+                &head("POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 50\r\n\r\n"),
+                10
+            ),
+            Err(413)
+        );
+        assert_eq!(
+            body_len(
+                &head("POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: -1\r\n\r\n"),
+                10
+            ),
+            Err(400)
+        );
+        assert_eq!(
+            body_len(
+                &head("POST /a HTTP/1.1\r\nHost: x\r\nContent-Length: 1, 1\r\n\r\n"),
+                10
+            ),
+            Err(400)
+        );
+        assert_eq!(
+            body_len(
+                &head("POST /a HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n"),
+                10
+            ),
+            Err(411)
+        );
+    }
+
+    #[test]
+    fn response_head_rewrite() {
+        let (h, code) = rewrite_response_head(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: keep-alive\r\nKeep-Alive: timeout=5\r\nTransfer-Encoding: chunked\r\n\r\n").unwrap();
+        let h = String::from_utf8(h).unwrap();
+        assert_eq!(code, 200);
+        assert!(h.contains("Content-Type: text/event-stream\r\n"));
+        assert!(h.contains("Transfer-Encoding: chunked\r\n"));
+        assert!(!h.contains("keep-alive"));
+        assert!(h.contains("X-Content-Type-Options: nosniff\r\n"));
+        assert!(h.ends_with("Connection: close\r\n\r\n"));
+        let (h, code) = rewrite_response_head(b"HTTP/1.1 401 \r\n\r\n").unwrap();
+        assert_eq!(code, 401);
+        assert!(String::from_utf8(h)
+            .unwrap()
+            .starts_with("HTTP/1.1 401 Unauthorized\r\n"));
+        assert!(rewrite_response_head(b"SSH-2.0\r\n\r\n").is_none());
+        assert!(rewrite_response_head(b"HTTP/1.1 999 X\r\n\r\n").is_none());
+    }
+}

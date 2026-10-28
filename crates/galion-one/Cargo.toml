@@ -14,3 +14,8 @@ path = "src/main.rs"
 [dependencies]
 galion-common = { path = "../galion-common" }
 nerve-client = { path = "../nerve-client" }
+
+[dev-dependencies]
+# Test-only cross-check of the dependency-free Zagreb clock (src/zagreb.rs)
+# against the tz database. Not linked into the binary.
+zagreb-time = { path = "../zagreb-time" }

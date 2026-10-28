@@ -102,6 +102,8 @@ pub const CRATES: &[CrateOwner] = &[
     c("bench-banking", S(System::EcosystemCensus), "pending Slavik: B1 banking benchmark on a local Revolut-shaped mock (draft-only, no money moves); scores the agent population like galleon-arena; alternative: a new bench system (hermes-core-bench-sector, wave-4 slot 129)"),
     c("bench-scoreboard", S(System::EcosystemCensus), "pending Slavik: renders docs/bench/SCOREBOARD.md from the B1/B2/B3 score JSONs; alternative: teacher-docs/APOLLO or a new bench system"),
     c("cgroup-detect", S(System::Quotas), "read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS)"),
+    c("console-static", S(System::Console), "pending Slavik: Rust console static server, console-route-31 (main-staging 2026-10-21)"),
+    c("console-ui", S(System::Console), "pending Slavik: Rust console rooms replacing the old SPA, console-port-1..5 (main-staging 2026-10-21)"),
     c("desk-hermes", S(System::HermesAgents), "Hermes mind snap for the desk: the agent population view"),
     c("gaia", Core, "the gaia CLI: wires GAIA core to the nine functions; dry-run only"),
     c("gaia-aether", F(FunctionId::Aether), "AETHER function crate"),
@@ -127,6 +129,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("galion-one", S(System::GalionOne), "Galion One, the persona the stack embodies (:8091, :8002)"),
     c("galion-origin", S(System::Origin), "origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin)"),
     c("galion-realtest", S(System::RepoCheck), "pending Slavik: platform-wide real-life test harness (self-evaluation); alternative cargo-build/HEPHAESTUS"),
+    c("galion-tar", S(System::Survival), "pending Slavik: shared std-only tar crate (GNU tree writer + ustar writer/reader + streaming reader) used by galion-backup and galion-deploy; same system as galion-backup, its main user; alternative deploy-switch/HEPHAESTUS (galion-deploy) or core (shared plumbing like galion-common)"),
     c("galion-vending", S(System::EcosystemCensus), "pending Slavik: B3 deterministic vending business sim benchmark; alternative: a new bench system"),
     c("galion-voice-core", S(System::VoiceRelay), "full-duplex framing, VAD, jitter buffer, barge-in"),
     c("galion-voice-cpu", S(System::SpeechIo), "on-device CPU STT -> text model -> TTS pipeline (Whisper-tiny via candle); speech on CPU like openmind-speech"),
@@ -162,6 +165,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("repo-check", S(System::RepoCheck), "self-eval: SPDX, licence, secrets, no-Python, Zagreb time"),
     c("room", S(System::Room), "read-only page of the operator files agents share"),
     c("tuner", S(System::Tuner), "ukulele tuner static server (:8650)"),
+    c("tunnel-lint", S(System::Nerve), "pending Slavik: read-only cloudflared ingress lint (tunnel-audit d35ef73), used by the nerve ingress-lint sensor"),
     c("zagreb-time", S(System::ZagrebClock), "Europe/Zagreb RFC 3339 with explicit offset (was GAIA)"),
 ];
 
@@ -342,9 +346,12 @@ mod tests {
         }
         // 35 crates of main 13a296c, 6 from integration-1, 10 from integration-3,
         // galion-chatterbox from voice-rust via candle-zip-fix (slot 154).
+        // tunnel-lint from tunnel-audit (main-staging 2026-10-21).
+        // console-static, console-ui from the console pair (main-staging 2026-10-21).
+        // galion-tar from shared-tar-crate via shared-tar-mergefix (wave-4 slot 242).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            52
+            56
         );
     }
 
@@ -375,6 +382,8 @@ mod tests {
             [
                 "bench-banking",
                 "bench-scoreboard",
+                "console-static",
+                "console-ui",
                 "gaia-live",
                 "galion-backup",
                 "galion-bench",
@@ -384,11 +393,13 @@ mod tests {
                 "galion-guard",
                 "galion-health",
                 "galion-realtest",
+                "galion-tar",
                 "galion-vending",
                 "galion-wallstreet",
                 "hermes-bench",
                 "hermes-tools",
-                "openmind-queue"
+                "openmind-queue",
+                "tunnel-lint"
             ]
         );
         assert!(crate_owner("gaia-live")

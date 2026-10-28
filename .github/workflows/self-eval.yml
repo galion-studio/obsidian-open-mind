@@ -12,7 +12,10 @@ name: self-eval
 on:
   push:
     branches: [ main ]
+  # Unfiltered pull_request runs only for the default branch. Name main and
+  # swarm/main-staging so a CI-fix PR into staging runs the same gate as PR #12.
   pull_request:
+    branches: [ main, swarm/main-staging ]
   workflow_dispatch:
   workflow_call:
 
@@ -62,6 +65,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
+      - name: allow unprivileged user namespaces (hermes-tools sandbox)
+        run: |
+          set -eu
+          # Ubuntu AppArmor lets unshare(CLONE_NEWUSER) succeed and then
+          # refuses the uid_map write. hermes-tools sandboxed.rs needs the
+          # map; openmind-sandbox will not run as the overflow uid.
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns >/dev/null
+          fi
+          if [ -e /proc/sys/kernel/unprivileged_userns_clone ]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
       - run: cargo test --workspace --locked
 
   omnode:
@@ -80,7 +95,8 @@ jobs:
   # Universal-CPU gate (UNIVERSAL-CPU.md, UCPU-1): scripts/ucpu-gate.sh.
   # Tier 1: release build of EVERY binary (workspace + omnode) as static musl,
   # then the static check (no PT_INTERP / DT_NEEDED), the 2 MiB size budget
-  # (readelf, no file(1)) and the grep gate (asm, arch intrinsics, CPU-specific codegen flags).
+  # (hermes-gateway 2.5 MiB; readelf, no file(1)) and the grep gate
+  # (asm, arch intrinsics, CPU-specific codegen flags).
   # zig cc compiles the bundled SQLite C code for every target.
   ucpu-tier1:
     name: ucpu tier-1 build + static + size (${{ matrix.target }})
@@ -138,8 +154,6 @@ jobs:
     name: ucpu real run under qemu-user (aarch64, armv7)
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    env:
-      UCPU_JOBS: 4
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
@@ -148,9 +162,32 @@ jobs:
           targets: aarch64-unknown-linux-musl, armv7-unknown-linux-musleabihf
       - name: install qemu-user-static and zig cc
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q qemu-user-static
+          sudo apt-get update -q
+          # The emulators the test invokes by name. Ubuntu 26.04 (resolute)
+          # ships them as qemu-aarch64 and qemu-arm in qemu-user.
+          # qemu-user-static is a virtual package there (no candidate) and a
+          # real package on older images, where the names end in -static.
+          sudo apt-get install -y -q qemu-user
+          if apt-cache show qemu-user-static 2>/dev/null | grep -q '^Package: qemu-user-static$'; then
+            sudo apt-get install -y -q qemu-user-static
+          fi
+          pick() {
+            if command -v "$1" >/dev/null; then
+              command -v "$1"
+            elif command -v "$2" >/dev/null; then
+              command -v "$2"
+            else
+              echo "missing $1 and $2" >&2
+              exit 1
+            fi
+          }
+          pick qemu-aarch64-static qemu-aarch64
+          pick qemu-arm-static qemu-arm
           echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
-      - run: scripts/real/ucpu.sh
+      - run: cargo test -p galion-realtest --test real_sh_ucpu -- --nocapture
+        env:
+          GALION_REAL: "1"
+          GALION_REAL_JOBS: "4"
 
   repo-check:
     name: repo-check self-eval
@@ -259,7 +296,7 @@ jobs:
           sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
           rm -f "$tgz" checksums.txt gitleaks
       - name: scan full git history (values redacted in output)
-        run: gitleaks git --redact --no-banner --verbose .
+        run: gitleaks git --config .gitleaks.toml --redact --no-banner --verbose .
 
   license:
     name: license check (MIT)

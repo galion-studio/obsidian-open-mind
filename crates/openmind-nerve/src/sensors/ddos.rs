@@ -5,7 +5,8 @@
 //! Request-rate streams: publishes each [`crate::access::DdosVerdict`] in the
 //! cortex `ddos.streams` section; `flood` raises the DDoS flag and a critical
 //! `ddos:<stream>` signal, `elevated` a warn signal. Reads [`Input::ddos`].
-//! (The detector itself stays in [`crate::access`]; T2.12 feeds it more streams.)
+//! (The detector itself stays in [`crate::access`]. Per-hostname `edge-host:*`
+//! streams (T2.12) are listed but signalled by [`super::edgerate::EdgeRate`].)
 
 use super::{Sensor, Sink};
 use crate::cortex::Input;
@@ -21,6 +22,13 @@ impl Sensor for RateStreams {
 
     fn sense(&mut self, i: &Input<'_>, out: &mut Sink<'_>) {
         for v in i.ddos {
+            #[cfg(feature = "sensor-edgerate")]
+            if v.stream.starts_with(super::edgerate::PREFIX) {
+                // Per-hostname edge streams (T2.12): listed here, signalled once
+                // by the `edge-rate` sensor under the tunnel cause.
+                out.ddos_stream(v.to_json(), v.level == "flood");
+                continue;
+            }
             let target = v.component.clone().unwrap_or_else(|| v.stream.clone());
             let (sev, what) = match v.level {
                 "flood" => (Sev::Critical, "request flood"),

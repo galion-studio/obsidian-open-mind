@@ -65,6 +65,33 @@ Also fixed:
   `tuner-x`.
 - HTTP health checks run in-process for `http://`. Other schemes still use curl.
 
+
+## Optional crash-loop fail-fast (`GALION_DEPLOY_FAILFAST=N`, off by default)
+
+The automatic (L1) rollback of a build that crashes at start used to take the whole
+20 × 1 s health window, about 20.2 s of outage. With `GALION_DEPLOY_FAILFAST=N` (N > 0)
+the forward health loop also reads the unit's state every 250 ms and gives up as soon
+as the new build has crashed N times since the deploy's own restart, then rolls back as
+before (same `health failed, rolling back` line and exit 3/4, preceded by
+`crash loop: …; failing fast`). A unit that sits in `failed` on two polls in a row
+(`Restart=no`, or the start limit was hit) also ends the window.
+
+- Crashes counted = growth of `NRestarts` since the deploy restart + 1 if
+  `SubState=auto-restart` (a crash systemd has not restarted yet). systemd:
+  `systemctl show -p ActiveState -p SubState -p NRestarts <u>.service`; direct backend:
+  `$GALION_DEPLOY_CTL show <u>` (simsup has `NRestarts` but no `SubState`, so there a
+  crash counts RestartSec later).
+- If the backend gives no `NRestarts` (systemd < 235, a ctl without `show`), it logs
+  `fail-fast off: cannot read NRestarts; using the full health window` and behaves
+  exactly as without the flag.
+- Off (unset or 0) is byte-for-byte the old behaviour: no extra calls (asserted in
+  `tests/systemd_backend.rs` and the unit tests). The rollback's own health check
+  never fails fast.
+- It does not help a build that stays up without becoming healthy (sim-hang): that
+  still takes the full window. N = 1 also rolls back a good build whose first start
+  fails once (port still held, slow dependency); see
+  `docs/real-tests/galion-deploy-fastfail.md` for the numbers and the N to pick.
+
 Test knobs (do not use in production): `GALION_DEPLOY_HEALTH_TRIES` (20),
 `GALION_DEPLOY_HEALTH_INTERVAL_MS` (1000).
 
@@ -100,6 +127,7 @@ verified, 1 failed, 2 usage. Runbook: `docs/ops/cutover-tuner-nerve.md`.
 cargo test -p galion-deploy                                   # 28 unit + systemd backend scenarios
 GALION_REAL=1 cargo test --release -p galion-deploy --test real_build       # rehearsal inputs pinned
 GALION_REAL=1 cargo test --release -p galion-deploy --test real_rehearsal -- --nocapture --test-threads 4
+GALION_REAL=1 cargo test --release -p galion-deploy --test real_failfast -- --nocapture --test-threads 2   # fail-fast numbers, ports 19910-19911
 ```
 
 The rehearsals use ports 19390-19393 and the dead port 19399, all on the box. Results are in `docs/real-tests/deploy-rust.md`.

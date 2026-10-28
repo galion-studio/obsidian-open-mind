@@ -5,7 +5,15 @@
 # Runbook: tuner + galion-nerve cutover with the Rust galion-deploy
 
 Branch `swarm/cutover-prep` (slot 38), on top of `swarm/deploy-rust` 787a54d.
-**Nothing in this file has been run on the VPS.** Every step that changes the VPS
+
+**Status (refreshed 2026-10-21 17:30 CEST (+02:00), wave-4 slot 203):** this runbook was **used for the tuner** on 2026-10-21. The §2 backup ran at 04:31:16,
+galion-deploy went bash → Rust at 04:31:47 and the tuner was deployed at 04:32:32 (a mistaken rollback at 04:32:10 was redeployed). Approved by Mate 04:22 (Slavik auto-accept 20 Oct).
+Record: `swarm/vps-deploy-20261021@d9bd8295935d2620587aaed68e4b1b52f6ea72b9:docs/ops/deploy-2026-10-21.md` ([../cutover/README.md](../cutover/README.md) §2 C1/C2).
+The **nerve was not cut over with this runbook.** It went live at 09:43:54 by an ExecStart drop-in `50-rust-bin.conf` (openmind-nerve aa77864, old binary kept), and reflexes were set to dry-run at 17:08:27 (`70-nerve-dryrun.conf`).
+See [../cutover/nerve.md](../cutover/nerve.md) Status. The text below is the 2026-10-20 plan, kept as written.
+Original line (2026-10-20): Nothing in this file has been run on the VPS.
+
+Every step that changes the VPS
 needs Slavik's approval for that step (`docs/cutover-approval.md`). Times are
 Europe/Zagreb. The per-service detail stays in `docs/cutover/tuner.md` and
 `docs/cutover/nerve.md`. This runbook is the order of operations for doing both
@@ -127,5 +135,9 @@ Go only if all of these hold: D1–D4 are decided; the snapshot of 2.2 exists an
 - Nerve in **live** reflex mode with a deploy-capable rollback reflex (D2).
 - The bash galion-deploy is still installed: the F1 hang on an L2 rollback with the unit down, the F2 start-limit trap, and an ambiguous exit 1. The bash table has no nerve entry, so it judges nerve on `is-active` only, and on `/health` 404 if that URL is passed.
 - The VPS galion-backup binary is unverified against rust-ports 26a2a8e (2.2).
-- tuner-quick is transient: a reboot during the window loses the public quick URL for good.
+- tuner-quick is transient: a reboot during the window loses the public quick URL for good. A persistent unit is staged (section 9), but is not installed.
 - The whole flow has been proven only against simsup and systemctl shims. PID 1 on the box is tini, not systemd.
+
+## 9. Side step: tuner-quick as a real unit (slot 120, staged)
+
+`deploy/staged/tuner-quick.service` replaces the transient tunnel with a persistent, sandboxed unit. It uses the same cloudflared and the same arguments, and keeps the same unit name, so nerve and galion-health keep seeing it. It has `Wants=tuner.service` rather than `Requires=`, so the tuner deploy in 3.3 does not rotate the URL. The full step, its three paths, the checks and the rollback are in `docs/ops/tuner-quick-unit.md`. It needs O4 first. **Do not do it in the same window as section 3.** Path B (install and enable the file, take effect at the next reboot, URL unchanged now) can go in at any time. Path A changes the public URL once.

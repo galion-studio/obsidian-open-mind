@@ -50,11 +50,16 @@ pub fn parse_score(text: &str) -> Result<Scorecard, String> {
         .get("scorecard")
         .filter(|s| s.is_object())
         .unwrap_or(&top);
+    let mut card = Scorecard::new();
+    if v.get("axes").is_none() {
+        if let Some(fams) = v.get("families").and_then(Value::as_array) {
+            return parse_families(fams, &mut card).map(|()| card);
+        }
+    }
     let axes = v
         .get("axes")
         .and_then(Value::as_array)
         .ok_or("missing axes array")?;
-    let mut card = Scorecard::new();
     for a in axes {
         let name = ["name", "title", "axis", "id"]
             .iter()
@@ -77,6 +82,35 @@ pub fn parse_score(text: &str) -> Result<Scorecard, String> {
         }
     }
     Ok(card)
+}
+
+/// `families: [{name, passed, total, percent}]` (bench-ws-adv): each family is one
+/// equal-weight axis; `percent` must match `passed`/`total` (rounded) and `passed <= total`.
+fn parse_families(fams: &[Value], card: &mut Scorecard) -> Result<(), String> {
+    for f in fams {
+        let name = f
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or("family without name")?;
+        let passed = f
+            .get("passed")
+            .and_then(num)
+            .ok_or("family without passed")?;
+        let total = f.get("total").and_then(num).ok_or("family without total")?;
+        if total <= 0.0 || passed < 0.0 || passed > total {
+            return Err(format!(
+                "family {name}: passed {passed} / total {total} invalid"
+            ));
+        }
+        let score = (passed * 100.0 / total).round();
+        if let Some(p) = f.get("percent").and_then(num) {
+            if (p - score).abs() > 0.5 {
+                return Err(format!("family {name}: percent {p} != {passed}/{total}"));
+            }
+        }
+        card.set(name, score as u8);
+    }
+    Ok(())
 }
 
 /// A JSON number, or a numeric string such as `"100.00"`.
@@ -174,6 +208,128 @@ and rejects a file whose `pct` disagrees.\n\
     out
 }
 
+/// One adversarial / hard set shown below the standard board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AdvSet {
+    /// CLI key, e.g. `B1-ADV`.
+    pub key: &'static str,
+    pub title: &'static str,
+    pub branch: &'static str,
+    /// Named Rust tests that back the score (crate + test target + fn).
+    pub tests: &'static [&'static str],
+    /// What the score does NOT show (kept next to the number on purpose).
+    pub limits: &'static str,
+}
+
+/// The adversarial / hard sets, in scoreboard order.
+pub const ADV_SETS: [AdvSet; 4] = [
+    AdvSet {
+        key: "B1-ADV",
+        title: "B1-ADV Banking adversarial (memo injection + social engineering, via Hermes, mock-llm wire)",
+        branch: "swarm/bench-banking-adv",
+        tests: &[
+            "hermes-bench --test real_banking_adv real_adversarial_banking_through_hermes (GALION_REAL=1)",
+            "hermes-bench --test adversarial scripted_gullible_brain_still_refused_everywhere",
+            "hermes-bench --test adversarial mock_llm_gullible_brain_over_the_wire_still_refused",
+            "hermes-bench --test adversarial lazy_model_fails_the_episodes_but_not_the_gate",
+            "hermes-bench --test adversarial refusal_comes_from_the_guard_not_the_mock",
+            "bench-banking --test adversarial_heldout",
+        ],
+        limits: "gate is a keyword floor: held-out v2 refused 8/15 at the gate after the fix (7 fall to Clarify, \
+tool layer still refuses every write: 396 write attempts, 0 succeeded); live model NOT run (H1).",
+    },
+    AdvSet {
+        key: "B2-ADV",
+        title: "B2-ADV Wall Street adversarial compliance (dev + holdout + blind1, paper only)",
+        branch: "swarm/bench-ws-adv",
+        tests: &["galion-wallstreet --test real_adversarial real_adversarial_set_over_http (GALION_REAL=1)"],
+        limits: "212/212 incl. 77 holdout + 26 blind1 (v1 compliance was 64/212 = 30 %); families scored by \
+passed/total; paper broker, no live broker, no live model.",
+    },
+    AdvSet {
+        key: "B3-HARD",
+        title: "B3-HARD Vending hard level (harder seeds + pricing axis, scripted operator)",
+        branch: "swarm/bench-vending-adv",
+        tests: &[
+            "galion-vending --test real_vending_hard real_binary_hard_level (GALION_REAL=1)",
+            "galion-vending --test hard (unit/sim)",
+        ],
+        limits: "ScriptedOperator is a ceiling, not an AI result; seed 42 x 30 days; hard seeds 1-200 sweep: \
+scripted 200/200 at 100 %, the standard-level policy on hard seeds averages 75.72 % (0/200 at 100 %, 82 capped).",
+    },
+    AdvSet {
+        key: "B3-HARD-H",
+        title: "B3-HARD via Hermes tool layer (mock-llm wire, offline replay)",
+        branch: "swarm/bench-vending-adv",
+        tests: &["hermes-bench --test real_hermes_vending_hard real_hard_vending_through_hermes (GALION_REAL=1)"],
+        limits: "mock LLM drives the scripted policy over the OpenAI wire; replay must match live; not a real model.",
+    },
+];
+
+/// Render the adversarial / hard section. `adv[i]` belongs to `ADV_SETS[i]`.
+/// Missing or empty cards are PENDING; anything short of 100 % lists its failing axes.
+pub fn render_adv(adv: &[Option<Entry>], generated: &str) -> String {
+    let mut out = format!(
+        "\n## Adversarial / hard sets\n\n\
+Folded in by `bench-scoreboard --score <KEY>=<json>@<sha>` (same rules as above; a `families` \
+array is scored as equal-weight axes, each family's `percent` must equal its `passed`/`total`). \
+Generated {generated} (Europe/Zagreb).\n\n\
+| Set | Score | Source branch @ SHA | Score JSON | Folded in (Zagreb) | Failing axes | Named tests |\n\
+|---|---|---|---|---|---|---|\n"
+    );
+    for (i, s) in ADV_SETS.iter().enumerate() {
+        let tests = s
+            .tests
+            .iter()
+            .map(|t| format!("`{}`", cell(t)))
+            .collect::<Vec<_>>()
+            .join("<br>");
+        match adv.get(i).and_then(Option::as_ref) {
+            Some(e) if !e.card.axes.is_empty() => {
+                let failing: Vec<String> = e
+                    .card
+                    .failing()
+                    .iter()
+                    .map(|(n, s)| format!("{n} ({s})"))
+                    .collect();
+                let failing = if failing.is_empty() {
+                    "none".to_string()
+                } else {
+                    failing.join(", ")
+                };
+                out.push_str(&format!(
+                    "| {} | {}% | {} @ {} | `{}` | {} | {} | {} |\n",
+                    s.title,
+                    e.card.pct(),
+                    s.branch,
+                    cell(&e.sha),
+                    cell(&e.json_path),
+                    cell(&e.stamp),
+                    cell(&failing),
+                    tests
+                ));
+            }
+            _ => out.push_str(&format!(
+                "| {} | PENDING | {} @ - | - | - | not yet reported | {} |\n",
+                s.title, s.branch, tests
+            )),
+        }
+    }
+    out.push_str("\nWhat each number does not show:\n");
+    for s in ADV_SETS.iter() {
+        out.push_str(&format!("- **{}**: {}\n", s.key, s.limits));
+    }
+    for (i, s) in ADV_SETS.iter().enumerate() {
+        if let Some(e) = adv.get(i).and_then(Option::as_ref) {
+            if !e.card.axes.is_empty() {
+                out.push('\n');
+                out.push_str(&e.card.to_markdown(s.title, &e.stamp));
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -231,6 +387,55 @@ mod tests {
         .unwrap();
         assert_eq!(w.pct(), 75);
         assert_eq!(w.failing()[0].0, "b");
+    }
+
+    #[test]
+    fn families_shape_scores_and_checks_percent() {
+        let c = parse_score(
+            r#"{"percent":100,"families":[{"name":"croatian","passed":7,"total":7,"percent":100},{"name":"tip","passed":9,"total":12,"percent":75}]}"#,
+        )
+        .unwrap();
+        assert_eq!(c.axes.len(), 2);
+        assert_eq!(c.pct(), 88);
+        assert_eq!(c.failing()[0].0, "tip");
+        assert!(
+            parse_score(r#"{"families":[{"name":"a","passed":5,"total":10,"percent":100}]}"#)
+                .is_err()
+        );
+        assert!(parse_score(r#"{"families":[{"name":"a","passed":11,"total":10}]}"#).is_err());
+        assert!(parse_score(r#"{"families":[{"name":"a","passed":1,"total":0}]}"#).is_err());
+        // `axes` wins over `families` when both are present.
+        let d = parse_score(
+            r#"{"axes":[{"name":"x","score":100}],"families":[{"name":"a","passed":0,"total":1}]}"#,
+        )
+        .unwrap();
+        assert_eq!(d.pct(), 100);
+    }
+
+    #[test]
+    fn adv_section_lists_tests_failing_and_pending() {
+        let card = parse_score(
+            r#"{"pct":50,"axes":[{"name":"gate","score":0},{"name":"scope","score":100}]}"#,
+        )
+        .unwrap();
+        let e = Entry {
+            card,
+            sha: "44e5c61".into(),
+            json_path: "docs/bench/x.json".into(),
+            stamp: "2026-10-21T10:55:00+02:00".into(),
+        };
+        let md = render_adv(&[Some(e), None, None, None], "2026-10-21T10:55:00+02:00");
+        assert!(md.contains("| 50% | swarm/bench-banking-adv @ 44e5c61 |"));
+        assert!(md.contains("| gate (0) |"));
+        assert_eq!(md.matches("| PENDING |").count(), 3);
+        for s in ADV_SETS.iter() {
+            assert!(md.contains(s.title));
+            assert!(md.contains(&format!("**{}**", s.key)));
+            for t in s.tests {
+                assert!(md.contains(t), "{t}");
+            }
+        }
+        assert!(!md.contains("Z |"));
     }
 
     #[test]

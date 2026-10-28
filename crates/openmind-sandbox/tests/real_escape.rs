@@ -13,7 +13,7 @@
 //!
 //! Ignored by default (needs the real build + a reachable localhost). Run it
 //! with `GALION_REAL=1 cargo test -p openmind-sandbox --test real_escape --
-//!  --ignored`, or via `scripts/real/sandbox.sh`. The cgroup checks only run
+//!  --ignored`, or via `crates/galion-realtest/tests/real_sh_sandbox.rs`. The cgroup checks only run
 //! when `GALION_REAL_CGROUP_PARENT` points at a delegated cgroup v2 dir the
 //! caller may create children in (the script sets one up as root).
 
@@ -48,8 +48,11 @@ fn escape_bin() -> PathBuf {
 }
 
 fn workdir(name: &str) -> PathBuf {
-    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/test-out/escape")
+    let p = std::env::var("GALION_REAL_BASE")
+        .map(|b| PathBuf::from(b).join("escape"))
+        .unwrap_or_else(|_| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-out/escape")
+        })
         .join(name);
     std::fs::create_dir_all(&p).unwrap();
     p.canonicalize().unwrap()
@@ -187,6 +190,21 @@ fn real_escape() {
         check(
             says(&o, "seebystander") == Some(false),
             "payload saw a process outside in /proc".into(),
+        );
+        eprintln!("proc layer {:?}, view {:?}", o.layer("proc"), o.proc_view);
+        let o = runsb(&p, &["procpeek", &pid.to_string()]);
+        check(
+            says(&o, "procpeek") == Some(false),
+            "payload read /proc/<pid> files of a process outside".into(),
+        );
+        // Control (measured, not judged): the pre-fix host /proc view.
+        let mut ph = p.clone();
+        ph.proc_fallback = openmind_sandbox::ProcFallback::Host;
+        let o = runsb(&ph, &["procpeek", &pid.to_string()]);
+        eprintln!(
+            "CONTROL proc_fallback=Host: view {:?}, procpeek {:?}",
+            o.proc_view,
+            says(&o, "procpeek")
         );
         check(
             bystander.try_wait().unwrap().is_none(),

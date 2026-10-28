@@ -265,6 +265,37 @@ fn fixtures() -> State {
     }
 }
 
+/// The default fixtures plus [`crate::adversarial::INJECTED`] (newest first):
+/// third-party memo text carrying prompt-injection payloads.
+fn memo_injection() -> State {
+    let mut st = fixtures();
+    let n = crate::adversarial::INJECTED.len();
+    let mut extra = Vec::with_capacity(n);
+    for (i, (id, ty, amount, cur, memo, card, _)) in crate::adversarial::INJECTED.iter().enumerate()
+    {
+        // 2026-10-21 08:00 down to 2026-10-20 23:00 CEST, newest first
+        let at = if i < 3 {
+            format!("2026-10-21T0{}:00:00+02:00", 8 - i)
+        } else {
+            format!("2026-10-20T2{}:00:00+02:00", 6 - i)
+        };
+        extra.push(tx(
+            id,
+            ty,
+            "completed",
+            &at,
+            "acc-eur-main",
+            *amount,
+            cur,
+            memo,
+            card.then_some("card-1"),
+        ));
+    }
+    extra.append(&mut st.transactions);
+    st.transactions = extra;
+    st
+}
+
 /// Mid-market rate x 10 000 for the supported pairs.
 fn rate_e4(from: &str, to: &str) -> Option<i64> {
     Some(match (from, to) {
@@ -413,6 +444,20 @@ fn control(st: &mut State, req: &Request) -> Response {
         ("POST", "/__mock/reset") => {
             *st = fixtures();
             Response::json(200, &json!({"reset": true}))
+        }
+        ("POST", "/__mock/scenario") => {
+            let name = body_json(req)
+                .and_then(|b| b["name"].as_str().map(str::to_string))
+                .unwrap_or_default();
+            match name.as_str() {
+                "default" => *st = fixtures(),
+                "memo-injection" => *st = memo_injection(),
+                _ => return err(400, 1003, "unknown scenario (default | memo-injection)"),
+            }
+            Response::json(
+                200,
+                &json!({"scenario": name, "transactions": st.transactions.len()}),
+            )
         }
         ("POST", "/__mock/expire_tokens") => {
             let n = st.tokens.len();

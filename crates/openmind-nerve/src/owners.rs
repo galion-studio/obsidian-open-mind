@@ -136,12 +136,19 @@ pub const OWN_SERVICES: [(u16, &str, Option<&str>); 3] = [
 ];
 
 /// Labels for the built-in known infrastructure ports.
-const KNOWN_LABELS: [(u16, &str, Option<&str>); 7] = [
+const KNOWN_LABELS: [(u16, &str, Option<&str>); 10] = [
     (22, "sshd", None),
     (25, "postfix", None),
     (53, "systemd-resolved", None),
     (8670, "galion-nerve", Some("AETHER")),
-    (8671, "tanga-serve", None),
+    (8671, "tanga-serve", Some("ELEUTHIA")),
+    (8672, "galion-nerve-shadow", Some("AETHER")),
+    (8674, "gaia-cortex (event-driven, dry-run)", None),
+    (
+        18800,
+        "forge-link (box ssh reverse tunnel, forge.galion.studio)",
+        None,
+    ),
     (20241, "cloudflared metrics", Some("AETHER")),
     (20242, "tuner-quick metrics", Some("AETHER")),
 ];

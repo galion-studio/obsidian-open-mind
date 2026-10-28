@@ -23,6 +23,8 @@ use crate::reflex::{
     deploy_in_progress, status_needs_alert, Decision, Reflex, MAX_ACTIONS_PER_CYCLE,
 };
 use crate::score::{score, Score};
+#[cfg(feature = "sensor-edgerate")]
+use crate::sensors::edgerate::{self, EdgeHosts};
 use crate::sensors::Sensors;
 use crate::state::{CompState, Status, Thresholds};
 use crate::util::{kib, now_secs, ts, write_atomic};
@@ -67,6 +69,8 @@ pub struct Engine {
     skipped: Vec<String>,
     actions_since_report: Vec<Value>,
     pub reflexes_enabled: bool,
+    /// Replay: fixed answer for "is a deploy running" instead of scanning /proc.
+    pub busy_override: Option<bool>,
     pub write_files: bool,
     pub tails: Vec<(Tail, Option<String>)>,
     pub logs: LogInsights,
@@ -75,6 +79,11 @@ pub struct Engine {
     pub cortex: Cortex,
     /// Cortex sensors, kept across cycles (stateful sensors).
     pub sensors: Sensors,
+    /// Per-hostname edge streams from cloudflared journal lines (T2.12);
+    /// None when the `edge-rate` sensor is off.
+    /// (Field absent in a build without `sensor-edgerate`, slot 404.)
+    #[cfg(feature = "sensor-edgerate")]
+    pub edge_hosts: Option<EdgeHosts>,
     /// Live host cycle (false in replay: host-reading sensors stay idle).
     pub live: bool,
     pub ddos: Vec<DdosVerdict>,
@@ -109,6 +118,7 @@ impl Engine {
             cfg.telegram_env.clone(),
             cfg.ext_alerts_per_hour,
         );
+        let sensors = Sensors::from_env(&|k| std::env::var(k).ok());
         let now = now_secs();
         let shared = Shared {
             detector: Detector {
@@ -145,13 +155,20 @@ impl Engine {
             skipped: vec![],
             actions_since_report: vec![],
             reflexes_enabled: cfg.reflex,
+            busy_override: None,
             write_files: true,
             tails,
             logs: LogInsights::default(),
             listeners: None,
             incidents: Correlator::default(),
             cortex: Cortex::default(),
-            sensors: Sensors::from_env(&|k| std::env::var(k).ok()),
+            #[cfg(feature = "sensor-edgerate")]
+            edge_hosts: sensors
+                .names()
+                .contains(&edgerate::NAME)
+                .then(|| EdgeHosts::from_env(&|k| std::env::var(k).ok()))
+                .flatten(),
+            sensors,
             live: true,
             ddos: vec![],
             score: None,
@@ -161,6 +178,16 @@ impl Engine {
             now,
             cfg,
         }
+    }
+
+    /// `/state.edge_hosts`: the T2.12 per-hostname table, `null` when the
+    /// `edge-rate` sensor is off or not built in (slot 404).
+    fn edge_hosts_json(&self) -> Value {
+        #[cfg(feature = "sensor-edgerate")]
+        if let Some(e) = self.edge_hosts.as_ref() {
+            return json!({"hosts": e.hosts(), "max_hosts": e.max_hosts, "lines_counted": e.counted, "folded_into_other": e.folded});
+        }
+        Value::Null
     }
 
     pub fn mode(&self) -> &'static str {
@@ -285,6 +312,10 @@ impl Engine {
                     self.tunnel_prev.insert(key, (r, e, now));
                 }
             }
+            #[cfg(feature = "sensor-edgerate")]
+            if let Some(eh) = self.edge_hosts.as_mut() {
+                eh.feed(&col.lines, now, &mut sh.detector);
+            }
             self.ddos = sh.detector.evaluate(now);
         }
         let own_port = self.cfg.addr.port();
@@ -327,12 +358,16 @@ impl Engine {
                 )
             })
             .collect();
+        // T3.2: the findings join the incidents that score them.
+        let members = self.cortex.members();
         self.incidents
-            .update(now, sigs, &|cause, ss| explain(cause, ss, &comps_snapshot));
+            .update_with(now, sigs, &members, &|cause, ss| {
+                explain(cause, ss, &comps_snapshot)
+            });
         self.cortex.attach_owners(&mut self.incidents, &self.comps);
         // Reflexes.
         if self.reflexes_enabled {
-            let busy = deploy_in_progress();
+            let busy = self.busy_override.unwrap_or_else(deploy_in_progress);
             let mut acted = 0;
             for i in 0..self.comps.len() {
                 let d = self.reflex.decide(&self.comps[i], now, busy);
@@ -347,7 +382,7 @@ impl Engine {
                 }
                 let name = self.comps[i].spec.name;
                 let before = self.reflex.recent.len();
-                self.reflex.execute(name, &d, &mut self.alerts);
+                self.reflex.execute_at(name, &d, &mut self.alerts, now);
                 if self.reflex.recent.len() > before {
                     if let Some(a) = self.reflex.recent.back() {
                         self.actions_since_report.push(a.clone());
@@ -475,7 +510,7 @@ impl Engine {
             .as_ref()
             .map(Score::to_json)
             .unwrap_or(Value::Null);
-        json!({
+        let mut st = json!({
             "tool": "openmind-nerve",
             "service": "galion-nerve",
             "version": env!("CARGO_PKG_VERSION"),
@@ -491,6 +526,7 @@ impl Engine {
             "incidents": self.incidents.to_json(),
             "cortex": self.cortex.to_json(),
             "cortex_sensors": self.sensors.last_json(),
+            "edge_hosts": self.edge_hosts_json(),
             "cortex_events": self.cortex.nerve_events(now),
             "self_eval": sc,
             "components": self.comps.iter().map(|c| c.to_json(now)).collect::<Vec<_>>(),
@@ -503,7 +539,17 @@ impl Engine {
             "alerts": {"recent": self.alerts.recent.iter().rev().take(10).collect::<Vec<_>>(), "external": self.alerts.ext_status},
             "probe_errors": self.probe_errors,
             "probes_skipped": self.skipped,
-        })
+        });
+        // Only present after a state-dir load problem (keeps old goldens).
+        for (k, n) in [
+            ("reflex", &self.reflex.load_note),
+            ("alerts", &self.alerts.load_note),
+        ] {
+            if let Some(n) = n {
+                st[k]["load_note"] = json!(n);
+            }
+        }
+        st
     }
 
     /// The self-eval: findings in repo-check's shape (check, level,
@@ -558,12 +604,18 @@ impl Engine {
         let mut self_warns = vec![];
         for c in &self.comps {
             if c.hist.is_empty() {
-                add(
-                    "coverage",
-                    "error",
-                    c.spec.name,
-                    "no sample this cycle".into(),
-                );
+                // A replay marks components its capture does not name as absent
+                // (T2.3): reported, not an error. A live cycle always samples.
+                if c.status == crate::state::Status::Absent {
+                    add("coverage", "info", c.spec.name, c.reasons.join("; "));
+                } else {
+                    add(
+                        "coverage",
+                        "error",
+                        c.spec.name,
+                        "no sample this cycle".into(),
+                    );
+                }
                 continue;
             }
             if c.status != Status::Healthy {
@@ -820,6 +872,54 @@ pub fn self_eval_prune(mut files: Vec<(String, u64)>, keep: usize) -> Vec<String
     files.into_iter().take(n).map(|f| f.0).collect()
 }
 
+/// One markdown line for an incident's T3.2 `correlation` section, or
+/// None when nothing beyond its own signals made it (no member findings,
+/// no folded signals). Starts with `- correlated:`.
+pub fn correlated_md(c: &Value) -> Option<String> {
+    let arr = |k: &str| c[k].as_array().cloned().unwrap_or_default();
+    let (fs, fo) = (arr("findings"), arr("folded"));
+    if fs.is_empty() && fo.is_empty() {
+        return None;
+    }
+    let s = |v: &Value| v.as_str().unwrap_or("").replace('|', "/");
+    let mut parts = vec![format!(
+        "rules {}",
+        arr("rules").iter().map(s).collect::<Vec<_>>().join(" + ")
+    )];
+    if !fs.is_empty() {
+        parts.push(format!(
+            "sensors {}; findings {}",
+            arr("sensors").iter().map(s).collect::<Vec<_>>().join(", "),
+            fs.iter()
+                .map(|f| format!("{} ({})", s(&f["finding"]), s(&f["severity"])))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !fo.is_empty() {
+        parts.push(format!(
+            "folded {}",
+            fo.iter()
+                .map(|f| format!(
+                    "{} from `{}` ({})",
+                    s(&f["component"]),
+                    s(&f["from"]),
+                    s(&f["rule"])
+                ))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if let Some(w) = c["worst_finding"].as_object() {
+        parts.push(format!(
+            "worst finding {} ({})",
+            s(&w["finding"]),
+            s(&w["severity"])
+        ));
+    }
+    Some(format!("- correlated: {}\n", parts.join("; ")))
+}
+
 /// Words for an incident cause: title, why it matters, the next step.
 pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static str)]) -> Explain {
     let top = ss
@@ -847,6 +947,17 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
         v
     };
     if let Some(stream) = cause.strip_prefix("ddos:") {
+        // T2.12: per-hostname edge streams signal under the tunnel cause.
+        #[cfg(feature = "sensor-edgerate")]
+        let by_host =
+            cause == edgerate::CAUSE && ss.iter().any(|s| s.msg.contains(" public hostname(s) "));
+        #[cfg(not(feature = "sensor-edgerate"))]
+        let by_host = false;
+        let stream = if by_host {
+            "edge-host:*, per public hostname"
+        } else {
+            stream
+        };
         let target = ss.first().map(|s| s.component.as_str()).unwrap_or(stream);
         let others = ss.len().saturating_sub(1);
         return Explain {
@@ -854,9 +965,17 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
             why: format!(
                 "{}{}",
                 short(top),
-                if others > 0 { format!("; {others} related signal(s) from the target folded in") } else { String::new() }
+                if others > 0 {
+                    format!("; {others} related signal(s) from the target folded in")
+                } else {
+                    String::new()
+                }
             ),
-            next: "check the top source IPs; block or rate-limit them at the edge (Cloudflare WAF rule / rate limit) -- owner approval; the nerve never changes the edge".into(),
+            next: if by_host {
+                "find the hostname in the cortex finding edge-host-rate (evidence); rate-limit or challenge it at the edge (Cloudflare WAF rule / rate limit), or fix its dead origin -- owner approval; the nerve never changes the edge".into()
+            } else {
+                "check the top source IPs; block or rate-limit them at the edge (Cloudflare WAF rule / rate limit) -- owner approval; the nerve never changes the edge".into()
+            },
         };
     }
     if let Some(group) = cause.strip_prefix("spend-cap:") {
@@ -877,6 +996,29 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
         };
     }
     match cause {
+        // T3.2: the sshd flood, the auth-log bleed it writes and the disk
+        // signals that bleed explains (incident::RULE_SSH_DISK).
+        crate::incident::SSH_FLOOD => {
+            let flood = ss
+                .iter()
+                .filter(|s| s.component == "host")
+                .max_by_key(|s| s.sev)
+                .map(|s| s.msg.as_str())
+                .unwrap_or(top);
+            let disk: Vec<&str> = names.iter().copied().filter(|n| *n != "host").collect();
+            Explain {
+                title: format!("ssh flood: {}", short(flood)),
+                why: format!(
+                    "every failed ssh attempt is a line in the auth log, so the credential flood and the disk it eats are one incident (cortex findings sshd-credential-flood and sshd-auth-log-growth){}",
+                    if disk.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; disk signal(s) of {} folded in while the auth log grows", disk.join(", "))
+                    }
+                ),
+                next: "password auth stays off; check logrotate for the auth log and what else fills the disk; a ban or edge rate limit is a HADES plan (owner approval), never a nerve action".into(),
+            }
+        }
         "edge" => Explain {
             title: format!("edge: {}", short(top)),
             why: "public hostnames answer with Cloudflare error pages; every failed request is a visitor or bot turned away, and the error counters hide real faults".into(),
@@ -1018,6 +1160,10 @@ pub fn render_md(r: &Value) -> String {
                 txt(&sg["component"]),
                 txt(&sg["msg"])
             ));
+        }
+        // T3.2: which sensors and folded signals made this one incident.
+        if let Some(line) = correlated_md(&i["correlation"]) {
+            s.push_str(&line);
         }
         s.push('\n');
     }

@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# P6: comment-only refresh of three live drop-ins (live sha256 c663ab5c…, 833acdfb…, fdd150c7…, read 2026-10-21 11:24 +02:00).
+# The Environment= lines are unchanged. Apply only after approval: cd / && patch -p1 --dry-run < this.patch; then for real; systemctl daemon-reload. No restart.
+
+--- a/etc/systemd/system/galion-nerve.service.d/60-nerve-eventlog.conf
++++ b/etc/systemd/system/galion-nerve.service.d/60-nerve-eventlog.conf
+@@ -1,7 +1,9 @@
+ # 2026-10-21 slot 180 (Mate t184 D2, owner Slavik t175): enable the JSONL event log
+ # behind POST /event + GET /events. Rotation 8 MiB x 3 kept (max 32 MiB).
+-# NOTE: the galion-nerve binary live on 2026-10-21 (2f5a730 build) ignores this
+-# variable; it takes effect when the binary is replaced by openmind-nerve (cutover).
++# ACTIVE since 2026-10-21 09:43:54 +02:00: 50-rust-bin.conf runs openmind-nerve-aa77864,
++# which reads this variable (GET /events 200, checked 2026-10-21 11:26 +02:00).
++# The old /opt/galion/rust/bin/galion-nerve (2f5a730 build) ignores it: if 50-rust-bin.conf
++# is rolled back, this file becomes inert again (harmless).
+ # Rollback: rm this file; systemctl daemon-reload; systemctl restart galion-nerve
+ [Service]
+ Environment=NERVE_EVENT_LOG=/var/lib/galion-nerve/events.jsonl
+--- a/etc/systemd/system/hermes-rs.service.d/60-nerve-url.conf
++++ b/etc/systemd/system/hermes-rs.service.d/60-nerve-url.conf
+@@ -1,7 +1,9 @@
+ # 2026-10-21 slot 180 (Mate t184 D3, owner Slavik t175): ws-nerve step 2, push
+ # nerve-client signals (source hermes-rs) to the live nerve on loopback.
+-# NOTE: the hermes-rs binary live on 2026-10-21 has no nerve-client (no NERVE_URL in it),
+-# so this is inert until a nerve-client build is deployed. Not restarted for it.
+-# Rollback: rm this file; systemctl daemon-reload; (systemctl restart hermes-rs if it was restarted since)
++# ACTIVE since 2026-10-21 09:46:22 +02:00: 50-rust-bin.conf runs hermes-gateway-aa77864,
++# which has nerve-client (nerve /state shows source "hermes-rs", checked 2026-10-21 11:26 +02:00).
++# The old /opt/galion/rust/bin/hermes-gateway has no nerve-client: if 50-rust-bin.conf is
++# rolled back, this file becomes inert again (harmless).
++# Rollback: rm this file; systemctl daemon-reload; systemctl restart hermes-rs
+ [Service]
+ Environment=NERVE_URL=http://127.0.0.1:8670
+--- a/etc/systemd/system/openmind-memory.service.d/60-nerve-url.conf
++++ b/etc/systemd/system/openmind-memory.service.d/60-nerve-url.conf
+@@ -1,7 +1,9 @@
+ # 2026-10-21 slot 180 (Mate t184 D3, owner Slavik t175): ws-nerve step 2, push
+ # nerve-client signals (source openmind-memory) to the live nerve on loopback.
+-# NOTE: the openmind-memory binary live on 2026-10-21 has no nerve-client (no NERVE_URL in it),
+-# so this is inert until a nerve-client build is deployed. Not restarted for it.
+-# Rollback: rm this file; systemctl daemon-reload; (systemctl restart openmind-memory if it was restarted since)
++# ACTIVE since 2026-10-21 09:45:26 +02:00: 50-rust-bin.conf runs openmind-memory-aa77864,
++# which has nerve-client (nerve /state shows source "openmind-memory", checked 2026-10-21 11:26 +02:00).
++# The old /opt/galion/rust/bin/openmind-memory has no nerve-client: if 50-rust-bin.conf is
++# rolled back, this file becomes inert again (harmless).
++# Rollback: rm this file; systemctl daemon-reload; systemctl restart openmind-memory
+ [Service]
+ Environment=NERVE_URL=http://127.0.0.1:8670

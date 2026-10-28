@@ -4,14 +4,15 @@ use crate::{
 use k_quants::*;
 use std::borrow::Cow;
 
-#[cfg(target_feature = "avx2")]
-pub mod avx;
 mod dummy_cuda;
 mod dummy_metal;
 pub mod ggml_file;
 pub mod gguf_file;
 pub mod imatrix_file;
 pub mod k_quants;
+// galion candle-zip-fix (int5-candle-repocheck): the upstream `avx`, `neon` and `simd128` kernel modules
+// are removed from this vendored copy (no SIMD intrinsics, UNIVERSAL-CPU.md); `k_quants` always uses its
+// portable `vec_dot_unopt` paths, which upstream also uses on targets without those features.
 #[cfg(feature = "metal")]
 pub mod metal;
 #[cfg(not(feature = "metal"))]
@@ -25,10 +26,6 @@ mod cuda {
     pub use super::dummy_cuda::*;
 }
 
-#[cfg(target_feature = "neon")]
-pub mod neon;
-#[cfg(target_feature = "simd128")]
-pub mod simd128;
 pub mod utils;
 use half::{bf16, f16};
 

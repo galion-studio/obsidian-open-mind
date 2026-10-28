@@ -14,7 +14,7 @@
 use crate::gzip::GzWriter;
 use crate::sha256::{hex, Sha256};
 use crate::sqlite;
-use crate::tarw::{backup_exclude, TarWriter};
+use crate::tarw::{self, backup_exclude};
 use std::ffi::CString;
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io::{self, BufWriter, Read, Write};
@@ -61,6 +61,7 @@ pub const DNS_DIR: &str = "/root/galion-switch-20261018-2140";
 pub const DEFAULT_DEST: &str = "/var/backups/galion";
 pub const DEFAULT_KEEP: u64 = 12; // 12 x 6h = 3 days
 pub const DEFAULT_MINFREE_KB: u64 = 2_097_152;
+pub const DEFAULT_GZIP_LEVEL: u8 = 6;
 
 #[derive(Debug, Clone)]
 pub struct Opts {
@@ -72,6 +73,10 @@ pub struct Opts {
     /// None = the value was not an integer (bash's `[ -ge ]` then failed,
     /// which took the low-disk branch).
     pub minfree_kb: Option<u64>,
+    /// gzip/deflate level 0-9 (GALION_BACKUP_GZIP_LEVEL, default 6 = what
+    /// `tar -z` used). Only changes the .tar.gz bytes/size and CPU time, never
+    /// what is backed up; see docs/real-tests/backup-perf.md for the trade-off.
+    pub gzip_level: u8,
 }
 
 fn env_or(name: &str, default: &str) -> String {
@@ -83,18 +88,29 @@ fn env_or(name: &str, default: &str) -> String {
 }
 
 impl Opts {
-    /// The script's env interface: GALION_BACKUP_DEST, _KEEP, _MINFREE_KB.
+    /// The script's env interface: GALION_BACKUP_DEST, _KEEP, _MINFREE_KB
+    /// (+ GALION_BACKUP_GZIP_LEVEL, Rust only, default 6).
     pub fn from_env() -> Result<Opts, String> {
         let keep_s = env_or("GALION_BACKUP_KEEP", &DEFAULT_KEEP.to_string());
         let keep = keep_s.trim().parse::<u64>().map_err(|_| {
             format!("GALION_BACKUP_KEEP must be a non-negative integer, got {keep_s:?}")
         })?;
         let minfree = env_or("GALION_BACKUP_MINFREE_KB", &DEFAULT_MINFREE_KB.to_string());
+        let lvl_s = env_or("GALION_BACKUP_GZIP_LEVEL", &DEFAULT_GZIP_LEVEL.to_string());
+        let gzip_level = match lvl_s.trim().parse::<u8>() {
+            Ok(l) if l <= 9 => l,
+            _ => {
+                return Err(format!(
+                    "GALION_BACKUP_GZIP_LEVEL must be 0-9, got {lvl_s:?}"
+                ))
+            }
+        };
         Ok(Opts {
             root: PathBuf::from("/"),
             dest: PathBuf::from(env_or("GALION_BACKUP_DEST", DEFAULT_DEST)),
             keep,
             minfree_kb: minfree.trim().parse::<u64>().ok(),
+            gzip_level,
         })
     }
 
@@ -447,7 +463,7 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
     }
     let r = (|| -> io::Result<()> {
         let f = File::create(s.join("files/files.tar"))?;
-        let mut t = TarWriter::new(BufWriter::with_capacity(256 * 1024, f));
+        let mut t = tarw::writer(BufWriter::with_capacity(256 * 1024, f));
         t.cancel = interrupted;
         for p in &ops {
             t.add_tree(
@@ -478,8 +494,8 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
             .truncate(true)
             .mode(0o666)
             .open(&part)?;
-        let gz = GzWriter::new(BufWriter::with_capacity(256 * 1024, f), 6)?;
-        let mut t = TarWriter::new(gz);
+        let gz = GzWriter::new(BufWriter::with_capacity(256 * 1024, f), o.gzip_level as i32)?;
+        let mut t = tarw::writer(gz);
         t.cancel = interrupted;
         t.add_tree(&s, top.as_bytes(), &|_| false)?;
         t.finish()?

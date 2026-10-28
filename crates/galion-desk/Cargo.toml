@@ -21,4 +21,4 @@ openmind-config = { path = "../openmind-config" }
 nerve-client = { path = "../nerve-client" }
 
 [dev-dependencies]
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml

@@ -9,7 +9,7 @@
 #   grep    no inline asm, arch intrinsics, target-cpu / target-feature flags
 #   build   release builds, tier 1: x86_64 + aarch64 musl, workspace + omnode
 #   static  every built ELF has no PT_INTERP and no DT_NEEDED, right e_machine
-#   size    scripts/size-budget.sh (2 MiB, stripped) for each tier-1 target
+#   size    scripts/size-budget.sh (2 MiB, hermes-gateway 2.5 MiB, stripped) per tier-1 target
 #   check   cargo check, tier 2: armv7-unknown-linux-musleabihf, aarch64-linux-android
 #   clippy  (not in all) clippy -D warnings per tier-1 target
 #

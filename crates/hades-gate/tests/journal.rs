@@ -41,6 +41,10 @@ fn assert_record(action: &str, token: &str, expect: Decision) {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "journal::record stamps the real-time clock (and some tests use a temp dir), refused under Miri isolation; run in the FS pass"
+)]
 fn default_is_dry_run() {
     assert_record("heal-apply", "", Decision::DryRun);
     assert_record("switch", "no", Decision::DryRun);
@@ -55,6 +59,10 @@ fn default_is_dry_run() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "journal::record stamps the real-time clock (and some tests use a temp dir), refused under Miri isolation; run in the FS pass"
+)]
 fn the_public_test_token_no_longer_approves() {
     for action in ALLOW_LIST {
         assert_record(action, APPROVED_TEST_TOKEN, Decision::DryRun);
@@ -62,6 +70,10 @@ fn the_public_test_token_no_longer_approves() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "journal::record stamps the real-time clock (and some tests use a temp dir), refused under Miri isolation; run in the FS pass"
+)]
 fn kill_and_rotate_are_refused() {
     for action in ALWAYS_REFUSED {
         assert_record(action, "", Decision::Refused);
@@ -71,6 +83,10 @@ fn kill_and_rotate_are_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "journal::record stamps the real-time clock (and some tests use a temp dir), refused under Miri isolation; run in the FS pass"
+)]
 fn a_test_may_write_the_object_the_crate_does_not() {
     let row = record("switch", APPROVED_TEST_TOKEN);
     assert_eq!(row["decision"].as_str(), Some("DryRun"));
@@ -89,6 +105,10 @@ fn a_test_may_write_the_object_the_crate_does_not() {
 
 /// `record` returns JSON and writes no file. `kill` and `rotate` stay refused.
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "journal::record stamps the real-time clock (and some tests use a temp dir), refused under Miri isolation; run in the FS pass"
+)]
 fn record_returns_json_writes_no_file_and_kill_and_rotate_stay_refused() {
     assert_eq!(ALWAYS_REFUSED, ["kill", "rotate"]);
 

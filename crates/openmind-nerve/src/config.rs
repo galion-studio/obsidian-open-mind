@@ -35,6 +35,11 @@ pub enum Kind {
     Gaia,
     /// galion-nerve itself.
     SelfNerve,
+    /// A systemd timer (`x.timer`) and the oneshot service it starts
+    /// (`x.service`): the timer must be active, the last run must have
+    /// succeeded and finished within `max_age_s`. Observe-only: a timer is
+    /// never hard-down (no reflex acts on it).
+    Timer,
 }
 
 /// One monitored component.
@@ -66,6 +71,9 @@ pub struct Spec {
     /// marks the component degrading (never a hard failure: a restart cannot
     /// bring a missing route back, so the reflex must not act on it).
     pub deep: &'static [&'static str],
+    /// Timer kind: the last run must have finished within this many seconds
+    /// (0 = no age check).
+    pub max_age_s: u64,
 }
 
 const fn svc(
@@ -92,6 +100,7 @@ const fn svc(
         note: "",
         group: name,
         deep: &[],
+        max_age_s: 0,
     }
 }
 
@@ -136,6 +145,40 @@ pub fn default_specs(voice_unit: Option<String>, voice_port: Option<u16>) -> Vec
             note: "tuner quick tunnel (transient unit); never restarted: its trycloudflare URL would change",
             group: "edge",
             ..svc("tuner-quick", "tuner-quick.service", None, "", "AETHER", "tunnels", 0)
+        },
+        // T2.3 (slot 200): observe-only specs for the rest of the live VPS
+        // stack (`ss -ltn` + `systemctl` read-only, 2026-10-21 17:55 +02:00).
+        // restarts_per_hour 0 and critical false: the nerve reports them and
+        // never restarts or rolls them back; none of these units is in the
+        // reflex allowlist (reflex::ALLOW is unchanged).
+        Spec {
+            critical: false,
+            note: "POSEIDON work queue (leases, DLQ, spend caps); observe-only",
+            ..svc("openmind-queue", "openmind-queue.service", Some(19120), "/healthz", "POSEIDON", "queues", 0)
+        },
+        Spec {
+            critical: false,
+            note: "Galion One growth prototype (static, mock data), routed at one.galion.app/tanga/; observe-only",
+            ..svc("tanga-proto", "tanga-proto.service", Some(8671), "/tanga/", "ELEUTHIA", "galion-one", 0)
+        },
+        Spec {
+            critical: false,
+            note: "galion-nerve SHADOW (observe-only build, reflex off); never restarted by the nerve",
+            ..svc("galion-nerve-shadow", "galion-nerve-shadow.service", Some(8672), "/healthz", "AETHER", "nerve", 0)
+        },
+        Spec {
+            kind: Kind::Timer,
+            critical: false,
+            // OnCalendar 00/6:17 + RandomizedDelaySec 5 min: two missed runs + 1 h.
+            max_age_s: 13 * 3600,
+            note: "backup every 6 h (galion-backup.timer -> galion-backup.service oneshot); observe-only",
+            ..svc("galion-backup", "galion-backup.timer", None, "", "DEMETER", "survival", 0)
+        },
+        Spec {
+            expected: false,
+            critical: false,
+            note: "HADES admin approval gate (dry-run, never executes); not installed on the VPS yet",
+            ..svc("hades-gate", "hades-gate.service", None, "", "HADES", "teardown", 0)
         },
     ];
     let vu: &'static str = Box::leak(
@@ -257,6 +300,12 @@ pub fn parse_access_logs(s: &str) -> Vec<AccessLog> {
         .collect()
 }
 
+/// Default `NERVE_KNOWN_PORTS`: listeners on the VPS that are expected but
+/// are not (or not only) a component health port. Matches the live VPS
+/// `ss -ltn` of 2026-10-21 17:55 +02:00 together with the component table,
+/// plus 8674 gaia-cortex (deployed 2026-10-21 19:02 +02:00, seen 19:42).
+pub const KNOWN_PORTS_VPS: &str = "25,53,8670,8671,8672,8674,18800,20241,20242";
+
 fn ports(s: &str) -> Vec<u16> {
     s.split([',', ' '])
         .filter_map(|p| p.trim().parse().ok())
@@ -314,10 +363,10 @@ impl Config {
             journal: flag("NERVE_JOURNAL", true),
             systemd: flag("NERVE_SYSTEMD", true),
             access_logs: parse_access_logs(&get("NERVE_ACCESS_LOGS").unwrap_or_default()),
-            // 8670 nerve, 8671 tanga-serve, 20241/20242 cloudflared metrics, 25 postfix, 53 resolved.
-            known_ports: ports(
-                &get("NERVE_KNOWN_PORTS").unwrap_or_else(|| "25,53,8670,8671,20241,20242".into()),
-            ),
+            // 25 postfix, 53 resolved, 8670 nerve, 8671 tanga-serve, 8672 nerve
+            // shadow, 8674 gaia-cortex, 18800 forge-link (box ssh reverse tunnel behind
+            // forge.galion.studio), 20241/20242 cloudflared metrics.
+            known_ports: ports(&get("NERVE_KNOWN_PORTS").unwrap_or_else(|| KNOWN_PORTS_VPS.into())),
             public_ok_ports: ports(&get("NERVE_PUBLIC_OK_PORTS").unwrap_or_else(|| "22".into())),
             ddos_min_rps: get("NERVE_DDOS_MIN_RPS")
                 .and_then(|v| v.parse().ok())
@@ -352,9 +401,10 @@ fn leak(s: &str) -> &'static str {
 /// ```
 ///
 /// Keys: name (required), unit, port, path ("/health"), metrics_port, kind
-/// (service|tunnel), gaia ("AETHER"), system, group (name), critical (true),
+/// (service|tunnel|timer), gaia ("AETHER"), system, group (name), critical (true),
 /// expected (true), restarts_per_hour (0: file-defined components are never
-/// restarted unless asked), note, deep (array of extra loopback paths, e.g.
+/// restarted unless asked), note, max_age_s (timer: last-run age limit in
+/// seconds, 0 = none), deep (array of extra loopback paths, e.g.
 /// `["/api/v1/admin"]`; none by default). The host and the nerve itself are added
 /// when the file does not list them.
 pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
@@ -376,7 +426,12 @@ pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
         let kind = match s("kind").unwrap_or("service") {
             "service" => Kind::Service,
             "tunnel" => Kind::Tunnel,
-            other => return Err(format!("components[{i}]: kind {other:?} (service|tunnel)")),
+            "timer" => Kind::Timer,
+            other => {
+                return Err(format!(
+                    "components[{i}]: kind {other:?} (service|tunnel|timer)"
+                ))
+            }
         };
         let b = |k: &str, d: bool| c.get(k).and_then(|x| x.as_bool()).unwrap_or(d);
         let deep = parse_deep(c.get("deep")).map_err(|e| format!("components[{i}]: {e}"))?;
@@ -401,6 +456,7 @@ pub fn parse_specs(text: &str) -> Result<Vec<Spec>, String> {
             note: leak(s("note").unwrap_or("")),
             group: leak(s("group").unwrap_or(name)),
             deep,
+            max_age_s: c.get("max_age_s").and_then(|x| x.as_u64()).unwrap_or(0),
         });
     }
     let base = default_specs(None, None);
@@ -443,7 +499,15 @@ pub fn specs_for(cfg: &Config) -> Result<Vec<Spec>, String> {
         Some(p) => {
             parse_specs(&std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?)
         }
-        None => Ok(default_specs(cfg.voice_unit.clone(), cfg.voice_port)),
+        None => {
+            // A nerve never probes its own port as a component: on the shadow
+            // (8672) the shadow is "galion-nerve" (self), not a second entry.
+            let own = cfg.addr.port();
+            Ok(default_specs(cfg.voice_unit.clone(), cfg.voice_port)
+                .into_iter()
+                .filter(|s| s.kind == Kind::SelfNerve || s.port != Some(own))
+                .collect())
+        }
     }
 }
 
@@ -538,7 +602,106 @@ mod file_tests {
         assert_eq!(a[0].component.as_deref(), Some("tuner"));
         assert_eq!(a[1].component, None);
         let c = Config::from_env(&|_| None).unwrap();
-        assert_eq!(c.known_ports, vec![25, 53, 8670, 8671, 20241, 20242]);
+        assert_eq!(
+            c.known_ports,
+            vec![25, 53, 8670, 8671, 8672, 8674, 18800, 20241, 20242]
+        );
         assert!(c.reflex && c.journal);
+    }
+}
+
+#[cfg(test)]
+mod t23_tests {
+    use super::*;
+
+    /// Live VPS `ss -ltn` ports, 2026-10-21 17:55 +02:00 + 8674 (19:42) (read-only).
+    const LIVE_PORTS: [u16; 19] = [
+        22, 25, 53, 8002, 8080, 8091, 8420, 8642, 8646, 8650, 8660, 8670, 8671, 8672, 8674, 18800,
+        19120, 20241, 20242,
+    ];
+
+    #[test]
+    fn t23_specs_are_observe_only() {
+        let s = default_specs(None, None);
+        let find = |n: &str| s.iter().find(|x| x.name == n).unwrap();
+        for (n, unit, port, path, gaia) in [
+            (
+                "openmind-queue",
+                "openmind-queue.service",
+                Some(19120),
+                "/healthz",
+                "POSEIDON",
+            ),
+            (
+                "tanga-proto",
+                "tanga-proto.service",
+                Some(8671),
+                "/tanga/",
+                "ELEUTHIA",
+            ),
+            (
+                "galion-nerve-shadow",
+                "galion-nerve-shadow.service",
+                Some(8672),
+                "/healthz",
+                "AETHER",
+            ),
+            ("galion-backup", "galion-backup.timer", None, "", "DEMETER"),
+            ("hades-gate", "hades-gate.service", None, "", "HADES"),
+        ] {
+            let x = find(n);
+            assert_eq!(x.unit, Some(unit), "{n}");
+            assert_eq!(x.port, port, "{n}");
+            assert_eq!(x.path, path, "{n}");
+            assert_eq!(x.gaia, gaia, "{n}");
+            assert_eq!(x.restarts_per_hour, 0, "{n}: observe-only");
+            assert!(!x.critical, "{n}: never hard-down on a probe");
+            assert!(
+                !crate::reflex::ALLOW.contains(&unit),
+                "{n}: {unit} must not be in the reflex allowlist"
+            );
+        }
+        assert_eq!(find("galion-backup").kind, Kind::Timer);
+        assert_eq!(find("galion-backup").max_age_s, 13 * 3600);
+        assert!(!find("hades-gate").expected);
+        assert_eq!(crate::reflex::ALLOW.len(), 10, "allowlist unchanged");
+    }
+
+    #[test]
+    fn known_ports_cover_the_live_vps() {
+        let c = Config::from_env(&|_| None).unwrap();
+        let specs = specs_for(&c).unwrap();
+        let om = crate::owners::OwnerMap::for_config(&specs, &c);
+        for p in LIVE_PORTS {
+            assert!(om.is_owned(p), "live port {p} has no owner");
+        }
+        let no = std::collections::BTreeMap::new();
+        assert_eq!(om.lookup(19120, &no).owner, "openmind-queue");
+        assert_eq!(om.lookup(8671, &no).owner, "tanga-proto");
+        assert_eq!(om.lookup(8672, &no).owner, "galion-nerve-shadow");
+        assert!(om.lookup(18800, &no).owner.starts_with("forge-link"));
+        // The old documented-unowned ports still report as unknown owner.
+        assert!(!om.is_owned(8652));
+    }
+
+    #[test]
+    fn shadow_does_not_list_itself() {
+        let c =
+            Config::from_env(&|k| (k == "NERVE_ADDR").then(|| "127.0.0.1:8672".into())).unwrap();
+        let s = specs_for(&c).unwrap();
+        assert!(!s.iter().any(|x| x.name == "galion-nerve-shadow"));
+        assert!(s.iter().any(|x| x.name == "galion-nerve"));
+        let main = specs_for(&Config::from_env(&|_| None).unwrap()).unwrap();
+        assert_eq!(main.len(), s.len() + 1);
+    }
+
+    #[test]
+    fn timer_kind_from_a_components_file() {
+        let s = parse_specs(r#"[{"name":"bk","unit":"bk.timer","kind":"timer","max_age_s":3600}]"#)
+            .unwrap();
+        assert_eq!(s[0].kind, Kind::Timer);
+        assert_eq!(s[0].max_age_s, 3600);
+        assert_eq!(s[0].restarts_per_hour, 0);
+        assert!(parse_specs(r#"[{"name":"bk","kind":"cron"}]"#).is_err());
     }
 }

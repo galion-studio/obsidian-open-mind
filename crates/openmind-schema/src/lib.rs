@@ -404,6 +404,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "stats /etc/openmind/openmind.toml and reads the process env (FS), refused under Miri isolation; run in the FS pass"
+    )]
     fn a_cpu_box_does_not_turn_weights_on() {
         let stack = Stack::cpu_desk();
         assert!(!stack.machine.weights());
@@ -419,6 +423,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads a TOML config file (FS), refused under Miri isolation; run in the FS pass"
+    )]
     fn missing_config_file_keeps_builtin_base_urls() {
         let missing = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../target/test-out/openmind-schema/does-not-exist.toml");
@@ -440,6 +448,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads a TOML config file (FS), refused under Miri isolation; run in the FS pass"
+    )]
     fn example_config_uses_loopback_defaults() {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../openmind-config/openmind.example.toml");
@@ -452,6 +464,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads a TOML config file (FS), refused under Miri isolation; run in the FS pass"
+    )]
     fn hosts_and_env_build_laptop_base_url() {
         let path = write_fixture(
             "hosts.toml",
@@ -482,6 +498,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads a TOML config file (FS), refused under Miri isolation; run in the FS pass"
+    )]
     fn provider_list_base_url_wins() {
         let path = write_fixture(
             "providers.toml",
@@ -517,11 +537,55 @@ base_url = "http://extra.example.invalid/v1"
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads a TOML config file (FS), refused under Miri isolation; run in the FS pass"
+    )]
     fn bad_config_file_is_an_error() {
         let path = write_fixture("bad.toml", "[ports]\nollama = \"nope\"\n");
         let err = Stack::cpu_desk_from_env(&env_for(&path, &[])).unwrap_err();
         let message = err.to_string();
         assert!(message.contains("bad config"), "{message}");
+    }
+
+    /// The parse + env + provider-list path of `cpu_desk_from_env` on in-memory
+    /// TOML (no file), so Miri checks it with isolation on. Test-only.
+    #[test]
+    fn in_memory_config_builds_the_stack() {
+        let file = Path::new("in-memory.toml");
+        let text = "[hosts]\nollama = \"mem.example.invalid\"\n[ports]\nollama = 7\n\n[providers.openrouter]\nbase_url = \"  https://router.example.invalid/api/v1  \"\n\n[providers.extra]\nbase_url = \"http://extra.example.invalid/v1\"\n";
+        let mut cfg = Config::from_toml(text, file).unwrap();
+        let none = |_: &str| None;
+        cfg.apply_env(&none).unwrap();
+        let urls = provider_base_urls(text, file).unwrap();
+        let stack = stack_from(&cfg, &urls);
+        assert_eq!(
+            base_url(&stack, "laptop"),
+            "http://mem.example.invalid:7/v1"
+        );
+        assert_eq!(
+            base_url(&stack, "openrouter"),
+            "https://router.example.invalid/api/v1"
+        );
+        assert!(stack.providers.iter().all(|row| row.id != "extra"));
+        let env = |key: &str| match key {
+            "OPENMIND_HOSTS_OLLAMA" => Some("env.example.invalid".to_string()),
+            "OPENMIND_PORTS_OLLAMA" => Some("9".to_string()),
+            _ => None,
+        };
+        let mut cfg = Config::from_toml(text, file).unwrap();
+        cfg.apply_env(&env).unwrap();
+        let stack = stack_from(&cfg, &BTreeMap::new());
+        assert_eq!(
+            base_url(&stack, "laptop"),
+            "http://env.example.invalid:9/v1"
+        );
+        assert!(Config::from_toml("[ports]\nollama = \"nope\"\n", file).is_err());
+        assert!(provider_base_urls("[providers", file).is_err());
+        let raw = serde_json::to_string(&stack).unwrap();
+        let back: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert!(back.is_object());
+        assert!(!raw.contains("sk-"));
     }
 
     /// 2026-10-25T02:59:59+02:00, 2026-10-25T02:00:00+01:00, and 2026-12-01T13:00:00+01:00.
@@ -603,6 +667,10 @@ base_url = "http://extra.example.invalid/v1"
     }
 
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads the real-time clock, refused under Miri isolation; run in the FS pass"
+    )]
     fn nerve_event_now_is_zagreb_rfc3339() {
         let event = NerveEvent::now(
             "auth.log",

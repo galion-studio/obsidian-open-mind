@@ -59,6 +59,17 @@ pub const DENY: &[&str] = &[
 
 pub const MAX_ACTIONS_PER_CYCLE: usize = 2;
 
+/// `YYYYMMDD-HHMMSS+HHMM` (galion-deploy backup stamp, Zagreb offset).
+pub fn is_backup_stamp(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 20
+        && b.iter().enumerate().all(|(i, c)| match i {
+            8 => *c == b'-',
+            15 => *c == b'+' || *c == b'-',
+            _ => c.is_ascii_digit(),
+        })
+}
+
 pub fn permitted(unit: &str) -> Result<(), &'static str> {
     if DENY.iter().any(|d| unit.contains(d)) {
         return Err("unit is on the never-touch list");
@@ -105,8 +116,24 @@ pub struct Reflex {
     restarts: HashMap<String, VecDeque<u64>>,
     dry_restarts: HashMap<String, VecDeque<u64>>,
     rollbacks: HashMap<String, u64>,
+    /// Dry-run rollbacks, kept apart like `dry_restarts` so a dry run obeys the
+    /// same 1-per-unit-per-24 h limit the live run would (T3.2), in memory only.
+    dry_rollbacks: HashMap<String, u64>,
     pub recent: VecDeque<Value>,
     pub persist: bool,
+    /// Top-level keys of `reflex.json` this version does not know (written by
+    /// an older or newer nerve). Kept and written back unchanged on save.
+    extra: serde_json::Map<String, Value>,
+    /// `reflex.json` existed but was unreadable: the live restart budget is
+    /// treated as spent until this instant (fail closed, no budget reset).
+    pub budget_unknown_until: u64,
+    /// What happened while loading the state dir (None when clean).
+    pub load_note: Option<String>,
+    /// Replay / audit runs: always dry-run, whatever NERVE_DRY_RUN or the
+    /// `mode` file say, so nothing is ever executed.
+    pub force_dry: bool,
+    /// When set, every audit entry is also appended here (unbounded; replay only).
+    pub log: Option<Vec<Value>>,
 }
 
 impl Reflex {
@@ -122,8 +149,14 @@ impl Reflex {
             restarts: HashMap::new(),
             dry_restarts: HashMap::new(),
             rollbacks: HashMap::new(),
+            dry_rollbacks: HashMap::new(),
             recent: VecDeque::new(),
             persist: true,
+            extra: serde_json::Map::new(),
+            budget_unknown_until: 0,
+            load_note: None,
+            force_dry: false,
+            log: None,
         };
         r.load();
         r
@@ -131,6 +164,9 @@ impl Reflex {
 
     /// `<data_dir>/mode` ("live" or "dry-run") overrides NERVE_DRY_RUN at runtime.
     pub fn dry_run(&self) -> bool {
+        if self.force_dry {
+            return true;
+        }
         match std::fs::read_to_string(self.data_dir.join("mode")) {
             Ok(m) if m.trim() == "live" => false,
             Ok(m) if m.trim() == "dry-run" => true,
@@ -143,38 +179,93 @@ impl Reflex {
     }
 
     fn load(&mut self) {
-        let Ok(s) = std::fs::read_to_string(self.state_path()) else {
-            return;
-        };
-        let Ok(v) = serde_json::from_str::<Value>(&s) else {
-            return;
-        };
-        if let Some(m) = v.get("restarts").and_then(Value::as_object) {
-            for (k, arr) in m {
-                let q: VecDeque<u64> = arr
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_u64)
-                    .collect();
-                self.restarts.insert(k.clone(), q);
+        let path = self.state_path();
+        let s = match std::fs::read(&path) {
+            Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(e) => {
+                self.load_failed(&path, &format!("unreadable: {e}"));
+                return;
             }
-        }
-        if let Some(m) = v.get("rollbacks").and_then(Value::as_object) {
-            for (k, t) in m {
-                if let Some(t) = t.as_u64() {
-                    self.rollbacks.insert(k.clone(), t);
+        };
+        let v = match serde_json::from_str::<Value>(&s) {
+            Ok(Value::Object(m)) => m,
+            Ok(_) => {
+                self.load_failed(&path, "not a JSON object");
+                return;
+            }
+            Err(e) => {
+                self.load_failed(&path, &format!("bad JSON: {e}"));
+                return;
+            }
+        };
+        for (k, val) in v {
+            match k.as_str() {
+                // Timestamps: integers, floats, numeric strings or RFC 3339
+                // (older layouts), a bare number is one restart.
+                "restarts" => {
+                    for (unit, arr) in val.as_object().into_iter().flatten() {
+                        let q: VecDeque<u64> = match arr {
+                            Value::Array(a) => {
+                                a.iter().filter_map(crate::util::json_secs).collect()
+                            }
+                            other => crate::util::json_secs(other).into_iter().collect(),
+                        };
+                        let mut q: Vec<u64> = q.into();
+                        q.sort_unstable();
+                        self.restarts.insert(unit.clone(), q.into());
+                    }
+                }
+                "rollbacks" => {
+                    for (unit, t) in val.as_object().into_iter().flatten() {
+                        if let Some(t) = crate::util::json_secs(t) {
+                            self.rollbacks.insert(unit.clone(), t);
+                        }
+                    }
+                }
+                _ => {
+                    self.extra.insert(k, val);
                 }
             }
         }
+    }
+
+    /// `reflex.json` exists but cannot be used: keep a copy, and treat the
+    /// live restart budget as spent for an hour (the window it covers)
+    /// rather than silently starting from zero.
+    fn load_failed(&mut self, path: &Path, why: &str) {
+        let now = now_secs();
+        let copy = crate::util::quarantine(path, now);
+        self.budget_unknown_until = now + 3600;
+        self.load_note = Some(format!(
+            "{} {why}; copy at {}; live restarts held until {}",
+            path.display(),
+            copy.map(|p| p.display().to_string())
+                .unwrap_or_else(|| "(copy failed)".into()),
+            ts(self.budget_unknown_until)
+        ));
+        eprintln!(
+            "<4>galion-nerve reflex: {}",
+            self.load_note.as_deref().unwrap_or("")
+        );
     }
 
     fn save(&self) {
         if !self.persist {
             return;
         }
-        let v = json!({"restarts": self.restarts, "rollbacks": self.rollbacks});
-        let _ = write_atomic(&self.state_path(), v.to_string().as_bytes());
+        let mut v = self.extra.clone();
+        v.insert("restarts".into(), json!(self.restarts));
+        v.insert("rollbacks".into(), json!(self.rollbacks));
+        let _ = write_atomic(&self.state_path(), Value::Object(v).to_string().as_bytes());
+    }
+
+    /// True when another restart of `unit` fits the hourly budget.
+    pub fn budget_left(&self, unit: &str, now: u64, dry: bool, per_hour: usize) -> bool {
+        if !dry && now < self.budget_unknown_until {
+            return false;
+        }
+        self.used(unit, now, dry) < per_hour
     }
 
     pub fn used(&self, unit: &str, now: u64, dry: bool) -> usize {
@@ -194,11 +285,25 @@ impl Reflex {
         let mut best: Option<(u64, PathBuf)> = None;
         for e in rd.flatten() {
             let n = e.file_name().to_string_lossy().into_owned();
-            if !(n.starts_with(&pre) && n.ends_with(".bin")) {
+            // Only `<svc>-<YYYYMMDD-HHMMSS+HHMM>.bin`, exactly what galion-deploy
+            // writes: `tuner-` must not pick up a `tuner-quick-...bin` backup
+            // (T3.2 audit: cross-unit rollback).
+            let Some(stamp) = n.strip_prefix(&pre).and_then(|x| x.strip_suffix(".bin")) else {
+                continue;
+            };
+            if !is_backup_stamp(stamp) {
                 continue;
             }
-            let m = e.metadata().ok()?.modified().ok()?;
-            let secs = m.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+            let Some(secs) = e
+                .metadata()
+                .ok()
+                .filter(|m| m.is_file())
+                .and_then(|m| m.modified().ok())
+                .and_then(|m| m.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+            else {
+                continue;
+            };
             if best.as_ref().is_none_or(|b| secs > b.0) {
                 best = Some((secs, e.path()));
             }
@@ -300,7 +405,7 @@ impl Reflex {
             };
         }
         let dry = self.dry_run();
-        if self.used(unit, now, dry) < c.spec.restarts_per_hour as usize {
+        if self.budget_left(unit, now, dry, c.spec.restarts_per_hour as usize) {
             return Decision::Restart {
                 unit: unit.into(),
                 reason,
@@ -309,8 +414,15 @@ impl Reflex {
         let svc = unit.trim_end_matches(".service");
         if self.rollback_enabled
             && down
+            && (dry || now >= self.budget_unknown_until)
             && self.deploy_bin.exists()
-            && self.rollbacks.get(unit).is_none_or(|t| *t + 86400 < now)
+            && (if dry {
+                &self.dry_rollbacks
+            } else {
+                &self.rollbacks
+            })
+            .get(unit)
+            .is_none_or(|t| *t + 86400 < now)
             && unit != "cloudflared.service"
         {
             if let Some(b) = self.newest_backup(svc, now) {
@@ -338,12 +450,20 @@ impl Reflex {
         if self.recent.len() >= 50 {
             self.recent.pop_front();
         }
+        if let Some(l) = self.log.as_mut() {
+            l.push(entry.clone());
+        }
         self.recent.push_back(entry);
     }
 
     /// Carry out one decision (or log what would be done in dry-run).
     pub fn execute(&mut self, comp: &str, d: &Decision, alerts: &mut Alerts) -> bool {
-        let now = now_secs();
+        self.execute_at(comp, d, alerts, now_secs())
+    }
+
+    /// [`Reflex::execute`] at an explicit time: the engine passes its cycle time
+    /// so a replay keeps the restart budget on the capture clock (T3.2).
+    pub fn execute_at(&mut self, comp: &str, d: &Decision, alerts: &mut Alerts, now: u64) -> bool {
         let dry = self.dry_run();
         let mode = if dry { "dry-run" } else { "live" };
         match d {
@@ -443,7 +563,9 @@ impl Reflex {
                         None => ("systemd-run timed out".to_string(), false),
                     }
                 };
-                if !dry {
+                if dry {
+                    self.dry_rollbacks.insert(unit.clone(), now);
+                } else {
                     self.rollbacks.insert(unit.clone(), now);
                     self.save();
                 }
@@ -552,6 +674,36 @@ mod tests {
     }
 
     #[test]
+    fn t23_observe_only_specs_never_get_a_decision() {
+        // Slot 200: the five T2.3 specs, hard-down for 10 cycles, with a
+        // deploy backup and galion-deploy present (worst case): no decision.
+        let d = tmp("t23");
+        let bk = d.join("backups");
+        std::fs::create_dir_all(&bk).unwrap();
+        let dep = d.join("galion-deploy");
+        std::fs::write(&dep, "").unwrap();
+        let mut r = Reflex::new(d.clone(), true, 1);
+        r.deploy_bin = dep;
+        r.deploy_backups = bk.clone();
+        for n in [
+            "openmind-queue",
+            "tanga-proto",
+            "galion-nerve-shadow",
+            "galion-backup",
+            "hades-gate",
+        ] {
+            std::fs::write(bk.join(format!("{n}-20261021-170000+0200.bin")), "").unwrap();
+            let c = down_comp(n, 10, "failed", "exit-code", "enabled");
+            assert_eq!(r.decide(&c, 1300, false), Decision::None, "{n}");
+            assert!(
+                permitted(c.spec.unit.unwrap()).is_err(),
+                "{n}: not in ALLOW"
+            );
+        }
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
     fn waits_for_fail_cycles_then_rate_limits() {
         let d = tmp("rl");
         let mut r = Reflex::new(d.clone(), true, 3);
@@ -615,7 +767,7 @@ mod tests {
         // Exhausted budget + recent backup + deploy tool -> rollback.
         let bk = d.join("backups");
         std::fs::create_dir_all(&bk).unwrap();
-        std::fs::write(bk.join("tuner-20261018-2200+0200.bin"), b"\x7fELF").unwrap();
+        std::fs::write(bk.join("tuner-20261018-220000+0200.bin"), b"\x7fELF").unwrap();
         std::fs::write(d.join("deploy"), b"#!/bin/sh\n").unwrap();
         r.deploy_backups = bk;
         r.deploy_bin = d.join("deploy");
@@ -625,7 +777,7 @@ mod tests {
             .insert("tuner.service".into(), VecDeque::from(vec![now, now, now]));
         match r.decide(&c, now, false) {
             Decision::Rollback { backup, .. } => {
-                assert!(backup.ends_with("tuner-20261018-2200+0200.bin"))
+                assert!(backup.ends_with("tuner-20261018-220000+0200.bin"))
             }
             other => panic!("{other:?}"),
         }
@@ -644,6 +796,164 @@ mod tests {
         }
         let r = Reflex::new(d.clone(), true, 1);
         assert_eq!(r.used("tuner.service", now, false), 2);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn old_reflex_json_forms_and_unknown_keys_survive() {
+        let d = tmp("t41-old");
+        let now = now_secs();
+        let old = json!({
+            "restarts": {
+                "hermes-rs.service": [now - 7200, now - 600],
+                "galion-one.service": [(now - 300) as f64 + 0.5, ts(now - 900), "junk", null],
+                "cloudflared.service": format!("{}", now - 60),
+            },
+            "rollbacks": {"tuner.service": ts(now - 3600), "console.service": "nope"},
+            "layout": 1,
+            "future": {"x": [1, 2]},
+        });
+        std::fs::write(d.join("reflex.json"), old.to_string()).unwrap();
+        let mut r = Reflex::new(d.clone(), true, 3);
+        r.deploy_bin = d.join("no-deploy");
+        assert!(r.load_note.is_none());
+        assert_eq!(r.used("hermes-rs.service", now, false), 1);
+        assert_eq!(r.used("galion-one.service", now, false), 2);
+        assert_eq!(r.used("cloudflared.service", now, false), 1);
+        assert_eq!(r.rollbacks.get("tuner.service"), Some(&(now - 3600)));
+        assert!(!r.rollbacks.contains_key("console.service"));
+        // A (dry) action saves: unknown keys are written back unchanged.
+        let mut a = quiet_alerts();
+        let c = down_comp("tuner", 3, "failed", "exit-code", "enabled");
+        let dec = r.decide(&c, now, false);
+        assert!(matches!(dec, Decision::Restart { .. }), "{dec:?}");
+        r.execute("tuner", &dec, &mut a);
+        let v: Value =
+            serde_json::from_str(&std::fs::read_to_string(d.join("reflex.json")).unwrap()).unwrap();
+        assert_eq!(v["layout"], 1);
+        assert_eq!(v["future"], json!({"x": [1, 2]}));
+        assert_eq!(
+            v["restarts"]["galion-one.service"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        // Reloading the saved file gives the same budgets (no drift).
+        let r2 = Reflex::new(d.clone(), true, 3);
+        assert_eq!(r2.used("galion-one.service", now, false), 2);
+        assert_eq!(r2.used("hermes-rs.service", now, false), 1);
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn corrupt_reflex_json_holds_live_actions_for_an_hour() {
+        let d = tmp("t41-bad");
+        std::fs::write(d.join("reflex.json"), "{\"restarts\": [").unwrap();
+        std::fs::write(d.join("mode"), "live\n").unwrap();
+        let r = Reflex::new(d.clone(), true, 1);
+        let note = r.load_note.clone().unwrap();
+        assert!(
+            note.contains("bad JSON") && note.contains("held until"),
+            "{note}"
+        );
+        let now = now_secs();
+        assert!(r.budget_unknown_until >= now + 3500);
+        // A copy of the damaged file is kept next to it.
+        let copies = std::fs::read_dir(&d)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("reflex.json.corrupt-")
+            })
+            .count();
+        assert_eq!(copies, 1);
+        // Live: no restart and no rollback inside the hour, even with a
+        // recent backup and the deploy tool present.
+        let bk = d.join("backups");
+        std::fs::create_dir_all(&bk).unwrap();
+        std::fs::write(bk.join("tuner-20261018-2200+0200.bin"), b"\x7fELF").unwrap();
+        std::fs::write(d.join("deploy"), b"#!/bin/sh\n").unwrap();
+        let mut r = r;
+        r.deploy_backups = bk;
+        r.deploy_bin = d.join("deploy");
+        let c = down_comp("tuner", 1, "failed", "exit-code", "enabled");
+        assert!(matches!(r.decide(&c, now, false), Decision::Limited { .. }));
+        assert!(!r.budget_left("tuner.service", now, false, 3));
+        // Dry-run budgets are not affected; after the hour live works again.
+        assert!(r.budget_left("tuner.service", now, true, 3));
+        assert!(r.budget_left("tuner.service", now + 3601, false, 3));
+        // A non-object file is treated the same way.
+        std::fs::write(d.join("reflex.json"), "[1,2]").unwrap();
+        let r3 = Reflex::new(d.clone(), true, 1);
+        assert!(r3
+            .load_note
+            .as_deref()
+            .unwrap_or("")
+            .contains("not a JSON object"));
+        // No file at all is a clean first boot, not a hold.
+        let e = tmp("t41-empty");
+        let r4 = Reflex::new(e.clone(), true, 1);
+        assert!(r4.load_note.is_none() && r4.budget_unknown_until == 0);
+        let _ = std::fs::remove_dir_all(d);
+        let _ = std::fs::remove_dir_all(e);
+    }
+
+    #[test]
+    fn rollback_never_takes_another_units_backup() {
+        let d = tmp("xunit");
+        let bk = d.join("backups");
+        std::fs::create_dir_all(&bk).unwrap();
+        // Only a tuner-quick backup and junk: tuner must not roll back to them.
+        std::fs::write(bk.join("tuner-quick-20261021-043200+0200.bin"), b"x").unwrap();
+        std::fs::write(bk.join("tuner-new.bin"), b"x").unwrap();
+        std::fs::create_dir_all(bk.join("tuner-20261021-043300+0200.bin")).unwrap();
+        std::fs::write(d.join("deploy"), b"#!/bin/sh\n").unwrap();
+        let mut r = Reflex::new(d.clone(), true, 1);
+        r.deploy_backups = bk.clone();
+        r.deploy_bin = d.join("deploy");
+        let now = now_secs();
+        r.dry_restarts
+            .insert("tuner.service".into(), VecDeque::from(vec![now, now, now]));
+        let c = down_comp("tuner", 1, "failed", "exit-code", "enabled");
+        assert!(matches!(r.decide(&c, now, false), Decision::Limited { .. }));
+        std::fs::write(bk.join("tuner-20261021-043200+0200.bin"), b"x").unwrap();
+        match r.decide(&c, now, false) {
+            Decision::Rollback { backup, .. } => {
+                assert!(backup.ends_with("tuner-20261021-043200+0200.bin"))
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(is_backup_stamp("20261021-043200+0200"));
+        assert!(!is_backup_stamp("quick-20261021-043200+0200"));
+        assert!(!is_backup_stamp("20261018-2200+0200"));
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn execute_at_keeps_budget_on_the_given_clock() {
+        let d = tmp("clock");
+        let mut r = Reflex::new(d.clone(), true, 1);
+        r.persist = false;
+        let mut a = quiet_alerts();
+        let c = down_comp("tuner", 1, "failed", "exit-code", "enabled");
+        let t0 = 1_790_000_000;
+        for _ in 0..3 {
+            let dec = r.decide(&c, t0, false);
+            assert!(matches!(dec, Decision::Restart { .. }));
+            r.execute_at("tuner", &dec, &mut a, t0);
+        }
+        assert!(matches!(
+            r.decide(&c, t0 + 60, false),
+            Decision::Limited { .. }
+        ));
+        // An hour later on the same clock the budget is back.
+        assert!(matches!(
+            r.decide(&c, t0 + 3601, false),
+            Decision::Restart { .. }
+        ));
         let _ = std::fs::remove_dir_all(d);
     }
 }

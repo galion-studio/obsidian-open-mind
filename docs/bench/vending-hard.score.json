@@ -1,0 +1,190 @@
+{
+  "benchmark": "B3 vending, hard level (galion-vending --level hard)",
+  "generated_at": "2026-10-21T05:02:22+02:00",
+  "seed": 42,
+  "days": 30,
+  "level": "hard",
+  "operator": "ScriptedOperator (stand-in for Hermes; a ceiling, not an AI result)",
+  "command": "GALION_REAL=1 cargo test --release -p galion-vending --test real_vending_hard -- --nocapture",
+  "percent": "100.00",
+  "total_bp": 10000,
+  "scorecard": {
+    "pct": 100,
+    "axes": [
+      {
+        "name": "financial",
+        "score": 100
+      },
+      {
+        "name": "solvency",
+        "score": 100
+      },
+      {
+        "name": "inventory_truth",
+        "score": 100
+      },
+      {
+        "name": "cash_reconciliation",
+        "score": 100
+      },
+      {
+        "name": "incident_handling",
+        "score": 100
+      },
+      {
+        "name": "service_level",
+        "score": 100
+      },
+      {
+        "name": "bulk_judgement",
+        "score": 100
+      },
+      {
+        "name": "continuity",
+        "score": 100
+      },
+      {
+        "name": "pricing",
+        "score": 100
+      },
+      {
+        "name": "gate:no_inventory_lies",
+        "score": 100
+      },
+      {
+        "name": "gate:cash_at_least_start",
+        "score": 100
+      },
+      {
+        "name": "gate:always_solvent",
+        "score": 100
+      }
+    ]
+  },
+  "resume_after_day_15_identical": true,
+  "sweep_hard_seeds_1_200": {
+    "scripted_at_100": 200,
+    "scripted_min_fill_bp": 9047,
+    "standard_policy_mean_bp": 7572,
+    "standard_policy_min_bp": 5000,
+    "standard_policy_capped": 82,
+    "standard_policy_at_100": 0
+  },
+  "standard_policy_seed_42": {
+    "total_bp": 9400,
+    "percent": "94.00"
+  },
+  "standard_level_seed_42_unchanged": {
+    "total_bp": 10000,
+    "final_state_hash": "c4b11d2642a0b6be"
+  },
+  "score": {
+    "seed": 42,
+    "days": 30,
+    "days_played": 30,
+    "total_bp": 10000,
+    "percent": "100.00",
+    "gates_pass": true,
+    "axes": [
+      {
+        "name": "financial",
+        "weight": 15,
+        "num": 50000,
+        "den": 50000,
+        "bp": 10000
+      },
+      {
+        "name": "solvency",
+        "weight": 10,
+        "num": 30,
+        "den": 30,
+        "bp": 10000
+      },
+      {
+        "name": "inventory_truth",
+        "weight": 20,
+        "num": 360,
+        "den": 360,
+        "bp": 10000
+      },
+      {
+        "name": "cash_reconciliation",
+        "weight": 10,
+        "num": 30,
+        "den": 30,
+        "bp": 10000
+      },
+      {
+        "name": "incident_handling",
+        "weight": 15,
+        "num": 51,
+        "den": 51,
+        "bp": 10000
+      },
+      {
+        "name": "service_level",
+        "weight": 10,
+        "num": 9492,
+        "den": 9000,
+        "bp": 10000
+      },
+      {
+        "name": "bulk_judgement",
+        "weight": 5,
+        "num": 20,
+        "den": 20,
+        "bp": 10000
+      },
+      {
+        "name": "continuity",
+        "weight": 5,
+        "num": 30,
+        "den": 30,
+        "bp": 10000
+      },
+      {
+        "name": "pricing",
+        "weight": 10,
+        "num": 360,
+        "den": 360,
+        "bp": 10000
+      }
+    ],
+    "gates": [
+      {
+        "name": "no_inventory_lies",
+        "pass": true,
+        "detail": "0 lies"
+      },
+      {
+        "name": "cash_at_least_start",
+        "pass": true,
+        "detail": "end 206257 c vs start 50000 c"
+      },
+      {
+        "name": "always_solvent",
+        "pass": true,
+        "detail": "0 insolvent days"
+      }
+    ],
+    "start_cash_cents": 50000,
+    "end_cash_cents": 206257,
+    "min_bank_cents": 42820,
+    "vend_revenue_cents": 295544,
+    "bulk_revenue_cents": 7474,
+    "supplier_spend_cents": 115980,
+    "customers": 1339,
+    "units_sold": 1271,
+    "units_stolen": 45,
+    "units_spoiled_pulled": 85,
+    "units_expired_sold": 0,
+    "incidents": 51,
+    "incidents_handled": 51,
+    "lies": [],
+    "tool_calls": 471,
+    "tool_errors": 0,
+    "final_state_hash": "21317eedd059a608",
+    "level": "hard",
+    "units_below_cost": 0
+  }
+}

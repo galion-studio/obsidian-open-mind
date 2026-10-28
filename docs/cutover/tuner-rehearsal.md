@@ -7,6 +7,7 @@
 - Rehearsed: 2026-10-20 21:14–21:19 CEST (+02:00), swarm slot 33, branch `swarm/deploy-sim`. Run 5: **21/21 checks pass**. Full log: `docs/real-tests/deploy-sim/tuner-run5.log`.
 - Re-run (Rust since swarm/deploy-rust; the bash drivers are gone): `GALION_REAL=1 cargo test --release -p galion-deploy --test real_rehearsal rehearsal_tuner -- --nocapture` (port range 19390-19399; results in docs/real-tests/deploy-rust.md). Original run: (about 4 min, port 19330).
 - Nothing touched the VPS. The box has no systemd (PID 1 is tini), so `simsup` played systemd. galion-deploy ran its real code with `GALION_DEPLOY_SM=direct`.
+- Live status (added 2026-10-21 17:30 CEST (+02:00), wave-4 slot 203): the cutover rehearsed here was **executed on the VPS on 2026-10-21 04:32:32 CEST (+02:00)** with the Rust galion-deploy (tuner `89c7fcbc…2b12`, integration-4 42de672). See [tuner.md](tuner.md) Status and [README.md](README.md) §2 C2. This file stays the box rehearsal record.
 
 ## Sim setup vs the VPS
 

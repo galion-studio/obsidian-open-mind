@@ -205,6 +205,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "console-static"
+version = "0.1.0"
+dependencies = [
+ "console-ui",
+]
+
+[[package]]
+name = "console-ui"
+version = "0.1.0"
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -488,6 +499,7 @@ dependencies = [
  "gaia-live",
  "gaia-minerva",
  "gaia-poseidon",
+ "galion-realtest",
  "hades-gate",
  "serde_json",
  "zagreb-time",
@@ -579,6 +591,7 @@ dependencies = [
 name = "galion-backup"
 version = "0.1.0"
 dependencies = [
+ "galion-tar",
  "libc",
  "miniz_oxide",
  "nerve-client",
@@ -629,6 +642,7 @@ dependencies = [
 name = "galion-deploy"
 version = "0.1.0"
 dependencies = [
+ "galion-tar",
  "nerve-client",
 ]
 
@@ -646,6 +660,8 @@ dependencies = [
 name = "galion-guard"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "chrono-tz",
  "libc",
  "nerve-client",
  "regex",
@@ -657,8 +673,9 @@ dependencies = [
 
 [[package]]
 name = "galion-health"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "galion-realtest",
  "nerve-client",
  "zagreb-time",
 ]
@@ -669,6 +686,7 @@ version = "0.1.0"
 dependencies = [
  "galion-common",
  "nerve-client",
+ "zagreb-time",
 ]
 
 [[package]]
@@ -686,6 +704,10 @@ dependencies = [
  "serde_json",
  "zagreb-time",
 ]
+
+[[package]]
+name = "galion-tar"
+version = "0.1.0"
 
 [[package]]
 name = "galion-vending"
@@ -720,6 +742,7 @@ name = "galion-wallstreet"
 version = "0.1.0"
 dependencies = [
  "galion-bench",
+ "galion-realtest",
  "serde",
  "serde_json",
  "zagreb-time",
@@ -970,6 +993,7 @@ dependencies = [
  "bench-banking",
  "bench-scoreboard",
  "galion-bench",
+ "galion-realtest",
  "galion-vending",
  "galion-wallstreet",
  "hermes-rs",
@@ -990,11 +1014,14 @@ dependencies = [
 name = "hermes-rs"
 version = "0.1.0"
 dependencies = [
+ "ed25519-dalek",
  "galion-common",
+ "getrandom 0.2.17",
  "nerve-client",
  "openmind-persona",
  "rusqlite",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]
@@ -1276,13 +1303,17 @@ name = "openmind-nerve"
 version = "0.1.0"
 dependencies = [
  "gaia-live",
+ "galion-common",
  "galion-deploy",
  "galion-realtest",
  "nerve-client",
  "openmind-schema",
  "sdjournal",
+ "semver",
  "serde",
  "serde_json",
+ "toml",
+ "tunnel-lint",
  "zagreb-time",
 ]
 
@@ -1959,6 +1990,10 @@ dependencies = [
  "galion-common",
  "nerve-client",
 ]
+
+[[package]]
+name = "tunnel-lint"
+version = "0.1.0"
 
 [[package]]
 name = "typed-path"

@@ -193,7 +193,7 @@ fi
 # 6. gitleaks ---------------------------------------------------------------
 if need_tool gitleaks; then
   glv=$(gitleaks version 2>/dev/null | head -1)
-  if nice -n 10 gitleaks dir --redact --no-banner --exit-code 1 \
+  if nice -n 10 gitleaks dir --config "$root/.gitleaks.toml" --redact --no-banner --exit-code 1 \
       --report-format json --report-path "$out_abs/gitleaks.json" "$tree" \
       > "$out_abs/logs/gitleaks.log" 2>&1; then
     gate "6 gitleaks dir" PASS "gitleaks $glv: no leaks"

@@ -30,7 +30,7 @@ use hades_gate::config::Config;
 use hades_gate::token::{plan_hash, to_hex, Claims};
 use hades_gate::{keys, safety};
 
-const USAGE: &str = "usage: hades-gate <check|serve|status|disable|enable|keygen|mint|plan-hash> [--flags]  (see crate docs)";
+const USAGE: &str = "usage: hades-gate <check|check-typed|serve|status|disable|enable|keygen|mint|plan-hash> [--flags]  (see crate docs)";
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -103,6 +103,7 @@ fn run(args: &[String]) -> Result<i32, String> {
         }
         "mint" => mint(&f),
         "check" => check(&f),
+        "check-typed" => check_typed(&f),
         "status" => {
             let cfg = Config::load(Path::new(need(&f, "config")?))?;
             let a = Approver::from_config(&cfg)?;
@@ -229,6 +230,29 @@ fn check(f: &HashMap<String, String>) -> Result<i32, String> {
     Ok(exit_for(&v))
 }
 
+fn check_typed(f: &HashMap<String, String>) -> Result<i32, String> {
+    let cfg = Config::load(Path::new(need(f, "config")?))?;
+    let approver = Approver::from_config(&cfg)?;
+    // The plan file holds the exact canonical typed-plan bytes (no trailing
+    // newline); they are hashed and signed unchanged.
+    let plan = read_file(need(f, "plan-file")?)?;
+    let token = match f.get("token-file") {
+        Some(p) => String::from_utf8(read_file(p)?).map_err(|_| "token file is not UTF-8")?,
+        None => String::new(),
+    };
+    let v = approver.approve_typed(
+        Request {
+            action: need(f, "action")?,
+            target: need(f, "target")?,
+            plan: &plan,
+            token: token.trim(),
+        },
+        unix_now(),
+    );
+    println!("{}", verdict_json(&v));
+    Ok(exit_for(&v))
+}
+
 fn status_json(a: &Approver) -> serde_json::Value {
     serde_json::json!({
         "service": "hades-gate",
@@ -324,6 +348,32 @@ fn route(
             };
             let field = |k: &str| req.get(k).and_then(serde_json::Value::as_str).unwrap_or("");
             let v = approver.approve(
+                Request {
+                    action: field("action"),
+                    target: field("target"),
+                    plan: field("plan").as_bytes(),
+                    token: field("token"),
+                },
+                unix_now(),
+            );
+            let status = if matches!(v, Verdict::Refused(_)) {
+                403
+            } else {
+                200
+            };
+            (status, verdict_json(&v), false)
+        }
+        ("POST", "/v1/approve-typed") => {
+            // Option B prototype: `plan` must be a canonical typed plan.
+            let Ok(req) = serde_json::from_slice::<serde_json::Value>(body) else {
+                return (
+                    400,
+                    serde_json::json!({"error": "body must be JSON"}),
+                    false,
+                );
+            };
+            let field = |k: &str| req.get(k).and_then(serde_json::Value::as_str).unwrap_or("");
+            let v = approver.approve_typed(
                 Request {
                     action: field("action"),
                     target: field("target"),

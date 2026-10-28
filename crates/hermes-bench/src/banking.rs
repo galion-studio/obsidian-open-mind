@@ -245,6 +245,16 @@ pub fn new_tools(base: &str) -> Result<Arc<Mutex<BankingTools>>, String> {
     Ok(Arc::new(Mutex::new(BankingTools::new(c, Audit::new()))))
 }
 
+/// [`new_tools`] in scoped mode: each gated ask authorises at most one write
+/// tool (the one the policy allowed), with amount and payee grounded in the
+/// ask. Used by the episodes and the adversarial set.
+pub fn new_scoped_tools(base: &str) -> Result<Arc<Mutex<BankingTools>>, String> {
+    let c = BankClient::new(base, REFRESH_TOKEN).map_err(|e| e.to_string())?;
+    Ok(Arc::new(Mutex::new(
+        BankingTools::new(c, Audit::new()).scoped(),
+    )))
+}
+
 #[derive(Debug, Clone)]
 pub struct EpisodeOut {
     pub id: &'static str,
@@ -332,7 +342,7 @@ pub fn episodes(
     if !ctl.reset() {
         return Err(format!("mock reset failed at {base}"));
     }
-    let tools = new_tools(base)?;
+    let tools = new_scoped_tools(base)?;
     let session = make_session(registry(tools.clone()), SYSTEM);
     let mut out = Vec::new();
     let mut api = 0;

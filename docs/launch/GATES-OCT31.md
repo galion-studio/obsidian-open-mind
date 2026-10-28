@@ -22,6 +22,56 @@ the VPS. Every item marked **owner** needs Slavik.
 | CI for the above | `.github/workflows/launch-gates.yml` (PRs to main, read-only) |
 | Scorecard readiness, branch protection, signing plan | `docs/launch/SCORECARD-READINESS.md` |
 
+## Re-measured on swarm/integration-5 0d68f46 (2026-10-21, slot 231)
+
+The table above is the launch-gates branch as written on 2026-10-20. These are
+the same gates measured again at 2026-10-21T23:48:30-23:54:46+02:00 with
+integration-5's `scripts/public-export.sh --allow-missing-tools` (comply 0.1.1
+and cargo-deny from `/workspace/swarm/tools/bin`; gitleaks and cargo-cyclonedx
+are not installed on the box, so gates 6 and 9 were SKIP). The same script was
+run on all three refs. Nothing was published or pushed by these runs.
+
+| Gate | launch-gates 79ee761 | integration-1 8fd26f6 | integration-5 0d68f46 |
+|---|---|---|---|
+| 1 git archive (exported / tracked) | 739 / 831 | 1070 / 1162 | 1519 / 1611 (92 export-ignored on all three) |
+| 2 path policy, 3 no binaries, 4 no Python, 5 secret patterns (14 shapes) | PASS | PASS | PASS (0 secret hits) |
+| 7 REUSE lint (comply) | PASS: 724 total, 684 passed, 0 failed, 40 skipped | PASS: 1053 total, 1007 passed, 0 failed, 46 skipped | **FAIL: 1502 total, 1431 passed, 7 failed, 64 skipped** (see below) |
+| 8 cargo deny (bans, licenses, sources; workspace + edge/openmind-node) | PASS | PASS | PASS |
+| 10 infra disclosure (WARN, owner decides) | 7 public IPv4 literals, 1 quick-tunnel hostname | 20 IPv4, 1 quick-tunnel (matches `docs/real-tests/integration-1.md:22`) | **27 IPv4 in 17 files, 1 quick-tunnel** |
+| script result | 0 FAIL, 1 WARN | 0 FAIL, 1 WARN | **1 FAIL, 1 WARN** |
+
+Other numbers on integration-5 0d68f46:
+
+- REUSE gate 7 FAIL, 7 files: `crates/bench-banking/src/axes.rs` (fixture string
+  at line 1131) and `crates/bench-scoreboard/src/lib.rs` (line 119) hold an HTML
+  SPDX comment inside a Rust string, which comply reads as an invalid
+  expression; five vendored candle-core test binaries in
+  `vendor/candle-core/tests/` (`fortran_tensor_3d.pth`, `test.npy`, `test.npz`,
+  `test.pt`, `test_with_key.pt`) have no licence or copyright data. Fix (a
+  REUSE.toml change, not done on this docs-only branch): add the two .rs files to
+  annotation 2 as `crates/gaia-minerva/src/lib.rs` already is, and annotate
+  `vendor/candle-core/**` with its upstream licence `MIT OR Apache-2.0`
+  (`vendor/candle-core/Cargo.toml:30`).
+- `repo-check`: FAIL, 1519 files, 10 errors, all `portable` `core::arch::` in
+  vendored candle-core (`docs/real-tests/integration-5.md:18`; main-merge
+  blocker 0).
+- `cargo deny ... check advisories bans licenses sources`: all ok
+  (`docs/real-tests/integration-5.md:15`).
+- `.license` companions: 11 tracked (`git ls-files '*.license'`). The table above
+  says 13; launch-gates 79ee761 itself also tracks 11.
+- Pinned actions: 39 of 40 `uses:` lines in `.github/workflows/` are pinned to
+  a 40-character commit SHA; the 40th is the local reusable workflow
+  `./.github/workflows/self-eval.yml` (`release.yml:24`), which needs no pin.
+- SBOM (130 components above) and gitleaks (0 above) were not re-measured: the
+  tools are not on the box. `Cargo.lock` lists 238 packages (`rg -c '^name = '
+  Cargo.lock`, workspace crates included).
+- Still open from "Known gaps": no fuzz or CodeQL-analysis workflow on integration-5
+  (scorecard.yml only uploads SARIF)
+  (`swarm/ci-fuzz-workflow` 3a188b9 exists on GitHub but is not merged);
+  `__CONTACT_EMAIL__` is still in SECURITY.md and CODE_OF_CONDUCT.md (owner).
+- GitHub `main` is still 13a296c (branch listing, 2026-10-21T23:50:33+02:00),
+  so none of these gates is on main yet.
+
 ## Still needing the owner (not done by the swarm, by rule)
 
 | ID | Gate | Owner action | Blocks launch? |

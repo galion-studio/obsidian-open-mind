@@ -86,6 +86,8 @@ pub struct HttpReply {
 }
 
 /// Minimal HTTP/1.0 client for loopback probes (no TLS, no redirects).
+/// Guarded by [`crate::egress`]: non-loopback addresses and LLM endpoint
+/// paths are refused before any connect.
 /// `body` turns the request into a POST with `application/json`.
 pub fn http(
     addr: SocketAddr,
@@ -93,6 +95,8 @@ pub fn http(
     body: Option<&str>,
     timeout: Duration,
 ) -> Result<HttpReply, String> {
+    crate::egress::check_addr(&addr)?;
+    crate::egress::check_path(path)?;
     let t = Instant::now();
     let mut s = TcpStream::connect_timeout(&addr, timeout).map_err(|e| format!("connect: {e}"))?;
     let _ = s.set_read_timeout(Some(timeout));
@@ -348,4 +352,28 @@ mod time_tests {
             "2026-10-20T19:06:05+02:00"
         );
     }
+}
+
+/// Unix seconds from a persisted JSON value, tolerant of older state-dir
+/// layouts: an integer, a non-negative float (truncated), a numeric string or
+/// an RFC 3339 stamp. `None` for anything else.
+pub fn json_secs(v: &serde_json::Value) -> Option<u64> {
+    match v {
+        serde_json::Value::Number(n) => n.as_u64().or_else(|| {
+            n.as_f64()
+                .filter(|f| f.is_finite() && *f >= 0.0)
+                .map(|f| f as u64)
+        }),
+        serde_json::Value::String(s) => s.trim().parse::<u64>().ok().or_else(|| parse_rfc3339(s)),
+        _ => None,
+    }
+}
+
+/// Keep a copy of a state file that exists but cannot be read as the
+/// expected JSON at `<name>.corrupt-<now>` (next to it) before anything
+/// overwrites it. Returns the copy's path, or `None` when nothing was copied.
+pub fn quarantine(path: &Path, now: u64) -> Option<std::path::PathBuf> {
+    let name = path.file_name()?.to_string_lossy().into_owned();
+    let dst = path.with_file_name(format!("{name}.corrupt-{now}"));
+    std::fs::copy(path, &dst).ok().map(|_| dst)
 }

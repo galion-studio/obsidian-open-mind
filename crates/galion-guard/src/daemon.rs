@@ -13,8 +13,9 @@ use std::time::Duration;
 
 use crate::config::{self, Effective};
 use crate::engine::{log, Engine};
+use crate::f2blog::{ShadowLog, Zone};
 use crate::jail::{Jail, Protect};
-use crate::nft::{Backend, DryRun, Nft, NftConfig};
+use crate::nft::{Backend, DryRun, Nft, NftConfig, Shadow};
 use crate::source::{journal_args, FileTail, Journal, LogLine};
 use crate::state::{now_secs, FilePos};
 
@@ -37,6 +38,9 @@ pub fn backend_for(e: &Effective) -> Result<Box<dyn Backend>, String> {
     let nc = nft_config(e);
     Ok(match e.cfg.guard.backend.as_str() {
         "dry-run" => Box::new(DryRun::new(Some(nc), e.cfg.guard.dry_run_log.clone())),
+        // Shadow never builds an `Nft`: there is no code path from here to
+        // the nft binary.
+        "shadow" => Box::new(Shadow::default()),
         _ => Box::new(Nft::new(nc)?),
     })
 }
@@ -54,6 +58,11 @@ pub fn build_engine(e: &Effective) -> Result<Engine, String> {
     eng.bsd_offset = e.cfg.sshd.bsd_utc_offset_minutes * 60;
     eng.save_every = e.cfg.guard.save_every.max(1) as i64;
     eng.verbose = true;
+    if e.cfg.guard.is_shadow() {
+        let zone = Zone::parse(&e.cfg.guard.shadow_zone)?;
+        eng.shadow = Some(ShadowLog::new(e.cfg.guard.shadow_log_path(), zone));
+        eng.emit_found = true;
+    }
     Ok(eng)
 }
 
@@ -250,6 +259,12 @@ pub fn run(e: Effective) -> Result<(), String> {
         _ => spawn_journal(&e, eng.cursor.clone(), tx.clone()),
     }
     spawn_control(listener, tx);
+    if let Some(sh) = &eng.shadow {
+        log(&format!(
+            "SHADOW MODE: log-only, the firewall is never touched; fail2ban-format log: {}",
+            sh.path.display()
+        ));
+    }
     log("running");
     // NERVE push (no-op unless NERVE_URL is set): started + heartbeat.
     nerve_client::event(

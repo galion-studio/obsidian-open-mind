@@ -18,6 +18,13 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 fn skip() -> bool {
+    // GH Actions runners often cannot write userns uid_map even after sysctl;
+    // cloud bc-06dcb59d enables userns in self-eval — keep this CI skip as
+    // belt-and-suspenders (RULES.md sandbox_vps_only).
+    if std::env::var_os("CI").is_some() {
+        eprintln!("SKIP: hermes-tools sandboxed suite is VPS-only (CI=set)");
+        return true;
+    }
     let f = openmind_sandbox::features();
     let missing = ["git", "dd", "install"]
         .iter()
@@ -60,7 +67,11 @@ struct Fx {
 }
 
 fn fixture(name: &str, caps: SpendCfg, extra: &[(&str, String)]) -> Fx {
-    let root = std::env::temp_dir().join(format!("hermes-tools-sbx-{}-{name}", std::process::id()));
+    fixture_in(&std::env::temp_dir(), name, caps, extra)
+}
+
+fn fixture_in(base: &Path, name: &str, caps: SpendCfg, extra: &[(&str, String)]) -> Fx {
+    let root = base.join(format!("hermes-tools-sbx-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(root.join("wt/src")).unwrap();
     let root = root.canonicalize().unwrap();
@@ -367,4 +378,293 @@ fn sandbox_layers_are_reported_for_runs() {
     for need in ["rlimits", "env", "no_new_privs", "net"] {
         assert!(on.contains(&need), "{need} not enforced: {ran}");
     }
+}
+
+// ------------------------------------------------ worktree cap (D-WDQ2)
+
+const MIB: u64 = 1 << 20;
+
+/// The first "ran" audit line of `tool` after `skip` earlier ones.
+fn ran_lines(fx: &Fx) -> Vec<Value> {
+    std::fs::read_to_string(fx.root.join("state/audit.jsonl"))
+        .unwrap()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|v| v["decision"] == "ran")
+        .collect()
+}
+
+fn fill(p: &Path, bytes: u64) {
+    use std::io::Write;
+    let mut f = std::fs::File::create(p).unwrap();
+    let chunk = vec![0x5au8; MIB as usize];
+    let mut left = bytes;
+    while left > 0 {
+        let n = left.min(MIB);
+        f.write_all(&chunk[..n as usize]).unwrap();
+        left -= n;
+    }
+    f.sync_all().unwrap();
+}
+
+fn tree_bytes(p: &Path) -> u64 {
+    let mut n = 0;
+    for e in std::fs::read_dir(p).unwrap().flatten() {
+        let m = std::fs::symlink_metadata(e.path()).unwrap();
+        if m.is_dir() {
+            n += tree_bytes(&e.path());
+        } else if m.is_file() {
+            n += m.len();
+        }
+    }
+    n
+}
+
+#[test]
+fn worktree_cap_on_by_default_and_changes_come_back() {
+    if skip() {
+        return;
+    }
+    let fx = fixture("wdq-on", caps(), &[]);
+    let w = call(
+        &fx,
+        "q",
+        "fs_write",
+        json!({"path": "src/q.rs", "content": "// quota\n"}),
+    );
+    assert!(!w.is_error, "{}", w.content);
+    assert_eq!(
+        std::fs::read_to_string(fx.wt.join("src/q.rs")).unwrap(),
+        "// quota\n"
+    );
+    let c = call(
+        &fx,
+        "q",
+        "git",
+        json!({"op": "commit", "message": "q: add"}),
+    );
+    assert!(!c.is_error, "{}", c.content);
+    let sha = body(&c)["commit"].as_str().unwrap().to_string();
+    assert_eq!(
+        git(&fx.wt, &["rev-parse", "HEAD"]),
+        sha,
+        "commit copied back"
+    );
+    assert_eq!(
+        git(&fx.wt, &["status", "--porcelain"]),
+        "",
+        "clean on the host"
+    );
+    git(&fx.wt, &["fsck", "--no-progress"]);
+    let ran = ran_lines(&fx);
+    assert!(ran.len() >= 5, "{ran:?}");
+    for r in &ran {
+        let on = r["result"]["sandbox"]["enforced"].as_array().unwrap();
+        assert!(on.contains(&json!("workdir_quota")), "{r}");
+        let q = &r["result"]["workdir_quota"];
+        assert_eq!(q["limit_mib"], 512, "{r}");
+        assert_eq!(q["out_complete"], true, "{r}");
+    }
+    eprintln!(
+        "RESULT wdq-on runs={} first={}",
+        ran.len(),
+        ran[0]["result"]["workdir_quota"]
+    );
+}
+
+#[test]
+fn fs_write_past_a_16_mib_cap_gets_enospc() {
+    if skip() {
+        return;
+    }
+    let fx = fixture(
+        "wdq-16",
+        caps(),
+        &[
+            ("HERMES_RS_CODING_WORKDIR_MB", "16".into()),
+            ("HERMES_RS_CODING_MAX_WRITE", (4 * MIB).to_string()),
+        ],
+    );
+    fill(&fx.wt.join("big.bin"), 13 * MIB);
+    let before = tree_bytes(&fx.wt);
+    let big = "a".repeat((4 * MIB) as usize);
+    let w = call(
+        &fx,
+        "q",
+        "fs_write",
+        json!({"path": "over.bin", "content": big}),
+    );
+    assert!(w.is_error, "{}", w.content);
+    assert!(
+        w.content.contains("No space left on device"),
+        "{}",
+        w.content
+    );
+    let after = tree_bytes(&fx.wt);
+    let over = std::fs::metadata(fx.wt.join("over.bin"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    assert!(over < 4 * MIB, "over.bin {over}");
+    assert!(after <= 16 * MIB, "host worktree {after} > cap");
+    let ran = ran_lines(&fx);
+    let q = &ran.last().unwrap()["result"]["workdir_quota"];
+    assert_eq!(q["limit_mib"], 16, "{q}");
+    assert_eq!(q["out_complete"], true, "{q}");
+    eprintln!(
+        "RESULT wdq-16 asked=4MiB on top of {before} B: host now {after} B, over.bin {over} B, err={:?}",
+        w.content.lines().last().unwrap_or("")
+    );
+    // The cap does not stick: a small write still works, git still works.
+    let _ = std::fs::remove_file(fx.wt.join("over.bin"));
+    let w = call(
+        &fx,
+        "q",
+        "fs_write",
+        json!({"path": "small.txt", "content": "fine\n"}),
+    );
+    assert!(!w.is_error, "{}", w.content);
+    let s = call(&fx, "q", "git", json!({"op": "status"}));
+    assert!(!s.is_error, "{}", s.content);
+    assert!(body(&s)["status"]
+        .as_str()
+        .unwrap()
+        .contains("?? small.txt"));
+}
+
+#[test]
+fn preflight_refuses_a_worktree_bigger_than_the_cap() {
+    if skip() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("hermes-tools-sbx-{}-wdq-pf", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("wt/.git")).unwrap();
+    let root = root.canonicalize().unwrap();
+    fill(&root.join("wt/huge.bin"), 20 * MIB);
+    let vars: HashMap<String, String> = HashMap::from([
+        (
+            "HERMES_RS_CODING_WORKTREE".into(),
+            root.join("wt").display().to_string(),
+        ),
+        ("HERMES_RS_CODING_BRANCH".into(), "swarm/x".into()),
+        (
+            "HERMES_RS_CODING_STATE".into(),
+            root.join("state").display().to_string(),
+        ),
+        ("HERMES_RS_CODING_WORKDIR_MB".into(), "16".into()),
+    ]);
+    let v2 = vars.clone();
+    let mut cfg = CodingConfig::from_env(&move |k| vars.get(k).cloned(), &root.join("home"))
+        .unwrap()
+        .unwrap();
+    let e = hermes_tools::preflight(&mut cfg, &caps()).unwrap_err();
+    assert!(e.contains("over the worktree cap 16 MiB"), "{e}");
+    let mut v3 = v2;
+    v3.insert("HERMES_RS_CODING_WORKDIR_MB".into(), "32".into());
+    let mut cfg = CodingConfig::from_env(&move |k| v3.get(k).cloned(), &root.join("home"))
+        .unwrap()
+        .unwrap();
+    let notes = hermes_tools::preflight(&mut cfg, &caps()).unwrap();
+    assert!(
+        notes.iter().any(|n| n.contains("worktree cap 32 MiB")),
+        "{notes:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The default 512 MiB cap for real: a worktree of 509 MiB, then a 4 MiB
+/// fs_write. Heavy (512 MiB of tmpfs), so GALION_REAL=1 only.
+#[test]
+fn real_default_512_mib_cap_stops_fs_write() {
+    if std::env::var("GALION_REAL").as_deref() != Ok("1") {
+        eprintln!("SKIP: set GALION_REAL=1 (VPS only, sandbox_vps_only)");
+        return;
+    }
+    if skip() {
+        return;
+    }
+    let fx = fixture(
+        "wdq-512",
+        caps(),
+        &[("HERMES_RS_CODING_MAX_WRITE", (4 * MIB).to_string())],
+    );
+    fill(&fx.wt.join("big.bin"), 509 * MIB);
+    let t = std::time::Instant::now();
+    let r = call(&fx, "q", "fs_read", json!({"path": "README.md"}));
+    assert!(!r.is_error, "{}", r.content);
+    let read_ms = t.elapsed().as_millis();
+    let big = "b".repeat((4 * MIB) as usize);
+    let t = std::time::Instant::now();
+    let w = call(
+        &fx,
+        "q",
+        "fs_write",
+        json!({"path": "over.bin", "content": big}),
+    );
+    let write_ms = t.elapsed().as_millis();
+    assert!(w.is_error, "{}", w.content);
+    assert!(
+        w.content.contains("No space left on device"),
+        "{}",
+        w.content
+    );
+    let host = tree_bytes(&fx.wt);
+    assert!(host <= 512 * MIB, "host worktree {host}");
+    let ran = ran_lines(&fx);
+    let q = &ran.last().unwrap()["result"]["workdir_quota"];
+    assert_eq!(q["limit_mib"], 512, "{q}");
+    eprintln!(
+        "RESULT wdq-512 worktree 509 MiB: fs_read ok {read_ms} ms; fs_write 4 MiB -> ENOSPC in {write_ms} ms; host worktree {host} B; quota {q}"
+    );
+}
+
+/// D-WDQ3 (accepted 2026-10-21, keep partial files + report): the worktree
+/// sits on a small host fs (`HERMES_TOOLS_SMALL_FS`, a 32 MiB tmpfs prepared
+/// by root on the VPS). The 4 MiB write fits the cap but not the host, so
+/// the copy back stops with ENOSPC: the tool reports it, the partial file
+/// stays on the host.
+#[test]
+fn real_partial_copy_back_on_a_full_host_fs_is_reported() {
+    let Ok(small) = std::env::var("HERMES_TOOLS_SMALL_FS") else {
+        eprintln!("SKIP: set HERMES_TOOLS_SMALL_FS to a dir on a ~32 MiB fs (VPS only)");
+        return;
+    };
+    if skip() {
+        return;
+    }
+    let fx = fixture_in(
+        Path::new(&small),
+        "wdq-part",
+        caps(),
+        &[
+            ("HERMES_RS_CODING_WORKDIR_MB", "64".into()),
+            ("HERMES_RS_CODING_MAX_WRITE", (4 * MIB).to_string()),
+        ],
+    );
+    fill(&fx.wt.join("big.bin"), 26 * MIB);
+    let big = "c".repeat((4 * MIB) as usize);
+    let w = call(
+        &fx,
+        "q",
+        "fs_write",
+        json!({"path": "part.bin", "content": big}),
+    );
+    assert!(w.is_error, "{}", w.content);
+    assert!(
+        w.content.contains("INCOMPLETE") && w.content.contains("host file system is full"),
+        "{}",
+        w.content
+    );
+    let part = std::fs::metadata(fx.wt.join("part.bin"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    assert!(part < 4 * MIB, "part.bin {part}");
+    let ran = ran_lines(&fx);
+    let q = &ran.last().unwrap()["result"]["workdir_quota"];
+    assert_eq!(q["out_complete"], false, "{q}");
+    assert_eq!(q["errno"], 28, "{q}");
+    eprintln!(
+        "RESULT wdq-part part.bin on host {part} B (kept, D-WDQ3); quota {q}; msg={:?}",
+        w.content.lines().next().unwrap_or("")
+    );
 }

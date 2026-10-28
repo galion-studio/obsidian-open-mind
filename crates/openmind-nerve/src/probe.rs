@@ -103,6 +103,89 @@ pub fn systemd_units(units: &[&str]) -> Result<HashMap<String, UnitInfo>, String
     Ok(units.iter().map(|u| u.to_string()).zip(parsed).collect())
 }
 
+/// The service a timer starts: `x.timer` -> `x.service`.
+pub fn timer_service(timer_unit: &str) -> Option<String> {
+    timer_unit
+        .strip_suffix(".timer")
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("{s}.service"))
+}
+
+/// Last run of a timer's oneshot service (T2.3).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LastRun {
+    pub unit: String,
+    pub active: String,
+    pub result: String,
+    pub exit_status: Option<i64>,
+    /// Unix seconds of the last `ExecStart` exit; `None` = never ran (or
+    /// systemd too old for `--timestamp=unix`).
+    pub finished: Option<u64>,
+}
+
+pub const RUN_PROPS: &str = "Id,LoadState,ActiveState,Result,ExecMainStatus,ExecMainExitTimestamp";
+
+/// Parse `systemctl show --timestamp=unix -p RUN_PROPS a b` output.
+pub fn parse_last_runs(out: &str) -> Vec<LastRun> {
+    let mut v = Vec::new();
+    for block in out.split("\n\n") {
+        if block.trim().is_empty() {
+            continue;
+        }
+        let mut r = LastRun::default();
+        for line in block.lines() {
+            let Some((k, val)) = line.split_once('=') else {
+                continue;
+            };
+            match k {
+                "Id" => r.unit = val.into(),
+                "ActiveState" => r.active = val.into(),
+                "Result" => r.result = val.into(),
+                "ExecMainStatus" => r.exit_status = val.parse().ok(),
+                "ExecMainExitTimestamp" => {
+                    r.finished = val
+                        .strip_prefix('@')
+                        .and_then(|x| x.parse().ok())
+                        .filter(|x| *x > 0)
+                }
+                _ => {}
+            }
+        }
+        v.push(r);
+    }
+    v
+}
+
+/// One read-only `systemctl show --timestamp=unix` call for the services
+/// behind the timers. Keyed by service name.
+pub fn last_runs(services: &[&str]) -> Result<HashMap<String, LastRun>, String> {
+    if services.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut args = vec!["show", "--no-pager", "--timestamp=unix", "-p", RUN_PROPS];
+    args.extend_from_slice(services);
+    let o = run("systemctl", &args, Duration::from_secs(10)).ok_or("systemctl show timed out")?;
+    let parsed = parse_last_runs(&o.stdout);
+    if parsed.len() != services.len() {
+        return Err(format!(
+            "systemctl show (last runs) returned {} blocks for {} units (exit {})",
+            parsed.len(),
+            services.len(),
+            o.code
+        ));
+    }
+    Ok(services.iter().map(|u| u.to_string()).zip(parsed).collect())
+}
+
+impl LastRun {
+    /// Sample `extra.last_run` (also what a replay reads back).
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({"unit": self.unit, "active": self.active, "result": self.result,
+            "exit_status": self.exit_status, "finished_unix": self.finished,
+            "finished": self.finished.map(crate::util::ts)})
+    }
+}
+
 /// VmRSS of a process in KiB from /proc/<pid>/status.
 pub fn proc_rss_kb(pid: u32) -> Option<u64> {
     let s = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
@@ -179,7 +262,14 @@ pub fn parse_cloudflared_metrics(text: &str) -> TunnelMetrics {
         let (Some(k), Some(v)) = (it.next(), it.next()) else {
             continue;
         };
-        let val = v.parse::<f64>().ok().map(|f| f as u64);
+        // Counters and gauges are never negative, NaN or infinite; such a
+        // token (or one past u64) is "unknown", not 0 or u64::MAX (T3.1 fuzz
+        // find: `inf` became 18446744073709551615 requests).
+        let val = v
+            .parse::<f64>()
+            .ok()
+            .filter(|f| f.is_finite() && *f >= 0.0 && *f < 18_446_744_073_709_551_616.0)
+            .map(|f| f as u64);
         match k {
             "cloudflared_tunnel_ha_connections" => m.ha_connections = val,
             "cloudflared_tunnel_total_requests" => m.total_requests = val,
@@ -462,8 +552,10 @@ pub struct Listener {
 }
 
 fn listener(addr: &str, port: u16) -> Listener {
-    let a = addr.trim_start_matches('[').trim_end_matches(']');
-    let a = a.split('%').next().unwrap_or(a);
+    // Zone first, then brackets: `ss` prints `[::1]%lo` and `127.0.0.53%lo`
+    // (T5.2 fuzz find: the old order left `::1]`, flagged not loopback).
+    let a = addr.split('%').next().unwrap_or(addr);
+    let a = a.trim_start_matches('[').trim_end_matches(']');
     let loopback = a.starts_with("127.") || a == "::1" || a == "localhost";
     Listener {
         addr: a.to_string(),
@@ -499,8 +591,12 @@ fn hex_ipv6(h: &str) -> Option<String> {
         return None;
     }
     let mut words = [0u16; 8];
-    for (i, chunk) in (0..4).map(|i| &h[i * 8..i * 8 + 8]).enumerate() {
-        let n = u32::from_str_radix(chunk, 16).ok()?.to_le_bytes();
+    for i in 0..4 {
+        // `get`, not `[..]`: a 32-byte field with multi-byte UTF-8 must not
+        // panic on a char boundary (T5.2 fuzz find).
+        let n = u32::from_str_radix(h.get(i * 8..i * 8 + 8)?, 16)
+            .ok()?
+            .to_le_bytes();
         words[i * 2] = u16::from_be_bytes([n[0], n[1]]);
         words[i * 2 + 1] = u16::from_be_bytes([n[2], n[3]]);
     }
@@ -747,5 +843,35 @@ mod more_tests {
         assert_eq!(v[0].addr, "::1");
         assert!(v[0].loopback);
         assert!(listeners().is_some());
+    }
+}
+
+#[cfg(test)]
+mod t23_tests {
+    use super::*;
+
+    #[test]
+    fn last_runs_parse_unix_timestamps() {
+        // systemd 255 `systemctl show --timestamp=unix` (VPS, 2026-10-21 17:55 +02:00).
+        let out = "Id=galion-backup.service\nLoadState=loaded\nActiveState=inactive\nResult=success\nExecMainStatus=0\nExecMainExitTimestamp=@1792585072\n\nId=x.service\nLoadState=loaded\nActiveState=inactive\nResult=success\nExecMainStatus=0\nExecMainExitTimestamp=\n";
+        let v = parse_last_runs(out);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].unit, "galion-backup.service");
+        assert_eq!(v[0].finished, Some(1_792_585_072));
+        assert_eq!(v[0].exit_status, Some(0));
+        assert_eq!(v[1].finished, None);
+        // Old systemd without --timestamp=unix prints a date: not parsed.
+        let old =
+            parse_last_runs("Id=a.service\nExecMainExitTimestamp=Wed 2026-10-21 12:17:52 UTC\n");
+        assert_eq!(old[0].finished, None);
+        assert_eq!(
+            timer_service("galion-backup.timer").as_deref(),
+            Some("galion-backup.service")
+        );
+        assert_eq!(timer_service("x.service"), None);
+        assert_eq!(timer_service(".timer"), None);
+        let j = v[0].to_json();
+        assert_eq!(j["finished_unix"], 1_792_585_072u64);
+        assert!(j["finished"].as_str().unwrap().ends_with("+02:00"));
     }
 }

@@ -15,6 +15,8 @@
 //! NERVE: with `NERVE_URL=http://127.0.0.1:8670` the gateway pushes started,
 //! heartbeat, 5xx, slow-request (`NERVE_SLOW_MS`), spend-cap and conn-cap
 //! events to the nerve (bounded queue, never blocks a request).
+//! Device enrollment (`/openmind/*`) is off unless HERMES_RS_ENROLL=1 and
+//! HERMES_RS_ENROLL_URL are set; see docs/hermes-enroll.md.
 
 use hermes_rs::api::Gateway;
 use hermes_rs::config::Config;
@@ -23,6 +25,8 @@ use hermes_rs::session::SessionStore;
 use hermes_rs::spend::SpendTracker;
 use hermes_rs::tools::{ClockTool, Registry};
 use std::sync::Arc;
+
+mod owner;
 
 fn log(msg: &str) {
     eprintln!(
@@ -97,6 +101,12 @@ fn main() {
             std::process::exit(2);
         }
     };
+    // Owner approval commands talk to the running gateway; they never open
+    // the stores or bind a port themselves.
+    if args.first().map(String::as_str) == Some("enroll") {
+        let key = cfg.api_key(&env);
+        std::process::exit(owner::run(&cfg, key, &args[1..]));
+    }
     if args.iter().any(|a| a == "--check-config") {
         println!(
             "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={}",
@@ -121,7 +131,9 @@ fn main() {
         let slow = env("HERMES_RS_MOCK_DELAY_MS")
             .and_then(|v| v.parse().ok())
             .unwrap_or(1500);
-        Arc::new(TestMock(MockProvider::echo(), slow))
+        // No request log: nothing reads it in the gateway, and it grew by
+        // one request clone per chat before slot 198.
+        Arc::new(TestMock(MockProvider::echo().without_call_log(), slow))
     } else {
         Arc::new(CurlProvider::new(Arc::new(|k: &str| std::env::var(k).ok())))
     };
@@ -179,6 +191,27 @@ fn main() {
     let mut gw = Gateway::new(cfg.clone(), agent, store, api_key);
     let sched = Arc::new(hermes_rs::cron::Scheduler::new(&cfg.home, Some(cron_agent)));
     gw.jobs = Some(sched.clone());
+    match hermes_rs::enroll::EnrollCfg::from_env(&cfg, &env) {
+        Ok(None) => {}
+        Ok(Some(ec)) => match hermes_rs::enroll::Enroll::open(ec) {
+            Ok(e) => {
+                log(&format!(
+                    "enroll on: {} store {}",
+                    e.cfg.url,
+                    e.cfg.store.display()
+                ));
+                gw.enroll = Some(Arc::new(e));
+            }
+            Err(e) => {
+                log(&format!("refusing to start: enroll: {e}"));
+                std::process::exit(2);
+            }
+        },
+        Err(e) => {
+            log(&format!("refusing to start: enroll: {e}"));
+            std::process::exit(2);
+        }
+    }
     let gw = Arc::new(gw);
     if cfg.cron_enabled {
         sched.spawn();

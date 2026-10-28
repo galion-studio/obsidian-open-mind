@@ -47,6 +47,8 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | Crate | Kind | System | Function | Why |
 |---|---|---|---|---|
 | `cgroup-detect` | system | quotas | POSEIDON | read-only probe of per-run cgroup v2 limits; quotas are POSEIDON compute resources (was HEPHAESTUS) |
+| `console-static` | system | console | HEPHAESTUS | pending Slavik: Rust console static server (console-route-31, main-staging 2026-10-21) |
+| `console-ui` | system | console | HEPHAESTUS | pending Slavik: Rust console rooms replacing the old SPA (console-port-1..5, main-staging 2026-10-21) |
 | `desk-hermes` | system | hermes-agents | ARTEMIS | Hermes mind snap for the desk: the agent population view |
 | `gaia` | core | (none) | GAIA | the gaia CLI: wires GAIA core to the nine functions; dry-run only |
 | `gaia-aether` | function | (none) | AETHER | AETHER function crate |
@@ -67,6 +69,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `galion-one` | system | galion-one | ELEUTHIA | Galion One, the persona the stack embodies (:8091, :8002) |
 | `galion-origin` | system | origin | AETHER | origin.py replacement: front door, desk notes, 302 builder (folded openmind-origin) |
 | `galion-realtest` | system | repo-check | MINERVA | pending Slavik: platform-wide real-life test harness (self-evaluation); alternative cargo-build/HEPHAESTUS |
+| `galion-tar` | system | survival | DEMETER | pending Slavik: shared std-only tar crate (GNU tree writer, ustar writer/reader, streaming reader) used by galion-backup and galion-deploy (shared-tar-crate, main-staging via slot 242) |
 | `galion-voice-core` | system | voice-relay | AETHER | full-duplex framing, VAD, jitter buffer, barge-in |
 | `galion-voice-cpu` | system | speech-io | AETHER | on-device CPU STT -> text model -> TTS pipeline (Whisper-tiny via candle); speech on CPU like openmind-speech |
 | `galleon-arena` | system | ecosystem-census | ARTEMIS | paper arena that lists and scores the gladiator population; no value moves (was ARES) |
@@ -87,6 +90,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `openmind-mcp-stack` | system | stack-schema | APOLLO | stdio MCP stack_status: serves knowledge about the stack (was MINERVA) |
 | `openmind-memory` | system | memory-gateway | APOLLO | memory store and gateway (:8420) |
 | `openmind-nerve` | system | nerve | AETHER | nerve event archive: the signal lines are AETHER (was APOLLO) |
+| `tunnel-lint` | system | nerve | AETHER | pending Slavik: read-only cloudflared ingress lint (tunnel-audit d35ef73), used by the nerve ingress-lint sensor |
 | `openmind-persona` | system | persona-plex | ELEUTHIA | persona TOML documents |
 | `openmind-provider` | system | vram-pool | POSEIDON | compute provider registry, approval state, GPU/LAN/CPU fallback and route (was HEPHAESTUS) |
 | `openmind-queue` | system | queues | POSEIDON | pending Slavik (S2 A/B): durable job queue, quotas, spend caps (numbers only), VRAM routing; the crate declares POSEIDON (option A) |
@@ -149,3 +153,7 @@ The six benchmark crates sit next to `galleon-arena` (which already scores the a
 ## candle-zip-rebase row (2026-10-21 07:45 CEST +02:00, pending Slavik)
 
 swarm/candle-zip-rebase merges candle-zip-fix a4f49b5 onto integration-4 42de672. candle-zip-fix sits on voice-rust, so the merge also brings the `galion-chatterbox` crate, and `every_workspace_crate_is_mapped` failed on it. One row, a judgement call (`"pending_slavik": true`): speech-io / AETHER, next to `galion-voice-cpu` and `openmind-speech`; alternative voice-relay / AETHER. Counts: 64 crates, 52 system crates, 29 systems with a crate (speech-io already had one).
+
+## shared-tar-mergefix row (2026-10-22 01:15 CEST +02:00, pending Slavik)
+
+swarm/shared-tar-mergefix (wave-4 slot 242) merges swarm/main-staging into shared-tar-crate 820740e. shared-tar-crate adds the std-only `galion-tar` crate (galion-backup and galion-deploy now share it), and `every_workspace_crate_is_mapped` failed on it, which is why the main merge skipped 820740e. One row, a judgement call (`"pending_slavik": true`): survival / DEMETER, next to `galion-backup`, its main user; alternatives deploy-switch / HEPHAESTUS (galion-deploy) or core (shared plumbing like `galion-common`). Counts: 68 crates, 56 system crates; systems with a crate unchanged (survival already had one).

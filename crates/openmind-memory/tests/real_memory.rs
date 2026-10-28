@@ -16,12 +16,32 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const PORT_ROUTES: u16 = 19090;
-const PORT_AUTH: u16 = 19091;
-const PORT_MIGRATE: u16 = 19092;
-const PORT_CRASH: u16 = 19093;
-const PORT_PERF: u16 = 19094;
-const PORT_RO: u16 = 19095;
+/// Port base: 19090 (memory-real, slot 09) unless `OPENMIND_REAL_PORT_BASE` is
+/// set (memory-schema, slot 36, runs this suite on 19360-19365).
+fn port_base() -> u16 {
+    std::env::var("OPENMIND_REAL_PORT_BASE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(19090)
+}
+fn port_routes() -> u16 {
+    port_base()
+}
+fn port_auth() -> u16 {
+    port_base() + 1
+}
+fn port_migrate() -> u16 {
+    port_base() + 2
+}
+fn port_crash() -> u16 {
+    port_base() + 3
+}
+fn port_perf() -> u16 {
+    port_base() + 4
+}
+fn port_ro() -> u16 {
+    port_base() + 5
+}
 /// A fixture Bearer value for the box-only auth test. Not a real secret.
 const FIXTURE_KEY: &str = "fixture-key-not-a-secret";
 
@@ -360,7 +380,7 @@ fn real_every_route_on_fixture_db() {
             )
             .unwrap();
     }
-    let srv = Server::start(PORT_ROUTES, &dir, &[("MEMORY_MAX_BODY_BYTES", "4096")]);
+    let srv = Server::start(port_routes(), &dir, &[("MEMORY_MAX_BODY_BYTES", "4096")]);
 
     // health: same shape as live 8420
     let (s, h) = srv.call("GET", "/health", None);
@@ -564,7 +584,10 @@ fn real_every_route_on_fixture_db() {
         .iter()
         .all(|l| is_js_iso_utc(l["recordedAt"].as_str().unwrap())));
     assert_eq!(lines[0]["timestamp"], ts);
-    println!("real_every_route_on_fixture_db: ok (port {PORT_ROUTES})");
+    println!(
+        "real_every_route_on_fixture_db: ok (port {})",
+        port_routes()
+    );
 }
 
 #[test]
@@ -573,7 +596,11 @@ fn real_auth_get_contract_matches_live() {
         return;
     }
     let dir = fresh_dir("auth");
-    let srv = Server::start(PORT_AUTH, &dir, &[("OPENMIND_MEMORY_API_KEY", FIXTURE_KEY)]);
+    let srv = Server::start(
+        port_auth(),
+        &dir,
+        &[("OPENMIND_MEMORY_API_KEY", FIXTURE_KEY)],
+    );
     for (path, want) in LIVE_GET_CONTRACT {
         let (s, body, _) = try_http(srv.port, "GET", path, None, &[]).unwrap();
         assert_eq!(s, want, "GET {path}");
@@ -601,7 +628,10 @@ fn real_auth_get_contract_matches_live() {
             .0,
         401
     );
-    println!("real_auth_get_contract_matches_live: ok (port {PORT_AUTH})");
+    println!(
+        "real_auth_get_contract_matches_live: ok (port {})",
+        port_auth()
+    );
 }
 
 const V3_TABLES: [&str; 6] = [
@@ -621,7 +651,7 @@ fn real_migrations_empty_idempotent_and_pre_v3() {
     // (a) up from an empty data dir
     let dir = fresh_dir("migrate-empty");
     let db_path = dir.join("vectors.db");
-    let mut srv = Server::start(PORT_MIGRATE, &dir, &[]);
+    let mut srv = Server::start(port_migrate(), &dir, &[]);
     srv.call(
         "POST",
         "/capture",
@@ -654,7 +684,7 @@ fn real_migrations_empty_idempotent_and_pre_v3() {
 
     // (b) idempotence: three more restarts change neither schema nor rows
     for _ in 0..3 {
-        let mut s = Server::start(PORT_MIGRATE, &dir, &[]);
+        let mut s = Server::start(port_migrate(), &dir, &[]);
         s.kill9();
         let c = ro(&db_path);
         assert_eq!(schema_dump(&c), first);
@@ -675,7 +705,7 @@ fn real_migrations_empty_idempotent_and_pre_v3() {
         )
         .unwrap();
     }
-    let srv = Server::start(PORT_MIGRATE, &dir, &[]);
+    let srv = Server::start(port_migrate(), &dir, &[]);
     let c = ro(&db_path);
     assert!(columns(&c, "l0_conversations").contains(&"timestamp".to_string()));
     let (ts, txt): (i64, String) = c
@@ -692,28 +722,29 @@ fn real_migrations_empty_idempotent_and_pre_v3() {
         Some(&capture_body("new", ahead_ms(), "fresh zadar row", None)),
     );
     assert_eq!(v["l0_recorded"], 1);
-    // l0_fts is empty for legacy rows, so the LIKE fallback is not used once it has rows;
-    // the FTS path finds the new row.
+    // swarm/memory-schema: the migration rebuilds the missing l0_fts from the
+    // legacy rows (gateway `rebuildFtsIndex` parity), so FTS finds both.
     let (_, v) = srv.call(
         "POST",
         "/search/conversations",
         Some(&json!({"query": "zadar"})),
     );
-    assert_eq!(v["total"], 1);
+    assert_eq!(v["total"], 2);
     drop(srv);
 
-    // (d) legacy v1 FTS (no *_original columns): opens, fts=false, writes still land
+    // (d) legacy v1 FTS (no *_original columns): since swarm/memory-schema the
+    // migration drops and rebuilds them like the gateway, so fts=true
     let dir = fresh_dir("migrate-v1fts");
     {
         let c = Connection::open(dir.join("vectors.db")).unwrap();
         c.execute_batch("CREATE VIRTUAL TABLE l1_fts USING fts5(content, record_id UNINDEXED);
                          CREATE VIRTUAL TABLE l0_fts USING fts5(message_text, record_id UNINDEXED);").unwrap();
     }
-    let srv = Server::start(PORT_MIGRATE, &dir, &[]);
+    let srv = Server::start(port_migrate(), &dir, &[]);
     let (_, h) = srv.call("GET", "/health", None);
     assert_eq!(
         (h["status"].clone(), h["fts"].clone()),
-        (json!("ok"), json!(false))
+        (json!("ok"), json!(true))
     );
     let (_, v) = srv.call(
         "POST",
@@ -726,10 +757,13 @@ fn real_migrations_empty_idempotent_and_pre_v3() {
         "/search/memories",
         Some(&json!({"query": "legacy"})),
     );
-    assert_eq!((s, v["strategy"].clone()), (200, json!("none")));
+    assert_eq!((s, v["strategy"].clone()), (200, json!("fts")));
     drop(srv);
     assert_eq!(count(&ro(&dir.join("vectors.db")), "l0_conversations"), 1);
-    println!("real_migrations_empty_idempotent_and_pre_v3: ok (port {PORT_MIGRATE})");
+    println!(
+        "real_migrations_empty_idempotent_and_pre_v3: ok (port {})",
+        port_migrate()
+    );
 }
 
 #[test]
@@ -738,7 +772,7 @@ fn real_read_only_mode() {
         return;
     }
     let dir = fresh_dir("ro-missing");
-    let srv = Server::start(PORT_RO, &dir, &[("OPENMIND_MEMORY_READ_ONLY", "1")]);
+    let srv = Server::start(port_ro(), &dir, &[("OPENMIND_MEMORY_READ_ONLY", "1")]);
     let (_, h) = srv.call("GET", "/health", None);
     assert_eq!(
         (h["status"].clone(), h["read_only"].clone()),
@@ -753,7 +787,7 @@ fn real_read_only_mode() {
     let dir = fresh_dir("ro-existing");
     seed_l1(&dir, 30);
     let before = std::fs::read(dir.join("vectors.db")).unwrap();
-    let srv = Server::start(PORT_RO, &dir, &[("OPENMIND_MEMORY_READ_ONLY", "1")]);
+    let srv = Server::start(port_ro(), &dir, &[("OPENMIND_MEMORY_READ_ONLY", "1")]);
     let (_, v) = srv.call(
         "POST",
         "/search/memories",
@@ -769,7 +803,7 @@ fn real_read_only_mode() {
     assert_eq!(count(&ro(&dir.join("vectors.db")), "l0_conversations"), 0);
     assert_eq!(std::fs::read(dir.join("vectors.db")).unwrap(), before);
     assert!(!dir.join("conversations").exists());
-    println!("real_read_only_mode: ok (port {PORT_RO})");
+    println!("real_read_only_mode: ok (port {})", port_ro());
 }
 
 #[test]
@@ -781,7 +815,7 @@ fn real_crash_recovery_kill9_mid_write() {
     let db_path = dir.join("vectors.db");
     let mut acked_total = 0i64;
     for round in 0..3u64 {
-        let mut srv = Server::start(PORT_CRASH, &dir, &[]);
+        let mut srv = Server::start(port_crash(), &dir, &[]);
         let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let writers: Vec<_> = (0..4u64)
             .map(|w| {
@@ -798,8 +832,13 @@ fn real_crash_recovery_kill9_mid_write() {
                             &format!("crash round {round} writer {w} item {i} quartz"),
                             Some("ack willow"),
                         );
-                        match try_http(PORT_CRASH, "POST", "/capture", Some(&body.to_string()), &[])
-                        {
+                        match try_http(
+                            port_crash(),
+                            "POST",
+                            "/capture",
+                            Some(&body.to_string()),
+                            &[],
+                        ) {
                             Ok((200, b, _)) => {
                                 acked += parse(&b)["l0_recorded"].as_i64().unwrap_or(0)
                             }
@@ -836,7 +875,7 @@ fn real_crash_recovery_kill9_mid_write() {
             println!("crash round {round}: acked {acked} (total {acked_total}), rows after kill -9 {rows}, integrity ok");
         }
         // restart: healthy, searchable, writable
-        let srv = Server::start(PORT_CRASH, &dir, &[]);
+        let srv = Server::start(port_crash(), &dir, &[]);
         let (_, v) = srv.call(
             "POST",
             "/search/conversations",
@@ -856,7 +895,10 @@ fn real_crash_recovery_kill9_mid_write() {
         assert_eq!(v["l0_recorded"], 1);
         acked_total += 1;
     }
-    println!("real_crash_recovery_kill9_mid_write: ok (port {PORT_CRASH})");
+    println!(
+        "real_crash_recovery_kill9_mid_write: ok (port {})",
+        port_crash()
+    );
 }
 
 fn pct(sorted: &[f64], p: f64) -> f64 {
@@ -889,7 +931,7 @@ fn real_perf_baseline_10k() {
     let t = Instant::now();
     seed_l1(&dir, n);
     let seed_s = t.elapsed().as_secs_f64();
-    let _srv = Server::start(PORT_PERF, &dir, &[]);
+    let _srv = Server::start(port_perf(), &dir, &[]);
     let base = ahead_ms();
     let mut save = Vec::with_capacity(n as usize);
     for i in 0..n {
@@ -899,8 +941,14 @@ fn real_perf_baseline_10k() {
             &sentence(i + 100_000),
             None,
         );
-        let (s, b, dt) =
-            try_http(PORT_PERF, "POST", "/capture", Some(&body.to_string()), &[]).unwrap();
+        let (s, b, dt) = try_http(
+            port_perf(),
+            "POST",
+            "/capture",
+            Some(&body.to_string()),
+            &[],
+        )
+        .unwrap();
         assert_eq!((s, parse(&b)["l0_recorded"].as_i64()), (200, Some(1)));
         save.push(dt.as_secs_f64() * 1000.0);
     }
@@ -914,7 +962,7 @@ fn real_perf_baseline_10k() {
             WORDS[((i * 7 + 3) % 24) as usize]
         );
         let (s, _, dt) = try_http(
-            PORT_PERF,
+            port_perf(),
             "POST",
             "/search/memories",
             Some(&json!({"query": q, "limit": 5}).to_string()),
@@ -924,7 +972,7 @@ fn real_perf_baseline_10k() {
         assert_eq!(s, 200);
         s_mem.push(dt.as_secs_f64() * 1000.0);
         let (s, _, dt) = try_http(
-            PORT_PERF,
+            port_perf(),
             "POST",
             "/search/conversations",
             Some(&json!({"query": q, "limit": 5}).to_string()),
@@ -934,7 +982,7 @@ fn real_perf_baseline_10k() {
         assert_eq!(s, 200);
         s_conv.push(dt.as_secs_f64() * 1000.0);
         let (s, _, dt) = try_http(
-            PORT_PERF,
+            port_perf(),
             "POST",
             "/search/conversations",
             Some(

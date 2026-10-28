@@ -75,6 +75,10 @@ fn action_names_match_the_two_lists() {
 /// `kill` and `rotate` stay refused with the approved-test token.
 /// `WouldApply` is a decision only: no process is spawned and no file is written.
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp probe dir + /proc/self/task reads (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn approved_token_refuses_kill_and_rotate_and_would_apply_is_not_an_apply() {
     assert_eq!(APPROVED_TEST_TOKEN, "approved-test");
 

@@ -11,12 +11,14 @@
 //! <new> --version (bounded), backup copy, data backup, log line    [prepare]
 //! install <new> -> <target>.new -> rename                          [install]
 //! reset-failed, restart, health loop                               [verify]
+//!   (optional: GALION_DEPLOY_FAILFAST=N ends the loop early once the unit has
+//!    restarted itself N times since our restart, or sits in `failed`)
 //!   ok   -> prune backups, drop journal, exit 0
 //!   fail -> install backup (or stop + remove on first install),    [rollback]
 //!           reset-failed, restart, health on the unit's own path -> exit 3 / 4
 //! ```
 
-use crate::backend::{Direct, Manager, Systemd};
+use crate::backend::{Direct, Manager, Systemd, UnitState};
 use crate::journal::{self, Entry, Found, Phase};
 use crate::{files, http, sha256, sys, zagreb};
 use std::fs;
@@ -106,6 +108,10 @@ pub struct Config {
     pub reset_failed: bool,
     pub tries: u32,
     pub interval: Duration,
+    /// Crash-loop fail-fast for the forward health loop: give up once the unit has
+    /// restarted itself this many times since our restart (or sits in `failed` on two
+    /// polls in a row). 0 = off (default): the full tries x interval window, as bash.
+    pub failfast: u32,
 }
 
 fn env(k: &str) -> Option<String> {
@@ -161,6 +167,7 @@ impl Config {
             reset_failed: std::env::var("GALION_DEPLOY_RESET_FAILED").as_deref() != Ok("0"),
             tries: num("GALION_DEPLOY_HEALTH_TRIES", 20)?.clamp(1, 10_000) as u32,
             interval: Duration::from_millis(num("GALION_DEPLOY_HEALTH_INTERVAL_MS", 1000)?),
+            failfast: num("GALION_DEPLOY_FAILFAST", 0)?.min(1000) as u32,
         })
     }
 }
@@ -253,6 +260,58 @@ enum Health {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+enum Pause {
+    Done,
+    Interrupted,
+    CrashLoop,
+}
+
+/// How often fail-fast polls the unit's state during the pause before a try.
+const FAILFAST_POLL: Duration = Duration::from_millis(250);
+
+/// Crash-loop detector of one forward health loop.
+#[derive(Debug)]
+struct FailFast {
+    limit: u32,
+    base: u32,
+    t0: Instant,
+    failed_polls: u32,
+}
+
+impl FailFast {
+    /// `Some(reason)` once the new build is crash-looping: `limit` crashes since our
+    /// restart (automatic restarts done, `NRestarts` growth, plus one that is pending,
+    /// `SubState=auto-restart`, so a crash counts when it happens and not
+    /// `RestartSec` later), or `failed` on two polls in a row (Restart=no, or
+    /// the start limit was hit: systemd will not try again). One `failed` poll is
+    /// not enough, because systemd >= 254 passes through `failed` for an instant on
+    /// its way to an automatic restart.
+    fn verdict(&mut self, s: &UnitState) -> Option<String> {
+        if s.n_restarts < self.base {
+            // the counter was zeroed under us (reset-failed by someone else)
+            self.base = 0;
+        }
+        let pending = u32::from(s.sub_state == "auto-restart");
+        let n = s.n_restarts - self.base + pending;
+        if n >= self.limit {
+            return Some(format!(
+                "{n} crash(es) of the new build since the deploy restart (limit {})",
+                self.limit
+            ));
+        }
+        if s.active_state == "failed" {
+            self.failed_polls += 1;
+            if self.failed_polls >= 2 {
+                return Some("unit is in state failed and will not restart itself".into());
+            }
+        } else {
+            self.failed_polls = 0;
+        }
+        None
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum Version {
     Skipped,
     Exited,
@@ -317,12 +376,19 @@ impl Run<'_> {
         Exit::Refused
     }
 
-    fn healthy(&mut self, url: &str, interruptible: bool) -> Health {
+    /// The health loop: `tries` tries, `interval` apart. With `failfast` (forward
+    /// deploy only, and only when `GALION_DEPLOY_FAILFAST` > 0 and the backend can
+    /// read `NRestarts`) the pause before each try is cut into polls of the unit's
+    /// state, and the loop gives up as soon as the new build is crash-looping.
+    fn healthy(&mut self, url: &str, interruptible: bool, failfast: bool) -> Health {
         let unit = self.cfg.unit.clone();
         let min = 5.min(self.cfg.tries);
+        let mut ff = if failfast { self.failfast_arm() } else { None };
         for i in 1..=self.cfg.tries {
-            if nap(self.cfg.interval, interruptible) {
-                return Health::Interrupted;
+            match self.pause(interruptible, &mut ff) {
+                Pause::Done => {}
+                Pause::Interrupted => return Health::Interrupted,
+                Pause::CrashLoop => return Health::Fail,
             }
             if !self.sm.is_active(&unit) {
                 continue;
@@ -338,6 +404,72 @@ impl Run<'_> {
             }
         }
         Health::Fail
+    }
+
+    /// Read the restart counter right after our restart; it is the baseline (systemd
+    /// may or may not zero `NRestarts` on a manual restart, so only growth counts).
+    fn failfast_arm(&mut self) -> Option<FailFast> {
+        let limit = self.cfg.failfast;
+        if limit == 0 {
+            return None;
+        }
+        let unit = self.cfg.unit.clone();
+        match self.sm.unit_state(&unit) {
+            Some(s) => {
+                self.log.log(&format!(
+                    "level=info msg=\"fail-fast armed\" unit={unit} crash_limit={limit} nrestarts_base={} state={}/{}",
+                    s.n_restarts, s.active_state, s.sub_state
+                ));
+                Some(FailFast {
+                    limit,
+                    base: s.n_restarts,
+                    t0: Instant::now(),
+                    failed_polls: 0,
+                })
+            }
+            None => {
+                self.log.log(&format!(
+                    "level=warn msg=\"fail-fast off: cannot read NRestarts; using the full health window\" unit={unit}"
+                ));
+                None
+            }
+        }
+    }
+
+    /// The pause before a try. Without fail-fast it is `nap(interval)`, exactly as
+    /// before. With it, the unit's state is polled every FAILFAST_POLL (or interval,
+    /// if shorter) during the pause.
+    fn pause(&mut self, interruptible: bool, ff: &mut Option<FailFast>) -> Pause {
+        let Some(f) = ff.as_mut() else {
+            return if nap(self.cfg.interval, interruptible) {
+                Pause::Interrupted
+            } else {
+                Pause::Done
+            };
+        };
+        let end = Instant::now() + self.cfg.interval;
+        let unit = self.cfg.unit.clone();
+        loop {
+            let left = end.saturating_duration_since(Instant::now());
+            if nap(left.min(FAILFAST_POLL), interruptible) {
+                return Pause::Interrupted;
+            }
+            if let Some(s) = self.sm.unit_state(&unit) {
+                if let Some(why) = f.verdict(&s) {
+                    self.log.log(&format!(
+                        "level=error msg=\"crash loop: {why}; failing fast\" unit={unit} after_ms={} nrestarts={} state={}/{}",
+                        f.t0.elapsed().as_millis(),
+                        s.n_restarts,
+                        s.active_state,
+                        s.sub_state
+                    ));
+                    return Pause::CrashLoop;
+                }
+            }
+            if Instant::now() >= end {
+                return Pause::Done;
+            }
+        }
     }
 
     /// F2: reset-failed first (so a full start-limit window cannot refuse us), and
@@ -410,7 +542,7 @@ impl Run<'_> {
                         ));
                     }
                     let url = e.health.clone();
-                    restarted && self.healthy(&url, false) == Health::Ok
+                    restarted && self.healthy(&url, false, false) == Health::Ok
                 }
             }
         };
@@ -679,7 +811,7 @@ impl Run<'_> {
         if !self.restart() {
             return self.after_failure(&mut e, None, "restart refused");
         }
-        match self.healthy(&cfg.url, true) {
+        match self.healthy(&cfg.url, true, true) {
             Health::Ok => {
                 self.log.log(&format!(
                     "level=info msg=\"deployed\" unit={unit} health={}",
@@ -801,6 +933,10 @@ environment (unset = default):
   GALION_DEPLOY_ROLLBACK_HEALTH=URL    health URL for the rollback (default: the unit's own)
   GALION_DEPLOY_HEALTH_TRIES=20        health tries ...
   GALION_DEPLOY_HEALTH_INTERVAL_MS=1000  ... and the pause before each
+  GALION_DEPLOY_FAILFAST=0             N>0: end the forward health window early once the
+                                       unit restarted itself N times since the deploy
+                                       restart (systemd NRestarts) or stays failed;
+                                       0 = off, the full window (default)
 ";
 
 /// The binary's entry point; returns the process exit code.
@@ -865,6 +1001,11 @@ mod tests {
         refuse: u32,
         raise_on_restart: Option<i32>,
         calls: Vec<String>,
+        /// `unit_state`: None = backend cannot tell. While the unit is not active,
+        /// every read counts one more automatic restart (a crash loop), unless
+        /// `stuck_failed` (Restart=no: the unit stays `failed`).
+        nrestarts: Option<u32>,
+        stuck_failed: bool,
     }
 
     impl Manager for Mock {
@@ -906,6 +1047,23 @@ mod tests {
             self.calls.push(format!("reset-failed {u}"));
             true
         }
+        fn unit_state(&mut self, u: &str) -> Option<UnitState> {
+            self.calls.push(format!("show {u}"));
+            let n = self.nrestarts.as_mut()?;
+            let (state, sub) = if self.active {
+                ("active", "running")
+            } else if self.stuck_failed {
+                ("failed", "failed")
+            } else {
+                *n += 1;
+                ("activating", "auto-restart")
+            };
+            Some(UnitState {
+                active_state: state.into(),
+                sub_state: sub.into(),
+                n_restarts: *n,
+            })
+        }
     }
 
     struct T {
@@ -935,6 +1093,7 @@ mod tests {
             reset_failed: true,
             tries: 6,
             interval: Duration::from_millis(1),
+            failfast: 0,
         };
         let sm = Mock {
             target,
@@ -976,6 +1135,146 @@ mod tests {
 
     fn has(lines: &[String], s: &str) -> bool {
         lines.iter().any(|l| l.contains(s))
+    }
+
+    fn ff(t: &mut T, limit: u32, tries: u32, interval_ms: u64) {
+        t.cfg.failfast = limit;
+        t.cfg.tries = tries;
+        t.cfg.interval = Duration::from_millis(interval_ms);
+    }
+
+    #[test]
+    fn failfast_cuts_a_crash_loop_short() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let mut t = setup("ff-loop", Some(b"\x7fELFgood-old"), b"\x7fELFbad-new");
+        // full window would be 20 x 200 ms = 4 s
+        ff(&mut t, 2, 20, 200);
+        t.sm.nrestarts = Some(5); // non-zero base (the arming read makes it 6): only growth counts
+        let t0 = Instant::now();
+        let (x, lines) = t.run();
+        let ms = t0.elapsed().as_millis();
+        assert_eq!(x, Exit::RolledBack, "{lines:?}");
+        assert_eq!(t.target(), b"\x7fELFgood-old");
+        assert!(t.sm.active);
+        assert!(has(
+            &lines,
+            "fail-fast armed\" unit=svc crash_limit=2 nrestarts_base=6 state=activating/auto-restart"
+        ));
+        assert!(has(
+            &lines,
+            "crash loop: 2 crash(es) of the new build since the deploy restart (limit 2); failing fast"
+        ));
+        // the documented message and the journal dump still follow
+        assert!(has(&lines, "health failed, rolling back"));
+        assert!(has(&lines, "msg=\"rolled back ok\" unit=svc"));
+        assert!(ms < 2000, "fail-fast took {ms} ms");
+        // the rollback keeps the full window and does not poll the state
+        let shows = t.sm.calls.iter().filter(|c| c.starts_with("show")).count();
+        // arm + 1 poll: the restart the arming read saw pending, plus one done
+        assert_eq!(shows, 2, "{:?}", t.sm.calls);
+    }
+
+    #[test]
+    fn failfast_stuck_failed_unit() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let mut t = setup("ff-failed", Some(b"\x7fELFgood-old"), b"\x7fELFbad-new");
+        ff(&mut t, 3, 20, 200);
+        t.sm.nrestarts = Some(0);
+        t.sm.stuck_failed = true;
+        let (x, lines) = t.run();
+        assert_eq!(x, Exit::RolledBack, "{lines:?}");
+        assert!(has(
+            &lines,
+            "crash loop: unit is in state failed and will not restart itself"
+        ));
+    }
+
+    #[test]
+    fn failfast_one_failed_poll_is_not_enough() {
+        let mut f = FailFast {
+            limit: 3,
+            base: 1,
+            t0: Instant::now(),
+            failed_polls: 0,
+        };
+        let st = |a: &str, n: u32| UnitState {
+            active_state: a.into(),
+            sub_state: String::new(),
+            n_restarts: n,
+        };
+        assert_eq!(f.verdict(&st("failed", 1)), None);
+        assert_eq!(f.verdict(&st("activating", 2)), None);
+        assert_eq!(f.verdict(&st("failed", 2)), None);
+        assert!(f
+            .verdict(&st("failed", 2))
+            .unwrap()
+            .contains("state failed"));
+        // a counter zeroed under us re-bases at 0
+        let mut g = FailFast {
+            limit: 2,
+            base: 7,
+            t0: Instant::now(),
+            failed_polls: 0,
+        };
+        assert_eq!(g.verdict(&st("activating", 1)), None);
+        assert!(g.verdict(&st("activating", 2)).is_some());
+        // a pending auto-restart counts as the crash it is
+        let mut h = FailFast {
+            limit: 1,
+            base: 0,
+            t0: Instant::now(),
+            failed_polls: 0,
+        };
+        assert_eq!(h.verdict(&st("activating", 0)), None);
+        let pend = UnitState {
+            active_state: "activating".into(),
+            sub_state: "auto-restart".into(),
+            n_restarts: 0,
+        };
+        assert!(h.verdict(&pend).unwrap().starts_with("1 crash(es)"));
+    }
+
+    #[test]
+    fn failfast_healthy_deploy_is_untouched() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let mut t = setup("ff-ok", Some(b"\x7fELFgood-old"), b"\x7fELFgood-new");
+        ff(&mut t, 1, 20, 50);
+        t.sm.nrestarts = Some(0);
+        let (x, lines) = t.run();
+        assert_eq!(x, Exit::Deployed, "{lines:?}");
+        assert!(!has(&lines, "crash loop"));
+        assert_eq!(t.target(), b"\x7fELFgood-new");
+    }
+
+    #[test]
+    fn failfast_unavailable_falls_back_to_the_full_window() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        let mut t = setup("ff-none", Some(b"\x7fELFgood-old"), b"\x7fELFbad-new");
+        ff(&mut t, 2, 6, 50);
+        t.sm.nrestarts = None;
+        let t0 = Instant::now();
+        let (x, lines) = t.run();
+        assert_eq!(x, Exit::RolledBack, "{lines:?}");
+        assert!(has(
+            &lines,
+            "fail-fast off: cannot read NRestarts; using the full health window"
+        ));
+        assert!(!has(&lines, "crash loop"));
+        assert!(t0.elapsed() >= Duration::from_millis(300));
+        let shows = t.sm.calls.iter().filter(|c| c.starts_with("show")).count();
+        assert_eq!(shows, 1, "only the arming read");
+    }
+
+    #[test]
+    fn failfast_env_parsing() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var("GALION_DEPLOY_FAILFAST");
+        assert_eq!(Config::from_env("x", "/n", None).unwrap().failfast, 0);
+        std::env::set_var("GALION_DEPLOY_FAILFAST", "3");
+        assert_eq!(Config::from_env("x", "/n", None).unwrap().failfast, 3);
+        std::env::set_var("GALION_DEPLOY_FAILFAST", "lots");
+        assert!(Config::from_env("x", "/n", None).is_err());
+        std::env::remove_var("GALION_DEPLOY_FAILFAST");
     }
 
     #[test]

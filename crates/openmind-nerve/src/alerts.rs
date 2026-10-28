@@ -42,6 +42,51 @@ impl Severity {
     }
 }
 
+/// Read `alerts.json`: a JSON array (current layout) or an object holding
+/// it under `recent` or `alerts`. Non-object entries are dropped, the newest
+/// KEEP kept. A file that exists but cannot be read is copied aside first
+/// (`alerts.json.corrupt-<now>`) so the next write does not erase it.
+fn load_recent(p: &std::path::Path, now: u64) -> (VecDeque<Value>, Option<String>) {
+    let s = match std::fs::read(p) {
+        Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return (VecDeque::new(), None),
+        Err(e) => {
+            return (
+                VecDeque::new(),
+                Some(format!("{}: unreadable: {e}", p.display())),
+            )
+        }
+    };
+    let arr = match serde_json::from_str::<Value>(&s) {
+        Ok(Value::Array(a)) => Some(a),
+        Ok(Value::Object(mut m)) => match m.remove("recent").or_else(|| m.remove("alerts")) {
+            Some(Value::Array(a)) => Some(a),
+            _ => None,
+        },
+        _ => None,
+    };
+    match arr {
+        Some(a) => {
+            let mut q: VecDeque<Value> = a.into_iter().filter(Value::is_object).collect();
+            while q.len() > KEEP {
+                q.pop_front();
+            }
+            (q, None)
+        }
+        None => {
+            let copy = crate::util::quarantine(p, now);
+            let note = format!(
+                "{} is not an alert list; copy at {}",
+                p.display(),
+                copy.map(|c| c.display().to_string())
+                    .unwrap_or_else(|| "(copy failed)".into())
+            );
+            eprintln!("<4>galion-nerve alerts: {note}");
+            (VecDeque::new(), Some(note))
+        }
+    }
+}
+
 pub struct Alerts {
     pub path: Option<PathBuf>,
     pub recent: VecDeque<Value>,
@@ -50,18 +95,33 @@ pub struct Alerts {
     pub ext_per_hour: u32,
     ext_sent: VecDeque<u64>,
     pub ext_status: String,
+    /// What happened loading `alerts.json` (None when clean).
+    pub load_note: Option<String>,
     /// When false nothing is printed (tests).
     pub to_journal: bool,
 }
 
 impl Alerts {
     pub fn new(path: Option<PathBuf>, telegram_env: Option<PathBuf>, ext_per_hour: u32) -> Self {
-        let recent = path
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str::<Vec<Value>>(&s).ok())
-            .map(VecDeque::from)
-            .unwrap_or_default();
+        let now = now_secs();
+        let (recent, load_note) = match &path {
+            Some(p) => load_recent(p, now),
+            None => (VecDeque::new(), None),
+        };
+        // Restore the 30-min dedupe window from the history, so a restart
+        // does not raise (and page) every recent alert again.
+        let mut last_key: HashMap<String, u64> = HashMap::new();
+        for a in &recent {
+            if let (Some(k), Some(t)) = (
+                a["key"].as_str(),
+                a["ts"].as_str().and_then(crate::util::parse_rfc3339),
+            ) {
+                // A stamp from the future (clock step) must not mute a key for long.
+                let t = t.min(now);
+                let e = last_key.entry(k.to_string()).or_insert(t);
+                *e = (*e).max(t);
+            }
+        }
         let ext_status = match &telegram_env {
             None => {
                 "none configured (no Telegram/Hermes alert channel found on the host)".to_string()
@@ -72,7 +132,8 @@ impl Alerts {
         Alerts {
             path,
             recent,
-            last_key: HashMap::new(),
+            last_key,
+            load_note,
             telegram_env,
             ext_per_hour,
             ext_sent: VecDeque::new(),
@@ -155,8 +216,15 @@ impl Alerts {
             .filter(|c| *c != '"' && *c != '\\' && !c.is_control())
             .take(500)
             .collect();
+        // Egress guard: only the allowlisted Telegram API, never an LLM provider.
+        // The error text never contains the URL (it carries the token).
+        let url = format!("https://api.telegram.org/bot{tok}/sendMessage");
+        if let Err(e) = crate::egress::check_url(&url) {
+            self.ext_status = e;
+            return;
+        }
         let cfg = format!(
-            "url = \"https://api.telegram.org/bot{tok}/sendMessage\"\ndata-urlencode = \"chat_id={chat}\"\ndata-urlencode = \"text={text}\"\nsilent\nmax-time = 10\noutput = /dev/null\n"
+            "url = \"{url}\"\ndata-urlencode = \"chat_id={chat}\"\ndata-urlencode = \"text={text}\"\nsilent\nmax-time = 10\noutput = /dev/null\n"
         );
         let child = Command::new("curl")
             .args(["-K", "-"])
@@ -195,6 +263,71 @@ mod tests {
         let b = Alerts::new(Some(p), None, 4);
         assert_eq!(b.recent.len(), 2);
         assert!(b.ext_status.starts_with("none configured"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn old_alert_history_restores_dedupe_and_tolerates_layouts() {
+        let dir = std::env::temp_dir().join(format!("nerve-alerts-t41-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("alerts.json");
+        let now = now_secs();
+        let old = json!([
+            {"ts": ts(now - 60), "severity": "warn", "component": "tuner", "key": "recent", "msg": "m", "legacy_ack": true},
+            {"ts": ts(now - 7200), "severity": "warn", "component": "tuner", "key": "old", "msg": "m"},
+            {"ts": ts(now + 86400), "severity": "warn", "component": "tuner", "key": "future", "msg": "m"},
+            "not an object",
+        ]);
+        std::fs::write(&p, old.to_string()).unwrap();
+        let mut a = Alerts::new(Some(p.clone()), None, 0);
+        a.to_journal = false;
+        assert!(a.load_note.is_none());
+        assert_eq!(a.recent.len(), 3, "non-object entries dropped");
+        assert!(
+            !a.raise("recent", Severity::Warn, "tuner", "again"),
+            "still deduped after restart"
+        );
+        assert!(a.raise("old", Severity::Warn, "tuner", "again"));
+        // A future stamp mutes for at most the normal window from now.
+        assert!(!a.raise("future", Severity::Warn, "tuner", "again"));
+        let v: Vec<Value> = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v.len(), 4);
+        assert_eq!(v[0]["legacy_ack"], true, "unknown field kept");
+        // Wrapped layout {"recent": [...]}.
+        std::fs::write(
+            &p,
+            json!({"recent": [{"key": "w", "ts": ts(now)}]}).to_string(),
+        )
+        .unwrap();
+        assert_eq!(Alerts::new(Some(p.clone()), None, 0).recent.len(), 1);
+        // Over-long history is trimmed to the newest KEEP.
+        let many: Vec<Value> = (0..KEEP + 5)
+            .map(|i| json!({"key": format!("k{i}")}))
+            .collect();
+        std::fs::write(&p, serde_json::to_string(&many).unwrap()).unwrap();
+        let b = Alerts::new(Some(p.clone()), None, 0);
+        assert_eq!(b.recent.len(), KEEP);
+        assert_eq!(b.recent[0]["key"], "k5");
+        // Garbage: copied aside, reported, starts empty.
+        std::fs::write(&p, "garbage").unwrap();
+        let c = Alerts::new(Some(p.clone()), None, 0);
+        assert!(c.recent.is_empty());
+        assert!(c
+            .load_note
+            .as_deref()
+            .unwrap_or("")
+            .contains("not an alert list"));
+        let copies = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("alerts.json.corrupt-")
+            })
+            .count();
+        assert_eq!(copies, 1);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

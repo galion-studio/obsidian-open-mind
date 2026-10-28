@@ -55,10 +55,11 @@ pub enum Check {
     Hosts,
     Portable,
     Nerve,
+    Deps,
 }
 
 impl Check {
-    pub const ALL: [Check; 9] = [
+    pub const ALL: [Check; 10] = [
         Check::License,
         Check::Spdx,
         Check::Cjk,
@@ -68,6 +69,7 @@ impl Check {
         Check::Hosts,
         Check::Portable,
         Check::Nerve,
+        Check::Deps,
     ];
 
     pub fn name(self) -> &'static str {
@@ -81,6 +83,7 @@ impl Check {
             Check::Hosts => "hosts",
             Check::Portable => "portable",
             Check::Nerve => "nerve",
+            Check::Deps => "deps",
         }
     }
 
@@ -108,6 +111,7 @@ impl Check {
             Check::Hosts => "no public IPv4 literals in crates/, deploy/, .github/",
             Check::Portable => "no inline asm, arch intrinsics, target-cpu/target-feature, openssl-sys (UNIVERSAL-CPU.md)",
             Check::Nerve => "every workspace bin reaches nerve-client or is listed probe-only (with a reason) in crates/repo-check/nerve-probe-only.txt (Nerve T2.4)",
+            Check::Deps => "serde_json features are pinned once in the root [workspace.dependencies] (preserve_order); member crates use { workspace = true } with no features",
         }
     }
 }
@@ -289,6 +293,9 @@ pub fn scan_text(path: &str, text: &str) -> Vec<Finding> {
                 ));
             }
         }
+    }
+    if file_name(path) == "Cargo.toml" {
+        dep_pins(path, text, &mut out);
     }
     out
 }
@@ -638,6 +645,94 @@ pub fn scan_tree_with(
         findings,
         nerve_bins,
     })
+}
+
+// ---------------------------------------------------------------- deps
+
+/// The dependency whose features must be decided once for the workspace.
+pub const PINNED_DEP: &str = "serde_json";
+/// The feature the root pins for it.
+pub const PINNED_FEATURE: &str = "preserve_order";
+
+/// `serde_json = ...` or `serde_json.x = ...` (not `serde-json`, not a
+/// feature list that merely mentions `dep:serde_json`).
+fn is_pinned_dep_key(line: &str) -> bool {
+    let t = line.trim_start();
+    t.strip_prefix(PINNED_DEP)
+        .and_then(|rest| rest.chars().next())
+        .is_some_and(|c| c == ' ' || c == '=' || c == '.' || c == '\t')
+}
+
+/// Cargo unifies features over the packages in one build, so a member crate
+/// that adds `features = ["preserve_order"]` changes the JSON key order of
+/// every other crate in a `--workspace` build but not in a `-p` build. The
+/// feature set is therefore pinned once in the root `[workspace.dependencies]`
+/// and member crates may only say `{ workspace = true }`.
+/// Scope: the root `Cargo.toml` and `crates/*/Cargo.toml`.
+pub fn dep_pins(path: &str, text: &str, out: &mut Vec<Finding>) {
+    let root = path == "Cargo.toml";
+    let member = path.starts_with("crates/") && path.matches('/').count() == 2;
+    if !root && !member {
+        return;
+    }
+    let mut section = String::new();
+    let mut root_pin_seen = false;
+    for (i, line) in text.lines().enumerate() {
+        let n = i + 1;
+        let t = line.trim();
+        if line.contains(ALLOW_MARKER) || t.starts_with('#') {
+            continue;
+        }
+        if t.starts_with('[') {
+            section = t.trim_matches(|c| c == '[' || c == ']').trim().to_string();
+            let tail = format!(".{PINNED_DEP}");
+            if member && section.ends_with(&tail) {
+                out.push(finding(
+                    Check::Deps,
+                    path,
+                    n,
+                    format!("[{section}] table; write `{PINNED_DEP} = {{ workspace = true }}` (features are pinned in the root Cargo.toml)"),
+                ));
+            }
+            continue;
+        }
+        if !is_pinned_dep_key(line) {
+            continue;
+        }
+        let code = t.split('#').next().unwrap_or("");
+        if root && section == "workspace.dependencies" {
+            root_pin_seen = true;
+            if !code.contains(PINNED_FEATURE) {
+                out.push(finding(
+                    Check::Deps,
+                    path,
+                    n,
+                    format!("root [workspace.dependencies] {PINNED_DEP} must enable `{PINNED_FEATURE}` so `-p` and `--workspace` builds emit the same JSON key order"),
+                ));
+            }
+        } else if member {
+            let compact: String = code.chars().filter(|c| !c.is_whitespace()).collect();
+            let uses_ws = compact.contains("workspace=true");
+            if compact.contains("features") || !uses_ws {
+                out.push(finding(
+                    Check::Deps,
+                    path,
+                    n,
+                    format!("{PINNED_DEP} in a member crate must be `{{ workspace = true }}` with no features; its feature set is pinned in the root Cargo.toml"),
+                ));
+            }
+        }
+    }
+    if root && text.contains("[workspace.dependencies]") && !root_pin_seen {
+        out.push(finding(
+            Check::Deps,
+            path,
+            0,
+            format!(
+                "root [workspace.dependencies] has no {PINNED_DEP} entry with `{PINNED_FEATURE}`"
+            ),
+        ));
+    }
 }
 
 // ---------------------------------------------------------------- json

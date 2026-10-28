@@ -190,6 +190,14 @@ mod tests {
         assert_eq!(from_unix(1_792_890_000), "2026-10-25T02:00:00+01:00");
         assert_eq!(from_unix(0), "1970-01-01T01:00:00+01:00");
         assert_eq!(label(1_792_515_600), "2026-10-20 19:00 CEST (+02:00)");
+    }
+
+    #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "reads the real-time clock (clock_gettime REALTIME), refused under Miri isolation"
+    )]
+    fn now_shape() {
         assert!(now_rfc3339().len() == 25);
     }
 

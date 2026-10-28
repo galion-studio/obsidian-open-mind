@@ -9,6 +9,7 @@
 //! - `GET /api/v1/incidents`  open + recently resolved incidents
 //! - `GET /api/v1/cortex`     vulnerabilities, bleeding, ddos, exposure
 //! - `GET /api/v1/ddos`       per-stream request-rate verdicts
+//! - `GET /api/v1/cortex/events` the cortex B33 event feed, JSONL (see [`crate::feed`])
 //! - `GET /api/v1/self-eval`  the scored report (`.md` for markdown)
 //! - `GET /api/v1/signals` `/api/v1/alerts` `/api/v1/audit`
 //! - `POST /api/v1/signal`    push one signal (nerve-client wire format)
@@ -36,6 +37,13 @@ use std::time::Duration;
 
 const MAX_CONNS: usize = 16;
 const MAX_EVENTS_TAIL: usize = 1000;
+/// Stack of one connection thread. serde_json parses up to 128 nested
+/// levels recursively; measured need for that (T3.1, slot 212): release
+/// 64-96 KiB, debug 256-384 KiB with serde_json `preserve_order` (the
+/// workspace feature set). 256 KiB overflowed (process abort) in the debug
+/// workspace build; 512 KiB covers every build. Pages are only touched
+/// when used, so the 16 threads cost no more RSS than before.
+pub const CONN_STACK: usize = 512 * 1024;
 
 /// The JSONL event log behind `POST /event` / `GET /events`.
 pub struct EventLog {
@@ -51,7 +59,15 @@ pub struct Req {
     pub body: String,
 }
 
-/// Read one request (head <= 8 KiB, body <= MAX_BODY).
+/// Largest accepted request head, the blank line (`\r\n\r\n`) included.
+pub const MAX_HEAD: usize = 8192;
+
+/// Read one request (head <= [`MAX_HEAD`] bytes, body <= MAX_BODY).
+///
+/// The head limit is judged on the head itself, not on how much happened
+/// to arrive in one `read`: before T3.1 (slot 212 fuzz find) a head of
+/// 8193..10240 bytes was accepted when it came in large segments and
+/// refused with 431 when it came in small ones.
 pub fn read_req(s: &mut impl Read) -> Result<Req, (u16, &'static str)> {
     let mut buf = Vec::with_capacity(1024);
     let mut chunk = [0u8; 2048];
@@ -60,11 +76,17 @@ pub fn read_req(s: &mut impl Read) -> Result<Req, (u16, &'static str)> {
         if n == 0 {
             return Err((400, "incomplete request"));
         }
+        // Rescan only the new bytes (plus 3 for a terminator split across reads).
+        let from = buf.len().saturating_sub(3);
         buf.extend_from_slice(&chunk[..n]);
-        if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+        if let Some(p) = buf[from..].windows(4).position(|w| w == b"\r\n\r\n") {
+            let p = from + p;
+            if p + 4 > MAX_HEAD {
+                return Err((431, "headers too large"));
+            }
             break p;
         }
-        if buf.len() > 8192 {
+        if buf.len() >= MAX_HEAD {
             return Err((431, "headers too large"));
         }
     };
@@ -349,6 +371,11 @@ pub fn route(
                 }
                 ("GET", "/cortex") => (200, j, g.state["cortex"].to_string()),
                 ("GET", "/ddos") => (200, j, g.state["cortex"]["ddos"].to_string()),
+                ("GET", "/cortex/events") => {
+                    let (ct, body) =
+                        crate::feed::render(&g.state, crate::feed::Query::parse(&req.query));
+                    (200, ct, body)
+                }
                 ("GET", "/self-eval") | ("GET", "/self-eval.json") => {
                     (200, j, g.report.to_string())
                 }
@@ -594,7 +621,7 @@ pub fn serve(listener: TcpListener, sh: Arc<Mutex<Shared>>, ev: Option<Arc<Mutex
         active.fetch_add(1, Ordering::SeqCst);
         let (a, sh, ev) = (active.clone(), sh.clone(), ev.clone());
         let spawned = std::thread::Builder::new()
-            .stack_size(256 * 1024)
+            .stack_size(CONN_STACK)
             .spawn(move || {
                 match read_req(&mut s) {
                     Ok(r)
@@ -671,6 +698,8 @@ mod tests {
             "/api/v1/incidents",
             "/api/v1/cortex",
             "/api/v1/ddos",
+            "/api/v1/cortex/events",
+            "/cortex/events",
             "/api/v1/self-eval",
             "/state",
             "/healthz",

@@ -1,0 +1,1693 @@
+{
+  "alerts": {
+    "external": "none configured (no Telegram/Hermes alert channel found on the host)",
+    "recent": [
+      {
+        "component": "galion-one",
+        "key": "incident:inc-80048b3c:error",
+        "msg": "incident inc-80048b3c [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 3.2 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+        "severity": "warn",
+        "ts": "2026-10-21T22:31:58+02:00"
+      },
+      {
+        "component": "edge",
+        "key": "incident:inc-44f4f0ca:error",
+        "msg": "incident inc-44f4f0ca [error]: edge: tunnel routes 8 public hostname(s) to 4 closed origin port(s) :3010 :3011 :4001 :4020: 59.8 failed requests/min over 29 min",
+        "severity": "warn",
+        "ts": "2026-10-21T22:31:58+02:00"
+      },
+      {
+        "component": "cloudflared",
+        "key": "status:cloudflared:failing-soon",
+        "msg": "failing-soon: failing-soon: 246 errors in 5 min",
+        "severity": "warn",
+        "ts": "2026-10-21T22:31:58+02:00"
+      },
+      {
+        "component": "galion-one",
+        "key": "incident:inc-80048b3c:error",
+        "msg": "incident inc-80048b3c [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 2.8 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+        "severity": "warn",
+        "ts": "2026-10-21T22:01:57+02:00"
+      },
+      {
+        "component": "edge",
+        "key": "incident:inc-44f4f0ca:error",
+        "msg": "incident inc-44f4f0ca [error]: edge: tunnel routes 10 public hostname(s) to 6 closed origin port(s) :3010 :3011 :3020 :4001 :4020 :4060: 56.6 failed requests/min over 29 min",
+        "severity": "warn",
+        "ts": "2026-10-21T22:01:57+02:00"
+      },
+      {
+        "component": "cloudflared",
+        "key": "status:cloudflared:failing-soon",
+        "msg": "failing-soon: failing-soon: 324 errors in 5 min",
+        "severity": "warn",
+        "ts": "2026-10-21T22:01:57+02:00"
+      },
+      {
+        "component": "ddos:edge-cloudflared",
+        "key": "incident:inc-6f69d7bf:critical",
+        "msg": "incident inc-6f69d7bf [critical]: request flood on cloudflared (stream edge-cloudflared)",
+        "severity": "crit",
+        "ts": "2026-10-21T21:46:57+02:00"
+      },
+      {
+        "component": "galion-one",
+        "key": "incident:inc-80048b3c:error",
+        "msg": "incident inc-80048b3c [error]: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 2.0 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+        "severity": "warn",
+        "ts": "2026-10-21T21:16:58+02:00"
+      },
+      {
+        "component": "edge",
+        "key": "incident:inc-44f4f0ca:error",
+        "msg": "incident inc-44f4f0ca [error]: edge: tunnel routes 10 public hostname(s) to 6 closed origin port(s) :3004 :3005 :3010 :3011 :4001 :4020: 55.2 failed requests/min over 29 min",
+        "severity": "warn",
+        "ts": "2026-10-21T21:16:58+02:00"
+      },
+      {
+        "component": "cloudflared",
+        "key": "status:cloudflared:failing-soon",
+        "msg": "failing-soon: failing-soon: 328 errors in 5 min",
+        "severity": "warn",
+        "ts": "2026-10-21T21:16:58+02:00"
+      }
+    ]
+  },
+  "components": [
+    {
+      "connection": "push+pull",
+      "consecutive_down": 0,
+      "cpu_pct": 0.0,
+      "enabled": "enabled",
+      "extra": {
+        "push_age_s": 31
+      },
+      "gaia": {
+        "function": "APOLLO",
+        "system": "memory-gateway"
+      },
+      "galion_health_ok": true,
+      "host": null,
+      "http": 200,
+      "last_error": null,
+      "latency_ms": 0,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": 2644,
+      "mem_max_kb": 65536,
+      "n_restarts_systemd": 0,
+      "name": "openmind-memory",
+      "note": "",
+      "pid": 88565,
+      "port": 8420,
+      "push_age_s": 31,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "rss_kb": 3416,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": "openmind-memory.service",
+      "unit_state": "active",
+      "unit_sub": "running"
+    },
+    {
+      "connection": "push+pull",
+      "consecutive_down": 0,
+      "cpu_pct": 0.0,
+      "enabled": "enabled",
+      "extra": {
+        "push_age_s": 15
+      },
+      "gaia": {
+        "function": "ARTEMIS",
+        "system": "hermes-agents"
+      },
+      "galion_health_ok": true,
+      "host": null,
+      "http": 200,
+      "last_error": null,
+      "latency_ms": 0,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": 828,
+      "mem_max_kb": 65536,
+      "n_restarts_systemd": 0,
+      "name": "hermes-rs",
+      "note": "",
+      "pid": 718450,
+      "port": 8642,
+      "push_age_s": 15,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "rss_kb": 1776,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": "hermes-rs.service",
+      "unit_state": "active",
+      "unit_sub": "running"
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": 0.0,
+      "enabled": "enabled",
+      "extra": {},
+      "gaia": {
+        "function": "APOLLO",
+        "system": "link-watch"
+      },
+      "galion_health_ok": true,
+      "host": null,
+      "http": null,
+      "last_error": null,
+      "latency_ms": null,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": 360,
+      "mem_max_kb": 32768,
+      "n_restarts_systemd": 0,
+      "name": "link-watch-rs",
+      "note": "",
+      "pid": 1359406,
+      "port": null,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "rss_kb": 260,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": "link-watch-rs.service",
+      "unit_state": "active",
+      "unit_sub": "running"
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": 0.0,
+      "enabled": "enabled",
+      "extra": {},
+      "gaia": {
+        "function": "HEPHAESTUS",
+        "system": "galion-desk"
+      },
+      "galion_health_ok": true,
+      "host": null,
+      "http": 200,
+      "last_error": null,
+      "latency_ms": 0,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": 720,
+      "mem_max_kb": null,
+      "n_restarts_systemd": 0,
+      "name": "galion-desk",
+      "note": "",
+      "pid": 231,
+      "port": 8646,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "rss_kb": 1756,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": "galion-desk.service",
+      "unit_state": "active",
+      "unit_sub": "running"
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": 0.0,
+      "enabled": "enabled",
+      "extra": {},
+      "gaia": {
+        "function": "DEMETER",
+        "system": "tuner"
+      },
+      "galion_health_ok": true,
+      "host": null,
+      "http": 200,
+      "last_error": null,
+      "latency_ms": 0,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": 312,
+      "mem_max_kb": null,
+      "n_restarts_systemd": 0,
+      "name": "tuner",
+      "note": "",
+      "pid": 4004553,
+      "port": 8650,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "rss_kb": 236,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": "tuner.service",
+      "unit_state": "active",
+      "unit_sub": "running"
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": 1.7,
+      "enabled": "enabled",
+      "extra": {},
+      "gaia": {
+        "function": "ELEUTHIA",
+        "system": "galion-one"
+      },
+      "galion_health_ok": true,
+      "host": null,
+      "http": 200,
+      "last_error": null,
+      "latency_ms": 0,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": 344,
+      "mem_max_kb": 131072,
+      "n_restarts_systemd": 0,
+      "name": "galion-one",
+      "note": "",
+      "pid": 715767,
+      "port": 8091,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "rss_kb": 696,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": "galion-one.service",
+      "unit_state": "active",
+      "unit_sub": "running"
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": null,
+      "enabled": null,
+      "extra": {
+        "health_body": {
+          "loaded": false,
+          "model": "chatterbox",
+          "ok": false,
+          "provider": "local",
+          "status": "loading"
+        },
+        "mouth": "model loading"
+      },
+      "gaia": {
+        "function": "AETHER",
+        "system": "speech-io"
+      },
+      "galion_health_ok": null,
+      "host": null,
+      "http": 503,
+      "last_error": null,
+      "latency_ms": 0,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": null,
+      "mem_max_kb": null,
+      "n_restarts_systemd": 0,
+      "name": "galion-one-mouth",
+      "note": "Galion One mouth (TTS); 503 while the model loads",
+      "pid": null,
+      "port": 8002,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [
+        "degrading: health probe HTTP 503"
+      ],
+      "reflex_restarts_per_hour": 0,
+      "restarts_1h": 0,
+      "rss_kb": null,
+      "samples": 17,
+      "status": "degrading",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": null,
+      "unit_state": null,
+      "unit_sub": null
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": 0.1,
+      "enabled": "enabled",
+      "extra": {},
+      "gaia": {
+        "function": "HEPHAESTUS",
+        "system": "console"
+      },
+      "galion_health_ok": true,
+      "host": null,
+      "http": 302,
+      "last_error": null,
+      "latency_ms": 0,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 1,
+      "mem_kb": 1272776,
+      "mem_max_kb": null,
+      "n_restarts_systemd": 0,
+      "name": "console",
+      "note": "",
+      "pid": 2501864,
+      "port": 8080,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "rss_kb": 32132,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": "console.service",
+      "unit_state": "active",
+      "unit_sub": "running"
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": 0.1,
+      "enabled": "enabled",
+      "extra": {},
+      "gaia": {
+        "function": "DEMETER",
+        "system": "guardian-tick"
+      },
+      "galion_health_ok": null,
+      "host": null,
+      "http": 200,
+      "last_error": null,
+      "latency_ms": 0,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": 476,
+      "mem_max_kb": 16384,
+      "n_restarts_systemd": 0,
+      "name": "galion-health",
+      "note": "",
+      "pid": 1374810,
+      "port": 8660,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "rss_kb": 284,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": "galion-health.service",
+      "unit_state": "active",
+      "unit_sub": "running"
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": 0.2,
+      "enabled": "enabled",
+      "extra": {},
+      "gaia": {
+        "function": "AETHER",
+        "system": "tunnels"
+      },
+      "galion_health_ok": true,
+      "host": null,
+      "http": null,
+      "last_error": "2026-10-21T20:46:46Z ERR Request failed error=\"Unable to reach the origin service. The service may be down or it may not be responding to traffic from cloudflared: dial tcp [::1]:4001: connect: connec",
+      "latency_ms": null,
+      "log_errors_cycle": 266,
+      "log_warnings_cycle": 0,
+      "mem_kb": 24192,
+      "mem_max_kb": null,
+      "n_restarts_systemd": 0,
+      "name": "cloudflared",
+      "note": "named tunnel; config and DNS are never touched; max 1 restart/h",
+      "pid": 611846,
+      "port": null,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [
+        "failing-soon: 266 errors in 5 min"
+      ],
+      "reflex_restarts_per_hour": 1,
+      "restarts_1h": 0,
+      "rss_kb": 38936,
+      "samples": 17,
+      "status": "failing-soon",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": {
+        "ha_connections": 4,
+        "request_errors": 6357,
+        "requests": 10168
+      },
+      "unit": "cloudflared.service",
+      "unit_state": "active",
+      "unit_sub": "running"
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": 0.1,
+      "enabled": "transient",
+      "extra": {},
+      "gaia": {
+        "function": "AETHER",
+        "system": "tunnels"
+      },
+      "galion_health_ok": true,
+      "host": null,
+      "http": null,
+      "last_error": null,
+      "latency_ms": null,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": 18968,
+      "mem_max_kb": null,
+      "n_restarts_systemd": 0,
+      "name": "tuner-quick",
+      "note": "tuner quick tunnel (transient unit); never restarted: its trycloudflare URL would change",
+      "pid": 1198838,
+      "port": null,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 0,
+      "restarts_1h": 0,
+      "rss_kb": 33168,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": {
+        "ha_connections": 1,
+        "request_errors": 0,
+        "requests": 26
+      },
+      "unit": "tuner-quick.service",
+      "unit_state": "active",
+      "unit_sub": "running"
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": null,
+      "enabled": "",
+      "extra": {},
+      "gaia": {
+        "function": "AETHER",
+        "system": "voice-relay"
+      },
+      "galion_health_ok": null,
+      "host": null,
+      "http": null,
+      "last_error": null,
+      "latency_ms": null,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": null,
+      "mem_max_kb": null,
+      "n_restarts_systemd": 0,
+      "name": "voice-worker",
+      "note": "ws/voice KittenTTS worker; not deployed yet",
+      "pid": null,
+      "port": null,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [
+        "absent: ws/voice KittenTTS worker; not deployed yet"
+      ],
+      "reflex_restarts_per_hour": 3,
+      "restarts_1h": 0,
+      "rss_kb": null,
+      "samples": 17,
+      "status": "absent",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": "galion-voice.service",
+      "unit_state": "inactive",
+      "unit_sub": "dead"
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": null,
+      "enabled": null,
+      "extra": {},
+      "gaia": {
+        "function": "GAIA",
+        "system": "orchestration"
+      },
+      "galion_health_ok": null,
+      "host": null,
+      "http": null,
+      "last_error": null,
+      "latency_ms": null,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": null,
+      "mem_max_kb": null,
+      "n_restarts_systemd": 0,
+      "name": "gaia",
+      "note": "ws/gaia `gaia status`; absent until the gaia CLI is installed",
+      "pid": null,
+      "port": null,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [
+        "absent: ws/gaia `gaia status`; absent until the gaia CLI is installed"
+      ],
+      "reflex_restarts_per_hour": 0,
+      "restarts_1h": 0,
+      "rss_kb": null,
+      "samples": 17,
+      "status": "absent",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": null,
+      "unit_state": null,
+      "unit_sub": null
+    },
+    {
+      "connection": "pull",
+      "consecutive_down": 0,
+      "cpu_pct": null,
+      "enabled": null,
+      "extra": {
+        "cpus": 1,
+        "scaling": "single LXC: no horizontal scaling; remediation is restart/rollback only",
+        "swap_free_kb": 0,
+        "swap_total_kb": 0
+      },
+      "gaia": {
+        "function": "POSEIDON",
+        "system": "quotas"
+      },
+      "galion_health_ok": null,
+      "host": {
+        "disk_avail_kb": 67272576,
+        "disk_total_kb": 104857600,
+        "load1": 7.84,
+        "ram_avail_kb": 15035760,
+        "ram_total_kb": 16777216
+      },
+      "http": null,
+      "last_error": null,
+      "latency_ms": null,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": null,
+      "mem_max_kb": null,
+      "n_restarts_systemd": 0,
+      "name": "lxc-host",
+      "note": "LXC disk (/) and RAM; single host, no scaling beyond restarts",
+      "pid": null,
+      "port": null,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 0,
+      "restarts_1h": 0,
+      "rss_kb": null,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": null,
+      "unit_state": null,
+      "unit_sub": null
+    },
+    {
+      "connection": "self",
+      "consecutive_down": 0,
+      "cpu_pct": 0.0,
+      "enabled": null,
+      "extra": {
+        "cycle_ms": 873
+      },
+      "gaia": {
+        "function": "AETHER",
+        "system": "nerve"
+      },
+      "galion_health_ok": null,
+      "host": null,
+      "http": null,
+      "last_error": null,
+      "latency_ms": null,
+      "log_errors_cycle": 0,
+      "log_warnings_cycle": 0,
+      "mem_kb": 2940,
+      "mem_max_kb": null,
+      "n_restarts_systemd": 0,
+      "name": "galion-nerve",
+      "note": "the nerve itself",
+      "pid": 772576,
+      "port": null,
+      "push_age_s": null,
+      "pushed_errors_cycle": 0,
+      "reasons": [],
+      "reflex_restarts_per_hour": 0,
+      "restarts_1h": 0,
+      "rss_kb": 2940,
+      "samples": 17,
+      "status": "healthy",
+      "status_since": "2026-10-21T19:16:57+02:00",
+      "tunnel": null,
+      "unit": null,
+      "unit_state": null,
+      "unit_sub": null
+    }
+  ],
+  "cortex": {
+    "bleeding": [
+      {
+        "component": "cloudflared",
+        "evidence": [
+          "origin http://127.0.0.1:3010 (port 3010) refused 14 dial(s), 7 failed request(s); hosts: adriaticpadel.com, www.adriaticpadel.com",
+          "origin http://localhost:3011 (port 3011) refused 1768 dial(s), 884 failed request(s); hosts: merlinelement.com, www.merlinelement.com",
+          "origin http://localhost:3020 (port 3020) refused 4 dial(s), 2 failed request(s); hosts: maivirtue.com, www.maivirtue.com",
+          "origin http://localhost:4001 (port 4001) refused 2034 dial(s), 1017 failed request(s); hosts: galion.studio, galion.studio:443, galion.studio:8443",
+          "origin http://localhost:4003 (port 4003) refused 4 dial(s), 2 failed request(s); hosts: voice.galion.app",
+          "origin http://localhost:4020 (port 4020) refused 12 dial(s), 6 failed request(s); hosts: workspace3d.app, ws3d.app",
+          "origin http://localhost:4060 (port 4060) refused 2 dial(s), 1 failed request(s); hosts: slaviknomad.com",
+          "none of these ports has a listener on the host: the routes point at services that no longer run",
+          "cloudflared counters since its start: 6357 of 10168 requests failed (63%)"
+        ],
+        "fix": "either start the services behind those ports or remove the ingress rules / DNS for those hostnames (cloudflared config + DNS: owner approval; the nerve never touches them)",
+        "gaia": "AETHER",
+        "id": "edge-dead-origins",
+        "incident_cause": "edge",
+        "kind": "bleeding",
+        "severity": "error",
+        "source": "edge",
+        "title": "tunnel routes 13 public hostname(s) to 7 closed origin port(s) :3010 :3011 :3020 :4001 :4003 :4020 :4060: 64.4 failed requests/min over 29 min"
+      },
+      {
+        "component": "galion-one-mouth",
+        "evidence": [
+          "health :8002/health -> 503 {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}",
+          "a model load takes minutes, not 3.5 h: the loader is stuck or the model is missing"
+        ],
+        "fix": "check the voice/model process logs and the model files, then restart that one service (owner approval)",
+        "gaia": "AETHER",
+        "id": "stuck-loading-galion-one-mouth",
+        "incident_cause": "galion-one",
+        "kind": "bleeding",
+        "severity": "error",
+        "source": "components",
+        "title": "galion-one-mouth has answered 503 \"loading\" for 3.5 h (since 2026-10-21T19:16:57+02:00)"
+      },
+      {
+        "component": "cloudflared",
+        "evidence": [],
+        "fix": "read the unit journal",
+        "gaia": "AETHER",
+        "id": "error-rate-cloudflared",
+        "incident_cause": "edge",
+        "kind": "bleeding",
+        "severity": "warn",
+        "source": "components",
+        "title": "cloudflared: failing-soon: 266 errors in 5 min"
+      },
+      {
+        "component": "console",
+        "evidence": [
+          "largest resident service on the host"
+        ],
+        "fix": "expected for a Node dev server; a production build would use a fraction",
+        "gaia": "HEPHAESTUS",
+        "id": "memory-heavy-console",
+        "incident_cause": "console",
+        "kind": "bleeding",
+        "severity": "info",
+        "source": "components",
+        "title": "console holds 1.2 GiB"
+      }
+    ],
+    "ddos": {
+      "firing": false,
+      "streams": [
+        {
+          "baseline_buckets": 168,
+          "baseline_rps": 0.0,
+          "component": "cloudflared",
+          "distinct_ips": 0,
+          "error_share": 0.84,
+          "explain": "edge-cloudflared: 2.6 req/s over the last 60 s vs baseline 0.00 req/s (threshold 10.0, x0); unknown (counter only), 0 IPs; 84% 4xx/5xx",
+          "factor": 0.0,
+          "flood_since": null,
+          "floods_total": 2,
+          "level": "normal",
+          "mad_rps": 0.0,
+          "peak_rps": 14.45,
+          "requests_60s": 158,
+          "rps": 2.63,
+          "scan_hits_60s": 0,
+          "shape": "unknown (counter only)",
+          "stream": "edge-cloudflared",
+          "threshold_rps": 10.0,
+          "top_ips": [],
+          "total": 5333
+        },
+        {
+          "baseline_buckets": 168,
+          "baseline_rps": 0.0,
+          "component": "tuner-quick",
+          "distinct_ips": 0,
+          "error_share": 0.0,
+          "explain": "edge-tuner-quick: 0.0 req/s over the last 60 s vs baseline 0.00 req/s (threshold 10.0, x0); unknown (counter only), 0 IPs; 0% 4xx/5xx",
+          "factor": 0.0,
+          "flood_since": null,
+          "floods_total": 0,
+          "level": "normal",
+          "mad_rps": 0.0,
+          "peak_rps": 0.0,
+          "requests_60s": 0,
+          "rps": 0.0,
+          "scan_hits_60s": 0,
+          "shape": "unknown (counter only)",
+          "stream": "edge-tuner-quick",
+          "threshold_rps": 10.0,
+          "top_ips": [],
+          "total": 0
+        },
+        {
+          "baseline_buckets": 168,
+          "baseline_rps": 0.0,
+          "component": "galion-nerve",
+          "distinct_ips": 1,
+          "error_share": 0.0,
+          "explain": "nerve-api: 0.1 req/s over the last 60 s vs baseline 0.00 req/s (threshold 10.0, x0); single source 127.0.0.1 (4 of 4 requests); 0% 4xx/5xx",
+          "factor": 0.0,
+          "flood_since": null,
+          "floods_total": 0,
+          "level": "normal",
+          "mad_rps": 0.0,
+          "peak_rps": 0.12,
+          "requests_60s": 4,
+          "rps": 0.07,
+          "scan_hits_60s": 0,
+          "shape": "single-source",
+          "stream": "nerve-api",
+          "threshold_rps": 10.0,
+          "top_ips": [
+            {
+              "ip": "127.0.0.1",
+              "requests": 4
+            }
+          ],
+          "total": 942
+        }
+      ]
+    },
+    "exposure": {
+      "listeners_judged": 21,
+      "ownership": [
+        {
+          "documented_unowned": false,
+          "gaia": null,
+          "owner": "sshd",
+          "port": 22
+        },
+        {
+          "documented_unowned": false,
+          "gaia": null,
+          "owner": "postfix",
+          "port": 25
+        },
+        {
+          "documented_unowned": false,
+          "gaia": null,
+          "owner": "systemd-resolved",
+          "port": 53
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "AETHER",
+          "owner": "galion-one-mouth",
+          "port": 8002
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "HEPHAESTUS",
+          "owner": "console",
+          "port": 8080
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "ELEUTHIA",
+          "owner": "galion-one",
+          "port": 8091
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "APOLLO",
+          "owner": "openmind-memory",
+          "port": 8420
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "ARTEMIS",
+          "owner": "hermes-rs",
+          "port": 8642
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "HEPHAESTUS",
+          "owner": "galion-desk",
+          "port": 8646
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "DEMETER",
+          "owner": "tuner",
+          "port": 8650
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "DEMETER",
+          "owner": "galion-health",
+          "port": 8660
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "AETHER",
+          "owner": "galion-nerve (self)",
+          "port": 8670
+        },
+        {
+          "documented_unowned": false,
+          "gaia": null,
+          "owner": "tanga-serve",
+          "port": 8671
+        },
+        {
+          "documented_unowned": false,
+          "gaia": null,
+          "owner": "unknown owner",
+          "port": 8672
+        },
+        {
+          "documented_unowned": false,
+          "gaia": null,
+          "owner": "unknown owner",
+          "port": 8674
+        },
+        {
+          "documented_unowned": false,
+          "gaia": null,
+          "owner": "unknown owner",
+          "port": 18800
+        },
+        {
+          "documented_unowned": false,
+          "gaia": null,
+          "owner": "unknown owner",
+          "port": 19120
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "AETHER",
+          "owner": "cloudflared",
+          "port": 20241
+        },
+        {
+          "documented_unowned": false,
+          "gaia": "AETHER",
+          "owner": "tuner-quick",
+          "port": 20242
+        }
+      ],
+      "public_expected": [
+        "*:22"
+      ],
+      "unmanaged_ports": [
+        8672,
+        8674,
+        18800,
+        19120
+      ]
+    },
+    "incidents": [
+      {
+        "cause": "edge",
+        "gaia": [
+          "AETHER"
+        ],
+        "id": "inc-44f4f0ca",
+        "owners": [
+          {
+            "component": "cloudflared",
+            "gaia": "AETHER",
+            "system": "tunnels"
+          }
+        ],
+        "severity": "error",
+        "title": "edge: tunnel routes 13 public hostname(s) to 7 closed origin port(s) :3010 :3011 :3020 :4001 :4003 :4020 :4060: 64.4 failed requests/min over 29 min"
+      },
+      {
+        "cause": "galion-one",
+        "gaia": [
+          "AETHER"
+        ],
+        "id": "inc-80048b3c",
+        "owners": [
+          {
+            "component": "galion-one-mouth",
+            "gaia": "AETHER",
+            "system": "speech-io"
+          }
+        ],
+        "severity": "error",
+        "title": "galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 3.5 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]"
+      }
+    ],
+    "vulnerabilities": [
+      {
+        "component": "host",
+        "evidence": [
+          ":8672 unknown owner -- process not readable from /proc",
+          ":8674 unknown owner -- process not readable from /proc",
+          ":18800 unknown owner -- process not readable from /proc",
+          ":19120 unknown owner -- process not readable from /proc",
+          "not a component health/metrics port and not in NERVE_KNOWN_PORTS",
+          "typical cause: manual shadow/test processes left running (no unit, no restart policy, no patching)"
+        ],
+        "fix": "identify the owners (ss -ltnp), then stop them or give them a unit (owner approval; the nerve never kills processes)",
+        "gaia": null,
+        "id": "unmanaged-listeners",
+        "incident_cause": null,
+        "kind": "vulnerability",
+        "severity": "warn",
+        "source": "listeners",
+        "title": "4 loopback listener(s) no monitored unit owns: :8672 :8674 :18800 :19120"
+      }
+    ]
+  },
+  "cortex_events": [
+    {
+      "data": {
+        "findings": 3,
+        "ids": [
+          "stuck-loading-galion-one-mouth",
+          "error-rate-cloudflared",
+          "memory-heavy-console"
+        ],
+        "top": {
+          "cause": "galion-one",
+          "component": "galion-one-mouth",
+          "evidence_n": 2,
+          "fix": "check the voice/model process logs and the model files, then restart that one service (owner approval)",
+          "id": "stuck-loading-galion-one-mouth",
+          "title": "galion-one-mouth has answered 503 \"loading\" for 3.5 h (since 2026-10-21T19:16:57+02:00)"
+        }
+      },
+      "kind": "bleeding",
+      "severity": "high",
+      "source": "components",
+      "ts": "2026-10-21T22:46:57+02:00"
+    },
+    {
+      "data": {
+        "findings": 1,
+        "ids": [
+          "edge-dead-origins"
+        ],
+        "top": {
+          "cause": "edge",
+          "component": "cloudflared",
+          "evidence_n": 9,
+          "fix": "either start the services behind those ports or remove the ingress rules / DNS for those hostnames (cloudflared config + DNS: owner approval; the nerve never touches them)",
+          "id": "edge-dead-origins",
+          "title": "tunnel routes 13 public hostname(s) to 7 closed origin port(s) :3010 :3011 :3020 :4001 :4003 :4020 :4060: 64.4 failed requests/min over 29 min"
+        }
+      },
+      "kind": "bleeding",
+      "severity": "high",
+      "source": "edge",
+      "ts": "2026-10-21T22:46:57+02:00"
+    },
+    {
+      "data": {
+        "findings": 1,
+        "ids": [
+          "unmanaged-listeners"
+        ],
+        "top": {
+          "cause": null,
+          "component": "host",
+          "evidence_n": 6,
+          "fix": "identify the owners (ss -ltnp), then stop them or give them a unit (owner approval; the nerve never kills processes)",
+          "id": "unmanaged-listeners",
+          "title": "4 loopback listener(s) no monitored unit owns: :8672 :8674 :18800 :19120"
+        }
+      },
+      "kind": "vulnerability",
+      "severity": "warn",
+      "source": "listeners",
+      "ts": "2026-10-21T22:46:57+02:00"
+    }
+  ],
+  "cortex_sensors": [
+    {
+      "findings": 1,
+      "name": "listeners",
+      "signals": 0,
+      "us": 51
+    },
+    {
+      "findings": 0,
+      "name": "scanners",
+      "signals": 0,
+      "us": 1
+    },
+    {
+      "findings": 1,
+      "name": "edge",
+      "signals": 1,
+      "us": 16
+    },
+    {
+      "findings": 3,
+      "name": "components",
+      "signals": 0,
+      "us": 15
+    },
+    {
+      "findings": 0,
+      "name": "ddos",
+      "signals": 0,
+      "us": 82918
+    }
+  ],
+  "cycle": 17,
+  "cycle_ms": 950,
+  "gaia": {
+    "AETHER": {
+      "components": [
+        "galion-one-mouth:degrading",
+        "cloudflared:failing-soon",
+        "tuner-quick:healthy",
+        "voice-worker:absent",
+        "galion-nerve:healthy"
+      ],
+      "note": "nerve: this hub (signals in, state out)",
+      "status": "failing-soon"
+    },
+    "APOLLO": {
+      "components": [
+        "openmind-memory:healthy",
+        "link-watch-rs:healthy"
+      ],
+      "note": "",
+      "status": "healthy"
+    },
+    "ARTEMIS": {
+      "components": [
+        "hermes-rs:healthy"
+      ],
+      "note": "",
+      "status": "healthy"
+    },
+    "DEMETER": {
+      "components": [
+        "tuner:healthy",
+        "galion-health:healthy"
+      ],
+      "note": "boot-units: nerve restart reflex",
+      "status": "healthy"
+    },
+    "ELEUTHIA": {
+      "components": [
+        "galion-one:healthy"
+      ],
+      "note": "",
+      "status": "healthy"
+    },
+    "GAIA": {
+      "components": [
+        "gaia:absent"
+      ],
+      "note": "",
+      "status": "absent"
+    },
+    "HADES": {
+      "components": [],
+      "note": "rollback: nerve rollback reflex via galion-deploy, 1 per unit per day",
+      "status": "no-live-systems"
+    },
+    "HEPHAESTUS": {
+      "components": [
+        "galion-desk:healthy",
+        "console:healthy"
+      ],
+      "note": "",
+      "status": "healthy"
+    },
+    "MINERVA": {
+      "components": [],
+      "note": "alerting: nerve alerts to journald + alerts.json",
+      "status": "no-live-systems"
+    },
+    "POSEIDON": {
+      "components": [
+        "lxc-host:healthy"
+      ],
+      "note": "",
+      "status": "healthy"
+    }
+  },
+  "incidents": {
+    "open": [
+      {
+        "cause": "edge",
+        "components": [
+          "cloudflared"
+        ],
+        "cycles": 15,
+        "duration_s": 12600,
+        "gaia": [
+          "AETHER"
+        ],
+        "id": "inc-44f4f0ca",
+        "last_seen": "2026-10-21T22:46:57+02:00",
+        "next": "start the services behind the refused ports, or remove their ingress rules/DNS records (cloudflared config + DNS: owner approval)",
+        "opened": "2026-10-21T19:16:57+02:00",
+        "owners": {
+          "cloudflared": "AETHER"
+        },
+        "resolved": null,
+        "severity": "error",
+        "signals": [
+          {
+            "component": "cloudflared",
+            "msg": "failing-soon: 266 errors in 5 min",
+            "severity": "error"
+          },
+          {
+            "component": "cloudflared",
+            "msg": "tunnel routes 13 public hostname(s) to 7 closed origin port(s) :3010 :3011 :3020 :4001 :4003 :4020 :4060: 64.4 failed requests/min over 29 min",
+            "severity": "error"
+          }
+        ],
+        "state": "open",
+        "title": "edge: tunnel routes 13 public hostname(s) to 7 closed origin port(s) :3010 :3011 :3020 :4001 :4003 :4020 :4060: 64.4 failed requests/min over 29 min",
+        "why": "public hostnames answer with Cloudflare error pages; every failed request is a visitor or bot turned away, and the error counters hide real faults"
+      },
+      {
+        "cause": "galion-one",
+        "components": [
+          "galion-one-mouth"
+        ],
+        "cycles": 17,
+        "duration_s": 12600,
+        "gaia": [
+          "AETHER"
+        ],
+        "id": "inc-80048b3c",
+        "last_seen": "2026-10-21T22:46:57+02:00",
+        "next": "the dependency never finished loading: read its logs, check the model files, then restart that one service (owner approval)",
+        "opened": "2026-10-21T19:16:57+02:00",
+        "owners": {
+          "galion-one-mouth": "AETHER"
+        },
+        "resolved": null,
+        "severity": "error",
+        "signals": [
+          {
+            "component": "galion-one-mouth",
+            "msg": "degrading: health probe HTTP 503 -- stuck loading for 3.5 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+            "severity": "error"
+          }
+        ],
+        "state": "open",
+        "title": "galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 3.5 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+        "why": "1 signal(s) in group galion-one (galion-one:healthy, galion-one-mouth:degrading): one cause, one incident"
+      }
+    ],
+    "opened_total": 4,
+    "resolved": [
+      {
+        "cause": "ddos:edge-cloudflared",
+        "components": [
+          "cloudflared"
+        ],
+        "cycles": 5,
+        "duration_s": 6300,
+        "gaia": [
+          "AETHER"
+        ],
+        "id": "inc-6f69d7bf",
+        "last_seen": "2026-10-21T21:46:57+02:00",
+        "next": "check the top source IPs; block or rate-limit them at the edge (Cloudflare WAF rule / rate limit) -- owner approval; the nerve never changes the edge",
+        "opened": "2026-10-21T20:31:57+02:00",
+        "owners": {
+          "cloudflared": "AETHER"
+        },
+        "resolved": "2026-10-21T22:16:57+02:00",
+        "severity": "critical",
+        "signals": [
+          {
+            "component": "cloudflared",
+            "msg": "request flood: edge-cloudflared: 14.4 req/s over the last 60 s vs baseline 0.00 req/s (threshold 10.0, x0); unknown (counter only), 0 IPs; 14% 4xx/5xx",
+            "severity": "critical"
+          },
+          {
+            "component": "cloudflared",
+            "msg": "failing-soon: 244 errors in 5 min",
+            "severity": "error"
+          },
+          {
+            "component": "cloudflared",
+            "msg": "tunnel routes 10 public hostname(s) to 6 closed origin port(s) :3010 :3011 :3020 :4001 :4003 :4060: 51.2 failed requests/min over 29 min",
+            "severity": "error"
+          }
+        ],
+        "state": "resolved",
+        "title": "request flood on cloudflared (stream edge-cloudflared)",
+        "why": "request flood: edge-cloudflared: 14.4 req/s over the last 60 s vs baseline 0.00 req/s (threshold 10.0, x0); unknown (counter only), 0 IPs; 14% 4xx/5xx; 2 related signal(s) from the target folded in"
+      },
+      {
+        "cause": "ddos:edge-cloudflared",
+        "components": [
+          "cloudflared"
+        ],
+        "cycles": 2,
+        "duration_s": 1861,
+        "gaia": [
+          "AETHER"
+        ],
+        "id": "inc-34b794af",
+        "last_seen": "2026-10-21T20:01:57+02:00",
+        "next": "check the top source IPs; block or rate-limit them at the edge (Cloudflare WAF rule / rate limit) -- owner approval; the nerve never changes the edge",
+        "opened": "2026-10-21T19:46:57+02:00",
+        "owners": {
+          "cloudflared": "AETHER"
+        },
+        "resolved": "2026-10-21T20:17:58+02:00",
+        "severity": "critical",
+        "signals": [
+          {
+            "component": "cloudflared",
+            "msg": "request flood: edge-cloudflared: 14.1 req/s over the last 60 s vs baseline 0.00 req/s (threshold 10.0, x0); unknown (counter only), 0 IPs; 94% 4xx/5xx",
+            "severity": "critical"
+          },
+          {
+            "component": "cloudflared",
+            "msg": "failing-soon: 1576 errors in 5 min",
+            "severity": "error"
+          },
+          {
+            "component": "cloudflared",
+            "msg": "tunnel routes 14 public hostname(s) to 9 closed origin port(s) :3004 :3010 :3011 :3015 :3020 :4001 :4020 :4060 :5530: 46.7 failed requests/min over 29 min",
+            "severity": "error"
+          }
+        ],
+        "state": "resolved",
+        "title": "request flood on cloudflared (stream edge-cloudflared)",
+        "why": "request flood: edge-cloudflared: 14.1 req/s over the last 60 s vs baseline 0.00 req/s (threshold 10.0, x0); unknown (counter only), 0 IPs; 94% 4xx/5xx; 2 related signal(s) from the target folded in"
+      }
+    ]
+  },
+  "interval_s": 30,
+  "logs": {
+    "dead_origins": [
+      {
+        "failed_requests": 7,
+        "hosts": [
+          "adriaticpadel.com",
+          "www.adriaticpadel.com"
+        ],
+        "last": "2026-10-21T22:43:04+02:00",
+        "port": 3010,
+        "refusals": 14,
+        "service": "http://127.0.0.1:3010"
+      },
+      {
+        "failed_requests": 884,
+        "hosts": [
+          "merlinelement.com",
+          "www.merlinelement.com"
+        ],
+        "last": "2026-10-21T22:46:46+02:00",
+        "port": 3011,
+        "refusals": 1768,
+        "service": "http://localhost:3011"
+      },
+      {
+        "failed_requests": 2,
+        "hosts": [
+          "maivirtue.com",
+          "www.maivirtue.com"
+        ],
+        "last": "2026-10-21T22:43:12+02:00",
+        "port": 3020,
+        "refusals": 4,
+        "service": "http://localhost:3020"
+      },
+      {
+        "failed_requests": 1017,
+        "hosts": [
+          "galion.studio",
+          "galion.studio:443",
+          "galion.studio:8443"
+        ],
+        "last": "2026-10-21T22:46:46+02:00",
+        "port": 4001,
+        "refusals": 2034,
+        "service": "http://localhost:4001"
+      },
+      {
+        "failed_requests": 2,
+        "hosts": [
+          "voice.galion.app"
+        ],
+        "last": "2026-10-21T22:34:10+02:00",
+        "port": 4003,
+        "refusals": 4,
+        "service": "http://localhost:4003"
+      },
+      {
+        "failed_requests": 6,
+        "hosts": [
+          "workspace3d.app",
+          "ws3d.app"
+        ],
+        "last": "2026-10-21T22:45:20+02:00",
+        "port": 4020,
+        "refusals": 12,
+        "service": "http://localhost:4020"
+      },
+      {
+        "failed_requests": 1,
+        "hosts": [
+          "slaviknomad.com"
+        ],
+        "last": "2026-10-21T22:32:53+02:00",
+        "port": 4060,
+        "refusals": 2,
+        "service": "http://localhost:4060"
+      }
+    ],
+    "dev_servers": [],
+    "edge_failures": 256,
+    "scans": [],
+    "window": {
+      "first": "2026-10-21T22:16:57+02:00",
+      "last": "2026-10-21T22:46:46+02:00"
+    }
+  },
+  "mode": "dry-run",
+  "probe_errors": [],
+  "probes_skipped": [],
+  "reflex": {
+    "budgets": {
+      "cloudflared.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "console.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "galion-desk.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "galion-health.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "galion-one.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "galion-voice.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "hermes-rs.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "link-watch-rs.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "openmind-memory.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      },
+      "tuner.service": {
+        "dry_1h": 0,
+        "last_rollback": null,
+        "live_1h": 0
+      }
+    },
+    "limits": {
+      "cloudflared_per_hour": 1,
+      "fail_cycles": 3,
+      "max_actions_per_cycle": 2,
+      "restarts_per_hour_default": 3,
+      "rollback_per_unit_per_day": 1
+    },
+    "recent": [],
+    "scaling": "single LXC: restarts/rollback only, no scaling"
+  },
+  "self_eval": {
+    "deductions": [
+      {
+        "points": 15,
+        "what": "error incident: edge: tunnel routes 13 public hostname(s) to 7 closed origin port(s) :3010 :3011 :3020 :4001 :4003 :4020 :4060: 64.4 failed requests/min over 29 min",
+        "why": "2 signal(s) from cloudflared correlated into one cause `edge`; open since 2026-10-21T19:16:57+02:00. public hostnames answer with Cloudflare error pages; every failed request is a visitor or bot turned away, and the error counters hide real faults"
+      },
+      {
+        "points": 15,
+        "what": "error incident: galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 3.5 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+        "why": "1 signal(s) from galion-one-mouth correlated into one cause `galion-one`; open since 2026-10-21T19:16:57+02:00. 1 signal(s) in group galion-one (galion-one:healthy, galion-one-mouth:degrading): one cause, one incident"
+      },
+      {
+        "points": 4,
+        "what": "vulnerability (warn): 4 loopback listener(s) no monitored unit owns: :8672 :8674 :18800 :19120",
+        "why": ":8672 unknown owner -- process not readable from /proc; :8674 unknown owner -- process not readable from /proc; :18800 unknown owner -- process not readable from /proc; :19120 unknown owner -- process not readable from /proc; not a component health/metrics port and not in NERVE_KNOWN_PORTS; typical cause: manual shadow/test processes left running (no unit, no restart policy, no patching)"
+      }
+    ],
+    "grade": "D",
+    "method": "100 minus deductions; incidents scored once per correlated cause; see score.rs",
+    "pass": false,
+    "score": 66,
+    "verdict": "degraded: 2 open incident(s) (0 critical, 2 error), 1 vulnerability finding(s), 3 bleeding point(s). [error] edge: tunnel routes 13 public hostname(s) to 7 closed origin port(s) :3010 :3011 :3020 :4001 :4003 :4020 :4060: 64.4 failed requests/min over 29 min | [error] galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 3.5 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]"
+  },
+  "service": "galion-nerve",
+  "signals": {
+    "rejected": 0,
+    "sources": [
+      {
+        "age_s": 8097,
+        "dropped": 0,
+        "last_seen": "2026-10-21T20:32:00+02:00",
+        "metrics": {},
+        "recent": [
+          {
+            "kind": "event",
+            "msg": "{\"decision\":\"dec-12\",\"id\":\"al-13\",\"incident\":\"inc-2c82fc17\",\"msg\":\"nerve engine incident nerve-incident:ddos:edge-cloudflared open\",\"rule\":\"R11-nerve-incident\",\"severity\":\"warn\",\"subject\":\"nerve-incident:ddos:edge-cloudflared\",\"ts\":\"2026-10-21T20:32:00+02:00\"}",
+            "name": "cortex.alert",
+            "source": "gaia-cortex",
+            "ts": "2026-10-21T20:32:00+02:00",
+            "value": null
+          },
+          {
+            "kind": "event",
+            "msg": "{\"decision\":\"dec-9\",\"id\":\"al-10\",\"incident\":\"info:unit:galion-backup.service\",\"msg\":\"galion-backup.service: protected unit (galion-backup); alert only, never act\",\"rule\":\"R1-protected\",\"severity\":\"warn\",\"subject\":\"unit:galion-backup.service\",\"ts\":\"2026-10-21T20:17:42+02:00\"}",
+            "name": "cortex.alert",
+            "source": "gaia-cortex",
+            "ts": "2026-10-21T20:17:42+02:00",
+            "value": null
+          },
+          {
+            "kind": "event",
+            "msg": "{\"decision\":\"dec-4\",\"id\":\"al-5\",\"incident\":\"inc-283567c8\",\"msg\":\"nerve engine incident nerve-incident:ddos:edge-cloudflared open\",\"rule\":\"R11-nerve-incident\",\"severity\":\"warn\",\"subject\":\"nerve-incident:ddos:edge-cloudflared\",\"ts\":\"2026-10-21T19:46:59+02:00\"}",
+            "name": "cortex.alert",
+            "source": "gaia-cortex",
+            "ts": "2026-10-21T19:46:59+02:00",
+            "value": null
+          },
+          {
+            "kind": "event",
+            "msg": "{\"decision\":\"dec-1\",\"id\":\"al-2\",\"incident\":\"info:unit:gaia-cortex.service\",\"msg\":\"gaia-cortex.service: protected unit (gaia-cortex); alert only, never act\",\"rule\":\"R1-protected\",\"severity\":\"warn\",\"subject\":\"unit:gaia-cortex.service\",\"ts\":\"2026-10-21T19:18:05+02:00\"}",
+            "name": "cortex.alert",
+            "source": "gaia-cortex",
+            "ts": "2026-10-21T19:18:05+02:00",
+            "value": null
+          }
+        ],
+        "source": "gaia-cortex",
+        "total": 4
+      },
+      {
+        "age_s": 15,
+        "dropped": 0,
+        "last_seen": "2026-10-21T22:46:42+02:00",
+        "metrics": {
+          "nerve_client_dropped": 0.0
+        },
+        "recent": [
+          {
+            "kind": "metric",
+            "msg": "",
+            "name": "nerve_client_dropped",
+            "source": "hermes-rs",
+            "ts": "2026-10-21T22:46:42+02:00",
+            "value": 0.0
+          },
+          {
+            "kind": "heartbeat",
+            "msg": "queued=554 sent=554 dropped=0 failed=0 rejected=0",
+            "name": "rss_kb",
+            "source": "hermes-rs",
+            "ts": "2026-10-21T22:46:42+02:00",
+            "value": 1776.0
+          },
+          {
+            "kind": "metric",
+            "msg": "",
+            "name": "nerve_client_dropped",
+            "source": "hermes-rs",
+            "ts": "2026-10-21T22:45:42+02:00",
+            "value": 0.0
+          },
+          {
+            "kind": "heartbeat",
+            "msg": "queued=552 sent=552 dropped=0 failed=0 rejected=0",
+            "name": "rss_kb",
+            "source": "hermes-rs",
+            "ts": "2026-10-21T22:45:42+02:00",
+            "value": 1776.0
+          },
+          {
+            "kind": "metric",
+            "msg": "",
+            "name": "nerve_client_dropped",
+            "source": "hermes-rs",
+            "ts": "2026-10-21T22:44:42+02:00",
+            "value": 0.0
+          }
+        ],
+        "source": "hermes-rs",
+        "total": 420
+      },
+      {
+        "age_s": 31,
+        "dropped": 0,
+        "last_seen": "2026-10-21T22:46:26+02:00",
+        "metrics": {
+          "nerve_client_dropped": 0.0
+        },
+        "recent": [
+          {
+            "kind": "metric",
+            "msg": "",
+            "name": "nerve_client_dropped",
+            "source": "openmind-memory",
+            "ts": "2026-10-21T22:46:26+02:00",
+            "value": 0.0
+          },
+          {
+            "kind": "heartbeat",
+            "msg": "queued=1563 sent=1563 dropped=0 failed=0 rejected=0",
+            "name": "rss_kb",
+            "source": "openmind-memory",
+            "ts": "2026-10-21T22:46:26+02:00",
+            "value": 3416.0
+          },
+          {
+            "kind": "metric",
+            "msg": "",
+            "name": "nerve_client_dropped",
+            "source": "openmind-memory",
+            "ts": "2026-10-21T22:45:26+02:00",
+            "value": 0.0
+          },
+          {
+            "kind": "heartbeat",
+            "msg": "queued=1561 sent=1561 dropped=0 failed=0 rejected=0",
+            "name": "rss_kb",
+            "source": "openmind-memory",
+            "ts": "2026-10-21T22:45:26+02:00",
+            "value": 3416.0
+          },
+          {
+            "kind": "metric",
+            "msg": "",
+            "name": "nerve_client_dropped",
+            "source": "openmind-memory",
+            "ts": "2026-10-21T22:44:26+02:00",
+            "value": 0.0
+          }
+        ],
+        "source": "openmind-memory",
+        "total": 420
+      }
+    ]
+  },
+  "started": "2026-10-21T19:16:57+02:00",
+  "system": {
+    "components_worst": "failing-soon",
+    "counts": {
+      "absent": 2,
+      "degrading": 1,
+      "failing": 0,
+      "failing-soon": 1,
+      "healthy": 11
+    },
+    "ddos_firing": false,
+    "grade": "D",
+    "open_incidents": 2,
+    "pass": false,
+    "score": 66,
+    "status": "degraded",
+    "verdict": "degraded: 2 open incident(s) (0 critical, 2 error), 1 vulnerability finding(s), 3 bleeding point(s). [error] edge: tunnel routes 13 public hostname(s) to 7 closed origin port(s) :3010 :3011 :3020 :4001 :4003 :4020 :4060: 64.4 failed requests/min over 29 min | [error] galion-one: galion-one-mouth degrading: health probe HTTP 503 -- stuck loading for 3.5 h [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]"
+  },
+  "tool": "openmind-nerve",
+  "ts": "2026-10-21T22:46:57+02:00",
+  "version": "0.1.0"
+}

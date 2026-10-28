@@ -138,7 +138,7 @@ kills the sandboxed child, and `seccomp::available()` reports false.
 
 ## Real-life test
 
-`scripts/real/ucpu.sh` and `crates/tuner/tests/real_ucpu.rs`
+`crates/galion-realtest/tests/real_sh_ucpu.rs` and `crates/tuner/tests/real_ucpu.rs`
 (`GALION_REAL=1`). Evidence: `docs/real-tests/ucpu.md`.
 
 ## Open items

@@ -9,7 +9,14 @@ use galion_common::time;
 
 #[test]
 fn every_switch_1996_to_2100() {
-    for year in 1996..=2099i64 {
+    // Under Miri (an interpreter, ~1000x slower) the full sweep takes hours,
+    // so it checks 2026 + 2027 (the next switches) and every 26th year from
+    // 1996. Normal builds still sweep every year. Test-only.
+    #[cfg(not(miri))]
+    let years: Vec<i64> = (1996..=2099).collect();
+    #[cfg(miri)]
+    let years: Vec<i64> = (1996..=2099).step_by(26).chain([2026, 2027]).collect();
+    for year in years {
         for month in [3u32, 10] {
             // Sweep the last 8 days of the month, hourly, plus +-1 s at each hour.
             let start = time::days_from_civil(year, month, 24) * 86_400;

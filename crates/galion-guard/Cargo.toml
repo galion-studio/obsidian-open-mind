@@ -15,6 +15,8 @@ path = "src/main.rs"
 [dependencies]
 # Unicode tables are only needed for `\s`/`\w`/`\S` classes in the filter.
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl"] }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }

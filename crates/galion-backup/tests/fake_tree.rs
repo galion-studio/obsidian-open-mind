@@ -24,6 +24,7 @@ fn opts(root: &Path, dest: &Path) -> Opts {
         dest: dest.to_path_buf(),
         keep: 12,
         minfree_kb: Some(1),
+        gzip_level: 6,
     }
 }
 

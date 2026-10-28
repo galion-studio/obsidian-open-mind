@@ -63,8 +63,8 @@ pub struct DeadOrigin {
     /// Per-event stamps so [`LogInsights::expire`] can drop old counts
     /// (F-380-1: without these, merge kept lifetime totals while the
     /// window shrunk → ~37x inflated failed-requests/min).
-    refusal_at: Vec<u64>,
-    failed_at: Vec<u64>,
+    pub(crate) refusal_at: Vec<u64>,
+    pub(crate) failed_at: Vec<u64>,
 }
 
 /// A scanner path seen in a unit's log.

@@ -89,6 +89,44 @@ fn subcommand(args: &[String]) -> Option<i32> {
                 }
             },
         ),
+        Some("schema") if args.len() == 2 => Some(
+            match openmind_memory::store::Store::schema_info(Path::new(&args[1])) {
+                Ok(i) => {
+                    println!("user_version={}", i.user_version);
+                    println!("binary_schema_version={}", i.binary_version);
+                    println!(
+                        "state={}",
+                        if i.user_version > i.binary_version {
+                            "newer-than-binary (no DDL will run)"
+                        } else if i.user_version == i.binary_version {
+                            "current"
+                        } else {
+                            "will-migrate-on-writable-open"
+                        }
+                    );
+                    println!("l0_conversations.timestamp={}", i.l0_timestamp);
+                    println!("fts_v2={}", i.fts_v2);
+                    println!(
+                        "rows l0={} l0_fts={} l1={} l1_fts={}",
+                        i.l0_rows, i.l0_fts_rows, i.l1_rows, i.l1_fts_rows
+                    );
+                    match &i.schema_migrations {
+                        None => println!("schema_migrations=absent"),
+                        Some(rows) => {
+                            for (v, n) in rows {
+                                println!("schema_migrations {v} {n}");
+                            }
+                        }
+                    }
+                    println!("tables={}", i.tables.join(","));
+                    0
+                }
+                Err(e) => {
+                    log::warn(&format!("schema failed: {e}"));
+                    1
+                }
+            },
+        ),
         Some("parity") if args.len() >= 4 => {
             let session = args.get(4).map(String::as_str).unwrap_or("parity-session");
             Some(
@@ -110,7 +148,7 @@ fn subcommand(args: &[String]) -> Option<i32> {
         }
         Some(_) => {
             eprintln!(
-                "usage: openmind-memory                      (serve; config from env)\n       openmind-memory snapshot <src.db> <dst.db>\n       openmind-memory parity <http://a> <http://b> <queries.txt> [session_key]"
+                "usage: openmind-memory                      (serve; config from env)\n       openmind-memory snapshot <src.db> <dst.db>\n       openmind-memory schema <db>              (read-only schema/version report)\n       openmind-memory parity <http://a> <http://b> <queries.txt> [session_key]"
             );
             Some(64)
         }

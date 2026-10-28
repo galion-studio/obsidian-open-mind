@@ -25,14 +25,20 @@
 #![allow(dead_code)]
 
 mod cli;
+mod host;
+mod http_plain;
+mod inflate;
 mod json;
 mod models_refresh;
+mod pdf_crypt;
+mod pdf_text;
 mod persona;
 mod probe;
 mod services;
 mod speech;
 mod sqlite_ro;
 mod trace;
+mod zagreb;
 
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -88,6 +94,12 @@ fn mouth_remote() -> bool {
 fn one_probe_addr() -> std::net::SocketAddr {
     static SLOT: OnceLock<std::net::SocketAddr> = OnceLock::new();
     *SLOT.get_or_init(|| probe::one_probe_target(&probe::process_env))
+}
+// Console pulse: `ONE_CONSOLE` (`host:port` or `off`) and `ONE_CONSOLE_PATH` (probe.rs).
+fn console_probe() -> Option<(std::net::SocketAddr, String)> {
+    static SLOT: OnceLock<Option<(std::net::SocketAddr, String)>> = OnceLock::new();
+    SLOT.get_or_init(|| probe::console_target(&probe::process_env))
+        .clone()
 }
 
 fn home() -> String {
@@ -873,7 +885,7 @@ fn remember(whisper: u32, hermes: u32, tts: u32, heard: usize, said: usize) {
             file,
             "{{\"id\":\"one-voice\",\"unix\":{},\"at\":\"{}\",\"channel\":\"galion-one\",\"heard\":{heard},\"said\":{said},\"whisper\":{whisper},\"hermes\":{hermes},\"tts\":{tts}}}",
             unix_secs(),
-            clock()
+            stamp()
         );
     }
 }
@@ -1559,21 +1571,22 @@ fn look_image(bytes: &[u8]) -> String {
 }
 
 fn pdf_clip(bytes: &[u8]) -> String {
-    let path = "/tmp/galion-one-page.pdf";
-    if fs::write(path, bytes).is_err() {
-        return String::new();
-    }
-    let Ok(out) = Command::new("pdftotext")
-        .args(["-f", "1", "-l", "1", "-q", path, "-"])
-        .output()
-    else {
+    // Built-in pure-Rust reader by default (pdf_text.rs); pdftotext only when
+    // ONE_PDF_TEXT asks for it (host.rs `pdf_engine`).
+    let engine = host::pdf_engine(std::env::var("ONE_PDF_TEXT").ok().as_deref());
+    let setting = std::env::var("ONE_PDFTOTEXT").ok();
+    let (text, by) = host::pdf_text(
+        bytes,
+        engine,
+        setting.as_deref(),
+        &std::env::temp_dir(),
+        host::PDF_TIMEOUT,
+    );
+    note(format!("pdf text by {by}"));
+    let Some(text) = text else {
         return String::new();
     };
-    if !out.status.success() {
-        return String::new();
-    }
-    String::from_utf8_lossy(&out.stdout)
-        .chars()
+    text.chars()
         .take(480)
         .collect::<String>()
         .split_whitespace()
@@ -1823,7 +1836,7 @@ fn keep_turn(heard: &str, said: &str) {
     let line = format!(
         "{{\"id\":\"one-voice\",\"unix\":{},\"at\":\"{}\",\"heard\":{},\"said\":{}}}\n",
         unix_secs(),
-        clock(),
+        stamp(),
         quote(heard),
         quote(said)
     );
@@ -1874,11 +1887,8 @@ fn shorten(text: &str) -> String {
 }
 
 fn load_units() -> Vec<Unit> {
-    let ps = Command::new("ps").args(["-eo", "args"]).output();
-    let text = ps
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-        .unwrap_or_default();
+    // /proc/<pid>/cmdline instead of `ps -eo args` (host.rs): no procps needed.
+    let text = host::process_text();
     let mut rows = Vec::new();
     let mut push = |id: &str, ok: bool, note: &str| {
         rows.push(Unit {
@@ -1953,27 +1963,23 @@ fn sample() {
     // `voice` and `one` have no fixed port: they dial the mouth client and
     // this process's own listen address (ONE-PROBE). Every pulse reports the
     // port it dialled.
-    let specs = [
-        ("console", Some(8080u16), "/"),
-        ("hermes", Some(8642), "/health"),
-        ("whisper", Some(8643), "/health"),
-        ("voice", None, "/health"),
-        ("vision", Some(8645), "/health"),
-        ("one", None, "/health"),
-    ];
+    // The console pulse is configurable (ONE_CONSOLE / ONE_CONSOLE_PATH) and
+    // left out entirely when ONE_CONSOLE=off.
+    let mut specs: Vec<(&'static str, std::net::SocketAddr, String)> = Vec::new();
+    if let Some((addr, path)) = console_probe() {
+        specs.push(("console", addr, path));
+    }
+    specs.push(("hermes", mind_addr(), "/health".to_string()));
+    specs.push(("whisper", ear_addr(), "/health".to_string()));
+    specs.push(("voice", mouth_addr(), "/health".to_string()));
+    specs.push(("vision", eye_addr(), "/health".to_string()));
+    specs.push(("one", one_probe_addr(), "/health".to_string()));
     let mut joins = Vec::new();
     for spec in specs {
         joins.push(thread::spawn(move || {
             let t = Instant::now();
-            let addr = match spec.0 {
-                "hermes" => mind_addr(),
-                "whisper" => ear_addr(),
-                "voice" => mouth_addr(),
-                "vision" => eye_addr(),
-                "one" => one_probe_addr(),
-                _ => std::net::SocketAddr::from(([127, 0, 0, 1], spec.1.unwrap_or(0))),
-            };
-            let (code, body) = http_to(addr, "GET", spec.2, &[], b"", Duration::from_millis(400))
+            let addr = spec.1;
+            let (code, body) = http_to(addr, "GET", &spec.2, &[], b"", Duration::from_millis(400))
                 .unwrap_or((0, Vec::new()));
             let text = String::from_utf8_lossy(&body);
             let ok = code > 0
@@ -2070,6 +2076,12 @@ fn sample() {
             n.gpu_total = total;
             n.gpu_util = util;
             n.gpu_ok = total > 0;
+        } else if tick % 5 == 0 {
+            // nvidia-smi went away (or was switched off): stop reporting the
+            // last reading as a live GPU.
+            n.gpu_ok = false;
+            n.gpu_used = 0;
+            n.gpu_util = 0;
         }
         if !defence.is_empty() {
             n.defence = defence;
@@ -2257,7 +2269,7 @@ fn analytics_json(path: &str) -> String {
         "users" => users,
         "workforce" => workforce.to_string(),
         "overview" => format!("{{\"health\":{health},\"agents\":{agents}}}"),
-        _ => format!("{{\"at\":\"{}\",\"server\":\"runpod-main\",\"source\":\"nerve\",\"health\":{health},\"infrastructure\":{infra},\"services\":[{services}],\"agents\":{agents},\"users\":{users},\"workforce\":{workforce},\"defence\":[{defence}],\"edge\":[{edge}],\"systems\":[{systems}],\"line\":[{line}],\"nerve\":{nerve_json},\"cortex\":{cortex},\"memory\":{memory}}}", clock()),
+        _ => format!("{{\"at\":\"{}\",\"server\":\"runpod-main\",\"source\":\"nerve\",\"health\":{health},\"infrastructure\":{infra},\"services\":[{services}],\"agents\":{agents},\"users\":{users},\"workforce\":{workforce},\"defence\":[{defence}],\"edge\":[{edge}],\"systems\":[{systems}],\"line\":[{line}],\"nerve\":{nerve_json},\"cortex\":{cortex},\"memory\":{memory}}}", stamp()),
     };
     body
 }
@@ -3004,24 +3016,11 @@ fn disk() -> (u64, u32) {
     (used, pct)
 }
 
+/// Optional GPU query (host.rs): `ONE_NVIDIA_SMI=off` skips it, a missing or
+/// failing or hung nvidia-smi is simply "no GPU".
 fn gpu() -> Option<(String, u32, u32, u32)> {
-    let out = Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=name,memory.used,memory.total,utilization.gpu",
-            "--format=csv,noheader,nounits",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let mut bits = text.split(',');
-    let name = bits.next()?.trim().to_string();
-    let used = bits.next()?.trim().parse().unwrap_or(0);
-    let total = bits.next()?.trim().parse().unwrap_or(0);
-    let util = bits.next()?.trim().parse().unwrap_or(0);
-    Some((name, used, total, util))
+    let setting = std::env::var("ONE_NVIDIA_SMI").ok();
+    host::gpu(setting.as_deref(), host::GPU_TIMEOUT)
 }
 
 fn phones() -> usize {
@@ -3062,7 +3061,12 @@ fn token_ok(cookie: &str) -> bool {
 }
 
 fn pair(code: &str) -> (u16, Vec<u8>, Option<String>) {
-    let text = fs::read_to_string(store_path()).unwrap_or_default();
+    // No store (or an unreadable one) means nobody can pair: refuse without
+    // writing anything, so a stray POST /pair never creates a store file in
+    // the secrets dir. Same body as a wrong code, so it reveals nothing.
+    let Ok(text) = fs::read_to_string(store_path()) else {
+        return (200, br#"{"error":"no"}"#.to_vec(), None);
+    };
     let mut fails = json_u64(text.as_bytes(), "fails");
     let locked_until = json_u64(text.as_bytes(), "lockedUntil");
     let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
@@ -3100,7 +3104,16 @@ fn write_store(previous: &str, hashes: &[String], fails: u64, locked_until: u64)
         .collect::<Vec<_>>()
         .join(",");
     let body = format!("{{\"codeHash\":\"{code_hash}\",\"tokenHash\":\"{token_hash}\",\"tokenHashes\":[{list}],\"deviceHash\":\"{device_hash}\",\"fails\":{fails},\"lockedUntil\":{locked_until}}}\n");
-    if fs::write(store_path(), body).is_ok() {
+    // Rewrite in place only: never create the store (it is provisioned by
+    // the operator). If it vanished since it was read, nothing is written.
+    let Ok(mut file) = fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(store_path())
+    else {
+        return;
+    };
+    if file.write_all(body.as_bytes()).is_ok() {
         let _ = fs::set_permissions(store_path(), fs::Permissions::from_mode(0o600));
     }
 }
@@ -3365,10 +3378,16 @@ fn unix_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// Nerve event prefix: Europe/Zagreb wall clock with its offset, e.g.
+/// `20:40:00+02:00` (was the UTC time of day with no offset).
 fn clock() -> String {
-    let secs = unix_secs();
-    let s = secs % 86400;
-    format!("{:02}:{:02}:{:02}", s / 3600, (s % 3600) / 60, s % 60)
+    zagreb::clock(unix_secs() as i64)
+}
+
+/// The `at` field everywhere (analytics, one.jsonl, session.jsonl):
+/// Europe/Zagreb RFC 3339, e.g. `2026-10-20T20:40:00+02:00`, never `Z`.
+fn stamp() -> String {
+    zagreb::rfc3339(unix_secs() as i64)
 }
 
 fn heal_line() -> Option<String> {
@@ -3451,6 +3470,15 @@ mod pairing_tests {
         // Missing store: nobody is paired, with or without a cookie.
         assert!(!token_ok(""));
         assert!(!token_ok("galion_admin=anything"));
+
+        // A failed pairing attempt with no store must not create one.
+        for code in ["WRONG", "", "abc123"] {
+            let (status, body, tok) = pair(code);
+            assert_eq!((status, body), (200, br#"{"error":"no"}"#.to_vec()));
+            assert!(tok.is_none());
+            assert!(!store.exists(), "pair({code:?}) created the store");
+        }
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 0, "nothing in the dir");
 
         // Store without a codeHash: still closed.
         fs::write(&store, r#"{"codeHash":"","tokenHashes":[]}"#).unwrap();

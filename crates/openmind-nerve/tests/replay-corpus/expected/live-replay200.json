@@ -1,0 +1,178 @@
+{
+  "capture": [
+    {
+      "bytes": 281,
+      "file": "CAPTURED",
+      "fnv64": "7d35cd8fbb98bbd0"
+    },
+    {
+      "bytes": 28,
+      "file": "http.txt",
+      "fnv64": "1b23c7d67e962513"
+    },
+    {
+      "bytes": 828812,
+      "file": "journal.jsonl",
+      "fnv64": "3e4099ff2333de24"
+    },
+    {
+      "bytes": 1452,
+      "file": "ss.txt",
+      "fnv64": "46fedffc3a9777f2"
+    },
+    {
+      "bytes": 32193,
+      "file": "state-1.json",
+      "fnv64": "8808d7c6df5a8f9b"
+    },
+    {
+      "bytes": 32193,
+      "file": "state-2.json",
+      "fnv64": "8808d7c6df5a8f9b"
+    },
+    {
+      "bytes": 32193,
+      "file": "state-3.json",
+      "fnv64": "8808d7c6df5a8f9b"
+    },
+    {
+      "bytes": 129,
+      "file": "systemctl-runs.txt",
+      "fnv64": "66e29c70f12f0d1a"
+    },
+    {
+      "bytes": 1143,
+      "file": "systemctl-show.txt",
+      "fnv64": "26667e043d439241"
+    }
+  ],
+  "env": {},
+  "name": "live-replay200",
+  "result": {
+    "capture_cycles": 3,
+    "final": {
+      "checks": [
+        "error incident edge",
+        "info alerts-channel galion-nerve",
+        "info bleeding console",
+        "info component cloudflared",
+        "info component gaia",
+        "info component galion-one-mouth",
+        "info component voice-worker",
+        "info mode galion-nerve",
+        "info push galion-nerve",
+        "warn bleeding cloudflared",
+        "warn incident galion-one",
+        "warn vulnerability host"
+      ],
+      "deductions": [
+        "15 error incident: edge: tunnel routes # public hostname(s) to # closed origin port(s) :# :# :# :# :# :# :#: #.# failed requests/min over # min",
+        "4 vulnerability (warn): # loopback listener(s) no monitored unit owns: :# :# :# :#",
+        "5 warn incident: galion-one: galion-one-mouth degrading: health probe HTTP # [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]"
+      ],
+      "findings": [
+        "bleeding:edge-dead-origins error",
+        "bleeding:error-rate-cloudflared warn",
+        "bleeding:memory-heavy-console info",
+        "vulnerabilities:unmanaged-listeners warn"
+      ],
+      "grade": "C",
+      "incidents": [
+        {
+          "cause": "edge",
+          "members": [
+            "bleeding:edge-dead-origins error",
+            "bleeding:error-rate-cloudflared warn"
+          ],
+          "severity": "error"
+        },
+        {
+          "cause": "galion-one",
+          "members": [],
+          "severity": "warn"
+        }
+      ],
+      "pass": false,
+      "score": 76,
+      "system": "degraded"
+    },
+    "flaps": [],
+    "held": {
+      "checks": [
+        "error incident edge",
+        "error incident galion-one",
+        "info alerts-channel galion-nerve",
+        "info bleeding console",
+        "info component cloudflared",
+        "info component gaia",
+        "info component galion-one-mouth",
+        "info component voice-worker",
+        "info mode galion-nerve",
+        "info push galion-nerve",
+        "warn bleeding cloudflared",
+        "warn bleeding galion-one-mouth",
+        "warn vulnerability host"
+      ],
+      "deductions": [
+        "15 error incident: edge: tunnel routes # public hostname(s) to # closed origin port(s) :# :# :# :# :# :# :#: #.# failed requests/min over # min",
+        "15 error incident: galion-one: galion-one-mouth degrading: health probe HTTP # -- stuck loading for # min [health body {\"loaded\":false,\"model\":\"chatterbox\",\"ok\":false,\"provider\":\"local\",\"status\":\"loading\"}]",
+        "4 vulnerability (warn): # loopback listener(s) no monitored unit owns: :# :# :# :#"
+      ],
+      "findings": [
+        "bleeding:edge-dead-origins error",
+        "bleeding:error-rate-cloudflared warn",
+        "bleeding:memory-heavy-console info",
+        "bleeding:stuck-loading-galion-one-mouth error",
+        "vulnerabilities:unmanaged-listeners warn"
+      ],
+      "grade": "D",
+      "incidents": [
+        {
+          "cause": "edge",
+          "members": [
+            "bleeding:edge-dead-origins error",
+            "bleeding:error-rate-cloudflared warn"
+          ],
+          "severity": "error"
+        },
+        {
+          "cause": "galion-one",
+          "members": [
+            "bleeding:stuck-loading-galion-one-mouth error"
+          ],
+          "severity": "error"
+        }
+      ],
+      "pass": false,
+      "score": 66,
+      "system": "degraded"
+    },
+    "hold_cycles": 20,
+    "timeline": [
+      "76 C",
+      "76 C",
+      "76 C",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D",
+      "66 D"
+    ]
+  },
+  "source": "live:replay200"
+}

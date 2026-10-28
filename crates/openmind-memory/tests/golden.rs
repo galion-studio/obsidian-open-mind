@@ -302,7 +302,7 @@ fn l1_keyword_recall_persona_scene() {
         &[],
     );
     assert!(b["context"].as_str().unwrap().contains(
-        "- [persona|Coffee] User prefers espresso in the morning (\u{6D3B}\u{52A8}\u{65F6}\u{95F4}: 2026-10-01 08:30)"
+        "- [persona|Coffee] User prefers espresso in the morning (\u{6D3B}\u{52A8}\u{65F6}\u{95F4}: 2026-10-01 10:30 +02:00)" // F-354-1 (slot 367): stored 08:30 UTC shown as Zagreb CEST
     ));
 
     // Unknown session: no persona/nav, but L1 hit -> strategy present, empty context.

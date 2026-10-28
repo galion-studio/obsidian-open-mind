@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "gaia-cortex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Event-driven Gaia cortex: the decision layer above the event-driven nerve. Coalesces event bursts into incidents (openmind-nerve correlate), runs deterministic rules (restart via the nerve allowlist, circuit breaker, protected never-act), alert sink, escalate-to-human queue, optional OFF-by-default LLM advisor with a hard USD budget. Idle = zero work."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "gaia-cortex"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+nerve-cortex-contract = { path = "../nerve-cortex-contract" }
+# Reused, not rewritten: incident correlation (T3.2), protected hostnames (D-T42-4),
+# the reflex allowlist/never-touch list.
+openmind-nerve = { path = "../openmind-nerve" }
+galion-common = { path = "../galion-common" }
+zagreb-time = { path = "../zagreb-time" }
+
+[features]
+default = []
+# The LLM advisor's real HTTP transport (curl to an OpenAI-compatible endpoint).
+# OFF by default: without it the advisor can never send a byte, whatever the
+# config says. Enabling it (and setting llm.enabled) needs Mate's approval.
+llm-advisor = []

@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# AS-BUILT MIRROR (slot 313, read-only `systemctl cat console-rust-primary.service` on the VPS,
+# 2026-10-27 21:55 +0100). Everything below the marker is byte-identical to the live file
+# /etc/systemd/system/console-rust-primary.service; tests/real_admin_flags_live.rs checks drift.
+# Do not edit below the marker; re-capture instead.
+# ---- live body ----
+# Mate t305u 2026-10-27 19:28:33 +0100: Rust console PRIMARY on :18080
+# Binary: galion-console-serve-2d846fb8 (sandbox tip). Rollback: disable this unit;
+# restore console.service from /opt/galion/backups/grokbot-box-20261027-1823-cet/units-t305u-20261027-192832-cet/
+[Unit]
+Description=Galion console Rust PRIMARY (127.0.0.1:18080; sandbox 2d846fb8)
+After=network-online.target
+Wants=network-online.target
+Conflicts=hermes.service
+
+[Service]
+Type=simple
+ExecStart=/opt/galion/rust/bin/galion-console-serve-2d846fb8 \
+  --bind 127.0.0.1:18080 \
+  --dist /opt/galion/console-dist \
+  --ui rust \
+  --local-api \
+  --pulse 127.0.0.1:8091 \
+  --desk 127.0.0.1:8646 \
+  --quiet
+SyslogIdentifier=console-rust-primary
+Restart=always
+RestartSec=2
+MemoryMax=128M
+TasksMax=128
+Nice=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadOnlyPaths=/opt/galion/console-dist /opt/galion/rust/bin
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,182 @@
+{
+  "name": "live-replay179",
+  "source": "live:replay179",
+  "env": {},
+  "capture": [
+    {
+      "file": "CAPTURED",
+      "bytes": 124,
+      "fnv64": "6a8d54223aedd87b"
+    },
+    {
+      "file": "CAPTURED.start",
+      "bytes": 26,
+      "fnv64": "8a1fd46b53731243"
+    },
+    {
+      "file": "health_status.json",
+      "bytes": 1394,
+      "fnv64": "0bec47e824b52c7c"
+    },
+    {
+      "file": "journal.jsonl",
+      "bytes": 866005,
+      "fnv64": "b9f9fde8cd5cd6e5"
+    },
+    {
+      "file": "ss.txt",
+      "bytes": 1320,
+      "fnv64": "6c0bd30643bf7a86"
+    },
+    {
+      "file": "state-1.json",
+      "bytes": 13173,
+      "fnv64": "8b79af8534d35168"
+    },
+    {
+      "file": "state-2.json",
+      "bytes": 13172,
+      "fnv64": "e61864b2d921a309"
+    },
+    {
+      "file": "state-3.json",
+      "bytes": 13172,
+      "fnv64": "01e116dd1dbc318e"
+    }
+  ],
+  "result": {
+    "capture_cycles": 3,
+    "hold_cycles": 20,
+    "final": {
+      "score": 70,
+      "grade": "C",
+      "pass": false,
+      "system": "degraded",
+      "incidents": [
+        {
+          "cause": "edge",
+          "severity": "error",
+          "members": [
+            "bleeding:edge-dead-origins error",
+            "bleeding:error-rate-cloudflared warn"
+          ]
+        },
+        {
+          "cause": "galion-one",
+          "severity": "error",
+          "members": [
+            "bleeding:stuck-loading-galion-one-mouth error"
+          ]
+        }
+      ],
+      "findings": [
+        "bleeding:edge-dead-origins error",
+        "bleeding:error-rate-cloudflared warn",
+        "bleeding:memory-heavy-console info",
+        "bleeding:stuck-loading-galion-one-mouth error",
+        "incidents:inc-#b#b#d# error",
+        "incidents:inc-e#e#b error"
+      ],
+      "checks": [
+        "error incident edge",
+        "error incident galion-one",
+        "info alerts-channel galion-nerve",
+        "info bleeding console",
+        "info component cloudflared",
+        "info component gaia",
+        "info component galion-one-mouth",
+        "info component voice-worker",
+        "info coverage galion-backup",
+        "info coverage galion-nerve-shadow",
+        "info coverage hades-gate",
+        "info coverage openmind-queue",
+        "info coverage tanga-proto",
+        "info mode galion-nerve",
+        "info push galion-nerve",
+        "warn bleeding cloudflared",
+        "warn bleeding galion-one-mouth"
+      ],
+      "deductions": [
+        "15 error incident: edge: tunnel routes # public hostname(s) to # closed origin port(s) :# :# :# :# :# :# :#: #.# failed requests/min over # min",
+        "15 error incident: galion-one: galion-one-mouth degrading: health probe HTTP # -- stuck loading for #.# d"
+      ]
+    },
+    "held": {
+      "score": 70,
+      "grade": "C",
+      "pass": false,
+      "system": "degraded",
+      "incidents": [
+        {
+          "cause": "edge",
+          "severity": "error",
+          "members": [
+            "bleeding:edge-dead-origins error"
+          ]
+        },
+        {
+          "cause": "galion-one",
+          "severity": "error",
+          "members": [
+            "bleeding:stuck-loading-galion-one-mouth error"
+          ]
+        }
+      ],
+      "findings": [
+        "bleeding:edge-dead-origins error",
+        "bleeding:memory-heavy-console info",
+        "bleeding:stuck-loading-galion-one-mouth error",
+        "incidents:inc-#b#b#d# error",
+        "incidents:inc-e#e#b error"
+      ],
+      "checks": [
+        "error incident edge",
+        "error incident galion-one",
+        "info alerts-channel galion-nerve",
+        "info bleeding console",
+        "info component gaia",
+        "info component galion-one-mouth",
+        "info component voice-worker",
+        "info coverage galion-backup",
+        "info coverage galion-nerve-shadow",
+        "info coverage hades-gate",
+        "info coverage openmind-queue",
+        "info coverage tanga-proto",
+        "info mode galion-nerve",
+        "info push galion-nerve",
+        "warn bleeding cloudflared",
+        "warn bleeding galion-one-mouth"
+      ],
+      "deductions": [
+        "15 error incident: edge: tunnel routes # public hostname(s) to # closed origin port(s) :# :# :# :# :# :#: #.# failed requests/min over # min",
+        "15 error incident: galion-one: galion-one-mouth degrading: health probe HTTP # -- stuck loading for #.# d"
+      ]
+    },
+    "timeline": [
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C",
+      "70 C"
+    ],
+    "flaps": []
+  }
+}

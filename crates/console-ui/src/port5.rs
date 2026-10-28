@@ -51,7 +51,7 @@ impl Ui {
 
     fn p5_node(&self, req: &Request<'_>) -> Reply {
         let fwd = self.forward(req);
-        let health = self.get_json(self.cfg.upstream, "/api/v1/health", &fwd);
+        let health = self.cached_health(&fwd);
         let origin = match &health {
             Some(h) if h.get("status").as_str() == Some("healthy") => Origin::Up,
             _ => Origin::Down,

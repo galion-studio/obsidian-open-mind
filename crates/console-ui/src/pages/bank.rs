@@ -15,8 +15,12 @@
 //! answers 500 "Only HTML requests are supported here" to a JSON GET of a
 //! path it has no route for, counted as a 404), so the page shows the
 //! TSX's empty state plus why. Who serves `/api/v1/bank` is an owner
-//! decision (docs/console-port-1.md); until then the SPA keeps `/bank`
-//! when a fallback is configured (`console_ui::SPA_FIRST`).
+//! decision (docs/console-port-1.md). Since wave 4 slot 299 the page is
+//! Rust-first even with an SPA fallback (`console_ui::SPA_FIRST` is empty):
+//! the live Rust console (`--local-api`, 2026-10-27 20:41 CET +01:00) still
+//! answers 404 for `/api/v1/bank`, and the Node console that read the keys
+//! is retired, so the honest empty state is the whole page until a Rust
+//! bank reader exists.
 
 use super::jsfmt::{drop_word, finite, round, squeeze, to_fixed};
 use crate::html::esc;
@@ -254,7 +258,7 @@ pub fn body(snap: Result<&Value, Miss>) -> String {
             Miss::Down => "The console API did not answer.".to_string(),
         };
         out.push_str(&format!(
-            "<p class=\"note\">{} The Rust console reads no key files and calls no provider, so the balances stay on the TypeScript console until the bank reading has an API.</p>",
+            "<p class=\"note\">{} The console reads no key files and calls no provider, so balances show once a Rust bank reader serves /api/v1/bank (owner decision).</p>",
             esc(&why)
         ));
     }
@@ -342,5 +346,7 @@ mod tests {
         assert!(b.contains("no /api/v1/bank route yet"));
         assert!(body(Err(Miss::Down)).contains("did not answer"));
         assert!(body(Err(Miss::Status(401))).contains("HTTP 401"));
+        assert!(!body(Err(Miss::Status(404))).contains("TypeScript"));
+        assert!(body(Err(Miss::Status(404))).contains("Rust bank reader"));
     }
 }

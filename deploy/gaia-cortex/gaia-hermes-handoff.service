@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+# One run drains the inbox and exits. Claims each file before the (single, no-retry)
+# call to the Hermes boss; refuses at the $20 Hermes ceiling (Mate t218) and drops
+# BUDGET-STOP into the inbox so the cortex stops handing off.
+[Unit]
+Description=Gaia cortex -> Hermes boss handoff dispatcher (oneshot)
+After=hermes-rs.service
+StartLimitIntervalSec=3600
+StartLimitBurst=24
+
+[Service]
+Type=oneshot
+ExecStart=@BIN@ hermes-dispatch
+EnvironmentFile=/opt/galion/hermes/.env
+EnvironmentFile=-/etc/gaia-hermes-handoff/notify.env
+UnsetEnvironment=OPENROUTER_API_KEY OPENROUTER_BASE_URL RIVER_API_KEY TDAI_GATEWAY_API_KEY MEMORY_TENCENTDB_GATEWAY_HOST MEMORY_TENCENTDB_GATEWAY_PORT ANTHROPIC_API_KEY OPENAI_API_KEY
+Environment=HANDOFF_INBOX=/var/lib/gaia-cortex/hermes-inbox
+Environment=HANDOFF_STATE_DIR=/var/lib/gaia-hermes-handoff
+Environment=HERMES_SPEND_FILE=/var/lib/hermes-rs/rs-spend.json
+Environment=HANDOFF_BUDGET_USD=20
+Environment=HANDOFF_RESERVE_USD=1.0
+Environment=HERMES_URL=http://127.0.0.1:8642
+Environment=HANDOFF_MODEL=boss
+Environment=HANDOFF_SKILL=/opt/galion/hermes/skills/galion/cortex-escalation/SKILL.md
+Environment=HANDOFF_MAX_TOKENS=3000
+Environment=HANDOFF_KEY_ENV=API_SERVER_KEY
+StateDirectory=gaia-hermes-handoff
+StateDirectoryMode=0700
+UMask=0077
+TimeoutStartSec=1800
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/gaia-cortex/hermes-inbox
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+MemoryMax=64M
+TasksMax=16

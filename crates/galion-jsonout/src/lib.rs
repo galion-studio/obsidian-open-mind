@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-//! JSON writer that reproduces CPython `json.dumps` byte-for-byte (feature
-//! `serde-json`). Moved here from the identical copies in desk-hermes and
-//! link-watch:
+//! galion-jsonout: JSON writer that reproduces CPython `json.dumps`
+//! byte-for-byte. Shared by desk-hermes and link-watch:
 //! - `ensure_ascii=True` (default) escapes every non-ASCII code point as
 //!   `\uXXXX` (surrogate pairs above U+FFFF);
 //! - compact separators `(",", ":")` when `spaced` is false (desk-hermes), or
 //!   the CPython default `(", ", ": ")` when it is true (link-watch).
+//!
+//! Split out of `galion-common` (its former `serde-json` feature) by slot 325
+//! (swarm/release-repro-unify, 2026-10-27): an optional feature on a crate that
+//! every release binary links made `cargo build -p tuner` and the 12-binary
+//! release build compile galion-common differently (D-312-4). A separate crate
+//! is only built where it is used, so galion-common has no features at all.
 
 use serde::Serialize;
 use serde_json::Value;
@@ -33,7 +38,7 @@ impl serde_json::ser::Formatter for PyFormatter {
                 writer.write_all(&bytes[start..i])?;
             }
             esc.clear();
-            crate::json::push_ascii_escaped(&mut esc, ch);
+            galion_common::json::push_ascii_escaped(&mut esc, ch);
             writer.write_all(esc.as_bytes())?;
             start = i + ch.len_utf8();
         }

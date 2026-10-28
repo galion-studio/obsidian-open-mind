@@ -1001,6 +1001,7 @@ dependencies = [
  "galion-feature-pin",
  "hermes-rs",
  "hermes-tools",
+ "rusqlite",
  "serde_json",
 ]
 

@@ -95,7 +95,7 @@ jobs:
   # Universal-CPU gate (UNIVERSAL-CPU.md, UCPU-1): scripts/ucpu-gate.sh.
   # Tier 1: release build of EVERY binary (workspace + omnode) as static musl,
   # then the static check (no PT_INTERP / DT_NEEDED), the 2 MiB size budget
-  # (hermes-gateway 2.5 MiB; readelf, no file(1)) and the grep gate
+  # (no exceptions since slot 329; readelf, no file(1)) and the grep gate
   # (asm, arch intrinsics, CPU-specific codegen flags).
   # zig cc compiles the bundled SQLite C code for every target.
   ucpu-tier1:

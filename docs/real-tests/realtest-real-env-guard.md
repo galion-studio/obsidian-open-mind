@@ -110,3 +110,28 @@ would start the ~120 other GALION_REAL tests on their default ports alongside
 other running slots (the collision F-383 already hit). The proof is the five
 gated tests above plus the lint that keeps every future sandbox real test
 behind the gate. The ordinary workspace gate (`env -u GALION_REAL`) is below.
+
+## Gates (box, 2026-10-28 16:50-16:56 CET)
+
+- `cargo fmt --all --check` ok.
+- `cargo clippy --workspace --all-targets -- -D warnings` (incl. openmind-sandbox, cgroup-detect: compile only) ok.
+- `env -u GALION_REAL cargo test --workspace --no-fail-fast --exclude openmind-sandbox --exclude cgroup-detect`
+  16:54:10-16:55:30: 388 suites, **2040 passed, 0 failed, 18 ignored** (base 26a526c1 recorded 2033/0/18;
+  +7 = 6 gate unit tests + 1 lint). The first run failed 2 count tests because the new crate was unmapped:
+  `gaia_core::ownership::CRATES` now maps `vps-sandbox-gate` -> RepoCheck (57 system crates), `gaia`
+  `ownership_counts` 69/57.
+- `scripts/no-python.sh` ok; repo-check 2135 files, 0 errors, 83 warnings, PASS.
+- vps-sandbox-gate: aarch64 musl release build ok; armv7 musl, aarch64-android, armv7-android `check --tests` ok.
+
+## Open points
+
+- D-400-1 (owner): unset `GALION_REAL` in the shared box shell profile anyway (D-383-6). The gate makes
+  it harmless for sandbox tests, but other GALION_REAL tests still start real binaries on default ports.
+- D-400-2 (owner): the plain (non-GALION_REAL) tests in `crates/hermes-tools/tests/sandboxed.rs`
+  (8 tests: fs/git/cargo through openmind-sandbox with Landlock/userns) still run the sandbox on the box
+  in every workspace run, because hermes-tools is not in the `--exclude` list. Options: (a) gate them
+  with `vps_sandbox_gate` too (box loses that coverage, VPS run needed per change), (b) add
+  `--exclude hermes-tools` to the local gate, (c) keep as is and record them as unit tests of the tool
+  layer. Not changed here (row scope is GALION_REAL tests).
+- `crates/gaia/tests/real_cli.rs:125` still asserts `crates_total":63` (stale since before base, 68 on
+  base, 69 now); GALION_REAL only, not run here.

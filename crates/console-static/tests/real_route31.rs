@@ -44,6 +44,10 @@ fn bind_at() -> &'static str {
 fn nerve_at() -> &'static str {
     PORTS.addr(3)
 }
+/// Slot 384: hermes-rs :8642, the Rust owner of the old `/api/hermes/health`.
+fn hermes_at() -> &'static str {
+    PORTS.addr(4)
+}
 
 const CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
@@ -203,6 +207,7 @@ fn real_route31_hermes_rust_first_against_live_vps() {
             "-L",
             &format!("{nerve_at}:127.0.0.1:8670", nerve_at = nerve_at()),
         ])
+        .args(["-L", &format!("{}:127.0.0.1:8642", hermes_at())])
         .arg(&vps)
         .stdin(Stdio::null())
         .spawn()
@@ -245,47 +250,68 @@ fn real_route31_hermes_rust_first_against_live_vps() {
 
     // /hermes is the Rust room, against live data.
     let (hc, hist) = live_json(api_at(), "/api/hermes/history");
-    assert_eq!(hc, 200, "live /api/hermes/history");
-    let items = hist.get("items").as_array();
-    let t = Instant::now();
-    let r = get(bind_at(), "/hermes");
-    eprintln!(
-        "real: /hermes {} {} B in {} ms",
-        r.code,
-        r.body.len(),
-        t.elapsed().as_millis()
-    );
-    assert_eq!(r.code, 200);
-    assert!(!r.body.contains("old-spa-shell"), "SPA took /hermes");
-    assert!(r.body.contains("Hermes Research"));
-    assert!(!r.body.to_ascii_lowercase().contains("<script"));
-    assert!(!r.body.contains("<form"));
-    assert!(!r.body.contains("127.0.0.1:8642"), "bind address hidden");
-    assert!(!r.body.contains("did not load"), "{}", r.body);
-    assert!(r.body.contains(&format!("Threads · {} ", items.len())));
-    assert_eq!(header(&r, "content-security-policy").as_deref(), Some(CSP));
-    assert_eq!(header(&r, "x-frame-options").as_deref(), Some("DENY"));
-    let shown = items.len().min(console_ui::pages::hermes::MAX_THREADS);
-    assert_eq!(r.body.matches("href=\"/hermes?id=").count(), shown);
-    let first = items
-        .iter()
-        .filter_map(|t| t.get("id").as_str())
-        .find(|i| console_ui::pages::hermes::id_ok(i))
-        .expect("a thread id");
-    let (tc, th) = live_json(api_at(), &console_ui::pages::hermes::thread_path(first));
-    assert_eq!(tc, 200);
-    let n = th.get("items").as_array().len();
-    let r = get(
-        bind_at(),
-        &format!("/hermes?id={}", console_ui::html::url_enc(first)),
-    );
-    assert_eq!(r.code, 200);
-    assert!(!r.body.contains("old-spa-shell"));
-    assert!(r.body.contains(&format!("<p class=\"small\">{n} items ·")));
-    eprintln!(
+    if routes::decide("/api/hermes/history", hc) == routes::Live::Gone {
+        // D-375-1: the live Rust console has no thread list (owner hermes-rs
+        // /api/sessions, bearer key only). /hermes stays the Rust room (not the
+        // SPA), same headers, and says the read failed; no threads invented.
+        let r = get(bind_at(), "/hermes");
+        assert_eq!(r.code, 200);
+        assert!(!r.body.contains("old-spa-shell"), "SPA took /hermes");
+        assert!(r.body.contains("Hermes Research"));
+        assert!(!r.body.to_ascii_lowercase().contains("<script"));
+        assert!(!r.body.contains("<form"));
+        assert!(!r.body.contains("127.0.0.1:8642"), "bind address hidden");
+        assert!(
+            routes::page_says_unavailable(&r.body),
+            "/hermes: no honest miss"
+        );
+        assert_eq!(r.body.matches("href=\"/hermes?id=").count(), 0);
+        assert_eq!(header(&r, "content-security-policy").as_deref(), Some(CSP));
+        assert_eq!(header(&r, "x-frame-options").as_deref(), Some("DENY"));
+        eprintln!("real: /hermes live history {hc} -> Rust room states the miss, 0 threads, CSP unchanged, no script");
+    } else {
+        assert_eq!(hc, 200, "live /api/hermes/history");
+        let items = hist.get("items").as_array();
+        let t = Instant::now();
+        let r = get(bind_at(), "/hermes");
+        eprintln!(
+            "real: /hermes {} {} B in {} ms",
+            r.code,
+            r.body.len(),
+            t.elapsed().as_millis()
+        );
+        assert_eq!(r.code, 200);
+        assert!(!r.body.contains("old-spa-shell"), "SPA took /hermes");
+        assert!(r.body.contains("Hermes Research"));
+        assert!(!r.body.to_ascii_lowercase().contains("<script"));
+        assert!(!r.body.contains("<form"));
+        assert!(!r.body.contains("127.0.0.1:8642"), "bind address hidden");
+        assert!(!r.body.contains("did not load"), "{}", r.body);
+        assert!(r.body.contains(&format!("Threads · {} ", items.len())));
+        assert_eq!(header(&r, "content-security-policy").as_deref(), Some(CSP));
+        assert_eq!(header(&r, "x-frame-options").as_deref(), Some("DENY"));
+        let shown = items.len().min(console_ui::pages::hermes::MAX_THREADS);
+        assert_eq!(r.body.matches("href=\"/hermes?id=").count(), shown);
+        let first = items
+            .iter()
+            .filter_map(|t| t.get("id").as_str())
+            .find(|i| console_ui::pages::hermes::id_ok(i))
+            .expect("a thread id");
+        let (tc, th) = live_json(api_at(), &console_ui::pages::hermes::thread_path(first));
+        assert_eq!(tc, 200);
+        let n = th.get("items").as_array().len();
+        let r = get(
+            bind_at(),
+            &format!("/hermes?id={}", console_ui::html::url_enc(first)),
+        );
+        assert_eq!(r.code, 200);
+        assert!(!r.body.contains("old-spa-shell"));
+        assert!(r.body.contains(&format!("<p class=\"small\">{n} items ·")));
+        eprintln!(
         "real: /hermes threads {} (listed {shown}), first thread items {n}, CSP unchanged, no script",
         items.len()
     );
+    }
 
     // Held writes: refused in the binary, never forwarded.
     for m in ["POST", "PUT", "DELETE"] {
@@ -328,7 +354,18 @@ fn real_route31_hermes_rust_first_against_live_vps() {
     }
     eprintln!("real: Rust-first {} -> {:?}", rust.len(), rust);
     eprintln!("real: SPA fallback {} -> {:?}", fallbacks.len(), fallbacks);
-    assert_eq!(rust.len(), console_ui::PORTED.len() + 1, "PORTED + /");
+    // Slot 384 (F-384-3): main-staging console-port-merge keeps the SPA_FIRST
+    // rooms (/arena, /bank) on the SPA when a fallback exists, as the unit
+    // test ui_route31 already expects.
+    let spa_first = console_ui::PORTED
+        .iter()
+        .filter(|p| console_ui::SPA_FIRST.contains(p))
+        .count();
+    assert_eq!(
+        rust.len(),
+        console_ui::PORTED.len() + 1 - spa_first,
+        "PORTED + / minus SPA-first"
+    );
     assert_eq!(rust.len() + fallbacks.len(), 31);
     assert!(!fallbacks.contains(&"/hermes"));
 
@@ -340,6 +377,22 @@ fn real_route31_hermes_rust_first_against_live_vps() {
         "real: proxy GET /api/hermes/health -> {} (direct {direct})",
         r.code
     );
+    if routes::decide("/api/hermes/health", direct) == routes::Live::Gone
+        && routes::mode() == routes::Mode::Rust
+    {
+        // Option A: the Rust owner answers the same question.
+        let h = get(hermes_at(), "/health");
+        assert_eq!(h.code, 200, "hermes-rs /health");
+        assert!(
+            h.body.contains("hermes-rs"),
+            "hermes-rs /health implementation"
+        );
+        eprintln!(
+            "real: Rust owner hermes-rs :8642 /health -> {} {} B",
+            h.code,
+            h.body.len()
+        );
+    }
 
     drop(srv);
     let after = nerve_watch("after");

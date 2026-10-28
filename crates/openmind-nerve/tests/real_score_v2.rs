@@ -24,7 +24,7 @@
 
 use serde_json::Value;
 
-#[allow(dead_code)] // shared golden helpers; only `t32_delta` is used here
+#[allow(dead_code)] // shared golden helpers; each test uses a subset
 mod support;
 use std::collections::BTreeSet;
 use std::io::{Read, Write};
@@ -179,7 +179,17 @@ fn real_score_v2_on_the_box() {
         &std::fs::read_to_string(fx.join("cortex-replay.expected.json")).unwrap(),
     )
     .unwrap();
+    // Same normalisation as tests/cortex_replay.rs (slot 422, F-383-1): health
+    // bodies re-serialised with sorted keys (serde_json preserve_order differs
+    // by build), the pre-trait `(last: )` suffix and the additive nerve-wiring
+    // owner evidence (`:8652 unknown owner ... -- process`) dropped. Points,
+    // order and every other word must still match the golden.
+    support::canon(&mut want);
+    support::strip_empty_last(&mut want);
     support::t32_delta(&mut want); // T3.2 member floor: scanner 5 -> 10, score 21 -> 16
+    let mut got_ded = r["deductions"].clone();
+    support::canon(&mut got_ded);
+    support::strip_nerve_wiring(&mut got_ded);
     assert_eq!(
         (
             r["score"].as_u64(),
@@ -188,7 +198,7 @@ fn real_score_v2_on_the_box() {
         ),
         (Some(16), Some("F"), Some(false))
     );
-    assert_eq!(r["deductions"], want["deductions"], "v2 keeps v1 points");
+    assert_eq!(got_ded, want["deductions"], "v2 keeps v1 points");
     let flood: Vec<u64> = r["deductions"]
         .as_array()
         .unwrap()

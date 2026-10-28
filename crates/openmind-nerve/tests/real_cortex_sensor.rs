@@ -139,17 +139,24 @@ fn real_cortex_sensors_on_the_box() {
     support::drop_edge_hosts(&mut got); // T2.12 additive streams (tests/real_edge_rate.rs)
     support::drop_correlation(&mut got); // T3.2 additive incident `correlation`
     support::canon(&mut got);
+    // Slot 422 (F-383-1): same normalisation as tests/cortex_replay.rs, i.e.
+    // the additive nerve-wiring keys/owner evidence and the pre-trait
+    // `(last: )` suffix; everything else must match the golden exactly.
+    support::strip_nerve_wiring(&mut got);
     let mut want: Value = serde_json::from_str(
         &std::fs::read_to_string(fx.join("cortex-replay.expected.json")).unwrap(),
     )
     .unwrap();
     support::canon(&mut want);
+    support::strip_empty_last(&mut want);
     support::t32_delta(&mut want); // T3.2 member floor: scanner 5 -> 10, score 21 -> 16
     assert_eq!(got, want);
     let (_, md) = replay(&fx.join("cortex-replay"), &dir.join("replay-data"), true);
     assert_eq!(
-        support::drop_correlation_md(&support::drop_edge_hosts_md(&md)),
-        support::t32_delta_md(&support::expected_md(&fx))
+        support::drop_correlation_md(&support::drop_edge_hosts_md(
+            &support::strip_nerve_wiring_md(&md),
+        )),
+        support::t32_delta_md(&support::strip_nerve_wiring_md(&support::expected_md(&fx)))
     );
     eprintln!(
         "replay fixture: score {} grade {} pass {} (= pre-trait golden)",

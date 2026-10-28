@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Longest a `lease` call may wait for work.
 pub const MAX_WAIT_MS: u64 = 30_000;
@@ -108,6 +108,11 @@ fn auth_json(s: &Shared) -> Value {
            "secret_configured": s.auth.secret.is_some(), "verdicts": counts})
 }
 
+/// Upper bound on how long `Handle::stop` waits for connection threads.
+/// Connection reads and writes time out after 10 s, so 12 s covers a
+/// stuck client; normally the wait is a few milliseconds.
+const STOP_DRAIN: Duration = Duration::from_secs(12);
+
 pub struct Handle {
     pub addr: SocketAddr,
     shared: Arc<Shared>,
@@ -115,13 +120,24 @@ pub struct Handle {
 }
 
 impl Handle {
-    /// Stop accepting, stop the ticker, and wait for both.
+    /// Stop accepting, stop the ticker, and wait for both. Then wait (at
+    /// most `STOP_DRAIN`) for in-flight connection threads to drop their
+    /// share of the state, so the store's directory lock is released when
+    /// `stop` returns and the same directory can be reopened at once. A
+    /// connection thread answers the client before it lets go of the
+    /// state, so without this wait an in-process restart could race it and
+    /// fail with "is in use by another process".
     pub fn stop(mut self) {
         self.shared.stop.store(true, Ordering::SeqCst);
         self.shared.cv.notify_all();
         let _ = TcpStream::connect_timeout(&self.addr, Duration::from_millis(500));
         for t in self.threads.drain(..) {
             let _ = t.join();
+        }
+        let deadline = Instant::now() + STOP_DRAIN;
+        while Arc::strong_count(&self.shared) > 1 && Instant::now() < deadline {
+            self.shared.cv.notify_all();
+            thread::sleep(Duration::from_millis(2));
         }
     }
 

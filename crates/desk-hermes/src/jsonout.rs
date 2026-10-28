@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! JSON writer that reproduces CPython `json.dumps` byte-for-byte. The
-//! implementation is shared with link-watch in `galion_common::jsonout`
-//! (feature `serde-json`):
+//! implementation is shared with link-watch in the `galion-jsonout` crate
+//! (formerly galion-common feature `serde-json`):
 //! - `ensure_ascii=True` (default) escapes every non-ASCII code point as
 //!   `\uXXXX` (surrogate pairs above U+FFFF);
 //! - compact separators `(",", ":")` for desk-hermes, or the CPython default
 //!   `(", ", ": ")` when `spaced` is set (link-watch uses the default).
 
-pub use galion_common::jsonout::{json_str, to_json_compat, truthy};
+pub use galion_jsonout::{json_str, to_json_compat, truthy};
 
 #[cfg(test)]
 mod tests {

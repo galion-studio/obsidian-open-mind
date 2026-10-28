@@ -12,7 +12,7 @@ license = "MIT"
 version = "0.1.0"
 
 [workspace.dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "alloc"] }
 # serde_json `preserve_order` is pinned ON here, once, for the whole
 # workspace (swarm/serde-order-pin, 2026-10-21). Cargo unifies features across
 # the packages it builds, so a per-crate `features = ["preserve_order"]` made
@@ -24,6 +24,20 @@ serde_json = { version = "1", features = ["preserve_order"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10"
 toml = "0.8"
+# Release reproducibility (slot 325, D-312-4, 2026-10-27): Cargo unifies features only over
+# the packages selected for one build, so `cargo build -p X` and the 12-binary release set
+# compiled shared crates with different features and gave different bytes. The features of
+# every dependency shared by release binaries are therefore decided here, once:
+# - serde: `alloc` on, so serde_core is always alloc+result+std (serde_json alone turns on
+#   alloc, serde alone turns on result);
+# - rusqlite: `backup` on for every user (galion-backup and openmind-memory need it; LTO drops
+#   it from the others);
+# - indexmap: default (`std`), the set toml_edit turns on; crates that reach it only through
+#   serde_json `preserve_order` (no std) depend on crates/galion-feature-pin.
+# Members use `{ workspace = true }`. Guard: crates/galion-feature-pin/tests/release_feature_unify.rs
+# (cargo tree: every release binary alone == inside the full release set, x86_64 + aarch64 musl).
+rusqlite = { version = "0.32", default-features = false, features = ["bundled", "backup"] }
+indexmap = "2"
 
 # Release profile:
 # opt-level = "z" -> minimize binary size. The workspace crates are small I/O

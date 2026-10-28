@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+[package]
+name = "galion-feature-pin"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Code-free feature pin (hand-kept workspace-hack): makes `cargo build -p X` and the full release -p set compile shared dependencies with the same features."
+
+# Hand-kept, minimal version of the cargo-hakari "workspace-hack" pattern
+# (https://github.com/guppy-rs/guppy/tree/main/tools/hakari, MIT OR Apache-2.0; the
+# pattern only, no code or tool is used). Only dependencies that every user already
+# links are listed, so depending on this crate adds no new code to a binary.
+# See docs/decisions/release-repro-unify.md.
+
+[dependencies]
+# serde_json `preserve_order` turns indexmap on with no features; toml_edit turns on
+# `default`/`std`. Pin the toml_edit set for every binary that has serde_json.
+indexmap = { workspace = true }
+# serde_json depends on serde_core only; serde adds serde_core/result. Pin it.
+serde = { workspace = true }
+
+[dev-dependencies]
+# Real test only: SHA-256 of the release binaries.
+galion-common = { path = "../galion-common" }

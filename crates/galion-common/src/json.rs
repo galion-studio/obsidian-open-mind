@@ -6,7 +6,7 @@
 //! [`push_ascii_escaped`] is the one place that knows CPython's
 //! `ensure_ascii=True` rule (every non-ASCII code point as `\uXXXX`, astral
 //! code points as a surrogate pair, lower-case hex). The serde `jsonout`
-//! formatter (feature `serde-json`) uses it too.
+//! formatter (crate galion-jsonout) uses it too.
 
 use std::fmt::Write as _;
 

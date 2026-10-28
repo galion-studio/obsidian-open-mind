@@ -157,3 +157,6 @@ with the same resolutions; the resolutions are small and listed above).
 - D-407-3: re-pin 386's live nerve test to 9baa450c after D-407-2 (F-407-5).
 - D-407-4: fix 387's real_handoff_exclude control assertion (F-407-6): with the nerve in main + 5 the control unit's R2 escalation is de-duplicated against its R4 ticket, so 1 control ticket, not 2. Either assert `>= 1` (handed) or pin the test to a nerve with the old per-rule tickets.
 - Carried: D-389-1 survival refresh drop-in + console redeploy (not done here).
+- D-407-5 (new, r3 20:01 CET): nerve x86_64 musl from main + 5 is 2 017 768 B, above the 1 887 435 B warn line and 79 384 B under the 2 MiB cap (F-407-8; +559 008 B vs 9d1a4f3). Decide before the 9baa450c lineage lands whether to raise the cap in `config/release/size-budget.tsv` or trim the nerve; the next nerve feature may cross the cap.
+
+r3 (19:47-20:04 CET): final tip re-gated (fmt/clippy ok, tests 2320/0/18, 443 suites), x86_64 + aarch64 musl release builds ok, armv7 check ok, android check ok except the two bundled-SQLite crates (no NDK on the box), nerve real_cross_target budget + live pin ok 9/0 each. Details in `docs/real-tests/staging-rehearsal-1028.md`.

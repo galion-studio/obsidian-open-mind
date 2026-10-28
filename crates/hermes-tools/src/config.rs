@@ -81,6 +81,57 @@ pub struct CodingConfig {
     /// Inode cap of that tmpfs (`HERMES_RS_CODING_WORKDIR_INODES`, 0 = MiB * 64,
     /// i.e. one per 16 KiB, the openmind-sandbox default).
     pub workdir_quota_inodes: u64,
+    /// What to do on a kernel without Landlock (owner decision D-320-1):
+    /// `HERMES_RS_CODING_NO_LANDLOCK=refuse|allow|layered`. When that is
+    /// unset, the legacy `HERMES_RS_CODING_ALLOW_NO_LANDLOCK=1` means `allow`,
+    /// otherwise `refuse` (the behaviour before slot 334).
+    pub no_landlock: NoLandlock,
+    /// True when `HERMES_RS_CODING_NO_LANDLOCK` was set explicitly (then the
+    /// legacy variable is ignored, also in the process environment).
+    pub no_landlock_explicit: bool,
+}
+
+/// Policy for a kernel without Landlock (D-320-1 options a/b/c, slot 334).
+/// The choice is the owner's; the code only offers the three.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NoLandlock {
+    /// (b) refuse the coding tools at start (default, fail closed).
+    Refuse,
+    /// (a) start anyway; the namespaces, ro root, hide and quota layers
+    /// carry the isolation, but nothing checks that they did.
+    Allow,
+    /// (c) start only when userns + mount/pid/net namespaces and the
+    /// workdir quota are available and on in every tool policy, and fail each
+    /// run closed whose sandbox report shows one of them not enforced.
+    Layered,
+}
+
+/// Layers a run must report as enforced in [`NoLandlock::Layered`] mode
+/// when Landlock itself is not enforced.
+pub const LAYERED_REQUIRED: [&str; 7] = [
+    "userns",
+    "mountns",
+    "pidns",
+    "net",
+    "ro_root",
+    "hide_home",
+    "workdir_quota",
+];
+
+/// Parse `HERMES_RS_CODING_NO_LANDLOCK` (`policy`) and the legacy
+/// `HERMES_RS_CODING_ALLOW_NO_LANDLOCK` (`legacy`). The explicit policy
+/// always wins; a bad value is an error (the gateway then refuses to start).
+pub fn no_landlock_mode(policy: Option<&str>, legacy: Option<&str>) -> Result<NoLandlock, String> {
+    match policy {
+        Some("refuse") => Ok(NoLandlock::Refuse),
+        Some("allow") => Ok(NoLandlock::Allow),
+        Some("layered") => Ok(NoLandlock::Layered),
+        Some(v) => Err(format!(
+            "bad HERMES_RS_CODING_NO_LANDLOCK={v} (refuse, allow or layered)"
+        )),
+        None if legacy == Some("1") => Ok(NoLandlock::Allow),
+        None => Ok(NoLandlock::Refuse),
+    }
 }
 
 fn truthy(v: &str) -> bool {
@@ -293,6 +344,11 @@ impl CodingConfig {
             max_write_bytes: num("HERMES_RS_CODING_MAX_WRITE", 512 * 1024, 1024, 4 << 20)?,
             workdir_quota_mb: quota_mb(get("HERMES_RS_CODING_WORKDIR_MB"))?,
             workdir_quota_inodes: num("HERMES_RS_CODING_WORKDIR_INODES", 0, 0, 4_000_000)?,
+            no_landlock: no_landlock_mode(
+                get("HERMES_RS_CODING_NO_LANDLOCK").as_deref(),
+                get("HERMES_RS_CODING_ALLOW_NO_LANDLOCK").as_deref(),
+            )?,
+            no_landlock_explicit: get("HERMES_RS_CODING_NO_LANDLOCK").is_some(),
             author_name: get("HERMES_RS_CODING_AUTHOR").unwrap_or_else(|| "hermes-rs".into()),
             author_email: get("HERMES_RS_CODING_EMAIL")
                 .unwrap_or_else(|| "hermes-rs@galion.invalid".into()),

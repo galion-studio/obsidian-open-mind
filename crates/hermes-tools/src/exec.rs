@@ -162,6 +162,7 @@ pub fn run(cfg: &CodingConfig, kind: Kind, cmd: &[String]) -> Result<Outcome, St
             out.error.clone().unwrap_or_default()
         ));
     }
+    layered_check(cfg, &out)?;
     Ok(out)
 }
 
@@ -307,4 +308,37 @@ pub fn footprint(root: &Path, limit_bytes: u64, limit_entries: u64) -> Footprint
         }
     }
     fp
+}
+
+/// D-320-1 option c (`HERMES_RS_CODING_NO_LANDLOCK=layered`, slot 334): when
+/// Landlock was not enforced on a run, every layer in
+/// [`crate::config::LAYERED_REQUIRED`] must have been, else the run fails
+/// closed (its output is withheld from the model). Other modes: no check.
+/// The run has already happened at this point; preflight's probe is what
+/// keeps an unsuitable kernel from starting at all.
+pub fn layered_check(cfg: &CodingConfig, out: &Outcome) -> Result<(), String> {
+    if cfg.no_landlock != crate::config::NoLandlock::Layered {
+        return Ok(());
+    }
+    let on = |name: &str| {
+        out.enforced
+            .iter()
+            .any(|(n, e)| n == name && matches!(e, openmind_sandbox::Enforcement::Enforced))
+    };
+    if on("landlock") {
+        return Ok(());
+    }
+    let miss: Vec<&str> = crate::config::LAYERED_REQUIRED
+        .iter()
+        .copied()
+        .filter(|l| !on(l))
+        .collect();
+    if miss.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "layered no-Landlock mode (D-320-1 option c): run failed closed, layers not enforced: {}",
+            miss.join(", ")
+        ))
+    }
 }

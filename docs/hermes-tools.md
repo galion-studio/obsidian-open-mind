@@ -79,11 +79,12 @@ Refusals get a `refused` line with the reason, and the model gets back `{"error"
 | `HERMES_RS_CODING_DENY` / `_HIDE` | empty | extra `:`-separated denied worktree roots / hidden dirs |
 | `HERMES_RS_CODING_WORKDIR_MB` | 512 | total worktree cap per tool run in MiB (private tmpfs over the worktree, copied in and back; ENOSPC past it). `0`/`off` = no cap, else 16-4096. Added on top of each run's cgroup memory.max. See docs/sandbox/workdir-quota.md (D-WDQ2, accepted 2026-10-21) |
 | `HERMES_RS_CODING_WORKDIR_INODES` | 0 | inode cap of that tmpfs (0 = one per 16 KiB) |
-| `HERMES_RS_CODING_ALLOW_NO_LANDLOCK` | unset | `1` lets the tools start on a kernel without Landlock (not recommended) |
+| `HERMES_RS_CODING_NO_LANDLOCK` | `refuse` | kernel without Landlock (owner decision D-320-1, slot 334): `refuse` = exit 2 at start (option b), `allow` = start, namespaces only (option a), `layered` = start only if user+mount+net+pid namespaces and the workdir quota are on, and fail every run closed whose report lacks userns, mountns, pidns, net, ro_root, hide_home or workdir_quota (option c). Any other value = config error. See docs/staged/coding-tools-landlock.md |
+| `HERMES_RS_CODING_ALLOW_NO_LANDLOCK` | unset | legacy: `1` = `allow` when `HERMES_RS_CODING_NO_LANDLOCK` is unset (unit env or process env); ignored when it is set |
 | `HERMES_RS_PROVIDER_LOOPBACK_ONLY` | unset | **new in hermes-rs**: `1` makes the curl provider refuse any non-loopback URL. Used by every test here |
 
 Startup (`hermes_tools::preflight`) refuses to turn the tools on when the session or daily spend
-cap is 0 (unlimited), when the kernel has no Landlock, or when network isolation is impossible.
+cap is 0 (unlimited), when the kernel has no Landlock and `HERMES_RS_CODING_NO_LANDLOCK` does not allow it, or when network isolation is impossible.
 hermes-gateway exits with code 2 rather than run with half a policy.
 
 ## Building

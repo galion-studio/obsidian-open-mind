@@ -384,3 +384,335 @@ fn real_staged_workdir_quota_is_enospc_not_host_fill() {
     assert!(host <= 16 * MIB, "host got {host} bytes");
     let _ = std::fs::remove_dir_all(&d);
 }
+
+// ------------------------------------------- slot 334: Landlock (D-320-1)
+//
+// F-320-2: the tests above build `exec::policy` directly and never call
+// `preflight`, so they passed although the staged preset would refuse to
+// start on the VPS (no Landlock). The tests below run the REAL preflight
+// (`hermes_tools::preflight_with`, the function `preflight` calls) on the
+// staged drop-in plus each staged alternative, with the kernel feature set
+// injected (no probe, no sandbox: safe on the box). `real_staged_preflight_*`
+// repeats it with the real `openmind_sandbox::features()` probe and real
+// runs, VPS only.
+
+use hermes_rs::config::SpendCfg;
+use hermes_tools::config::{no_landlock_mode, LAYERED_REQUIRED};
+use hermes_tools::NoLandlock;
+use openmind_sandbox::{Enforcement, Features, Outcome};
+
+const ALT_DIR: &str = "deploy/staged/hermes-rs.service.d/landlock-alternatives";
+const ALTS: [(&str, &str, NoLandlock); 3] = [
+    ("a", "landlock-a-allow.conf", NoLandlock::Allow),
+    ("b", "landlock-b-refuse.conf", NoLandlock::Refuse),
+    ("c", "landlock-c-layered.conf", NoLandlock::Layered),
+];
+
+/// The VPS as measured by slot 320 (6.8.12-43-pve LXC, no Landlock LSM,
+/// unprivileged namespaces work). `real_staged_preflight_*` checks it.
+const VPS: Features = Features {
+    landlock_abi: 0,
+    userns: true,
+    userns_full: true,
+    mount_setattr: true,
+    caps: true,
+    android: false,
+};
+const WITH_LANDLOCK: Features = Features {
+    landlock_abi: 6,
+    ..VPS
+};
+
+fn spend() -> SpendCfg {
+    // Caps stay as in the base unit ($1.00 / $2.00 / 500 calls).
+    SpendCfg {
+        session_usd_cap: 1.0,
+        daily_usd_cap: 2.0,
+        daily_call_cap: 500,
+    }
+}
+
+fn env_lines(rel: &str) -> Vec<(String, String)> {
+    read_repo(rel)
+        .lines()
+        .filter_map(|l| l.trim().strip_prefix("Environment="))
+        .filter_map(|kv| kv.split_once('='))
+        .map(|(k, v)| (k.to_string(), v.trim_matches('"').to_string()))
+        .collect()
+}
+
+/// Staged coding-tools.conf + one alternative (`None` = the base alone).
+/// The delegated cgroup is dropped: preflight would move THIS process into
+/// it (cgroup_self), which is a unit-only step; the rest is as staged.
+fn alt_cfg(d: &Path, alt: Option<&str>, extra: &[(&str, &str)]) -> CodingConfig {
+    let alt_env = alt
+        .map(|f| env_lines(&format!("{ALT_DIR}/{f}")))
+        .unwrap_or_default();
+    let mut e: Vec<(&str, &str)> = alt_env
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
+    e.push(("HERMES_RS_CODING_CGROUP", ""));
+    e.push(("HERMES_RS_CODING_REQUIRE_CGROUP", "0"));
+    e.extend_from_slice(extra);
+    staged_cfg(d, &e)
+}
+
+#[test]
+fn staged_alternatives_each_set_exactly_one_policy_key() {
+    for (letter, file, mode) in ALTS {
+        let env = env_lines(&format!("{ALT_DIR}/{file}"));
+        assert_eq!(env.len(), 1, "{file}: {env:?}");
+        assert_eq!(env[0].0, "HERMES_RS_CODING_NO_LANDLOCK", "{file}");
+        assert_eq!(
+            no_landlock_mode(Some(&env[0].1), None),
+            Ok(mode),
+            "{letter}"
+        );
+        let text = read_repo(&format!("{ALT_DIR}/{file}"));
+        assert!(text.contains("STAGED, NOT INSTALLED"), "{file}");
+        assert!(text.contains("D-320-1"), "{file}");
+        assert!(text.contains("Rollback:"), "{file}");
+        // Nothing else: no namespace/cgroup knobs that would break the sandbox.
+        let keys = unit_keys(&text);
+        assert_eq!(keys, ["Environment"], "{file}: {keys:?}");
+    }
+    // The base drop-in itself chooses nothing (the owner does).
+    assert!(!staged_env().iter().any(|(k, _)| k.contains("NO_LANDLOCK")));
+}
+
+#[test]
+fn staged_base_alone_refuses_on_the_vps_kernel_f320_2() {
+    let d = tmp("ll-base");
+    let mut c = alt_cfg(&d, None, &[]);
+    assert_eq!(c.no_landlock, NoLandlock::Refuse);
+    let e = hermes_tools::preflight_with(&mut c, &spend(), &VPS, false).unwrap_err();
+    assert!(e.contains("no Landlock"), "{e}");
+    assert!(e.contains("D-320-1"), "{e}");
+    // With Landlock the same preset starts and reports it.
+    let mut c = alt_cfg(&d, None, &[]);
+    let notes = hermes_tools::preflight_with(&mut c, &spend(), &WITH_LANDLOCK, false).unwrap();
+    assert!(!notes.iter().any(|n| n.contains("WARNING")), "{notes:?}");
+    assert!(
+        notes.iter().any(|n| n.contains("worktree cap 512 MiB")),
+        "{notes:?}"
+    );
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn staged_alternatives_through_the_real_preflight_on_the_vps_kernel() {
+    let d = tmp("ll-alts");
+    for (letter, file, mode) in ALTS {
+        let mut c = alt_cfg(&d, Some(file), &[]);
+        assert_eq!(c.no_landlock, mode, "{letter}");
+        let r = hermes_tools::preflight_with(&mut c, &spend(), &VPS, false);
+        eprintln!("D-320-1 option {letter} ({file}) on VPS features: {r:?}");
+        match mode {
+            NoLandlock::Refuse => assert!(r.unwrap_err().contains("no Landlock")),
+            NoLandlock::Allow => {
+                let n = r.unwrap();
+                assert!(n.iter().any(|n| n.contains("option a")), "{n:?}");
+                assert!(n.iter().any(|n| n.contains("no_landlock=Allow")), "{n:?}");
+            }
+            NoLandlock::Layered => {
+                let n = r.unwrap();
+                assert!(n.iter().any(|n| n.contains("option c")), "{n:?}");
+                assert!(n.iter().any(|n| n.contains("no_landlock=Layered")), "{n:?}");
+            }
+        }
+        // On a kernel WITH Landlock every alternative starts, no warning.
+        let mut c = alt_cfg(&d, Some(file), &[]);
+        let n = hermes_tools::preflight_with(&mut c, &spend(), &WITH_LANDLOCK, false).unwrap();
+        assert!(!n.iter().any(|n| n.contains("WARNING")), "{letter}: {n:?}");
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn staged_option_c_refuses_when_a_layer_cannot_hold() {
+    let d = tmp("ll-c-miss");
+    let c_file = Some("landlock-c-layered.conf");
+    // No full unprivileged namespaces.
+    let weak = Features {
+        userns_full: false,
+        ..VPS
+    };
+    let mut c = alt_cfg(&d, c_file, &[]);
+    let e = hermes_tools::preflight_with(&mut c, &spend(), &weak, false).unwrap_err();
+    assert!(e.contains("option c") && e.contains("namespaces"), "{e}");
+    // Workdir quota switched off.
+    let mut c = alt_cfg(&d, c_file, &[("HERMES_RS_CODING_WORKDIR_MB", "0")]);
+    let e = hermes_tools::preflight_with(&mut c, &spend(), &VPS, false).unwrap_err();
+    assert!(e.contains("workdir"), "{e}");
+    // Option a does not care about the quota (that is its weakness).
+    let mut c = alt_cfg(
+        &d,
+        Some("landlock-a-allow.conf"),
+        &[("HERMES_RS_CODING_WORKDIR_MB", "0")],
+    );
+    assert!(hermes_tools::preflight_with(&mut c, &spend(), &VPS, false).is_ok());
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn staged_legacy_override_and_explicit_policy() {
+    let d = tmp("ll-legacy");
+    // Legacy process env (slots 176/185/320) still means allow on the base.
+    let mut c = alt_cfg(&d, None, &[]);
+    let n = hermes_tools::preflight_with(&mut c, &spend(), &VPS, true).unwrap();
+    assert_eq!(c.no_landlock, NoLandlock::Allow, "{n:?}");
+    // ... and in the unit environment.
+    let c = alt_cfg(&d, None, &[("HERMES_RS_CODING_ALLOW_NO_LANDLOCK", "1")]);
+    assert_eq!(c.no_landlock, NoLandlock::Allow);
+    // An explicit policy wins over the legacy variable, both ways.
+    for (file, want_ok) in [
+        ("landlock-b-refuse.conf", false),
+        ("landlock-c-layered.conf", true),
+    ] {
+        let mut c = alt_cfg(
+            &d,
+            Some(file),
+            &[("HERMES_RS_CODING_ALLOW_NO_LANDLOCK", "1")],
+        );
+        let r = hermes_tools::preflight_with(&mut c, &spend(), &VPS, true);
+        assert_eq!(r.is_ok(), want_ok, "{file}: {r:?}");
+        assert_ne!(c.no_landlock, NoLandlock::Allow, "{file}");
+    }
+    // A typo fails closed at config time (gateway exits 2).
+    let mut m: HashMap<String, String> = staged_env().into_iter().collect();
+    m.insert(
+        "HERMES_RS_CODING_WORKTREE".into(),
+        d.join("wt").display().to_string(),
+    );
+    for (k, sub) in [
+        ("HERMES_RS_CODING_STATE", "state"),
+        ("HERMES_RS_CODING_TOOLCHAIN", "toolchain"),
+    ] {
+        m.insert(k.into(), d.join(sub).display().to_string());
+    }
+    m.insert("HERMES_RS_CODING_NO_LANDLOCK".into(), "alow".into());
+    let e = CodingConfig::from_env(&move |k| m.get(k).cloned(), &d.join("home")).unwrap_err();
+    assert!(e.contains("HERMES_RS_CODING_NO_LANDLOCK"), "{e}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+fn outcome(enforced: &[&str]) -> Outcome {
+    Outcome {
+        status: Status::Exited(0),
+        stdout: vec![],
+        stderr: vec![],
+        stdout_truncated: false,
+        stderr_truncated: false,
+        timed_out: false,
+        wall: std::time::Duration::ZERO,
+        error: None,
+        enforced: openmind_sandbox::LAYERS
+            .iter()
+            .map(|l| {
+                let e = if enforced.contains(l) {
+                    Enforcement::Enforced
+                } else {
+                    Enforcement::NotEnforced("test".into())
+                };
+                (l.to_string(), e)
+            })
+            .collect(),
+        cgroup: None,
+        workdir_quota: None,
+        proc_view: ProcView::Private,
+    }
+}
+
+#[test]
+fn layered_runtime_check_fails_closed_per_run() {
+    let d = tmp("ll-rt");
+    let c = alt_cfg(&d, Some("landlock-c-layered.conf"), &[]);
+    let all: Vec<&str> = LAYERED_REQUIRED.to_vec();
+    assert!(exec::layered_check(&c, &outcome(&all)).is_ok());
+    for drop in LAYERED_REQUIRED {
+        let some: Vec<&str> = all.iter().copied().filter(|l| *l != drop).collect();
+        let e = exec::layered_check(&c, &outcome(&some)).unwrap_err();
+        assert!(e.contains(drop) && e.contains("failed closed"), "{e}");
+    }
+    // Landlock enforced: the layered rule does not apply.
+    assert!(exec::layered_check(&c, &outcome(&["landlock"])).is_ok());
+    // Options a and b never check per run.
+    for f in ["landlock-a-allow.conf", "landlock-b-refuse.conf"] {
+        let c = alt_cfg(&d, Some(f), &[]);
+        assert!(exec::layered_check(&c, &outcome(&[])).is_ok(), "{f}");
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// VPS only: the real kernel probe and the real preflight for the base and
+/// a/b/c, then real fs/git/cargo-preset runs under option c (each must pass
+/// the per-run layered check), with the layer report printed.
+#[test]
+fn real_staged_preflight_alternatives_on_this_kernel() {
+    if !real() {
+        return;
+    }
+    let f = openmind_sandbox::features();
+    eprintln!("FEATURES {f:?}");
+    let d = tmp("real-ll");
+    let mut c = alt_cfg(&d, None, &[]);
+    c.prepare_dirs().unwrap();
+    let r = hermes_tools::preflight_with(&mut c, &spend(), &f, false);
+    eprintln!("BASE preflight: {r:?}");
+    assert_eq!(r.is_ok(), f.landlock_abi >= 1, "{r:?}");
+    for (letter, file, mode) in ALTS {
+        let mut c = alt_cfg(&d, Some(file), &[]);
+        let r = hermes_tools::preflight_with(&mut c, &spend(), &f, false);
+        eprintln!("OPTION {letter} preflight: {r:?}");
+        let want = f.landlock_abi >= 1
+            || match mode {
+                NoLandlock::Refuse => false,
+                NoLandlock::Allow => true,
+                NoLandlock::Layered => f.userns_full,
+            };
+        assert_eq!(r.is_ok(), want, "{letter}: {r:?}");
+    }
+    let mut c = alt_cfg(&d, Some("landlock-c-layered.conf"), &[]);
+    if hermes_tools::preflight_with(&mut c, &spend(), &f, false).is_err() {
+        eprintln!("SKIP option c runs: preflight refused on this kernel");
+        let _ = std::fs::remove_dir_all(&d);
+        return;
+    }
+    for k in KINDS {
+        let o = exec::run(
+            &c,
+            k,
+            &sh("echo RUN=ok; echo OPTN=$(ls -A /opt/galion 2>/dev/null | wc -l)"),
+        )
+        .unwrap_or_else(|e| panic!("{k:?}: option c run refused: {e}"));
+        let out = String::from_utf8_lossy(&o.stdout).to_string();
+        let on: Vec<&str> = o
+            .enforced
+            .iter()
+            .filter(|(_, e)| matches!(e, Enforcement::Enforced))
+            .map(|(n, _)| n.as_str())
+            .collect();
+        let off: Vec<String> = o
+            .enforced
+            .iter()
+            .filter_map(|(n, e)| match e {
+                Enforcement::NotEnforced(w) => Some(format!("{n}({w})")),
+                Enforcement::Enforced => None,
+            })
+            .collect();
+        eprintln!(
+            "OPTION c {k:?}: status={:?} {}ON {}\nOFF {}",
+            o.status,
+            out,
+            on.join(","),
+            off.join(" ")
+        );
+        assert!(matches!(o.status, Status::Exited(0)), "{k:?}: {o:?}");
+        assert_eq!(field(&out, "RUN"), Some("ok"), "{k:?}");
+        // /opt/galion is an empty tmpfs inside (hide layer), not absent.
+        assert_eq!(field(&out, "OPTN"), Some("0"), "{k:?}");
+        assert!(exec::layered_check(&c, &o).is_ok());
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}

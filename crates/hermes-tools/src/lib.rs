@@ -28,7 +28,7 @@ pub mod exec;
 pub mod guard;
 pub mod tools;
 
-pub use config::CodingConfig;
+pub use config::{CodingConfig, NoLandlock};
 
 use hermes_rs::config::SpendCfg;
 use hermes_rs::spend::SpendTracker;
@@ -39,7 +39,72 @@ use std::sync::Arc;
 pub const TOOL_NAMES: [&str; 4] = ["fs_read", "fs_write", "git", "cargo"];
 
 /// Startup checks that must hold before any coding tool is offered.
+/// Probes the kernel (`openmind_sandbox::features`, forked children that try
+/// unshare/landlock): sandbox_vps_only applies to callers.
 pub fn preflight(cfg: &mut CodingConfig, spend: &SpendCfg) -> Result<Vec<String>, String> {
+    let legacy = std::env::var("HERMES_RS_CODING_ALLOW_NO_LANDLOCK").as_deref() == Ok("1");
+    preflight_with(cfg, spend, &openmind_sandbox::features(), legacy)
+}
+
+/// The Landlock part of preflight (D-320-1, slot 334), pure: `f` is the
+/// kernel feature set. `Ok(Some(note))` = start with that note, `Ok(None)` =
+/// Landlock is there, `Err` = refuse to start.
+pub fn landlock_gate(
+    mode: NoLandlock,
+    f: &openmind_sandbox::Features,
+    cfg: &CodingConfig,
+) -> Result<Option<String>, String> {
+    if f.landlock_abi >= 1 {
+        return Ok(None);
+    }
+    match mode {
+        NoLandlock::Refuse => Err(
+            "the kernel has no Landlock; refusing coding tools (HERMES_RS_CODING_NO_LANDLOCK=allow or =layered, or the legacy HERMES_RS_CODING_ALLOW_NO_LANDLOCK=1, overrides; owner decision D-320-1)"
+                .into(),
+        ),
+        NoLandlock::Allow => Ok(Some(
+            "WARNING: no Landlock; relying on the mount namespace only (HERMES_RS_CODING_NO_LANDLOCK=allow, D-320-1 option a)".into(),
+        )),
+        NoLandlock::Layered => {
+            let mut miss: Vec<String> = vec![];
+            if !f.userns_full {
+                miss.push("kernel: unprivileged user+mount+net+pid namespaces".into());
+            }
+            if cfg.workdir_quota_mb == 0 {
+                miss.push("HERMES_RS_CODING_WORKDIR_MB > 0 (workdir quota)".into());
+            }
+            for k in [exec::Kind::Fs, exec::Kind::Git, exec::Kind::Cargo] {
+                let p = exec::policy(cfg, k);
+                if !p.namespaces || !p.ro_root || p.net || !p.require_net_isolation {
+                    miss.push(format!("{k:?} policy: namespaces + ro_root + no net"));
+                }
+                if p.workdir_tmpfs_bytes == 0 {
+                    miss.push(format!("{k:?} policy: workdir tmpfs"));
+                }
+            }
+            if miss.is_empty() {
+                Ok(Some(format!(
+                    "WARNING: no Landlock; layered mode (HERMES_RS_CODING_NO_LANDLOCK=layered, D-320-1 option c): every run must report {} enforced or it fails closed",
+                    config::LAYERED_REQUIRED.join("+")
+                )))
+            } else {
+                Err(format!(
+                    "the kernel has no Landlock and layered mode (D-320-1 option c) is not satisfied; refusing coding tools: missing {}",
+                    miss.join(", ")
+                ))
+            }
+        }
+    }
+}
+
+/// [`preflight`] with the kernel features and the legacy process-env
+/// override passed in, so the staged preset can be checked on any host.
+pub fn preflight_with(
+    cfg: &mut CodingConfig,
+    spend: &SpendCfg,
+    f: &openmind_sandbox::Features,
+    legacy_allow_env: bool,
+) -> Result<Vec<String>, String> {
     let mut notes = vec![];
     if spend.session_usd_cap <= 0.0 || spend.daily_usd_cap <= 0.0 {
         return Err(format!(
@@ -47,16 +112,11 @@ pub fn preflight(cfg: &mut CodingConfig, spend: &SpendCfg) -> Result<Vec<String>
             spend.session_usd_cap, spend.daily_usd_cap
         ));
     }
-    let f = openmind_sandbox::features();
-    let allow_weak = std::env::var("HERMES_RS_CODING_ALLOW_NO_LANDLOCK").as_deref() == Ok("1");
-    if f.landlock_abi < 1 && !allow_weak {
-        return Err(
-            "the kernel has no Landlock; refusing coding tools (HERMES_RS_CODING_ALLOW_NO_LANDLOCK=1 overrides)"
-                .into(),
-        );
+    if !cfg.no_landlock_explicit && legacy_allow_env {
+        cfg.no_landlock = NoLandlock::Allow;
     }
-    if f.landlock_abi < 1 {
-        notes.push("WARNING: no Landlock; relying on the mount namespace only".into());
+    if let Some(n) = landlock_gate(cfg.no_landlock, f, cfg)? {
+        notes.push(n);
     }
     if !f.userns {
         notes.push(
@@ -122,8 +182,9 @@ pub fn preflight(cfg: &mut CodingConfig, spend: &SpendCfg) -> Result<Vec<String>
     }
     cfg.prepare_dirs()?;
     notes.push(format!(
-        "landlock_abi={} userns={} worktree={} branch={} audit={}",
+        "landlock_abi={} no_landlock={:?} userns={} worktree={} branch={} audit={}",
         f.landlock_abi,
+        cfg.no_landlock,
         f.userns,
         cfg.worktree.display(),
         cfg.branch,

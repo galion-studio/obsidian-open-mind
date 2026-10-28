@@ -118,6 +118,19 @@ They appear on the stream and are dropped on ingest by kind.
 answers from the last snapshot with `busy: true` (the other GETs still wait
 for the engine lock; see `docs/real-tests/cortex-t51-chaos.md`).
 
+`/health` `nerve` is real reachability (slot 347, F-337-1), not "a nerve URL
+is configured": true only when the newest nerve contact attempt (stream
+connect, any stream line incl. keepalives, `/stats`, `/incidents`, pulls,
+`POST /actions`, `POST /event`) succeeded and the last success is at most
+`nerve_stale_s` old (`CORTEX_NERVE_STALE_S`, 0 = auto: 660 s with the stream,
+3 x `pull_every_s` min 30 s with pulls only). Also `nerve_configured` and
+`nerve_contact` `{state: ok|stale|unreachable|unknown|none, last_ok, age_s,
+last_fail, fail_age_s, last_error, ok, fail, stream: connected|down|off,
+stale_s}`. Read live on every request, also from the busy snapshot path.
+A killed nerve reads false at once (the stream breaks); a hung nerve that
+holds the socket open reads false after `stale_s`. Real test:
+`docs/real-tests/cortex-health-nerve-live.md`.
+
 ## 5. Proposed for the nerve worker (optional, non-breaking)
 
 1. `circuit.open` event (`unit`, `until`) when the nerve's own breaker opens

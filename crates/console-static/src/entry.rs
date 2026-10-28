@@ -123,6 +123,22 @@ pub fn run() -> ExitCode {
         cfg.proxy_prefixes
     );
     let state = Arc::new(State::new(site, routes, cfg));
+    if let Some(sv) = &state.survival {
+        eprintln!(
+            "galion-console-static: survival file {} writer {} refresh {} s mode {}",
+            sv.cfg.file.display(),
+            sv.cfg
+                .writer
+                .as_ref()
+                .map(|w| w.display().to_string())
+                .unwrap_or_else(|| "none".into()),
+            sv.cfg.refresh_s,
+            sv.cfg.mode.name()
+        );
+        if sv.cfg.mode == crate::survival::Mode::Interval {
+            sv.spawn_interval();
+        }
+    }
     match server::serve(listener, state) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

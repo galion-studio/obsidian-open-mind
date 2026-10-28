@@ -26,6 +26,7 @@
 //! no dispatcher runs).
 //!
 //! Gated: `GALION_REAL=1` and `GALION_NERVE_BIN=<release openmind-nerve>`.
+//! Optional `GALION_CORTEX_BIN` (default: the cargo-built cortex) for the VPS run.
 //! `cargo test --release -p gaia-cortex --test real_handoff_exclude -- --nocapture --test-threads 1`
 
 use serde_json::{json, Value};
@@ -419,7 +420,14 @@ fn gate() -> Option<(PathBuf, PathBuf)> {
             "port {p} busy (slot 387 22570-22579)"
         );
     }
-    Some((nerve, PathBuf::from(env!("CARGO_BIN_EXE_gaia-cortex"))))
+    // GALION_CORTEX_BIN: run the same test on the VPS (static musl test
+    // binary copied to a throwaway folder, run as nobody) against a copied
+    // cortex binary; default = the binary cargo built for this test.
+    let cortex = std::env::var("GALION_CORTEX_BIN")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(env!("CARGO_BIN_EXE_gaia-cortex")));
+    assert!(cortex.is_file(), "cortex {} missing", cortex.display());
+    Some((nerve, cortex))
 }
 
 #[test]

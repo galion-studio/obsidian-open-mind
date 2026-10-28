@@ -65,6 +65,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+      - name: fetch musl graphs for the offline feature-pin cargo tree
+        run: |
+          # .cargo/config.toml sets curve25519_dalek_backend=serial, which
+          # drops curve25519-dalek-derive on x86_64. cargo fetch honours that
+          # cfg; cargo tree in release_feature_unify does not, so the offline
+          # tree still asks for curve25519-dalek-derive. An empty RUSTFLAGS
+          # replaces the config list and downloads that crate.
+          RUSTFLAGS= cargo fetch --locked --target x86_64-unknown-linux-musl
+          cargo fetch --locked --target aarch64-unknown-linux-musl
       - name: allow unprivileged user namespaces (hermes-tools sandbox)
         run: |
           set -eu
@@ -78,6 +88,21 @@ jobs:
             sudo sysctl -w kernel.unprivileged_userns_clone=1
           fi
       - run: cargo test --workspace --locked
+
+  # Cortex T5.3: replay every committed capture against its expected verdict
+  # (crates/openmind-nerve/tests/replay-corpus/), fail on drift or on a
+  # verdict that flaps over the capture plus 20 quiet hold cycles. The live
+  # VPS captures stay on the box; CI replays the committed fixtures.
+  replay-corpus:
+    name: cortex replay corpus (drift + 20-cycle no-flap)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+      - run: cargo xtask replay-corpus
 
   omnode:
     name: omnode (edge/openmind-node, own workspace)
@@ -95,7 +120,7 @@ jobs:
   # Universal-CPU gate (UNIVERSAL-CPU.md, UCPU-1): scripts/ucpu-gate.sh.
   # Tier 1: release build of EVERY binary (workspace + omnode) as static musl,
   # then the static check (no PT_INTERP / DT_NEEDED), the 2 MiB size budget
-  # (hermes-gateway 2.5 MiB; readelf, no file(1)) and the grep gate
+  # (no exceptions since slot 329; readelf, no file(1)) and the grep gate
   # (asm, arch intrinsics, CPU-specific codegen flags).
   # zig cc compiles the bundled SQLite C code for every target.
   ucpu-tier1:

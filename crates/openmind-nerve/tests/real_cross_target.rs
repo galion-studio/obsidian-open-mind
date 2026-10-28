@@ -22,6 +22,10 @@
 //!      deploy recipe and must equal the VPS binary bit for bit
 //!      (`NERVE_XT_LIVE_SHA`/`NERVE_XT_LIVE_SIZE`, default = 9d1a4f3 as read on
 //!      the VPS 2026-10-28 08:10 +01:00); the rebuilt binary is smoked too;
+//!      slot 386: the x86_64 linker comes from this tree's COMMITTED
+//!      `.cargo/config.toml` overlaid on the archive, linker env removed
+//!      (`NERVE_XT_LIVE_CONFIG` = `committed` default | `env` slot-376 way |
+//!      `archive` negative control without the line);
 //!    - `aa77864`: the old slot-217 pin (only passes on the aa77864 tree);
 //! 4. runs each binary (`aarch64` under qemu user mode) on slot ports
 //!    20870-20872 against one live service thread (:20873) and one dead
@@ -61,6 +65,146 @@ const LIVE_SIZE: u64 = 1_458_760;
 /// 2026-10-28 ~08:12 +01:00): `-p openmind-nerve` alone, x86_64 musl, release,
 /// `--locked`, linker rust-lld. The default x86_64 linker gives 1 463 072 B.
 const LIVE_RECIPE_LINKER: &str = "rust-lld";
+/// Env var that overrides the x86_64 musl linker from `.cargo/config.toml`.
+const X86_LINKER_ENV: &str = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER";
+/// Default-linker (host `cc`, GNU ld) rebuild of 9d1a4f3, measured 2026-10-28
+/// ~08:12 +01:00 (slot 376) and again by slot 386 (`NERVE_XT_LIVE_CONFIG=archive`).
+const LIVE_DEFAULT_LINKER_SHA: &str =
+    "64ce3aa03bd55a9c698f5c42c4616c6987163d2523fa1ac89aff0187571213f8";
+const LIVE_DEFAULT_LINKER_SIZE: u64 = 1_463_072;
+
+/// Where the live-pin rebuild gets its x86_64 linker (slot 386, D-376-2):
+/// `NERVE_XT_LIVE_CONFIG`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LiveConfig {
+    /// Default: this tree's committed `.cargo/config.toml` (`git show
+    /// HEAD:.cargo/config.toml`) overlaid on the archive, linker env removed.
+    Committed,
+    /// Slot 376: the archive's own config plus the linker env var.
+    Env,
+    /// Negative control: the archive's own config, linker env removed (what a
+    /// deploy gets without the committed line; must NOT reproduce).
+    Archive,
+}
+
+fn live_config_from(v: Option<&str>) -> Result<LiveConfig, String> {
+    match v {
+        None | Some("committed") => Ok(LiveConfig::Committed),
+        Some("env") => Ok(LiveConfig::Env),
+        Some("archive") => Ok(LiveConfig::Archive),
+        Some(v) => Err(format!(
+            "NERVE_XT_LIVE_CONFIG must be committed, env or archive, got {v:?}"
+        )),
+    }
+}
+
+fn live_config_mode() -> LiveConfig {
+    let v = std::env::var("NERVE_XT_LIVE_CONFIG").ok();
+    live_config_from(v.as_deref()).unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// Linker set for `[target.<triple>]` in a cargo config text (tiny line
+/// parser: section headers and `linker = "..."`; enough for our own file).
+fn config_linker(text: &str, triple: &str) -> Option<String> {
+    let want = format!("[target.{triple}]");
+    let mut inside = false;
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            inside = line == want;
+            continue;
+        }
+        if !inside {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("linker") {
+            let v = rest.trim_start().strip_prefix('=')?.trim();
+            return Some(v.trim_matches('"').to_string());
+        }
+    }
+    None
+}
+
+/// `git show HEAD:.cargo/config.toml` of this repo (the COMMITTED config,
+/// not the working copy).
+fn committed_config() -> String {
+    let out = Command::new("git")
+        .args(["show", "HEAD:.cargo/config.toml"])
+        .current_dir(root())
+        .output()
+        .expect("git show HEAD:.cargo/config.toml");
+    assert!(
+        out.status.success(),
+        "no committed .cargo/config.toml at HEAD"
+    );
+    String::from_utf8(out.stdout).expect("config utf-8")
+}
+
+/// Replace the exported tree's `.cargo/config.toml` with this tree's
+/// committed one.
+fn overlay_committed_config(src: &Path) {
+    let text = committed_config();
+    assert_eq!(
+        config_linker(&text, "x86_64-unknown-linux-musl").as_deref(),
+        Some(LIVE_RECIPE_LINKER),
+        "committed .cargo/config.toml has no x86_64 musl rust-lld linker line (D-376-2)"
+    );
+    std::fs::create_dir_all(src.join(".cargo")).unwrap();
+    std::fs::write(src.join(".cargo/config.toml"), text).unwrap();
+}
+
+#[test]
+fn live_config_parsing() {
+    assert_eq!(live_config_from(None), Ok(LiveConfig::Committed));
+    assert_eq!(
+        live_config_from(Some("committed")),
+        Ok(LiveConfig::Committed)
+    );
+    assert_eq!(live_config_from(Some("env")), Ok(LiveConfig::Env));
+    assert_eq!(live_config_from(Some("archive")), Ok(LiveConfig::Archive));
+    assert!(live_config_from(Some("")).is_err());
+    assert!(live_config_from(Some("yes")).is_err());
+}
+
+#[test]
+fn config_linker_parser() {
+    let t = "[env]\nX = \"1\"\n[target.aarch64-unknown-linux-musl]\nlinker = \"rust-lld\"\n\n[target.x86_64-unknown-linux-musl]\n# c\nlinker=\"cc\"\n";
+    assert_eq!(
+        config_linker(t, "aarch64-unknown-linux-musl").as_deref(),
+        Some("rust-lld")
+    );
+    assert_eq!(
+        config_linker(t, "x86_64-unknown-linux-musl").as_deref(),
+        Some("cc")
+    );
+    assert_eq!(config_linker(t, "armv7-unknown-linux-musleabihf"), None);
+    assert_eq!(
+        config_linker("[env]\nlinker = \"x\"\n", "x86_64-unknown-linux-musl"),
+        None
+    );
+}
+
+/// Always on (slot 386, D-376-2): the repo's own config (working copy, so a
+/// local edit that drops the line fails before commit) links every musl
+/// target with rust-lld, and the 9d1a4f3 config did not (the reason the
+/// live recipe needed an uncommitted edit).
+#[test]
+fn repo_config_pins_rust_lld() {
+    let text = std::fs::read_to_string(root().join(".cargo/config.toml")).unwrap();
+    for t in [
+        "x86_64-unknown-linux-musl",
+        "aarch64-unknown-linux-musl",
+        "armv7-unknown-linux-musleabihf",
+    ] {
+        assert_eq!(config_linker(&text, t).as_deref(), Some("rust-lld"), "{t}");
+    }
+    // Default-linker rebuild of the live commit is a different binary.
+    assert!(pin_verdict(
+        LIVE_REV,
+        (LIVE_SHA, LIVE_SIZE),
+        (LIVE_DEFAULT_LINKER_SHA, LIVE_DEFAULT_LINKER_SIZE)
+    )
+    .is_err());
+}
 /// Hard ceiling from the low-end profile (every Rust service binary < 2 MiB).
 const BUDGET: u64 = 2 * 1024 * 1024;
 /// Size-budget table (slot 376, `NERVE_XT_PIN=budget`/`live`): label ->
@@ -418,20 +562,26 @@ fn cargo() -> String {
 }
 
 fn run_cargo(args: &[&str], dir: &Path) -> (bool, f64, String) {
-    run_cargo_in(args, dir, &root(), &[])
+    run_cargo_env(args, dir, &root(), &[], &[])
 }
 
 /// `run_cargo` in another source tree (`cwd`) with extra env (slot 376: the
-/// live-pin rebuild of an exported commit with the deploy linker).
-fn run_cargo_in(
+/// live-pin rebuild of an exported commit) and env vars removed (slot 386:
+/// prove the committed config alone picks the linker).
+fn run_cargo_env(
     args: &[&str],
     dir: &Path,
     cwd: &Path,
     extra_env: &[(&str, &str)],
+    remove_env: &[&str],
 ) -> (bool, f64, String) {
+    let mut cmd = Command::new(cargo());
+    for k in remove_env {
+        cmd.env_remove(k);
+    }
     let jobs = std::env::var("NERVE_XT_JOBS").unwrap_or_else(|_| "2".into());
     let t = Instant::now();
-    let out = Command::new(cargo())
+    let out = cmd
         .args(args)
         .args(["-j", &jobs, "--target-dir"])
         .arg(dir)
@@ -671,15 +821,21 @@ fn real_cross_target() {
         let pkgs: &[&str] = &["-p", "openmind-nerve"];
         let mut args = vec!["build", "--release", "--locked", "--target", x86];
         args.extend_from_slice(pkgs);
-        let (ok, secs, tail) = run_cargo_in(
-            &args,
-            &dir,
-            &src,
-            &[(
-                "CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER",
-                LIVE_RECIPE_LINKER,
-            )],
-        );
+        // Slot 386 (D-376-2): by default the linker comes from the committed
+        // `.cargo/config.toml` of THIS tree (HEAD, not the working copy),
+        // overlaid on the archive, with every linker env var removed; `env`
+        // is the slot-376 way (archive config + linker env var).
+        let cfg = live_config_mode();
+        let (env, rm): (Vec<(&str, &str)>, Vec<&str>) = match cfg {
+            LiveConfig::Committed => {
+                overlay_committed_config(&src);
+                (Vec::new(), vec![X86_LINKER_ENV])
+            }
+            LiveConfig::Env => (vec![(X86_LINKER_ENV, LIVE_RECIPE_LINKER)], Vec::new()),
+            LiveConfig::Archive => (Vec::new(), vec![X86_LINKER_ENV]),
+        };
+        eprintln!("[xt] live-pin config {cfg:?}");
+        let (ok, secs, tail) = run_cargo_env(&args, &dir, &src, &env, &rm);
         assert!(ok, "live-pin {live_rev}: cargo build failed: {tail}");
         let bin = dir.join(x86).join("release/openmind-nerve");
         record("live-pin", x86, pkgs, bin, secs, &mut bins);

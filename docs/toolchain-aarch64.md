@@ -61,3 +61,21 @@ aarch64-linux-android `cargo check --all-targets` and x86_64 musl release still 
 tuner, galion-one and openmind-memory (SQLite write + read) answer HTTP
 under qemu-aarch64. Regression test:
 `crates/galion-realtest/tests/real_toolchain_aarch64.rs`.
+
+### Running the real tests inside a slot port range (slot 354, 2026-10-28 CET +01:00)
+The two qemu real tests no longer need their old fixed ports (both defaults unchanged):
+
+```
+export PATH=/workspace/swarm/bin:$PATH   # zig cc wrappers + qemu-*-static (slot 338)
+GALION_REAL=1 REAL_TOOLCHAIN_AARCH64_PORT_BASE=22240 REAL_TOOLCHAIN_AARCH64_REQUIRE_C=1 \
+  cargo test -p galion-realtest --test real_toolchain_aarch64 -- --nocapture   # 4 ports, default 20150
+GALION_REAL=1 REAL_UCPU_PORT_BASE=22244 \
+  cargo test -p galion-realtest --test real_sh_ucpu -- --nocapture             # 5 ports, default 19845
+```
+
+`real_toolchain_aarch64` now also runs its SQLite part when `aarch64-linux-musl-gcc` is on
+PATH (not only with `CC_aarch64_unknown_linux_musl`), refuses to start if any of its ports
+already has a listener (a foreign service would fake a pass), and checks all ports are closed
+after the stop. `REAL_TOOLCHAIN_AARCH64_REQUIRE_C=1` turns the "no C cross compiler, SQLite
+part skipped" case into a failure. Bad port-base values (not a number, < 1024, range past
+65535) fail the test; see `crates/galion-realtest/src/ports.rs`.

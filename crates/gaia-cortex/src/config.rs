@@ -124,6 +124,10 @@ pub struct HermesConfig {
     pub per_hour: u32,
     /// Same subject + rule: one handoff per this many seconds.
     pub subject_window_s: u64,
+    /// Unit-name glob patterns (`*`, `?`) never handed to Hermes, e.g. the
+    /// swarm's throwaway test units. Breakers, incidents and escalation
+    /// records are unchanged; see [`crate::handoff_exclude`]. Default empty.
+    pub exclude_units: Vec<String>,
 }
 
 impl Default for HermesConfig {
@@ -133,6 +137,7 @@ impl Default for HermesConfig {
             inbox: None,
             per_hour: 6,
             subject_window_s: 3600,
+            exclude_units: vec![],
         }
     }
 }
@@ -270,6 +275,9 @@ impl Config {
         if let Some(v) = get("CORTEX_HERMES_PER_HOUR").and_then(|v| v.parse().ok()) {
             c.hermes.per_hour = v;
         }
+        if let Some(v) = get("CORTEX_HERMES_EXCLUDE_UNITS") {
+            c.hermes.exclude_units = crate::handoff_exclude::parse_env(&v);
+        }
         c.validate()?;
         Ok(c)
     }
@@ -316,6 +324,7 @@ impl Config {
             }
         }
         self.hermes.per_hour = self.hermes.per_hour.min(crate::handoff::HARD_MAX_PER_HOUR);
+        crate::handoff_exclude::validate(&mut self.hermes.exclude_units)?;
         self.coalesce_ms = self.coalesce_ms.min(60_000);
         // At most one ring read per second; never more than one per window.
         if self.repeat_poll_s > 0 {
@@ -396,6 +405,30 @@ mod tests {
         .unwrap();
         assert_eq!(c.listen, "127.0.0.1:20791");
         assert!(!c.dry_run());
+    }
+
+    #[test]
+    fn hermes_exclude_units_env_and_guard() {
+        let c = Config::load(None, &env(&[])).unwrap();
+        assert!(
+            c.hermes.exclude_units.is_empty(),
+            "default: nothing excluded"
+        );
+        let c = Config::load(
+            None,
+            &env(&[("CORTEX_HERMES_EXCLUDE_UNITS", "sbxtest*, noloop*,,")]),
+        )
+        .unwrap();
+        assert_eq!(c.hermes.exclude_units, vec!["noloop*", "sbxtest*"]);
+        for bad in ["*", "hermes*", "galion-*", "*test*"] {
+            let e = Config::load(None, &env(&[("CORTEX_HERMES_EXCLUDE_UNITS", bad)])).unwrap_err();
+            assert!(e.contains("exclude_units"), "{bad}: {e}");
+        }
+        // JSON file form
+        let mut c: Config =
+            serde_json::from_str(r#"{"hermes":{"exclude_units":["noloop*"]}}"#).unwrap();
+        c.validate().unwrap();
+        assert_eq!(c.hermes.exclude_units, vec!["noloop*"]);
     }
 }
 

@@ -101,7 +101,12 @@ fn get(port: u16, path: &str) -> (u16, String) {
         .nth(1)
         .and_then(|c| c.parse().ok())
         .unwrap_or(0);
-    (code, t.split_once("\r\n\r\n").map(|x| x.1.to_string()).unwrap_or_default())
+    (
+        code,
+        t.split_once("\r\n\r\n")
+            .map(|x| x.1.to_string())
+            .unwrap_or_default(),
+    )
 }
 
 fn gw_cmd(exe: &Path, home: &Path, port: u16) -> Command {
@@ -146,7 +151,13 @@ fn real_release_recipe() {
 
     // R1 build
     let o = xtask(&[
-        "release-recipe", "build", "--commit", &commit, "--cc", "gcc", "--out",
+        "release-recipe",
+        "build",
+        "--commit",
+        &commit,
+        "--cc",
+        "gcc",
+        "--out",
         out.to_str().unwrap(),
     ]);
     assert!(o.status.success(), "R1 build failed");
@@ -163,16 +174,36 @@ fn real_release_recipe() {
     assert_eq!(fs::metadata(&art).unwrap().len(), size);
     let sumfile = fs::read_to_string(format!("{}.sha256", art.display())).unwrap();
     assert!(sumfile.starts_with(&sha), "R1 .sha256 file");
-    for k in ["rustc", "cargo", "cc_version", "lld", "cargo_argv", "env", "commit"] {
+    for k in [
+        "rustc",
+        "cargo",
+        "cc_version",
+        "lld",
+        "cargo_argv",
+        "env",
+        "commit",
+    ] {
         println!("R1 recipe {k}={}", field(&recipe, k));
     }
-    println!("R1 artefact {} {size} B sha256 {sha} ({:?})", art.display(), t0.elapsed());
+    println!(
+        "R1 artefact {} {size} B sha256 {sha} ({:?})",
+        art.display(),
+        t0.elapsed()
+    );
 
     // R2 real binary
     let home = root.join("home");
     fs::create_dir_all(&home).unwrap();
-    let cc = gw_cmd(&art, &home, port).arg("--check-config").output().unwrap();
-    assert_eq!(cc.status.code(), Some(0), "R2 --check-config: {}", text(&cc));
+    let cc = gw_cmd(&art, &home, port)
+        .arg("--check-config")
+        .output()
+        .unwrap();
+    assert_eq!(
+        cc.status.code(),
+        Some(0),
+        "R2 --check-config: {}",
+        text(&cc)
+    );
     let log = fs::File::create(home.join("gateway.log")).unwrap();
     let mut child = gw_cmd(&art, &home, port)
         .arg("--mock")
@@ -203,20 +234,32 @@ fn real_release_recipe() {
     assert_eq!(get(port, "/health").0, 0, "R2 port {port} still open");
 
     // R3 check, R4 verify (rebuild in another path)
-    assert!(xtask(&["release-recipe", "check", art.to_str().unwrap()]).status.success());
+    assert!(xtask(&["release-recipe", "check", art.to_str().unwrap()])
+        .status
+        .success());
     let v_work = root.join("verify-other-path");
     let o = xtask(&[
-        "release-recipe", "verify", art.to_str().unwrap(), "--work", v_work.to_str().unwrap(),
+        "release-recipe",
+        "verify",
+        art.to_str().unwrap(),
+        "--work",
+        v_work.to_str().unwrap(),
     ]);
     assert!(o.status.success(), "R4 verify failed");
     assert!(text(&o).contains("verify OK"));
 
     // R5 tampered sha
     let a5 = tampered(&art, &root.join("r5"), |r| {
-        r.replace(&format!("sha256={sha}"), &format!("sha256={}", "0".repeat(64)))
+        r.replace(
+            &format!("sha256={sha}"),
+            &format!("sha256={}", "0".repeat(64)),
+        )
     });
     let o = xtask(&["release-recipe", "check", a5.to_str().unwrap()]);
-    assert!(!o.status.success() && text(&o).contains("!= recipe sha256"), "R5");
+    assert!(
+        !o.status.success() && text(&o).contains("!= recipe sha256"),
+        "R5"
+    );
 
     // R6 toolchain drift: refuse before building
     let rustc = field(&recipe, "rustc");
@@ -225,7 +268,10 @@ fn real_release_recipe() {
     });
     let t6 = Instant::now();
     let o = xtask(&["release-recipe", "verify", a6.to_str().unwrap()]);
-    assert!(!o.status.success() && text(&o).contains("toolchain differs"), "R6");
+    assert!(
+        !o.status.success() && text(&o).contains("toolchain differs"),
+        "R6"
+    );
     assert!(t6.elapsed() < Duration::from_secs(60), "R6 must not build");
 
     // R8 edited cargo_argv
@@ -238,13 +284,20 @@ fn real_release_recipe() {
 
     // R7 the recorded recipe does not reproduce the sha -> verify fails
     let full = field(&recipe, "commit");
-    assert_ne!(full, neg_full, "XTASK_RECIPE_NEG_COMMIT must differ from the commit");
+    assert_ne!(
+        full, neg_full,
+        "XTASK_RECIPE_NEG_COMMIT must differ from the commit"
+    );
     let a7 = tampered(&art, &root.join("r7"), |r| {
         r.replace(&format!("commit={full}"), &format!("commit={neg_full}"))
     });
     let o = xtask(&["release-recipe", "verify", a7.to_str().unwrap()]);
     assert!(!o.status.success(), "R7 verify must FAIL");
-    assert!(text(&o).contains("does NOT reproduce"), "R7 reason: {}", text(&o));
+    assert!(
+        text(&o).contains("does NOT reproduce"),
+        "R7 reason: {}",
+        text(&o)
+    );
     println!("R1-R8 pass in {:?}", t0.elapsed());
     let _ = fs::remove_dir_all(&root);
 }

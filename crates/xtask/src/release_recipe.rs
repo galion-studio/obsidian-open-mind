@@ -39,7 +39,14 @@ const PASS_ENV: [&str; 7] = [
     "ZIG_GLOBAL_CACHE_DIR",
 ];
 /// Recipe keys that pin the toolchain; any drift makes `verify` fail before it builds.
-pub const TOOLCHAIN_KEYS: [&str; 6] = ["rustc", "rustc_commit", "llvm", "cargo", "cc_version", "lld"];
+pub const TOOLCHAIN_KEYS: [&str; 6] = [
+    "rustc",
+    "rustc_commit",
+    "llvm",
+    "cargo",
+    "cc_version",
+    "lld",
+];
 
 pub const USAGE: &str = "\
   release-recipe build --commit REV --out DIR [--cc gcc|zig] [-p PKG] [--bin BIN]
@@ -83,7 +90,11 @@ impl Recipe {
                 .split_once('=')
                 .ok_or_else(|| format!("recipe line {}: no '='", n + 1))?;
             if map.insert(k.trim().to_string(), v.to_string()).is_some() {
-                return Err(format!("recipe line {}: duplicate key '{}'", n + 1, k.trim()));
+                return Err(format!(
+                    "recipe line {}: duplicate key '{}'",
+                    n + 1,
+                    k.trim()
+                ));
             }
         }
         let r = Recipe { map };
@@ -91,8 +102,15 @@ impl Recipe {
             return Err(format!("recipe format is not {FORMAT}"));
         }
         for k in [
-            "commit", "package", "bin", "target", "cc", "source_date_epoch", "cargo_argv",
-            "sha256", "size",
+            "commit",
+            "package",
+            "bin",
+            "target",
+            "cc",
+            "source_date_epoch",
+            "cargo_argv",
+            "sha256",
+            "size",
         ] {
             r.get(k)?;
         }
@@ -107,9 +125,28 @@ impl Recipe {
         );
         // Stable, readable order: identity, inputs, toolchain, outputs.
         let order = [
-            "format", "artefact", "commit", "package", "bin", "target", "features", "cc",
-            "source_date_epoch", "cargo_argv", "env", "rustc", "rustc_commit", "llvm",
-            "cargo", "cc_path", "cc_version", "ar", "lld", "size", "budget", "sha256",
+            "format",
+            "artefact",
+            "commit",
+            "package",
+            "bin",
+            "target",
+            "features",
+            "cc",
+            "source_date_epoch",
+            "cargo_argv",
+            "env",
+            "rustc",
+            "rustc_commit",
+            "llvm",
+            "cargo",
+            "cc_path",
+            "cc_version",
+            "ar",
+            "lld",
+            "size",
+            "budget",
+            "sha256",
             "built_at",
         ];
         for k in order {
@@ -234,7 +271,10 @@ fn cc_env(spec: &Spec) -> Result<(Vec<(String, String)>, String, String), String
             let cc = which(gcc)?.to_string_lossy().to_string();
             let ar = "ar".to_string();
             Ok((
-                vec![(format!("CC_{suffix}"), cc.clone()), (format!("AR_{suffix}"), ar.clone())],
+                vec![
+                    (format!("CC_{suffix}"), cc.clone()),
+                    (format!("AR_{suffix}"), ar.clone()),
+                ],
                 cc,
                 ar,
             ))
@@ -253,7 +293,10 @@ fn cc_env(spec: &Spec) -> Result<(Vec<(String, String)>, String, String), String
             let cc = format!("{me} zig-cc {zig} {zig_triple}");
             let ar = format!("{zig} ar");
             Ok((
-                vec![(format!("CC_{suffix}"), cc.clone()), (format!("AR_{suffix}"), ar.clone())],
+                vec![
+                    (format!("CC_{suffix}"), cc.clone()),
+                    (format!("AR_{suffix}"), ar.clone()),
+                ],
                 cc,
                 ar,
             ))
@@ -279,10 +322,7 @@ fn toolchain(spec: &Spec) -> Result<BTreeMap<String, String>, String> {
     m.insert("cargo".into(), run_out(clean_cmd("cargo").arg("-V"))?);
     let (_, cc_path, ar) = cc_env(spec)?;
     let cc_version = match spec.cc.as_str() {
-        "zig" => format!(
-            "zig {}",
-            run_out(clean_cmd(which("zig")?).arg("version"))?
-        ),
+        "zig" => format!("zig {}", run_out(clean_cmd(which("zig")?).arg("version"))?),
         _ => run_out(clean_cmd(&cc_path).arg("--version"))?
             .lines()
             .next()
@@ -300,7 +340,11 @@ fn toolchain(spec: &Spec) -> Result<BTreeMap<String, String>, String> {
     );
     m.insert(
         "ar".into(),
-        if spec.cc == "zig" { "zig ar".into() } else { ar },
+        if spec.cc == "zig" {
+            "zig ar".into()
+        } else {
+            ar
+        },
     );
     let sysroot = run_out(clean_cmd("rustc").args(["--print", "sysroot"]))?;
     let host = vv
@@ -431,7 +475,10 @@ fn build_in(spec: &Spec, work: &Path) -> Result<Built, String> {
     if !status.success() {
         return Err(format!("cargo build failed ({status})"));
     }
-    let path = target_dir.join(&spec.target).join("release").join(&spec.bin);
+    let path = target_dir
+        .join(&spec.target)
+        .join("release")
+        .join(&spec.bin);
     let bytes = fs::read(&path).map_err(|e| format!("read {path:?}: {e}"))?;
     let tsv = fs::read_to_string(src.join("config/release/size-budget.tsv")).unwrap_or_default();
     let budget = budget_for(&tsv, &spec.bin);
@@ -474,7 +521,9 @@ fn build_in(spec: &Spec, work: &Path) -> Result<Built, String> {
     put("size", bytes.len().to_string());
     put(
         "budget",
-        budget.map(|b| b.to_string()).unwrap_or_else(|| "none".into()),
+        budget
+            .map(|b| b.to_string())
+            .unwrap_or_else(|| "none".into()),
     );
     put("sha256", sha.clone());
     put("built_at", galion_common::time::now_rfc3339());
@@ -542,7 +591,10 @@ pub fn check(artefact: &Path) -> Result<Recipe, String> {
         ));
     }
     if size.to_string() != r.get("size")? {
-        return Err(format!("artefact size {size} != recipe size {}", r.get("size")?));
+        return Err(format!(
+            "artefact size {size} != recipe size {}",
+            r.get("size")?
+        ));
     }
     if let Some(Ok(b)) = r.map.get("budget").map(|b| b.parse::<u64>()) {
         if size > b {
@@ -585,7 +637,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
             );
             Ok(())
         }
-        other => Err(format!("unknown release-recipe subcommand '{other}'\n{USAGE}")),
+        other => Err(format!(
+            "unknown release-recipe subcommand '{other}'\n{USAGE}"
+        )),
     }
 }
 
@@ -649,11 +703,19 @@ fn cmd_build(args: &[String]) -> Result<(), String> {
         let name = artefact_name(&spec);
         let dest = out.join(&name);
         fs::copy(&b.path, &dest).map_err(|e| format!("copy to {dest:?}: {e}"))?;
-        fs::write(out.join(format!("{name}.sha256")), format!("{}  {name}\n", b.sha256))
-            .map_err(|e| format!("write sha256: {e}"))?;
+        fs::write(
+            out.join(format!("{name}.sha256")),
+            format!("{}  {name}\n", b.sha256),
+        )
+        .map_err(|e| format!("write sha256: {e}"))?;
         fs::write(recipe_path(&dest), b.recipe.render())
             .map_err(|e| format!("write recipe: {e}"))?;
-        println!("release-recipe build: {} {} B sha256 {}", dest.display(), b.size, b.sha256);
+        println!(
+            "release-recipe build: {} {} B sha256 {}",
+            dest.display(),
+            b.size,
+            b.sha256
+        );
         match b.budget {
             Some(lim) if b.size > lim => Err(format!(
                 "{} is {} B, over its budget {lim} B",
@@ -661,7 +723,10 @@ fn cmd_build(args: &[String]) -> Result<(), String> {
                 b.size
             )),
             Some(lim) => {
-                println!("release-recipe build: within budget {lim} B (headroom {} B)", lim - b.size);
+                println!(
+                    "release-recipe build: within budget {lim} B (headroom {} B)",
+                    lim - b.size
+                );
                 Ok(())
             }
             None => Ok(()),
@@ -723,7 +788,10 @@ fn cmd_verify(args: &[String]) -> Result<(), String> {
         r.get("sha256")?
     );
     compare_rebuild(r.get("sha256")?, &b.sha256)?;
-    println!("release-recipe verify OK: {} reproduces from its recipe", artefact.display());
+    println!(
+        "release-recipe verify OK: {} reproduces from its recipe",
+        artefact.display()
+    );
     Ok(())
 }
 
@@ -731,7 +799,10 @@ fn cmd_verify(args: &[String]) -> Result<(), String> {
 pub fn zig_cc(args: &[String]) -> Result<(), String> {
     let (zig, rest) = args.split_first().ok_or("zig-cc needs <zig> <triple>")?;
     let (triple, cc_args) = rest.split_first().ok_or("zig-cc needs <triple>")?;
-    let filtered: Vec<&String> = cc_args.iter().filter(|a| !a.starts_with("--target=")).collect();
+    let filtered: Vec<&String> = cc_args
+        .iter()
+        .filter(|a| !a.starts_with("--target="))
+        .collect();
     let status = Command::new(zig)
         .args(["cc", "-target", triple])
         .args(filtered)
@@ -769,12 +840,21 @@ mod tests {
             ("features", String::new()),
             ("cc", "gcc".into()),
             ("source_date_epoch", spec.source_date_epoch.clone()),
-            ("cargo_argv", format!("cargo {}", spec.cargo_argv().join(" "))),
+            (
+                "cargo_argv",
+                format!("cargo {}", spec.cargo_argv().join(" ")),
+            ),
             ("rustc", "rustc 1.99.1".into()),
-            ("rustc_commit", "58cf8f9c35b355199727627d07ae34a4e2846d67".into()),
+            (
+                "rustc_commit",
+                "58cf8f9c35b355199727627d07ae34a4e2846d67".into(),
+            ),
             ("llvm", "23.1.1".into()),
             ("cargo", "cargo 1.99.1".into()),
-            ("cc_version", "x86_64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0".into()),
+            (
+                "cc_version",
+                "x86_64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0".into(),
+            ),
             ("lld", "LLD 23.1.1".into()),
             ("size", "1952592".into()),
             ("budget", "2097152".into()),
@@ -842,7 +922,10 @@ mod tests {
              --target x86_64-unknown-linux-musl"
         );
         assert_eq!(artefact_name(&spec), "hermes-gateway-989958be");
-        let zig = Spec { cc: "zig".into(), ..spec };
+        let zig = Spec {
+            cc: "zig".into(),
+            ..spec
+        };
         assert_eq!(artefact_name(&zig), "hermes-gateway-989958be-zig");
     }
 
@@ -870,7 +953,8 @@ mod committed {
     //! match the staged drop-in (no build; the GALION_REAL test rebuilds).
     use super::*;
 
-    const GCC: &str = include_str!("../../../config/release/recipes/hermes-gateway-989958be.recipe");
+    const GCC: &str =
+        include_str!("../../../config/release/recipes/hermes-gateway-989958be.recipe");
     const ZIG: &str =
         include_str!("../../../config/release/recipes/hermes-gateway-989958be-zig.recipe");
     const DROPIN: &str =
@@ -893,13 +977,19 @@ mod committed {
         let r = Recipe::parse(GCC).unwrap();
         argv_ok(&r);
         assert_eq!(r.get("cc").unwrap(), "gcc");
-        assert_eq!(r.get("commit").unwrap(), "989958bed31f18f92dafc99059cd0eb384898c5e");
+        assert_eq!(
+            r.get("commit").unwrap(),
+            "989958bed31f18f92dafc99059cd0eb384898c5e"
+        );
         let staged = DROPIN
             .lines()
             .find_map(|l| l.strip_prefix("# sha256 "))
             .expect("drop-in # sha256 line");
         assert_eq!(r.get("sha256").unwrap(), staged.trim());
-        assert!(DROPIN.contains(&format!("/opt/galion/rust/bin/{}", r.get("artefact").unwrap())));
+        assert!(DROPIN.contains(&format!(
+            "/opt/galion/rust/bin/{}",
+            r.get("artefact").unwrap()
+        )));
     }
 
     #[test]
@@ -907,7 +997,14 @@ mod committed {
         let (g, z) = (Recipe::parse(GCC).unwrap(), Recipe::parse(ZIG).unwrap());
         argv_ok(&z);
         assert_eq!(z.get("cc").unwrap(), "zig");
-        for k in ["commit", "cargo_argv", "source_date_epoch", "rustc", "rustc_commit", "lld"] {
+        for k in [
+            "commit",
+            "cargo_argv",
+            "source_date_epoch",
+            "rustc",
+            "rustc_commit",
+            "lld",
+        ] {
             assert_eq!(g.get(k).unwrap(), z.get(k).unwrap(), "{k}");
         }
         assert_ne!(g.get("sha256").unwrap(), z.get("sha256").unwrap());

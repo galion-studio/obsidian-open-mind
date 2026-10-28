@@ -379,10 +379,7 @@ fn real_candidate_parity() {
             "sandbox_vps_only: refusing the sandboxed preflight on the box"
         );
         let mut results = vec![];
-        for (who, exe, port) in [
-            ("live", &live, port(2)),
-            ("candidate", &cand, port(3)),
-        ] {
+        for (who, exe, port) in [("live", &live, port(2)), ("candidate", &cand, port(3))] {
             let home = fresh(&root, &format!("{who}-coding"));
             let wt = fresh(&root, &format!("{who}-wt"));
             fs::write(wt.join("README.md"), "parity 416\n").unwrap();

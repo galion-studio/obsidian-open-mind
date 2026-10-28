@@ -23,7 +23,7 @@ serde = { version = "1", features = ["derive", "alloc"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10"
-toml = "0.8"
+toml = "1.1"
 # Release reproducibility (slot 325, D-312-4, 2026-10-27): Cargo unifies features only over
 # the packages selected for one build, so `cargo build -p X` and the 12-binary release set
 # compiled shared crates with different features and gave different bytes. The features of

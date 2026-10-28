@@ -324,3 +324,89 @@ fn low_disk_lock_missing_and_corrupt_db() {
         .any(|e| e.file_name().to_string_lossy().starts_with(".work-")));
     let _ = fs::remove_dir_all(&t);
 }
+
+/// Wave-4 slot 406 (legacy-vectors-archive-plan, D-388-2): after the runbook
+/// archives and removes the legacy root `/var/lib/memory-tencentdb/vectors.db`
+/// (+ `-wal`/`-shm`), the periodic backup must keep working: exit 0, the
+/// live instance DB still snapshotted, no `memory-root-vectors.db`, MAP and
+/// SHA256SUMS consistent, no stray root DB file in files.tar. Rollback (file
+/// put back) makes the next run include it again.
+#[test]
+fn legacy_root_memory_db_archived_then_restored() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let t = tmp("legacyroot");
+    let root = t.join("root");
+    let dest = t.join("dest");
+    build_tree(&root);
+    let legacy = root.join("var/lib/memory-tencentdb/vectors.db");
+    let away = t.join("archived");
+    fs::create_dir_all(&away).unwrap();
+    for x in ["", "-wal", "-shm"] {
+        let p = std::path::PathBuf::from(format!("{}{x}", legacy.display()));
+        if p.exists() {
+            fs::rename(&p, away.join(format!("vectors.db{x}"))).unwrap();
+        }
+    }
+    assert_eq!(backup::run(&opts(&root, &dest)), 0, "absent root DB: ok");
+    let a = backup::archives(&dest)[0].clone();
+    let top = a
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .trim_end_matches(".tar.gz")
+        .to_string();
+    let list = tar_list(&["-tzf"], &a);
+    assert!(
+        list.contains(&format!("{top}/db/memory-vectors.db")),
+        "{list}"
+    );
+    assert!(!list.contains("memory-root-vectors.db"), "{list}");
+    let x = t.join("x");
+    fs::create_dir_all(&x).unwrap();
+    assert!(Command::new("tar")
+        .arg("-xzf")
+        .arg(&a)
+        .arg("-C")
+        .arg(&x)
+        .status()
+        .unwrap()
+        .success());
+    let s = x.join(&top);
+    let map = fs::read_to_string(s.join("db/MAP")).unwrap();
+    assert_eq!(
+        map,
+        "/var/lib/memory-tencentdb/instances/galion/vectors.db memory-vectors.db\n\
+         /var/lib/hermes-rs/rs-state.db hermes-rs-state.db\n\
+         /opt/galion/hermes/state.db hermes-legacy-state.db\n"
+    );
+    assert!(Command::new("sha256sum")
+        .args(["-c", "--quiet", "SHA256SUMS"])
+        .current_dir(&s)
+        .status()
+        .unwrap()
+        .success());
+    let names = tar_list(&["-tf"], &s.join("files/files.tar"));
+    assert!(names.contains("var/lib/memory-tencentdb/pyramid/l2/a.md"));
+    assert!(!names.contains("memory-tencentdb/vectors.db"), "{names}");
+    let c = rusqlite::Connection::open(s.join("db/memory-vectors.db")).unwrap();
+    let n: i64 = c
+        .query_row("SELECT count(*) FROM t", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(n, 300, "live instance snapshot unchanged");
+    drop(c);
+
+    // Rollback: put the archived files back; next run has it again.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    for x in ["", "-wal", "-shm"] {
+        let p = away.join(format!("vectors.db{x}"));
+        if p.exists() {
+            fs::rename(&p, format!("{}{x}", legacy.display())).unwrap();
+        }
+    }
+    assert_eq!(backup::run(&opts(&root, &dest)), 0);
+    let newest = backup::newest_first(backup::archives(&dest));
+    assert_eq!(newest.len(), 2);
+    let list = tar_list(&["-tzf"], &newest[0]);
+    assert!(list.contains("/db/memory-root-vectors.db"), "{list}");
+    let _ = fs::remove_dir_all(&t);
+}

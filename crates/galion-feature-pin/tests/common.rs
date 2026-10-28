@@ -7,10 +7,11 @@
 
 use std::path::PathBuf;
 
-/// 2 MiB: the default release size cap of `scripts/size-budget.sh` (`LIMIT`).
+/// 2 MiB: the release size cap of every binary (`default` row of
+/// config/release/size-budget.tsv, read by `scripts/size-budget.sh`). Slot 329
+/// (a0d099c2) dropped the 2.5 MiB hermes-gateway exception; slot 373 aligned
+/// this list with it.
 pub const SIZE_LIMIT: u64 = 2 * 1024 * 1024;
-/// 2.5 MiB: the hermes-gateway cap of `scripts/size-budget.sh` (`HERMES_GATEWAY_LIMIT`).
-pub const HERMES_GATEWAY_LIMIT: u64 = 5 * 1024 * 1024 / 2;
 
 /// One release binary: its package, binary name, the package's own features
 /// that the release build turns on, and its size cap in bytes.
@@ -39,10 +40,7 @@ const fn rb(pkg: &'static str, bin: &'static str) -> ReleaseBin {
 /// console-static, live `galion-console-serve-*`).
 pub const RELEASE_BINS: [ReleaseBin; 14] = [
     rb("openmind-nerve", "openmind-nerve"),
-    ReleaseBin {
-        budget: HERMES_GATEWAY_LIMIT,
-        ..rb("hermes-gateway", "hermes-gateway")
-    },
+    rb("hermes-gateway", "hermes-gateway"),
     rb("openmind-memory", "openmind-memory"),
     rb("openmind-queue", "openmind-queue"),
     rb("galion-one", "galion-one"),

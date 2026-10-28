@@ -227,30 +227,52 @@ fn release_bins_are_real_binaries_and_features() {
     assert_eq!(names.len(), RELEASE_BINS.len(), "duplicate binary names");
 }
 
-/// The per-bin caps in RELEASE_BINS are the caps of scripts/size-budget.sh:
-/// 2 MiB, and 2.5 MiB for hermes-gateway only.
+/// The per-bin caps in RELEASE_BINS are the caps scripts/size-budget.sh
+/// enforces: the rows of config/release/size-budget.tsv (`<binary> <bytes>`,
+/// plus a `default` row). Since slot 329 (a0d099c2) / slot 353 (16bfc28d)
+/// that is 2 MiB for every binary, hermes-gateway included (slot 373 land).
 #[test]
 fn release_budgets_match_size_budget_script() {
     let script = std::fs::read_to_string(workspace_root().join("scripts/size-budget.sh"))
         .expect("read scripts/size-budget.sh");
     assert!(
-        script.contains("LIMIT=$((2 * 1024 * 1024))"),
-        "size-budget.sh LIMIT changed"
+        script.contains("config/release/size-budget.tsv"),
+        "size-budget.sh no longer reads config/release/size-budget.tsv"
     );
     assert!(
-        script.contains("HERMES_GATEWAY_LIMIT=$((5 * 1024 * 1024 / 2))"),
-        "size-budget.sh HERMES_GATEWAY_LIMIT changed"
+        !script.contains("HERMES_GATEWAY_LIMIT"),
+        "size-budget.sh has a hermes-gateway exception again"
     );
-    assert_eq!(common::SIZE_LIMIT, 2 * 1024 * 1024);
-    assert_eq!(common::HERMES_GATEWAY_LIMIT, 2_621_440);
-    for r in RELEASE_BINS {
-        let want = if r.bin == "hermes-gateway" {
-            common::HERMES_GATEWAY_LIMIT
-        } else {
-            common::SIZE_LIMIT
+    let table = std::fs::read_to_string(workspace_root().join("config/release/size-budget.tsv"))
+        .expect("read config/release/size-budget.tsv");
+    let mut rows = std::collections::BTreeMap::new();
+    for line in table.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut it = line.split_whitespace();
+        let (Some(name), Some(bytes)) = (it.next(), it.next()) else {
+            panic!("bad budget row: {line}");
         };
-        assert_eq!(r.budget, want, "{} budget", r.bin);
+        let bytes: u64 = bytes.parse().expect("budget bytes");
+        assert!(
+            rows.insert(name.to_string(), bytes).is_none(),
+            "duplicate row {name}"
+        );
     }
+    let default = *rows.get("default").expect("default row");
+    assert_eq!(default, common::SIZE_LIMIT, "default budget");
+    assert_eq!(common::SIZE_LIMIT, 2 * 1024 * 1024);
+    for r in RELEASE_BINS {
+        let want = rows.get(r.bin).copied().unwrap_or(default);
+        assert_eq!(r.budget, want, "{} budget (size-budget.tsv)", r.bin);
+    }
+    let gw = RELEASE_BINS
+        .iter()
+        .find(|r| r.bin == "hermes-gateway")
+        .expect("hermes-gateway in RELEASE_BINS");
+    assert_eq!(gw.budget, 2 * 1024 * 1024, "hermes-gateway is 2 MiB now");
     for new in ["gaia-cortex", "galion-console-serve"] {
         assert!(
             RELEASE_BINS.iter().any(|r| r.bin == new),

@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# ss -ltnp on the VPS, 2026-10-28 10:10 +01:00 (read-only capture; process names and pids only)
+State  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess                                     
+LISTEN 0      4096      127.0.0.54:53         0.0.0.0:*    users:(("systemd-resolve",pid=267,fd=17))  
+LISTEN 0      4096       127.0.0.1:20241      0.0.0.0:*    users:(("cloudflared",pid=272,fd=4))       
+LISTEN 0      128        127.0.0.1:19120      0.0.0.0:*    users:(("openmind-queue",pid=294,fd=6))    
+LISTEN 0      128        127.0.0.1:18080      0.0.0.0:*    users:(("galion-console-",pid=240579,fd=3))
+LISTEN 0      4096   127.0.0.53%lo:53         0.0.0.0:*    users:(("systemd-resolve",pid=267,fd=15))  
+LISTEN 0      100        127.0.0.1:25         0.0.0.0:*    users:(("master",pid=609,fd=13))           
+LISTEN 0      128        127.0.0.1:8080       0.0.0.0:*    users:(("galion-console-",pid=240630,fd=3))
+LISTEN 0      128        127.0.0.1:8091       0.0.0.0:*    users:(("galion-one",pid=304,fd=3))        
+LISTEN 0      128        127.0.0.1:8002       0.0.0.0:*    users:(("galion-one",pid=304,fd=5))        
+LISTEN 0      128        127.0.0.1:8674       0.0.0.0:*    users:(("gaia-cortex-735",pid=186171,fd=3))
+LISTEN 0      128        127.0.0.1:8646       0.0.0.0:*    users:(("galion-desk",pid=264677,fd=3))    
+LISTEN 0      128        127.0.0.1:8642       0.0.0.0:*    users:(("hermes-gateway-",pid=255539,fd=5))
+LISTEN 0      128        127.0.0.1:8650       0.0.0.0:*    users:(("tuner",pid=313,fd=3))             
+LISTEN 0      128        127.0.0.1:8660       0.0.0.0:*    users:(("galion-health",pid=284,fd=3))     
+LISTEN 0      128        127.0.0.1:8671       0.0.0.0:*    users:(("tanga-serve",pid=311,fd=3))       
+LISTEN 0      128        127.0.0.1:8670       0.0.0.0:*    users:(("openmind-nerve-",pid=184014,fd=4))
+LISTEN 0      128        127.0.0.1:8420       0.0.0.0:*    users:(("openmind-memory",pid=291,fd=6))   
+LISTEN 0      100            [::1]:25            [::]:*    users:(("master",pid=609,fd=14))           
+LISTEN 0      4096               *:22               *:*    users:(("sshd",pid=335,fd=3),("systemd",pid=1,fd=127))

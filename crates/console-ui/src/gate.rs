@@ -105,6 +105,22 @@ pub fn cookie(cookie_header: Option<&str>, name: &str) -> Option<String> {
     })
 }
 
+/// `galion_device` values are base64url secrets from POST /api/v1/admin.
+/// Reject anything else before it is echoed into JSON or a Set-Cookie.
+pub fn device_token_ok(raw: &str) -> bool {
+    let b = raw.as_bytes();
+    (16..=128).contains(&b.len())
+        && b.iter()
+            .all(|c| c.is_ascii_alphanumeric() || *c == b'-' || *c == b'_')
+}
+
+/// True when the request carries a non-empty `galion_admin` cookie pair.
+pub fn has_admin_cookie(cookie_header: Option<&str>) -> bool {
+    admin_cookie(cookie_header)
+        .map(|c| c.len() > "galion_admin=".len())
+        .unwrap_or(false)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +177,18 @@ mod tests {
             decide("console.galion.app", "/agents", true, &[]),
             Decision::AskUpstream
         );
+    }
+
+    #[test]
+    fn device_token_shape() {
+        assert!(device_token_ok("abcdefghijklmnopqrstuv"));
+        assert!(device_token_ok(&"a".repeat(16)));
+        assert!(!device_token_ok("short"));
+        assert!(!device_token_ok("bad token with spaces!!!!"));
+        assert!(!device_token_ok(&"a".repeat(129)));
+        assert!(has_admin_cookie(Some("galion_admin=tok")));
+        assert!(!has_admin_cookie(Some("galion_admin=")));
+        assert!(!has_admin_cookie(None));
     }
 
     #[test]

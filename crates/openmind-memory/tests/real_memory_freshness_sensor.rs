@@ -259,8 +259,14 @@ fn freshness_cli(dir: &Path) -> (i32, String) {
     (out.status.code().unwrap_or(-1), t)
 }
 
-/// A healthy dummy component so the nerve has something real to probe.
+/// A healthy dummy component so the nerve has something real to probe
+/// (started once per test process; both tests share it).
 fn dummy(port: u16) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| dummy_serve(port));
+}
+
+fn dummy_serve(port: u16) {
     let l = TcpListener::bind(("127.0.0.1", port)).expect("dummy port free");
     std::thread::spawn(move || {
         for mut c in l.incoming().flatten() {
@@ -558,5 +564,58 @@ fn real_memory_freshness_sensor_stale_alert_then_fresh() {
     for q in p..p + 5 {
         port_free(q);
     }
+    let _ = std::fs::remove_dir_all(&scratch);
+}
+
+/// Optional: `GALION_MEMORY_SNAPSHOT_DIR=<dir>` = a throwaway COPY of the
+/// live VPS data dir (never the live dir itself). The sensor must call it
+/// stale with the live newest write (2026-10-19 14:57:55 +02:00, slot 388)
+/// and say nothing but counts and stamps.
+#[test]
+fn real_memory_freshness_sensor_live_copy() {
+    if !real() {
+        return;
+    }
+    let Some(dir) = std::env::var_os("GALION_MEMORY_SNAPSHOT_DIR").map(PathBuf::from) else {
+        eprintln!("skip: set GALION_MEMORY_SNAPSHOT_DIR to a copy of the live data dir");
+        return;
+    };
+    assert!(
+        !dir.starts_with("/var/lib/memory-tencentdb"),
+        "use a copy, never the live data dir"
+    );
+    let scratch = std::env::var_os("REAL_MEMFRESH_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_TARGET_TMPDIR")))
+        .join("real-memfresh-405-live");
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch).unwrap();
+    let p = base() + 5;
+    dummy(base() + 9);
+    let (code, text) = freshness_cli(&dir);
+    assert_eq!(code, 3, "{text}");
+    let n = nerve(p, &scratch, &memfresh_env(&dir, &mem_bin()));
+    let st = wait_for(p, "memory-stale on the live copy", 60, |st| {
+        bleeding(st).iter().any(|(id, _)| id == "memory-stale")
+            && open_causes(st).iter().any(|c| c == "memory-freshness")
+    });
+    let f = st["cortex"]["bleeding"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["id"] == "memory-stale")
+        .unwrap()
+        .clone();
+    eprintln!("  live-copy finding: {f}");
+    let ev = f["evidence"].to_string();
+    assert!(
+        ev.contains("newest_write=2026-10-19T14:57:55+02:00"),
+        "{ev}"
+    );
+    let body = st.to_string();
+    assert!(!body.contains(&dir.display().to_string()), "path leaked");
+    assert!(!body.contains("vectors.db"), "file name leaked");
+    drop(n);
+    port_free(p);
     let _ = std::fs::remove_dir_all(&scratch);
 }

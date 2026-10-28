@@ -18,7 +18,8 @@ path = "src/main.rs"
 # Optional sensor pulls (slot 385, F-376-1, 2026-10-28 CET +01:00). Each of these
 # S2 sensors is already off at run time unless its NERVE_* env is set; the
 # feature lets a lean build drop its code and its dependency too. All on by
-# default, so the default build is unchanged (same bytes). A build without a
+# default, so the default build keeps every sensor (same size and strings; not
+# bit-identical: the feature set is part of the crate hash). A build without a
 # feature warns on stderr when the matching env is set (the sensor is not
 # silently lost). Sizes: docs/real-tests/nerve-dep-growth.md.
 [features]

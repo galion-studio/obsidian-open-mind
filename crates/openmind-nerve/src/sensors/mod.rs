@@ -262,7 +262,7 @@ pub(crate) fn compiled_out(env: Env, var: &str, feature: &str) -> bool {
     let set = env(var).is_some_and(|v| !v.trim().is_empty());
     if set {
         eprintln!(
-            "nerve: {var} is set but this build has no `{feature}` feature; that sensor stays off"
+            "<4>openmind-nerve: {var} is set but this build has no `{feature}` feature; that sensor stays off"
         );
     }
     set

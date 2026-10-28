@@ -42,6 +42,9 @@ P5 (sandboxed preflight) is VPS-only and not re-run here (slot 416 passed it for
 | R8 `cargo_argv` + `--features coding` | `check` exit 1 "cargo_argv was edited" |
 | R7 recipe commit -> 83e573e2 | rebuilt 1,948,240 B sha 8f8ac925… ≠ recorded → `verify` exit 1 "recipe does NOT reproduce the artefact" (1,948,240 B = slot 373's number for 83e573e2) |
 
+Re-run on the final code (HEAD 1c73f64f, after fmt/clippy), 23:42:28–23:43:59: R1–R8 pass in 91 s, same shas
+(0f7bb471 for HEAD, 8f8ac925 for the R7 83e573e2 rebuild).
+
 First run 23:17:46 failed at R2: test key 15 chars, gateway refuses < 16 (test bug, fixed).
 Unit tests: `cargo test -p xtask` 11/0 (recipe roundtrip, bad recipes, mismatch, drift, argv pin, budget,
 triples, committed gcc recipe == staged drop-in sha + name, zig recipe same source other bytes).
@@ -51,3 +54,13 @@ triples, committed gcc recipe == staged drop-in sha + name, zig recipe same sour
 hermes-rs active, MainPID 255539, NRestarts 0, ExecStart `/opt/galion/rust/bin/hermes-gateway-b7fbbc78`
 (sha256 c5432a88…, 2,732,248 B), drop-ins 50/60/70/90 only (no 95), no 989958be file on the VPS;
 `:8642/health` 200, nerve `:8670/state` 200 (cycle 25), cortex `:8674/health` 200. Nothing written.
+
+## Gates (box, 23:28–23:43)
+
+`cargo fmt --all --check` ok; `cargo clippy --workspace --exclude openmind-sandbox --exclude cgroup-detect
+--all-targets -- -D warnings` rc 0; `cargo test --workspace --no-fail-fast --exclude openmind-sandbox
+--exclude cgroup-detect --exclude hermes-tools` 426 suites 2233 passed / 0 failed / 18 ignored (a first run
+without `--no-fail-fast` stopped on `galion-deploy systemd_backend`: fixed port 19394 already in use by
+another agent's run, not this branch; passed in the re-run); `cargo check -p xtask` for x86_64/aarch64 musl,
+armv7 musleabihf, aarch64-linux-android ok; `scripts/no-python.sh` ok; `scripts/spdx-scan.sh` 820 scanned 0
+missing; `repo-check --root .` 0 errors / 86 warnings (none in new files) PASS.

@@ -307,19 +307,19 @@ mod tests {
 
     #[test]
     fn rfc3339_parse_matches_known_instants() {
-        // 2026-10-13T09:04:38.716Z (live VPS stamp, slot 367) = 1791882278716.
+        // Live VPS stamp from slot 367 (legacy root DB) = 1791882278716 ms. 2026-10-13 11:04:38.716 +02:00
         assert_eq!(
-            rfc3339_ms("2026-10-13T09:04:38.716Z"),
+            rfc3339_ms("2026-10-13T09:04:38.716Z"), // repo-check: allow (stored UTC stamp under test)
             Some(1_791_882_278_716)
         );
         assert_eq!(
             rfc3339_ms("2026-10-13T11:04:38+02:00"),
             Some(1_791_882_278_000)
         );
-        assert_eq!(rfc3339_ms("1970-01-01T00:00:00Z"), Some(0));
+        assert_eq!(rfc3339_ms("1970-01-01T00:00:00Z"), Some(0)); // repo-check: allow (stored UTC stamp under test)
         assert_eq!(
             rfc3339_ms("2026-10-25T02:30:00+01:00"),
-            rfc3339_ms("2026-10-25T01:30:00Z")
+            rfc3339_ms("2026-10-25T01:30:00Z") // repo-check: allow (stored UTC stamp under test)
         );
         assert_eq!(rfc3339_ms("garbage"), None);
         assert_eq!(rfc3339_ms("2026-10-13 09:04:38Z"), None);
@@ -349,7 +349,7 @@ mod tests {
             session_id: "s".into(),
             role: "user".into(),
             message_text: "legacy".into(),
-            recorded_at: "2026-10-28T12:00:00.000Z".into(),
+            recorded_at: "2026-10-28T12:00:00.000Z".into(), // repo-check: allow (stored UTC stamp under test)
             timestamp: 0,
         })
         .unwrap();
@@ -363,14 +363,14 @@ mod tests {
             session_id: "s".into(),
             role: "user".into(),
             message_text: "hello".into(),
-            recorded_at: "2026-10-19T12:57:55.447Z".into(),
+            recorded_at: "2026-10-19T12:57:55.447Z".into(), // repo-check: allow (stored UTC stamp under test)
             timestamp: 0,
         })
         .unwrap();
         drop(s);
-        // Pin file mtimes out of the way by judging against the row only:
-        // now = row + 1 h, mtimes are "now" on the box so newest is the file.
-        let row = rfc3339_ms("2026-10-19T12:57:55.447Z").unwrap();
+        // Only the rendered l0 line is checked here; freshness itself is
+        // judged on mtimes too (covered in max_age_decides_state).
+        let row = rfc3339_ms("2026-10-19T12:57:55.447Z").unwrap(); // repo-check: allow (stored UTC stamp under test)
         let r = report(&d, "galion", 24, row + 3_600_000);
         assert!(r
             .lines

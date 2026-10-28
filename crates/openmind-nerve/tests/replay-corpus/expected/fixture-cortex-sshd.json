@@ -1,46 +1,71 @@
 {
-  "capture": [
-    {
-      "bytes": 1273,
-      "file": "README.md",
-      "fnv64": "98ac5b75f8122cbd"
-    },
-    {
-      "bytes": 202644,
-      "file": "journal.jsonl",
-      "fnv64": "30eaaf4d9ed48594"
-    },
-    {
-      "bytes": 69,
-      "file": "state-0.json",
-      "fnv64": "a94ff404590ae9fa"
-    }
-  ],
+  "name": "fixture-cortex-sshd",
+  "source": "fixture:cortex-sshd",
   "env": {
     "NERVE_SSHD": "1"
   },
-  "name": "fixture-cortex-sshd",
+  "capture": [
+    {
+      "file": "README.md",
+      "bytes": 1273,
+      "fnv64": "98ac5b75f8122cbd"
+    },
+    {
+      "file": "journal.jsonl",
+      "bytes": 202644,
+      "fnv64": "30eaaf4d9ed48594"
+    },
+    {
+      "file": "state-0.json",
+      "bytes": 69,
+      "fnv64": "a94ff404590ae9fa"
+    }
+  ],
   "result": {
     "capture_cycles": 1,
+    "hold_cycles": 20,
     "final": {
+      "score": 67,
+      "grade": "D",
+      "pass": false,
+      "system": "failing",
+      "incidents": [
+        {
+          "cause": "ssh-flood",
+          "severity": "critical",
+          "members": [
+            "ddos:sshd-credential-flood critical"
+          ]
+        }
+      ],
+      "findings": [
+        "incidents:inc-# critical",
+        "vulnerabilities:sshd-accepted-publickey-other warn",
+        "vulnerabilities:sshd-invalid-user warn"
+      ],
       "checks": [
-        "error coverage cloudflared",
-        "error coverage console",
-        "error coverage gaia",
-        "error coverage galion-desk",
-        "error coverage galion-health",
-        "error coverage galion-nerve",
-        "error coverage galion-one",
-        "error coverage galion-one-mouth",
-        "error coverage hermes-rs",
-        "error coverage link-watch-rs",
-        "error coverage lxc-host",
-        "error coverage openmind-memory",
-        "error coverage tuner",
-        "error coverage tuner-quick",
-        "error coverage voice-worker",
         "error incident ssh-flood",
         "info alerts-channel galion-nerve",
+        "info coverage cloudflared",
+        "info coverage console",
+        "info coverage gaia",
+        "info coverage galion-backup",
+        "info coverage galion-desk",
+        "info coverage galion-health",
+        "info coverage galion-nerve",
+        "info coverage galion-nerve-shadow",
+        "info coverage galion-one",
+        "info coverage galion-one-mouth",
+        "info coverage hades-gate",
+        "info coverage hermes-rs",
+        "info coverage link-watch-rs",
+        "info coverage lxc-host",
+        "info coverage openmind-memory",
+        "info coverage openmind-queue",
+        "info coverage tanga-proto",
+        "info coverage tuner",
+        "info coverage tuner-quick",
+        "info coverage voice-worker",
         "info mode galion-nerve",
         "info push galion-nerve",
         "warn vulnerability host"
@@ -49,56 +74,42 @@
         "25 critical incident: ssh flood: ssh credential flood: # failed password(s) from # source(s) in # s (rule failed_password)",
         "4 vulnerability (warn): # non-root ssh key login(s) in # s",
         "4 vulnerability (warn): # ssh invalid-user attempts in # s (account enumeration)"
-      ],
-      "findings": [
-        "vulnerabilities:sshd-accepted-publickey-other warn",
-        "vulnerabilities:sshd-invalid-user warn"
-      ],
-      "grade": "D",
-      "incidents": [
-        {
-          "cause": "ssh-flood",
-          "members": [
-            "ddos:sshd-credential-flood critical"
-          ],
-          "severity": "critical"
-        }
-      ],
-      "pass": false,
-      "score": 67,
-      "system": "failing"
+      ]
     },
-    "flaps": [],
     "held": {
+      "score": 100,
+      "grade": "A",
+      "pass": true,
+      "system": "healthy",
+      "incidents": [],
+      "findings": [],
       "checks": [
-        "error coverage cloudflared",
-        "error coverage console",
-        "error coverage gaia",
-        "error coverage galion-desk",
-        "error coverage galion-health",
-        "error coverage galion-nerve",
-        "error coverage galion-one",
-        "error coverage galion-one-mouth",
-        "error coverage hermes-rs",
-        "error coverage link-watch-rs",
-        "error coverage lxc-host",
-        "error coverage openmind-memory",
-        "error coverage tuner",
-        "error coverage tuner-quick",
-        "error coverage voice-worker",
         "info alerts-channel galion-nerve",
+        "info coverage cloudflared",
+        "info coverage console",
+        "info coverage gaia",
+        "info coverage galion-backup",
+        "info coverage galion-desk",
+        "info coverage galion-health",
+        "info coverage galion-nerve",
+        "info coverage galion-nerve-shadow",
+        "info coverage galion-one",
+        "info coverage galion-one-mouth",
+        "info coverage hades-gate",
+        "info coverage hermes-rs",
+        "info coverage link-watch-rs",
+        "info coverage lxc-host",
+        "info coverage openmind-memory",
+        "info coverage openmind-queue",
+        "info coverage tanga-proto",
+        "info coverage tuner",
+        "info coverage tuner-quick",
+        "info coverage voice-worker",
         "info mode galion-nerve",
         "info push galion-nerve"
       ],
-      "deductions": [],
-      "findings": [],
-      "grade": "A",
-      "incidents": [],
-      "pass": false,
-      "score": 100,
-      "system": "healthy"
+      "deductions": []
     },
-    "hold_cycles": 20,
     "timeline": [
       "67 D",
       "67 D",
@@ -121,7 +132,7 @@
       "100 A",
       "100 A",
       "100 A"
-    ]
-  },
-  "source": "fixture:cortex-sshd"
+    ],
+    "flaps": []
+  }
 }

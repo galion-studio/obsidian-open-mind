@@ -106,7 +106,7 @@ fn says(o: &openmind_sandbox::Outcome, attack: &str) -> Option<bool> {
 }
 
 #[test]
-#[ignore = "real-life adversarial test; set GALION_REAL=1"]
+#[ignore = "real-life adversarial test, VPS only; set GALION_REAL=1 GALION_REAL_SANDBOX=1"]
 fn real_escape() {
     if !gate() {
         return;

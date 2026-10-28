@@ -74,7 +74,7 @@ fn size(p: PathBuf) -> u64 {
 }
 
 #[test]
-#[ignore = "VPS only; set GALION_REAL=1"]
+#[ignore = "VPS only; set GALION_REAL=1 GALION_REAL_SANDBOX=1"]
 fn q1_256_mib_cap_write_320_enospc_at_limit() {
     if !gate("q1") {
         return;
@@ -109,7 +109,7 @@ fn q1_256_mib_cap_write_320_enospc_at_limit() {
 }
 
 #[test]
-#[ignore = "VPS only; set GALION_REAL=1"]
+#[ignore = "VPS only; set GALION_REAL=1 GALION_REAL_SANDBOX=1"]
 fn q2_shipped_preset_caps_many_files_at_64_mib() {
     if !gate("q2") {
         return;
@@ -134,7 +134,7 @@ fn q2_shipped_preset_caps_many_files_at_64_mib() {
 }
 
 #[test]
-#[ignore = "VPS only; set GALION_REAL=1"]
+#[ignore = "VPS only; set GALION_REAL=1 GALION_REAL_SANDBOX=1"]
 fn q3_inputs_copied_in_changes_copied_back_deletions_not() {
     if !gate("q3") {
         return;
@@ -174,7 +174,7 @@ fn q3_inputs_copied_in_changes_copied_back_deletions_not() {
 }
 
 #[test]
-#[ignore = "VPS only; set GALION_REAL=1"]
+#[ignore = "VPS only; set GALION_REAL=1 GALION_REAL_SANDBOX=1"]
 fn q4_workdir_bigger_than_cap_fails_closed() {
     if !gate("q4") {
         return;
@@ -197,7 +197,7 @@ fn q4_workdir_bigger_than_cap_fails_closed() {
 }
 
 #[test]
-#[ignore = "VPS only; set GALION_REAL=1"]
+#[ignore = "VPS only; set GALION_REAL=1 GALION_REAL_SANDBOX=1"]
 fn q5_timeout_copies_nothing_back() {
     if !gate("q5") {
         return;
@@ -215,7 +215,7 @@ fn q5_timeout_copies_nothing_back() {
 }
 
 #[test]
-#[ignore = "VPS only; set GALION_REAL=1"]
+#[ignore = "VPS only; set GALION_REAL=1 GALION_REAL_SANDBOX=1"]
 fn q6_sparse_file_never_becomes_host_disk() {
     if !gate("q6") {
         return;
@@ -240,7 +240,7 @@ fn q6_sparse_file_never_becomes_host_disk() {
 }
 
 #[test]
-#[ignore = "VPS only; set GALION_REAL=1"]
+#[ignore = "VPS only; set GALION_REAL=1 GALION_REAL_SANDBOX=1"]
 fn q7_no_host_fd_no_umount_cap_holds() {
     if !gate("q7") {
         return;
@@ -277,7 +277,7 @@ fn q7_no_host_fd_no_umount_cap_holds() {
 }
 
 #[test]
-#[ignore = "VPS only; set GALION_REAL=1"]
+#[ignore = "VPS only; set GALION_REAL=1 GALION_REAL_SANDBOX=1"]
 fn q8_inode_cap_and_off_switch() {
     if !gate("q8") {
         return;
@@ -338,7 +338,7 @@ fn cgroup_parent() -> Option<PathBuf> {
 }
 
 #[test]
-#[ignore = "VPS only; set GALION_REAL=1"]
+#[ignore = "VPS only; set GALION_REAL=1 GALION_REAL_SANDBOX=1"]
 fn q9_cap_bigger_than_memory_cgroup() {
     if !gate("q9") {
         return;

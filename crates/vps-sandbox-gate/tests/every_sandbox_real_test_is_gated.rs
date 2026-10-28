@@ -57,7 +57,9 @@ fn sandbox_real_tests_use_the_gate() {
     let mut checked = 0;
     let mut bad = Vec::new();
     for f in &files {
-        if f.components().any(|c| c.as_os_str() == "vps-sandbox-gate") {
+        if f.strip_prefix(&root)
+            .is_ok_and(|r| r.starts_with("crates/vps-sandbox-gate"))
+        {
             continue;
         }
         let src = std::fs::read_to_string(f).unwrap_or_default();

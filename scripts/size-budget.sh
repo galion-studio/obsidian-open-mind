@@ -4,17 +4,15 @@
 # DESK-ID: openmind.B08
 # Release size budget for the OpenMind workspace.
 # Builds with nice -n 19 and -j 2, then fails if any workspace
-# ELF executable is over 2 MiB (hermes-gateway: 2.5 MiB) or not stripped.
+# ELF executable is over 2 MiB or not stripped. No per-binary exceptions.
 # Needs readelf (binutils), not file(1). Bash only.
 set -eu
 
 # 2 MiB. Fail when a binary is strictly larger than this.
 LIMIT=$((2 * 1024 * 1024))
-# hermes-gateway only. x86_64 musl was 2306688 bytes on the 2026-10-21 PR #12
-# ucpu run (actions/runs/39692890293) after enroll and the coding tools, with
-# the serial curve25519 backend already selected. Every other binary stays
-# at 2 MiB (the next largest, openmind-nerve, was 1918568). 2.5 MiB.
-HERMES_GATEWAY_LIMIT=$((5 * 1024 * 1024 / 2))
+# Slot 329 (2026-10-28) removed the hermes-gateway 2.5 MiB exception: x86_64
+# musl is now 2080128 bytes (RELR, C no-unwind tables, trimmed SQLite, sha2
+# force-soft-compact). Every binary, hermes-gateway included, is 2 MiB.
 
 usage() {
   cat << 'HELP'
@@ -29,7 +27,7 @@ Check:
   (or $CARGO_TARGET_DIR/<triple>/release when --target is set).
   If CARGO_TARGET_DIR is unset, <repo>/target is used.
   A bin fails when its size is greater than 2097152 bytes
-  (hermes-gateway: 2621440) or when it still has a .symtab section
+  (every binary, no exceptions) or when it still has a .symtab section
   (not stripped).
   ELF detection and the strip check use readelf (binutils);
   file(1) is not needed.
@@ -126,7 +124,6 @@ printf 'size-budget: DESK-ID openmind.B08\n'
 printf 'size-budget: time %s\n' "$ts"
 printf 'size-budget: dir %s\n' "$bins_dir"
 printf 'size-budget: limit_bytes %s\n' "$LIMIT"
-printf 'size-budget: hermes-gateway limit_bytes %s\n' "$HERMES_GATEWAY_LIMIT"
 printf '%-32s %12s %12s %8s %s\n' "binary" "bytes" "stripped" "over" "status"
 
 command -v readelf >/dev/null 2>&1 || die "readelf not found (install binutils)"
@@ -159,13 +156,6 @@ for path in "$bins_dir"/*; do
     stripped=no
   fi
   cap=$LIMIT
-  # Release artifacts carry a commit tag: hermes-gateway-<7+ hex>[-suffix]
-  # (slot 312: hermes-gateway-38a0770 was checked against 2 MiB, not 2.5 MiB).
-  case "$name" in
-    hermes-gateway | hermes-gateway-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]*)
-      cap=$HERMES_GATEWAY_LIMIT
-      ;;
-  esac
   over=no
   if [ "$size" -gt "$cap" ]; then
     over=yes

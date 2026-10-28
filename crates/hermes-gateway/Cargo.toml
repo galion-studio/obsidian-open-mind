@@ -25,3 +25,8 @@ galion-feature-pin = { path = "../galion-feature-pin" }
 hermes-rs = { path = "../hermes-rs", default-features = false }
 hermes-tools = { path = "../hermes-tools", optional = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# real_size_2mib builds a Python-shaped legacy state.db (FTS5 + trigger).
+# Same rusqlite as hermes-rs (already in Cargo.lock); test-only.
+rusqlite = { version = "0.32", default-features = false, features = ["bundled"] }

@@ -12,12 +12,38 @@
 # extension loading switched on. No workspace crate uses any of them
 # (grep: no fts3/rtree/dbstat/soundex/load_extension/column_metadata in
 # crates/*/src). Turning them off saves ~130 KB of C code per binary that
-# links SQLite and gets hermes-gateway under the 2 MiB budget (docs/ucpu.md).
-# Kept on purpose: FTS5 and JSON (the Python Hermes state.db may hold FTS5
-# tables; the legacy DB is opened read-only, but keep the module anyway).
+# links SQLite (docs/ucpu.md).
 # OMIT_LOAD_EXTENSION also drops the dlopen() path, which a static musl
 # binary cannot use anyway.
-LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_SOUNDEX -USQLITE_ENABLE_COLUMN_METADATA -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION"
+# Kept on purpose: FTS5 (crates/openmind-memory l0_fts/l1_fts; the Python
+# Hermes state.db holds FTS5 tables too) and the date/time functions (the
+# live memory vectors.db schema_migrations table has a strftime() DEFAULT).
+#
+# Slot 329 hermes-gateway-2mib (2026-10-28 CET +01:00) also drops, with no
+# behaviour change for any workspace crate (grep crates/*/src, rusqlite
+# features in use: bundled, backup, modern_sqlite only):
+# - JSON SQL functions (OMIT_JSON): no json_*() / -> / ->> in any crate's SQL,
+#   and none in the schema of any of the 902 SQLite files on the VPS
+#   (read-only grep of the CREATE statements, 2026-10-28 00:4x CET).
+# - APIs rusqlite only calls behind features we do not enable: deprecated
+#   APIs, shared cache, progress handler, decltype, trace/profile,
+#   authorizer, serialize/deserialize, UTF-16 API, sqlite3_complete,
+#   sqlite3_get_table, TCL variables, compile-option diagnostics,
+#   sqlite3_test_control (UNTESTABLE), memory accounting
+#   (DEFAULT_MEMSTATUS=0, no ENABLE_MEMORY_MANAGEMENT).
+# All of these are on SQLite's "safe with the amalgamation" list
+# (https://sqlite.org/compile.html). INCRBLOB stays: FTS5 needs it.
+# Saves ~75 KB per SQLite binary (hermes-gateway x86_64 musl).
+LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLITE_ENABLE_RTREE -USQLITE_ENABLE_DBSTAT_VTAB -USQLITE_ENABLE_STAT4 -USQLITE_SOUNDEX -USQLITE_ENABLE_COLUMN_METADATA -USQLITE_ENABLE_LOAD_EXTENSION -DSQLITE_OMIT_LOAD_EXTENSION -DSQLITE_OMIT_JSON -DSQLITE_OMIT_DEPRECATED -DSQLITE_OMIT_SHARED_CACHE -DSQLITE_OMIT_PROGRESS_CALLBACK -DSQLITE_OMIT_DECLTYPE -DSQLITE_OMIT_TRACE -DSQLITE_OMIT_AUTHORIZATION -DSQLITE_OMIT_DESERIALIZE -DSQLITE_OMIT_UTF16 -DSQLITE_OMIT_COMPLETE -DSQLITE_OMIT_GET_TABLE -DSQLITE_OMIT_TCL_VARIABLE -DSQLITE_OMIT_COMPILEOPTION_DIAGS -DSQLITE_UNTESTABLE -DSQLITE_DEFAULT_MEMSTATUS=0 -USQLITE_ENABLE_MEMORY_MANAGEMENT"
+
+# No unwind tables for C code (bundled SQLite) on the musl release targets.
+# Release builds use panic = "abort", so nothing ever unwinds through C
+# frames; the tables were ~90 KB of .eh_frame in hermes-gateway (slot 329).
+# Size flags only, no CPU or codegen-target flags (UNIVERSAL-CPU.md).
+# cc-rs reads CFLAGS_<target>; an env var of the same name still wins.
+CFLAGS_x86_64_unknown_linux_musl = "-fno-asynchronous-unwind-tables -fno-unwind-tables"
+CFLAGS_aarch64_unknown_linux_musl = "-fno-asynchronous-unwind-tables -fno-unwind-tables"
+CFLAGS_armv7_unknown_linux_musleabihf = "-fno-asynchronous-unwind-tables -fno-unwind-tables"
 
 # curve25519-dalek (via ed25519-dalek in crates/hades-gate) would otherwise
 # compile its AVX2 SIMD backend on x86_64. Project rule: no SIMD. "serial"
@@ -51,3 +77,11 @@ linker = "rust-lld"
 # Every .github/workflows step calls one of its subcommands.
 [alias]
 xtask = "run --locked --quiet -p xtask --"
+
+# x86_64 musl too (slot 329, 2026-10-28 CET +01:00): CI (self-eval.yml) and
+# scripts/ucpu-gate.sh already export this linker; setting it here makes a
+# plain `cargo build --target x86_64-unknown-linux-musl` link the same way.
+# crates/hermes-gateway/build.rs only adds its RELR size flag when the
+# linker is lld, so the 2 MiB budget no longer depends on a shell export.
+[target.x86_64-unknown-linux-musl]
+linker = "rust-lld"

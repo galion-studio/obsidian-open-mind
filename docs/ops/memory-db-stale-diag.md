@@ -113,9 +113,12 @@ state=stale (max_age_h=24)          (exit 3)
   archive and remove (live file change, owner), or keep and rely on
   `freshness` labelling it. galion-backup currently backs it up and
   touches its SHM every run.
+  -> slot 406: read-only check + owner runbook in
+  docs/ops/legacy-vectors-archive.md (D-406-1..4); nothing changed live.
 - **D-388-3 freshness alert:** deploy this build and have nerve/cortex (or
   a timer) run `freshness /var/lib/memory-tencentdb galion 24`, alerting on
   exit 3. Needs a deploy; not done here.
 - **D-388-4 record fix:** slot 367 / the 07:08 flag said "last write Oct 13";
   correct is: legacy DB Oct 13, live DB last write 2026-10-19 14:57:55
   +02:00 (probe), last real capture 2026-10-18 23:57:27 +02:00.
+  -> done in slot 406 (docs/real-tests/memory-search-local-time.md).

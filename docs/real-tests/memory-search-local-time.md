@@ -81,7 +81,8 @@ binary `/opt/galion/rust/bin/openmind-memory-aa77864` on 127.0.0.1:8420;
 `GET /health` 200; `POST /search/conversations` without key -> 401 (key not read,
 so live search text not compared; stored-format check done instead by grepping
 only timestamp patterns from `/var/lib/memory-tencentdb/vectors.db`: 12 stamps,
-all `...sssZ`, newest 2026-10-13 11:19:53 +02:00 (last write Oct 13)). Nerve
+all `...sssZ`, newest 2026-10-13 11:19:53 +02:00 (that is the last write of the
+**legacy root DB**, not of the live store; see correction below)). Nerve
 8670 `/state` 200 cycle 58; cortex live on 8674 `/health` 200. Nothing changed.
 
 ## Open
@@ -89,8 +90,18 @@ all `...sssZ`, newest 2026-10-13 11:19:53 +02:00 (last write Oct 13)). Nerve
 * D-367-1 (above) owner ack: display-only, storage UTC.
 * D-367-2: no TZ knob.
 * Live text changes only after an owner deploy of openmind-memory (not done).
-* The live memory DB has not been written since 2026-10-13 (separate from this
-  fix; may be expected if Hermes uses another memory path).
+* ~~The live memory DB has not been written since 2026-10-13~~ **Corrected
+  2026-10-28 17:30 CET (+01:00), slot 406 (D-388-4), per the slot 388
+  finding:** the grep above read the legacy root `vectors.db` (default-instance
+  path, 4 rows, last row 2026-10-13 11:19:53 +02:00), which the live service
+  does not use. The live store is
+  `/var/lib/memory-tencentdb/instances/galion/vectors.db`: last l0 row
+  2026-10-19 14:57:55 +02:00 (one `grok-bot-read-*` probe), last real capture
+  2026-10-18 23:57:27 +02:00, last L1 record 2026-10-18 21:41:44 +02:00. It
+  IS stale, because its only writer (the Python Hermes `memory_tencentdb`
+  plugin) stopped with `hermes.service` on 2026-10-18 21:42:17 +02:00 (see
+  docs/ops/memory-db-stale-diag.md, D-388-1). All 4 legacy-root rows are also
+  in the live instance DB (docs/ops/legacy-vectors-archive.md).
 
 ## Gates (box, 06:28-06:33 +01:00)
 

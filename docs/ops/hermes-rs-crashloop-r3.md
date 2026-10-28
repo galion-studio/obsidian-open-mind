@@ -66,7 +66,8 @@ Staged config (NOT installed):
 
 ## Runbook for the next coding enable (owner-approved only)
 
-1. `install -d -m 0700 /srv/hermes-coding /srv/hermes-coding/state`; clone the dedicated
+1. (Slot 397: superseded by `docs/ops/hermes-coding-dir-stage.md` runbook 1a-1c, which
+   creates the folders via the staged tmpfiles.d file.) `install -d -m 0700 /srv/hermes-coding /srv/hermes-coding/state`; clone the dedicated
    worktree to `/srv/hermes-coding/worktree` (never `/opt/galion/openmind`).
 2. Check with the exact env, **before** any restart (a fixed binary is needed; the live
    b7fbbc78 cannot see coding errors in `--check-config`):

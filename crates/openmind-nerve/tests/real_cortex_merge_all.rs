@@ -81,6 +81,11 @@ fn state() -> Value {
 }
 
 fn wait(what: &str, ok: impl Fn(&Value) -> bool) -> Value {
+    wait_for(what, 40, ok)
+}
+
+/// [`wait`] with its own limit in seconds.
+fn wait_for(what: &str, secs: u64, ok: impl Fn(&Value) -> bool) -> Value {
     let t = Instant::now();
     loop {
         let st = state();
@@ -88,7 +93,7 @@ fn wait(what: &str, ok: impl Fn(&Value) -> bool) -> Value {
             return st;
         }
         assert!(
-            t.elapsed() < Duration::from_secs(40),
+            t.elapsed() < Duration::from_secs(secs),
             "timeout waiting for {what}: {}",
             st["self_eval"]
         );
@@ -178,6 +183,17 @@ fn real_cortex_merge_all_on_the_box() {
         assert!(names.contains(&n), "{n} registered: {names:?}");
     }
     let base = score(&st);
+    // Slot 422 (F-383-2): host-level incidents the box itself causes (e.g.
+    // `lxc-host` disk failing-soon while the box disk was 95% full on
+    // 2026-10-28) are not this test's business; the score-back check
+    // compares like with like.
+    let others = |s: &Value| -> Vec<(u64, String)> {
+        deductions(s)
+            .into_iter()
+            .filter(|(_, w)| !w.contains(SRC))
+            .collect()
+    };
+    let base_others = others(&st);
     assert!(mine(&st).is_empty());
     eprintln!(
         "1. serve :{nerve} cycle {}: sensors {names:?}; start score {base} {}",
@@ -244,9 +260,31 @@ fn real_cortex_merge_all_on_the_box() {
     let all = deductions(&st);
     let inc: Vec<&(u64, String)> = all
         .iter()
-        .filter(|(_, w)| w.starts_with("error incident: "))
+        .filter(|(_, w)| w.starts_with("error incident: ") && w.contains(SRC))
         .collect();
-    assert_eq!(inc.len(), 1, "{all:?}");
+    // Slot 422 (F-383-2, D-422-1): on the main-staging lineage the same
+    // POST /event also becomes a hub push signal (server.rs event_signal ->
+    // hub.incident_signals, nerve-wiring 8d7a9240) with cause `t158`, next to
+    // the event-feed incident `gaia:t158`; slot 158 was written on a lineage
+    // without that path. Exactly one `gaia:` incident plus at most that one
+    // hub incident, until the owner decides whether to fold the two causes.
+    let gaia_inc = format!("error incident: {cause}: ");
+    let hub_inc = format!("error incident: {SRC}: pushed 1 error(s) in the last 2 min; ");
+    assert_eq!(
+        inc.iter().filter(|(_, w)| w.starts_with(&gaia_inc)).count(),
+        1,
+        "{all:?}"
+    );
+    assert!(
+        inc.iter()
+            .all(|(_, w)| w.starts_with(&gaia_inc) || w.starts_with(&hub_inc)),
+        "{all:?}"
+    );
+    assert!(inc.len() <= 2, "{all:?}");
+    eprintln!(
+        "3. hub incident alongside gaia: {} (D-422-1)",
+        inc.iter().any(|(_, w)| w.starts_with(&hub_inc))
+    );
     assert!(
         !all.iter().any(|(_, w)| w.starts_with("ddos (")),
         "no own ddos deduction while covered: {all:?}"
@@ -269,15 +307,34 @@ fn real_cortex_merge_all_on_the_box() {
         score(&st),
         deductions(&st)
     );
-    let st = wait("score back to start", |s| {
-        score(s) == base
+    // The hub signal stays in its 120 s push window (hub.rs PUSH_WINDOW), so
+    // its incident can outlive the event-feed one: allow 180 s.
+    let t2 = Instant::now();
+    let st = wait_for("score back to start", 180, |s| {
+        mine(s).is_empty()
             && !deductions(s)
                 .iter()
-                .any(|(_, w)| w.starts_with("error incident: "))
+                .any(|(_, w)| w.starts_with("error incident: ") && w.contains(SRC))
     });
+    let sum: u64 = deductions(&st).iter().map(|d| d.0).sum();
+    assert_eq!(
+        score(&st),
+        100u64.saturating_sub(sum),
+        "{:?}",
+        deductions(&st)
+    );
+    if others(&st) == base_others {
+        assert_eq!(score(&st), base, "score back to start");
+    } else {
+        eprintln!(
+            "   unrelated host deductions changed meanwhile: {base_others:?} -> {:?}",
+            others(&st)
+        );
+    }
     eprintln!(
-        "   cycle {}: incident resolved, score back to {} {}; cycle_ms {}",
+        "   cycle {}: incidents resolved after {:.1} s, score back to {} {}; cycle_ms {}",
         st["cycle"],
+        t2.elapsed().as_secs_f64(),
         score(&st),
         st["self_eval"]["grade"],
         st["cycle_ms"]

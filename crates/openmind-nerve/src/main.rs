@@ -53,7 +53,7 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(String::as_str).unwrap_or("serve");
     if cmd == "--version" || cmd == "-V" {
-        println!("openmind-nerve {}", env!("CARGO_PKG_VERSION"));
+        println!("{}", openmind_nerve::build_info::version_line());
         return ExitCode::SUCCESS;
     }
     if args.iter().any(|a| a == "-h" || a == "--help") {
@@ -180,14 +180,15 @@ fn serve(cfg: Config, args: &[String]) -> ExitCode {
         }
     };
     eprintln!(
-        "<6>openmind-nerve {} listening on {} interval={}s mode={} data={} event-log={} components={}",
+        "<6>openmind-nerve {} listening on {} interval={}s mode={} data={} event-log={} components={} commit={}",
         env!("CARGO_PKG_VERSION"),
         e.cfg.addr,
         e.cfg.interval_s,
         e.mode(),
         e.cfg.data_dir.display(),
         ev.as_ref().map(|x| x.lock().map(|l| l.path.display().to_string()).unwrap_or_default()).unwrap_or_else(|| "off".into()),
-        e.comps.len()
+        e.comps.len(),
+        openmind_nerve::build_info::short_commit()
     );
     let event_mode = opt(args, "--mode")
         .or_else(|| std::env::var("NERVE_MODE").ok())

@@ -37,6 +37,7 @@
 
 pub mod access;
 pub mod alerts;
+pub mod build_info;
 pub mod collect;
 pub mod config;
 pub mod cortex;

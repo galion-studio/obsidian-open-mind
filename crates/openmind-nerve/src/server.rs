@@ -363,6 +363,7 @@ pub fn route(
                         .map(|e| e.lock().unwrap_or_else(|x| x.into_inner()).appended)
                         .unwrap_or(0);
                     (200, j, json!({"status": "ok", "service": "openmind-nerve", "version": env!("CARGO_PKG_VERSION"),
+                        "commit": crate::build_info::COMMIT, "build": crate::build_info::json(),
                         "appended": appended, "ts": zagreb_time::now_rfc3339(),
                         "system": g.state["system"]["status"], "score": g.state["system"]["score"],
                         "cycle": g.state["cycle"]}).to_string())
@@ -683,6 +684,8 @@ mod tests {
             (h["status"].as_str(), h["service"].as_str()),
             (Some("ok"), Some("openmind-nerve"))
         );
+        assert_eq!(h["commit"], crate::build_info::COMMIT);
+        assert_eq!(h["build"], crate::build_info::json());
         let big = format!(
             "POST /signal HTTP/1.1\r\nContent-Length: {}\r\n\r\n",
             MAX_BODY + 1

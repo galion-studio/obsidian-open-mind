@@ -28,6 +28,10 @@ pub struct Signal {
     /// `event_signal`): the event-feed sensor's cause for the same event.
     /// Used only when [`Hub::fold_event_cause`] is on (D-422-1, slot 435).
     pub event_cause: Option<String>,
+    /// The event-feed component of the same event (`data.top.component`,
+    /// else `data.component`, else the source), so a folded incident counts
+    /// one component, not two (slot 435).
+    pub event_component: Option<String>,
 }
 
 impl Signal {
@@ -77,6 +81,7 @@ pub fn parse_signal(body: &str, now: u64) -> Result<Signal, String> {
             .filter(|f| f.is_finite()),
         msg: clean(v.get("msg").and_then(Value::as_str).unwrap_or(""), 300),
         event_cause: None,
+        event_component: None,
     })
 }
 
@@ -224,6 +229,12 @@ impl Hub {
             }
             for group in groups {
                 let mine: Vec<&Signal> = new.iter().copied().filter(|s| base(s) == group).collect();
+                let comp = match mine.last() {
+                    Some(s) if group != own => {
+                        s.event_component.clone().unwrap_or_else(|| comp.clone())
+                    }
+                    _ => comp.clone(),
+                };
                 let mut push =
                     |cause: String, sev: Sev, filt: &dyn Fn(&Signal) -> bool, what: &str| {
                         let hits: Vec<&&Signal> = mine.iter().filter(|s| filt(s)).collect();
@@ -319,6 +330,7 @@ mod tests {
             value: Some(1.0),
             msg: String::new(),
             event_cause: None,
+            event_component: None,
         };
         for i in 0..PER_SOURCE_PER_MIN {
             h.ingest(mk(100, if i % 2 == 0 { "error" } else { "metric" }))
@@ -345,6 +357,7 @@ mod tests {
             value: None,
             msg: msg.into(),
             event_cause: None,
+            event_component: None,
         };
         h.ingest(mk(90, "error", "http_5xx", "old")).unwrap();
         h.ingest(mk(100, "event", "started", "listening")).unwrap();
@@ -386,6 +399,7 @@ mod tests {
             value: None,
             msg: msg.into(),
             event_cause: Some(format!("gaia:{src}")),
+            event_component: Some("tunnel".into()),
         }
     }
 
@@ -439,6 +453,7 @@ mod tests {
             ["gaia:t158"]
         );
         assert!(v[0].msg.starts_with("pushed 1 error(s)"), "{}", v[0].msg);
+        assert_eq!(v[0].component, "tunnel", "folded: the event-feed component");
         let mut s = ev(101, "t158", "5xx");
         s.event_cause = None;
         h.ingest(s).unwrap();

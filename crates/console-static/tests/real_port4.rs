@@ -28,6 +28,14 @@
 //!
 //! Gated: `GALION_REAL=1 cargo test --release -p console-static --test real_port4 -- --ignored --nocapture`.
 //! `PORT4_VPS` names the ssh target (default `slavik-vps`, an ssh config alias).
+//!
+//! Since the Rust console cutover the live :8080 (`galion-console-serve --dist
+//! --local-api`) answers 404 for the old Node API paths (F-349-1, slot 364).
+//! Each room is then checked for its honest "did not load: HTTP 404" state
+//! (or the fail-closed 503 gate) instead of data; when a path answers 200
+//! again the original data comparison runs. Ports move with
+//! `CONSOLE_REAL_PORT_BASE` (default unchanged). Path matrix:
+//! `tests/real_port_shape.rs`.
 
 use console_ui::html::esc;
 use console_ui::json::{self, Value};
@@ -39,9 +47,18 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-const BIND: &str = "127.0.0.1:20080";
-const API: &str = "127.0.0.1:20081";
-const NERVE: &str = "127.0.0.1:20082";
+mod common;
+
+/// Ports: `CONSOLE_REAL_PORT_BASE` (default 20080) + offset.
+fn bind() -> &'static str {
+    common::addr(20080, 0)
+}
+fn api() -> &'static str {
+    common::addr(20080, 1)
+}
+fn nerve() -> &'static str {
+    common::addr(20080, 2)
+}
 
 /// The read-only probe run on the VPS (no redirection to files, no writes).
 const PROBE: &str = r#"set -u
@@ -134,7 +151,7 @@ fn wait_for(what: &str, secs: u64, mut ok: impl FnMut() -> bool) {
 }
 
 fn nerve_watch(tag: &str) -> Vec<String> {
-    let (c, b) = get(NERVE, "/state");
+    let (c, b) = get(nerve(), "/state");
     assert_eq!(c, 200, "nerve /state");
     let v = json::parse(b.as_bytes()).unwrap_or(Value::Null);
     let mut out = Vec::new();
@@ -331,20 +348,32 @@ fn real_port4_rooms_against_live_vps() {
             "ExitOnForwardFailure=yes",
             "-N",
         ])
-        .args(["-L", &format!("{API}:127.0.0.1:8080")])
-        .args(["-L", &format!("{NERVE}:127.0.0.1:8670")])
+        .args(["-L", &format!("{}:127.0.0.1:8080", api())])
+        .args(["-L", &format!("{}:127.0.0.1:8670", nerve())])
         .arg(&vps)
         .stdin(Stdio::null())
         .spawn()
         .expect("ssh");
     let _ssh = Kill(ssh, "ssh forward");
-    wait_for("ssh forward", 25, || get(API, "/api/v1/health").0 == 200);
-    eprintln!("real: forward {API}->8080 {NERVE}->8670 (ssh -N, GET only)");
+    wait_for("ssh forward", 25, || get(api(), "/api/v1/health").0 == 200);
+    eprintln!(
+        "real: forward {}->8080 {}->8670 (ssh -N, GET only)",
+        api(),
+        nerve()
+    );
     let before = nerve_watch("before");
 
     let bin = env!("CARGO_BIN_EXE_galion-console-static");
     let child = Command::new(bin)
-        .args(["--ui", "rust", "--upstream", API, "--bind", BIND, "--quiet"])
+        .args([
+            "--ui",
+            "rust",
+            "--upstream",
+            api(),
+            "--bind",
+            bind(),
+            "--quiet",
+        ])
         .arg("--memory-root")
         .arg(&mem)
         .arg("--model-file")
@@ -356,11 +385,11 @@ fn real_port4_rooms_against_live_vps() {
         .spawn()
         .expect("start binary");
     let _srv = Kill(child, "galion-console-static");
-    wait_for("binary", 10, || TcpStream::connect(BIND).is_ok());
+    wait_for("binary", 10, || TcpStream::connect(bind()).is_ok());
 
     // /memory vs VPS find.
     let t = Instant::now();
-    let (c, page) = get(BIND, "/memory");
+    let (c, page) = get(bind(), "/memory");
     eprintln!(
         "real: /memory {c} {} B in {} ms",
         page.len(),
@@ -399,69 +428,117 @@ fn real_port4_rooms_against_live_vps() {
         ("persona", "persona.md", psize, "zpersona"),
         ("user", "USER.md", usize_, "zuser"),
     ] {
-        let (c, page) = get(BIND, &format!("/md/{name}"));
+        let (c, page) = get(bind(), &format!("/md/{name}"));
         assert_eq!(c, 200, "/md/{name}");
         let want = format!("{title} · {size} bytes · {}", kv[zone_key].trim());
         assert!(page.contains(&want), "/md/{name}: want {want}");
         assert!(!page.to_ascii_lowercase().contains("<script"));
         eprintln!("real: /md/{name} shows \"{want}\" (= VPS stat + TZ=Europe/Zagreb date)");
     }
-    let (c, _) = get(BIND, "/md/other");
+    let (c, _) = get(bind(), "/md/other");
     assert_eq!(c, 404);
-    let (lc, lpage) = get_accept(API, "/md/user", "127.0.0.1", "text/html");
-    assert_eq!(lc, 200, "live Node /md/user");
+    let (lc, lpage) = get_accept(api(), "/md/user", "127.0.0.1", "text/html");
+    // The live :8080 is the Rust console since the cutover: it has no
+    // `--user-md`, so `/md/user` is its 404 page (was the Node TSX stub, 200).
     eprintln!(
-        "real: live Node /md/user on a loopback Host: {lc} {} B, {} (the TSX stub route; the middleware skips the file on loopback)",
+        "real: live /md/user on a loopback Host: {lc} {} B ({:?}), {}",
         lpage.len(),
-        if lpage.contains("bytes ·") { "file page" } else { "SPA shell, no file" }
+        common::shape(lc),
+        if lpage.contains("bytes ·") {
+            "file page"
+        } else {
+            "no file page (the box binary above serves it from --user-md)"
+        }
+    );
+    assert!(
+        !lpage.contains("bytes ·") || lc == 200,
+        "a non-200 live answer must not look like a file page"
     );
 
-    // /mesh vs live GET /api/mesh.
-    let (mc, mb) = get(API, "/api/mesh");
-    assert_eq!(mc, 200, "live /api/mesh");
-    let board = json::parse(mb.as_bytes()).unwrap();
-    let lines: Vec<&str> = board
-        .get("score")
-        .as_array()
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
-    let phase = board.get("phase").as_str().unwrap_or("");
-    let t = Instant::now();
-    let (c, page) = get(BIND, "/mesh");
-    eprintln!(
-        "real: /mesh {c} {} B in {} ms; live phase {phase:?}, {} score line(s)",
-        page.len(),
-        t.elapsed().as_millis(),
-        lines.len()
-    );
-    assert_eq!(c, 200);
-    assert!(!page.contains("did not load"), "{page}");
-    for l in &lines {
-        assert!(page.contains(&format!("<span class=\"p4-line\">{}</span>", esc(l))));
-    }
-    if lines.is_empty() {
+    // /mesh vs live GET /api/mesh (Node API) or its honest failure line.
+    let (mc, mb) = get(api(), "/api/mesh");
+    let live_board = json::parse(mb.as_bytes()).ok().filter(|_| mc == 200);
+    if let Some(board) = live_board {
+        let lines: Vec<&str> = board
+            .get("score")
+            .as_array()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        let phase = board.get("phase").as_str().unwrap_or("");
+        let t = Instant::now();
+        let (c, page) = get(bind(), "/mesh");
+        eprintln!(
+            "real: /mesh {c} {} B in {} ms; live phase {phase:?}, {} score line(s)",
+            page.len(),
+            t.elapsed().as_millis(),
+            lines.len()
+        );
+        assert_eq!(c, 200);
+        assert!(!page.contains("did not load"), "{page}");
+        for l in &lines {
+            assert!(page.contains(&format!("<span class=\"p4-line\">{}</span>", esc(l))));
+        }
+        if lines.is_empty() {
+            assert!(page.contains("No live line yet."));
+        }
+        let want = match phase {
+            "idle" => "Cold. Nothing is spending.".to_string(),
+            "" => "Cold.".to_string(),
+            p => p.to_string(),
+        };
+        assert!(page.contains(&format!("<p class=\"note\">{}</p>", esc(&want))));
+        eprintln!("real: /mesh lines + footer {want:?} = live");
+    } else {
+        let t = Instant::now();
+        let (c, page) = get(bind(), "/mesh");
+        eprintln!(
+            "real: /mesh {c} {} B in {} ms; live /api/mesh {mc} ({:?})",
+            page.len(),
+            t.elapsed().as_millis(),
+            common::shape(mc)
+        );
+        assert_eq!(c, 200);
+        let err = json::parse(mb.as_bytes())
+            .ok()
+            .and_then(|v| v.get("error").as_str().map(str::to_string))
+            .map(|e| format!(" ({})", e.chars().take(200).collect::<String>()))
+            .unwrap_or_default();
+        let want = format!("Mesh status did not load: HTTP {mc}{err}.");
+        assert!(page.contains(&esc(&want)), "missing {want}");
         assert!(page.contains("No live line yet."));
+        assert!(page.contains("<p class=\"note\">Cold.</p>"));
+        eprintln!("real: /mesh page says \"{want}\" and Cold.");
     }
-    let want = match phase {
-        "idle" => "Cold. Nothing is spending.".to_string(),
-        "" => "Cold.".to_string(),
-        p => p.to_string(),
-    };
-    assert!(page.contains(&format!("<p class=\"note\">{}</p>", esc(&want))));
-    eprintln!("real: /mesh lines + footer {want:?} = live");
 
-    // Gate: public host, no cookie -> live /api/v1/admin says not paired.
+    // Gate: public host, no cookie. The binary asks the upstream
+    // `/api/v1/admin`: 200 + not paired -> pairing page; anything else (the
+    // live Rust console answers 404 for this forward since the cutover) ->
+    // fail closed with 503 "Console API is not answering". Never data.
+    let (ac, _) = get_host(api(), "/api/v1/admin", "console.galion.app");
     for p in ["/memory", "/mesh", "/md/user"] {
-        let (c, page) = get_host(BIND, p, "console.galion.app");
-        assert_eq!(c, 200, "{p}");
-        assert!(page.contains("/_ui/pair"), "{p}: pairing page");
+        let (c, page) = get_host(bind(), p, "console.galion.app");
+        if ac == 200 {
+            assert_eq!(c, 200, "{p}");
+            assert!(page.contains("/_ui/pair"), "{p}: pairing page");
+        } else {
+            assert_eq!(c, 503, "{p}: fail closed");
+            assert!(page.contains("Console API is not answering"), "{p}");
+        }
         assert!(!page.contains("p4-n") && !page.contains("bytes ·"), "{p}");
     }
-    eprintln!("real: public host unpaired -> pairing page for all 3 rooms (live /api/v1/admin)");
+    eprintln!(
+        "real: public host unpaired, live /api/v1/admin {ac} ({:?}) -> {} for all 3 rooms, no data",
+        common::shape(ac),
+        if ac == 200 {
+            "pairing page"
+        } else {
+            "503 fail-closed gate"
+        }
+    );
 
     for p in ["/memory", "/mesh", "/md/user", "/md/persona"] {
-        let (_, b) = get(BIND, p);
+        let (_, b) = get(bind(), p);
         assert!(!b.to_ascii_lowercase().contains("<script"), "{p}");
     }
     let after = nerve_watch("after");

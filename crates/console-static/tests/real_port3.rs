@@ -21,6 +21,14 @@
 //! `PORT3_VPS` names the ssh target (default `slavik-vps`, an ssh config
 //! alias, so no address is in the code). Nothing secret is printed: the
 //! laptop public key is compared, never echoed.
+//!
+//! Since the Rust console cutover the live :8080 (`galion-console-serve --dist
+//! --local-api`) answers 404 for the old Node API paths (F-349-1, slot 364).
+//! Each room is then checked for its honest "did not load: HTTP 404" state
+//! (or the fail-closed 503 gate) instead of data; when a path answers 200
+//! again the original data comparison runs. Ports move with
+//! `CONSOLE_REAL_PORT_BASE` (default unchanged). Path matrix:
+//! `tests/real_port_shape.rs`.
 
 use console_ui::html::esc;
 use console_ui::json::{self, Value};
@@ -29,9 +37,18 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const BIND: &str = "127.0.0.1:20070";
-const API: &str = "127.0.0.1:20071";
-const NERVE: &str = "127.0.0.1:20073";
+mod common;
+
+/// Ports: `CONSOLE_REAL_PORT_BASE` (default 20070) + offset.
+fn bind() -> &'static str {
+    common::addr(20070, 0)
+}
+fn api() -> &'static str {
+    common::addr(20070, 1)
+}
+fn nerve() -> &'static str {
+    common::addr(20070, 3)
+}
 
 struct Kill(Child, &'static str);
 impl Drop for Kill {
@@ -94,7 +111,7 @@ fn s<'a>(v: &'a Value, k: &str) -> &'a str {
 
 /// `name:port status` of the nerve components next to the console.
 fn nerve_watch(tag: &str) -> Vec<String> {
-    let (c, v) = live_json(NERVE, "/state");
+    let (c, v) = live_json(nerve(), "/state");
     assert_eq!(c, 200, "nerve /state");
     let mut out = Vec::new();
     for comp in v.get("components").as_array() {
@@ -120,7 +137,7 @@ fn nerve_watch(tag: &str) -> Vec<String> {
 
 fn timed(path: &str) -> (u16, String) {
     let t = Instant::now();
-    let (c, page) = get(BIND, path);
+    let (c, page) = get(bind(), path);
     eprintln!(
         "real: {path} {c} {} B in {} ms",
         page.len(),
@@ -145,34 +162,160 @@ fn real_port3_rooms_against_live_vps() {
             "ExitOnForwardFailure=yes",
             "-N",
         ])
-        .args(["-L", &format!("{API}:127.0.0.1:8080")])
-        .args(["-L", &format!("{NERVE}:127.0.0.1:8670")])
+        .args(["-L", &format!("{}:127.0.0.1:8080", api())])
+        .args(["-L", &format!("{}:127.0.0.1:8670", nerve())])
         .arg(&vps)
         .stdin(Stdio::null())
         .spawn()
         .expect("ssh");
     let _ssh = Kill(ssh, "ssh forward");
-    wait_for("ssh forward", 25, || get(API, "/api/v1/health").0 == 200);
-    eprintln!("real: forward {API}->8080 {NERVE}->8670 (ssh -N, GET only)");
+    wait_for("ssh forward", 25, || get(api(), "/api/v1/health").0 == 200);
+    eprintln!(
+        "real: forward {}->8080 {}->8670 (ssh -N, GET only)",
+        api(),
+        nerve()
+    );
     let before = nerve_watch("before");
-    let (mc0, ring0) = live_json(API, "/api/v1/markers");
-    assert_eq!(mc0, 200, "live markers");
+    let (mc0, ring0) = live_json(api(), "/api/v1/markers");
+    // Since the Rust cutover the live console no longer serves the Node
+    // marker ring (404, F-349-1); the ring is still read before/after.
+    eprintln!(
+        "real: live /api/v1/markers {mc0} ({:?})",
+        common::shape(mc0)
+    );
 
     let bin = env!("CARGO_BIN_EXE_galion-console-static");
     let child = Command::new(bin)
-        .args(["--ui", "rust", "--upstream", API, "--bind", BIND, "--quiet"])
+        .args([
+            "--ui",
+            "rust",
+            "--upstream",
+            api(),
+            "--bind",
+            bind(),
+            "--quiet",
+        ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .expect("start binary");
     let _srv = Kill(child, "galion-console-static");
-    wait_for("binary", 10, || TcpStream::connect(BIND).is_ok());
+    wait_for("binary", 10, || TcpStream::connect(bind()).is_ok());
 
-    // /instances vs live GET /api/v1/instances + /api/v1/laptop.
-    let (ic, inst) = live_json(API, "/api/v1/instances");
-    let (lc, laptop) = live_json(API, "/api/v1/laptop");
-    assert_eq!(ic, 200, "live instances");
-    assert_eq!(lc, 200, "live laptop");
+    // /instances vs live GET /api/v1/instances + /api/v1/laptop (Node API).
+    // Both 200 = compare data; otherwise the room must name each failure.
+    let (ic, inst) = live_json(api(), "/api/v1/instances");
+    let (lc, laptop) = live_json(api(), "/api/v1/laptop");
+    if ic == 200 && lc == 200 {
+        instances_with_data(&inst, &laptop);
+    } else {
+        let (c, page) = timed("/instances");
+        assert_eq!(c, 200);
+        for (what, code, v) in [
+            ("The machine list", ic, &inst),
+            ("The laptop status", lc, &laptop),
+        ] {
+            if code != 200 {
+                let want = console_ui::pages::p3::miss(what, Some(code), s(v, "error"));
+                assert!(page.contains(&want), "missing {want}");
+            }
+            eprintln!(
+                "real: /instances live {what} {code} ({:?})",
+                common::shape(code)
+            );
+        }
+        if ic != 200 && lc != 200 {
+            assert_eq!(
+                page.matches("<li class=\"p3-card\">").count(),
+                0,
+                "no cards"
+            );
+        }
+    }
+
+    // /keys: live list without a paired cookie.
+    let (kc, kv) = live_json(api(), "/api/v1/keys");
+    let (c, page) = timed("/keys");
+    assert_eq!(c, 200);
+    if kc == 200 {
+        let n = kv.get("keys").as_array().len();
+        assert_eq!(page.matches("<li class=\"p3-key\">").count(), n);
+        eprintln!("real: /keys live 200, {n} keys listed");
+    } else {
+        let err = s(&kv, "error");
+        let want = if err.is_empty() {
+            format!("The key list did not load: HTTP {kc}.")
+        } else {
+            format!("The key list did not load: HTTP {kc} ({}).", esc(err))
+        };
+        assert!(page.contains(&want), "missing {want}");
+        assert!(!page.contains("No keys."));
+        eprintln!("real: /keys live {kc} ({err}), page says: {want}");
+    }
+    assert!(
+        page.contains("name=\"op\" value=\"mint\""),
+        "mint form present"
+    );
+    assert!(
+        !page.contains("gal_sk_") || kc == 200,
+        "no key material on an unpaired page"
+    );
+
+    // /markers vs live ring (Node API) or its honest failure line.
+    let (c, page) = timed("/markers");
+    assert_eq!(c, 200);
+    let (rc, ring) = live_json(api(), "/api/v1/markers");
+    if rc == 200 {
+        let items = ring.get("items").as_array();
+        let capn = ring.get("cap").as_f64().unwrap_or(42.0) as usize;
+        assert!(page.contains(&format!("Ring of {capn} · {} stored", items.len())));
+        assert_eq!(page.matches("<li class=\"p3-mk\">").count(), items.len());
+        eprintln!(
+            "real: /markers ok: cap {capn}, {} stored (live count {})",
+            items.len(),
+            ring.get("count").to_json()
+        );
+    } else {
+        let want = console_ui::pages::p3::miss("The marker ring", Some(rc), s(&ring, "error"));
+        assert!(page.contains(&want), "missing {want}");
+        assert_eq!(page.matches("<li class=\"p3-mk\">").count(), 0);
+        eprintln!(
+            "real: /markers live {rc} ({:?}), page names it",
+            common::shape(rc)
+        );
+    }
+
+    // No script anywhere; repeat each room 5x for timings.
+    for p in ["/instances", "/keys", "/markers"] {
+        let mut ms = Vec::new();
+        for _ in 0..5 {
+            let t = Instant::now();
+            let (c, b) = get(bind(), p);
+            ms.push(t.elapsed().as_millis());
+            assert_eq!(c, 200, "{p}");
+            assert!(!b.to_ascii_lowercase().contains("<script"), "{p}");
+        }
+        eprintln!("real: {p} x5 ms {ms:?}");
+    }
+
+    // The live ring did not change (only GETs were sent) and the nerve
+    // still sees the same components, none down.
+    let (_, ring1) = live_json(api(), "/api/v1/markers");
+    assert_eq!(
+        ring0.get("count").to_json(),
+        ring1.get("count").to_json(),
+        "live marker ring changed"
+    );
+    let after = nerve_watch("after");
+    assert_eq!(before.len(), after.len());
+    for a in &after {
+        assert!(!a.ends_with(" down"), "component down after the run: {a}");
+    }
+}
+
+/// The pre-cutover comparison: live Node `/api/v1/instances` and
+/// `/api/v1/laptop` both answered 200.
+fn instances_with_data(inst: &Value, laptop: &Value) {
     let (c, page) = timed("/instances");
     assert_eq!(c, 200);
     assert!(!page.contains("did not load"), "a call failed");
@@ -244,73 +387,4 @@ fn real_port3_rooms_against_live_vps() {
         laptop.get("lines").as_array().len(),
         states.join(" ")
     );
-
-    // /keys: live list without a paired cookie.
-    let (kc, kv) = live_json(API, "/api/v1/keys");
-    let (c, page) = timed("/keys");
-    assert_eq!(c, 200);
-    if kc == 200 {
-        let n = kv.get("keys").as_array().len();
-        assert_eq!(page.matches("<li class=\"p3-key\">").count(), n);
-        eprintln!("real: /keys live 200, {n} keys listed");
-    } else {
-        let err = s(&kv, "error");
-        let want = if err.is_empty() {
-            format!("The key list did not load: HTTP {kc}.")
-        } else {
-            format!("The key list did not load: HTTP {kc} ({}).", esc(err))
-        };
-        assert!(page.contains(&want), "missing {want}");
-        assert!(!page.contains("No keys."));
-        eprintln!("real: /keys live {kc} ({err}), page says: {want}");
-    }
-    assert!(
-        page.contains("name=\"op\" value=\"mint\""),
-        "mint form present"
-    );
-    assert!(
-        !page.contains("gal_sk_") || kc == 200,
-        "no key material on an unpaired page"
-    );
-
-    // /markers vs live ring.
-    let (c, page) = timed("/markers");
-    assert_eq!(c, 200);
-    let (_, ring) = live_json(API, "/api/v1/markers");
-    let items = ring.get("items").as_array();
-    let capn = ring.get("cap").as_f64().unwrap_or(42.0) as usize;
-    assert!(page.contains(&format!("Ring of {capn} · {} stored", items.len())));
-    assert_eq!(page.matches("<li class=\"p3-mk\">").count(), items.len());
-    eprintln!(
-        "real: /markers ok: cap {capn}, {} stored (live count {})",
-        items.len(),
-        ring.get("count").to_json()
-    );
-
-    // No script anywhere; repeat each room 5x for timings.
-    for p in ["/instances", "/keys", "/markers"] {
-        let mut ms = Vec::new();
-        for _ in 0..5 {
-            let t = Instant::now();
-            let (c, b) = get(BIND, p);
-            ms.push(t.elapsed().as_millis());
-            assert_eq!(c, 200, "{p}");
-            assert!(!b.to_ascii_lowercase().contains("<script"), "{p}");
-        }
-        eprintln!("real: {p} x5 ms {ms:?}");
-    }
-
-    // The live ring did not change (only GETs were sent) and the nerve
-    // still sees the same components, none down.
-    let (_, ring1) = live_json(API, "/api/v1/markers");
-    assert_eq!(
-        ring0.get("count").to_json(),
-        ring1.get("count").to_json(),
-        "live marker ring changed"
-    );
-    let after = nerve_watch("after");
-    assert_eq!(before.len(), after.len());
-    for a in &after {
-        assert!(!a.ends_with(" down"), "component down after the run: {a}");
-    }
 }

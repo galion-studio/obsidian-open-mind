@@ -397,7 +397,7 @@ fn real_console_blindspot_guard() {
         "dashboard must show the deep reason"
     );
 
-    if fixed_bin.is_some() {
+    if let Some(fb) = &fixed_bin {
         let na = comp(&st, "console-noadmin");
         assert_not_healthy(&na, &[("/api/v1/admin", 503)]);
         assert!(
@@ -410,16 +410,11 @@ fn real_console_blindspot_guard() {
 
         // Phase 2: give console-noadmin its store (same port) -> healthy again.
         noadmin.stop();
-        let _noadmin2 = console(
-            fixed_bin.as_ref().unwrap(),
-            NOADMIN,
-            &dist,
-            Some(&dir.join("admin2")),
-        );
+        let _noadmin2 = console(fb, NOADMIN, &dist, Some(&dir.join("admin2")));
         assert_eq!(code(NOADMIN, "/api/v1/admin"), Some(200));
         let s0 = samples(&json_get("/api/v1/state"), "console-noadmin");
         let st = wait_for("noadmin recovers", 30, |st| {
-            samples(st, "console-noadmin") >= s0 + 1
+            samples(st, "console-noadmin") > s0
                 && comp(st, "console-noadmin")["status"] == "healthy"
         });
         show(&comp(&st, "console-noadmin"));

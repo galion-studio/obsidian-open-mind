@@ -95,4 +95,15 @@ incidents. Cortex: not probed (not live as a separate health source); nerve
 used as the real-time view.
 
 ## Gates (2026-10-28 ~05:20 CET)
-see CALL-RECORD DONE line for final numbers.
+`cargo fmt --all --check` clean; `cargo clippy --workspace --all-targets --exclude
+openmind-sandbox --exclude cgroup-detect -- -D warnings` rc 0 (only the vendored
+candle-core deprecation notes); `cargo test --workspace --exclude openmind-sandbox
+--exclude cgroup-detect --no-fail-fast` rc 0: 391 suites, 2073 passed, 0 failed,
+18 ignored (05:27); galion-backup lib 28 (13 new: 12 strict-sum + 1 alias),
+restore_units 3 (1 new); `scripts/no-python.sh` ok; `scripts/spdx-scan.sh` 761
+scanned, 0 missing. Builds: x86_64 musl release (1513984 B, sha256 30f58ba4…51c6,
+used on the VPS), aarch64 musl release (1508192 B, zig cc for bundled SQLite per
+docs/toolchain-aarch64.md; not executed, no qemu), armv7 musl `cargo check` ok,
+aarch64-android + armv7-android `cargo check` ok (zig cc for SQLite; without it
+libsqlite3-sys fails on missing NDK clang, pre-existing). No new deps; Cargo.lock
+unchanged. Sandbox crates not run (sandbox_vps_only; untouched).

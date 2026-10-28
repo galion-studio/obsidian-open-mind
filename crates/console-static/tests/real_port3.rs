@@ -177,7 +177,10 @@ fn real_port3_rooms_against_live_vps() {
     );
     let before = nerve_watch("before");
     let (mc0, ring0) = live_json(api_at(), "/api/v1/markers");
-    assert_eq!(mc0, 200, "live markers");
+    let markers_gone = routes::decide("/api/v1/markers", mc0) == routes::Live::Gone;
+    if !markers_gone {
+        assert_eq!(mc0, 200, "live markers");
+    }
 
     let bin = env!("CARGO_BIN_EXE_galion-console-static");
     let child = Command::new(bin)
@@ -200,72 +203,88 @@ fn real_port3_rooms_against_live_vps() {
     // /instances vs live GET /api/v1/instances + /api/v1/laptop.
     let (ic, inst) = live_json(api_at(), "/api/v1/instances");
     let (lc, laptop) = live_json(api_at(), "/api/v1/laptop");
-    assert_eq!(ic, 200, "live instances");
-    assert_eq!(lc, 200, "live laptop");
+    let inst_gone = routes::decide("/api/v1/instances", ic) == routes::Live::Gone;
+    let laptop_gone = routes::decide("/api/v1/laptop", lc) == routes::Live::Gone;
     let (c, page) = timed("/instances");
     assert_eq!(c, 200);
-    assert!(!page.contains("did not load"), "a call failed");
-    let nodes = inst.get("nodes").as_array();
-    let parts = inst.get("parts").as_array();
-    let jobs = laptop.get("jobs").as_array();
-    assert_eq!(
-        page.matches("<li class=\"p3-card\">").count(),
-        nodes.len() + jobs.len() + parts.len(),
-        "cards = nodes + laptop jobs + parts"
-    );
-    let mut states = Vec::new();
-    for n in nodes {
-        let mark = n.get("mark").as_str().unwrap_or(s(n, "state"));
-        let tone = match s(n, "state") {
-            "online" => "online",
-            "held" => "held",
-            _ => "offline",
-        };
-        let want = format!(
-            "<span class=\"p3-name ell\">{}</span><span class=\"badge {tone}\">{}</span>",
-            esc(s(n, "name")),
-            esc(mark)
-        );
-        assert!(page.contains(&want), "node {}", s(n, "name"));
-        states.push(format!("{}={mark}", s(n, "id")));
-    }
-    let up = parts.iter().filter(|p| s(p, "state") == "online").count();
-    assert!(page.contains(&format!("{up} of {} online", parts.len())));
-    for p in parts {
-        let want = format!(
-            "<span class=\"p3-name ell\">{}</span><span class=\"badge {}\">{}</span>",
-            esc(s(p, "name")),
-            if s(p, "state") == "online" {
-                "online"
-            } else if s(p, "state") == "held" {
-                "held"
-            } else {
-                "offline"
-            },
-            esc(s(p, "state"))
-        );
-        assert!(page.contains(&want), "part {}", s(p, "name"));
-        states.push(format!("{}={}", s(p, "id"), s(p, "state")));
-    }
-    let (word, tone) = if laptop.get("connected").as_bool() == Some(true) {
-        ("linked", "online")
-    } else {
-        ("no path", "offline")
-    };
-    assert!(
-        page.contains(&format!(
-            "<h2>Laptop</h2><span class=\"badge {tone}\">{word}</span>"
-        )),
-        "laptop {word}"
-    );
-    let key = s(inst.get("link"), "pubkey");
-    if !key.is_empty() {
+    if inst_gone || laptop_gone {
+        // D-375-1: Node-only routes, no Rust provider; the room must say so
+        // and draw no node, part or job cards.
         assert!(
-            page.contains(&esc(key)),
-            "laptop key shown (not printed here)"
+            routes::page_says_unavailable(&page),
+            "/instances: no honest miss"
         );
-    }
-    eprintln!(
+        assert_eq!(
+            page.matches("<li class=\"p3-card\">").count(),
+            0,
+            "/instances cards without data"
+        );
+        eprintln!("real: /instances live {ic}/{lc} -> room states the miss, 0 cards");
+    } else {
+        assert_eq!(ic, 200, "live instances");
+        assert_eq!(lc, 200, "live laptop");
+        assert!(!page.contains("did not load"), "a call failed");
+        let nodes = inst.get("nodes").as_array();
+        let parts = inst.get("parts").as_array();
+        let jobs = laptop.get("jobs").as_array();
+        assert_eq!(
+            page.matches("<li class=\"p3-card\">").count(),
+            nodes.len() + jobs.len() + parts.len(),
+            "cards = nodes + laptop jobs + parts"
+        );
+        let mut states = Vec::new();
+        for n in nodes {
+            let mark = n.get("mark").as_str().unwrap_or(s(n, "state"));
+            let tone = match s(n, "state") {
+                "online" => "online",
+                "held" => "held",
+                _ => "offline",
+            };
+            let want = format!(
+                "<span class=\"p3-name ell\">{}</span><span class=\"badge {tone}\">{}</span>",
+                esc(s(n, "name")),
+                esc(mark)
+            );
+            assert!(page.contains(&want), "node {}", s(n, "name"));
+            states.push(format!("{}={mark}", s(n, "id")));
+        }
+        let up = parts.iter().filter(|p| s(p, "state") == "online").count();
+        assert!(page.contains(&format!("{up} of {} online", parts.len())));
+        for p in parts {
+            let want = format!(
+                "<span class=\"p3-name ell\">{}</span><span class=\"badge {}\">{}</span>",
+                esc(s(p, "name")),
+                if s(p, "state") == "online" {
+                    "online"
+                } else if s(p, "state") == "held" {
+                    "held"
+                } else {
+                    "offline"
+                },
+                esc(s(p, "state"))
+            );
+            assert!(page.contains(&want), "part {}", s(p, "name"));
+            states.push(format!("{}={}", s(p, "id"), s(p, "state")));
+        }
+        let (word, tone) = if laptop.get("connected").as_bool() == Some(true) {
+            ("linked", "online")
+        } else {
+            ("no path", "offline")
+        };
+        assert!(
+            page.contains(&format!(
+                "<h2>Laptop</h2><span class=\"badge {tone}\">{word}</span>"
+            )),
+            "laptop {word}"
+        );
+        let key = s(inst.get("link"), "pubkey");
+        if !key.is_empty() {
+            assert!(
+                page.contains(&esc(key)),
+                "laptop key shown (not printed here)"
+            );
+        }
+        eprintln!(
         "real: /instances ok: nodes {} parts {} ({up} online) laptop {word} jobs {} lines {}; {}",
         nodes.len(),
         parts.len(),
@@ -273,9 +292,11 @@ fn real_port3_rooms_against_live_vps() {
         laptop.get("lines").as_array().len(),
         states.join(" ")
     );
+    }
 
     // /keys: live list without a paired cookie.
     let (kc, kv) = live_json(api_at(), "/api/v1/keys");
+    routes::decide("/api/v1/keys", kc);
     let (c, page) = timed("/keys");
     assert_eq!(c, 200);
     if kc == 200 {
@@ -305,16 +326,29 @@ fn real_port3_rooms_against_live_vps() {
     // /markers vs live ring.
     let (c, page) = timed("/markers");
     assert_eq!(c, 200);
-    let (_, ring) = live_json(api_at(), "/api/v1/markers");
-    let items = ring.get("items").as_array();
-    let capn = ring.get("cap").as_f64().unwrap_or(42.0) as usize;
-    assert!(page.contains(&format!("Ring of {capn} · {} stored", items.len())));
-    assert_eq!(page.matches("<li class=\"p3-mk\">").count(), items.len());
-    eprintln!(
-        "real: /markers ok: cap {capn}, {} stored (live count {})",
-        items.len(),
-        ring.get("count").to_json()
-    );
+    if markers_gone {
+        assert!(
+            routes::page_says_unavailable(&page),
+            "/markers: no honest miss"
+        );
+        assert_eq!(
+            page.matches("<li class=\"p3-mk\">").count(),
+            0,
+            "/markers rows without data"
+        );
+        eprintln!("real: /markers live {mc0} -> room states the miss, 0 rows");
+    } else {
+        let (_, ring) = live_json(api_at(), "/api/v1/markers");
+        let items = ring.get("items").as_array();
+        let capn = ring.get("cap").as_f64().unwrap_or(42.0) as usize;
+        assert!(page.contains(&format!("Ring of {capn} · {} stored", items.len())));
+        assert_eq!(page.matches("<li class=\"p3-mk\">").count(), items.len());
+        eprintln!(
+            "real: /markers ok: cap {capn}, {} stored (live count {})",
+            items.len(),
+            ring.get("count").to_json()
+        );
+    }
 
     // No script anywhere; repeat each room 5x for timings.
     for p in ["/instances", "/keys", "/markers"] {
@@ -331,7 +365,8 @@ fn real_port3_rooms_against_live_vps() {
 
     // The live ring did not change (only GETs were sent) and the nerve
     // still sees the same components, none down.
-    let (_, ring1) = live_json(api_at(), "/api/v1/markers");
+    let (mc1, ring1) = live_json(api_at(), "/api/v1/markers");
+    assert_eq!(mc0, mc1, "live markers status changed during the run");
     assert_eq!(
         ring0.get("count").to_json(),
         ring1.get("count").to_json(),

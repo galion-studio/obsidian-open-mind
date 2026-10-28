@@ -99,29 +99,36 @@ impl SealKey {
     /// Load the key file. It must be a regular file, mode 0600 or stricter,
     /// at most 4 KiB, and it must not live inside the secondary store dir.
     pub fn load(path: &Path, store: Option<&Path>) -> Result<Self, String> {
+        Self::load_as(path, store, "HERMES_OFFHOST_HMAC_FILE")
+    }
+
+    /// Same checks as [`SealKey::load`]; `var` names the setting in errors
+    /// (slot 340: the previous key of a rotation window uses its own name).
+    /// A systemd credential (`LoadCredential=`, read-only 0400 under
+    /// `$CREDENTIALS_DIRECTORY`) passes these checks as is.
+    pub fn load_as(path: &Path, store: Option<&Path>, var: &str) -> Result<Self, String> {
         use std::os::unix::fs::PermissionsExt;
-        let meta = fs::metadata(path)
-            .map_err(|_| "HERMES_OFFHOST_HMAC_FILE is missing or unreadable".to_string())?;
+        let unreadable = || format!("{var} is missing or unreadable");
+        let meta = fs::metadata(path).map_err(|_| unreadable())?;
         if !meta.is_file() {
-            return Err("HERMES_OFFHOST_HMAC_FILE is not a regular file".into());
+            return Err(format!("{var} is not a regular file"));
         }
         if meta.permissions().mode() & 0o077 != 0 {
-            return Err("HERMES_OFFHOST_HMAC_FILE must be mode 0600 or stricter".into());
+            return Err(format!("{var} must be mode 0600 or stricter"));
         }
         if meta.len() > MAX_KEY_FILE {
-            return Err("HERMES_OFFHOST_HMAC_FILE is larger than 4 KiB".into());
+            return Err(format!("{var} is larger than 4 KiB"));
         }
         if let Some(store) = store {
             let store_dir = store.parent().unwrap_or(store);
             let kp = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
             let sd = fs::canonicalize(store_dir).unwrap_or_else(|_| store_dir.to_path_buf());
             if kp.starts_with(&sd) {
-                return Err("HERMES_OFFHOST_HMAC_FILE must not live in the secondary store".into());
+                return Err(format!("{var} must not live in the secondary store"));
             }
         }
-        let raw = fs::read(path)
-            .map_err(|_| "HERMES_OFFHOST_HMAC_FILE is missing or unreadable".to_string())?;
-        Self::from_bytes(&raw)
+        let raw = fs::read(path).map_err(|_| unreadable())?;
+        Self::from_bytes(&raw).map_err(|e| e.replace("HERMES_OFFHOST_HMAC_FILE", var))
     }
 
     fn mac(&self, payload: &[u8]) -> [u8; 32] {
@@ -176,6 +183,69 @@ impl SealKey {
 /// True when `v` is a sealed envelope (used when no key is configured).
 pub fn is_sealed(v: &serde_json::Value) -> bool {
     v["kind"].as_str() == Some(SEALED_KIND)
+}
+
+/// Longest key-rotation window accepted (slot 340): 30 days.
+pub const MAX_ROTATION_WINDOW_S: i64 = 30 * 86_400;
+
+/// Previous key during a rotation window (slot 340). It only verifies, it
+/// never seals: every new snapshot is sealed with the current key, so the
+/// first heartbeat after a rotation re-seals the store. Snapshots sealed with
+/// the previous key are accepted until `until` (unix seconds) and refused
+/// after it.
+#[derive(Clone, Debug)]
+pub struct PrevKey {
+    pub key: SealKey,
+    pub until: i64,
+}
+
+/// Which key verified a snapshot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verified {
+    Current,
+    Previous,
+}
+
+/// Verify an envelope with the current key, or with the previous key while
+/// its window is open. The envelope's public `key_id` picks the key; the MAC
+/// decides. Errors are fixed strings plus public key ids and times only.
+pub fn open_rotating(
+    cur: &SealKey,
+    prev: Option<&PrevKey>,
+    env: &serde_json::Value,
+    now: i64,
+) -> Result<(serde_json::Value, Verified), String> {
+    if let Some(p) = prev {
+        if env["kind"].as_str() == Some(SEALED_KIND)
+            && env["key_id"].as_str() == Some(p.key.id.as_str())
+        {
+            if now > p.until {
+                return Err(format!(
+                    "snapshot was sealed with the previous key {} and its rotation window closed at {}",
+                    p.key.id,
+                    crate::time::zagreb_rfc3339(p.until)
+                ));
+            }
+            return p.key.open(env).map(|s| (s, Verified::Previous));
+        }
+    }
+    cur.open(env).map(|s| (s, Verified::Current))
+}
+
+/// Parse `HERMES_OFFHOST_HMAC_PREV_UNTIL`: Europe/Zagreb RFC 3339 with an
+/// explicit `+01:00` / `+02:00` (no `Z`), at most 30 days after `now`. A time
+/// already past is accepted (the window is simply closed).
+pub fn parse_window_end(raw: &str, now: i64) -> Result<i64, String> {
+    const BAD: &str = "HERMES_OFFHOST_HMAC_PREV_UNTIL must be RFC 3339 in Europe/Zagreb time with +01:00 or +02:00 (no Z), for example 2026-11-04T12:00:00+01:00";
+    galion_common::time::require_rfc3339(raw).map_err(|_| BAD.to_string())?;
+    let t = crate::time::parse_rfc3339(raw).ok_or_else(|| BAD.to_string())?;
+    if t > now + MAX_ROTATION_WINDOW_S {
+        return Err(
+            "HERMES_OFFHOST_HMAC_PREV_UNTIL is more than 30 days ahead; keep rotation windows short"
+                .into(),
+        );
+    }
+    Ok(t)
 }
 
 // ---------------------------------------------------------------- F2 ----
@@ -577,6 +647,109 @@ mod tests {
         let mut alg = env.clone();
         alg["alg"] = serde_json::json!("none");
         assert!(k.open(&alg).is_err());
+    }
+
+    #[test]
+    fn rotation_window_accepts_previous_key_until_it_closes() {
+        let old = SealKey::from_bytes(&[b'o'; 40]).unwrap();
+        let new = SealKey::from_bytes(&[b'n'; 40]).unwrap();
+        let snap = serde_json::json!({"written_at": "2026-10-28T02:30:00+01:00", "x": 1});
+        let by_old: serde_json::Value = serde_json::from_slice(&old.seal(&snap)).unwrap();
+        let by_new: serde_json::Value = serde_json::from_slice(&new.seal(&snap)).unwrap();
+        let until = 1_000;
+        let prev = PrevKey {
+            key: old.clone(),
+            until,
+        };
+        // No window: an old-key snapshot is refused (slot 314 behaviour).
+        assert!(open_rotating(&new, None, &by_old, 10)
+            .unwrap_err()
+            .contains("different key"));
+        // Window open: old and new both verify, and report which one.
+        let (s, v) = open_rotating(&new, Some(&prev), &by_old, until).unwrap();
+        assert_eq!((s["x"].as_i64(), v), (Some(1), Verified::Previous));
+        let (_, v) = open_rotating(&new, Some(&prev), &by_new, until).unwrap();
+        assert_eq!(v, Verified::Current);
+        // Window closed: old refused, new still fine.
+        let e = open_rotating(&new, Some(&prev), &by_old, until + 1).unwrap_err();
+        assert!(e.contains("rotation window closed at"), "{e}");
+        assert!(e.contains(&old.id) && !e.contains("oooo"), "{e}");
+        assert!(open_rotating(&new, Some(&prev), &by_new, until + 1).is_ok());
+        // Tampered old-key snapshot inside the window is still refused.
+        let mut t = by_old.clone();
+        t["payload"] = serde_json::json!(t["payload"].as_str().unwrap().replace("1", "2"));
+        assert!(open_rotating(&new, Some(&prev), &t, 10)
+            .unwrap_err()
+            .contains("MAC mismatch"));
+        // A third key is refused even inside the window.
+        let other = SealKey::from_bytes(&[b'z'; 40]).unwrap();
+        let by_other: serde_json::Value = serde_json::from_slice(&other.seal(&snap)).unwrap();
+        assert!(open_rotating(&new, Some(&prev), &by_other, 10)
+            .unwrap_err()
+            .contains("different key"));
+        // Forged key_id = old id but MAC made with a third key: refused.
+        let mut forged = by_other.clone();
+        forged["key_id"] = serde_json::json!(old.id);
+        assert!(open_rotating(&new, Some(&prev), &forged, 10)
+            .unwrap_err()
+            .contains("MAC mismatch"));
+        // The previous key never seals: seal output carries the new id.
+        let resealed: serde_json::Value = serde_json::from_slice(&new.seal(&s)).unwrap();
+        assert_eq!(resealed["key_id"], serde_json::json!(new.id));
+    }
+
+    #[test]
+    fn window_end_must_be_zagreb_and_short() {
+        let now = crate::time::parse_rfc3339("2026-10-28T02:30:00+01:00").unwrap();
+        assert_eq!(
+            parse_window_end("2026-10-29T02:30:00+01:00", now),
+            Ok(now + 86_400)
+        );
+        // Already past is fine (closed window).
+        assert!(parse_window_end("2026-10-27T02:30:00+01:00", now).is_ok());
+        for bad in [
+            "2026-10-29T01:30:00Z", // repo-check: allow (refused on purpose)
+            "2026-10-29T01:30:00+00:00",
+            "2026-10-29 tomorrow",
+            "1798000000",
+            "",
+        ] {
+            assert!(
+                parse_window_end(bad, now).unwrap_err().contains("Zagreb"),
+                "{bad}"
+            );
+        }
+        // 30 days is the limit.
+        assert!(parse_window_end("2026-11-27T02:30:00+01:00", now).is_ok());
+        assert!(parse_window_end("2026-11-27T02:30:01+01:00", now)
+            .unwrap_err()
+            .contains("30 days"));
+    }
+
+    #[test]
+    fn load_as_names_the_setting_and_accepts_a_0400_credential() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("hermes-guard-340-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let kf = dir.join("offhost-hmac");
+        fs::write(&kf, [b'c'; 48]).unwrap();
+        fs::set_permissions(&kf, fs::Permissions::from_mode(0o400)).unwrap();
+        assert!(SealKey::load_as(&kf, None, "HERMES_OFFHOST_HMAC_PREV_FILE").is_ok());
+        fs::set_permissions(&kf, fs::Permissions::from_mode(0o440)).unwrap();
+        let e = SealKey::load_as(&kf, None, "HERMES_OFFHOST_HMAC_PREV_FILE").unwrap_err();
+        assert!(
+            e.starts_with("HERMES_OFFHOST_HMAC_PREV_FILE must be mode 0600"),
+            "{e}"
+        );
+        fs::set_permissions(&kf, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::write(&kf, b"short").unwrap();
+        let e = SealKey::load_as(&kf, None, "HERMES_OFFHOST_HMAC_PREV_FILE").unwrap_err();
+        assert!(
+            e.starts_with("HERMES_OFFHOST_HMAC_PREV_FILE must hold"),
+            "{e}"
+        );
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

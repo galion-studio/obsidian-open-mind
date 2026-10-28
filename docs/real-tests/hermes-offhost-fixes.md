@@ -127,4 +127,6 @@ Over ssh, GET only:
 - D3 key provisioning and rotation: one key file on primary and standby, a
   place outside both the store and the repo, and a rotation step (today a
   key change makes old snapshots unreadable on purpose).
+  Slot 340 (`swarm/hermes-offhost-keyrot`): dual-key window + staged
+  `LoadCredential` drop-in + runbook `docs/ops/hermes-offhost-keyrot.md`.
 - D4 F3 remainder: raise the cap, or ship sessions-only when over cap.

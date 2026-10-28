@@ -150,6 +150,10 @@ pub struct OffhostCfg {
     /// F1: host-side HMAC key (`HERMES_OFFHOST_HMAC_FILE`). Required when a
     /// secondary store is set; every snapshot is sealed and verified with it.
     pub seal: Option<crate::offhost_guard::SealKey>,
+    /// Slot 340: previous key of a rotation window
+    /// (`HERMES_OFFHOST_HMAC_PREV_FILE` + `HERMES_OFFHOST_HMAC_PREV_UNTIL`).
+    /// Verify-only; never seals.
+    pub seal_prev: Option<crate::offhost_guard::PrevKey>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -218,7 +222,9 @@ pub struct ResumeReport {
     pub resume_policy: String,
     pub external_state_uri: Option<String>,
     pub written_at: Option<String>,
-    /// "hmac-sha256" when the snapshot seal verified, "unsigned-local" when
+    /// "hmac-sha256" when the snapshot seal verified with the current key,
+    /// "hmac-sha256+previous-key" inside a rotation window (slot 340),
+    /// "unsigned-local" when
     /// no key is set (local-only mode), "none" when nothing was applied.
     pub auth: String,
 }
@@ -438,6 +444,7 @@ impl OffhostCfg {
                     .into(),
             );
         }
+        let seal_prev = Self::load_prev(env, seal.as_ref(), external_path.as_deref())?;
         Ok(OffhostCfg {
             enabled,
             role,
@@ -459,6 +466,7 @@ impl OffhostCfg {
             host: cfg.host.clone(),
             port: cfg.port,
             seal,
+            seal_prev,
         })
     }
 
@@ -467,6 +475,66 @@ impl OffhostCfg {
             return Some(public_locator(u));
         }
         self.external_path.as_ref().map(|p| p.display().to_string())
+    }
+
+    /// Slot 340: the previous key of a rotation window. Both settings come
+    /// together, the current key must be set, and the two keys must differ.
+    fn load_prev(
+        env: &dyn Fn(&str) -> Option<String>,
+        cur: Option<&crate::offhost_guard::SealKey>,
+        store: Option<&Path>,
+    ) -> Result<Option<crate::offhost_guard::PrevKey>, String> {
+        let file = env_get(env, "HERMES_OFFHOST_HMAC_PREV_FILE");
+        let until = env_get(env, "HERMES_OFFHOST_HMAC_PREV_UNTIL");
+        let (file, until) = match (file, until) {
+            (None, None) => return Ok(None),
+            (Some(_), None) => {
+                return Err(
+                    "HERMES_OFFHOST_HMAC_PREV_UNTIL is required with HERMES_OFFHOST_HMAC_PREV_FILE (a rotation window must end)"
+                        .into(),
+                )
+            }
+            (None, Some(_)) => {
+                return Err(
+                    "HERMES_OFFHOST_HMAC_PREV_UNTIL is set but HERMES_OFFHOST_HMAC_PREV_FILE is not"
+                        .into(),
+                )
+            }
+            (Some(f), Some(u)) => (f, u),
+        };
+        let Some(cur) = cur else {
+            return Err(
+                "HERMES_OFFHOST_HMAC_PREV_FILE needs HERMES_OFFHOST_HMAC_FILE (the new key)".into(),
+            );
+        };
+        let until = crate::offhost_guard::parse_window_end(&until, crate::time::now_secs())?;
+        let key = crate::offhost_guard::SealKey::load_as(
+            Path::new(&file),
+            store,
+            "HERMES_OFFHOST_HMAC_PREV_FILE",
+        )?;
+        if key.id == cur.id {
+            return Err(
+                "HERMES_OFFHOST_HMAC_PREV_FILE holds the same key as HERMES_OFFHOST_HMAC_FILE"
+                    .into(),
+            );
+        }
+        Ok(Some(crate::offhost_guard::PrevKey { key, until }))
+    }
+
+    /// One-line key summary for `--check-config`: public key ids and the
+    /// window end only, never key bytes.
+    pub fn seal_summary(&self, now: i64) -> String {
+        let cur = self.seal.as_ref().map(|k| k.id.as_str()).unwrap_or("no");
+        match &self.seal_prev {
+            None => format!("sealed={cur} prev=no"),
+            Some(p) => format!(
+                "sealed={cur} prev={} prev_until={} prev_window={}",
+                p.key.id,
+                crate::time::zagreb_rfc3339(p.until),
+                if now > p.until { "closed" } else { "open" }
+            ),
+        }
     }
 
     pub fn beat_at(
@@ -565,24 +633,30 @@ impl OffhostCfg {
             }
         };
         // F1: verify the seal before anything is parsed further or written.
+        let mut verified = None;
         let snap = match (&self.seal, crate::offhost_guard::is_sealed(&doc)) {
-            (Some(k), _) => match k.open(&doc) {
-                Ok(s) => s,
-                Err(e) => {
-                    blockers.push(format!("{e}; local state was not overwritten"));
-                    if self.role == Role::Standby {
-                        let _ = self.write_survival(now, None, &mut blockers);
+            (Some(k), _) => {
+                match crate::offhost_guard::open_rotating(k, self.seal_prev.as_ref(), &doc, now) {
+                    Ok((s, v)) => {
+                        verified = Some(v);
+                        s
                     }
-                    return self.resume_report(
-                        false,
-                        &source,
-                        Vec::new(),
-                        Vec::new(),
-                        blockers,
-                        None,
-                    );
+                    Err(e) => {
+                        blockers.push(format!("{e}; local state was not overwritten"));
+                        if self.role == Role::Standby {
+                            let _ = self.write_survival(now, None, &mut blockers);
+                        }
+                        return self.resume_report(
+                            false,
+                            &source,
+                            Vec::new(),
+                            Vec::new(),
+                            blockers,
+                            None,
+                        );
+                    }
                 }
-            },
+            }
             (None, true) => {
                 blockers.push(
                     "snapshot is sealed but HERMES_OFFHOST_HMAC_FILE is not set; local state was not overwritten"
@@ -596,10 +670,14 @@ impl OffhostCfg {
         let mut report = self.apply_snapshot(&snap, now);
         report.source = source;
         report.loaded = true;
-        report.auth = if self.seal.is_some() {
-            crate::offhost_guard::ALG.into()
-        } else {
-            "unsigned-local".into()
+        report.auth = match verified {
+            Some(crate::offhost_guard::Verified::Current) => crate::offhost_guard::ALG.into(),
+            // Slot 340: accepted inside a rotation window; the next heartbeat
+            // re-seals the store with the current key.
+            Some(crate::offhost_guard::Verified::Previous) => {
+                format!("{}+previous-key", crate::offhost_guard::ALG)
+            }
+            None => "unsigned-local".into(),
         };
         report.written_at = written_at;
         report.blockers.splice(0..0, blockers);
@@ -2369,6 +2447,218 @@ mod tests {
             "{r:?}"
         );
         assert!(!tmp.0.join("cron/jobs.json").exists());
+    }
+
+    /// Slot 340: a second throwaway key file in its own dir.
+    fn key_file_b() -> (Tmp, String) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch();
+        let p = dir.join("offhost-new.key");
+        fs::write(&p, b"unit-test-offhost-hmac-key-NEW-fedcba9876543210\n").unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o600)).unwrap();
+        (Tmp(dir), p.display().to_string())
+    }
+
+    #[test]
+    fn keyrot_dual_key_window_restores_then_reseals() {
+        let (tmp, cfg) = home();
+        let ext = tmp.0.join("ext").join("continuity.json");
+        fs::create_dir_all(tmp.0.join("cron")).unwrap();
+        fs::write(tmp.0.join("cron/jobs.json"), r#"{"jobs":[{"id":"good"}]}"#).unwrap();
+        let (_ka, ka) = key_file();
+        let (_kb, kb) = key_file_b();
+        let ext_s = ext.display().to_string();
+        let open_until = crate::time::zagreb_rfc3339(crate::time::now_secs() + 3600);
+        // 1) Old primary (key A) seals the store.
+        let old = OffhostCfg::load(&cfg, &|k| match k {
+            "HERMES_OFFHOST" => Some("1".into()),
+            "HERMES_OFFHOST_PATH" => Some(ext_s.clone()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(ka.clone()),
+            _ => None,
+        })
+        .unwrap();
+        assert!(old.seal_prev.is_none());
+        assert!(old.seal_summary(now()).ends_with("prev=no"));
+        assert!(old.beat_at(now(), |_u, _b| panic!("no uri")).sealed);
+        let id_a = old.seal.as_ref().unwrap().id.clone();
+        // 2) New key B alone (no window): refused, local state untouched.
+        let b_only = OffhostCfg::load(&cfg, &|k| match k {
+            "HERMES_OFFHOST" => Some("1".into()),
+            "HERMES_OFFHOST_PATH" => Some(ext_s.clone()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(kb.clone()),
+            _ => None,
+        })
+        .unwrap();
+        fs::remove_file(tmp.0.join("cron/jobs.json")).unwrap();
+        let r = b_only.resume_at(now() + 10, |_u| panic!("no"));
+        assert!(!r.loaded && r.blockers.iter().any(|b| b.contains("different key")));
+        assert!(!tmp.0.join("cron/jobs.json").exists());
+        // 3) B current + A previous, window open: restores, auth says so.
+        let win = OffhostCfg::load(&cfg, &|k| match k {
+            "HERMES_OFFHOST" => Some("1".into()),
+            "HERMES_OFFHOST_PATH" => Some(ext_s.clone()),
+            "HERMES_OFFHOST_HMAC_FILE" => Some(kb.clone()),
+            "HERMES_OFFHOST_HMAC_PREV_FILE" => Some(ka.clone()),
+            "HERMES_OFFHOST_HMAC_PREV_UNTIL" => Some(open_until.clone()),
+            _ => None,
+        })
+        .unwrap();
+        let s = win.seal_summary(now());
+        assert!(
+            s.contains(&format!("prev={id_a}")) && s.ends_with("prev_window=open"),
+            "{s}"
+        );
+        let r = win.resume_at(now() + 20, |_u| panic!("no"));
+        assert!(r.loaded, "{r:?}");
+        assert_eq!(r.auth, "hmac-sha256+previous-key");
+        assert!(r.restored.iter().any(|x| x == "cron_jobs"), "{r:?}");
+        // 4) Next heartbeat re-seals the store with B.
+        assert!(win.beat_at(now() + 30, |_u, _b| panic!("no uri")).sealed);
+        let doc: Value = serde_json::from_slice(&fs::read(&ext).unwrap()).unwrap();
+        assert_eq!(doc["key_id"], json!(win.seal.as_ref().unwrap().id));
+        // 5) After the window, B alone reads it; A alone no longer does.
+        fs::remove_file(tmp.0.join("cron/jobs.json")).unwrap();
+        let r = b_only.resume_at(now() + 40, |_u| panic!("no"));
+        assert_eq!((r.loaded, r.auth.as_str()), (true, "hmac-sha256"), "{r:?}");
+        fs::remove_file(tmp.0.join("cron/jobs.json")).unwrap();
+        let r = old.resume_at(now() + 50, |_u| panic!("no"));
+        assert!(!r.loaded && r.blockers.iter().any(|b| b.contains("different key")));
+    }
+
+    #[test]
+    fn keyrot_closed_window_and_bad_settings_are_refused() {
+        let (tmp, cfg) = home();
+        let ext = tmp.0.join("ext").join("continuity.json");
+        fs::create_dir_all(tmp.0.join("cron")).unwrap();
+        fs::write(tmp.0.join("cron/jobs.json"), r#"{"jobs":[{"id":"good"}]}"#).unwrap();
+        let (_ka, ka) = key_file();
+        let (_kb, kb) = key_file_b();
+        let ext_s = ext.display().to_string();
+        let t = |d: i64| crate::time::zagreb_rfc3339(crate::time::now_secs() + d);
+        let load = |pairs: Vec<(&'static str, String)>| {
+            OffhostCfg::load(&cfg, &move |k: &str| {
+                pairs.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone())
+            })
+        };
+        let base = || {
+            vec![
+                ("HERMES_OFFHOST", "1".to_string()),
+                ("HERMES_OFFHOST_PATH", ext_s.clone()),
+            ]
+        };
+        let with = |extra: Vec<(&'static str, String)>| {
+            let mut v = base();
+            v.extend(extra);
+            v
+        };
+        // Seal with A.
+        let a = load(with(vec![("HERMES_OFFHOST_HMAC_FILE", ka.clone())])).unwrap();
+        a.beat_at(now(), |_u, _b| panic!("no uri"));
+        // Window already closed: config loads, check-config says closed,
+        // resume refuses the A snapshot and leaves local state alone.
+        let closed = load(with(vec![
+            ("HERMES_OFFHOST_HMAC_FILE", kb.clone()),
+            ("HERMES_OFFHOST_HMAC_PREV_FILE", ka.clone()),
+            ("HERMES_OFFHOST_HMAC_PREV_UNTIL", t(-60)),
+        ]))
+        .unwrap();
+        assert!(closed
+            .seal_summary(crate::time::now_secs())
+            .ends_with("prev_window=closed"));
+        fs::remove_file(tmp.0.join("cron/jobs.json")).unwrap();
+        let r = closed.resume_at(crate::time::now_secs(), |_u| panic!("no"));
+        assert!(!r.loaded);
+        assert!(
+            r.blockers
+                .iter()
+                .any(|b| b.contains("rotation window closed")),
+            "{r:?}"
+        );
+        assert!(!tmp.0.join("cron/jobs.json").exists());
+        // Bad settings: each one is a config error (exit 2 in the binary).
+        let cases: Vec<(Vec<(&'static str, String)>, &str)> = vec![
+            (
+                vec![
+                    ("HERMES_OFFHOST_HMAC_FILE", kb.clone()),
+                    ("HERMES_OFFHOST_HMAC_PREV_FILE", ka.clone()),
+                ],
+                "PREV_UNTIL is required",
+            ),
+            (
+                vec![
+                    ("HERMES_OFFHOST_HMAC_FILE", kb.clone()),
+                    ("HERMES_OFFHOST_HMAC_PREV_UNTIL", t(3600)),
+                ],
+                "PREV_FILE is not",
+            ),
+            (
+                vec![
+                    ("HERMES_OFFHOST_HMAC_PREV_FILE", ka.clone()),
+                    ("HERMES_OFFHOST_HMAC_PREV_UNTIL", t(3600)),
+                ],
+                "HERMES_OFFHOST_HMAC_FILE is required",
+            ),
+            (
+                vec![
+                    ("HERMES_OFFHOST_HMAC_FILE", kb.clone()),
+                    ("HERMES_OFFHOST_HMAC_PREV_FILE", kb.clone()),
+                    ("HERMES_OFFHOST_HMAC_PREV_UNTIL", t(3600)),
+                ],
+                "same key",
+            ),
+            (
+                vec![
+                    ("HERMES_OFFHOST_HMAC_FILE", kb.clone()),
+                    ("HERMES_OFFHOST_HMAC_PREV_FILE", ka.clone()),
+                    ("HERMES_OFFHOST_HMAC_PREV_UNTIL", t(31 * 86_400)),
+                ],
+                "30 days",
+            ),
+            (
+                vec![
+                    ("HERMES_OFFHOST_HMAC_FILE", kb.clone()),
+                    ("HERMES_OFFHOST_HMAC_PREV_FILE", ka.clone()),
+                    (
+                        "HERMES_OFFHOST_HMAC_PREV_UNTIL",
+                        crate::time::utc_rfc3339(crate::time::now_secs() + 3600),
+                    ),
+                ],
+                "Zagreb",
+            ),
+            (
+                vec![
+                    ("HERMES_OFFHOST_HMAC_FILE", kb.clone()),
+                    (
+                        "HERMES_OFFHOST_HMAC_PREV_FILE",
+                        tmp.0.join("missing.key").display().to_string(),
+                    ),
+                    ("HERMES_OFFHOST_HMAC_PREV_UNTIL", t(3600)),
+                ],
+                "HERMES_OFFHOST_HMAC_PREV_FILE is missing",
+            ),
+        ];
+        for (extra, want) in cases {
+            let e = load(with(extra.clone())).err().expect("config error");
+            assert!(e.contains(want), "{extra:?}: {e}");
+            assert!(!e.contains("unit-test-offhost"), "key bytes in error: {e}");
+        }
+        // Previous key inside the store is refused like the current one.
+        let inside = ext.parent().unwrap().join("old.key");
+        fs::copy(&ka, &inside).unwrap();
+        let e = load(with(vec![
+            ("HERMES_OFFHOST_HMAC_FILE", kb.clone()),
+            (
+                "HERMES_OFFHOST_HMAC_PREV_FILE",
+                inside.display().to_string(),
+            ),
+            ("HERMES_OFFHOST_HMAC_PREV_UNTIL", t(3600)),
+        ]))
+        .err()
+        .expect("config error");
+        assert!(
+            e.contains("PREV_FILE must not live in the secondary store"),
+            "{e}"
+        );
     }
 
     #[test]

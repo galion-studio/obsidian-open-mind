@@ -71,6 +71,11 @@ See `deploy/survival/skills/galion/survival/SKILL.md`. Short form:
   resume refuses any snapshot that is tampered, unsigned or sealed with
   another key; local state is then left alone. Primary and standby need the
   same key. `--check-config` prints `sealed=<key id>`, never the key.
+- `HERMES_OFFHOST_HMAC_PREV_FILE` + `HERMES_OFFHOST_HMAC_PREV_UNTIL` (slot
+  340) open a key-rotation window: the old key verifies only, until the
+  given Europe/Zagreb time (at most 30 days ahead); new snapshots are always
+  sealed with the current key. Runbook and staged systemd credential drop-in:
+  `docs/ops/hermes-offhost-keyrot.md`.
   Session text, spend and the SQLite DB are redacted with the strict secret
   filter before they leave the host (slot 314).
 - `HERMES_OFFHOST_TOKEN` is read at call time and passed to curl on stdin.

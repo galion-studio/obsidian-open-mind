@@ -482,12 +482,7 @@ impl Cortex {
     /// the reservation when the nerve says the restart did not run.
     pub fn plan(&mut self, evs: Vec<Event>, now: u64) -> Vec<Pending> {
         self.stats.events_invalid += self.snap.take_invalid();
-        if self.cfg.escalation_max_age_s > 0 {
-            let n = self
-                .escalations
-                .expire(now, self.cfg.escalation_max_age_s, &ts(now));
-            self.stats.escalations_closed_expired += n as u64;
-        }
+        self.expire_escalations(now);
         let evs = self.admit(evs);
         if evs.is_empty() {
             return vec![];
@@ -721,6 +716,20 @@ impl Cortex {
             }
         }
         out
+    }
+
+    /// Close open escalations older than `escalation_max_age_s` (slot 417).
+    /// Runs at the start of every burst and, while a max age is set, on the
+    /// decider's idle sweep ([`escalation_sweep_every`]). Returns how many.
+    pub fn expire_escalations(&mut self, now: u64) -> usize {
+        if self.cfg.escalation_max_age_s == 0 {
+            return 0;
+        }
+        let n = self
+            .escalations
+            .expire(now, self.cfg.escalation_max_age_s, &ts(now));
+        self.stats.escalations_closed_expired += n as u64;
+        n
     }
 
     fn note_resolved(&mut self, id: String, why: &'static str, now: u64) {
@@ -1264,6 +1273,12 @@ fn lock(cx: &Mutex<Cortex>) -> std::sync::MutexGuard<'_, Cortex> {
 /// posts go to a [`Courier`] thread; action requests stay on this thread
 /// (their answer decides the escalation and the cap) behind the per-batch
 /// breaker of [`call_actions`].
+/// Idle sweep period for `escalation_max_age_s` (slot 417): a quarter of
+/// the age, 5 s .. 15 min. `None` (no max age) = no idle wake-ups at all.
+pub fn escalation_sweep_every(max_age_s: u64) -> Option<Duration> {
+    (max_age_s > 0).then(|| Duration::from_secs((max_age_s / 4).clamp(5, 900)))
+}
+
 pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: Duration) {
     let (mut link, snap, counters) = {
         let mut g = lock(&cx);
@@ -1273,7 +1288,26 @@ pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: D
     let courier = link
         .fork()
         .map(|l| Courier::spawn(l, counters.clone(), COURIER_CAP));
-    while let Ok(first) = rx.recv() {
+    let sweep = escalation_sweep_every(lock(&cx).cfg.escalation_max_age_s);
+    loop {
+        let first = match sweep {
+            None => match rx.recv() {
+                Ok(v) => v,
+                Err(_) => break,
+            },
+            Some(every) => match rx.recv_timeout(every) {
+                Ok(v) => v,
+                Err(RecvTimeoutError::Timeout) => {
+                    // idle: no burst for `every`, still age out escalations
+                    let mut g = lock(&cx);
+                    if g.expire_escalations(now_secs()) > 0 {
+                        g.publish();
+                    }
+                    continue;
+                }
+                Err(RecvTimeoutError::Disconnected) => break,
+            },
+        };
         let mut burst = first;
         let deadline = Instant::now() + coalesce;
         loop {

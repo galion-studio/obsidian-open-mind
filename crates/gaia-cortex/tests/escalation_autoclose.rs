@@ -129,8 +129,14 @@ fn max_age_closes_stuck_items_on_the_next_burst() {
     // the first burst after 1 h: both close as expired, incidents stay open
     cx.process(vec![ev("proc.exit", "info", json!({"comm": "y"}))], 4_700);
     assert!(open(&cx).is_empty(), "{:?}", open(&cx));
-    assert_eq!(cx.stats_json()["escalations_closed_expired"].as_u64(), Some(n as u64));
-    assert_eq!(cx.escalations_json()["closed_recent"][0]["closed_why"], "expired");
+    assert_eq!(
+        cx.stats_json()["escalations_closed_expired"].as_u64(),
+        Some(n as u64)
+    );
+    assert_eq!(
+        cx.escalations_json()["closed_recent"][0]["closed_why"],
+        "expired"
+    );
     assert!(
         !cx.incidents_json()["open"].as_array().unwrap().is_empty(),
         "age expiry does not touch incidents"
@@ -149,4 +155,32 @@ fn ack_still_closes_and_is_not_counted_as_auto() {
     assert_eq!(cx.escalations_json()["closed_total"], 0);
     assert_eq!(log_lines(&d, "ack"), 1);
     let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
+fn idle_sweep_period_and_expiry_without_a_burst() {
+    use gaia_cortex::engine::escalation_sweep_every;
+    use std::time::Duration;
+    assert_eq!(
+        escalation_sweep_every(0),
+        None,
+        "no max age: no idle wake-up"
+    );
+    assert_eq!(escalation_sweep_every(8), Some(Duration::from_secs(5)));
+    assert_eq!(escalation_sweep_every(90), Some(Duration::from_secs(22)));
+    assert_eq!(
+        escalation_sweep_every(86_400),
+        Some(Duration::from_secs(900))
+    );
+    let (mut cx, d) = cortex(false, 100);
+    two_failures(&mut cx);
+    let n = open(&cx).len();
+    assert_eq!(cx.expire_escalations(1_050), 0);
+    assert_eq!(cx.expire_escalations(1_200), n, "the decider's idle sweep");
+    assert!(open(&cx).is_empty());
+    let (mut cx0, d0) = cortex(true, 0);
+    two_failures(&mut cx0);
+    assert_eq!(cx0.expire_escalations(u64::MAX / 2), 0, "0 = never");
+    let _ = std::fs::remove_dir_all(&d);
+    let _ = std::fs::remove_dir_all(&d0);
 }

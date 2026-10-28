@@ -1,0 +1,29 @@
+{
+  "slot": 357,
+  "what": "cortex + nerve deploy pair (D-341-1 + D-333-1); staged only, not installed",
+  "size_budget_bytes": 2097152,
+  "candidate": {
+    "cortex": {"commit": "58a12e61", "branch": "swarm/cortex-live-merge-4", "features": "llm-advisor",
+               "artifact": "gaia-cortex-58a12e6-llm-x86_64-musl", "install_as": "/opt/galion/rust/bin/gaia-cortex-58a12e6-llm",
+               "sha256": "7ca6512b1ecb1d66eea6446498c92812796fd2d98374a6b5c24ce2e00edd49a2", "size": 1147680,
+               "markers": ["R5b-planned-stop", "key has unusable characters"],
+               "dropin": "gaia-cortex.service.d/91-pair-58a12e6.conf"},
+    "nerve": {"commit": "9baa450c", "branch": "swarm/nerve-merge-6", "features": "",
+              "artifact": "openmind-nerve-9baa450-x86_64-musl", "install_as": "/opt/galion/rust/bin/openmind-nerve-9baa450",
+              "sha256": "8c9d7a5fa4f84d6d56d6185dfd5b71171c8ba5b17bf49c0bde7fb5503f6593da", "size": 1479456,
+              "markers": ["unit.planned_stop", "deep route"],
+              "dropin": "galion-nerve.service.d/91-pair-9baa450.conf"},
+    "components": {"file": "components-live.json", "install_as": "/etc/galion-nerve/components-live.json",
+                   "sha256": "283db8c3aa7b816321dc26ef55a762e300b118ca39695af8e8e968ef09d68df4"}
+  },
+  "rollback": {
+    "cortex": {"commit": "73583abf", "artifact": "gaia-cortex-73583ab-llm-x86_64-musl", "installed_as": "/opt/galion/rust/bin/gaia-cortex-73583ab-llm",
+               "sha256": "3cdab111cfb0034b4e430881968209befb8515105c497117e4dde34765b66af5", "size": 1136200,
+               "markers": ["key has unusable characters"], "dropin": "gaia-cortex.service.d/90-deploy-t273u.conf"},
+    "nerve": {"commit": "9d1a4f3", "artifact": "openmind-nerve-9d1a4f3-x86_64-musl", "installed_as": "/opt/galion/rust/bin/openmind-nerve-9d1a4f3",
+              "sha256": "d0c70b879e5866bb105707d881686757b5732168da2c016f791316ec3f521d45", "size": 1458760,
+              "markers": [], "dropin": "galion-nerve.service.d/90-deploy-t273u.conf"},
+    "components": {"installed_as": "/etc/galion-nerve/components-live.json",
+                   "sha256": "dc3434937fbdbb996c00b85dc4a93fd43c3e8ec0bc5c5693f7d0b11ece3ee05c", "size": 2669}
+  }
+}

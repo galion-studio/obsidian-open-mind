@@ -184,7 +184,7 @@ fn start(bind: &str, roots: &Roots, extra: &[String]) -> Kill {
         .arg("--survival-file")
         .arg(roots.file())
         .args(extra)
-        .env("OPENROUTER_API_KEY", "sk-decoy-must-not-reach-writer")
+        .env("OPENROUTER_API_KEY", "decoy-389-not-a-key")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
@@ -248,7 +248,7 @@ fn check_written(file: &Path) {
         text.contains("no OPENROUTER_API_KEY"),
         "decoy key leaked to writer"
     );
-    assert!(!text.contains("sk-decoy"));
+    assert!(!text.contains("decoy-389-not-a-key"));
     assert!(
         text.contains("zai-org/GLM-5.3-Flash"),
         "lane from modes.json"

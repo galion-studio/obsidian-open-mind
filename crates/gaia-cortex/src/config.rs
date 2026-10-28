@@ -42,6 +42,14 @@ pub struct Config {
     /// `stale` after this many seconds without an event of their own.
     /// 0 (default) = never: they wait for their own signal.
     pub incident_sticky_max_s: u64,
+    /// Wave-4 slot 417: close an open escalation (`GET /escalations`) when
+    /// the cortex incident it belongs to resolves (cleared / expired / stale
+    /// / quiet). Default false = only `POST /escalations/ack` closes one.
+    pub escalation_autoclose: bool,
+    /// Close an open escalation this many seconds after it opened, whatever
+    /// its incident does (covers `info:` subjects with no incident and
+    /// incidents that never resolve). 0 (default) = never.
+    pub escalation_max_age_s: u64,
     /// Cortex-side restart cap per unit per hour. Default 2 = the nerve
     /// executor cap; the nerve applies its cap only to executed restarts,
     /// so this is what bounds a dry-run (simulated) restart loop.
@@ -91,6 +99,8 @@ impl Default for Config {
             repeat_poll_s: 30,
             incident_quiet_s: 1800,
             incident_sticky_max_s: 0,
+            escalation_autoclose: false,
+            escalation_max_age_s: 0,
             flap_failures: 3,
             flap_window_s: 900,
             circuit_open_s: 3600,
@@ -231,6 +241,12 @@ impl Config {
         }
         if let Some(v) = get("CORTEX_INCIDENT_STICKY_MAX_S").and_then(|v| v.parse().ok()) {
             c.incident_sticky_max_s = v;
+        }
+        if let Some(v) = get("CORTEX_ESCALATION_AUTOCLOSE") {
+            c.escalation_autoclose = v == "1" || v == "true";
+        }
+        if let Some(v) = get("CORTEX_ESCALATION_MAX_AGE_S").and_then(|v| v.parse().ok()) {
+            c.escalation_max_age_s = v;
         }
         if let Some(v) = get("CORTEX_NERVE_STREAM") {
             c.nerve_stream = v != "0" && v != "false";
@@ -383,6 +399,30 @@ mod tests {
         .unwrap();
         assert_eq!(c.listen, "127.0.0.1:20791");
         assert!(!c.dry_run());
+    }
+
+    #[test]
+    fn escalation_autoclose_env_and_json_default_off() {
+        let c = Config::load(None, &env(&[])).unwrap();
+        assert!(!c.escalation_autoclose, "default: ack only");
+        assert_eq!(c.escalation_max_age_s, 0, "default: never by age");
+        let c = Config::load(
+            None,
+            &env(&[
+                ("CORTEX_ESCALATION_AUTOCLOSE", "1"),
+                ("CORTEX_ESCALATION_MAX_AGE_S", "86400"),
+            ]),
+        )
+        .unwrap();
+        assert!(c.escalation_autoclose);
+        assert_eq!(c.escalation_max_age_s, 86_400);
+        let c = Config::load(None, &env(&[("CORTEX_ESCALATION_MAX_AGE_S", "x")])).unwrap();
+        assert_eq!(c.escalation_max_age_s, 0, "unparsable = unchanged");
+        let c: Config =
+            serde_json::from_str(r#"{"escalation_autoclose":true,"escalation_max_age_s":60}"#)
+                .unwrap();
+        assert!(c.escalation_autoclose);
+        assert_eq!(c.escalation_max_age_s, 60);
     }
 
     #[test]

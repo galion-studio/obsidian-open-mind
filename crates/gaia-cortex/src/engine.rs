@@ -133,6 +133,10 @@ pub struct Stats {
     pub incidents_resolved_stale: u64,
     pub alerts: u64,
     pub escalations: u64,
+    /// Open escalations closed because their incident resolved (slot 417,
+    /// `escalation_autoclose`) / because they reached `escalation_max_age_s`.
+    pub escalations_closed_incident: u64,
+    pub escalations_closed_expired: u64,
     pub handoffs: u64,
     pub handoffs_duplicate: u64,
     pub handoffs_rate_limited: u64,
@@ -478,6 +482,12 @@ impl Cortex {
     /// the reservation when the nerve says the restart did not run.
     pub fn plan(&mut self, evs: Vec<Event>, now: u64) -> Vec<Pending> {
         self.stats.events_invalid += self.snap.take_invalid();
+        if self.cfg.escalation_max_age_s > 0 {
+            let n = self
+                .escalations
+                .expire(now, self.cfg.escalation_max_age_s, &ts(now));
+            self.stats.escalations_closed_expired += n as u64;
+        }
         let evs = self.admit(evs);
         if evs.is_empty() {
             return vec![];
@@ -662,7 +672,7 @@ impl Cortex {
             .map(|i| i.id.clone())
             .collect();
         for id in quiet_ids {
-            self.note_resolved(id, "quiet");
+            self.note_resolved(id, "quiet", now);
         }
         // Resolve the incidents whose own subjects all cleared / expired now.
         let mut done: Vec<(String, &'static str)> = vec![];
@@ -687,7 +697,7 @@ impl Cortex {
                     "stale" => self.stats.incidents_resolved_stale += 1,
                     _ => self.stats.incidents_resolved_expired += 1,
                 }
-                self.note_resolved(id, why);
+                self.note_resolved(id, why, now);
             }
         }
         let mut out = vec![];
@@ -713,7 +723,13 @@ impl Cortex {
         out
     }
 
-    fn note_resolved(&mut self, id: String, why: &'static str) {
+    fn note_resolved(&mut self, id: String, why: &'static str, now: u64) {
+        if self.cfg.escalation_autoclose {
+            let n = self
+                .escalations
+                .close_incident(&id, &format!("incident-{why}"), &ts(now));
+            self.stats.escalations_closed_incident += n as u64;
+        }
         self.resolved_by.push_back((id, why));
         while self.resolved_by.len() > KEEP_RESOLVED * 2 {
             self.resolved_by.pop_front();
@@ -950,7 +966,7 @@ impl Cortex {
             event,
             alert: false,
         });
-        self.escalations.push(e);
+        self.escalations.push_at(e, now);
     }
 
     /// Hand an escalation to the Hermes boss inbox (once per incident, capped).
@@ -1016,6 +1032,7 @@ impl Cortex {
             "repeat_watch": self.repeats.as_ref().map(|w| w.to_json(self.cfg.repeat_poll_s)),
             "alerts": s.alerts, "alerts_to_nerve": self.posts.alerts_ok(), "nerve_posts": self.posts.json(), "escalations": s.escalations,
             "escalations_open": self.escalations.open.len(),
+            "escalations_closed_incident": s.escalations_closed_incident, "escalations_closed_expired": s.escalations_closed_expired,
         });
         let more = json!({
             "nerve_incidents_known": self.nerve_incs.len(), "nerve_incidents_backfilled": s.nerve_incidents_backfilled,
@@ -1077,7 +1094,9 @@ impl Cortex {
     }
 
     pub fn escalations_json(&self) -> Value {
-        json!({"open": self.escalations.open, "total": self.escalations.log.total})
+        let closed: Vec<&Value> = self.escalations.closed.iter().rev().take(20).collect();
+        json!({"open": self.escalations.open, "total": self.escalations.log.total,
+               "closed_total": self.escalations.closed_total, "closed_recent": closed})
     }
 
     /// Publish the API read snapshot (after every batch and every API

@@ -10,7 +10,8 @@
 # SELF_CHECK_FULL=1 also runs:
 #   cargo fmt --all -- --check
 #   nice -n 19 cargo clippy -j 2 --workspace --all-targets -- -D warnings
-#   nice -n 19 cargo test -j 2 --workspace
+#   nice -n 19 cargo run -p xtask -- test -- -j 2 (cargo test --workspace
+#     minus the sandbox crates where unsupported; docs/dev/test-recipe.md)
 #   SPDX MIT header scan on crates/**/*.rs
 #   scripts/size-budget.sh (nice -n 19 cargo build -j 2 --release)
 #
@@ -167,7 +168,9 @@ if [ "$mode" = full ]; then
     fail=1
   fi
   printf "self-check: cargo test\n"
-  if ! nice -n 19 cargo test -j 2 --workspace; then
+  # Default test recipe (crates/xtask): leaves the sandbox crates out where
+  # the host lacks their kernel features or is sandbox-VPS-only.
+  if ! nice -n 19 cargo run -q -j 2 -p xtask -- test -- -j 2; then
     printf "self-check: test fail\n"
     fail=1
   fi

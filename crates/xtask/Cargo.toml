@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Workspace recipes (cargo xtask test). The default test recipe leaves the sandbox crates out where the host lacks their kernel features or forbids sandbox runs. std only."
+
+[dependencies]

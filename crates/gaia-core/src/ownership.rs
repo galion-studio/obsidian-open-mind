@@ -166,6 +166,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("room", S(System::Room), "read-only page of the operator files agents share"),
     c("tuner", S(System::Tuner), "ukulele tuner static server (:8650)"),
     c("tunnel-lint", S(System::Nerve), "pending Slavik: read-only cloudflared ingress lint (tunnel-audit d35ef73), used by the nerve ingress-lint sensor"),
+    c("xtask", S(System::RepoCheck), "pending Slavik: workspace recipes; cargo xtask test is the default test recipe that leaves the sandbox crates out where unsupported (wave-4 slot 335, D-320-2); alternative cargo-build/HEPHAESTUS"),
     c("zagreb-time", S(System::ZagrebClock), "Europe/Zagreb RFC 3339 with explicit offset (was GAIA)"),
 ];
 
@@ -349,9 +350,10 @@ mod tests {
         // tunnel-lint from tunnel-audit (main-staging 2026-10-21).
         // console-static, console-ui from the console pair (main-staging 2026-10-21).
         // galion-tar from shared-tar-crate via shared-tar-mergefix (wave-4 slot 242).
+        // xtask, the workspace test recipe (wave-4 slot 335).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            56
+            57
         );
     }
 
@@ -399,7 +401,8 @@ mod tests {
                 "hermes-bench",
                 "hermes-tools",
                 "openmind-queue",
-                "tunnel-lint"
+                "tunnel-lint",
+                "xtask"
             ]
         );
         assert!(crate_owner("gaia-live")

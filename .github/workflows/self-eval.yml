@@ -77,7 +77,12 @@ jobs:
           if [ -e /proc/sys/kernel/unprivileged_userns_clone ]; then
             sudo sysctl -w kernel.unprivileged_userns_clone=1
           fi
-      - run: cargo test --workspace --locked
+      # Default test recipe (crates/xtask, D-320-2). require = fail instead of
+      # silently dropping openmind-sandbox / hermes-tools / cgroup-detect if
+      # the runner loses Landlock, userns or cgroup2. The probe line in the log
+      # shows what the runner has. docs/dev/test-recipe.md.
+      - run: cargo run --locked --quiet -p xtask -- probe
+      - run: cargo run --locked --quiet -p xtask -- test --sandbox=require -- --locked
 
   omnode:
     name: omnode (edge/openmind-node, own workspace)

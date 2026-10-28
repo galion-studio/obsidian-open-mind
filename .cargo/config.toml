@@ -46,3 +46,9 @@ linker = "rust-lld"
 
 [target.armv7-unknown-linux-musleabihf]
 linker = "rust-lld"
+
+# `cargo xtask test` = the default workspace test recipe (slot 335, D-320-2):
+# leaves openmind-sandbox / hermes-tools / cgroup-detect out where the host
+# lacks their kernel features or is sandbox-VPS-only. docs/dev/test-recipe.md.
+[alias]
+xtask = "run --quiet -p xtask --"

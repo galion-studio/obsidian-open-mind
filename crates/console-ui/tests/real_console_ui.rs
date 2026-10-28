@@ -35,6 +35,7 @@ use console_ui::client::{self, Forward};
 use console_ui::html::esc;
 use console_ui::json::{self, Value};
 use console_ui::{pages, rooms, PORTED};
+use galion_realtest::console_routes as routes;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -91,14 +92,28 @@ fn page(front: SocketAddr, path: &str, host: &str) -> (u16, String) {
     (c, String::from_utf8_lossy(&b).into_owned())
 }
 
-fn api(up: SocketAddr, path: &str) -> Value {
+/// Live JSON read; `None` when `console_routes::decide` says the Node-era
+/// route is gone on live (option A) or retired (option B).
+fn api(up: SocketAddr, path: &str) -> Option<Value> {
     assert!(
         !path.contains("markers/stream") && !path.contains("/ping"),
         "{path}"
     );
     let (c, b, _) = get(up, path, "127.0.0.1").unwrap_or_else(|| panic!("live GET {path}"));
+    if routes::decide(path, c) == routes::Live::Gone {
+        return None;
+    }
     assert_eq!(c, 200, "live {path}");
-    json::parse(&b).unwrap_or_else(|e| panic!("live {path}: {e:?}"))
+    Some(json::parse(&b).unwrap_or_else(|e| panic!("live {path}: {e:?}")))
+}
+
+/// A room whose live read is gone must say so, not show data.
+fn gone_room(html: &str, p: &str) {
+    assert!(
+        routes::page_says_unavailable(html),
+        "{p}: read gone on live but the room does not say so"
+    );
+    eprintln!("real: {p}: live read gone -> room states the miss");
 }
 
 fn answers(a: SocketAddr) -> bool {
@@ -262,9 +277,24 @@ fn rust_pages_match_live_api() {
             body.len(),
             t.as_secs_f64()
         );
-        assert_eq!(code, 200, "{p}");
+        if p.starts_with("/md/") && code == 404 {
+            // File rooms: this front gets no --user-md/--memory-root, so 404
+            // "not configured" is the designed answer (live :8080 answers the
+            // same, route map row `/md/user`).
+            assert!(html.contains("not configured"), "{p}: 404 without the note");
+        } else {
+            assert_eq!(code, 200, "{p}");
+        }
         assert_eq!(scripts, 0, "{p}");
-        assert!(!html.contains("did not load"), "{p}: an API read failed");
+        if html.contains("did not load") {
+            // Allowed only while a board read is gone on live (option A) or
+            // retired (B); `routes::decide` below checks each read.
+            assert!(
+                routes::mode() != routes::Mode::Node,
+                "{p}: an API read failed"
+            );
+            eprintln!("real: {p}: states a read that did not load (Node-era route gone on live)");
+        }
         assert!(!html.contains("Not in Rust yet"), "{p}");
         htmls.push((*p, html));
     }
@@ -297,229 +327,286 @@ fn rust_pages_match_live_api() {
         not_ported.join(" ")
     );
 
-    // 4c. Live comparison, page by page (same minute, GET only).
-    let health = api(up, "/api/v1/health");
+    // 4c. Live comparison, page by page (same minute, GET only). Slot 384
+    // (D-375-1): each read goes through `console_routes::decide`; a read that
+    // is gone on the live Rust console (option A) or retired (option B) is
+    // skipped and its room must state the miss (checked in 4a).
+    let health = api(up, "/api/v1/health").expect("live Rust console /api/v1/health");
     let services_v = api(up, "/api/v1/services");
-    let services = pages::services_of(&services_v);
     let domains = api(up, "/api/v1/domains");
-    let pulses = pages::pulses_of(&api(pulse, "/api/v1/awake"));
-    assert!(!services.is_empty());
+    let pulses = pages::pulses_of(&api(pulse, "/api/v1/awake").unwrap_or(Value::Null));
+    let version = s(&health, "version").to_string();
 
-    let h = html_of("/status");
-    let c = pages::status::counts(&services, &pulses);
-    let line = format!("{} subsystems online · {} held", c.online, c.held);
-    assert!(h.contains(&line), "status counts {line}");
-    let healthy = s(&health, "status") == "healthy";
-    assert!(h.contains(if healthy {
-        "Light stack is up."
-    } else {
-        "Origins are dark."
-    }));
-    for d in domains.get("items").as_array() {
-        has(&h, s(d, "host"), "/status host");
-    }
-    eprintln!(
-        "real: /status {line}, {} hosts, healthy={healthy}",
-        domains.get("items").as_array().len()
-    );
-
-    let h = html_of("/services");
-    let (upg, downg, extras) = pages::services::groups(&services, &pulses);
-    let up_at = h.find("<h2>Up</h2>").unwrap();
-    let down_at = h.find("<h2>Down</h2>").unwrap();
-    for (group, inside) in [(&upg, true), (&downg, false)] {
-        for sv in group.iter() {
-            let at = h.find(&format!(">{}<", esc(&sv.name))).unwrap();
-            assert_eq!(at > up_at && at < down_at, inside, "{} group", sv.id);
+    if let (Some(services_v), Some(domains)) = (&services_v, &domains) {
+        let services = pages::services_of(services_v);
+        assert!(!services.is_empty());
+        let h = html_of("/status");
+        let c = pages::status::counts(&services, &pulses);
+        let line = format!("{} subsystems online · {} held", c.online, c.held);
+        assert!(h.contains(&line), "status counts {line}");
+        let healthy = s(&health, "status") == "healthy";
+        assert!(h.contains(if healthy {
+            "Light stack is up."
+        } else {
+            "Origins are dark."
+        }));
+        for d in domains.get("items").as_array() {
+            has(&h, s(d, "host"), "/status host");
         }
+        eprintln!(
+            "real: /status {line}, {} hosts, healthy={healthy}",
+            domains.get("items").as_array().len()
+        );
+
+        let h = html_of("/services");
+        let (upg, downg, extras) = pages::services::groups(&services, &pulses);
+        let up_at = h.find("<h2>Up</h2>").unwrap();
+        let down_at = h.find("<h2>Down</h2>").unwrap();
+        for (group, inside) in [(&upg, true), (&downg, false)] {
+            for sv in group.iter() {
+                let at = h.find(&format!(">{}<", esc(&sv.name))).unwrap();
+                assert_eq!(at > up_at && at < down_at, inside, "{} group", sv.id);
+            }
+        }
+        eprintln!(
+            "real: /services up {} down {} pulse-only {} (pulse rows {})",
+            upg.len(),
+            downg.len(),
+            extras.len(),
+            pulses.len()
+        );
+
+        let h = html_of("/domains");
+        let mut n = 0;
+        for d in domains.get("items").as_array() {
+            let sid = s(d, "serviceId");
+            let name = services
+                .iter()
+                .find(|x| x.id == sid)
+                .map(|x| x.name.as_str())
+                .filter(|n| !n.is_empty())
+                .unwrap_or(s(d, "role"));
+            let row = format!(
+                "<span>{}</span><span class=\"muted\">{} · {}</span>",
+                esc(s(d, "host")),
+                esc(s(d, "brand")),
+                esc(name)
+            );
+            assert!(h.contains(&row), "/domains row {row}");
+            n += 1;
+        }
+        eprintln!(
+            "real: /domains {n} rows = /api/v1/domains count {}",
+            domains.get("count").as_f64().unwrap_or(-1.0)
+        );
+    } else {
+        for p in ["/status", "/services", "/domains"] {
+            assert!(
+                routes::page_says_unavailable(&html_of(p)),
+                "{p}: board reads gone but the room does not say so"
+            );
+        }
+        eprintln!(
+            "real: /status /services /domains: board reads gone on live -> rooms state the miss"
+        );
     }
-    eprintln!(
-        "real: /services up {} down {} pulse-only {} (pulse rows {})",
-        upg.len(),
-        downg.len(),
-        extras.len(),
-        pulses.len()
-    );
 
     let h = html_of("/agents");
-    let version = s(&health, "version");
-    assert!(h.contains(&format!(">{}<", esc(version))), "version");
+    assert!(h.contains(&format!(">{}<", esc(&version))), "version");
     let pod = s(health.get("target"), "pod");
     if !pod.is_empty() {
         assert!(h.contains(&format!(">{}<", esc(pod))), "pod");
     }
-    eprintln!("real: /agents version {version} pod {pod}");
-
-    let h = html_of("/domains");
-    let mut n = 0;
-    for d in domains.get("items").as_array() {
-        let sid = s(d, "serviceId");
-        let name = services
-            .iter()
-            .find(|x| x.id == sid)
-            .map(|x| x.name.as_str())
-            .filter(|n| !n.is_empty())
-            .unwrap_or(s(d, "role"));
-        let row = format!(
-            "<span>{}</span><span class=\"muted\">{} · {}</span>",
-            esc(s(d, "host")),
-            esc(s(d, "brand")),
-            esc(name)
-        );
-        assert!(h.contains(&row), "/domains row {row}");
-        n += 1;
-    }
     eprintln!(
-        "real: /domains {n} rows = /api/v1/domains count {}",
-        domains.get("count").as_f64().unwrap_or(-1.0)
+        "real: /agents version {version} pod {:?} (Rust health has no target: {})",
+        pod,
+        health.get("target").is_null()
     );
 
-    let repos = api(up, "/api/v1/repos");
-    let h = html_of("/repos");
-    let items = repos.get("items").as_array();
-    for r in items {
-        assert!(
-            h.contains(&format!(
-                "<span class=\"mono\">{}</span>",
-                esc(s(r, "name"))
-            )),
-            "repo {}",
-            s(r, "name")
-        );
-        has(&h, s(r, "role"), "repo role");
-    }
-    let summary = format!(
-        "{} repositories indexed: {} public, {} private visible",
-        items.len(),
-        repos.get("public").as_f64().unwrap_or(0.0) as u64,
-        repos.get("privateVisible").as_f64().unwrap_or(0.0) as u64
-    );
-    assert!(h.contains(&summary), "{summary}");
-    eprintln!("real: /repos {summary}");
-
-    let catalog = api(up, "/api/v1/catalog");
-    let h = html_of("/docs");
-    let all = catalog.get("items").as_array();
-    let live = all.iter().filter(|e| s(e, "zone") == "live").count();
-    let held = all.iter().filter(|e| s(e, "zone") == "held").count();
-    for want in [
-        format!("Ledger · {} routes", all.len()),
-        format!("Live · {live}"),
-        format!("Fridge · {held}"),
-    ] {
-        assert!(h.contains(&want), "/docs {want}");
-    }
-    for e in all {
-        has(&h, s(e, "path"), "/docs path");
-    }
-    let (_, hq) = page(front, "/docs?q=voice", "127.0.0.1");
-    let fl = all
-        .iter()
-        .filter(|e| {
-            s(e, "zone") == "live"
-                && ["path", "title", "source"]
-                    .iter()
-                    .any(|k| s(e, k).to_lowercase().contains("voice"))
-        })
-        .count();
-    let fh = all
-        .iter()
-        .filter(|e| {
-            s(e, "zone") == "held"
-                && ["path", "title", "source"]
-                    .iter()
-                    .any(|k| s(e, k).to_lowercase().contains("voice"))
-        })
-        .count();
-    assert!(
-        hq.contains(&format!("Live · {fl}")) && hq.contains(&format!("Fridge · {fh}")),
-        "/docs?q=voice"
-    );
-    eprintln!(
-        "real: /docs {} routes (live {live}, fridge {held}; API says live {} held {}); ?q=voice -> {fl}+{fh}",
-        all.len(),
-        catalog.get("live").as_f64().unwrap_or(-1.0),
-        catalog.get("held").as_f64().unwrap_or(-1.0)
-    );
-
-    let cf = api(up, "/api/v1/cloudflare");
-    let h = html_of("/cloudflare");
-    let steps = cf.get("steps").as_array();
-    for st in steps {
-        has(&h, st.as_str().unwrap_or(""), "cloudflare step");
-    }
-    let mut recs = 0;
-    for z in cf.get("zones").as_array() {
-        has(&h, s(z, "zone"), "zone");
-        for r in z.get("records").as_array() {
-            has(&h, s(r, "host"), "record");
-            recs += 1;
+    if let Some(repos) = api(up, "/api/v1/repos") {
+        let h = html_of("/repos");
+        let items = repos.get("items").as_array();
+        for r in items {
+            assert!(
+                h.contains(&format!(
+                    "<span class=\"mono\">{}</span>",
+                    esc(s(r, "name"))
+                )),
+                "repo {}",
+                s(r, "name")
+            );
+            has(&h, s(r, "role"), "repo role");
         }
+        let summary = format!(
+            "{} repositories indexed: {} public, {} private visible",
+            items.len(),
+            repos.get("public").as_f64().unwrap_or(0.0) as u64,
+            repos.get("privateVisible").as_f64().unwrap_or(0.0) as u64
+        );
+        assert!(h.contains(&summary), "{summary}");
+        eprintln!("real: /repos {summary}");
+    } else {
+        gone_room(&html_of("/repos"), "/repos");
     }
-    has(&h, s(cf.get("tunnel"), "cname"), "cname");
-    eprintln!(
-        "real: /cloudflare {} steps, {} zones, {recs} records, cname matches",
-        steps.len(),
-        cf.get("zones").as_array().len()
-    );
 
-    let pack = api(up, "/api/v1/pack");
-    let h = html_of("/pack");
-    has(&h, s(&pack, "compose"), "compose");
-    has(&h, s(&pack, "caddy"), "caddy");
-    eprintln!(
-        "real: /pack compose {} B + Caddyfile {} B shown verbatim",
-        s(&pack, "compose").len(),
-        s(&pack, "caddy").len()
-    );
-
-    let ledger = api(up, "/api/v1/ledger");
-    let h = html_of("/chill");
-    let heavy: Vec<&Value> = ledger
-        .get("services")
-        .as_array()
-        .iter()
-        .filter(|x| s(x, "weight") == "heavy")
-        .collect();
-    let fridge = ledger.get("fridge").as_array();
-    for x in heavy.iter().copied().chain(fridge.iter()) {
-        has(&h, s(x, "name"), "chill name");
-        has(&h, s(x, "summary"), "chill summary");
+    if let Some(catalog) = api(up, "/api/v1/catalog") {
+        let h = html_of("/docs");
+        let all = catalog.get("items").as_array();
+        let live = all.iter().filter(|e| s(e, "zone") == "live").count();
+        let held = all.iter().filter(|e| s(e, "zone") == "held").count();
+        for want in [
+            format!("Ledger · {} routes", all.len()),
+            format!("Live · {live}"),
+            format!("Fridge · {held}"),
+        ] {
+            assert!(h.contains(&want), "/docs {want}");
+        }
+        for e in all {
+            has(&h, s(e, "path"), "/docs path");
+        }
+        let (_, hq) = page(front, "/docs?q=voice", "127.0.0.1");
+        let count = |zone: &str| {
+            all.iter()
+                .filter(|e| {
+                    s(e, "zone") == zone
+                        && ["path", "title", "source"]
+                            .iter()
+                            .any(|k| s(e, k).to_lowercase().contains("voice"))
+                })
+                .count()
+        };
+        let (fl, fh) = (count("live"), count("held"));
+        assert!(
+            hq.contains(&format!("Live · {fl}")) && hq.contains(&format!("Fridge · {fh}")),
+            "/docs?q=voice"
+        );
+        eprintln!(
+            "real: /docs {} routes (live {live}, fridge {held}; API says live {} held {}); ?q=voice -> {fl}+{fh}",
+            all.len(),
+            catalog.get("live").as_f64().unwrap_or(-1.0),
+            catalog.get("held").as_f64().unwrap_or(-1.0)
+        );
+    } else {
+        gone_room(&html_of("/docs"), "/docs");
     }
-    let asleep = h.matches("badge chill\">asleep").count();
-    assert_eq!(asleep, heavy.len() + fridge.len());
-    eprintln!(
-        "real: /chill {} asleep = {} heavy + {} fridge (services payload says chill {})",
-        asleep,
-        heavy.len(),
-        fridge.len(),
-        services_v.get("chill").as_f64().unwrap_or(-1.0)
-    );
+
+    if let Some(cf) = api(up, "/api/v1/cloudflare") {
+        let h = html_of("/cloudflare");
+        let steps = cf.get("steps").as_array();
+        for st in steps {
+            has(&h, st.as_str().unwrap_or(""), "cloudflare step");
+        }
+        let mut recs = 0;
+        for z in cf.get("zones").as_array() {
+            has(&h, s(z, "zone"), "zone");
+            for r in z.get("records").as_array() {
+                has(&h, s(r, "host"), "record");
+                recs += 1;
+            }
+        }
+        has(&h, s(cf.get("tunnel"), "cname"), "cname");
+        eprintln!(
+            "real: /cloudflare {} steps, {} zones, {recs} records, cname matches",
+            steps.len(),
+            cf.get("zones").as_array().len()
+        );
+    } else {
+        gone_room(&html_of("/cloudflare"), "/cloudflare");
+    }
+
+    if let Some(pack) = api(up, "/api/v1/pack") {
+        let h = html_of("/pack");
+        has(&h, s(&pack, "compose"), "compose");
+        has(&h, s(&pack, "caddy"), "caddy");
+        eprintln!(
+            "real: /pack compose {} B + Caddyfile {} B shown verbatim",
+            s(&pack, "compose").len(),
+            s(&pack, "caddy").len()
+        );
+    } else {
+        gone_room(&html_of("/pack"), "/pack");
+    }
+
+    if let Some(ledger) = api(up, "/api/v1/ledger") {
+        let h = html_of("/chill");
+        let heavy: Vec<&Value> = ledger
+            .get("services")
+            .as_array()
+            .iter()
+            .filter(|x| s(x, "weight") == "heavy")
+            .collect();
+        let fridge = ledger.get("fridge").as_array();
+        for x in heavy.iter().copied().chain(fridge.iter()) {
+            has(&h, s(x, "name"), "chill name");
+            has(&h, s(x, "summary"), "chill summary");
+        }
+        let asleep = h.matches("badge chill\">asleep").count();
+        assert_eq!(asleep, heavy.len() + fridge.len());
+        eprintln!(
+            "real: /chill {} asleep = {} heavy + {} fridge (services payload says chill {})",
+            asleep,
+            heavy.len(),
+            fridge.len(),
+            services_v
+                .as_ref()
+                .and_then(|v| v.get("chill").as_f64())
+                .unwrap_or(-1.0)
+        );
+    } else {
+        gone_room(&html_of("/chill"), "/chill");
+    }
 
     let h = html_of("/jupyter");
     let pod_id = s(health.get("target"), "podId");
-    let href = format!("https://{pod_id}-8888.proxy.runpod.net/lab");
-    assert!(h.contains(&href), "{href}");
-    eprintln!("real: /jupyter {href}");
+    if pod_id.is_empty() {
+        // Rust /api/v1/health carries no `target` (route map row): no link to
+        // invent; the room must not show a broken `https://-8888` link.
+        assert!(
+            !h.contains("https://-8888"),
+            "/jupyter: link without a pod id"
+        );
+        eprintln!("real: /jupyter: live health has no target.podId (Rust console) -> no pod link");
+    } else {
+        let href = format!("https://{pod_id}-8888.proxy.runpod.net/lab");
+        assert!(h.contains(&href), "{href}");
+        eprintln!("real: /jupyter {href}");
+    }
     assert!(html_of("/data").contains("no database server"));
     assert!(html_of("/soon").contains("Hibernating"));
 
-    // 4d. The gate on remote hosts, against the live admin check.
-    for (host, want, not) in [
-        ("console.galion.app", "This phone", version),
-        ("galion.app", "Soon online.", version),
-        ("developer.galion.app", "Discussions", version),
+    // 4d. The gate on remote hosts, against the live admin check. While
+    // `/api/v1/admin` is gone on the live Rust console the console host
+    // fails closed (503, no data) instead of asking to pair.
+    let (adc, _, _) = get(up, "/api/v1/admin", "127.0.0.1").expect("live admin");
+    let admin_gone = routes::decide("/api/v1/admin", adc) == routes::Live::Gone;
+    let not = version.as_str();
+    for (host, want) in [
+        ("console.galion.app", "This phone"),
+        ("galion.app", "Soon online."),
+        ("developer.galion.app", "Discussions"),
     ] {
         for p in ["/agents", "/repos", "/pack"] {
             let (c, h) = page(front, p, host);
-            assert_eq!(c, 200, "{host}{p}");
+            if host == "console.galion.app" {
+                assert!(routes::gate_ok(c, &h, admin_gone), "{host}{p} gate {c}");
+            } else {
+                assert_eq!(c, 200, "{host}{p}");
+                assert!(h.contains(want), "{host}{p}");
+            }
             assert!(
-                h.contains(want) && !h.contains(&format!(">{not}<")),
-                "{host}{p}"
+                !h.contains(&format!(">{not}<")),
+                "{host}{p} leaked the version"
             );
             assert!(!h.contains("reverse_proxy"), "{host}{p} leaked the pack");
         }
-        eprintln!("real: Host {host} /agents /repos /pack -> \"{want}\", no page data");
+        eprintln!(
+            "real: Host {host} /agents /repos /pack -> \"{}\", no page data",
+            if host == "console.galion.app" && admin_gone {
+                routes::GATE_CLOSED
+            } else {
+                want
+            }
+        );
     }
     eprintln!("real: front RSS {} kB", rss_kb(pid));
 

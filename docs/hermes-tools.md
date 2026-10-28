@@ -73,6 +73,7 @@ Refusals get a `refused` line with the reason, and the model gets back `{"error"
 | `HERMES_RS_CODING_MAX_CALLS` | 200 | tool calls per session |
 | `HERMES_RS_CODING_MAX_READ` / `_MAX_WRITE` | 256 KiB / 512 KiB | file caps |
 | `HERMES_RS_CODING_DENY` / `_HIDE` | empty | extra `:`-separated denied worktree roots / hidden dirs |
+| `HERMES_RS_CODING_ON_ERROR` | `exit` | `exit`: a bad coding config or preflight refusal exits 2 (old behaviour). `disable`: log it and start **without** the coding tools, chat keeps serving (slot 355). Check any change first with `hermes-gateway --check-config` (validates the coding env and that the coding paths are writable; exit 2 on error). Worktrees may not live under `/var/lib`; use e.g. `/srv/hermes-coding/worktree` + `ReadWritePaths=-/srv/hermes-coding` (docs/ops/hermes-rs-crashloop-r3.md) |
 | `HERMES_RS_CODING_ALLOW_NO_LANDLOCK` | unset | `1` lets the tools start on a kernel without Landlock (not recommended) |
 | `HERMES_RS_PROVIDER_LOOPBACK_ONLY` | unset | **new in hermes-rs**: `1` makes the curl provider refuse any non-loopback URL. Used by every test here |
 

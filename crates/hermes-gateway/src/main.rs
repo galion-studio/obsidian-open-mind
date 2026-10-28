@@ -12,6 +12,9 @@
 //!
 //! Coding tools (feature `coding`, on by default at build time) stay off
 //! unless HERMES_RS_CODING_WORKTREE is set; see docs/hermes-tools.md.
+//! `--check-config` also validates the coding env and the coding paths
+//! (exit 2 on error). `HERMES_RS_CODING_ON_ERROR=disable` starts without the
+//! coding tools instead of exiting when their config is bad (slot 355).
 //! NERVE: with `NERVE_URL=http://127.0.0.1:8670` the gateway pushes started,
 //! heartbeat, 5xx, slow-request (`NERVE_SLOW_MS`), spend-cap and conn-cap
 //! events to the nerve (bounded queue, never blocks a request).
@@ -69,6 +72,60 @@ impl Provider for TestMock {
 
 fn env(k: &str) -> Option<String> {
     std::env::var(k).ok()
+}
+
+/// What to do when the coding config or preflight is bad
+/// (`HERMES_RS_CODING_ON_ERROR`): `exit` (default, unchanged: exit 2) or
+/// `disable` (log it and start WITHOUT the coding tools, so chat keeps
+/// serving; the tools fail closed). Slot 355.
+#[cfg(feature = "coding")]
+fn coding_fail(what: &str, e: &str) {
+    if env("HERMES_RS_CODING_ON_ERROR").as_deref().map(str::trim) == Some("disable") {
+        log(&format!(
+            "coding: {what}: {e}; HERMES_RS_CODING_ON_ERROR=disable: coding tools OFF, gateway continues"
+        ));
+        return;
+    }
+    log(&format!("coding: {what}: {e}"));
+    std::process::exit(2);
+}
+
+/// `--check-config` part for the coding tools: the same env validation as
+/// start-up plus a non-mutating write check of the coding paths. Before slot
+/// 355 `--check-config` returned before the coding block, so a drop-in that
+/// crash-loops the unit still checked fine. No Landlock/userns probe here
+/// (that needs child namespaces; the start-up preflight still does it).
+fn coding_check(home: &std::path::Path) -> Result<String, String> {
+    #[cfg(feature = "coding")]
+    {
+        match hermes_tools::CodingConfig::from_env(&env, home)? {
+            None => Ok("coding=off".into()),
+            Some(cc) => {
+                let probs = cc.write_problems();
+                if !probs.is_empty() {
+                    return Err(probs.join("; "));
+                }
+                Ok(format!(
+                    "coding=on worktree={} branch={} state={} target={} audit={} on_error={}",
+                    cc.worktree.display(),
+                    cc.branch,
+                    cc.state_dir.display(),
+                    cc.target_dir.display(),
+                    cc.audit_path.display(),
+                    env("HERMES_RS_CODING_ON_ERROR").unwrap_or_else(|| "exit".into())
+                ))
+            }
+        }
+    }
+    #[cfg(not(feature = "coding"))]
+    {
+        let _ = home;
+        Ok(if env("HERMES_RS_CODING_WORKTREE").is_some() {
+            "coding=not-built (HERMES_RS_CODING_WORKTREE ignored)".into()
+        } else {
+            "coding=off".into()
+        })
+    }
 }
 
 fn open_store(cfg: &Config) -> Result<Arc<dyn SessionStore>, String> {
@@ -141,6 +198,14 @@ fn main() {
             off.external_state_uri().as_deref().unwrap_or("-"),
             off.seal_summary(hermes_rs::time::now_secs())
         );
+        match coding_check(&cfg.home) {
+            Ok(line) => println!("{line}"),
+            Err(e) => {
+                println!("coding=error");
+                log(&format!("coding: config error: {e}"));
+                std::process::exit(2);
+            }
+        }
         return;
     }
     if once && off.role == hermes_rs::offhost::Role::Standby {
@@ -225,15 +290,9 @@ fn main() {
                 hermes_tools::register(&mut tools, cc, Some(spend.clone()));
                 log(&format!("coding: tools on: {:?}", hermes_tools::TOOL_NAMES));
             }
-            Err(e) => {
-                log(&format!("coding: refusing to start: {e}"));
-                std::process::exit(2);
-            }
+            Err(e) => coding_fail("refusing to start", &e),
         },
-        Err(e) => {
-            log(&format!("coding: config error: {e}"));
-            std::process::exit(2);
-        }
+        Err(e) => coding_fail("config error", &e),
     }
     let cron_agent = Arc::new(hermes_rs::agent::Agent {
         cfg: cfg.clone(),

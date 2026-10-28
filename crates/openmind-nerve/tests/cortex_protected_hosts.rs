@@ -47,7 +47,7 @@ fn ingress(ps: &Plans) -> Option<&Plan> {
 fn remove_lines(p: &Plan) -> Vec<&str> {
     p.steps
         .iter()
-        .filter(|s| s.starts_with("remove only"))
+        .filter(|s| s.starts_with("apply: remove only"))
         .map(String::as_str)
         .collect()
 }
@@ -63,7 +63,8 @@ fn gate_ok(p: &Plan) {
     assert!(p
         .steps
         .iter()
-        .any(|s| s.starts_with("precondition: no rule to remove names a never-unroute hostname")));
+        .any(|s| s
+            .starts_with("verify precondition: no rule to remove names a never-unroute hostname")));
 }
 
 fn skipped(ps: &Plans, k: &str) -> bool {
@@ -103,8 +104,8 @@ fn protected_hostnames_are_never_unrouted_everything_else_is() {
     assert_eq!(
         rm,
         [
-            "remove only the ingress rule(s) for galion.studio, www.galion.studio whose service is http://localhost:4001",
-            "remove only the ingress rule(s) for docs.galion.app whose service is http://localhost:4102",
+            "apply: remove only the ingress rule(s) for galion.studio, www.galion.studio whose service is http://localhost:4001",
+            "apply: remove only the ingress rule(s) for docs.galion.app whose service is http://localhost:4102",
         ],
         "{:#?}",
         ps.skipped
@@ -171,11 +172,11 @@ fn config_list_from_env_is_what_the_plan_obeys() {
     gate_ok(p);
     assert_eq!(
         remove_lines(p),
-        ["remove only the ingress rule(s) for docs.galion.app whose service is http://localhost:4042"]
+        ["apply: remove only the ingress rule(s) for docs.galion.app whose service is http://localhost:4042"]
     );
     assert!(
         p.plan_text()
-            .contains("galion.studio; if one does, keep that rule")
+            .contains("galion.studio; keep that rule if one does")
             || p.plan_text().contains("galion.studio, ")
     );
     // Default config: galion.studio is not on the D-T42-4 list, so it may be proposed.
@@ -221,7 +222,7 @@ fn plan_text_is_stable_and_hostless_ports_still_carry_the_guard() {
     let guard = p
         .steps
         .iter()
-        .find(|x| x.starts_with("precondition: no rule to remove"))
+        .find(|x| x.starts_with("verify precondition: no rule to remove"))
         .unwrap();
     for h in ProtectedHosts::builtin().names() {
         assert!(guard.contains(h), "{h} missing from {guard}");

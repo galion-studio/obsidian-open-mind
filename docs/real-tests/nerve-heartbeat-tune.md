@@ -82,7 +82,8 @@ answering the 1 Hz polling), so the marginal cost is the slope:
 
 - `real_flood_baseline.rs`, `real_flood_cycle_gap.rs` keep their 60 s test
   heartbeat via `NERVE_EVT_HEARTBEAT_TEST_FLOOR=1` (their timing needs a
-  heartbeat within ~75 s).
+  heartbeat within ~75 s). Re-run GALION_REAL=1 release 07:00-07:03 +01:00:
+  real_flood_baseline 2/2, real_flood_cycle_gap 2/2 pass.
 - `journal_native_rss.rs` 3600 -> 900 (3600 is now clamped; the test only
   needs "no heartbeat during the run").
 

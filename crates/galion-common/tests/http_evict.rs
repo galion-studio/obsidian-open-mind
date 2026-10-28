@@ -59,6 +59,7 @@ fn get(addr: SocketAddr, path: &str) -> (u16, Duration) {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "binds a TCP socket; Miri isolation has no socket")]
 fn without_eviction_idle_flood_gives_503() {
     let (addr, _) = server(false, 4, 0);
     let _flood = idle(addr, 4);
@@ -66,6 +67,7 @@ fn without_eviction_idle_flood_gives_503() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "binds a TCP socket; Miri isolation has no socket")]
 fn eviction_serves_real_clients_through_an_idle_flood() {
     let (addr, hits) = server(true, 4, 0);
     let mut flood = idle(addr, 4);
@@ -89,6 +91,7 @@ fn eviction_serves_real_clients_through_an_idle_flood() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "binds a TCP socket; Miri isolation has no socket")]
 fn requests_in_the_handler_are_never_evicted() {
     // 4 slots, all busy in the handler (not reading): nothing to evict -> 503,
     // and the busy requests still complete.
@@ -105,6 +108,7 @@ fn requests_in_the_handler_are_never_evicted() {
 }
 
 #[test]
+#[cfg_attr(miri, ignore = "binds a TCP socket; Miri isolation has no socket")]
 fn live_connections_stay_bounded_under_a_reconnecting_flood() {
     let (addr, _) = server(true, 4, 0);
     // 200 idle connects in a row: each evicts an older one; the server never

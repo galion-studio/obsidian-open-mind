@@ -218,12 +218,15 @@ fn runtime_budget_stops_the_loop() {
     });
     let el = t0.elapsed();
     assert_eq!(r.stop, Stop::MaxRuntime);
+    // Bounds carry slack for a scheduler or page-fault stall on a busy
+    // box (slot 374: one cold run saw 2 ticks); without the budget the loop
+    // would never stop, so the stop reason above is the real check.
     assert!(
-        el >= Duration::from_secs(1) && el < Duration::from_millis(1600),
+        el >= Duration::from_secs(1) && el < Duration::from_millis(2500),
         "{el:?}"
     );
     let t = sv(&r.summary)["ticks"].as_u64().unwrap();
-    assert!((3..=5).contains(&t), "{t}");
+    assert!((2..=5).contains(&t), "{t}");
 }
 
 #[test]
@@ -246,7 +249,10 @@ fn stop_file_ends_a_sleeping_loop_within_a_slice() {
     let ended = Instant::now();
     let written = h.join().unwrap();
     assert_eq!(r.stop, Stop::StopFile);
-    assert!(ended.duration_since(written) < Duration::from_millis(350));
+    // Seen within a few 100 ms slices, far below the 30 s interval; the slack
+    // absorbs a scheduler stall on a busy box (slot 374 cold-run flake).
+    let lag = ended.duration_since(written);
+    assert!(lag < Duration::from_millis(1500), "{lag:?}");
     assert_eq!(sv(&r.summary)["ticks"].as_u64(), Some(1));
     // A present stop file means not even one tick.
     let r = heal_loop::run_with(&c, &mut Vec::new(), &mut |_| panic!("must not tick"));

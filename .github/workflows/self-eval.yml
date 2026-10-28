@@ -65,6 +65,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+      - name: fetch musl graphs for the offline feature-pin cargo tree
+        run: |
+          # .cargo/config.toml sets curve25519_dalek_backend=serial, which
+          # drops curve25519-dalek-derive on x86_64. cargo fetch honours that
+          # cfg; cargo tree in release_feature_unify does not, so the offline
+          # tree still asks for curve25519-dalek-derive. An empty RUSTFLAGS
+          # replaces the config list and downloads that crate.
+          RUSTFLAGS= cargo fetch --locked --target x86_64-unknown-linux-musl
+          cargo fetch --locked --target aarch64-unknown-linux-musl
       - name: allow unprivileged user namespaces (hermes-tools sandbox)
         run: |
           set -eu

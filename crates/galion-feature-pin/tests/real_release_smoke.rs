@@ -11,7 +11,8 @@
 //! with real HTTP GETs, then killed. The cortex runs dry-run, with no nerve
 //! (nothing listens on the nerve port) and LLM off; the console runs the live
 //! `--dist --ui rust --local-api` argv on a throwaway dist dir. No network,
-//! no LLM call, no live system touched.
+//! no LLM call, no live system touched. `GALION_SMOKE_RUNNER=<emulator>` runs
+//! the binaries under a user-mode emulator (aarch64 bytes under qemu, slot 368).
 
 mod common;
 
@@ -86,8 +87,22 @@ fn tmp(name: &str) -> PathBuf {
     d
 }
 
+/// `Command` for a release binary. With `GALION_SMOKE_RUNNER=<path>` (slot 368,
+/// e.g. `/workspace/swarm/bin/qemu-aarch64-static`) the binary runs under that
+/// user-mode emulator, so the same smoke covers the aarch64 release bytes.
+fn command(bin: &Path) -> Command {
+    match std::env::var("GALION_SMOKE_RUNNER") {
+        Ok(r) if !r.is_empty() => {
+            let mut c = Command::new(r);
+            c.arg(bin);
+            c
+        }
+        _ => Command::new(bin),
+    }
+}
+
 fn spawn(bin: &Path, args: &[&str], env: &[(&str, String)]) -> Kill {
-    let mut c = Command::new(bin);
+    let mut c = command(bin);
     c.args(args)
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
@@ -140,7 +155,7 @@ fn new_release_bins_answer_on_their_release_bytes() {
         bytes.len()
     );
     n += 1;
-    let out = Command::new(&cortex).arg("--version").output().unwrap();
+    let out = command(&cortex).arg("--version").output().unwrap();
     assert!(out.status.success());
     let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
     eprintln!("gaia-cortex --version -> {v}");

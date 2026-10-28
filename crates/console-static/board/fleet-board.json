@@ -10,13 +10,6 @@
     "origin": "cloudflare"
   },
   {
-    "host": "console.galion.studio",
-    "brand": "Ops",
-    "role": "Console IDE alias",
-    "serviceId": "console",
-    "origin": "cloudflare"
-  },
-  {
     "host": "galion.studio",
     "brand": "Studio",
     "role": "Primary studio surface",
@@ -87,13 +80,6 @@
     "origin": "cloudflare"
   },
   {
-    "host": "dashboard.galion.studio",
-    "brand": "Ops",
-    "role": "Operator console",
-    "serviceId": "console",
-    "origin": "cloudflare"
-  },
-  {
     "host": "sentialink.com",
     "brand": "SentiaLink",
     "role": "Splash / coming-soon",
@@ -118,7 +104,7 @@
     "weight": "light",
     "summary": "This operator desk. Fleet, domains, API playground.",
     "repo": "galion-initiative-web",
-    "hosts": ["dashboard.galion.studio"],
+    "hosts": ["console.galion.app"],
     "port": 8080,
     "defaultOn": true
   },

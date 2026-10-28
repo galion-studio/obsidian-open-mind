@@ -20,21 +20,33 @@
 /// Hosts where the console renders (console-ide `CONSOLE_HOSTS`). The TSX list
 /// also carried the two server IPs literally; here they come from
 /// `--console-host` (the unit passes them), so no public IP is in the code.
+/// `console.galion.studio` / `dashboard.galion.studio` were dropped (D-414-1 A,
+/// slot 433): NXDOMAIN, never in the tunnel, never served; see
+/// [`RETIRED_HOSTS`].
 pub const CONSOLE_HOSTS: &[&str] = &[
     "console.galion.app",
-    "console.galion.studio",
-    "dashboard.galion.studio",
     "ip51.vs5.titanaxe.com",
     "ip50.vp3.titanaxe.com",
 ];
 
-/// `normalizeHost`: drop the port, trim, lower-case, drop `www.`.
+/// Old console-ide aliases that were never live (NXDOMAIN, not in the tunnel;
+/// D-414-1 A). They would still match the `console.` / `dashboard.` prefix
+/// rules, so they are refused explicitly and get the unknown-host ("Soon")
+/// answer. An operator who really wants one back passes it with
+/// `--console-host` (an explicit `extra` entry wins) after the DNS + tunnel
+/// work of D-414-1 B.
+pub const RETIRED_HOSTS: &[&str] = &["console.galion.studio", "dashboard.galion.studio"];
+
+/// `normalizeHost`: drop the port, trim, lower-case, drop `www.` and a
+/// trailing root dot (`host.` is the same DNS name; slot 433, so a dotted
+/// retired name cannot slip past [`RETIRED_HOSTS`] via the prefix rules).
 pub fn normalize_host(host: &str) -> String {
     let h = host
         .split(':')
         .next()
         .unwrap_or("")
         .trim()
+        .trim_end_matches('.')
         .to_ascii_lowercase();
     h.strip_prefix("www.").map(str::to_string).unwrap_or(h)
 }
@@ -50,13 +62,18 @@ pub fn is_console_host(host: &str, extra: &[String]) -> bool {
     if h.is_empty() {
         return false;
     }
+    if extra.iter().any(|x| x.eq_ignore_ascii_case(&h)) {
+        return true;
+    }
+    if RETIRED_HOSTS.contains(&h.as_str()) {
+        return false;
+    }
     CONSOLE_HOSTS.contains(&h.as_str())
         || h.starts_with("console.")
         || h.starts_with("dashboard.")
         || h.contains("runpod.net")
         || is_loopback_host(&h)
         || h.ends_with(".local")
-        || extra.iter().any(|x| x.eq_ignore_ascii_case(&h))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -134,7 +151,8 @@ mod tests {
         for h in [
             "console.galion.app",
             "console.anything.example",
-            "dashboard.galion.studio",
+            "dashboard.galion.app",
+            "console.galion.app.",
             "127.0.0.1:19370",
             "localhost",
             "pod-1.proxy.runpod.net",
@@ -147,6 +165,30 @@ mod tests {
         }
         assert!(is_console_host("203.0.113.7", &["203.0.113.7".into()]));
         assert!(!is_console_host("203.0.113.7", &[]));
+        // D-414-1 A: the two never-live .studio aliases are unknown hosts now,
+        // in any case / port / www. form, unless passed explicitly.
+        for h in [
+            "console.galion.studio",
+            "dashboard.galion.studio",
+            "WWW.Console.Galion.Studio:443",
+            "dashboard.galion.studio.",
+        ] {
+            assert!(!is_console_host(h, &[]), "{h}");
+            assert_eq!(
+                decide(h, "/console", true, &[]),
+                Decision::Soon { links: false },
+                "{h}"
+            );
+        }
+        assert!(is_console_host(
+            "console.galion.studio",
+            &["console.galion.studio".into()]
+        ));
+        // Live names keep working.
+        for h in CONSOLE_HOSTS {
+            assert!(is_console_host(h, &[]), "{h}");
+        }
+        assert!(!CONSOLE_HOSTS.iter().any(|h| RETIRED_HOSTS.contains(h)));
     }
 
     #[test]

@@ -440,7 +440,7 @@ mod tests {
     fn embedded_fleet_parses_with_expected_sizes() {
         let b = Board::new();
         assert_eq!(b.version(), "3.8.3-board");
-        assert_eq!(b.arr("domains").len(), 15);
+        assert_eq!(b.arr("domains").len(), 13);
         assert_eq!(b.arr("services").len(), 16);
         assert_eq!(b.arr("chillExtra").len(), 3);
         assert_eq!(b.arr("repos").len(), 20);
@@ -493,7 +493,7 @@ mod tests {
         let r = b.repos();
         assert_eq!(r.get("owner").as_str(), Some("galion-studio"));
         let d = b.domains();
-        assert_eq!(d.get("count").as_f64(), Some(15.0));
+        assert_eq!(d.get("count").as_f64(), Some(13.0));
         let boot = b.boot();
         assert!(boot
             .get("started")

@@ -18,7 +18,7 @@ use std::thread;
 use std::time::Duration;
 
 const SERVICES: &str = r#"{"count":4,"items":[
-{"id":"console","name":"Control console","kind":"console","weight":"light","summary":"This operator desk.","repo":"galion-initiative-web","hosts":["dashboard.galion.studio"],"port":8080,"defaultOn":true},
+{"id":"console","name":"Control console","kind":"console","weight":"light","summary":"This operator desk.","repo":"galion-initiative-web","hosts":["console.galion.app"],"port":8080,"defaultOn":true},
 {"id":"hermes","name":"Hermes","kind":"api","weight":"light","summary":"The mind.","hosts":[],"port":8642,"defaultOn":false},
 {"id":"whisper","name":"Whisper","kind":"api","weight":"light","summary":"Speech to text.","hosts":[],"port":9000,"defaultOn":true},
 {"id":"gen","name":"Generation","kind":"held","weight":"heavy","summary":"GPU <b>only</b>.","hosts":[],"port":9100,"defaultOn":false}]}"#;
@@ -320,7 +320,7 @@ fn services_page_groups_like_the_tsx() {
         "cold/probed-down go to Down"
     );
     assert!(b.contains("GPU &lt;b&gt;only&lt;/b&gt;."));
-    assert!(b.contains(":8080 · dashboard.galion.studio · galion-initiative-web"));
+    assert!(b.contains(":8080 · console.galion.app · galion-initiative-web"));
     assert!(b.contains("Desk pulse: 3 services reported."));
     assert!(!b.contains(">Stop<") && !b.contains(">Start<"));
     assert!(b.contains("aria-current=\"page\""));

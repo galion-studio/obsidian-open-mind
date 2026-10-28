@@ -68,6 +68,13 @@ impl Block {
     fn get(&self) -> &(u16, Vec<String>) {
         self.cell.get_or_init(|| {
             let base = base_from_env(self.var, self.default, self.span);
+            // One line per test binary so a real run shows which block it used.
+            eprintln!(
+                "real ports: {} -> 127.0.0.1:{}-{}",
+                self.var,
+                base,
+                base + self.span - 1
+            );
             let addrs = (0..self.span)
                 .map(|o| format!("127.0.0.1:{}", base + o))
                 .collect();

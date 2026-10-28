@@ -672,6 +672,7 @@ name = "galion-one"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "galion-realtest",
  "zagreb-time",
 ]
 

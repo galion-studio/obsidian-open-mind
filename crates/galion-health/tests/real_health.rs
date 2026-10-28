@@ -14,7 +14,14 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const ADDR: &str = "127.0.0.1:19490";
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): block movable by `HEALTH_REAL_PORT_BASE`
+/// (unset = 19490): health +0, upstream +1, closed +2, raw +3.
+static PORTS: Block = Block::new("HEALTH_REAL_PORT_BASE", 19490, 4);
+fn addr_at() -> &'static str {
+    PORTS.addr(0)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -41,7 +48,7 @@ fn release_bin() -> PathBuf {
 }
 
 fn get(path: &str) -> (String, String) {
-    let mut s = TcpStream::connect(ADDR).expect("connect");
+    let mut s = TcpStream::connect(addr_at()).expect("connect");
     s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     // One write: the server does a single read() and closes; split writes can get an RST.
     s.write_all(format!("GET {path} HTTP/1.0\r\nHost: x\r\n\r\n").as_bytes())
@@ -53,7 +60,7 @@ fn get(path: &str) -> (String, String) {
 }
 
 fn upstream() -> std::thread::JoinHandle<()> {
-    let l = TcpListener::bind("127.0.0.1:19491").expect("bind 19491");
+    let l = TcpListener::bind(PORTS.addr(1)).expect("bind upstream");
     std::thread::spawn(move || {
         for s in l.incoming().take(64) {
             let Ok(mut s) = s else { continue };
@@ -73,19 +80,23 @@ fn real_release_binary_endpoints() {
     }
     let bin = release_bin();
     let _up = upstream();
-    let _raw = TcpListener::bind("127.0.0.1:19493").expect("bind 19493");
+    let _raw = TcpListener::bind(PORTS.addr(3)).expect("bind raw");
     // 1) all-green spec: fake upstream + raw tcp + no-probe entry.
-    let green = "up|-|19491|/health;raw|-|19493|-;noprobe|-|0|-";
+    let green = format!(
+        "up|-|{}|/health;raw|-|{}|-;noprobe|-|0|-",
+        PORTS.port(1),
+        PORTS.port(3)
+    );
     let child = Command::new(&bin)
-        .env("GALION_HEALTH_ADDR", ADDR)
-        .env("GALION_HEALTH_CHECKS", green)
+        .env("GALION_HEALTH_ADDR", addr_at())
+        .env("GALION_HEALTH_CHECKS", &green)
         .env("GALION_LOG_FORMAT", "json")
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn galion-health");
     let _k = Kill(child);
     let t0 = Instant::now();
-    while TcpStream::connect(ADDR).is_err() {
+    while TcpStream::connect(addr_at()).is_err() {
         assert!(t0.elapsed() < Duration::from_secs(5), "no listen");
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -99,9 +110,10 @@ fn real_release_binary_endpoints() {
         b.contains("+02:00\"") || b.contains("+01:00\""),
         "Zagreb offset"
     );
-    assert!(b.contains(
-        "\"name\":\"up\",\"unit\":\"-\",\"unit_state\":\"n/a\",\"port\":19491,\"http\":\"200\""
-    ));
+    assert!(b.contains(&format!(
+        "\"name\":\"up\",\"unit\":\"-\",\"unit_state\":\"n/a\",\"port\":{},\"http\":\"200\"",
+        PORTS.port(1)
+    )));
     assert!(b.contains("\"http\":\"tcp-open\""));
     let (h2, b2) = get("/json");
     assert!(h2.starts_with("HTTP/1.1 200 OK"));
@@ -120,14 +132,17 @@ fn real_release_binary_endpoints() {
     // 2) failing spec: closed port -> down -> /healthz 503.
     std::thread::sleep(Duration::from_millis(200));
     let child = Command::new(&bin)
-        .env("GALION_HEALTH_ADDR", ADDR)
-        .env("GALION_HEALTH_CHECKS", "gone|-|19492|/health;up|-|19491|/")
+        .env("GALION_HEALTH_ADDR", addr_at())
+        .env(
+            "GALION_HEALTH_CHECKS",
+            format!("gone|-|{}|/health;up|-|{}|/", PORTS.port(2), PORTS.port(1)),
+        )
         .stderr(Stdio::null())
         .spawn()
         .expect("spawn galion-health");
     let _k = Kill(child);
     let t0 = Instant::now();
-    while TcpStream::connect(ADDR).is_err() {
+    while TcpStream::connect(addr_at()).is_err() {
         assert!(t0.elapsed() < Duration::from_secs(5), "no listen");
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -137,7 +152,8 @@ fn real_release_binary_endpoints() {
     assert_eq!(b, "failing: gone\n");
     let (_, b) = get("/status.json");
     assert!(b.starts_with("{\"ok\":false,"));
-    assert!(b.contains(
-        "\"name\":\"gone\",\"unit\":\"-\",\"unit_state\":\"n/a\",\"port\":19492,\"http\":\"down\""
-    ));
+    assert!(b.contains(&format!(
+        "\"name\":\"gone\",\"unit\":\"-\",\"unit_state\":\"n/a\",\"port\":{},\"http\":\"down\"",
+        PORTS.port(2)
+    )));
 }

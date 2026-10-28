@@ -129,8 +129,44 @@ pub fn body_len(head: &RequestHead, max_body: u64) -> Result<u64, u16> {
     }
 }
 
+/// Which upstream a request goes to; decides the request-head policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// `--upstream` (the console API): every end-to-end header is forwarded,
+    /// the API needs the session cookie and phone gate headers.
+    Api,
+    /// `--data-upstream` (a read-only data reader such as the bank reader,
+    /// F-351-1): only [`DATA_FORWARD`] headers are forwarded. Cookies,
+    /// `Authorization` and anything unknown never leave the console, and a
+    /// `Set-Cookie` from the reader is dropped.
+    Data,
+}
+
+/// Request headers a data reader may see (allowlist, case-insensitive).
+/// Credentials (`Cookie`, `Authorization`, `Proxy-Authorization`, API key
+/// headers, ...) are not in it and are therefore never forwarded.
+/// `X-Forwarded-*` are rebuilt by the console after this list.
+pub const DATA_FORWARD: &[&str] = &[
+    "host",
+    "accept",
+    "accept-language",
+    "user-agent",
+    "if-none-match",
+    "if-modified-since",
+    "cache-control",
+];
+
+fn data_allowed(name: &str) -> bool {
+    DATA_FORWARD.iter().any(|h| name.eq_ignore_ascii_case(h))
+}
+
 /// The request head sent upstream.
 pub fn upstream_head(head: &RequestHead, client_ip: IpAddr) -> String {
+    upstream_head_mode(head, client_ip, Mode::Api)
+}
+
+/// The request head sent upstream under `mode`'s header policy.
+pub fn upstream_head_mode(head: &RequestHead, client_ip: IpAddr, mode: Mode) -> String {
     let listed: Vec<String> = head
         .header("connection")
         .unwrap_or("")
@@ -154,6 +190,9 @@ pub fn upstream_head(head: &RequestHead, client_ip: IpAddr) -> String {
             continue;
         }
         if k.eq_ignore_ascii_case("x-forwarded-host") {
+            continue;
+        }
+        if mode == Mode::Data && !data_allowed(k) {
             continue;
         }
         out.push_str(k);
@@ -181,6 +220,12 @@ pub fn upstream_head(head: &RequestHead, client_ip: IpAddr) -> String {
 /// force `Connection: close`, add nosniff when missing. Returns the new head
 /// and the status code.
 pub fn rewrite_response_head(raw: &[u8]) -> Option<(Vec<u8>, u16)> {
+    rewrite_response_head_mode(raw, Mode::Api)
+}
+
+/// [`rewrite_response_head`]; in [`Mode::Data`] also drops `Set-Cookie`
+/// (a data reader must never set cookies on the console origin).
+pub fn rewrite_response_head_mode(raw: &[u8], mode: Mode) -> Option<(Vec<u8>, u16)> {
     let text = std::str::from_utf8(raw).ok()?;
     let text = text.strip_suffix("\r\n\r\n")?;
     let mut lines = text.split("\r\n");
@@ -208,6 +253,9 @@ pub fn rewrite_response_head(raw: &[u8]) -> Option<(Vec<u8>, u16)> {
         if k.eq_ignore_ascii_case("connection") || k.eq_ignore_ascii_case("keep-alive") {
             continue;
         }
+        if mode == Mode::Data && k.trim().eq_ignore_ascii_case("set-cookie") {
+            continue;
+        }
         if k.eq_ignore_ascii_case("transfer-encoding") {
             chunked = v.to_ascii_lowercase().contains("chunked");
         }
@@ -231,9 +279,22 @@ pub fn rewrite_response_head(raw: &[u8]) -> Option<(Vec<u8>, u16)> {
 pub fn forward(
     client: &mut TcpStream,
     head: &RequestHead,
+    carry: Vec<u8>,
+    upstream: SocketAddr,
+    max_body: u64,
+) -> u16 {
+    forward_mode(client, head, carry, upstream, max_body, Mode::Api)
+}
+
+/// [`forward`] with an explicit header policy ([`Mode::Data`] for
+/// `--data-upstream`: credential headers stripped, `Set-Cookie` dropped).
+pub fn forward_mode(
+    client: &mut TcpStream,
+    head: &RequestHead,
     mut carry: Vec<u8>,
     upstream: SocketAddr,
     max_body: u64,
+    mode: Mode,
 ) -> u16 {
     let head_only = head.method == "HEAD";
     if session_pack_path(&head.target) {
@@ -290,7 +351,7 @@ pub fn forward(
     let _ = up.set_write_timeout(Some(Duration::from_secs(30)));
     let _ = up.set_nodelay(true);
     if up
-        .write_all(upstream_head(head, client_ip).as_bytes())
+        .write_all(upstream_head_mode(head, client_ip, mode).as_bytes())
         .is_err()
     {
         return fail(client, 502);
@@ -333,7 +394,7 @@ pub fn forward(
     let rewritten = if session_pack_path(&head.target) {
         harden_session_pack_head(&buf[..end])
     } else {
-        rewrite_response_head(&buf[..end])
+        rewrite_response_head_mode(&buf[..end], mode)
     };
     let Some((new_head, code)) = rewritten else {
         return fail(client, 502);
@@ -480,5 +541,48 @@ mod tests {
         .unwrap();
         assert_eq!(code, 401);
         assert!(String::from_utf8(h).unwrap().contains("application/json"));
+    }
+    #[test]
+    fn data_mode_strips_credentials() {
+        let raw = "GET /api/v1/bank?x=1 HTTP/1.1\r\nHost: console.galion.app\r\nCookie: galion_admin=SECRETTOK; galion_theme=dark\r\nAuthorization: Bearer SECRETBEARER\r\nProxy-Authorization: Basic SECRETPROXY\r\nX-Api-Key: SECRETKEY\r\nX-Hermes-Key: SECRETH\r\ncookie: second=SECRET2\r\nAccept: application/json\r\nUser-Agent: t/1\r\nIf-None-Match: \"e1\"\r\nX-Forwarded-For: 10.0.0.4\r\nX-Forwarded-Host: evil\r\n\r\n";
+        let h = head(raw);
+        let up = upstream_head_mode(&h, "127.0.0.1".parse().unwrap(), Mode::Data);
+        assert!(up.starts_with("GET /api/v1/bank?x=1 HTTP/1.1\r\n"));
+        assert!(!up.contains("SECRET"), "{up}");
+        let low = up.to_ascii_lowercase();
+        for k in ["cookie", "authorization", "x-api-key", "x-hermes-key"] {
+            assert!(!low.contains(&format!("{k}:")), "{k} in {up}");
+        }
+        for k in [
+            "Host: console.galion.app\r\n",
+            "Accept: application/json\r\n",
+            "User-Agent: t/1\r\n",
+            "If-None-Match: \"e1\"\r\n",
+            "X-Forwarded-For: 10.0.0.4, 127.0.0.1\r\n",
+            "X-Forwarded-Host: console.galion.app\r\n",
+        ] {
+            assert!(up.contains(k), "{k} missing in {up}");
+        }
+        assert!(!up.contains("evil"));
+        assert!(up.ends_with("Connection: close\r\n\r\n"));
+        // Api mode is unchanged: the console API still gets the session cookie.
+        let api = upstream_head(&h, "127.0.0.1".parse().unwrap());
+        assert!(api.contains("Cookie: galion_admin=SECRETTOK; galion_theme=dark\r\n"));
+        assert!(api.contains("Authorization: Bearer SECRETBEARER\r\n"));
+        assert!(!api.contains("SECRETPROXY"), "proxy-auth is hop-by-hop");
+    }
+
+    #[test]
+    fn data_mode_drops_set_cookie() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: galion_admin=forged; Path=/\r\nset-cookie: b=2\r\nContent-Length: 2\r\n\r\n";
+        let (h, code) = rewrite_response_head_mode(raw, Mode::Data).unwrap();
+        let h = String::from_utf8(h).unwrap();
+        assert_eq!(code, 200);
+        assert!(!h.to_ascii_lowercase().contains("set-cookie"), "{h}");
+        assert!(h.contains("Content-Type: application/json\r\nContent-Length: 2\r\n"));
+        let (h, _) = rewrite_response_head(raw).unwrap();
+        assert!(String::from_utf8(h)
+            .unwrap()
+            .contains("Set-Cookie: galion_admin=forged"));
     }
 }

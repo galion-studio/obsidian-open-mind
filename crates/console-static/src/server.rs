@@ -279,7 +279,7 @@ fn handle_request(
                 log(state, method, &clean, 405);
                 return false;
             }
-            let code = proxy::forward(stream, head, carry, up, 0);
+            let code = proxy::forward_mode(stream, head, carry, up, 0, proxy::Mode::Data);
             log(state, method, &clean, code);
             return false;
         }

@@ -11,6 +11,9 @@ use serde_json::{json, Value};
 use std::collections::VecDeque;
 
 pub const HISTORY: usize = 240;
+/// A stop job logged up to this many seconds before the previous sample still
+/// explains a restart first seen in this one (same-second probe race).
+pub const PLANNED_SLACK_S: u64 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Status {
@@ -108,6 +111,11 @@ pub struct CompState {
     pub spec: Spec,
     pub hist: VecDeque<Sample>,
     pub restarts: VecDeque<u64>,
+    /// Restarts that followed a journal stop / restart job (`unit.stopping`):
+    /// shown, but not counted as degradation (slot 310).
+    pub planned_restarts: VecDeque<u64>,
+    /// Stop-job times already matched to a restart (one stop explains one restart).
+    planned_used: VecDeque<u64>,
     pub consecutive_down: u32,
     pub status: Status,
     pub reasons: Vec<String>,
@@ -122,6 +130,8 @@ impl CompState {
             spec,
             hist: VecDeque::new(),
             restarts: VecDeque::new(),
+            planned_restarts: VecDeque::new(),
+            planned_used: VecDeque::new(),
             consecutive_down: 0,
             status: Status::Healthy,
             reasons: vec![],
@@ -135,7 +145,19 @@ impl CompState {
     }
 
     /// Add a sample: derives CPU %, detects restarts, updates the verdict.
-    pub fn push(&mut self, mut s: Sample, th: &Thresholds) {
+    pub fn push(&mut self, s: Sample, th: &Thresholds) {
+        self.push_planned(s, th, &[], &[]);
+    }
+
+    /// Like [`push`](Self::push); `stops` = times of journal stop / restart jobs
+    /// of this unit. A restart detected between the previous sample and this one
+    /// with an unused stop job in that window is planned (operator, cutover,
+    /// cortex restart) and goes to `planned_restarts`, not `restarts`.
+    /// `crashes` = times of unplanned failures of this unit (`unit.failed`,
+    /// `unit.exit`, ... not inside a stop job): a crash in the window wins, the
+    /// restart is counted (VPS 2026-10-27 19:52 CET: operator restart of hermes-rs,
+    /// then the new invocation crashed with exit 2 in the same second).
+    pub fn push_planned(&mut self, mut s: Sample, th: &Thresholds, stops: &[u64], crashes: &[u64]) {
         if let Some(p) = self.hist.back() {
             if let (Some(a), Some(b)) = (p.cpu_nsec, s.cpu_nsec) {
                 let dt = s.t.saturating_sub(p.t) as f64;
@@ -148,14 +170,50 @@ impl CompState {
                 let by_pid = p.pid != 0 && s.pid != 0 && p.pid != s.pid;
                 let by_enter =
                     p.active_enter != 0 && s.active_enter != 0 && p.active_enter != s.active_enter;
-                let n = by_counter.max(u32::from(by_pid || by_enter));
-                for _ in 0..n.min(10) {
-                    self.restarts.push_back(s.t);
+                let n = by_counter.max(u32::from(by_pid || by_enter)).min(10);
+                let lo = p.t.saturating_sub(PLANNED_SLACK_S);
+                // multiset match: two stop jobs in the same second explain two restarts
+                let mut used: Vec<u64> = self.planned_used.iter().copied().collect();
+                let mut planned = 0;
+                let crashed = crashes.iter().any(|t| *t > lo && *t <= s.t);
+                let window = stops
+                    .iter()
+                    .copied()
+                    .filter(|t| !crashed && *t > lo && *t <= s.t);
+                for t in window {
+                    if planned >= n {
+                        break;
+                    }
+                    if let Some(i) = used.iter().position(|x| *x == t) {
+                        used.swap_remove(i);
+                    } else {
+                        self.planned_used.push_back(t);
+                        planned += 1;
+                    }
+                }
+                for i in 0..n {
+                    if i < planned {
+                        self.planned_restarts.push_back(s.t);
+                    } else {
+                        self.restarts.push_back(s.t);
+                    }
                 }
             }
         }
         while self.restarts.front().is_some_and(|t| *t + 3600 < s.t) {
             self.restarts.pop_front();
+        }
+        while self
+            .planned_restarts
+            .front()
+            .is_some_and(|t| *t + 3600 < s.t)
+        {
+            self.planned_restarts.pop_front();
+        }
+        while self.planned_used.front().is_some_and(|t| *t + 7200 < s.t)
+            || self.planned_used.len() > 256
+        {
+            self.planned_used.pop_front();
         }
         if self.hist.len() >= HISTORY {
             self.hist.pop_front();
@@ -178,6 +236,14 @@ impl CompState {
 
     pub fn restarts_1h(&self, now: u64) -> usize {
         self.restarts.iter().filter(|t| **t + 3600 >= now).count()
+    }
+
+    /// Planned restarts (after a stop / restart job) in the last hour.
+    pub fn planned_restarts_1h(&self, now: u64) -> usize {
+        self.planned_restarts
+            .iter()
+            .filter(|t| **t + 3600 >= now)
+            .count()
     }
 
     /// Verdict for the latest sample: (status, reasons, hard_down).
@@ -513,6 +579,7 @@ impl CompState {
             "mem_max_kb": s.mem_max_kb,
             "cpu_pct": s.cpu_pct,
             "restarts_1h": self.restarts_1h(now),
+            "planned_restarts_1h": self.planned_restarts_1h(now),
             "n_restarts_systemd": s.n_restarts,
             "log_errors_cycle": s.journal_errors,
             "log_warnings_cycle": s.journal_warnings,
@@ -649,6 +716,52 @@ mod tests {
         c.push(s, &th);
         assert_eq!(c.restarts_1h(1000 + 4 * 30 + 3700), 0);
         assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
+    }
+
+    /// Slot 310: restarts that follow a journal stop job are planned and do
+    /// not degrade; a restart without one still does; one stop explains one
+    /// restart; two stops in the same second explain two.
+    #[test]
+    fn planned_restarts_do_not_degrade() {
+        let th = Thresholds::default();
+        let mut c = CompState::new(spec("tuner"));
+        c.push_planned(ok(1000), &th, &[], &[]);
+        // operator restart at 1010, cortex restart at 1012 (VPS 17:25:04 / 17:25:06 shape)
+        let stops = vec![1010, 1012];
+        let mut s = ok(1030);
+        s.pid = 11;
+        c.push_planned(s, &th, &stops, &[]);
+        assert_eq!((c.restarts_1h(1030), c.planned_restarts_1h(1030)), (0, 1));
+        assert_eq!(c.status, Status::Healthy, "{:?}", c.reasons);
+        let mut s = ok(1060);
+        s.pid = 12;
+        s.n_restarts = 2; // counter says 2 restarts in this window
+        c.push_planned(s, &th, &[1010, 1012, 1050, 1050], &[]);
+        assert_eq!((c.restarts_1h(1060), c.planned_restarts_1h(1060)), (0, 3));
+        assert_eq!(c.to_json(1060)["planned_restarts_1h"], 3);
+        // a crash: no stop job in the window -> counted, degrading
+        let mut s = ok(1090);
+        s.pid = 13;
+        c.push_planned(s, &th, &[1010, 1012, 1050, 1050], &[]);
+        assert_eq!((c.restarts_1h(1090), c.planned_restarts_1h(1090)), (1, 3));
+        assert_eq!(c.status, Status::Degrading, "{:?}", c.reasons);
+        // a stop job older than the previous sample (minus PLANNED_SLACK_S) never
+        // explains a later restart
+        let mut s = ok(1200);
+        s.pid = 14;
+        c.push_planned(s, &th, &[1010, 1012, 1050, 1050, 1080], &[]);
+        assert_eq!(c.restarts_1h(1200), 2);
+        // crash wins: a stop job and a crash of the new invocation in the same
+        // window (VPS hermes-rs 2026-10-27 19:52 CET shape) -> counted
+        let mut s = ok(1230);
+        s.pid = 15;
+        c.push_planned(s, &th, &[1220], &[1220]);
+        assert_eq!((c.restarts_1h(1230), c.planned_restarts_1h(1230)), (3, 3));
+        // a crash outside the window does not cancel a later planned restart
+        let mut s = ok(1260);
+        s.pid = 16;
+        c.push_planned(s, &th, &[1220, 1250], &[1220]);
+        assert_eq!((c.restarts_1h(1260), c.planned_restarts_1h(1260)), (3, 4));
     }
 
     #[test]

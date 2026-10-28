@@ -451,7 +451,7 @@ fn rooms_are_gated() {
 }
 
 #[test]
-fn spa_fallback_rust_owns_hermes() {
+fn spa_fallback_serves_rust_hermes() {
     let ui = console_ui::Ui::new(console_ui::UiConfig {
         upstream: "127.0.0.1:9".parse().unwrap(),
         pulse: None,
@@ -466,7 +466,7 @@ fn spa_fallback_rust_owns_hermes() {
     assert!(ui.owns("/hermes", false));
     assert!(ui.owns("/arena", true), "/arena is Rust-first (slot 299)");
     assert!(ui.owns("/bank", true), "/bank is Rust-first (slot 299)");
-    for p in ["/context", "/gateway", "/guardian"] {
+    for p in ["/context", "/gateway", "/guardian", "/hermes"] {
         assert!(ui.owns(p, true), "{p}");
     }
 }

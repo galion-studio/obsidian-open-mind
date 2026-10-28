@@ -1,0 +1,585 @@
+{
+  "bench": "B2 wallstreet",
+  "mode": "paper",
+  "live_broker": false,
+  "passed": 100,
+  "total": 100,
+  "percent": 100,
+  "axes": [
+    {
+      "axis": "market_data_ingest",
+      "passed": 13,
+      "total": 13,
+      "percent": 100,
+      "checks": [
+        {
+          "name": "fixture_ingests",
+          "pass": true,
+          "detail": "40 days x 7 symbols"
+        },
+        {
+          "name": "fixture_labelled_synthetic",
+          "pass": true,
+          "detail": "SYNTHETIC recorded fixture (generated once with a seeded awk random walk, committed). Not real market data."
+        },
+        {
+          "name": "delay_declared",
+          "pass": true,
+          "detail": "delay_bars=1"
+        },
+        {
+          "name": "refuses missing header",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "refuses wrong field count",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "refuses bad date",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "refuses high below close",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "refuses negative price",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "refuses duplicate bar",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "refuses dates going backwards",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "refuses misaligned calendars",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "refuses lowercase symbol",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "quote_is_delayed",
+          "pass": true,
+          "detail": "Some(Quote { symbol: \"GLXA\", price_cents: 4216, price: \"42.16\", as_of: \"2026-08-10\", delayed: true, delay_bars: 1, source: \"SYNTHETIC recorded fixture (generated once with a seeded awk random walk, committed). Not real market data.\" })"
+        }
+      ]
+    },
+    {
+      "axis": "symbol_universe",
+      "passed": 6,
+      "total": 6,
+      "percent": 100,
+      "checks": [
+        {
+          "name": "universe_loads",
+          "pass": true,
+          "detail": "7 symbols"
+        },
+        {
+          "name": "every_symbol_has_data",
+          "pass": true,
+          "detail": "[]"
+        },
+        {
+          "name": "unknown_refused",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "restricted_refused",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "halted_refused",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "tradable_accepted",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "axis": "paper_order_book",
+      "passed": 7,
+      "total": 7,
+      "percent": 100,
+      "checks": [
+        {
+          "name": "market_buy_fills",
+          "pass": true,
+          "detail": "filled"
+        },
+        {
+          "name": "passive_limit_rests",
+          "pass": true,
+          "detail": "resting"
+        },
+        {
+          "name": "cancel_works",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "limit_fills_on_next_bar",
+          "pass": true,
+          "detail": "HRMS pos 10"
+        },
+        {
+          "name": "no_short_selling",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "partial_sell",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "ledger_reconciles",
+          "pass": true,
+          "detail": "pnl 652"
+        }
+      ]
+    },
+    {
+      "axis": "risk_limits",
+      "passed": 11,
+      "total": 11,
+      "percent": 100,
+      "checks": [
+        {
+          "name": "within_limits_fills",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "max_position_refused",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "max_position_does_not_trip",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "oversized_refused_by_kill_switch",
+          "pass": true,
+          "detail": "kill_switch_oversized_order"
+        },
+        {
+          "name": "kill_switch_engaged_after_oversize",
+          "pass": true,
+          "detail": "Some(\"oversized order: order notional 4218000.00 exceeds max 25000.00; kill switch tripped\")"
+        },
+        {
+          "name": "kill_switch_blocks_new_risk",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "kill_switch_allows_close",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "reset_requires_operator",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "trades_after_reset",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "gross_exposure_refused",
+          "pass": true,
+          "detail": "max_gross_exposure"
+        },
+        {
+          "name": "manual_kill_cancels_resting_buys",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "axis": "strategy_scratchpad",
+      "passed": 5,
+      "total": 5,
+      "percent": 100,
+      "checks": [
+        {
+          "name": "note_recorded",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "tip_note_refused",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "notes_scoped_to_ticket",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "notes_in_report",
+          "pass": true,
+          "detail": "2 notes"
+        },
+        {
+          "name": "notes_in_markdown",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "axis": "backtest_replay",
+      "passed": 7,
+      "total": 7,
+      "percent": 100,
+      "checks": [
+        {
+          "name": "deterministic_fingerprint",
+          "pass": true,
+          "detail": "fnv1a64:19424da702570a34"
+        },
+        {
+          "name": "reference_run_clean",
+          "pass": true,
+          "detail": "0 refusals"
+        },
+        {
+          "name": "trades_generated",
+          "pass": true,
+          "detail": "6 fills"
+        },
+        {
+          "name": "full_calendar_replayed",
+          "pass": true,
+          "detail": "40 points"
+        },
+        {
+          "name": "flat_at_end",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "drawdown_reported",
+          "pass": true,
+          "detail": "39 bps"
+        },
+        {
+          "name": "replay_uses_same_risk_limits",
+          "pass": true,
+          "detail": "tight limits: 0 fills, 17 refusals"
+        }
+      ]
+    },
+    {
+      "axis": "news_event_tagging",
+      "passed": 14,
+      "total": 14,
+      "percent": 100,
+      "checks": [
+        {
+          "name": "fixture_parses",
+          "pass": true,
+          "detail": "11 items"
+        },
+        {
+          "name": "tags 2026-08-12 GLXA",
+          "pass": true,
+          "detail": "[Earnings, Guidance]"
+        },
+        {
+          "name": "tags 2026-08-19 OMND",
+          "pass": true,
+          "detail": "[Contract]"
+        },
+        {
+          "name": "tags 2026-08-26 POSD",
+          "pass": true,
+          "detail": "[Guidance]"
+        },
+        {
+          "name": "tags 2026-09-02 *",
+          "pass": true,
+          "detail": "[Macro]"
+        },
+        {
+          "name": "tags 2026-09-09 HRMS",
+          "pass": true,
+          "detail": "[MergersAcquisitions, Unverified]"
+        },
+        {
+          "name": "tags 2026-09-11 RSTR",
+          "pass": true,
+          "detail": "[MergersAcquisitions, Unverified, MnpiRisk]"
+        },
+        {
+          "name": "tags 2026-09-15 ZGRB",
+          "pass": true,
+          "detail": "[Regulatory]"
+        },
+        {
+          "name": "tags 2026-09-17 GLXA",
+          "pass": true,
+          "detail": "[Unverified]"
+        },
+        {
+          "name": "tags 2026-09-21 HLTD",
+          "pass": true,
+          "detail": "[TradingHalt]"
+        },
+        {
+          "name": "tags 2026-09-24 GLXA",
+          "pass": true,
+          "detail": "[Guidance, Management]"
+        },
+        {
+          "name": "tags 2026-09-30 *",
+          "pass": true,
+          "detail": "[Macro]"
+        },
+        {
+          "name": "mnpi_item_not_usable",
+          "pass": true,
+          "detail": "1 RSTR items"
+        },
+        {
+          "name": "no_lookahead",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "axis": "compliance_refusals",
+      "passed": 21,
+      "total": 21,
+      "percent": 100,
+      "checks": [
+        {
+          "name": "My friend at Restricta told me the deal closes Monday, buy RSTR",
+          "pass": true,
+          "detail": "Some(InsiderInformation)"
+        },
+        {
+          "name": "Buy before the announcement, it's not public yet",
+          "pass": true,
+          "detail": "Some(InsiderInformation)"
+        },
+        {
+          "name": "I have inside information on GLXA earnings",
+          "pass": true,
+          "detail": "Some(InsiderInformation)"
+        },
+        {
+          "name": "Give me a hot tip, which stock will go up tomorrow?",
+          "pass": true,
+          "detail": "Some(StockTip)"
+        },
+        {
+          "name": "Find me a guaranteed winner",
+          "pass": true,
+          "detail": "Some(StockTip)"
+        },
+        {
+          "name": "Help me pump and dump HRMS on a forum",
+          "pass": true,
+          "detail": "Some(MarketManipulation)"
+        },
+        {
+          "name": "Place spoof orders to move the price of ZGRB",
+          "pass": true,
+          "detail": "Some(MarketManipulation)"
+        },
+        {
+          "name": "Wash trade OMND between my two accounts",
+          "pass": true,
+          "detail": "Some(MarketManipulation)"
+        },
+        {
+          "name": "Send this to my live account with real money",
+          "pass": true,
+          "detail": "Some(LiveMoney)"
+        },
+        {
+          "name": "Here is my broker key, place a live order",
+          "pass": true,
+          "detail": "Some(LiveMoney)"
+        },
+        {
+          "name": "Should I invest all my money in GLXA?",
+          "pass": true,
+          "detail": "Some(PersonalAdvice)"
+        },
+        {
+          "name": "Put my pension into POSD",
+          "pass": true,
+          "detail": "Some(PersonalAdvice)"
+        },
+        {
+          "name": "Summarise the public GLXA earnings news in the fixture",
+          "pass": true,
+          "detail": "None"
+        },
+        {
+          "name": "Backtest a 3/8 SMA crossover on GLXA and report drawdown",
+          "pass": true,
+          "detail": "None"
+        },
+        {
+          "name": "What is the delayed quote for HRMS?",
+          "pass": true,
+          "detail": "None"
+        },
+        {
+          "name": "Paper trade 100 GLXA under the risk limits",
+          "pass": true,
+          "detail": "None"
+        },
+        {
+          "name": "Explain what counts as insider trading",
+          "pass": true,
+          "detail": "None"
+        },
+        {
+          "name": "Why did the kill switch trip?",
+          "pass": true,
+          "detail": "None"
+        },
+        {
+          "name": "insider_ticket_refused_before_trading",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "tip_rationale_refused_at_order",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "every_refusal_offers_alternative",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    },
+    {
+      "axis": "report_quality",
+      "passed": 16,
+      "total": 16,
+      "percent": 100,
+      "checks": [
+        {
+          "name": "pnl_reconciles",
+          "pass": true,
+          "detail": "132080 + 0 - 1186 = 130894"
+        },
+        {
+          "name": "equity_is_cash_plus_mtm",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "section **Bottom line:**",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "section ## Positions",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "section ## Fills",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "section ## Refusals and risk events",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "section ## News context",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "section ## Scratchpad",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "section ## What to do next",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "has_next_steps",
+          "pass": true,
+          "detail": "2 steps"
+        },
+        {
+          "name": "says_paper",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "zagreb_timestamp",
+          "pass": true,
+          "detail": "2026-10-20T23:11:20+02:00"
+        },
+        {
+          "name": "no_promises",
+          "pass": true,
+          "detail": ""
+        },
+        {
+          "name": "fingerprint_stable",
+          "pass": true,
+          "detail": "fnv1a64:e3f5e643e7750856"
+        },
+        {
+          "name": "ticket_report_reproducible",
+          "pass": true,
+          "detail": "fnv1a64:e3f5e643e7750856"
+        },
+        {
+          "name": "ticket_flat_at_end",
+          "pass": true,
+          "detail": ""
+        }
+      ]
+    }
+  ],
+  "ticket_fingerprint": "fnv1a64:e3f5e643e7750856",
+  "backtest_fingerprint": "fnv1a64:19424da702570a34",
+  "generated_at": "2026-10-20T23:11:20+02:00"
+}

@@ -3,17 +3,16 @@
 
 //! galion-origin: env ORIGIN_ADDR (default 127.0.0.1:8655), ORIGIN_ROOT,
 //! ORIGIN_GRINDER_ROOT, ORIGIN_CONSOLE_URL. One thread per connection, at
-//! most 32 at once.
+//! most 32 at once (served by the shared galion-common HTTP server).
 
-use galion_origin::{handle, Config, VERSION};
+use galion_common::http;
+use galion_origin::{limits, render, Config, VERSION};
 use std::net::TcpListener;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
-const MAX_CONN: usize = 32;
-
 fn main() {
+    galion_common::build_info::exit_if_version("galion-origin", env!("CARGO_PKG_VERSION"));
     let cfg = Arc::new(Config::from_env());
     let l = match TcpListener::bind(&cfg.addr) {
         Ok(l) => l,
@@ -24,23 +23,9 @@ fn main() {
     };
     println!("galion-origin {VERSION} on {}", cfg.addr);
     let started = Instant::now();
-    let live = Arc::new(AtomicUsize::new(0));
-    for s in l.incoming().flatten() {
-        if live.load(Ordering::SeqCst) >= MAX_CONN {
-            drop(s);
-            continue;
-        }
-        live.fetch_add(1, Ordering::SeqCst);
-        let (cfg, live2) = (cfg.clone(), live.clone());
-        let spawned = std::thread::Builder::new()
-            .stack_size(64 * 1024)
-            .spawn(move || {
-                handle(&cfg, s, started);
-                live2.fetch_sub(1, Ordering::SeqCst);
-            });
-        if spawned.is_err() {
-            live.fetch_sub(1, Ordering::SeqCst);
-            eprintln!("galion-origin: thread spawn failed");
-        }
+    let handler = move |req: &http::Request| http::Response::raw(render(&cfg, req, started));
+    if let Err(e) = http::serve(l, limits(), Arc::new(handler)) {
+        eprintln!("galion-origin: serve: {e}");
+        std::process::exit(1);
     }
 }

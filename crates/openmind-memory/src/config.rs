@@ -23,6 +23,10 @@ pub struct Config {
     /// Opt-in: also put the L1 keyword hits into `/recall` `context`
     /// (the Node gateway computes them but drops them; default keeps parity).
     pub recall_include_l1: bool,
+    /// Opt-in replay/import mode for `/capture` (`"import": true` in the body
+    /// is ignored unless this is set): no cursor filter, so old timestamps are
+    /// kept, plus an idempotent dedupe. Default off = gateway behaviour.
+    pub allow_import: bool,
 }
 
 impl Config {
@@ -74,6 +78,7 @@ impl Config {
                 .unwrap_or(0.3),
             recall_strategy: strategy,
             recall_include_l1: truthy(&["OPENMIND_MEMORY_RECALL_INCLUDE_L1"]),
+            allow_import: truthy(&["OPENMIND_MEMORY_ALLOW_IMPORT"]),
         }
     }
 
@@ -115,5 +120,6 @@ mod tests {
             PathBuf::from("/h/d/instances/galion/vectors.db")
         );
         assert!(c.api_key.is_none() && !c.read_only && c.is_loopback());
+        assert!(!c.allow_import, "import mode must be opt-in");
     }
 }

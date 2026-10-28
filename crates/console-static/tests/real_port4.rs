@@ -39,9 +39,28 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-const BIND: &str = "127.0.0.1:20080";
-const API: &str = "127.0.0.1:20081";
-const NERVE: &str = "127.0.0.1:20082";
+use galion_realtest::console_routes as routes;
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `PORT4_REAL_PORT_BASE`; unset keeps
+/// the old 20080 block.
+static PORTS: Block = Block::new("PORT4_REAL_PORT_BASE", 20080, 10);
+fn api_at() -> &'static str {
+    PORTS.addr(1)
+}
+fn bind_at() -> &'static str {
+    PORTS.addr(0)
+}
+/// Slot 395: galion-one forward for the local console build (CONSOLE_REAL_API=local).
+fn pulse_at() -> &'static str {
+    PORTS.addr(4)
+}
+fn hermes_at() -> &'static str {
+    PORTS.addr(5)
+}
+fn nerve_at() -> &'static str {
+    PORTS.addr(2)
+}
 
 /// The read-only probe run on the VPS (no redirection to files, no writes).
 const PROBE: &str = r#"set -u
@@ -134,7 +153,7 @@ fn wait_for(what: &str, secs: u64, mut ok: impl FnMut() -> bool) {
 }
 
 fn nerve_watch(tag: &str) -> Vec<String> {
-    let (c, b) = get(NERVE, "/state");
+    let (c, b) = get(nerve_at(), "/state");
     assert_eq!(c, 200, "nerve /state");
     let v = json::parse(b.as_bytes()).unwrap_or(Value::Null);
     let mut out = Vec::new();
@@ -323,6 +342,8 @@ fn real_port4_rooms_against_live_vps() {
     );
 
     // 3. Forward + binary.
+    // Slot 395: CONSOLE_REAL_API=local reads a box-local console build instead of VPS :8080.
+    let api_target = routes::api_target(Some(env!("CARGO_BIN_EXE_galion-console-static")));
     let ssh = Command::new("ssh")
         .args([
             "-o",
@@ -331,20 +352,50 @@ fn real_port4_rooms_against_live_vps() {
             "ExitOnForwardFailure=yes",
             "-N",
         ])
-        .args(["-L", &format!("{API}:127.0.0.1:8080")])
-        .args(["-L", &format!("{NERVE}:127.0.0.1:8670")])
+        .args(routes::api_forward_args(&api_target, api_at()))
+        .args(routes::owner_forward_args(
+            &api_target,
+            Some(pulse_at()),
+            Some(hermes_at()),
+        ))
+        .args([
+            "-L",
+            &format!("{nerve_at}:127.0.0.1:8670", nerve_at = nerve_at()),
+        ])
         .arg(&vps)
         .stdin(Stdio::null())
         .spawn()
         .expect("ssh");
     let _ssh = Kill(ssh, "ssh forward");
-    wait_for("ssh forward", 25, || get(API, "/api/v1/health").0 == 200);
-    eprintln!("real: forward {API}->8080 {NERVE}->8670 (ssh -N, GET only)");
+    let _local = routes::start_local_api(
+        &api_target,
+        api_at(),
+        nerve_at(),
+        Some(pulse_at()),
+        Some(hermes_at()),
+        None,
+    );
+    wait_for("ssh forward", 25, || {
+        get(api_at(), "/api/v1/health").0 == 200
+    });
+    eprintln!(
+        "real: forward {api_at}->8080 {nerve_at}->8670 (ssh -N, GET only)",
+        api_at = api_at(),
+        nerve_at = nerve_at()
+    );
     let before = nerve_watch("before");
 
     let bin = env!("CARGO_BIN_EXE_galion-console-static");
     let child = Command::new(bin)
-        .args(["--ui", "rust", "--upstream", API, "--bind", BIND, "--quiet"])
+        .args([
+            "--ui",
+            "rust",
+            "--upstream",
+            api_at(),
+            "--bind",
+            bind_at(),
+            "--quiet",
+        ])
         .arg("--memory-root")
         .arg(&mem)
         .arg("--model-file")
@@ -356,11 +407,11 @@ fn real_port4_rooms_against_live_vps() {
         .spawn()
         .expect("start binary");
     let _srv = Kill(child, "galion-console-static");
-    wait_for("binary", 10, || TcpStream::connect(BIND).is_ok());
+    wait_for("binary", 10, || TcpStream::connect(bind_at()).is_ok());
 
     // /memory vs VPS find.
     let t = Instant::now();
-    let (c, page) = get(BIND, "/memory");
+    let (c, page) = get(bind_at(), "/memory");
     eprintln!(
         "real: /memory {c} {} B in {} ms",
         page.len(),
@@ -399,69 +450,110 @@ fn real_port4_rooms_against_live_vps() {
         ("persona", "persona.md", psize, "zpersona"),
         ("user", "USER.md", usize_, "zuser"),
     ] {
-        let (c, page) = get(BIND, &format!("/md/{name}"));
+        let (c, page) = get(bind_at(), &format!("/md/{name}"));
         assert_eq!(c, 200, "/md/{name}");
         let want = format!("{title} · {size} bytes · {}", kv[zone_key].trim());
         assert!(page.contains(&want), "/md/{name}: want {want}");
         assert!(!page.to_ascii_lowercase().contains("<script"));
         eprintln!("real: /md/{name} shows \"{want}\" (= VPS stat + TZ=Europe/Zagreb date)");
     }
-    let (c, _) = get(BIND, "/md/other");
+    let (c, _) = get(bind_at(), "/md/other");
     assert_eq!(c, 404);
-    let (lc, lpage) = get_accept(API, "/md/user", "127.0.0.1", "text/html");
-    assert_eq!(lc, 200, "live Node /md/user");
+    let (lc, lpage) = get_accept(api_at(), "/md/user", "127.0.0.1", "text/html");
+    if routes::decide("/md/user", lc) == routes::Live::Gone {
+        // D-375-1: the live :8080 /md/user is now the Rust room itself, run
+        // without --user-md: 404 "not configured", no file bytes.
+        assert!(
+            lpage.contains("not configured"),
+            "live Rust /md/user: want the not-configured note"
+        );
+        assert!(
+            !lpage.contains("bytes ·"),
+            "live Rust /md/user leaked a file"
+        );
+    } else {
+        assert_eq!(lc, 200, "live Node /md/user");
+    }
     eprintln!(
-        "real: live Node /md/user on a loopback Host: {lc} {} B, {} (the TSX stub route; the middleware skips the file on loopback)",
+        "real: live /md/user on a loopback Host: {lc} {} B, {} (Node: TSX stub route; Rust: room without --user-md)",
         lpage.len(),
-        if lpage.contains("bytes ·") { "file page" } else { "SPA shell, no file" }
+        if lpage.contains("bytes ·") { "file page" } else if lpage.contains("not configured") { "Rust room, not configured" } else { "SPA shell, no file" }
     );
 
     // /mesh vs live GET /api/mesh.
-    let (mc, mb) = get(API, "/api/mesh");
-    assert_eq!(mc, 200, "live /api/mesh");
-    let board = json::parse(mb.as_bytes()).unwrap();
-    let lines: Vec<&str> = board
-        .get("score")
-        .as_array()
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
-    let phase = board.get("phase").as_str().unwrap_or("");
-    let t = Instant::now();
-    let (c, page) = get(BIND, "/mesh");
-    eprintln!(
-        "real: /mesh {c} {} B in {} ms; live phase {phase:?}, {} score line(s)",
-        page.len(),
-        t.elapsed().as_millis(),
-        lines.len()
-    );
-    assert_eq!(c, 200);
-    assert!(!page.contains("did not load"), "{page}");
-    for l in &lines {
-        assert!(page.contains(&format!("<span class=\"p4-line\">{}</span>", esc(l))));
+    let (mc, mb) = get(api_at(), "/api/mesh");
+    if routes::decide("/api/mesh", mc) == routes::Live::Gone {
+        let (c, page) = get(bind_at(), "/mesh");
+        assert_eq!(c, 200);
+        assert!(
+            routes::page_says_unavailable(&page),
+            "/mesh: no honest miss"
+        );
+        assert!(
+            !page.contains("<span class=\"p4-line\">"),
+            "/mesh lines without data"
+        );
+        eprintln!("real: /mesh live {mc} -> room states the miss, 0 lines");
+    } else {
+        assert_eq!(mc, 200, "live /api/mesh");
+        let board = json::parse(mb.as_bytes()).unwrap();
+        let lines: Vec<&str> = board
+            .get("score")
+            .as_array()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        let phase = board.get("phase").as_str().unwrap_or("");
+        let t = Instant::now();
+        let (c, page) = get(bind_at(), "/mesh");
+        eprintln!(
+            "real: /mesh {c} {} B in {} ms; live phase {phase:?}, {} score line(s)",
+            page.len(),
+            t.elapsed().as_millis(),
+            lines.len()
+        );
+        assert_eq!(c, 200);
+        assert!(!page.contains("did not load"), "{page}");
+        for l in &lines {
+            assert!(page.contains(&format!("<span class=\"p4-line\">{}</span>", esc(l))));
+        }
+        if lines.is_empty() {
+            assert!(page.contains("No live line yet."));
+        }
+        let want = match phase {
+            "idle" => "Cold. Nothing is spending.".to_string(),
+            "" => "Cold.".to_string(),
+            p => p.to_string(),
+        };
+        assert!(page.contains(&format!("<p class=\"note\">{}</p>", esc(&want))));
+        eprintln!("real: /mesh lines + footer {want:?} = live");
     }
-    if lines.is_empty() {
-        assert!(page.contains("No live line yet."));
-    }
-    let want = match phase {
-        "idle" => "Cold. Nothing is spending.".to_string(),
-        "" => "Cold.".to_string(),
-        p => p.to_string(),
-    };
-    assert!(page.contains(&format!("<p class=\"note\">{}</p>", esc(&want))));
-    eprintln!("real: /mesh lines + footer {want:?} = live");
 
-    // Gate: public host, no cookie -> live /api/v1/admin says not paired.
+    // Gate: public host, no cookie -> live /api/v1/admin says not paired
+    // (or, while that route is gone on live, the gate fails closed).
+    let (adc, _) = get(api_at(), "/api/v1/admin");
+    let admin_gone = routes::decide("/api/v1/admin", adc) == routes::Live::Gone;
     for p in ["/memory", "/mesh", "/md/user"] {
-        let (c, page) = get_host(BIND, p, "console.galion.app");
-        assert_eq!(c, 200, "{p}");
-        assert!(page.contains("/_ui/pair"), "{p}: pairing page");
+        let (c, page) = get_host(bind_at(), p, "console.galion.app");
+        if admin_gone {
+            assert!(routes::gate_ok(c, &page, true), "{p}: fail-closed gate {c}");
+        } else {
+            assert_eq!(c, 200, "{p}");
+            assert!(page.contains("/_ui/pair"), "{p}: pairing page");
+        }
         assert!(!page.contains("p4-n") && !page.contains("bytes ·"), "{p}");
     }
-    eprintln!("real: public host unpaired -> pairing page for all 3 rooms (live /api/v1/admin)");
+    eprintln!(
+        "real: public host unpaired -> {} for all 3 rooms (live /api/v1/admin {adc})",
+        if admin_gone {
+            "503 fail-closed gate"
+        } else {
+            "pairing page"
+        }
+    );
 
     for p in ["/memory", "/mesh", "/md/user", "/md/persona"] {
-        let (_, b) = get(BIND, p);
+        let (_, b) = get(bind_at(), p);
         assert!(!b.to_ascii_lowercase().contains("<script"), "{p}");
     }
     let after = nerve_watch("after");

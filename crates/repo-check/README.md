@@ -26,6 +26,7 @@ repo-check --only portable,secrets         # subset
 | secrets | error | private-key blocks and token shapes (GitHub, Slack, AWS, Google, GitLab, `sk-` keys); only file:line is printed, never the value |
 | hosts | error | public IPv4 literals in `crates/`, `deploy/`, `.github/` (loopback, private, link-local, CGNAT, documentation ranges allowed) |
 | portable | error | inline asm, `core::arch`/`std::arch`, `#[target_feature]`, feature-detect macros, `target-cpu`/`target-feature` in TOML/CI, `openssl-sys` in Cargo.lock |
+| deps | error | serde_json features pinned once in the root `[workspace.dependencies]` (`preserve_order`); `crates/*/Cargo.toml` may only write `serde_json = { workspace = true }`. Without it `cargo build -p X` and `--workspace` emit different JSON key orders (docs/decisions/serde-order-pin.md) |
 
 Skipped: `.git`, `target`, `contrib` (vendored), `stage`, `node_modules`,
 binaries (NUL byte / non-UTF-8) and files over 2 MB. A line carrying the marker

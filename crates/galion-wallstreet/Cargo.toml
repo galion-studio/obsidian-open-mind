@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-wallstreet"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "B2 Wall Street bench: a PAPER broker on delayed fixture market data with risk limits, kill switch, backtest replay, news tagging and compliance refusals. No live brokerage, no real orders, no money."
+
+[[bin]]
+name = "galion-wallstreet"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }
+
+[dev-dependencies]
+# Shared harness (swarm/bench-harness): MockServer + client + Scorecard, tests only,
+# so the shipped binary links no HTTP client at all.
+galion-bench = { path = "../galion-bench" }
+# Port-base env for GALION_REAL tests (slot 363); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

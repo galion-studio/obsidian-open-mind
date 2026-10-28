@@ -12,7 +12,8 @@ name = "link-watch"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common", features = ["serde-json"] }
 openmind-config = { path = "../openmind-config" }
 serde = { workspace = true }
-serde_json = { workspace = true, features = ["preserve_order"] }
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
 zagreb-time = { path = "../zagreb-time" }

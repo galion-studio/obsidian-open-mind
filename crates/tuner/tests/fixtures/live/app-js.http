@@ -1,0 +1,99 @@
+HTTP/1.1 200 OK
+Content-Type: text/javascript; charset=utf-8
+Content-Length: 4570
+Cache-Control: public, max-age=300
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+Permissions-Policy: microphone=(self)
+Content-Security-Policy: default-src 'self'; style-src 'self'; script-src 'self'; media-src 'self' blob:
+Connection: close
+
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var btn = $('start'), disp = document.querySelector('.display');
+  var ctx = null, stream = null, analyser = null, buf = null, timer = 0;
+  var hist = [], lastSeen = 0, held = null;
+  var chips = {};
+  Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (c) { chips[c.dataset.id] = c; });
+
+  function median(a) { var s = a.slice().sort(function (x, y) { return x - y; }); return s[s.length >> 1]; }
+
+  function show(freq) {
+    var r = Pitch.identify(freq), s = r.string;
+    var c = Math.max(-50, Math.min(50, r.cents));
+    $('needle').style.left = 'calc(' + (50 + c) + '% - 2px)';
+    $('freq').textContent = freq.toFixed(2) + ' Hz';
+    for (var k in chips) chips[k].classList.remove('active', 'ok');
+    if (r.offString) {
+      $('string').textContent = r.nearestNote.replace(/\d+$/, '');
+      $('stringLabel').textContent = 'Not near a ukulele string (' + r.nearestNote + ', nearest ' + s.note + ')';
+      $('cents').textContent = (r.cents > 0 ? '+' : '') + r.cents.toFixed(0) + ' ¢';
+      $('state').textContent = r.cents < 0 ? 'Tune up' : 'Tune down';
+      disp.classList.remove('intune'); disp.classList.add('off');
+      $('flat').classList.toggle('on', r.cents < 0); $('sharp').classList.toggle('on', r.cents > 0);
+      return;
+    }
+    disp.classList.remove('off');
+    $('string').textContent = s.name;
+    $('stringLabel').textContent = s.note + ' · ' + s.hz.toFixed(2) + ' Hz · ' + s.label;
+    $('cents').textContent = (r.cents > 0 ? '+' : '') + r.cents.toFixed(1) + ' ¢';
+    disp.classList.toggle('intune', r.inTune);
+    $('state').textContent = r.inTune ? 'In tune' : (r.cents < 0 ? 'Flat · tune up' : 'Sharp · tune down');
+    $('flat').classList.toggle('on', !r.inTune && r.cents < 0);
+    $('sharp').classList.toggle('on', !r.inTune && r.cents > 0);
+    chips[s.id].classList.add('active'); if (r.inTune) chips[s.id].classList.add('ok');
+  }
+
+  function idle() {
+    disp.classList.remove('live', 'intune', 'off');
+    $('state').textContent = '–'; $('flat').classList.remove('on'); $('sharp').classList.remove('on');
+    $('needle').style.left = 'calc(50% - 2px)';
+    for (var k in chips) chips[k].classList.remove('active', 'ok');
+  }
+
+  function tick() {
+    analyser.getFloatTimeDomainData(buf);
+    var r = Pitch.detect(buf, ctx.sampleRate);
+    var now = performance.now();
+    if (r) {
+      // drop a reading that jumps an octave or more vs. the running median (pluck transients)
+      if (hist.length && Math.abs(Pitch.cents(r.freq, median(hist))) > 600) hist = [];
+      hist.push(r.freq); if (hist.length > 5) hist.shift();
+      held = median(hist); lastSeen = now;
+      disp.classList.add('live'); show(held);
+    } else if (now - lastSeen > 1500 && held !== null) {
+      held = null; hist = []; idle();
+      $('stringLabel').textContent = 'Listening… pluck a string';
+    }
+  }
+
+  function start() {
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } })
+      .then(function (s) {
+        stream = s;
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        var src = ctx.createMediaStreamSource(s);
+        var hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 120;
+        analyser = ctx.createAnalyser(); analyser.fftSize = 2048;
+        buf = new Float32Array(analyser.fftSize);
+        src.connect(hp); hp.connect(analyser);
+        timer = setInterval(tick, 50); // 20 analyses/s keeps CPU low
+        btn.textContent = 'Stop'; btn.classList.add('stop');
+        $('stringLabel').textContent = 'Listening… pluck a string';
+      })
+      .catch(function (e) {
+        $('stringLabel').textContent = 'Microphone unavailable: ' + (e && e.name ? e.name : e) +
+          (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1' ? ' (needs HTTPS)' : '');
+      });
+  }
+  function stop() {
+    clearInterval(timer); timer = 0;
+    if (stream) stream.getTracks().forEach(function (t) { t.stop(); });
+    if (ctx) ctx.close(); ctx = stream = analyser = null; held = null; hist = [];
+    idle(); $('string').textContent = '–'; $('freq').textContent = '– Hz'; $('cents').textContent = '– ¢';
+    $('stringLabel').textContent = 'Tap Start, then pluck any string';
+    btn.textContent = 'Start tuner'; btn.classList.remove('stop');
+  }
+  btn.addEventListener('click', function () { timer ? stop() : start(); });
+})();

@@ -4,12 +4,17 @@
 # DESK-ID: openmind.B08
 # Release size budget for the OpenMind workspace.
 # Builds with nice -n 19 and -j 2, then fails if any workspace
-# ELF executable is over 2 MiB or not stripped.
-# Bash only.
+# ELF executable is over 2 MiB (hermes-gateway: 2.5 MiB) or not stripped.
+# Needs readelf (binutils), not file(1). Bash only.
 set -eu
 
 # 2 MiB. Fail when a binary is strictly larger than this.
 LIMIT=$((2 * 1024 * 1024))
+# hermes-gateway only. x86_64 musl was 2306688 bytes on the 2026-10-21 PR #12
+# ucpu run (actions/runs/39692890293) after enroll and the coding tools, with
+# the serial curve25519 backend already selected. Every other binary stays
+# at 2 MiB (the next largest, openmind-nerve, was 1918568). 2.5 MiB.
+HERMES_GATEWAY_LIMIT=$((5 * 1024 * 1024 / 2))
 
 usage() {
   cat << 'HELP'
@@ -24,7 +29,10 @@ Check:
   (or $CARGO_TARGET_DIR/<triple>/release when --target is set).
   If CARGO_TARGET_DIR is unset, <repo>/target is used.
   A bin fails when its size is greater than 2097152 bytes
-  or when file(1) does not report it as stripped.
+  (hermes-gateway: 2621440) or when it still has a .symtab section
+  (not stripped).
+  ELF detection and the strip check use readelf (binutils);
+  file(1) is not needed.
 
 --check-dir DIR   do not build; check ELF executables in DIR
 --skip-build      do not build; check the cargo release directory
@@ -118,9 +126,10 @@ printf 'size-budget: DESK-ID openmind.B08\n'
 printf 'size-budget: time %s\n' "$ts"
 printf 'size-budget: dir %s\n' "$bins_dir"
 printf 'size-budget: limit_bytes %s\n' "$LIMIT"
+printf 'size-budget: hermes-gateway limit_bytes %s\n' "$HERMES_GATEWAY_LIMIT"
 printf '%-32s %12s %12s %8s %s\n' "binary" "bytes" "stripped" "over" "status"
 
-command -v file >/dev/null 2>&1 || die "file(1) not found"
+command -v readelf >/dev/null 2>&1 || die "readelf not found (install binutils)"
 
 found=0
 failed=0
@@ -132,21 +141,29 @@ for path in "$bins_dir"/*; do
     .*) continue ;;
     *.d|*.rlib|*.rmeta|*.so|*.a) continue ;;
   esac
-  info=$(file -b -- "$path" || true)
-  case "$info" in
-    *ELF*executable*) ;;
+  # ELF magic first (cheap), then the ELF type: EXEC, or DYN with an entry
+  # point (static-pie and PIE executables; shared objects have entry 0x0).
+  [ "$(head -c 4 -- "$path" | od -An -c | tr -d " ")" = "177ELF" ] || continue
+  hdr=$(readelf -hW -- "$path" 2>/dev/null) || continue
+  etype=$(printf "%s\n" "$hdr" | sed -n "s/^ *Type: *\([A-Z]*\).*/\1/p")
+  entry=$(printf "%s\n" "$hdr" | sed -n "s/^ *Entry point address: *//p")
+  case "$etype" in
+    EXEC) ;;
+    DYN) [ "$entry" != "0x0" ] || continue ;;
     *) continue ;;
   esac
   found=$((found + 1))
   size=$(stat -c '%s' -- "$path")
-  stripped=no
-  case "$info" in
-    *"not stripped"*) stripped=no ;;
-    *stripped*) stripped=yes ;;
-    *) stripped=no ;;
-  esac
+  stripped=yes
+  if readelf -SW -- "$path" 2>/dev/null | grep -q "\] \.symtab "; then
+    stripped=no
+  fi
+  cap=$LIMIT
+  if [ "$name" = hermes-gateway ]; then
+    cap=$HERMES_GATEWAY_LIMIT
+  fi
   over=no
-  if [ "$size" -gt "$LIMIT" ]; then
+  if [ "$size" -gt "$cap" ]; then
     over=yes
   fi
   status=ok

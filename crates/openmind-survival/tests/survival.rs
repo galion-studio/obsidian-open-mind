@@ -86,7 +86,7 @@ fn freshness_file() {
     let p = out_dir().join("fresh.txt");
     std::fs::write(&p, "x").unwrap();
     assert!(check_freshness(&p, 60).ok);
-    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(7200);
+    let old = std::time::SystemTime::now() - std::time::Duration::from_secs(7200); // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
     let f = std::fs::File::options().write(true).open(&p).unwrap();
     f.set_modified(old).unwrap();
     assert!(!check_freshness(&p, 60).ok);

@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-guard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust SSH ban daemon (replaces the VPS fail2ban sshd jail): journald/auth.log tailing, sshd filter, findtime/maxretry/bantime with increment, nftables timeout sets, persistent state, fail-safe allowlist."
+
+[[bin]]
+name = "galion-guard"
+path = "src/main.rs"
+
+[dependencies]
+# Unicode tables are only needed for `\s`/`\w`/`\S` classes in the filter.
+regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-perl"] }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }
+
+[dev-dependencies]
+# Source-address-bound TCP connects in the namespace test (already in Cargo.lock).
+libc = "0.2"
+
+# Namespace + real nftables run (GALION_REAL=1). Own main(): it re-executes
+# itself under `unshare -rn` and doubles as the fake `journalctl`.
+[[test]]
+name = "real_netns"
+path = "tests/real_netns.rs"
+harness = false

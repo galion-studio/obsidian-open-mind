@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "hermes-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "hermes-rs adapters for the B1 banking / B2 Wall Street / B3 vending benchmark tool sets, and a `hermes-bench` runner with a pluggable agent (scripted, mock LLM, opt-in OpenRouter). Local mock / paper / sim only; no money-moving tool exists."
+
+[[bin]]
+name = "hermes-bench"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
+# default-features = false: no bundled SQLite (C) build; the bench needs no session DB.
+hermes-rs = { path = "../hermes-rs", default-features = false }
+bench-banking = { path = "../bench-banking" }
+galion-wallstreet = { path = "../galion-wallstreet" }
+galion-vending = { path = "../galion-vending" }
+galion-bench = { path = "../galion-bench" }
+bench-scoreboard = { path = "../bench-scoreboard" }
+zagreb-time = { path = "../zagreb-time" }
+
+[dev-dependencies]
+# Port-base env for GALION_REAL tests (slot 363); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

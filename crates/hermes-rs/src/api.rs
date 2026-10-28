@@ -27,6 +27,8 @@ pub struct Gateway {
     pub active: Arc<AtomicUsize>,
     pub runs: crate::runs::Runs,
     pub jobs: Option<Arc<crate::cron::Scheduler>>,
+    /// Device enrollment (`/openmind/*`); `None` = disabled, every such path is 404.
+    pub enroll: Option<Arc<crate::enroll::Enroll>>,
 }
 
 /// Holds one agent slot (`gateway.api_server.max_concurrent_runs`).
@@ -85,6 +87,7 @@ impl Gateway {
             active: Arc::new(AtomicUsize::new(0)),
             runs: crate::runs::Runs::default(),
             jobs: None,
+            enroll: None,
         }
     }
 
@@ -132,6 +135,19 @@ impl Gateway {
         }
         let path = req.path.clone();
         let m = req.method.as_str();
+        if path == "/openmind" || path.starts_with("/openmind/") {
+            let Some(e) = &self.enroll else {
+                return error(
+                    404,
+                    &format!("Not found: {} {}", m, path),
+                    "invalid_request_error",
+                    Some("not_found"),
+                );
+            };
+            // Owner routes need the gateway key; fail closed when none is set.
+            let owner = self.key_ok() && self.check_auth(&req).is_none();
+            return e.route(&req, owner, crate::time::now_secs());
+        }
         if m == "GET" && (path == "/health" || path == "/v1/health") {
             return Response::json(
                 200,
@@ -677,7 +693,17 @@ fn chat_json(
 pub fn spawn(gw: Arc<Gateway>, addr: &str) -> std::io::Result<std::net::SocketAddr> {
     let listener = std::net::TcpListener::bind(addr)?;
     let local = listener.local_addr()?;
-    let handler: crate::http::Handler = Arc::new(move |req| gw.handle(req));
+    // NERVE push (no-op unless NERVE_URL is set; never blocks: bounded queue,
+    // drop-on-full counted): 5xx errors and slow requests per request.
+    let handler: crate::http::Handler = Arc::new(move |req: crate::http::Request| {
+        let what = format!("{} {}", req.method, req.path);
+        let t0 = std::time::Instant::now();
+        let resp = gw.handle(req);
+        nerve_client::observe_request("hermes-rs", &what, resp.status(), t0.elapsed());
+        resp
+    });
+    nerve_client::event("hermes-rs", "started", &format!("listening on {local}"));
+    nerve_client::start_heartbeat("hermes-rs", 60);
     std::thread::Builder::new()
         .name("hermes-accept".into())
         .spawn(move || crate::http::serve(listener, handler, 64))?;

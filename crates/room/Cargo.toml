@@ -7,8 +7,17 @@ edition.workspace = true
 license.workspace = true
 description = "room: a read-only view of the operator's files as one page."
 
+[lib]
+name = "room"
+path = "src/lib.rs"
+
 [[bin]]
 name = "room"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
+
+[dev-dependencies]
+# Port-base env for GALION_REAL tests (slot 375); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

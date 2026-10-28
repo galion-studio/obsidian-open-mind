@@ -36,11 +36,35 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const BIND: &str = "127.0.0.1:20090";
-const API: &str = "127.0.0.1:20091";
-const FAKE: &str = "127.0.0.1:20092";
-const NERVE: &str = "127.0.0.1:20093";
-const BIND2: &str = "127.0.0.1:20094";
+use galion_realtest::console_routes as routes;
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `PORT5_REAL_PORT_BASE`; unset keeps
+/// the old 20090 block.
+static PORTS: Block = Block::new("PORT5_REAL_PORT_BASE", 20090, 10);
+fn api_at() -> &'static str {
+    PORTS.addr(1)
+}
+fn bind2_at() -> &'static str {
+    PORTS.addr(4)
+}
+fn bind_at() -> &'static str {
+    PORTS.addr(0)
+}
+/// Slot 395: galion-one forward for the local console build (CONSOLE_REAL_API=local).
+fn pulse_at() -> &'static str {
+    PORTS.addr(5)
+}
+fn hermes_at() -> &'static str {
+    PORTS.addr(6)
+}
+fn fake_at() -> &'static str {
+    PORTS.addr(2)
+}
+fn nerve_at() -> &'static str {
+    PORTS.addr(3)
+}
+
 const SESSION_DIR: &str = "/workspace/galion-light/docs/build-session";
 
 struct Kill(Child, &'static str);
@@ -99,7 +123,7 @@ fn wait_for(what: &str, secs: u64, mut ok: impl FnMut() -> bool) {
 }
 
 fn nerve_watch(tag: &str) -> Vec<String> {
-    let (c, v) = live_json(NERVE, "/state");
+    let (c, v) = live_json(nerve_at(), "/state");
     assert_eq!(c, 200, "nerve /state");
     let mut out = Vec::new();
     for comp in v.get("components").as_array() {
@@ -143,7 +167,7 @@ fn ssh_read(vps: &str, cmd: &str) -> String {
 
 /// A paired-shape `/api/v1/session` built from the live folder.
 fn serve_fake(list: String, name: String, doc: Arc<String>) {
-    let l = TcpListener::bind(FAKE).expect("bind fake");
+    let l = TcpListener::bind(fake_at()).expect("bind fake");
     std::thread::spawn(move || {
         for mut s in l.incoming().flatten() {
             let mut buf = [0u8; 8192];
@@ -176,6 +200,8 @@ fn real_port5_rooms_against_live_vps() {
         return;
     }
     let vps = std::env::var("PORT5_VPS").unwrap_or_else(|_| "slavik-vps".into());
+    // Slot 395: CONSOLE_REAL_API=local reads a box-local console build instead of VPS :8080.
+    let api_target = routes::api_target(Some(env!("CARGO_BIN_EXE_galion-console-static")));
     let ssh = Command::new("ssh")
         .args([
             "-o",
@@ -184,58 +210,102 @@ fn real_port5_rooms_against_live_vps() {
             "ExitOnForwardFailure=yes",
             "-N",
         ])
-        .args(["-L", &format!("{API}:127.0.0.1:8080")])
-        .args(["-L", &format!("{NERVE}:127.0.0.1:8670")])
+        .args(routes::api_forward_args(&api_target, api_at()))
+        .args(routes::owner_forward_args(
+            &api_target,
+            Some(pulse_at()),
+            Some(hermes_at()),
+        ))
+        .args([
+            "-L",
+            &format!("{nerve_at}:127.0.0.1:8670", nerve_at = nerve_at()),
+        ])
         .arg(&vps)
         .stdin(Stdio::null())
         .spawn()
         .expect("ssh");
     let _ssh = Kill(ssh, "ssh forward");
+    let _local = routes::start_local_api(
+        &api_target,
+        api_at(),
+        nerve_at(),
+        Some(pulse_at()),
+        Some(hermes_at()),
+        None,
+    );
     wait_for("ssh forward", 25, || {
-        get(API, "/api/v1/health", "").0 == 200
+        get(api_at(), "/api/v1/health", "").0 == 200
     });
-    eprintln!("real: forward {API}->8080 {NERVE}->8670 (ssh -N, GET only)");
+    eprintln!(
+        "real: forward {api_at}->8080 {nerve_at}->8670 (ssh -N, GET only)",
+        api_at = api_at(),
+        nerve_at = nerve_at()
+    );
     let before = nerve_watch("before");
 
     let bin = env!("CARGO_BIN_EXE_galion-console-static");
     let child = Command::new(bin)
-        .args(["--ui", "rust", "--upstream", API, "--bind", BIND, "--quiet"])
+        .args([
+            "--ui",
+            "rust",
+            "--upstream",
+            api_at(),
+            "--bind",
+            bind_at(),
+            "--quiet",
+        ])
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .expect("start binary");
     let _srv = Kill(child, "galion-console-static (live upstream)");
-    wait_for("binary", 10, || TcpStream::connect(BIND).is_ok());
+    wait_for("binary", 10, || TcpStream::connect(bind_at()).is_ok());
 
     // /node vs live /api/v1/health target.
-    let (hc, health) = live_json(API, "/api/v1/health");
+    let (hc, health) = live_json(api_at(), "/api/v1/health");
     assert_eq!(hc, 200);
     let target = health.get("target");
-    let ssh_line = console_ui::pages::node::ssh_command(target).expect("live ssh target");
-    let ip = target.get("publicIp").as_str().expect("live publicIp");
-    let t = Instant::now();
-    let (c, _, page) = get(BIND, "/node", "");
-    eprintln!(
-        "real: /node {c} {} B in {} ms",
-        page.len(),
-        t.elapsed().as_millis()
-    );
-    assert_eq!(c, 200);
-    assert!(page.contains(&esc(&ssh_line)), "ssh line");
-    assert!(page.contains(&format!(
-        "<span>Last IP</span><span class=\"muted mono\">{}</span>",
-        esc(ip)
-    )));
-    assert!(!page.contains("did not load") && !page.contains("no usable SSH"));
-    eprintln!(
-        "real: /node ok: ssh line and Last IP equal live health target (pod {}, sshPort {})",
-        target.get("podId").as_str().unwrap_or("?"),
-        target.get("sshPort").to_json()
-    );
+    if target.is_null() && routes::mode() != routes::Mode::Node {
+        // D-375-1: the Rust /api/v1/health has no `target` (route map row);
+        // /node must not invent an ssh line or an IP.
+        let (c, _, page) = get(bind_at(), "/node", "");
+        assert_eq!(c, 200);
+        assert!(
+            page.contains("no usable SSH") || routes::page_says_unavailable(&page),
+            "/node: no honest miss"
+        );
+        assert!(!page.contains("ssh -p"), "/node: ssh line without a target");
+        eprintln!(
+            "real: /node: live Rust health {} has no target -> room states the miss",
+            health.get("implementation").as_str().unwrap_or("?")
+        );
+    } else {
+        let ssh_line = console_ui::pages::node::ssh_command(target).expect("live ssh target");
+        let ip = target.get("publicIp").as_str().expect("live publicIp");
+        let t = Instant::now();
+        let (c, _, page) = get(bind_at(), "/node", "");
+        eprintln!(
+            "real: /node {c} {} B in {} ms",
+            page.len(),
+            t.elapsed().as_millis()
+        );
+        assert_eq!(c, 200);
+        assert!(page.contains(&esc(&ssh_line)), "ssh line");
+        assert!(page.contains(&format!(
+            "<span>Last IP</span><span class=\"muted mono\">{}</span>",
+            esc(ip)
+        )));
+        assert!(!page.contains("did not load") && !page.contains("no usable SSH"));
+        eprintln!(
+            "real: /node ok: ssh line and Last IP equal live health target (pod {}, sshPort {})",
+            target.get("podId").as_str().unwrap_or("?"),
+            target.get("sshPort").to_json()
+        );
+    }
 
     // /security: each of the three admin-only sources, as the live API answers it.
     let t = Instant::now();
-    let (c, _, page) = get(BIND, "/security", "");
+    let (c, _, page) = get(bind_at(), "/security", "");
     eprintln!(
         "real: /security {c} {} B in {} ms",
         page.len(),
@@ -247,7 +317,8 @@ fn real_port5_rooms_against_live_vps() {
         ("Guardian status", "/api/v3/guardian/status"),
         ("Incidents", "/api/v3/guardian/incidents"),
     ] {
-        let (lc, lv) = live_json(API, path);
+        let (lc, lv) = live_json(api_at(), path);
+        routes::decide(path, lc);
         if lc == 200 {
             assert!(!page.contains(&format!("{label} did not load")), "{label}");
         } else {
@@ -256,14 +327,15 @@ fn real_port5_rooms_against_live_vps() {
         }
         eprintln!("real: /security {path} live {lc} -> page states it");
     }
-    if live_json(API, "/api/v1/security").0 != 200 {
+    if live_json(api_at(), "/api/v1/security").0 != 200 {
         assert!(page.contains("<li><span>Denylist</span><span class=\"muted\">—</span></li>"));
         assert!(!page.contains("None open."));
     }
 
     // /session list, one file, a refused name, and the zip through the proxy.
-    let (lc, lv) = live_json(API, "/api/v1/session");
-    let (c, _, page) = get(BIND, "/session", "");
+    let (lc, lv) = live_json(api_at(), "/api/v1/session");
+    routes::decide("/api/v1/session", lc);
+    let (c, _, page) = get(bind_at(), "/session", "");
     assert_eq!(c, 200);
     if lc == 200 {
         let n = lv.get("items").as_array().len();
@@ -272,23 +344,23 @@ fn real_port5_rooms_against_live_vps() {
         assert!(page.contains(&format!("The file list did not load: {}", refusal(lc, &lv))));
     }
     eprintln!("real: /session live list {lc} -> page states it");
-    let (dc, dv) = live_json(API, "/api/v1/session?name=00-summary.md");
-    let (c, _, page) = get(BIND, "/session?name=00-summary.md", "");
+    let (dc, dv) = live_json(api_at(), "/api/v1/session?name=00-summary.md");
+    let (c, _, page) = get(bind_at(), "/session?name=00-summary.md", "");
     assert_eq!(c, 200);
     if dc != 200 {
         assert!(page.contains(&format!("The file did not load: {}", refusal(dc, &dv))));
     }
     eprintln!("real: /session?name=00-summary.md live {dc} -> page states it");
-    let (c, _, page) = get(BIND, "/session?name=..%2F..%2Fetc%2Fpasswd", "");
+    let (c, _, page) = get(bind_at(), "/session?name=..%2F..%2Fetc%2Fpasswd", "");
     assert_eq!(c, 400);
     assert!(page.contains("Nothing was asked."));
-    let (zl, _, _) = get(API, "/api/v1/session-pack", "");
-    let (zc, _, _) = get(BIND, "/api/v1/session-pack", "");
+    let (zl, _, _) = get(api_at(), "/api/v1/session-pack", "");
+    let (zc, _, _) = get(bind_at(), "/api/v1/session-pack", "");
     assert_eq!(zc, zl, "zip link through the /api/ proxy");
     eprintln!("real: /api/v1/session-pack via the Rust front {zc} = live {zl}");
 
     for p in ["/node", "/security", "/session"] {
-        let (_, _, b) = get(BIND, p, "");
+        let (_, _, b) = get(bind_at(), p, "");
         assert!(!b.to_ascii_lowercase().contains("<script"), "{p}");
     }
 
@@ -333,9 +405,9 @@ fn real_port5_rooms_against_live_vps() {
             "--ui",
             "rust",
             "--upstream",
-            FAKE,
+            fake_at(),
             "--bind",
-            BIND2,
+            bind2_at(),
             "--quiet",
         ])
         .stdout(Stdio::null())
@@ -343,8 +415,8 @@ fn real_port5_rooms_against_live_vps() {
         .spawn()
         .expect("start binary 2");
     let _srv2 = Kill(child2, "galion-console-static (real session data)");
-    wait_for("binary 2", 10, || TcpStream::connect(BIND2).is_ok());
-    let (c, _, page) = get(BIND2, "/session", "");
+    wait_for("binary 2", 10, || TcpStream::connect(bind2_at()).is_ok());
+    let (c, _, page) = get(bind2_at(), "/session", "");
     assert_eq!(c, 200);
     assert!(page.contains(&format!("{} files.", rows.len())));
     assert_eq!(page.matches("href=\"/session?name=").count(), rows.len());
@@ -356,7 +428,7 @@ fn real_port5_rooms_against_live_vps() {
         assert!(page.contains(&format!(">{s}</span>")), "{n} size");
     }
     let t = Instant::now();
-    let (c, _, page) = get(BIND2, &format!("/session?name={first}"), "");
+    let (c, _, page) = get(bind2_at(), &format!("/session?name={first}"), "");
     assert_eq!(c, 200);
     let shown = page
         .split("<pre class=\"code\">")

@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-//! Print discovery candidates as JSON.
-//!
-//! With no flags this reads nothing and opens no socket. `--fixture` parses a
-//! local mDNS-SD style file. `--scan` is off by default; this stub sends no
-//! packets when it is set.
+//! LAN discovery CLI. With no arguments this prints the seed candidates and
+//! opens no socket. `find` browses mDNS (and probes only with `--probe`),
+//! `approve` / `deny` / `join` / `list` manage provider rows, `announce`
+//! answers mDNS for given services. See `--help`.
 
-use openmind_discovery::{cli, read_fixture_file, CliError, CliOut, USAGE};
+use openmind_discovery::{run, CliError, CliOut, USAGE};
 use std::env;
 use std::io::{self, Write};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    match cli(env::args().skip(1), read_fixture_file) {
+    match run(env::args().skip(1).collect()) {
         Ok(CliOut::Help) => {
             print!("{USAGE}");
             ExitCode::SUCCESS
@@ -29,9 +28,15 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(CliError::Usage(msg)) => {
-            eprintln!("{msg}");
+            if !msg.is_empty() {
+                eprintln!("{msg}");
+            }
             eprint!("{USAGE}");
-            ExitCode::from(2)
+            if msg.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(2)
+            }
         }
         Err(CliError::Fail(msg)) => {
             eprintln!("{msg}");

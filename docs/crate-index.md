@@ -27,7 +27,7 @@
 | one-talk | Hear/reply request shapes from talk.py, and the warm.py lock path plus synthesize body. No pairing, no secret files, no Hermes state.db. |
 | openmind-boot | Read-only hardware probe: CPU, RAM, and GPU presence from /proc and /sys. hardware.json is written only under a temp dir. |
 | openmind-config | One small config loader for OpenMind binaries: TOML file, then env overrides, loopback defaults. |
-| openmind-discovery | LAN discovery stub: static seed candidates plus an mDNS-SD fixture parser. Active scan is behind --scan and sends no packets. |
+| openmind-discovery | LAN device discovery: mDNS/DNS-SD browse and announce, an opt-in rate-limited /24 port probe, and pending OpenMind Provider rows that only an admin approve can admit. |
 | openmind-exo | Parse exo fixture bodies for an OpenAI-compatible /v1/models and /health. No sockets and no GPU. |
 | openmind-fallback | Pure provider fallback policy: GPU, else an approved LAN row, else a CPU local row. Tests only. No network. |
 | openmind-llama | Parse llama.cpp llama-server fixture bodies for /health and /v1/models. No sockets and no GPU. |

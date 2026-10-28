@@ -15,7 +15,12 @@
 //! On-disk shape (version 1), unknown fields rejected:
 //!
 //! - `version`: `1`
-//! - `providers[]`: `id`, `kind`, `endpoint`, `capabilities`, `approval`, `health`
+//! - `providers[]`: `id`, `kind`, `endpoint`, `capabilities`, `approval`, `health`,
+//!   and optionally `vram_gb` (1..=4096) and `pending_endpoint` (a known device
+//!   seen at a new endpoint; applied only by the next approval)
+//!
+//! Routing sees approved rows only: [`Registry::approved_rows`] feeds
+//! [`fallback::select_provider`] / [`route::chain`] (GPU, then LAN, then CPU).
 //!
 //! `kind` is `cpu_local`, `lan`, `gpu`, or `remote`.
 //! `approval` is `pending`, `approved`, or `rejected`.
@@ -114,6 +119,10 @@ pub trait ComputeProvider {
     fn health(&self) -> Health;
     /// Capabilities, in display order.
     fn capabilities(&self) -> &[Capability];
+    /// VRAM in GB the device advertises, if any. Used by the POSEIDON pool.
+    fn vram_gb(&self) -> Option<u32> {
+        None
+    }
 }
 
 /// In-memory provider used by tests and by callers that already know the row.
@@ -124,6 +133,7 @@ pub struct StaticProvider {
     endpoint: String,
     health: Health,
     capabilities: Vec<Capability>,
+    vram_gb: Option<u32>,
 }
 
 impl StaticProvider {
@@ -146,6 +156,7 @@ impl StaticProvider {
             endpoint,
             health: Health::Unknown,
             capabilities,
+            vram_gb: None,
         })
     }
 
@@ -153,6 +164,13 @@ impl StaticProvider {
     #[must_use]
     pub fn with_health(mut self, health: Health) -> Self {
         self.health = health;
+        self
+    }
+
+    /// Set the advertised VRAM (GB). `None` clears it. Checked by [`Registry::register`].
+    #[must_use]
+    pub fn with_vram_gb(mut self, vram_gb: Option<u32>) -> Self {
+        self.vram_gb = vram_gb;
         self
     }
 }
@@ -177,9 +195,16 @@ impl ComputeProvider for StaticProvider {
     fn capabilities(&self) -> &[Capability] {
         &self.capabilities
     }
+
+    fn vram_gb(&self) -> Option<u32> {
+        self.vram_gb
+    }
 }
 
 /// One persisted row. Fields stay private so approval only changes via [`Registry`].
+///
+/// `vram_gb` and `pending_endpoint` are optional (absent in older files and
+/// omitted when unset, so a file without them is written unchanged).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderRecord {
@@ -189,12 +214,24 @@ pub struct ProviderRecord {
     capabilities: Vec<Capability>,
     approval: Approval,
     health: Health,
+    /// Advertised VRAM in GB (discovery TXT `vram`), for the POSEIDON pool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vram_gb: Option<u32>,
+    /// A known device was seen at this endpoint instead of `endpoint`. It is
+    /// not used until the row is approved again, which moves it into `endpoint`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_endpoint: Option<String>,
 }
 
 impl ProviderRecord {
     /// Approval state stored for this row.
     pub fn approval(&self) -> Approval {
         self.approval
+    }
+
+    /// Endpoint a known device moved to, waiting for re-approval.
+    pub fn pending_endpoint(&self) -> Option<&str> {
+        self.pending_endpoint.as_deref()
     }
 }
 
@@ -218,6 +255,10 @@ impl ComputeProvider for ProviderRecord {
     fn capabilities(&self) -> &[Capability] {
         &self.capabilities
     }
+
+    fn vram_gb(&self) -> Option<u32> {
+        self.vram_gb
+    }
 }
 
 /// Registry load, validate, or save failure.
@@ -229,6 +270,8 @@ pub enum ProviderError {
     Endpoint { message: String },
     /// Capability list repeats a value.
     Capability { message: String },
+    /// `vram_gb` is outside 1..=4096.
+    Vram { message: String },
     /// `register` saw an id that is already present.
     Duplicate { id: String },
     /// No row has this id.
@@ -246,7 +289,8 @@ impl std::fmt::Display for ProviderError {
         match self {
             ProviderError::Id { message }
             | ProviderError::Endpoint { message }
-            | ProviderError::Capability { message } => f.write_str(message),
+            | ProviderError::Capability { message }
+            | ProviderError::Vram { message } => f.write_str(message),
             ProviderError::Duplicate { id } => write!(f, "duplicate provider id {id}"),
             ProviderError::NotFound { id } => write!(f, "unknown provider id {id}"),
             ProviderError::Io { path, message } | ProviderError::Parse { path, message } => {
@@ -334,6 +378,8 @@ impl Registry {
         check_id(&id)?;
         check_endpoint(&endpoint)?;
         check_capabilities(&capabilities)?;
+        let vram_gb = provider.vram_gb();
+        check_vram(vram_gb)?;
         if self.providers.iter().any(|row| row.id == id) {
             return Err(ProviderError::Duplicate { id });
         }
@@ -344,6 +390,8 @@ impl Registry {
             capabilities,
             approval: Approval::Pending,
             health: provider.health(),
+            vram_gb,
+            pending_endpoint: None,
         });
         if let Err(err) = self.persist() {
             self.providers.pop();
@@ -354,16 +402,101 @@ impl Registry {
 
     /// Set approval and write the file. Any transition is allowed.
     ///
-    /// On a write failure the previous approval is restored in memory.
+    /// Approving a row that has a [`ProviderRecord::pending_endpoint`] (a
+    /// known device that moved) is the re-approval of the move: the pending
+    /// endpoint becomes the endpoint and health resets to
+    /// [`Health::Unknown`] until the next `join`. Pending or rejected keep
+    /// the old endpoint and the pending one as they are.
+    ///
+    /// On a write failure the previous row is restored in memory.
     pub fn set_approval(&mut self, id: &str, approval: Approval) -> Result<(), ProviderError> {
         let index = self.index_of(id)?;
-        let previous = self.providers[index].approval;
-        self.providers[index].approval = approval;
+        let previous = self.providers[index].clone();
+        let row = &mut self.providers[index];
+        row.approval = approval;
+        if approval == Approval::Approved {
+            if let Some(moved) = row.pending_endpoint.take() {
+                row.endpoint = moved;
+                row.health = Health::Unknown;
+            }
+        }
         if let Err(err) = self.persist() {
-            self.providers[index].approval = previous;
+            self.providers[index] = previous;
             return Err(err);
         }
         Ok(())
+    }
+
+    /// Record that a known row was seen at `endpoint`.
+    ///
+    /// The row's routed endpoint, approval, and health do not change: the
+    /// new endpoint is only kept as [`ProviderRecord::pending_endpoint`]
+    /// until the row is approved again. Seeing the row at its current
+    /// endpoint clears a stale pending move. Returns `true` when the row
+    /// changed (and the file was written).
+    pub fn note_endpoint(&mut self, id: &str, endpoint: &str) -> Result<bool, ProviderError> {
+        check_endpoint(endpoint)?;
+        let index = self.index_of(id)?;
+        let row = &self.providers[index];
+        let wanted = if row.endpoint == endpoint {
+            None
+        } else {
+            Some(endpoint.to_string())
+        };
+        if row.pending_endpoint == wanted {
+            return Ok(false);
+        }
+        let previous = row.pending_endpoint.clone();
+        self.providers[index].pending_endpoint = wanted;
+        if let Err(err) = self.persist() {
+            self.providers[index].pending_endpoint = previous;
+            return Err(err);
+        }
+        Ok(true)
+    }
+
+    /// The rows routing may use, as [`fallback::ProviderRow`]s.
+    ///
+    /// Only [`Approval::Approved`] rows are returned; pending and rejected
+    /// rows are left out entirely, so a caller cannot route to them by
+    /// mistake. A [`ProviderKind::Lan`] row must also have been joined: its
+    /// health is passed through only when it is [`Health::Up`], otherwise
+    /// (never joined, or joined and down) it is reported as
+    /// [`fallback::Health::Down`] and skipped by the policy. Other kinds keep
+    /// their health as is. A pending move is ignored: the row is routed at
+    /// its approved endpoint.
+    pub fn approved_rows(&self) -> Vec<fallback::ProviderRow> {
+        self.with_approval(Approval::Approved)
+            .map(|row| {
+                let health = match (row.kind, row.health) {
+                    (_, Health::Up) => fallback::Health::Up,
+                    (ProviderKind::Lan, _) | (_, Health::Down) => fallback::Health::Down,
+                    (_, Health::Unknown) => fallback::Health::Unknown,
+                };
+                fallback::ProviderRow {
+                    id: row.id.clone(),
+                    kind: match row.kind {
+                        ProviderKind::CpuLocal => fallback::Kind::CpuLocal,
+                        ProviderKind::Lan => fallback::Kind::Lan,
+                        ProviderKind::Gpu => fallback::Kind::Gpu,
+                        ProviderKind::Remote => fallback::Kind::Remote,
+                    },
+                    endpoint: row.endpoint.clone(),
+                    approval: fallback::Approval::Approved,
+                    health,
+                    capabilities: row
+                        .capabilities
+                        .iter()
+                        .map(|cap| match cap {
+                            Capability::Llm => fallback::Capability::Llm,
+                            Capability::Stt => fallback::Capability::Stt,
+                            Capability::Tts => fallback::Capability::Tts,
+                            Capability::Vision => fallback::Capability::Vision,
+                        })
+                        .collect(),
+                }
+            })
+            .collect()
     }
 
     /// Record a health snapshot and write the file. Does not contact the endpoint.
@@ -433,6 +566,10 @@ fn validate_loaded(path: &Path, row: &ProviderRecord) -> Result<(), ProviderErro
     check_id(&row.id).map_err(|err| as_parse(path, err))?;
     check_endpoint(&row.endpoint).map_err(|err| as_parse(path, err))?;
     check_capabilities(&row.capabilities).map_err(|err| as_parse(path, err))?;
+    check_vram(row.vram_gb).map_err(|err| as_parse(path, err))?;
+    if let Some(moved) = &row.pending_endpoint {
+        check_endpoint(moved).map_err(|err| as_parse(path, err))?;
+    }
     Ok(())
 }
 
@@ -499,6 +636,15 @@ fn check_capabilities(capabilities: &[Capability]) -> Result<(), ProviderError> 
         }
     }
     Ok(())
+}
+
+fn check_vram(vram_gb: Option<u32>) -> Result<(), ProviderError> {
+    match vram_gb {
+        Some(gb) if gb == 0 || gb > 4096 => Err(ProviderError::Vram {
+            message: format!("vram_gb {gb} must be 1..=4096"),
+        }),
+        _ => Ok(()),
+    }
 }
 
 fn io_at(path: &Path, action: &str, err: io::Error) -> ProviderError {

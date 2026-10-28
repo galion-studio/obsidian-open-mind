@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# GAIA core: the central orchestrator of the Gaia universal creator. std only
+# plus the workspace zagreb-time crate. No network, no processes, no unsafe.
+
+[package]
+name = "gaia-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gaia core: central orchestrator (subordinate-function trait, signal-tower bus, registry, master override, lifecycle, containment, lineage, deterministic ticks)."
+
+[dependencies]
+zagreb-time = { path = "../zagreb-time" }

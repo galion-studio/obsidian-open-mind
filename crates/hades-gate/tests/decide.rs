@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
 //! Dry-run, would-apply, and refused. No process is spawned.
+#![allow(deprecated)]
 
 use hades_gate::{
     decide, Action, Decision, Gate, Mode, ALLOW_LIST, ALWAYS_REFUSED, APPROVED_TEST_TOKEN,
@@ -27,12 +28,12 @@ fn dry_run_is_the_default() {
 }
 
 #[test]
-fn would_apply_only_for_the_test_token_on_the_allow_list() {
+fn the_public_test_token_no_longer_approves() {
     for action in ALLOW_LIST {
-        assert_eq!(decide(action, APPROVED_TEST_TOKEN), Decision::WouldApply);
+        assert_eq!(decide(action, APPROVED_TEST_TOKEN), Decision::DryRun);
         assert_eq!(
             Gate::default().decide(action, APPROVED_TEST_TOKEN),
-            Decision::WouldApply
+            Decision::DryRun
         );
     }
     assert_eq!(APPROVED_TEST_TOKEN, "approved-test");
@@ -74,6 +75,10 @@ fn action_names_match_the_two_lists() {
 /// `kill` and `rotate` stay refused with the approved-test token.
 /// `WouldApply` is a decision only: no process is spawned and no file is written.
 #[test]
+#[cfg_attr(
+    miri,
+    ignore = "temp probe dir + /proc/self/task reads (FS + clock), refused under Miri isolation; run in the FS pass"
+)]
 fn approved_token_refuses_kill_and_rotate_and_would_apply_is_not_an_apply() {
     assert_eq!(APPROVED_TEST_TOKEN, "approved-test");
 
@@ -94,10 +99,10 @@ fn approved_token_refuses_kill_and_rotate_and_would_apply_is_not_an_apply() {
 
     for action in ALLOW_LIST {
         let decision = decide(action, APPROVED_TEST_TOKEN);
-        assert_eq!(decision, Decision::WouldApply);
+        assert_eq!(decision, Decision::DryRun);
         assert_eq!(
             Gate::default().decide(action, "approved-test"),
-            Decision::WouldApply
+            Decision::DryRun
         );
     }
 
@@ -128,7 +133,7 @@ fn approved_token_refuses_kill_and_rotate_and_would_apply_is_not_an_apply() {
 }
 
 fn probe_dir() -> std::path::PathBuf {
-    let nanos = std::time::SystemTime::now()
+    let nanos = std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock after epoch")
         .as_nanos();

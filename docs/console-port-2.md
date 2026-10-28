@@ -22,8 +22,8 @@ Source: the live console-ide tree read 2026-10-20 21:25 CEST
 | `/guardian` | `GET /api/v3/guardian/status` (browser's admin cookie forwarded) | `POST /api/v3/guardian/scan {}`; `POST /api/v3/guardian/heal {}` with `X-Galion-Pin` from a password field (1-64 visible ASCII, never rendered/logged/kept; empty PIN sends nothing) | `window.prompt` replaced by a password field; a failed status says why (live: `HTTP 401 (phone required)` unpaired) instead of "… · score — · incidents 0" |
 | `/hermes` | `GET /api/hermes/{health,guard,modes,models,history}` and `history?id=` (id must be `[A-Za-z0-9._:-]{1,128}`, else 400 and no upstream call) | **none** | read-only: gateway line (bind address not shown, only "loopback"), skills count, guard / auto-accept state, plan/action models, saved modes, models, 60 newest threads, one thread (user/assistant text capped 6 000 chars each; tool rows show name, status, first command line, never tool output) |
 
-`/hermes` is in `port2::SPA_FIRST`: if a pre-built SPA fallback is configured (`--root`), the SPA keeps `/hermes`, because
-the Rust room cannot ask. Without a fallback the Rust room answers.
+`/hermes` was in `port2::SPA_FIRST` here (the SPA kept it under `--root`). Since console-route-31 (slot 170, see
+`docs/console-route-31.md`) `SPA_FIRST` is empty and the read-only Rust room answers with or without a fallback.
 
 Code: `crates/console-ui/src/port2.rs` (handlers), `pages/{context,gateway,guardian,hermes,p2}.rs`, a `PORT2` block in
 `css.rs`, `client::call_with` (extra request headers), `UiConfig.desk` / `--desk`. Kept in separate files so the five
@@ -39,7 +39,7 @@ console-port branches touch as few shared lines as possible; the shared hunks ar
   (no proof / cross-site / foreign Origin -> 403, nothing upstream), GET endpoint POSTed -> 400, extra form fields ignored, body
   from the binary; guardian CSRF, empty/injected PIN -> 400 nothing sent, PIN only in `X-Galion-Pin`, never in the page; hermes
   never POSTs, bad id never reaches upstream; gate (unpaired public host -> pairing, other hosts -> Soon, unpaired POST does
-  nothing); SPA fallback keeps `/hermes`; every emitted class is in the sheet.
+  nothing); SPA fallback serves the Rust `/hermes` (was: keeps it, until slot 170); every emitted class is in the sheet.
 - Real-life against the live VPS, read-only (`tests/real_port2.rs`, `GALION_REAL=1`, ports 20060-20063): see
   `docs/real-tests/console-port-2.md`.
 
@@ -54,4 +54,5 @@ console-port branches touch as few shared lines as possible; the shared hunks ar
    `boot`), never sent in any test. Keep, or drop it from the Rust list.
 4. **Refresh for `/context`** (TSX polled every 4 s): Refresh link now; `<meta http-equiv=refresh>` or a script island per
    decision 1.
-5. **Interim**: with an SPA fallback configured, `/hermes` stays SPA (`SPA_FIRST`). Confirm, or always serve the Rust room.
+5. **Interim**: ~~with an SPA fallback configured, `/hermes` stays SPA~~ — slot 170 (console-route-31) made the Rust room
+   Rust-first; reverting is one line (`port2::SPA_FIRST = &["/hermes"]`). See `docs/console-route-31.md` decision R1.

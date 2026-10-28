@@ -9,3 +9,4 @@ license.workspace = true
 description = "Slim Rust port of galion-light origin.py: grinder static page, desk notes viewer, link.json, host splash. Std only, loopback by default."
 
 [dependencies]
+galion-common = { path = "../galion-common" }

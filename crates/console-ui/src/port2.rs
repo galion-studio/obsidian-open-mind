@@ -11,7 +11,8 @@
 //! State-changing upstream calls happen only from same-origin-checked form
 //! posts, with method/path/body fixed in the binary:
 //! `/gateway` (the two POST endpoints of `API_ENDPOINTS`) and `/guardian`
-//! (scan, heal with the PIN header). `/context` and `/hermes` are GET only.
+//! (scan, heal with the PIN header). `/context` and `/hermes` are GET only;
+//! a POST to `/hermes` is 405 (writes held).
 
 use crate::client::{self, Forward};
 use crate::json::{self, Value};
@@ -24,6 +25,65 @@ pub const ROUTES: &[&str] = &["/context", "/gateway", "/guardian", "/hermes"];
 
 /// Routes that may take a form POST.
 pub const POST_ROUTES: &[&str] = &["/gateway", "/guardian"];
+
+/// Ported rooms that the pre-built SPA keeps while a fallback is configured.
+///
+/// Empty since console-route-31 (wave 4 slot 170): `/hermes` is Rust-first
+/// even with `--root`, read-only (no JavaScript, CSP unchanged; asking,
+/// runs, mic and the guard switches held). Kept as a list so a room can be
+/// handed back to the SPA with a one-line change.
+pub const SPA_FIRST: &[&str] = &[];
+
+/// The 31 page routes of the live console source tree
+/// (`artifacts/console-ui/live-src-20261020-2125/src/routes`): the 29
+/// `_console/*.tsx` files (`index` is `/`, `md.$name` is checked as
+/// `/md/user`) plus `status.tsx` and `soon.tsx`, alphabetical by file.
+pub const LIVE_SRC_ROUTES: &[&str] = &[
+    "/agents",
+    "/analytics",
+    "/arena",
+    "/bank",
+    "/cache",
+    "/chill",
+    "/cloudflare",
+    "/console",
+    "/context",
+    "/data",
+    "/docs",
+    "/domains",
+    "/gateway",
+    "/guardian",
+    "/hermes",
+    "/",
+    "/instances",
+    "/jupyter",
+    "/keys",
+    "/markers",
+    "/md/user",
+    "/memory",
+    "/mesh",
+    "/node",
+    "/pack",
+    "/repos",
+    "/security",
+    "/services",
+    "/session",
+    "/soon",
+    "/status",
+];
+
+impl Ui {
+    /// Live-source routes that are **not** Rust-first: with an SPA fallback
+    /// configured (`spa_fallback = true`) the SPA serves them; without one
+    /// they get the "not in Rust yet" page.
+    pub fn spa_fallbacks(&self, spa_fallback: bool) -> Vec<&'static str> {
+        LIVE_SRC_ROUTES
+            .iter()
+            .copied()
+            .filter(|p| !self.owns(p, spa_fallback))
+            .collect()
+    }
+}
 
 fn title(label: &str) -> String {
     format!("Galion Console · {label}")
@@ -241,5 +301,60 @@ impl Ui {
         let t = title("Hermes Research");
         let f = self.frame(req, &t);
         Reply::html(status, layout::console(&f, origin, &body))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{UiConfig, PORTED};
+
+    fn ui() -> Ui {
+        Ui::new(UiConfig {
+            upstream: "127.0.0.1:9".parse().unwrap(),
+            pulse: None,
+            extra_hosts: vec![],
+            desk: None,
+            files: crate::port4::HostFiles::default(), // main-staging: console-port-4 field
+        })
+    }
+
+    #[test]
+    fn live_src_is_31_unique_routes() {
+        assert_eq!(LIVE_SRC_ROUTES.len(), 31);
+        let mut s: Vec<&str> = LIVE_SRC_ROUTES.to_vec();
+        s.sort_unstable();
+        s.dedup();
+        assert_eq!(s.len(), 31);
+        for p in PORTED {
+            assert!(LIVE_SRC_ROUTES.contains(p), "{p} is not a live-src route");
+        }
+    }
+
+    #[test]
+    fn hermes_is_rust_first_with_and_without_spa() {
+        assert!(SPA_FIRST.is_empty());
+        let ui = ui();
+        for spa in [true, false] {
+            for p in ROUTES {
+                assert!(ui.owns(p, spa), "{p} spa={spa}");
+            }
+            assert!(ui.owns("/hermes", spa));
+        }
+    }
+
+    #[test]
+    fn fallbacks_on_this_base() {
+        let ui = ui();
+        // console-port-2 0916684: 17 PORTED + `/` are Rust-first; the other
+        // 13 live-src routes are still the SPA's (ported on console-port-1,
+        // -3, -4, -5; merged in console-port-merge).
+        let spa = ui.spa_fallbacks(true);
+        // main-staging: with console-port-merge every room is ported; slot 299
+        // (console-arena-bank-rust, merged via the deploy candidate in slot 395)
+        // made /arena and /bank Rust-first too, so SPA_FIRST is empty.
+        assert!(spa.is_empty(), "{spa:?}");
+        assert_eq!(spa.len() + PORTED.len() + 1 - crate::SPA_FIRST.len(), 31);
+        assert!(!spa.contains(&"/hermes"));
     }
 }

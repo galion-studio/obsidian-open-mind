@@ -26,10 +26,31 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const BIND: &str = "127.0.0.1:20060";
-const API: &str = "127.0.0.1:20061";
-const DESK: &str = "127.0.0.1:20062";
-const NERVE: &str = "127.0.0.1:20063";
+use galion_realtest::console_routes as routes;
+use galion_realtest::ports::Block;
+
+/// Slot 375 (real-ports-batch-2): port block movable by `PORT2_REAL_PORT_BASE`; unset keeps
+/// the old 20060 block.
+static PORTS: Block = Block::new("PORT2_REAL_PORT_BASE", 20060, 10);
+fn api_at() -> &'static str {
+    PORTS.addr(1)
+}
+fn bind_at() -> &'static str {
+    PORTS.addr(0)
+}
+/// Slot 395: galion-one forward for the local console build (CONSOLE_REAL_API=local).
+fn pulse_at() -> &'static str {
+    PORTS.addr(4)
+}
+fn hermes_at() -> &'static str {
+    PORTS.addr(5)
+}
+fn desk_at() -> &'static str {
+    PORTS.addr(2)
+}
+fn nerve_at() -> &'static str {
+    PORTS.addr(3)
+}
 
 struct Kill(Child, &'static str);
 impl Drop for Kill {
@@ -88,7 +109,7 @@ fn wait_for(what: &str, secs: u64, mut ok: impl FnMut() -> bool) {
 
 /// `name status` of the nerve components the four rooms read.
 fn nerve_watch(tag: &str) -> Vec<String> {
-    let (c, v) = live_json(NERVE, "/state");
+    let (c, v) = live_json(nerve_at(), "/state");
     assert_eq!(c, 200, "nerve /state");
     let mut out = Vec::new();
     for comp in v.get("components").as_array() {
@@ -124,6 +145,8 @@ fn real_port2_rooms_against_live_vps() {
         return;
     }
     let vps = std::env::var("PORT2_VPS").unwrap_or_else(|_| "slavik-vps".into());
+    // Slot 395: CONSOLE_REAL_API=local reads a box-local console build instead of VPS :8080.
+    let api_target = routes::api_target(Some(env!("CARGO_BIN_EXE_galion-console-static")));
     let ssh = Command::new("ssh")
         .args([
             "-o",
@@ -132,16 +155,42 @@ fn real_port2_rooms_against_live_vps() {
             "ExitOnForwardFailure=yes",
             "-N",
         ])
-        .args(["-L", &format!("{API}:127.0.0.1:8080")])
-        .args(["-L", &format!("{DESK}:127.0.0.1:8646")])
-        .args(["-L", &format!("{NERVE}:127.0.0.1:8670")])
+        .args(routes::api_forward_args(&api_target, api_at()))
+        .args(routes::owner_forward_args(
+            &api_target,
+            Some(pulse_at()),
+            Some(hermes_at()),
+        ))
+        .args([
+            "-L",
+            &format!("{desk_at}:127.0.0.1:8646", desk_at = desk_at()),
+        ])
+        .args([
+            "-L",
+            &format!("{nerve_at}:127.0.0.1:8670", nerve_at = nerve_at()),
+        ])
         .arg(&vps)
         .stdin(Stdio::null())
         .spawn()
         .expect("ssh");
     let _ssh = Kill(ssh, "ssh forward");
-    wait_for("ssh forward", 25, || get(API, "/api/v1/health").0 == 200);
-    eprintln!("real: forward {API}->8080 {DESK}->8646 {NERVE}->8670 (ssh -N, GET only)");
+    let _local = routes::start_local_api(
+        &api_target,
+        api_at(),
+        nerve_at(),
+        Some(pulse_at()),
+        Some(hermes_at()),
+        Some(desk_at()),
+    );
+    wait_for("ssh forward", 25, || {
+        get(api_at(), "/api/v1/health").0 == 200
+    });
+    eprintln!(
+        "real: forward {api_at}->8080 {desk_at}->8646 {nerve_at}->8670 (ssh -N, GET only)",
+        api_at = api_at(),
+        desk_at = desk_at(),
+        nerve_at = nerve_at()
+    );
     let before = nerve_watch("before");
 
     let bin = env!("CARGO_BIN_EXE_galion-console-static");
@@ -150,11 +199,11 @@ fn real_port2_rooms_against_live_vps() {
             "--ui",
             "rust",
             "--upstream",
-            API,
+            api_at(),
             "--desk",
-            DESK,
+            desk_at(),
             "--bind",
-            BIND,
+            bind_at(),
             "--quiet",
         ])
         .stdout(Stdio::null())
@@ -162,13 +211,13 @@ fn real_port2_rooms_against_live_vps() {
         .spawn()
         .expect("start binary");
     let _srv = Kill(child, "galion-console-static");
-    wait_for("binary", 10, || TcpStream::connect(BIND).is_ok());
+    wait_for("binary", 10, || TcpStream::connect(bind_at()).is_ok());
 
     // /context vs live GET /desk.
-    let (dc, desk) = live_json(DESK, "/desk");
+    let (dc, desk) = live_json(desk_at(), "/desk");
     assert_eq!(dc, 200, "live /desk");
     let t = Instant::now();
-    let (c, page) = get(BIND, "/context");
+    let (c, page) = get(bind_at(), "/context");
     eprintln!(
         "real: /context {c} {} B in {} ms",
         page.len(),
@@ -216,9 +265,9 @@ fn real_port2_rooms_against_live_vps() {
         if e.method != "GET" {
             continue;
         }
-        let (direct, _) = get(API, e.path);
+        let (direct, _) = get(api_at(), e.path);
         let t = Instant::now();
-        let (c, page) = get(BIND, &format!("/gateway?ep={i}&send=1"));
+        let (c, page) = get(bind_at(), &format!("/gateway?ep={i}&send=1"));
         assert_eq!(c, 200, "{}", e.path);
         let shown = format!(
             "<span>{}</span><span class=\"muted\">{direct}</span>",
@@ -238,8 +287,9 @@ fn real_port2_rooms_against_live_vps() {
     }
 
     // /guardian unpaired: the page states the live refusal.
-    let (gc, gv) = live_json(API, "/api/v3/guardian/status");
-    let (c, page) = get(BIND, "/guardian");
+    let (gc, gv) = live_json(api_at(), "/api/v3/guardian/status");
+    routes::decide("/api/v3/guardian/status", gc);
+    let (c, page) = get(bind_at(), "/guardian");
     assert_eq!(c, 200);
     if gc == 200 {
         assert!(!page.contains("did not load"));
@@ -255,55 +305,73 @@ fn real_port2_rooms_against_live_vps() {
     eprintln!("real: /guardian live status {gc}, page says so");
 
     // /hermes: thread list and the first thread.
-    let (hc, hist) = live_json(API, "/api/hermes/history");
-    assert_eq!(hc, 200);
-    let items = hist.get("items").as_array();
-    let t = Instant::now();
-    let (c, page) = get(BIND, "/hermes");
-    eprintln!(
-        "real: /hermes {c} {} B in {} ms",
-        page.len(),
-        t.elapsed().as_millis()
-    );
-    assert_eq!(c, 200);
-    assert!(page.contains(&format!("Threads · {} ", items.len())));
-    assert!(!page.contains("did not load"), "{page}");
-    assert!(!page.contains("127.0.0.1:8642"), "bind address hidden");
-    let shown = items.len().min(console_ui::pages::hermes::MAX_THREADS);
-    assert_eq!(count(&page, "href=\"/hermes?id="), shown);
-    let first = items
-        .iter()
-        .filter_map(|t| t.get("id").as_str())
-        .find(|i| console_ui::pages::hermes::id_ok(i))
-        .expect("a thread id");
-    let (tc, thread) = live_json(API, &console_ui::pages::hermes::thread_path(first));
-    assert_eq!(tc, 200);
-    let n = thread.get("items").as_array().len();
-    let (c, page) = get(
-        BIND,
-        &format!("/hermes?id={}", console_ui::html::url_enc(first)),
-    );
-    assert_eq!(c, 200);
-    assert!(
-        page.contains(&format!("<p class=\"small\">{n} items ·")),
-        "thread items {n}"
-    );
-    let msgs = page
-        .split("<ul class=\"msgs\">")
-        .nth(1)
-        .unwrap_or("")
-        .split("</ul>")
-        .next()
-        .unwrap_or("");
-    assert_eq!(count(msgs, "<li"), n);
-    eprintln!(
-        "real: /hermes threads {} (listed {shown}), thread items {n}",
-        items.len()
-    );
+    let (hc, hist) = live_json(api_at(), "/api/hermes/history");
+    if routes::decide("/api/hermes/history", hc) == routes::Live::Gone {
+        // D-375-1: no thread list on the live Rust console (owner hermes-rs
+        // /api/sessions, bearer key only); the room must say so, list nothing.
+        let (c, page) = get(bind_at(), "/hermes");
+        assert_eq!(c, 200);
+        assert!(
+            routes::page_says_unavailable(&page),
+            "/hermes: no honest miss"
+        );
+        assert_eq!(
+            count(&page, "href=\"/hermes?id="),
+            0,
+            "/hermes: threads without data"
+        );
+        assert!(!page.contains("127.0.0.1:8642"), "bind address hidden");
+        eprintln!("real: /hermes live history {hc} -> room states the miss, 0 threads");
+    } else {
+        assert_eq!(hc, 200);
+        let items = hist.get("items").as_array();
+        let t = Instant::now();
+        let (c, page) = get(bind_at(), "/hermes");
+        eprintln!(
+            "real: /hermes {c} {} B in {} ms",
+            page.len(),
+            t.elapsed().as_millis()
+        );
+        assert_eq!(c, 200);
+        assert!(page.contains(&format!("Threads · {} ", items.len())));
+        assert!(!page.contains("did not load"), "{page}");
+        assert!(!page.contains("127.0.0.1:8642"), "bind address hidden");
+        let shown = items.len().min(console_ui::pages::hermes::MAX_THREADS);
+        assert_eq!(count(&page, "href=\"/hermes?id="), shown);
+        let first = items
+            .iter()
+            .filter_map(|t| t.get("id").as_str())
+            .find(|i| console_ui::pages::hermes::id_ok(i))
+            .expect("a thread id");
+        let (tc, thread) = live_json(api_at(), &console_ui::pages::hermes::thread_path(first));
+        assert_eq!(tc, 200);
+        let n = thread.get("items").as_array().len();
+        let (c, page) = get(
+            bind_at(),
+            &format!("/hermes?id={}", console_ui::html::url_enc(first)),
+        );
+        assert_eq!(c, 200);
+        assert!(
+            page.contains(&format!("<p class=\"small\">{n} items ·")),
+            "thread items {n}"
+        );
+        let msgs = page
+            .split("<ul class=\"msgs\">")
+            .nth(1)
+            .unwrap_or("")
+            .split("</ul>")
+            .next()
+            .unwrap_or("");
+        assert_eq!(count(msgs, "<li"), n);
+        eprintln!(
+            "real: /hermes threads {} (listed {shown}), thread items {n}",
+            items.len()
+        );
+    }
 
     // No script anywhere, and the nerve still sees the same components healthy.
     for p in ["/context", "/gateway", "/guardian", "/hermes"] {
-        let (_, b) = get(BIND, p);
+        let (_, b) = get(bind_at(), p);
         assert!(!b.to_ascii_lowercase().contains("<script"), "{p}");
     }
     let after = nerve_watch("after");

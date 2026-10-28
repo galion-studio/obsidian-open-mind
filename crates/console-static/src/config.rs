@@ -62,6 +62,13 @@ usage: galion-console-static --root DIR [options]
                        --dist self-upstream
   --data-path P        exact path for --data-upstream; repeatable
                        (default /api/arena and /api/v1/bank)
+  --owner-routes       (needs --local-api) forward the Node-era rows owned by
+                       another Rust service: /api/v1/analytics, /api/v1/awake
+                       -> --pulse; /api/hermes/health -> --hermes /health
+                       (exact path, GET/HEAD, no Cookie/Authorization sent);
+                       answer retired Node-era rows (instances, keys, mesh, ...)
+                       with 410 Gone JSON instead of 404 (slot 395)
+  --hermes ADDR        loopback hermes-rs for --owner-routes, e.g. 127.0.0.1:8642
   --console-host HOST  extra host treated as a console host (repeatable),
                        e.g. the machine public IP (the TSX had
                        the two server IPs hard-coded; pass them here)
@@ -145,6 +152,11 @@ pub struct Config {
     /// Exact API paths sent to `--data-upstream` when local-api does not answer
     /// them (default `/api/arena`, `/api/v1/bank`).
     pub data_paths: Vec<String>,
+    /// `--hermes`: loopback hermes-rs for the `--owner-routes` health row.
+    pub hermes: Option<SocketAddr>,
+    /// `--owner-routes`: forward [`crate::owners::OWNER_ROUTES`] to their
+    /// owner and answer [`crate::owners::RETIRED`] with 410 (slot 395).
+    pub owner_routes: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -216,6 +228,8 @@ impl Config {
         let mut arena_root = None;
         let mut data_upstream: Option<SocketAddr> = None;
         let mut data_paths: Vec<String> = Vec::new();
+        let mut hermes: Option<SocketAddr> = None;
+        let mut owner_routes = false;
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             let mut val = |name: &str| {
@@ -347,6 +361,16 @@ impl Config {
                     }
                     data_paths.push(p);
                 }
+                "--hermes" => {
+                    let p: SocketAddr = val("--hermes")?
+                        .parse()
+                        .map_err(|_| bad("--hermes must be IP:port"))?;
+                    if !p.ip().is_loopback() {
+                        return Err(bad("--hermes must be a loopback address"));
+                    }
+                    hermes = Some(p);
+                }
+                "--owner-routes" => owner_routes = true,
                 "--user-md" => files.user_md = Some(abs_path(val("--user-md")?, "--user-md")?),
                 "--allow-public-bind" => public = true,
                 "--quiet" => access_log = false,
@@ -394,6 +418,14 @@ impl Config {
                 "--arena-root / --data-upstream need --local-api or --dist (the API gate)",
             ));
         }
+        if owner_routes && !local_api {
+            return Err(bad(
+                "--owner-routes needs --local-api or --dist (the API gate)",
+            ));
+        }
+        if hermes.is_some() && !owner_routes {
+            return Err(bad("--hermes needs --owner-routes"));
+        }
         if !data_paths.is_empty() && data_upstream.is_none() {
             return Err(bad("--data-path needs --data-upstream"));
         }
@@ -433,6 +465,8 @@ impl Config {
             arena_root,
             data_upstream,
             data_paths,
+            hermes,
+            owner_routes,
         })
     }
 }

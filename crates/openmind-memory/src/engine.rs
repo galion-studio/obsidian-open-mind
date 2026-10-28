@@ -7,7 +7,7 @@
 
 use crate::config::Config;
 use crate::fts::build_fts_query;
-use crate::store::{L0Record, Store};
+use crate::store::{import_record_id, L0Record, Store};
 use crate::text::*;
 use crate::util::{iso_utc, now_ms, rand_hex, utc_date};
 use serde_json::{json, Map, Value};
@@ -78,6 +78,9 @@ fn meta_times(meta_json: &str) -> (Option<String>, Option<String>) {
         Err(_) => (None, None),
     }
 }
+
+/// Upper bound of ranked rows read when a search filter is set.
+const FILTER_SCAN: usize = 5000;
 
 pub fn err(msg: &str) -> (u16, Value) {
     (400, json!({ "error": msg }))
@@ -343,17 +346,25 @@ impl Engine {
             ],
         };
 
+        // Opt-in import/replay mode: needs OPENMIND_MEMORY_ALLOW_IMPORT=1 on the
+        // server AND `"import": true` in the body; otherwise the flag is ignored
+        // like any unknown field (gateway parity).
+        let import = self.cfg.allow_import && truthy(body.get("import"));
         let request_ms = now_ms();
-        let cursor = self
-            .cursors
-            .lock()
-            .map(|m| m.get(&session_key).copied())
-            .ok()
-            .flatten()
-            .unwrap_or(request_ms - 1);
+        let cursor = if import {
+            i64::MIN // replay keeps old timestamps; dedupe replaces the cursor
+        } else {
+            self.cursors
+                .lock()
+                .map(|m| m.get(&session_key).copied())
+                .ok()
+                .flatten()
+                .unwrap_or(request_ms - 1)
+        };
 
         // extractUserAssistantMessages + cursor filter + sanitize + filter.
         let mut captured: Vec<(String, String, String, i64)> = Vec::new(); // id, role, content, ts
+        let mut skipped_no_ts = 0usize;
         for m in &messages {
             let role = m.get("role").and_then(Value::as_str).unwrap_or("");
             if role != "user" && role != "assistant" {
@@ -373,27 +384,38 @@ impl Engine {
             if content.trim().is_empty() {
                 continue;
             }
-            let ts = m
-                .get("timestamp")
-                .and_then(Value::as_f64)
-                .map(|f| f as i64)
-                .unwrap_or_else(now_ms);
+            let given_ts = m.get("timestamp").and_then(Value::as_f64).map(|f| f as i64);
+            if import && given_ts.is_none() {
+                // No stable timestamp -> no stable dedupe key: refuse rather
+                // than insert a row a second replay would duplicate.
+                skipped_no_ts += 1;
+                continue;
+            }
+            let ts = given_ts.unwrap_or_else(now_ms);
             if ts <= cursor {
                 continue;
             }
-            let id = m
-                .get("id")
-                .and_then(Value::as_str)
-                .filter(|s| !s.is_empty())
-                .map(String::from)
-                .unwrap_or_else(|| format!("msg_{}_{}", now_ms(), rand_hex(3)));
             let mut text = sanitize_text(content.trim());
             if role == "assistant" {
                 text = strip_code_blocks(&text);
             }
-            if should_capture_l0(&text) {
-                captured.push((id, role.to_string(), text, ts));
+            if !should_capture_l0(&text) {
+                continue;
             }
+            let id = if import {
+                import_record_id(&session_key, ts, &text)
+            } else {
+                m.get("id")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+                    .unwrap_or_else(|| format!("msg_{}_{}", now_ms(), rand_hex(3)))
+            };
+            captured.push((id, role.to_string(), text, ts));
+        }
+
+        if import {
+            return self.capture_import(&session_key, &session_id, captured, skipped_no_ts);
         }
 
         if !captured.is_empty() && !self.cfg.read_only {
@@ -404,30 +426,7 @@ impl Engine {
                 }
                 m.insert(session_key.clone(), max_ts);
             }
-            // L0 JSONL shard (same flat format as the gateway).
-            let now = now_ms();
-            let recorded_at = iso_utc(now);
-            let mut lines = String::new();
-            for (id, role, content, ts) in &captured {
-                let rec = json!({
-                    "sessionKey": session_key, "sessionId": session_id, "recordedAt": recorded_at,
-                    "id": id, "role": role, "content": content, "timestamp": ts,
-                });
-                lines.push_str(&rec.to_string());
-                lines.push('\n');
-            }
-            let dir = self.cfg.data_dir.join("conversations");
-            let _g = self.jsonl_lock.lock();
-            let res = std::fs::create_dir_all(&dir).and_then(|_| {
-                std::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(dir.join(format!("{}.jsonl", utc_date(now))))?
-                    .write_all(lines.as_bytes())
-            });
-            if let Err(e) = res {
-                crate::log::warn(&format!("L0 JSONL write failed: {e}"));
-            }
+            self.append_jsonl(&session_key, &session_id, &captured);
             if let Some(store) = &self.store {
                 let rec_at = iso_utc(now_ms());
                 for (i, (_, role, content, ts)) in captured.iter().enumerate() {
@@ -451,6 +450,99 @@ impl Engine {
             200,
             json!({ "l0_recorded": captured.len(), "scheduler_notified": false }),
         )
+    }
+
+    /// L0 JSONL shard (same flat format as the gateway).
+    fn append_jsonl(
+        &self,
+        session_key: &str,
+        session_id: &str,
+        rows: &[(String, String, String, i64)],
+    ) {
+        if rows.is_empty() {
+            return;
+        }
+        let now = now_ms();
+        let recorded_at = iso_utc(now);
+        let mut lines = String::new();
+        for (id, role, content, ts) in rows {
+            let rec = json!({
+                "sessionKey": session_key, "sessionId": session_id, "recordedAt": recorded_at,
+                "id": id, "role": role, "content": content, "timestamp": ts,
+            });
+            lines.push_str(&rec.to_string());
+            lines.push('\n');
+        }
+        let dir = self.cfg.data_dir.join("conversations");
+        let _g = self.jsonl_lock.lock();
+        let res = std::fs::create_dir_all(&dir).and_then(|_| {
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(dir.join(format!("{}.jsonl", utc_date(now))))?
+                .write_all(lines.as_bytes())
+        });
+        if let Err(e) = res {
+            crate::log::warn(&format!("L0 JSONL write failed: {e}"));
+        }
+    }
+
+    /// Import mode: dedupe against the database in one transaction, then
+    /// append only the rows actually inserted to the JSONL shard. The session
+    /// cursor is neither read nor advanced, so live capture is unaffected.
+    fn capture_import(
+        &self,
+        session_key: &str,
+        session_id: &str,
+        captured: Vec<(String, String, String, i64)>,
+        skipped_no_ts: usize,
+    ) -> (u16, Value) {
+        let reply = |inserted: usize, dups: usize| {
+            (
+                200,
+                json!({
+                    "l0_recorded": inserted,
+                    "scheduler_notified": false,
+                    "import": { "inserted": inserted, "duplicates": dups, "skipped_no_timestamp": skipped_no_ts },
+                }),
+            )
+        };
+        if self.cfg.read_only {
+            return reply(0, 0);
+        }
+        let Some(store) = &self.store else {
+            return (
+                503,
+                json!({ "error": "import mode needs the database (store unavailable)" }),
+            );
+        };
+        let rec_at = iso_utc(now_ms());
+        let recs: Vec<L0Record> = captured
+            .iter()
+            .map(|(id, role, content, ts)| L0Record {
+                id: id.clone(),
+                session_key: session_key.to_string(),
+                session_id: session_id.to_string(),
+                role: role.clone(),
+                message_text: content.clone(),
+                recorded_at: rec_at.clone(),
+                timestamp: *ts,
+            })
+            .collect();
+        match store.import_l0(&recs) {
+            Ok(out) => {
+                let new: Vec<_> = out.inserted.iter().map(|&i| captured[i].clone()).collect();
+                self.append_jsonl(session_key, session_id, &new);
+                reply(new.len(), out.duplicates)
+            }
+            Err(e) => {
+                crate::log::warn(&format!("import failed (nothing stored): {e}"));
+                (
+                    500,
+                    json!({ "error": "import failed, nothing stored; safe to retry" }),
+                )
+            }
+        }
     }
 
     /// POST /search/memories
@@ -481,20 +573,17 @@ impl Engine {
                 "none",
             );
         }
-        let hits = build_fts_query(&query)
-            .map(|q| store.search_l1_fts(&q, limit * 3))
+        // Filters run before the limit over up to FILTER_SCAN ranked rows
+        // (VPS rewrite semantics), instead of filtering only limit*3 rows.
+        let keep = |h: &crate::store::L1Hit| {
+            (type_filter.is_empty() || h.kind == type_filter)
+                && (scene_filter.is_empty() || h.scene_name.to_lowercase().contains(&scene_filter))
+        };
+        let filtered = !type_filter.is_empty() || !scene_filter.is_empty();
+        let scan = if filtered { FILTER_SCAN } else { limit };
+        let items = build_fts_query(&query)
+            .map(|q| store.search_l1_fts_filtered(&q, limit, scan, &keep))
             .unwrap_or_default();
-        if hits.is_empty() {
-            return reply("No matching memories found.".into(), 0, "fts");
-        }
-        let items: Vec<_> = hits
-            .into_iter()
-            .filter(|h| type_filter.is_empty() || h.kind == type_filter)
-            .filter(|h| {
-                scene_filter.is_empty() || h.scene_name.to_lowercase().contains(&scene_filter)
-            })
-            .take(limit)
-            .collect();
         if items.is_empty() {
             return reply("No matching memories found.".into(), 0, "fts");
         }
@@ -545,19 +634,12 @@ impl Engine {
                 0,
             );
         }
-        let k = if session.is_empty() {
-            limit * 3
-        } else {
-            limit * 4
-        };
-        let hits = build_fts_query(&query)
-            .map(|q| store.search_l0_fts(&q, k))
+        // The session filter runs in SQL before the limit (VPS rewrite
+        // semantics), instead of filtering only limit*4 global hits.
+        let sk = (!session.is_empty()).then_some(session.as_str());
+        let items = build_fts_query(&query)
+            .map(|q| store.search_l0_fts_session(&q, sk, limit))
             .unwrap_or_default();
-        let items: Vec<_> = hits
-            .into_iter()
-            .filter(|h| session.is_empty() || h.session_key == session)
-            .take(limit)
-            .collect();
         if items.is_empty() {
             return reply(none.into(), 0);
         }

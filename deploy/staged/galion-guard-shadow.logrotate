@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# STAGED ONLY - not installed. /etc/logrotate.d/galion-guard-shadow
+# The shadow log is opened per write, so a plain rename needs no signal.
+# Volume on the VPS: ~1 000 Found + ~120 Ban lines per 2.3 days (~70 KB/day).
+/var/lib/galion-guard/shadow.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0600 root root
+}

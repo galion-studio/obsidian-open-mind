@@ -32,6 +32,7 @@ pub mod config;
 pub mod entry;
 pub mod http;
 pub mod mime;
+pub mod owners;
 pub mod path;
 pub mod proxy;
 pub mod routes;

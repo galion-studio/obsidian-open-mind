@@ -285,6 +285,60 @@ fn handle_request(
         }
     }
 
+    // `--owner-routes` (slot 395): Node-era rows owned by another Rust
+    // service, and explicit 410 for retired rows. Reached only after the
+    // local API gate passed (it answers 401 itself otherwise).
+    if state.cfg.local_api && state.cfg.owner_routes {
+        if let Some(r) = crate::owners::owner_route(&clean) {
+            if let Some(up) = crate::owners::addr(r, state.cfg.pulse, state.cfg.hermes) {
+                if method != "GET" && method != "HEAD" {
+                    let _ = http::write_simple(
+                        stream,
+                        405,
+                        "Allow: GET, HEAD\r\n",
+                        "Method Not Allowed\n",
+                        head_only,
+                        false,
+                    );
+                    log(state, method, &clean, 405);
+                    return false;
+                }
+                let mut h = head.clone();
+                h.target = crate::owners::target(r, query);
+                h.headers.retain(|(k, _)| {
+                    !crate::owners::DROP_HEADERS
+                        .iter()
+                        .any(|d| k.eq_ignore_ascii_case(d))
+                });
+                let code = proxy::forward(stream, &h, Vec::new(), up, 0);
+                log(state, method, &clean, code);
+                return false;
+            }
+        } else if crate::owners::is_retired(&clean) {
+            let body = crate::owners::retired_body(&clean);
+            let ok = http::write_head(
+                stream,
+                410,
+                "Content-Type: application/json\r\nCache-Control: no-store\r\n",
+                body.len() as u64,
+                keep,
+            )
+            .and_then(|_| {
+                if head_only {
+                    Ok(())
+                } else {
+                    stream.write_all(body.as_bytes())
+                }
+            });
+            log(state, method, &clean, 410);
+            if keep && ok.is_ok() {
+                *next_carry = carry;
+                return true;
+            }
+            return false;
+        }
+    }
+
     if let Some(up) = state.cfg.upstream {
         if state
             .cfg

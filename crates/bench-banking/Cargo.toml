@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "bench-banking"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "B1 banking benchmark: a local Revolut-shaped mock bank, a local-only client, a draft-only Hermes tool layer and the per-axis scorer. Never talks to a live bank."
+
+[dependencies]
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
+zagreb-time = { path = "../zagreb-time" }
+# Shared harness (swarm/bench-harness ea8315c): Scorecard for the score file;
+# MockServer for the cross-check test.
+galion-bench = { path = "../galion-bench" }

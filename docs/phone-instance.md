@@ -186,6 +186,7 @@ Phone build options: copy the static aarch64 binary into Termux (`chmod +x omnod
 
 ## 13. To-do
 
+- [x] 2026-10-21 17:40 +02:00: Hermes enrollment endpoint with owner approval (code + fingerprint), refusal, timeout; `omnode pair` sends, waits, stores the credential and opens an outbound tunnel (`omnode tunnel`). Branch swarm/omnode-enroll, docs/omnode-enroll.md. Not deployed (docs/cutover/omnode-enroll.md, Approved: No).
 - [x] 2026-10-18 21:10 CEST (+02:00): Harden sandbox (seccomp, mount/user/net ns); PID deferred with merge proposal.
 - [x] 2026-10-18 21:10 CEST (+02:00): `omnode doctor`, install scripts, release tarballs, `pair --dry-run`.
 - [ ] 2026-10-18 20:35 CEST (+02:00): Slavik: install Termux (F-Droid) + Termux:API on the phone, or name a home Linux device (laptop/Pi) for the first real run.

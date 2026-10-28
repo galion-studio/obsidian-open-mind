@@ -12,7 +12,10 @@ name: self-eval
 on:
   push:
     branches: [ main ]
+  # Unfiltered pull_request runs only for the default branch. Name main and
+  # swarm/main-staging so a CI-fix PR into staging runs the same gate as PR #12.
   pull_request:
+    branches: [ main, swarm/main-staging ]
   workflow_dispatch:
   workflow_call:
 
@@ -33,9 +36,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
+          toolchain: stable
           components: rustfmt
       - run: cargo fmt --all -- --check
       - run: cargo fmt --manifest-path edge/openmind-node/Cargo.toml --all -- --check
@@ -45,9 +49,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
+          toolchain: stable
           components: clippy
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
@@ -56,8 +61,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+      - name: allow unprivileged user namespaces (hermes-tools sandbox)
+        run: |
+          set -eu
+          # Ubuntu AppArmor lets unshare(CLONE_NEWUSER) succeed and then
+          # refuses the uid_map write. hermes-tools sandboxed.rs needs the
+          # map; openmind-sandbox will not run as the overflow uid.
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns >/dev/null
+          fi
+          if [ -e /proc/sys/kernel/unprivileged_userns_clone ]; then
+            sudo sysctl -w kernel.unprivileged_userns_clone=1
+          fi
       - run: cargo test --workspace --locked
 
   omnode:
@@ -65,63 +84,111 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
+          toolchain: stable
           components: clippy
       - run: cargo clippy --manifest-path edge/openmind-node/Cargo.toml --all-targets --locked -- -D warnings
       - run: cargo test --manifest-path edge/openmind-node/Cargo.toml --locked
 
-  tier1:
-    name: tier-1 musl release build (${{ matrix.target }})
+  # Universal-CPU gate (UNIVERSAL-CPU.md, UCPU-1): scripts/ucpu-gate.sh.
+  # Tier 1: release build of EVERY binary (workspace + omnode) as static musl,
+  # then the static check (no PT_INTERP / DT_NEEDED), the 2 MiB size budget
+  # (hermes-gateway 2.5 MiB; readelf, no file(1)) and the grep gate
+  # (asm, arch intrinsics, CPU-specific codegen flags).
+  # zig cc compiles the bundled SQLite C code for every target.
+  ucpu-tier1:
+    name: ucpu tier-1 build + static + size (${{ matrix.target }})
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
         target: [ x86_64-unknown-linux-musl, aarch64-unknown-linux-musl ]
     env:
-      ZIG_VERSION: 0.15.2
-      ZIG_SHA256: 02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239
-      CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
-      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+      UCPU_TIER1: ${{ matrix.target }}
+      UCPU_JOBS: 4
+      UCPU_NICE: 0
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
-      # rusqlite "bundled" (desk-hermes) compiles sqlite3.c: zig cc is the
-      # C cross compiler for musl (checksum-verified tarball, no apt).
-      - name: install zig cc (musl C cross compiler)
+          components: clippy
+      - name: install zig cc (pinned, checksum-verified)
+        run: echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
+      - name: ucpu-gate grep build static size clippy
+        run: scripts/ucpu-gate.sh grep build static size clippy
+
+  # Tier 2: cargo check (all targets) for armv7 and aarch64-android. Android's
+  # bundled SQLite compiles against zig's musl headers: check never links.
+  # A real Android link needs the NDK (docs/ucpu.md).
+  ucpu-tier2:
+    name: ucpu tier-2 cargo check (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ armv7-unknown-linux-musleabihf, aarch64-linux-android ]
+    env:
+      UCPU_TIER2: ${{ matrix.target }}
+      UCPU_JOBS: 4
+      UCPU_NICE: 0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - name: install zig cc (pinned, checksum-verified)
+        run: echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
+      - run: scripts/ucpu-gate.sh check
+
+  # Real run: aarch64 + armv7 static binaries of galion-one, tuner,
+  # openmind-memory and hermes-gateway (--mock) under qemu-user, probed over
+  # loopback HTTP. No network beyond the toolchain, no secrets, no spend.
+  ucpu-qemu:
+    name: ucpu real run under qemu-user (aarch64, armv7)
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+          targets: aarch64-unknown-linux-musl, armv7-unknown-linux-musleabihf
+      - name: install qemu-user-static and zig cc
         run: |
-          set -eu
-          tgz="zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
-          curl -sSfLO "https://ziglang.org/download/${ZIG_VERSION}/$tgz"
-          echo "${ZIG_SHA256}  $tgz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/zig" && tar -C "$RUNNER_TEMP/zig" --strip-components=1 -xJf "$tgz" && rm -f "$tgz"
-          arch="${{ matrix.target }}"; arch="${arch%%-*}"
-          w="$RUNNER_TEMP/zig/musl-cc"
-          printf '%s\n' '#!/bin/sh' 'for a do shift; case "$a" in --target=*|-target) continue ;; esac; set -- "$@" "$a"; done' \
-            "exec \"$RUNNER_TEMP/zig/zig\" cc -target ${arch}-linux-musl \"\$@\"" > "$w"
-          printf '%s\n' '#!/bin/sh' "exec \"$RUNNER_TEMP/zig/zig\" ar \"\$@\"" > "$RUNNER_TEMP/zig/musl-ar"
-          chmod +x "$w" "$RUNNER_TEMP/zig/musl-ar"
-          t="$(echo '${{ matrix.target }}' | tr - _)"
-          echo "CC_${t}=$w" >> "$GITHUB_ENV"
-          echo "AR_${t}=$RUNNER_TEMP/zig/musl-ar" >> "$GITHUB_ENV"
-          echo "ZIG_GLOBAL_CACHE_DIR=$RUNNER_TEMP/zig-cache" >> "$GITHUB_ENV"
-      - name: build workspace release binaries
-        run: cargo build --release --workspace --locked --target ${{ matrix.target }}
-      - name: clippy for the target (cfg paths such as galion_no_sqlite)
-        run: |
-          rustup component add clippy
-          cargo clippy --workspace --all-targets --locked --target ${{ matrix.target }} -- -D warnings
-      - name: build omnode
-        run: cargo build --release --locked --manifest-path edge/openmind-node/Cargo.toml --target ${{ matrix.target }}
-      - name: sizes and static check
-        run: |
-          for f in $(find target/${{ matrix.target }}/release edge/openmind-node/target/${{ matrix.target }}/release -maxdepth 1 -type f -executable); do
-            printf '%s\t%s\tNEEDED=%s\n' "$(stat -c %s "$f")" "$(basename "$f")" "$(readelf -d "$f" | grep -c NEEDED || true)"
-          done
+          sudo apt-get update -q
+          # The emulators the test invokes by name. Ubuntu 26.04 (resolute)
+          # ships them as qemu-aarch64 and qemu-arm in qemu-user.
+          # qemu-user-static is a virtual package there (no candidate) and a
+          # real package on older images, where the names end in -static.
+          sudo apt-get install -y -q qemu-user
+          if apt-cache show qemu-user-static 2>/dev/null | grep -q '^Package: qemu-user-static$'; then
+            sudo apt-get install -y -q qemu-user-static
+          fi
+          pick() {
+            if command -v "$1" >/dev/null; then
+              command -v "$1"
+            elif command -v "$2" >/dev/null; then
+              command -v "$2"
+            else
+              echo "missing $1 and $2" >&2
+              exit 1
+            fi
+          }
+          pick qemu-aarch64-static qemu-aarch64
+          pick qemu-arm-static qemu-arm
+          echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
+      - run: cargo test -p galion-realtest --test real_sh_ucpu -- --nocapture
+        env:
+          GALION_REAL: "1"
+          GALION_REAL_JOBS: "4"
+
   repo-check:
     name: repo-check self-eval
     runs-on: ubuntu-latest
@@ -130,9 +197,10 @@ jobs:
       CARGO_TERM_COLOR: never
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
+          toolchain: stable
           targets: x86_64-unknown-linux-musl
       - name: build repo-check (portable musl)
         run: cargo build --release --locked -p repo-check --target x86_64-unknown-linux-musl
@@ -141,7 +209,7 @@ jobs:
           bin=target/x86_64-unknown-linux-musl/release/repo-check
           "$bin" --json --copyright "3000 Galion / galion-studio" > self-eval.json || true
           "$bin" --copyright "3000 Galion / galion-studio"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: self-eval
@@ -153,7 +221,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: fail on any *.py file or python shebang
         run: |
           set -eu
@@ -178,7 +246,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: scan tracked text for Han, Hiragana, Katakana, Hangul
         run: |
           set -eu
@@ -195,7 +263,7 @@ jobs:
     timeout-minutes: 5
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: warn on ISO timestamps ending in Z (UTC) in tracked text
         run: |
           set -u
@@ -213,7 +281,7 @@ jobs:
     env:
       GITLEAKS_VERSION: 8.30.1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       - name: install gitleaks (checksum-verified binary)
@@ -228,14 +296,14 @@ jobs:
           sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
           rm -f "$tgz" checksums.txt gitleaks
       - name: scan full git history (values redacted in output)
-        run: gitleaks git --redact --no-banner --verbose .
+        run: gitleaks git --config .gitleaks.toml --redact --no-banner --verbose .
 
   license:
     name: license check (MIT)
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: LICENSE present and MIT; workspace declares MIT; crate copies identical
         run: |
           set -eu

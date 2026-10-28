@@ -1,0 +1,105 @@
+#!/bin/bash
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# REFERENCE ONLY, NOT INSTALLED, NOT RUN: superseded by the Rust crates/galion-deploy
+# (swarm/deploy-rust). This is the pluggable bash version from swarm/deploy-sim c5ab8f9,
+# kept so the rehearsal docs and the live 2,830 B script (ws/foundation e43d7ab, the
+# one on the VPS today) can be compared with the Rust behaviour. See
+# crates/galion-deploy/README.md for the differences.
+# galion-deploy <service> <new-binary> [health-url]
+# Backup -> install -> restart -> health check -> automatic rollback on failure. (ws/foundation)
+#
+# Service-manager backend (swarm/deploy-sim): GALION_DEPLOY_SM=systemd (default) or direct.
+#   systemd: the exact systemctl/journalctl calls of the original 2,830 B script.
+#   direct:  no systemd; every call goes to "$GALION_DEPLOY_CTL <verb> <svc>", a supervisor
+#            control command (verbs: known, exec-path, restart, is-active, journal N), e.g.
+#            GALION_DEPLOY_CTL="simsup --root DIR ctl" (sim/deploy-sim).
+# Optional overrides (all unset = original behaviour, original paths):
+#   GALION_DEPLOY_BACKUP_DIR (/var/backups/galion/deploy), GALION_DEPLOY_DATA_BACKUP
+#   (/opt/galion/rust/bin/galion-backup.sh), GALION_DEPLOY_VERSION_TIMEOUT (seconds; unset =
+#   wait for "<new> --version" forever, as before), GALION_DEPLOY_RESET_FAILED=1 (run
+#   reset-failed before each restart, so a start limit hit by a crash-looping binary cannot
+#   refuse the rollback restart; unset = as before).
+set -euo pipefail
+umask 077
+log() { echo "ts=$(TZ=Europe/Zagreb date -Iseconds) svc=galion-deploy $*"; }
+die() { log "level=error msg=\"$*\""; exit 1; }
+[ $# -ge 2 ] || { echo "usage: galion-deploy <service> <new-binary> [health-url]"; exit 2; }
+SVC=${1%.service}; NEW=$2
+declare -A HEALTH=(
+  [openmind-memory]=http://127.0.0.1:8420/health [hermes-rs]=http://127.0.0.1:8642/health
+  [galion-desk]=http://127.0.0.1:8646/health [tuner]=http://127.0.0.1:8650/health
+  [galion-health]=http://127.0.0.1:8660/healthz-self [link-watch-rs]=none
+)
+URL=${3:-${HEALTH[$SVC]:-none}}
+[ "$URL" = http://127.0.0.1:8660/healthz-self ] && URL=http://127.0.0.1:8660/status.json
+
+case ${GALION_DEPLOY_SM:-systemd} in
+  systemd)
+    sm_known()   { systemctl cat "$1.service" >/dev/null 2>&1; }
+    sm_target()  { systemctl show -p ExecStart --value "$1.service" | sed -n 's/.*path=\([^ ;]*\).*/\1/p' | head -1; }
+    sm_restart() { systemctl restart "$1.service"; }
+    sm_active()  { systemctl is-active --quiet "$1.service"; }
+    sm_journal() { journalctl -u "$1.service" -n 20 --no-pager -o cat; }
+    sm_reset()   { systemctl reset-failed "$1.service"; }
+    ;;
+  direct)
+    [ -n "${GALION_DEPLOY_CTL:-}" ] || die "GALION_DEPLOY_SM=direct needs GALION_DEPLOY_CTL"
+    read -r -a CTL <<<"$GALION_DEPLOY_CTL"
+    sm_known()   { "${CTL[@]}" known "$1" >/dev/null 2>&1; }
+    sm_target()  { "${CTL[@]}" exec-path "$1" | head -1; }
+    sm_restart() { "${CTL[@]}" restart "$1"; }
+    sm_active()  { "${CTL[@]}" is-active "$1" >/dev/null 2>&1; }
+    sm_journal() { "${CTL[@]}" journal "$1" 20; }
+    sm_reset()   { "${CTL[@]}" reset-failed "$1"; }
+    ;;
+  *) die "unknown GALION_DEPLOY_SM=${GALION_DEPLOY_SM} (systemd|direct)" ;;
+esac
+
+sm_known "$SVC" || die "unknown unit $SVC.service"
+TARGET=$(sm_target "$SVC")
+[ -n "$TARGET" ] && [ -f "$TARGET" ] || die "cannot resolve installed binary for $SVC"
+[ -f "$NEW" ] || die "no such file $NEW"
+head -c4 "$NEW" | od -An -c | grep -q 'E   L   F' || die "$NEW is not an ELF binary"
+if [ -n "${GALION_DEPLOY_VERSION_TIMEOUT:-}" ]; then
+  timeout -k 1 "$GALION_DEPLOY_VERSION_TIMEOUT" "$NEW" --version >/dev/null 2>&1 || true
+else
+  "$NEW" --version >/dev/null 2>&1 || true   # informational only; not all binaries support it
+fi
+
+BDIR=${GALION_DEPLOY_BACKUP_DIR:-/var/backups/galion/deploy}; mkdir -p "$BDIR"; chmod 0700 "${BDIR%/*}" "$BDIR"
+DATA_BACKUP=${GALION_DEPLOY_DATA_BACKUP:-/opt/galion/rust/bin/galion-backup.sh}
+STAMP=$(TZ=Europe/Zagreb date +%Y%m%d-%H%M%S%z)
+BAK="$BDIR/$SVC-$STAMP.bin"
+cp -p "$TARGET" "$BAK"
+[ -x "$DATA_BACKUP" ] && [ "${SKIP_DATA_BACKUP:-0}" != 1 ] && "$DATA_BACKUP" || true
+log "level=info msg=\"backup\" unit=$SVC target=$TARGET backup=$BAK sha_old=$(sha256sum "$TARGET" | cut -c1-12) sha_new=$(sha256sum "$NEW" | cut -c1-12)"
+
+healthy() {
+  for i in $(seq 1 20); do
+    sleep 1
+    sm_active "$SVC" || continue
+    [ "$URL" = none ] && { [ $i -ge 5 ] && sm_active "$SVC" && return 0; continue; }
+    code=$(curl -s -o /dev/null -m 3 -w '%{http_code}' "$URL" || true)
+    case $code in 2*) return 0;; esac
+  done
+  return 1
+}
+
+install -m 0755 "$NEW" "$TARGET.new" && mv -f "$TARGET.new" "$TARGET"
+[ "${GALION_DEPLOY_RESET_FAILED:-0}" = 1 ] && sm_reset "$SVC"
+sm_restart "$SVC"
+if healthy; then
+  log "level=info msg=\"deployed\" unit=$SVC health=$URL"
+  ls -1t "$BDIR/$SVC"-*.bin | tail -n +6 | xargs -r rm -f   # keep last 5 binaries per service
+  exit 0
+fi
+log "level=error msg=\"health failed, rolling back\" unit=$SVC"
+sm_journal "$SVC" | sed 's/^/  | /' | cut -c1-240
+install -m 0755 "$BAK" "$TARGET.new" && mv -f "$TARGET.new" "$TARGET"
+[ "${GALION_DEPLOY_RESET_FAILED:-0}" = 1 ] && sm_reset "$SVC"
+sm_restart "$SVC"
+healthy && { log "level=warn msg=\"rolled back ok\" unit=$SVC"; exit 1; }
+die "ROLLBACK ALSO UNHEALTHY for $SVC; manual action needed (backup $BAK)"

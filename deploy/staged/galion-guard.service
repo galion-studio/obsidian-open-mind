@@ -1,0 +1,55 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+#
+# STAGED ONLY - not installed anywhere. Installing it on the VPS needs the
+# owner's approval (see docs/guard-rust.md "Rollout"). Shadow mode first:
+# the staged config uses backend = "dry-run", so it can run next to fail2ban.
+[Unit]
+Description=galion-guard SSH ban daemon (Rust replacement for the fail2ban sshd jail)
+Documentation=https://github.com/galion-studio/obsidian-open-mind/blob/swarm/guard-rust/docs/guard-rust.md
+After=network.target nftables.service systemd-journald.service
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStartPre=/usr/local/bin/galion-guard check-config --config /etc/galion-guard/guard.toml
+ExecStart=/usr/local/bin/galion-guard run --config /etc/galion-guard/guard.toml
+# Saves state and exits; bans stay in the kernel with their own timeouts.
+ExecStop=/usr/local/bin/galion-guard stop --config /etc/galion-guard/guard.toml
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=15s
+
+StateDirectory=galion-guard
+StateDirectoryMode=0700
+RuntimeDirectory=galion-guard
+RuntimeDirectoryMode=0700
+UMask=0077
+
+# Root, but only with what nft (NET_ADMIN) and reading the journal/auth.log
+# (DAC_READ_SEARCH) need.
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_DAC_READ_SEARCH
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+MemoryMax=64M
+TasksMax=16
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

@@ -20,3 +20,10 @@ path = "src/main.rs"
 [dependencies]
 zagreb-time = { path = "../zagreb-time" }
 galion-voice-core = { path = "../galion-voice-core" }
+opus-pure = { version = "0.2.2", default-features = false, optional = true }
+
+[features]
+default = []
+# PersonaPlex wire codec (Opus in Ogg) via opus-pure. Off by default: the crate
+# carries runtime-dispatched SIMD kernels (see docs/ws-voice.md section 7).
+opus = ["dep:opus-pure"]

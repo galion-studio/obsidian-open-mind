@@ -164,6 +164,7 @@ fn start_nerve(dir: &Path) -> Kill {
         .env("NERVE_REFLEX", "0")
         .env("NERVE_EVT_PIDFD", "0")
         .env("NERVE_EVT_HEARTBEAT", "60")
+        .env("NERVE_EVT_HEARTBEAT_TEST_FLOOR", "1")
         .env("NERVE_EVT_DEBOUNCE", "1")
         .env("NERVE_EVT_MAX_WAIT", "4")
         .env("NERVE_EVT_CYCLE_DEBOUNCE", "1")

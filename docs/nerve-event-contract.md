@@ -84,7 +84,7 @@ One JSON object per line (NDJSON). Example (captured on the VPS sandbox):
 | `inventory.changed` | inventory | low | running services / listening ports changed |
 | `escalation.batch` | escalation | batch max | a coalesced batch, delegated to the cortex (`data.events` = the events) |
 | `action.result` | actions | info..high | every `POST /actions` request and its result |
-| `nerve.started` / `nerve.heartbeat` | nerve | info | start; liveness every `NERVE_EVT_HEARTBEAT` (900 s) |
+| `nerve.started` / `nerve.heartbeat` | nerve | info | start; liveness every `NERVE_EVT_HEARTBEAT` (900 s, 120..900) |
 | `nerve.source_down` | nerve | high | journalctl died (restarted with backoff, resumes after the last cursor) |
 | `nerve.watch_overflow` | inotify | medium | inotify queue overflow |
 | `stream.gap` / `stream.keepalive` | nerve | info | stream only, never stored |
@@ -167,7 +167,7 @@ alternative if needed).
 
 ## Env reference
 
-`NERVE_MODE=event`, `NERVE_EVT_HEARTBEAT` (900, 60..3600), `NERVE_EVT_DEBOUNCE` (30),
+`NERVE_MODE=event`, `NERVE_EVT_HEARTBEAT` (900, validated 120..900: out of range is clamped with a `<4>` start-up warning and `heartbeat_clamped_from` in `/stats` config; not a number exits 2; `NERVE_EVT_HEARTBEAT_TEST_FLOOR=1` lowers the floor to 60 for box tests only), `NERVE_EVT_DEBOUNCE` (30),
 `NERVE_EVT_MAX_WAIT` (120), `NERVE_EVT_DEDUPE` (600), `NERVE_EVT_ESCALATE_MIN` (high),
 `NERVE_EVT_CYCLE_DEBOUNCE` (5), `NERVE_EVT_CYCLE_MIN_GAP` (60), `NERVE_EVT_JOURNAL` (1),
 `NERVE_EVT_JOURNALCTL` (journalctl; `replay:PATH` reads a file/FIFO for tests;

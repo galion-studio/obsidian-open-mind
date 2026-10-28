@@ -259,12 +259,67 @@ pub fn lifecycle_tracked(unit: &str) -> bool {
     LIFECYCLE_GROUPS.contains(&classify_unit(unit)) || LIFECYCLE_INFRA.contains(&unit)
 }
 
+/// Lowest accepted liveness heartbeat (s): 30 full cycles/h. Below this the
+/// heartbeat cycle (probe walk + `systemctl list-units` inventory) starts to
+/// cost real CPU on a loaded host while events already trigger their own
+/// debounced cycles (`NERVE_EVT_CYCLE_DEBOUNCE` / `NERVE_EVT_CYCLE_MIN_GAP`).
+pub const HEARTBEAT_MIN_S: u64 = 120;
+/// Highest accepted liveness heartbeat (s): 4 full cycles/h, the shipped
+/// default. Slower would leave a quiet failure (a component that dies
+/// without a journal/pidfd event) unseen for more than 15 min.
+pub const HEARTBEAT_MAX_S: u64 = 900;
+/// Default liveness heartbeat (s). Kept at 900 (owner decides D-344-1).
+pub const HEARTBEAT_DEFAULT_S: u64 = 900;
+
+/// Floor used only when `NERVE_EVT_HEARTBEAT_TEST_FLOOR=1` (box real tests
+/// that need a heartbeat cycle within ~1 min; the pre-slot-369 floor).
+/// Never set it on a deployed unit.
+pub const HEARTBEAT_TEST_MIN_S: u64 = 60;
+
+/// Parse `NERVE_EVT_HEARTBEAT`: unset -> default; not a number -> error
+/// (nerve exits 2 at start, as for every other numeric knob); a number
+/// outside [`HEARTBEAT_MIN_S`]..=[`HEARTBEAT_MAX_S`] is clamped into range
+/// and the requested value is returned as the second item, so the caller
+/// can log it (a bad value must never crash-loop a deploy). `test_floor`
+/// lowers the floor to [`HEARTBEAT_TEST_MIN_S`] (tests only).
+pub fn heartbeat_from_env(v: Option<&str>, test_floor: bool) -> Result<(u64, Option<u64>), String> {
+    let min = if test_floor {
+        HEARTBEAT_TEST_MIN_S
+    } else {
+        HEARTBEAT_MIN_S
+    };
+    let Some(v) = v else {
+        return Ok((HEARTBEAT_DEFAULT_S, None));
+    };
+    let n: u64 = v
+        .trim()
+        .parse()
+        .map_err(|_| format!("NERVE_EVT_HEARTBEAT: not a number: {v:?}"))?;
+    let c = n.clamp(min, HEARTBEAT_MAX_S);
+    Ok((c, (c != n).then_some(n)))
+}
+
+/// Expected full engine cycles per hour from the heartbeat alone (a quiet
+/// host; events add debounced cycles on top). 900 s -> 4, 300 s -> 12.
+pub fn heartbeat_cycles_per_hour(heartbeat_s: u64) -> f64 {
+    3600.0 / heartbeat_s.max(1) as f64
+}
+
 /// Event-mode configuration (env, read once at start).
 #[derive(Debug, Clone)]
 pub struct EvtConfig {
     /// Liveness heartbeat (seconds): one engine cycle + threshold check +
-    /// inventory refresh, never an LLM call. Clamped to 60..=3600.
+    /// inventory refresh, never an LLM call. `NERVE_EVT_HEARTBEAT`, validated
+    /// to [`HEARTBEAT_MIN_S`]..=[`HEARTBEAT_MAX_S`] (default
+    /// [`HEARTBEAT_DEFAULT_S`]); see [`heartbeat_from_env`].
     pub heartbeat_s: u64,
+    /// The out-of-range `NERVE_EVT_HEARTBEAT` value that was clamped into
+    /// `heartbeat_s` (None when the value was in bounds or unset). Logged at
+    /// start and shown in `/stats` config so a typo never hides silently.
+    pub heartbeat_clamped_from: Option<u64>,
+    /// `NERVE_EVT_HEARTBEAT_TEST_FLOOR=1`: floor lowered to
+    /// [`HEARTBEAT_TEST_MIN_S`] for box tests (warned at start, in `/stats`).
+    pub heartbeat_test_floor: bool,
     /// Engine cycle after an event: wait this long for the burst to settle.
     pub cycle_debounce_s: u64,
     /// Never more than one event-triggered engine cycle per this many seconds.
@@ -362,8 +417,13 @@ impl EvtConfig {
                 Some((p.trim().parse().ok()?, g.trim().to_string()))
             })
             .collect();
+        let heartbeat_test_floor = on("NERVE_EVT_HEARTBEAT_TEST_FLOOR", false);
+        let (heartbeat_s, heartbeat_clamped_from) =
+            heartbeat_from_env(env("NERVE_EVT_HEARTBEAT").as_deref(), heartbeat_test_floor)?;
         Ok(EvtConfig {
-            heartbeat_s: num("NERVE_EVT_HEARTBEAT", 900)?.clamp(60, 3600),
+            heartbeat_s,
+            heartbeat_clamped_from,
+            heartbeat_test_floor,
             cycle_debounce_s: num("NERVE_EVT_CYCLE_DEBOUNCE", 5)?.clamp(1, 300),
             cycle_min_gap_s: num("NERVE_EVT_CYCLE_MIN_GAP", 60)?.clamp(5, 3600),
             dedupe_s: num("NERVE_EVT_DEDUPE", 600)?.clamp(1, 86_400),
@@ -701,10 +761,93 @@ mod tests {
         assert!(!c.escalate.enabled());
         let low = |k: &str| (k == "NERVE_EVT_ESCALATE_MIN").then(|| "medium".to_string());
         assert!(EvtConfig::from_env(&low, "/tmp".into()).is_err());
+        assert_eq!(c.heartbeat_clamped_from, None);
+        assert!(!c.heartbeat_test_floor);
         let hb = |k: &str| (k == "NERVE_EVT_HEARTBEAT").then(|| "1".to_string());
+        let c1 = EvtConfig::from_env(&hb, "/tmp".into()).unwrap();
+        assert_eq!((c1.heartbeat_s, c1.heartbeat_clamped_from), (120, Some(1)));
+    }
+
+    fn hb_cfg(v: &str, floor: Option<&str>) -> Result<EvtConfig, String> {
+        let v = v.to_string();
+        let floor = floor.map(str::to_string);
+        let env = move |k: &str| match k {
+            "NERVE_EVT_HEARTBEAT" => Some(v.clone()),
+            "NERVE_EVT_HEARTBEAT_TEST_FLOOR" => floor.clone(),
+            _ => None,
+        };
+        EvtConfig::from_env(&env, "/tmp".into())
+    }
+
+    #[test]
+    fn heartbeat_bounds_validated() {
+        // In range: taken as is, nothing flagged.
+        for v in [120u64, 121, 300, 600, 899, 900] {
+            let c = hb_cfg(&v.to_string(), None).unwrap();
+            assert_eq!((c.heartbeat_s, c.heartbeat_clamped_from), (v, None), "{v}");
+        }
+        assert_eq!(hb_cfg(" 300 ", None).unwrap().heartbeat_s, 300);
+        // Out of range: clamped, requested value kept for the warning.
+        for (v, want) in [
+            (0u64, 120u64),
+            (1, 120),
+            (60, 120),
+            (119, 120),
+            (901, 900),
+            (3600, 900),
+            (u64::MAX, 900),
+        ] {
+            let c = hb_cfg(&v.to_string(), None).unwrap();
+            assert_eq!(
+                (c.heartbeat_s, c.heartbeat_clamped_from),
+                (want, Some(v)),
+                "{v}"
+            );
+        }
+        // Not a number: start-up error (exit 2), never a silent default.
+        for v in ["", "abc", "-5", "300s", "3.5", "18446744073709551616"] {
+            let e = hb_cfg(v, None).unwrap_err();
+            assert!(
+                e.starts_with("NERVE_EVT_HEARTBEAT: not a number"),
+                "{v}: {e}"
+            );
+        }
+        // Test floor: 60 allowed, max unchanged, flag visible.
+        let c = hb_cfg("60", Some("1")).unwrap();
         assert_eq!(
-            EvtConfig::from_env(&hb, "/tmp".into()).unwrap().heartbeat_s,
-            60
+            (
+                c.heartbeat_s,
+                c.heartbeat_clamped_from,
+                c.heartbeat_test_floor
+            ),
+            (60, None, true)
         );
+        let c = hb_cfg("30", Some("1")).unwrap();
+        assert_eq!((c.heartbeat_s, c.heartbeat_clamped_from), (60, Some(30)));
+        let c = hb_cfg("3600", Some("1")).unwrap();
+        assert_eq!(c.heartbeat_s, 900);
+        let c = hb_cfg("60", Some("0")).unwrap();
+        assert_eq!((c.heartbeat_s, c.heartbeat_test_floor), (120, false));
+    }
+
+    #[test]
+    fn heartbeat_cycles_per_hour_tradeoff() {
+        assert_eq!(heartbeat_cycles_per_hour(900), 4.0);
+        assert_eq!(heartbeat_cycles_per_hour(300), 12.0);
+        assert_eq!(heartbeat_cycles_per_hour(120), 30.0);
+        assert_eq!(heartbeat_cycles_per_hour(0), 3600.0);
+    }
+
+    #[test]
+    fn heartbeat_in_stats_config() {
+        let c = hb_cfg("5000", None).unwrap();
+        let hub = std::sync::Arc::new(Hub::new(600));
+        let _rt = runtime::Runtime::new(c, hub.clone(), Box::new(escalate::Delegate));
+        let cfg = hub.lock().config.clone();
+        assert_eq!(cfg["heartbeat_s"], 900);
+        assert_eq!(cfg["heartbeat_clamped_from"], 5000);
+        assert_eq!(cfg["heartbeat_test_floor"], false);
+        assert_eq!(cfg["heartbeat_bounds_s"], serde_json::json!([120, 900]));
+        assert_eq!(cfg["heartbeat_cycles_per_hour"], 4.0);
     }
 }

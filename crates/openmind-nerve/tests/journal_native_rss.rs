@@ -133,7 +133,7 @@ fn start_nerve(port: u16, data: &std::path::Path, journalctl: &str) -> Kill {
             .env("NERVE_EVT_JOURNALCTL", journalctl)
             .env("NERVE_EVT_PIDFD", "0")
             .env("NERVE_EVT_JOURNAL", "1")
-            .env("NERVE_EVT_HEARTBEAT", "3600")
+            .env("NERVE_EVT_HEARTBEAT", "900")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())

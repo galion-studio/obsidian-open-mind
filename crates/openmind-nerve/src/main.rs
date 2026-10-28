@@ -212,6 +212,21 @@ fn serve(cfg: Config, args: &[String]) -> ExitCode {
             ecfg.heartbeat_s, ecfg.debounce_s, ecfg.max_wait_s, ecfg.dedupe_s, ecfg.escalate.mode, ecfg.escalate.enabled(),
             if ecfg.actions_live { "live" } else { "dry-run" }
         );
+        if let Some(req) = ecfg.heartbeat_clamped_from {
+            eprintln!(
+                "<4>openmind-nerve: NERVE_EVT_HEARTBEAT={req} out of bounds {}..={} s; using {} s",
+                if ecfg.heartbeat_test_floor {
+                    openmind_nerve::evt::HEARTBEAT_TEST_MIN_S
+                } else {
+                    openmind_nerve::evt::HEARTBEAT_MIN_S
+                },
+                openmind_nerve::evt::HEARTBEAT_MAX_S,
+                ecfg.heartbeat_s
+            );
+        }
+        if ecfg.heartbeat_test_floor {
+            eprintln!("<4>openmind-nerve: NERVE_EVT_HEARTBEAT_TEST_FLOOR set: heartbeat floor {} s (box tests only, never on a deployed unit)", openmind_nerve::evt::HEARTBEAT_TEST_MIN_S);
+        }
         evt_parts = Some((ecfg, hub));
     }
     let ev_rt = ev.clone();

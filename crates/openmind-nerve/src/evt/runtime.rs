@@ -160,7 +160,11 @@ impl Runtime {
         let (tx, rx) = channel();
         *hub.tx.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx.clone());
         hub.lock().config = json!({
-            "heartbeat_s": cfg.heartbeat_s, "debounce_s": cfg.debounce_s, "max_wait_s": cfg.max_wait_s,
+            "heartbeat_s": cfg.heartbeat_s, "heartbeat_clamped_from": cfg.heartbeat_clamped_from,
+            "heartbeat_test_floor": cfg.heartbeat_test_floor,
+            "heartbeat_bounds_s": [if cfg.heartbeat_test_floor { super::HEARTBEAT_TEST_MIN_S } else { super::HEARTBEAT_MIN_S }, super::HEARTBEAT_MAX_S],
+            "heartbeat_cycles_per_hour": super::heartbeat_cycles_per_hour(cfg.heartbeat_s),
+            "debounce_s": cfg.debounce_s, "max_wait_s": cfg.max_wait_s,
             "dedupe_s": cfg.dedupe_s, "escalate_min": cfg.escalate_min, "escalate": cfg.escalate.to_json(),
             "cycle_debounce_s": cfg.cycle_debounce_s, "cycle_min_gap_s": cfg.cycle_min_gap_s,
             "journal": cfg.journal, "pidfd": cfg.pidfd, "watch": cfg.watch, "certs": cfg.certs,

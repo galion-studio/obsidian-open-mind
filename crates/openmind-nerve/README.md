@@ -20,7 +20,8 @@ openmind-nerve replay DIR [--md|--state]   # re-run a captured VPS snapshot; exi
 
 Cadence: in the polling mode a full cycle runs every `NERVE_INTERVAL` (30 s).
 In event mode (`serve --mode event`, the live VPS unit) the full cycle runs at
-start, on the heartbeat (`NERVE_EVT_HEARTBEAT`, 900 s) and debounced after
+start, on the heartbeat (`NERVE_EVT_HEARTBEAT`, default 900 s, tunable 120..900 s;
+see `docs/nerve-heartbeat-tune.md` for the cycles/h vs load trade-off) and debounced after
 stack events, so `cycle` moves about 4-6 times an hour while `interval_s` still
 reads 30; `/api/v1/state` says which in `cadence` (N-332-1, slot 344).
 

@@ -4,7 +4,7 @@
 # Real-life tests: nerve-event-driven (event mode)
 
 Base `aa77864` (live nerve build = `nerve-t36-consumer` 334beaa + DST fix).
-Box ports 20760-20763, VPS sandbox port 8673. Times Europe/Zagreb (+02:00).
+Box ports 20760-20763 (slot 390: now ephemeral by default, fixed block via NERVE_EVT_IT_PORT_BASE; see nerve-evt-mode-port.md), VPS sandbox port 8673. Times Europe/Zagreb (+02:00).
 No paid call anywhere; the only "LLM" contacted is an in-test loopback stub.
 
 ## 1. VPS read-only inventory (2026-10-21 18:13-18:20 +02:00)

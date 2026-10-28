@@ -5,7 +5,7 @@
 //! Real-life test (gated: `GALION_REAL=1`), wave-4 slot 315, N-307-1 /
 //! F-313-2: the nerve called the Rust console healthy because `/` answers 302
 //! while `/api/v1/admin` and the board routes are 404. This test starts the
-//! real `openmind-nerve serve` (127.0.0.1:21850) against two consoles and
+//! real `openmind-nerve serve` (127.0.0.1:21850 by default; REAL_NERVE_PORT_BASE remaps) against two consoles and
 //! checks the deep route probe:
 //!
 //! - `console-blind` (:21851, deep probes on): must be `degrading` with one
@@ -29,9 +29,34 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const NERVE: &str = "127.0.0.1:21850";
-const BLIND: u16 = 21851;
-const FULL: u16 = 21852;
+/// Port block start (default 21850, slot 315). Slot 333 (nerve-merge-6) moves
+/// the block at build time with `REAL_NERVE_PORT_BASE=<port>` like the other
+/// merged nerve real tests; offsets inside the block are unchanged.
+const fn port_block(default: u16) -> u16 {
+    match option_env!("REAL_NERVE_PORT_BASE") {
+        None => default,
+        Some(s) => {
+            let b = s.as_bytes();
+            let mut i = 0;
+            let mut v: u32 = 0;
+            assert!(!b.is_empty(), "REAL_NERVE_PORT_BASE empty");
+            while i < b.len() {
+                assert!(b[i].is_ascii_digit(), "REAL_NERVE_PORT_BASE not a number");
+                v = v * 10 + (b[i] - b'0') as u32;
+                assert!(v <= 65_526, "REAL_NERVE_PORT_BASE too large");
+                i += 1;
+            }
+            v as u16
+        }
+    }
+}
+
+const BLOCK: u16 = port_block(21850);
+fn nerve() -> String {
+    format!("127.0.0.1:{BLOCK}")
+}
+const BLIND: u16 = BLOCK + 1;
+const FULL: u16 = BLOCK + 2;
 const DEEP: &str = r#"["/api/v1/admin","/api/v1/services"]"#;
 
 struct Kill(Option<Child>);
@@ -60,7 +85,7 @@ fn get(addr: &str, path: &str) -> Option<(u16, String)> {
 }
 
 fn state() -> serde_json::Value {
-    get(NERVE, "/api/v1/state")
+    get(&nerve(), "/api/v1/state")
         .and_then(|(_, b)| serde_json::from_str(&b).ok())
         .unwrap_or_default()
 }
@@ -113,9 +138,9 @@ fn console(bin: &Path, port: u16, dist: &Path, admin: Option<&Path>) -> Child {
         // Live argv has --pulse 8091 / --desk 8646; point them at dead ports here.
         .args([
             "--pulse",
-            "127.0.0.1:21858",
+            &format!("127.0.0.1:{}", BLOCK + 8),
             "--desk",
-            "127.0.0.1:21859",
+            &format!("127.0.0.1:{}", BLOCK + 9),
             "--quiet",
         ]);
     if let Some(d) = admin {
@@ -208,7 +233,7 @@ fn real_console_deep_probe() {
     let _nerve = Kill(Some(
         Command::new(env!("CARGO_BIN_EXE_openmind-nerve"))
             .arg("serve")
-            .env("NERVE_ADDR", NERVE)
+            .env("NERVE_ADDR", nerve())
             .env("NERVE_INTERVAL", "5")
             .env("NERVE_DATA_DIR", dir.join("data"))
             .env("NERVE_COMPONENTS", &comps)
@@ -218,7 +243,7 @@ fn real_console_deep_probe() {
             .env("NERVE_REFLEX", "0")
             .env("NERVE_ROLLBACK", "0")
             .env("NERVE_EVT_ESCALATE", "off")
-            .env("NERVE_LISTEN_SCOPE", "21850-21859")
+            .env("NERVE_LISTEN_SCOPE", format!("{BLOCK}-{}", BLOCK + 9))
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn nerve"),

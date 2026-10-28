@@ -5,7 +5,7 @@
 //! Slot 310 (F2 of slot 271): the nerve tags planned stops.
 //!
 //! Real binary (`serve --mode event`, release with `--release`) on the box,
-//! ports 21800-21809, gated with `GALION_REAL=1`. The journal is the real VPS
+//! ports 21800-21809 (REAL_NERVE_PORT_BASE remaps), gated with `GALION_REAL=1`. The journal is the real VPS
 //! capture of the 2026-10-27 console restarts (17:25:04 operator, 17:25:06
 //! cortex dec-874, 17:28:29 cutover +01:00) and real hermes-rs lines (19:52 CET:
 //! operator restart, then the new invocation crashed with exit 2), fed through a FIFO (`NERVE_EVT_JOURNALCTL=replay:`, same
@@ -33,8 +33,30 @@ use std::sync::mpsc::{channel, Receiver};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
-const PORT: u16 = 21800;
-const PORT_BASE: u16 = 21805;
+/// Port block start (default 21800, slot 310). Slot 333 (nerve-merge-6) moves
+/// the block at build time with `REAL_NERVE_PORT_BASE=<port>` like the other
+/// merged nerve real tests; offsets inside the block are unchanged.
+const fn port_block(default: u16) -> u16 {
+    match option_env!("REAL_NERVE_PORT_BASE") {
+        None => default,
+        Some(s) => {
+            let b = s.as_bytes();
+            let mut i = 0;
+            let mut v: u32 = 0;
+            assert!(!b.is_empty(), "REAL_NERVE_PORT_BASE empty");
+            while i < b.len() {
+                assert!(b[i].is_ascii_digit(), "REAL_NERVE_PORT_BASE not a number");
+                v = v * 10 + (b[i] - b'0') as u32;
+                assert!(v <= 65_526, "REAL_NERVE_PORT_BASE too large");
+                i += 1;
+            }
+            v as u16
+        }
+    }
+}
+
+const PORT: u16 = port_block(21800);
+const PORT_BASE: u16 = PORT + 5;
 
 fn real() -> bool {
     std::env::var("GALION_REAL").as_deref() == Ok("1")

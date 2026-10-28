@@ -231,6 +231,13 @@ pub fn cargo_args(p: &Plan, extra: &[String]) -> Vec<String> {
     a
 }
 
+/// Env var the recipe sets on `cargo test` so test binaries know the mode
+/// (F-335-1: hermes-tools `sandboxed.rs` fails instead of skipping under
+/// `require`, and keeps its `CI` skip only in `auto`).
+pub fn child_env(mode: Mode) -> (&'static str, &'static str) {
+    ("GALION_SANDBOX_TESTS", mode.name())
+}
+
 /// One summary line about the host (no paths, no secrets).
 pub fn facts_line(f: &HostFacts) -> String {
     let yn = |b: bool| if b { "yes" } else { "no" };
@@ -410,6 +417,17 @@ mod tests {
             names(&plan(&full, Mode::Off, false).unwrap()),
             SANDBOX_CRATES.to_vec()
         );
+    }
+
+    #[test]
+    fn child_env_names_the_mode() {
+        assert_eq!(
+            child_env(Mode::Require),
+            ("GALION_SANDBOX_TESTS", "require")
+        );
+        assert_eq!(child_env(Mode::Auto).1, "auto");
+        assert_eq!(child_env(Mode::Force).1, "force");
+        assert_eq!(child_env(Mode::Off).1, "off");
     }
 
     #[test]

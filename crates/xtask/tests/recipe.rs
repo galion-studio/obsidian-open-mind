@@ -128,6 +128,12 @@ fn ci_runner_runs_them_after_the_sysctl_step() {
         assert!(s.contains(&format!("xtask: include {k}")), "{s}");
     }
     assert_eq!(cargo_line(&o), "xtask: cargo test --workspace --locked");
+    // F-335-1: the test processes learn the mode, so sandboxed.rs fails
+    // instead of skipping on CI.
+    assert!(
+        s.contains("xtask: test env GALION_SANDBOX_TESTS=require"),
+        "{s}"
+    );
     // Without the sysctl step AppArmor blocks the uid_map: require fails.
     let o = xtask(
         Some("gh-ubuntu-2404-default"),
@@ -142,6 +148,7 @@ fn ci_runner_runs_them_after_the_sysctl_step() {
         cargo_line(&o),
         "xtask: cargo test --workspace --exclude hermes-tools"
     );
+    assert!(out(&o).contains("xtask: test env GALION_SANDBOX_TESTS=auto"));
 }
 
 #[test]
@@ -152,6 +159,7 @@ fn opt_out_and_bad_args() {
         &["test", "--no-sandbox"],
     );
     assert_eq!(cargo_line(&o), ALL_OUT);
+    assert!(out(&o).contains("xtask: test env GALION_SANDBOX_TESTS=off"));
     let o = xtask(
         Some("gh-ubuntu-2404-sysctl"),
         &[("GALION_SANDBOX_VPS_ONLY", "1")],

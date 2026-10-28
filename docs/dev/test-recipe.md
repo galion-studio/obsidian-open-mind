@@ -66,8 +66,24 @@ never starts cargo, so the guard cannot be bypassed that way.
   hand; that text is swarm-owned (not in this repo) and was not changed
   (owner item D-335-3).
 
+## Mode reaches the tests (F-335-1, slot 346)
+xtask runs `cargo test` with `GALION_SANDBOX_TESTS=<auto|force|require|off>`
+(printed as `xtask: test env ...`). `hermes-tools/tests/sandboxed.rs` reads it
+(`tests/common/sandbox_gate.rs`):
+
+| Mode | `CI` set | host lacks Landlock (no override) / userns / git,dd,install |
+|---|---|---|
+| auto (or unset) | SKIP (sandbox_vps_only belt-and-suspenders) | SKIP only if neither Landlock nor userns, or tools missing (old rule) |
+| force | runs | SKIP as in auto |
+| require | runs | test FAILS (panic naming what is missing) |
+
+So CI (`--sandbox=require`) now really runs the sandboxed suite instead of
+printing SKIP. Proof: docs/real-tests/hermes-sandboxed-require.md.
+
 ## Not covered
-- `hermes-tools/tests/sandboxed.rs` still self-skips when `CI` is set, so in CI
-  the crate's other suites run but the sandboxed suite prints SKIP (F-335-1).
+- `real_default_512_mib_cap_stops_fs_write` and
+  `real_partial_copy_back_on_a_full_host_fs_is_reported` keep their own opt-in
+  gates (`GALION_REAL=1`, `HERMES_TOOLS_SMALL_FS`) and still SKIP in CI under
+  require (F-346-1).
 - Clippy/build still compile the three crates everywhere (compiling is not
   running a sandbox).

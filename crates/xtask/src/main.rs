@@ -5,7 +5,7 @@
 //! `cargo xtask <command>` (alias in .cargo/config.toml). See lib.rs.
 
 use std::process::{Command, ExitCode};
-use xtask::{cargo_args, facts_line, host_root, parse_test, plan, probe};
+use xtask::{cargo_args, child_env, facts_line, host_root, parse_test, plan, probe};
 
 const USAGE: &str = "usage: cargo xtask test [--sandbox | --sandbox=auto|require | --no-sandbox] [--dry-run] [-- <cargo test args>]\n       cargo xtask probe\nenv: GALION_SANDBOX_TESTS=auto|1|require|0, GALION_SANDBOX_VPS_ONLY=1, HERMES_RS_CODING_ALLOW_NO_LANDLOCK=1";
 
@@ -57,6 +57,8 @@ fn main() -> ExitCode {
             }
             let a = cargo_args(&p, &cli.extra);
             println!("xtask: cargo {}", a.join(" "));
+            let (ek, ev) = child_env(cli.mode);
+            println!("xtask: test env {ek}={ev}");
             if cli.dry_run || simulated {
                 if simulated {
                     println!("xtask: GALION_XTASK_HOST_ROOT set: simulation only, cargo not run");
@@ -64,7 +66,9 @@ fn main() -> ExitCode {
                 return ExitCode::SUCCESS;
             }
             let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
-            match Command::new(cargo).args(&a).status() {
+            // GALION_SANDBOX_TESTS tells the test processes which mode chose them
+            // (F-335-1): hermes-tools sandboxed.rs fails, not skips, under require.
+            match Command::new(cargo).args(&a).env(ek, ev).status() {
                 Ok(s) if s.success() => ExitCode::SUCCESS,
                 Ok(s) => {
                     eprintln!("xtask: cargo test failed ({s})");

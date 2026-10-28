@@ -4,7 +4,9 @@
 
 //! The tools for real, through openmind-sandbox, on a throwaway git repo.
 //! Skips (with a SKIP line) where the kernel has neither Landlock nor user
-//! namespaces, or git/dd/install are missing.
+//! namespaces, or git/dd/install are missing, or CI is set, in auto mode.
+//! Under `cargo xtask test --sandbox=require` (GALION_SANDBOX_TESTS=require)
+//! it never skips: a host that lacks what it needs fails (F-335-1).
 
 use hermes_rs::config::SpendCfg;
 use hermes_rs::spend::SpendTracker;
@@ -17,23 +19,48 @@ use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+#[path = "common/sandbox_gate.rs"]
+mod sandbox_gate;
+
+/// SKIP, run, or (under `GALION_SANDBOX_TESTS=require`, set by
+/// `cargo xtask test --sandbox=require`) FAIL. See common/sandbox_gate.rs
+/// (F-335-1): auto keeps the CI skip (RULES.md sandbox_vps_only;
+/// GH runners often cannot write userns uid_map even after sysctl), require
+/// never skips.
 fn skip() -> bool {
-    // GH Actions runners often cannot write userns uid_map even after sysctl;
-    // cloud bc-06dcb59d enables userns in self-eval — keep this CI skip as
-    // belt-and-suspenders (RULES.md sandbox_vps_only).
-    if std::env::var_os("CI").is_some() {
-        eprintln!("SKIP: hermes-tools sandboxed suite is VPS-only (CI=set)");
-        return true;
+    use sandbox_gate::{decide, pre_probe, Gate, GateMode, HostCaps};
+    let mode = GateMode::from_env(std::env::var("GALION_SANDBOX_TESTS").ok().as_deref());
+    let ci = std::env::var_os("CI").is_some();
+    // The CI skip needs no probe: decide it before openmind_sandbox::features().
+    let gate = match pre_probe(mode, ci) {
+        Some(g) => g,
+        None => {
+            let f = openmind_sandbox::features();
+            let bins_missing = ["git", "dd", "install"]
+                .iter()
+                .any(|b| hermes_tools::exec::system_bin(b).is_none());
+            decide(
+                mode,
+                ci,
+                HostCaps {
+                    landlock_abi: f.landlock_abi,
+                    userns: f.userns,
+                    bins_missing,
+                    allow_no_landlock: std::env::var("HERMES_RS_CODING_ALLOW_NO_LANDLOCK")
+                        .as_deref()
+                        == Ok("1"),
+                },
+            )
+        }
+    };
+    match gate {
+        Gate::Run => false,
+        Gate::Skip(m) => {
+            eprintln!("{m}");
+            true
+        }
+        Gate::Fail(m) => panic!("{m}"),
     }
-    let f = openmind_sandbox::features();
-    let missing = ["git", "dd", "install"]
-        .iter()
-        .any(|b| hermes_tools::exec::system_bin(b).is_none());
-    if (f.landlock_abi < 1 && !f.userns) || missing {
-        eprintln!("SKIP: no landlock/userns or no git/dd/install on this machine");
-        return true;
-    }
-    false
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {

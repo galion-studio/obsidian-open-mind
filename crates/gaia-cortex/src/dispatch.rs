@@ -372,12 +372,14 @@ pub fn run(
         let ppath = cfg.state_dir.join("proposals").join(format!("{id}.md"));
         // The written proposal still starts with a real SPDX header. The tag is
         // split in this source file so REUSE comply does not parse the template
-        // as a second license expression.
+        // as a second license expression. The format string itself stays a
+        // literal: format!(concat!(...)) does not capture {id} and the rest.
+        let header = concat!(
+            "<!-- SPDX-",
+            "License-Identifier: MIT -->\n<!-- Copyright (c) 3000 Galion / galion-studio -->\n"
+        );
         let md = format!(
-            concat!(
-                "<!-- SPDX-",
-                "License-Identifier: MIT -->\n<!-- Copyright (c) 3000 Galion / galion-studio -->\n# Hermes proposal {id}\n\n- {head}\n- received {ts}\n- model {model}, cost ${cost:.4}, Hermes total ${total:.4} of ${:.2}\n- status: AWAITING MATE APPROVAL. Nothing was changed. Cortex restarts (allowlist) need no approval; every code, config or service change does.\n\n{text}\n"
-            ),
+            "{header}# Hermes proposal {id}\n\n- {head}\n- received {ts}\n- model {model}, cost ${cost:.4}, Hermes total ${total:.4} of ${:.2}\n- status: AWAITING MATE APPROVAL. Nothing was changed. Cortex restarts (allowlist) need no approval; every code, config or service change does.\n\n{text}\n",
             cfg.budget_usd
         );
         let _ = std::fs::write(&ppath, md);

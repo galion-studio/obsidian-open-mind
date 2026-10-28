@@ -651,7 +651,12 @@ impl Engine {
             let date = if it.recorded_at.is_empty() {
                 String::new()
             } else {
-                format!(" [{}]", it.recorded_at)
+                // Stored UTC (JS toISOString parity, lexical order); shown in
+                // Europe/Zagreb with its offset (F-354-1). Legacy text that is
+                // not RFC 3339 is shown unchanged.
+                let shown = zagreb_time::render_rfc3339(&it.recorded_at)
+                    .unwrap_or_else(|| it.recorded_at.clone());
+                format!(" [{shown}]")
             };
             lines.push("---".into());
             lines.push(format!(

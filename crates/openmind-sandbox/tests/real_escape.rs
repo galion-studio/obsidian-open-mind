@@ -12,7 +12,8 @@
 //!      the outside file does not exist, no stray sleeper survived).
 //!
 //! Ignored by default (needs the real build + a reachable localhost). Run it
-//! with `GALION_REAL=1 cargo test -p openmind-sandbox --test real_escape --
+//! with `GALION_REAL=1 GALION_REAL_SANDBOX=1` on the VPS only (vps-sandbox-gate;
+//! sandbox_vps_only), e.g. `cargo test -p openmind-sandbox --test real_escape --
 //!  --ignored`, or via `crates/galion-realtest/tests/real_sh_sandbox.rs`. The cgroup checks only run
 //! when `GALION_REAL_CGROUP_PARENT` points at a delegated cgroup v2 dir the
 //! caller may create children in (the script sets one up as root).
@@ -26,11 +27,8 @@ use std::time::Duration;
 use openmind_sandbox::{run, SandboxPolicy, Status};
 
 fn gate() -> bool {
-    if std::env::var("GALION_REAL").as_deref() != Ok("1") {
-        eprintln!("SKIP real_escape: set GALION_REAL=1 to run the adversarial suite");
-        return false;
-    }
-    true
+    // sandbox_vps_only + F-383-10: GALION_REAL=1 alone is not enough.
+    vps_sandbox_gate::sandbox_real("real_escape")
 }
 
 fn escape_bin() -> PathBuf {

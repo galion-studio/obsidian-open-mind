@@ -7,9 +7,9 @@
 //! host work dir holds afterwards (the copy back).
 //!
 //! VPS ONLY (standing rule sandbox_vps_only): ignored by default and gated on
-//! `GALION_REAL=1`. Run it as an ordinary non-root temp user with
+//! `GALION_REAL=1 GALION_REAL_SANDBOX=1` on the VPS (vps-sandbox-gate). Run it as an ordinary non-root temp user with
 //! `GALION_REAL_BASE=/var/tmp/sandbox-test-<ts>/w` (work dirs go there),
-//! e.g. `GALION_REAL=1 GALION_REAL_BASE=... ./real_workdir_quota-<hash> --ignored`.
+//! e.g. `GALION_REAL=1 GALION_REAL_SANDBOX=1 GALION_REAL_BASE=... ./real_workdir_quota-<hash> --ignored`.
 //! `GALION_REAL_CGROUP_PARENT` (`auto` inside a delegated unit, or a delegated cgroup v2 dir) adds the memory
 //! cgroup interplay test.
 
@@ -22,8 +22,8 @@ use openmind_sandbox::{run, Outcome, Preset, SandboxPolicy, Status};
 const MIB: u64 = 1024 * 1024;
 
 fn gate(name: &str) -> bool {
-    if std::env::var("GALION_REAL").as_deref() != Ok("1") {
-        eprintln!("SKIP {name}: set GALION_REAL=1 (VPS only, sandbox_vps_only)");
+    // sandbox_vps_only + F-383-10: GALION_REAL=1 alone is not enough.
+    if !vps_sandbox_gate::sandbox_real(name) {
         return false;
     }
     // SAFETY: plain id getter.

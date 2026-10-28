@@ -15,9 +15,13 @@
 //!    back out at teardown, as the script did with its shell);
 //!  * tears everything down: cgroup.kill, rmdir depth-first, helper removed.
 //!
-//! Box only; never touches the VPS.
+//! VPS only (sandbox_vps_only): runs only with GALION_REAL=1 AND
+//! GALION_REAL_SANDBOX=1 on a host that passes the vps-sandbox-gate host check
+//! (F-383-10: an ambient GALION_REAL on the box once ran it there). Build on
+//! the box, copy the release bins to the VPS and point GALION_REAL_BIN_DIR at
+//! them:
 //!
-//!   GALION_REAL=1 cargo test -p galion-realtest --test real_sh_sandbox -- --nocapture
+//!   GALION_REAL=1 GALION_REAL_SANDBOX=1 GALION_REAL_BIN_DIR=... ./real_sh_sandbox-<hash> --nocapture
 //!
 //! Env: `CGROUP_ROOT` (default /sys/fs/cgroup), `GALION_REAL_BIN_DIR`
 //! (then the newest `deps/real_escape-*` and `examples/escape` there are used).
@@ -122,7 +126,8 @@ impl Drop for Teardown {
 
 #[test]
 fn real_sh_sandbox() {
-    if !enabled("real_sh_sandbox") {
+    // sandbox_vps_only + F-383-10: GALION_REAL=1 alone is not enough.
+    if !vps_sandbox_gate::sandbox_real("real_sh_sandbox") {
         return;
     }
     let (uid, gid) = uid_gid();
@@ -173,7 +178,10 @@ fn real_sh_sandbox() {
         helper_dir: None,
     };
     let can_root = sudo(&["true"]);
-    let mut env: Vec<(String, String)> = vec![("GALION_REAL".into(), "1".into())];
+    let mut env: Vec<(String, String)> = vec![
+        ("GALION_REAL".into(), "1".into()),
+        (vps_sandbox_gate::OPT_IN.into(), "1".into()),
+    ];
     if can_root {
         let s = Scratch::new("om-sandbox-suid");
         let dir = s.0.clone();

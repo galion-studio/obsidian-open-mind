@@ -17,3 +17,6 @@ path = "src/bin/hermes-mock-model.rs"
 hermes-rs = { path = "../hermes-rs", default-features = false }
 openmind-sandbox = { path = "../openmind-sandbox" }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+vps-sandbox-gate = { path = "../vps-sandbox-gate" }

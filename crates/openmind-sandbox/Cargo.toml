@@ -9,3 +9,6 @@ description = "Run one command under rlimits, a cleared env, a fixed workdir, a 
 
 [dependencies]
 libc = "0.2"
+
+[dev-dependencies]
+vps-sandbox-gate = { path = "../vps-sandbox-gate" }

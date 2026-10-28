@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "vps-sandbox-gate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "Zero-dependency gate for real tests that run the sandbox: they run only on the VPS with an explicit per-run opt-in, never because GALION_REAL is ambient (sandbox_vps_only)."
+
+[dependencies]

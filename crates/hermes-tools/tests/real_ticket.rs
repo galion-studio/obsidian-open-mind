@@ -2,7 +2,8 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 // Copyright (c) 3000 Galion / galion-studio
 
-//! Real-life test (GALION_REAL=1): the hermes-rs agent loop, its real curl
+//! Real-life test (GALION_REAL=1 GALION_REAL_SANDBOX=1, VPS only: it runs the
+//! sandboxed tools, see vps-sandbox-gate): the hermes-rs agent loop, its real curl
 //! provider, the real `hermes-mock-model` binary on 127.0.0.1:19172, and the
 //! sandboxed tools drive fake ticket FAKE-1 end to end (read, cargo test red,
 //! edit, cargo test green, diff, commit on the branch). No paid model call:
@@ -55,8 +56,8 @@ fn git(dir: &Path, args: &[&str]) -> String {
 
 #[test]
 fn real_fake_ticket_through_agent_loop_and_mock_model() {
-    if std::env::var("GALION_REAL").as_deref() != Ok("1") {
-        eprintln!("SKIP: set GALION_REAL=1 for the real-life test");
+    // Sandboxed tool run: sandbox_vps_only + F-383-10, GALION_REAL=1 alone is not enough.
+    if !vps_sandbox_gate::sandbox_real("real_fake_ticket_through_agent_loop_and_mock_model") {
         return;
     }
     let fix = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");

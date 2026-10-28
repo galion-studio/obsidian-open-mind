@@ -573,11 +573,11 @@ fn preflight_refuses_a_worktree_bigger_than_the_cap() {
 }
 
 /// The default 512 MiB cap for real: a worktree of 509 MiB, then a 4 MiB
-/// fs_write. Heavy (512 MiB of tmpfs), so GALION_REAL=1 only.
+/// fs_write. Heavy (512 MiB of tmpfs), so GALION_REAL=1 GALION_REAL_SANDBOX=1 on the VPS only.
 #[test]
 fn real_default_512_mib_cap_stops_fs_write() {
-    if std::env::var("GALION_REAL").as_deref() != Ok("1") {
-        eprintln!("SKIP: set GALION_REAL=1 (VPS only, sandbox_vps_only)");
+    // sandbox_vps_only + F-383-10: GALION_REAL=1 alone is not enough.
+    if !vps_sandbox_gate::sandbox_real("real_default_512_mib_cap_stops_fs_write") {
         return;
     }
     if skip() {

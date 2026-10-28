@@ -45,10 +45,20 @@ fn base() -> u16 {
         .unwrap_or(22750)
 }
 
+/// On swarm/nerve-merge-8-sensors (slot 424) only the nerve half of slot 405
+/// is folded: this branch's own `openmind-memory` has no `freshness`
+/// subcommand (it lands with memory-db-stale-diag 1d7164b4, D-405-3), so
+/// `OPENMIND_MEMORY_BIN` must name a >= 1d7164b4 release build. Fail loudly
+/// instead of starting a server that ignores the `freshness` argument.
 fn mem_bin() -> PathBuf {
-    std::env::var_os("OPENMIND_MEMORY_BIN")
+    let b = std::env::var_os("OPENMIND_MEMORY_BIN")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_openmind-memory")))
+        .expect(
+            "set OPENMIND_MEMORY_BIN to an openmind-memory >= 1d7164b4 release build \
+             (this branch's openmind-memory has no `freshness` subcommand; D-405-3)",
+        );
+    assert!(b.is_file(), "OPENMIND_MEMORY_BIN {} is not a file", b.display());
+    b
 }
 
 fn target_dir() -> PathBuf {

@@ -163,14 +163,26 @@ jobs:
       - name: install qemu-user-static and zig cc
         run: |
           sudo apt-get update -q
-          # Ubuntu 26.04 made qemu-user-static a virtual package with no
-          # candidate. qemu-user-binfmt provides qemu-aarch64-static and
-          # qemu-arm-static. Older images still ship the real package.
-          if ! sudo apt-get install -y -q qemu-user-static; then
-            sudo apt-get install -y -q qemu-user-binfmt
+          # The emulators the test invokes by name. Ubuntu 26.04 (resolute)
+          # ships them as qemu-aarch64 and qemu-arm in qemu-user.
+          # qemu-user-static is a virtual package there (no candidate) and a
+          # real package on older images, where the names end in -static.
+          sudo apt-get install -y -q qemu-user
+          if apt-cache show qemu-user-static 2>/dev/null | grep -q '^Package: qemu-user-static$'; then
+            sudo apt-get install -y -q qemu-user-static
           fi
-          command -v qemu-aarch64-static
-          command -v qemu-arm-static
+          pick() {
+            if command -v "$1" >/dev/null; then
+              command -v "$1"
+            elif command -v "$2" >/dev/null; then
+              command -v "$2"
+            else
+              echo "missing $1 and $2" >&2
+              exit 1
+            fi
+          }
+          pick qemu-aarch64-static qemu-aarch64
+          pick qemu-arm-static qemu-arm
           echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
       - run: cargo test -p galion-realtest --test real_sh_ucpu -- --nocapture
         env:

@@ -11,7 +11,7 @@ use std::process::ExitCode;
 
 const USAGE: &str =
     "usage: repo-check [--root DIR] [--json] [--only a,b] [--warn a,b] [--error a,b]
-                  [--copyright TEXT] [--list]
+                  [--copyright TEXT] [--list] [--stat-list FILE|-]
   --root DIR        tree to scan (default .)
   --json            JSON report on stdout (Europe/Zagreb timestamp)
   --only a,b        run only these checks
@@ -19,6 +19,8 @@ const USAGE: &str =
   --error a,b       upgrade these checks to errors
   --copyright TEXT  the LICENSE copyright line must contain TEXT
   --list            list the checks and exit
+  --stat-list F     lint a metadata list instead of the tree: lines `MODE TYPE PATH`
+                    from `find ROOT -printf '%m %y %p\\n'` (F or - for stdin); perms check only
 exit: 0 clean, 1 error findings, 2 usage/io error";
 
 struct Opts {
@@ -28,6 +30,7 @@ struct Opts {
     levels: HashMap<Check, Level>,
     copyright: Option<String>,
     list: bool,
+    stat_list: Option<String>,
 }
 
 fn parse_checks(s: &str) -> Result<Vec<Check>, String> {
@@ -45,6 +48,7 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
         levels: HashMap::new(),
         copyright: None,
         list: false,
+        stat_list: None,
     };
     let mut it = args;
     while let Some(a) = it.next() {
@@ -65,11 +69,22 @@ fn parse_args(args: impl Iterator<Item = String>) -> Result<Opts, String> {
             }
             "--copyright" => o.copyright = Some(val("--copyright")?),
             "--list" => o.list = true,
+            "--stat-list" => o.stat_list = Some(val("--stat-list")?),
             "-h" | "--help" => return Err(String::new()),
             other => return Err(format!("unknown argument {other:?}")),
         }
     }
     Ok(o)
+}
+
+fn read_stat_list(src: &str) -> std::io::Result<String> {
+    if src == "-" {
+        let mut s = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut s)?;
+        Ok(s)
+    } else {
+        std::fs::read_to_string(src)
+    }
 }
 
 fn main() -> ExitCode {
@@ -89,11 +104,27 @@ fn main() -> ExitCode {
         }
         return ExitCode::SUCCESS;
     }
-    let report = match scan_tree(&opts.root, opts.copyright.as_deref()) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("repo-check: cannot scan {}: {e}", opts.root.display());
-            return ExitCode::from(2);
+    let report = if let Some(src) = opts.stat_list.as_deref() {
+        match read_stat_list(src) {
+            Ok(text) => {
+                let (findings, n) = repo_check::perms::scan_stat_list(&text);
+                repo_check::Report {
+                    files_scanned: n,
+                    findings,
+                }
+            }
+            Err(e) => {
+                eprintln!("repo-check: cannot read stat list {src}: {e}");
+                return ExitCode::from(2);
+            }
+        }
+    } else {
+        match scan_tree(&opts.root, opts.copyright.as_deref()) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("repo-check: cannot scan {}: {e}", opts.root.display());
+                return ExitCode::from(2);
+            }
         }
     };
     let mut findings: Vec<_> = report

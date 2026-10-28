@@ -14,6 +14,8 @@
 //! Patterns that would match this file itself are assembled with `concat!`, so
 //! the tool can scan its own source without allow markers.
 
+pub mod perms;
+
 use std::fmt;
 use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
@@ -53,10 +55,11 @@ pub enum Check {
     Hosts,
     Portable,
     Deps,
+    Perms,
 }
 
 impl Check {
-    pub const ALL: [Check; 9] = [
+    pub const ALL: [Check; 10] = [
         Check::License,
         Check::Spdx,
         Check::Cjk,
@@ -66,6 +69,7 @@ impl Check {
         Check::Hosts,
         Check::Portable,
         Check::Deps,
+        Check::Perms,
     ];
 
     pub fn name(self) -> &'static str {
@@ -79,6 +83,7 @@ impl Check {
             Check::Hosts => "hosts",
             Check::Portable => "portable",
             Check::Deps => "deps",
+            Check::Perms => "perms",
         }
     }
 
@@ -106,6 +111,7 @@ impl Check {
             Check::Hosts => "no public IPv4 literals in crates/, deploy/, .github/",
             Check::Portable => "no inline asm, arch intrinsics, target-cpu/target-feature, openssl-sys (UNIVERSAL-CPU.md)",
             Check::Deps => "serde_json features are pinned once in the root [workspace.dependencies] (preserve_order); member crates use { workspace = true } with no features",
+            Check::Perms => "secret-like files (link.env, .env, *.pem, *.key, *token*) must not be world-writable; world-writable dirs need the sticky bit (metadata only; also --stat-list)",
         }
     }
 }
@@ -600,6 +606,9 @@ pub fn scan_tree(root: &Path, expect_copyright: Option<&str>) -> std::io::Result
     let mut files_scanned = 0;
     for rel in &files {
         findings.extend(scan_path(rel));
+        if let Some(mode) = perms::file_mode(&root.join(rel)) {
+            findings.extend(perms::check_mode(rel, mode, perms::Kind::File, false));
+        }
         let Some(text) = read_text(&root.join(rel)) else {
             continue;
         };

@@ -107,3 +107,8 @@ leaves chat up and coding off, which is the safe outcome.
   b7fbbc78 + this branch already conflicts in gateway `main.rs`, `hermes-rs/src/api.rs`
   and `docs/hermes-tools.md` (mostly the existing offhost vs survival-s47 divergence).
   Port these hunks onto the b7fbbc78 line before any deploy.
+
+Follow-up (slot 370, 2026-10-28 06:30 CET): the default start limit (5 in 10 s) never
+trips with `RestartSec=3`; staged `45-start-limit.conf` (D-370-1) bounds non-exit-2
+loops and `41-coding-on-error.conf` packages D-355-2. Measured on the VPS with
+throwaway units: `docs/ops/hermes-rs-noloop-dropin.md`.

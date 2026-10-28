@@ -17,19 +17,22 @@ File: `deploy/staged/hermes-rs.service.d/coding-tools.conf`, a drop-in for the a
 | `CPUQuota` | none | 200% | hard ceiling for the whole unit on the VPS; each cargo run gets `cpu.max` = 1 CPU, `nice 19`, `-j 2` |
 | `Nice`, `IOSchedulingClass` | none | 10, idle | production services win every contention |
 | `MemorySwapMax` | none | 0 | no swap escape |
-| `HERMES_RS_CODING_*` | none | worktree `/var/lib/hermes-rs/work/openmind`, branch `hermes/ticket`, state `/var/lib/hermes-rs/coding`, toolchain `/opt/rust/toolchain` | tools are off without these |
-| `ProtectSystem=strict`, `ProtectHome=read-only`, `NoNewPrivileges`, `PrivateTmp`, `ReadWritePaths=/var/lib/hermes-rs` | as is | **unchanged** | the worktree and coding state live under the existing StateDirectory |
+| `HERMES_RS_CODING_*` | none | worktree `/srv/hermes-coding/worktree`, branch `hermes/ticket`, state `/srv/hermes-coding/state`, toolchain `/opt/rust/toolchain`, `ON_ERROR=disable` | tools are off without these. Slot 355: was `/var/lib/hermes-rs/work/openmind`, which the code's `/var/lib` deny always refused (the 2026-10-27 19:45 CET crash loop); see `docs/ops/hermes-rs-crashloop-r3.md` |
+| `ProtectSystem=strict`, `ProtectHome=read-only`, `NoNewPrivileges`, `PrivateTmp`, `ReadWritePaths=/var/lib/hermes-rs` | as is | kept, plus `ReadWritePaths=-/srv/hermes-coding` | the worktree may not sit under `/var/lib` (deny list), so it needs its own writable path |
 
 The unit must NOT gain `RestrictNamespaces=`, `PrivateUsers=` or `ProtectControlGroups=`. The
 sandbox needs unprivileged user, net, pid and mount namespaces, and write access to its own
 delegated cgroup. `ProtectSystem=strict` leaves `/sys` alone, so that part is fine.
 
 ## One-off preparation (only after approval, by the operator, not by hermes)
-1. `git clone` GitHub `galion-studio/openmind` into `/var/lib/hermes-rs/work/openmind` and
+0. `install -d -m 0700 /srv/hermes-coding /srv/hermes-coding/state`, then run
+   `hermes-gateway --check-config` with the drop-in's env (runbook in
+   `docs/ops/hermes-rs-crashloop-r3.md`); it must print `coding=on ...` and exit 0.
+1. `git clone` GitHub `galion-studio/openmind` into `/srv/hermes-coding/worktree` and
    `git checkout -b hermes/ticket`. This is a **separate clone**. `/opt/galion/openmind` (live,
    2f5a730) is never touched, and the gateway refuses it as a worktree in code.
 2. Copy a Rust toolchain to `/opt/rust/toolchain` (read-only, so not under `/root/.rustup`) and
-   prefetch crates into `/var/lib/hermes-rs/coding/cargo-home` (`cargo fetch` as the operator).
+   prefetch crates into `/srv/hermes-coding/state/cargo-home` (`cargo fetch` as the operator).
    The tool builds `--offline` only.
 3. Pushes stay with the owner: hermes-rs has no push tool. A finished ticket is a commit on
    `hermes/ticket` that the owner reviews and pushes with `push-branch.sh`.

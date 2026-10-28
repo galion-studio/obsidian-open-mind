@@ -1013,6 +1013,7 @@ name = "hermes-tools"
 version = "0.1.0"
 dependencies = [
  "hermes-rs",
+ "libc",
  "openmind-sandbox",
  "serde_json",
 ]

@@ -362,13 +362,14 @@ fn real_memory_client() {
     );
     wait_capture_ok(p_on, 2);
 
-    // 3. another session key: the L0 fallback is NOT session-scoped (gateway
-    //    parity: long-term memory spans sessions of the one owner; F-403-1).
+    // 3. another session key: since slot 426 recall is scoped to the memory
+    //    key by default (F-403-1 / D-403-2), so session b sees nothing of a.
+    //    Cross-session opt-in: tests/real_memory_session_scope.rs.
     let (s, c3, _) = chat(p_on, "real403-b", WORD, false);
     assert_eq!(s, 200);
     assert!(
-        c3.contains("<memory-context>") && c3.contains("my locker code word"),
-        "cross-session recall: {c3}"
+        !c3.contains("<memory-context>"),
+        "session-scoped recall: {c3}"
     );
     // a query no stored text contains recalls nothing.
     let (s, c3b, _) = chat(p_on, "real403-b", "unrelated-zz-403", false);
@@ -389,7 +390,9 @@ fn real_memory_client() {
     assert_eq!(d["memory"]["recall_err"], 0, "{d}");
     assert_eq!(d["memory"]["capture_err"], 0, "{d}");
     assert_eq!(d["memory"]["capture_ok"], 5, "{d}");
-    assert!(d["memory"]["recall_hit"].as_u64().unwrap() >= 3, "{d}");
+    assert!(d["memory"]["recall_hit"].as_u64().unwrap() >= 2, "{d}");
+    assert_eq!(d["memory"]["scope"], "session", "{d}");
+    assert_eq!(d["memory"]["recall_unscoped"], 0, "{d}");
     // no fence ever reached the store (assistant echoes carried one).
     let rows = l0_lines(&memdir);
     assert!(

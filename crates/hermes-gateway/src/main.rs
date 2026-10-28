@@ -226,9 +226,10 @@ fn main() {
                 }
             };
             log(&format!(
-                "memory on: {} key_set={} {h}",
+                "memory on: {} key_set={} scope={} {h}",
                 m.cfg.url,
-                m.key_set()
+                m.key_set(),
+                m.scope()
             ));
             gw.memory = Some(m);
         }

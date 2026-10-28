@@ -438,56 +438,97 @@ fn real_port4_rooms_against_live_vps() {
     let (c, _) = get(bind_at(), "/md/other");
     assert_eq!(c, 404);
     let (lc, lpage) = get_accept(api_at(), "/md/user", "127.0.0.1", "text/html");
-    assert_eq!(lc, 200, "live Node /md/user");
+    if routes::decide("/md/user", lc) == routes::Live::Gone {
+        // D-375-1: the live :8080 /md/user is now the Rust room itself, run
+        // without --user-md: 404 "not configured", no file bytes.
+        assert!(
+            lpage.contains("not configured"),
+            "live Rust /md/user: want the not-configured note"
+        );
+        assert!(
+            !lpage.contains("bytes ·"),
+            "live Rust /md/user leaked a file"
+        );
+    } else {
+        assert_eq!(lc, 200, "live Node /md/user");
+    }
     eprintln!(
-        "real: live Node /md/user on a loopback Host: {lc} {} B, {} (the TSX stub route; the middleware skips the file on loopback)",
+        "real: live /md/user on a loopback Host: {lc} {} B, {} (Node: TSX stub route; Rust: room without --user-md)",
         lpage.len(),
-        if lpage.contains("bytes ·") { "file page" } else { "SPA shell, no file" }
+        if lpage.contains("bytes ·") { "file page" } else if lpage.contains("not configured") { "Rust room, not configured" } else { "SPA shell, no file" }
     );
 
     // /mesh vs live GET /api/mesh.
     let (mc, mb) = get(api_at(), "/api/mesh");
-    assert_eq!(mc, 200, "live /api/mesh");
-    let board = json::parse(mb.as_bytes()).unwrap();
-    let lines: Vec<&str> = board
-        .get("score")
-        .as_array()
-        .iter()
-        .filter_map(Value::as_str)
-        .collect();
-    let phase = board.get("phase").as_str().unwrap_or("");
-    let t = Instant::now();
-    let (c, page) = get(bind_at(), "/mesh");
-    eprintln!(
-        "real: /mesh {c} {} B in {} ms; live phase {phase:?}, {} score line(s)",
-        page.len(),
-        t.elapsed().as_millis(),
-        lines.len()
-    );
-    assert_eq!(c, 200);
-    assert!(!page.contains("did not load"), "{page}");
-    for l in &lines {
-        assert!(page.contains(&format!("<span class=\"p4-line\">{}</span>", esc(l))));
+    if routes::decide("/api/mesh", mc) == routes::Live::Gone {
+        let (c, page) = get(bind_at(), "/mesh");
+        assert_eq!(c, 200);
+        assert!(
+            routes::page_says_unavailable(&page),
+            "/mesh: no honest miss"
+        );
+        assert!(
+            !page.contains("<span class=\"p4-line\">"),
+            "/mesh lines without data"
+        );
+        eprintln!("real: /mesh live {mc} -> room states the miss, 0 lines");
+    } else {
+        assert_eq!(mc, 200, "live /api/mesh");
+        let board = json::parse(mb.as_bytes()).unwrap();
+        let lines: Vec<&str> = board
+            .get("score")
+            .as_array()
+            .iter()
+            .filter_map(Value::as_str)
+            .collect();
+        let phase = board.get("phase").as_str().unwrap_or("");
+        let t = Instant::now();
+        let (c, page) = get(bind_at(), "/mesh");
+        eprintln!(
+            "real: /mesh {c} {} B in {} ms; live phase {phase:?}, {} score line(s)",
+            page.len(),
+            t.elapsed().as_millis(),
+            lines.len()
+        );
+        assert_eq!(c, 200);
+        assert!(!page.contains("did not load"), "{page}");
+        for l in &lines {
+            assert!(page.contains(&format!("<span class=\"p4-line\">{}</span>", esc(l))));
+        }
+        if lines.is_empty() {
+            assert!(page.contains("No live line yet."));
+        }
+        let want = match phase {
+            "idle" => "Cold. Nothing is spending.".to_string(),
+            "" => "Cold.".to_string(),
+            p => p.to_string(),
+        };
+        assert!(page.contains(&format!("<p class=\"note\">{}</p>", esc(&want))));
+        eprintln!("real: /mesh lines + footer {want:?} = live");
     }
-    if lines.is_empty() {
-        assert!(page.contains("No live line yet."));
-    }
-    let want = match phase {
-        "idle" => "Cold. Nothing is spending.".to_string(),
-        "" => "Cold.".to_string(),
-        p => p.to_string(),
-    };
-    assert!(page.contains(&format!("<p class=\"note\">{}</p>", esc(&want))));
-    eprintln!("real: /mesh lines + footer {want:?} = live");
 
-    // Gate: public host, no cookie -> live /api/v1/admin says not paired.
+    // Gate: public host, no cookie -> live /api/v1/admin says not paired
+    // (or, while that route is gone on live, the gate fails closed).
+    let (adc, _) = get(api_at(), "/api/v1/admin");
+    let admin_gone = routes::decide("/api/v1/admin", adc) == routes::Live::Gone;
     for p in ["/memory", "/mesh", "/md/user"] {
         let (c, page) = get_host(bind_at(), p, "console.galion.app");
-        assert_eq!(c, 200, "{p}");
-        assert!(page.contains("/_ui/pair"), "{p}: pairing page");
+        if admin_gone {
+            assert!(routes::gate_ok(c, &page, true), "{p}: fail-closed gate {c}");
+        } else {
+            assert_eq!(c, 200, "{p}");
+            assert!(page.contains("/_ui/pair"), "{p}: pairing page");
+        }
         assert!(!page.contains("p4-n") && !page.contains("bytes ·"), "{p}");
     }
-    eprintln!("real: public host unpaired -> pairing page for all 3 rooms (live /api/v1/admin)");
+    eprintln!(
+        "real: public host unpaired -> {} for all 3 rooms (live /api/v1/admin {adc})",
+        if admin_gone {
+            "503 fail-closed gate"
+        } else {
+            "pairing page"
+        }
+    );
 
     for p in ["/memory", "/mesh", "/md/user", "/md/persona"] {
         let (_, b) = get(bind_at(), p);

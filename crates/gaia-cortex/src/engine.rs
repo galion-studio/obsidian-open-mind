@@ -138,6 +138,7 @@ pub struct Stats {
     pub handoffs_rate_limited: u64,
     pub handoffs_budget_stopped: u64,
     pub handoffs_failed: u64,
+    pub handoffs_excluded: u64,
     pub llm_calls: u64,
     pub llm_refused: u64,
     pub llm_skipped_disabled: u64,
@@ -224,7 +225,8 @@ impl Cortex {
                 file("hermes-handoff-state.json"),
                 cfg.hermes.per_hour,
                 cfg.hermes.subject_window_s,
-            ),
+            )
+            .with_exclude(cfg.hermes.exclude_units.clone()),
             repeats: None,
             stats: Stats {
                 started: ts(now_secs()),
@@ -935,6 +937,9 @@ impl Cortex {
         if let Offer::Written(h) = &offer {
             e["handoff_id"] = json!(h);
         }
+        if let Offer::Excluded(p) = &offer {
+            e["handoff_excluded_by"] = json!(p);
+        }
         let event = Event::new(
             CORTEX_SOURCE,
             "cortex.escalation",
@@ -981,6 +986,7 @@ impl Cortex {
             Offer::Duplicate => self.stats.handoffs_duplicate += 1,
             Offer::RateLimited => self.stats.handoffs_rate_limited += 1,
             Offer::BudgetStopped => self.stats.handoffs_budget_stopped += 1,
+            Offer::Excluded(_) => self.stats.handoffs_excluded += 1,
             Offer::Failed(e) => {
                 self.stats.handoffs_failed += 1;
                 eprintln!("gaia-cortex: hermes handoff failed: {e}");
@@ -1017,7 +1023,7 @@ impl Cortex {
             "nerve_incidents_remapped": s.nerve_incidents_remapped, "subjects_active": self.active.len(),
             "incidents_resolved_cleared": s.incidents_resolved_cleared, "incidents_resolved_expired": s.incidents_resolved_expired, "incidents_resolved_stale": s.incidents_resolved_stale,
             "handoffs": s.handoffs, "handoffs_duplicate": s.handoffs_duplicate, "handoffs_rate_limited": s.handoffs_rate_limited,
-            "handoffs_budget_stopped": s.handoffs_budget_stopped, "handoffs_failed": s.handoffs_failed,
+            "handoffs_budget_stopped": s.handoffs_budget_stopped, "handoffs_failed": s.handoffs_failed, "handoffs_excluded": s.handoffs_excluded,
             "hermes_handoff": self.handoff.to_json(now_secs()),
             "llm_calls": s.llm_calls, "llm_refused": s.llm_refused, "llm_skipped_disabled": s.llm_skipped_disabled,
             "llm_spend_usd": llm["ledger"]["spent_usd"].clone(),

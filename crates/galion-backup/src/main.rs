@@ -10,6 +10,9 @@
 //!   migrate-baseline <db> <ver> <name>   create schema_migrations if missing, record baseline (idempotent)
 //!   restore-test [archive]       restore the newest (or given) archive into a temp dir and
 //!                                verify it (replaces galion-restore-test.sh; env GALION_BACKUP_DEST)
+//!
+//! Multi-call: invoked as `galion-restore-test` or `galion-restore-test.sh`
+//! (a symlink, the staged swap of slot 361) it behaves as `restore-test [archive]`.
 
 use galion_backup::{backup, restore, sqlite};
 use std::path::Path;
@@ -20,7 +23,10 @@ fn die(m: &str) -> ! {
 }
 
 fn main() {
-    let a: Vec<String> = std::env::args().collect();
+    let mut a: Vec<String> = std::env::args().collect();
+    if galion_backup::restore::is_restore_test_alias(a.first().map(|s| s.as_str()).unwrap_or("")) {
+        a.insert(1, "restore-test".into());
+    }
     match a.get(1).map(|s| s.as_str()) {
         Some("run") if a.len() == 2 => {
             let o = backup::Opts::from_env().unwrap_or_else(|e| die(&e));

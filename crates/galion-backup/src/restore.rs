@@ -15,7 +15,7 @@
 //! | `mktemp -d /tmp/galion-restore-XXXXXX` + trap    | [`TempDir`] (0700, removed on drop; SIGTERM/INT/HUP caught) |
 //! | `tar -C $T -xzf $A`                              | [`crate::gunzip`] + `galion_tar::read` + [`extract`] |
 //! | `cd $T/galion-*`                                 | exactly one `galion-*` dir            |
-//! | `sha256sum --quiet -c SHA256SUMS`                | [`check_sums`] (same stdout lines)    |
+//! | `sha256sum --quiet -c SHA256SUMS`                | [`check_sums`] (same stdout lines; strict, hard fail) |
 //! | `galion-backup verify db/*.db` (old helper ELF)  | in-process `sqlite::verify`           |
 //! | `tar -C restored -xf files/files.tar`            | [`extract`]                           |
 //! | `find restored -type f \| wc -l`                 | [`count_files`]                       |
@@ -29,6 +29,14 @@
 //! GNU tar's strip-and-warn; device nodes are skipped (the backup never
 //! contains any). Errors go to stderr as `galion-backup: restore-test: ...`
 //! with exit 1 (bash `set -e` exit codes varied by the failing tool).
+//!
+//! Checksums are strict (slot 361, fixes F-326-1 where the .sh printed
+//! `FAILED` and still ended `restore test ok`, exit 0): ANY mismatch, missing
+//! or unreadable listed file, malformed SHA256SUMS line, listed name that is
+//! absolute / has `..` / is or goes through a symlink, or archive file not
+//! covered by SHA256SUMS stops the test with exit 1 and one
+//! `ARCHIVE: checksum check FAILED: ...; this backup is NOT verified` line.
+//! gzip CRC32/ISIZE and tar header checksums are verified while reading too.
 
 use crate::backup;
 use crate::gunzip::GzReader;
@@ -370,79 +378,231 @@ fn parse_sum_line(line: &[u8]) -> Option<(String, Vec<u8>)> {
     Some((String::from_utf8_lossy(&l[..64]).to_ascii_lowercase(), name))
 }
 
-/// `sha256sum --quiet -c SHA256SUMS` run in `dir`: failure lines to `out`
-/// exactly as coreutils prints them (`NAME: FAILED`, `NAME: FAILED open or
-/// read`); warnings to stderr; Err if anything failed or no line parsed.
-/// Returns the number of files checked.
-pub fn check_sums(dir: &Path, out: &mut dyn Write) -> Result<u64, Fail> {
+/// What [`check_sums`] found. Any non-empty problem list is a hard failure
+/// (F-326-1 / slot 361): the restore test must never say `ok` for an archive
+/// whose contents cannot all be proven by SHA256SUMS.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct SumReport {
+    /// Listed files whose digest matched.
+    pub ok: u64,
+    /// Listed files whose digest did NOT match (`NAME: FAILED`).
+    pub mismatched: Vec<String>,
+    /// Listed files that are missing or unreadable (`NAME: FAILED open or read`).
+    pub unreadable: Vec<String>,
+    /// SHA256SUMS lines that are not `<64 hex><sp><sp|*><name>` (sha256sum --strict).
+    pub malformed: u64,
+    /// Listed names that are absolute, contain `..`, or are symlinks: they
+    /// would hash something outside the archive.
+    pub unsafe_names: Vec<String>,
+    /// Regular files in the archive that SHA256SUMS does not list, and
+    /// entries that are neither a regular file nor a directory (symlinks,
+    /// fifos): unprovable content.
+    pub unlisted: Vec<String>,
+}
+
+impl SumReport {
+    pub fn problems(&self) -> usize {
+        self.mismatched.len()
+            + self.unreadable.len()
+            + self.malformed as usize
+            + self.unsafe_names.len()
+            + self.unlisted.len()
+    }
+
+    /// One clear line for stderr / the journal.
+    pub fn summary(&self) -> String {
+        fn names(v: &[String]) -> String {
+            if v.is_empty() {
+                return String::new();
+            }
+            let mut s: Vec<&str> = v.iter().take(5).map(|x| x.as_str()).collect();
+            let more = v.len().saturating_sub(5);
+            let tail = if more > 0 {
+                format!(" +{more} more")
+            } else {
+                String::new()
+            };
+            s.sort();
+            format!(" [{}{tail}]", s.join(", "))
+        }
+        let listed = self.ok
+            + (self.mismatched.len() + self.unreadable.len() + self.unsafe_names.len()) as u64;
+        format!(
+            "{} mismatched{}, {} unreadable{}, {} malformed line(s), {} unsafe name(s){}, {} unlisted{} ({} of {listed} listed files ok)",
+            self.mismatched.len(),
+            names(&self.mismatched),
+            self.unreadable.len(),
+            names(&self.unreadable),
+            self.malformed,
+            self.unsafe_names.len(),
+            names(&self.unsafe_names),
+            self.unlisted.len(),
+            names(&self.unlisted),
+            self.ok
+        )
+    }
+}
+
+/// `./a/b` / `a/b` -> `a/b`; None if absolute or containing `..`.
+fn listed_rel(name: &[u8]) -> Option<PathBuf> {
+    if name.first() == Some(&b'/') {
+        return None;
+    }
+    match safe_rel(name) {
+        Ok(Some(p)) => Some(p),
+        _ => None,
+    }
+}
+
+/// Every non-directory entry under `dir` (no symlink following), as
+/// relative paths, with whether it is a regular file.
+fn walk(dir: &Path, rel: &Path, acc: &mut Vec<(PathBuf, bool)>) -> io::Result<()> {
+    for e in fs::read_dir(dir)? {
+        let e = e?;
+        let ft = e.file_type()?;
+        let r = rel.join(e.file_name());
+        if ft.is_dir() {
+            walk(&e.path(), &r, acc)?;
+        } else {
+            acc.push((r, ft.is_file()));
+        }
+    }
+    Ok(())
+}
+
+/// `sha256sum --quiet --strict -c SHA256SUMS` run in `dir`, plus a
+/// completeness check. Failure lines for mismatched / unreadable files go to
+/// `out` exactly as coreutils prints them (`NAME: FAILED`, `NAME: FAILED
+/// open or read`); everything else to stderr. Unlike the live .sh
+/// (F-326-1), ANY problem is an Err: a mismatch, a missing/unreadable file,
+/// a malformed line, a name that points outside the archive or at a symlink,
+/// or a file in the archive that SHA256SUMS does not cover.
+pub fn check_sums(dir: &Path, out: &mut dyn Write) -> Result<SumReport, Fail> {
     let list = dir.join("SHA256SUMS");
-    let f = File::open(&list).map_err(ctx("sha256sum: SHA256SUMS"))?;
-    let (mut ok, mut bad_fmt, mut mismatch, mut unreadable) = (0u64, 0u64, 0u64, 0u64);
+    match fs::symlink_metadata(&list) {
+        Ok(m) if m.is_file() => {}
+        Ok(_) => {
+            return Err(Fail::Msg(
+                "checksum check FAILED: SHA256SUMS is not a regular file".into(),
+            ))
+        }
+        Err(e) => return Err(ctx("checksum check FAILED: SHA256SUMS")(e)),
+    }
+    let f = File::open(&list).map_err(ctx("checksum check FAILED: SHA256SUMS"))?;
+    let mut r = SumReport::default();
+    let mut listed = std::collections::BTreeSet::new();
+    let mut parsed = 0u64;
     for line in BufReader::new(f).split(b'\n') {
         check_signal()?;
-        let mut line = line.map_err(ctx("sha256sum: SHA256SUMS"))?;
+        let mut line = line.map_err(ctx("checksum check FAILED: SHA256SUMS"))?;
         if line.last() == Some(&b'\r') {
             line.pop();
         }
         let Some((want, name)) = parse_sum_line(&line) else {
-            bad_fmt += 1;
+            r.malformed += 1;
             continue;
         };
+        parsed += 1;
         let shown = String::from_utf8_lossy(&name).into_owned();
-        // Names are relative to dir (./x as written by `find .`); an absolute
-        // name is checked where it points, exactly like sha256sum would.
-        let p = dir.join(OsStr::from_bytes(&name));
+        let Some(rel) = listed_rel(&name) else {
+            eprintln!(
+                "galion-backup: restore-test: {shown}: listed name points outside the archive"
+            );
+            r.unsafe_names.push(shown);
+            continue;
+        };
+        let p = dir.join(&rel);
+        // Never follow a symlink (in the name's parents or at the end).
+        let mut through_link = false;
+        let mut q = dir.to_path_buf();
+        for c in rel.components() {
+            q.push(c);
+            if fs::symlink_metadata(&q)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false)
+            {
+                through_link = true;
+                break;
+            }
+        }
+        if through_link {
+            eprintln!(
+                "galion-backup: restore-test: {shown}: listed name is or goes through a symlink"
+            );
+            r.unsafe_names.push(shown);
+            continue;
+        }
+        listed.insert(rel);
         match sha256_file(&p) {
-            Ok(got) if got == want => ok += 1,
+            Ok(got) if got == want => r.ok += 1,
             Ok(_) => {
-                mismatch += 1;
                 writeln!(out, "{shown}: FAILED").ok();
+                r.mismatched.push(shown);
             }
             Err(e) => {
-                unreadable += 1;
                 eprintln!("sha256sum: {shown}: {e}");
                 writeln!(out, "{shown}: FAILED open or read").ok();
+                r.unreadable.push(shown);
             }
         }
     }
     out.flush().ok();
-    let plural = |n: u64, one: &str, many: &str| {
+    let mut all = Vec::new();
+    walk(dir, Path::new(""), &mut all).map_err(ctx("checksum check FAILED: walk archive"))?;
+    all.sort();
+    for (rel, regular) in all {
+        if rel.as_os_str() == "SHA256SUMS" {
+            continue;
+        }
+        let shown = format!("./{}", rel.display());
+        if !regular {
+            eprintln!("galion-backup: restore-test: {shown}: not a regular file (unprovable)");
+            r.unlisted.push(shown);
+        } else if !listed.contains(&rel) {
+            eprintln!("galion-backup: restore-test: {shown}: not listed in SHA256SUMS");
+            r.unlisted.push(shown);
+        }
+    }
+    let plural = |n: usize, one: &str, many: &str| {
         if n == 1 {
             one.to_string()
         } else {
             many.to_string()
         }
     };
-    if bad_fmt > 0 {
+    if r.malformed > 0 {
         eprintln!(
-            "sha256sum: WARNING: {bad_fmt} {} improperly formatted",
-            plural(bad_fmt, "line is", "lines are")
+            "sha256sum: WARNING: {} {} improperly formatted",
+            r.malformed,
+            plural(r.malformed as usize, "line is", "lines are")
         );
     }
-    if ok + mismatch + unreadable == 0 {
+    if parsed == 0 {
         return Err(Fail::Msg(
-            "sha256sum: SHA256SUMS: no properly formatted checksum lines found".into(),
+            "checksum check FAILED: SHA256SUMS: no properly formatted checksum lines found".into(),
         ));
     }
-    if unreadable > 0 {
+    if !r.unreadable.is_empty() {
         eprintln!(
-            "sha256sum: WARNING: {unreadable} listed {} could not be read",
-            plural(unreadable, "file", "files")
+            "sha256sum: WARNING: {} listed {} could not be read",
+            r.unreadable.len(),
+            plural(r.unreadable.len(), "file", "files")
         );
     }
-    if mismatch > 0 {
+    if !r.mismatched.is_empty() {
         eprintln!(
-            "sha256sum: WARNING: {mismatch} computed {} did NOT match",
-            plural(mismatch, "checksum", "checksums")
+            "sha256sum: WARNING: {} computed {} did NOT match",
+            r.mismatched.len(),
+            plural(r.mismatched.len(), "checksum", "checksums")
         );
     }
-    if mismatch + unreadable > 0 {
+    if r.problems() > 0 {
         return Err(Fail::Msg(format!(
-            "checksum check failed ({mismatch} mismatched, {unreadable} unreadable of {})",
-            ok + mismatch + unreadable
+            "checksum check FAILED: {}; this backup is NOT verified, do not restore from it",
+            r.summary()
         )));
     }
-    Ok(ok)
+    Ok(r)
 }
 
 /// `$DEST/galion-*.tar.gz`, newest first; Err if none (the .sh's `ls` failed).
@@ -468,9 +628,19 @@ pub fn run(o: &Opts, out: &mut dyn Write) -> Result<(), Fail> {
     let t = TempDir::create(&o.tmp).map_err(ctx(format!("mktemp in {}", o.tmp.display())))?;
     check_signal()?;
     let f = File::open(&a).map_err(ctx(a.display()))?;
-    extract(GzReader::new(BufReader::with_capacity(256 * 1024, f)), &t.0).map_err(|e| match e {
+    let mut gz = GzReader::new(BufReader::with_capacity(256 * 1024, f));
+    extract(&mut gz, &t.0).map_err(|e| match e {
         Fail::Msg(m) => Fail::Msg(format!("{}: {m}", a.display())),
         s => s,
+    })?;
+    // The tar reader stops at the end-of-archive blocks; read the rest of the
+    // gzip stream so its CRC32 / ISIZE trailer is ALWAYS verified (slot 361:
+    // a flipped trailer bit used to pass). `tar -xzf` does the same via gzip.
+    io::copy(&mut gz, &mut io::sink()).map_err(|e| {
+        Fail::Msg(format!(
+            "{}: gzip check FAILED: {e}; this backup is NOT verified, do not restore from it",
+            a.display()
+        ))
     })?;
     // cd "$T"/galion-*: exactly one directory.
     let mut cands: Vec<PathBuf> = fs::read_dir(&t.0)
@@ -502,7 +672,10 @@ pub fn run(o: &Opts, out: &mut dyn Write) -> Result<(), Fail> {
             )))
         }
     };
-    check_sums(&s, out)?;
+    check_sums(&s, out).map_err(|e| match e {
+        Fail::Msg(m) => Fail::Msg(format!("{}: {m}", a.display())),
+        s => s,
+    })?;
     line(out, "checksums ok")?;
     // for d in db/*.db (glob: no dotfiles, byte order)
     let mut dbs: Vec<Vec<u8>> = fs::read_dir(s.join("db"))
@@ -596,5 +769,205 @@ mod tests {
             None
         );
         assert_eq!(parse_sum_line(format!("{h}  ").as_bytes()), None);
+    }
+}
+
+#[cfg(test)]
+mod sum_tests {
+    use super::*;
+
+    struct D(PathBuf);
+    impl Drop for D {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn sumline(data: &[u8], name: &str) -> String {
+        let mut h = Sha256::new();
+        h.update(data);
+        format!("{}  {name}\n", hex(&h.finish()))
+    }
+
+    /// A tiny galion-* dir: db/a.db, MAP, files/files.tar, all listed.
+    fn good(tag: &str) -> (D, String) {
+        let d = std::env::temp_dir().join(format!(
+            "gb361-{tag}-{}-{}",
+            std::process::id(),
+            backup::random_suffix()
+        ));
+        fs::create_dir_all(d.join("db")).unwrap();
+        fs::create_dir_all(d.join("files")).unwrap();
+        let files: [(&str, &[u8]); 3] = [
+            ("db/a.db", b"sqlite-ish"),
+            ("db/MAP", b"a.db /var/lib/a.db\n"),
+            ("files/files.tar", b"tarbytes"),
+        ];
+        let mut sums = String::new();
+        for (n, b) in files {
+            fs::write(d.join(n), b).unwrap();
+            sums.push_str(&sumline(b, &format!("./{n}")));
+        }
+        fs::write(d.join("SHA256SUMS"), &sums).unwrap();
+        (D(d), sums)
+    }
+
+    fn check(d: &Path) -> (Result<SumReport, Fail>, String) {
+        let mut out = Vec::new();
+        let r = check_sums(d, &mut out);
+        (r, String::from_utf8(out).unwrap())
+    }
+
+    fn err(r: Result<SumReport, Fail>) -> String {
+        match r {
+            Err(Fail::Msg(m)) => m,
+            other => panic!("expected failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn clean_archive_passes() {
+        let (d, _) = good("ok");
+        let (r, out) = check(&d.0);
+        assert_eq!(r.unwrap().ok, 3);
+        assert_eq!(out, "");
+    }
+
+    #[test]
+    fn single_byte_flip_fails_hard() {
+        let (d, _) = good("flip");
+        fs::write(d.0.join("files/files.tar"), b"tarbytez").unwrap();
+        let (r, out) = check(&d.0);
+        assert_eq!(out, "./files/files.tar: FAILED\n");
+        let m = err(r);
+        assert!(
+            m.starts_with("checksum check FAILED: 1 mismatched [./files/files.tar]"),
+            "{m}"
+        );
+        assert!(m.contains("NOT verified"), "{m}");
+    }
+
+    #[test]
+    fn missing_listed_file_fails() {
+        let (d, _) = good("miss");
+        fs::remove_file(d.0.join("db/MAP")).unwrap();
+        let (r, out) = check(&d.0);
+        assert_eq!(out, "./db/MAP: FAILED open or read\n");
+        assert!(err(r).contains("1 unreadable [./db/MAP]"));
+    }
+
+    #[test]
+    fn malformed_line_fails_even_if_rest_ok() {
+        let (d, sums) = good("malformed");
+        fs::write(d.0.join("SHA256SUMS"), format!("{sums}garbage line\n")).unwrap();
+        assert!(err(check(&d.0).0).contains("1 malformed line(s)"));
+    }
+
+    #[test]
+    fn truncated_digest_line_fails() {
+        // A tampered line that drops one hex digit is malformed, and its
+        // file is then unlisted: two reasons, still one hard failure.
+        let (d, sums) = good("trunc");
+        let mut lines: Vec<String> = sums.lines().map(String::from).collect();
+        lines[0].remove(0);
+        fs::write(d.0.join("SHA256SUMS"), lines.join("\n") + "\n").unwrap();
+        let m = err(check(&d.0).0);
+        assert!(
+            m.contains("1 malformed") && m.contains("1 unlisted [./db/a.db]"),
+            "{m}"
+        );
+    }
+
+    #[test]
+    fn unlisted_extra_file_fails() {
+        let (d, _) = good("extra");
+        fs::write(d.0.join("db/evil.db"), b"injected").unwrap();
+        assert!(err(check(&d.0).0).contains("1 unlisted [./db/evil.db]"));
+    }
+
+    #[test]
+    fn dropped_sums_line_fails() {
+        let (d, sums) = good("drop");
+        let kept: String = sums.lines().skip(1).map(|l| format!("{l}\n")).collect();
+        fs::write(d.0.join("SHA256SUMS"), kept).unwrap();
+        assert!(err(check(&d.0).0).contains("1 unlisted [./db/a.db]"));
+    }
+
+    #[test]
+    fn absolute_and_dotdot_names_refused() {
+        for name in ["/etc/hostname", "../outside", "./db/../../x"] {
+            let (d, sums) = good("abs");
+            fs::write(
+                d.0.join("SHA256SUMS"),
+                format!("{sums}{}", sumline(b"x", name)),
+            )
+            .unwrap();
+            assert!(err(check(&d.0).0).contains("1 unsafe name(s)"), "{name}");
+        }
+    }
+
+    #[test]
+    fn symlinked_listed_file_refused() {
+        let (d, sums) = good("link");
+        let outside = d.0.with_extension("outside");
+        fs::write(&outside, b"sqlite-ish").unwrap();
+        fs::remove_file(d.0.join("db/a.db")).unwrap();
+        std::os::unix::fs::symlink(&outside, d.0.join("db/a.db")).unwrap();
+        fs::write(d.0.join("SHA256SUMS"), &sums).unwrap();
+        let m = err(check(&d.0).0);
+        let _ = fs::remove_file(&outside);
+        assert!(m.contains("1 unsafe name(s) [./db/a.db]"), "{m}");
+        // Same digest as the real file, so only the symlink rule catches it.
+        assert!(m.contains("0 mismatched"), "{m}");
+    }
+
+    #[test]
+    fn unlisted_symlink_entry_fails() {
+        let (d, _) = good("ulink");
+        std::os::unix::fs::symlink("/etc", d.0.join("db/x.db")).unwrap();
+        assert!(err(check(&d.0).0).contains("1 unlisted [./db/x.db]"));
+    }
+
+    #[test]
+    fn missing_or_empty_sums_fails() {
+        let (d, _) = good("nosums");
+        fs::write(d.0.join("SHA256SUMS"), b"").unwrap();
+        assert!(err(check(&d.0).0).contains("no properly formatted"));
+        fs::remove_file(d.0.join("SHA256SUMS")).unwrap();
+        assert!(err(check(&d.0).0).contains("checksum check FAILED: SHA256SUMS"));
+    }
+
+    #[test]
+    fn uppercase_hex_and_binary_marker_still_ok() {
+        let (d, sums) = good("upper");
+        let s2: String = sums
+            .lines()
+            .map(|l| {
+                let (h, n) = l.split_at(64);
+                format!("{} *{}\n", h.to_ascii_uppercase(), &n[2..])
+            })
+            .collect();
+        fs::write(d.0.join("SHA256SUMS"), s2).unwrap();
+        assert_eq!(check(&d.0).0.unwrap().ok, 3);
+    }
+}
+
+/// argv[0] basenames that mean `restore-test` (the staged slot-361 swap
+/// replaces `/opt/galion/rust/bin/galion-restore-test.sh` by a symlink).
+pub fn is_restore_test_alias(argv0: &str) -> bool {
+    let base = argv0.rsplit('/').next().unwrap_or(argv0);
+    base == "galion-restore-test" || base == "galion-restore-test.sh"
+}
+
+#[cfg(test)]
+mod alias_tests {
+    #[test]
+    fn aliases() {
+        use super::is_restore_test_alias as f;
+        assert!(f("/opt/galion/rust/bin/galion-restore-test.sh"));
+        assert!(f("galion-restore-test"));
+        assert!(!f("/opt/galion/rust/bin/galion-backup"));
+        assert!(!f("galion-restore-test.sh.bak"));
+        assert!(!f(""));
     }
 }

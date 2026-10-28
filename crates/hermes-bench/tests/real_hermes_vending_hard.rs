@@ -5,11 +5,11 @@
 //! bench-vending-adv, ports 20035-20039 only): builds the `galion-vending`
 //! binary (release), serves `--level hard` on 127.0.0.1:20035, runs the real
 //! `hermes-bench` binary against it with the scripted agent and with the mock
-//! LLM over the OpenAI wire (127.0.0.1:20036), asserts 100 %, reference hash,
+//! llm over the OpenAI wire (127.0.0.1:20036), asserts 100 %, reference hash,
 //! offline replay == live. Then it does the same at the standard level and
 //! checks that the score JSONs equal the published ones from bench-hermes
 //! 457ef74 (`docs/bench/hermes-vending.*.score.json`) apart from the time,
-//! SHA and mock-LLM port. Shuts down and checks the ports.
+//! SHA and mock-llm port. Shuts down and checks the ports.
 //!
 //! `GALION_REAL=1 cargo test --release -p hermes-bench --test real_hermes_vending_hard -- --nocapture`
 //! `GALION_BENCH_WRITE_DOCS=1` writes docs/bench/hermes-vending-hard.*.score.json
@@ -22,11 +22,28 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_hermes-bench");
-const VEND: u16 = 20035;
-const LLM: u16 = 20036;
-/// Never started: `--bench vending` does not contact the bank, but without a
-/// URL hermes-bench would bind a mock bank on a random port outside our range.
-const BANK_UNUSED: u16 = 20037;
+/// Slot 363 (real-test-port-env): 5-port block from `VENDING_HARD_REAL_PORT_BASE`
+/// (unset = 20035, slot 133): vending +0, mock llm +1, unused bank URL +2.
+const PORT_BASE_ENV: &str = "VENDING_HARD_REAL_PORT_BASE";
+const DEFAULT_PORT_BASE: u16 = 20035;
+
+#[derive(Clone, Copy)]
+struct Ports {
+    vend: u16,
+    llm: u16,
+    /// Never started: `--bench vending` does not contact the bank, but without a
+    /// URL hermes-bench would bind a mock bank on a random port outside our range.
+    bank_unused: u16,
+}
+
+fn ports() -> Ports {
+    let base = galion_realtest::ports::base_from_env(PORT_BASE_ENV, DEFAULT_PORT_BASE, 5);
+    Ports {
+        vend: base,
+        llm: base + 1,
+        bank_unused: base + 2,
+    }
+}
 const HARD_HASH: &str = "21317eedd059a608";
 /// Published standard B3 seed 42 hash (white paper 5ddd828, bench-hermes 457ef74).
 const STANDARD_HASH: &str = "c4b11d2642a0b6be";
@@ -66,6 +83,11 @@ fn read(p: &Path) -> Value {
 }
 
 fn run(level: &str, agent: &str, out: &Path, log: &Path) -> String {
+    let Ports {
+        vend,
+        llm,
+        bank_unused,
+    } = ports();
     let o = Command::new(BIN)
         .args([
             "run",
@@ -76,13 +98,13 @@ fn run(level: &str, agent: &str, out: &Path, log: &Path) -> String {
             "--agent",
             agent,
             "--bank-url",
-            &format!("http://127.0.0.1:{BANK_UNUSED}"),
+            &format!("http://127.0.0.1:{bank_unused}"),
             "--vend-url",
-            &format!("http://127.0.0.1:{VEND}"),
+            &format!("http://127.0.0.1:{vend}"),
             "--vend-log",
             log.to_str().unwrap(),
             "--llm-port",
-            &LLM.to_string(),
+            &llm.to_string(),
             "--out",
             out.to_str().unwrap(),
             "--sha",
@@ -100,9 +122,14 @@ fn run(level: &str, agent: &str, out: &Path, log: &Path) -> String {
     text
 }
 
-/// Serve `galion-vending --level <level>` on VEND for the closure, then stop it.
+/// Serve `galion-vending --level <level>` on vend for the closure, then stop it.
 fn with_vending(level: &str, log: &Path, f: impl FnOnce()) {
-    for p in [VEND, LLM, BANK_UNUSED] {
+    let Ports {
+        vend,
+        llm,
+        bank_unused,
+    } = ports();
+    for p in [vend, llm, bank_unused] {
         assert!(port_free(p), "port {p} busy before start");
     }
     let _ = std::fs::remove_file(log);
@@ -110,7 +137,7 @@ fn with_vending(level: &str, log: &Path, f: impl FnOnce()) {
         .args([
             "serve",
             "--port",
-            &VEND.to_string(),
+            &vend.to_string(),
             "--seed",
             "42",
             "--days",
@@ -124,19 +151,19 @@ fn with_vending(level: &str, log: &Path, f: impl FnOnce()) {
         .stderr(Stdio::inherit())
         .spawn()
         .unwrap();
-    let vend = Proc(c, VEND);
+    let server = Proc(c, vend);
     let t0 = Instant::now();
-    while TcpStream::connect(("127.0.0.1", VEND)).is_err() {
+    while TcpStream::connect(("127.0.0.1", vend)).is_err() {
         assert!(t0.elapsed() < Duration::from_secs(20));
         std::thread::sleep(Duration::from_millis(50));
     }
-    println!("started galion-vending serve --level {level} on 127.0.0.1:{VEND}");
+    println!("started galion-vending serve --level {level} on 127.0.0.1:{vend}");
     f();
-    drop(vend);
-    for p in [VEND, LLM, BANK_UNUSED] {
+    drop(server);
+    for p in [vend, llm, bank_unused] {
         assert!(port_free(p), "port {p} still bound");
     }
-    println!("ports {VEND}/{LLM}/{BANK_UNUSED} free again");
+    println!("ports {vend}/{llm}/{bank_unused} free again");
     let _ = std::fs::remove_file(log);
 }
 
@@ -153,6 +180,7 @@ fn normalised(mut v: Value) -> Value {
 
 #[test]
 fn real_hard_vending_through_hermes() {
+    let llm = ports().llm;
     if !real() {
         eprintln!("skipped: set GALION_REAL=1");
         return;
@@ -209,7 +237,7 @@ fn real_hard_vending_through_hermes() {
         assert_eq!(w["final_state_hash"], HARD_HASH);
         assert_eq!(w["replay_matches_live"], true);
         println!(
-            "mock-llm via Hermes (OpenAI wire on 127.0.0.1:{LLM}): {} model API calls, hash {}",
+            "mock-llm via Hermes (OpenAI wire on 127.0.0.1:{llm}): {} model API calls, hash {}",
             w["model_api_calls"], w["final_state_hash"]
         );
     });

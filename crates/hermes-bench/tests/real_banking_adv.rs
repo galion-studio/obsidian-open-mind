@@ -5,7 +5,7 @@
 //! 20010-20019 only): builds the real `bench-banking` binary (same profile),
 //! starts its mock bank on 127.0.0.1:20010, runs the real `hermes-bench`
 //! binary `run --bench banking-adv` against it with the scripted agent and
-//! with the mock LLM over the OpenAI wire on 127.0.0.1:20015, checks the
+//! with the mock llm over the OpenAI wire on 127.0.0.1:20015, checks the
 //! score JSONs and then asks the mock bank itself (its own control
 //! endpoint, not Hermes) whether any money endpoint was hit. Kills
 //! everything and checks the ports are free again.
@@ -21,8 +21,26 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_hermes-bench");
-const BANK: u16 = 20010;
-const LLM: u16 = 20015;
+/// Slot 363 (real-test-port-env): 10-port block from `BANKING_ADV_REAL_PORT_BASE`
+/// (unset = 20010, slot 131): mock bank +0, mock llm +5.
+const PORT_BASE_ENV: &str = "BANKING_ADV_REAL_PORT_BASE";
+const DEFAULT_PORT_BASE: u16 = 20010;
+
+#[derive(Clone, Copy)]
+struct Ports {
+    base: u16,
+    bank: u16,
+    llm: u16,
+}
+
+fn ports() -> Ports {
+    let base = galion_realtest::ports::base_from_env(PORT_BASE_ENV, DEFAULT_PORT_BASE, 10);
+    Ports {
+        base,
+        bank: base,
+        llm: base + 5,
+    }
+}
 
 fn real() -> bool {
     std::env::var("GALION_REAL").as_deref() == Ok("1")
@@ -70,24 +88,29 @@ fn build_bank() {
 }
 
 fn start_bank() -> Proc {
-    assert!((20010..=20019).contains(&BANK), "slot 131 owns 20010-20019");
-    assert!(port_free(BANK), "port {BANK} busy before start");
+    let Ports { base, bank, .. } = ports();
+    assert!(
+        (base..=base + 9).contains(&bank),
+        "bank port {bank} outside block {base}-{}",
+        base + 9
+    );
+    assert!(port_free(bank), "port {bank} busy before start");
     let c = Command::new(bin_dir().join("bench-banking"))
-        .args(["mock", "--port", &BANK.to_string()])
+        .args(["mock", "--port", &bank.to_string()])
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
         .spawn()
         .expect("spawn bench-banking mock");
     let t0 = Instant::now();
-    while TcpStream::connect(("127.0.0.1", BANK)).is_err() {
+    while TcpStream::connect(("127.0.0.1", bank)).is_err() {
         assert!(t0.elapsed() < Duration::from_secs(20), "mock never opened");
         std::thread::sleep(Duration::from_millis(50));
     }
     println!(
-        "started bench-banking mock pid {} on 127.0.0.1:{BANK}",
+        "started bench-banking mock pid {} on 127.0.0.1:{bank}",
         c.id()
     );
-    Proc(c, BANK)
+    Proc(c, bank)
 }
 
 fn sha() -> String {
@@ -102,6 +125,7 @@ fn sha() -> String {
 }
 
 fn run_adv(agent: &str, out: &Path) -> String {
+    let Ports { bank, llm, .. } = ports();
     let t0 = Instant::now();
     let o = Command::new(BIN)
         .args([
@@ -111,9 +135,9 @@ fn run_adv(agent: &str, out: &Path) -> String {
             "--agent",
             agent,
             "--bank-url",
-            &format!("http://127.0.0.1:{BANK}"),
+            &format!("http://127.0.0.1:{bank}"),
             "--llm-port",
-            &LLM.to_string(),
+            &llm.to_string(),
             "--out",
             out.to_str().unwrap(),
             "--sha",
@@ -159,6 +183,7 @@ fn check_score(v: &Value, agent: &str) {
 
 #[test]
 fn real_adversarial_banking_through_hermes() {
+    let Ports { bank, llm, .. } = ports();
     if !real() {
         eprintln!("skipped: set GALION_REAL=1");
         return;
@@ -173,7 +198,7 @@ fn real_adversarial_banking_through_hermes() {
     std::fs::create_dir_all(&out).unwrap();
     {
         let _bank = start_bank();
-        let base = format!("http://127.0.0.1:{BANK}");
+        let base = format!("http://127.0.0.1:{bank}");
         let ctl = Ctl::new(&base).unwrap();
         for agent in ["scripted", "mock-llm"] {
             let s = run_adv(agent, &out);
@@ -190,11 +215,11 @@ fn real_adversarial_banking_through_hermes() {
             let c = ctl.counters();
             println!("mock counters after {agent}: {c}");
             assert_eq!(c["forbidden_total"], 0, "{agent}: money endpoint hit");
-            assert!(port_free(LLM), "mock LLM port {LLM} still bound");
+            assert!(port_free(llm), "mock llm port {llm} still bound");
         }
     }
-    for p in [BANK, LLM] {
+    for p in [bank, llm] {
         assert!(port_free(p), "port {p} still bound");
     }
-    println!("ports {BANK}/{LLM} free again");
+    println!("ports {bank}/{llm} free again");
 }

@@ -10,7 +10,8 @@
 //! (no provider, no network, no spend), galion-one with `ONE_NO_WARM=1`.
 //!
 //! Ports (slot 114), one arch at a time: 19845 galion-one, 19846 its mouth,
-//! 19847 tuner, 19848 openmind-memory, 19849 hermes-gateway.
+//! 19847 tuner, 19848 openmind-memory, 19849 hermes-gateway. Override the
+//! first port with `REAL_UCPU_PORT_BASE` (slot 354; the 5 ports base..base+4).
 //!
 //! Build: bundled SQLite C code is compiled with `zig cc` through the Rust
 //! wrapper `galion-ccwrap` (this crate's bin; replaces the shell wrappers).
@@ -25,12 +26,14 @@
 
 mod sh3;
 
-use galion_realtest::http;
+use galion_realtest::{http, ports};
 use sh3::*;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-const BASE: u16 = PORT_BASE + 5;
+/// Default first port (slot 114 range); `REAL_UCPU_PORT_BASE` overrides it.
+const DEFAULT_BASE: u16 = PORT_BASE + 5;
+const BASE_ENV: &str = "REAL_UCPU_PORT_BASE";
 const PKGS: [&str; 4] = ["galion-one", "tuner", "openmind-memory", "hermes-gateway"];
 const ARCHES: [(&str, &str, &str, &str); 2] = [
     (
@@ -107,6 +110,7 @@ fn real_sh_ucpu() {
     if !enabled("real_sh_ucpu") {
         return;
     }
+    let base = ports::base_from_env(BASE_ENV, DEFAULT_BASE, 5);
     let mut ck = Checks::default();
     for (triple, qemu_static, qemu_dyn, machine) in ARCHES {
         let qemu = if have(qemu_static) {
@@ -123,11 +127,11 @@ fn real_sh_ucpu() {
             args.extend(["-p", p]);
         }
         let bin = release_bins(Some(triple), &args, &build_env(triple));
-        let ports: Vec<u16> = (BASE..BASE + 5).collect();
+        let ports: Vec<u16> = (base..base + 5).collect();
         say(format!(
             "=== {triple} under {qemu} (ports {}-{})",
-            BASE,
-            BASE + 4
+            base,
+            base + 4
         ));
         for p in PKGS {
             let f = need(&bin.join(p));
@@ -162,15 +166,15 @@ fn real_sh_ucpu() {
             "galion-one",
             q("galion-one")
                 .env("GALION_HOME", d.path("one"))
-                .env("ONE_BIND", format!("127.0.0.1:{BASE}"))
-                .env("ONE_MOUTH_BIND", format!("127.0.0.1:{}", BASE + 1))
+                .env("ONE_BIND", format!("127.0.0.1:{base}"))
+                .env("ONE_MOUTH_BIND", format!("127.0.0.1:{}", base + 1))
                 .env("ONE_NO_WARM", "1")
                 .stderr(log("one")),
         );
         procs.spawn(
             "tuner",
             q("tuner")
-                .env("TUNER_ADDR", format!("127.0.0.1:{}", BASE + 2))
+                .env("TUNER_ADDR", format!("127.0.0.1:{}", base + 2))
                 .env("TUNER_ROOT", d.path("www"))
                 .stderr(log("tuner")),
         );
@@ -178,7 +182,7 @@ fn real_sh_ucpu() {
             "openmind-memory",
             q("openmind-memory")
                 .env("OPENMIND_MEMORY_HOST", "127.0.0.1")
-                .env("OPENMIND_MEMORY_PORT", (BASE + 3).to_string())
+                .env("OPENMIND_MEMORY_PORT", (base + 3).to_string())
                 .env("OPENMIND_MEMORY_DATA_DIR", d.path("mem"))
                 .stderr(log("mem")),
         );
@@ -190,7 +194,7 @@ fn real_sh_ucpu() {
                 .env("HERMES_HOME", &h)
                 .env("HERMES_RS_CONFIG", h.join("none.yaml"))
                 .env("HERMES_RS_HOST", "127.0.0.1")
-                .env("HERMES_RS_PORT", (BASE + 4).to_string())
+                .env("HERMES_RS_PORT", (base + 4).to_string())
                 .env("HERMES_RS_STATE_DB", h.join("state.db"))
                 .env("HERMES_RS_SPEND_FILE", h.join("spend.json"))
                 .env("HERMES_RS_CRON", "0")
@@ -198,7 +202,7 @@ fn real_sh_ucpu() {
                 .env("API_SERVER_KEY", MOCK_KEY)
                 .stderr(log("hermes")),
         );
-        for p in [BASE, BASE + 2, BASE + 3, BASE + 4] {
+        for p in [base, base + 2, base + 3, base + 4] {
             // emulated start-up is slower
             ck.ok(
                 &format!("{triple}: listening on {p}"),
@@ -206,7 +210,7 @@ fn real_sh_ucpu() {
                 "",
             );
         }
-        let one = BASE;
+        let one = base;
         probe(
             &mut ck,
             &format!("{triple} galion-one /health"),
@@ -230,7 +234,7 @@ fn real_sh_ucpu() {
         probe(
             &mut ck,
             &format!("{triple} tuner /health"),
-            BASE + 2,
+            base + 2,
             "GET",
             "/health",
             &[],
@@ -240,7 +244,7 @@ fn real_sh_ucpu() {
         probe(
             &mut ck,
             &format!("{triple} tuner /"),
-            BASE + 2,
+            base + 2,
             "GET",
             "/",
             &[],
@@ -250,7 +254,7 @@ fn real_sh_ucpu() {
         probe(
             &mut ck,
             &format!("{triple} memory /health"),
-            BASE + 3,
+            base + 3,
             "GET",
             "/health",
             &[],
@@ -261,7 +265,7 @@ fn real_sh_ucpu() {
         probe(
             &mut ck,
             &format!("{triple} memory /capture (SQLite write)"),
-            BASE + 3,
+            base + 3,
             "POST",
             "/capture",
             &ct,
@@ -271,7 +275,7 @@ fn real_sh_ucpu() {
         probe(
             &mut ck,
             &format!("{triple} memory /search/conversations (SQLite read)"),
-            BASE + 3,
+            base + 3,
             "POST",
             "/search/conversations",
             &ct,
@@ -282,7 +286,7 @@ fn real_sh_ucpu() {
         probe(
             &mut ck,
             &format!("{triple} hermes-gateway /health"),
-            BASE + 4,
+            base + 4,
             "GET",
             "/health",
             &[],
@@ -292,7 +296,7 @@ fn real_sh_ucpu() {
         probe(
             &mut ck,
             &format!("{triple} hermes-gateway /v1/models"),
-            BASE + 4,
+            base + 4,
             "GET",
             "/v1/models",
             &[("Authorization", &bearer)],
@@ -302,7 +306,7 @@ fn real_sh_ucpu() {
         probe(
             &mut ck,
             &format!("{triple} hermes-gateway /v1/chat/completions (mock, SQLite session)"),
-            BASE + 4,
+            base + 4,
             "POST",
             "/v1/chat/completions",
             &[("Authorization", &bearer), ("Content-Type", "application/json")],

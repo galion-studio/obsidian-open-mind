@@ -18,7 +18,13 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const PORT: u16 = 20021;
+/// Slot 363 (real-test-port-env): `WALLSTREET_ADV_REAL_PORT` moves the port (unset = 20021, slot 132).
+const PORT_ENV: &str = "WALLSTREET_ADV_REAL_PORT";
+const DEFAULT_PORT: u16 = 20021;
+
+fn port() -> u16 {
+    galion_realtest::ports::base_from_env(PORT_ENV, DEFAULT_PORT, 1)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -42,9 +48,10 @@ fn release_bin() -> PathBuf {
 }
 
 fn http(method: &str, path: &str, body: &str) -> (u16, Value) {
+    let port = port();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        if let Ok(mut s) = TcpStream::connect(("127.0.0.1", PORT)) {
+        if let Ok(mut s) = TcpStream::connect(("127.0.0.1", port)) {
             s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
             let req = format!(
                 "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -62,7 +69,7 @@ fn http(method: &str, path: &str, body: &str) -> (u16, Value) {
             let b = out.split_once("\r\n\r\n").map(|x| x.1).unwrap_or("");
             return (code, serde_json::from_str(b).unwrap_or(Value::Null));
         }
-        assert!(Instant::now() < deadline, "server did not start on {PORT}");
+        assert!(Instant::now() < deadline, "server did not start on {port}");
         std::thread::sleep(Duration::from_millis(100));
     }
 }
@@ -75,6 +82,7 @@ fn cat_str(v: &Value) -> Option<String> {
 
 #[test]
 fn real_adversarial_set_over_http() {
+    let port = port();
     if std::env::var("GALION_REAL").as_deref() != Ok("1") {
         eprintln!("skipped: set GALION_REAL=1");
         return;
@@ -82,7 +90,7 @@ fn real_adversarial_set_over_http() {
     let bin = release_bin();
     let _srv = Kill(
         Command::new(&bin)
-            .args(["serve", "--bind", &format!("127.0.0.1:{PORT}")])
+            .args(["serve", "--bind", &format!("127.0.0.1:{port}")])
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()

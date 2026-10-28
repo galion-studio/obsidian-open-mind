@@ -14,7 +14,13 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-const PORT: u16 = 19521;
+/// Slot 363 (real-test-port-env): `WALLSTREET_REAL_PORT` moves the port (unset = 19521, slot 52).
+const PORT_ENV: &str = "WALLSTREET_REAL_PORT";
+const DEFAULT_PORT: u16 = 19521;
+
+fn port() -> u16 {
+    galion_realtest::ports::base_from_env(PORT_ENV, DEFAULT_PORT, 1)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -38,9 +44,10 @@ fn release_bin() -> PathBuf {
 }
 
 fn http(method: &str, path: &str, body: &str) -> (u16, String) {
+    let port = port();
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        if let Ok(mut s) = TcpStream::connect(("127.0.0.1", PORT)) {
+        if let Ok(mut s) = TcpStream::connect(("127.0.0.1", port)) {
             s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
             let req = format!(
                 "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -63,7 +70,7 @@ fn http(method: &str, path: &str, body: &str) -> (u16, String) {
             eprintln!("{method} {path} -> {code}");
             return (code, b);
         }
-        assert!(Instant::now() < deadline, "server did not start on {PORT}");
+        assert!(Instant::now() < deadline, "server did not start on {port}");
         std::thread::sleep(Duration::from_millis(100));
     }
 }
@@ -158,6 +165,7 @@ fn session() -> String {
 
 #[test]
 fn real_paper_broker_over_http() {
+    let port = port();
     if std::env::var("GALION_REAL").as_deref() != Ok("1") {
         eprintln!("skipped: set GALION_REAL=1");
         return;
@@ -165,7 +173,7 @@ fn real_paper_broker_over_http() {
     let bin = release_bin();
     let _srv = Kill(
         Command::new(&bin)
-            .args(["serve", "--bind", &format!("127.0.0.1:{PORT}")])
+            .args(["serve", "--bind", &format!("127.0.0.1:{port}")])
             .stdout(Stdio::null())
             .stderr(Stdio::inherit())
             .spawn()

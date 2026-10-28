@@ -130,11 +130,23 @@ fn db_lines(db: &Path, role: &str, lines: &mut Vec<String>, newest: &mut Vec<i64
     lines.push(format!("db[{role}]={}", db.display()));
     let wal = PathBuf::from(format!("{}-wal", db.display()));
     for (what, p) in [("db_mtime", db), ("wal_mtime", wal.as_path())] {
-        if let Some(ms) = mtime_ms(p) {
-            lines.push(format!("  {what}={}", label_ms(ms)));
-            if role == "instance" {
-                newest.push(ms);
+        let Some(ms) = mtime_ms(p) else { continue };
+        // An empty -wal is what a READER leaves behind (SQLite creates it on
+        // open; galion-backup does this to the legacy root DB on every run),
+        // so only a non-empty WAL counts as a write.
+        let empty =
+            what == "wal_mtime" && std::fs::metadata(p).map(|m| m.len() == 0).unwrap_or(true);
+        lines.push(format!(
+            "  {what}={}{}",
+            label_ms(ms),
+            if empty {
+                " (empty; reader-touched, ignored)"
+            } else {
+                ""
             }
+        ));
+        if role == "instance" && !empty {
+            newest.push(ms);
         }
     }
     let c = match Connection::open_with_flags(
@@ -296,13 +308,19 @@ mod tests {
     #[test]
     fn rfc3339_parse_matches_known_instants() {
         // 2026-10-13T09:04:38.716Z (live VPS stamp, slot 367) = 1791882278716.
-        assert_eq!(rfc3339_ms("2026-10-13T09:04:38.716Z"), Some(1_791_882_278_716));
+        assert_eq!(
+            rfc3339_ms("2026-10-13T09:04:38.716Z"),
+            Some(1_791_882_278_716)
+        );
         assert_eq!(
             rfc3339_ms("2026-10-13T11:04:38+02:00"),
             Some(1_791_882_278_000)
         );
         assert_eq!(rfc3339_ms("1970-01-01T00:00:00Z"), Some(0));
-        assert_eq!(rfc3339_ms("2026-10-25T02:30:00+01:00"), rfc3339_ms("2026-10-25T01:30:00Z"));
+        assert_eq!(
+            rfc3339_ms("2026-10-25T02:30:00+01:00"),
+            rfc3339_ms("2026-10-25T01:30:00Z")
+        );
         assert_eq!(rfc3339_ms("garbage"), None);
         assert_eq!(rfc3339_ms("2026-10-13 09:04:38Z"), None);
     }
@@ -313,7 +331,10 @@ mod tests {
         let r = report(&d, "galion", 24, now_ms());
         assert!(r.stale);
         assert!(r.newest_ms.is_none());
-        assert!(r.lines.iter().any(|l| l.contains("db[instance]=") && l.ends_with("missing")));
+        assert!(r
+            .lines
+            .iter()
+            .any(|l| l.contains("db[instance]=") && l.ends_with("missing")));
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -351,15 +372,47 @@ mod tests {
         // now = row + 1 h, mtimes are "now" on the box so newest is the file.
         let row = rfc3339_ms("2026-10-19T12:57:55.447Z").unwrap();
         let r = report(&d, "galion", 24, row + 3_600_000);
-        assert!(r.lines.iter().any(|l| l == "  l0_rows=1 l0_last=2026-10-19T14:57:55+02:00"));
+        assert!(r
+            .lines
+            .iter()
+            .any(|l| l == "  l0_rows=1 l0_last=2026-10-19T14:57:55+02:00"));
         assert!(r.lines.iter().any(|l| l.starts_with("stray_root_db=yes")));
         assert!(r.lines.iter().any(|l| l.starts_with("db[legacy-root]=")));
         // Content and session keys never appear.
-        assert!(!r.lines.iter().any(|l| l.contains("hello") || l.contains("legacy\"")));
+        assert!(!r
+            .lines
+            .iter()
+            .any(|l| l.contains("hello") || l.contains("legacy\"")));
         // Default instance reads the root DB instead and reports no stray.
         let r2 = report(&d, "default", 24, now_ms());
-        assert!(r2.lines.iter().any(|l| l == "  l0_rows=1 l0_last=2026-10-28T13:00:00+01:00"));
+        assert!(r2
+            .lines
+            .iter()
+            .any(|l| l == "  l0_rows=1 l0_last=2026-10-28T13:00:00+01:00"));
         assert!(!r2.lines.iter().any(|l| l.starts_with("stray_root_db")));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn empty_wal_is_not_a_write() {
+        let d = tmp("wal");
+        let s = Store::open(&d.join("vectors.db"), false).unwrap();
+        drop(s);
+        std::fs::write(d.join("vectors.db-wal"), b"").unwrap();
+        let db_ms = mtime_ms(&d.join("vectors.db")).unwrap();
+        // Judge 2 h after the DB mtime; the empty WAL (mtime now) is ignored.
+        let r = report(&d, "default", 1, db_ms + 7_200_000);
+        assert!(r.stale, "{:?}", r.lines);
+        assert!(r
+            .lines
+            .iter()
+            .any(|l| l.contains("(empty; reader-touched, ignored)")));
+        std::fs::write(d.join("vectors.db-wal"), b"x").unwrap();
+        let wal_ms = mtime_ms(&d.join("vectors.db-wal")).unwrap();
+        assert_eq!(
+            report(&d, "default", 1, db_ms + 7_200_000).newest_ms,
+            Some(wal_ms.max(db_ms))
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 

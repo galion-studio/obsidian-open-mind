@@ -75,6 +75,12 @@ mod tests {
     use super::{page, Config, Mode};
     use std::fs;
     use std::path::PathBuf;
+    use std::process::Command;
+
+    /// Set in the child process that runs the socket probe on its own.
+    const FD_PROBE_CHILD: &str = "ROOM_FD_PROBE_CHILD";
+    /// Full libtest name of the probe test (used with `--exact`).
+    const FD_PROBE_TEST: &str = "tests::default_and_fixture_do_not_open_a_socket";
 
     fn socket_fds() -> Vec<String> {
         let mut out: Vec<String> = fs::read_dir("/proc/self/fd")
@@ -88,8 +94,39 @@ mod tests {
         out
     }
 
+    /// `/proc/self/fd` is process-wide, so the socket snapshot only means
+    /// something when no other test thread is binding or connecting (the
+    /// `http` tests do). The probe therefore re-runs this one test in a fresh
+    /// child process with `--test-threads=1`; the parent only checks that the
+    /// child ran exactly this test and passed. Sockets opened by std carry
+    /// `O_CLOEXEC`, so the child starts with none of the parent's sockets.
     #[test]
     fn default_and_fixture_do_not_open_a_socket() {
+        if std::env::var_os(FD_PROBE_CHILD).is_some() {
+            socket_probe();
+            return;
+        }
+        let exe = std::env::current_exe().expect("current test binary");
+        let out = Command::new(exe)
+            .args([FD_PROBE_TEST, "--exact", "--test-threads=1", "--nocapture"])
+            .env(FD_PROBE_CHILD, "1")
+            .output()
+            .expect("spawn probe child");
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            out.status.success(),
+            "socket probe child failed ({}):\n{stdout}\n{stderr}",
+            out.status
+        );
+        assert!(
+            stdout.contains("test result: ok. 1 passed"),
+            "socket probe child did not run exactly one test:\n{stdout}\n{stderr}"
+        );
+    }
+
+    /// Runs only inside the probe child (single test, single thread).
+    fn socket_probe() {
         let before = socket_fds();
         let cfg = Config::with_root("/nonexistent-room-root");
         let page_default = page(&Mode::Page, &cfg).expect("default page");

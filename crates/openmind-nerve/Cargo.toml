@@ -15,13 +15,32 @@ path = "src/lib.rs"
 name = "openmind-nerve"
 path = "src/main.rs"
 
+# Optional sensor pulls (slot 385, F-376-1, 2026-10-28 CET +01:00). Each of these
+# S2 sensors is already off at run time unless its NERVE_* env is set; the
+# feature lets a lean build drop its code and its dependency too. All on by
+# default, so the default build is unchanged (same bytes). A build without a
+# feature warns on stderr when the matching env is set (the sensor is not
+# silently lost). Sizes: docs/real-tests/nerve-dep-growth.md.
+[features]
+default = ["sensor-rustsec", "rustsec-snapshot", "sensor-drift", "sensor-ingress-lint"]
+# T2.4 rustsec sensor (pulls semver).
+sensor-rustsec = ["dep:semver"]
+# The embedded 97 KB RustSec advisory snapshot (data/rustsec/advisories.tsv).
+# Without it the rustsec sensor needs NERVE_RUSTSEC_DB (else it reports
+# `rustsec-unreadable`).
+rustsec-snapshot = ["sensor-rustsec"]
+# T2.5 drift sensor (pulls galion-common for SHA-256).
+sensor-drift = ["dep:galion-common"]
+# T2.6 ingress-lint sensor (pulls tunnel-lint).
+sensor-ingress-lint = ["dep:tunnel-lint"]
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-semver = "1"
+semver = { version = "1", optional = true }
 zagreb-time = { path = "../zagreb-time" }
-galion-common = { path = "../galion-common" }
-tunnel-lint = { path = "../tunnel-lint" }
+galion-common = { path = "../galion-common", optional = true }
+tunnel-lint = { path = "../tunnel-lint", optional = true }
 
 [dev-dependencies]
 zagreb-time = { path = "../zagreb-time" }
@@ -36,3 +55,29 @@ galion-deploy = { path = "../galion-deploy" }
 toml = { workspace = true }
 # Fuzz/property targets (T5.2) also drive the ingress YAML parser; path crate, no deps.
 tunnel-lint = { path = "../tunnel-lint" }
+
+# Tests that need an optional sensor (slot 385): skipped, not failed, in a
+# lean build (`--no-default-features`). Every other test file is auto-found.
+[[test]]
+name = "cortex_s2a_replay"
+required-features = ["rustsec-snapshot"]
+
+[[test]]
+name = "real_cortex_s2a"
+required-features = ["rustsec-snapshot"]
+
+[[test]]
+name = "real_cortex_s2b"
+required-features = ["sensor-drift"]
+
+[[test]]
+name = "real_cortex_t20"
+required-features = ["rustsec-snapshot", "sensor-drift"]
+
+[[test]]
+name = "cortex_ingress_lint"
+required-features = ["sensor-ingress-lint"]
+
+[[test]]
+name = "real_cortex_ingress_lint"
+required-features = ["sensor-ingress-lint"]

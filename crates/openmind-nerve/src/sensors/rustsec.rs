@@ -37,7 +37,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-/// The embedded offline snapshot.
+/// The embedded offline snapshot (feature `rustsec-snapshot`, on by default;
+/// a build without it needs `NERVE_RUSTSEC_DB`).
+#[cfg(feature = "rustsec-snapshot")]
 pub const SNAPSHOT: &str = include_str!("../../data/rustsec/advisories.tsv");
 
 /// Advisory kind (`informational` in RustSec, `vuln` when absent).
@@ -354,7 +356,15 @@ impl RustSec {
         };
         let db_text;
         let db = match &self.db_path {
+            #[cfg(feature = "rustsec-snapshot")]
             None => Db::parse(SNAPSHOT),
+            #[cfg(not(feature = "rustsec-snapshot"))]
+            None => {
+                self.cached = unreadable(
+                    "no advisory snapshot embedded in this build; set NERVE_RUSTSEC_DB".into(),
+                );
+                return;
+            }
             Some(p) => match std::fs::read_to_string(p) {
                 Ok(t) => {
                     db_text = t;
@@ -519,6 +529,7 @@ version = "0.6.2"
         );
     }
 
+    #[cfg(feature = "rustsec-snapshot")]
     #[test]
     fn embedded_snapshot_parses_cleanly() {
         let db = Db::parse(SNAPSHOT);
@@ -583,6 +594,29 @@ version = "0.6.2"
         let cx = s.run(&i);
         assert_eq!(cx.vulnerabilities[0].id, "rustsec-unreadable");
         assert_eq!(cx.vulnerabilities[0].sev, Sev::Info);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Slot 385: a build without `rustsec-snapshot` and without
+    /// `NERVE_RUSTSEC_DB` says why it skipped (info finding), it never
+    /// pretends the lock is clean.
+    #[cfg(not(feature = "rustsec-snapshot"))]
+    #[test]
+    fn no_embedded_snapshot_needs_a_db_file() {
+        let dir = std::env::temp_dir().join(format!("nerve-rustsec-nosnap-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let lock = dir.join("Cargo.lock");
+        std::fs::write(&lock, LOCK).unwrap();
+        let mut s = Sensors::empty();
+        s.add(RustSec::new(lock, "w", None, 3600));
+        let logs = LogInsights::default();
+        let mut i = Input::new(1_792_520_000, &[], &logs);
+        i.live = true;
+        let cx = s.run(&i);
+        assert_eq!(cx.vulnerabilities.len(), 1);
+        assert_eq!(cx.vulnerabilities[0].id, "rustsec-unreadable");
+        assert_eq!(cx.vulnerabilities[0].sev, Sev::Info);
+        assert!(cx.vulnerabilities[0].title.contains("NERVE_RUSTSEC_DB"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

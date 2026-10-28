@@ -36,14 +36,17 @@ use std::time::Instant;
 pub mod components;
 pub mod connrate;
 pub mod ddos;
+#[cfg(feature = "sensor-drift")]
 pub mod drift;
 pub mod edge;
 pub mod edgerate;
 pub mod event_feed;
 pub mod hades;
+#[cfg(feature = "sensor-ingress-lint")]
 pub mod ingress_lint;
 pub mod listeners;
 pub mod proc_owner;
+#[cfg(feature = "sensor-rustsec")]
 pub mod rustsec;
 pub mod scanners;
 pub mod sshd;
@@ -165,13 +168,22 @@ impl Sensors {
         let mut s = Self::builtin();
         // S2 sensors: one line each, e.g. `s.add_opt(sshd::SshAuth::from_env(env));`
         s.add_opt(sshd::SshAuth::from_env(env));
+        #[cfg(feature = "sensor-rustsec")]
         s.add_opt(rustsec::RustSec::from_env(env));
+        #[cfg(not(feature = "sensor-rustsec"))]
+        compiled_out(env, "NERVE_RUSTSEC_LOCK", "sensor-rustsec");
+        #[cfg(feature = "sensor-drift")]
         s.add_opt(drift::Drift::from_env(env));
+        #[cfg(not(feature = "sensor-drift"))]
+        compiled_out(env, "NERVE_DRIFT_MANIFEST", "sensor-drift");
         s.add_opt(connrate::ConnRate::from_env(env));
         s.add_opt(proc_owner::ProcOwner::from_env(env));
         s.add_opt(surface::Surface::from_env(env));
         s.add_opt(hades::Hades::from_env(env));
+        #[cfg(feature = "sensor-ingress-lint")]
         s.add_opt(ingress_lint::IngressLint::from_env(env));
+        #[cfg(not(feature = "sensor-ingress-lint"))]
+        compiled_out(env, "NERVE_INGRESS_LINT_CONFIG", "sensor-ingress-lint");
         s.add_opt(event_feed::EventFeed::from_env(env));
         s.add_opt(edgerate::EdgeRate::from_env(env));
         let off: Vec<String> = env("NERVE_SENSORS_OFF")
@@ -236,6 +248,24 @@ impl Sensors {
             .collect::<Vec<_>>()
             .into()
     }
+}
+
+/// A sensor whose cargo feature is off in this build (slot 385): when its
+/// switch-on variable is set anyway, say so on stderr (journal) instead of
+/// dropping it silently. Returns true when it warned.
+#[cfg(not(all(
+    feature = "sensor-rustsec",
+    feature = "sensor-drift",
+    feature = "sensor-ingress-lint"
+)))]
+pub(crate) fn compiled_out(env: Env, var: &str, feature: &str) -> bool {
+    let set = env(var).is_some_and(|v| !v.trim().is_empty());
+    if set {
+        eprintln!(
+            "nerve: {var} is set but this build has no `{feature}` feature; that sensor stays off"
+        );
+    }
+    set
 }
 
 #[cfg(test)]
@@ -495,5 +525,40 @@ mod tests {
             !one.to_string().contains("secret-host"),
             "evidence never leaves in events"
         );
+    }
+
+    /// Slot 385: every optional sensor's switch-on variable registers it in
+    /// a default build, and in a lean build it is skipped with a warning
+    /// (never a panic, never a half-registered sensor).
+    #[test]
+    fn optional_sensor_features_follow_the_build() {
+        let env = |k: &str| match k {
+            "NERVE_RUSTSEC_LOCK" => Some("/nonexistent/Cargo.lock".to_string()),
+            "NERVE_DRIFT_MANIFEST" => Some("/nonexistent/SHA256SUMS".to_string()),
+            "NERVE_INGRESS_LINT_CONFIG" => Some("/nonexistent/config.yml".to_string()),
+            _ => None,
+        };
+        let names = Sensors::from_env(&env).names();
+        for (name, on) in [
+            ("rustsec", cfg!(feature = "sensor-rustsec")),
+            ("drift", cfg!(feature = "sensor-drift")),
+            ("ingress-lint", cfg!(feature = "sensor-ingress-lint")),
+        ] {
+            assert_eq!(names.contains(&name), on, "{name} in {names:?}");
+        }
+        #[cfg(not(all(
+            feature = "sensor-rustsec",
+            feature = "sensor-drift",
+            feature = "sensor-ingress-lint"
+        )))]
+        {
+            assert!(super::compiled_out(&env, "NERVE_DRIFT_MANIFEST", "x"));
+            assert!(!super::compiled_out(&|_| None, "NERVE_DRIFT_MANIFEST", "x"));
+            assert!(!super::compiled_out(
+                &|_| Some(" ".into()),
+                "NERVE_DRIFT_MANIFEST",
+                "x"
+            ));
+        }
     }
 }

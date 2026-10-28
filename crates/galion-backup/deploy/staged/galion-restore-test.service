@@ -7,8 +7,11 @@
 # had no unit or timer: it only ran by hand). Restores into a private /tmp,
 # verifies SHA256SUMS + every DB's integrity_check + the presence list, then
 # removes everything; exit 1 on any failure (the .sh exited 0 after a
-# checksum FAILED, finding F-326-1). Install only with D-326-1 in
-# docs/galion-backup-fold.md (binary galion-backup-2595481 first; owner go).
+# checksum FAILED, finding F-326-1). Slot 361 (2026-10-28 CET): binary is now
+# galion-backup-dd89bea4 (strict checksums: ANY mismatch, missing file,
+# malformed SHA256SUMS line, unsafe name or unlisted file -> exit 1; gzip
+# trailer always verified, F-361-1). Install only per D-361-1 in
+# docs/ops/restore-checksum-swap.md (binary first; owner go).
 # Rollback: systemctl disable --now galion-restore-test.timer; remove both files.
 [Unit]
 Description=Galion restore test: newest backup restored to a temp dir and verified (Rust)
@@ -17,7 +20,7 @@ ConditionPathIsDirectory=/var/backups/galion
 
 [Service]
 Type=oneshot
-ExecStart=/opt/galion/rust/bin/galion-backup-2595481 restore-test
+ExecStart=/opt/galion/rust/bin/galion-backup-dd89bea4 restore-test
 Nice=19
 IOSchedulingClass=idle
 UMask=0077

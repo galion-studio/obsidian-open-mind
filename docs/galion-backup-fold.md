@@ -103,6 +103,9 @@ Read-only findings from `real_fold_gate` (2026-10-27 21:57 CET):
       sandboxed, NOT installed) and `systemctl enable --now
       galion-restore-test.timer`. Rollback: disable the timer, remove the two
       unit files; the .sh is untouched until then.
+      **Slot 361 update (2026-10-28 CET):** use `galion-backup-dd89bea4` instead
+      (strict checksums + gzip trailer check, F-361-1; 12/12 real archives
+      still pass). Swap steps, gate and rollback: docs/ops/restore-checksum-swap.md (D-361-1).
 - [ ] Repoint `/opt/galion/offsite/README.md` (lines 12, 46). It names
       `galion-backup.sh` and `galion-backup verify`. This is docs only.
 - [ ] Repoint the `/opt/galion/offsite/galion-offsite-encrypt.sh` comment

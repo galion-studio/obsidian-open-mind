@@ -90,3 +90,23 @@ fn staged_timer_avoids_backup_runs() {
         );
     }
 }
+
+/// Slot 361: the staged unit uses the strict-checksum build, and the staged
+/// .sh swap is documented with its gate and rollback (nothing installed).
+#[test]
+fn staged_swap_uses_strict_build_and_has_rollback() {
+    const SWAP: &str = include_str!("../../../docs/ops/restore-checksum-swap.md");
+    assert!(SVC.contains("/opt/galion/rust/bin/galion-backup-dd89bea4 restore-test"));
+    assert!(!SVC.contains("galion-backup-2595481"));
+    for must in [
+        "NOT INSTALLED",
+        "D-361-1",
+        "galion-backup-dd89bea4",
+        "ln -s galion-backup-dd89bea4 /opt/galion/rust/bin/galion-restore-test.sh",
+        "Rollback",
+        "galion-restore-test.sh.pre361",
+        "30f58ba4a8e3d8b7b230fdbb6144858193164284d8c79ff3d35f5f178dbc51c6",
+    ] {
+        assert!(SWAP.contains(must), "swap doc lacks {must:?}");
+    }
+}

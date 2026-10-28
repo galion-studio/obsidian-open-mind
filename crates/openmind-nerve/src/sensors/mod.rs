@@ -34,22 +34,29 @@ use serde_json::{json, Value};
 use std::time::Instant;
 
 pub mod components;
+#[cfg(feature = "sensor-connrate")]
 pub mod connrate;
 pub mod ddos;
 #[cfg(feature = "sensor-drift")]
 pub mod drift;
 pub mod edge;
+#[cfg(feature = "sensor-edgerate")]
 pub mod edgerate;
+#[cfg(feature = "sensor-event-feed")]
 pub mod event_feed;
+#[cfg(feature = "sensor-hades")]
 pub mod hades;
 #[cfg(feature = "sensor-ingress-lint")]
 pub mod ingress_lint;
 pub mod listeners;
+#[cfg(feature = "sensor-proc-owner")]
 pub mod proc_owner;
 #[cfg(feature = "sensor-rustsec")]
 pub mod rustsec;
 pub mod scanners;
+#[cfg(feature = "sensor-sshd")]
 pub mod sshd;
+#[cfg(feature = "sensor-surface")]
 pub mod surface;
 
 /// Environment lookup handed to `from_env` constructors (tests pass a map).
@@ -167,7 +174,12 @@ impl Sensors {
     pub fn from_env(env: Env) -> Self {
         let mut s = Self::builtin();
         // S2 sensors: one line each, e.g. `s.add_opt(sshd::SshAuth::from_env(env));`
+        // Each optional one sits behind a cargo feature (slots 385 and 404);
+        // a build without it warns once when it would have run.
+        #[cfg(feature = "sensor-sshd")]
         s.add_opt(sshd::SshAuth::from_env(env));
+        #[cfg(not(feature = "sensor-sshd"))]
+        compiled_out_if(env, "sshd", "sensor-sshd");
         #[cfg(feature = "sensor-rustsec")]
         s.add_opt(rustsec::RustSec::from_env(env));
         #[cfg(not(feature = "sensor-rustsec"))]
@@ -176,16 +188,34 @@ impl Sensors {
         s.add_opt(drift::Drift::from_env(env));
         #[cfg(not(feature = "sensor-drift"))]
         compiled_out(env, "NERVE_DRIFT_MANIFEST", "sensor-drift");
+        #[cfg(feature = "sensor-connrate")]
         s.add_opt(connrate::ConnRate::from_env(env));
+        #[cfg(not(feature = "sensor-connrate"))]
+        compiled_out_if(env, "conn-rate", "sensor-connrate");
+        #[cfg(feature = "sensor-proc-owner")]
         s.add_opt(proc_owner::ProcOwner::from_env(env));
+        #[cfg(not(feature = "sensor-proc-owner"))]
+        compiled_out_if(env, "proc-owner", "sensor-proc-owner");
+        #[cfg(feature = "sensor-surface")]
         s.add_opt(surface::Surface::from_env(env));
+        #[cfg(not(feature = "sensor-surface"))]
+        compiled_out_if(env, "surface", "sensor-surface");
+        #[cfg(feature = "sensor-hades")]
         s.add_opt(hades::Hades::from_env(env));
+        #[cfg(not(feature = "sensor-hades"))]
+        compiled_out_if(env, "hades", "sensor-hades");
         #[cfg(feature = "sensor-ingress-lint")]
         s.add_opt(ingress_lint::IngressLint::from_env(env));
         #[cfg(not(feature = "sensor-ingress-lint"))]
         compiled_out(env, "NERVE_INGRESS_LINT_CONFIG", "sensor-ingress-lint");
+        #[cfg(feature = "sensor-event-feed")]
         s.add_opt(event_feed::EventFeed::from_env(env));
+        #[cfg(not(feature = "sensor-event-feed"))]
+        compiled_out_if(env, "event-feed", "sensor-event-feed");
+        #[cfg(feature = "sensor-edgerate")]
         s.add_opt(edgerate::EdgeRate::from_env(env));
+        #[cfg(not(feature = "sensor-edgerate"))]
+        compiled_out_if(env, "edge-rate", "sensor-edgerate");
         let off: Vec<String> = env("NERVE_SENSORS_OFF")
             .unwrap_or_default()
             .split(',')
@@ -268,6 +298,65 @@ pub(crate) fn compiled_out(env: Env, var: &str, feature: &str) -> bool {
     set
 }
 
+/// Why the dependency-free optional sensor `name` would run with this
+/// environment (slot 404, D-385-2): the same switch-on test its `from_env`
+/// uses, without building it, so it also works in a build that compiled the
+/// sensor out. `None` = it would stay off (or `name` is not one of the seven
+/// gated S2 sensors: `sshd`, `conn-rate`, `proc-owner`, `surface`, `hades`,
+/// `event-feed`, `edge-rate`).
+pub fn optional_switch(env: Env, name: &str) -> Option<String> {
+    let set = |k: &str| env(k).is_some_and(|v| !v.trim().is_empty());
+    let first_set = |ks: &[&str]| ks.iter().find(|k| set(k)).map(|k| format!("{k} is set"));
+    match name {
+        "sshd" => (env("NERVE_SSHD").as_deref() == Some("1")).then(|| "NERVE_SSHD=1".into()),
+        "conn-rate" => first_set(&["NERVE_CONNRATE_PORTS"]),
+        "proc-owner" => first_set(&["NERVE_PROC_OWNER_USERS"]),
+        "surface" => first_set(&["NERVE_SURFACE_TARGETS"]),
+        "hades" => {
+            if env("NERVE_HADES").as_deref() == Some("1") {
+                Some("NERVE_HADES=1".into())
+            } else {
+                first_set(&[
+                    "NERVE_HADES_LEDGER",
+                    "NERVE_HADES_AUDIT",
+                    "NERVE_HADES_DISABLE_FILE",
+                ])
+            }
+        }
+        "event-feed" => first_set(&["NERVE_EVENT_FEED_FILE"]),
+        "edge-rate" => match env("NERVE_EDGE_HOSTS").as_deref().map(str::trim) {
+            Some("0" | "off" | "false" | "no") => None,
+            Some(_) => Some("NERVE_EDGE_HOSTS is set".into()),
+            None => Some("edge-rate is on by default (NERVE_EDGE_HOSTS unset)".into()),
+        },
+        _ => None,
+    }
+}
+
+/// Slot 404: [`compiled_out`] for the seven dependency-free S2 sensors,
+/// keyed by sensor name through [`optional_switch`]. Returns true when it
+/// warned.
+#[cfg(not(all(
+    feature = "sensor-sshd",
+    feature = "sensor-connrate",
+    feature = "sensor-proc-owner",
+    feature = "sensor-surface",
+    feature = "sensor-hades",
+    feature = "sensor-event-feed",
+    feature = "sensor-edgerate"
+)))]
+pub(crate) fn compiled_out_if(env: Env, name: &str, feature: &str) -> bool {
+    match optional_switch(env, name) {
+        Some(why) => {
+            eprintln!(
+                "<4>openmind-nerve: {why} but this build has no `{feature}` feature; that sensor stays off"
+            );
+            true
+        }
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,18 +424,13 @@ mod tests {
             Sensors::builtin().names(),
             ["listeners", "scanners", "edge", "components", "ddos"]
         );
-        // Registered S2 sensors run after the built-ins.
-        assert_eq!(
-            Sensors::from_env(&|_| None).names(),
-            [
-                "listeners",
-                "scanners",
-                "edge",
-                "components",
-                "ddos",
-                "edge-rate"
-            ]
-        );
+        // Registered S2 sensors run after the built-ins (edge-rate is the one
+        // that needs no env; slot 404: only when its feature is built in).
+        let mut want = vec!["listeners", "scanners", "edge", "components", "ddos"];
+        if cfg!(feature = "sensor-edgerate") {
+            want.push("edge-rate");
+        }
+        assert_eq!(Sensors::from_env(&|_| None).names(), want);
         let off = |k: &str| (k == "NERVE_EDGE_HOSTS").then(|| "0".to_string());
         assert_eq!(Sensors::from_env(&off).names(), Sensors::builtin().names());
     }
@@ -356,7 +440,13 @@ mod tests {
         let env = |k: &str| (k == "NERVE_SENSORS_OFF").then(|| " edge, ddos ,nope".to_string());
         assert_eq!(
             Sensors::from_env(&env).names(),
-            ["listeners", "scanners", "components", "edge-rate"]
+            ["listeners", "scanners", "components", "edge-rate"][..if cfg!(
+                feature = "sensor-edgerate"
+            ) {
+                4
+            } else {
+                3
+            }]
         );
     }
 
@@ -559,6 +649,124 @@ mod tests {
                 "NERVE_DRIFT_MANIFEST",
                 "x"
             ));
+        }
+    }
+
+    /// Slot 404 (D-385-2): every one of the seven dependency-free S2 sensors
+    /// registers in a build with its feature and is skipped (with a warning,
+    /// never a panic) in a build without it.
+    #[test]
+    fn s2_sensor_features_follow_the_build() {
+        let env = |k: &str| match k {
+            "NERVE_SSHD" => Some("1".to_string()),
+            "NERVE_SSHD_AUTH_LOG" => Some("0".to_string()),
+            "NERVE_CONNRATE_PORTS" => Some("22740=s2g".to_string()),
+            "NERVE_PROC_OWNER_USERS" => Some("root".to_string()),
+            "NERVE_SURFACE_TARGETS" => Some("http://127.0.0.1:22741/@200".to_string()),
+            "NERVE_HADES" => Some("1".to_string()),
+            "NERVE_EVENT_FEED_FILE" => Some("/nonexistent/events.jsonl".to_string()),
+            _ => None,
+        };
+        let names = Sensors::from_env(&env).names();
+        for (name, on) in [
+            ("sshd", cfg!(feature = "sensor-sshd")),
+            ("conn-rate", cfg!(feature = "sensor-connrate")),
+            ("proc-owner", cfg!(feature = "sensor-proc-owner")),
+            ("surface", cfg!(feature = "sensor-surface")),
+            ("hades", cfg!(feature = "sensor-hades")),
+            ("event-feed", cfg!(feature = "sensor-event-feed")),
+            ("edge-rate", cfg!(feature = "sensor-edgerate")),
+        ] {
+            assert_eq!(names.contains(&name), on, "{name} in {names:?}");
+            assert!(super::optional_switch(&env, name).is_some(), "{name}");
+        }
+        #[cfg(not(all(
+            feature = "sensor-sshd",
+            feature = "sensor-connrate",
+            feature = "sensor-proc-owner",
+            feature = "sensor-surface",
+            feature = "sensor-hades",
+            feature = "sensor-event-feed",
+            feature = "sensor-edgerate"
+        )))]
+        {
+            assert!(super::compiled_out_if(&env, "hades", "x"));
+            assert!(!super::compiled_out_if(&|_| None, "hades", "x"));
+            let off = |k: &str| (k == "NERVE_EDGE_HOSTS").then(|| "off".to_string());
+            assert!(!super::compiled_out_if(&off, "edge-rate", "x"));
+        }
+    }
+
+    /// Slot 404: [`optional_switch`] agrees with each sensor's own
+    /// `from_env` on clean values, so a lean build warns exactly when the
+    /// default build would have run the sensor.
+    #[test]
+    fn optional_switch_mirrors_from_env() {
+        let none = |_: &str| None::<String>;
+        let cases: Vec<(&str, &str, &str)> = vec![
+            ("sshd", "NERVE_SSHD", "1"),
+            ("sshd", "NERVE_SSHD", "0"),
+            ("sshd", "NERVE_SSHD", "yes"),
+            ("conn-rate", "NERVE_CONNRATE_PORTS", "8080"),
+            ("proc-owner", "NERVE_PROC_OWNER_USERS", "root,galion"),
+            (
+                "surface",
+                "NERVE_SURFACE_TARGETS",
+                "https://galion.app/@200",
+            ),
+            ("hades", "NERVE_HADES", "1"),
+            ("hades", "NERVE_HADES", "0"),
+            ("hades", "NERVE_HADES_LEDGER", "/var/lib/hades/ledger.jsonl"),
+            ("hades", "NERVE_HADES_AUDIT", "/a.jsonl,/b.jsonl"),
+            ("hades", "NERVE_HADES_DISABLE_FILE", "/run/hades.off"),
+            (
+                "event-feed",
+                "NERVE_EVENT_FEED_FILE",
+                "/var/lib/gaia/events.jsonl",
+            ),
+            ("edge-rate", "NERVE_EDGE_HOSTS", "1"),
+            ("edge-rate", "NERVE_EDGE_HOSTS", "off"),
+            ("edge-rate", "NERVE_EDGE_HOSTS", "0"),
+        ];
+        for name in [
+            "sshd",
+            "conn-rate",
+            "proc-owner",
+            "surface",
+            "hades",
+            "event-feed",
+        ] {
+            assert_eq!(
+                super::optional_switch(&none, name),
+                None,
+                "{name} off by default"
+            );
+        }
+        assert!(super::optional_switch(&none, "edge-rate").is_some_and(|w| w.contains("unset")));
+        assert_eq!(super::optional_switch(&none, "nope"), None);
+        for (name, var, val) in cases {
+            let env = move |k: &str| (k == var).then(|| val.to_string());
+            let want = super::optional_switch(&env, name).is_some();
+            let built: Option<bool> = match name {
+                #[cfg(feature = "sensor-sshd")]
+                "sshd" => Some(sshd::SshAuth::from_env(&env).is_some()),
+                #[cfg(feature = "sensor-connrate")]
+                "conn-rate" => Some(connrate::ConnRate::from_env(&env).is_some()),
+                #[cfg(feature = "sensor-proc-owner")]
+                "proc-owner" => Some(proc_owner::ProcOwner::from_env(&env).is_some()),
+                #[cfg(feature = "sensor-surface")]
+                "surface" => Some(surface::Surface::from_env(&env).is_some()),
+                #[cfg(feature = "sensor-hades")]
+                "hades" => Some(hades::Hades::from_env(&env).is_some()),
+                #[cfg(feature = "sensor-event-feed")]
+                "event-feed" => Some(event_feed::EventFeed::from_env(&env).is_some()),
+                #[cfg(feature = "sensor-edgerate")]
+                "edge-rate" => Some(edgerate::EdgeRate::from_env(&env).is_some()),
+                _ => None,
+            };
+            if let Some(b) = built {
+                assert_eq!(want, b, "{name} {var}={val}");
+            }
         }
     }
 }

@@ -240,6 +240,7 @@ fn default_escalation_is_a_zero_spend_handoff() {
     }
 }
 
+#[cfg(feature = "sensor-surface")]
 #[test]
 fn surface_probe_never_resolves_an_llm_target() {
     use openmind_nerve::sensors::surface::{check, Limits, Target};

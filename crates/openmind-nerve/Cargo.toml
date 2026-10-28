@@ -23,7 +23,19 @@ path = "src/main.rs"
 # feature warns on stderr when the matching env is set (the sensor is not
 # silently lost). Sizes: docs/real-tests/nerve-dep-growth.md.
 [features]
-default = ["sensor-rustsec", "rustsec-snapshot", "sensor-drift", "sensor-ingress-lint"]
+default = [
+    "sensor-rustsec",
+    "rustsec-snapshot",
+    "sensor-drift",
+    "sensor-ingress-lint",
+    "sensor-sshd",
+    "sensor-connrate",
+    "sensor-proc-owner",
+    "sensor-surface",
+    "sensor-hades",
+    "sensor-event-feed",
+    "sensor-edgerate",
+]
 # T2.4 rustsec sensor (pulls semver).
 sensor-rustsec = ["dep:semver"]
 # The embedded 97 KB RustSec advisory snapshot (data/rustsec/advisories.tsv).
@@ -34,6 +46,27 @@ rustsec-snapshot = ["sensor-rustsec"]
 sensor-drift = ["dep:galion-common"]
 # T2.6 ingress-lint sensor (pulls tunnel-lint).
 sensor-ingress-lint = ["dep:tunnel-lint"]
+
+# The seven dependency-free S2 sensors (slot 404, D-385-2, 2026-10-28 CET
+# +01:00): same scheme, no crate pulled, the feature only drops their code
+# (184 320 B together in slot 385's x86_64 musl attribution). All on by
+# default. `edge-rate` is the one that runs without any env (NERVE_EDGE_HOSTS
+# unset = on), so a build without `sensor-edgerate` warns at start-up unless
+# NERVE_EDGE_HOSTS is an off value. Sizes: docs/real-tests/nerve-s2-sensor-gates.md.
+# T2.1 sshd auth sensor (NERVE_SSHD=1).
+sensor-sshd = []
+# T2.7 connection-rate sensor (NERVE_CONNRATE_PORTS).
+sensor-connrate = []
+# T2.8 process-owner sensor (NERVE_PROC_OWNER_USERS).
+sensor-proc-owner = []
+# T2.9 public surface / TLS expiry sensor (NERVE_SURFACE_TARGETS).
+sensor-surface = []
+# T2.13 HADES gate sensor (NERVE_HADES=1 or NERVE_HADES_LEDGER/_AUDIT/_DISABLE_FILE).
+sensor-hades = []
+# T2.10 Gaia event feed sensor (NERVE_EVENT_FEED_FILE).
+sensor-event-feed = []
+# T2.12 per-hostname edge rate (on unless NERVE_EDGE_HOSTS=0/off/false/no).
+sensor-edgerate = []
 
 [dependencies]
 serde = { workspace = true }
@@ -61,19 +94,28 @@ tunnel-lint = { path = "../tunnel-lint" }
 # lean build (`--no-default-features`). Every other test file is auto-found.
 [[test]]
 name = "cortex_s2a_replay"
-required-features = ["rustsec-snapshot"]
+required-features = ["rustsec-snapshot", "sensor-sshd"]
 
 [[test]]
 name = "real_cortex_s2a"
-required-features = ["rustsec-snapshot"]
+required-features = ["rustsec-snapshot", "sensor-sshd", "sensor-edgerate"]
 
 [[test]]
 name = "real_cortex_s2b"
-required-features = ["sensor-drift"]
+required-features = ["sensor-drift", "sensor-connrate", "sensor-edgerate"]
 
 [[test]]
 name = "real_cortex_t20"
-required-features = ["rustsec-snapshot", "sensor-drift"]
+required-features = [
+    "rustsec-snapshot",
+    "sensor-drift",
+    "sensor-sshd",
+    "sensor-connrate",
+    "sensor-proc-owner",
+    "sensor-surface",
+    "sensor-hades",
+    "sensor-edgerate",
+]
 
 [[test]]
 name = "cortex_ingress_lint"
@@ -82,3 +124,66 @@ required-features = ["sensor-ingress-lint"]
 [[test]]
 name = "real_cortex_ingress_lint"
 required-features = ["sensor-ingress-lint"]
+
+# Tests that need one of the seven dependency-free S2 sensors (slot 404):
+# skipped, not failed, in a build without it. The fuzz harness files drive the
+# conn-rate, edge-rate, event-feed and proc-owner parsers directly.
+[[test]]
+name = "cortex_replay"
+required-features = ["sensor-edgerate"]
+
+[[test]]
+name = "cortex_s2_c"
+required-features = ["sensor-proc-owner", "sensor-surface"]
+
+[[test]]
+name = "cortex_t32_correlate"
+required-features = ["sensor-sshd"]
+
+[[test]]
+name = "fuzz_parsers"
+required-features = ["sensor-connrate", "sensor-edgerate", "sensor-event-feed", "sensor-proc-owner"]
+
+[[test]]
+name = "nerve_fuzz"
+required-features = ["sensor-connrate", "sensor-edgerate", "sensor-event-feed", "sensor-proc-owner"]
+
+[[test]]
+name = "real_cortex_fuzz"
+required-features = ["sensor-connrate", "sensor-edgerate", "sensor-event-feed", "sensor-proc-owner"]
+
+[[test]]
+name = "real_parser_fuzz"
+required-features = ["sensor-connrate", "sensor-edgerate", "sensor-event-feed", "sensor-proc-owner"]
+
+[[test]]
+name = "real_connrate_fix"
+required-features = ["sensor-connrate"]
+
+[[test]]
+name = "real_cortex_merge_all"
+required-features = ["sensor-event-feed", "sensor-edgerate"]
+
+[[test]]
+name = "real_cortex_s2_c"
+required-features = ["sensor-proc-owner", "sensor-surface", "sensor-edgerate"]
+
+[[test]]
+name = "real_cortex_s2_d"
+required-features = ["sensor-hades", "sensor-edgerate"]
+
+[[test]]
+name = "real_cortex_sensor"
+required-features = ["sensor-edgerate"]
+
+[[test]]
+name = "real_cortex_t32"
+required-features = ["sensor-sshd", "sensor-surface"]
+
+[[test]]
+name = "real_edge_rate"
+required-features = ["sensor-edgerate"]
+
+[[test]]
+name = "real_event_feed"
+required-features = ["sensor-event-feed"]

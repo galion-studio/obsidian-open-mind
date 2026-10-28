@@ -22,6 +22,7 @@ impl Sensor for RateStreams {
 
     fn sense(&mut self, i: &Input<'_>, out: &mut Sink<'_>) {
         for v in i.ddos {
+            #[cfg(feature = "sensor-edgerate")]
             if v.stream.starts_with(super::edgerate::PREFIX) {
                 // Per-hostname edge streams (T2.12): listed here, signalled once
                 // by the `edge-rate` sensor under the tunnel cause.

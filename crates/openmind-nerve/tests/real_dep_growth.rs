@@ -35,6 +35,8 @@ use std::time::{Duration, Instant};
 const BUDGET: u64 = 2 * 1024 * 1024;
 /// Measured 2026-10-28 (slot 385): default 1 930 048 B, lean 1 745 728 B
 /// (-184 320 B). Floor well under that so layout noise cannot flake it.
+/// (Slot 404: lean now also drops the seven dependency-free S2 sensors, so
+/// the real saving is larger; the floor still holds.)
 const MIN_LEAN_SAVING: u64 = 128 * 1024;
 const BUILTINS: [&str; 5] = ["listeners", "scanners", "edge", "components", "ddos"];
 
@@ -217,7 +219,9 @@ fn real_dep_growth() {
             &[
                 "--no-default-features",
                 "--features",
-                "sensor-rustsec,sensor-drift,sensor-ingress-lint",
+                // slot 404: keep the seven dependency-free S2 sensors in, so
+                // this variant still measures only the advisory snapshot.
+                "sensor-rustsec,sensor-drift,sensor-ingress-lint,sensor-sshd,sensor-connrate,sensor-proc-owner,sensor-surface,sensor-hades,sensor-event-feed,sensor-edgerate",
             ],
         ),
         ("lean", &["--no-default-features"]),

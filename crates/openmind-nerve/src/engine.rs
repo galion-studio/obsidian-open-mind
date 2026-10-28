@@ -23,6 +23,7 @@ use crate::reflex::{
     deploy_in_progress, status_needs_alert, Decision, Reflex, MAX_ACTIONS_PER_CYCLE,
 };
 use crate::score::{score, Score};
+#[cfg(feature = "sensor-edgerate")]
 use crate::sensors::edgerate::{self, EdgeHosts};
 use crate::sensors::Sensors;
 use crate::state::{CompState, Status, Thresholds};
@@ -80,6 +81,8 @@ pub struct Engine {
     pub sensors: Sensors,
     /// Per-hostname edge streams from cloudflared journal lines (T2.12);
     /// None when the `edge-rate` sensor is off.
+    /// (Field absent in a build without `sensor-edgerate`, slot 404.)
+    #[cfg(feature = "sensor-edgerate")]
     pub edge_hosts: Option<EdgeHosts>,
     /// Live host cycle (false in replay: host-reading sensors stay idle).
     pub live: bool,
@@ -159,6 +162,7 @@ impl Engine {
             listeners: None,
             incidents: Correlator::default(),
             cortex: Cortex::default(),
+            #[cfg(feature = "sensor-edgerate")]
             edge_hosts: sensors
                 .names()
                 .contains(&edgerate::NAME)
@@ -174,6 +178,16 @@ impl Engine {
             now,
             cfg,
         }
+    }
+
+    /// `/state.edge_hosts`: the T2.12 per-hostname table, `null` when the
+    /// `edge-rate` sensor is off or not built in (slot 404).
+    fn edge_hosts_json(&self) -> Value {
+        #[cfg(feature = "sensor-edgerate")]
+        if let Some(e) = self.edge_hosts.as_ref() {
+            return json!({"hosts": e.hosts(), "max_hosts": e.max_hosts, "lines_counted": e.counted, "folded_into_other": e.folded});
+        }
+        Value::Null
     }
 
     pub fn mode(&self) -> &'static str {
@@ -279,6 +293,7 @@ impl Engine {
                     self.tunnel_prev.insert(key, (r, e));
                 }
             }
+            #[cfg(feature = "sensor-edgerate")]
             if let Some(eh) = self.edge_hosts.as_mut() {
                 eh.feed(&col.lines, now, &mut sh.detector);
             }
@@ -492,7 +507,7 @@ impl Engine {
             "incidents": self.incidents.to_json(),
             "cortex": self.cortex.to_json(),
             "cortex_sensors": self.sensors.last_json(),
-            "edge_hosts": self.edge_hosts.as_ref().map(|e| json!({"hosts": e.hosts(), "max_hosts": e.max_hosts, "lines_counted": e.counted, "folded_into_other": e.folded})),
+            "edge_hosts": self.edge_hosts_json(),
             "cortex_events": self.cortex.nerve_events(now),
             "self_eval": sc,
             "components": self.comps.iter().map(|c| c.to_json(now)).collect::<Vec<_>>(),
@@ -914,8 +929,11 @@ pub fn explain(cause: &str, ss: &[Signal], comps: &[(String, String, &'static st
     };
     if let Some(stream) = cause.strip_prefix("ddos:") {
         // T2.12: per-hostname edge streams signal under the tunnel cause.
+        #[cfg(feature = "sensor-edgerate")]
         let by_host =
             cause == edgerate::CAUSE && ss.iter().any(|s| s.msg.contains(" public hostname(s) "));
+        #[cfg(not(feature = "sensor-edgerate"))]
+        let by_host = false;
         let stream = if by_host {
             "edge-host:*, per public hostname"
         } else {

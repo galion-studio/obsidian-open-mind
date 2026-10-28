@@ -28,7 +28,6 @@ fn dead_upstream_at() -> &'static str {
     PORTS.addr(3)
 }
 
-
 struct Kill(Child);
 impl Drop for Kill {
     fn drop(&mut self) {

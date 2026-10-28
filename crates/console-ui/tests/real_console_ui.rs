@@ -218,8 +218,12 @@ fn rust_pages_match_live_api() {
         std::fs::metadata(&bin).expect("binary").len()
     );
 
-    // 2. Read-only forward unless one already answers.
-    let _tunnel = if answers(up) {
+    // 2. Read-only forward unless one already answers (always for
+    // CONSOLE_REAL_API=local, slot 395: a box-local console build answers
+    // the API port, galion-one and hermes-rs stay live via the forward).
+    let api_target = routes::api_target(bin.to_str());
+    let hermes = addr("CONSOLE_UI_HERMES", "127.0.0.1:19377");
+    let _tunnel = if api_target == routes::ApiTarget::Vps && answers(up) {
         eprintln!("real: upstream {up} already answers, no new forward");
         None
     } else {
@@ -235,8 +239,12 @@ fn rust_pages_match_live_api() {
                 "ServerAliveInterval=15",
             ])
             .arg("-N")
-            .arg("-L")
-            .arg(format!("{up}:127.0.0.1:8080"))
+            .args(routes::api_forward_args(&api_target, &up.to_string()))
+            .args(routes::owner_forward_args(
+                &api_target,
+                None,
+                Some(&hermes.to_string()),
+            ))
             .arg("-L")
             .arg(format!("{pulse}:127.0.0.1:8091"))
             .arg(std::env::var("CONSOLE_UI_VPS").expect(
@@ -246,9 +254,17 @@ fn rust_pages_match_live_api() {
             .spawn()
             .expect("ssh");
         let k = Kill(child, "ssh forward");
+        let local = routes::start_local_api(
+            &api_target,
+            &up.to_string(),
+            &pulse.to_string(),
+            Some(&pulse.to_string()),
+            Some(&hermes.to_string()),
+            None,
+        );
         wait_for("ssh forward", 20, || answers(up));
         eprintln!("real: forward {up} -> VPS 8080, {pulse} -> VPS 8091 (ssh -N)");
-        Some(k)
+        Some((k, local))
     };
 
     // 3. The front.

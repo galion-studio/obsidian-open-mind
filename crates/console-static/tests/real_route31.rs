@@ -41,6 +41,10 @@ fn api_at() -> &'static str {
 fn bind_at() -> &'static str {
     PORTS.addr(0)
 }
+/// Slot 395: galion-one forward for the local console build (CONSOLE_REAL_API=local).
+fn pulse_at() -> &'static str {
+    PORTS.addr(5)
+}
 fn nerve_at() -> &'static str {
     PORTS.addr(3)
 }
@@ -194,6 +198,8 @@ fn real_route31_hermes_rust_first_against_live_vps() {
     fs::write(&routes_file, routes).unwrap();
 
     let vps = std::env::var("ROUTE31_VPS").unwrap_or_else(|_| "slavik-vps".into());
+    // Slot 395: CONSOLE_REAL_API=local reads a box-local console build instead of VPS :8080.
+    let api_target = routes::api_target(Some(env!("CARGO_BIN_EXE_galion-console-static")));
     let ssh = Command::new("ssh")
         .args([
             "-o",
@@ -202,7 +208,12 @@ fn real_route31_hermes_rust_first_against_live_vps() {
             "ExitOnForwardFailure=yes",
             "-N",
         ])
-        .args(["-L", &format!("{api_at}:127.0.0.1:8080", api_at = api_at())])
+        .args(routes::api_forward_args(&api_target, api_at()))
+        .args(routes::owner_forward_args(
+            &api_target,
+            Some(pulse_at()),
+            None,
+        ))
         .args([
             "-L",
             &format!("{nerve_at}:127.0.0.1:8670", nerve_at = nerve_at()),
@@ -213,6 +224,14 @@ fn real_route31_hermes_rust_first_against_live_vps() {
         .spawn()
         .expect("ssh");
     let _ssh = Kill(ssh, "ssh forward");
+    let _local = routes::start_local_api(
+        &api_target,
+        api_at(),
+        nerve_at(),
+        Some(pulse_at()),
+        Some(hermes_at()),
+        None,
+    );
     wait_for("ssh forward", 25, || {
         get(api_at(), "/api/v1/health").code == 200
     });

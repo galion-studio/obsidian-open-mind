@@ -55,6 +55,10 @@ fn up_at() -> &'static str {
 fn one_at() -> &'static str {
     PORTS.addr(6)
 }
+/// Slot 395: hermes-rs forward for the local console build (CONSOLE_REAL_API=local).
+fn hermes_at() -> &'static str {
+    PORTS.addr(5)
+}
 
 struct Kill(Child, &'static str);
 impl Drop for Kill {
@@ -165,6 +169,8 @@ fn port1_rooms_match_the_live_services() {
     // 2. One read-only forward.
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
     let key = std::env::var("PORT1_SSH_KEY").unwrap_or(format!("{home}/.ssh/id_ed25519_vps"));
+    // Slot 395: CONSOLE_REAL_API=local reads a box-local console build instead of VPS :8080.
+    let api_target = routes::api_target(bin.to_str());
     let ssh = Command::new("ssh")
         .args([
             "-i",
@@ -181,7 +187,12 @@ fn port1_rooms_match_the_live_services() {
             "ServerAliveInterval=15",
         ])
         .arg("-N")
-        .args(["-L", &format!("{up}:127.0.0.1:8080")])
+        .args(routes::api_forward_args(&api_target, &up.to_string()))
+        .args(routes::owner_forward_args(
+            &api_target,
+            None,
+            Some(hermes_at()),
+        ))
         .args(["-L", &format!("{desk}:127.0.0.1:8646")])
         .args(["-L", &format!("{nerve}:127.0.0.1:8670")])
         .args(["-L", &format!("{}:127.0.0.1:8091", one_at())])
@@ -190,6 +201,14 @@ fn port1_rooms_match_the_live_services() {
         .spawn()
         .expect("ssh");
     let _tunnel = Kill(ssh, "ssh forward");
+    let _local = routes::start_local_api(
+        &api_target,
+        &up.to_string(),
+        nerve_at(),
+        Some(one_at()),
+        Some(hermes_at()),
+        Some(desk_at()),
+    );
     wait_for("ssh forward", 20, || {
         matches!(get(up, "/api/v1/health"), Some((200, _, _)))
     });

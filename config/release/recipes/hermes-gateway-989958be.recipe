@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# Release recipe written by `cargo xtask release-recipe build`; verify with
+# `cargo xtask release-recipe verify <artefact>`.
+format=galion-release-recipe/1
+artefact=hermes-gateway-989958be
+commit=989958bed31f18f92dafc99059cd0eb384898c5e
+package=hermes-gateway
+bin=hermes-gateway
+target=x86_64-unknown-linux-musl
+features=
+cc=gcc
+source_date_epoch=1793206972
+cargo_argv=cargo build --release --locked --offline -p hermes-gateway --bin hermes-gateway --target x86_64-unknown-linux-musl
+env=cleared except PATH,HOME,CARGO_HOME,RUSTUP_HOME,RUSTUP_TOOLCHAIN,TMPDIR,ZIG_GLOBAL_CACHE_DIR; LC_ALL=C GALION_BUILD_COMMIT=989958bed31f18f92dafc99059cd0eb384898c5e SOURCE_DATE_EPOCH=1793206972 CARGO_INCREMENTAL=0 CC_x86_64_unknown_linux_musl=/usr/bin/x86_64-linux-musl-gcc AR_x86_64_unknown_linux_musl=ar
+rustc=rustc 1.99.1
+rustc_commit=58cf8f9c35b355199727627d07ae34a4e2846d67
+llvm=23.1.1
+cargo=cargo 1.99.1 (5f94df478 2026-08-27)
+cc_path=/usr/bin/x86_64-linux-musl-gcc
+cc_version=x86_64-linux-gnu-gcc (Debian 14.2.0-19) 14.2.0
+ar=ar
+lld=LLD 23.1.1 (/checkout/src/llvm-project/llvm 1b9c0d5ff9bbe7634aead059efe6b11a7eeba145) (compatible with GNU linkers)
+size=1952592
+budget=2097152
+sha256=0f7bb47123628ff6b76231844991cd3bc577d5cd4eb541a0b8e29df158e38ac8
+built_at=2026-10-28T23:12:43+01:00

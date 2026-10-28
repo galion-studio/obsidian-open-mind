@@ -863,3 +863,53 @@ mod tests {
         assert_eq!(z, "aarch64-linux-musl");
     }
 }
+
+#[cfg(test)]
+mod committed {
+    //! The recipes committed for the D-373-3 gateway candidate stay valid and
+    //! match the staged drop-in (no build; the GALION_REAL test rebuilds).
+    use super::*;
+
+    const GCC: &str = include_str!("../../../config/release/recipes/hermes-gateway-989958be.recipe");
+    const ZIG: &str =
+        include_str!("../../../config/release/recipes/hermes-gateway-989958be-zig.recipe");
+    const DROPIN: &str =
+        include_str!("../../../deploy/staged/hermes-rs.service.d/95-gateway-candidate.conf");
+
+    fn argv_ok(r: &Recipe) {
+        let spec = Spec::from_recipe(r).unwrap();
+        assert_eq!(
+            r.get("cargo_argv").unwrap(),
+            format!("cargo {}", spec.cargo_argv().join(" "))
+        );
+        assert_eq!(r.get("artefact").unwrap(), artefact_name(&spec));
+        let size: u64 = r.get("size").unwrap().parse().unwrap();
+        let budget: u64 = r.get("budget").unwrap().parse().unwrap();
+        assert!(size <= budget && budget <= 2 * 1024 * 1024);
+    }
+
+    #[test]
+    fn gcc_recipe_is_the_staged_candidate() {
+        let r = Recipe::parse(GCC).unwrap();
+        argv_ok(&r);
+        assert_eq!(r.get("cc").unwrap(), "gcc");
+        assert_eq!(r.get("commit").unwrap(), "989958bed31f18f92dafc99059cd0eb384898c5e");
+        let staged = DROPIN
+            .lines()
+            .find_map(|l| l.strip_prefix("# sha256 "))
+            .expect("drop-in # sha256 line");
+        assert_eq!(r.get("sha256").unwrap(), staged.trim());
+        assert!(DROPIN.contains(&format!("/opt/galion/rust/bin/{}", r.get("artefact").unwrap())));
+    }
+
+    #[test]
+    fn zig_recipe_is_the_same_source_other_bytes() {
+        let (g, z) = (Recipe::parse(GCC).unwrap(), Recipe::parse(ZIG).unwrap());
+        argv_ok(&z);
+        assert_eq!(z.get("cc").unwrap(), "zig");
+        for k in ["commit", "cargo_argv", "source_date_epoch", "rustc", "rustc_commit", "lld"] {
+            assert_eq!(g.get(k).unwrap(), z.get(k).unwrap(), "{k}");
+        }
+        assert_ne!(g.get("sha256").unwrap(), z.get("sha256").unwrap());
+    }
+}

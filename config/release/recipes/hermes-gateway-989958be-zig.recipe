@@ -1,0 +1,27 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+# Release recipe written by `cargo xtask release-recipe build`; verify with
+# `cargo xtask release-recipe verify <artefact>`.
+format=galion-release-recipe/1
+artefact=hermes-gateway-989958be-zig
+commit=989958bed31f18f92dafc99059cd0eb384898c5e
+package=hermes-gateway
+bin=hermes-gateway
+target=x86_64-unknown-linux-musl
+features=
+cc=zig
+source_date_epoch=1793206972
+cargo_argv=cargo build --release --locked --offline -p hermes-gateway --bin hermes-gateway --target x86_64-unknown-linux-musl
+env=cleared except PATH,HOME,CARGO_HOME,RUSTUP_HOME,RUSTUP_TOOLCHAIN,TMPDIR,ZIG_GLOBAL_CACHE_DIR; LC_ALL=C GALION_BUILD_COMMIT=989958bed31f18f92dafc99059cd0eb384898c5e SOURCE_DATE_EPOCH=1793206972 CARGO_INCREMENTAL=0 CC_x86_64_unknown_linux_musl=<xtask>\ zig-cc\ <zig>\ <zig\ triple> AR_x86_64_unknown_linux_musl=/workspace/swarm/bin/zig\ ar
+rustc=rustc 1.99.1
+rustc_commit=58cf8f9c35b355199727627d07ae34a4e2846d67
+llvm=23.1.1
+cargo=cargo 1.99.1 (5f94df478 2026-08-27)
+cc_path=xtask zig-cc <zig> <zig triple> (drops --target=)
+cc_version=zig 0.15.2
+ar=zig ar
+lld=LLD 23.1.1 (/checkout/src/llvm-project/llvm 1b9c0d5ff9bbe7634aead059efe6b11a7eeba145) (compatible with GNU linkers)
+size=2088128
+budget=2097152
+sha256=47d3897ad0301a865a6bbd6162ae6408c160a6826d95e864eb0568551090bc49
+built_at=2026-10-28T23:12:52+01:00

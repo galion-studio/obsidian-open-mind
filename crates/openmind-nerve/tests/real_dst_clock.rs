@@ -27,8 +27,21 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
-const PORT: u16 = 20270;
-const SVC: u16 = 20271;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): PORT +0, SVC +1; `NERVE_DST_REAL_PORT_BASE`
+/// moves the block, unset keeps the old
+/// 20270-20279.
+static PORTS: Block = Block::new("NERVE_DST_REAL_PORT_BASE", 20270, 10);
+
+#[allow(non_snake_case)]
+fn PORT() -> u16 {
+    PORTS.port(0)
+}
+#[allow(non_snake_case)]
+fn SVC() -> u16 {
+    PORTS.port(1)
+}
 /// 2026-10-25T03:00:00+02:00 == 02:00:00+01:00.
 const FOLD: u64 = 1_792_890_000;
 /// 2026-10-21T02:25:00+02:00, the control night.
@@ -43,7 +56,7 @@ impl Drop for Kill {
 }
 
 fn get(path: &str) -> Option<(u16, String)> {
-    let addr = format!("127.0.0.1:{PORT}").parse().ok()?;
+    let addr = format!("127.0.0.1:{}", PORT()).parse().ok()?;
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).ok()?;
     let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
     write!(s, "GET {path} HTTP/1.0\r\nHost: x\r\n\r\n").ok()?;
@@ -83,7 +96,7 @@ fn real_serve_writes_offset_named_self_evals_and_prunes_legacy() {
     if !real() {
         return;
     }
-    let svc = TcpListener::bind(("127.0.0.1", SVC)).expect("20271 free");
+    let svc = TcpListener::bind(("127.0.0.1", SVC())).expect("slot port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 1024];
@@ -119,11 +132,15 @@ fn real_serve_writes_offset_named_self_evals_and_prunes_legacy() {
     }
     assert_eq!(self_eval_names(&se).len(), 100);
     let comps = dir.join("components.json");
-    std::fs::write(&comps, format!(r#"[{{"name":"live-svc","port":{SVC}}}]"#)).unwrap();
+    std::fs::write(
+        &comps,
+        format!(r#"[{{"name":"live-svc","port":{}}}]"#, SVC()),
+    )
+    .unwrap();
     let _nerve = Kill(
         Command::new(env!("CARGO_BIN_EXE_openmind-nerve"))
             .arg("serve")
-            .env("NERVE_ADDR", format!("127.0.0.1:{PORT}"))
+            .env("NERVE_ADDR", format!("127.0.0.1:{}", PORT()))
             .env("NERVE_INTERVAL", "5")
             .env("NERVE_REPORT_EVERY", "1")
             .env("NERVE_DATA_DIR", dir.join("data"))
@@ -132,7 +149,7 @@ fn real_serve_writes_offset_named_self_evals_and_prunes_legacy() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "20270-20279")
+            .env("NERVE_LISTEN_SCOPE", &PORTS.range())
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn nerve"),

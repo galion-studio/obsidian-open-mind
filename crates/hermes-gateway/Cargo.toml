@@ -23,3 +23,7 @@ coding = ["dep:hermes-tools"]
 hermes-rs = { path = "../hermes-rs", default-features = false }
 hermes-tools = { path = "../hermes-tools", optional = true }
 serde_json = { workspace = true }
+
+[dev-dependencies]
+# Port-base env for GALION_REAL tests (slot 383); path crate, serde_json + zagreb-time only.
+galion-realtest = { path = "../galion-realtest" }

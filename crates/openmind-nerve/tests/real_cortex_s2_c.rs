@@ -29,7 +29,13 @@ use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use galion_realtest::ports::Block;
+
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
+
+/// Slot 383 (real-ports-batch-3): nerve +0, stray +1, ghost nerve +2, TLS +3, 503 +4, down +5;
+/// `CORTEX_S2C_REAL_PORT_BASE` moves the block, unset keeps the old 19570-19579.
+static PORTS: Block = Block::new("CORTEX_S2C_REAL_PORT_BASE", 19570, 10);
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -135,6 +141,7 @@ fn real_proc_owner_and_surface_on_the_box() {
     let comps = dir.join("components.json");
     std::fs::write(&comps, "[]").unwrap();
 
+    let [p0, p1, p2, p3, p4, p5] = [0, 1, 2, 3, 4, 5].map(|o| PORTS.port(o));
     // Fixture servers.
     let hex: String = std::fs::read_to_string(fx.join("tls12-flight-galion-app.hex"))
         .unwrap()
@@ -145,13 +152,13 @@ fn real_proc_owner_and_surface_on_the_box() {
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
         .collect();
-    serve(19573, flight, Some("localhost"));
+    serve(p3, flight, Some("localhost"));
     serve(
-        19574,
+        p4,
         b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n\r\n".to_vec(),
         None,
     );
-    let stray = TcpListener::bind("127.0.0.1:19571").expect("19571 free");
+    let stray = TcpListener::bind(PORTS.addr(1)).expect("stray port free");
 
     // A copy of the nerve on :19572 whose binary is deleted after start.
     let copy = dir.join("stray-nerve");
@@ -160,8 +167,8 @@ fn real_proc_owner_and_surface_on_the_box() {
         Command::new(&copy)
             .arg("serve")
             .env_clear()
-            .env("NERVE_ADDR", "127.0.0.1:19572")
-            .env("NERVE_DATA_DIR", dir.join("data-19572"))
+            .env("NERVE_ADDR", PORTS.addr(2))
+            .env("NERVE_DATA_DIR", dir.join(format!("data-{p2}")))
             .env("NERVE_COMPONENTS", &comps)
             .env("NERVE_SYSTEMD", "0")
             .env("NERVE_JOURNAL", "0")
@@ -172,7 +179,7 @@ fn real_proc_owner_and_surface_on_the_box() {
             .expect("spawn ghost"),
     );
     let t = Instant::now();
-    while get(19572, "/api/v1/state").is_none() && t.elapsed() < Duration::from_secs(10) {
+    while get(p2, "/api/v1/state").is_none() && t.elapsed() < Duration::from_secs(10) {
         std::thread::sleep(Duration::from_millis(200));
     }
     std::fs::remove_file(&copy).unwrap();
@@ -180,24 +187,26 @@ fn real_proc_owner_and_surface_on_the_box() {
     let nerve = Kill(
         Command::new(BIN)
             .arg("serve")
-            .env("NERVE_ADDR", "127.0.0.1:19570")
+            .env("NERVE_ADDR", PORTS.addr(0))
             .env("NERVE_INTERVAL", "5")
-            .env("NERVE_DATA_DIR", dir.join("data-19570"))
+            .env("NERVE_DATA_DIR", dir.join(format!("data-{p0}")))
             .env("NERVE_COMPONENTS", &comps)
             .env("NERVE_SYSTEMD", "0")
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "19570-19579")
+            .env("NERVE_LISTEN_SCOPE", PORTS.range())
             .env_remove("NERVE_SENSORS_OFF")
             .env("NERVE_PROC_OWNER_USERS", "root")
             .env(
                 "NERVE_PROC_OWNER_PORTS",
-                format!("19570={uid},19573={uid},19574={uid}"),
+                format!("{p0}={uid},{p3}={uid},{p4}={uid}"),
             )
             .env(
                 "NERVE_SURFACE_TARGETS",
-                "https://localhost:19573,http://localhost:19574/health@200,http://localhost:19575/",
+                format!(
+                    "https://localhost:{p3},http://localhost:{p4}/health@200,http://localhost:{p5}/"
+                ),
             )
             .env("NERVE_SURFACE_EVERY_S", "5")
             .env("NERVE_SURFACE_TIMEOUT_MS", "1500")
@@ -213,7 +222,7 @@ fn real_proc_owner_and_surface_on_the_box() {
         "surface-http-status",
         "surface-http-down",
     ];
-    let st = wait_state(19570, 40, |s| ids.iter().all(|id| finding(s, id).is_some()));
+    let st = wait_state(p0, 40, |s| ids.iter().all(|id| finding(s, id).is_some()));
     for id in ids {
         assert!(finding(&st, id).is_some(), "{id} missing: {}", st["cortex"]);
     }
@@ -240,14 +249,17 @@ fn real_proc_owner_and_surface_on_the_box() {
     let so = finding(&st, "stray-owner").unwrap();
     assert_eq!(
         so["title"],
-        format!("2 listener(s) run as an unexpected user: :19571 (uid {uid}) :19572 (uid {uid})")
+        format!("2 listener(s) run as an unexpected user: :{p1} (uid {uid}) :{p2} (uid {uid})")
     );
     assert_eq!(
         (so["severity"].as_str(), so["source"].as_str()),
         (Some("warn"), Some("proc-owner"))
     );
     let db = finding(&st, "deleted-binary").unwrap();
-    assert_eq!(db["title"], "1 listener(s) run a deleted binary: :19572");
+    assert_eq!(
+        db["title"],
+        format!("1 listener(s) run a deleted binary: :{p2}").as_str()
+    );
     assert!(db["evidence"][0]
         .as_str()
         .unwrap()
@@ -295,7 +307,7 @@ fn real_proc_owner_and_surface_on_the_box() {
         .map(|s| format!("{}={}", s["name"].as_str().unwrap_or("?"), s["us"]))
         .collect();
     eprintln!(
-        "serve :19570 cycle {}: cycle_ms {}, rss {} KiB, sensors us [{}]",
+        "serve :{p0} cycle {}: cycle_ms {}, rss {} KiB, sensors us [{}]",
         st["cycle"],
         st["cycle_ms"],
         rss_kib(nerve.0.id()),
@@ -313,14 +325,14 @@ fn real_proc_owner_and_surface_on_the_box() {
     // Strays leave: the proc-owner findings clear, surface ones stay.
     drop(stray);
     drop(ghost);
-    let st = wait_state(19570, 20, |s| {
+    let st = wait_state(p0, 20, |s| {
         finding(s, "stray-owner").is_none() && finding(s, "deleted-binary").is_none()
     });
     assert!(finding(&st, "stray-owner").is_none(), "{}", st["cortex"]);
     assert!(finding(&st, "deleted-binary").is_none());
     assert!(finding(&st, "surface-http-status").is_some());
     eprintln!(
-        "serve :19570 cycle {}: strays gone, proc-owner findings cleared",
+        "serve :{p0} cycle {}: strays gone, proc-owner findings cleared",
         st["cycle"]
     );
     drop(nerve);

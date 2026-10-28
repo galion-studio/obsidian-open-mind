@@ -989,6 +989,7 @@ dependencies = [
 name = "hermes-gateway"
 version = "0.1.0"
 dependencies = [
+ "galion-realtest",
  "hermes-rs",
  "hermes-tools",
  "serde_json",

@@ -25,7 +25,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use galion_realtest::ports::Block;
+
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
+
+/// Slot 383 (real-ports-batch-3): live nerve +0, live service +1, workspace-lock nerve +2;
+/// `CORTEX_S2A_REAL_PORT_BASE` moves the block, unset keeps the old 19550-19559.
+static PORTS: Block = Block::new("CORTEX_S2A_REAL_PORT_BASE", 19550, 10);
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -87,7 +93,7 @@ fn spawn(port: u16, dir: &Path, comps: &Path, extra: &[(&str, String)]) -> Kill 
         .env("NERVE_JOURNAL", "0")
         .env("NERVE_GALION_HEALTH_PORT", "0")
         .env("NERVE_REFLEX", "0")
-        .env("NERVE_LISTEN_SCOPE", "19550-19559")
+        .env("NERVE_LISTEN_SCOPE", PORTS.range())
         .stderr(Stdio::null());
     for (k, v) in extra {
         c.env(k, v);
@@ -176,8 +182,9 @@ fn real_cortex_s2a_on_the_box() {
         flood["title"]
     );
 
-    // 2. Live serve on 19550.
-    let svc = TcpListener::bind("127.0.0.1:19551").expect("19551 free");
+    let [p0, p1, p2] = [0, 1, 2].map(|o| PORTS.port(o));
+    // 2. Live serve on nerve +0 (19550 by default).
+    let svc = TcpListener::bind(PORTS.addr(1)).expect("svc port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 1024];
@@ -186,7 +193,7 @@ fn real_cortex_s2a_on_the_box() {
         }
     });
     let comps = dir.join("components.json");
-    std::fs::write(&comps, r#"[{"name":"live-svc","port":19551}]"#).unwrap();
+    std::fs::write(&comps, format!(r#"[{{"name":"live-svc","port":{p1}}}]"#)).unwrap();
     let lock = dir.join("Cargo.lock");
     std::fs::copy(fx.join("rustsec/Cargo.lock"), &lock).unwrap();
     let auth = dir.join("auth.log");
@@ -197,8 +204,8 @@ fn real_cortex_s2a_on_the_box() {
         ("NERVE_RUSTSEC_LOCK", lock.display().to_string()),
         ("NERVE_RUSTSEC_COMPONENT", "demo-app".to_string()),
     ];
-    let nerve = spawn(19550, &dir, &comps, &env);
-    let st = wait_state(19550, 25, |s| !rustsec_ids(s).is_empty());
+    let nerve = spawn(p0, &dir, &comps, &env);
+    let st = wait_state(p0, 25, |s| !rustsec_ids(s).is_empty());
     let names: Vec<&str> = st["cortex_sensors"]
         .as_array()
         .expect("cortex_sensors")
@@ -237,7 +244,7 @@ fn real_cortex_s2a_on_the_box() {
     );
     assert!(ev.ts.ends_with("+02:00") || ev.ts.ends_with("+01:00"));
     eprintln!(
-        "serve :19550 cycle {}: rustsec {:?}; event {}; sensors {}; cycle_ms {}; rss {} KiB",
+        "serve :{p0} cycle {}: rustsec {:?}; event {}; sensors {}; cycle_ms {}; rss {} KiB",
         st["cycle"],
         rustsec_ids(&st),
         serde_json::to_string(&ev).unwrap(),
@@ -247,9 +254,9 @@ fn real_cortex_s2a_on_the_box() {
     );
     // Auth log disk bleed: +300 KiB -> warn, +1.1 MiB more -> high.
     let c0 = st["cycle"].as_u64().unwrap_or(0);
-    wait_state(19550, 15, |s| s["cycle"].as_u64().unwrap_or(0) > c0);
+    wait_state(p0, 15, |s| s["cycle"].as_u64().unwrap_or(0) > c0);
     append(&auth, 300 * 1024);
-    let st = wait_state(19550, 20, |s| {
+    let st = wait_state(p0, 20, |s| {
         find(s, "bleeding", "sshd-auth-log-growth").is_some()
     });
     let b = find(&st, "bleeding", "sshd-auth-log-growth").expect("auth log growth");
@@ -258,11 +265,11 @@ fn real_cortex_s2a_on_the_box() {
         (Some("warn"), Some("auth.log"))
     );
     eprintln!(
-        "serve :19550 cycle {}: +300 KiB -> {} [{}]",
+        "serve :{p0} cycle {}: +300 KiB -> {} [{}]",
         st["cycle"], b["title"], b["severity"]
     );
     append(&auth, 1100 * 1024);
-    let st = wait_state(19550, 20, |s| {
+    let st = wait_state(p0, 20, |s| {
         find(s, "bleeding", "sshd-auth-log-growth").is_some_and(|b| b["severity"] == "error")
     });
     let b = find(&st, "bleeding", "sshd-auth-log-growth").unwrap();
@@ -276,7 +283,7 @@ fn real_cortex_s2a_on_the_box() {
         .expect("auth.log bleeding event");
     assert_eq!(ev["severity"], "high");
     eprintln!(
-        "serve :19550 cycle {}: +1.1 MiB -> {} [{}], event {}",
+        "serve :{p0} cycle {}: +1.1 MiB -> {} [{}], event {}",
         st["cycle"],
         b["title"],
         b["severity"],
@@ -286,7 +293,7 @@ fn real_cortex_s2a_on_the_box() {
     std::thread::sleep(Duration::from_millis(50));
     std::fs::copy(fx.join("rustsec/Cargo.lock.fixed"), &lock).unwrap();
     std::fs::write(&auth, b"").unwrap();
-    let st = wait_state(19550, 20, |s| {
+    let st = wait_state(p0, 20, |s| {
         s["cycle"].as_u64().unwrap_or(0) > 0
             && rustsec_ids(s).is_empty()
             && find(s, "bleeding", "sshd-auth-log-growth").is_none()
@@ -294,7 +301,7 @@ fn real_cortex_s2a_on_the_box() {
     assert!(rustsec_ids(&st).is_empty(), "{}", st["cortex"]);
     assert!(find(&st, "bleeding", "sshd-auth-log-growth").is_none());
     eprintln!(
-        "serve :19550 cycle {}: lock fixed + log rotated -> cleared; sensors {}; cycle_ms {}; rss {} KiB",
+        "serve :{p0} cycle {}: lock fixed + log rotated -> cleared; sensors {}; cycle_ms {}; rss {} KiB",
         st["cycle"],
         sensors_us(&st),
         st["cycle_ms"],
@@ -308,8 +315,8 @@ fn real_cortex_s2a_on_the_box() {
         ("NERVE_RUSTSEC_LOCK", ws_lock.display().to_string()),
         ("NERVE_RUSTSEC_COMPONENT", "openmind-workspace".to_string()),
     ];
-    let nerve = spawn(19552, &dir, &comps, &env);
-    let st = wait_state(19552, 25, |s| s["cycle"].as_u64().unwrap_or(0) >= 1);
+    let nerve = spawn(p2, &dir, &comps, &env);
+    let st = wait_state(p2, 25, |s| s["cycle"].as_u64().unwrap_or(0) >= 1);
     for f in st["cortex"]["vulnerabilities"]
         .as_array()
         .into_iter()
@@ -317,12 +324,12 @@ fn real_cortex_s2a_on_the_box() {
         .filter(|f| f["source"] == "rustsec")
     {
         eprintln!(
-            "serve :19552 workspace lock: [{}] {}",
+            "serve :{p2} workspace lock: [{}] {}",
             f["severity"], f["title"]
         );
     }
     eprintln!(
-        "serve :19552 cycle {}: sensors {}; rss {} KiB",
+        "serve :{p2} cycle {}: sensors {}; rss {} KiB",
         st["cycle"],
         sensors_us(&st),
         rss_kib(nerve.0.id())

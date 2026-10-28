@@ -31,8 +31,21 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
-const NERVE: u16 = 19760;
-const SVC: u16 = 19761;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): NERVE +0, SVC +1; `CORTEX_EVENT_FEED_REAL_PORT_BASE`
+/// moves the block, unset keeps the old
+/// 19760-19769.
+static PORTS: Block = Block::new("CORTEX_EVENT_FEED_REAL_PORT_BASE", 19760, 10);
+
+#[allow(non_snake_case)]
+fn NERVE() -> u16 {
+    PORTS.port(0)
+}
+#[allow(non_snake_case)]
+fn SVC() -> u16 {
+    PORTS.port(1)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -43,7 +56,7 @@ impl Drop for Kill {
 }
 
 fn http(method: &str, path: &str, body: &str) -> Option<(u16, String)> {
-    let addr = format!("127.0.0.1:{NERVE}").parse().ok()?;
+    let addr = format!("127.0.0.1:{}", NERVE()).parse().ok()?;
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).ok()?;
     let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
     write!(
@@ -134,11 +147,11 @@ fn heal_tick(gaia: Option<&str>, dir: &Path, up: bool) -> String {
                 "--service",
                 "t106",
                 "--port",
-                &SVC.to_string(),
+                &SVC().to_string(),
                 "--allow-ports",
-                "19760-19769",
+                &PORTS.range(),
                 "--nerve",
-                &format!("127.0.0.1:{NERVE}"),
+                &format!("127.0.0.1:{}", NERVE()),
                 "--state",
                 &dir.join("gaia-state").to_string_lossy(),
                 "--trust-file",
@@ -147,7 +160,7 @@ fn heal_tick(gaia: Option<&str>, dir: &Path, up: bool) -> String {
                 "500",
                 "--",
                 "/bin/true",
-                "19761",
+                &SVC().to_string(),
             ])
             .stderr(Stdio::null())
             .output()
@@ -173,20 +186,20 @@ fn heal_tick(gaia: Option<&str>, dir: &Path, up: bool) -> String {
                 "gaia-live",
                 "service.probe",
                 "info",
-                json!({"service": "t106", "port": SVC, "state": "up", "detail": "200", "probe_id": probe}),
+                json!({"service": "t106", "port": SVC(), "state": "up", "detail": "200", "probe_id": probe}),
             );
         } else {
             post(
                 "gaia-live",
                 "service.probe",
                 "warn",
-                json!({"service": "t106", "port": SVC, "state": "down", "detail": format!("connect 127.0.0.1:{SVC}: refused"), "probe_id": probe}),
+                json!({"service": "t106", "port": SVC(), "state": "down", "detail": format!("connect 127.0.0.1:{}: refused", SVC()), "probe_id": probe}),
             );
             post(
                 "gaia-live",
                 "gaia.heal.refused",
                 "warn",
-                json!({"service": "t106", "port": SVC, "stage": "approval", "reason": "no approval file given", "probe_id": probe}),
+                json!({"service": "t106", "port": SVC(), "stage": "approval", "reason": "no approval file given", "probe_id": probe}),
             );
         }
         "GAIA_BIN unset: posted the gaia heal-tick records by hand".into()
@@ -214,7 +227,7 @@ fn real_event_feed_on_the_box() {
             .arg("serve")
             .arg("--log")
             .arg(&log)
-            .env("NERVE_ADDR", format!("127.0.0.1:{NERVE}"))
+            .env("NERVE_ADDR", format!("127.0.0.1:{}", NERVE()))
             .env("NERVE_INTERVAL", "5")
             .env("NERVE_DATA_DIR", dir.join("data"))
             .env("NERVE_COMPONENTS", &comps)
@@ -222,7 +235,7 @@ fn real_event_feed_on_the_box() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "19760-19769")
+            .env("NERVE_LISTEN_SCOPE", &PORTS.range())
             .env(
                 "NERVE_EVENT_FEED_FILE",
                 format!("{},{}", log.display(), surv.display()),
@@ -241,7 +254,11 @@ fn real_event_feed_on_the_box() {
         .filter_map(|s| s["name"].as_str())
         .collect();
     assert!(names.contains(&"event-feed"), "{names:?}");
-    eprintln!("serve :{NERVE} cycle {}: sensors {names:?}", st["cycle"]);
+    eprintln!(
+        "serve :{} cycle {}: sensors {names:?}",
+        NERVE(),
+        st["cycle"]
+    );
 
     // 1. Gaia probes the dead service; HADES refuses (no approval file).
     let how = heal_tick(gaia.as_deref(), &dir, false);
@@ -275,7 +292,7 @@ fn real_event_feed_on_the_box() {
         "gaia-live",
         "gaia.heal.capped",
         "error",
-        json!({"service": "t106", "port": SVC, "restarts_last_hour": 3, "cap": 3, "retry_after_s": 900, "probe_id": "t106-cap"}),
+        json!({"service": "t106", "port": SVC(), "restarts_last_hour": 3, "cap": 3, "retry_after_s": 900, "probe_id": "t106-cap"}),
     );
     let st = wait(|s| find(s, "heal-capped-t106").is_object());
     let cap = find(&st, "heal-capped-t106");
@@ -307,7 +324,7 @@ fn real_event_feed_on_the_box() {
     );
 
     // 3. The service comes up: the next probe clears everything.
-    let svc = TcpListener::bind(("127.0.0.1", SVC)).expect("19761 free");
+    let svc = TcpListener::bind(("127.0.0.1", SVC())).expect("slot port free");
     std::thread::spawn(move || {
         for mut c in svc.incoming().flatten() {
             let mut buf = [0u8; 1024];

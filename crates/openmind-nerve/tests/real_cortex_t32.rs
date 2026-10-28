@@ -36,9 +36,25 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
-const PORT: u16 = 20490;
-const ORIGIN: u16 = 20491;
-const SURFACE: u16 = 20492;
+use galion_realtest::ports::Block;
+
+/// Slot 383 (real-ports-batch-3): PORT +0, ORIGIN +1, SURFACE +2; `CORTEX_T32_REAL_PORT_BASE`
+/// moves the block, unset keeps the old
+/// 20490-20499.
+static PORTS: Block = Block::new("CORTEX_T32_REAL_PORT_BASE", 20490, 10);
+
+#[allow(non_snake_case)]
+fn PORT() -> u16 {
+    PORTS.port(0)
+}
+#[allow(non_snake_case)]
+fn ORIGIN() -> u16 {
+    PORTS.port(1)
+}
+#[allow(non_snake_case)]
+fn SURFACE() -> u16 {
+    PORTS.port(2)
+}
 
 struct Kill(Child);
 impl Drop for Kill {
@@ -62,7 +78,7 @@ fn get(port: u16, path: &str) -> Option<Value> {
 fn wait_state(secs: u64, ok: impl Fn(&Value) -> bool) -> Value {
     let t = Instant::now();
     loop {
-        let st = get(PORT, "/api/v1/state").unwrap_or_default();
+        let st = get(PORT(), "/api/v1/state").unwrap_or_default();
         if ok(&st) || t.elapsed() > Duration::from_secs(secs) {
             return st;
         }
@@ -261,13 +277,14 @@ fn real_cortex_t32_on_the_box() {
 
     // 2. Live serve.
     assert!(
-        TcpListener::bind(("127.0.0.1", PORT)).is_ok(),
-        "port {PORT} busy"
+        TcpListener::bind(("127.0.0.1", PORT())).is_ok(),
+        "port {} busy",
+        PORT()
     );
     let comps = dir.join("components.json");
     std::fs::write(
         &comps,
-        format!(r#"[{{"name":"t32-origin","port":{ORIGIN},"path":"/health","group":"edge","gaia":"AETHER"}}]"#),
+        format!(r#"[{{"name":"t32-origin","port":{},"path":"/health","group":"edge","gaia":"AETHER"}}]"#, ORIGIN()),
     )
     .unwrap();
     let auth = dir.join("auth.log");
@@ -277,7 +294,7 @@ fn real_cortex_t32_on_the_box() {
         .arg("serve")
         .env_clear()
         .env("PATH", std::env::var("PATH").unwrap_or_default())
-        .env("NERVE_ADDR", format!("127.0.0.1:{PORT}"))
+        .env("NERVE_ADDR", format!("127.0.0.1:{}", PORT()))
         .env("NERVE_INTERVAL", "5")
         .env("NERVE_DATA_DIR", dir.join("data"))
         .env("NERVE_COMPONENTS", &comps)
@@ -285,12 +302,15 @@ fn real_cortex_t32_on_the_box() {
         .env("NERVE_JOURNAL", "0")
         .env("NERVE_GALION_HEALTH_PORT", "0")
         .env("NERVE_REFLEX", "0")
-        .env("NERVE_LISTEN_SCOPE", "20490-20499")
+        .env("NERVE_LISTEN_SCOPE", &PORTS.range())
         .env("NERVE_SSHD", "1")
         .env("NERVE_SSHD_AUTH_LOG", &auth)
         .env(
             "NERVE_SURFACE_TARGETS",
-            format!("http://127.0.0.1:{SURFACE}/health@200,http://t32..invalid/"),
+            format!(
+                "http://127.0.0.1:{}/health@200,http://t32..invalid/",
+                SURFACE()
+            ),
         )
         .env("NERVE_SURFACE_EVERY_S", "5")
         .env("NERVE_SURFACE_TIMEOUT_MS", "1500")
@@ -378,7 +398,7 @@ fn real_cortex_t32_on_the_box() {
     // 3. The origin comes up: edge incident resolves, surface findings are
     //    then one uncovered `edge` deduction.
     let stop = Arc::new(AtomicBool::new(false));
-    let h = origin(ORIGIN, stop.clone());
+    let h = origin(ORIGIN(), stop.clone());
     let st = wait_state(60, |s| open(s, "edge").is_none());
     let resolved = st["incidents"]["resolved"]
         .as_array()
@@ -425,6 +445,9 @@ fn real_cortex_t32_on_the_box() {
     stop.store(true, Ordering::Relaxed);
     let _ = h.join();
     drop(_k);
-    assert!(TcpListener::bind(("127.0.0.1", PORT)).is_ok(), "nerve gone");
+    assert!(
+        TcpListener::bind(("127.0.0.1", PORT())).is_ok(),
+        "nerve gone"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

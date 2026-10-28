@@ -24,7 +24,13 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use galion_realtest::ports::Block;
+
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
+
+/// Slot 383 (real-ports-batch-3): nerve +0, 2nd nerve +1, dead component +2;
+/// `EDGE_RATE_REAL_PORT_BASE` moves the block, unset keeps the old 19770-19779.
+static PORTS: Block = Block::new("EDGE_RATE_REAL_PORT_BASE", 19770, 10);
 /// Last fixture state: 2026-10-20T19:06:05+02:00.
 const T_END: u64 = 1_792_515_965;
 
@@ -243,9 +249,10 @@ fn real_edge_rate_on_the_box() {
         eprintln!("replay1 live capture not on this box: skipped");
     }
 
+    let [p0, p1, p2] = [0, 1, 2].map(|o| PORTS.port(o));
     // 3. Serve: wiring visible on the live API.
     let comps = dir.join("components.json");
-    std::fs::write(&comps, r#"[{"name":"dead-svc","port":19772}]"#).unwrap();
+    std::fs::write(&comps, format!(r#"[{{"name":"dead-svc","port":{p2}}}]"#)).unwrap();
     let spawn = |port: u16, extra: &[(&str, &str)]| {
         let mut c = Command::new(BIN);
         c.arg("serve")
@@ -257,7 +264,7 @@ fn real_edge_rate_on_the_box() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "19770-19779")
+            .env("NERVE_LISTEN_SCOPE", PORTS.range())
             .env_remove("NERVE_SENSORS_OFF")
             .env_remove("NERVE_EDGE_HOSTS")
             .stderr(Stdio::null());
@@ -274,8 +281,8 @@ fn real_edge_rate_on_the_box() {
             .filter_map(|s| s["name"].as_str().map(str::to_string))
             .collect()
     };
-    let nerve = spawn(19770, &[("NERVE_EDGE_HOSTS_MAX", "16")]);
-    let st = wait_state(19770, |s| s["cycle"].as_u64().unwrap_or(0) >= 2);
+    let nerve = spawn(p0, &[("NERVE_EDGE_HOSTS_MAX", "16")]);
+    let st = wait_state(p0, |s| s["cycle"].as_u64().unwrap_or(0) >= 2);
     assert!(names(&st).contains(&"edge-rate".to_string()), "{st}");
     assert_eq!(
         st["edge_hosts"],
@@ -288,20 +295,20 @@ fn real_edge_rate_on_the_box() {
         .find(|s| s["name"] == "edge-rate")
         .and_then(|s| s["us"].as_u64());
     eprintln!(
-        "serve :19770 cycle {}: sensors {:?}, edge_hosts {}, edge-rate us {us:?}, cycle_ms {}",
+        "serve :{p0} cycle {}: sensors {:?}, edge_hosts {}, edge-rate us {us:?}, cycle_ms {}",
         st["cycle"],
         names(&st),
         st["edge_hosts"],
         st["cycle_ms"]
     );
     drop(nerve);
-    let nerve = spawn(19771, &[("NERVE_SENSORS_OFF", "edge-rate")]);
-    let st = wait_state(19771, |s| s["cycle"].as_u64().unwrap_or(0) >= 2);
+    let nerve = spawn(p1, &[("NERVE_SENSORS_OFF", "edge-rate")]);
+    let st = wait_state(p1, |s| s["cycle"].as_u64().unwrap_or(0) >= 2);
     assert!(st["cycle"].as_u64().unwrap_or(0) >= 2, "{st}");
     assert!(!names(&st).contains(&"edge-rate".to_string()));
     assert!(st["edge_hosts"].is_null());
     eprintln!(
-        "serve :19771 NERVE_SENSORS_OFF=edge-rate cycle {}: sensors {:?}, edge_hosts null",
+        "serve :{p1} NERVE_SENSORS_OFF=edge-rate cycle {}: sensors {:?}, edge_hosts null",
         st["cycle"],
         names(&st)
     );

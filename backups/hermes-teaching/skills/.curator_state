@@ -1,0 +1,9 @@
+{
+  "last_report_path": "/opt/galion/hermes/logs/curator/20261013-235533",
+  "last_run_at": "2026-10-13T23:55:33.009252+00:00",
+  "last_run_duration_seconds": 0.268071,
+  "last_run_summary": "auto: no changes; llm: skipped (consolidation off)",
+  "last_run_summary_shown_at": null,
+  "paused": false,
+  "run_count": 3
+}

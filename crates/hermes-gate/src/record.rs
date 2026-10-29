@@ -51,6 +51,7 @@ pub fn build(p: &Proposal, plan: &Plan, checks: &[Check], rep: Option<&DeployRep
         "version": VERSION,
         "proposal_id": p.id,
         "proposal_sha256": p.sha256(),
+        "patch_sha256": crate::sha256_hex(p.patch.as_bytes()),
         "base_commit": p.base_commit,
         "model_tier": p.model_tier,
         "plan_sha256": plan.sha256(),
@@ -59,7 +60,9 @@ pub fn build(p: &Proposal, plan: &Plan, checks: &[Check], rep: Option<&DeployRep
         "applied": rep.is_some_and(|r| r.applied),
         "apply_error": rep.and_then(|r| r.apply_error.clone()),
         "stages": rep.map(|r| r.stages.iter().map(|s| s.to_json()).collect::<Vec<_>>()).unwrap_or_default(),
-        "sandbox": {"landlock_abi": f.landlock_abi, "userns": f.userns, "required_layers": plan.require_layers},
+        "checks_passed": checks.iter().filter(|c| c.ok).count(),
+        "checks_total": checks.len(),
+        "sandbox": {"landlock": "not used", "kernel_landlock_abi": f.landlock_abi, "seccomp": "required", "userns": f.userns, "required_layers": plan.require_layers},
         "verdict": if checks_ok && deploy_ok { "pass" } else { "fail" },
         "when": crate::now_stamp(),
     })

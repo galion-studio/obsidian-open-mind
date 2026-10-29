@@ -22,4 +22,8 @@ echo "chat (mock provider): HTTP $code $(head -c 200 "$D/chat.json")"
 noauth=$(curl -s -o /dev/null -w '%{http_code}' -m5 http://127.0.0.1:$PORT/v1/models)
 echo "no-key /v1/models: HTTP $noauth"
 [ "$noauth" = 401 ]
+noauth_chat=$(curl -s -o /dev/null -w '%{http_code}' -m5 -H 'Content-Type: application/json' \
+  -d '{"model":"mock","messages":[{"role":"user","content":"x"}]}' http://127.0.0.1:$PORT/v1/chat/completions)
+echo "no-key chat: HTTP $noauth_chat"
+[ "$noauth_chat" = 401 ]
 echo "deploy smoke ok"

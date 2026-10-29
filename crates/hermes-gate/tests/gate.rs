@@ -91,16 +91,31 @@ fn propose(base: &Path, id: &str, edit: &dyn Fn(&Path)) -> Proposal {
     p
 }
 
+/// The gate needs user namespaces (for the netns/pidns/mountns) and
+/// seccomp; it never needs Landlock.
 fn sandbox_usable() -> bool {
     let f = openmind_sandbox::features();
-    let ok = f.landlock_abi >= 1 && (f.userns || f.landlock_abi >= 4);
-    if !ok {
-        eprintln!(
-            "SKIP: no Landlock/userns on this host (landlock_abi={}, userns={})",
-            f.landlock_abi, f.userns
-        );
+    if !f.userns {
+        eprintln!("SKIP: no user namespaces on this host");
     }
-    ok
+    f.userns
+}
+
+/// The toy repo keeps its code under src/ (the real default is crates/, docs/).
+fn pol() -> checks::CheckPolicy {
+    checks::CheckPolicy {
+        allow_tree: vec!["src/".into()],
+        allow_caps: vec![],
+    }
+}
+
+fn target(r: &Path) -> apply::ApplyTarget {
+    let st = tmpdir("staging");
+    apply::ApplyTarget {
+        source: r.to_path_buf(),
+        ledger: st.join("applied.ledger"),
+        staging_root: st,
+    }
 }
 
 fn gate(
@@ -109,7 +124,7 @@ fn gate(
     pl: &stage::Plan,
     sk: &ed25519_dalek::SigningKey,
 ) -> (Value, Value) {
-    let cs = checks::run(p);
+    let cs = checks::run(p, r, &pol());
     let rep = if checks::all_ok(&cs) {
         Some(stage::sandbox_deploy(r, &tmpdir("scratch"), p, pl).unwrap())
     } else {
@@ -146,50 +161,61 @@ fn full_flow_sandbox_deploy_sign_approve_apply() {
         .as_str()
         .unwrap()
         .contains("deploy smoke ok: version 2"));
-    // verify, approve, apply to a separate target clone at the same base
+    assert_eq!(rec["checks_passed"], 7);
+    assert_eq!(rec["sandbox"]["landlock"], "not used");
+    assert_eq!(rec["stages"][0]["layers"]["seccomp"], "on", "{rec}");
+    assert_eq!(
+        rec["stages"][0]["layers"]["landlock"],
+        "off: disabled by policy"
+    );
+    // verify, approve, apply to a fresh staging copy (never in place)
     let v = record::verify(&signed, &sbx.verifying_key()).unwrap();
     assert_eq!(v["proposal_sha256"], p.sha256().as_str());
-    let target = tmpdir("target");
-    std::fs::remove_dir_all(&target).unwrap();
-    git(
-        &r,
-        &[
-            "worktree",
-            "add",
-            "-q",
-            "--detach",
-            target.to_str().unwrap(),
-            "HEAD",
-        ],
-        None,
-    )
-    .unwrap();
-    let head = hermes_gate::git::head(&target).unwrap();
+    let t = target(&r);
+    let head = hermes_gate::git::head(&r).unwrap();
     let now = hermes_rs::time::now_secs();
-    let appr = apply::approve(
+    let appr = apply::approve_labeled(
         &owner,
         &p.sha256(),
         &record::record_sha256(&signed),
         &head,
         now + 600,
+        "test approval",
     );
-    let auth = apply::authorize(
+    let done = apply::apply_staged(
+        &t,
         &signed,
         &sbx.verifying_key(),
         &p,
         &appr,
         &owner.verifying_key(),
-        &head,
         now,
     )
     .unwrap();
-    let tree = apply::apply(&target, &auth, &p).unwrap();
-    assert_eq!(tree, rec["result_tree"].as_str().unwrap());
-    assert!(std::fs::read_to_string(target.join("src/app.sh"))
-        .unwrap()
-        .contains("version 2"));
-    // the source repo HEAD is untouched (nothing committed, nothing pushed)
+    assert_eq!(done.tree, rec["result_tree"].as_str().unwrap());
+    assert!(done.staging_copy.starts_with(&t.staging_root));
+    assert!(
+        std::fs::read_to_string(done.staging_copy.join("src/app.sh"))
+            .unwrap()
+            .contains("version 2")
+    );
+    // the source tree is untouched (not applied in place, nothing committed)
     assert_eq!(hermes_gate::git::head(&r).unwrap(), p.base_commit);
+    assert!(std::fs::read_to_string(r.join("src/app.sh"))
+        .unwrap()
+        .contains("version 1"));
+    // replay: the same approval a second time is refused
+    let e = apply::apply_staged(
+        &t,
+        &signed,
+        &sbx.verifying_key(),
+        &p,
+        &appr,
+        &owner.verifying_key(),
+        now,
+    )
+    .unwrap_err();
+    assert!(e.contains("replay refused"), "{e}");
 }
 
 #[test]
@@ -232,6 +258,8 @@ fn sandbox_blocks_escape_writes_and_network_and_hides_live_roots() {
          ls /opt/galion 2>/dev/null | head -1 | grep -q . && echo SAW-LIVE\n\
          ls {h} 2>/dev/null | head -1 | grep -q . && echo SAW-HOME\n\
          cat {r}/.git/HEAD 2>/dev/null && echo SAW-REPO-GIT\n\
+         unshare -U true 2>/dev/null && echo UNSHARE-OK\n\
+         grep -q '^Seccomp:.*2' /proc/self/status && echo SECCOMP-ON\n\
          echo probe-done\n",
         m = marker.display(),
         ip = pub_ip(1),
@@ -245,7 +273,7 @@ fn sandbox_blocks_escape_writes_and_network_and_hides_live_roots() {
     .unwrap();
     // The static checks already refuse this patch (live root, address);
     // run the sandbox deploy directly to prove the second layer holds too.
-    assert!(!checks::all_ok(&checks::run(&p)));
+    assert!(!checks::all_ok(&checks::run(&p, &r, &pol())));
     let rep = stage::sandbox_deploy(&r, &tmpdir("scratch"), &p, &pl).unwrap();
     let rec = json!({"stages": rep.stages.iter().map(|s| s.to_json()).collect::<Vec<_>>()});
     let out = rec["stages"][0]["stdout_tail"].as_str().unwrap_or("");
@@ -265,6 +293,8 @@ fn sandbox_blocks_escape_writes_and_network_and_hides_live_roots() {
         !out.contains("SAW-REPO-GIT"),
         "the source repo's .git is visible"
     );
+    assert!(!out.contains("UNSHARE-OK"), "seccomp let unshare through");
+    assert!(out.contains("SECCOMP-ON"), "{out}");
     assert!(
         rec["stages"][0]["missing_layers"]
             .as_array()
@@ -283,27 +313,27 @@ fn static_checks_refuse_before_any_deploy() {
         (
             "ci",
             Box::new(|wt: &Path| w(wt, ".github/workflows/x.yml", "on: push\n")),
-            "paths",
+            "protected_targets",
         ),
         (
             "unit",
-            Box::new(|wt: &Path| w(wt, "deploy/hermes.service", "[Service]\n")),
-            "paths",
+            Box::new(|wt: &Path| w(wt, "src/hermes.service", "[Service]\n")),
+            "protected_targets",
         ),
         (
             "selfgate",
             Box::new(|wt: &Path| w(wt, "crates/hermes-gate/src/lib.rs", "//\n")),
-            "paths",
+            "protected_targets",
         ),
         (
             "push",
             Box::new(|wt: &Path| w(wt, "src/app.sh", "git push origin main\n")),
-            "no_live_or_secrets",
+            "protected_targets",
         ),
         (
             "live",
             Box::new(|wt: &Path| w(wt, "src/app.sh", "cp x /opt/galion/rust/bin/\n")),
-            "no_live_or_secrets",
+            "protected_targets",
         ),
         (
             "key",
@@ -314,12 +344,12 @@ fn static_checks_refuse_before_any_deploy() {
                     &format!("{}BEGIN {} KEY-----\n", "-".repeat(5), "PRIVATE"),
                 )
             }),
-            "no_live_or_secrets",
+            "no_secrets",
         ),
         (
             "ip",
             Box::new(|wt: &Path| w(wt, "src/app.sh", &format!("curl http://{}/\n", pub_ip(8)))),
-            "no_host_addresses",
+            "no_secrets",
         ),
         (
             "unsafe",
@@ -330,7 +360,38 @@ fn static_checks_refuse_before_any_deploy() {
                     "fn f() { unsafe { g() } }\nunsafe fn g() {}\n",
                 )
             }),
-            "no_new_unsafe",
+            "no_new_capabilities",
+        ),
+        (
+            "spawn",
+            Box::new(|wt: &Path| {
+                w(
+                    wt,
+                    "src/y.rs",
+                    "fn f() { std::process::Command::new(\"sh\"); }\n",
+                )
+            }),
+            "no_new_capabilities",
+        ),
+        (
+            "net",
+            Box::new(|wt: &Path| w(wt, "src/z.rs", "use std::net::TcpStream;\n")),
+            "no_new_capabilities",
+        ),
+        (
+            "outside",
+            Box::new(|wt: &Path| w(wt, "other/readme.md", "hi\n")),
+            "allowed_tree",
+        ),
+        (
+            "blob",
+            Box::new(|wt: &Path| w(wt, "src/b.txt", &format!("{}\n", "QUJD".repeat(60)))),
+            "text_only",
+        ),
+        (
+            "secretfile",
+            Box::new(|wt: &Path| w(wt, "src/my_secret.txt", "x\n")),
+            "protected_targets",
         ),
     ];
     let (sbx, _) = keys();
@@ -358,7 +419,23 @@ fn static_checks_refuse_before_any_deploy() {
     let p = propose(&r, "clean", &|wt| {
         w(wt, "src/app.sh", "#!/bin/sh\necho \"version 3\"\n")
     });
-    assert!(checks::all_ok(&checks::run(&p)), "{:?}", checks::run(&p));
+    assert!(
+        checks::all_ok(&checks::run(&p, &r, &pol())),
+        "{:?}",
+        checks::run(&p, &r, &pol())
+    );
+    // the operator flag (never the proposal) unlocks a capability
+    let p = propose(&r, "net-ok", &|wt| {
+        w(wt, "src/z.rs", "use std::net::TcpStream;\n")
+    });
+    let mut allow = pol();
+    allow.allow_caps = vec!["net".into()];
+    assert!(checks::all_ok(&checks::run(&p, &r, &allow)));
+    // a patch that does not apply to its base fails check 1
+    let mut bad = p.clone();
+    bad.patch = bad.patch.replace("--- /dev/null", "--- a/src/z.rs");
+    let c = checks::run(&bad, &r, &allow);
+    assert!(!c[0].ok && c[0].name == "applies_to_base", "{c:?}");
 }
 
 #[test]
@@ -371,22 +448,35 @@ fn checks_catch_binary_mode_and_absolute_paths() {
         model_tier: "low".into(),
         created: String::new(),
     };
-    let fails = |p: &Proposal, n: &str| checks::run(p).iter().any(|c| c.name == n && !c.ok);
+    let r = repo();
+    let fails = |p: &Proposal, n: &str| {
+        checks::run(p, &r, &pol())
+            .iter()
+            .any(|c| c.name == n && !c.ok)
+    };
     assert!(fails(
         &mk("diff --git a/a b/a\nGIT binary patch\n"),
         "text_only"
     ));
     assert!(fails(
         &mk("diff --git a/a b/a\nnew file mode 100755\n"),
-        "mode_changes"
+        "text_only"
     ));
     assert!(fails(
         &mk("diff --git a/l b/l\nnew file mode 120000\n"),
-        "mode_changes"
+        "text_only"
     ));
-    assert!(fails(&mk("--- /etc/passwd\n+++ /etc/passwd\n"), "paths"));
-    assert!(fails(&mk("diff --git a/../x b/../x\n"), "paths"));
-    assert!(fails(&mk(""), "size"));
+    assert!(fails(
+        &mk("--- /etc/passwd\n+++ /etc/passwd\n"),
+        "allowed_tree"
+    ));
+    assert!(fails(&mk("diff --git a/../x b/../x\n"), "allowed_tree"));
+    assert!(fails(&mk(""), "size_limits"));
+    assert!(fails(
+        &mk("diff --git a/src/a b/src/a\n"),
+        "applies_to_base"
+    ));
+    assert_eq!(checks::run(&mk(""), &r, &pol()).len(), 7);
     assert_eq!(
         checks::public_ipv4("bind 127.0.0.1:8642 and 10.0.0.1"),
         None
@@ -467,39 +557,278 @@ fn tampering_and_wrong_approvals_are_refused() {
 }
 
 #[test]
-fn apply_refuses_live_roots_and_moved_heads() {
+fn apply_refuses_live_paths_before_running_any_command() {
+    let (sbx, owner) = keys();
     let p = Proposal {
         id: "l".into(),
         base_commit: "a".repeat(40),
-        patch: String::new(),
+        patch: "diff --git a/src/f b/src/f\n".into(),
         summary: String::new(),
         model_tier: "high".into(),
         created: String::new(),
     };
-    let a = apply::Authorized {
-        proposal_sha256: p.sha256(),
-        base_commit: p.base_commit.clone(),
-        result_tree: "b".repeat(40),
-    };
+    let ok_staging = tmpdir("st");
     for live in [
         "/opt/galion/openmind",
+        "/opt/galion/rust/src",
+        "/opt/galion/hermes",
         "/root/.hermes",
         "/etc/systemd/system",
         "/var/lib/hermes-rs",
+        "/var/lib/galion-gate/../hermes-rs",
     ] {
-        let e = apply::apply(Path::new(live), &a, &p).unwrap_err();
-        assert!(e.contains("live apply is not enabled"), "{live}: {e}");
+        for t in [
+            apply::ApplyTarget {
+                source: PathBuf::from(live),
+                staging_root: ok_staging.clone(),
+                ledger: ok_staging.join("l"),
+            },
+            apply::ApplyTarget {
+                source: tmpdir("src"),
+                staging_root: PathBuf::from(live),
+                ledger: ok_staging.join("l"),
+            },
+        ] {
+            let before = hermes_gate::git::spawn_count();
+            let e = apply::apply_staged(
+                &t,
+                &json!({}),
+                &sbx.verifying_key(),
+                &p,
+                &json!({"sig": "00"}),
+                &owner.verifying_key(),
+                0,
+            )
+            .unwrap_err();
+            assert!(e.contains("live path refused"), "{live}: {e}");
+            assert_eq!(
+                hermes_gate::git::spawn_count(),
+                before,
+                "{live}: git was started for a refused path"
+            );
+        }
     }
+    // the gate home itself is not live, but the always-live trees are
+    assert!(!stage::under_live_root(Path::new(
+        "/var/lib/galion-gate/staging"
+    )));
+    assert!(stage::under_live_root(Path::new("/opt/galion/openmind/x")));
+    // in place (staging inside the source) is refused too
     let r = repo();
-    let e = apply::apply(&r, &a, &p).unwrap_err();
-    assert!(e.contains("HEAD moved"), "{e}");
+    let t = apply::ApplyTarget {
+        source: r.clone(),
+        staging_root: r.join("staging"),
+        ledger: ok_staging.join("l"),
+    };
+    let e = apply::refuse_live(&t).unwrap_err();
+    assert!(e.contains("no in-place apply"), "{e}");
     let e = stage::sandbox_deploy(Path::new("/opt/galion/openmind"), &tmpdir("s"), &p, &plan())
         .unwrap_err();
     assert!(e.contains("refuses live roots"), "{e}");
     for live in ["/opt/galion/openmind", "/opt/galion/openmind/../openmind"] {
+        let before = hermes_gate::git::spawn_count();
         let e = hermes_gate::git::head(Path::new(live)).unwrap_err();
         assert!(e.contains("git in a live root is never run"), "{live}: {e}");
+        assert_eq!(hermes_gate::git::spawn_count(), before);
     }
+}
+
+/// A real record + approval for the refusal tests below (no sandbox run:
+/// the record is signed directly, the apply path is what is tested).
+fn signed_case() -> (
+    PathBuf,
+    Proposal,
+    Value,
+    ed25519_dalek::SigningKey,
+    ed25519_dalek::SigningKey,
+    String,
+) {
+    let r = repo();
+    let p = propose(&r, "case", &|wt| {
+        w(wt, "src/app.sh", "#!/bin/sh\necho \"version 9\"\n")
+    });
+    // the tree the "sandbox" saw: apply in a scratch copy
+    let t = target(&r);
+    let tree = {
+        let a = apply::Authorized {
+            proposal_sha256: p.sha256(),
+            base_commit: p.base_commit.clone(),
+            result_tree: "0".repeat(40),
+            approval_id: String::new(),
+            label: String::new(),
+        };
+        let e = apply::apply_to_copy(&t, &a, &p).unwrap_err();
+        assert!(e.contains("differs"), "{e}");
+        // read the real tree from the reversed copy by re-applying
+        let copy = std::fs::read_dir(&t.staging_root)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.is_dir())
+            .unwrap();
+        git(&copy, &["apply", "--index", "-"], Some(p.patch.as_bytes())).unwrap();
+        git(&copy, &["write-tree"], None)
+            .unwrap()
+            .trim()
+            .to_string()
+    };
+    let (sbx, owner) = keys();
+    let rec = json!({"version": record::VERSION, "proposal_sha256": p.sha256(),
+                     "patch_sha256": hermes_gate::sha256_hex(p.patch.as_bytes()),
+                     "base_commit": p.base_commit, "result_tree": tree, "verdict": "pass"});
+    (r, p, record::sign(&rec, &sbx), sbx, owner, tree)
+}
+
+#[test]
+fn refusal_no_approval() {
+    let (r, p, signed, sbx, owner, _) = signed_case();
+    let e = apply::apply_staged(
+        &target(&r),
+        &signed,
+        &sbx.verifying_key(),
+        &p,
+        &Value::Null,
+        &owner.verifying_key(),
+        0,
+    )
+    .unwrap_err();
+    assert!(e.contains("no owner approval"), "{e}");
+}
+
+#[test]
+fn refusal_sandbox_key_used_as_owner_key() {
+    let (r, p, signed, sbx, _owner, _) = signed_case();
+    let head = hermes_gate::git::head(&r).unwrap();
+    let now = hermes_rs::time::now_secs();
+    let by_sbx = apply::approve(
+        &sbx,
+        &p.sha256(),
+        &record::record_sha256(&signed),
+        &head,
+        now + 60,
+    );
+    let e = apply::apply_staged(
+        &target(&r),
+        &signed,
+        &sbx.verifying_key(),
+        &p,
+        &by_sbx,
+        &sbx.verifying_key(),
+        now,
+    )
+    .unwrap_err();
+    assert!(e.contains("must differ"), "{e}");
+}
+
+#[test]
+fn refusal_replay_and_expired_and_checksum() {
+    let (r, p, signed, sbx, owner, tree) = signed_case();
+    let head = hermes_gate::git::head(&r).unwrap();
+    let now = hermes_rs::time::now_secs();
+    let rsha = record::record_sha256(&signed);
+    let t = target(&r);
+    // expired
+    let old = apply::approve(&owner, &p.sha256(), &rsha, &head, now - 1);
+    let e = apply::apply_staged(
+        &t,
+        &signed,
+        &sbx.verifying_key(),
+        &p,
+        &old,
+        &owner.verifying_key(),
+        now,
+    )
+    .unwrap_err();
+    assert!(e.contains("expired"), "{e}");
+    // checksum mismatch: a proposal file whose patch_sha256 was edited
+    let mut pj = p.to_json();
+    pj["patch"] = json!(format!("{}+x\n", p.patch));
+    assert!(Proposal::from_json(&pj)
+        .unwrap_err()
+        .contains("patch_sha256"));
+    // checksum mismatch: a changed patch with a fresh checksum
+    let mut p2 = p.clone();
+    p2.patch = p.patch.replace("version 9", "version 8");
+    let good = apply::approve(&owner, &p.sha256(), &rsha, &head, now + 60);
+    let e = apply::apply_staged(
+        &t,
+        &signed,
+        &sbx.verifying_key(),
+        &p2,
+        &good,
+        &owner.verifying_key(),
+        now,
+    )
+    .unwrap_err();
+    assert!(
+        e.contains("checksum mismatch") || e.contains("different proposal"),
+        "{e}"
+    );
+    // the good one works once, then is a replay
+    let t2 = target(&r);
+    let done = apply::apply_staged(
+        &t2,
+        &signed,
+        &sbx.verifying_key(),
+        &p,
+        &good,
+        &owner.verifying_key(),
+        now,
+    )
+    .unwrap();
+    assert_eq!(done.tree, tree);
+    let e = apply::apply_staged(
+        &t2,
+        &signed,
+        &sbx.verifying_key(),
+        &p,
+        &good,
+        &owner.verifying_key(),
+        now,
+    )
+    .unwrap_err();
+    assert!(e.contains("replay refused"), "{e}");
+    // moved target: a commit on the source after approval
+    w(&r, "src/other.sh", "x\n");
+    git(&r, &["add", "-A"], None).unwrap();
+    git(&r, &["commit", "-q", "-m", "moved"], None).unwrap();
+    let good2 = apply::approve(&owner, &p.sha256(), &rsha, &head, now + 60);
+    let e = apply::apply_staged(
+        &target(&r),
+        &signed,
+        &sbx.verifying_key(),
+        &p,
+        &good2,
+        &owner.verifying_key(),
+        now,
+    )
+    .unwrap_err();
+    assert!(e.contains("target moved"), "{e}");
+}
+
+#[test]
+fn refusal_result_differs_from_tested_tree_reverts() {
+    let (r, p, _signed, _sbx, _owner, _tree) = signed_case();
+    let t = target(&r);
+    let a = apply::Authorized {
+        proposal_sha256: p.sha256(),
+        base_commit: p.base_commit.clone(),
+        result_tree: "1".repeat(40),
+        approval_id: String::new(),
+        label: String::new(),
+    };
+    let e = apply::apply_to_copy(&t, &a, &p).unwrap_err();
+    assert!(e.contains("reversed"), "{e}");
+    let copy = std::fs::read_dir(&t.staging_root)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.is_dir())
+        .unwrap();
+    assert!(git(&copy, &["status", "--porcelain"], None)
+        .unwrap()
+        .trim()
+        .is_empty());
 }
 
 #[test]
@@ -513,6 +842,10 @@ fn plan_env_and_loopback_ports_are_allowlisted() {
     let pol = stage::policy(Path::new("/tmp/w"), &ok, &ok.stages[0]);
     assert_eq!(pol.loopback_tcp_ports, vec![18642]);
     assert!(!pol.net && pol.require_net_isolation);
+    assert!(
+        pol.seccomp && !pol.landlock,
+        "seccomp on, Landlock never used"
+    );
     for bad in [
         json!({"env": {"LD_PRELOAD": "/tmp/x.so"}, "stages": [{"name": "a", "argv": ["true"]}]}),
         json!({"env": {"CARGO_HOME": "/opt/galion/x"}, "stages": [{"name": "a", "argv": ["true"]}]}),
@@ -541,6 +874,14 @@ fn plan_refuses_live_reads_and_unknown_layers() {
     )
     .is_err());
     assert!(stage::Plan::from_json(&json!({"stages": []})).is_err());
+    assert!(stage::Plan::from_json(
+        &json!({"stages": [{"name": "a", "argv": ["true"]}], "require_layers": ["landlock", "seccomp", "net", "no_new_privs"]})
+    )
+    .is_err());
+    assert!(stage::Plan::from_json(
+        &json!({"stages": [{"name": "a", "argv": ["true"]}], "require_layers": ["net", "no_new_privs"]})
+    )
+    .is_err(), "seccomp may not be dropped");
 }
 
 #[test]

@@ -199,6 +199,7 @@ impl Preset {
                 .collect(),
             wall_timeout: Duration::from_secs(self.wall_timeout_secs),
             loopback_tcp_ports: vec![],
+            seccomp: false,
             cpu_secs: self.cpu_secs,
             mem_bytes: self.mem_bytes,
             nofile: self.nofile,

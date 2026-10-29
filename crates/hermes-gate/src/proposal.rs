@@ -134,6 +134,43 @@ impl Proposal {
             .map(|l| &l[1..])
     }
 
+    /// Build a proposal from patch text (e.g. extracted from a Hermes chat
+    /// reply) against a named base commit. Nothing is applied here.
+    pub fn from_patch(
+        base_commit: &str,
+        patch: &str,
+        id: &str,
+        summary: &str,
+        tier: &str,
+    ) -> Result<Proposal, String> {
+        let mut patch = patch.replace("\r\n", "\n");
+        if !patch.ends_with('\n') {
+            patch.push('\n');
+        }
+        if patch.trim().is_empty() {
+            return Err("nothing to propose: empty patch".into());
+        }
+        let p = Proposal {
+            id: id.into(),
+            base_commit: base_commit.into(),
+            patch,
+            summary: summary
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(300)
+                .collect(),
+            model_tier: tier.into(),
+            created: crate::now_stamp(),
+        };
+        if !id_ok(&p.id) {
+            return Err("bad proposal id".into());
+        }
+        if !commit_ok(&p.base_commit) {
+            return Err("base_commit must be a full lowercase sha".into());
+        }
+        Ok(p)
+    }
+
     /// Build a proposal from the uncommitted changes of a work tree (what
     /// Hermes's sandboxed `fs_write` produced), against its HEAD. Files are
     /// not changed; new files are only marked intent-to-add in the index.

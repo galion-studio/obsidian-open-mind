@@ -5,9 +5,12 @@
 //! Sandbox deploy: the proposal is applied to a throwaway worktree at its
 //! base commit, then every plan stage (build, test, a live-style deploy of
 //! the built service on loopback inside the sandbox, smoke probes) runs
-//! under `openmind_sandbox::run`: no network, read-only root, Landlock,
-//! rlimits, cleared env, live roots hidden. A stage whose required sandbox
-//! layers were not enforced fails closed, even if its command exited 0.
+//! under `openmind_sandbox::run`: user, PID, mount and an empty network
+//! namespace (only `lo`), read-only root, the seccomp deny-list, rlimits,
+//! cleared env, no capabilities, live roots and key dirs hidden. Landlock
+//! is NOT used (the VPS LXC kernel has none; the gate behaves the same on
+//! every host). A stage whose required sandbox layers were not enforced
+//! fails closed, even if its command exited 0.
 
 use crate::proposal::Proposal;
 use openmind_sandbox::{SandboxPolicy, Status};
@@ -29,11 +32,56 @@ pub const LIVE_ROOTS: &[&str] = &[
 ];
 
 /// Layers every stage must have had enforced unless the plan names its own
-/// list. `net` = no network (namespace or Landlock TCP deny).
-pub const DEFAULT_REQUIRED: &[&str] = &["rlimits", "env", "no_new_privs", "landlock", "net"];
+/// list. `net` = no network (an empty network namespace).
+pub const DEFAULT_REQUIRED: &[&str] = &[
+    "rlimits",
+    "env",
+    "no_new_privs",
+    "userns",
+    "net",
+    "pidns",
+    "mountns",
+    "ro_root",
+    "seccomp",
+    "caps",
+];
 
+/// The gate's own home on the VPS (`galion-gate` account): its repo copy,
+/// scratch and staging dirs live here, so it is not a live root. Its key
+/// dir is hidden from every sandbox stage (see [`policy`]).
+pub const GATE_HOMES: &[&str] = &["/var/lib/galion-gate"];
+
+/// Paths that are always live, even inside a gate home.
+pub const ALWAYS_LIVE: &[&str] = &["/opt/galion/openmind", "/opt/galion/rust/src"];
+
+fn norm(p: &Path) -> std::path::PathBuf {
+    // Lexical clean-up first (`..` must not walk out of a gate home), then
+    // the real path when it exists (symlinks).
+    let mut out = std::path::PathBuf::new();
+    for c in p.components() {
+        match c {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other.as_os_str()),
+        }
+    }
+    std::fs::canonicalize(&out).unwrap_or(out)
+}
+
+/// True for a live path (or one that resolves to it). Pure: no process is
+/// started, so callers check this before running any command.
 pub fn under_live_root(p: &Path) -> bool {
-    LIVE_ROOTS.iter().any(|r| p.starts_with(r))
+    let n = norm(p);
+    let hit = |q: &Path| {
+        ALWAYS_LIVE.iter().any(|r| q.starts_with(r))
+            || (LIVE_ROOTS.iter().any(|r| q.starts_with(r))
+                && !GATE_HOMES.iter().any(|g| q.starts_with(g)))
+    };
+    hit(p)
+        || hit(&n)
+        || !p.is_absolute() && hit(&std::env::current_dir().unwrap_or_default().join(p))
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -123,6 +171,14 @@ impl Plan {
             if !openmind_sandbox::LAYERS.contains(&l.as_str()) {
                 return Err(format!("plan: unknown sandbox layer {l}"));
             }
+            if l == "landlock" {
+                return Err("plan: landlock is not used by hermes-gate".into());
+            }
+        }
+        for must in ["seccomp", "net", "no_new_privs"] {
+            if !require_layers.iter().any(|l| l == must) {
+                return Err(format!("plan: required layer {must} may not be dropped"));
+            }
         }
         let mut extra_read = vec![];
         for p in v["extra_read"].as_array().into_iter().flatten() {
@@ -175,6 +231,8 @@ pub struct StageResult {
     pub timed_out: bool,
     pub wall_ms: u64,
     pub missing_layers: Vec<String>,
+    /// Every sandbox layer as reported by openmind-sandbox: `on` or `off: why`.
+    pub layers: Vec<(String, String)>,
     pub ok: bool,
     pub stdout_tail: String,
     pub stderr_tail: String,
@@ -184,6 +242,7 @@ impl StageResult {
     pub fn to_json(&self) -> Value {
         json!({"name": self.name, "ok": self.ok, "exit": self.exit, "timed_out": self.timed_out,
                "wall_ms": self.wall_ms, "missing_layers": self.missing_layers,
+               "layers": self.layers.iter().map(|(k, v)| (k.clone(), Value::String(v.clone()))).collect::<serde_json::Map<_, _>>(),
                "stdout_tail": self.stdout_tail, "stderr_tail": self.stderr_tail})
     }
 }
@@ -213,8 +272,34 @@ fn tail(b: &[u8], n: usize) -> String {
     s[i..].to_string()
 }
 
-/// The sandbox policy for one stage in worktree `wt`.
+/// Dirs hidden in every stage besides the live roots: secrets of the
+/// account the gate runs as (the sandbox key dir is passed in `hide`).
+fn secret_dirs() -> Vec<PathBuf> {
+    let mut v = vec![PathBuf::from("/workspace/swarm/secrets")];
+    if let Some(h) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
+        let h = PathBuf::from(h);
+        for d in [
+            ".ssh",
+            ".config",
+            ".gnupg",
+            ".docker",
+            ".kube",
+            ".aws",
+            ".local/share/keyrings",
+        ] {
+            v.push(h.join(d));
+        }
+    }
+    v
+}
+
+/// The sandbox policy for one stage in worktree `wt`. `hide` = extra dirs
+/// to cover (the sandbox key dir, the source repo's `.git`).
 pub fn policy(wt: &Path, plan: &Plan, st: &StageSpec) -> SandboxPolicy {
+    policy_with(wt, plan, st, &[])
+}
+
+pub fn policy_with(wt: &Path, plan: &Plan, st: &StageSpec, hide: &[PathBuf]) -> SandboxPolicy {
     let mut p = SandboxPolicy::new(wt);
     let home = wt.join(".gate-home");
     let tmp = wt.join(".gate-tmp");
@@ -232,11 +317,13 @@ pub fn policy(wt: &Path, plan: &Plan, st: &StageSpec) -> SandboxPolicy {
     p.net = false;
     p.require_net_isolation = true;
     p.loopback_tcp_ports = st.loopback_ports.clone();
-    p.landlock = true;
+    // Landlock is never used (owner rule: VPS kernel has none, error 95).
+    p.landlock = false;
+    p.seccomp = true;
     p.fs_read.push(PathBuf::from("/dev/null"));
     p.fs_read.extend(plan.extra_read.iter().cloned());
     // A hidden dir that holds an extra read path (a toolchain under $HOME)
-    // stays visible; Landlock still limits reads to the listed paths.
+    // stays visible; its secret subdirs are hidden below.
     p.hide_paths
         .retain(|h| !plan.extra_read.iter().any(|r| r.starts_with(h)));
     for (k, v) in &plan.env {
@@ -244,9 +331,27 @@ pub fn policy(wt: &Path, plan: &Plan, st: &StageSpec) -> SandboxPolicy {
         p.env_set.push((k.clone(), v.clone()));
     }
     p.fs_write = vec![wt.to_path_buf(), PathBuf::from("/dev/null")];
-    for h in ["/opt/galion", "/srv", "/var/lib"] {
-        let h = PathBuf::from(h);
-        if h.exists() && !p.hide_paths.contains(&h) {
+    let mut hides: Vec<PathBuf> = ["/opt/galion", "/srv", "/home", "/root", "/var/backups"]
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    // /var/lib: everything but the gate home (the work tree may live there).
+    if let Ok(rd) = std::fs::read_dir("/var/lib") {
+        for e in rd.flatten() {
+            let path = e.path();
+            if !GATE_HOMES.iter().any(|g| Path::new(g) == path) {
+                hides.push(path);
+            }
+        }
+    }
+    hides.extend(secret_dirs());
+    hides.extend(hide.iter().cloned());
+    for h in hides {
+        // never cover the work tree itself or a path the plan reads
+        if wt.starts_with(&h) || plan.extra_read.iter().any(|r| r.starts_with(&h)) {
+            continue;
+        }
+        if h.is_dir() && !p.hide_paths.contains(&h) {
             p.hide_paths.push(h);
         }
     }
@@ -254,8 +359,8 @@ pub fn policy(wt: &Path, plan: &Plan, st: &StageSpec) -> SandboxPolicy {
 }
 
 /// Run one stage in the sandbox and judge it.
-pub fn run_stage(wt: &Path, plan: &Plan, st: &StageSpec) -> StageResult {
-    let pol = policy(wt, plan, st);
+pub fn run_stage(wt: &Path, plan: &Plan, st: &StageSpec, hide: &[PathBuf]) -> StageResult {
+    let pol = policy_with(wt, plan, st, hide);
     let o = openmind_sandbox::run(&st.argv, &pol);
     let exit = match o.status {
         Status::Exited(c) => Some(c),
@@ -278,6 +383,19 @@ pub fn run_stage(wt: &Path, plan: &Plan, st: &StageSpec) -> StageResult {
         wall_ms: o.wall.as_millis() as u64,
         ok: exit == Some(0) && !o.timed_out && missing.is_empty(),
         missing_layers: missing,
+        layers: o
+            .enforced
+            .iter()
+            .map(|(k, e)| {
+                (
+                    k.clone(),
+                    match e {
+                        openmind_sandbox::Enforcement::Enforced => "on".to_string(),
+                        openmind_sandbox::Enforcement::NotEnforced(w) => format!("off: {w}"),
+                    },
+                )
+            })
+            .collect(),
         stdout_tail: tail(&o.stdout, 2000),
         stderr_tail: err,
     }
@@ -290,6 +408,18 @@ pub fn sandbox_deploy(
     scratch: &Path,
     p: &Proposal,
     plan: &Plan,
+) -> Result<DeployReport, String> {
+    sandbox_deploy_hiding(repo, scratch, p, plan, &[])
+}
+
+/// As [`sandbox_deploy`], also hiding `hide` (e.g. the sandbox key dir) from
+/// every stage. The source repo's `.git` is always hidden.
+pub fn sandbox_deploy_hiding(
+    repo: &Path,
+    scratch: &Path,
+    p: &Proposal,
+    plan: &Plan,
+    hide: &[PathBuf],
 ) -> Result<DeployReport, String> {
     if under_live_root(scratch) || under_live_root(repo) {
         return Err("sandbox deploy refuses live roots for repo and scratch".into());
@@ -325,8 +455,14 @@ pub fn sandbox_deploy(
         for d in [".gate-home", ".gate-tmp"] {
             std::fs::create_dir_all(wt.join(d)).map_err(|e| e.to_string())?;
         }
+        let mut hide = hide.to_vec();
+        if let Ok(gd) = crate::git::git(repo, &["rev-parse", "--absolute-git-dir"], None) {
+            hide.push(PathBuf::from(gd.trim()));
+        }
+        // the work tree's `.git` file points into the hidden repo; drop it
+        let _ = std::fs::remove_file(wt.join(".git"));
         for st in &plan.stages {
-            let s = run_stage(&wt, plan, st);
+            let s = run_stage(&wt, plan, st, &hide);
             let stop = !s.ok;
             rep.stages.push(s);
             if stop {
@@ -337,5 +473,6 @@ pub fn sandbox_deploy(
     })();
     let _ = crate::git::git(repo, &["worktree", "remove", "--force", &wts], None);
     let _ = std::fs::remove_dir_all(&wt);
+    let _ = crate::git::git(repo, &["worktree", "prune"], None);
     res
 }

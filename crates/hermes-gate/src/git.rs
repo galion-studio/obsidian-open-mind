@@ -22,9 +22,35 @@ pub const OPS: &[&str] = &[
     "commit",
     "config",
     "log",
+    "read-tree",
 ];
 
+/// Env keys a caller may add (a throwaway index for check 1).
+pub const ENV_KEYS: &[&str] = &["GIT_INDEX_FILE"];
+
+thread_local! {
+    static SPAWNS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// How many git processes this thread has started (tests use it to prove a
+/// refused path never reached git).
+pub fn spawn_count() -> u64 {
+    SPAWNS.with(|c| c.get())
+}
+
 pub fn git(dir: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, String> {
+    git_env(dir, args, stdin, &[])
+}
+
+pub fn git_env(
+    dir: &Path,
+    args: &[&str],
+    stdin: Option<&[u8]>,
+    env: &[(&str, &str)],
+) -> Result<String, String> {
+    if let Some((k, _)) = env.iter().find(|(k, _)| !ENV_KEYS.contains(k)) {
+        return Err(format!("git env {k}: not allowed in hermes-gate"));
+    }
     let op = args.first().copied().unwrap_or("");
     if !OPS.contains(&op) {
         return Err(format!("git {op}: not allowed in hermes-gate"));
@@ -66,7 +92,11 @@ pub fn git(dir: &Path, args: &[&str], stdin: Option<&[u8]>) -> Result<String, St
         "-c",
         "commit.gpgsign=false",
     ]);
+    for (k, v) in env {
+        c.env(k, v);
+    }
     c.args(args);
+    SPAWNS.with(|n| n.set(n.get() + 1));
     c.stdin(if stdin.is_some() {
         Stdio::piped()
     } else {

@@ -27,7 +27,9 @@
 //!   after it ends, so writes past the cap fail with ENOSPC instead of
 //!   filling the host disk.
 //!
-//! Linux and Android (Termux) only. No seccomp, no root needed, libc only.
+//! Linux and Android (Termux) only. No root needed, libc only. An opt-in
+//! seccomp-BPF deny-list (`SandboxPolicy::seccomp`, see `seccomp.rs`) adds a
+//! syscall layer that works where Landlock is missing (e.g. an LXC guest).
 //! Kernel features that a seccomp filter might kill us for (Android apps run
 //! under one) are first probed in a throwaway child, so a filtered syscall
 //! shows up as "not enforced" instead of crashing.
@@ -36,7 +38,8 @@
 //! was not applied. The timeout only ever signals the child this crate
 //! spawned (and the process group it created with `setsid`).
 //!
-//! Not a hard security boundary against a determined attacker (no seccomp,
+//! Not a hard security boundary against a determined attacker (seccomp is an
+//! opt-in deny-list, not an allow-list;
 //! no disk quota outside the opt-in work dir tmpfs). It keeps agent tool runs bounded and contained.
 
 use std::ffi::CString;
@@ -51,6 +54,7 @@ use std::time::{Duration, Instant};
 
 mod cgroup;
 mod preset;
+mod seccomp;
 mod treecopy;
 pub use preset::Preset;
 
@@ -58,7 +62,7 @@ pub use preset::Preset;
 pub const OUTPUT_CAP: usize = 64 * 1024;
 
 /// Layer names, in report order.
-pub const LAYERS: [&str; 16] = [
+pub const LAYERS: [&str; 17] = [
     "rlimits",
     "env",
     "workdir",
@@ -72,6 +76,7 @@ pub const LAYERS: [&str; 16] = [
     "hide_home",
     "proc",
     "landlock",
+    "seccomp",
     "caps",
     "fds",
     "cgroup",
@@ -104,10 +109,21 @@ pub struct SandboxPolicy {
     /// With `net = false`: TCP ports a command may bind and connect to on
     /// loopback (a live-style service smoke test). Non-empty requires a fresh
     /// network namespace (only `lo`, brought up in the child); without one the
-    /// run is refused. With Landlock net rights, only these ports are allowed.
+    /// run is refused. With Landlock net rights (ABI >= 4), only these ports
+    /// are allowed. Without Landlock (e.g. an LXC guest) the boundary is the
+    /// private netns alone: any port on the sandbox's own `lo` can be used,
+    /// but no host or outside address is reachable. SECURITY REVIEW: added
+    /// for hermes-gate smoke tests (2026-10-29).
     pub loopback_tcp_ports: Vec<u16>,
     /// Try Landlock when the kernel has it.
     pub landlock: bool,
+    /// Load a seccomp-BPF deny-list just before exec (see `seccomp.rs`):
+    /// host-control syscalls (ptrace, mount, setns/unshare, namespace
+    /// clone flags, module/kexec/bpf/keyrings/io_uring, ...) fail with
+    /// EPERM and raw packet sockets with EAFNOSUPPORT. Works without
+    /// Landlock. When set and the filter cannot be loaded the run is
+    /// refused (fail closed). Default off (opt-in, e.g. hermes-gate).
+    pub seccomp: bool,
     /// Landlock read roots (workdir is always added).
     pub fs_read: Vec<PathBuf>,
     /// Writable roots (Landlock + kept writable under `ro_root`).
@@ -217,6 +233,7 @@ impl SandboxPolicy {
             require_net_isolation: false,
             loopback_tcp_ports: vec![],
             landlock: true,
+            seccomp: false,
             // /proc is needed by most tools (ps, /proc/self/*); with a PID
             // namespace and private /proc it only shows the sandbox.
             fs_read: [
@@ -887,27 +904,29 @@ fn fail(msg: String, start: Instant, enforced: Vec<(String, Enforcement)>) -> Ou
 }
 
 // Status bits written by the process that execs, right before exec.
-const B_RLIMIT: u32 = 1;
-const B_NNP: u32 = 1 << 1;
-const B_USERNS: u32 = 1 << 2;
-const B_NETNS: u32 = 1 << 3;
-const B_PIDNS: u32 = 1 << 4;
-const B_MNTNS: u32 = 1 << 5;
-const B_RO_ROOT: u32 = 1 << 6;
-const B_HIDE: u32 = 1 << 7;
-const B_PROC: u32 = 1 << 8;
-const B_LANDLOCK: u32 = 1 << 9;
-const B_LL_NET: u32 = 1 << 10;
-const B_CAPS: u32 = 1 << 11;
-const B_UIDMAP: u32 = 1 << 12;
-const B_FDS: u32 = 1 << 13;
-const B_CGROUP: u32 = 1 << 14;
-const B_WDQ: u32 = 1 << 15;
+const B_RLIMIT: u64 = 1;
+const B_NNP: u64 = 1 << 1;
+const B_USERNS: u64 = 1 << 2;
+const B_NETNS: u64 = 1 << 3;
+const B_PIDNS: u64 = 1 << 4;
+const B_MNTNS: u64 = 1 << 5;
+const B_RO_ROOT: u64 = 1 << 6;
+const B_HIDE: u64 = 1 << 7;
+const B_PROC: u64 = 1 << 8;
+const B_LANDLOCK: u64 = 1 << 9;
+const B_LL_NET: u64 = 1 << 10;
+const B_CAPS: u64 = 1 << 11;
+const B_UIDMAP: u64 = 1 << 12;
+const B_FDS: u64 = 1 << 13;
+const B_CGROUP: u64 = 1 << 14;
+const B_WDQ: u64 = 1 << 15;
 // A proc mount with `subset=pid` (Linux >= 7.2 allows it in a rootless
 // container whose /proc is overmounted).
-const B_PROC_PIDONLY: u32 = 1 << 16;
+const B_PROC_PIDONLY: u64 = 1 << 16;
 // Host /proc hidden behind a read-only tmpfs (proc_fallback = Mask).
-const B_PROC_MASK: u32 = 1 << 17;
+const B_PROC_MASK: u64 = 1 << 17;
+// Seccomp filter loaded (bit 32: bits 18..31 hold the /proc mask fields).
+const B_SECCOMP: u64 = 1 << 32;
 // Bits 18..23: errno (clamped to 1..63) of a /proc mask that failed cleanly.
 const PROC_MASK_ERR_SHIFT: u32 = 18;
 // Bits 24..27: how many static files the /proc mask kept; bits 28..31: how
@@ -921,6 +940,7 @@ const E_CGROUP: i32 = libc::ESTALE;
 const E_WDQ: i32 = libc::ENOTUNIQ;
 const E_PROC: i32 = libc::ENOMEDIUM;
 const E_LOOPBACK: i32 = libc::ENONET;
+const E_SECCOMP: i32 = libc::ENOPKG;
 // Work dir tmpfs report, written by the pre-exec child (copy in failed) or by
 // the PID-namespace supervisor (after the copy back): 11 x u64, one write.
 const WDQ_MAGIC: u64 = 0x5744_5131_3531_0001;
@@ -1302,6 +1322,13 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         if !hc.is_dir() || hc == Path::new("/") {
             continue;
         }
+        // A dir this user cannot even enter is already closed to the child
+        // (same uid, no capabilities over host files); mounting over it
+        // would fail, so it is left as is.
+        match cstr(&hc) {
+            Some(c) if unsafe { libc::access(c.as_ptr(), libc::X_OK) } == 0 => {}
+            _ => continue,
+        }
         // Needed if the work dir, a root or the program lies inside it; a
         // read root that *contains* the hide path (e.g. /) is fine.
         let needed = std::iter::once(&workdir)
@@ -1318,6 +1345,21 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         } else if let Some(c) = cstr(&hc) {
             hide.push(c);
         }
+    }
+    // A path inside another hidden dir is already hidden; mounting over it
+    // after its parent became an empty tmpfs would fail (no such dir).
+    {
+        let all: Vec<PathBuf> = hide
+            .iter()
+            .map(|c| PathBuf::from(c.to_string_lossy().into_owned()))
+            .collect();
+        let mut i = 0;
+        hide.retain(|_| {
+            let me = &all[i];
+            i += 1;
+            !all.iter().any(|o| o != me && me.starts_with(o))
+        });
+        hide.dedup();
     }
     let can_ro = policy.ro_root && feat.mount_setattr;
     // Highest fd number to close in the PID-namespace supervisor.
@@ -1424,6 +1466,13 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         policy.fsize_bytes,
     );
     let require_net = policy.require_net_isolation && !policy.net;
+    let want_seccomp = policy.seccomp;
+    // Built before the fork: the pre-exec code only loads it.
+    let seccomp_prog = if want_seccomp {
+        seccomp::program()
+    } else {
+        vec![]
+    };
     let llown = ll.clone();
     let caps_ok = feat.caps;
     // std chdirs before pre_exec; re-enter the workdir after mounts so the
@@ -1442,7 +1491,7 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     // fork. It allocates nothing; errors are errno wrappers.
     unsafe {
         c.pre_exec(move || {
-            let mut bits: u32 = 0;
+            let mut bits: u64 = 0;
             // Work dir tmpfs: host dir fd, tmpfs root fd, copy-in counters.
             let (mut wd_host, mut wd_tmp) = (-1i32, -1i32);
             let mut wd_in = treecopy::Stats::default();
@@ -1742,8 +1791,8 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                         match proc_mask(m) {
                             Ok((n, live)) => {
                                 bits |= B_PROC_MASK
-                                    | (n.min(15) << PROC_MASK_SHIFT)
-                                    | (live.min(15) << PROC_MASK_LIVE_SHIFT);
+                                    | (u64::from(n.min(15)) << PROC_MASK_SHIFT)
+                                    | (u64::from(live.min(15)) << PROC_MASK_LIVE_SHIFT);
                                 if libc::chdir(workdir_c.as_ptr()) != 0 {
                                     return Err(std::io::Error::last_os_error());
                                 }
@@ -1753,7 +1802,7 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                                 return Err(std::io::Error::from_raw_os_error(E_PROC))
                             }
                             Err((e, true)) => {
-                                bits |= (e.clamp(1, 63) as u32) << PROC_MASK_ERR_SHIFT;
+                                bits |= (e.clamp(1, 63) as u64) << PROC_MASK_ERR_SHIFT;
                             }
                         }
                     }
@@ -1778,8 +1827,15 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             }
             setrl(libc::RLIMIT_NOFILE, nofile)?;
             bits |= B_RLIMIT;
+            if want_seccomp {
+                // Last step before exec: after no_new_privs and every mount.
+                if !seccomp::install(&seccomp_prog) {
+                    return Err(std::io::Error::from_raw_os_error(E_SECCOMP));
+                }
+                bits |= B_SECCOMP;
+            }
             let b = bits.to_le_bytes();
-            libc::write(wfd, b.as_ptr().cast(), 4);
+            libc::write(wfd, b.as_ptr().cast(), 8);
             if require_net && bits & (B_NETNS | B_LL_NET) == 0 {
                 return Err(std::io::Error::from_raw_os_error(libc::EPERM));
             }
@@ -1795,15 +1851,15 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             c.finish();
         }
     };
-    // SAFETY: closing our copy of the write end, then reading at most 4 bytes.
-    let mut b = [0u8; 4];
+    // SAFETY: closing our copy of the write end, then reading at most 8 bytes.
+    let mut b = [0u8; 8];
     let got_bits = unsafe {
         libc::close(wfd);
-        let n = libc::read(rfd, b.as_mut_ptr().cast(), 4);
+        let n = libc::read(rfd, b.as_mut_ptr().cast(), 8);
         libc::close(rfd);
-        n == 4
+        n == 8
     };
-    let bits = if got_bits { u32::from_le_bytes(b) } else { 0 };
+    let bits = if got_bits { u64::from_le_bytes(b) } else { 0 };
     if qw >= 0 {
         // SAFETY: our copy of the report pipe's write end.
         unsafe { libc::close(qw) };
@@ -1822,6 +1878,8 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                     .to_string()
             } else if e.raw_os_error() == Some(libc::EROFS) {
                 "read-only root applied but the work dir could not be kept writable".to_string()
+            } else if e.raw_os_error() == Some(E_SECCOMP) {
+                "seccomp filter requested but could not be loaded; refusing to run".to_string()
             } else if e.raw_os_error() == Some(E_LOOPBACK) {
                 "loopback ports requested but no private network namespace with lo up; refusing to run".to_string()
             } else if e.raw_os_error() == Some(E_UIDMAP) {
@@ -1974,8 +2032,8 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
         ProcView::PidOnly
     } else if bits & B_PROC_MASK != 0 {
         ProcView::Masked {
-            static_files: (bits >> PROC_MASK_SHIFT) & 15,
-            live_files: bits >> PROC_MASK_LIVE_SHIFT,
+            static_files: ((bits >> PROC_MASK_SHIFT) & 15) as u32,
+            live_files: ((bits >> PROC_MASK_LIVE_SHIFT) & 15) as u32,
         }
     } else {
         ProcView::Host
@@ -2005,6 +2063,15 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             en(bits & B_LANDLOCK != 0, "restrict_self failed"),
         );
     }
+    set(
+        &mut enforced,
+        "seccomp",
+        if policy.seccomp {
+            en(bits & B_SECCOMP != 0, "seccomp filter not loaded")
+        } else {
+            ne("disabled by policy")
+        },
+    );
     set(
         &mut enforced,
         "caps",
@@ -2160,12 +2227,13 @@ mod proc_mask_tests {
         // errno 1..63 in bits 18..23 and a count up to 255 in 24..31 never
         // touch a layer bit.
         let all_layers = B_WDQ | B_PROC_PIDONLY | B_PROC_MASK | (B_WDQ - 1);
-        let fields = (63u32 << PROC_MASK_ERR_SHIFT)
-            | (15u32 << PROC_MASK_SHIFT)
-            | (15u32 << PROC_MASK_LIVE_SHIFT);
+        let fields = (63u64 << PROC_MASK_ERR_SHIFT)
+            | (15u64 << PROC_MASK_SHIFT)
+            | (15u64 << PROC_MASK_LIVE_SHIFT);
         assert_eq!(all_layers & fields, 0);
+        assert_eq!(B_SECCOMP & (fields | all_layers), 0);
         assert_eq!((fields >> PROC_MASK_SHIFT) & 15, 15);
-        assert_eq!(fields >> PROC_MASK_LIVE_SHIFT, 15);
+        assert_eq!((fields >> PROC_MASK_LIVE_SHIFT) & 15, 15);
         assert!(PROC_MASK_STATIC.len() < 16);
     }
 }

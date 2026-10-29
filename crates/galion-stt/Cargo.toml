@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# galion-stt: live speech-to-text WebSocket service for the Hermes research
+# page dictation. Engine: Moonshine Tiny Streaming (MIT code and weights)
+# through the official libmoonshine C API, loaded at run time with dlopen
+# (libloading), so this crate builds and unit-tests anywhere without the
+# native library. A pure-candle port stays a later goal (docs/galion-stt.md).
+
+[package]
+name = "galion-stt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Live STT service: axum WebSocket on 127.0.0.1, 16 kHz PCM16 in, partial/final JSON out, Moonshine Tiny Streaming via libmoonshine (dlopen)."
+
+[dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "json"] }
+tokio = { version = "1", default-features = false, features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake"] }
+libloading = "0.8"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+# Already in the tree through axum; used directly only by the `probe` client.
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

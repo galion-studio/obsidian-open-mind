@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Installed copy: /etc/nftables.d/galion-stt-egress.nft, included from /etc/nftables.conf
+# and reloaded by galion-stt.service ExecStartPre (fail closed).
+# galion-stt: the speech-to-text service user may only talk on loopback.
+# Idempotent: safe to load repeatedly (declare, flush, define).
+# Rollback: nft delete table inet galion_stt_egress
+table inet galion_stt_egress
+flush table inet galion_stt_egress
+table inet galion_stt_egress {
+	chain output {
+		type filter hook output priority filter; policy accept;
+		meta skuid "galion-stt" oif != "lo" counter drop
+	}
+}

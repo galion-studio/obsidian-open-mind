@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Installed copy: /etc/systemd/system/galion-stt.service (2026-10-29 09:17 CET +01:00).
+# galion-stt: live speech-to-text (Moonshine Tiny Streaming) for the Hermes
+# research page dictation. Loopback only: 127.0.0.1:8651, GET /health, WS /stream.
+# Rollback: systemctl disable --now galion-stt; nft delete table inet galion_stt_egress
+[Unit]
+Description=galion-stt live speech-to-text (Moonshine Tiny Streaming, loopback only)
+After=network.target nftables.service
+
+[Service]
+Type=simple
+User=galion-stt
+Group=galion-stt
+# Fail closed: (re)load the egress lock as root before every start.
+ExecStartPre=+/usr/sbin/nft -f /etc/nftables.d/galion-stt-egress.nft
+ExecStart=/opt/galion/stt-moonshine/bin/galion-stt serve --bind 127.0.0.1:8651 --lib-dir /opt/galion/stt-moonshine/lib --model-dir /opt/galion/stt-moonshine/models --max-sessions 2 --max-session-secs 600 --partial-ms 300
+Environment=HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HUB_DISABLE_TELEMETRY=1 DO_NOT_TRACK=1
+Environment=MOONSHINE_VOICE_CACHE=/opt/galion/stt-moonshine/models
+Environment=MOONSHINE_ORT_SINGLE_THREAD=1
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+# Hardening
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadOnlyPaths=/opt/galion/stt-moonshine
+UMask=0077
+# Not enforced in this LXC (kept as defence in depth); nft above is the real lock.
+IPAddressAllow=localhost
+IPAddressDeny=any
+# Limits
+MemoryMax=1G
+CPUQuota=300%
+Nice=5
+TasksMax=64
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

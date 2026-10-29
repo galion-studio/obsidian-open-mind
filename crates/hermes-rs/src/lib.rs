@@ -15,6 +15,7 @@ pub mod citations;
 pub mod config;
 pub mod cron;
 pub mod delegate;
+pub mod denylist;
 pub mod enroll;
 pub mod http;
 pub mod mcp;

@@ -1,0 +1,5 @@
+# Two rules present in the upstream Ondrej pack copy
+# (/opt/galion/galion-light/skills-packs/ondrej/hooks/dangerous-patterns.txt)
+# but missing from the galion-light guard list. Kept verbatim so no original rule is lost.
+(^|[;&|[:space:]])open[[:space:]]+-a[[:space:]]+["']?(1[Pp]assword|[Bb]itwarden|[Nn]ord[Pp]ass|[Kk]ee[Pp]ass)
+(^|[;&|[:space:]])brew[[:space:]]+(uninstall|remove|rm)[^;&|]*[[:space:]]["']?(1password|bitwarden|nordpass|keepassxc|lastpass)

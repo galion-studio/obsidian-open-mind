@@ -195,10 +195,14 @@ impl Plan {
                 if !PLAN_ENV_KEYS.contains(&k.as_str()) {
                     return Err(format!("plan: env key {k} is not allowed"));
                 }
-                if LIVE_ROOTS
-                    .iter()
-                    .filter(|r| **r != "/usr")
-                    .any(|r| val.contains(r))
+                // Every path-like part (PATH is ':'-separated); the gate's
+                // own home is not live, /usr is fine (toolchains, coreutils).
+                if val
+                    .split(':')
+                    .map(str::trim)
+                    .filter(|x| x.starts_with('/'))
+                    .filter(|x| !(x.starts_with("/usr") || ["/bin", "/sbin"].contains(x)))
+                    .any(|x| under_live_root(Path::new(x)))
                 {
                     return Err(format!("plan: env {k} points into a live root"));
                 }

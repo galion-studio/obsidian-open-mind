@@ -841,6 +841,16 @@ fn plan_env_and_loopback_ports_are_allowlisted() {
     }))
     .unwrap();
     assert_eq!(ok.stages[0].loopback_ports, vec![18642]);
+    let env_plan = |path: &str| {
+        stage::Plan::from_json(&json!({
+            "env": {"PATH": path},
+            "stages": [{"name": "a", "argv": ["true"]}]
+        }))
+    };
+    assert!(env_plan("/var/lib/galion-gate/toolchain/cargo/bin:/usr/bin:/bin").is_ok());
+    assert!(env_plan("/usr/bin:/opt/galion/openmind/bin").is_err());
+    assert!(env_plan("/var/lib/hermes-rs/bin:/usr/bin").is_err());
+    assert!(env_plan("/var/lib/galion-gate/../hermes-rs:/usr/bin").is_err());
     let pol = stage::policy(Path::new("/tmp/w"), &ok, &ok.stages[0]);
     assert_eq!(pol.loopback_tcp_ports, vec![18642]);
     assert!(!pol.net && pol.require_net_isolation);

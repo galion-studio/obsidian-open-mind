@@ -5,12 +5,40 @@
   "params": {
    "tasks": [
     {
-     "goal": "Read-only diagnosis of why a fresh Hermes chat cannot recall a demo codeword saved in another chat. Do not modify any file, do not write, do not restart anything, do not print secrets or tokens. Return: (1) exact file paths and line ranges in crates/openmind-memory and crates/hermes-rs that decide whether cross-session facts are injected into a new chat, (2) the bug in one paragraph with the function names, (3) the smallest sandbox-only fix that would make memory_save facts from other sessions appear in a new chat's automatic recall, (4) where tests live and how a unit test should prove it, (5) how the sandbox gate is invoked (binary path, subcommands) if you can see it in docs or scripts without running it. Search /workspace, /opt/galion, and vault notes. Quote the decisive code.",
-     "context": "You are a read-only researcher. Follow only /opt/galion/crew-skills/research if that SKILL.md exists; if the path is missing, just do the research. Parent is Hermes. Do not change live code. Known facts from a plan note (treat as unverified until you see the code): live builds are hermes-gateway-5c7bad5f and openmind-memory-5c7bad5f. Source worktree mentioned: /workspace/swarm/wt/memory-integration-20261029 at 5c7bad5f. Plan says engine.rs recall (around 214-290) searches L1 for the same session only and never searches L0; /capture does not extract L1 (engine.rs ~471 'No L1/L2/L3 extraction pipeline in v0'); memory_search MCP tool can find L0 across sessions but automatic inject does not. A branch swarm/memory-pyramid-20261029 may already have a fix \u2014 locate it and say whether it is the right starting point. Also check hermes-rs memory.rs inject path: does it pass session_key and scope=session so other sessions are excluded? Operator constraint: sandbox only, no live changes. Return concrete paths, line numbers, and a proposed diff sketch. Do not include any credentials."
+     "goal": {
+      "$join": [
+       "Read-only diagnosis of why a fresh Hermes chat cannot recall a demo codeword saved in another chat. Do not modify any file, do not write, do not restart anything, do not print secrets or tokens. Retur",
+       "n: (1) exact file paths and line ranges in crates/openmind-memory and crates/hermes-rs that decide whether cross-session facts are injected into a new chat, (2) the bug in one paragraph with the funct",
+       "ion names, (3) the smallest sandbox-only fix that would make memory_save facts from other sessions appear in a new chat's automatic recall, (4) where tests live and how a unit test should prove it, (5",
+       ") how the sandbox gate is invoked (binary path, subcommands) if you can see it in docs or scripts without running it. Search /workspace, /opt/galion, and vault notes. Quote the decisive code."
+      ]
+     },
+     "context": {
+      "$join": [
+       "You are a read-only researcher. Follow only /opt/galion/crew-skills/research if that SKILL.md exists; if the path is missing, just do the research. Parent is Hermes. Do not change live code. Known fac",
+       "ts from a plan note (treat as unverified until you see the code): live builds are hermes-gateway-5c7bad5f and openmind-memory-5c7bad5f. Source worktree mentioned: /workspace/swarm/wt/memory-integratio",
+       "n-20261029 at 5c7bad5f. Plan says engine.rs recall (around 214-290) searches L1 for the same session only and never searches L0; /capture does not extract L1 (engine.rs ~471 'No L1/L2/L3 extraction pi",
+       "peline in v0'); memory_search MCP tool can find L0 across sessions but automatic inject does not. A branch swarm/memory-pyramid-20261029 may already have a fix — locate it and say whether it is the ri",
+       "ght starting point. Also check hermes-rs memory.rs inject path: does it pass session_key and scope=session so other sessions are excluded? Operator constraint: sandbox only, no live changes. Return co",
+       "ncrete paths, line numbers, and a proposed diff sketch. Do not include any credentials."
+      ]
+     }
     },
     {
-     "goal": "Read-only map of the Hermes sandbox gate and how a code change is proposed, tested, and gated without touching live. Return the exact commands, required files, and what 'pass' looks like. Do not run the gate. Do not modify anything. Do not print keys.",
-     "context": "Follow /opt/galion/crew-skills/engineering/SKILL.md if it exists; otherwise just research. Look at /opt/galion/gate, /var/lib/galion-gate (list names only, do not dump keys or records that contain secrets), vault note 'Hermes Demo Readiness Plan 2026-10-29.md' section 9 if readable, and any README under the gate. Known from a plan: binary /opt/galion/gate/bin/hermes-gate, flow keygen|propose|gate|verify|approve|apply, user galion-gate, data /var/lib/galion-gate. I need: how Hermes (this agent) is supposed to propose a change into the inbox, which repo/worktree to branch from (swarm/*), and whether I currently have a shell. If you cannot run commands, say what you could not verify."
+     "goal": {
+      "$join": [
+       "Read-only map of the Hermes sandbox gate and how a code change is proposed, tested, and gated without touching live. Return the exact commands, required files, and what 'pass' looks like. Do not run t",
+       "he gate. Do not modify anything. Do not print keys."
+      ]
+     },
+     "context": {
+      "$join": [
+       "Follow /opt/galion/crew-skills/engineering/SKILL.md if it exists; otherwise just research. Look at /opt/galion/gate, /var/lib/galion-gate (list names only, do not dump keys or records that contain sec",
+       "rets), vault note 'Hermes Demo Readiness Plan 2026-10-29.md' section 9 if readable, and any README under the gate. Known from a plan: binary /opt/galion/gate/bin/hermes-gate, flow keygen|propose|gate|",
+       "verify|approve|apply, user galion-gate, data /var/lib/galion-gate. I need: how Hermes (this agent) is supposed to propose a change into the inbox, which repo/worktree to branch from (swarm/*), and whe",
+       "ther I currently have a shell. If you cannot run commands, say what you could not verify."
+      ]
+     }
     }
    ]
   },
@@ -24,12 +52,40 @@
   "params": {
    "tasks": [
     {
-     "goal": "Read-only diagnosis of why a fresh Hermes chat cannot recall a demo codeword saved in another chat. Do not modify any file, do not write, do not restart anything, do not print secrets or tokens. Return: (1) exact file paths and line ranges in crates/openmind-memory and crates/hermes-rs that decide whether cross-session facts are injected into a new chat, (2) the bug in one paragraph with the function names, (3) the smallest sandbox-only fix that would make memory_save facts from other sessions appear in a new chat's automatic recall, (4) where tests live and how a unit test should prove it, (5) how the sandbox gate is invoked (binary path, subcommands) if you can see it in docs or scripts without running it. Search /workspace, /opt/galion, and vault notes. Quote the decisive code.",
-     "context": "You are a read-only researcher. Follow only /opt/galion/crew-skills/research if that SKILL.md exists; if the path is missing, just do the research. Parent is Hermes. Do not change live code. Known facts from a plan note (treat as unverified until you see the code): live builds are hermes-gateway-5c7bad5f and openmind-memory-5c7bad5f. Source worktree mentioned: /workspace/swarm/wt/memory-integration-20261029 at 5c7bad5f. Plan says engine.rs recall (around 214-290) searches L1 for the same session only and never searches L0; /capture does not extract L1 (engine.rs ~471 'No L1/L2/L3 extraction pipeline in v0'); memory_search MCP tool can find L0 across sessions but automatic inject does not. A branch swarm/memory-pyramid-20261029 may already have a fix \u2014 locate it and say whether it is the right starting point. Also check hermes-rs memory.rs inject path: does it pass session_key and scope=session so other sessions are excluded? Operator constraint: sandbox only, no live changes. Return concrete paths, line numbers, and a proposed diff sketch. Do not include any credentials."
+     "goal": {
+      "$join": [
+       "Read-only diagnosis of why a fresh Hermes chat cannot recall a demo codeword saved in another chat. Do not modify any file, do not write, do not restart anything, do not print secrets or tokens. Retur",
+       "n: (1) exact file paths and line ranges in crates/openmind-memory and crates/hermes-rs that decide whether cross-session facts are injected into a new chat, (2) the bug in one paragraph with the funct",
+       "ion names, (3) the smallest sandbox-only fix that would make memory_save facts from other sessions appear in a new chat's automatic recall, (4) where tests live and how a unit test should prove it, (5",
+       ") how the sandbox gate is invoked (binary path, subcommands) if you can see it in docs or scripts without running it. Search /workspace, /opt/galion, and vault notes. Quote the decisive code."
+      ]
+     },
+     "context": {
+      "$join": [
+       "You are a read-only researcher. Follow only /opt/galion/crew-skills/research if that SKILL.md exists; if the path is missing, just do the research. Parent is Hermes. Do not change live code. Known fac",
+       "ts from a plan note (treat as unverified until you see the code): live builds are hermes-gateway-5c7bad5f and openmind-memory-5c7bad5f. Source worktree mentioned: /workspace/swarm/wt/memory-integratio",
+       "n-20261029 at 5c7bad5f. Plan says engine.rs recall (around 214-290) searches L1 for the same session only and never searches L0; /capture does not extract L1 (engine.rs ~471 'No L1/L2/L3 extraction pi",
+       "peline in v0'); memory_search MCP tool can find L0 across sessions but automatic inject does not. A branch swarm/memory-pyramid-20261029 may already have a fix — locate it and say whether it is the ri",
+       "ght starting point. Also check hermes-rs memory.rs inject path: does it pass session_key and scope=session so other sessions are excluded? Operator constraint: sandbox only, no live changes. Return co",
+       "ncrete paths, line numbers, and a proposed diff sketch. Do not include any credentials."
+      ]
+     }
     },
     {
-     "goal": "Read-only map of the Hermes sandbox gate and how a code change is proposed, tested, and gated without touching live. Return the exact commands, required files, and what 'pass' looks like. Do not run the gate. Do not modify anything. Do not print keys.",
-     "context": "Follow /opt/galion/crew-skills/engineering/SKILL.md if it exists; otherwise just research. Look at the gate folder, /var/lib/galion-gate (list names only, do not dump keys or records that contain secrets), vault note 'Hermes Demo Readiness Plan 2026-10-29.md' section 9 if readable, and any README under the gate. Known from a plan: binary the hermes-gate binary, flow keygen|propose|gate|verify|approve|apply, user galion-gate, data /var/lib/galion-gate. I need: how Hermes (this agent) is supposed to propose a change into the inbox, which repo/worktree to branch from (swarm/*), and whether I currently have a shell. If you cannot run commands, say what you could not verify."
+     "goal": {
+      "$join": [
+       "Read-only map of the Hermes sandbox gate and how a code change is proposed, tested, and gated without touching live. Return the exact commands, required files, and what 'pass' looks like. Do not run t",
+       "he gate. Do not modify anything. Do not print keys."
+      ]
+     },
+     "context": {
+      "$join": [
+       "Follow /opt/galion/crew-skills/engineering/SKILL.md if it exists; otherwise just research. Look at the gate folder, /var/lib/galion-gate (list names only, do not dump keys or records that contain secr",
+       "ets), vault note 'Hermes Demo Readiness Plan 2026-10-29.md' section 9 if readable, and any README under the gate. Known from a plan: binary the hermes-gate binary, flow keygen|propose|gate|verify|appr",
+       "ove|apply, user galion-gate, data /var/lib/galion-gate. I need: how Hermes (this agent) is supposed to propose a change into the inbox, which repo/worktree to branch from (swarm/*), and whether I curr",
+       "ently have a shell. If you cannot run commands, say what you could not verify."
+      ]
+     }
     }
    ]
   },
@@ -42,12 +98,36 @@
   "params": {
    "tasks": [
     {
-     "goal": "Read-only diagnosis. Do not create, edit, delete, move, or restart anything. Explain why a fresh Hermes chat fails to recall a demo codeword saved in another chat. Return exact file paths, function names, and line ranges in the openmind-memory and hermes-rs crates. Quote the decisive recall and inject code. Say whether a swarm/memory-pyramid branch already contains a fix and whether it is the right starting point. Sketch the smallest sandbox-only fix and the unit test that would prove cross-session memory_save facts appear in a new chat. Do not print secrets, tokens, or keys.",
-     "context": "Parent is Hermes. You are a researcher only. If /opt/galion/crew-skills/research/SKILL.md exists, follow that file only. Known plan claims, treat as unverified until you see code: live builds hermes-gateway-5c7bad5f and openmind-memory-5c7bad5f. A note says openmind-memory recall searches L1 for the same session and does not search L0, and capture does not extract L1 because there is no extraction pipeline in v0. The MCP memory_search tool can find L0 across sessions, but automatic prompt inject does not. Look for source under swarm worktrees and crates named openmind-memory and hermes-rs. Also check how hermes-rs builds the recall request: session_key and scope. Return a concrete diff sketch. No credentials."
+     "goal": {
+      "$join": [
+       "Read-only diagnosis. Do not create, edit, delete, move, or restart anything. Explain why a fresh Hermes chat fails to recall a demo codeword saved in another chat. Return exact file paths, function na",
+       "mes, and line ranges in the openmind-memory and hermes-rs crates. Quote the decisive recall and inject code. Say whether a swarm/memory-pyramid branch already contains a fix and whether it is the righ",
+       "t starting point. Sketch the smallest sandbox-only fix and the unit test that would prove cross-session memory_save facts appear in a new chat. Do not print secrets, tokens, or keys."
+      ]
+     },
+     "context": {
+      "$join": [
+       "Parent is Hermes. You are a researcher only. If /opt/galion/crew-skills/research/SKILL.md exists, follow that file only. Known plan claims, treat as unverified until you see code: live builds hermes-g",
+       "ateway-5c7bad5f and openmind-memory-5c7bad5f. A note says openmind-memory recall searches L1 for the same session and does not search L0, and capture does not extract L1 because there is no extraction",
+       " pipeline in v0. The MCP memory_search tool can find L0 across sessions, but automatic prompt inject does not. Look for source under swarm worktrees and crates named openmind-memory and hermes-rs. Als",
+       "o check how hermes-rs builds the recall request: session_key and scope. Return a concrete diff sketch. No credentials."
+      ]
+     }
     },
     {
-     "goal": "Read-only map of the Hermes sandbox gate. Do not run the gate. Do not modify anything. Do not print keys. Return the binary path, subcommands, how a proposal is submitted, what a pass record looks like, and which files a proposer must supply. Say what you could not verify.",
-     "context": "Parent is Hermes. Researcher only. If /opt/galion/crew-skills/engineering/SKILL.md exists, follow that file only. Gate binary is expected at /opt/galion/gate/bin/hermes-gate. Flow mentioned in a plan: propose, gate, verify, approve, apply. Data dir /var/lib/galion-gate. List command names from docs or --help text if readable. Do not dump key files or signed records that contain secrets. Report how a swarm branch change is supposed to reach the gate inbox."
+     "goal": {
+      "$join": [
+       "Read-only map of the Hermes sandbox gate. Do not run the gate. Do not modify anything. Do not print keys. Return the binary path, subcommands, how a proposal is submitted, what a pass record looks lik",
+       "e, and which files a proposer must supply. Say what you could not verify."
+      ]
+     },
+     "context": {
+      "$join": [
+       "Parent is Hermes. Researcher only. If /opt/galion/crew-skills/engineering/SKILL.md exists, follow that file only. Gate binary is expected at /opt/galion/gate/bin/hermes-gate. Flow mentioned in a plan:",
+       " propose, gate, verify, approve, apply. Data dir /var/lib/galion-gate. List command names from docs or --help text if readable. Do not dump key files or signed records that contain secrets. Report how",
+       " a swarm branch change is supposed to reach the gate inbox."
+      ]
+     }
     }
    ]
   },
@@ -61,12 +141,36 @@
   "params": {
    "tasks": [
     {
-     "goal": "Read-only diagnosis. Do not create, edit, delete, move, or restart anything. Explain why a fresh Hermes chat fails to recall a demo codeword saved in another chat. Return exact file paths, function names, and line ranges in the openmind-memory and hermes-rs crates. Quote the decisive recall and inject code. Say whether a swarm/memory-pyramid branch already contains a fix and whether it is the right starting point. Sketch the smallest sandbox-only fix and the unit test that would prove cross-session memory_save facts appear in a new chat. Do not print secrets, tokens, or keys.",
-     "context": "Parent is Hermes. You are a researcher only. If /opt/galion/crew-skills/research/SKILL.md exists, follow that file only. Known plan claims, treat as unverified until you see code: live builds hermes-gateway-5c7bad5f and openmind-memory-5c7bad5f. A note says openmind-memory recall searches L1 for the same session and does not search L0, and capture does not extract L1 because there is no extraction pipeline in v0. The MCP memory_search tool can find L0 across sessions, but automatic prompt inject does not. Look for source under swarm worktrees and crates named openmind-memory and hermes-rs. Also check how hermes-rs builds the recall request: session_key and scope. Return a concrete diff sketch. No credentials."
+     "goal": {
+      "$join": [
+       "Read-only diagnosis. Do not create, edit, delete, move, or restart anything. Explain why a fresh Hermes chat fails to recall a demo codeword saved in another chat. Return exact file paths, function na",
+       "mes, and line ranges in the openmind-memory and hermes-rs crates. Quote the decisive recall and inject code. Say whether a swarm/memory-pyramid branch already contains a fix and whether it is the righ",
+       "t starting point. Sketch the smallest sandbox-only fix and the unit test that would prove cross-session memory_save facts appear in a new chat. Do not print secrets, tokens, or keys."
+      ]
+     },
+     "context": {
+      "$join": [
+       "Parent is Hermes. You are a researcher only. If /opt/galion/crew-skills/research/SKILL.md exists, follow that file only. Known plan claims, treat as unverified until you see code: live builds hermes-g",
+       "ateway-5c7bad5f and openmind-memory-5c7bad5f. A note says openmind-memory recall searches L1 for the same session and does not search L0, and capture does not extract L1 because there is no extraction",
+       " pipeline in v0. The MCP memory_search tool can find L0 across sessions, but automatic prompt inject does not. Look for source under swarm worktrees and crates named openmind-memory and hermes-rs. Als",
+       "o check how hermes-rs builds the recall request: session_key and scope. Return a concrete diff sketch. No credentials."
+      ]
+     }
     },
     {
-     "goal": "Read-only map of the Hermes sandbox gate. Do not run the gate. Do not modify anything. Do not print keys. Return the binary path, subcommands, how a proposal is submitted, what a pass record looks like, and which files a proposer must supply. Say what you could not verify.",
-     "context": "Parent is Hermes. Researcher only. If /opt/galion/crew-skills/engineering/SKILL.md exists, follow that file only. Gate binary is expected at the hermes-gate binary. Flow mentioned in a plan: propose, gate, verify, approve, apply. Data dir /var/lib/galion-gate. List command names from docs or --help text if readable. Do not dump key files or signed records that contain secrets. Report how a swarm branch change is supposed to reach the gate inbox."
+     "goal": {
+      "$join": [
+       "Read-only map of the Hermes sandbox gate. Do not run the gate. Do not modify anything. Do not print keys. Return the binary path, subcommands, how a proposal is submitted, what a pass record looks lik",
+       "e, and which files a proposer must supply. Say what you could not verify."
+      ]
+     },
+     "context": {
+      "$join": [
+       "Parent is Hermes. Researcher only. If /opt/galion/crew-skills/engineering/SKILL.md exists, follow that file only. Gate binary is expected at the hermes-gate binary. Flow mentioned in a plan: propose, ",
+       "gate, verify, approve, apply. Data dir /var/lib/galion-gate. List command names from docs or --help text if readable. Do not dump key files or signed records that contain secrets. Report how a swarm b",
+       "ranch change is supposed to reach the gate inbox."
+      ]
+     }
     }
    ]
   },
@@ -79,8 +183,20 @@
   "params": {
    "tasks": [
     {
-     "goal": "Read only. Do not change any file and do not restart any service. Find the function that builds automatic memory recall for a new Hermes chat. Report the file name, function name, and the condition that drops facts saved in a different session. Quote the short code that applies the session filter and the short code that skips L0 when L1 is empty. Name the existing branch that already adds cross-session fact injection, and say if that branch is live. Then sketch the smallest patch and a unit test that fails before the patch and passes after it. Do not print secrets.",
-     "context": "Parent is Hermes. Researcher hat only. The symptom is: a demo codeword saved with the memory save tool in one chat is invisible in a fresh chat unless the model manually searches. A readiness note claims recall is session-scoped, L1 extraction is frozen, and the memory save tool writes a conversation row rather than a durable fact. Verify that against the openmind-memory engine and the hermes-rs memory inject path. Also note how the sandbox gate is invoked if you can see a help text, but do not run it."
+     "goal": {
+      "$join": [
+       "Read only. Do not change any file and do not restart any service. Find the function that builds automatic memory recall for a new Hermes chat. Report the file name, function name, and the condition th",
+       "at drops facts saved in a different session. Quote the short code that applies the session filter and the short code that skips L0 when L1 is empty. Name the existing branch that already adds cross-se",
+       "ssion fact injection, and say if that branch is live. Then sketch the smallest patch and a unit test that fails before the patch and passes after it. Do not print secrets."
+      ]
+     },
+     "context": {
+      "$join": [
+       "Parent is Hermes. Researcher hat only. The symptom is: a demo codeword saved with the memory save tool in one chat is invisible in a fresh chat unless the model manually searches. A readiness note cla",
+       "ims recall is session-scoped, L1 extraction is frozen, and the memory save tool writes a conversation row rather than a durable fact. Verify that against the openmind-memory engine and the hermes-rs m",
+       "emory inject path. Also note how the sandbox gate is invoked if you can see a help text, but do not run it."
+      ]
+     }
     }
    ]
   },
@@ -92,15 +208,35 @@
   "params": {
    "tasks": [
     {
-     "goal": "Read only. Do not create, edit, delete, move, commit, or restart anything. In the openmind-memory crate, read engine.rs and report how recall decides which facts a new chat sees. Quote the session filter and say whether an empty L1 search falls through to other sessions or to L0. Give function names and line ranges. If you cannot open the file, say what blocked you. No secrets.",
-     "context": "Symptom: a demo codeword saved in one chat is invisible in a fresh chat unless someone searches by hand. Parent needs the recall function only. Read-only. Do not propose a live change and do not touch a database."
+     "goal": {
+      "$join": [
+       "Read only. Do not create, edit, delete, move, commit, or restart anything. In the openmind-memory crate, read engine.rs and report how recall decides which facts a new chat sees. Quote the session fil",
+       "ter and say whether an empty L1 search falls through to other sessions or to L0. Give function names and line ranges. If you cannot open the file, say what blocked you. No secrets."
+      ]
+     },
+     "context": {
+      "$join": [
+       "Symptom: a demo codeword saved in one chat is invisible in a fresh chat unless someone searches by hand. Parent needs the recall function only. Read-only. Do not propose a live change and do not touch",
+       " a database."
+      ]
+     }
     },
     {
-     "goal": "Read only. Do not create, edit, delete, move, commit, or restart anything. In the hermes-rs crate, read memory.rs and report the /recall call site and the inject path for a new chat. Quote whether the request sends a session key and a session-only scope. Give function names and line ranges. If you cannot open the file, say what blocked you. No secrets.",
+     "goal": {
+      "$join": [
+       "Read only. Do not create, edit, delete, move, commit, or restart anything. In the hermes-rs crate, read memory.rs and report the /recall call site and the inject path for a new chat. Quote whether the",
+       " request sends a session key and a session-only scope. Give function names and line ranges. If you cannot open the file, say what blocked you. No secrets."
+      ]
+     },
      "context": "Symptom: automatic memory inject on a fresh chat does not include a demo codeword saved in another chat. Parent needs the gateway call site only. Read-only. Do not propose a live change."
     },
     {
-     "goal": "Read only. Do not create, edit, delete, move, or restart anything. Inspect the L1 facts table and report row count, newest timestamp, and whether a fact for the demo codeword golden-f42161 is present. Counts and one yes-or-no only. Do not dump other rows. If you cannot query the table, say what blocked you.",
+     "goal": {
+      "$join": [
+       "Read only. Do not create, edit, delete, move, or restart anything. Inspect the L1 facts table and report row count, newest timestamp, and whether a fact for the demo codeword golden-f42161 is present.",
+       " Counts and one yes-or-no only. Do not dump other rows. If you cannot query the table, say what blocked you."
+      ]
+     },
      "context": "The live memory service is openmind-memory, instance galion. Read-only check of L1 facts. Do not modify the database. Do not print tokens or keys."
     }
    ]
@@ -113,15 +249,30 @@
   "params": {
    "tasks": [
     {
-     "goal": "Read only. Do not create, edit, delete, move, or restart anything. Open the openmind-memory engine source and report how a new chat's recall chooses facts. Quote the session filter. Say whether an empty fact search falls through to other sessions or to raw conversation rows. Give function names and line ranges. If the file cannot be opened, say what blocked you. No secrets.",
+     "goal": {
+      "$join": [
+       "Read only. Do not create, edit, delete, move, or restart anything. Open the openmind-memory engine source and report how a new chat's recall chooses facts. Quote the session filter. Say whether an emp",
+       "ty fact search falls through to other sessions or to raw conversation rows. Give function names and line ranges. If the file cannot be opened, say what blocked you. No secrets."
+      ]
+     },
      "context": "Symptom: a demo codeword saved in one chat is invisible in a fresh chat unless someone searches by hand. Parent needs the recall function only. Read-only. Do not change a database."
     },
     {
-     "goal": "Read only. Do not create, edit, delete, move, or restart anything. Open the hermes-rs memory module and report how a new chat asks for recall and how the result is injected. Quote whether the request sends a session key and a session-only scope. Give function names and line ranges. If the file cannot be opened, say what blocked you. No secrets.",
+     "goal": {
+      "$join": [
+       "Read only. Do not create, edit, delete, move, or restart anything. Open the hermes-rs memory module and report how a new chat asks for recall and how the result is injected. Quote whether the request ",
+       "sends a session key and a session-only scope. Give function names and line ranges. If the file cannot be opened, say what blocked you. No secrets."
+      ]
+     },
      "context": "Symptom: automatic memory inject on a fresh chat omits a demo codeword saved in another chat. Parent needs the gateway call site only. Read-only."
     },
     {
-     "goal": "Read only. Do not create, edit, delete, move, or restart anything. Inspect the L1 facts table. Report row count, newest timestamp, and whether a fact containing golden-f42161 is present. Counts and one yes-or-no only. Do not dump other rows. If you cannot query the table, say what blocked you.",
+     "goal": {
+      "$join": [
+       "Read only. Do not create, edit, delete, move, or restart anything. Inspect the L1 facts table. Report row count, newest timestamp, and whether a fact containing golden-f42161 is present. Counts and on",
+       "e yes-or-no only. Do not dump other rows. If you cannot query the table, say what blocked you."
+      ]
+     },
      "context": "Live memory service is openmind-memory, instance galion. Read-only check of L1 facts. Do not modify the database. Do not print tokens or keys."
     }
    ]

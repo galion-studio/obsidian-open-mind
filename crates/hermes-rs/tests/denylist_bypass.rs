@@ -469,8 +469,28 @@ fn skills_tools_pass_and_are_still_scanned() {
 /// live shape (no workspace, nothing writable).
 #[test]
 fn s9_delegate_intent_not_mentions() {
+    // long texts are stored as {"$join": [chunks]} to keep lines short
+    fn join(v: Value) -> Value {
+        match v {
+            Value::Object(m) if m.contains_key("$join") => Value::String(
+                m["$join"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.as_str().unwrap())
+                    .collect(),
+            ),
+            Value::Object(m) => Value::Object(m.into_iter().map(|(k, x)| (k, join(x))).collect()),
+            Value::Array(a) => Value::Array(a.into_iter().map(join).collect()),
+            o => o,
+        }
+    }
     let cases: Vec<Value> =
-        serde_json::from_str(include_str!("denylist/delegate-rehearsal.json")).unwrap();
+        serde_json::from_str::<Vec<Value>>(include_str!("denylist/delegate-rehearsal.json"))
+            .unwrap()
+            .into_iter()
+            .map(join)
+            .collect();
     let live = Policy::from_env();
     let mut wrong = Vec::new();
     for pol in [policy(), live] {

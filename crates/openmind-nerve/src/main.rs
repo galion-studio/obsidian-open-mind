@@ -31,13 +31,15 @@
 //! NERVE_PUBLIC_OK_PORTS (22), NERVE_LISTEN_SCOPE (lo-hi), NERVE_DDOS_MIN_RPS (10),
 //! NERVE_DDOS_MIN_REQUESTS (300), NERVE_LOADING_GRACE (900), NERVE_EVENT_LOG,
 //! NERVE_SENSORS_OFF (cortex sensor names, comma-separated), NERVE_EDGE_HOSTS (1; 0 = no
-//! per-hostname edge streams), NERVE_EDGE_HOSTS_MAX (32).
+//! per-hostname edge streams), NERVE_EDGE_HOSTS_MAX (32), NERVE_STATE_MAX_AGE (auto; /state
+//! freshness limit in s, 10..=86400; slot 448).
 //! Runtime dry-run switch: `echo live > $NERVE_DATA_DIR/mode` or `echo dry-run > ...`.
 
 use openmind_nerve::config::Config;
 use openmind_nerve::engine::Engine;
 use openmind_nerve::evt::runtime::Runtime;
 use openmind_nerve::evt::{escalate, EvtConfig, Hub};
+use openmind_nerve::freshness::{self, Schedule};
 use openmind_nerve::server::EventLog;
 use openmind_nerve::Writer;
 use std::net::TcpListener;
@@ -288,6 +290,28 @@ fn serve(cfg: Config, args: &[String]) -> ExitCode {
             if ecfg.actions_live { "live" } else { "dry-run" }
         );
         evt_parts = Some((ecfg, hub));
+    }
+    // Slot 448: publish the /state staleness limit (freshness block + /health).
+    let sched = match &evt_parts {
+        Some((c, _)) => Schedule::Event {
+            heartbeat_s: c.heartbeat_s,
+            max_wait_s: c.max_wait_s,
+        },
+        None => Schedule::Poll {
+            interval_s: e.cfg.interval_s,
+        },
+    };
+    match freshness::max_age_from_env(&|k| std::env::var(k).ok(), sched) {
+        Ok((s, basis)) => {
+            let mut g = e.shared.lock().unwrap_or_else(|x| x.into_inner());
+            g.max_state_age_s = s;
+            g.max_state_age_basis = basis;
+            eprintln!("<6>openmind-nerve state max age: {s}s ({basis})");
+        }
+        Err(err) => {
+            eprintln!("<3>openmind-nerve: {err}");
+            return ExitCode::from(2);
+        }
     }
     let ev_rt = ev.clone();
     let sh = e.shared.clone();

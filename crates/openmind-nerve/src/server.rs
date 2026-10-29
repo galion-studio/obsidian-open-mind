@@ -429,11 +429,22 @@ pub fn route(
                         .as_ref()
                         .map(|e| e.lock().unwrap_or_else(|x| x.into_inner()).appended)
                         .unwrap_or(0);
-                    (200, j, json!({"status": "ok", "service": "openmind-nerve", "version": env!("CARGO_PKG_VERSION"),
+                    let mut h = json!({"status": "ok", "service": "openmind-nerve", "version": env!("CARGO_PKG_VERSION"),
                         "commit": crate::build_info::COMMIT, "build": crate::build_info::json(),
                         "appended": appended, "ts": zagreb_time::now_rfc3339(),
                         "system": g.state["system"]["status"], "score": g.state["system"]["score"],
-                        "cycle": g.state["cycle"]}).to_string())
+                        "cycle": g.state["cycle"]});
+                    // Slot 448: how old the served /state is, and whether that is normal.
+                    let f = crate::freshness::health_fields(
+                        &g.state["ts"],
+                        g.state_unix,
+                        g.max_state_age_s,
+                        now_secs(),
+                    );
+                    if let (Some(h), Some(f)) = (h.as_object_mut(), f.as_object()) {
+                        h.extend(f.clone());
+                    }
+                    (200, j, h.to_string())
                 }
                 ("GET", "/") if !api => (200, "text/html; charset=utf-8", dashboard(&g.state)),
                 ("POST", "/signal") => match parse_signal(&req.body, now_secs()) {

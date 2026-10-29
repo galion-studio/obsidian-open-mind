@@ -49,6 +49,7 @@ pub mod egress;
 pub mod engine;
 pub mod evt;
 pub mod feed;
+pub mod freshness;
 pub mod hub;
 pub mod incident;
 pub mod logscan;

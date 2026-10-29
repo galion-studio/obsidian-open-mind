@@ -52,6 +52,12 @@ pub struct Shared {
     pub detector: Detector,
     /// Event mode hub (`NERVE_MODE=event`); None in the polling mode.
     pub evt: Option<Arc<crate::evt::Hub>>,
+    /// Unix seconds of the cycle that wrote `state` (0 = none yet; slot 448).
+    pub state_unix: u64,
+    /// Published `/state` staleness limit in seconds (0 = not configured).
+    pub max_state_age_s: u64,
+    /// Where `max_state_age_s` came from (`freshness.basis`).
+    pub max_state_age_basis: &'static str,
 }
 
 pub struct Engine {
@@ -441,6 +447,7 @@ impl Engine {
         }
         let mut sh = lock(&self.shared);
         sh.state = state;
+        sh.state_unix = now;
         sh.alerts = json!(self.alerts.recent.iter().rev().take(50).collect::<Vec<_>>());
         sh.audit = json!(self.reflex.recent.iter().rev().collect::<Vec<_>>());
         // The report is always current in the API; files are written on cadence.
@@ -510,6 +517,9 @@ impl Engine {
         }
         let sh = lock(&self.shared);
         let signals = sh.hub.to_json(now);
+        let freshness = (sh.max_state_age_s > 0).then(|| {
+            crate::freshness::state_block(now, sh.max_state_age_s, sh.max_state_age_basis)
+        });
         drop(sh);
         let sc = self
             .score
@@ -554,6 +564,10 @@ impl Engine {
             if let Some(n) = n {
                 st[k]["load_note"] = json!(n);
             }
+        }
+        // Slot 448: only when the binary configured a limit (keeps old goldens).
+        if let Some(f) = freshness {
+            st["freshness"] = f;
         }
         st
     }

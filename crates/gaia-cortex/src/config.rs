@@ -78,6 +78,11 @@ pub struct Config {
     /// Subscribe to `GET <nerve_url>/events/stream` (event-mode nerve). Default on
     /// when `nerve_url` is set; this is the zero-idle-work transport.
     pub nerve_stream: bool,
+    /// `/health` `nerve` turns false when the last successful nerve contact
+    /// is older than this (slot 347). 0 (default) = automatic: 660 s with the
+    /// stream on (nerve keepalive 300 s), else 3 x `pull_every_s` (min 30 s),
+    /// else 660 s.
+    pub nerve_stale_s: u64,
     pub llm: LlmConfig,
     /// Cortex -> Hermes boss handoff (inbox files; see `handoff`).
     pub hermes: HermesConfig,
@@ -108,6 +113,7 @@ impl Default for Config {
             protected_units: vec![],
             restart_allow: vec![],
             nerve_stream: true,
+            nerve_stale_s: 0,
             llm: LlmConfig::default(),
             hermes: HermesConfig::default(),
         }
@@ -199,6 +205,19 @@ impl Default for LlmConfig {
 pub const HARD_BUDGET_CEILING_USD: f64 = 15.0;
 
 impl Config {
+    /// Effective `/health` nerve staleness (see `nerve_stale_s`).
+    pub fn nerve_stale_eff(&self) -> u64 {
+        if self.nerve_stale_s > 0 {
+            self.nerve_stale_s
+        } else if self.nerve_url.is_some() && self.nerve_stream {
+            crate::contact::STREAM_STALE_S
+        } else if self.pull_every_s > 0 {
+            (self.pull_every_s * 3).max(30)
+        } else {
+            crate::contact::STREAM_STALE_S
+        }
+    }
+
     pub fn dry_run(&self) -> bool {
         self.actions != "live"
     }
@@ -250,6 +269,9 @@ impl Config {
         }
         if let Some(v) = get("CORTEX_NERVE_STREAM") {
             c.nerve_stream = v != "0" && v != "false";
+        }
+        if let Some(v) = get("CORTEX_NERVE_STALE_S").and_then(|v| v.parse().ok()) {
+            c.nerve_stale_s = v;
         }
         if let Some(v) = get("CORTEX_REPEAT_POLL_S").and_then(|v| v.parse().ok()) {
             c.repeat_poll_s = v;

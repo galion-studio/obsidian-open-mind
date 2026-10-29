@@ -150,12 +150,23 @@ fn binary_subscribes_decides_and_asks_nerve() {
     assert_eq!(h["ok"], true);
     assert_eq!(h["mode"], "dry-run");
     assert_eq!(h["llm_enabled"], false);
+    // F-357-1 build stamp: same commit as --version, Zagreb date or unknown.
+    assert_eq!(h["commit"], gaia_cortex::build_info::COMMIT);
+    assert_eq!(h["build"], gaia_cortex::build_info::json());
     // Stream -> decision -> POST /actions (dry-run) -> alert POST /event.
     assert!(
         wait_for(&|| get(port, "/stats")["actions_simulated"] == 1, 10),
         "{}",
         get(port, "/stats")
     );
+    // Slot 347 (F-337-1): `nerve` is real reachability; the stream is up.
+    let h = get(port, "/health");
+    assert_eq!(h["nerve"], true, "{h}");
+    assert_eq!(h["nerve_configured"], true);
+    assert_eq!(h["nerve_contact"]["state"], "ok", "{h}");
+    assert_eq!(h["nerve_contact"]["stream"], "connected", "{h}");
+    assert!(h["nerve_contact"]["age_s"].as_u64().unwrap() <= 10, "{h}");
+    assert_eq!(h["nerve_contact"]["stale_s"], 660);
     let d = get(port, "/decisions");
     assert_eq!(d[0]["rule"], "R3-known-crash");
     assert_eq!(d[0]["action"]["by"], "nerve");
@@ -201,4 +212,84 @@ fn binary_subscribes_decides_and_asks_nerve() {
     assert!(get(port, "/incidents")["open"].as_array().is_some());
     assert!(get(port, "/escalations")["open"].as_array().is_some());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn start(port: u16, nerve: Option<&str>, dir: &std::path::Path) -> Kill {
+    let mut c = Command::new(env!("CARGO_BIN_EXE_gaia-cortex"));
+    c.env("CORTEX_LISTEN", format!("127.0.0.1:{port}"))
+        .env("CORTEX_DATA_DIR", dir)
+        .env_remove("CORTEX_CONFIG")
+        .env_remove("CORTEX_LLM_ENABLED")
+        .env_remove("CORTEX_NERVE_URL")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    if let Some(n) = nerve {
+        c.env("CORTEX_NERVE_URL", n);
+    }
+    let k = Kill(c.spawn().unwrap());
+    assert!(wait_for(
+        &|| TcpStream::connect(("127.0.0.1", port)).is_ok(),
+        10
+    ));
+    k
+}
+
+/// Slot 347 (F-337-1 repro): a nerve URL with nothing listening used to
+/// read `"nerve": true`. Now: false, `unreachable`, with the connect error.
+#[test]
+fn health_nerve_false_when_configured_port_is_dead() {
+    let dead = free_port();
+    let port = free_port();
+    let dir = std::env::temp_dir().join(format!("gaia-cortex-e2e-dead-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _c = start(port, Some(&format!("http://127.0.0.1:{dead}")), &dir);
+    assert!(
+        wait_for(
+            &|| get(port, "/health")["nerve_contact"]["fail"].as_u64() >= Some(1),
+            10
+        ),
+        "{}",
+        get(port, "/health")
+    );
+    let h = get(port, "/health");
+    assert_eq!(h["nerve"], false, "{h}");
+    assert_eq!(h["nerve_configured"], true);
+    assert_eq!(h["nerve_contact"]["state"], "unreachable", "{h}");
+    assert_eq!(h["nerve_contact"]["stream"], "down", "{h}");
+    assert_eq!(h["nerve_contact"]["last_ok"], Value::Null);
+    assert!(
+        h["nerve_contact"]["last_error"]
+            .as_str()
+            .unwrap()
+            .contains("connect"),
+        "{h}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn health_nerve_none_without_url() {
+    let port = free_port();
+    let dir = std::env::temp_dir().join(format!("gaia-cortex-e2e-none-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _c = start(port, None, &dir);
+    let h = get(port, "/health");
+    assert_eq!(h["nerve"], false, "{h}");
+    assert_eq!(h["nerve_configured"], false);
+    assert_eq!(h["nerve_contact"]["state"], "none");
+    assert_eq!(h["nerve_contact"]["stream"], "off");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn version_prints_build_stamp() {
+    let out = Command::new(env!("CARGO_BIN_EXE_gaia-cortex"))
+        .arg("--version")
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let v = String::from_utf8(out.stdout).unwrap();
+    assert_eq!(v.trim_end(), gaia_cortex::build_info::version_line());
+    assert!(v.contains(" (commit "), "{v}");
+    assert!(!v.contains('Z'), "{v}");
 }

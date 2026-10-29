@@ -44,15 +44,29 @@ pub struct Api {
     pub cx: Arc<Mutex<Cortex>>,
     pub tx: Mutex<Sender<Vec<Event>>>,
     pub snap: Arc<Snapshot>,
+    /// Nerve reachability for `/health` from the snapshot path (slot 347):
+    /// contact, configured, stale seconds.
+    pub nerve: (Arc<crate::contact::NerveContact>, bool, u64),
 }
 
 impl Api {
     pub fn new(cx: Arc<Mutex<Cortex>>, tx: Sender<Vec<Event>>) -> Api {
-        let snap = cx.lock().unwrap_or_else(|e| e.into_inner()).snap.clone();
+        let (snap, nerve) = {
+            let g = cx.lock().unwrap_or_else(|e| e.into_inner());
+            (
+                g.snap.clone(),
+                (
+                    g.contact.clone(),
+                    g.cfg.nerve_url.is_some(),
+                    g.cfg.nerve_stale_eff(),
+                ),
+            )
+        };
         Api {
             cx,
             tx: Mutex::new(tx),
             snap,
+            nerve,
         }
     }
 }
@@ -90,6 +104,9 @@ fn read(api: &Api, route: Route, n: usize, fresh: impl Fn(&Cortex) -> Value) -> 
     let mut body = mark_busy(body, age);
     if route == Route::Health {
         body["ts"] = json!(ts(now_secs()));
+        // Reachability is read live, never from the snapshot.
+        let (c, configured, stale) = &api.nerve;
+        c.overlay(&mut body, *configured, *stale);
     }
     Response::json(200, body.to_string())
         .with_header("x-cortex-busy", "1")

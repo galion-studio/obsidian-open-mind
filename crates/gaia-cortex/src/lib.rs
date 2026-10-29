@@ -8,7 +8,9 @@
 //! Pipeline: [`engine`]; rules: [`rules`]; never-act list: [`guard`];
 //! advisor (OFF by default): [`llm`]; nerve link: [`nerve`]; API: [`server`] (reads from [`snapshot`] while the decider is busy).
 
+pub mod build_info;
 pub mod config;
+pub mod contact;
 pub mod dispatch;
 pub mod engine;
 pub mod guard;
@@ -27,12 +29,14 @@ use std::path::Path;
 /// Build a cortex from config (real guard, real nerve link if configured).
 pub fn build(cfg: config::Config) -> engine::Cortex {
     let guard = guard::Guard::new(&cfg.protected_units);
+    let contact = std::sync::Arc::new(contact::NerveContact::default());
     let link: Box<dyn nerve::NerveLink> =
         match cfg.nerve_url.as_deref().and_then(nerve::HttpNerve::new) {
-            Some(n) => Box::new(n),
+            Some(n) => Box::new(n.with_contact(contact.clone())),
             None => Box::new(nerve::NoNerve),
         };
-    let cx = engine::Cortex::new(cfg, guard, link);
+    let mut cx = engine::Cortex::new(cfg, guard, link);
+    cx.contact = contact;
     cx.publish();
     cx
 }

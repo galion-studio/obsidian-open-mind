@@ -168,6 +168,8 @@ pub struct Cortex {
     pub stats: Stats,
     /// API read snapshot, shared outside the engine lock (see [`crate::snapshot`]).
     pub snap: Arc<Snapshot>,
+    /// Real nerve reachability (slot 347), shared with the nerve links and the API.
+    pub contact: Arc<crate::contact::NerveContact>,
     /// Re-reads the nerve ring for folded repeats (set by `serve` when
     /// `repeat_poll_s` > 0 and the stream is on).
     pub repeats: Option<Arc<crate::repeat::RepeatWatch>>,
@@ -253,6 +255,7 @@ impl Cortex {
                 ..Stats::default()
             },
             snap: Arc::new(Snapshot::default()),
+            contact: Arc::new(crate::contact::NerveContact::default()),
             posts: Arc::new(PostCounters::default()),
             outgoing: vec![],
             seen: HashSet::new(),
@@ -1115,12 +1118,20 @@ impl Cortex {
     }
 
     pub fn health_json(&self) -> Value {
-        json!({"ok": true, "service": "gaia-cortex", "version": env!("CARGO_PKG_VERSION"), "ts": ts(now_secs()),
+        // `nerve` = real reachability (slot 347, F-337-1), not just "configured".
+        // `commit` / `build` = deterministic build stamp (slot 377, D-377-2).
+        let mut v = json!({"ok": true, "service": "gaia-cortex", "version": env!("CARGO_PKG_VERSION"), "commit": crate::build_info::COMMIT, "build": crate::build_info::json(), "ts": ts(now_secs()),
                "mode": if self.cfg.dry_run() { "dry-run" } else { "live" }, "llm_enabled": self.cfg.llm.enabled,
-               "nerve": self.cfg.nerve_url.is_some(), "events_in": self.stats.events_in,
+               "events_in": self.stats.events_in,
                "incidents_open": self.correlator.open.len(), "escalations_open": self.escalations.open.len(),
                "hermes_handoff": self.handoff.enabled, "handoffs": self.stats.handoffs,
-               "busy": self.snap.busy()})
+               "busy": self.snap.busy()});
+        self.contact.overlay(
+            &mut v,
+            self.cfg.nerve_url.is_some(),
+            self.cfg.nerve_stale_eff(),
+        );
+        v
     }
 
     pub fn escalations_json(&self) -> Value {

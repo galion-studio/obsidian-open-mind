@@ -86,21 +86,26 @@ fn flags_for(text: &str) -> Vec<String> {
     {
         f.push("python".to_string());
     }
-    if [
-        "systemctl restart",
-        "systemctl stop",
-        "systemctl enable",
-        "daemon-reload",
-        "git push",
-        "rsync ",
-        "scp ",
-    ]
-    .iter()
-    .any(|k| low.contains(k))
-    {
+    if live_change(&low) {
         f.push("live-change".to_string());
     }
     f
+}
+
+/// True when a skill body tells the reader to change a live system: a
+/// service manager verb, a reload, a push or a remote copy. Matching is on
+/// word tokens, so extra spaces or flags between the words still count.
+fn live_change(low: &str) -> bool {
+    let w: Vec<&str> = low
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '-'))
+        .filter(|t| !t.is_empty() && !t.starts_with("--"))
+        .collect();
+    const VERBS: [&str; 5] = ["restart", "stop", "start", "enable", "reload"];
+    w.iter()
+        .any(|t| ["daemon-reload", "rsync", "scp"].contains(t))
+        || w.windows(2).any(|p| {
+            (p[0] == "systemctl" && VERBS.contains(&p[1])) || (p[0] == "git" && p[1] == "push")
+        })
 }
 
 fn cap(s: &str, n: usize) -> String {
@@ -426,6 +431,14 @@ mod tests {
     use std::sync::atomic::AtomicBool;
     use std::sync::Arc;
 
+    #[test]
+    fn live_change_matches_words_not_spacing() {
+        assert!(live_change("sudo systemctl  --now restart hermes"));
+        assert!(live_change("then git   push origin"));
+        assert!(live_change("run daemon-reload"));
+        assert!(!live_change("read systemctl status and git log"));
+    }
+
     fn tmp() -> PathBuf {
         let d = std::env::temp_dir().join(crate::new_id("hermes-rs-skills-"));
         std::fs::create_dir_all(&d).unwrap();
@@ -460,7 +473,7 @@ mod tests {
             "galion/survival",
             "# Survival\nRead survival.json first.\n",
         );
-        mk(&r, "galion/deploy-lane", "---\nname: deploy-lane\ndescription: Deploy the console\n---\nThen systemctl restart console.\n");
+        mk(&r, "galion/deploy-lane", "---\nname: deploy-lane\ndescription: Deploy the console\n---\nThen rsync the build and reload.\n");
         mk(
             &r,
             "local/survival",

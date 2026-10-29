@@ -152,7 +152,8 @@ pub const SECTORS: &[Sector] = &[
             "Live 8080 is still the Vite dev server (~1.23 GiB RSS) and serves /package.json and src/**",
             "The 17 rooms left at c242fed are ported in 5 slices (console-port-1..5), merged here",
             "Every ported room is Rust-first, even with an SPA fallback (/arena read-only, Breed held)",
-            "Mic + streaming parts of Hermes still need a ruling on browser JS",
+            "Mic: solved (Oct 29): listening uses the FUTO keyboard's tiny Whisper-based voice model, English only",
+            "Live streaming on the Hermes page still needs a ruling on browser JS",
         ],
         refs: &[
             ("swarm/console-ui-rust", "c242fed"),

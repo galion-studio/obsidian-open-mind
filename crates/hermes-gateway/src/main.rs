@@ -200,6 +200,35 @@ fn main() {
             std::process::exit(2);
         }
     }
+    // Agent tools (terminal, files, browser, vision): off unless
+    // HERMES_RS_TOOLS_WORKSPACE is set. See docs/hermes-agent-tools.md.
+    #[cfg(feature = "coding")]
+    match hermes_tools::agent::AgentToolsConfig::from_env(&env, &cfg) {
+        Ok(None) => {}
+        Ok(Some(ac)) => match hermes_tools::agent::preflight(&ac, &cfg.spend) {
+            Ok(notes) => {
+                for n in notes {
+                    log(&format!("agent-tools: {n}"));
+                }
+                let names = hermes_tools::agent::register(
+                    &mut tools,
+                    ac,
+                    Some(spend.clone()),
+                    Some(provider.clone()),
+                    Some(cfg.clone()),
+                );
+                log(&format!("agent-tools: on: {names:?}"));
+            }
+            Err(e) => {
+                log(&format!("agent-tools: refusing to start: {e}"));
+                std::process::exit(2);
+            }
+        },
+        Err(e) => {
+            log(&format!("agent-tools: config error: {e}"));
+            std::process::exit(2);
+        }
+    }
     let cron_agent = Arc::new(hermes_rs::agent::Agent {
         cfg: cfg.clone(),
         provider: provider.clone(),

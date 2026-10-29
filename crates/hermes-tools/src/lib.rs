@@ -21,6 +21,7 @@
 //! Off by default: nothing is registered unless `HERMES_RS_CODING_WORKTREE`
 //! is set. See docs/hermes-tools.md.
 
+pub mod agent;
 pub mod audit;
 pub mod cgroup_self;
 pub mod config;

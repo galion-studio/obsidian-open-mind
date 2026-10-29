@@ -1,227 +1,341 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-//! Stdin bytes in, response bytes out. No child process.
+//! JSON-RPC bytes in, response bytes out (no child process). Temp vault
+//! and a mock memory gateway.
 
-use openmind_mcp_stack::{StackError, StackServer, DEFAULT_PROTOCOL, SERVER_NAME, TOOL_NAME};
+mod common;
+
+use common::{make_vault, mock_memory, snapshot};
+use openmind_mcp_stack::memory::{key_from_env_text, parse_response, MemoryClient};
+use openmind_mcp_stack::vault::Vault;
+use openmind_mcp_stack::{Config, Server, DEFAULT_PROTOCOL, SERVER_NAME, TOOL_NAMES};
 use serde_json::{json, Value};
+use std::time::Duration;
 
-const STAMP: &str = "2026-10-19T16:39:10+02:00";
+const STAMP: &str = "2026-10-29T14:00:00+01:00";
 
-fn server(crates: &[&str]) -> StackServer {
-    StackServer::with_timestamp(crates, STAMP).unwrap()
+fn server(vault: Option<&std::path::Path>, mem_url: Option<&str>, key: Option<&str>) -> Server {
+    Server::new(Config {
+        memory: mem_url
+            .map(|u| MemoryClient::new(u, key.map(String::from), Duration::from_secs(3)).unwrap()),
+        vault: vault.map(|p| Vault::open(p).unwrap()),
+        save_session: String::new(),
+        fixed_time: Some(STAMP.into()),
+    })
 }
 
-fn responses(raw: &[u8]) -> Vec<Value> {
-    let text = std::str::from_utf8(raw).unwrap();
-    text.lines()
-        .filter(|line| !line.is_empty())
-        .map(|line| serde_json::from_str(line).unwrap())
-        .collect()
+fn rpc(s: &Server, line: &str) -> Value {
+    let out = s.handle_bytes(format!("{line}\n").as_bytes());
+    serde_json::from_slice(&out).unwrap()
 }
 
-fn session(parts: &[&str]) -> Vec<u8> {
-    let mut buf = String::new();
-    for part in parts {
-        buf.push_str(part);
-        if !part.ends_with('\n') {
-            buf.push('\n');
-        }
-    }
-    buf.into_bytes()
-}
-
-#[test]
-fn initialize_echoes_protocol_and_server_info() {
-    let raw = session(&[
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"0.0.0"}}}"#,
-    ]);
-    let got = responses(&server(&["openmind-schema"]).handle_bytes(&raw));
-    assert_eq!(got.len(), 1);
-    assert_eq!(got[0]["id"], json!(1));
-    assert_eq!(got[0]["result"]["protocolVersion"], json!("2025-03-26"));
-    assert_eq!(got[0]["result"]["serverInfo"]["name"], json!(SERVER_NAME));
-    assert_eq!(got[0]["result"]["serverInfo"]["version"], json!("0.1.0"));
-    assert_eq!(
-        got[0]["result"]["capabilities"]["tools"]["listChanged"],
-        json!(false)
-    );
+fn call(s: &Server, name: &str, args: &Value) -> (bool, Value) {
+    let req = json!({"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":name,"arguments":args}});
+    let r = rpc(s, &req.to_string());
+    let res = &r["result"];
+    let text = res["content"][0]["text"].as_str().unwrap_or("").to_string();
+    let is_err = res["isError"] == json!(true);
+    let v = serde_json::from_str(&text).unwrap_or(Value::String(text));
+    (is_err, v)
 }
 
 #[test]
-fn unknown_protocol_falls_back_without_zulu() {
-    let raw = br#"{"jsonrpc":"2.0","id":"abc","method":"initialize","params":{"protocolVersion":"1999-01-01"}}"#;
-    let got = responses(&server(&[]).handle_bytes(raw));
-    assert_eq!(got.len(), 1);
-    assert_eq!(got[0]["id"], json!("abc"));
-    assert_eq!(got[0]["result"]["protocolVersion"], json!(DEFAULT_PROTOCOL));
+fn initialize_and_protocol_fallback() {
+    let s = server(None, None, None);
+    let r = rpc(
+        &s,
+        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}}"#,
+    );
+    assert_eq!(r["result"]["protocolVersion"], json!("2025-03-26"));
+    assert_eq!(r["result"]["serverInfo"]["name"], json!(SERVER_NAME));
+    let r = rpc(
+        &s,
+        r#"{"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}"#,
+    );
+    assert_eq!(r["result"]["protocolVersion"], json!(DEFAULT_PROTOCOL));
+    assert!(s
+        .handle_bytes(br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#)
+        .is_empty());
+    let bad = rpc(&s, "not-json");
+    assert_eq!(bad["error"]["code"], json!(-32700));
+    let nf = rpc(&s, r#"{"jsonrpc":"2.0","id":3,"method":"resources/list"}"#);
+    assert_eq!(nf["error"]["code"], json!(-32601));
 }
 
 #[test]
-fn tools_list_is_only_stack_status() {
-    let raw = br#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
-    let got = responses(&server(&["openmind-schema"]).handle_bytes(raw));
-    let tools = got[0]["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 1);
-    assert_eq!(tools[0]["name"], json!(TOOL_NAME));
-    assert_eq!(tools[0]["inputSchema"]["type"], json!("object"));
+fn tools_list_depends_on_configuration() {
+    let (v, _o) = make_vault();
+    let m = mock_memory(None);
+    let names = |s: &Server| -> Vec<String> {
+        let r = rpc(s, r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#);
+        r["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap().to_string())
+            .collect()
+    };
+    assert_eq!(names(&server(None, None, None)), vec!["openmind_status"]);
     assert_eq!(
-        tools[0]["inputSchema"]["additionalProperties"],
-        json!(false)
+        names(&server(Some(v.path()), Some(&m.url), None)).len(),
+        TOOL_NAMES.len()
     );
-}
-
-#[test]
-fn stack_status_returns_given_crates_and_zagreb_stamp() {
-    let names = ["zagreb-time", "openmind-schema", "openmind-config"];
-    let raw = br#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"stack_status","arguments":{}}}"#;
-    let got = responses(&server(&names).handle_bytes(raw));
-    assert_eq!(got[0]["result"]["isError"], json!(false));
-    let text = got[0]["result"]["content"][0]["text"].as_str().unwrap();
-    let parsed: Value = serde_json::from_str(text).unwrap();
-    assert_eq!(parsed, server(&names).fixture());
-    assert_eq!(
-        got[0]["result"]["structuredContent"]["crates"],
-        json!(names)
+    let only_vault = names(&server(Some(v.path()), None, None));
+    assert!(only_vault.iter().all(|n| !n.starts_with("memory_")));
+    // a hidden tool cannot be called either
+    let (err, _) = call(
+        &server(Some(v.path()), None, None),
+        "memory_save",
+        &json!({"text":"x"}),
     );
-    assert_eq!(
-        got[0]["result"]["structuredContent"]["observed_at"],
-        json!(STAMP)
+    assert!(err);
+    let r = rpc(
+        &server(None, None, None),
+        r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
     );
-    let stamp = parsed["observed_at"].as_str().unwrap();
-    assert!(stamp.ends_with("+01:00") || stamp.ends_with("+02:00"));
-    assert!(!stamp.contains('Z'));
-    assert!(!stamp.contains("+00:00"));
-}
-
-#[test]
-fn session_skips_notifications_and_keeps_order() {
-    let raw = session(&[
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{}}}"#,
-        r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
-        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"stack_status"}}"#,
-    ]);
-    let got = responses(&server(&["openmind-schema"]).handle_bytes(&raw));
-    assert_eq!(got.len(), 3);
-    assert_eq!(got[0]["id"], json!(1));
-    assert!(got[0]["result"]["serverInfo"].is_object());
-    assert_eq!(got[1]["id"], json!(2));
-    assert_eq!(got[1]["result"]["tools"][0]["name"], json!(TOOL_NAME));
-    assert_eq!(got[2]["id"], json!(3));
-    assert_eq!(
-        got[2]["result"]["structuredContent"]["crates"],
-        json!(["openmind-schema"])
-    );
-}
-
-#[test]
-fn notification_and_blank_lines_emit_nothing() {
-    let server = server(&["openmind-schema"]);
-    let silent = br#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
-    assert!(server.handle_bytes(silent).is_empty());
-    assert!(server.handle_bytes(b"\n\n").is_empty());
-}
-
-#[test]
-fn unknown_method_and_bad_json_keep_protocol_errors() {
-    let server = server(&["openmind-schema"]);
-    let missing =
-        responses(&server.handle_bytes(br#"{"jsonrpc":"2.0","id":9,"method":"resources/list"}"#));
-    assert_eq!(missing[0]["id"], json!(9));
-    assert_eq!(missing[0]["error"]["code"], json!(-32601));
-    let parsed = responses(&server.handle_bytes(b"not-json\n"));
-    assert_eq!(parsed[0]["id"], Value::Null);
-    assert_eq!(parsed[0]["error"]["code"], json!(-32700));
-    let ping = responses(&server.handle_bytes(br#"{"jsonrpc":"2.0","id":4,"method":"ping"}"#));
-    assert_eq!(ping[0]["result"], json!({}));
-}
-
-#[test]
-fn rejects_paths_zulu_and_empty_names() {
-    let zulu = format!("2026-10-19T14:39:10{}", "Z");
-    assert_eq!(
-        StackServer::with_timestamp(["openmind-schema"], zulu).unwrap_err(),
-        StackError::BadTimestamp
-    );
-    assert_eq!(
-        StackServer::with_timestamp(["openmind-schema"], "2026-10-19T14:39:10+00:00").unwrap_err(),
-        StackError::BadTimestamp
-    );
-    let foreign = format!("/opt/galion/{}", "hermes");
-    assert_eq!(
-        StackServer::with_timestamp([foreign.as_str()], STAMP).unwrap_err(),
-        StackError::BadCrate
-    );
-    let db = format!("state.{}", "db");
-    assert_eq!(
-        StackServer::with_timestamp([db.as_str()], STAMP).unwrap_err(),
-        StackError::BadCrate
-    );
-    assert_eq!(
-        StackServer::with_timestamp([""], STAMP).unwrap_err(),
-        StackError::BadCrate
-    );
-}
-
-#[test]
-fn live_stamp_is_zagreb_not_zulu() {
-    let server = StackServer::new(["openmind-schema"]).unwrap();
-    let stamp = server.observed_at();
-    assert_eq!(stamp.len(), 25);
-    assert!(stamp.ends_with("+01:00") || stamp.ends_with("+02:00"));
-    assert!(!stamp.contains('Z'));
-    assert!(!stamp.contains("+00:00"));
-    assert_eq!(server.crates(), &["openmind-schema".to_owned()]);
-}
-
-#[test]
-fn implementation_names_no_foreign_tree_database_or_socket_api() {
-    let files = [
-        include_str!("../src/lib.rs"),
-        include_str!("../src/main.rs"),
-        include_str!("../Cargo.toml"),
-    ];
-    for src in files {
-        let folded = src.to_ascii_lowercase();
-        assert!(!folded.contains("hermes"));
-        assert!(!folded.contains("state.db"));
-        assert!(!folded.contains("tcplistener"));
-        assert!(!folded.contains("std::net"));
-        assert!(!folded.contains("std::fs"));
-        assert!(!folded.contains("reqwest"));
-        assert!(!folded.contains("tokio"));
-        assert!(!folded.contains("hyper"));
-        assert!(!src.contains("Command::new"));
+    for t in r["result"]["tools"].as_array().unwrap() {
+        assert_eq!(t["inputSchema"]["type"], json!("object"));
+        assert_eq!(t["inputSchema"]["additionalProperties"], json!(false));
     }
 }
 
-#[cfg(target_os = "linux")]
 #[test]
-fn handle_bytes_opens_no_descriptor() {
-    let before = fd_targets();
-    let raw = session(&[
-        r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
-        r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
-        r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"stack_status","arguments":{}}}"#,
-    ]);
-    let _ = server(&["openmind-schema", "zagreb-time"]).handle_bytes(&raw);
-    let after = fd_targets();
-    assert_eq!(before, after);
-    assert!(after
+fn vault_list_read_search() {
+    let (v, _o) = make_vault();
+    let s = server(Some(v.path()), None, None);
+    let (err, l) = call(&s, "vault_list", &json!({}));
+    assert!(!err, "{l}");
+    let paths: Vec<&str> = l["notes"]
+        .as_array()
+        .unwrap()
         .iter()
-        .all(|target| { !target.contains("/opt/galion/hermes") && !target.contains("state.db") }));
+        .map(|n| n["path"].as_str().unwrap())
+        .collect();
+    assert_eq!(paths, vec!["23-vault.md", "big.md", "daily/2026-10-29.md"]);
+    let stamp = l["notes"][0]["modified"].as_str().unwrap();
+    assert!(stamp.ends_with("+01:00") || stamp.ends_with("+02:00"));
+    let (err, l) = call(&s, "vault_list", &json!({"folder":"daily"}));
+    assert!(!err);
+    assert_eq!(l["count"], json!(1));
+
+    let (err, r) = call(&s, "vault_read", &json!({"path":"daily/2026-10-29.md"}));
+    assert!(!err);
+    assert_eq!(r["text"], json!("Line one\nThe Hermes MCP test note\n"));
+    assert_eq!(r["truncated"], json!(false));
+
+    let (err, r) = call(&s, "vault_read", &json!({"path":"big.md"}));
+    assert!(!err);
+    assert_eq!(r["truncated"], json!(true));
+    assert_eq!(r["text"].as_str().unwrap().len(), 32 * 1024);
+    let (_, r) = call(
+        &s,
+        "vault_read",
+        &json!({"path":"big.md","max_bytes": 10_000_000}),
+    );
+    assert_eq!(r["text"].as_str().unwrap().len(), 64 * 1024);
+
+    let (err, r) = call(&s, "vault_search", &json!({"query":"hermes mcp"}));
+    assert!(!err);
+    assert_eq!(r["count"], json!(1));
+    assert_eq!(r["hits"][0]["path"], json!("daily/2026-10-29.md"));
+    assert_eq!(r["hits"][0]["line"], json!(2));
+    // hidden folders and links are never searched
+    let (_, r) = call(&s, "vault_search", &json!({"query":"hidden"}));
+    assert_eq!(r["count"], json!(0));
+    let (_, r) = call(&s, "vault_search", &json!({"query":"OUTSIDE-SECRET"}));
+    assert_eq!(r["count"], json!(0));
+    let (err, _) = call(&s, "vault_search", &json!({"query":"x"}));
+    assert!(err, "1-char query refused");
 }
 
-#[cfg(target_os = "linux")]
-fn fd_targets() -> Vec<String> {
-    let mut names = Vec::new();
-    let dir = std::fs::read_dir("/proc/self/fd").unwrap();
-    for entry in dir.flatten() {
-        if let Ok(target) = std::fs::read_link(entry.path()) {
-            names.push(target.to_string_lossy().into_owned());
+#[test]
+fn vault_refuses_traversal_hidden_links_and_non_notes() {
+    let (v, outside) = make_vault();
+    let s = server(Some(v.path()), None, None);
+    let abs = outside.path().join("secret.md").display().to_string();
+    for bad in [
+        "../outside/secret.md",
+        "daily/../../secret.md",
+        "./23-vault.md",
+        abs.as_str(),
+        "/etc/passwd",
+        ".git/config",
+        ".obsidian/app.json",
+        "escape.md",
+        "escape-dir/secret.md",
+        "image.png",
+        "daily",
+        "missing.md",
+        "",
+        "a\\..\\b.md",
+    ] {
+        let (err, r) = call(&s, "vault_read", &json!({"path": bad}));
+        assert!(err, "{bad} should be refused, got {r}");
+        assert!(!r.to_string().contains("OUTSIDE-SECRET"), "{bad}");
+    }
+    let (err, _) = call(&s, "vault_list", &json!({"folder":"../"}));
+    assert!(err);
+    let (err, _) = call(&s, "vault_list", &json!({"folder":"escape-dir"}));
+    assert!(err);
+    let long = "a/".repeat(300) + "x.md";
+    let (err, _) = call(&s, "vault_read", &json!({"path": long}));
+    assert!(err);
+}
+
+#[test]
+fn vault_tools_never_write() {
+    let (v, _o) = make_vault();
+    let before = snapshot(v.path());
+    let s = server(Some(v.path()), None, None);
+    for (name, args) in [
+        ("vault_list", json!({})),
+        ("vault_read", json!({"path":"23-vault.md"})),
+        ("vault_search", json!({"query":"vault"})),
+        ("vault_read", json!({"path":"../x.md"})),
+        ("openmind_status", json!({})),
+    ] {
+        let _ = call(&s, name, &args);
+    }
+    assert_eq!(before, snapshot(v.path()));
+    // no write API in the sources
+    for src in [
+        include_str!("../src/vault.rs"),
+        include_str!("../src/lib.rs"),
+    ] {
+        for word in [
+            "fs::write",
+            "OpenOptions",
+            "create_dir",
+            "remove_file",
+            "rename(",
+            "set_permissions",
+        ] {
+            assert!(!src.contains(word), "{word} found in source");
         }
     }
-    names.sort();
-    names
+}
+
+#[test]
+fn vault_root_must_be_a_real_folder() {
+    assert!(Vault::open("/").is_err());
+    assert!(Vault::open("/definitely/not/here").is_err());
+}
+
+#[test]
+fn memory_tools_round_trip_against_mock_with_key() {
+    let m = mock_memory(Some("k-test-123"));
+    let s = server(None, Some(&m.url), Some("k-test-123"));
+    let (err, r) = call(
+        &s,
+        "memory_save",
+        &json!({"text":"Mate prefers CET times in reports"}),
+    );
+    assert!(!err, "{r}");
+    assert_eq!(r["saved"], json!(true));
+    assert_eq!(r["session_key"], json!("hermes-mcp-notes"));
+    let (err, r) = call(
+        &s,
+        "memory_search",
+        &json!({"query":"cet times","limit":99}),
+    );
+    assert!(!err, "{r}");
+    assert_eq!(r["total"], json!(1));
+    let (err, r) = call(&s, "memory_recall", &json!({"query":"cet times"}));
+    assert!(!err);
+    assert_eq!(r["scope"], json!("all"));
+    let (_, r) = call(
+        &s,
+        "memory_recall",
+        &json!({"query":"cet","session_key":"s1"}),
+    );
+    assert_eq!(r["scope"], json!("session"));
+    let (err, _) = call(&s, "memory_conversations", &json!({"query":"cet"}));
+    assert!(!err);
+    let seen = m.seen.lock().unwrap().clone();
+    let paths: Vec<&str> = seen.iter().map(|x| x.path.as_str()).collect();
+    assert_eq!(
+        paths,
+        vec![
+            "/capture",
+            "/search/memories",
+            "/recall",
+            "/recall",
+            "/search/conversations"
+        ]
+    );
+    assert!(seen
+        .iter()
+        .all(|x| x.auth.as_deref() == Some("k-test-123") && x.method == "POST"));
+    assert_eq!(seen[1].body["limit"], json!(20), "limit clamped");
+    assert_eq!(
+        seen[0].body["user_content"],
+        json!("Mate prefers CET times in reports")
+    );
+    // status shows key=true but never the key
+    let (_, st) = call(&s, "openmind_status", &json!({}));
+    assert_eq!(st["memory"]["key"], json!(true));
+    assert!(!st.to_string().contains("k-test-123"));
+    assert_eq!(st["observed_at"], json!(STAMP));
+}
+
+#[test]
+fn memory_errors_are_tool_errors() {
+    let m = mock_memory(Some("right"));
+    let s = server(None, Some(&m.url), Some("wrong"));
+    let (err, r) = call(&s, "memory_search", &json!({"query":"x"}));
+    assert!(err);
+    assert!(r.as_str().unwrap().contains("401"));
+    assert!(!r.as_str().unwrap().contains("right") && !r.as_str().unwrap().contains("wrong"));
+    let (err, _) = call(&s, "memory_save", &json!({"text": "y".repeat(9000)}));
+    assert!(err);
+    let (err, _) = call(&s, "memory_save", &json!({}));
+    assert!(err);
+    // nothing listening
+    let dead = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}", dead.local_addr().unwrap());
+    drop(dead);
+    let s = server(None, Some(&url), None);
+    let (err, r) = call(&s, "memory_search", &json!({"query":"x"}));
+    assert!(err);
+    assert!(r.as_str().unwrap().contains("unreachable"));
+}
+
+#[test]
+fn memory_url_must_be_loopback_http() {
+    let t = Duration::from_secs(1);
+    assert!(MemoryClient::new("http://127.0.0.1:8420", None, t).is_ok());
+    assert!(MemoryClient::new("http://localhost:8420", None, t).is_ok());
+    assert!(MemoryClient::new("https://127.0.0.1:8420", None, t).is_err());
+    assert!(MemoryClient::new("http://192.0.2.1:8420", None, t).is_err());
+    assert!(MemoryClient::new("http://memory.example:8420", None, t).is_err());
+    assert!(MemoryClient::new("http://127.0.0.1:8420/x", None, t).is_err());
+    assert!(MemoryClient::new("http://u@127.0.0.1:8420", None, t).is_err());
+    let dbg = format!(
+        "{:?}",
+        MemoryClient::new("http://127.0.0.1:1", Some("sekrit".into()), t).unwrap()
+    );
+    assert!(!dbg.contains("sekrit"));
+}
+
+#[test]
+fn key_file_parsing_takes_only_known_names() {
+    let text = "OPENROUTER_API_KEY=nope\nexport TDAI_GATEWAY_API_KEY=\"abc\"\n# c\n";
+    assert_eq!(key_from_env_text(text).as_deref(), Some("abc"));
+    let both = "TDAI_GATEWAY_API_KEY=b\nOPENMIND_MEMORY_API_KEY=a\n";
+    assert_eq!(key_from_env_text(both).as_deref(), Some("a"));
+    assert_eq!(key_from_env_text("OTHER=1\n"), None);
+}
+
+#[test]
+fn http_parsing_handles_length_and_chunked() {
+    let (s, b) = parse_response(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}xx").unwrap();
+    assert_eq!((s, b.as_slice()), (200, b"{}".as_slice()));
+    let (s, b) = parse_response(
+        b"HTTP/1.1 201 C\r\nTransfer-Encoding: chunked\r\n\r\n3\r\n{\"a\r\n4\r\n\":1}\r\n0\r\n\r\n",
+    )
+    .unwrap();
+    assert_eq!(s, 201);
+    assert_eq!(b, br#"{"a":1}"#);
+    assert!(parse_response(b"garbage").is_err());
 }

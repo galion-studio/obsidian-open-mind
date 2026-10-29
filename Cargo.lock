@@ -1284,6 +1284,7 @@ dependencies = [
 name = "openmind-mcp-stack"
 version = "0.1.0"
 dependencies = [
+ "hermes-rs",
  "serde_json",
  "zagreb-time",
 ]

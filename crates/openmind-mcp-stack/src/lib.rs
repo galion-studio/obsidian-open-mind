@@ -1,152 +1,128 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-//! Read-only stdio MCP stub.
+//! OpenMind MCP server (stdio, newline-delimited JSON-RPC 2.0).
 //!
-//! DESK-ID: openmind.B57
+//! DESK-ID: openmind.B57 (replaces the fixture stub of the same crate).
 //!
-//! [`StackServer`] answers `initialize` and `tools/list` for one tool,
-//! `stack_status`. Calling that tool returns fixture JSON: the crate names
-//! this server was given, plus one Europe/Zagreb timestamp. The server reads
-//! no files, does not open a foreign install tree, does not open a state
-//! database, and does not listen on a TCP port.
+//! Tools:
+//! - `memory_search`, `memory_conversations`, `memory_recall`, `memory_save`:
+//!   the openmind-memory gateway on loopback (`/search/memories`,
+//!   `/search/conversations`, `/recall`, `/capture`).
+//! - `vault_list`, `vault_read`, `vault_search`: a **read-only** Obsidian
+//!   vault (see [`vault`]). No tool writes, renames or deletes a vault file.
+//! - `openmind_status`: which parts are configured, memory `/health`, note
+//!   count, one Europe/Zagreb timestamp.
 //!
-//! Tests pass stdin bytes to [`StackServer::handle_bytes`] and read the
-//! response bytes back. That path does not spawn a process.
+//! A part that is not configured (no `--vault`, or `--no-memory`) does not
+//! list its tools. Tool errors are returned as `isError: true` results,
+//! never as panics. The memory key is never echoed.
+//!
+//! Tests feed bytes to [`Server::handle_bytes`]; that path spawns nothing.
 
 #![forbid(unsafe_code)]
 
-use serde_json::{json, Value};
-use std::fmt;
+pub mod memory;
+pub mod vault;
+
+use memory::MemoryClient;
+use serde_json::{json, Map, Value};
+use vault::Vault;
 
 /// MCP server name advertised in `initialize`.
 pub const SERVER_NAME: &str = "openmind-mcp-stack";
 
 /// MCP server version advertised in `initialize`.
-pub const SERVER_VERSION: &str = "0.1.0";
+pub const SERVER_VERSION: &str = "0.2.0";
 
-/// The only tool this stub lists or calls.
-pub const TOOL_NAME: &str = "stack_status";
-
-/// Protocol versions this stub will echo. Anything else is answered with
-/// [`DEFAULT_PROTOCOL`].
+/// Protocol versions this server echoes. Anything else gets [`DEFAULT_PROTOCOL`].
 pub const SUPPORTED_PROTOCOLS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18"];
 
-/// Version used when the client omits one, or asks for a version we do not speak.
+/// Version used when the client omits one or asks for one we do not speak.
 pub const DEFAULT_PROTOCOL: &str = "2024-11-05";
 
-const INSTRUCTIONS: &str = concat!(
-    "Read-only stub. stack_status returns the crate names this process was given ",
-    "and one Europe/Zagreb timestamp. No files and no sockets."
-);
+/// Longest memory query accepted.
+pub const MAX_QUERY_CHARS: usize = 2000;
+/// Longest text `memory_save` stores.
+pub const MAX_SAVE_CHARS: usize = 8000;
+/// Most results asked from a memory search.
+pub const MAX_MEMORY_LIMIT: u64 = 20;
+/// Longest tool text returned to the model.
+pub const MAX_TOOL_TEXT: usize = 256 * 1024;
 
-const TOOL_DESCRIPTION: &str = concat!(
-    "Read-only fixture: crate names this server was given, ",
-    "plus one Europe/Zagreb timestamp. Opens no files and no sockets."
-);
+/// Session key used for `memory_save` (and for `memory_recall` without one).
+pub const DEFAULT_SAVE_SESSION: &str = "hermes-mcp-notes";
 
-/// One read-only stub.
-///
-/// Crate names and the timestamp are fixed at construction so a test can
-/// inject a fixture clock. Nothing here is read from disk.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StackServer {
-    crates: Vec<String>,
-    observed_at: String,
+/// Every tool name this server can list.
+pub const TOOL_NAMES: [&str; 8] = [
+    "memory_search",
+    "memory_conversations",
+    "memory_recall",
+    "memory_save",
+    "vault_list",
+    "vault_read",
+    "vault_search",
+    "openmind_status",
+];
+
+/// Server configuration.
+#[derive(Debug, Clone, Default)]
+pub struct Config {
+    /// Memory gateway client (None = memory tools off).
+    pub memory: Option<MemoryClient>,
+    /// Read-only vault (None = vault tools off).
+    pub vault: Option<Vault>,
+    /// Session key for saved notes.
+    pub save_session: String,
+    /// Fixed timestamp for tests; None = now (Europe/Zagreb).
+    pub fixed_time: Option<String>,
 }
 
-impl StackServer {
+/// The MCP server.
+#[derive(Debug, Clone)]
+pub struct Server {
+    cfg: Config,
+}
+
+impl Server {
     /// Build a server.
-    ///
-    /// The timestamp is the current Europe/Zagreb instant from `zagreb-time`
-    /// (RFC 3339, explicit offset, never `Z`).
-    ///
-    /// # Errors
-    ///
-    /// A crate name is empty or is not a plain crate token.
-    pub fn new(crates: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Self, StackError> {
-        Self::with_timestamp(crates, zagreb_time::now_rfc3339())
-    }
-
-    /// Build a server with a fixture timestamp.
-    ///
-    /// `observed_at` must be RFC 3339 seconds with a Zagreb offset (`+01:00`
-    /// or `+02:00`). A `Z` suffix is rejected.
-    ///
-    /// # Errors
-    ///
-    /// A crate name is not a plain token, or the timestamp is not a Zagreb stamp.
-    pub fn with_timestamp(
-        crates: impl IntoIterator<Item = impl AsRef<str>>,
-        observed_at: impl AsRef<str>,
-    ) -> Result<Self, StackError> {
-        let mut names = Vec::new();
-        for name in crates {
-            names.push(check_crate_name(name.as_ref())?);
+    #[must_use]
+    pub fn new(mut cfg: Config) -> Self {
+        if cfg.save_session.trim().is_empty() {
+            cfg.save_session = DEFAULT_SAVE_SESSION.into();
         }
-        let observed_at = check_timestamp(observed_at.as_ref())?;
-        Ok(Self {
-            crates: names,
-            observed_at,
-        })
+        Server { cfg }
     }
 
-    /// Crate names this server was given, in that order.
+    /// Names of the tools this configuration lists.
     #[must_use]
-    pub fn crates(&self) -> &[String] {
-        &self.crates
+    pub fn tool_names(&self) -> Vec<&'static str> {
+        TOOL_NAMES
+            .iter()
+            .copied()
+            .filter(|n| {
+                if n.starts_with("memory_") {
+                    self.cfg.memory.is_some()
+                } else if n.starts_with("vault_") {
+                    self.cfg.vault.is_some()
+                } else {
+                    true
+                }
+            })
+            .collect()
     }
 
-    /// Fixture timestamp, Europe/Zagreb, never `Z`.
-    #[must_use]
-    pub fn observed_at(&self) -> &str {
-        &self.observed_at
-    }
-
-    /// Fixture object returned by `stack_status`.
-    #[must_use]
-    pub fn fixture(&self) -> Value {
-        json!({
-            "crates": self.crates,
-            "observed_at": self.observed_at,
-        })
-    }
-
-    /// Answer newline-delimited JSON-RPC messages from `stdin` bytes.
-    ///
-    /// Each response is one JSON object followed by `\n`. Notifications and
-    /// blank lines produce no output. A trailing object with no newline is
-    /// still handled, so a test can pass one buffer and stop.
-    ///
-    /// This function does not read process stdin, does not spawn, and does
-    /// not block waiting for another process.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use openmind_mcp_stack::StackServer;
-    ///
-    /// let server = StackServer::with_timestamp(
-    ///     ["openmind-schema"],
-    ///     "2026-10-19T16:39:10+02:00",
-    /// )
-    /// .unwrap();
-    /// let raw = br#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#;
-    /// let out = String::from_utf8(server.handle_bytes(raw)).unwrap();
-    /// assert!(out.contains("stack_status"));
-    /// ```
+    /// Answer newline-delimited JSON-RPC messages. One response line per
+    /// request; notifications and blank lines produce nothing.
     #[must_use]
     pub fn handle_bytes(&self, stdin: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();
-        let text = match std::str::from_utf8(stdin) {
-            Ok(text) => text,
-            Err(_) => {
-                push_line(
-                    &mut out,
-                    &error_response(Value::Null, -32700, "parse error"),
-                );
-                return out;
-            }
+        let Ok(text) = std::str::from_utf8(stdin) else {
+            push_line(
+                &mut out,
+                &error_response(Value::Null, -32700, "parse error"),
+            );
+            return out;
         };
         for message in split_messages(text) {
             if let Some(response) = self.handle_message(message) {
@@ -157,9 +133,8 @@ impl StackServer {
     }
 
     fn handle_message(&self, raw: &str) -> Option<Value> {
-        let value: Value = match serde_json::from_str(raw) {
-            Ok(value) => value,
-            Err(_) => return Some(error_response(Value::Null, -32700, "parse error")),
+        let Ok(value) = serde_json::from_str::<Value>(raw) else {
+            return Some(error_response(Value::Null, -32700, "parse error"));
         };
         let Some(obj) = value.as_object() else {
             return Some(error_response(Value::Null, -32600, "invalid request"));
@@ -178,17 +153,13 @@ impl StackServer {
         };
         let params = obj.get("params").cloned().unwrap_or(Value::Null);
         let id = obj.get("id").cloned()?;
-        Some(self.dispatch(id, method, &params))
-    }
-
-    fn dispatch(&self, id: Value, method: &str, params: &Value) -> Value {
-        match method {
-            "initialize" => self.initialize(id, params),
-            "tools/list" => self.tools_list(id, params),
-            "tools/call" => self.tools_call(id, params),
+        Some(match method {
+            "initialize" => self.initialize(id, &params),
+            "tools/list" => self.tools_list(id),
+            "tools/call" => self.tools_call(id, &params),
             "ping" => result_response(id, json!({})),
             _ => error_response(id, -32601, "method not found"),
-        }
+        })
     }
 
     fn initialize(&self, id: Value, params: &Value) -> Value {
@@ -204,29 +175,14 @@ impl StackServer {
                 "protocolVersion": protocol,
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION },
-                "instructions": INSTRUCTIONS,
+                "instructions": "OpenMind long-term memory (search, recall, save) and a read-only Obsidian vault (list, read, search). The vault cannot be written.",
             }),
         )
     }
 
-    fn tools_list(&self, id: Value, params: &Value) -> Value {
-        if !(params.is_null() || params.is_object()) {
-            return error_response(id, -32602, "invalid params");
-        }
-        result_response(
-            id,
-            json!({
-                "tools": [{
-                    "name": TOOL_NAME,
-                    "description": TOOL_DESCRIPTION,
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {},
-                        "additionalProperties": false
-                    }
-                }]
-            }),
-        )
+    fn tools_list(&self, id: Value) -> Value {
+        let tools: Vec<Value> = self.tool_names().into_iter().map(tool_spec).collect();
+        result_response(id, json!({ "tools": tools }))
     }
 
     fn tools_call(&self, id: Value, params: &Value) -> Value {
@@ -236,147 +192,320 @@ impl StackServer {
         let Some(name) = obj.get("name").and_then(Value::as_str) else {
             return error_response(id, -32602, "invalid params");
         };
-        if let Some(args) = obj.get("arguments") {
-            if !(args.is_null() || args.is_object()) {
-                return error_response(id, -32602, "invalid params");
-            }
+        let empty = Map::new();
+        let args = match obj.get("arguments") {
+            None | Some(Value::Null) => &empty,
+            Some(Value::Object(m)) => m,
+            Some(_) => return error_response(id, -32602, "invalid params"),
+        };
+        if !self.tool_names().contains(&name) {
+            return result_response(id, tool_error("unknown tool"));
         }
-        if name != TOOL_NAME {
-            return result_response(
-                id,
-                json!({
-                    "content": [{ "type": "text", "text": "unknown tool" }],
-                    "isError": true
-                }),
-            );
-        }
-        let fixture = self.fixture();
-        let text = serde_json::to_string(&fixture).expect("fixture json is finite");
+        let out = match name {
+            "memory_search" => self.memory_search(args),
+            "memory_conversations" => self.memory_conversations(args),
+            "memory_recall" => self.memory_recall(args),
+            "memory_save" => self.memory_save(args),
+            "vault_list" => self.vault_list(args),
+            "vault_read" => self.vault_read(args),
+            "vault_search" => self.vault_search(args),
+            "openmind_status" => Ok(self.status()),
+            _ => Err("unknown tool".into()),
+        };
         result_response(
             id,
-            json!({
-                "content": [{ "type": "text", "text": text }],
-                "structuredContent": fixture,
-                "isError": false
-            }),
+            match out {
+                Ok(v) => tool_ok(v),
+                Err(e) => tool_error(&e),
+            },
         )
     }
-}
 
-/// Why a server could not be built.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum StackError {
-    /// The name was empty, too long, or not a plain crate token.
-    BadCrate,
-    /// The stamp was not Europe/Zagreb RFC 3339 with an explicit offset.
-    BadTimestamp,
-}
+    fn mem(&self) -> Result<&MemoryClient, String> {
+        self.cfg
+            .memory
+            .as_ref()
+            .ok_or_else(|| "memory is not configured".into())
+    }
 
-impl fmt::Display for StackError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::BadCrate => write!(f, "crate name must be a plain token"),
-            Self::BadTimestamp => {
-                write!(f, "timestamp must be Europe/Zagreb RFC 3339, never Z")
+    fn vault(&self) -> Result<&Vault, String> {
+        self.cfg
+            .vault
+            .as_ref()
+            .ok_or_else(|| "vault is not configured".into())
+    }
+
+    fn memory_search(&self, a: &Map<String, Value>) -> Result<Value, String> {
+        let query = query_arg(a, "query")?;
+        let mut body = json!({ "query": query, "limit": limit_arg(a, 5, MAX_MEMORY_LIMIT) });
+        for k in ["type", "scene"] {
+            if let Some(s) = a.get(k).and_then(Value::as_str).filter(|s| !s.is_empty()) {
+                body[k] = json!(cut(s, 100));
             }
         }
+        self.mem()?.post("/search/memories", &body)
+    }
+
+    fn memory_conversations(&self, a: &Map<String, Value>) -> Result<Value, String> {
+        let query = query_arg(a, "query")?;
+        let mut body = json!({ "query": query, "limit": limit_arg(a, 5, MAX_MEMORY_LIMIT) });
+        if let Some(s) = a
+            .get("session_key")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+        {
+            body["session_key"] = json!(cut(s, 200));
+        }
+        self.mem()?.post("/search/conversations", &body)
+    }
+
+    fn memory_recall(&self, a: &Map<String, Value>) -> Result<Value, String> {
+        let query = query_arg(a, "query")?;
+        let (session, scope) = match a.get("session_key").and_then(Value::as_str) {
+            Some(s) if !s.trim().is_empty() => (cut(s.trim(), 200), "session"),
+            _ => (self.cfg.save_session.clone(), "all"),
+        };
+        self.mem()?.post(
+            "/recall",
+            &json!({ "query": query, "session_key": session, "scope": scope }),
+        )
+    }
+
+    fn memory_save(&self, a: &Map<String, Value>) -> Result<Value, String> {
+        let text = a
+            .get("text")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .ok_or("text is required")?;
+        if text.chars().count() > MAX_SAVE_CHARS {
+            return Err(format!("text is longer than {MAX_SAVE_CHARS} characters"));
+        }
+        let r = self.mem()?.post(
+            "/capture",
+            &json!({
+                "user_content": text,
+                "assistant_content": "Saved to long-term memory by the memory_save tool.",
+                "session_key": self.cfg.save_session,
+                "session_id": self.cfg.save_session,
+            }),
+        )?;
+        Ok(json!({ "saved": true, "session_key": self.cfg.save_session, "server": r }))
+    }
+
+    fn vault_list(&self, a: &Map<String, Value>) -> Result<Value, String> {
+        let dir = a.get("folder").and_then(Value::as_str).unwrap_or("");
+        let limit = usize::try_from(limit_arg(a, 200, vault::LIST_MAX as u64)).unwrap_or(200);
+        let (notes, truncated) = self.vault()?.list(dir, limit)?;
+        let notes: Vec<Value> = notes
+            .into_iter()
+            .map(|(p, size, mtime)| json!({ "path": p, "bytes": size, "modified": zagreb(mtime) }))
+            .collect();
+        Ok(json!({ "count": notes.len(), "truncated": truncated, "notes": notes }))
+    }
+
+    fn vault_read(&self, a: &Map<String, Value>) -> Result<Value, String> {
+        let path = a
+            .get("path")
+            .and_then(Value::as_str)
+            .ok_or("path is required")?;
+        let max = a
+            .get("max_bytes")
+            .and_then(Value::as_u64)
+            .map_or(vault::READ_DEFAULT_BYTES, |n| {
+                usize::try_from(n).unwrap_or(vault::READ_MAX_BYTES)
+            });
+        let (text, size, cut) = self.vault()?.read(path, max)?;
+        Ok(json!({ "path": path.trim(), "bytes": size, "truncated": cut, "text": text }))
+    }
+
+    fn vault_search(&self, a: &Map<String, Value>) -> Result<Value, String> {
+        let q = a
+            .get("query")
+            .and_then(Value::as_str)
+            .ok_or("query is required")?;
+        let limit = usize::try_from(limit_arg(a, 20, vault::SEARCH_MAX_HITS as u64)).unwrap_or(20);
+        let r = self.vault()?.search(q, limit)?;
+        let hits: Vec<Value> = r
+            .hits
+            .into_iter()
+            .map(|h| json!({ "path": h.path, "line": h.line, "text": h.text }))
+            .collect();
+        Ok(json!({
+            "count": hits.len(),
+            "files_scanned": r.files_scanned,
+            "truncated": r.truncated,
+            "hits": hits,
+        }))
+    }
+
+    fn status(&self) -> Value {
+        let memory = match &self.cfg.memory {
+            None => json!({ "configured": false }),
+            Some(m) => match m.health() {
+                Ok(h) => json!({ "configured": true, "key": m.has_key(), "health": h }),
+                Err(e) => json!({ "configured": true, "key": m.has_key(), "error": e }),
+            },
+        };
+        let vault = match &self.cfg.vault {
+            None => json!({ "configured": false }),
+            Some(v) => json!({ "configured": true, "read_only": true, "notes": v.note_count() }),
+        };
+        json!({
+            "server": SERVER_NAME,
+            "version": SERVER_VERSION,
+            "memory": memory,
+            "vault": vault,
+            "observed_at": self
+                .cfg
+                .fixed_time
+                .clone()
+                .unwrap_or_else(zagreb_time::now_rfc3339),
+        })
     }
 }
 
-impl std::error::Error for StackError {}
+fn zagreb(unix: u64) -> String {
+    zagreb_time::from_unix(i64::try_from(unix).unwrap_or(0))
+}
 
-fn check_crate_name(name: &str) -> Result<String, StackError> {
-    let mut chars = name.chars();
-    let Some(first) = chars.next() else {
-        return Err(StackError::BadCrate);
+fn query_arg(a: &Map<String, Value>, k: &str) -> Result<String, String> {
+    let q = a
+        .get(k)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| format!("{k} is required"))?;
+    if q.chars().count() > MAX_QUERY_CHARS {
+        return Err(format!("{k} is longer than {MAX_QUERY_CHARS} characters"));
+    }
+    Ok(q.to_string())
+}
+
+fn limit_arg(a: &Map<String, Value>, default: u64, max: u64) -> u64 {
+    a.get("limit")
+        .and_then(Value::as_u64)
+        .unwrap_or(default)
+        .clamp(1, max)
+}
+
+fn cut(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
+fn tool_ok(v: Value) -> Value {
+    let mut text = serde_json::to_string(&v).unwrap_or_else(|_| "{}".into());
+    if text.len() > MAX_TOOL_TEXT {
+        let mut end = MAX_TOOL_TEXT;
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        text.truncate(end);
+        text.push_str(" …[cut]");
+    }
+    json!({ "content": [{ "type": "text", "text": text }], "isError": false })
+}
+
+fn tool_error(msg: &str) -> Value {
+    json!({ "content": [{ "type": "text", "text": msg }], "isError": true })
+}
+
+fn obj_schema(props: &Value, required: &[&str]) -> Value {
+    json!({
+        "type": "object",
+        "properties": props,
+        "required": required,
+        "additionalProperties": false
+    })
+}
+
+/// MCP tool descriptor for one tool name.
+#[must_use]
+pub fn tool_spec(name: &str) -> Value {
+    let limit = json!({ "type": "integer", "minimum": 1, "maximum": 50 });
+    let (desc, schema) = match name {
+        "memory_search" => (
+            "Search OpenMind long-term memory (facts and notes saved from earlier chats).",
+            obj_schema(
+                &json!({ "query": { "type": "string" }, "limit": limit,
+                         "type": { "type": "string" }, "scene": { "type": "string" } }),
+                &["query"],
+            ),
+        ),
+        "memory_conversations" => (
+            "Search earlier conversation turns stored in OpenMind memory.",
+            obj_schema(
+                &json!({ "query": { "type": "string" }, "limit": limit,
+                         "session_key": { "type": "string" } }),
+                &["query"],
+            ),
+        ),
+        "memory_recall" => (
+            "Recall the memory context for a query (all sessions, or one session when session_key is given).",
+            obj_schema(
+                &json!({ "query": { "type": "string" }, "session_key": { "type": "string" } }),
+                &["query"],
+            ),
+        ),
+        "memory_save" => (
+            "Save one short note to OpenMind long-term memory so it can be recalled later.",
+            obj_schema(&json!({ "text": { "type": "string", "maxLength": MAX_SAVE_CHARS } }), &["text"]),
+        ),
+        "vault_list" => (
+            "List notes in the read-only Obsidian vault (paths relative to the vault root).",
+            obj_schema(&json!({ "folder": { "type": "string" }, "limit": limit }), &[]),
+        ),
+        "vault_read" => (
+            "Read one note from the read-only Obsidian vault by its relative path.",
+            obj_schema(
+                &json!({ "path": { "type": "string" },
+                         "max_bytes": { "type": "integer", "minimum": 1, "maximum": vault::READ_MAX_BYTES } }),
+                &["path"],
+            ),
+        ),
+        "vault_search" => (
+            "Case-insensitive text search across notes in the read-only Obsidian vault.",
+            obj_schema(&json!({ "query": { "type": "string" }, "limit": limit }), &["query"]),
+        ),
+        _ => (
+            "Which OpenMind parts are configured, memory health and vault note count.",
+            obj_schema(&json!({}), &[]),
+        ),
     };
-    if !first.is_ascii_alphabetic() || name.len() > 64 {
-        return Err(StackError::BadCrate);
-    }
-    if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
-        return Err(StackError::BadCrate);
-    }
-    Ok(name.to_owned())
-}
-
-fn check_timestamp(ts: &str) -> Result<String, StackError> {
-    let bytes = ts.as_bytes();
-    if bytes.len() != 25 || bytes.contains(&b'Z') {
-        return Err(StackError::BadTimestamp);
-    }
-    let digit_span = |start: usize, end: usize| bytes[start..end].iter().all(u8::is_ascii_digit);
-    let zagreb_offset = bytes[19] == b'+'
-        && bytes[20] == b'0'
-        && (bytes[21] == b'1' || bytes[21] == b'2')
-        && bytes[22] == b':'
-        && bytes[23] == b'0'
-        && bytes[24] == b'0';
-    let shape = bytes[4] == b'-'
-        && bytes[7] == b'-'
-        && bytes[10] == b'T'
-        && bytes[13] == b':'
-        && bytes[16] == b':'
-        && digit_span(0, 4)
-        && digit_span(5, 7)
-        && digit_span(8, 10)
-        && digit_span(11, 13)
-        && digit_span(14, 16)
-        && digit_span(17, 19)
-        && zagreb_offset;
-    if shape {
-        Ok(ts.to_owned())
-    } else {
-        Err(StackError::BadTimestamp)
-    }
+    json!({ "name": name, "description": desc, "inputSchema": schema })
 }
 
 fn protocol_of(params: &Value) -> Option<&str> {
     match params.get("protocolVersion") {
         None => Some(DEFAULT_PROTOCOL),
-        Some(Value::String(version)) => {
-            if SUPPORTED_PROTOCOLS.contains(&version.as_str()) {
-                Some(version.as_str())
-            } else {
-                Some(DEFAULT_PROTOCOL)
-            }
-        }
+        Some(Value::String(v)) => Some(if SUPPORTED_PROTOCOLS.contains(&v.as_str()) {
+            v.as_str()
+        } else {
+            DEFAULT_PROTOCOL
+        }),
         Some(_) => None,
     }
 }
 
 fn error_response(id: Value, code: i64, message: &str) -> Value {
-    json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "error": { "code": code, "message": message }
-    })
+    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
 fn result_response(id: Value, result: Value) -> Value {
-    json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": result
-    })
+    json!({ "jsonrpc": "2.0", "id": id, "result": result })
 }
 
 fn push_line(out: &mut Vec<u8>, value: &Value) {
-    let line = serde_json::to_vec(value).expect("response json is finite");
+    let line = serde_json::to_vec(value).unwrap_or_else(|_| b"{}".to_vec());
     out.extend_from_slice(&line);
     out.push(b'\n');
 }
 
 fn split_messages(text: &str) -> Vec<&str> {
-    let mut out = Vec::new();
-    for line in text.split('\n') {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        if line.starts_with("Content-Length:") || line.starts_with("Content-Type:") {
-            continue;
-        }
-        out.push(line);
-    }
-    out
+    text.split('\n')
+        .map(str::trim)
+        .filter(|l| {
+            !l.is_empty() && !l.starts_with("Content-Length:") && !l.starts_with("Content-Type:")
+        })
+        .collect()
 }

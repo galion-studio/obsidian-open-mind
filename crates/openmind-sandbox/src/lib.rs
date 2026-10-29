@@ -101,6 +101,11 @@ pub struct SandboxPolicy {
     /// Fail with `Status::Error` instead of running when `net = false` but
     /// neither a network namespace nor Landlock TCP deny could be applied.
     pub require_net_isolation: bool,
+    /// With `net = false`: TCP ports a command may bind and connect to on
+    /// loopback (a live-style service smoke test). Non-empty requires a fresh
+    /// network namespace (only `lo`, brought up in the child); without one the
+    /// run is refused. With Landlock net rights, only these ports are allowed.
+    pub loopback_tcp_ports: Vec<u16>,
     /// Try Landlock when the kernel has it.
     pub landlock: bool,
     /// Landlock read roots (workdir is always added).
@@ -210,6 +215,7 @@ impl SandboxPolicy {
             output_cap: OUTPUT_CAP,
             net: false,
             require_net_isolation: false,
+            loopback_tcp_ports: vec![],
             landlock: true,
             // /proc is needed by most tools (ps, /proc/self/*); with a PID
             // namespace and private /proc it only shows the sandbox.
@@ -515,6 +521,12 @@ struct LlRulesetAttr {
     handled_access_fs: u64,
     handled_access_net: u64,
 }
+/// `struct landlock_net_port_attr` (type 2 = NET_PORT).
+#[repr(C)]
+struct LlNetPort {
+    allowed_access: u64,
+    port: u64,
+}
 #[repr(C, packed)]
 struct LlPathBeneath {
     allowed_access: u64,
@@ -575,6 +587,23 @@ impl Landlock {
             },
             wd_acc: handled,
         };
+        if net {
+            for port in &policy.loopback_tcp_ports {
+                let rule = LlNetPort {
+                    allowed_access: LL_NET_BIND_TCP | LL_NET_CONNECT_TCP,
+                    port: u64::from(*port),
+                };
+                // SAFETY: valid repr(C) struct; type 2 = NET_PORT.
+                let r =
+                    unsafe { libc::syscall(SYS_LL_ADD, fd as i32, 2u32, &rule as *const _, 0u32) };
+                if r != 0 {
+                    let e = std::io::Error::last_os_error();
+                    // SAFETY: closing the ruleset fd opened above.
+                    unsafe { libc::close(fd as i32) };
+                    return Err(format!("add_rule net port {port}: {e}"));
+                }
+            }
+        }
         let mut roots: Vec<(PathBuf, u64)> = vec![];
         for r in &policy.fs_read {
             roots.push((r.clone(), LL_READ));
@@ -676,6 +705,28 @@ impl Landlock {
                 libc::close(*fd);
             }
         }
+    }
+}
+
+/// Bring `lo` up in the current (private) network namespace.
+/// Async-signal-safe: syscalls on stack data only. Runs after fork.
+fn loopback_up() -> bool {
+    // SAFETY: socket/ioctl/close on a zeroed ifreq that we own.
+    unsafe {
+        let s = libc::socket(libc::AF_INET, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, 0);
+        if s < 0 {
+            return false;
+        }
+        let mut ifr: libc::ifreq = std::mem::zeroed();
+        ifr.ifr_name[0] = b'l' as libc::c_char;
+        ifr.ifr_name[1] = b'o' as libc::c_char;
+        let mut ok = libc::ioctl(s, libc::SIOCGIFFLAGS as _, &mut ifr) == 0;
+        if ok {
+            ifr.ifr_ifru.ifru_flags |= libc::IFF_UP as libc::c_short;
+            ok = libc::ioctl(s, libc::SIOCSIFFLAGS as _, &ifr) == 0;
+        }
+        libc::close(s);
+        ok
     }
 }
 
@@ -869,6 +920,7 @@ const E_UIDMAP: i32 = libc::ENOTRECOVERABLE;
 const E_CGROUP: i32 = libc::ESTALE;
 const E_WDQ: i32 = libc::ENOTUNIQ;
 const E_PROC: i32 = libc::ENOMEDIUM;
+const E_LOOPBACK: i32 = libc::ENONET;
 // Work dir tmpfs report, written by the pre-exec child (copy in failed) or by
 // the PID-namespace supervisor (after the copy back): 11 x u64, one write.
 const WDQ_MAGIC: u64 = 0x5744_5131_3531_0001;
@@ -1218,6 +1270,7 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     } else {
         vec![]
     };
+    let want_lo = !policy.net && !policy.loopback_tcp_ports.is_empty();
     let mut attempts: [libc::c_int; 5] = [0; 5];
     if want_ns {
         attempts[0] = full;
@@ -1460,6 +1513,13 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             }
             if got & libc::CLONE_NEWNET != 0 {
                 bits |= B_NETNS;
+            }
+            if want_lo {
+                // Loopback ports need a private netns (else they would be
+                // host ports) with `lo` up; refuse otherwise.
+                if got & libc::CLONE_NEWNET == 0 || !loopback_up() {
+                    return Err(std::io::Error::from_raw_os_error(E_LOOPBACK));
+                }
             }
             if got & libc::CLONE_NEWNS != 0
                 && libc::mount(
@@ -1762,6 +1822,8 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                     .to_string()
             } else if e.raw_os_error() == Some(libc::EROFS) {
                 "read-only root applied but the work dir could not be kept writable".to_string()
+            } else if e.raw_os_error() == Some(E_LOOPBACK) {
+                "loopback ports requested but no private network namespace with lo up; refusing to run".to_string()
             } else if e.raw_os_error() == Some(E_UIDMAP) {
                 "user namespace entered but the uid/gid map could not be written; refusing to run as the overflow uid".to_string()
             } else if e.raw_os_error() == Some(E_PROC) {

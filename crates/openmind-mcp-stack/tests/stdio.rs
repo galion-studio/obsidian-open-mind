@@ -252,6 +252,11 @@ fn memory_tools_round_trip_against_mock_with_key() {
     assert_eq!(r["scope"], json!("session"));
     let (err, _) = call(&s, "memory_conversations", &json!({"query":"cet"}));
     assert!(!err);
+    // no structured hit -> conversation matches attached
+    let (err, r) = call(&s, "memory_search", &json!({"query":"nl1 cet"}));
+    assert!(!err, "{r}");
+    assert_eq!(r["total"], json!(0));
+    assert!(r.get("conversations").is_some(), "{r}");
     let seen = m.seen.lock().unwrap().clone();
     let paths: Vec<&str> = seen.iter().map(|x| x.path.as_str()).collect();
     assert_eq!(
@@ -261,6 +266,8 @@ fn memory_tools_round_trip_against_mock_with_key() {
             "/search/memories",
             "/recall",
             "/recall",
+            "/search/conversations",
+            "/search/memories",
             "/search/conversations"
         ]
     );

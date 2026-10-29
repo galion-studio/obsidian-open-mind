@@ -12,7 +12,7 @@ A stdio MCP server (newline JSON-RPC, protocol 2025-03-26) that Hermes (`hermes-
 
 | tool | does | limits |
 |---|---|---|
-| `memory_search` | `POST /search/memories` on openmind-memory | query 2000 chars, limit 1..20 |
+| `memory_search` | `POST /search/memories` on openmind-memory; if 0 structured hits, conversation matches are attached | query 2000 chars, limit 1..20 |
 | `memory_conversations` | `POST /search/conversations` | same |
 | `memory_recall` | `POST /recall` (scope `session` with a session_key, else `all`) | same |
 | `memory_save` | `POST /capture` into session `hermes-mcp-notes` (or `--save-session`) | 8000 chars |
@@ -56,3 +56,13 @@ against the built binary.
 
 No new third-party crates (serde_json is already in the workspace). See
 docs/third-party/openmind-mcp-rust.md.
+
+## Sandbox proof (VPS, 2026-10-29 14:03 +01:00)
+
+Transient systemd unit as `nobody`, `PrivateNetwork=yes` (loopback only), seccomp
+`@system-service` (`Seccomp: 2`), `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome`,
+`/opt/galion`, `/root` and the live memory/hermes/nerve state dirs inaccessible, private work
+folder under /var/lib. hermes-gateway `--mock` (memory client on, MCP on) + this server + a
+throwaway openmind-memory: `mcp: 8 tools`; vault_list/read/search returned the copied notes;
+`../` was refused; memory_save -> `l0_recorded`; memory_conversations and memory_recall found the
+saved turn; vault tree sha256 unchanged. No gate (`/opt/galion/gate`) was installed at the time.

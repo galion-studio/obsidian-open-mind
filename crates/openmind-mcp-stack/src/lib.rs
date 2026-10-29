@@ -243,7 +243,20 @@ impl Server {
                 body[k] = json!(cut(s, 100));
             }
         }
-        self.mem()?.post("/search/memories", &body)
+        let mem = self.mem()?;
+        let mut out = mem.post("/search/memories", &body)?;
+        // Structured (L1) memories need the extraction pipeline; until it has
+        // run, the store only holds conversations (L0). Fall back so a fresh
+        // save is still findable by one tool call.
+        if out.get("total").and_then(Value::as_u64) == Some(0) {
+            let conv = json!({ "query": body["query"], "limit": body["limit"] });
+            if let Ok(c) = mem.post("/search/conversations", &conv) {
+                out["conversations"] = c;
+                out["note"] =
+                    json!("no structured memories matched; conversation matches attached");
+            }
+        }
+        Ok(out)
     }
 
     fn memory_conversations(&self, a: &Map<String, Value>) -> Result<Value, String> {
@@ -425,7 +438,7 @@ pub fn tool_spec(name: &str) -> Value {
     let limit = json!({ "type": "integer", "minimum": 1, "maximum": 50 });
     let (desc, schema) = match name {
         "memory_search" => (
-            "Search OpenMind long-term memory (facts and notes saved from earlier chats).",
+            "Search OpenMind long-term memory (facts and notes saved from earlier chats). When no structured memory matches, matching conversation turns are attached.",
             obj_schema(
                 &json!({ "query": { "type": "string" }, "limit": limit,
                          "type": { "type": "string" }, "scene": { "type": "string" } }),

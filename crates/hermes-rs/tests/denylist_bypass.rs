@@ -414,3 +414,51 @@ fn dump_rules_per_case() {
         );
     }
 }
+
+/// Skills + persona tools (merged in swarm/hermes-live-20261029) keep working
+/// behind the deny list; their arguments are still scanned.
+#[test]
+fn skills_tools_pass_and_are_still_scanned() {
+    let pol = policy();
+    let ok = [
+        ("skills_list", json!({})),
+        ("skill_view", json!({"name": "research/arxiv"})),
+        (
+            "skill_view",
+            json!({"name": "arxiv", "file_path": "references/api.md"}),
+        ),
+        (
+            "arxiv_search",
+            json!({"query": "retrieval augmented generation", "max_results": 5}),
+        ),
+        (
+            "citations",
+            json!({"action": "add", "url": "https://arxiv.org/abs/2005.11401", "title": "RAG"}),
+        ),
+        ("citations", json!({"action": "list"})),
+    ];
+    for (t, a) in ok {
+        assert!(
+            verdict(t, &a, &pol).is_ok(),
+            "benign {t} refused: {a} -> {:?}",
+            verdict(t, &a, &pol)
+        );
+    }
+    let bad = [
+        (
+            "skill_view",
+            json!({"name": "x", "file_path": "/opt/galion/hermes/.env"}),
+        ),
+        (
+            "citations",
+            json!({"action": "add", "url": "file:///etc/shadow"}),
+        ),
+        (
+            "arxiv_search",
+            json!({"query": "x", "url": "http://127.0.0.1:8642/v1/models"}),
+        ),
+    ];
+    for (t, a) in bad {
+        assert!(verdict(t, &a, &pol).is_err(), "{t} allowed: {a}");
+    }
+}

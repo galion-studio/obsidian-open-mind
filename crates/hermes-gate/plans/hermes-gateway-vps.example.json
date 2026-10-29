@@ -9,13 +9,15 @@
  },
  "extra_read": [
   "/var/lib/galion-gate/toolchain",
-  "/var/lib/galion-gate/plans/hermes-gateway-deploy-smoke.sh"
+  "/var/lib/galion-gate/plans/hermes-gateway-deploy-smoke.sh",
+  "/var/lib/galion-gate/plans/vps-cargo-noproc.sh"
  ],
  "stages": [
   {
    "name": "build",
    "argv": [
-    "cargo",
+    "/bin/bash",
+    "/var/lib/galion-gate/plans/vps-cargo-noproc.sh",
     "build",
     "--offline",
     "-p",
@@ -29,7 +31,8 @@
   {
    "name": "test",
    "argv": [
-    "cargo",
+    "/bin/bash",
+    "/var/lib/galion-gate/plans/vps-cargo-noproc.sh",
     "test",
     "--offline",
     "-p",

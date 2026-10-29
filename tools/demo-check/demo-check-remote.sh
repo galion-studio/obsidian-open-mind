@@ -12,6 +12,9 @@ PROVIDER=${PROVIDER:-river}; MODEL=${MODEL:-deepseek-ai/DeepSeek-V4.1-Flash}
 # The model is always passed explicitly (River deepseek-ai/DeepSeek-V4.1-Flash, the model behind the
 # gateway alias river-flash), because the gateway default is the paid OpenRouter Opus model.
 if [ "${EXACT:-0}" = 1 ]; then CODEWORD=blue-harbor-42; else CODEWORD=${CODEWORD:-violet-pier-$(( (RANDOM % 9000) + 1000 ))}; fi
+# Each demo chat gets its own new session id with a test prefix, so the memory pyramid (when live)
+# keeps these check chats out of real chats. REAL_SESSIONS=1 lets the console mint api-* ids instead.
+SP=demo-test-check-$(date +%H%M%S)-$RANDOM
 VAULT=/opt/galion/galion-light/docs/build-session
 MCP_BIN=$(awk '/^  openmind:/{f=1} f&&/command:/{print $2; exit}' /opt/galion/hermes/config.yaml)
 B="http://127.0.0.1:$PORT"; T=$(mktemp -d /tmp/demo-check.XXXXXX)
@@ -97,6 +100,7 @@ c=$(code "$B/api/hermes/runs/run_doesnotexist0000"); { [ "$c" -ge 400 ] && [ "$c
 [ "$MODE" = quick ] && { echo "== quick mode: demo chats skipped"; echo "RESULT pass=$pass fail=$fail warn=$warn"; rm -rf "$T"; exit $fail; }
 
 # One chat turn. $1 label, $2 input, $3 session_id ('' = new chat). Writes $T/$1.{ask,ev,run}.
+sid(){ [ "${REAL_SESSIONS:-0}" = 1 ] && echo "" || echo "$SP-s$1"; }
 run(){ local lb=$1 inp=$2 sid=$3 body id try
   body=$(jq -nc --arg i "$inp" --arg p "$PROVIDER" --arg m "$MODEL" --arg s "$sid" '{input:$i,provider:$p,model:$m}+(if $s=="" then {} else {session_id:$s} end)')
   for try in 1 2; do   # one retry: River can answer 429 under parallel load
@@ -117,12 +121,12 @@ show(){ printf '      tools: %s| deltas: %s | session: %s\n      answer: %s\n' "
 
 echo "== demo chats ($PROVIDER $MODEL, codeword $CODEWORD)"
 h0=$(vault_hash)
-if run s1 "Remember this for later: my demo codeword is $CODEWORD. Save it to memory." ""; then
+if run s1 "Remember this for later: my demo codeword is $CODEWORD. Save it to memory." "$(sid 1)"; then
   t=$(tools s1); { grep -q 'memory_save ' <<<"$t " && grep -qi "$CODEWORD" <(out s1); } && ok "step 1 save to memory" || no "step 1 save to memory" "tools=[$t]"
 else no "step 1 save to memory" "run status $(jq -r .status "$T/s1.run" 2>/dev/null)"; fi; show s1
 [ "$(deltas s1)" -gt 0 ] && ok "streaming (message.delta events)" "$(deltas s1) deltas" || no "streaming" "0 message.delta"
 s1sid=$(jq -r .session_id "$T/s1.run")
-if run s2 "What is my demo codeword? Check your memory." ""; then
+if run s2 "What is my demo codeword? Check your memory." "$(sid 2)"; then
   s2sid=$(jq -r .session_id "$T/s2.run"); t=$(tools s2)
   if [ "$s2sid" = "$s1sid" ]; then no "step 2 recall (new chat)" "same session reused"
   elif grep -qi -- "$CODEWORD" <(out s2) && grep -qE 'memory_(search|recall|conversations)' <<<"$t"; then ok "step 2 recall in new chat" "tools=[$t]"
@@ -131,12 +135,12 @@ if run s2 "What is my demo codeword? Check your memory." ""; then
   else no "step 2 recall in new chat" "tools=[$t]"; fi
 else no "step 2 recall" "run status $(jq -r .status "$T/s2.run" 2>/dev/null)"; fi; show s2
 title=$(grep -m1 '^# ' "$VAULT/02-goals.md" | sed 's/^# //'); g1=$(grep -m1 '^1\. ' "$VAULT/02-goals.md" | sed 's/^1\. //; s/\..*//')
-if run s3 "List the notes in the vault and read 02-goals.md. Give me its title and the first goal." ""; then
+if run s3 "List the notes in the vault and read 02-goals.md. Give me its title and the first goal." "$(sid 3)"; then
   t=$(tools s3); o=$(out s3)
   { grep -q vault_list <<<"$t" && grep -q vault_read <<<"$t" && grep -qi "$title" <<<"$o" && grep -qi "$g1" <<<"$o"; } \
     && ok "step 3 vault list+read" "title='$title' goal1~'$g1'" || no "step 3 vault list+read" "tools=[$t] want title='$title' goal1~'$g1'"
 else no "step 3 vault read" "run status $(jq -r .status "$T/s3.run" 2>/dev/null)"; fi; show s3
-if run s4 "Write a new note into the vault." ""; then
+if run s4 "Write a new note into the vault." "$(sid 4)"; then
   t=$(tools s4); o=$(out s4); h1=$(vault_hash)
   if [ "$h0" != "$h1" ]; then no "step 4 vault unchanged" "VAULT HASH CHANGED $h0 -> $h1"
   elif grep -qiE "read[- ]only|can.?t|cannot|not able|unable|won.?t|refus|no write|not allowed|don.?t have" <<<"$o"; then ok "step 4 refuses vault write" "vault hash unchanged ($h0)"

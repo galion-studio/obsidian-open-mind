@@ -5,6 +5,18 @@
 - Repo: /opt/galion/openmind
 - Profile source: root `Cargo.toml` `[profile.release]` (unchanged by this ticket)
 
+## Budget change: 2 MiB to 200 MB (2026-10-29 CET +01:00)
+
+Owner decision t416u, 2026-10-29 23:37 CET (+01:00): the per-binary budget is now 200 MB,
+`200 * 1024 * 1024 = 209715200` bytes, for every row of `config/release/size-budget.tsv`
+(`default` included). Size is no longer a constraint when picking crates.
+
+- Unchanged: the strip check, and "a row above the default needs an owner decision".
+- `crates/galion-realtest/tests/size_budget_gate.rs` asserts the 200 MB default; its ELF
+  fixtures are sparse files, so a 200 MB fixture costs no disk.
+- The release profile below (`opt-level = "z"`, fat LTO, one codegen unit,
+  `panic = "abort"`, strip) is unchanged. The 2 MiB text below is the history before this change.
+
 ## Chosen profile
 
 The workspace release profile is the low-end size profile. It is already set in the root `Cargo.toml`. This page records the choice. Speed is not the goal: these crates are small I/O helpers and HTTP servers, and each workspace binary must stay at or under 2 MiB.

@@ -5,11 +5,11 @@
 //! Slot 353 size-budget-gateway-fix: config/release/size-budget.tsv is the
 //! one release size budget, and scripts/size-budget.sh enforces it.
 //!
-//! Always run (no build, no network): the budget policy (2 MiB default, no
-//! row above it, every release binary has a row) and the script against
+//! Always run (no build, no network): the budget policy (200 MB
+//! default since t416u 2026-10-29, was 2 MiB; no row above it, every release binary has a row) and the script against
 //! synthetic ELF fixtures in a temp dir, including the negative controls:
-//! the slot 339 `hermes-gateway-124a212` size (2,198,288 B) that the old
-//! 2.5 MiB tagged exception let through must FAIL; one byte over FAILs; a
+//! the slot 339 `hermes-gateway-124a212` size (2,198,288 B, over the old
+//! 2 MiB) now passes, 200 MB + 1 B FAILs; one byte over FAILs; a
 //! `.symtab` FAILs; a tighter per-binary row FAILs; a bad table FAILs.
 //! The fixture tests skip (with a message) when bash or readelf is missing.
 //!
@@ -20,7 +20,10 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const MIB2: u64 = 2 * 1024 * 1024;
+/// Per-binary budget: 200 MB (owner t416u, 2026-10-29 CET +01:00; was 2 MiB).
+const BUDGET: u64 = 200 * 1024 * 1024;
+/// The old 2 MiB budget (slots 329-353), kept for the record.
+const OLD_MIB2: u64 = 2 * 1024 * 1024;
 
 /// The release artifacts shipped by slots 312/339 (bin names without tags).
 const RELEASE_BINS: [&str; 14] = [
@@ -72,11 +75,14 @@ fn budget_table_policy() {
         .find(|(k, _)| k == "default")
         .map(|r| r.1)
         .expect("default row");
-    assert_eq!(default, MIB2, "default budget must be 2 MiB");
+    assert_eq!(
+        default, BUDGET,
+        "default budget must be 200 MB (209715200 B)"
+    );
     for (k, v) in &rows {
         assert!(
             *v <= default,
-            "{k}: {v} B is above the 2 MiB default (exceptions need an owner decision)"
+            "{k}: {v} B is above the 200 MB default (exceptions need an owner decision)"
         );
         assert!(*v > 0, "{k}: zero budget");
     }
@@ -84,10 +90,7 @@ fn budget_table_policy() {
         assert!(seen.contains(b), "release binary {b} has no row");
     }
     let gw = rows.iter().find(|(k, _)| k == "hermes-gateway").unwrap().1;
-    assert!(
-        gw <= MIB2,
-        "hermes-gateway budget {gw} > 2 MiB (slot 329 target)"
-    );
+    assert!(gw <= BUDGET, "hermes-gateway budget {gw} > 200 MB");
 }
 
 /// Minimal ELF64 little-endian EXEC header (x86_64, entry 0x401000), padded
@@ -129,7 +132,6 @@ fn elf(size: u64, symtab: bool) -> Vec<u8> {
         b[62..64].copy_from_slice(&1u16.to_le_bytes()); // shstrndx
     }
     assert!(b.len() as u64 <= size, "fixture smaller than its header");
-    b.resize(size as usize, 0);
     b
 }
 
@@ -180,7 +182,14 @@ fn fixture(tag: &str, files: &[(&str, u64, bool)]) -> PathBuf {
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     for (n, s, sym) in files {
+        // header, then a sparse tail up to the size (200 MB fixtures cost no disk)
         std::fs::write(d.join(n), elf(*s, *sym)).unwrap();
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(d.join(n))
+            .unwrap()
+            .set_len(*s)
+            .unwrap();
     }
     d
 }
@@ -202,7 +211,7 @@ fn script_passes_full_tagged_set_at_budget() {
         return;
     }
     // Every release name, tagged like the slot 339 set, the gateway at
-    // exactly 2 MiB (the budget is inclusive).
+    // exactly 200 MB (the budget is inclusive).
     let names: Vec<String> = RELEASE_BINS
         .iter()
         .map(|b| match *b {
@@ -213,7 +222,7 @@ fn script_passes_full_tagged_set_at_budget() {
         .collect();
     let mut files: Vec<(&str, u64, bool)> =
         names.iter().map(|n| (n.as_str(), 4096, false)).collect();
-    files[8].1 = MIB2; // hermes-gateway-124a212
+    files[8].1 = BUDGET; // hermes-gateway-124a212
     files.push(("not-in-table", 4096, false));
     std::fs::create_dir_all(std::env::temp_dir()).unwrap();
     let d = fixture("full", &files);
@@ -225,7 +234,7 @@ fn script_passes_full_tagged_set_at_budget() {
     assert!(r.out.contains("budget_file ") && r.out.contains("config/release/size-budget.tsv"));
     assert_eq!(
         row(&r.out, "hermes-gateway-124a212"),
-        ("ok", "2097152", "hermes-gateway")
+        ("ok", "209715200", "hermes-gateway")
     );
     assert_eq!(row(&r.out, "gaia-cortex-77df80f-llm").2, "gaia-cortex");
     assert_eq!(
@@ -241,22 +250,33 @@ fn script_fails_negative_controls() {
     if !tools_ok() {
         return;
     }
-    // 1. Slot 339's hermes-gateway-124a212 size: passed 7427f96e's 2.5 MiB
-    //    tagged exception, must FAIL now (gateway <= 2 MiB, slot 329).
+    // 1. hermes-gateway: the slot 339 size (2,198,288 B, over the old 2 MiB)
+    //    passes under the 200 MB budget (t416u); one byte over 200 MB fails.
     for name in ["hermes-gateway-124a212", "hermes-gateway"] {
         let d = fixture(
             "gw339",
             &[(name, 2_198_288, false), ("tuner-124a212", 4096, false)],
         );
         let r = run(&["--check-dir", d.to_str().unwrap()], &[]);
-        assert!(!r.ok, "{name} 2,198,288 B must fail");
-        assert_eq!(row(&r.out, name), ("FAIL", "2097152", "hermes-gateway"));
+        assert!(
+            r.ok,
+            "{name} 2,198,288 B (> old {OLD_MIB2} B) must pass now"
+        );
+        assert_eq!(row(&r.out, name), ("ok", "209715200", "hermes-gateway"));
+        let _ = std::fs::remove_dir_all(&d);
+        let d = fixture(
+            "gwover",
+            &[(name, BUDGET + 1, false), ("tuner-124a212", 4096, false)],
+        );
+        let r = run(&["--check-dir", d.to_str().unwrap()], &[]);
+        assert!(!r.ok, "{name} 200 MB + 1 B must fail");
+        assert_eq!(row(&r.out, name), ("FAIL", "209715200", "hermes-gateway"));
         assert_eq!(row(&r.out, "tuner-124a212").0, "ok");
         assert!(r.out.contains("size-budget: FAIL"));
         let _ = std::fs::remove_dir_all(&d);
     }
     // 2. One byte over.
-    let d = fixture("over1", &[("openmind-nerve-124a212", MIB2 + 1, false)]);
+    let d = fixture("over1", &[("openmind-nerve-124a212", BUDGET + 1, false)]);
     let r = run(&["--check-dir", d.to_str().unwrap()], &[]);
     assert!(!r.ok);
     assert_eq!(row(&r.out, "openmind-nerve-124a212").0, "FAIL");
@@ -273,7 +293,7 @@ fn script_fails_negative_controls() {
         &[("tuner-124a212", 4096, false), ("galion-one", 4096, false)],
     );
     let t = d.join("budget.tsv");
-    std::fs::write(&t, "# test\ndefault 2097152\ntuner 4000 # tight\n").unwrap();
+    std::fs::write(&t, "# test\ndefault 209715200\ntuner 4000 # tight\n").unwrap();
     for (args, env) in [
         (
             vec![
@@ -292,7 +312,7 @@ fn script_fails_negative_controls() {
         let r = run(&args, &env);
         assert!(!r.ok, "tuner over its 4000 B row must fail");
         assert_eq!(row(&r.out, "tuner-124a212"), ("FAIL", "4000", "tuner"));
-        assert_eq!(row(&r.out, "galion-one"), ("ok", "2097152", "default"));
+        assert_eq!(row(&r.out, "galion-one"), ("ok", "209715200", "default"));
     }
     // 5. Bad tables fail before any check.
     for (tag, body, msg) in [
@@ -300,7 +320,7 @@ fn script_fails_negative_controls() {
         ("dup", "default 1\ndefault 2\n", "duplicate row"),
         ("bytes", "default 2MiB\n", "bad byte count"),
         ("shape", "default 1 2\n", "want '<binary> <max bytes>'"),
-        ("glob", "default 2097152\n* 1\n", "bad binary name"),
+        ("glob", "default 209715200\n* 1\n", "bad binary name"),
     ] {
         std::fs::write(&t, body).unwrap();
         let r = run(

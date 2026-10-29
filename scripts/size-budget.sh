@@ -5,8 +5,9 @@
 # Release size budget for the OpenMind workspace.
 # Builds with nice -n 19 and -j 2, then fails if any workspace ELF
 # executable is over its budget or not stripped. Budgets come from ONE file,
-# config/release/size-budget.tsv (slot 353): 2 MiB for every binary since
-# slot 329 removed the hermes-gateway 2.5 MiB exception.
+# config/release/size-budget.tsv (slot 353): 200 MB (209715200 B) for every
+# binary since owner decision t416u (2026-10-29 CET +01:00); it was 2 MiB
+# (2097152 B) from slot 329 to then.
 # Needs readelf (binutils), not file(1). Bash only.
 set -eu
 
@@ -26,7 +27,7 @@ Check:
   A bin fails when its size is greater than its budget or when it still
   has a .symtab section (not stripped).
   Budgets: config/release/size-budget.tsv (<binary> <max bytes>, plus a
-  `default` row; 2097152 for every binary). Release artifact names
+  `default` row; 209715200 = 200 MB for every binary). Release artifact names
   <binary>-<7..40 hex>[-suffix] (hermes-gateway-124a212,
   gaia-cortex-77df80f-llm) are looked up without the commit tag.
   ELF detection and the strip check use readelf (binutils);

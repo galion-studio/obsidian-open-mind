@@ -15,24 +15,25 @@
 # (<binary>-<7..40 hex>[-suffix], e.g. hermes-gateway-124a212,
 # gaia-cortex-77df80f-llm); the tag is stripped before the lookup.
 #
-# Policy (checked by size_budget_gate.rs): default is 2 MiB and no row may be
-# above it. Slot 329 (hermes-gateway-2mib a0d099c2) removed the old
-# hermes-gateway 2.5 MiB exception; a row above 2 MiB needs an owner decision.
-# Rows below 2 MiB are allowed (a tighter per-binary budget).
+# Policy (checked by size_budget_gate.rs): default is 200 MB (209715200 B,
+# 200 * 1024 * 1024) and no row may be above it. Owner decision t416u
+# (2026-10-29 CET +01:00) raised it from 2 MiB (2097152 B, slots 329-353):
+# size is no longer a constraint when picking crates. A row above 200 MB needs
+# an owner decision. Rows below 200 MB are allowed (a tighter budget).
 # Measured sizes: docs/real-tests/size-budget-gateway-fix.md.
 #
-default                 2097152
-desk-hermes             2097152
-gaia-cortex             2097152
-galion-backup           2097152
-galion-console-serve    2097152
-galion-console-static   2097152
-galion-desk             2097152
-galion-health           2097152
-galion-one              2097152
-hermes-gateway          2097152
-link-watch              2097152
-openmind-memory         2097152
-openmind-nerve          2097152
-openmind-queue          2097152
-tuner                   2097152
+default                 209715200
+desk-hermes             209715200
+gaia-cortex             209715200
+galion-backup           209715200
+galion-console-serve    209715200
+galion-console-static   209715200
+galion-desk             209715200
+galion-health           209715200
+galion-one              209715200
+hermes-gateway          209715200
+link-watch              209715200
+openmind-memory         209715200
+openmind-nerve          209715200
+openmind-queue          209715200
+tuner                   209715200

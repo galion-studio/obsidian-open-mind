@@ -7,11 +7,11 @@
 
 use std::path::PathBuf;
 
-/// 2 MiB: the release size cap of every binary (`default` row of
-/// config/release/size-budget.tsv, read by `scripts/size-budget.sh`). Slot 329
-/// (a0d099c2) dropped the 2.5 MiB hermes-gateway exception; slot 373 aligned
-/// this list with it.
-pub const SIZE_LIMIT: u64 = 2 * 1024 * 1024;
+/// 200 MB (209715200 B): the release size cap of every binary (`default` row
+/// of config/release/size-budget.tsv, read by `scripts/size-budget.sh`).
+/// Owner decision t416u (2026-10-29 CET +01:00) raised it from 2 MiB (slots
+/// 329-373).
+pub const SIZE_LIMIT: u64 = 200 * 1024 * 1024;
 
 /// One release binary: its package, binary name, the package's own features
 /// that the release build turns on, and its size cap in bytes.

@@ -230,7 +230,8 @@ fn release_bins_are_real_binaries_and_features() {
 /// The per-bin caps in RELEASE_BINS are the caps scripts/size-budget.sh
 /// enforces: the rows of config/release/size-budget.tsv (`<binary> <bytes>`,
 /// plus a `default` row). Since slot 329 (a0d099c2) / slot 353 (16bfc28d)
-/// that is 2 MiB for every binary, hermes-gateway included (slot 373 land).
+/// that is one cap for every binary, hermes-gateway included (slot 373 land):
+/// 200 MB since owner decision t416u (2026-10-29 CET +01:00), was 2 MiB.
 #[test]
 fn release_budgets_match_size_budget_script() {
     let script = std::fs::read_to_string(workspace_root().join("scripts/size-budget.sh"))
@@ -263,7 +264,7 @@ fn release_budgets_match_size_budget_script() {
     }
     let default = *rows.get("default").expect("default row");
     assert_eq!(default, common::SIZE_LIMIT, "default budget");
-    assert_eq!(common::SIZE_LIMIT, 2 * 1024 * 1024);
+    assert_eq!(common::SIZE_LIMIT, 200 * 1024 * 1024);
     for r in RELEASE_BINS {
         let want = rows.get(r.bin).copied().unwrap_or(default);
         assert_eq!(r.budget, want, "{} budget (size-budget.tsv)", r.bin);
@@ -272,7 +273,7 @@ fn release_budgets_match_size_budget_script() {
         .iter()
         .find(|r| r.bin == "hermes-gateway")
         .expect("hermes-gateway in RELEASE_BINS");
-    assert_eq!(gw.budget, 2 * 1024 * 1024, "hermes-gateway is 2 MiB now");
+    assert_eq!(gw.budget, 200 * 1024 * 1024, "hermes-gateway is 200 MB now");
     for new in ["gaia-cortex", "galion-console-serve"] {
         assert!(
             RELEASE_BINS.iter().any(|r| r.bin == new),

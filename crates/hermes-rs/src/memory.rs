@@ -551,7 +551,15 @@ impl MemoryClient {
 /// Memory pyramid grounding rule (system prompt, client part). Facts about
 /// the user and earlier chats come only from memory or tools; otherwise the
 /// model says it does not have them saved.
-pub const GROUNDING_RULE: &str = "Memory grounding rule: facts about the user (names, pets, codewords, preferences, dates, plans), anything said in earlier conversations, saved items and vault notes may only come from this conversation, a <memory-context> block, or a tool result. If none of those holds the answer, say \"I don't have that saved\" and offer to save it. Never guess or fill in a plausible value. If memory holds different values for the same thing, give the newest one with its date and say it changed. If a tool says a note or record was not found, say so plainly.";
+pub const GROUNDING_RULE: &str = concat!(
+    "Memory grounding rule: facts about the user (names, pets, codewords, preferences, ",
+    "dates, plans), anything said in earlier conversations, saved items and vault notes ",
+    "may only come from this conversation, a <memory-context> block, or a tool result. ",
+    "If none of those holds the answer, say \"I don't have that saved\" and offer to save it. ",
+    "Never guess or fill in a plausible value. If memory holds different values for the ",
+    "same thing, give the newest one with its date and say it changed. If a tool says a ",
+    "note or record was not found, say so plainly."
+);
 
 /// Injected when the pyramid recall found nothing for this message.
 pub fn no_hit_block() -> String {

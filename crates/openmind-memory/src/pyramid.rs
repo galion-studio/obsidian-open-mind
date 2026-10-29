@@ -1151,7 +1151,11 @@ mod tests {
     }
 
     fn store(name: &str) -> Store {
-        let d = std::env::temp_dir().join(format!("om-pyr-{name}-{}", std::process::id()));
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let d = std::env::temp_dir().join(format!("om-pyr-{name}-{nanos}"));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         let s = Store::open(&d.join("vectors.db"), false).unwrap();

@@ -168,7 +168,10 @@ fn subcommand(args: &[String]) -> Option<i32> {
         }
         Some(_) => {
             eprintln!(
-                "usage: openmind-memory                      (serve; config from env)\n       openmind-memory snapshot <src.db> <dst.db>\n       openmind-memory schema <db>              (read-only schema/version report)\n       openmind-memory parity <http://a> <http://b> <queries.txt> [session_key]\n       openmind-memory freshness <data_dir> [instance_id] [max_age_hours]  (read-only; exit 3 = stale)\n       openmind-memory pyramid-backfill <db> [since_ms]  (facts + episodes from L0; idempotent)"
+                "usage: openmind-memory                      (serve; config from env)\n       openmind-memory snapshot <src.db> <dst.db>\n       openmind-memory schema <db>              (read-only schema/version report)\n       openmind-memory parity <http://a> <http://b> <queries.txt> [session_key]\n       openmind-memory freshness <data_dir> [instance_id] [max_age_hours]  (read-only; exit 3 = stale)"
+            );
+            eprintln!(
+                "       openmind-memory pyramid-backfill <db> [since_ms]  (facts + episodes from L0; idempotent)"
             );
             Some(64)
         }

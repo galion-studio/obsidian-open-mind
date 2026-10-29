@@ -288,8 +288,17 @@ fn escapes_are_refused_and_audited() {
             "not allowed",
         ),
     ];
+    // Since 2026-10-29 the Hermes deny list (hermes-rs Registry wrapper)
+    // refuses many of these before the tool runs; either refusal counts, and
+    // deny-list refusals are counted next to the tool's own audit lines.
+    let mut denylist_refusals = 0;
     for (tool, args, want) in cases {
         let o = call(&fx, "s-esc", tool, args.clone());
+        if o.content.contains("blocked by the Hermes deny list") {
+            assert!(o.is_error);
+            denylist_refusals += 1;
+            continue;
+        }
         if want.is_empty() {
             // `--output=...` is a path, so it lands as a pathspec after `--`
             // (or is refused); it must never create the file.
@@ -305,7 +314,10 @@ fn escapes_are_refused_and_audited() {
         .lines()
         .filter(|l| l.contains("\"decision\":\"refused\""))
         .count();
-    assert!(refused >= 15, "{refused} refusals logged");
+    assert!(
+        refused + denylist_refusals >= 15,
+        "{refused} refusals logged + {denylist_refusals} deny-list refusals"
+    );
 }
 
 #[test]

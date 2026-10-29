@@ -1,0 +1,9 @@
+Backup of the prior (Python Hermes / galion-light) deny list, copied read-only from the VPS on 2026-10-29 (Europe/Zagreb, UTC+1).
+galion-light-guard__dangerous-patterns.txt          <- /opt/galion/galion-light/guard/dangerous-patterns.txt (same bytes as /workspace/galion-light/guard/dangerous-patterns.txt on the VPS; /workspace -> /opt/galion)
+galion-light-skills-packs-ondrej-hooks__dangerous-patterns.txt <- /opt/galion/galion-light/skills-packs/ondrej/hooks/dangerous-patterns.txt (upstream Ondrej pack copy)
+hermes-plugins-command-guard____init__.py          <- /opt/galion/hermes/plugins/command-guard/__init__.py (the copy Python Hermes loaded; plugins.enabled: [command-guard])
+hermes-plugins-command-guard__plugin.yaml          <- /opt/galion/hermes/plugins/command-guard/plugin.yaml
+galion-light-guard-command-guard____init__.py      <- /opt/galion/galion-light/guard/command-guard/__init__.py (source copy; has one extra floor rule: galion-keys|keys.db|gal_sk_)
+galion-light-guard-command-guard__plugin.yaml      <- /opt/galion/galion-light/guard/command-guard/plugin.yaml
+galion-light-guard__deny-dangerous.sh              <- /opt/galion/galion-light/guard/deny-dangerous.sh (shell hook adapter, grep -E)
+galion-light-guard__test-guard.sh                  <- /opt/galion/galion-light/guard/test-guard.sh (6 original tests)

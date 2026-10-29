@@ -68,6 +68,41 @@ pub trait Tool: Send + Sync {
 #[derive(Clone, Default)]
 pub struct Registry {
     tools: Vec<Arc<dyn Tool>>,
+    /// Deny-list policy for tools added from now on (None = process-wide).
+    policy: Option<Arc<crate::denylist::Policy>>,
+}
+
+/// Every registered tool is wrapped in this: the deny list runs before the
+/// tool, for the boss agent, delegated children, cron and MCP tools alike.
+/// There is no switch that turns it off.
+pub struct Guarded {
+    inner: Arc<dyn Tool>,
+    policy: Arc<crate::denylist::Policy>,
+}
+
+impl Tool for Guarded {
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+    fn parameters(&self) -> Value {
+        self.inner.parameters()
+    }
+    fn description(&self) -> String {
+        self.inner.description()
+    }
+    fn call(&self, args: &Value, ctx: &ToolCtx) -> ToolOutput {
+        let name = self.inner.name();
+        match crate::denylist::check_tool_call(&name, args, &self.policy) {
+            Ok(()) => self.inner.call(args, ctx),
+            Err(d) => {
+                eprintln!(
+                    "hermes-rs denylist: refused tool={name} rule={} session={} depth={}",
+                    d.rule, ctx.session_id, ctx.depth
+                );
+                ToolOutput::err(crate::denylist::refusal_text(&d))
+            }
+        }
+    }
 }
 
 impl Registry {
@@ -75,10 +110,35 @@ impl Registry {
         Registry::default()
     }
 
+    /// A registry whose tools use `policy` instead of the process-wide one.
+    pub fn with_policy(policy: crate::denylist::Policy) -> Self {
+        Registry {
+            tools: Vec::new(),
+            policy: Some(Arc::new(policy)),
+        }
+    }
+
     pub fn add(&mut self, t: Arc<dyn Tool>) {
         let n = t.name();
         self.tools.retain(|x| x.name() != n);
-        self.tools.push(t);
+        let policy = self
+            .policy
+            .clone()
+            .unwrap_or_else(crate::denylist::Policy::global);
+        self.tools.push(Arc::new(Guarded { inner: t, policy }));
+    }
+
+    /// Add a tool whose paths resolve against (and may only write inside)
+    /// `dir`, e.g. the coding tools' worktree. Same deny list otherwise.
+    pub fn add_in_workspace(&mut self, t: Arc<dyn Tool>, dir: &std::path::Path) {
+        let n = t.name();
+        self.tools.retain(|x| x.name() != n);
+        let base = self
+            .policy
+            .clone()
+            .unwrap_or_else(crate::denylist::Policy::global);
+        let policy = Arc::new(base.with_workspace(dir));
+        self.tools.push(Arc::new(Guarded { inner: t, policy }));
     }
 
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
@@ -97,6 +157,7 @@ impl Registry {
                 .filter(|t| t.name() != name)
                 .cloned()
                 .collect(),
+            policy: self.policy.clone(),
         }
     }
 

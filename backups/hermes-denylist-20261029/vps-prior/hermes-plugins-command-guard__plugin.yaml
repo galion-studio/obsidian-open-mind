@@ -1,0 +1,6 @@
+name: command-guard
+version: 0.1.0
+description: "David Ondrej global denylist. Blocks catastrophic terminal. Fail-open on errors."
+author: "galion-studio / davidondrej patterns"
+provides_hooks:
+  - pre_tool_call

@@ -139,10 +139,12 @@ pub fn register(
     cfg: CodingConfig,
     spend: Option<Arc<SpendTracker>>,
 ) -> Arc<tools::Shared> {
+    // the Hermes deny list wraps every tool; these resolve in the worktree
+    let wt = cfg.worktree.clone();
     let sh = Arc::new(tools::Shared::new(cfg, spend));
-    reg.add(Arc::new(tools::FsRead(sh.clone())));
-    reg.add(Arc::new(tools::FsWrite(sh.clone())));
-    reg.add(Arc::new(tools::Git(sh.clone())));
-    reg.add(Arc::new(tools::Cargo(sh.clone())));
+    reg.add_in_workspace(Arc::new(tools::FsRead(sh.clone())), &wt);
+    reg.add_in_workspace(Arc::new(tools::FsWrite(sh.clone())), &wt);
+    reg.add_in_workspace(Arc::new(tools::Git(sh.clone())), &wt);
+    reg.add_in_workspace(Arc::new(tools::Cargo(sh.clone())), &wt);
     sh
 }

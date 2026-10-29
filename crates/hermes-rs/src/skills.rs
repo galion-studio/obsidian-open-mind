@@ -433,10 +433,10 @@ mod tests {
 
     #[test]
     fn live_change_matches_words_not_spacing() {
-        assert!(live_change("sudo systemctl  --now restart hermes"));
+        assert!(live_change("sudo systemctl\t--now\trestart hermes"));
         assert!(live_change("then git   push origin"));
         assert!(live_change("run daemon-reload"));
-        assert!(!live_change("read systemctl status and git log"));
+        assert!(!live_change("read systemctl\tstatus and git log"));
     }
 
     fn tmp() -> PathBuf {

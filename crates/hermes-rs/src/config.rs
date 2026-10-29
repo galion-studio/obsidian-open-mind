@@ -433,6 +433,17 @@ impl Config {
         if let Some(x) = get("HERMES_RS_SKILL_TOOLS") {
             self.skill_tools_enabled = !matches!(x.as_str(), "0" | "false" | "off");
         }
+        // Helper (delegate_task child) model without editing config.yaml,
+        // e.g. HERMES_RS_DELEGATION_MODEL=river-flash (an alias keeps its own provider).
+        if let Some(x) = get("HERMES_RS_DELEGATION_MODEL").filter(|x| !x.trim().is_empty()) {
+            self.delegation.model = Some(x.trim().to_string());
+        }
+        if let Some(x) = get("HERMES_RS_DELEGATION_PROVIDER").filter(|x| !x.trim().is_empty()) {
+            self.delegation.provider = Some(x.trim().to_string());
+        }
+        if let Some(x) = get("HERMES_RS_DELEGATION_REASONING").filter(|x| !x.trim().is_empty()) {
+            self.delegation.reasoning_effort = Some(x.trim().to_string());
+        }
         if let Some(x) = get("HERMES_RS_CITATIONS_DIR") {
             self.citations_dir = Some(PathBuf::from(x));
         }

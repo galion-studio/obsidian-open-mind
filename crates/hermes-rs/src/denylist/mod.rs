@@ -1776,7 +1776,9 @@ pub fn check_tool_call(tool: &str, args: &Value, pol: &Policy) -> R {
         strings: 0,
         bytes: 0,
         commands: 0,
-        wants_write: (k.delegate || k.write)
+        // delegated work is judged per sentence by `delegate_write_check`
+        wants_write: !k.delegate
+            && k.write
             && mentions_write(&args.to_string().replace("\\n", " ")),
     };
     match args {
@@ -1786,6 +1788,9 @@ pub fn check_tool_call(tool: &str, args: &Value, pol: &Policy) -> R {
             check_command_in(s, &pol.cwd, pol)?
         }
         other => w.value("", other, 0)?,
+    }
+    if k.delegate {
+        delegate_write_check(args, pol)?;
     }
     if k.shell && w.commands == 0 {
         return Err(deny(
@@ -1799,7 +1804,312 @@ pub fn check_tool_call(tool: &str, args: &Value, pol: &Policy) -> R {
 /// The message a refused tool call returns to the model.
 pub fn refusal_text(d: &Deny) -> String {
     format!(
-        "blocked by the Hermes deny list ({}): {}. Do not retry this, rephrase it, or route it through another tool or a delegated agent. Tell the operator what you wanted to do.",
+        "blocked by the Hermes deny list ({}): {}. This is final for this intent: do not retry it, reword it, split it, or route it through another tool or a helper, because the deny list judges what the call would do, not its wording. Stop this line of work and tell the operator what you wanted to do and why it was refused.",
         d.rule, d.reason
     )
+}
+
+// ---- S9: delegated write / exec intent, judged per sentence ----
+
+/// Verbs that make a delegated sentence a write or exec request.
+const DELEGATE_ACT_VERBS: &[&str] = &[
+    "write",
+    "writes",
+    "writing",
+    "rewrite",
+    "save",
+    "saving",
+    "edit",
+    "editing",
+    "modify",
+    "append",
+    "overwrite",
+    "patch",
+    "delete",
+    "remove",
+    "rename",
+    "move",
+    "create",
+    "update",
+    "store",
+    "put",
+    "insert",
+    "replace",
+    "commit",
+    "apply",
+    "change",
+    "truncate",
+    "wipe",
+    "erase",
+    "chmod",
+    "chown",
+    "install",
+    "deploy",
+    "run",
+    "execute",
+    "exec",
+    "restart",
+    "kill",
+    "mkdir",
+    "copy",
+    "cp",
+    "mv",
+    "rm",
+    "touch",
+    "upload",
+    "push",
+];
+/// Tool names a delegated goal can ask a child to call to write.
+const DELEGATE_WRITE_TOOLS: &[&str] = &[
+    "fs_write",
+    "write_file",
+    "file_write",
+    "edit_file",
+    "apply_patch",
+    "str_replace",
+    "patch_file",
+    "create_file",
+    "delete_file",
+    "move_file",
+];
+/// Words that negate a following verb list ("do not create, edit, or move").
+const DELEGATE_NEG: &[&str] = &[
+    "not",
+    "don't",
+    "dont",
+    "never",
+    "no",
+    "without",
+    "nor",
+    "mustn't",
+    "shouldn't",
+    "can't",
+    "cannot",
+    "won't",
+    "avoid",
+    "neither",
+];
+/// Words allowed between a negation and the verb it negates.
+const DELEGATE_NEG_FILLER: &[&str] = &[
+    "or", "and", "any", "anything", "file", "files", "code", "it", "them", "the", "a", "to",
+    "either", "touch", "print", "change", "modify", "do", "read", "only", "also", "even",
+];
+/// A word before a verb-shaped word that makes it a noun ("the smallest patch").
+const DELEGATE_DETS: &[&str] = &[
+    "the", "a", "an", "this", "that", "these", "those", "smallest", "small", "minimal", "proposed",
+    "your", "my", "our", "its", "their", "each", "one", "any", "no", "unit", "live", "same",
+];
+const DELEGATE_PROTECTED_WORDS: &[&str] = &[
+    "soul.md",
+    "agents.md",
+    "guard.json",
+    "dangerous-patterns",
+    "command-guard",
+    "config.yaml",
+    ".env",
+    "authorized_keys",
+    "systemd",
+    "crontab",
+    "cron.d",
+];
+
+fn sentences(s: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let cs: Vec<char> = s.chars().collect();
+    for (i, c) in cs.iter().enumerate() {
+        let next_space = cs.get(i + 1).is_none_or(|n| n.is_whitespace());
+        let end = matches!(c, '\n' | ';') || (matches!(c, '.' | '!' | '?') && next_space);
+        if end {
+            out.push(std::mem::take(&mut cur));
+        } else {
+            cur.push(*c);
+        }
+    }
+    out.push(cur);
+    out.into_iter().filter(|x| !x.trim().is_empty()).collect()
+}
+
+fn word_of(tok: &str) -> String {
+    tok.trim_matches(|c: char| ",.;:()[]{}\"'`!?<>*".contains(c))
+        .to_lowercase()
+}
+
+/// Words that may come before an imperative verb at the start of a clause.
+const DELEGATE_IMP_PREFIX: &[&str] = &[
+    "please", "then", "and", "also", "just", "now", "you", "should", "must", "to", "can", "could",
+    "will", "go", "finally", "next", "first", "simply", "kindly", "i", "we", "want", "need", "so",
+    "pls", "ok", "okay", "after", "that",
+];
+
+/// Is this sentence a request to write or execute? Returns (active,
+/// imperative, direct path objects of negated verbs, which still count as
+/// write targets). `imperative` = an active verb opens a clause ("append the
+/// summary to the file named in context"), not a description ("the tool
+/// writes a row") or a bare list item ("propose, gate, apply").
+fn sentence_intent(sent: &str) -> (bool, bool, Vec<String>) {
+    let toks: Vec<&str> = sent.split_whitespace().collect();
+    let words: Vec<String> = toks.iter().map(|t| word_of(t)).collect();
+    let low = sent.to_lowercase();
+    let mut active = [
+        "add a note",
+        "add note",
+        "new note",
+        "add a file",
+        "new file",
+    ]
+    .iter()
+    .any(|p| low.contains(p));
+    let mut imperative = active;
+    let mut forced = Vec::new();
+    // clause start index for every word (clauses break at , : ( and dashes)
+    let mut starts = Vec::with_capacity(toks.len());
+    let mut ends = vec![0usize; toks.len()];
+    let mut cs = 0;
+    for (i, t) in toks.iter().enumerate() {
+        let opens = t.starts_with('(') || *t == "-" || *t == "\u{2014}";
+        if opens && i > cs {
+            for e in ends.iter_mut().take(i).skip(cs) {
+                *e = i;
+            }
+            cs = i;
+        }
+        starts.push(cs);
+        if t.ends_with(',') || t.ends_with(':') || t.ends_with(')') {
+            for e in ends.iter_mut().take(i + 1).skip(cs) {
+                *e = i + 1;
+            }
+            cs = i + 1;
+        }
+    }
+    for e in ends.iter_mut().skip(cs) {
+        *e = toks.len();
+    }
+    for (i, w) in words.iter().enumerate() {
+        let tool = DELEGATE_WRITE_TOOLS.iter().any(|t| w.contains(t));
+        let verb = DELEGATE_ACT_VERBS.contains(&w.as_str());
+        if !tool && !verb {
+            continue;
+        }
+        if verb && !tool && i > 0 && DELEGATE_DETS.contains(&words[i - 1].as_str()) {
+            continue; // a noun: "the smallest patch", "a proposed change"
+        }
+        // walk back over a negated verb list
+        let mut negated = false;
+        let mut j = i;
+        while j > 0 {
+            j -= 1;
+            let b = words[j].as_str();
+            if DELEGATE_NEG.contains(&b) {
+                negated = true;
+                break;
+            }
+            if DELEGATE_NEG_FILLER.contains(&b) || DELEGATE_ACT_VERBS.contains(&b) {
+                continue;
+            }
+            break;
+        }
+        if !negated || tool {
+            active = true;
+            let st = starts[i];
+            let bare = ends[i].saturating_sub(st) <= 1;
+            let lead = i == st || DELEGATE_IMP_PREFIX.contains(&words[i - 1].as_str());
+            if tool || (lead && !bare) {
+                imperative = true;
+            }
+        } else {
+            // "do not delete, write /opt/x": a path right after a negated
+            // verb is still treated as a write target (fail closed)
+            for t in toks.iter().skip(i + 1).take(2) {
+                forced.extend(text_paths(t));
+            }
+        }
+    }
+    (active, imperative, forced)
+}
+
+fn collect_strings<'v>(v: &'v Value, out: &mut Vec<&'v str>, depth: usize) {
+    if depth > MAX_DEPTH {
+        return;
+    }
+    match v {
+        Value::String(s) => out.push(s),
+        Value::Array(a) => a.iter().for_each(|x| collect_strings(x, out, depth + 1)),
+        Value::Object(m) => m.values().for_each(|x| collect_strings(x, out, depth + 1)),
+        _ => {}
+    }
+}
+
+fn delegate_target(p: &str, pol: &Policy) -> R {
+    check_path_x(p, Access::Write, &pol.cwd, pol, false).map_err(|e| {
+        deny(
+            if e.rule == "S9-vault-write" {
+                "S9-vault-write"
+            } else {
+                "S9-delegate-write"
+            },
+            format!("delegated task asks to write {}: {}", p, e.reason),
+        )
+    })
+}
+
+fn delegate_protected_words(text: &str) -> R {
+    let l = text.to_ascii_lowercase();
+    if l.contains("vault") || l.contains("obsidian") || l.contains("build-session") {
+        return Err(deny("S9-vault-write", "delegated task asks to write to the vault, which is read-only; delegation can not be used to get around a refusal"));
+    }
+    for w in DELEGATE_PROTECTED_WORDS {
+        if l.contains(w) {
+            return Err(deny(
+                "S9-delegate-write",
+                format!("delegated task asks to write {w}, a protected file"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// S9 for delegate tools: a path or protected file is a write target only
+/// when a sentence actually asks to write or execute (not "do not modify
+/// anything", not a noun like "the patch"). A write sentence with no path
+/// of its own ("append to the file named in context") makes every path and
+/// protected name in that task a write target.
+pub fn delegate_write_check(args: &Value, pol: &Policy) -> R {
+    let tasks: Vec<&Value> = match args.get("tasks").and_then(Value::as_array) {
+        Some(a) if !a.is_empty() => a.iter().collect(),
+        _ => vec![args],
+    };
+    for task in tasks {
+        let mut strs = Vec::new();
+        collect_strings(task, &mut strs, 0);
+        let mut pathless = false;
+        for s in &strs {
+            for sent in sentences(s) {
+                let (active, imperative, forced) = sentence_intent(&sent);
+                for p in &forced {
+                    delegate_target(p, pol)?;
+                }
+                if !active {
+                    continue;
+                }
+                let paths = text_paths(&sent);
+                if paths.is_empty() && imperative {
+                    pathless = true;
+                }
+                for p in &paths {
+                    delegate_target(p, pol)?;
+                }
+                delegate_protected_words(&sent)?;
+            }
+        }
+        if pathless {
+            for s in &strs {
+                for p in text_paths(s) {
+                    delegate_target(&p, pol)?;
+                }
+                delegate_protected_words(s)?;
+            }
+        }
+    }
+    Ok(())
 }

@@ -115,10 +115,100 @@ pub fn parse_tasks(args: &Value) -> Vec<(String, String)> {
     }
 }
 
+/// Words that, in the latest user message, ask for helpers. Matched on
+/// word boundaries after `-`/`_` become spaces ("sub-agents" -> "sub agents").
+pub const HELPER_WORDS: &[&str] = &[
+    "helpers",
+    "one helper",
+    "helper agent",
+    "helper agents",
+    "subagent",
+    "subagents",
+    "sub agent",
+    "sub agents",
+    "swarm",
+    "delegate",
+    "delegated",
+    "delegating",
+    "delegation",
+    "worker agents",
+    "parallel agents",
+    "agents in parallel",
+    "fan out",
+    "fan it out",
+];
+
+/// Counting words before "agents"/"workers"/"researchers" ("3 agents").
+const COUNT_WORDS: &[&str] = &[
+    "two", "three", "four", "five", "several", "multiple", "some", "few", "parallel",
+];
+
+/// Negation right before a helper word ("don't use sub-agents") cancels it.
+const HELPER_NEG: &[&str] = &[
+    "no", "not", "don't", "dont", "never", "without", "avoid", "nor", "stop",
+];
+
+fn words_of(t: &str) -> Vec<String> {
+    t.split(|c: char| !(c.is_alphanumeric() || c == '\''))
+        .filter(|w| !w.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+/// True when the latest user message explicitly asks for helpers, in any
+/// reasonable wording: "use sub-agents", "start 3 sub-agents", "spawn
+/// helpers", "use a swarm", "delegate this", "split it across 3 agents",
+/// or the tool name itself. Hermes still never starts helpers unprompted.
 pub fn user_asked_for_helper(text: &str) -> bool {
-    let t = text.to_lowercase();
+    let t = text.to_lowercase().replace(['-', '_', '\u{2011}'], " ");
     // Upstream patch returns True when the text cannot be read.
-    t.trim().is_empty() || HELPER_PHRASES.iter().any(|p| t.contains(p))
+    if t.trim().is_empty() {
+        return true;
+    }
+    if HELPER_PHRASES
+        .iter()
+        .any(|p| t.replace(' ', "_").contains(&p.replace(' ', "_")))
+    {
+        return true;
+    }
+    let w = words_of(&t);
+    let negated = |i: usize| {
+        // look back up to 3 words: "do not use sub agents", "no helpers"
+        (i.saturating_sub(3)..i).any(|j| HELPER_NEG.contains(&w[j].as_str()))
+    };
+    for (i, _) in w.iter().enumerate() {
+        for p in HELPER_WORDS {
+            let pw: Vec<&str> = p.split(' ').collect();
+            if i + pw.len() <= w.len()
+                && w[i..i + pw.len()].iter().zip(&pw).all(|(a, b)| a == b)
+                && !negated(i)
+            {
+                return true;
+            }
+        }
+        // "3 agents", "three workers", "spawn agents", "start 2 researchers"
+        if matches!(
+            w[i].as_str(),
+            "agents" | "workers" | "researchers" | "readers" | "minions"
+        ) && i > 0
+        {
+            let prev = w[i - 1].as_str();
+            let counted = prev.chars().all(|c| c.is_ascii_digit()) || COUNT_WORDS.contains(&prev);
+            let spawned = (i.saturating_sub(3)..i).any(|j| {
+                matches!(
+                    w[j].as_str(),
+                    "spawn" | "start" | "launch" | "run" | "use" | "across" | "between"
+                )
+            });
+            if (counted || spawned) && !negated(i.saturating_sub(1)) {
+                return true;
+            }
+        }
+        if w[i] == "spawn" && !negated(i) {
+            return true;
+        }
+    }
+    false
 }
 
 impl Tool for DelegateTool {
@@ -156,7 +246,7 @@ impl Tool for DelegateTool {
             ));
         }
         if d.require_user_ask && !user_asked_for_helper(ctx.user_text) {
-            return ToolOutput::err("This request did not ask for a helper. Answer it yourself. Do not call delegate_task.");
+            return ToolOutput::err("The latest user message did not ask for helpers or sub-agents, so none were started. Answer it yourself and do not call delegate_task again this turn; if helpers would help, say so and let the user ask for them.");
         }
         let tasks = parse_tasks(args);
         if tasks.is_empty() || tasks.iter().any(|(g, _)| g.is_empty()) {
@@ -309,6 +399,58 @@ mod tests {
         }
     }
 
+    /// Live shape: config.yaml says Sonnet, the drop-in env says
+    /// HERMES_RS_DELEGATION_MODEL=river-flash; a "start 3 read-only sub-agents"
+    /// ask runs three children on the River alias and all three return.
+    #[test]
+    fn three_helpers_on_river_alias_from_env() {
+        let mut cfg = Config::defaults(Path::new("/tmp"));
+        cfg.delegation.model = Some("anthropic/claude-sonnet-5.5".into());
+        cfg.delegation.provider = Some("openrouter".into());
+        cfg.aliases.insert(
+            "river-flash".into(),
+            crate::config::Route {
+                model: "deepseek-ai/DeepSeek-V4.1-Flash".into(),
+                provider: Some("custom".into()),
+                base_url: Some("https://api.river.ai/v1".into()),
+                key_env: Some("RIVER_API_KEY".into()),
+            },
+        );
+        cfg.apply_env(&|k| match k {
+            "HERMES_RS_DELEGATION_MODEL" => Some("river-flash".into()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(cfg.delegation.model.as_deref(), Some("river-flash"));
+        let cfg = Arc::new(cfg);
+        let mock = Arc::new(MockProvider::echo());
+        let spend = Arc::new(SpendTracker::new(cfg.spend.clone(), None));
+        let mut reg = Registry::new();
+        reg.add(Arc::new(ClockTool));
+        let t = DelegateTool::new(cfg, mock.clone(), spend, reg);
+        let out = call(
+            &t,
+            json!({"tasks": [
+                {"goal": "Read-only: summarise engine.rs recall. Do not modify any file."},
+                {"goal": "Read-only: summarise memory.rs inject. Do not write anything."},
+                {"goal": "Read-only: list the MCP memory tools. Do not create, edit, or delete anything."}
+            ]}),
+            0,
+            "Start 3 read-only sub-agents to check the memory path",
+        );
+        assert!(!out.is_error, "{}", out.content);
+        let v: Value = serde_json::from_str(&out.content).unwrap();
+        let r = v["results"].as_array().unwrap();
+        assert_eq!(r.len(), 3);
+        assert!(r.iter().all(|x| x["status"] == "completed"));
+        let calls = mock.calls.lock().unwrap();
+        assert_eq!(calls.len(), 3);
+        for (tg, _) in calls.iter() {
+            assert_eq!(tg.model, "deepseek-ai/DeepSeek-V4.1-Flash");
+            assert_eq!(tg.provider, "custom");
+        }
+    }
+
     #[test]
     fn caps_tasks_depth_and_user_gate() {
         let (t, mock) = tool(MockProvider::echo(), 3);
@@ -323,7 +465,28 @@ mod tests {
             0,
             "what is the weather",
         );
-        assert!(out.is_error && out.content.contains("did not ask for a helper"));
+        assert!(out.is_error && out.content.contains("did not ask for helpers"));
+        for ask in [
+            "Use sub-agents where it helps.",
+            "Then split the root-cause work across up to 3 sub-agents: one reads engine.rs",
+            "start 3 subagents to read the code",
+            "spawn helpers for this",
+            "use a swarm",
+            "Delegate the reading to three agents",
+            "run 2 agents in parallel",
+            "Use_sub_agents please",
+        ] {
+            assert!(user_asked_for_helper(ask), "{ask}");
+        }
+        for no in [
+            "what is the weather",
+            "don't use sub-agents, answer yourself",
+            "no helpers please, just answer",
+            "write a helper function in rust",
+            "explain how agents work",
+        ] {
+            assert!(!user_asked_for_helper(no), "{no}");
+        }
         let out = call(&t, json!({"goal": "legacy"}), 0, "spawn a helper");
         assert!(!out.is_error);
         assert_eq!(

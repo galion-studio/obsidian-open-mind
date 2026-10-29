@@ -462,3 +462,28 @@ fn skills_tools_pass_and_are_still_scanned() {
         assert!(verdict(t, &a, &pol).is_err(), "{t} allowed: {a}");
     }
 }
+
+/// 2026-10-29 rehearsal: the five real delegate_task calls (read-only helper
+/// tasks that only *mention* paths) must pass; reworded write/exec requests
+/// must still be refused. Checked with the test workspace policy and with the
+/// live shape (no workspace, nothing writable).
+#[test]
+fn s9_delegate_intent_not_mentions() {
+    let cases: Vec<Value> =
+        serde_json::from_str(include_str!("denylist/delegate-rehearsal.json")).unwrap();
+    let live = Policy::from_env();
+    let mut wrong = Vec::new();
+    for pol in [policy(), live] {
+        for c in &cases {
+            let r = verdict(c["tool"].as_str().unwrap(), &c["params"], &pol);
+            let rule_ok = match (c["rule"].as_str(), &r) {
+                (Some(rule), Err(e)) => e.starts_with(rule),
+                _ => true,
+            };
+            if (c["expect"] == "deny") != r.is_err() || !rule_ok {
+                wrong.push(format!("{} -> {r:?}", c["name"]));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}

@@ -245,6 +245,9 @@ pub fn apply_staged(
     }
     let head = crate::git::head(&t.source)?;
     let auth = authorize(signed_record, sandbox_vk, p, approval, owner_vk, &head, now)?;
+    if let Some(d) = t.ledger.parent() {
+        std::fs::create_dir_all(d).map_err(|e| format!("ledger dir: {e}"))?;
+    }
     ledger_add(&t.ledger, &auth)?; // consumed even if the apply fails below
     apply_to_copy(t, &auth, p)
 }

@@ -764,8 +764,10 @@ fn refusal_replay_and_expired_and_checksum() {
         e.contains("checksum mismatch") || e.contains("different proposal"),
         "{e}"
     );
-    // the good one works once, then is a replay
-    let t2 = target(&r);
+    // the good one works once, then is a replay (staging root not yet created)
+    let mut t2 = target(&r);
+    t2.staging_root = t2.staging_root.join("new/root");
+    t2.ledger = t2.staging_root.join("applied.ledger");
     let done = apply::apply_staged(
         &t2,
         &signed,

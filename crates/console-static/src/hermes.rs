@@ -188,6 +188,8 @@ pub struct Hermes {
     pub catalogs: crate::hermes_models::Catalogs,
     /// Saved picker choices and favourites.
     pub prefs: crate::hermes_models::PrefsStore,
+    /// The owner-only self-modify switch (t400u), read-only here.
+    pub self_modify: std::path::PathBuf,
 }
 
 impl std::fmt::Debug for Hermes {
@@ -199,8 +201,49 @@ impl std::fmt::Debug for Hermes {
             .field("laptop", &self.laptop)
             .field("catalogs", &self.catalogs)
             .field("prefs", &self.prefs.path)
+            .field("self_modify", &self.self_modify)
             .finish()
     }
+}
+
+/// Where the owner-only self-modify switch lives (galion-self-modify crate).
+pub const SELF_MODIFY_PATH: &str = "/etc/galion/hermes-self-modify.json";
+
+/// The self-modify switch as the page shows it. Read-only. Locked is the
+/// default and the fail-safe: a missing, unreadable, malformed or unsigned
+/// `allowed` record shows as locked. The console does not verify the owner
+/// signature (it has no crypto); `galion-self-modify status` does, and an
+/// `allowed` record shows as allowed only when it carries a signature.
+pub fn self_modify_value(path: &Path) -> Value {
+    let rec = std::fs::metadata(path)
+        .ok()
+        .filter(|m| m.len() <= 16 * 1024)
+        .and_then(|_| std::fs::read(path).ok())
+        .and_then(|b| json::parse(&b).ok());
+    let get = |k: &str| {
+        rec.as_ref()
+            .and_then(|v| v.get(k).as_str().map(str::to_string))
+            .unwrap_or_default()
+    };
+    let signed = get("signature").len() == 128 && get("key_id").len() == 16;
+    let allowed = get("version") == "galion/self-modify/v1" && get("state") == "allowed" && signed;
+    obj(&[
+        ("ok", b(true)),
+        ("state", s(if allowed { "allowed" } else { "locked" })),
+        ("owner_only", b(true)),
+        ("found", b(rec.is_some())),
+        ("changed_by", s(&get("changed_by"))),
+        ("changed_at", s(&get("changed_at"))),
+        ("signed", b(signed)),
+        (
+            "tip",
+            s(if allowed {
+                "The owner (admin) allowed Hermes to change its own persona, config and code. The owner can lock it again."
+            } else {
+                "Hermes cannot change its own persona, config or code. Only the owner (admin) can allow it, with the owner key."
+            }),
+        ),
+    ])
 }
 
 /// True for a path this module answers (query ignored).
@@ -494,6 +537,7 @@ impl Hermes {
             laptop,
             catalogs: crate::hermes_models::Catalogs::new(Default::default(), None),
             prefs: crate::hermes_models::PrefsStore::new(None),
+            self_modify: SELF_MODIFY_PATH.into(),
         }
     }
 
@@ -1132,6 +1176,12 @@ impl Hermes {
                 Err((code, msg)) => error(code, &msg, route),
             },
             ["prefs"] => return not_allowed("GET or POST"),
+            ["self-modify"] if get => ok(self_modify_value(&self.self_modify)),
+            ["self-modify"] => error(
+                405,
+                "self-modify is owner-only: it changes on the server with the owner key, not from the console",
+                route,
+            ),
             ["providers"] if get => ok(self.providers_value()),
             ["modes"] if get => Self::modes(),
             ["skills"] if get => ok(obj(&[
@@ -1269,5 +1319,50 @@ mod tests {
         let k = new_session_key();
         assert!(k.starts_with(SESSION_KEY_PREFIX) && id_ok(&k));
         assert_ne!(k, new_session_key());
+    }
+}
+
+#[cfg(test)]
+mod self_modify_tests {
+    use super::*;
+
+    #[test]
+    fn switch_reads_locked_unless_signed_allowed() {
+        let d = std::env::temp_dir().join(format!("cs-sm-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        let p = d.join("sw.json");
+        let st = |p: &Path| {
+            self_modify_value(p)
+                .get("state")
+                .as_str()
+                .unwrap_or("")
+                .to_string()
+        };
+        assert_eq!(st(&p), "locked", "missing file");
+        std::fs::write(&p, "{bad").unwrap();
+        assert_eq!(st(&p), "locked", "bad json");
+        std::fs::write(
+            &p,
+            r#"{"version":"galion/self-modify/v1","state":"allowed"}"#,
+        )
+        .unwrap();
+        assert_eq!(st(&p), "locked", "unsigned allow");
+        let sig = "ab".repeat(64);
+        std::fs::write(
+            &p,
+            format!(r#"{{"version":"galion/self-modify/v1","state":"allowed","key_id":"0123456789abcdef","signature":"{sig}"}}"#),
+        )
+        .unwrap();
+        assert_eq!(st(&p), "allowed");
+        std::fs::write(
+            &p,
+            r#"{"version":"galion/self-modify/v1","state":"locked","changed_by":"Mate"}"#,
+        )
+        .unwrap();
+        let v = self_modify_value(&p);
+        assert_eq!(v.get("state").as_str(), Some("locked"));
+        assert_eq!(v.get("changed_by").as_str(), Some("Mate"));
+        assert_eq!(v.get("owner_only").as_bool(), Some(true));
+        std::fs::remove_dir_all(&d).ok();
     }
 }

@@ -692,6 +692,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "galion-self-modify"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "galion-tar"
 version = "0.1.0"
 

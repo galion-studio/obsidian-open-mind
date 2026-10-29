@@ -62,6 +62,7 @@ pub const READS: &[&str] = &[
     "/api/hermes/models",
     "/api/hermes/modes",
     "/api/hermes/history",
+    "/api/hermes/self-modify",
 ];
 
 /// The four picker choices when `/api/hermes/providers` does not answer
@@ -81,6 +82,8 @@ pub struct View<'a> {
     pub models: Option<&'a Value>,
     pub modes: Option<&'a Value>,
     pub history: Option<&'a Value>,
+    /// The owner-only self-modify switch (t400u).
+    pub self_modify: Option<&'a Value>,
     /// Selected thread: id and its payload (`None` = did not load).
     pub thread: Option<(&'a str, Option<&'a Value>)>,
     /// `/_ui/hermes.<hash>.js`.
@@ -131,6 +134,32 @@ fn gateway_pill(h: Option<&Value>) -> String {
         ("ok", v)
     };
     pill("gateway", tone, "Gateway", &v, "")
+}
+
+/// The self-modify chip and its tip (owner order t400u). Read-only: the
+/// switch changes on the server with the owner key. No answer reads as
+/// locked, which is the safe default.
+fn self_modify_html(v: Option<&Value>) -> (String, String) {
+    let allowed = v.map(|x| x.get("state").as_str() == Some("allowed")) == Some(true);
+    let tip = v
+        .and_then(|x| x.get("tip").as_str())
+        .filter(|t| !t.is_empty())
+        .unwrap_or("Hermes cannot change its own persona, config or code. Only the owner (admin) can allow it, with the owner key.");
+    let chip = pill(
+        "selfmod",
+        if allowed { "warn" } else { "ok" },
+        "Self-modify",
+        if allowed {
+            "Allowed · by the owner"
+        } else {
+            "Locked · owner only"
+        },
+        "",
+    );
+    (
+        chip,
+        format!("<p class=\"hm-lock\" id=\"hm-lock\">{}</p>", esc(tip)),
+    )
 }
 
 fn guard_pills(g: Option<&Value>) -> String {
@@ -362,15 +391,18 @@ fn thread_html(id: &str, v: Option<&Value>) -> String {
 /// The page body (inside the console shell).
 pub fn body(v: &View<'_>) -> String {
     let current = v.thread.map(|(id, _)| id);
+    let (selfmod, lock_tip) = self_modify_html(v.self_modify);
     let mut out = format!(
         "<div class=\"hm\" id=\"hm\" data-thread=\"{}\">",
         esc(current.unwrap_or(""))
     );
     out.push_str(&format!(
-        "<header class=\"hm-head\"><div class=\"hm-title\"><p class=\"k\">Hermes Research</p><h1>{}<span>The mind</span></h1></div><ul class=\"hm-status\" id=\"hm-status\" aria-label=\"Status\">{}{}</ul></header>",
+        "<header class=\"hm-head\"><div class=\"hm-title\"><p class=\"k\">Hermes Research</p><h1>{}<span>The mind</span></h1></div><ul class=\"hm-status\" id=\"hm-status\" aria-label=\"Status\">{}{}{}</ul>{}</header>",
         icon("research", "i i-md"),
         gateway_pill(v.health),
         guard_pills(v.guard) + &pill("model", "ok", "Model", "OpenRouter · Gateway default", ""),
+        selfmod,
+        lock_tip,
     ));
     out.push_str("<div class=\"hm-grid\">");
     // History.
@@ -441,6 +473,7 @@ mod tests {
             models: Some(&m),
             modes: Some(&mo),
             history: Some(&hi),
+            self_modify: None,
             thread: Some(("api-1", Some(&th))),
             script_href: "/_ui/hermes.0123.js",
             mic_href: "/_ui/hermes-mic.0123.js",
@@ -477,6 +510,9 @@ mod tests {
             "<span class=\"mono\">web_search</span>",
             "<script src=\"/_ui/hermes.0123.js\" defer></script>",
             "data-thread=\"api-1\"",
+            "data-k=\"selfmod\"",
+            "Self-modify</span> <b class=\"hm-pv\">Locked · owner only",
+            "id=\"hm-lock\">Hermes cannot change its own persona, config or code. Only the owner (admin) can allow it, with the owner key.</p>",
         ] {
             assert!(b.contains(n), "missing {n}\n{b}");
         }
@@ -516,5 +552,32 @@ mod tests {
         });
         assert!(b.contains("$21.00 of $20.00 · cap reached"));
         assert!(b.contains("value=\"20.0000\""), "meter clamps at the cap");
+    }
+}
+
+#[cfg(test)]
+mod self_modify_tests {
+    use super::*;
+    use crate::json::parse;
+
+    #[test]
+    fn allowed_shows_allowed_and_tip_is_escaped() {
+        let v = parse(br#"{"ok":true,"state":"allowed","tip":"Owner <allowed> it."}"#).unwrap();
+        let b = body(&View {
+            self_modify: Some(&v),
+            ..View::default()
+        });
+        assert!(b.contains("Self-modify</span> <b class=\"hm-pv\">Allowed · by the owner"));
+        assert!(b.contains("Owner &lt;allowed&gt; it."));
+        let l = parse(br#"{"ok":true,"state":"locked"}"#).unwrap();
+        let b = body(&View {
+            self_modify: Some(&l),
+            ..View::default()
+        });
+        assert!(b.contains("Locked · owner only"));
+        assert!(
+            !b.contains("<button") || !b.contains("hm-selfmod-toggle"),
+            "read-only"
+        );
     }
 }

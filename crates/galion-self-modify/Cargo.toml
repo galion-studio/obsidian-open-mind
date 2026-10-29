@@ -1,0 +1,22 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "galion-self-modify"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Owner-only switch that records whether Hermes may change its own persona, config or code (default locked; allowed only with an owner-key signature)."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "galion-self-modify"
+path = "src/bin/galion-self-modify.rs"
+
+[dependencies]
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
+zagreb-time = { path = "../zagreb-time" }

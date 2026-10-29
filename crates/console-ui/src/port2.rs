@@ -293,6 +293,7 @@ impl Ui {
             models: g(3),
             modes: g(4),
             history: g(5),
+            self_modify: g(6),
             thread: id.map(|i| (i, thread.as_ref())),
             script_href: self.hermes_js_href(),
             mic_href: self.hermes_mic_href(),

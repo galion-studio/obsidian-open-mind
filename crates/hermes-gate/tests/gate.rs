@@ -720,17 +720,30 @@ fn refusal_sandbox_key_used_as_owner_key() {
     assert!(e.contains("must differ"), "{e}");
 }
 
-#[test]
-fn refusal_replay_and_expired_and_checksum() {
+fn ctx() -> (
+    PathBuf,
+    Proposal,
+    Value,
+    ed25519_dalek::SigningKey,
+    ed25519_dalek::SigningKey,
+    String,
+    String,
+    i64,
+    String,
+) {
     let (r, p, signed, sbx, owner, tree) = signed_case();
     let head = hermes_gate::git::head(&r).unwrap();
     let now = hermes_rs::time::now_secs();
     let rsha = record::record_sha256(&signed);
-    let t = target(&r);
-    // expired
+    (r, p, signed, sbx, owner, tree, head, now, rsha)
+}
+
+#[test]
+fn refusal_expired_approval() {
+    let (r, p, signed, sbx, owner, _, head, now, rsha) = ctx();
     let old = apply::approve(&owner, &p.sha256(), &rsha, &head, now - 1);
     let e = apply::apply_staged(
-        &t,
+        &target(&r),
         &signed,
         &sbx.verifying_key(),
         &p,
@@ -740,18 +753,23 @@ fn refusal_replay_and_expired_and_checksum() {
     )
     .unwrap_err();
     assert!(e.contains("expired"), "{e}");
-    // checksum mismatch: a proposal file whose patch_sha256 was edited
+}
+
+#[test]
+fn refusal_checksum_mismatch() {
+    let (r, p, signed, sbx, owner, _, head, now, rsha) = ctx();
+    // a proposal file whose patch no longer matches its patch_sha256
     let mut pj = p.to_json();
     pj["patch"] = json!(format!("{}+x\n", p.patch));
     assert!(Proposal::from_json(&pj)
         .unwrap_err()
         .contains("patch_sha256"));
-    // checksum mismatch: a changed patch with a fresh checksum
+    // a changed patch (with a fresh checksum) against the old record/approval
     let mut p2 = p.clone();
     p2.patch = p.patch.replace("version 9", "version 8");
     let good = apply::approve(&owner, &p.sha256(), &rsha, &head, now + 60);
     let e = apply::apply_staged(
-        &t,
+        &target(&r),
         &signed,
         &sbx.verifying_key(),
         &p2,
@@ -764,12 +782,18 @@ fn refusal_replay_and_expired_and_checksum() {
         e.contains("checksum mismatch") || e.contains("different proposal"),
         "{e}"
     );
-    // the good one works once, then is a replay (staging root not yet created)
-    let mut t2 = target(&r);
-    t2.staging_root = t2.staging_root.join("new/root");
-    t2.ledger = t2.staging_root.join("applied.ledger");
+}
+
+#[test]
+fn refusal_replay() {
+    let (r, p, signed, sbx, owner, tree, head, now, rsha) = ctx();
+    let good = apply::approve(&owner, &p.sha256(), &rsha, &head, now + 60);
+    // staging root not yet created: the ledger dir is made on first use
+    let mut t = target(&r);
+    t.staging_root = t.staging_root.join("new/root");
+    t.ledger = t.staging_root.join("applied.ledger");
     let done = apply::apply_staged(
-        &t2,
+        &t,
         &signed,
         &sbx.verifying_key(),
         &p,
@@ -780,7 +804,7 @@ fn refusal_replay_and_expired_and_checksum() {
     .unwrap();
     assert_eq!(done.tree, tree);
     let e = apply::apply_staged(
-        &t2,
+        &t,
         &signed,
         &sbx.verifying_key(),
         &p,
@@ -790,17 +814,21 @@ fn refusal_replay_and_expired_and_checksum() {
     )
     .unwrap_err();
     assert!(e.contains("replay refused"), "{e}");
-    // moved target: a commit on the source after approval
+}
+
+#[test]
+fn refusal_target_moved() {
+    let (r, p, signed, sbx, owner, _, head, now, rsha) = ctx();
     w(&r, "src/other.sh", "x\n");
     git(&r, &["add", "-A"], None).unwrap();
     git(&r, &["commit", "-q", "-m", "moved"], None).unwrap();
-    let good2 = apply::approve(&owner, &p.sha256(), &rsha, &head, now + 60);
+    let good = apply::approve(&owner, &p.sha256(), &rsha, &head, now + 60);
     let e = apply::apply_staged(
         &target(&r),
         &signed,
         &sbx.verifying_key(),
         &p,
-        &good2,
+        &good,
         &owner.verifying_key(),
         now,
     )

@@ -10,6 +10,8 @@
 
 pub mod agent;
 pub mod api;
+pub mod arxiv;
+pub mod citations;
 pub mod config;
 pub mod cron;
 pub mod delegate;
@@ -23,6 +25,7 @@ pub mod runs;
 pub mod session;
 #[cfg(feature = "sqlite")]
 pub mod session_sqlite;
+pub mod skills;
 pub mod spend;
 pub mod time;
 pub mod tools;

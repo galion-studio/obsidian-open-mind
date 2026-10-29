@@ -50,6 +50,11 @@ pub struct PromptParts {
     pub client: Vec<String>,
     /// Persona Plex prompt (role + channel rules). Goes last so it wins.
     pub persona: Option<String>,
+    /// Gateway facts for this turn (model, tools). Right after SOUL so the
+    /// persona cannot be read as claiming another model or tools it lacks.
+    pub runtime: Option<String>,
+    /// Skills index (skills.rs). After the runtime block.
+    pub skills: Option<String>,
 }
 
 impl PromptParts {
@@ -61,12 +66,20 @@ impl PromptParts {
             config: config_prompt.map(str::to_string),
             client: Vec::new(),
             persona: None,
+            runtime: None,
+            skills: None,
         }
     }
 
     pub fn build(&self) -> String {
         let mut parts: Vec<&str> = Vec::new();
         if let Some(s) = &self.soul {
+            parts.push(s);
+        }
+        if let Some(s) = &self.runtime {
+            parts.push(s);
+        }
+        if let Some(s) = &self.skills {
             parts.push(s);
         }
         if let Some(s) = &self.channel {
@@ -141,5 +154,22 @@ mod tests {
         p.client.push("CLIENT".into());
         assert_eq!(p.build(), "SOUL\n\n# Galion One\nwarm\n\nCFG\n\nCLIENT");
         let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+#[cfg(test)]
+mod skills_slot_tests {
+    use super::*;
+
+    #[test]
+    fn runtime_and_skills_follow_soul() {
+        let p = PromptParts {
+            soul: Some("SOUL".into()),
+            runtime: Some("RT".into()),
+            skills: Some("SK".into()),
+            config: Some("CFG".into()),
+            ..Default::default()
+        };
+        assert_eq!(p.build(), "SOUL\n\nRT\n\nSK\n\nCFG");
     }
 }

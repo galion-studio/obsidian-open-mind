@@ -146,6 +146,29 @@ fn main() {
     ));
     let mut tools = Registry::new();
     tools.add(Arc::new(ClockTool));
+    if cfg.skills_enabled {
+        let sc = hermes_rs::skills::SkillsCfg {
+            roots: cfg.skills_dirs.clone(),
+        };
+        log(&format!(
+            "skills: {} from {} dir(s)",
+            sc.index().skills.len(),
+            cfg.skills_dirs.len()
+        ));
+        tools.add(Arc::new(hermes_rs::skills::SkillsListTool(sc.clone())));
+        tools.add(Arc::new(hermes_rs::skills::SkillViewTool(sc)));
+    }
+    if cfg.skill_tools_enabled {
+        let dir = cfg.citations_dir.clone().unwrap_or_else(|| {
+            cfg.spend_file
+                .parent()
+                .map(|p| p.join("citations"))
+                .unwrap_or_else(|| cfg.home.join("citations"))
+        });
+        tools.add(Arc::new(hermes_rs::arxiv::ArxivTool::default()));
+        tools.add(Arc::new(hermes_rs::citations::CitationsTool { dir }));
+        log("skill tools: arxiv_search, citations");
+    }
     if !cfg.mcp_servers.is_empty() {
         let (mcp_tools, errors) = hermes_rs::mcp::discover(&cfg.mcp_servers);
         for e in errors {

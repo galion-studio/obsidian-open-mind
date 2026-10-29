@@ -341,6 +341,18 @@ impl Gateway {
             self.cfg.system_prompt.as_deref()
         };
         let mut parts = PromptParts::load(&self.cfg.home, channel.as_deref(), cfg_prompt);
+        if self.cfg.skills_enabled {
+            parts.runtime = Some(crate::skills::runtime_block(
+                &target.model,
+                &target.provider,
+                &self.agent.tools.names(),
+            ));
+            parts.skills = crate::skills::SkillsCfg {
+                roots: self.cfg.skills_dirs.clone(),
+            }
+            .index()
+            .prompt_block(crate::skills::MAX_INDEX_CHARS);
+        }
         parts.persona = persona;
         if let Some(i) = extra_instructions {
             parts.client.push(i.to_string());

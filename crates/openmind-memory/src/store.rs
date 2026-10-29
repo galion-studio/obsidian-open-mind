@@ -395,7 +395,7 @@ impl Store {
         col("l1_fts", "content_original") && col("l0_fts", "message_text_original")
     }
 
-    fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.conn.lock().unwrap_or_else(|e| e.into_inner())
     }
 

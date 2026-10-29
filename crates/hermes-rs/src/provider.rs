@@ -453,8 +453,72 @@ pub fn curl_quote(s: &str) -> String {
     o
 }
 
+/// A provider error that is an upstream rate limit (HTTP 429), worth a retry.
+pub fn is_rate_limited(err: &str) -> bool {
+    let e = err.to_lowercase();
+    e.contains("error: 429") || e.contains(" 429 ") || e.contains("rate limit")
+}
+
+/// Back-off before retry `n` (1-based) after a 429: 3 s, 8 s, 15 s.
+pub fn rate_limit_backoff(n: u32) -> std::time::Duration {
+    std::time::Duration::from_secs(match n {
+        1 => 3,
+        2 => 8,
+        _ => 15,
+    })
+}
+
 impl Provider for CurlProvider {
+    /// One call; an upstream 429 that arrives before any streamed text is
+    /// retried with back-off (`HERMES_RS_PROVIDER_429_RETRIES`, default 2,
+    /// max 3; 0 = off). Text already sent to the client is never replayed.
     fn chat(
+        &self,
+        t: &Target,
+        req: &ChatRequest,
+        cancel: &AtomicBool,
+        sink: &mut dyn FnMut(StreamEvent),
+    ) -> Result<ChatResult, String> {
+        let retries: u32 = (self.env)("HERMES_RS_PROVIDER_429_RETRIES")
+            .and_then(|v| v.trim().parse().ok())
+            .unwrap_or(2)
+            .min(3);
+        let mut attempt = 0u32;
+        loop {
+            let mut streamed = false;
+            let r = self.chat_once(t, req, cancel, &mut |ev| {
+                streamed = true;
+                sink(ev)
+            });
+            match r {
+                Err(e) if !streamed && attempt < retries && is_rate_limited(&e) => {
+                    attempt += 1;
+                    let wait = rate_limit_backoff(attempt);
+                    nerve_client::cap_hit(
+                        "hermes-rs",
+                        "provider_429_retry",
+                        &format!(
+                            "{} rate limited; retry {attempt} in {}s",
+                            t.provider,
+                            wait.as_secs()
+                        ),
+                    );
+                    let until = std::time::Instant::now() + wait;
+                    while std::time::Instant::now() < until {
+                        if cancel.load(Ordering::SeqCst) {
+                            return Err("cancelled".into());
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                    }
+                }
+                other => return other,
+            }
+        }
+    }
+}
+
+impl CurlProvider {
+    fn chat_once(
         &self,
         t: &Target,
         req: &ChatRequest,
@@ -865,6 +929,20 @@ platforms:
         let mut a = StreamAcc::default();
         a.feed_line(r#"{"error":{"message":"Insufficient credits","code":402}}"#);
         assert_eq!(a.finish().unwrap_err(), "Insufficient credits");
+    }
+
+    #[test]
+    fn rate_limit_detection_and_backoff() {
+        assert!(is_rate_limited(
+            "provider call failed (curl exit Some(22)) curl: (22) The requested URL returned error: 429 {\"error\":\"Account request rate limit exceeded\"}"
+        ));
+        assert!(is_rate_limited("Account request rate limit exceeded"));
+        assert!(!is_rate_limited(
+            "provider call failed (curl exit Some(22)) error: 500"
+        ));
+        assert!(!is_rate_limited("no API key for provider river"));
+        assert_eq!(rate_limit_backoff(1).as_secs(), 3);
+        assert_eq!(rate_limit_backoff(9).as_secs(), 15);
     }
 
     #[test]

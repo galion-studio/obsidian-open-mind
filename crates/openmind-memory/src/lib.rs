@@ -12,6 +12,7 @@ pub mod hash;
 pub mod http;
 pub mod log;
 pub mod offload;
+pub mod pyramid;
 pub mod store;
 pub mod text;
 pub mod tools;

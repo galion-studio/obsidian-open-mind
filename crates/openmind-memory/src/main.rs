@@ -89,6 +89,23 @@ fn subcommand(args: &[String]) -> Option<i32> {
                 }
             },
         ),
+        Some("pyramid-backfill") if args.len() == 2 || args.len() == 3 => {
+            let since: i64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+            Some(
+                match openmind_memory::store::Store::open(Path::new(&args[1]), false)
+                    .and_then(|s| s.pyramid_backfill(since))
+                {
+                    Ok((facts, episodes)) => {
+                        println!("pyramid-backfill facts_seen={facts} episodes={episodes} since_ms={since}");
+                        0
+                    }
+                    Err(e) => {
+                        log::warn(&format!("pyramid-backfill failed: {e}"));
+                        1
+                    }
+                },
+            )
+        }
         Some("schema") if args.len() == 2 => Some(
             match openmind_memory::store::Store::schema_info(Path::new(&args[1])) {
                 Ok(i) => {
@@ -151,7 +168,7 @@ fn subcommand(args: &[String]) -> Option<i32> {
         }
         Some(_) => {
             eprintln!(
-                "usage: openmind-memory                      (serve; config from env)\n       openmind-memory snapshot <src.db> <dst.db>\n       openmind-memory schema <db>              (read-only schema/version report)\n       openmind-memory parity <http://a> <http://b> <queries.txt> [session_key]\n       openmind-memory freshness <data_dir> [instance_id] [max_age_hours]  (read-only; exit 3 = stale)"
+                "usage: openmind-memory                      (serve; config from env)\n       openmind-memory snapshot <src.db> <dst.db>\n       openmind-memory schema <db>              (read-only schema/version report)\n       openmind-memory parity <http://a> <http://b> <queries.txt> [session_key]\n       openmind-memory freshness <data_dir> [instance_id] [max_age_hours]  (read-only; exit 3 = stale)\n       openmind-memory pyramid-backfill <db> [since_ms]  (facts + episodes from L0; idempotent)"
             );
             Some(64)
         }

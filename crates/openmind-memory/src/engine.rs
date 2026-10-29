@@ -94,7 +94,12 @@ impl Engine {
             None
         } else {
             match Store::open(&path, cfg.read_only) {
-                Ok(s) => Some(s),
+                Ok(s) => {
+                    if let Err(e) = s.ensure_pyramid() {
+                        crate::log::warn(&format!("pyramid tables unavailable (non-fatal): {e}"));
+                    }
+                    Some(s)
+                }
                 Err(e) => {
                     crate::log::warn(&format!("store open failed ({}): {e}", path.display()));
                     None
@@ -144,6 +149,11 @@ impl Engine {
                 store.search_l1_fts_filtered(&q, max * 2, max * 100, &|h| h.session_key == sk)
             }
         };
+        // Quarantined L1 scenes (junk rows kept on disk, never recalled).
+        let hits: Vec<_> = hits
+            .into_iter()
+            .filter(|h| !crate::pyramid::is_quarantined_scene(&h.scene_name))
+            .collect();
         if hits.is_empty() {
             return Vec::new();
         }
@@ -329,7 +339,23 @@ impl Engine {
                 }
             }
         }
-        let context = filter_recall_text_by_session(&context, &session_key);
+        let mut context = filter_recall_text_by_session(&context, &session_key);
+
+        // Memory pyramid (opt-in per request): cross-chat long-term facts and
+        // episodic recall, appended after the session-scoped part.
+        let pyramid = if truthy(body.get("pyramid")) {
+            let (block, info) = self.pyramid_recall(&query, &session_key);
+            if !block.is_empty() {
+                context = if context.is_empty() {
+                    block
+                } else {
+                    format!("{context}\n\n{block}")
+                };
+            }
+            Some(info)
+        } else {
+            None
+        };
 
         let mut out = Map::new();
         out.insert("context".into(), json!(context));
@@ -342,6 +368,9 @@ impl Engine {
         out.insert("retryable".into(), json!(false));
         if let Some(s) = scope {
             out.insert("scope".into(), json!(s));
+        }
+        if let Some(p) = pyramid {
+            out.insert("pyramid".into(), p);
         }
         (200, Value::Object(out))
     }
@@ -466,6 +495,7 @@ impl Engine {
                         crate::log::warn(&format!("upsertL0 failed (non-blocking): {e}"));
                     }
                 }
+                self.pyramid_capture(store, &session_key, &captured);
             }
         }
         // No L1/L2/L3 extraction pipeline in v0, so nothing is scheduled.
@@ -599,10 +629,11 @@ impl Engine {
         // Filters run before the limit over up to FILTER_SCAN ranked rows
         // (VPS rewrite semantics), instead of filtering only limit*3 rows.
         let keep = |h: &crate::store::L1Hit| {
-            (type_filter.is_empty() || h.kind == type_filter)
+            !crate::pyramid::is_quarantined_scene(&h.scene_name)
+                && (type_filter.is_empty() || h.kind == type_filter)
                 && (scene_filter.is_empty() || h.scene_name.to_lowercase().contains(&scene_filter))
         };
-        let filtered = !type_filter.is_empty() || !scene_filter.is_empty();
+        let filtered = true; // quarantine filter always applies (pyramid 2026-10-29)
         let scan = if filtered { FILTER_SCAN } else { limit };
         let items = build_fts_query(&query)
             .map(|q| store.search_l1_fts_filtered(&q, limit, scan, &keep))
@@ -699,5 +730,116 @@ impl Engine {
             return err("Missing required field: session_key");
         }
         (200, json!({ "flushed": true }))
+    }
+}
+
+// Memory pyramid (2026-10-29): extraction on capture, recall, episodes.
+impl Engine {
+    /// Facts + episode row for the user messages of one captured turn.
+    fn pyramid_capture(
+        &self,
+        store: &Store,
+        session_key: &str,
+        captured: &[(String, String, String, i64)],
+    ) {
+        let explicit = session_key == crate::pyramid::NOTES_SESSION;
+        for (_, role, content, ts) in captured {
+            if role != "user" {
+                continue;
+            }
+            for f in crate::pyramid::extract_facts(content, explicit) {
+                if let Err(e) = store.upsert_fact(&f, session_key, *ts) {
+                    crate::log::warn(&format!("[pyramid] fact write failed (non-blocking): {e}"));
+                }
+            }
+            if let Err(e) = store.touch_episode(session_key, content, *ts) {
+                crate::log::warn(&format!(
+                    "[pyramid] episode write failed (non-blocking): {e}"
+                ));
+            }
+        }
+    }
+
+    /// The pyramid part of `/recall`: (context block, reply info).
+    pub fn pyramid_recall(&self, query: &str, session_key: &str) -> (String, Value) {
+        let Some(store) = &self.store else {
+            return (
+                String::new(),
+                json!({"facts": 0, "episodes": 0, "store": false}),
+            );
+        };
+        let facts = crate::pyramid::recall_facts(store, query, session_key);
+        let window = crate::pyramid::episodic_window(query, now_ms());
+        let eps = match window {
+            Some((since, until, _)) => crate::pyramid::recall_episodes(
+                store,
+                query,
+                since,
+                until,
+                session_key,
+                crate::pyramid::MAX_RECALL_EPISODES,
+            ),
+            None => Vec::new(),
+        };
+        let mut parts = Vec::new();
+        if !facts.is_empty() {
+            parts.push(format!(
+                "<long-term-facts>\nSaved facts that match this message (newest value per subject; times Europe/Zagreb):\n{}\n</long-term-facts>",
+                crate::pyramid::render_facts(&facts)
+            ));
+        }
+        if !eps.is_empty() {
+            parts.push(format!(
+                "<past-conversations window=\"{}\">\nEarlier conversations that match this message (times Europe/Zagreb):\n{}\n</past-conversations>",
+                window.map(|w| w.2).unwrap_or(""),
+                crate::pyramid::render_episodes(&eps)
+            ));
+        }
+        let block: String = parts.join("\n\n").chars().take(6000).collect();
+        let info = json!({
+            "facts": facts.len(),
+            "episodes": eps.len(),
+            "episodic_query": window.is_some(),
+            "window": window.map(|w| w.2),
+        });
+        (block, info)
+    }
+
+    /// POST /episodes {query?, since_ms?, until_ms?, limit?, session_key?}
+    ///
+    /// `session_key` is the asking conversation: it is excluded and decides
+    /// visibility (test chats see test chats; real chats never do).
+    pub fn episodes(&self, body: &Value) -> (u16, Value) {
+        let Some(store) = &self.store else {
+            return (200, json!({"episodes": [], "total": 0}));
+        };
+        let now = now_ms();
+        let query = str_of(body.get("query"));
+        let limit = limit_of(body.get("limit"), 5).min(20);
+        // This endpoint is always episodic: the "earlier" prefix makes a bare
+        // "today" / "yesterday" / "week" in the query pick its window.
+        let (dsince, duntil) = crate::pyramid::episodic_window(&format!("earlier {query}"), now)
+            .map(|w| (w.0, w.1))
+            .unwrap_or((now - 14 * 86_400_000, now));
+        let since = body
+            .get("since_ms")
+            .and_then(Value::as_i64)
+            .unwrap_or(dsince);
+        let until = body
+            .get("until_ms")
+            .and_then(Value::as_i64)
+            .unwrap_or(duntil);
+        let exclude = str_of(body.get("session_key"));
+        let hits = crate::pyramid::recall_episodes(store, &query, since, until, &exclude, limit);
+        let list: Vec<Value> = hits.iter().map(crate::pyramid::episode_json).collect();
+        (
+            200,
+            json!({
+                "episodes": list,
+                "total": hits.len(),
+                "since": zagreb_time::from_unix(since.div_euclid(1000)),
+                "until": zagreb_time::from_unix(until.div_euclid(1000)),
+            }),
+        )
     }
 }

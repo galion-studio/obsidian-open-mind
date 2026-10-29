@@ -346,6 +346,10 @@ impl Gateway {
             parts.client.push(i.to_string());
         }
         parts.client.extend(client_system);
+        if let Some(rule) = self.memory.as_ref().and_then(|m| m.grounding_rule()) {
+            // Memory pyramid: answer personal/earlier-chat facts only from memory.
+            parts.client.push(rule.to_string());
+        }
 
         let mut messages = history.clone();
         messages.push(json!({"role": "user", "content": user_text}));

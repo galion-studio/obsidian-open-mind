@@ -60,6 +60,10 @@ pub struct MemoryCfg {
     /// Slot 426 (D-403-2): recall from every session of `user_id` instead of
     /// only this memory key. Off by default; explicit opt-in only.
     pub cross_session: bool,
+    /// Memory pyramid (2026-10-29): ask `/recall` for cross-chat long-term
+    /// facts and episodic matches (`"pyramid": true`) and add the grounding
+    /// rule. Off by default; `HERMES_RS_MEMORY_PYRAMID=1` turns it on.
+    pub pyramid: bool,
 }
 
 impl std::fmt::Debug for MemoryCfg {
@@ -72,6 +76,7 @@ impl std::fmt::Debug for MemoryCfg {
             .field("capture_timeout", &self.capture_timeout)
             .field("key_envs", &self.key_envs)
             .field("cross_session", &self.cross_session)
+            .field("pyramid", &self.pyramid)
             .finish()
     }
 }
@@ -86,6 +91,7 @@ impl Default for MemoryCfg {
             capture_timeout: Duration::from_millis(10_000),
             key_envs: KEY_ENVS.iter().map(|s| s.to_string()).collect(),
             cross_session: false,
+            pyramid: false,
         }
     }
 }
@@ -118,6 +124,9 @@ impl MemoryCfg {
         }
         if let Some(b) = m["cross_session"].as_bool() {
             self.cross_session = b;
+        }
+        if let Some(b) = m["pyramid"].as_bool() {
+            self.pyramid = b;
         }
     }
 
@@ -163,6 +172,9 @@ impl MemoryCfg {
         if let Some(x) = get("HERMES_RS_MEMORY_CROSS_SESSION") {
             self.cross_session =
                 truthy(&x).ok_or("bad HERMES_RS_MEMORY_CROSS_SESSION (use 1/0)")?;
+        }
+        if let Some(x) = get("HERMES_RS_MEMORY_PYRAMID") {
+            self.pyramid = truthy(&x).ok_or("bad HERMES_RS_MEMORY_PYRAMID (use 1/0)")?;
         }
         if self.enabled {
             parse_url(&self.url)?;
@@ -263,6 +275,8 @@ pub struct Stats {
     /// Session-scoped recalls whose reply did not confirm `scope: "session"`
     /// (an older openmind-memory that ignores the field): context dropped.
     pub recall_unscoped: AtomicU64,
+    /// Pyramid recalls that found nothing (a no-hit note was injected).
+    pub recall_nohit: AtomicU64,
     pub capture_ok: AtomicU64,
     pub capture_err: AtomicU64,
     pub capture_dropped: AtomicU64,
@@ -441,8 +455,11 @@ impl MemoryClient {
             return String::new();
         }
         let scope = self.scope();
-        let body = json!({"query": query, "session_key": session_key, "user_id": self.cfg.user_id,
+        let mut body = json!({"query": query, "session_key": session_key, "user_id": self.cfg.user_id,
                           "scope": scope});
+        if self.cfg.pyramid {
+            body["pyramid"] = json!(true);
+        }
         match self.post("/recall", &body, self.cfg.recall_timeout) {
             Ok(v) => {
                 self.stats.recall_ok.fetch_add(1, Ordering::Relaxed);
@@ -457,6 +474,10 @@ impl MemoryClient {
                 }
                 let ctx = v["context"].as_str().unwrap_or("");
                 if ctx.trim().is_empty() {
+                    if self.cfg.pyramid && v["pyramid"].is_object() {
+                        self.stats.recall_nohit.fetch_add(1, Ordering::Relaxed);
+                        return no_hit_block();
+                    }
                     return String::new();
                 }
                 self.stats.recall_hit.fetch_add(1, Ordering::Relaxed);
@@ -521,8 +542,26 @@ impl MemoryClient {
         json!({"enabled": true, "url": self.cfg.url, "key_set": self.key.is_some(), "scope": self.scope(),
                "recall_ok": g(&s.recall_ok), "recall_hit": g(&s.recall_hit), "recall_err": g(&s.recall_err),
                "recall_unscoped": g(&s.recall_unscoped),
+               "pyramid": self.cfg.pyramid, "recall_nohit": g(&s.recall_nohit),
                "capture_ok": g(&s.capture_ok), "capture_err": g(&s.capture_err),
                "capture_dropped": g(&s.capture_dropped), "capture_inflight": s.inflight.load(Ordering::SeqCst)})
+    }
+}
+
+/// Memory pyramid grounding rule (system prompt, client part). Facts about
+/// the user and earlier chats come only from memory or tools; otherwise the
+/// model says it does not have them saved.
+pub const GROUNDING_RULE: &str = "Memory grounding rule: facts about the user (names, pets, codewords, preferences, dates, plans), anything said in earlier conversations, saved items and vault notes may only come from this conversation, a <memory-context> block, or a tool result. If none of those holds the answer, say \"I don't have that saved\" and offer to save it. Never guess or fill in a plausible value. If memory holds different values for the same thing, give the newest one with its date and say it changed. If a tool says a note or record was not found, say so plainly.";
+
+/// Injected when the pyramid recall found nothing for this message.
+pub fn no_hit_block() -> String {
+    context_block("## memory-tencentdb Memory\nNo saved fact or earlier conversation matches this message. If the user is asking about something they told you before, say you don't have that saved (a memory or vault tool may still be used to check).")
+}
+
+impl MemoryClient {
+    /// The grounding rule when the pyramid is on.
+    pub fn grounding_rule(&self) -> Option<&'static str> {
+        self.cfg.pyramid.then_some(GROUNDING_RULE)
     }
 }
 
@@ -780,6 +819,74 @@ mod tests {
         MemoryClient::from_cfg(&cfg, &|_k: &str| None)
             .unwrap()
             .unwrap()
+    }
+
+    fn pyramid_client(url: &str) -> Arc<MemoryClient> {
+        let cfg = MemoryCfg {
+            enabled: true,
+            url: url.into(),
+            recall_timeout: Duration::from_millis(400),
+            pyramid: true,
+            ..Default::default()
+        };
+        MemoryClient::from_cfg(&cfg, &|_k: &str| None)
+            .unwrap()
+            .unwrap()
+    }
+
+    /// Memory pyramid: off by default; env turns it on; the request asks for
+    /// it; a confirmed miss injects the no-hit note; the rule is exposed.
+    #[test]
+    fn pyramid_flag_nohit_and_grounding() {
+        assert!(!MemoryCfg::default().pyramid);
+        let mut c = MemoryCfg::default();
+        c.apply_env(&|k: &str| (k == "HERMES_RS_MEMORY_PYRAMID").then(|| "1".to_string()))
+            .unwrap();
+        assert!(c.pyramid);
+        // Off: no flag, no rule, a miss stays empty.
+        let (url, h) = serve_once(200, r#"{"context":"","scope":"session"}"#, 0);
+        let off = client(&url, true);
+        assert_eq!(off.recall("cat name", "api-a"), "");
+        let body: Value =
+            serde_json::from_str(h.join().unwrap().split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert!(body.get("pyramid").is_none());
+        assert!(off.grounding_rule().is_none());
+        // On + confirmed miss: the no-hit note.
+        let (url, h) = serve_once(
+            200,
+            r#"{"context":"","scope":"session","pyramid":{"facts":0,"episodes":0}}"#,
+            0,
+        );
+        let on = pyramid_client(&url);
+        let b = on.recall("what is my cat's name", "api-a");
+        let body: Value =
+            serde_json::from_str(h.join().unwrap().split_once("\r\n\r\n").unwrap().1).unwrap();
+        assert_eq!(body["pyramid"], true);
+        assert_eq!(body["scope"], "session");
+        assert!(b.contains("No saved fact"), "{b}");
+        assert!(b.starts_with("<memory-context>"));
+        assert_eq!(on.stats.recall_nohit.load(Ordering::Relaxed), 1);
+        assert!(on
+            .grounding_rule()
+            .unwrap()
+            .contains("I don't have that saved"));
+        // On + old server (no pyramid echo): empty, as before.
+        let (url, h) = serve_once(200, r#"{"context":"","scope":"session"}"#, 0);
+        let on = pyramid_client(&url);
+        assert_eq!(on.recall("x y", "api-a"), "");
+        let _ = h.join();
+        // On + hit: the normal block.
+        let (url, h) = serve_once(
+            200,
+            r#"{"context":"<long-term-facts>\nmy codeword is k-1\n</long-term-facts>","scope":"session","pyramid":{"facts":1}}"#,
+            0,
+        );
+        let on = pyramid_client(&url);
+        assert!(on
+            .recall("codeword", "api-a")
+            .contains("my codeword is k-1"));
+        let _ = h.join();
+        assert_eq!(on.status()["pyramid"], true);
     }
 
     /// Slot 426: session scope is the default and fails closed against a

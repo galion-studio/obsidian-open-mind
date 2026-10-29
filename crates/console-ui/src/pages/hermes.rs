@@ -19,8 +19,9 @@
 //! and adds the gateway key server-side. The page never sees the key or the
 //! gateway's bind address.
 //!
-//! galion OS §11 (no flash): this room has no animation, blink or pulse;
-//! the pending state is static text. The mic button (t362u: live
+//! galion OS §11 (no flash) is kept: nothing blinks or strobes. Galion One
+//! V2 (owner orders t420u/t421u, 2026-10-30 CET +01:00) adds slow CSS motion
+//! (all loops under 1 Hz) that stops under `prefers-reduced-motion`. The mic button (t362u: live
 //! dictation via galion-stt, `/api/stt/*`) mounts into `#hm-mic-slot`; its
 //! AudioWorklet is `data-worklet`, partial text shows in `#hm-partial`.
 
@@ -388,25 +389,42 @@ fn thread_html(id: &str, v: Option<&Value>) -> String {
     out
 }
 
-/// The page body (inside the console shell).
+/// The Galion One V2 orb (owner orders t420u/t421u, 2026-10-30 CET): pure
+/// CSS layers, the room's `data-state` (idle, listen, think, speak, error)
+/// picks the colour and motion. Decorative only (`aria-hidden`); the state
+/// is spoken by `#g1-cap`.
+pub const ORB: &str = "<div class=\"g1-orb\" id=\"g1-orb\" aria-hidden=\"true\"><span class=\"g1-halo\"></span><span class=\"g1-ring\"></span><span class=\"g1-ball\"><span class=\"g1-l1\"></span><span class=\"g1-l2\"></span><span class=\"g1-l3\"></span><span class=\"g1-gl\"></span></span></div>";
+
+/// The drifting light fields behind the whole room.
+pub const SKY: &str = "<div class=\"g1-sky\" aria-hidden=\"true\"><i class=\"g1-f1\"></i><i class=\"g1-f2\"></i><i class=\"g1-f3\"></i><i class=\"g1-fe\"></i></div>";
+
+/// The page body (inside the console shell). Galion One V2 (t420u/t421u):
+/// one borderless composition on a gradient sky; every id the script and
+/// the tests use is kept.
 pub fn body(v: &View<'_>) -> String {
     let current = v.thread.map(|(id, _)| id);
     let (selfmod, lock_tip) = self_modify_html(v.self_modify);
     let mut out = format!(
-        "<div class=\"hm\" id=\"hm\" data-thread=\"{}\">",
+        "<div class=\"hm g1{}\" id=\"hm\" data-state=\"idle\" data-thread=\"{}\">",
+        if current.is_some() { " g1-chat" } else { "" },
         esc(current.unwrap_or(""))
     );
+    out.push_str(SKY);
     out.push_str(&format!(
-        "<header class=\"hm-head\"><div class=\"hm-title\"><p class=\"k\">Hermes Research</p><h1>{}<span>The mind</span></h1></div><ul class=\"hm-status\" id=\"hm-status\" aria-label=\"Status\">{}{}{}</ul>{}</header>",
+        "<header class=\"hm-head\"><div class=\"hm-title\"><p class=\"k\">Galion One · Hermes</p><h1>{}<span>The mind</span></h1></div><button type=\"button\" class=\"g1-snd\" id=\"g1-sound\" aria-pressed=\"false\" hidden>Sound off</button><ul class=\"hm-status\" id=\"hm-status\" aria-label=\"Status\">{}{}{}</ul>{}</header>",
         icon("research", "i i-md"),
         gateway_pill(v.health),
         guard_pills(v.guard) + &pill("model", "ok", "Model", "OpenRouter · Gateway default", ""),
         selfmod,
         lock_tip,
     ));
+    // The orb stage.
+    out.push_str(&format!(
+        "<section class=\"g1-stage\" aria-label=\"Hermes\">{ORB}<h2 class=\"g1-hi\" id=\"g1-hi\"><span class=\"g1-hi1\" id=\"g1-hi1\">Hello.</span> <span class=\"g1-hi2\" id=\"g1-hi2\">What shall we explore?</span></h2><p class=\"g1-cap\" id=\"g1-cap\" role=\"status\">Ready</p></section>"
+    ));
     out.push_str("<div class=\"hm-grid\">");
     // History.
-    out.push_str("<aside class=\"hm-side\" aria-label=\"History\"><details class=\"hm-hist\" open><summary class=\"hm-hist-sum\">History</summary><div class=\"hm-side-tools\"><a class=\"hm-btn\" id=\"hm-new\" href=\"/hermes\">New thread</a><label class=\"sr-only\" for=\"hm-search\">Search history</label><input id=\"hm-search\" class=\"hm-search\" type=\"search\" placeholder=\"Search history\" autocomplete=\"off\" spellcheck=\"false\"></div>");
+    out.push_str("<aside class=\"hm-side\" aria-label=\"History\"><details class=\"hm-hist\" id=\"hm-hist\"><summary class=\"hm-hist-sum\">History</summary><div class=\"hm-side-tools\"><a class=\"hm-btn\" id=\"hm-new\" href=\"/hermes\">New thread</a><label class=\"sr-only\" for=\"hm-search\">Search history</label><input id=\"hm-search\" class=\"hm-search\" type=\"search\" placeholder=\"Search history\" autocomplete=\"off\" spellcheck=\"false\"></div>");
     out.push_str(&history_html(v.history, current));
     out.push_str("</details></aside>");
     // Conversation.
@@ -414,16 +432,20 @@ pub fn body(v: &View<'_>) -> String {
     match v.thread {
         Some((id, t)) => out.push_str(&thread_html(id, t)),
         None => out.push_str(
-            "<div class=\"hm-welcome\" id=\"hm-welcome\"><p class=\"hm-it\">Ask Hermes a research question.</p><p class=\"hm-im\">He searches first and answers with figures a tool returned. Pick the provider and model below; OpenRouter with the paid research model is the default. Every ask counts against the research cap.</p></div>",
+            "<div class=\"hm-welcome\" id=\"hm-welcome\"><p class=\"hm-it\">Ask Hermes a research question.</p><p class=\"hm-im\">He searches first and answers with figures a tool returned. Pick the provider and model below. Every ask counts against the research cap.</p></div>",
         ),
     }
     out.push_str("</div>");
     // Composer.
     out.push_str("<div class=\"hm-composer\" id=\"hm-composer\">");
-    out.push_str(&providers_html(v.providers));
-    out.push_str(&selects_html(v.models, v.modes));
+    // Provider choice folds into the chip row (it opens full width).
+    let more = format!(
+        "<div class=\"hm-row\"><details class=\"g1-more\"><summary class=\"g1-more-s\">Provider</summary>{}</details>",
+        providers_html(v.providers)
+    );
+    out.push_str(&selects_html(v.models, v.modes).replacen("<div class=\"hm-row\">", &more, 1));
     out.push_str(&format!(
-        "<div class=\"hm-box\"><label class=\"sr-only\" for=\"hm-q\">Ask Hermes</label><textarea id=\"hm-q\" class=\"hm-q\" rows=\"3\" maxlength=\"12000\" placeholder=\"Ask Hermes. Enter sends, Shift+Enter adds a line.\" aria-describedby=\"hm-note\" disabled></textarea><p class=\"hm-partial\" id=\"hm-partial\" aria-live=\"polite\" hidden></p><div class=\"hm-actions\"><span id=\"hm-mic-slot\" class=\"hm-mic-slot\" data-hook=\"mic\" data-worklet=\"{}\" data-stt=\"/api/stt/health\" data-stream=\"/api/stt/stream\" hidden></span><button type=\"button\" class=\"hm-btn\" id=\"hm-stop\" hidden>Stop</button><button type=\"button\" class=\"hm-btn hm-primary\" id=\"hm-send\" disabled>Send</button></div></div>",
+        "<div class=\"hm-box\"><span id=\"hm-mic-slot\" class=\"hm-mic-slot\" data-hook=\"mic\" data-worklet=\"{}\" data-stt=\"/api/stt/health\" data-stream=\"/api/stt/stream\" hidden></span><label class=\"sr-only\" for=\"hm-q\">Ask Hermes</label><textarea id=\"hm-q\" class=\"hm-q\" rows=\"1\" maxlength=\"12000\" placeholder=\"Ask Hermes anything\" aria-describedby=\"hm-note\" disabled></textarea><div class=\"hm-actions\"><button type=\"button\" class=\"hm-btn\" id=\"hm-stop\" hidden>Stop</button><button type=\"button\" class=\"hm-btn hm-primary\" id=\"hm-send\" aria-label=\"Send\" disabled>Send</button></div></div><p class=\"hm-partial\" id=\"hm-partial\" aria-live=\"polite\" hidden></p>",
         esc(v.mic_href)
     ));
     out.push_str("<p class=\"hm-note\" id=\"hm-note\" role=\"status\">Loading the composer.</p><noscript><p class=\"hm-note t-bad\">JavaScript is off: you can read status and threads, but asking needs JavaScript on this page.</p></noscript>");

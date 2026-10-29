@@ -489,8 +489,28 @@ fn hermes_room_renders() {
     let rc = get(a, &format!("/_ui/hermes.{css}"), "127.0.0.1", "");
     assert_eq!(rc.code, 200);
     assert!(rc.body.contains(".hm-composer"));
-    for bad in ["animation", "@keyframes", "blink"] {
-        assert!(!rc.body.contains(bad), "§11 no flash: {bad}");
+    // Galion One V2 (t420u/t421u) moves, but §11 still holds: nothing
+    // blinks, every endless loop takes a second or more per cycle, and
+    // prefers-reduced-motion stops all of it.
+    assert!(!rc.body.contains("blink"), "§11 no flash: blink");
+    assert!(rc.body.contains(
+        "prefers-reduced-motion:reduce){.hm *,.hm *:before,.hm *:after,.hm-sheet-box{animation:none!important"
+    ));
+    for decl in rc.body.split("animation:").skip(1) {
+        let decl = decl.split([';', '}']).next().unwrap_or("");
+        if !decl.contains("infinite") {
+            continue;
+        }
+        let secs: f64 = decl
+            .split_whitespace()
+            .find_map(|w| w.strip_suffix('s').and_then(|n| n.parse().ok()))
+            .unwrap_or(0.0);
+        let cycle = if decl.contains("alternate") {
+            secs * 2.0
+        } else {
+            secs
+        };
+        assert!(cycle >= 1.0, "§11 loop faster than 1 Hz: {decl}");
     }
     // Other rooms keep the strict CSP.
     let g = get(a, "/gateway", "127.0.0.1", "");

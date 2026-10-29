@@ -59,6 +59,149 @@
     log.setAttribute("aria-busy", state.busy ? "true" : "false");
   }
 
+  // Galion One V2 (owner orders t420u/t421u, 2026-10-30 CET) -----------
+  // The orb and sky are pure CSS; this only sets data-state on the room,
+  // the caption, the chat layout and the mic level (--lvl). Sounds are
+  // synthesized with WebAudio (no samples) and are off by default.
+  var reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var cap = $("g1-cap");
+  var CAPS = { idle: "Ready", listen: "Listening", think: "Thinking", speak: "Answering", error: "Something went wrong" };
+  var g1 = { state: "idle", errTimer: 0, lvl: 0, target: 0, raf: 0 };
+  function setState(s) {
+    if (!CAPS[s]) s = "idle";
+    clearTimeout(g1.errTimer);
+    g1.state = s;
+    root.setAttribute("data-state", s);
+    if (cap) cap.textContent = CAPS[s];
+    if (s === "error") g1.errTimer = setTimeout(function () { if (g1.state === "error") setState(state.busy ? "think" : "idle"); }, 6000);
+    if (s !== "listen") { g1.target = 0; g1.lvl = 0; root.style.removeProperty("--lvl"); }
+  }
+  function chatMode(on) {
+    if (on) root.classList.add("g1-chat"); else root.classList.remove("g1-chat");
+  }
+  function levelLoop() {
+    g1.raf = 0;
+    if (g1.state !== "listen" || reduce) return;
+    g1.lvl += (g1.target - g1.lvl) * 0.25;
+    g1.target *= 0.92;
+    root.style.setProperty("--lvl", g1.lvl.toFixed(3));
+    if (window.requestAnimationFrame) g1.raf = requestAnimationFrame(levelLoop);
+  }
+  function micLevel(buf) {
+    // RMS of one 50 ms PCM16 frame -> 0..1 (speech sits near 0.02-0.2 RMS).
+    if (reduce || !buf || !window.Int16Array) return;
+    var a = new Int16Array(buf), n = a.length, s = 0, i;
+    if (!n) return;
+    for (i = 0; i < n; i += 2) s += a[i] * a[i];
+    var rms = Math.sqrt(s / Math.ceil(n / 2)) / 32768;
+    var v = Math.min(1, rms * 5);
+    if (v > g1.target) g1.target = v;
+    if (!g1.raf && window.requestAnimationFrame) g1.raf = requestAnimationFrame(levelLoop);
+  }
+  function reveal(node, base) {
+    // Word-by-word reveal of static text (the greeting). Text stays plain without JS.
+    if (!node || reduce) return;
+    var words = (node.textContent || "").split(/\s+/).filter(Boolean);
+    node.textContent = "";
+    words.forEach(function (w, i) {
+      var s = el("span", "g1-w", w);
+      s.style.animationDelay = (base + i * 60) + "ms";
+      node.appendChild(s);
+      if (i < words.length - 1) node.appendChild(document.createTextNode(" "));
+    });
+  }
+  function greet() {
+    var h = new Date().getHours();
+    try { h = Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Zagreb", hour: "2-digit", hour12: false }).format(new Date())) % 24; } catch (e) { /* local hour */ }
+    var hi = $("g1-hi1");
+    if (hi) hi.textContent = h < 5 ? "Good night." : h < 12 ? "Good morning." : h < 18 ? "Good afternoon." : "Good evening.";
+    reveal(hi, 120);
+    reveal($("g1-hi2"), 420);
+  }
+  // Sound: tiny synthesized cues. Off until the owner turns it on here.
+  var SND = "galion-one-sound";
+  var snd = { on: false, ctx: null };
+  try { snd.on = localStorage.getItem(SND) === "on"; } catch (e) { snd.on = false; }
+  function tone(f0, f1, dur, type, peak, at) {
+    var c = snd.ctx, t = c.currentTime + (at || 0);
+    var o = c.createOscillator(), g = c.createGain();
+    o.type = type || "sine";
+    o.frequency.setValueAtTime(f0, t);
+    if (f1 && f1 !== f0) o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak || 0.05, t + Math.min(0.012, dur / 4));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g);
+    g.connect(c.destination);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+  function cue(name) {
+    if (!snd.on) return;
+    var C = window.AudioContext || window.webkitAudioContext;
+    if (!C) return;
+    try {
+      if (!snd.ctx) snd.ctx = new C();
+      if (snd.ctx.state === "suspended" && snd.ctx.resume) snd.ctx.resume();
+      if (name === "send") tone(620, 980, 0.09, "sine", 0.045);
+      else if (name === "micOn") { tone(520, 520, 0.07, "sine", 0.04); tone(780, 780, 0.09, "sine", 0.04, 0.07); }
+      else if (name === "micOff") { tone(780, 780, 0.07, "sine", 0.035); tone(520, 520, 0.09, "sine", 0.035, 0.07); }
+      else if (name === "reply") tone(440, 470, 0.16, "triangle", 0.03);
+      else if (name === "done") { tone(880, 880, 0.42, "sine", 0.035); tone(1320, 1320, 0.32, "sine", 0.018, 0.03); }
+      else if (name === "error") tone(240, 160, 0.24, "sine", 0.05);
+      else if (name === "tap") tone(1200, 1200, 0.03, "sine", 0.02);
+    } catch (e) { /* no audio here */ }
+  }
+  var sbtn = $("g1-sound");
+  function syncSound() {
+    if (!sbtn) return;
+    sbtn.textContent = snd.on ? "Sound on" : "Sound off";
+    sbtn.setAttribute("aria-pressed", snd.on ? "true" : "false");
+    sbtn.setAttribute("aria-label", snd.on ? "Interface sounds are on. Tap to turn them off" : "Interface sounds are off. Tap to turn them on");
+  }
+  if (sbtn && (window.AudioContext || window.webkitAudioContext)) {
+    sbtn.hidden = false;
+    syncSound();
+    sbtn.addEventListener("click", function () {
+      snd.on = !snd.on;
+      try { localStorage.setItem(SND, snd.on ? "on" : "off"); } catch (e) { /* private mode */ }
+      syncSound();
+      cue("tap");
+    });
+  }
+  // Icons are built as DOM nodes (no HTML parsing): [tag, attributes] per shape.
+  var ICON = {
+    send: [["path", { d: "M12 19V5M5.5 11.5 12 5l6.5 6.5" }]],
+    stop: [["rect", { x: "7", y: "7", width: "10", height: "10", rx: "2" }]],
+    mic: [["rect", { x: "9", y: "3", width: "6", height: "12", rx: "3" }], ["path", { d: "M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21" }]]
+  };
+  var SVG = "http://www.w3.org/2000/svg";
+  function iconBtn(b, ic, label) {
+    if (!b) return;
+    while (b.firstChild) b.removeChild(b.firstChild);
+    if (document.createElementNS) {
+      var svg = document.createElementNS(SVG, "svg");
+      svg.setAttribute("viewBox", "0 0 24 24");
+      svg.setAttribute("aria-hidden", "true");
+      ICON[ic].forEach(function (s) {
+        var n = document.createElementNS(SVG, s[0]);
+        for (var k in s[1]) n.setAttribute(k, s[1][k]);
+        svg.appendChild(n);
+      });
+      b.appendChild(svg);
+    }
+    var t = el("span", "sr-only");
+    t.textContent = label;
+    b.appendChild(t);
+  }
+  iconBtn(send, "send", "Send");
+  iconBtn(stop, "stop", "Stop");
+  stop.setAttribute("aria-label", "Stop the run");
+  function grow() {
+    q.style.height = "auto";
+    q.style.height = Math.min(q.scrollHeight, Math.round(window.innerHeight * 0.3)) + "px";
+  }
+
   // Text: plain text with ``` fenced blocks shown as <pre>. DOM text nodes only, no HTML parsing.
   function renderText(box, text) {
     box.textContent = "";
@@ -72,8 +215,9 @@
       }
     });
   }
-  function msg(kind, text) {
-    var a = el("article", "hm-msg hm-" + kind);
+  function msg(kind, text, anim) {
+    var a = el("article", "hm-msg hm-" + kind + (anim && !reduce ? " g1-new" : ""));
+    chatMode(true);
     a.appendChild(el("p", "hm-who", kind === "user" ? "You" : "Hermes"));
     var t = el("div", "hm-text");
     renderText(t, text || "");
@@ -83,7 +227,19 @@
   }
   function tool(name) { var d = el("div", "hm-tool"); d.appendChild(el("span", "mono", name)); log.appendChild(d); return d; }
   function boxMsg(cls, text) { var d = el("div", cls, text); log.appendChild(d); return d; }
-  function scrollEnd() { log.scrollTop = log.scrollHeight; }
+  function scrollEnd() {
+    log.scrollTop = log.scrollHeight;
+    var m = document.getElementById("main");
+    if (m) m.scrollTop = m.scrollHeight;
+  }
+  // Streaming reveal: while the text only grows and has no code fence, each
+  // new chunk is appended as its own fading span (no re-render). Anything
+  // else falls back to a full render; the final render is plain text.
+  function streamText(box, before, after) {
+    if (reduce || after.indexOf("```") >= 0 || box.textContent !== before) { renderText(box, after); return; }
+    var chunk = after.slice(before.length);
+    if (chunk) box.appendChild(el("span", "g1-c", chunk));
+  }
   function clearLog() { log.textContent = ""; }
 
   // History ------------------------------------------------------------
@@ -152,6 +308,8 @@
     state.thread = "";
     markCurrent();
     clearLog();
+    chatMode(false);
+    if (g1.state === "error") setState("idle");
     var w = el("div", "hm-welcome");
     w.appendChild(el("p", "hm-it", "New thread. Ask Hermes a research question."));
     log.appendChild(w);
@@ -436,6 +594,10 @@
     if (state.es) { try { state.es.close(); } catch (e) { /* closed */ } state.es = null; }
     refreshButtons();
     setNote(text || readyNote(), false);
+    var bad = !text || text === "The run failed." || text === "Not sent.";
+    var mic = window.HermesUI && window.HermesUI.mic && window.HermesUI.mic.state();
+    setState(bad ? "error" : (mic === "live" || mic === "connecting") ? "listen" : "idle");
+    cue(bad ? "error" : text === "Done." ? "done" : "tap");
     loadHistory();
     refreshStatus();
   }
@@ -469,7 +631,9 @@
           break;
         case "message.delta":
           if (pending && pending.parentNode) { pending.textContent = "Writing."; }
-          got += e.delta || ""; renderText(out, got); scrollEnd(); break;
+          if (!got) { setState("speak"); cue("reply"); }
+          streamText(out, got, got + (e.delta || ""));
+          got += e.delta || ""; scrollEnd(); break;
         case "tool.started":
           if (pending) pending.textContent = "Using " + (e.tool || "a tool") + ".";
           log.insertBefore(el("div", "hm-tool", "tool · " + (e.tool || "tool")), out.parentNode);
@@ -504,12 +668,15 @@
     if (state.thread) body.session_id = state.thread;
     var w = $("hm-welcome"); if (w && w.parentNode) w.parentNode.removeChild(w);
     Array.prototype.forEach.call(log.querySelectorAll(".hm-welcome"), function (n) { n.parentNode.removeChild(n); });
-    msg("user", text);
-    var out = msg("assistant", "");
+    msg("user", text, true);
+    var out = msg("assistant", "", true);
+    setState("think");
+    cue("send");
     var pending = el("p", "hm-pending", "Asking Hermes. Research can take a few minutes.");
     out.parentNode.appendChild(pending);
     scrollEnd();
     q.value = "";
+    grow();
     state.busy = true;
     refreshButtons();
     setNote("Hermes is working.");
@@ -544,7 +711,7 @@
   q.addEventListener("keydown", function (e) {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(); }
   });
-  q.addEventListener("input", refreshButtons);
+  q.addEventListener("input", function () { grow(); refreshButtons(); if (g1.state === "error") setState("idle"); });
   send.addEventListener("click", ask);
   stop.addEventListener("click", stopRun);
   root.addEventListener("change", function (e) {
@@ -580,6 +747,10 @@
     if (e.key === "Escape" && state.busy) stopRun();
   });
   initPicker();
+  greet();
+  if (log.querySelector(".hm-msg")) chatMode(true);
+  var hist = $("hm-hist");
+  if (hist && window.matchMedia && window.matchMedia("(min-width: 900px)").matches) hist.open = true;
   refreshStatus();
   setInterval(function () { if (!document.hidden && !state.busy) refreshStatus(); }, 30000);
   scrollEnd();
@@ -627,8 +798,11 @@
     function show(s, detail) {
       m.state = s;
       var l = LABEL[s];
-      btn.textContent = l[0];
+      var was = g1.state === "listen";
+      iconBtn(btn, "mic", l[0]);
       btn.title = detail || l[1];
+      if (s === "live" || s === "connecting") { setState("listen"); if (s === "live") cue("micOn"); }
+      else if (was) { setState(state.busy ? "think" : "idle"); cue("micOff"); }
       btn.setAttribute("aria-label", detail || l[1]);
       btn.setAttribute("aria-pressed", s === "live" || s === "connecting" || s === "finishing" ? "true" : "false");
       btn.setAttribute("data-state", s);
@@ -719,6 +893,7 @@
             var src = m.ctx.createMediaStreamSource(media);
             m.node = new AudioWorkletNode(m.ctx, "galion-pcm16", { numberOfInputs: 1, numberOfOutputs: 0, channelCount: 1, channelCountMode: "explicit" });
             m.node.port.onmessage = function (e) {
+              if (!m.stopping) micLevel(e.data);
               if (m.ws && m.ws.readyState === 1 && !m.stopping) m.ws.send(e.data);
             };
             src.connect(m.node);

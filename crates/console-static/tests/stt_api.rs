@@ -189,6 +189,22 @@ fn open(a: SocketAddr, host: &str, extra: &str) -> (TcpStream, String, Vec<u8>) 
         }
     };
     let head = String::from_utf8_lossy(&buf[..end]).to_string();
+    // The error body can arrive in a later read than the head: wait for all
+    // of Content-Length so the body asserts don't race the server.
+    let want = head
+        .lines()
+        .find_map(|l| {
+            let (k, v) = l.split_once(':')?;
+            k.eq_ignore_ascii_case("content-length")
+                .then(|| v.trim().parse::<usize>().ok())?
+        })
+        .unwrap_or(0);
+    while buf.len() < end + want {
+        match s.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => buf.extend_from_slice(&chunk[..n]),
+        }
+    }
     let rest = buf[end..].to_vec();
     (s, head, rest)
 }

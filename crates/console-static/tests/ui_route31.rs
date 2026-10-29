@@ -6,7 +6,8 @@
 //! pre-built SPA fallback (`--root`) is configured. The real server runs
 //! in-process with an SPA root (shell + an asset), the 31 live-source page
 //! routes, the `/api/` proxy and a fake console API on loopback; raw
-//! HTTP/1.1. Checks: `/hermes` is the Rust page (no script, CSP unchanged),
+//! HTTP/1.1. Checks: `/hermes` is the Rust page (one hashed external script
+//! since owner ruling t359u; its CSP adds only script/connect `self`),
 //! writes are held (POST/PUT 405, nothing upstream), every other live route
 //! goes where `Ui::spa_fallbacks` says, and the old SPA's `/api/hermes/*`
 //! proxy is untouched.
@@ -26,6 +27,8 @@ use std::thread;
 use std::time::Duration;
 
 const CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+/// `/hermes` only (owner ruling t359u): its own script and fetch/SSE from self.
+const HERMES_CSP: &str = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 const SHELL: &str =
     "<!doctype html><title>old-spa-shell</title><script src=\"/assets/index-x.js\"></script>";
 
@@ -221,22 +224,28 @@ fn hermes_is_rust_first_under_spa_fallback() {
         assert_eq!(r.code, 200, "{p}");
         assert!(!r.body.contains("old-spa-shell"), "{p}: SPA took the room");
         assert!(r.body.contains("Hermes Research"), "{p}");
-        assert!(!r.body.to_ascii_lowercase().contains("<script"), "{p}");
+        let lower = r.body.to_ascii_lowercase();
+        assert_eq!(lower.matches("<script").count(), 1, "{p}: one script");
+        assert!(
+            lower.contains("<script src=\"/_ui/hermes."),
+            "{p}: external only"
+        );
         assert!(!r.body.contains("style=\""), "{p}: inline style");
         assert!(!r.body.contains("<form"), "{p}: no form on /hermes");
         assert!(!r.body.contains("127.0.0.1:8642"), "{p}: bind hidden");
-        assert_eq!(r.header("content-security-policy").as_deref(), Some(CSP));
+        assert_eq!(
+            r.header("content-security-policy").as_deref(),
+            Some(HERMES_CSP)
+        );
         assert_eq!(r.header("x-frame-options").as_deref(), Some("DENY"));
         assert_eq!(r.header("cache-control").as_deref(), Some("no-store"));
     }
     let r = get(a, "/hermes");
-    assert!(r.body.contains("Threads · 1 "));
-    assert!(r
-        .body
-        .contains("served from Rust even when the old console is installed"));
+    assert!(r.body.contains("1 threads · Europe/Zagreb"));
+    assert!(r.body.contains("id=\"hm-q\""));
     assert!(get(a, "/hermes?id=t-1")
         .body
-        .contains("<pre class=\"say\">hello hermes</pre>"));
+        .contains("<div class=\"hm-text\">hello hermes</div>"));
     let h = send(
         a,
         "HEAD /hermes HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
@@ -301,9 +310,16 @@ fn every_live_route_goes_where_spa_fallbacks_says() {
             rust += 1;
             assert!(!spa, "{p}: expected the Rust page");
             assert!(
-                !r.body.to_ascii_lowercase().contains("<script"),
+                *p == "/hermes" || !r.body.to_ascii_lowercase().contains("<script"),
                 "{p}: Rust page has a script"
             );
+            if r.code == 200 && *p != "/hermes" {
+                assert_eq!(
+                    r.header("content-security-policy").as_deref(),
+                    Some(CSP),
+                    "{p}: strict CSP outside /hermes"
+                );
+            }
             // main-staging: /md/user (console-port-4) is 404 when no host files are configured.
             let ok = matches!(r.code, 200 | 302) || (*p == "/md/user" && r.code == 404);
             assert!(ok, "{p}: {}", r.code);

@@ -425,6 +425,18 @@ pub fn overview_sheet() -> String {
     )
 }
 
+/// `/hermes` room rules (`hm-*`), linked only on `/hermes`. Budget 10 KiB.
+pub const HERMES: &str = include_str!("assets/hermes.css");
+
+/// The `/hermes` sheet (no tokens: the base sheet defines them).
+pub fn hermes_sheet() -> String {
+    build_sheet(
+        "/* Galion console UI (hermes). Source: crates/console-ui/src/assets/hermes.css. SPDX-License-Identifier: MIT */\n",
+        &[HERMES],
+        false,
+    )
+}
+
 fn build_sheet(header: &str, blocks: &[&str], with_tokens: bool) -> String {
     let mut out = String::with_capacity(16 * 1024);
     out.push_str(header);
@@ -465,7 +477,7 @@ pub fn fnv64(data: &[u8]) -> u64 {
 
 /// Class names defined in the base + overview sheets (for the class-coverage test).
 pub fn defined_classes() -> Vec<String> {
-    let all = format!("{RULES}{LANDING}{PORT1}{PORT2}{PORT3}{PORT4}");
+    let all = format!("{RULES}{LANDING}{PORT1}{PORT2}{PORT3}{PORT4}{HERMES}");
     let mut out = Vec::new();
     let b = all.as_bytes();
     let mut i = 0;

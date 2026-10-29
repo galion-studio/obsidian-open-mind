@@ -43,20 +43,25 @@ const GUARDIAN: &str = r#"{"status":"watching","score":97,"activeIncidents":2,"s
 fn hermes(p: &str) -> Option<&'static str> {
     Some(match p {
         "/api/hermes/health" => {
-            r#"{"ok":true,"ms":2,"bind":"127.0.0.1:8642","loopback":true,"mode":"gateway","skills":[{"id":"a"},{"id":"b"}],"raw":"{\"implementation\":\"hermes-rs\",\"implementation_version\":\"0.1.0\"}"}"#
+            r#"{"ok":true,"status":200,"ms":2,"loopback":true,"mode":"gateway","implementation":"hermes-rs","version":"0.1.0","key":true,"auth_ok":true}"#
         }
-        "/api/hermes/guard" => r#"{"ok":true,"on":true,"autoAccept":false}"#,
+        "/api/hermes/guard" => {
+            r#"{"ok":true,"on":true,"autoAccept":false,"provider":"river","level":"ok","spent_usd":1.25,"cap_usd":20,"warn_usd":16}"#
+        }
+        "/api/hermes/providers" => {
+            r#"{"ok":true,"default":"openrouter","providers":[{"id":"laptop","label":"Local laptop","enabled":false,"status":"offline"},{"id":"runpod","label":"RunPod","enabled":false,"status":"not set up"},{"id":"openrouter","label":"OpenRouter","enabled":true,"status":"ready"},{"id":"river","label":"River AI","enabled":true,"status":"ready"}]}"#
+        }
         "/api/hermes/modes" => {
-            r#"{"ok":true,"modes":{"plan":"zai-org/GLM-5.3-Flash","action":"zai-org/GLM-5.3-Flash"},"saved":[{"id":"river","name":"River","model":"deepseek","note":"default"}]}"#
+            r#"{"ok":true,"default":"deep","modes":[{"id":"deep","label":"Deep research"},{"id":"quick","label":"Quick answer"}]}"#
         }
         "/api/hermes/models" => {
-            r#"{"ok":true,"models":[{"id":"huihui/qwen","name":"Laptop Qwen"}]}"#
+            r#"{"ok":true,"models":[{"id":"hermes-agent","root":"hermes-agent"},{"id":"galion","root":"anthropic/claude-haiku-5.5"}]}"#
         }
         "/api/hermes/history" => {
-            r#"{"ok":true,"items":[{"id":"t-1","title":"First <thread>","count":2,"at":1792340805,"source":"one","pinned":false,"tokens":{"total":1500}}],"files":[]}"#
+            r#"{"ok":true,"items":[{"id":"t-1","title":"First <thread>","count":2,"at":1792340805,"source":"one","console":true,"cost_usd":0.04,"tokens":{"total":1500}}]}"#
         }
         "/api/hermes/history?id=t-1" => {
-            r#"{"ok":true,"tokens":{"input":1,"output":2,"total":3},"items":[{"kind":"user","text":"hello hermes"},{"kind":"tool","name":"terminal","status":"done","command":"uptime","output":"TOOL-OUTPUT"},{"kind":"assistant","text":"hi there"}]}"#
+            r#"{"ok":true,"id":"t-1","title":"First <thread>","at":1792340805,"model":"m","tokens":{"input":1,"output":2,"total":3},"items":[{"kind":"user","text":"hello hermes"},{"kind":"tool","name":"terminal","status":"done"},{"kind":"assistant","text":"hi there"}]}"#
         }
         _ => return None,
     })
@@ -174,6 +179,7 @@ fn start(desk: bool) -> (SocketAddr, Log) {
 
 struct Resp {
     code: u16,
+    head: String,
     body: String,
 }
 
@@ -191,6 +197,7 @@ fn send(addr: SocketAddr, raw: &str) -> Resp {
             .nth(1)
             .and_then(|c| c.parse().ok())
             .unwrap_or(0),
+        head: head.to_string(),
         body: body.to_string(),
     }
 }
@@ -224,7 +231,17 @@ fn posts(log: &Log) -> Vec<Seen> {
 }
 
 fn clean(r: &Resp, p: &str) {
-    assert!(!r.body.to_ascii_lowercase().contains("<script"), "{p}");
+    let lower = r.body.to_ascii_lowercase();
+    if p.starts_with("/hermes") {
+        // Owner ruling t359u: /hermes has exactly one external, hashed script.
+        assert_eq!(lower.matches("<script").count(), 1, "{p}");
+        assert!(
+            lower.contains("<script src=\"/_ui/hermes.") && lower.contains(".js\" defer></script>"),
+            "{p}: only the external room script"
+        );
+    } else {
+        assert!(!lower.contains("<script"), "{p}");
+    }
     assert!(
         !r.body.contains("style=\""),
         "{p}: inline style breaks the CSP"
@@ -388,32 +405,108 @@ fn guardian_scan_heal_and_pin() {
 }
 
 #[test]
-fn hermes_read_only() {
+fn hermes_room_renders() {
     let (a, log) = start(true);
     let r = get(a, "/hermes", "127.0.0.1", "");
+    assert_eq!(r.code, 200);
     for n in [
-        "hermes-rs 0.1.0 · gateway · loopback · 2 ms",
-        "zai-org/GLM-5.3-Flash",
-        "Laptop Qwen",
-        "href=\"/hermes?id=t-1\">First &lt;thread&gt;</a>",
-        "2 msgs · one · 1.5k tokens · 10-18 18:26",
-        "paid-model decision (H1)",
+        "hermes-rs 0.1.0 · 2 ms",
+        "on · River AI",
+        "$1.25 of $20.00",
+        "value=\"openrouter\" checked>",
+        "value=\"river\">",
+        "value=\"runpod\" disabled>",
+        "value=\"laptop\" disabled>",
+        ">not set up</span>",
+        ">offline</span>",
+        "<option value=\"galion\">galion · anthropic/claude-haiku-5.5</option>",
+        "<option value=\"deep\">Deep research</option>",
+        "href=\"/hermes?id=t-1\" data-id=\"t-1\"",
+        "<span class=\"hm-it\">First &lt;thread&gt;</span>",
+        "2 msgs · 1.5k tok · $0.04 · console",
+        "<textarea id=\"hm-q\"",
+        "data-hook=\"mic\"",
+        "id=\"hm-search\"",
     ] {
         assert!(r.body.contains(n), "missing {n}");
     }
+    // CSP: script and fetch from self only, for this room alone.
+    assert!(
+        r.head.contains("script-src 'self'; connect-src 'self'"),
+        "{}",
+        r.head
+    );
     assert!(!r.body.contains("127.0.0.1:8642"));
-    assert!(!r.body.contains("<form"), "no form on the Hermes room");
+    assert!(
+        !r.body.contains("<form"),
+        "the script sends JSON, no form post"
+    );
+    // The script and sheet are served, hashed and immutable.
+    let js = r
+        .body
+        .split("<script src=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .unwrap()
+        .to_string();
+    let rj = get(a, &js, "127.0.0.1", "");
+    assert_eq!(rj.code, 200, "{js}");
+    assert!(rj.head.contains("text/javascript"));
+    assert!(rj.head.contains("immutable"));
+    assert!(rj.body.contains("/api/hermes/ask"));
+    assert!(rj.body.contains("window.HermesUI"));
+    assert!(!rj.body.contains("innerHTML"), "no HTML injection sink");
+    // Live dictation (t362u): the mic module streams to /api/stt/stream and
+    // its AudioWorklet is served hashed from self (script-src 'self').
+    assert!(rj.body.contains("echoCancellation: true"));
+    assert!(rj.body.contains("{ type: \"stop\" }"));
+    assert!(rj.body.contains("STT offline") && rj.body.contains("Mic blocked"));
+    let mic = r
+        .body
+        .split("data-worklet=\"")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .unwrap()
+        .to_string();
+    assert!(
+        mic.starts_with("/_ui/hermes-mic.") && mic.ends_with(".js"),
+        "{mic}"
+    );
+    let rm = get(a, &mic, "127.0.0.1", "");
+    assert_eq!(rm.code, 200, "{mic}");
+    assert!(rm.head.contains("text/javascript") && rm.head.contains("immutable"));
+    assert!(
+        rm.body.contains("registerProcessor(\"galion-pcm16\"") && rm.body.contains("FRAME = 800")
+    );
+    assert!(r.body.contains("data-stream=\"/api/stt/stream\""));
+    assert!(r.body.contains("id=\"hm-partial\""));
+    let css = r
+        .body
+        .split("href=\"/_ui/hermes.")
+        .nth(1)
+        .and_then(|s| s.split('"').next())
+        .unwrap();
+    let rc = get(a, &format!("/_ui/hermes.{css}"), "127.0.0.1", "");
+    assert_eq!(rc.code, 200);
+    assert!(rc.body.contains(".hm-composer"));
+    for bad in ["animation", "@keyframes", "blink"] {
+        assert!(!rc.body.contains(bad), "§11 no flash: {bad}");
+    }
+    // Other rooms keep the strict CSP.
+    let g = get(a, "/gateway", "127.0.0.1", "");
+    assert!(!g.head.contains("script-src"));
+    // A thread opens server-side, tool output hidden.
     let r = get(a, "/hermes?id=t-1", "127.0.0.1", "");
-    assert!(r.body.contains("<pre class=\"say\">hello hermes</pre>"));
-    assert!(r.body.contains("<span class=\"subtle mono\">uptime</span>"));
-    assert!(!r.body.contains("TOOL-OUTPUT"));
+    assert!(r.body.contains("<div class=\"hm-text\">hello hermes</div>"));
+    assert!(r.body.contains("<span class=\"mono\">terminal</span>"));
+    assert!(r.body.contains("aria-current=\"true\""));
     let before = log.lock().unwrap().len();
     let r = get(a, "/hermes?id=..%2Fadmin", "127.0.0.1", "");
     assert_eq!(r.code, 400);
     assert!(r.body.contains("That thread id is not valid."));
     let after: Vec<Seen> = log.lock().unwrap()[before..].to_vec();
     assert!(after.iter().all(|s| !s.path.contains("id=")), "{after:?}");
-    assert!(posts(&log).is_empty(), "Hermes room never POSTs");
+    assert!(posts(&log).is_empty(), "rendering the room never POSTs");
 }
 
 #[test]

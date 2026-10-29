@@ -289,18 +289,28 @@ impl Ui {
         let view = hermes::View {
             health: g(0),
             guard: g(1),
-            modes: g(2),
+            providers: g(2),
             models: g(3),
-            history: g(4),
+            modes: g(4),
+            history: g(5),
             thread: id.map(|i| (i, thread.as_ref())),
+            script_href: self.hermes_js_href(),
+            mic_href: self.hermes_mic_href(),
         };
         let mut body = hermes::body(&view);
         if status == 400 {
             body = format!("<p class=\"note t-bad\">That thread id is not valid.</p>{body}");
         }
         let t = title("Hermes Research");
-        let f = self.frame(req, &t);
-        Reply::html(status, layout::console(&f, origin, &body))
+        let mut f = self.frame(req, &t);
+        f.extra_css_href = Some(self.hermes_css_href());
+        let mut r = Reply::html(status, layout::console(&f, origin, &body));
+        for (k, v) in r.headers.iter_mut() {
+            if k == "Content-Security-Policy" {
+                *v = crate::HERMES_CSP.into();
+            }
+        }
+        r
     }
 }
 

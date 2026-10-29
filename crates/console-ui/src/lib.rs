@@ -144,6 +144,34 @@ pub struct Reply {
     pub body: Vec<u8>,
 }
 
+/// The `/hermes` room script, served as `/_ui/hermes.<hash>.js`.
+pub const HERMES_JS: &str = include_str!("assets/hermes.js");
+
+/// The `/hermes` dictation AudioWorklet (16 kHz PCM16, 50 ms frames),
+/// served as `/_ui/hermes-mic.<hash>.js` (worklets load by URL; script-src
+/// 'self' covers it).
+pub const HERMES_MIC_JS: &str = include_str!("assets/hermes-mic.js");
+
+/// Page CSP. Only `/hermes` adds `script-src` / `connect-src` ('self').
+pub const PAGE_CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+/// CSP for `/hermes`: same as [`PAGE_CSP`] plus its own script and fetch/SSE.
+pub const HERMES_CSP: &str = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+
+fn asset(kind: &str, etag: &str, body: &[u8]) -> Reply {
+    Reply {
+        status: 200,
+        headers: vec![
+            ("Content-Type".into(), kind.into()),
+            (
+                "Cache-Control".into(),
+                "public, max-age=31536000, immutable".into(),
+            ),
+            ("ETag".into(), etag.into()),
+        ],
+        body: body.to_vec(),
+    }
+}
+
 impl Reply {
     fn html(status: u16, body: String) -> Reply {
         Reply {
@@ -151,10 +179,7 @@ impl Reply {
             headers: vec![
                 ("Content-Type".into(), "text/html; charset=utf-8".into()),
                 ("Cache-Control".into(), "no-store".into()),
-                (
-                    "Content-Security-Policy".into(),
-                    "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'".into(),
-                ),
+                ("Content-Security-Policy".into(), PAGE_CSP.into()),
                 ("X-Frame-Options".into(), "DENY".into()),
             ],
             body: body.into_bytes(),
@@ -203,6 +228,14 @@ pub struct Ui {
     sprite_href: String,
     sprite_etag: String,
     sprite: String,
+    /// `/hermes` room assets (owner ruling t359u: JavaScript allowed there).
+    hermes_css: String,
+    hermes_css_href: String,
+    hermes_css_etag: String,
+    hermes_js_href: String,
+    hermes_js_etag: String,
+    hermes_mic_href: String,
+    hermes_mic_etag: String,
     /// Shared /api/v1/health payload + stamp; see [`HEALTH_CACHE_TTL`].
     health: Mutex<HealthSlot>,
 }
@@ -239,6 +272,10 @@ impl Ui {
         let h = css::fnv64(css.as_bytes());
         let overview_css = css::overview_sheet();
         let oh = css::fnv64(overview_css.as_bytes());
+        let hermes_css = css::hermes_sheet();
+        let hc = css::fnv64(hermes_css.as_bytes());
+        let hj = css::fnv64(HERMES_JS.as_bytes());
+        let hm = css::fnv64(HERMES_MIC_JS.as_bytes());
         Ui {
             cfg,
             css_href: format!("/_ui/console.{h:016x}.css"),
@@ -250,11 +287,33 @@ impl Ui {
             sprite_href: icons::sprite_href().to_string(),
             sprite_etag: icons::sprite_etag().to_string(),
             sprite: icons::sprite_body().to_string(),
+            hermes_css_href: format!("/_ui/hermes.{hc:016x}.css"),
+            hermes_css_etag: format!("\"{hc:016x}\""),
+            hermes_css,
+            hermes_js_href: format!("/_ui/hermes.{hj:016x}.js"),
+            hermes_js_etag: format!("\"{hj:016x}\""),
+            hermes_mic_href: format!("/_ui/hermes-mic.{hm:016x}.js"),
+            hermes_mic_etag: format!("\"{hm:016x}\""),
             health: Mutex::new(HealthSlot {
                 at: None,
                 value: None,
             }),
         }
+    }
+
+    /// `/_ui/hermes.<hash>.js` (the `/hermes` room script).
+    pub fn hermes_js_href(&self) -> &str {
+        &self.hermes_js_href
+    }
+
+    /// `/_ui/hermes-mic.<hash>.js` (the dictation AudioWorklet).
+    pub fn hermes_mic_href(&self) -> &str {
+        &self.hermes_mic_href
+    }
+
+    /// `/_ui/hermes.<hash>.css`.
+    pub fn hermes_css_href(&self) -> &str {
+        &self.hermes_css_href
     }
 
     pub fn css_href(&self) -> &str {
@@ -396,6 +455,27 @@ impl Ui {
             p if p == self.css_href => return self.stylesheet(req, false),
             p if p == self.overview_css_href => return self.stylesheet(req, true),
             p if p == self.sprite_href => return self.sprite(req),
+            p if p == self.hermes_css_href => {
+                return asset(
+                    "text/css; charset=utf-8",
+                    &self.hermes_css_etag,
+                    self.hermes_css.as_bytes(),
+                )
+            }
+            p if p == self.hermes_js_href => {
+                return asset(
+                    "text/javascript; charset=utf-8",
+                    &self.hermes_js_etag,
+                    HERMES_JS.as_bytes(),
+                )
+            }
+            p if p == self.hermes_mic_href => {
+                return asset(
+                    "text/javascript; charset=utf-8",
+                    &self.hermes_mic_etag,
+                    HERMES_MIC_JS.as_bytes(),
+                )
+            }
             "/_ui/favicon.svg" => {
                 return Reply {
                     status: 200,

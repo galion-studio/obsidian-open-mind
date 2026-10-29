@@ -658,7 +658,7 @@ fn theme_css_and_fail_closed() {
     assert!(r.body.contains("no answer"));
 }
 
-/// Every Rust room renders with no script, only GETs reach the API, and the
+/// Every Rust room but /hermes renders with no script, only GETs reach the API, and the
 /// remaining rooms say "Not in Rust yet".
 #[test]
 fn read_rooms_render_get_only() {
@@ -670,7 +670,11 @@ fn read_rooms_render_get_only() {
     for p in console_ui::PORTED {
         let r = get(a, p, "127.0.0.1", "");
         assert_eq!(r.code, 200, "{p}: {}", r.head);
-        assert!(!r.body.contains("<script"), "{p} has a script");
+        // Owner ruling t359u: only /hermes carries its (external) script.
+        assert!(
+            *p == "/hermes" || !r.body.contains("<script"),
+            "{p} has a script"
+        );
         assert!(!r.body.contains("Not in Rust yet"), "{p}");
         assert!(!r.body.contains("did not load"), "{p}: {}", r.body);
     }

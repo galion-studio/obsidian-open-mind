@@ -65,12 +65,19 @@ impl State {
             .clone()
             .map(|p| crate::admin::AdminStore::new(p, cfg.admin_mirror.clone()));
         let hermes = match (cfg.hermes_api, cfg.hermes) {
-            (true, Some(addr)) => Some(crate::hermes::Hermes::new(
-                addr,
-                crate::hermes::load_key(cfg.hermes_key_file.as_deref()),
-                cfg.hermes_providers.clone(),
-                cfg.hermes_laptop,
-            )),
+            (true, Some(addr)) => Some(
+                crate::hermes::Hermes::new(
+                    addr,
+                    crate::hermes::load_key(cfg.hermes_key_file.as_deref()),
+                    cfg.hermes_providers.clone(),
+                    cfg.hermes_laptop,
+                )
+                .with_models(
+                    cfg.hermes_sources.clone(),
+                    crate::hermes::load_river_key(cfg.hermes_key_file.as_deref()),
+                    cfg.hermes_prefs.clone(),
+                ),
+            ),
             _ => None,
         };
         let stt = cfg

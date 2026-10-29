@@ -425,7 +425,7 @@ pub fn overview_sheet() -> String {
     )
 }
 
-/// `/hermes` room rules (`hm-*`), linked only on `/hermes`. Budget 10 KiB.
+/// `/hermes` room rules (`hm-*`), linked only on `/hermes`. Budget 12 KiB (10 KiB before the model sheet).
 pub const HERMES: &str = include_str!("assets/hermes.css");
 
 /// The `/hermes` sheet (no tokens: the base sheet defines them).

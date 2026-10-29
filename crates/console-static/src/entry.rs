@@ -148,11 +148,17 @@ pub fn run() -> ExitCode {
     if let Some(h) = &state.hermes {
         // Whether a key was found, never the key.
         eprintln!(
-            "galion-console-static: hermes_api on gateway {} key {} providers {:?} laptop_probe {}",
+            "galion-console-static: hermes_api on gateway {} key {} providers {:?} laptop_probe {} river_list_key {} prefs {}",
             h.addr,
             if h.has_key() { "found" } else { "MISSING" },
             h.providers,
-            addr_or_none(h.laptop)
+            addr_or_none(h.laptop),
+            if h.catalogs.has_river_key() { "found" } else { "MISSING" },
+            h.prefs
+                .path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "none".into())
         );
     }
     if let Some(s) = state.stt.as_ref() {

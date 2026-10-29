@@ -117,18 +117,36 @@ pub fn usable_key(raw: &str) -> Option<String> {
 
 /// `API_SERVER_KEY=` (or `HERMES_API_KEY=`) from env-file text.
 pub fn key_from_env_text(text: &str) -> Option<String> {
-    for name in ["API_SERVER_KEY", "HERMES_API_KEY"] {
-        for line in text.lines() {
-            let l = line.trim();
-            let l = l.strip_prefix("export ").unwrap_or(l);
-            if let Some(v) = l.strip_prefix(name).and_then(|r| r.strip_prefix('=')) {
-                if let Some(k) = usable_key(v) {
-                    return Some(k);
-                }
+    ["API_SERVER_KEY", "HERMES_API_KEY"]
+        .iter()
+        .find_map(|name| named_key_from_env_text(text, name))
+}
+
+/// `NAME=value` from env-file text, if the value is a usable key.
+pub fn named_key_from_env_text(text: &str, name: &str) -> Option<String> {
+    for line in text.lines() {
+        let l = line.trim();
+        let l = l.strip_prefix("export ").unwrap_or(l);
+        if let Some(v) = l.strip_prefix(name).and_then(|r| r.strip_prefix('=')) {
+            if let Some(k) = usable_key(v) {
+                return Some(k);
             }
         }
     }
     None
+}
+
+/// River AI key for the model list (`RIVER_API_KEY`): env first, then the
+/// gateway env file. Never logged.
+pub fn load_river_key(file: Option<&Path>) -> Option<String> {
+    if let Some(k) = std::env::var("RIVER_API_KEY")
+        .ok()
+        .and_then(|v| usable_key(&v))
+    {
+        return Some(k);
+    }
+    let text = std::fs::read_to_string(file?).ok()?;
+    named_key_from_env_text(&text, "RIVER_API_KEY")
 }
 
 /// Key lookup order: env `HERMES_API_KEY`, env `API_SERVER_KEY`, then the
@@ -166,6 +184,10 @@ pub struct Hermes {
     key: Option<String>,
     pub providers: Vec<String>,
     pub laptop: Option<SocketAddr>,
+    /// Provider model catalogs (t364u/t365u picker).
+    pub catalogs: crate::hermes_models::Catalogs,
+    /// Saved picker choices and favourites.
+    pub prefs: crate::hermes_models::PrefsStore,
 }
 
 impl std::fmt::Debug for Hermes {
@@ -175,6 +197,8 @@ impl std::fmt::Debug for Hermes {
             .field("key", &self.key.as_ref().map(|_| "<set>"))
             .field("providers", &self.providers)
             .field("laptop", &self.laptop)
+            .field("catalogs", &self.catalogs)
+            .field("prefs", &self.prefs.path)
             .finish()
     }
 }
@@ -451,12 +475,9 @@ pub fn new_session_key() -> String {
     format!("{SESSION_KEY_PREFIX}{}", &mixed[..20])
 }
 
-/// A model alias the page may send: `[A-Za-z0-9._:/-]{1,120}`.
+/// A model id the page may send ([`crate::hermes_models::model_ok`]).
 fn model_ok(m: &str) -> bool {
-    !m.is_empty()
-        && m.len() <= 120
-        && m.bytes()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b':' | b'/' | b'-'))
+    crate::hermes_models::model_ok(m)
 }
 
 impl Hermes {
@@ -471,7 +492,22 @@ impl Hermes {
             key,
             providers,
             laptop,
+            catalogs: crate::hermes_models::Catalogs::new(Default::default(), None),
+            prefs: crate::hermes_models::PrefsStore::new(None),
         }
+    }
+
+    /// Picker setup: catalog sources, the River key (server-side only) and
+    /// the prefs file.
+    pub fn with_models(
+        mut self,
+        sources: crate::hermes_models::Sources,
+        river_key: Option<String>,
+        prefs: Option<std::path::PathBuf>,
+    ) -> Hermes {
+        self.catalogs = crate::hermes_models::Catalogs::new(sources, river_key);
+        self.prefs = crate::hermes_models::PrefsStore::new(prefs);
+        self
     }
 
     pub fn has_key(&self) -> bool {
@@ -702,6 +738,109 @@ impl Hermes {
         ok(v)
     }
 
+    /// `GET models?provider=openrouter|river`: that provider's catalog
+    /// (server-side fetch, cached). Without `provider`: the gateway aliases.
+    fn provider_models(&self, provider: &str, route: &str) -> Out {
+        let Some(p) = PROVIDERS.iter().find(|x| x.id == provider) else {
+            return error(400, "unknown provider", route);
+        };
+        let (enabled, status) = self.provider_state(p.id, None);
+        let default_name = match p.id {
+            "openrouter" => "Gateway default (paid research model)",
+            "river" => "River AI default",
+            _ => "Default",
+        };
+        let base = |models: Vec<Value>, extra: &[(&str, Value)]| {
+            let mut pairs: Vec<(&str, Value)> = vec![
+                ("ok", b(true)),
+                ("provider", s(p.id)),
+                ("label", s(p.label)),
+                ("enabled", b(enabled || p.id == "laptop")),
+                ("status", s(status)),
+                ("default", obj(&[("id", s("")), ("name", s(default_name))])),
+                ("count", n(models.len() as f64)),
+                ("models", Value::Arr(models)),
+            ];
+            pairs.extend(extra.iter().cloned());
+            ok(obj(&pairs))
+        };
+        if !crate::hermes_models::CATALOG_PROVIDERS.contains(&p.id) {
+            return base(
+                Vec::new(),
+                &[("note", s("this provider has no model list"))],
+            );
+        }
+        match self.catalogs.get(p.id) {
+            Ok(c) => {
+                let mut models = c.models.clone();
+                if p.id == DEFAULT_PROVIDER {
+                    // Gateway aliases (e.g. `galion`) first, as before.
+                    let aliases: Vec<Value> = self
+                        .get("/v1/models")
+                        .map(|v| {
+                            v.get("data")
+                                .as_array()
+                                .iter()
+                                .filter_map(|m| {
+                                    let id = m.get("id").as_str()?;
+                                    if id == "hermes-agent" || !model_ok(id) {
+                                        return None;
+                                    }
+                                    let root = m.get("root").as_str().unwrap_or("");
+                                    Some(obj(&[
+                                        ("id", s(id)),
+                                        (
+                                            "name",
+                                            s(&if root.is_empty() || root == id {
+                                                format!("{id} (gateway alias)")
+                                            } else {
+                                                format!("{id} (gateway alias · {root})")
+                                            }),
+                                        ),
+                                        ("alias", b(true)),
+                                    ]))
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let mut all = aliases;
+                    all.append(&mut models);
+                    models = all;
+                }
+                let mut extra = vec![("fetched_at", n(c.fetched_at)), ("stale", b(c.stale))];
+                if let Some(e) = &c.error {
+                    extra.push(("error", s(e)));
+                }
+                base(models, &extra)
+            }
+            Err(e) => error(
+                502,
+                &format!("the {} model list did not load: {e}", p.label),
+                route,
+            ),
+        }
+    }
+
+    /// Whether `m` may be sent as the model for provider `p` (a catalog
+    /// entry, or a gateway alias for OpenRouter). `Err` = could not check.
+    fn model_offered(&self, p: &str, m: &str) -> Result<bool, String> {
+        if p == DEFAULT_PROVIDER {
+            let alias = self
+                .get("/v1/models")
+                .map(|v| {
+                    v.get("data")
+                        .as_array()
+                        .iter()
+                        .any(|x| x.get("id").as_str() == Some(m))
+                })
+                .unwrap_or(false);
+            if alias {
+                return Ok(true);
+            }
+        }
+        self.catalogs.get(p).map(|c| c.has(m))
+    }
+
     fn models(&self, route: &str) -> Out {
         match self.get_out("/v1/models", route) {
             Ok(v) => {
@@ -838,24 +977,29 @@ impl Hermes {
             .as_str()
             .filter(|m| !m.is_empty() && *m != "hermes-agent");
         if let Some(m) = model {
-            if p.id != DEFAULT_PROVIDER || !model_ok(m) {
+            if !crate::hermes_models::CATALOG_PROVIDERS.contains(&p.id) || !model_ok(m) {
                 return error(
                     400,
-                    "a model alias can only be picked for OpenRouter",
+                    "a model can only be picked for OpenRouter or River AI",
                     route,
                 );
             }
-            let known = self
-                .get("/v1/models")
-                .map(|v| {
-                    v.get("data")
-                        .as_array()
-                        .iter()
-                        .any(|x| x.get("id").as_str() == Some(m))
-                })
-                .unwrap_or(false);
-            if !known {
-                return error(400, "that model is not offered by the gateway", route);
+            match self.model_offered(p.id, m) {
+                Ok(true) => {}
+                Ok(false) => {
+                    return error(
+                        400,
+                        &format!("that model is not offered by {}", p.label),
+                        route,
+                    )
+                }
+                Err(e) => {
+                    return error(
+                        503,
+                        &format!("could not check the {} model list: {e}", p.label),
+                        route,
+                    )
+                }
             }
         }
         let mode = req.get("mode").as_str().unwrap_or(MODES[0].0);
@@ -931,6 +1075,7 @@ impl Hermes {
                         ("run_id", s(run_id)),
                         ("status", s(v.get("status").as_str().unwrap_or("started"))),
                         ("provider", s(p.id)),
+                        ("model", s(model.unwrap_or(""))),
                         ("mode", s(mode)),
                         ("warn", b(spend.level() == "warn")),
                         ("spend", spend.to_value()),
@@ -973,7 +1118,20 @@ impl Hermes {
                 Ok(sp) => ok(sp.to_value()),
                 Err(e) => e,
             },
-            ["models"] if get => self.models(route),
+            ["models"] if get => match query
+                .split('&')
+                .find_map(|kv| kv.strip_prefix("provider="))
+                .filter(|p| !p.is_empty())
+            {
+                Some(p) => self.provider_models(p, route),
+                None => self.models(route),
+            },
+            ["prefs"] if get => ok(self.prefs.read().to_value(self.prefs.path.is_some())),
+            ["prefs"] if method == "POST" => match self.prefs.apply(body) {
+                Ok(v) => ok(v),
+                Err((code, msg)) => error(code, &msg, route),
+            },
+            ["prefs"] => return not_allowed("GET or POST"),
             ["providers"] if get => ok(self.providers_value()),
             ["modes"] if get => Self::modes(),
             ["skills"] if get => ok(obj(&[

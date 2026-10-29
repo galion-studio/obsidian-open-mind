@@ -86,6 +86,14 @@ usage: galion-console-static --root DIR [options]
                        unlisted ones show as not set up and are never sent
   --hermes-laptop ADDR loopback address probed (TCP) for the laptop model,
                        e.g. 127.0.0.1:11434; closed = offline
+  --hermes-prefs F     JSON file for the model picker's saved provider, model
+                       and starred models (written atomically; the parent
+                       directory must be writable); default: not stored
+  --hermes-openrouter-models URL / --hermes-river-models URL
+                       model list sources (default the providers' public
+                       https APIs; http://127.0.0.1:PORT allowed for tests);
+                       the River key (RIVER_API_KEY) comes from the env or
+                       --hermes-key-file, sent to curl on stdin, never logged
   --stt ADDR           (needs --local-api) loopback galion-stt for live dictation:
                        GET /api/stt/health and the WebSocket /api/stt/stream,
                        behind the same pairing gate, e.g. 127.0.0.1:8650
@@ -187,6 +195,10 @@ pub struct Config {
     pub hermes_providers: Vec<String>,
     /// `--hermes-laptop`: TCP probe for the laptop model.
     pub hermes_laptop: Option<SocketAddr>,
+    /// `--hermes-prefs`: model picker choices file.
+    pub hermes_prefs: Option<PathBuf>,
+    /// `--hermes-openrouter-models` / `--hermes-river-models`.
+    pub hermes_sources: crate::hermes_models::Sources,
     /// `--stt`: loopback galion-stt ([`crate::stt`]).
     pub stt: Option<SocketAddr>,
     /// `--stt-max-sessions`: concurrent `/api/stt/stream` tunnels.
@@ -272,6 +284,9 @@ impl Config {
         let mut hermes_key_file: Option<PathBuf> = None;
         let mut hermes_providers: Vec<String> = Vec::new();
         let mut hermes_laptop: Option<SocketAddr> = None;
+        let mut hermes_prefs: Option<PathBuf> = None;
+        let mut hermes_sources = crate::hermes_models::Sources::default();
+        let mut sources_set = false;
         let mut stt: Option<SocketAddr> = None;
         let mut stt_max_sessions: Option<usize> = None;
         let mut it = args.into_iter();
@@ -443,6 +458,24 @@ impl Config {
                     }
                     hermes_laptop = Some(p);
                 }
+                "--hermes-prefs" => {
+                    hermes_prefs = Some(abs_path(val("--hermes-prefs")?, "--hermes-prefs")?);
+                }
+                "--hermes-openrouter-models" | "--hermes-river-models" => {
+                    let flag = a.clone();
+                    let u = val(&flag)?;
+                    if !crate::hermes_models::url_ok(&u) {
+                        return Err(bad(format!(
+                            "{flag} must be an https:// URL (or http://127.0.0.1:PORT/...)"
+                        )));
+                    }
+                    if flag == "--hermes-openrouter-models" {
+                        hermes_sources.openrouter = u;
+                    } else {
+                        hermes_sources.river = u;
+                    }
+                    sources_set = true;
+                }
                 "--stt" => {
                     let p: SocketAddr = val("--stt")?
                         .parse()
@@ -521,11 +554,15 @@ impl Config {
                 "--hermes-api needs --local-api (or --dist) and --hermes",
             ));
         }
-        if (hermes_key_file.is_some() || !hermes_providers.is_empty() || hermes_laptop.is_some())
+        if (hermes_key_file.is_some()
+            || !hermes_providers.is_empty()
+            || hermes_laptop.is_some()
+            || hermes_prefs.is_some()
+            || sources_set)
             && !hermes_api
         {
             return Err(bad(
-                "--hermes-key-file / --hermes-providers / --hermes-laptop need --hermes-api",
+                "--hermes-key-file / --hermes-providers / --hermes-laptop / --hermes-prefs / --hermes-*-models need --hermes-api",
             ));
         }
         if stt.is_some() && !local_api {
@@ -599,6 +636,8 @@ impl Config {
             hermes_key_file,
             hermes_providers,
             hermes_laptop,
+            hermes_prefs,
+            hermes_sources,
             stt,
             stt_max_sessions,
         })

@@ -419,7 +419,7 @@ fn hermes_room_renders() {
         "value=\"laptop\" disabled>",
         ">not set up</span>",
         ">offline</span>",
-        "<option value=\"galion\">galion · anthropic/claude-haiku-5.5</option>",
+        "id=\"hm-pick\" aria-haspopup=\"dialog\"",
         "<option value=\"deep\">Deep research</option>",
         "href=\"/hermes?id=t-1\" data-id=\"t-1\"",
         "<span class=\"hm-it\">First &lt;thread&gt;</span>",

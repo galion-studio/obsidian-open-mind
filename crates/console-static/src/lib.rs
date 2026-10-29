@@ -31,6 +31,7 @@ pub mod board;
 pub mod config;
 pub mod entry;
 pub mod hermes;
+pub mod hermes_models;
 pub mod http;
 pub mod mime;
 pub mod owners;

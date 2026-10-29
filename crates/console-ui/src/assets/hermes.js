@@ -10,8 +10,7 @@
   var $ = function (id) { return document.getElementById(id); };
   var q = $("hm-q"), send = $("hm-send"), stop = $("hm-stop"), log = $("hm-log"),
     note = $("hm-note"), search = $("hm-search"), list = $("hm-history"),
-    mode = $("hm-mode"), model = $("hm-model"), modelWrap = $("hm-model-wrap"),
-    status = $("hm-status");
+    mode = $("hm-mode"), status = $("hm-status");
   var state = { thread: root.getAttribute("data-thread") || "", run: "", es: null, busy: false, spendLevel: "" };
   var fmt;
   try {
@@ -50,9 +49,6 @@
   function provider() {
     var r = root.querySelector("input[name=hm-provider]:checked");
     return r ? r.value : "";
-  }
-  function syncModel() {
-    if (modelWrap) modelWrap.hidden = provider() !== "openrouter";
   }
   function canSend() {
     return !state.busy && q.value.trim().length > 0 && provider() !== "" && state.spendLevel !== "blocked";
@@ -205,7 +201,235 @@
       .catch(function () { setPill("guard", "bad", "no answer"); state.spendLevel = "blocked"; refreshButtons(); });
   }
 
+  // Model picker (t364u/t365u) -------------------------------------------
+  // The old Node panel (console-ide hermes-panel.tsx) had a searchable model
+  // box with stars and a check mark; this is that box for the Rust page. The
+  // lists come from /api/hermes/models?provider= (fetched server-side, keys
+  // stay there); choices and stars are saved through /api/hermes/prefs with
+  // localStorage as the fallback. Tap targets are >= 44px; nothing is hover-only.
+  var LS = "galion-hermes-picker-v1";
+  var LABELS = { openrouter: "OpenRouter", river: "River AI", laptop: "Local laptop", runpod: "RunPod" };
+  var pick = { provider: "", models: { openrouter: "", river: "" }, stars: { openrouter: [], river: [] }, names: {} };
+  var cat = {}, tab = "openrouter", sheetPushed = false, ignorePop = false, lastFocus = null;
+  var pickBtn = $("hm-pick"), pickV = $("hm-pick-v"), sheet = $("hm-sheet"), msearch = $("hm-msearch"),
+    mlist = $("hm-mlist"), mcount = $("hm-mcount"), sheetX = $("hm-sheet-x");
+  function isCat(p) { return p === "openrouter" || p === "river"; }
+  function idOk(m) { return typeof m === "string" && /^[A-Za-z0-9._:\/@+-]{1,160}$/.test(m); }
+  function radio(p) { return root.querySelector('input[name=hm-provider][value="' + p + '"]'); }
+  function usable(p) { var r = radio(p); return !!(r && !r.disabled); }
+  function merge(j) {
+    if (!j || typeof j !== "object") return;
+    if (typeof j.provider === "string" && LABELS[j.provider]) pick.provider = j.provider;
+    ["openrouter", "river"].forEach(function (p) {
+      var m = j.models && j.models[p];
+      if (m === "" || idOk(m)) pick.models[p] = m;
+      var s = j.stars && j.stars[p];
+      if (Array.isArray(s)) pick.stars[p] = s.filter(idOk).slice(0, 48);
+    });
+    if (j.names && typeof j.names === "object") Object.keys(j.names).forEach(function (k) { if (idOk(k) && typeof j.names[k] === "string") pick.names[k] = j.names[k].slice(0, 120); });
+  }
+  function saveLocal() { try { localStorage.setItem(LS, JSON.stringify(pick)); } catch (e) { /* private mode */ } }
+  function savePrefs(body) {
+    saveLocal();
+    api("/api/hermes/prefs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .catch(function () { /* kept in this browser */ });
+  }
+  function modelName(p, id) {
+    if (!id) return p === "river" ? "River AI default" : "Gateway default (paid research model)";
+    var c = cat[p], i;
+    if (c) for (i = 0; i < c.models.length; i++) if (c.models[i].id === id) return c.models[i].name || id;
+    return pick.names[id] || id;
+  }
+  function choiceText() {
+    var p = provider() || pick.provider || "openrouter";
+    if (!isCat(p)) return LABELS[p] || p;
+    return (LABELS[p] || p) + " · " + modelName(p, pick.models[p] || "");
+  }
+  function syncModel() {
+    var t = choiceText();
+    if (pickV) pickV.textContent = t;
+    setPill("model", isCat(provider()) ? "ok" : "warn", t);
+    if (pickBtn) pickBtn.disabled = !(usable("openrouter") || usable("river"));
+  }
+  function setProvider(p, save) {
+    var r = radio(p);
+    if (!r || r.disabled) return false;
+    r.checked = true;
+    pick.provider = p;
+    syncModel();
+    refreshButtons();
+    if (save) savePrefs({ action: "select", provider: p, model: isCat(p) ? (pick.models[p] || "") : "" });
+    return true;
+  }
+  function loadCat(p) {
+    if (cat[p]) return Promise.resolve(cat[p]);
+    return api("/api/hermes/models?provider=" + encodeURIComponent(p)).then(function (j) {
+      var rows = (j.models || []).filter(function (m) { return m && idOk(m.id); });
+      cat[p] = { models: rows, def: (j["default"] && j["default"].name) || modelName(p, ""), stale: !!j.stale };
+      return cat[p];
+    });
+  }
+  function meta(m) {
+    var bits = [m.id];
+    if (m.alias) bits.push("gateway alias");
+    if (m.ctx) bits.push(m.ctx >= 1000 ? Math.round(m.ctx / 1000) + "k ctx" : m.ctx + " ctx");
+    if (typeof m["in"] === "number" && typeof m.out === "number") bits.push("$" + m["in"].toFixed(2) + " / $" + m.out.toFixed(2) + " per M tok");
+    return bits.join(" · ");
+  }
+  function row(p, m, star) {
+    var sel = (pick.models[p] || "") === m.id && provider() === p;
+    var li = el("li", "hm-mrow");
+    if (star) {
+      var on = pick.stars[p].indexOf(m.id) >= 0;
+      var s = el("button", "hm-star", on ? "\u2605" : "\u2606");
+      s.type = "button";
+      s.setAttribute("data-star", m.id);
+      s.setAttribute("aria-pressed", on ? "true" : "false");
+      s.setAttribute("aria-label", (on ? "Remove " : "Add ") + (m.name || m.id) + (on ? " from favourites" : " to favourites"));
+      li.appendChild(s);
+    } else li.appendChild(el("span", "hm-star-gap"));
+    var b = el("button", "hm-mpick");
+    b.type = "button";
+    b.setAttribute("data-pick", m.id);
+    b.setAttribute("aria-pressed", sel ? "true" : "false");
+    var tx = el("span", "hm-mtx");
+    tx.appendChild(el("span", "hm-mn", m.name || m.id));
+    tx.appendChild(el("span", "hm-mi", m.id ? meta(m) : "Uses the gateway's own choice for this provider"));
+    b.appendChild(tx);
+    var ck = el("span", "hm-ck", sel ? "\u2713" : "");
+    ck.setAttribute("aria-hidden", "true");
+    b.appendChild(ck);
+    li.appendChild(b);
+    return li;
+  }
+  function renderList() {
+    var c = cat[tab];
+    mlist.textContent = "";
+    if (!c) return;
+    var words = (msearch.value || "").toLowerCase().split(/\s+/).filter(Boolean);
+    function hit(m) { var h = ((m.name || "") + " " + m.id).toLowerCase(); return words.every(function (w) { return h.indexOf(w) >= 0; }); }
+    var byId = {};
+    c.models.forEach(function (m) { byId[m.id] = m; });
+    var stars = pick.stars[tab].map(function (id) { return byId[id] || { id: id, name: pick.names[id] || id }; }).filter(hit);
+    var rest = c.models.filter(function (m) { return pick.stars[tab].indexOf(m.id) < 0 && hit(m); });
+    var frag = document.createDocumentFragment();
+    var def = { id: "", name: c.def };
+    if (!words.length || hit(def)) frag.appendChild(row(tab, def, false));
+    if (stars.length) { frag.appendChild(el("li", "hm-mhead", "Favourites")); stars.forEach(function (m) { frag.appendChild(row(tab, m, true)); }); }
+    if (rest.length) { frag.appendChild(el("li", "hm-mhead", stars.length ? "All models" : "Models")); rest.forEach(function (m) { frag.appendChild(row(tab, m, true)); }); }
+    mlist.appendChild(frag);
+    var n = stars.length + rest.length;
+    mcount.textContent = (words.length ? n + " of " + c.models.length : c.models.length) + " models" + (c.stale ? " · list may be out of date" : "") + ". Star a model to keep it at the top.";
+  }
+  function showTab(p) {
+    tab = p;
+    Array.prototype.forEach.call(sheet.querySelectorAll(".hm-tab"), function (b) {
+      var bp = b.getAttribute("data-p");
+      b.setAttribute("aria-pressed", bp === p ? "true" : "false");
+      b.disabled = !usable(bp);
+    });
+    mlist.textContent = "";
+    if (!usable(p)) { mcount.textContent = (LABELS[p] || p) + " is not available right now."; return; }
+    if (!cat[p]) mcount.textContent = "Loading the " + (LABELS[p] || p) + " model list.";
+    loadCat(p).then(function () { if (tab === p) renderList(); })
+      .catch(function (e) { if (tab === p) mcount.textContent = "The model list did not load: " + e.message; });
+  }
+  function openSheet() {
+    if (!sheet || !sheet.hidden) return;
+    lastFocus = document.activeElement;
+    var p = provider();
+    sheet.hidden = false;
+    document.documentElement.classList.add("hm-lock");
+    pickBtn.setAttribute("aria-expanded", "true");
+    msearch.value = "";
+    showTab(isCat(p) && usable(p) ? p : (usable("openrouter") ? "openrouter" : "river"));
+    try { history.pushState(Object.assign({}, history.state || {}, { sheet: 1 }), ""); sheetPushed = true; } catch (e) { sheetPushed = false; }
+    // Focus the list's close button first: on a phone, focusing the search
+    // box would open the keyboard over half the list.
+    (sheetX || msearch).focus();
+  }
+  function closeSheet(fromPop) {
+    if (!sheet || sheet.hidden) return;
+    sheet.hidden = true;
+    document.documentElement.classList.remove("hm-lock");
+    pickBtn.setAttribute("aria-expanded", "false");
+    if (sheetPushed && !fromPop) { ignorePop = true; history.back(); }
+    sheetPushed = false;
+    if (lastFocus && lastFocus.focus) lastFocus.focus(); else pickBtn.focus();
+  }
+  function choose(p, id) {
+    pick.models[p] = id;
+    var c = cat[p];
+    if (id && c) c.models.forEach(function (m) { if (m.id === id && m.name) pick.names[id] = m.name; });
+    setProvider(p, false);
+    savePrefs({ action: "select", provider: p, model: id });
+    syncModel();
+    closeSheet(false);
+    setNote("Next question goes to " + choiceText() + ".");
+  }
+  function toggleStar(id) {
+    var s = pick.stars[tab], i = s.indexOf(id), on = i < 0;
+    if (on) { s.unshift(id); if (s.length > 48) s.length = 48; } else s.splice(i, 1);
+    var c = cat[tab];
+    if (c) c.models.forEach(function (m) { if (m.id === id && m.name) pick.names[id] = m.name; });
+    savePrefs({ action: "star", provider: tab, model: id, on: on });
+    var top = mlist.scrollTop;
+    renderList();
+    mlist.scrollTop = top;
+    var b = mlist.querySelector('[data-star="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    if (b) b.focus();
+  }
+  function selectedModel() {
+    var p = provider();
+    return isCat(p) ? (pick.models[p] || "") : "";
+  }
+  if (pickBtn && sheet) {
+    pickBtn.addEventListener("click", openSheet);
+    sheetX.addEventListener("click", function () { closeSheet(false); });
+    sheet.addEventListener("click", function (e) {
+      if (e.target === sheet) { closeSheet(false); return; }
+      var t = e.target.closest && e.target.closest("button");
+      if (!t) return;
+      if (t.classList.contains("hm-tab")) { if (!t.disabled) { msearch.value = ""; showTab(t.getAttribute("data-p")); } }
+      else if (t.hasAttribute("data-star")) toggleStar(t.getAttribute("data-star"));
+      else if (t.hasAttribute("data-pick")) choose(tab, t.getAttribute("data-pick"));
+    });
+    msearch.addEventListener("input", renderList);
+    msearch.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { var b = mlist.querySelector("[data-pick]:not([data-pick=''])") || mlist.querySelector("[data-pick]"); if (b) { e.preventDefault(); b.click(); } }
+    });
+    sheet.addEventListener("keydown", function (e) {
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeSheet(false); return; }
+      if (e.key !== "Tab") return;
+      var f = Array.prototype.filter.call(sheet.querySelectorAll("button,input"), function (n) { return !n.disabled && n.offsetParent !== null; });
+      if (!f.length) return;
+      if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+    });
+  }
+  function initPicker() {
+    try { merge(JSON.parse(localStorage.getItem(LS) || "null")); } catch (e) { /* none */ }
+    if (pick.provider) setProvider(pick.provider, false);
+    syncModel();
+    api("/api/hermes/prefs").then(function (j) {
+      if (j && j.stored) { var names = pick.names; merge(j); pick.names = names; saveLocal(); if (pick.provider) setProvider(pick.provider, false); }
+      syncModel();
+    }).catch(function () { /* local choices stay */ });
+  }
+
   // Asking -------------------------------------------------------------
+  // After a run, tag the answer with the model the gateway actually used
+  // (the session's model from history), not just the one that was picked.
+  function tagAnswer(out) {
+    var id = state.thread;
+    if (!id || !out || !out.parentNode) return;
+    api("/api/hermes/history?id=" + encodeURIComponent(id)).then(function (j) {
+      if (!j || !j.model || !out.parentNode) return;
+      var t = out.parentNode.querySelector(".hm-answer-meta") || el("p", "hm-answer-meta");
+      t.textContent = "Answered by " + j.model;
+      out.parentNode.appendChild(t);
+    }).catch(function () { /* meta only */ });
+  }
   function finish(text) {
     state.busy = false;
     state.run = "";
@@ -225,7 +449,7 @@
     }
     function poll() {
       api("/api/hermes/runs/" + encodeURIComponent(runId)).then(function (r) {
-        if (r.status === "completed") ended(function () { if (!got && r.output) renderText(out, r.output); finish("Done."); });
+        if (r.status === "completed") ended(function () { if (!got && r.output) renderText(out, r.output); finish("Done."); tagAnswer(out); });
         else if (r.status === "failed") ended(function () { boxMsg("hm-err", "The run failed: " + (r.error || "no reason given")); finish("The run failed."); });
         else if (r.status === "cancelled") ended(function () { boxMsg("hm-pending", "Stopped."); finish("Stopped."); });
         else setTimeout(poll, 2500);
@@ -254,7 +478,7 @@
           if (pending && e.text) pending.textContent = String(e.text).slice(0, 160);
           break;
         case "run.completed":
-          ended(function () { if (!got && e.output) renderText(out, e.output); scrollEnd(); finish("Done."); });
+          ended(function () { if (!got && e.output) renderText(out, e.output); scrollEnd(); finish("Done."); tagAnswer(out); });
           break;
         case "run.failed":
           ended(function () { boxMsg("hm-err", "The run failed: " + (e.error || "no reason given")); finish("The run failed."); });
@@ -275,7 +499,8 @@
     if (!canSend()) return;
     var text = q.value.trim();
     var body = { input: text, provider: provider(), mode: mode ? mode.value : "deep" };
-    if (provider() === "openrouter" && model && model.value) body.model = model.value;
+    var chosen = selectedModel();
+    if (chosen) body.model = chosen;
     if (state.thread) body.session_id = state.thread;
     var w = $("hm-welcome"); if (w && w.parentNode) w.parentNode.removeChild(w);
     Array.prototype.forEach.call(log.querySelectorAll(".hm-welcome"), function (n) { n.parentNode.removeChild(n); });
@@ -323,7 +548,12 @@
   send.addEventListener("click", ask);
   stop.addEventListener("click", stopRun);
   root.addEventListener("change", function (e) {
-    if (e.target && e.target.name === "hm-provider") { syncModel(); refreshButtons(); }
+    if (e.target && e.target.name === "hm-provider") {
+      pick.provider = e.target.value;
+      syncModel();
+      refreshButtons();
+      savePrefs({ action: "select", provider: pick.provider, model: isCat(pick.provider) ? (pick.models[pick.provider] || "") : "" });
+    }
   });
   search.addEventListener("input", filterHistory);
   search.addEventListener("keydown", function (e) {
@@ -338,14 +568,18 @@
   var nb = $("hm-new");
   if (nb) nb.addEventListener("click", function (e) { e.preventDefault(); newThread(true); });
   window.addEventListener("popstate", function (e) {
+    if (ignorePop) { ignorePop = false; return; }
+    if (sheet && !sheet.hidden) { closeSheet(true); return; }
+    if (e.state && e.state.sheet) { history.back(); return; }
     var id = (e.state && e.state.id) || new URLSearchParams(location.search).get("id") || "";
     if (id) openThread(id, false); else newThread(false);
   });
   document.addEventListener("keydown", function (e) {
-    if (e.key === "/" && document.activeElement !== q && document.activeElement !== search) { e.preventDefault(); search.focus(); }
+    var ae = document.activeElement, typing = ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT");
+    if (e.key === "/" && !typing && (!sheet || sheet.hidden)) { e.preventDefault(); search.focus(); }
     if (e.key === "Escape" && state.busy) stopRun();
   });
-  syncModel();
+  initPicker();
   refreshStatus();
   setInterval(function () { if (!document.hidden && !state.busy) refreshStatus(); }, 30000);
   scrollEnd();

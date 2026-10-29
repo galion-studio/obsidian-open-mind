@@ -190,6 +190,69 @@ fn serve_one(mut s: TcpStream, cost: f64, log: Log) {
 struct Box {
     addr: SocketAddr,
     log: Log,
+    /// Requests the mock model-list server saw.
+    cat: Log,
+    /// The `--hermes-prefs` file.
+    prefs: PathBuf,
+}
+
+/// Test-only River key (not a real secret); must never appear in a reply.
+const RIVER_KEY: &str = "test-only-river-key-5b8e1d";
+
+/// OpenRouter-shaped list: one tool-capable text model, one image-only and
+/// one without tools (both filtered out).
+const OR_LIST: &str = r#"{"data":[
+ {"id":"acme/tiny-chat","name":"Acme: Tiny Chat","context_length":131072,"architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0.0000001","completion":"0.0000004"},"supported_parameters":["tools","temperature"]},
+ {"id":"acme/painter","name":"Acme: Painter","architecture":{"output_modalities":["image"]},"pricing":{"prompt":"0","completion":"0"},"supported_parameters":["tools"]},
+ {"id":"acme/no-tools","name":"Acme: No Tools","architecture":{"output_modalities":["text"]},"pricing":{"prompt":"0","completion":"0"},"supported_parameters":["temperature"]}
+]}"#;
+
+/// Mock model lists: `/or` (open) and `/river` (needs the River bearer).
+fn catalogs(log: Log) -> SocketAddr {
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    thread::spawn(move || {
+        for mut s in l.incoming().flatten() {
+            let log = Arc::clone(&log);
+            thread::spawn(move || {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 4096];
+                s.set_read_timeout(Some(Duration::from_secs(5))).ok();
+                while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match s.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let head = String::from_utf8_lossy(&buf).to_string();
+                let line = head.lines().next().unwrap_or("").to_string();
+                let mut it = line.split(' ');
+                let method = it.next().unwrap_or("").to_string();
+                let path = it.next().unwrap_or("").to_string();
+                log.lock().unwrap().push(Seen {
+                    method,
+                    path: path.clone(),
+                    head: head.clone(),
+                    body: String::new(),
+                });
+                let (code, body) = match path.as_str() {
+                    "/or" => (200, OR_LIST.to_string()),
+                    "/river" if head.contains(&format!("Authorization: Bearer {RIVER_KEY}")) => (
+                        200,
+                        r#"{"object":"list","data":[{"id":"zai-org/GLM-5.3-Flash"},{"id":"deepseek-ai/DeepSeek-V4.1-Flash"},{"id":"zai-org/GLM-5.3-Flash"}]}"#.to_string(),
+                    ),
+                    "/river" => (401, r#"{"error":"no key"}"#.to_string()),
+                    _ => (404, "{}".to_string()),
+                };
+                let _ = write!(
+                    s,
+                    "HTTP/1.1 {code} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            });
+        }
+    });
+    addr
 }
 
 /// Console with `--hermes-api` against a mock gateway charging `cost` to the
@@ -197,7 +260,10 @@ struct Box {
 fn start(cost: f64, key: bool, extra: &[&str]) -> Box {
     let log: Log = Arc::default();
     let gw = gateway(cost, Arc::clone(&log));
+    let cat: Log = Arc::default();
+    let ca = catalogs(Arc::clone(&cat));
     let dir = tmp("box");
+    let prefs = dir.join("prefs.json");
     let store = dir.join("admin-device.json");
     std::fs::write(
         &store,
@@ -218,10 +284,20 @@ fn start(cost: f64, key: bool, extra: &[&str]) -> Box {
         "--hermes-api".into(),
         "--admin-store".into(),
         store.display().to_string(),
+        "--hermes-openrouter-models".into(),
+        format!("http://{ca}/or"),
+        "--hermes-river-models".into(),
+        format!("http://{ca}/river"),
+        "--hermes-prefs".into(),
+        prefs.display().to_string(),
     ];
     if key {
         let f = dir.join("hermes.env");
-        std::fs::write(&f, format!("# test\nOTHER=1\nAPI_SERVER_KEY={KEY}\n")).unwrap();
+        std::fs::write(
+            &f,
+            format!("# test\nOTHER=1\nAPI_SERVER_KEY={KEY}\nRIVER_API_KEY=\"{RIVER_KEY}\"\n"),
+        )
+        .unwrap();
         args.push("--hermes-key-file".into());
         args.push(f.display().to_string());
     }
@@ -233,7 +309,12 @@ fn start(cost: f64, key: bool, extra: &[&str]) -> Box {
         cfg,
     ));
     thread::spawn(move || server::serve(l, state));
-    Box { addr, log }
+    Box {
+        addr,
+        log,
+        cat,
+        prefs,
+    }
 }
 
 struct Resp {
@@ -285,6 +366,8 @@ fn ask(a: SocketAddr, body: &str) -> Resp {
 fn no_key(r: &Resp, what: &str) {
     assert!(!r.body.contains(KEY), "{what}: key in body");
     assert!(!r.head.contains(KEY), "{what}: key in head");
+    assert!(!r.body.contains(RIVER_KEY), "{what}: River key in body");
+    assert!(!r.head.contains(RIVER_KEY), "{what}: River key in head");
     assert!(!r.body.contains("Bearer"), "{what}: auth header echoed");
 }
 
@@ -689,7 +772,9 @@ fn hermes_page_renders_through_the_adapter() {
         "value=\"river\">",
         "value=\"runpod\" disabled>",
         ">not set up</span>",
-        "<option value=\"galion\">galion · anthropic/claude-haiku-5.5</option>",
+        "id=\"hm-pick\"",
+        "id=\"hm-msearch\"",
+        "data-p=\"river\"",
         "href=\"/hermes?id=api-1\"",
         "<script src=\"/_ui/hermes.",
     ] {
@@ -772,4 +857,218 @@ fn flags_are_checked() {
         vec!["river".to_string(), "openrouter".to_string()]
     );
     assert_eq!(c.hermes_laptop, Some("127.0.0.1:11434".parse().unwrap()));
+}
+
+#[test]
+fn model_lists_come_from_the_server_and_keep_keys_there() {
+    let b = start(1.0, true, &["--hermes-providers", "openrouter,river"]);
+    let r = get(
+        b.addr,
+        "/api/hermes/models?provider=openrouter",
+        "127.0.0.1",
+        "",
+    );
+    assert_eq!(r.code, 200, "{}", r.body);
+    no_key(&r, "openrouter list");
+    for n in [
+        "\"provider\":\"openrouter\"",
+        "\"id\":\"acme/tiny-chat\"",
+        "\"name\":\"Acme: Tiny Chat\"",
+        "\"ctx\":131072",
+        "Gateway default (paid research model)",
+        "\"id\":\"galion\"",
+        "\"alias\":true",
+    ] {
+        assert!(r.body.contains(n), "{n}: {}", r.body);
+    }
+    assert!(!r.body.contains("acme/painter"), "image-only dropped");
+    assert!(!r.body.contains("acme/no-tools"), "no tools dropped");
+
+    let r = get(b.addr, "/api/hermes/models?provider=river", "127.0.0.1", "");
+    assert_eq!(r.code, 200, "{}", r.body);
+    no_key(&r, "river list");
+    assert!(
+        r.body.contains("\"id\":\"zai-org/GLM-5.3-Flash\""),
+        "{}",
+        r.body
+    );
+    assert!(r
+        .body
+        .contains("\"id\":\"deepseek-ai/DeepSeek-V4.1-Flash\""));
+    assert_eq!(
+        r.body.matches("\"id\":\"zai-org/GLM-5.3-Flash\"").count(),
+        1,
+        "deduped"
+    );
+    // The River bearer went to the list server, never to the browser.
+    let seen = b.cat.lock().unwrap().clone();
+    let river = seen.iter().find(|s| s.path == "/river").unwrap();
+    assert!(river
+        .head
+        .contains(&format!("Authorization: Bearer {RIVER_KEY}")));
+    let or = seen.iter().find(|s| s.path == "/or").unwrap();
+    assert!(
+        !or.head.contains("Authorization"),
+        "OpenRouter list is public"
+    );
+    // Cached: a second read does not refetch.
+    let n = b.cat.lock().unwrap().len();
+    get(b.addr, "/api/hermes/models?provider=river", "127.0.0.1", "");
+    assert_eq!(b.cat.lock().unwrap().len(), n, "cached");
+
+    for p in ["laptop", "runpod"] {
+        let r = get(
+            b.addr,
+            &format!("/api/hermes/models?provider={p}"),
+            "127.0.0.1",
+            "",
+        );
+        assert_eq!(r.code, 200, "{p}: {}", r.body);
+        assert!(r.body.contains("\"models\":[]"), "{p}: {}", r.body);
+    }
+    let r = get(b.addr, "/api/hermes/models?provider=bogus", "127.0.0.1", "");
+    assert_eq!(r.code, 400, "{}", r.body);
+    // The plain list (no provider) is still the gateway aliases.
+    let r = get(b.addr, "/api/hermes/models", "127.0.0.1", "");
+    assert!(r.body.contains("\"id\":\"galion\""), "{}", r.body);
+
+    // Without the River key the list says so (no hang, no key).
+    let nk = start(1.0, false, &["--hermes-providers", "openrouter,river"]);
+    let r = get(
+        nk.addr,
+        "/api/hermes/models?provider=river",
+        "127.0.0.1",
+        "",
+    );
+    assert_eq!(r.code, 502, "{}", r.body);
+    assert!(r.body.starts_with("{\"ok\":false"), "{}", r.body);
+}
+
+#[test]
+fn ask_sends_the_picked_model_for_openrouter_and_river() {
+    let b = start(1.0, true, &["--hermes-providers", "openrouter,river"]);
+    let r = ask(
+        b.addr,
+        r#"{"input":"x","provider":"river","model":"zai-org/GLM-5.3-Flash","mode":"quick"}"#,
+    );
+    assert_eq!(r.code, 202, "{}", r.body);
+    no_key(&r, "river ask");
+    assert!(
+        r.body.contains("\"model\":\"zai-org/GLM-5.3-Flash\""),
+        "{}",
+        r.body
+    );
+    let run = b
+        .log
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|s| s.path == "/v1/runs")
+        .cloned()
+        .unwrap();
+    assert!(run.body.contains("\"provider\":\"river\""), "{}", run.body);
+    assert!(run.body.contains("\"model\":\"zai-org/GLM-5.3-Flash\""));
+
+    let r = ask(
+        b.addr,
+        r#"{"input":"x","provider":"openrouter","model":"acme/tiny-chat"}"#,
+    );
+    assert_eq!(r.code, 202, "{}", r.body);
+    let run = b
+        .log
+        .lock()
+        .unwrap()
+        .iter()
+        .rev()
+        .find(|s| s.path == "/v1/runs")
+        .cloned()
+        .unwrap();
+    assert!(run.body.contains("\"provider\":\"openrouter\""));
+    assert!(
+        run.body.contains("\"model\":\"acme/tiny-chat\""),
+        "{}",
+        run.body
+    );
+
+    // Not on the list (or filtered out): refused before the gateway.
+    let before = b
+        .log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|s| s.path == "/v1/runs")
+        .count();
+    for body in [
+        r#"{"input":"x","provider":"openrouter","model":"acme/painter"}"#,
+        r#"{"input":"x","provider":"river","model":"acme/tiny-chat"}"#,
+        r#"{"input":"x","provider":"openrouter","model":"zai-org/GLM-5.3-Flash"}"#,
+        r#"{"input":"x","provider":"river","model":"bad model"}"#,
+    ] {
+        assert_eq!(ask(b.addr, body).code, 400, "{body}");
+    }
+    let after = b
+        .log
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|s| s.path == "/v1/runs")
+        .count();
+    assert_eq!(before, after);
+}
+
+#[test]
+fn picker_prefs_persist_on_the_server() {
+    let b = start(1.0, true, &["--hermes-providers", "openrouter,river"]);
+    let r = get(b.addr, "/api/hermes/prefs", "127.0.0.1", "");
+    assert_eq!(r.code, 200, "{}", r.body);
+    assert!(r.body.contains("\"stored\":true"), "{}", r.body);
+    let p = |body: &str| post(b.addr, "/api/hermes/prefs", "127.0.0.1", "", body);
+    let r = p(r#"{"action":"select","provider":"river","model":"zai-org/GLM-5.3-Flash"}"#);
+    assert_eq!(r.code, 200, "{}", r.body);
+    let r = p(r#"{"action":"star","provider":"openrouter","model":"acme/tiny-chat","on":true}"#);
+    assert_eq!(r.code, 200, "{}", r.body);
+    let r = p(r#"{"action":"star","provider":"river","model":"deepseek-ai/DeepSeek-V4.1-Flash"}"#);
+    assert_eq!(r.code, 200, "{}", r.body);
+    let r = get(b.addr, "/api/hermes/prefs", "127.0.0.1", "");
+    for n in [
+        "\"provider\":\"river\"",
+        "\"river\":\"zai-org/GLM-5.3-Flash\"",
+        "\"openrouter\":[\"acme/tiny-chat\"]",
+        "\"river\":[\"deepseek-ai/DeepSeek-V4.1-Flash\"]",
+    ] {
+        assert!(r.body.contains(n), "{n}: {}", r.body);
+    }
+    let file = std::fs::read_to_string(&b.prefs).unwrap();
+    assert!(file.contains("acme/tiny-chat"), "{file}");
+    assert!(!file.contains(KEY) && !file.contains(RIVER_KEY));
+    // Toggle off.
+    p(r#"{"action":"star","provider":"openrouter","model":"acme/tiny-chat"}"#);
+    let r = get(b.addr, "/api/hermes/prefs", "127.0.0.1", "");
+    assert!(r.body.contains("\"openrouter\":[]"), "{}", r.body);
+    for (body, code) in [
+        (r#"{"action":"select","provider":"bogus"}"#, 400),
+        (
+            r#"{"action":"star","provider":"laptop","model":"x/y"}"#,
+            400,
+        ),
+        (
+            r#"{"action":"select","provider":"river","model":"bad model"}"#,
+            400,
+        ),
+        (r#"{"action":"nope","provider":"river"}"#, 400),
+        ("not json", 400),
+    ] {
+        assert_eq!(p(body).code, code, "{body}");
+    }
+    let r = send(
+        b.addr,
+        "DELETE /api/hermes/prefs HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n",
+    );
+    assert_eq!(r.code, 405, "{}", r.body);
+    // Unpaired devices never read or write choices.
+    assert_eq!(
+        get(b.addr, "/api/hermes/prefs", "console.galion.app", "").code,
+        401
+    );
 }

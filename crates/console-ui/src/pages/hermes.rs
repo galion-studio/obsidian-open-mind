@@ -179,7 +179,7 @@ fn guard_pills(g: Option<&Value>) -> String {
 
 fn providers_html(p: Option<&Value>) -> String {
     let mut out = String::from(
-        "<fieldset class=\"hm-prov\" id=\"hm-prov\"><legend class=\"hm-legend\">Model</legend><div class=\"hm-seg\">",
+        "<fieldset class=\"hm-prov\" id=\"hm-prov\"><legend class=\"hm-legend\">Provider</legend><div class=\"hm-seg\">",
     );
     let default = p
         .and_then(|v| v.get("default").as_str())
@@ -226,8 +226,30 @@ fn providers_html(p: Option<&Value>) -> String {
     out
 }
 
-fn selects_html(models: Option<&Value>, modes: Option<&Value>) -> String {
+/// Picker providers that have a model list (the sheet's tabs).
+const CATALOG_TABS: &[(&str, &str)] = &[("openrouter", "OpenRouter"), ("river", "River AI")];
+
+/// The model button and the model sheet (t364u/t365u: the old Node panel's
+/// searchable list with stars and a check mark, rebuilt). The script fills
+/// the list from `/api/hermes/models?provider=` and saves choices through
+/// `/api/hermes/prefs`.
+fn picker_html() -> String {
+    let mut out = String::from(
+        "<button type=\"button\" class=\"hm-pick\" id=\"hm-pick\" aria-haspopup=\"dialog\" aria-controls=\"hm-sheet\" aria-expanded=\"false\" disabled><span class=\"hm-pick-k\">Model</span><span class=\"hm-pick-v\" id=\"hm-pick-v\">OpenRouter · Gateway default (paid research model)</span><span class=\"hm-pick-c\" aria-hidden=\"true\">Change</span></button>",
+    );
+    out.push_str("<div class=\"hm-sheet\" id=\"hm-sheet\" hidden><div class=\"hm-sheet-box\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"hm-sheet-t\"><div class=\"hm-sheet-head\"><h2 class=\"hm-sheet-t\" id=\"hm-sheet-t\">Choose a model</h2><button type=\"button\" class=\"hm-btn hm-x\" id=\"hm-sheet-x\" aria-label=\"Close the model list\">Close</button></div><div class=\"hm-tabs\" role=\"group\" aria-label=\"Provider\">");
+    for (id, label) in CATALOG_TABS {
+        out.push_str(&format!(
+            "<button type=\"button\" class=\"hm-tab\" data-p=\"{id}\" aria-pressed=\"false\">{label}</button>"
+        ));
+    }
+    out.push_str("</div><label class=\"sr-only\" for=\"hm-msearch\">Search models</label><input id=\"hm-msearch\" class=\"hm-search\" type=\"search\" placeholder=\"Search models\" autocomplete=\"off\" spellcheck=\"false\" enterkeyhint=\"search\"><p class=\"hm-sub\" id=\"hm-mcount\" aria-live=\"polite\">Loading the model list.</p><ul class=\"hm-mlist\" id=\"hm-mlist\" aria-label=\"Models\"></ul></div></div>");
+    out
+}
+
+fn selects_html(_models: Option<&Value>, modes: Option<&Value>) -> String {
     let mut out = String::from("<div class=\"hm-row\">");
+    out.push_str(&picker_html());
     out.push_str("<label class=\"hm-field\"><span>Depth</span><select id=\"hm-mode\">");
     let rows = modes.map(|m| m.get("modes").as_array()).unwrap_or(&[]);
     if rows.is_empty() {
@@ -238,25 +260,6 @@ fn selects_html(models: Option<&Value>, modes: Option<&Value>) -> String {
             "<option value=\"{}\">{}</option>",
             esc(&text(m.get("id"), "")),
             esc(&text(m.get("label"), ""))
-        ));
-    }
-    out.push_str("</select></label>");
-    out.push_str("<label class=\"hm-field\" id=\"hm-model-wrap\"><span>OpenRouter model</span><select id=\"hm-model\"><option value=\"\">Gateway default</option>");
-    for m in models.map(|m| m.get("models").as_array()).unwrap_or(&[]) {
-        let id = text(m.get("id"), "");
-        if id.is_empty() || id == "hermes-agent" {
-            continue;
-        }
-        let root = text(m.get("root"), "");
-        out.push_str(&format!(
-            "<option value=\"{}\">{}{}</option>",
-            esc(&id),
-            esc(&id),
-            if root.is_empty() {
-                String::new()
-            } else {
-                format!(" · {}", esc(&root))
-            }
         ));
     }
     out.push_str("</select></label></div>");
@@ -367,7 +370,7 @@ pub fn body(v: &View<'_>) -> String {
         "<header class=\"hm-head\"><div class=\"hm-title\"><p class=\"k\">Hermes Research</p><h1>{}<span>The mind</span></h1></div><ul class=\"hm-status\" id=\"hm-status\" aria-label=\"Status\">{}{}</ul></header>",
         icon("research", "i i-md"),
         gateway_pill(v.health),
-        guard_pills(v.guard),
+        guard_pills(v.guard) + &pill("model", "ok", "Model", "OpenRouter · Gateway default", ""),
     ));
     out.push_str("<div class=\"hm-grid\">");
     // History.
@@ -379,7 +382,7 @@ pub fn body(v: &View<'_>) -> String {
     match v.thread {
         Some((id, t)) => out.push_str(&thread_html(id, t)),
         None => out.push_str(
-            "<div class=\"hm-welcome\" id=\"hm-welcome\"><p class=\"hm-it\">Ask Hermes a research question.</p><p class=\"hm-im\">He searches first and answers with figures a tool returned. Pick the model below; OpenRouter is the default. Every ask counts against the research cap.</p></div>",
+            "<div class=\"hm-welcome\" id=\"hm-welcome\"><p class=\"hm-it\">Ask Hermes a research question.</p><p class=\"hm-im\">He searches first and answers with figures a tool returned. Pick the provider and model below; OpenRouter with the paid research model is the default. Every ask counts against the research cap.</p></div>",
         ),
     }
     out.push_str("</div>");
@@ -458,7 +461,15 @@ mod tests {
             "value=\"laptop\" disabled>",
             ">offline</span>",
             ">not set up</span>",
-            "<option value=\"galion\">galion · anthropic/claude-haiku-5.5</option>",
+            "id=\"hm-pick\" aria-haspopup=\"dialog\" aria-controls=\"hm-sheet\"",
+            "id=\"hm-pick-v\">OpenRouter · Gateway default (paid research model)</span>",
+            "<div class=\"hm-sheet\" id=\"hm-sheet\" hidden>",
+            "role=\"dialog\" aria-modal=\"true\"",
+            "data-p=\"openrouter\" aria-pressed=\"false\">OpenRouter</button>",
+            "data-p=\"river\" aria-pressed=\"false\">River AI</button>",
+            "id=\"hm-msearch\"",
+            "id=\"hm-mlist\"",
+            "data-k=\"model\"",
             "href=\"/hermes?id=api-1\" data-id=\"api-1\"",
             "aria-current=\"true\"><span class=\"hm-it\">boss &lt;x&gt;</span>",
             "4 msgs · 1.2k tok · $0.01 · console",

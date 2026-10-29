@@ -41,6 +41,10 @@ pub struct State {
     pub board: crate::board::Board,
     /// Admin-device store (`--admin-store`).
     pub admin: Option<crate::admin::AdminStore>,
+    /// Hermes research adapter (`--hermes-api`).
+    pub hermes: Option<crate::hermes::Hermes>,
+    /// Live dictation tunnel (`--stt`).
+    pub stt: Option<crate::stt::Stt>,
     active: AtomicUsize,
 }
 
@@ -60,6 +64,18 @@ impl State {
             .admin_store
             .clone()
             .map(|p| crate::admin::AdminStore::new(p, cfg.admin_mirror.clone()));
+        let hermes = match (cfg.hermes_api, cfg.hermes) {
+            (true, Some(addr)) => Some(crate::hermes::Hermes::new(
+                addr,
+                crate::hermes::load_key(cfg.hermes_key_file.as_deref()),
+                cfg.hermes_providers.clone(),
+                cfg.hermes_laptop,
+            )),
+            _ => None,
+        };
+        let stt = cfg
+            .stt
+            .map(|a| crate::stt::Stt::new(a, cfg.stt_max_sessions));
         State {
             site,
             routes,
@@ -67,6 +83,8 @@ impl State {
             ui,
             board: crate::board::Board::new(),
             admin,
+            hermes,
+            stt,
             active: AtomicUsize::new(0),
         }
     }
@@ -250,6 +268,78 @@ fn handle_request(
             if keep && ok.is_ok() {
                 *next_carry = carry;
                 return true;
+            }
+            return false;
+        }
+    }
+
+    // `--stt` (t362u): live dictation. Reached only after the local API gate
+    // passed (unpaired got 401 above). The stream route also checks Origin.
+    if state.cfg.local_api {
+        if let Some(stt) = state.stt.as_ref().filter(|_| crate::stt::owns(&clean)) {
+            let get = method == "GET" || head_only;
+            let (code, out) = match clean.as_str() {
+                crate::stt::HEALTH if get => (200, Some(stt.health())),
+                crate::stt::STREAM => match stt.tunnel(stream, head, std::mem::take(&mut carry)) {
+                    Ok(code) => (code, None),
+                    Err(o) => (o.status, Some(o)),
+                },
+                crate::stt::HEALTH => (405, Some(crate::stt::error(405, "use GET"))),
+                _ => (404, Some(crate::stt::error(404, "unknown STT route"))),
+            };
+            if let Some(o) = out {
+                let _ = write_json(stream, o.status, &o.body, head_only, false);
+                log(state, method, &clean, o.status);
+            } else {
+                log(state, method, &clean, code);
+            }
+            return false;
+        }
+    }
+
+    // `--hermes-api` (hermes-ui-rebuild): Hermes research adapter. Reached
+    // only after the local API gate passed (it answered 401 otherwise), so
+    // every proxied route needs a loopback Host+peer or a paired cookie.
+    if state.cfg.local_api {
+        if let Some(h) = state
+            .hermes
+            .as_ref()
+            .filter(|_| crate::hermes::owns(&clean))
+        {
+            let mut body = Vec::new();
+            if crate::hermes::wants_body(method, &clean) {
+                match read_small_body(stream, head, std::mem::take(&mut carry)) {
+                    Ok(b) => body = b,
+                    Err(code) => {
+                        let out = crate::hermes::error(code, "bad request body", &clean);
+                        let _ = write_json(stream, out.status, &out.body, head_only, false);
+                        log(state, method, &clean, code);
+                        return false;
+                    }
+                }
+            }
+            match h.handle(method, &clean, query, &body) {
+                crate::hermes::Action::Reply(out) => {
+                    let _ = write_json(stream, out.status, &out.body, head_only, false);
+                    log(state, method, &clean, out.status);
+                }
+                crate::hermes::Action::Stream { target } => {
+                    let mut hdrs = vec![
+                        ("Host".to_string(), h.addr.to_string()),
+                        ("Accept".to_string(), "text/event-stream".to_string()),
+                    ];
+                    if let Some(a) = h.auth_header() {
+                        hdrs.push(("Authorization".to_string(), a));
+                    }
+                    let up = RequestHead {
+                        method: "GET".into(),
+                        target,
+                        http11: true,
+                        headers: hdrs,
+                    };
+                    let code = proxy::forward(stream, &up, Vec::new(), h.addr, 0);
+                    log(state, method, &clean, code);
+                }
             }
             return false;
         }
@@ -576,4 +666,29 @@ fn read_small_body(
     }
     body.truncate(n);
     Ok(body)
+}
+
+/// One JSON answer (`no-store`, `nosniff`).
+fn write_json(
+    stream: &mut TcpStream,
+    status: u16,
+    body: &str,
+    head_only: bool,
+    keep: bool,
+) -> io::Result<()> {
+    http::write_head(
+        stream,
+        status,
+        "Content-Type: application/json\r\nCache-Control: no-store\r\n",
+        body.len() as u64,
+        keep,
+    )
+    .and_then(|_| {
+        if head_only {
+            Ok(())
+        } else {
+            stream.write_all(body.as_bytes())
+        }
+    })
+    .and_then(|_| stream.flush())
 }

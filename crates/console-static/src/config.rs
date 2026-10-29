@@ -72,7 +72,24 @@ usage: galion-console-static --root DIR [options]
                        with 410 Gone JSON instead of 404 (slot 395); needs
                        --arena-root (or --data-path /api/arena) so /api/arena
                        is answered too (slot 413)
-  --hermes ADDR        loopback hermes-rs for --owner-routes, e.g. 127.0.0.1:8642
+  --hermes ADDR        loopback hermes-rs for --owner-routes / --hermes-api,
+                       e.g. 127.0.0.1:8642
+  --hermes-api         (needs --local-api and --hermes) the Hermes research
+                       adapter: /api/hermes/{health,guard,spend,history,models,
+                       modes,skills,providers}, POST /api/hermes/ask, runs/ID,
+                       runs/ID/events (SSE) and runs/ID/stop, behind the same
+                       pairing gate; the gateway key is added server-side
+  --hermes-key-file F  file with an API_SERVER_KEY=... line (the gateway's own
+                       env file); env HERMES_API_KEY / API_SERVER_KEY win
+  --hermes-providers L comma list of gateway providers the picker may send:
+                       laptop, runpod, openrouter, river (default openrouter);
+                       unlisted ones show as not set up and are never sent
+  --hermes-laptop ADDR loopback address probed (TCP) for the laptop model,
+                       e.g. 127.0.0.1:11434; closed = offline
+  --stt ADDR           (needs --local-api) loopback galion-stt for live dictation:
+                       GET /api/stt/health and the WebSocket /api/stt/stream,
+                       behind the same pairing gate, e.g. 127.0.0.1:8650
+  --stt-max-sessions N concurrent dictation sessions (default 2, 1..=16)
   --console-host HOST  extra host treated as a console host (repeatable),
                        e.g. the machine public IP (the TSX had
                        the two server IPs hard-coded; pass them here)
@@ -161,6 +178,19 @@ pub struct Config {
     /// `--owner-routes`: forward [`crate::owners::OWNER_ROUTES`] to their
     /// owner and answer [`crate::owners::RETIRED`] with 410 (slot 395).
     pub owner_routes: bool,
+    /// `--hermes-api`: the Hermes research adapter ([`crate::hermes`]).
+    pub hermes_api: bool,
+    /// `--hermes-key-file`: env-style file holding `API_SERVER_KEY=` (read
+    /// at start; the value never leaves the server).
+    pub hermes_key_file: Option<PathBuf>,
+    /// `--hermes-providers`: providers the picker may send.
+    pub hermes_providers: Vec<String>,
+    /// `--hermes-laptop`: TCP probe for the laptop model.
+    pub hermes_laptop: Option<SocketAddr>,
+    /// `--stt`: loopback galion-stt ([`crate::stt`]).
+    pub stt: Option<SocketAddr>,
+    /// `--stt-max-sessions`: concurrent `/api/stt/stream` tunnels.
+    pub stt_max_sessions: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -238,6 +268,12 @@ impl Config {
         let mut data_paths: Vec<String> = Vec::new();
         let mut hermes: Option<SocketAddr> = None;
         let mut owner_routes = false;
+        let mut hermes_api = false;
+        let mut hermes_key_file: Option<PathBuf> = None;
+        let mut hermes_providers: Vec<String> = Vec::new();
+        let mut hermes_laptop: Option<SocketAddr> = None;
+        let mut stt: Option<SocketAddr> = None;
+        let mut stt_max_sessions: Option<usize> = None;
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             let mut val = |name: &str| {
@@ -379,6 +415,52 @@ impl Config {
                     hermes = Some(p);
                 }
                 "--owner-routes" => owner_routes = true,
+                "--hermes-api" => hermes_api = true,
+                "--hermes-key-file" => {
+                    hermes_key_file =
+                        Some(abs_path(val("--hermes-key-file")?, "--hermes-key-file")?)
+                }
+                "--hermes-providers" => {
+                    for p in val("--hermes-providers")?
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|p| !p.is_empty())
+                    {
+                        if !crate::hermes::PROVIDERS.iter().any(|x| x.id == p) {
+                            return Err(bad(format!("unknown --hermes-providers entry {p:?} (laptop, runpod, openrouter, river)")));
+                        }
+                        if !hermes_providers.iter().any(|x| x == p) {
+                            hermes_providers.push(p.to_string());
+                        }
+                    }
+                }
+                "--hermes-laptop" => {
+                    let p: SocketAddr = val("--hermes-laptop")?
+                        .parse()
+                        .map_err(|_| bad("--hermes-laptop must be IP:port"))?;
+                    if !p.ip().is_loopback() {
+                        return Err(bad("--hermes-laptop must be a loopback address"));
+                    }
+                    hermes_laptop = Some(p);
+                }
+                "--stt" => {
+                    let p: SocketAddr = val("--stt")?
+                        .parse()
+                        .map_err(|_| bad("--stt must be IP:port"))?;
+                    if !p.ip().is_loopback() {
+                        return Err(bad("--stt must be a loopback address"));
+                    }
+                    stt = Some(p);
+                }
+                "--stt-max-sessions" => {
+                    let n: usize = val("--stt-max-sessions")?
+                        .parse()
+                        .map_err(|_| bad("--stt-max-sessions must be a number"))?;
+                    if !(1..=16).contains(&n) {
+                        return Err(bad("--stt-max-sessions must be 1..=16"));
+                    }
+                    stt_max_sessions = Some(n);
+                }
                 "--user-md" => files.user_md = Some(abs_path(val("--user-md")?, "--user-md")?),
                 "--allow-public-bind" => public = true,
                 "--quiet" => access_log = false,
@@ -431,8 +513,30 @@ impl Config {
                 "--owner-routes needs --local-api or --dist (the API gate)",
             ));
         }
-        if hermes.is_some() && !owner_routes {
-            return Err(bad("--hermes needs --owner-routes"));
+        if hermes.is_some() && !owner_routes && !hermes_api {
+            return Err(bad("--hermes needs --owner-routes or --hermes-api"));
+        }
+        if hermes_api && (!local_api || hermes.is_none()) {
+            return Err(bad(
+                "--hermes-api needs --local-api (or --dist) and --hermes",
+            ));
+        }
+        if (hermes_key_file.is_some() || !hermes_providers.is_empty() || hermes_laptop.is_some())
+            && !hermes_api
+        {
+            return Err(bad(
+                "--hermes-key-file / --hermes-providers / --hermes-laptop need --hermes-api",
+            ));
+        }
+        if stt.is_some() && !local_api {
+            return Err(bad("--stt needs --local-api (or --dist): the pairing gate"));
+        }
+        if stt_max_sessions.is_some() && stt.is_none() {
+            return Err(bad("--stt-max-sessions needs --stt"));
+        }
+        let stt_max_sessions = stt_max_sessions.unwrap_or(2);
+        if hermes_api && hermes_providers.is_empty() {
+            hermes_providers.push("openrouter".to_string());
         }
         if !data_paths.is_empty() && data_upstream.is_none() {
             return Err(bad("--data-path needs --data-upstream"));
@@ -491,6 +595,12 @@ impl Config {
             data_paths,
             hermes,
             owner_routes,
+            hermes_api,
+            hermes_key_file,
+            hermes_providers,
+            hermes_laptop,
+            stt,
+            stt_max_sessions,
         })
     }
 }

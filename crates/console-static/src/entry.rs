@@ -145,6 +145,22 @@ pub fn run() -> ExitCode {
         cfg.data_paths
     );
     let state = Arc::new(State::new(site, routes, cfg));
+    if let Some(h) = &state.hermes {
+        // Whether a key was found, never the key.
+        eprintln!(
+            "galion-console-static: hermes_api on gateway {} key {} providers {:?} laptop_probe {}",
+            h.addr,
+            if h.has_key() { "found" } else { "MISSING" },
+            h.providers,
+            addr_or_none(h.laptop)
+        );
+    }
+    if let Some(s) = state.stt.as_ref() {
+        eprintln!(
+            "galion-console-static: stt on {} max_sessions {}",
+            s.addr, s.max_sessions
+        );
+    }
     match server::serve(listener, state) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

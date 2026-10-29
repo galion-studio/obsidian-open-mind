@@ -1,0 +1,8 @@
+# Protected set recorded 2026-10-29 08:16 CET before any deletion
+Running processes: gate loop pid 2220805 (cwd /workspace/swarm/logs/v1029, gate.sh over nerve-merge-9-redact console-studio-names-retire nerve-merge-9 hub-incident-redact cortex-escalations-persist hermes-gateway-recipe)
+  cargo test pid 2472654 cwd wt/hermes-gateway-recipe CARGO_TARGET_DIR=target/v1029-hermes-gateway-recipe
+  timeout/cargo test real_deploy_recipes pid 2435560/2435561 cwd wt/nerve-merge-9-redact CARGO_TARGET_DIR=target/v1029-nerve-merge-9-redact
+  test binary 2436370 -> cargo build in /tmp/nerve-recipes-2436370 (CARGO_TARGET_DIR under /tmp)
+Protected target dirs: target/v1029-* (all 10), target/hub-incident-redact (gate.sh override), target/console-mic-ruling, target-nm4-real (not in scope)
+Protected worktrees: wt/nerve-merge-9-redact wt/console-studio-names-retire wt/nerve-merge-9 wt/hub-incident-redact wt/cortex-escalations-persist wt/hermes-gateway-recipe wt/console-mic-ruling
+Also protected: anything modified in the last 60 min; /tmp/nerve-recipes-*; /workspace/swarm/artifacts; /workspace/cargen

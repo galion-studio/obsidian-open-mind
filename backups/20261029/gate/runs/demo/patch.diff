@@ -1,0 +1,8 @@
+diff --git a/crates/hermes-rs/src/tools.rs b/crates/hermes-rs/src/tools.rs
+--- a/crates/hermes-rs/src/tools.rs
++++ b/crates/hermes-rs/src/tools.rs
+@@ -123,3 +123,3 @@ impl Tool for ClockTool {
+     fn description(&self) -> String {
+-        "Current time in Europe/Zagreb (RFC 3339 with offset).".into()
++        "Returns the current date and time in Europe/Zagreb (RFC 3339 with offset).".into()
+     }

@@ -1,0 +1,88 @@
+warning: use of deprecated constant `std::f64::INFINITY`: replaced by the `INFINITY` associated constant on `f64`
+  --> vendor/candle-core/src/cpu/erf.rs:49:14
+   |
+49 |         f64::INFINITY
+   |              ^^^^^^^^
+   |
+   = note: `#[warn(deprecated)]` on by default
+
+warning: use of deprecated constant `std::f64::NEG_INFINITY`: replaced by the `NEG_INFINITY` associated constant on `f64`
+  --> vendor/candle-core/src/cpu/erf.rs:51:14
+   |
+51 |         f64::NEG_INFINITY
+   |              ^^^^^^^^^^^^
+
+warning: use of deprecated constant `std::f64::INFINITY`: replaced by the `INFINITY` associated constant on `f64`
+  --> vendor/candle-core/src/cpu/erf.rs:73:14
+   |
+73 |         f64::INFINITY
+   |              ^^^^^^^^
+
+warning: use of deprecated constant `std::f64::NEG_INFINITY`: replaced by the `NEG_INFINITY` associated constant on `f64`
+  --> vendor/candle-core/src/cpu/erf.rs:75:14
+   |
+75 |         f64::NEG_INFINITY
+   |              ^^^^^^^^^^^^
+
+warning: `candle-core` (lib) generated 4 warnings
+    Checking openmind-memory v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-memory)
+    Checking openmind-mcp-stack v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-mcp-stack)
+    Checking bench-banking v0.1.0 (/root/swarm-om-20261029/int/crates/bench-banking)
+    Checking galion-vending v0.1.0 (/root/swarm-om-20261029/int/crates/galion-vending)
+    Checking gaia v0.1.0 (/root/swarm-om-20261029/int/crates/gaia)
+    Checking gaia-poseidon v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-poseidon)
+    Checking openmind-sandbox v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-sandbox)
+    Checking console-static v0.1.0 (/root/swarm-om-20261029/int/crates/console-static)
+    Checking openmind-queue v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-queue)
+    Checking gaia-minerva v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-minerva)
+    Checking repo-check v0.1.0 (/root/swarm-om-20261029/int/crates/repo-check)
+    Checking bench-scoreboard v0.1.0 (/root/swarm-om-20261029/int/crates/bench-scoreboard)
+    Checking galion-bench v0.1.0 (/root/swarm-om-20261029/int/crates/galion-bench)
+    Checking galion-wallstreet v0.1.0 (/root/swarm-om-20261029/int/crates/galion-wallstreet)
+    Checking console-ui v0.1.0 (/root/swarm-om-20261029/int/crates/console-ui)
+    Checking openmind-persona v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-persona)
+    Checking hermes-rs v0.1.0 (/root/swarm-om-20261029/int/crates/hermes-rs)
+    Checking one-defence v0.1.0 (/root/swarm-om-20261029/int/crates/one-defence)
+    Checking openmind-nerve v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-nerve)
+    Checking galion-deploy v0.1.0 (/root/swarm-om-20261029/int/crates/galion-deploy)
+    Checking openmind-provider v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-provider)
+    Checking openmind-schema v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-schema)
+    Checking galion-tar v0.1.0 (/root/swarm-om-20261029/int/crates/galion-tar)
+    Checking galion-realtest v0.1.0 (/root/swarm-om-20261029/int/crates/galion-realtest)
+    Checking gaia-live v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-live)
+    Checking galion-desk v0.1.0 (/root/swarm-om-20261029/int/crates/galion-desk)
+    Checking openmind-config v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-config)
+    Checking tunnel-lint v0.1.0 (/root/swarm-om-20261029/int/crates/tunnel-lint)
+    Checking hades-gate v0.1.0 (/root/swarm-om-20261029/int/crates/hades-gate)
+    Checking gaia-hades v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-hades)
+    Checking gaia-artemis v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-artemis)
+    Checking gaia-hephaestus v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-hephaestus)
+    Checking gaia-core v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-core)
+    Checking openmind-tulu v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-tulu)
+    Checking gaia-demeter v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-demeter)
+    Checking gaia-aether v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-aether)
+    Checking gaia-eleuthia v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-eleuthia)
+    Checking gaia-apollo v0.1.0 (/root/swarm-om-20261029/int/crates/gaia-apollo)
+    Checking galion-feature-pin v0.1.0 (/root/swarm-om-20261029/int/crates/galion-feature-pin)
+    Checking galion-common v0.1.0 (/root/swarm-om-20261029/int/crates/galion-common)
+    Checking galion-one v0.1.0 (/root/swarm-om-20261029/int/crates/galion-one)
+    Checking tuner v0.1.0 (/root/swarm-om-20261029/int/crates/tuner)
+    Checking one-talk v0.1.0 (/root/swarm-om-20261029/int/crates/one-talk)
+    Checking room v0.1.0 (/root/swarm-om-20261029/int/crates/room)
+    Checking galion-origin v0.1.0 (/root/swarm-om-20261029/int/crates/galion-origin)
+    Checking galion-jsonout v0.1.0 (/root/swarm-om-20261029/int/crates/galion-jsonout)
+    Checking openmind-survival v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-survival)
+    Checking nerve-cortex-contract v0.1.0 (/root/swarm-om-20261029/int/crates/nerve-cortex-contract)
+    Checking galion-health v0.2.0 (/root/swarm-om-20261029/int/crates/galion-health)
+    Checking galion-report-push v0.1.0 (/root/swarm-om-20261029/int/crates/galion-report-push)
+    Checking zagreb-time v0.1.0 (/root/swarm-om-20261029/int/crates/zagreb-time)
+    Checking openmind-speech v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-speech)
+    Checking one-set-model v0.1.0 (/root/swarm-om-20261029/int/crates/one-set-model)
+    Checking openmind-llama v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-llama)
+    Checking openmind-exo v0.1.0 (/root/swarm-om-20261029/int/crates/openmind-exo)
+    Checking galion-voice-core v0.1.0 (/root/swarm-om-20261029/int/crates/galion-voice-core)
+    Checking xtask v0.1.0 (/root/swarm-om-20261029/int/crates/xtask)
+    Checking nerve-client v0.1.0 (/root/swarm-om-20261029/int/crates/nerve-client)
+    Checking galleon-arena v0.1.0 (/root/swarm-om-20261029/int/crates/galleon-arena)
+    Checking cgroup-detect v0.1.0 (/root/swarm-om-20261029/int/crates/cgroup-detect)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.67s

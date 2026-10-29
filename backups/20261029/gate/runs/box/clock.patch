@@ -1,0 +1,13 @@
+diff --git a/crates/hermes-rs/src/tools.rs b/crates/hermes-rs/src/tools.rs
+index 1631d13..2a4927d 100644
+--- a/crates/hermes-rs/src/tools.rs
++++ b/crates/hermes-rs/src/tools.rs
+@@ -121,7 +121,7 @@ impl Tool for ClockTool {
+         "clock".into()
+     }
+     fn description(&self) -> String {
+-        "Current time in Europe/Zagreb (RFC 3339 with offset).".into()
++        "Current date and time in Europe/Zagreb (RFC 3339 with UTC offset).".into()
+     }
+     fn parameters(&self) -> Value {
+         json!({"type": "object", "properties": {}})

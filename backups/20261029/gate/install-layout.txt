@@ -1,0 +1,70 @@
+drwxr-xr-x  2 root root   6 Oct 27 18:46 .
+drwxr-xr-x 26 root root  62 Oct 29 13:07 ..
+-rw-r--r--  1 root root 418 Oct 21 07:46 50-rust-bin.conf
+-rw-r--r--  1 root root 484 Oct 21 07:32 60-nerve-url.conf
+-rw-r--r--  1 root root 799 Oct 21 16:12 70-research-budget.conf
+-rw-r--r--  1 root root 628 Oct 27 18:07 90-deploy-t291u.conf
+active
+MainPID=2239926
+
+/opt/galion/gate:
+total 4
+drwxr-xr-x  3 root root  3 Oct 29 13:05 .
+drwxr-xr-x 34 root root 36 Oct 29 13:05 ..
+drwxr-xr-x  2 root root  3 Oct 29 13:08 bin
+
+/opt/galion/gate/bin:
+total 417
+drwxr-xr-x 2 root root      3 Oct 29 13:08 .
+drwxr-xr-x 3 root root      3 Oct 29 13:05 ..
+-rwxr-xr-x 1 root root 616800 Oct 29 13:08 hermes-gate
+/var/lib/galion-gate:
+total 13034
+drwxr-x--- 10 galion-gate galion-gate       16 Oct 29 13:16 .
+drwxr-xr-x 40 root        root              41 Oct 29 13:19 ..
+-rw-r--r--  1 root        root              65 Oct 29 13:16 demo-owner.pub
+drwxr-xr-x  3 galion-gate galion-gate        5 Oct 29 13:06 gate-target
+-rw-r-----  1 galion-gate galion-gate 13351379 Oct 29 13:08 gate-v2.bundle
+drwx------  2 galion-gate galion-gate        3 Oct 29 13:06 keys
+-rw-r--r--  1 root        root              65 Oct 29 13:06 owner.pub
+drwxr-x---  2 galion-gate galion-gate        7 Oct 29 13:14 plans
+drwxr-xr-x 27 galion-gate galion-gate       44 Oct 29 13:05 repo
+drwxr-x---  4 galion-gate galion-gate        4 Oct 29 13:14 runs
+-rw-r--r--  1 root        root              65 Oct 29 13:06 sandbox.pub
+drwxr-x---  2 galion-gate galion-gate        2 Oct 29 13:15 scratch
+drwxr-x---  4 galion-gate galion-gate        5 Oct 29 13:16 staging
+drwxr-x---  4 galion-gate galion-gate        4 Oct 29 13:05 toolchain
+-rwxr-x---  1 galion-gate galion-gate      947 Oct 29 13:05 vps-toolchain.sh
+-rwxr-x---  1 galion-gate galion-gate      679 Oct 29 13:08 vps-update.sh
+
+/var/lib/galion-gate/plans:
+total 11
+drwxr-x---  2 galion-gate galion-gate    7 Oct 29 13:14 .
+drwxr-x--- 10 galion-gate galion-gate   16 Oct 29 13:16 ..
+-rwxr-xr-x  1 galion-gate galion-gate 1071 Oct 29 13:14 demo-gate.sh
+-rwxr-xr-x  1 galion-gate galion-gate 1728 Oct 29 13:07 hermes-gateway-deploy-smoke.sh
+-rw-r--r--  1 galion-gate galion-gate 1158 Oct 29 13:11 plan.json
+-rwxr-xr-x  1 galion-gate galion-gate  712 Oct 29 13:11 vps-cargo-noproc.sh
+-rwxr-xr-x  1 galion-gate galion-gate  569 Oct 29 13:07 vps-run.sh
+
+/var/lib/galion-gate/runs:
+total 5
+drwxr-x---  4 galion-gate galion-gate  4 Oct 29 13:14 .
+drwxr-x--- 10 galion-gate galion-gate 16 Oct 29 13:16 ..
+drwxr-x---  2 galion-gate galion-gate  9 Oct 29 13:16 demo-1
+drwxr-x---  2 galion-gate galion-gate  6 Oct 29 13:13 real-1
+
+/var/lib/galion-gate/staging:
+total 9
+drwxr-x---  4 galion-gate galion-gate   5 Oct 29 13:16 .
+drwxr-x--- 10 galion-gate galion-gate  16 Oct 29 13:16 ..
+-rw-------  1 galion-gate galion-gate 328 Oct 29 13:16 applied.ledger
+drwxr-xr-x 26 galion-gate galion-gate  44 Oct 29 13:16 clock-desc-hermes-demo-59c79e5f
+drwxr-xr-x 26 galion-gate galion-gate  44 Oct 29 13:13 clock-desc-vps-256ab4ce
+total 3
+drwx------  2 galion-gate galion-gate  <size> Oct 29 13:06 .
+drwxr-x--- 10 galion-gate galion-gate <size> Oct 29 13:16 ..
+-rw-------  1 galion-gate galion-gate <size> Oct 29 13:06 sandbox.seed
+363M	/var/lib/galion-gate/toolchain
+26M	/var/lib/galion-gate/gate-target
+512	/var/lib/galion-gate/scratch

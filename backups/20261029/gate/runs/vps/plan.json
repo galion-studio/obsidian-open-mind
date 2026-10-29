@@ -1,0 +1,58 @@
+{
+ "env": {
+  "PATH": "/var/lib/galion-gate/toolchain/cargo/bin:/usr/bin:/bin",
+  "CARGO_HOME": "/var/lib/galion-gate/toolchain/cargo",
+  "RUSTUP_HOME": "/var/lib/galion-gate/toolchain/rustup",
+  "CARGO_NET_OFFLINE": "true",
+  "CARGO_BUILD_JOBS": "4",
+  "CARGO_INCREMENTAL": "0"
+ },
+ "extra_read": [
+  "/var/lib/galion-gate/toolchain",
+  "/var/lib/galion-gate/plans/hermes-gateway-deploy-smoke.sh",
+  "/var/lib/galion-gate/plans/vps-cargo-noproc.sh"
+ ],
+ "stages": [
+  {
+   "name": "build",
+   "argv": [
+    "/bin/bash",
+    "/var/lib/galion-gate/plans/vps-cargo-noproc.sh",
+    "build",
+    "--offline",
+    "-p",
+    "hermes-gateway",
+    "--bin",
+    "hermes-gateway"
+   ],
+   "timeout_s": 1500,
+   "mem_mb": 4096
+  },
+  {
+   "name": "test",
+   "argv": [
+    "/bin/bash",
+    "/var/lib/galion-gate/plans/vps-cargo-noproc.sh",
+    "test",
+    "--offline",
+    "-p",
+    "hermes-rs",
+    "--lib"
+   ],
+   "timeout_s": 1200,
+   "mem_mb": 4096
+  },
+  {
+   "name": "deploy",
+   "argv": [
+    "/bin/bash",
+    "/var/lib/galion-gate/plans/hermes-gateway-deploy-smoke.sh"
+   ],
+   "timeout_s": 60,
+   "mem_mb": 1024,
+   "loopback_ports": [
+    18642
+   ]
+  }
+ ]
+}

@@ -1,0 +1,13 @@
+slot held 2026-10-29 14:04:20 CET
+check applies_to_base      PASS  ok
+check allowed_tree         PASS  ok
+check protected_targets    PASS  ok
+check no_secrets           PASS  ok
+check no_new_capabilities  PASS  ok
+check size_limits          PASS  ok
+check text_only            PASS  ok
+stage build    PASS exit=Some(0) wall_ms=17206 missing_layers=[]
+stage test     PASS exit=Some(0) wall_ms=7457 missing_layers=[]
+stage deploy   PASS exit=Some(0) wall_ms=54 missing_layers=[]
+{"verdict":"pass","checks_passed":7,"checks_total":7,"record_sha256":"fa451547c3753e6fc6e7d8398b2625fe49227ef0ec7e623d3e1c21d621f0bf16","result_tree":"7608cb093588b9df82c7604fbb04b55e486f1f0b","wall_ms":25404}
+gate exit 0 2026-10-29 14:04:46 CET

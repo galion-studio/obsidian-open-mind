@@ -53,6 +53,10 @@ pub struct McpServerCfg {
     pub timeout_s: u64,
     pub connect_timeout_s: u64,
     pub lazy: bool,
+    /// Extra env var NAMES copied from the gateway's own environment into the
+    /// server (the child env is cleared). config.yaml `pass_env: [NAME, ...]`.
+    /// Values are never logged.
+    pub pass_env: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -317,6 +321,18 @@ impl Config {
                     timeout_s: sv["timeout"].as_u64().unwrap_or(30),
                     connect_timeout_s: sv["connect_timeout"].as_u64().unwrap_or(15),
                     lazy: sv["lazy"].as_bool().unwrap_or(false),
+                    pass_env: sv["pass_env"]
+                        .as_array()
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(s)
+                                .filter(|n| {
+                                    !n.is_empty()
+                                        && n.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                 });
             }
         }
@@ -483,6 +499,10 @@ mcp_servers:
     args: ["/x.py"]
     timeout: 30
     lazy: true
+  openmind:
+    command: /opt/galion/rust/bin/openmind-mcp-stack
+    args: ["--vault", "/v"]
+    pass_env: [TDAI_GATEWAY_API_KEY, "bad name;rm"]
 "#;
 
     #[test]
@@ -503,6 +523,14 @@ mcp_servers:
         assert_eq!(c.reasoning_overrides["anthropic/claude-haiku-5.5"], "none");
         assert_eq!(c.max_turns, 500);
         assert_eq!(c.mcp_servers[0].name, "galion-stack");
+        assert!(c.mcp_servers[0].pass_env.is_empty());
+        assert_eq!(c.mcp_servers[1].name, "openmind");
+        assert_eq!(c.mcp_servers[1].args, ["--vault", "/v"]);
+        assert_eq!(
+            c.mcp_servers[1].pass_env,
+            ["TDAI_GATEWAY_API_KEY"],
+            "only plain env names pass"
+        );
         assert!(c.free_only_background);
     }
 
@@ -551,6 +579,7 @@ mcp_servers:
             timeout_s: 1,
             connect_timeout_s: 1,
             lazy: false,
+            pass_env: vec![],
         });
         d.apply_env(&env).unwrap();
         assert!(d.mcp_servers.is_empty());

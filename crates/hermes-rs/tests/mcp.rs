@@ -30,6 +30,7 @@ fn stdio_server_discovery_paging_call_and_reconnect() {
         timeout_s: 5,
         connect_timeout_s: 5,
         lazy: true,
+        pass_env: vec![],
     };
     let broken = McpServerCfg {
         name: "gone".into(),

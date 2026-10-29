@@ -82,6 +82,14 @@ impl McpClient {
                 cmd.env(k, v);
             }
         }
+        // Per-server opt-in (config.yaml `pass_env`), e.g. the memory key
+        // for openmind-mcp-stack. Names only come from config; values from
+        // the gateway env and are never logged.
+        for k in &self.cfg.pass_env {
+            if let Ok(v) = std::env::var(k) {
+                cmd.env(k, v);
+            }
+        }
         cmd.stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());

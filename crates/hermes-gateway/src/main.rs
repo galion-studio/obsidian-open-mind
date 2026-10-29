@@ -151,7 +151,11 @@ fn main() {
         for e in errors {
             log(&format!("mcp: {e}"));
         }
-        log(&format!("mcp: {} tools", mcp_tools.len()));
+        log(&format!(
+            "mcp: {} tools: {:?}",
+            mcp_tools.len(),
+            mcp_tools.iter().map(|t| t.name()).collect::<Vec<_>>()
+        ));
         for t in mcp_tools {
             tools.add(t);
         }

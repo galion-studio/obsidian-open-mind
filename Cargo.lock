@@ -1284,6 +1284,8 @@ dependencies = [
 name = "openmind-mcp-stack"
 version = "0.1.0"
 dependencies = [
+ "galion-common",
+ "openmind-memory",
  "serde_json",
  "zagreb-time",
 ]

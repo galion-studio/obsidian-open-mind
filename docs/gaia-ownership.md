@@ -36,7 +36,7 @@ Moves against the old list (the "was" notes in the table):
 | `openmind-discovery` | APOLLO | lan-discovery / AETHER | Network identity and discovery are comms. |
 | `openmind-nerve` | APOLLO | nerve / AETHER | The nerve is a design AETHER system. |
 | `openmind-speech`, `persona-plex-relay` | ELEUTHIA | speech-io, voice-relay / AETHER | Speech and relay are channels; ELEUTHIA keeps the personas. |
-| `openmind-mcp-stack` | MINERVA | stack-schema / APOLLO | It serves knowledge about the stack; it audits nothing. |
+| `openmind-mcp-stack` | MINERVA | stack-schema / APOLLO | It serves memory and read-only vault knowledge; it audits nothing. |
 | `one-defence` | HEPHAESTUS | guardian-watchdog / MINERVA | Health/defence watch is security. |
 | `one-set-model`, `one-talk` | HEPHAESTUS | galion-one / ELEUTHIA | Parts of Galion One. |
 
@@ -87,7 +87,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `openmind-discovery` | system | lan-discovery | AETHER | LAN peer seeds and scan path; network identity is AETHER (was APOLLO) |
 | `openmind-exo` | system | vram-pool | POSEIDON | exo compute adapter (fixtures); external compute is POSEIDON (was HEPHAESTUS) |
 | `openmind-llama` | system | vram-pool | POSEIDON | llama.cpp compute adapter (fixtures) (was HEPHAESTUS) |
-| `openmind-mcp-stack` | system | stack-schema | APOLLO | stdio MCP stack_status: serves knowledge about the stack (was MINERVA) |
+| `openmind-mcp-stack` | system | stack-schema | APOLLO | stdio MCP: OpenMind memory tools over loopback :8420 plus read-only Obsidian vault tools (was MINERVA) |
 | `openmind-memory` | system | memory-gateway | APOLLO | memory store and gateway (:8420) |
 | `openmind-nerve` | system | nerve | AETHER | nerve event archive: the signal lines are AETHER (was APOLLO) |
 | `tunnel-lint` | system | nerve | AETHER | pending Slavik: read-only cloudflared ingress lint (tunnel-audit d35ef73), used by the nerve ingress-lint sensor |

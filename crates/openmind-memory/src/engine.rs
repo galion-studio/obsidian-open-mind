@@ -693,6 +693,33 @@ impl Engine {
         reply(lines.join("\n"), items.len())
     }
 
+    /// POST /recent (2026-10-29, for the MCP `memory_recent` tool): newest
+    /// L0 messages first, read-only. Body: optional `limit` (1..=50, default
+    /// 10) and `session_key`. Times are rendered in Europe/Zagreb.
+    pub fn recent(&self, body: &Value) -> (u16, Value) {
+        let limit = limit_of(body.get("limit"), 10).clamp(1, 50);
+        let session = str_of(body.get("session_key"));
+        let sk = (!session.is_empty()).then_some(session.as_str());
+        let Some(store) = &self.store else {
+            return (200, json!({ "items": [], "total": 0 }));
+        };
+        let items: Vec<Value> = store
+            .recent_l0(sk, limit)
+            .into_iter()
+            .map(|h| {
+                json!({
+                    "session_key": h.session_key,
+                    "role": h.role,
+                    "text": h.message_text,
+                    "recorded_at": h.recorded_at,
+                    "local_time": if h.timestamp > 0 { zagreb_time::from_unix(h.timestamp / 1000) } else { String::new() },
+                })
+            })
+            .collect();
+        let total = items.len();
+        (200, json!({ "items": items, "total": total }))
+    }
+
     /// POST /session/end — no buffered pipeline work to flush in v0.
     pub fn session_end(&self, body: &Value) -> (u16, Value) {
         if !truthy(body.get("session_key")) {

@@ -521,6 +521,53 @@ impl Store {
         })
     }
 
+    /// Newest L0 rows first (read-only), optionally one `session_key` only.
+    /// Used by `POST /recent` (MCP `memory_recent`, 2026-10-29). `limit` is
+    /// clamped by the caller.
+    pub fn recent_l0(&self, session_key: Option<&str>, limit: usize) -> Vec<L0Hit> {
+        if limit == 0 {
+            return Vec::new();
+        }
+        let conn = self.lock();
+        let base = "SELECT record_id, message_text, session_key, session_id, role, recorded_at, \
+                    timestamp FROM l0_conversations";
+        let sql = match session_key {
+            Some(_) => format!(
+                "{base} WHERE session_key = ?2 ORDER BY timestamp DESC, recorded_at DESC LIMIT ?1"
+            ),
+            None => format!("{base} ORDER BY timestamp DESC, recorded_at DESC LIMIT ?1"),
+        };
+        let map = |r: &Row| {
+            Ok(L0Hit {
+                record_id: s(r, 0),
+                message_text: s(r, 1),
+                session_key: s(r, 2),
+                session_id: s(r, 3),
+                role: s(r, 4),
+                recorded_at: s(r, 5),
+                timestamp: n(r, 6),
+                score: 0.0,
+            })
+        };
+        let res = conn.prepare_cached(&sql).and_then(|mut st| {
+            let rows: Vec<L0Hit> = match session_key {
+                Some(sk) => st
+                    .query_map(params![limit as i64, sk], map)?
+                    .filter_map(Result::ok)
+                    .collect(),
+                None => st
+                    .query_map(params![limit as i64], map)?
+                    .filter_map(Result::ok)
+                    .collect(),
+            };
+            Ok(rows)
+        });
+        res.unwrap_or_else(|e| {
+            crate::log::warn(&format!("[L0-recent] failed (non-fatal): {e}"));
+            Vec::new()
+        })
+    }
+
     /// `searchL0TextFallback`: l0_fts when it has rows, else a LIKE scan.
     pub fn l0_text_fallback(&self, raw: &str, limit: usize) -> Vec<String> {
         self.l0_text_fallback_scoped(raw, None, limit)

@@ -6,12 +6,16 @@ name = "openmind-mcp-stack"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Read-only stdio MCP stub. initialize and tools/list for stack_status. Fixture JSON only. No sockets."
+description = "Stdio MCP server: OpenMind memory tools over the loopback openmind-memory API plus read-only Obsidian vault tools."
 
 [[bin]]
 name = "openmind-mcp-stack"
 path = "src/main.rs"
 
 [dependencies]
+galion-common = { path = "../galion-common" }
 serde_json = { workspace = true }
 zagreb-time = { path = "../zagreb-time" }
+
+[dev-dependencies]
+openmind-memory = { path = "../openmind-memory" }

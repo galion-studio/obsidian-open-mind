@@ -31,7 +31,7 @@
 | openmind-exo | Parse exo fixture bodies for an OpenAI-compatible /v1/models and /health. No sockets and no GPU. |
 | openmind-fallback | Pure provider fallback policy: GPU, else an approved LAN row, else a CPU local row. Tests only. No network. |
 | openmind-llama | Parse llama.cpp llama-server fixture bodies for /health and /v1/models. No sockets and no GPU. |
-| openmind-mcp-stack | Read-only stdio MCP stub. initialize and tools/list for stack_status. Fixture JSON only. No sockets. |
+| openmind-mcp-stack | Stdio MCP server: OpenMind memory tools over the loopback openmind-memory API plus read-only Obsidian vault tools. |
 | openmind-memory | Fixture-backed memory store and search for the Hermes gateway subset. |
 | openmind-nerve | Append-only JSONL nerve log: Europe/Zagreb timestamps, size rotation, caller-supplied path. |
 | openmind-origin | Pure function that builds an HTTP 302 redirect. Location comes from the caller; the default is /. The body is empty. No listener. |

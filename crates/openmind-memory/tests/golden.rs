@@ -596,4 +596,65 @@ fn recall_scope_session_and_all() {
             "{bad}"
         );
     }
+
+#[test]
+fn recent_lists_newest_first_and_filters_by_session() {
+    let dir = tmpdir("recent");
+    let app = app(&dir, None, &[]);
+    let (s, v) = call(&app, "POST", "/recent", json!({}), &[]);
+    assert_eq!(s, 200, "{v}");
+    assert_eq!(v["total"], 0);
+    for (sk, text) in [
+        ("sess-a", "first note about the red kettle"),
+        ("sess-b", "second note about the blue lamp"),
+        ("sess-a", "third note about the green door"),
+    ] {
+        let (s, v) = call(
+            &app,
+            "POST",
+            "/capture",
+            json!({"user_content": text, "assistant_content": "ok",
+                   "session_key": sk, "messages": [{"role": "user", "content": text}]}),
+            &[],
+        );
+        assert_eq!(s, 200, "{v}");
+        assert_eq!(v["l0_recorded"], 1, "{v}");
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let (s, v) = call(&app, "POST", "/recent", json!({"limit": 2}), &[]);
+    assert_eq!(s, 200);
+    assert_eq!(v["total"], 2, "{v}");
+    assert_eq!(v["items"][0]["text"], "third note about the green door");
+    assert_eq!(v["items"][1]["text"], "second note about the blue lamp");
+    let lt = v["items"][0]["local_time"].as_str().unwrap();
+    assert!(lt.ends_with("+01:00") || lt.ends_with("+02:00"), "{lt}");
+    let (_, v) = call(
+        &app,
+        "POST",
+        "/recent",
+        json!({"session_key": "sess-a", "limit": 500}),
+        &[],
+    );
+    assert_eq!(v["total"], 2, "{v}");
+    assert!(v["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|i| i["session_key"] == "sess-a"));
+}
+
+#[test]
+fn recent_needs_auth_when_a_key_is_set() {
+    let dir = tmpdir("recent-auth");
+    let app = app(&dir, Some("k-test"), &[]);
+    let (s, _) = call(&app, "POST", "/recent", json!({}), &[]);
+    assert_eq!(s, 401);
+    let (s, _) = call(
+        &app,
+        "POST",
+        "/recent",
+        json!({}),
+        &[("authorization", "Bearer k-test")],
+    );
+    assert_eq!(s, 200);
 }

@@ -154,7 +154,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("openmind-discovery", S(System::LanDiscovery), "LAN peer seeds and scan path; network identity is AETHER (was APOLLO)"),
     c("openmind-exo", S(System::VramPool), "exo compute adapter (fixtures); external compute is POSEIDON (was HEPHAESTUS)"),
     c("openmind-llama", S(System::VramPool), "llama.cpp compute adapter (fixtures) (was HEPHAESTUS)"),
-    c("openmind-mcp-stack", S(System::StackSchema), "stdio MCP stack_status: serves knowledge about the stack (was MINERVA)"),
+    c("openmind-mcp-stack", S(System::StackSchema), "stdio MCP: OpenMind memory tools over loopback :8420 plus read-only Obsidian vault tools (was MINERVA)"),
     c("openmind-memory", S(System::MemoryGateway), "memory store and gateway (:8420)"),
     c("openmind-nerve", S(System::Nerve), "nerve event archive: the signal lines are AETHER (was APOLLO)"),
     c("openmind-persona", S(System::PersonaPlex), "persona TOML documents"),

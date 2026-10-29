@@ -596,6 +596,7 @@ fn recall_scope_session_and_all() {
             "{bad}"
         );
     }
+}
 
 #[test]
 fn recent_lists_newest_first_and_filters_by_session() {

@@ -210,8 +210,48 @@ fn event_signal(e: &Event, now: u64) -> Option<Signal> {
         kind: kind.into(),
         name: e.kind().chars().take(64).collect(),
         value: None,
-        msg: e.data_json().chars().take(300).collect(),
+        // Redacted again at Hub::ingest; here so the cap counts masked text.
+        msg: crate::redact::redact(&e.data_json())
+            .chars()
+            .take(300)
+            .collect(),
+        event_cause: Some(format!("gaia:{}", event_feed_src(e.source()))),
+        event_component: Some(event_feed_component(e)),
     })
+}
+
+/// The component the event-feed sensor names for a B33 finding event:
+/// `data.top.component` (rollup) or `data.component`, else the source, cleaned
+/// like the source (slot 435, D-422-1 fold: one component, not two).
+fn event_feed_component(e: &Event) -> String {
+    let v: Value = serde_json::from_str(&e.data_json()).unwrap_or(Value::Null);
+    let d = if v["top"].is_object() { &v["top"] } else { &v };
+    let src = event_feed_src(e.source());
+    event_feed_src(d["component"].as_str().unwrap_or(&src))
+}
+
+/// The source name exactly as the event-feed sensor writes it into its
+/// `gaia:<src>` cause (`sensors::event_feed` `clean(source, 48)`): control
+/// characters dropped, else `[A-Za-z0-9._-]` kept, anything else `_`, 48
+/// chars, `unknown` when empty (D-422-1, slot 435).
+pub fn event_feed_src(s: &str) -> String {
+    let c: String = s
+        .chars()
+        .filter(|c| !c.is_control())
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || "._-".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(48)
+        .collect();
+    if c.is_empty() {
+        "unknown".into()
+    } else {
+        c
+    }
 }
 
 /// Route a request against the shared state: (status, content type, body).
@@ -659,6 +699,26 @@ pub fn serve(listener: TcpListener, sh: Arc<Mutex<Shared>>, ev: Option<Arc<Mutex
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Slot 435: a POST /event signal carries masked text and the
+    /// event-feed cause; the address never reaches the hub.
+    #[test]
+    fn event_signal_redacts_and_names_gaia_cause() {
+        let e = event_from(r#"{"source":"t 158","kind":"ddos","severity":"error","data":{"title":"edge flood on 10.0.0.5:443","fix":"ban 10.0.0.5","peer":"[fe80::1%eth0]:22","host":"edge.example.org"}}"#).unwrap();
+        let s = event_signal(&e, 7).unwrap();
+        assert_eq!(s.kind, "error");
+        assert_eq!(s.event_cause.as_deref(), Some("gaia:t_158"));
+        assert_eq!(s.event_component.as_deref(), Some("t_158"));
+        let e = event_from(r#"{"source":"t158","kind":"ddos","severity":"error","data":{"top":{"component":"tunnel"}}}"#).unwrap();
+        assert_eq!(
+            event_signal(&e, 7).unwrap().event_component.as_deref(),
+            Some("tunnel")
+        );
+        for bad in ["10.0.0.5", "fe80", "edge.example.org"] {
+            assert!(!s.msg.contains(bad), "{bad}: {}", s.msg);
+        }
+        assert!(s.msg.contains("edge flood on <addr>"), "{}", s.msg);
+    }
 
     fn req(m: &str, p: &str, b: &str) -> Req {
         let (path, query) = p.split_once('?').unwrap_or((p, ""));

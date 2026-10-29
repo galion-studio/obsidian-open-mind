@@ -246,6 +246,10 @@ pub struct Config {
     /// Slot 382: optional loopback alert webhook (`NERVE_ALERT_WEBHOOK*`);
     /// `Err` = configured but rejected (nerve still starts; surfaced as a finding).
     pub alert_webhook: Result<Option<crate::alert_sink::WebhookConfig>, String>,
+    /// `NERVE_HUB_EVENT_FOLD` (default off, D-422-1 slot 435): a `POST /event`
+    /// hub signal opens its incident under the event-feed cause `gaia:<src>`
+    /// (one pushed error = one incident, scored once) instead of `<src>`.
+    pub hub_event_fold: bool,
     pub voice_unit: Option<String>,
     pub voice_port: Option<u16>,
     pub disk_path: String,
@@ -359,6 +363,7 @@ impl Config {
             telegram_env: get("NERVE_TELEGRAM_ENV").map(PathBuf::from),
             ext_alerts_per_hour: num("NERVE_EXT_ALERTS_PER_HOUR", 4).min(6) as u32,
             alert_webhook: crate::alert_sink::WebhookConfig::from_env(get),
+            hub_event_fold: flag("NERVE_HUB_EVENT_FOLD", false),
             voice_unit: get("NERVE_VOICE_UNIT"),
             voice_port: get("NERVE_VOICE_PORT").and_then(|v| v.parse().ok()),
             disk_path: get("NERVE_DISK_PATH").unwrap_or_else(|| "/".into()),

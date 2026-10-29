@@ -130,6 +130,10 @@ impl Engine {
                 },
                 ..Default::default()
             },
+            hub: Hub {
+                fold_event_cause: cfg.hub_event_fold,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let tails = cfg

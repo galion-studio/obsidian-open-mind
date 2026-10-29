@@ -4,7 +4,8 @@
 
 //! Real-life test of the merged cortex (slot 158, `swarm/cortex-merge-all`:
 //! cortex-t20-merge + state-titles + event-ingest + t212-edgerate + score-v2),
-//! gated by `GALION_REAL=1`; run with `--release`. Ports 20280-20289.
+//! gated by `GALION_REAL=1`; run with `--release`. Ports 20280-20289
+//! (`CORTEX_MERGE_ALL_REAL_PORT_BASE` moves them).
 //!
 //! Checks the cross-branch paths that no single branch could test:
 //!
@@ -28,7 +29,27 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 const BIN: &str = env!("CARGO_BIN_EXE_openmind-nerve");
-const NERVE: u16 = 20280;
+/// Slot 383 (real-ports-batch-3) / 435: NERVE +0; `CORTEX_MERGE_ALL_REAL_PORT_BASE`
+/// moves the 10-port block, unset keeps the old 20280-20289. (This lineage
+/// has no `galion_realtest::ports::Block`; `base_from_env` is the same rule.)
+fn base() -> u16 {
+    galion_realtest::ports::base_from_env("CORTEX_MERGE_ALL_REAL_PORT_BASE", 20280, 10)
+}
+
+#[allow(non_snake_case)]
+fn NERVE() -> u16 {
+    base()
+}
+
+fn range() -> String {
+    format!("{}-{}", base(), base() + 9)
+}
+
+/// Slot 435 (D-422-1): `NERVE_HUB_EVENT_FOLD=1` in the test env is passed to
+/// the nerve and tightens step 3 to exactly one incident.
+fn fold() -> bool {
+    std::env::var("NERVE_HUB_EVENT_FOLD").as_deref() == Ok("1")
+}
 const SRC: &str = "t158";
 
 struct Kill(Child);
@@ -40,7 +61,7 @@ impl Drop for Kill {
 }
 
 fn http(method: &str, path: &str, body: &str) -> Option<(u16, String)> {
-    let addr = format!("127.0.0.1:{NERVE}").parse().ok()?;
+    let addr = format!("127.0.0.1:{}", NERVE()).parse().ok()?;
     let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(2)).ok()?;
     let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
     write!(
@@ -71,6 +92,11 @@ fn state() -> Value {
 }
 
 fn wait(what: &str, ok: impl Fn(&Value) -> bool) -> Value {
+    wait_for(what, 40, ok)
+}
+
+/// [`wait`] with its own limit in seconds.
+fn wait_for(what: &str, secs: u64, ok: impl Fn(&Value) -> bool) -> Value {
     let t = Instant::now();
     loop {
         let st = state();
@@ -78,7 +104,7 @@ fn wait(what: &str, ok: impl Fn(&Value) -> bool) -> Value {
             return st;
         }
         assert!(
-            t.elapsed() < Duration::from_secs(40),
+            t.elapsed() < Duration::from_secs(secs),
             "timeout waiting for {what}: {}",
             st["self_eval"]
         );
@@ -138,7 +164,7 @@ fn real_cortex_merge_all_on_the_box() {
             .arg("serve")
             .arg("--log")
             .arg(&log)
-            .env("NERVE_ADDR", format!("127.0.0.1:{NERVE}"))
+            .env("NERVE_ADDR", format!("127.0.0.1:{}", NERVE()))
             .env("NERVE_INTERVAL", "3")
             .env("NERVE_DATA_DIR", dir.join("data"))
             .env("NERVE_COMPONENTS", &comps)
@@ -146,7 +172,8 @@ fn real_cortex_merge_all_on_the_box() {
             .env("NERVE_JOURNAL", "0")
             .env("NERVE_GALION_HEALTH_PORT", "0")
             .env("NERVE_REFLEX", "0")
-            .env("NERVE_LISTEN_SCOPE", "20280-20289")
+            .env("NERVE_LISTEN_SCOPE", range())
+            .env("NERVE_HUB_EVENT_FOLD", if fold() { "1" } else { "0" })
             .env("NERVE_EVENT_FEED_FILE", &log)
             .env_remove("NERVE_SENSORS_OFF")
             .env_remove("NERVE_EDGE_HOSTS")
@@ -168,10 +195,23 @@ fn real_cortex_merge_all_on_the_box() {
         assert!(names.contains(&n), "{n} registered: {names:?}");
     }
     let base = score(&st);
+    // Slot 422 (F-383-2): host-level incidents the box itself causes (e.g.
+    // `lxc-host` disk failing-soon while the box disk was 95% full on
+    // 2026-10-28) are not this test's business; the score-back check
+    // compares like with like.
+    let others = |s: &Value| -> Vec<(u64, String)> {
+        deductions(s)
+            .into_iter()
+            .filter(|(_, w)| !w.contains(SRC))
+            .collect()
+    };
+    let base_others = others(&st);
     assert!(mine(&st).is_empty());
     eprintln!(
-        "1. serve :{NERVE} cycle {}: sensors {names:?}; start score {base} {}",
-        st["cycle"], st["self_eval"]["grade"]
+        "1. serve :{nerve} cycle {}: sensors {names:?}; start score {base} {}",
+        st["cycle"],
+        st["self_eval"]["grade"],
+        nerve = NERVE()
     );
 
     // 2. warn ddos: own deduction (score v2), B33 event without title/fix.
@@ -232,9 +272,40 @@ fn real_cortex_merge_all_on_the_box() {
     let all = deductions(&st);
     let inc: Vec<&(u64, String)> = all
         .iter()
-        .filter(|(_, w)| w.starts_with("error incident: "))
+        .filter(|(_, w)| w.starts_with("error incident: ") && w.contains(SRC))
         .collect();
-    assert_eq!(inc.len(), 1, "{all:?}");
+    // Slot 422 (F-383-2, D-422-1): on the main-staging lineage the same
+    // POST /event also becomes a hub push signal (server.rs event_signal ->
+    // hub.incident_signals, nerve-wiring 8d7a9240) with cause `t158`, next to
+    // the event-feed incident `gaia:t158`; slot 158 was written on a lineage
+    // without that path. Exactly one `gaia:` incident plus at most that one
+    // hub incident, until the owner decides whether to fold the two causes.
+    let gaia_inc = format!("error incident: {cause}: ");
+    let hub_inc = format!("error incident: {SRC}: pushed 1 error(s) in the last 2 min; ");
+    assert_eq!(
+        inc.iter().filter(|(_, w)| w.starts_with(&gaia_inc)).count(),
+        1,
+        "{all:?}"
+    );
+    assert!(
+        inc.iter()
+            .all(|(_, w)| w.starts_with(&gaia_inc) || w.starts_with(&hub_inc)),
+        "{all:?}"
+    );
+    assert!(inc.len() <= 2, "{all:?}");
+    // Slot 435 (D-422-1 staged): with the fold on, the hub signal joins
+    // `gaia:<src>`: exactly one incident, one score.
+    if fold() {
+        assert_eq!(inc.len(), 1, "fold on: one cause scored once: {all:?}");
+        assert_eq!(inc[0].0, 15, "{all:?}");
+    }
+    // Slot 435 (D-422-2): the raw address never reaches /state.
+    let text = st.to_string();
+    assert!(!text.contains("10.0.0.5"), "address in /state: {all:?}");
+    eprintln!(
+        "3. hub incident alongside gaia: {} (D-422-1)",
+        inc.iter().any(|(_, w)| w.starts_with(&hub_inc))
+    );
     assert!(
         !all.iter().any(|(_, w)| w.starts_with("ddos (")),
         "no own ddos deduction while covered: {all:?}"
@@ -257,15 +328,34 @@ fn real_cortex_merge_all_on_the_box() {
         score(&st),
         deductions(&st)
     );
-    let st = wait("score back to start", |s| {
-        score(s) == base
+    // The hub signal stays in its 120 s push window (hub.rs PUSH_WINDOW), so
+    // its incident can outlive the event-feed one: allow 180 s.
+    let t2 = Instant::now();
+    let st = wait_for("score back to start", 180, |s| {
+        mine(s).is_empty()
             && !deductions(s)
                 .iter()
-                .any(|(_, w)| w.starts_with("error incident: "))
+                .any(|(_, w)| w.starts_with("error incident: ") && w.contains(SRC))
     });
+    let sum: u64 = deductions(&st).iter().map(|d| d.0).sum();
+    assert_eq!(
+        score(&st),
+        100u64.saturating_sub(sum),
+        "{:?}",
+        deductions(&st)
+    );
+    if others(&st) == base_others {
+        assert_eq!(score(&st), base, "score back to start");
+    } else {
+        eprintln!(
+            "   unrelated host deductions changed meanwhile: {base_others:?} -> {:?}",
+            others(&st)
+        );
+    }
     eprintln!(
-        "   cycle {}: incident resolved, score back to {} {}; cycle_ms {}",
+        "   cycle {}: incidents resolved after {:.1} s, score back to {} {}; cycle_ms {}",
         st["cycle"],
+        t2.elapsed().as_secs_f64(),
         score(&st),
         st["self_eval"]["grade"],
         st["cycle_ms"]

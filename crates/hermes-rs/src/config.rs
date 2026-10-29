@@ -104,6 +104,14 @@ pub struct Config {
     /// Optional openmind-memory client (slot 403). Off unless
     /// `HERMES_RS_MEMORY=1` or `hermes_rs.memory.enabled: true`.
     pub memory: crate::memory::MemoryCfg,
+    /// Skills (SKILL.md playbooks) on unless `HERMES_RS_SKILLS=0`.
+    pub skills_enabled: bool,
+    /// `$HERMES_HOME/skills`, then config `skills.external_dirs` (missing dirs are skipped at scan time).
+    pub skills_dirs: Vec<PathBuf>,
+    /// Rust ports of skill scripts (arxiv_search, citations) on unless `HERMES_RS_SKILL_TOOLS=0`.
+    pub skill_tools_enabled: bool,
+    /// Citation ledgers (one per session). Default: next to the spend file.
+    pub citations_dir: Option<PathBuf>,
 }
 
 fn s(v: &Value) -> Option<String> {
@@ -188,6 +196,10 @@ impl Config {
             api_key_env: "API_SERVER_KEY".into(),
             persona_file: None,
             memory: crate::memory::MemoryCfg::default(),
+            skills_enabled: true,
+            skills_dirs: vec![home.join("skills")],
+            skill_tools_enabled: true,
+            citations_dir: None,
         }
     }
 
@@ -271,6 +283,18 @@ impl Config {
         }
         self.system_prompt = s(&a["system_prompt"]).or(self.system_prompt.take());
         self.max_turns = u(&a["max_turns"], self.max_turns);
+        for d in v["skills"]["external_dirs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            if let Some(p) = s(d) {
+                let p = PathBuf::from(p);
+                if !self.skills_dirs.contains(&p) {
+                    self.skills_dirs.push(p);
+                }
+            }
+        }
         let d = &v["delegation"];
         self.delegation.max_children =
             u(&d["max_concurrent_children"], self.delegation.max_children);
@@ -395,6 +419,22 @@ impl Config {
             if let Some(p) = self.providers.get_mut("openrouter") {
                 p.base_url = x;
             }
+        }
+        if let Some(x) = get("HERMES_RS_SKILLS") {
+            self.skills_enabled = !matches!(x.as_str(), "0" | "false" | "off");
+        }
+        if let Some(x) = get("HERMES_RS_SKILLS_DIRS") {
+            self.skills_dirs = x
+                .split(':')
+                .filter(|p| !p.trim().is_empty())
+                .map(PathBuf::from)
+                .collect();
+        }
+        if let Some(x) = get("HERMES_RS_SKILL_TOOLS") {
+            self.skill_tools_enabled = !matches!(x.as_str(), "0" | "false" | "off");
+        }
+        if let Some(x) = get("HERMES_RS_CITATIONS_DIR") {
+            self.citations_dir = Some(PathBuf::from(x));
         }
         self.memory.apply_env(&get)?;
         Ok(())

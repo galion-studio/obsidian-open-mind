@@ -17,6 +17,8 @@
 //! events to the nerve (bounded queue, never blocks a request).
 //! Device enrollment (`/openmind/*`) is off unless HERMES_RS_ENROLL=1 and
 //! HERMES_RS_ENROLL_URL are set; see docs/hermes-enroll.md.
+//! Long-term memory (openmind-memory /recall + /capture) is off unless
+//! HERMES_RS_MEMORY=1; see docs/hermes-memory-client.md.
 
 use hermes_rs::api::Gateway;
 use hermes_rs::config::Config;
@@ -109,7 +111,7 @@ fn main() {
     }
     if args.iter().any(|a| a == "--check-config") {
         println!(
-            "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={}",
+            "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={} memory={}",
             cfg.home.display(),
             cfg.host,
             cfg.port,
@@ -121,7 +123,8 @@ fn main() {
             cfg.max_concurrent_runs,
             cfg.context_length,
             cfg.mcp_servers.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
-            cfg.cron_enabled
+            cfg.cron_enabled,
+            if cfg.memory.enabled { cfg.memory.url.as_str() } else { "off" }
         );
         return;
     }
@@ -209,6 +212,29 @@ fn main() {
         },
         Err(e) => {
             log(&format!("refusing to start: enroll: {e}"));
+            std::process::exit(2);
+        }
+    }
+    match hermes_rs::memory::MemoryClient::from_cfg(&cfg.memory, &env) {
+        Ok(None) => {}
+        Ok(Some(m)) => {
+            // Startup probe only; a down memory server never blocks start.
+            let h = match m.health() {
+                Ok(s) => format!("health {s}"),
+                Err(e) => {
+                    format!("health failed ({e}); recall/capture will be skipped until it answers")
+                }
+            };
+            log(&format!(
+                "memory on: {} key_set={} scope={} {h}",
+                m.cfg.url,
+                m.key_set(),
+                m.scope()
+            ));
+            gw.memory = Some(m);
+        }
+        Err(e) => {
+            log(&format!("refusing to start: memory: {e}"));
             std::process::exit(2);
         }
     }

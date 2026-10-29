@@ -127,6 +127,9 @@ fn subcommand(args: &[String]) -> Option<i32> {
                 }
             },
         ),
+        Some("freshness") if (2..=4).contains(&args.len()) => {
+            Some(openmind_memory::freshness::run(&args[1..]))
+        }
         Some("parity") if args.len() >= 4 => {
             let session = args.get(4).map(String::as_str).unwrap_or("parity-session");
             Some(
@@ -148,7 +151,7 @@ fn subcommand(args: &[String]) -> Option<i32> {
         }
         Some(_) => {
             eprintln!(
-                "usage: openmind-memory                      (serve; config from env)\n       openmind-memory snapshot <src.db> <dst.db>\n       openmind-memory schema <db>              (read-only schema/version report)\n       openmind-memory parity <http://a> <http://b> <queries.txt> [session_key]"
+                "usage: openmind-memory                      (serve; config from env)\n       openmind-memory snapshot <src.db> <dst.db>\n       openmind-memory schema <db>              (read-only schema/version report)\n       openmind-memory parity <http://a> <http://b> <queries.txt> [session_key]\n       openmind-memory freshness <data_dir> [instance_id] [max_age_hours]  (read-only; exit 3 = stale)"
             );
             Some(64)
         }

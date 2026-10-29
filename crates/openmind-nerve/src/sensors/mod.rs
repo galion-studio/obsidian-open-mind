@@ -43,6 +43,7 @@ pub mod event_feed;
 pub mod hades;
 pub mod ingress_lint;
 pub mod listeners;
+pub mod memory_freshness;
 pub mod proc_owner;
 pub mod rustsec;
 pub mod scanners;
@@ -174,6 +175,7 @@ impl Sensors {
         s.add_opt(ingress_lint::IngressLint::from_env(env));
         s.add_opt(event_feed::EventFeed::from_env(env));
         s.add_opt(edgerate::EdgeRate::from_env(env));
+        s.add_opt(memory_freshness::MemoryFreshness::from_env(env));
         let off: Vec<String> = env("NERVE_SENSORS_OFF")
             .unwrap_or_default()
             .split(',')

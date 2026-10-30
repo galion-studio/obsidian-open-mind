@@ -556,6 +556,17 @@ impl Engine {
             "probe_errors": self.probe_errors,
             "probes_skipped": self.skipped,
         });
+        // t460u: Hermes MCP connectors, only when the mcp-connectors sensor ran
+        // (keeps old goldens). The summary rides in `system` so readers that
+        // show `system` (stack_health, the console) get it without a change.
+        if !self.cortex.connectors.is_null() {
+            let c = &self.cortex.connectors;
+            st["system"]["connectors"] = json!({"counts": c["summary"]["counts"], "servers": c["summary"]["servers"],
+                "tools": c["summary"]["tools"], "alerting": c["summary"]["alerting"], "worst": c["summary"]["worst"],
+                "states": c["servers"].as_array().map(|a| a.iter().map(|s| json!({"name": s["name"], "state": s["state"], "tools": s["tools"]})).collect::<Vec<_>>()),
+                "detail": "/api/v1/connectors"});
+            st["connectors"] = c.clone();
+        }
         // Only present after a state-dir load problem (keeps old goldens).
         for (k, n) in [
             ("reflex", &self.reflex.load_note),

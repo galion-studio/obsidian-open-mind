@@ -391,6 +391,20 @@ pub fn route(
                 ),
             }
         }
+        // t460u: Hermes MCP connector table, fresh (TTL-cached) when the
+        // mcp-connectors sensor runs; else the last cycle's copy. The probe
+        // runs without the shared lock held.
+        ("GET", "/connectors") => match crate::sensors::mcp_connectors::live_json(now_secs()) {
+            Some(v) => (200, j, v.to_string()),
+            None => {
+                let c = sh.lock().unwrap_or_else(|e| e.into_inner()).state["connectors"].clone();
+                if c.is_null() {
+                    (404, j, r#"{"enabled":false,"error":"mcp-connectors sensor off (set NERVE_MCP_SERVERS_FILE) or no live cycle yet"}"#.into())
+                } else {
+                    (200, j, c.to_string())
+                }
+            }
+        },
         (_, "/event" | "/events") => (
             405,
             j,

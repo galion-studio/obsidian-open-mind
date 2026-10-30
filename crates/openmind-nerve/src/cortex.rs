@@ -244,6 +244,8 @@ pub struct Cortex {
     pub incident_owners: Vec<Value>,
     /// component -> Gaia function, for findings.
     pub gaia_of: BTreeMap<String, String>,
+    /// Hermes MCP connector table (t460u; Null when the sensor is off).
+    pub connectors: Value,
 }
 
 impl Cortex {

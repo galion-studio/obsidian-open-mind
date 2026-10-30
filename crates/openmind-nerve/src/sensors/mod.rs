@@ -49,6 +49,7 @@ pub mod hades;
 #[cfg(feature = "sensor-ingress-lint")]
 pub mod ingress_lint;
 pub mod listeners;
+pub mod mcp_connectors;
 #[cfg(feature = "sensor-memory-freshness")]
 pub mod memory_freshness;
 #[cfg(feature = "sensor-proc-owner")]
@@ -126,6 +127,11 @@ impl<'c> Sink<'c> {
     /// Set the cortex `exposure` section (the listeners sensor owns it).
     pub fn exposure(&mut self, v: Value) {
         self.cx.exposure = v;
+    }
+
+    /// Set the cortex `connectors` section (the mcp-connectors sensor owns it).
+    pub fn connectors(&mut self, v: Value) {
+        self.cx.connectors = v;
     }
 
     /// Add one request-rate stream verdict to the `ddos.streams` section;
@@ -224,6 +230,8 @@ impl Sensors {
         s.add_opt(memory_freshness::MemoryFreshness::from_env(env));
         #[cfg(not(feature = "sensor-memory-freshness"))]
         compiled_out(env, "NERVE_MEMFRESH_BIN", "sensor-memory-freshness");
+        // t460u: Hermes MCP connectors (off unless NERVE_MCP_SERVERS_FILE is set).
+        s.add_opt(mcp_connectors::McpConnectors::from_env(env));
         let off: Vec<String> = env("NERVE_SENSORS_OFF")
             .unwrap_or_default()
             .split(',')

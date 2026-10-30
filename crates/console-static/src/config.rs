@@ -46,12 +46,23 @@ usage: galion-console-static --root DIR [options]
                        e.g. 127.0.0.1:8091; default none
   --desk ADDR          loopback galion-desk for /cache, /context (GET /desk),
                        e.g. 127.0.0.1:8646; default none
+  --connectors-dir DIR  where /connectors keeps MCP server entries (servers.d/),
+                       0600 token files (secrets/) and the generated
+                       mcp-servers.yaml for HERMES_RS_MCP_SERVERS_FILE, e.g.
+                       /var/lib/galion-console-connectors; default none (read-only)
+  --connectors-command-dir DIR  custom connectors may run local stdio MCP
+                       servers only from directly inside DIR (file name
+                       containing mcp); default none (https URLs only)
+  --connectors-hermes-file FILE  the live Hermes MCP servers file
+                       (HERMES_RS_MCP_SERVERS_FILE), e.g.
+                       /etc/hermes-rs/mcp-servers.yaml: tokens go to mcp.d/
+                       beside it, console entries to a marked block in it
+  --connectors-logo-dir DIR  brand logos for /connectors (<name>.png, read
+                       once at start); default none (monograms)
   --memory-root DIR    host folder of Hermes memory for /memory and
                        /md/persona, e.g. /var/lib/memory-tencentdb; default none
   --model-file FILE    file holding the model name shown on /memory,
                        e.g. /opt/galion/galion-light/one/model; default none
-  --connectors-logo-dir DIR  brand logos for /connectors (<name>.png, read
-                       once at start); default none (monograms)
   --user-md FILE       USER.md shown on /md/user,
                        e.g. /opt/galion/hermes/memories/USER.md; default none
   --arena-root DIR     arena files (board.jsonl, champions/current.json,
@@ -389,10 +400,26 @@ impl Config {
                     }
                     extra_hosts.push(h);
                 }
+                "--connectors-dir" => {
+                    files.connectors_dir =
+                        Some(abs_path(val("--connectors-dir")?, "--connectors-dir")?)
+                }
+                "--connectors-hermes-file" => {
+                    files.connectors_hermes_file = Some(abs_path(
+                        val("--connectors-hermes-file")?,
+                        "--connectors-hermes-file",
+                    )?)
+                }
                 "--connectors-logo-dir" => {
                     files.connectors_logo_dir = Some(abs_path(
                         val("--connectors-logo-dir")?,
                         "--connectors-logo-dir",
+                    )?)
+                }
+                "--connectors-command-dir" => {
+                    files.connectors_command_dir = Some(abs_path(
+                        val("--connectors-command-dir")?,
+                        "--connectors-command-dir",
                     )?)
                 }
                 "--memory-root" => {

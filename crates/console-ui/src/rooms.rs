@@ -66,6 +66,12 @@ pub const ROOMS: &[Room] = &[
         "research",
     ),
     r(
+        "/connectors",
+        "Connectors",
+        "MCP servers Hermes can use. Owner only.",
+        "plug",
+    ),
+    r(
         "/context",
         "Context",
         "The window, the sessions, the tools.",
@@ -208,7 +214,7 @@ mod tests {
 
     #[test]
     fn rooms_and_dock_agree() {
-        assert_eq!(ROOMS.len(), 29);
+        assert_eq!(ROOMS.len(), 30);
         for (to, _) in DOCK {
             assert!(icon_of(to).is_some(), "{to}");
         }

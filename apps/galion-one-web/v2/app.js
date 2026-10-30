@@ -293,6 +293,7 @@
     paired = false;
     form.hidden = true;
     pairForm.hidden = false;
+    $("hm-hist").hidden = true;
     pill("st-dev", "warn", "not paired");
     pill("st-stt", "", "pair first");
     $("g1-pair-note").textContent = msg || "";
@@ -302,6 +303,7 @@
     paired = true;
     pairForm.hidden = true;
     form.hidden = false;
+    $("hm-hist").hidden = false;
     pill("st-dev", "ok", "paired");
     setState("idle");
     loadModel(); loadHistory(); sttHealth();

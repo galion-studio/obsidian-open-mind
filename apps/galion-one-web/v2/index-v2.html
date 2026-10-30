@@ -158,10 +158,14 @@ html.g1v2 body #galion-boot .name{font-weight:300;letter-spacing:-.025em}
 html.g1v2 body #galion-boot .stack{color:#b9bdd9;letter-spacing:.16em}
 html.g1v2 body #galion-boot.go .lock{transform:translateY(-9vh) scale(.96);filter:blur(6px);transition:transform .5s var(--g1-glide),filter .5s var(--g1-glide)}
 @keyframes g1-boot-orb{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:none}}
-html.g1v2 #galion-boot:not(.go) ~ .hm{opacity:0}
-html.g1v2 .hm{transition:opacity .9s var(--g1-glide) .15s}
-@media (prefers-reduced-motion:reduce){.hm *,.hm *:before,.hm *:after,.g1-sky i,html.g1v2 body #galion-boot .lock::before{animation:none!important;transition:none!important}html.g1v2 body #galion-boot .lock::before{opacity:1}html.g1v2 body #galion-boot.go .lock{transform:translateY(-8%);filter:none}}
+/* CSS-timed, so it also lifts with JavaScript off: the binary's script removes the screen at about 2.5 s; this fades it by 2.6 s anyway. */
+html.g1v2 body #galion-boot{animation:g1-boot-out .5s cubic-bezier(.4,0,.2,1) 2.1s forwards}
+@keyframes g1-boot-out{to{opacity:0;visibility:hidden}}
+html.g1v2 .hm{animation:g1-room-in .9s var(--g1-glide) 2.15s both}
+@keyframes g1-room-in{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){html.g1v2 .hm{animation:none!important}html.g1v2 body #galion-boot{animation:g1-boot-out 0s 2.1s forwards!important}.hm *,.hm *:before,.hm *:after,.g1-sky i,html.g1v2 body #galion-boot .lock::before{animation:none!important;transition:none!important}html.g1v2 body #galion-boot .lock::before{opacity:1}html.g1v2 body #galion-boot.go .lock{transform:translateY(-8%);filter:none}}
 </style>
+<noscript><style>#galion-boot{display:none!important}html.g1v2 .hm{opacity:1!important}.hm-composer,.g1-snd,.hm-hist{display:none!important}</style></noscript>
 </head>
 <body>
 <div class="g1-sky" aria-hidden="true"><i class="g1-f1"></i><i class="g1-f2"></i><i class="g1-f3"></i><i class="g1-fe"></i></div>
@@ -179,6 +183,7 @@ html.g1v2 .hm{transition:opacity .9s var(--g1-glide) .15s}
     <button type="button" class="g1-orb" id="g1-orb" aria-label="Start dictation"><span class="g1-halo"></span><span class="g1-ring"></span><span class="g1-ball"><span class="g1-l1"></span><span class="g1-l2"></span><span class="g1-l3"></span><span class="g1-gl"></span></span></button>
     <h2 class="g1-hi" id="g1-hi"><span class="g1-hi1" id="g1-hi1">Hello.</span><span class="g1-hi2" id="g1-hi2">What shall we explore?</span></h2>
     <p class="g1-cap" id="g1-cap" role="status" aria-live="polite">Waking up</p>
+    <noscript><p class="g1-cap">Turn on JavaScript to talk to Hermes.</p></noscript>
   </section>
   <details class="hm-hist" id="hm-hist"><summary class="hm-hist-sum">History</summary><ul class="hm-list" id="hm-list"><li class="hm-empty">Nothing yet.</li></ul></details>
   <div class="hm-log" id="hm-log" aria-live="polite" tabindex="-1"></div>
@@ -571,6 +576,7 @@ registerProcessor("galion-pcm16", GalionPcm16);
     paired = false;
     form.hidden = true;
     pairForm.hidden = false;
+    $("hm-hist").hidden = true;
     pill("st-dev", "warn", "not paired");
     pill("st-stt", "", "pair first");
     $("g1-pair-note").textContent = msg || "";
@@ -580,6 +586,7 @@ registerProcessor("galion-pcm16", GalionPcm16);
     paired = true;
     pairForm.hidden = true;
     form.hidden = false;
+    $("hm-hist").hidden = false;
     pill("st-dev", "ok", "paired");
     setState("idle");
     loadModel(); loadHistory(); sttHealth();

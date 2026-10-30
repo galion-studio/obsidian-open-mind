@@ -1,0 +1,10 @@
+import * as pw from 'playwright-core';
+const D='/workspace/swarm/demo/galion-one-v2';
+const b = await pw.chromium.launch({ args: ['--use-fake-device-for-media-stream','--use-fake-ui-for-media-stream'] });
+const p = await b.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+const errs=[]; p.on('pageerror', e=>errs.push(String(e))); p.on('console', m=>{ if (m.type()==='error') errs.push(m.text()); });
+await p.goto('https://one.galion.app/'); await p.waitForTimeout(700); await p.screenshot({ path: `${D}/app2-live-chromium-01-loading.png` });
+await p.waitForTimeout(3800); await p.screenshot({ path: `${D}/app2-live-chromium-02-unpaired.png` });
+const r = await p.evaluate(async () => ({ theme: document.querySelector('meta[name=theme-color]').content, pairForm: !document.getElementById('g1-pair').hidden, field: document.getElementById('g1-code').placeholder, input: !!document.getElementById('hm-q'), mic: !!document.getElementById('hm-mic'), send: !!document.getElementById('hm-send'), orb: !!document.querySelector('.g1-orb'), stt: (await fetch('/stt/health')).status, me: await (await fetch('/me')).text(), dev: document.getElementById('st-dev-v').textContent, mind: document.getElementById('st-mind-v').textContent }));
+console.log(JSON.stringify(r), 'errors', JSON.stringify(errs));
+await b.close();

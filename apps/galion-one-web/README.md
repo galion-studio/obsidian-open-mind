@@ -29,3 +29,16 @@ V2 shows on **one.galion.app only**. A tiny inline head script adds `class="g1v2
 
 ## Deploy / rollback
 See `/workspace/swarm/reports/galion-one-v2-20261030.md` §8. You only swap the file; no restart is needed.
+
+## Full V2 page (t431u/t432u, 2026-10-30)
+
+- **Source:** `v2/` (style.css, body.html, app.js, mic-worklet.js). Run `v2/build.sh` to make `v2/index-v2.html`, then install it as `/opt/galion/galion-light/one/index-v2.html`. No restart is needed: galion-one reads the file on each request.
+- **Hosts:** galion-one serves `index-v2.html` only to hosts in `ONE_V2_HOSTS` (default `one.galion.app`). Every other host keeps `one/index.html`.
+- **Routes the page uses:**
+  - existing: `/me`, `/pair`, `/admin/say`, `/session`, `/files`, `/model`, `/models`, `/voice`, `/api/v1/awake`;
+  - new: `/pair/invite`, `/stt/health` and `/stt/stream` (WebSocket proxy to galion-stt, `GALION_STT`, default 127.0.0.1:8651).
+- **Pairing a new phone:**
+  - from a phone that is already paired: Devices → Pair another phone;
+  - on the server: `galion-one pair-invite [minutes]` (it prints the code; keep it out of logs and chat).
+- **ntfy topic:** read from `ONE_NTFY_ENV` (default `/etc/galion/ntfy-relay.env`, `NTFY_URL=https://ntfy.sh/<topic>`). Only a paired device sees it, next to its invite code.
+- **Rollback:** rename `index-v2.html` to `index-v2.html.off`.

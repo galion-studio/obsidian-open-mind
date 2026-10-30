@@ -998,6 +998,9 @@ impl<'a> Cmd<'a> {
                     .file_name()
                     .map(|f| f.to_string_lossy().to_string())
                     .unwrap_or_default();
+            } else if self.pol.full_write_on() {
+                // a script or program inside the workspace, scanned first
+                return self.fw_path_exec(cmd, args);
             } else {
                 return Err(deny(
                     "S4-path-exec",
@@ -1085,6 +1088,9 @@ impl<'a> Cmd<'a> {
         }
         fullwrite::flash_check(n)?;
         if self.pol.full_write_on() {
+            if interp_base(n) || INTERPRETERS.contains(&n) {
+                return self.fw_interp(n, args);
+            }
             if fullwrite::FULL_WRITE_WRAPPERS.contains(&n) {
                 return self.fw_wrapper(n, args);
             }
@@ -1853,7 +1859,18 @@ pub fn check_command_in(cmd: &str, cwd: &Path, pol: &Policy) -> R {
         cwd: cwd.to_path_buf(),
         depth: 0,
     };
-    c.all(cmd)
+    match c.all(cmd) {
+        // full-write: shell the strict lexer can not follow (loops, $VAR,
+        // $( ), here-docs) is judged like a workspace script: the opaque
+        // scan plus the strict check of every piece that does parse
+        Err(e) if pol.full_write_on() && fullwrite::is_fallback(&e.rule) => {
+            if cmd.len() > MAX_COMMAND_BYTES {
+                return Err(deny("S9-size", "command too long to check"));
+            }
+            fullwrite::shell_scan(cmd, cwd, pol, 1)
+        }
+        r => r,
+    }
 }
 
 // --------------------------------------------------------------- tool calls

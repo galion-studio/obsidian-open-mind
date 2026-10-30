@@ -11,10 +11,6 @@
 //! writable, secrets hidden, runs as nobody), so this layer only decides
 //! what the deny list lets through; the sandbox stays the hard boundary.
 //!
-//! In this change interpreter code, scripts run by path and shell text the
-//! strict lexer can not follow are still refused as before; their scanner
-//! comes in the next change.
-//!
 //! What stays refused in every mode (the "never" list):
 //! * secrets and tokens (S6-secret: canonical paths, secret names, the prior
 //!   floor's secret words) and `/etc`, `/boot`;
@@ -38,7 +34,12 @@
 use super::rules::*;
 use super::*;
 
-pub(super) use super::undo::unwrap_wrapper;
+/// Opaque text: interpreter code, scripts and shell the strict lexer can
+/// not follow (loops, `$VAR`, `$( )`).
+mod text;
+pub(crate) use text::{is_fallback, shell_scan};
+
+pub(super) use super::undo::{in_trash, unwrap_wrapper};
 
 /// Wrappers that may run another command in full-write mode: the wrapped
 /// command is unwrapped and checked like any other command.

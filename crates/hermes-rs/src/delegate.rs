@@ -80,6 +80,9 @@ pub struct DelegateTool {
     pub child_tools: Registry,
     pub gate: Arc<Gate>,
     pub wait: Duration,
+    /// Deny-list policy used for the per-task check (partial rerun). Matches
+    /// the Guarded wrapper's policy for the boss registry (process-wide).
+    pub policy: Arc<crate::denylist::Policy>,
 }
 
 impl DelegateTool {
@@ -97,7 +100,15 @@ impl DelegateTool {
             child_tools: child_tools.without("delegate_task"),
             gate: Arc::new(Gate::new(max)),
             wait: Duration::from_secs(120),
+            policy: crate::denylist::Policy::global(),
         }
+    }
+
+    /// Override the deny-list policy (tests inject the same policy the
+    /// Guarded wrapper would use).
+    pub fn with_policy(mut self, policy: Arc<crate::denylist::Policy>) -> Self {
+        self.policy = policy;
+        self
     }
 }
 
@@ -274,10 +285,34 @@ impl Tool for DelegateTool {
         };
         let t0 = Instant::now();
         let emit = ctx.emit;
-        let results: Vec<Value> = std::thread::scope(|s| {
+        // Fix 4 (partial rerun): judge each task against the deny list here.
+        // The Guarded wrapper only refuses a call when EVERY task is refused,
+        // so a call that mixes a refused task with safe ones reaches us; we
+        // run the safe tasks and return a per-task "refused" result for the
+        // rest instead of failing the whole call.
+        let refusals: Vec<Option<String>> = tasks
+            .iter()
+            .map(|(g, c)| {
+                crate::denylist::delegate_task_check(g, c, &self.policy)
+                    .err()
+                    .map(|dny| crate::denylist::refusal_text(&dny))
+            })
+            .collect();
+        let mut results: Vec<Value> = refusals
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| {
+                r.as_ref().map(|text| {
+                    emit(Event::Status(format!("subagent {i} refused (deny list)")));
+                    json!({"task_index": i, "status": "refused", "error": text})
+                })
+            })
+            .collect();
+        let ran: Vec<Value> = std::thread::scope(|s| {
             let handles: Vec<_> = tasks
                 .iter()
                 .enumerate()
+                .filter(|(i, _)| refusals[*i].is_none())
                 .map(|(i, (goal, context))| {
                     let agent = &agent;
                     let target = target.clone();
@@ -289,7 +324,7 @@ impl Tool for DelegateTool {
                     let child_session = format!("{}:child-{i}", ctx.session_id);
                     let depth = ctx.depth + 1;
                     let max_iter = d.max_iterations;
-                    s.spawn(move || {
+                    let handle = s.spawn(move || {
                         let Some(_g) = gate.acquire(wait) else {
                             return json!({"task_index": i, "status": "failed", "error": "no subagent slot free (node-wide cap)"});
                         };
@@ -318,15 +353,17 @@ impl Tool for DelegateTool {
                         json!({"task_index": i, "status": if ok { "completed" } else { "failed" }, "summary": r.final_text,
                                "error": r.error, "api_calls": r.api_calls, "model": target.model,
                                "tokens": {"input": r.usage.prompt_tokens, "output": r.usage.completion_tokens}})
-                    })
+                    });
+                    (i, handle)
                 })
                 .collect();
             handles
                 .into_iter()
-                .enumerate()
                 .map(|(i, h)| h.join().unwrap_or_else(|_| json!({"task_index": i, "status": "failed", "error": "subagent panicked"})))
                 .collect()
         });
+        results.extend(ran);
+        results.sort_by_key(|r| r["task_index"].as_u64().unwrap_or(0));
         let any_ok = results.iter().any(|r| r["status"] == "completed");
         let out = json!({"results": results, "total_duration_seconds": (t0.elapsed().as_secs_f64() * 100.0).round() / 100.0});
         ToolOutput {

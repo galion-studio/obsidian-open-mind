@@ -688,6 +688,8 @@ fn read_rooms_render_get_only() {
     let not_ported: Vec<&str> = console_ui::rooms::ROOMS
         .iter()
         .filter_map(|r| r.to)
+        // t453u: /connectors is a new Rust-only room, not an SPA port.
+        .filter(|p| *p != console_ui::connectors::PATH)
         .filter(|p| !console_ui::PORTED.contains(p))
         .collect();
     // 28 in-console rooms; every one is either ported or says so.

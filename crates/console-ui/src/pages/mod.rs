@@ -11,6 +11,7 @@ pub mod arena;
 pub mod bank;
 pub mod cache;
 pub mod catalog;
+pub mod connectors;
 pub mod context;
 pub mod gate;
 pub mod gateway;

@@ -5,8 +5,12 @@
    Original work: our own palette ("Galion dusk"), gradients and curves. No third-party assets.
    The loading screen (#galion-boot) is still written by the galion-one binary with the same
    words and the same icon. This file only restyles it so that it sits on the same sky as the
-   room and dissolves into it. */
-html[data-look], html[data-look="dark"] {
+   room and dissolves into it.
+   Host-scoped: every rule sits under html.g1v2, a class the inline head script sets only when
+   location.hostname is one.galion.app (before first paint). galion.app / www.galion.app keep the
+   original look. */
+.g1-sky { display: none; }
+html.g1v2[data-look] {
   --paper: #070818;
   --ink: #f4f5ff;
   --faint: #b9bdd9;
@@ -21,41 +25,41 @@ html[data-look], html[data-look="dark"] {
   background: #05060f;
   background: linear-gradient(170deg, #05060f 0%, #0b0d24 55%, #120a2a 100%) fixed #05060f;
 }
-html[data-look] body {
+html.g1v2[data-look] body {
   background: transparent;
   font-family: var(--g1-font);
   font-weight: 400;
 }
 /* One look only in V2. */
-html[data-look] button.fold[data-fold="look"], html[data-look] #fold-look { display: none; }
+html.g1v2[data-look] button.fold[data-fold="look"], html.g1v2[data-look] #fold-look { display: none; }
 
 /* The sky: three slow light fields (transform-only motion, no blur filter). */
-.g1-sky { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
-.g1-sky i { position: absolute; display: block; border-radius: 50%; opacity: 0.5; }
-.g1-sky i:nth-child(1) { width: 120vmax; height: 120vmax; left: -55vmax; top: -60vmax;
+html.g1v2 .g1-sky { display: block; position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+html.g1v2 .g1-sky i { position: absolute; display: block; border-radius: 50%; opacity: 0.5; }
+html.g1v2 .g1-sky i:nth-child(1) { width: 120vmax; height: 120vmax; left: -55vmax; top: -60vmax;
   background: radial-gradient(closest-side, rgba(47, 230, 200, 0.55), rgba(47, 230, 200, 0) 100%);
   animation: g1-drift-a 28s ease-in-out infinite alternate; }
-.g1-sky i:nth-child(2) { width: 110vmax; height: 110vmax; right: -60vmax; top: -10vmax;
+html.g1v2 .g1-sky i:nth-child(2) { width: 110vmax; height: 110vmax; right: -60vmax; top: -10vmax;
   background: radial-gradient(closest-side, rgba(196, 92, 255, 0.5), rgba(196, 92, 255, 0) 100%);
   animation: g1-drift-b 36s ease-in-out infinite alternate; }
-.g1-sky i:nth-child(3) { width: 130vmax; height: 130vmax; left: -30vmax; bottom: -85vmax;
+html.g1v2 .g1-sky i:nth-child(3) { width: 130vmax; height: 130vmax; left: -30vmax; bottom: -85vmax;
   background: radial-gradient(closest-side, rgba(109, 123, 255, 0.6), rgba(109, 123, 255, 0) 100%);
   animation: g1-drift-c 44s ease-in-out infinite alternate; }
 @keyframes g1-drift-a { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(12vmax, 8vmax, 0) scale(1.08); } }
 @keyframes g1-drift-b { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(-10vmax, 12vmax, 0) scale(1.1); } }
 @keyframes g1-drift-c { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(8vmax, -10vmax, 0) scale(1.06); } }
 /* Listening leans teal, thinking leans orchid, speaking lets warm amber in. */
-.g1-sky i { transition: opacity 1.2s var(--g1-glide); }
-body[data-state="you"] .g1-sky i:nth-child(1) { opacity: 0.8; }
-body[data-state="wait"] .g1-sky i:nth-child(2), body[data-state="read"] .g1-sky i:nth-child(2) { opacity: 0.75; }
-body[data-state="him"] .g1-sky i:nth-child(3) { opacity: 0.35; }
-body[data-state="him"] .g1-sky::after { opacity: 0.45; }
-.g1-sky::after { content: ""; position: absolute; left: 10%; right: 10%; bottom: -30vh; height: 70vh; border-radius: 50%;
+html.g1v2 .g1-sky i { transition: opacity 1.2s var(--g1-glide); }
+html.g1v2 body[data-state="you"] .g1-sky i:nth-child(1) { opacity: 0.8; }
+html.g1v2 body[data-state="wait"] .g1-sky i:nth-child(2), html.g1v2 body[data-state="read"] .g1-sky i:nth-child(2) { opacity: 0.75; }
+html.g1v2 body[data-state="him"] .g1-sky i:nth-child(3) { opacity: 0.35; }
+html.g1v2 body[data-state="him"] .g1-sky::after { opacity: 0.45; }
+html.g1v2 .g1-sky::after { content: ""; position: absolute; left: 10%; right: 10%; bottom: -30vh; height: 70vh; border-radius: 50%;
   background: radial-gradient(closest-side, rgba(255, 179, 107, 0.55), rgba(255, 179, 107, 0) 100%);
   opacity: 0; transition: opacity 1.2s var(--g1-glide); }
 
 /* The orb of light behind the Galion One mark (the mark itself is unchanged). */
-html[data-look] #light {
+html.g1v2[data-look] #light {
   width: min(70vw, 17rem);
   height: min(70vw, 17rem);
   margin: calc(min(70vw, 17rem) / -2 + 1.75rem) 0;
@@ -67,19 +71,19 @@ html[data-look] #light {
     radial-gradient(closest-side, rgba(109, 123, 255, 0.55), rgba(109, 123, 255, 0) 100%);
   animation: g1-breathe 6s ease-in-out infinite;
 }
-html[data-look] body[data-state="you"] #light {
+html.g1v2[data-look] body[data-state="you"] #light {
   background:
     radial-gradient(closest-side at 44% 42%, rgba(47, 230, 200, calc(0.55 + var(--ear) * 0.4)), rgba(47, 230, 200, 0)),
     radial-gradient(closest-side, rgba(109, 123, 255, 0.45), rgba(109, 123, 255, 0) 100%);
   animation: bloom 1.8s ease-in-out infinite;
 }
-html[data-look] body[data-state="wait"] #light, html[data-look] body[data-state="read"] #light {
+html.g1v2[data-look] body[data-state="wait"] #light, html.g1v2[data-look] body[data-state="read"] #light {
   background:
     radial-gradient(closest-side at 60% 42%, rgba(196, 92, 255, 0.6), rgba(196, 92, 255, 0)),
     radial-gradient(closest-side, rgba(109, 123, 255, 0.6), rgba(109, 123, 255, 0) 100%);
   animation: drift 3.8s ease-in-out infinite;
 }
-html[data-look] body[data-state="him"] #light {
+html.g1v2[data-look] body[data-state="him"] #light {
   background:
     radial-gradient(closest-side at 50% 58%, rgba(255, 179, 107, calc(0.45 + var(--voice) * 0.4)), rgba(255, 179, 107, 0)),
     radial-gradient(closest-side, rgba(196, 92, 255, 0.45), rgba(196, 92, 255, 0) 100%);
@@ -88,25 +92,25 @@ html[data-look] body[data-state="him"] #light {
 @keyframes g1-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.035); } }
 
 /* Text on the sky: V2 type. */
-html[data-look] #say { font-size: 1.0625rem; line-height: 1.6; color: var(--ink); }
-html[data-look] #heard { font-size: 0.9375rem; letter-spacing: 0; color: var(--faint); }
-html[data-look] #act { font-size: 0.6875rem; letter-spacing: 0.16em; }
-html[data-look] #kind { color: var(--dim); font-size: 0.6875rem; letter-spacing: 0.16em; }
-html[data-look] #stack i, html[data-look] #machine i {
+html.g1v2[data-look] #say { font-size: 1.0625rem; line-height: 1.6; color: var(--ink); }
+html.g1v2[data-look] #heard { font-size: 0.9375rem; letter-spacing: 0; color: var(--faint); }
+html.g1v2[data-look] #act { font-size: 0.6875rem; letter-spacing: 0.16em; }
+html.g1v2[data-look] #kind { color: var(--dim); font-size: 0.6875rem; letter-spacing: 0.16em; }
+html.g1v2[data-look] #stack i, html.g1v2[data-look] #machine i {
   background: radial-gradient(circle at 35% 30%, #ffffff, #2fe6c8 75%);
   box-shadow: 0 0 8px rgba(47, 230, 200, 0.45);
 }
-html[data-look] #drawer { -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+html.g1v2[data-look] #drawer { -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
 
 /* Loading screen: same words, same icon, restyled onto the V2 sky. It is transparent, so the
    room's own sky shows through it; the room waits underneath and glides in as it lifts. */
-html body #galion-boot {
+html.g1v2 body #galion-boot {
   background: transparent;
   font-family: var(--g1-font);
   color: #f4f5ff;
 }
-html body #galion-boot .lock { position: relative; }
-html body #galion-boot .lock::before {
+html.g1v2 body #galion-boot .lock { position: relative; }
+html.g1v2 body #galion-boot .lock::before {
   content: "";
   position: absolute;
   z-index: -1;
@@ -122,26 +126,26 @@ html body #galion-boot .lock::before {
   opacity: 0;
   animation: g1-boot-orb 1.2s var(--g1-glide) forwards, g1-breathe 6s ease-in-out 1.2s infinite;
 }
-html body #galion-boot .name { font-weight: 300; letter-spacing: -0.025em; }
-html body #galion-boot .stack { color: #b9bdd9; letter-spacing: 0.16em; }
-html body #galion-boot.go .lock {
+html.g1v2 body #galion-boot .name { font-weight: 300; letter-spacing: -0.025em; }
+html.g1v2 body #galion-boot .stack { color: #b9bdd9; letter-spacing: 0.16em; }
+html.g1v2 body #galion-boot.go .lock {
   transform: translateY(-9vh) scale(0.96);
   filter: blur(6px);
   transition: transform 0.5s var(--g1-glide), filter 0.5s var(--g1-glide);
 }
 @keyframes g1-boot-orb { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: none; } }
-#galion-boot:not(.go) ~ #menu, #galion-boot:not(.go) ~ .mark, #galion-boot:not(.go) ~ #act,
-#galion-boot:not(.go) ~ #kind, #galion-boot:not(.go) ~ .words, #galion-boot:not(.go) ~ #bar,
-#galion-boot:not(.go) ~ #pair { opacity: 0; }
-html[data-look] #menu, html[data-look] .mark, html[data-look] #act, html[data-look] #kind,
-html[data-look] .words, html[data-look] #bar, html[data-look] #pair {
+html.g1v2 #galion-boot:not(.go) ~ #menu, html.g1v2 #galion-boot:not(.go) ~ .mark, html.g1v2 #galion-boot:not(.go) ~ #act,
+html.g1v2 #galion-boot:not(.go) ~ #kind, html.g1v2 #galion-boot:not(.go) ~ .words, html.g1v2 #galion-boot:not(.go) ~ #bar,
+html.g1v2 #galion-boot:not(.go) ~ #pair { opacity: 0; }
+html.g1v2[data-look] #menu, html.g1v2[data-look] .mark, html.g1v2[data-look] #act, html.g1v2[data-look] #kind,
+html.g1v2[data-look] .words, html.g1v2[data-look] #bar, html.g1v2[data-look] #pair {
   transition: opacity 0.9s var(--g1-glide) 0.15s;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .g1-sky i, html[data-look] #light, html body #galion-boot .lock::before { animation: none; }
-  html body #galion-boot .lock::before { opacity: 1; }
-  html body #galion-boot.go .lock { transform: translateY(-8%); filter: none; }
+  html.g1v2 .g1-sky i, html.g1v2[data-look] #light, html.g1v2 body #galion-boot .lock::before { animation: none; }
+  html.g1v2 body #galion-boot .lock::before { opacity: 1; }
+  html.g1v2 body #galion-boot.go .lock { transform: translateY(-8%); filter: none; }
 }
 /* The wider system font: keep the pairing placeholder inside its line. */
-html[data-look] #pair input { font-size: 0.9375rem; letter-spacing: 0.12em; }
+html.g1v2[data-look] #pair input { font-size: 0.9375rem; letter-spacing: 0.12em; }

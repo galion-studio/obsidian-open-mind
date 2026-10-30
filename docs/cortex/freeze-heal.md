@@ -76,15 +76,31 @@ After the restart the heal check is judged by probing the same port at the deadl
 | `CORTEX_FREEZE_COOLDOWN_S` | 300 | 60..3600 |
 | `CORTEX_FREEZE_PER_HOUR` | 1 | 1..3 |
 | `CORTEX_FREEZE_TIMEOUT_S` | 5 | 1..30, below probe_s |
+| `CORTEX_FREEZE_SKIP` | empty | comma list of `*.service` (max 16) the freeze watch leaves alone (crash heal unchanged) |
+| `CORTEX_ALERT_RELAY` | off | `http://<loopback ip>:<port>/<path>`: failed-heal phone alert (below) |
+| `CORTEX_ALERT_RELAY_PER_HOUR` | 6 | 1..30 |
 
 A value out of range (or `CORTEX_FREEZE` not 0/1) refuses to start (exit 2). Turn it
 off live: set `Environment=CORTEX_FREEZE=0` in the drop-in (or remove the line) and
 restart the cortex. Visible in `/health` (`freeze_watch`, `freeze_targets`) and
 `/heals` (`freeze`: targets, streaks, cooldowns, counts).
 
+## Failed heal: phone alert only (Mate 2026-10-30 11:27 CET, decision 2)
+
+A failed heal (`R12-heal-failed`, crash or freeze) is now a **critical** alert and is
+never escalated to Hermes. The nerve folds every pushed cortex event into an incident of
+at most `error` severity, and its ntfy webhook only forwards `crit`, so the nerve copy
+alone never reached the phone. With `CORTEX_ALERT_RELAY` set, the cortex also hands each
+`R12-heal-failed` alert to the same loopback relay the nerve webhook uses
+(`galion-ntfy-relay`, 127.0.0.1:2586; the topic stays in the relay's env file, the cortex
+never sees it): ntfy priority `urgent`, title `Gaia: heal failed: <unit>`, max 6/h.
+No other rule goes to the phone. `/heals` -> `phone` shows sent / failed / rate-limited;
+`/health` -> `phone_alerts`.
+
 ## Tests
 
-* unit: `freeze::tests` (bounds, N + span, blip, cooldown, wide, event marker, targets);
-* pipeline (mock nerve): `tests/freeze_heal.rs`;
+* unit: `freeze::tests` (bounds, N + span, blip, cooldown, wide, event marker, targets, skip);
+  `phone::tests` (loopback-only config, only R12 goes out, urgent, hourly cap);
+* pipeline (mock nerve): `tests/freeze_heal.rs` (incl. failed heal -> critical alert -> mock relay, no escalation);
 * real (`GALION_REAL=1`, ports 23220-23229, real nerve, fake systemctl, mock services):
   `tests/real_freeze_heal.rs`.

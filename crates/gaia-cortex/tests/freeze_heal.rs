@@ -339,3 +339,104 @@ fn disabled_freeze_watch_does_nothing() {
     assert!(reqs(&nerve).is_empty());
     assert_eq!(cx.health_json()["freeze_watch"], false);
 }
+
+/// Mate 2026-10-30 decision 2: a failed heal reaches the phone as a
+/// CRITICAL alert through the loopback ntfy relay, and nothing else does.
+#[test]
+fn failed_heal_is_a_critical_phone_alert_through_the_relay() {
+    use std::io::{Read, Write};
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    let relay = std::thread::spawn(move || {
+        let (mut s, _) = l.accept().unwrap();
+        s.set_read_timeout(Some(std::time::Duration::from_secs(3)))
+            .unwrap();
+        let mut all = vec![];
+        let mut buf = [0u8; 4096];
+        while let Ok(k) = s.read(&mut buf) {
+            if k == 0 {
+                break;
+            }
+            all.extend_from_slice(&buf[..k]);
+            let t = String::from_utf8_lossy(&all).to_string();
+            if let Some(i) = t.find("\r\n\r\n") {
+                let len = t
+                    .lines()
+                    .find_map(|x| {
+                        x.to_ascii_lowercase()
+                            .strip_prefix("content-length:")
+                            .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                    })
+                    .unwrap_or(0);
+                if all.len() >= i + 4 + len {
+                    break;
+                }
+            }
+        }
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        String::from_utf8_lossy(&all).to_string()
+    });
+    let (mut cx, nerve) = cortex_with(true);
+    cx.phone = Some(Arc::new(gaia_cortex::phone::Phone::new(
+        gaia_cortex::phone::PhoneCfg {
+            addr,
+            path: "/gaia-cortex".into(),
+            per_hour: 6,
+        },
+    )));
+    let (_, d) = freeze_and_restart(&mut cx, &nerve, TUNER, T0);
+    assert_eq!(d["rule"], "R13-frozen");
+    let ph = cx.phone.clone().unwrap();
+    // the R13 restart alert is not for the phone
+    let mut sent = 0;
+    for p in cx.take_posts() {
+        if ph.offer(&p.event, T0) != gaia_cortex::phone::Sent::NotForPhone {
+            sent += 1;
+        }
+    }
+    assert_eq!(sent, 0, "only failed heals go to the phone");
+    let due_at = cx.heals.pending[0].due;
+    let c = cx.heal_due(due_at).pop().unwrap();
+    cx.heal_judged(
+        c,
+        &StateRead::Probe {
+            up: false,
+            detail: "HTTP 503".into(),
+        },
+        due_at,
+    );
+    let posts = cx.take_posts();
+    let alert = posts
+        .iter()
+        .find(|p| p.event.kind == "cortex.alert" && p.event.data["rule"] == "R12-heal-failed")
+        .expect("R12 alert posted to the nerve");
+    assert_eq!(alert.event.severity, "critical");
+    assert!(
+        !posts.iter().any(|p| p.event.kind == "cortex.escalation"),
+        "no escalation for a failed heal"
+    );
+    let mut results = vec![];
+    for p in &posts {
+        results.push(ph.offer(&p.event, due_at));
+    }
+    assert_eq!(
+        results
+            .iter()
+            .filter(|r| **r == gaia_cortex::phone::Sent::Ok)
+            .count(),
+        1
+    );
+    let got = relay.join().unwrap();
+    assert!(got.starts_with("POST /gaia-cortex "), "{got}");
+    assert!(got.contains("Priority: urgent"), "{got}");
+    assert!(
+        got.contains("Title: Gaia: heal failed: tuner.service"),
+        "{got}"
+    );
+    assert!(got.contains("did not heal"), "{got}");
+    let h = cx.heals_json();
+    assert_eq!(h["phone"]["sent"], 1, "{h}");
+    assert_eq!(cx.escalations.open.len(), 0);
+    assert_eq!(cx.stats.handoffs, 0);
+    assert_eq!(cx.health_json()["phone_alerts"], true);
+}

@@ -76,6 +76,33 @@ pub struct FreezeCfg {
     /// Freeze restarts per unit per hour.
     pub per_unit_hour: u32,
     pub timeout_s: u64,
+    /// Allowlisted units the freeze watch leaves alone (`CORTEX_FREEZE_SKIP`,
+    /// comma list), e.g. while another rollout owns them. The crash path
+    /// (R3) is unchanged for them.
+    pub skip: Vec<String>,
+}
+
+/// Parse `CORTEX_FREEZE_SKIP`: comma/space separated `*.service` names, max 16.
+pub fn parse_skip(v: &str) -> Result<Vec<String>, String> {
+    let mut out: Vec<String> = vec![];
+    for u in v.split([',', ' ']).map(str::trim).filter(|u| !u.is_empty()) {
+        let ok = u.ends_with(".service")
+            && u.len() <= 64
+            && u.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "-_.@".contains(c));
+        if !ok {
+            return Err(format!(
+                "CORTEX_FREEZE_SKIP: {u:?} is not a unit name (x.service)"
+            ));
+        }
+        if !out.iter().any(|o| o == u) {
+            out.push(u.to_string());
+        }
+    }
+    if out.len() > 16 {
+        return Err("CORTEX_FREEZE_SKIP: at most 16 units".into());
+    }
+    Ok(out)
 }
 
 impl Default for FreezeCfg {
@@ -88,6 +115,7 @@ impl Default for FreezeCfg {
             cooldown_s: 300,
             per_unit_hour: 1,
             timeout_s: 5,
+            skip: vec![],
         }
     }
 }
@@ -445,6 +473,7 @@ mod tests {
             cooldown_s: 300,
             per_unit_hour: 1,
             timeout_s: 5,
+            skip: vec![],
         }
     }
 
@@ -614,6 +643,23 @@ mod tests {
         assert_eq!(health_path("console.service"), "/");
         assert_eq!(health_path("galion-health"), "/status.json");
         assert_eq!(health_path("mock.service"), "/health");
+        // CORTEX_FREEZE_SKIP: a skipped unit is not watched even when allowlisted
+        let skip = parse_skip("hermes-rs.service, console.service,,hermes-rs.service").unwrap();
+        assert_eq!(skip, vec!["hermes-rs.service", "console.service"]);
+        let allow2 = |u: &str| {
+            (u == "tuner.service" || u == "galion-desk.service") && !skip.iter().any(|s| s == u)
+        };
+        assert_eq!(targets_from_state(&st, &allow2).len(), 2);
+        let skip = parse_skip("tuner.service").unwrap();
+        let allow3 = |u: &str| {
+            (u == "tuner.service" || u == "galion-desk.service") && !skip.iter().any(|s| s == u)
+        };
+        let t = targets_from_state(&st, &allow3);
+        assert_eq!((t.len(), t[0].unit.as_str()), (1, "galion-desk.service"));
+        for bad in ["tuner", "x.service;rm", "a.service b", "../x.service"] {
+            assert!(parse_skip(bad).is_err(), "{bad}");
+        }
+        assert_eq!(parse_skip(" ").unwrap(), Vec::<String>::new());
     }
 
     #[test]

@@ -92,6 +92,10 @@ pub struct Config {
     /// runs but stopped answering its health probe (see [`crate::freeze`]).
     /// Off by default; `CORTEX_FREEZE=1` turns it on, `0` off.
     pub freeze: crate::freeze::FreezeCfg,
+    /// Failed-heal phone alert via the loopback ntfy relay
+    /// (`CORTEX_ALERT_RELAY`, see [`crate::phone`]). Env only; `None` = off.
+    #[serde(skip)]
+    pub phone: Option<crate::phone::PhoneCfg>,
     pub llm: LlmConfig,
     /// Cortex -> Hermes boss handoff (inbox files; see `handoff`).
     pub hermes: HermesConfig,
@@ -125,6 +129,7 @@ impl Default for Config {
             nerve_stale_s: 0,
             heal_verify_s: crate::verify::DEFAULT_VERIFY_S,
             freeze: crate::freeze::FreezeCfg::default(),
+            phone: None,
             llm: LlmConfig::default(),
             hermes: HermesConfig::default(),
         }
@@ -324,6 +329,10 @@ impl Config {
         if let Some(v) = num("CORTEX_FREEZE_TIMEOUT_S")? {
             c.freeze.timeout_s = v;
         }
+        if let Some(v) = get("CORTEX_FREEZE_SKIP") {
+            c.freeze.skip = crate::freeze::parse_skip(&v)?;
+        }
+        c.phone = crate::phone::PhoneCfg::from_env(get)?;
         if let Some(v) = get("CORTEX_REPEAT_POLL_S").and_then(|v| v.parse().ok()) {
             c.repeat_poll_s = v;
         }
@@ -431,6 +440,31 @@ mod tests {
             .map(|(a, b)| (a.to_string(), b.to_string()))
             .collect();
         move |k| v.iter().find(|(a, _)| a == k).map(|(_, b)| b.clone())
+    }
+
+    #[test]
+    fn freeze_skip_and_phone_relay_from_env() {
+        let c = Config::load(None, &env(&[])).unwrap();
+        assert!(c.freeze.skip.is_empty() && c.phone.is_none());
+        let c = Config::load(
+            None,
+            &env(&[
+                ("CORTEX_FREEZE_SKIP", "hermes-rs.service,console.service"),
+                ("CORTEX_ALERT_RELAY", "http://127.0.0.1:2586/gaia-cortex"),
+            ]),
+        )
+        .unwrap();
+        assert_eq!(c.freeze.skip, vec!["hermes-rs.service", "console.service"]);
+        assert_eq!(
+            c.phone.as_ref().map(|p| p.path.as_str()),
+            Some("/gaia-cortex")
+        );
+        assert!(Config::load(None, &env(&[("CORTEX_FREEZE_SKIP", "hermes-rs")])).is_err());
+        assert!(Config::load(
+            None,
+            &env(&[("CORTEX_ALERT_RELAY", "http://192.0.2.1:2586/x")])
+        )
+        .is_err());
     }
 
     #[test]

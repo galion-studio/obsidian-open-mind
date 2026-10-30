@@ -179,6 +179,8 @@ pub struct Cortex {
     pub heals: crate::verify::Verifier,
     /// Freeze watch (running but not answering; see [`crate::freeze`]).
     pub freeze: crate::freeze::FreezeWatch,
+    /// Failed-heal phone alerts (loopback ntfy relay), shared with the courier.
+    pub phone: Option<Arc<crate::phone::Phone>>,
     outgoing: Vec<Post>,
     seen: HashSet<u64>,
     seen_order: VecDeque<u64>,
@@ -273,6 +275,10 @@ impl Cortex {
             posts: Arc::new(PostCounters::default()),
             heals,
             freeze,
+            phone: cfg
+                .phone
+                .clone()
+                .map(|c| Arc::new(crate::phone::Phone::new(c))),
             outgoing: vec![],
             seen: HashSet::new(),
             seen_order: VecDeque::new(),
@@ -1092,7 +1098,7 @@ impl Cortex {
                 let fresh = self.rules.hold_circuit(&u, now);
                 (
                     "R12-heal-failed",
-                    Sev::Error,
+                    Sev::Critical,
                     format!(
                         "{u}: restart {} did not heal it within {}s ({}); circuit {}, no further restart",
                         d.check.decision,
@@ -1137,6 +1143,10 @@ impl Cortex {
     pub fn heals_json(&self) -> Value {
         let mut v = self.heals.to_json();
         v["freeze"] = self.freeze.to_json();
+        v["phone"] = match &self.phone {
+            Some(p) => p.to_json(),
+            None => json!({"configured": false}),
+        };
         v
     }
 
@@ -1316,6 +1326,7 @@ impl Cortex {
                "hermes_handoff": self.handoff.enabled, "handoffs": self.stats.handoffs,
                "heals_pending": self.heals.pending.len(), "heal_verify": self.heals.window_s > 0,
                "freeze_watch": self.freeze.enabled(), "freeze_targets": self.freeze.targets.len(),
+               "phone_alerts": self.phone.is_some(),
                "busy": self.snap.busy()});
         self.contact.overlay(
             &mut v,
@@ -1436,11 +1447,31 @@ pub struct Courier {
 }
 
 impl Courier {
-    pub fn spawn(mut link: Box<dyn NerveLink>, counters: Arc<PostCounters>, cap: usize) -> Self {
+    pub fn spawn(link: Box<dyn NerveLink>, counters: Arc<PostCounters>, cap: usize) -> Self {
+        Self::spawn_with(link, counters, cap, None)
+    }
+
+    /// [`Courier::spawn`] that also offers every post to the phone relay
+    /// (only failed-heal alerts go out, see [`crate::phone`]).
+    pub fn spawn_with(
+        mut link: Box<dyn NerveLink>,
+        counters: Arc<PostCounters>,
+        cap: usize,
+        phone: Option<Arc<crate::phone::Phone>>,
+    ) -> Self {
         let (tx, rx) = sync_channel::<Post>(cap);
         let c = counters.clone();
         std::thread::spawn(move || {
             while let Ok(p) = rx.recv() {
+                if let Some(ph) = &phone {
+                    let r = ph.offer(&p.event, now_secs());
+                    if !matches!(r, crate::phone::Sent::NotForPhone) {
+                        eprintln!(
+                            "gaia-cortex: phone alert ({}): {r:?}",
+                            crate::phone::PHONE_RULE
+                        );
+                    }
+                }
                 let ok = link.post_event(&p.event);
                 c.note(p.alert, ok);
                 c.queued.fetch_sub(1, Ordering::Relaxed);
@@ -1587,8 +1618,10 @@ pub fn run_freeze_watch(
             if let Ok(st) = crate::nerve::nerve_state(nerve, io) {
                 let mut g = lock(&cx);
                 let t = {
-                    let r = &g.rules;
-                    crate::freeze::targets_from_state(&st, &|u| r.restart_allowed(u))
+                    let (r, skip) = (&g.rules, &g.freeze.cfg.skip);
+                    crate::freeze::targets_from_state(&st, &|u| {
+                        r.restart_allowed(u) && !skip.iter().any(|s| s == u)
+                    })
                 };
                 g.freeze.set_targets(t);
                 targets_at = Some(now);
@@ -1656,9 +1689,10 @@ pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: D
         let link = std::mem::replace(&mut g.nerve, Box::new(crate::nerve::Detached));
         (link, g.snap.clone(), g.posts.clone())
     };
+    let phone = lock(&cx).phone.clone();
     let courier = link
         .fork()
-        .map(|l| Courier::spawn(l, counters.clone(), COURIER_CAP));
+        .map(|l| Courier::spawn_with(l, counters.clone(), COURIER_CAP, phone.clone()));
     let sweep = escalation_sweep_every(lock(&cx).cfg.escalation_max_age_s);
     let reader = state_reader(lock(&cx).cfg.nerve_url.as_deref());
     let send = |link: &mut Box<dyn NerveLink>, posts: Vec<Post>| {
@@ -1666,6 +1700,9 @@ pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: D
             match &courier {
                 Some(c) => c.send(p),
                 None => {
+                    if let Some(ph) = &phone {
+                        let _ = ph.offer(&p.event, now_secs());
+                    }
                     let ok = link.post_event(&p.event);
                     counters.note(p.alert, ok);
                 }

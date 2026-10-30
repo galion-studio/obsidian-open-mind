@@ -134,6 +134,15 @@ fn serve_main(cfg: Config) -> ExitCode {
             "gaia-cortex: freeze watch ON: probe every {}s (timeout {}s), {} consecutive failures over >= {}s, cooldown {}s, {} freeze restart(s)/unit/h",
             f.probe_s, f.timeout_s, f.fails, f.min_s, f.cooldown_s, f.per_unit_hour
         );
+        if !f.skip.is_empty() {
+            eprintln!("gaia-cortex: freeze watch skips {}", f.skip.join(", "));
+        }
+    }
+    if let Some(p) = &cfg.phone {
+        eprintln!(
+            "gaia-cortex: failed-heal phone alerts ON via loopback relay {} (urgent, max {}/h)",
+            p.path, p.per_hour
+        );
     }
     let (socket, pull_every, nerve_url, stream, repeat_poll, flap_window) = (
         cfg.socket.clone(),

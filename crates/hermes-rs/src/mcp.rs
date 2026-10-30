@@ -220,12 +220,45 @@ pub fn effective_uid() -> Option<u32> {
                     .and_then(|r| r.split_whitespace().nth(1))
                     .and_then(|u| u.parse().ok())
             });
-        from_status.or_else(|| std::fs::metadata("/proc/self").ok().map(|m| m.uid()))
+        from_status
+            .or_else(|| std::fs::metadata("/proc/self").ok().map(|m| m.uid()))
+            .or_else(uid_from_tmpfile)
     }
     #[cfg(not(unix))]
     {
         None
     }
+}
+
+/// Fallback when /proc is not readable (some sandboxes): the owner of an
+/// unnamed O_TMPFILE in the temp dir is our effective uid. The file has no
+/// name, so nothing is left behind and nothing has to be removed.
+#[cfg(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+))]
+fn uid_from_tmpfile() -> Option<u32> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+    #[cfg(target_arch = "x86_64")]
+    const O_DIRECTORY: i32 = 0o200000;
+    #[cfg(target_arch = "aarch64")]
+    const O_DIRECTORY: i32 = 0o40000;
+    const O_TMPFILE: i32 = 0o20000000 | O_DIRECTORY;
+    let f = std::fs::OpenOptions::new()
+        .write(true)
+        .mode(0o600)
+        .custom_flags(O_TMPFILE)
+        .open(std::env::temp_dir())
+        .ok()?;
+    f.metadata().ok().map(|m| m.uid())
+}
+
+#[cfg(not(all(
+    target_os = "linux",
+    any(target_arch = "x86_64", target_arch = "aarch64")
+)))]
+fn uid_from_tmpfile() -> Option<u32> {
+    None
 }
 
 /// The uid:gid a child runs as. None = keep the caller's (not root, or the
@@ -927,6 +960,26 @@ mod tests {
         );
         sh.allow_writes = true;
         assert!(skip_reason(&sh, &r).is_none());
+    }
+
+    #[cfg(all(
+        target_os = "linux",
+        any(target_arch = "x86_64", target_arch = "aarch64")
+    ))]
+    #[test]
+    fn tmpfile_uid_matches_proc() {
+        let tmp = uid_from_tmpfile().expect("O_TMPFILE probe");
+        if let Some(p) = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find_map(|l| l.strip_prefix("Uid:"))
+                    .and_then(|r| r.split_whitespace().nth(1))
+                    .and_then(|u| u.parse::<u32>().ok())
+            })
+        {
+            assert_eq!(tmp, p);
+        }
     }
 
     #[test]

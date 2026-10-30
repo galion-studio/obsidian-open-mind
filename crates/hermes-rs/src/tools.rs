@@ -100,8 +100,37 @@ impl Tool for Guarded {
     }
     fn call(&self, args: &Value, ctx: &ToolCtx) -> ToolOutput {
         let name = self.inner.name();
-        match crate::denylist::check_tool_call(&self.inner.deny_name(), args, &self.policy) {
-            Ok(()) => self.inner.call(args, ctx),
+        let deny_name = self.inner.deny_name();
+        match crate::denylist::check_tool_call(&deny_name, args, &self.policy) {
+            Ok(()) => {
+                // full-write mode: keep an undo copy of what the call may
+                // delete or overwrite; no copy = the call does not run
+                let plan = crate::denylist::undo::plan(&deny_name, args, &self.policy);
+                let saved = match crate::denylist::undo::snapshot(
+                    &plan,
+                    &self.policy,
+                    &name,
+                    &args.to_string(),
+                ) {
+                    Ok(s) => s,
+                    Err(d) => {
+                        eprintln!(
+                            "hermes-rs denylist: refused tool={name} rule={} session={} depth={}",
+                            d.rule, ctx.session_id, ctx.depth
+                        );
+                        return ToolOutput::err(crate::denylist::refusal_text(&d));
+                    }
+                };
+                let mut out = self.inner.call(args, ctx);
+                if let Some(s) = saved {
+                    eprintln!(
+                        "hermes-rs denylist: undo copy tool={name} id={} files={} session={}",
+                        s.id, s.files, ctx.session_id
+                    );
+                    attach_undo(&mut out, &s);
+                }
+                out
+            }
             Err(d) => {
                 eprintln!(
                     "hermes-rs denylist: refused tool={name} rule={} session={} depth={}",
@@ -111,6 +140,23 @@ impl Tool for Guarded {
             }
         }
     }
+}
+
+/// Tell the model where the undo copy is: an `undo` field in a JSON object
+/// result, otherwise an `[undo]` line at the end.
+fn attach_undo(out: &mut ToolOutput, s: &crate::denylist::undo::Saved) {
+    if let Ok(Value::Object(mut o)) = serde_json::from_str::<Value>(&out.content) {
+        if !o.contains_key("undo") {
+            o.insert(
+                "undo".into(),
+                json!({"dir": s.dir.display().to_string(), "files": s.files, "note": s.note()}),
+            );
+            out.content = Value::Object(o).to_string();
+            return;
+        }
+    }
+    out.content.push_str("\n[undo] ");
+    out.content.push_str(&s.note());
 }
 
 impl Registry {

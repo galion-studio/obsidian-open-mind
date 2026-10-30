@@ -21,10 +21,16 @@
 //! * S8 — services, signals, packages, git push and other remote/system ops.
 //! * S9 — tool level: code tools, shell tools without an inspectable command,
 //!   delegated writes, vault writes, MCP tools, size limits. Fail closed.
+//!
+//! Full-write mode (opt-in, `HERMES_RS_GUARD_FULL_WRITE=1`, 2026-10-30):
+//! before a tool call that may delete or overwrite workspace files runs,
+//! an undo copy is kept ([`undo`]); a call whose copy can not be made is
+//! refused. The rules that widen what may run come in a later change.
 
 pub mod ere;
 pub mod rules;
 pub mod shell;
+pub mod undo;
 
 use rules::*;
 use serde_json::Value;
@@ -75,6 +81,13 @@ pub struct Policy {
     pub net_allow: Vec<String>,
     /// Extra read-only vault roots on top of [`VAULT_ROOTS`].
     pub extra_vaults: Vec<PathBuf>,
+    /// Full-write mode (`HERMES_RS_GUARD_FULL_WRITE=1`): coding-assistant
+    /// access inside the write roots (undo copies, see [`undo`]). Off by
+    /// default.
+    pub full_write: bool,
+    /// Undo store override (`HERMES_RS_GUARD_TRASH`); default
+    /// `<first write root>/.hermes-trash`.
+    pub trash: Option<PathBuf>,
 }
 
 /// Tool-call size bounds (over = refused, never partially checked).
@@ -100,9 +113,32 @@ impl Policy {
             home: PathBuf::from("/root"),
             net_allow: Vec::new(),
             extra_vaults: Vec::new(),
+            full_write: false,
+            trash: None,
         };
         p.sanitise();
         p
+    }
+
+    /// This policy with full-write mode on (tests and explicit callers;
+    /// the service turns it on with `HERMES_RS_GUARD_FULL_WRITE=1`).
+    pub fn full_write(mut self) -> Policy {
+        self.full_write = true;
+        self
+    }
+
+    /// Full-write mode is in force: asked for, deny-list mode, and there is
+    /// a workspace to write in.
+    pub fn full_write_on(&self) -> bool {
+        self.full_write && self.mode == Mode::Denylist && !self.write_roots.is_empty()
+    }
+
+    /// Where undo copies go.
+    pub fn trash_dir(&self) -> Option<PathBuf> {
+        if let Some(t) = &self.trash {
+            return (!t.as_os_str().is_empty()).then(|| t.clone());
+        }
+        self.write_roots.first().map(|w| w.join(undo::TRASH_NAME))
     }
 
     /// This policy with `dir` as the cwd and the only writable root (the
@@ -136,6 +172,8 @@ impl Policy {
                 home: PathBuf::from("/root"),
                 net_allow: Vec::new(),
                 extra_vaults: Vec::new(),
+                full_write: false,
+                trash: None,
             },
         };
         if let Ok(h) = std::env::var("HOME") {
@@ -155,6 +193,23 @@ impl Policy {
                 .map(|h| h.trim().to_ascii_lowercase())
                 .filter(|h| !h.is_empty())
                 .collect();
+        }
+        if std::env::var("HERMES_RS_GUARD_FULL_WRITE")
+            .map(|m| {
+                matches!(
+                    m.trim().to_ascii_lowercase().as_str(),
+                    "1" | "true" | "yes" | "on"
+                )
+            })
+            .unwrap_or(false)
+        {
+            p.full_write = true;
+        }
+        if let Ok(t) = std::env::var("HERMES_RS_GUARD_TRASH") {
+            let t = t.trim();
+            if t.starts_with('/') {
+                p.trash = Some(PathBuf::from(t));
+            }
         }
         if let Ok(v) = std::env::var("HERMES_RS_GUARD_VAULTS") {
             p.extra_vaults = v
@@ -185,6 +240,22 @@ impl Policy {
             let vault = vaults.iter().any(|v| under(w, v) || under(v, w));
             !(bad_root || secret || vault)
         });
+        // the undo store: never `/`, a top-level dir, a secret root, a vault,
+        // /etc or /boot (a bad value turns full-write undo off = fail closed)
+        if let Some(t) = &self.trash {
+            let lex = lexical(&t.to_string_lossy(), Path::new("/"), &self.home)
+                .unwrap_or_else(|_| PathBuf::from("/"));
+            let bad = lex.components().count() < 3
+                || secret_reason(&lex).is_some()
+                || vaults.iter().any(|v| under(&lex, v) || under(v, &lex))
+                || under(&lex, Path::new("/etc"))
+                || under(&lex, Path::new("/boot"))
+                || self.write_roots.iter().any(|w| under(w, &lex));
+            // a refused store must not silently fall back to the workspace
+            // default: an unusable store = no undo copy = the call is refused
+            // (an empty path = refused store)
+            self.trash = Some(if bad { PathBuf::new() } else { lex });
+        }
     }
 
     pub fn vaults(&self) -> Vec<PathBuf> {
@@ -398,6 +469,15 @@ fn check_path_x(raw: &str, access: Access, cwd: &Path, pol: &Policy, strict: boo
                 return Err(deny(
                     "S6-no-write",
                     format!("{name} steers the agent or runs code on its own"),
+                ));
+            }
+            if pol.full_write_on() && undo::in_trash(p, pol) {
+                return Err(deny(
+                    "S6-trash",
+                    format!(
+                        "{} is in the undo store; it can not be changed (copy files back out of it with cp)",
+                        p.display()
+                    ),
                 ));
             }
         }
@@ -2021,6 +2101,12 @@ pub fn check_tool_call(tool: &str, args: &Value, pol: &Policy) -> R {
 
 /// The message a refused tool call returns to the model.
 pub fn refusal_text(d: &Deny) -> String {
+    if d.rule == "S9-no-undo" {
+        return format!(
+            "not run by the Hermes deny list ({}): {}. Nothing was changed.",
+            d.rule, d.reason
+        );
+    }
     format!(
         "blocked by the Hermes deny list ({}): {}. This is final for this intent: do not retry it, reword it, split it, or route it through another tool or a helper, because the deny list judges what the call would do, not its wording. Stop this line of work and tell the operator what you wanted to do and why it was refused.",
         d.rule, d.reason

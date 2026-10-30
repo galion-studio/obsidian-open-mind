@@ -25,6 +25,7 @@ pub mod html;
 pub mod icons;
 pub mod json;
 pub mod layout;
+pub mod logos;
 pub mod overview;
 pub mod pages;
 pub mod port2;
@@ -455,6 +456,12 @@ impl Ui {
             p if p == self.css_href => return self.stylesheet(req, false),
             p if p == self.overview_css_href => return self.stylesheet(req, true),
             p if p == self.sprite_href => return self.sprite(req),
+            p if p.starts_with(logos::PREFIX) => {
+                return match logos::by_path(p) {
+                    Some(l) => asset(l.mime, &l.etag, &l.bytes),
+                    None => Reply::text(404, "Not found\n"),
+                }
+            }
             p if p == self.hermes_css_href => {
                 return asset(
                     "text/css; charset=utf-8",

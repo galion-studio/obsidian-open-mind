@@ -5,8 +5,9 @@
 .hm{--g-fg:#f4f5ff;--g-2:#b9bdd9;--g-3:#8a8fb4;--g-a:#6d7bff;--g-t:#2fe6c8;--g-o:#c45cff;--g-w:#ffb36b;--g-e:#ff5d73;--glide:cubic-bezier(.22,1,.36,1);color:#f4f5ff;color:var(--g-fg);color-scheme:dark;position:relative;display:flex;flex-direction:column;gap:.75rem;max-width:56rem;margin:0 auto;min-height:100%;font-family:-apple-system,"SF Pro Display","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-tap-highlight-color:transparent}
 .hm button,.hm input,.hm select,.hm textarea{font-family:inherit}
 .g1{min-width:0}
+.g1>.hm-head,.g1>.g1-stage,.g1>.hm-grid{position:relative;z-index:1}
 /* Sky: fixed behind the room, painted under the console header and dock. */
-.g1-sky{position:fixed;top:0;right:0;bottom:0;left:0;z-index:-1;pointer-events:none;overflow:hidden;background:#0b0d24;background:linear-gradient(180deg,#05060f 0%,#0b0d24 55%,#140b2e 100%)}
+.g1-sky{position:fixed;top:0;right:0;bottom:0;left:0;z-index:0;pointer-events:none;overflow:hidden;background:#0b0d24;background:linear-gradient(180deg,#05060f 0%,#0b0d24 55%,#140b2e 100%)}
 .g1-sky i{position:absolute;display:block;width:120vmax;height:120vmax;border-radius:50%;opacity:.55;transition:opacity 1.2s ease;will-change:transform}
 .g1-f1{left:-62vmax;top:-58vmax;background:radial-gradient(closest-side,rgba(109,123,255,.6),rgba(109,123,255,0));animation:g1-d1 28s ease-in-out infinite alternate}
 .g1-f2{right:-72vmax;top:6vh;background:radial-gradient(closest-side,rgba(47,230,200,.38),rgba(47,230,200,0));animation:g1-d2 36s ease-in-out infinite alternate}
@@ -73,10 +74,13 @@
 .g1-chat .g1-stage{gap:0;padding:0}
 .g1-chat .g1-orb{transform:scale(.36);margin:-3.68rem 0}
 .g1-chat .g1-hi{opacity:0;max-height:0}
+@media (max-width:899.98px) and (max-height:900px){.g1-orb{width:9.5rem;height:9.5rem}.g1-chat .g1-orb{margin:-3.04rem 0}.g1-stage{gap:1rem}}
 /* History and conversation. */
 .hm-grid{display:grid;grid-template-columns:1fr;gap:.75rem;flex:1;min-height:0}
 @media (min-width:900px){.hm-grid{grid-template-columns:16rem minmax(0,1fr)}.hm-side{position:sticky;top:0;align-self:start;max-height:calc(100dvh - 10rem);overflow:auto}}
 .hm-side{min-width:0}
+/* Phone: the composer sticks to the whole room, so it stays in view even when the conversation is empty. */
+@media (max-width:899.98px){.g1>.hm-grid,.g1 .hm-main{display:contents}.g1 .hm-side,.g1 .hm-log{position:relative;z-index:1}}
 .hm-hist-sum{display:inline-flex;align-items:center;gap:.375rem;min-height:2.75rem;list-style:none;cursor:pointer;font-size:.8125rem;color:var(--g-2)}
 .hm-hist-sum::-webkit-details-marker{display:none}
 .hm-hist-sum:before{content:"";width:.375rem;height:.375rem;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .3s var(--glide)}
@@ -99,6 +103,7 @@
 .hm-welcome{margin:0 auto;max-width:28rem;text-align:center;display:flex;flex-direction:column;gap:.375rem;color:var(--g-3)}
 .hm-welcome .hm-it{white-space:normal;font-size:.9375rem;color:var(--g-2)}
 .hm-welcome p{margin:0}
+.g1:not(.g1-chat) .hm-welcome{display:none}
 .hm-thread-meta{margin:0;display:flex;flex-wrap:wrap;gap:.25rem .5rem;align-items:baseline;justify-content:center;text-align:center}
 .hm-thread-meta .hm-it{white-space:normal;color:var(--g-2)}
 .hm-msg{max-width:min(42rem,100%);display:flex;flex-direction:column;gap:.375rem}
@@ -120,7 +125,8 @@
 .g1-c{animation:g1-chunk .42s ease-out both}
 @keyframes g1-chunk{from{opacity:0;filter:blur(4px)}to{opacity:1;filter:none}}
 /* Composer: chips, then one floating glass capsule. */
-.hm-composer{position:-webkit-sticky;position:sticky;bottom:0;z-index:2;display:flex;flex-direction:column;gap:.5rem;padding:1.75rem 0 .5rem;background:linear-gradient(180deg,rgba(14,10,36,0),rgba(14,10,36,.9) 38%)}
+.hm-composer{position:-webkit-sticky;position:sticky;bottom:0;z-index:2;display:flex;flex-direction:column;gap:.5rem;margin:0 -.75rem;padding:1.75rem .75rem .5rem;background:linear-gradient(180deg,rgba(20,11,46,0),rgba(20,11,46,.94) 1.5rem)}
+@media (min-width:900px){.hm-composer{background:none}.hm-composer:before{content:"";position:absolute;top:0;right:0;bottom:0;left:0;z-index:-1;pointer-events:none;background:radial-gradient(50% 100% at 50% 100%,rgba(20,11,46,.9),rgba(20,11,46,.6) 55%,rgba(20,11,46,0) 100%)}}
 .hm-row{display:flex;flex-wrap:wrap;align-items:center;gap:.375rem}
 .g1-more{order:0}.g1-more[open]{order:3;flex-basis:100%}
 .g1-more-s,.hm-pick,.hm-field select{display:inline-flex;align-items:center;min-height:2.75rem;padding:0 .875rem;border:0;border-radius:999px;background:rgba(255,255,255,.06);color:var(--g-2);font-size:.8125rem;cursor:pointer}
@@ -167,10 +173,10 @@
 .hm-note.t-bad{color:#ff8a9a}
 /* Model sheet (t365u): full screen on phones, borderless glass. */
 html.hm-lock,html.hm-lock body{overflow:hidden}
-.hm-sheet{position:fixed;top:0;right:0;bottom:0;left:0;z-index:60;display:flex;align-items:stretch;justify-content:center;background:rgba(5,6,15,.8)}
+.hm-sheet{position:fixed;top:calc(3.6rem + env(safe-area-inset-top));right:0;bottom:calc(3.6rem + env(safe-area-inset-bottom));left:0;z-index:60;display:flex;align-items:stretch;justify-content:center;background:rgba(5,6,15,.8)}
 @supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.hm-sheet{background:rgba(5,6,15,.55);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}}
-.hm-sheet-box{display:flex;flex-direction:column;gap:.5rem;width:100%;max-width:36rem;height:100%;max-height:100dvh;padding:1rem 1rem max(1rem,env(safe-area-inset-bottom));background:#0b0d24;background:linear-gradient(180deg,rgba(17,19,48,.96),rgba(20,11,46,.96));overflow:hidden;animation:g1-rise .48s var(--glide) both}
-@media (min-width:640px){.hm-sheet{align-items:center;padding:1.5rem}.hm-sheet-box{height:auto;max-height:min(44rem,90dvh);border-radius:1.75rem;box-shadow:0 30px 80px rgba(0,0,0,.5)}}
+.hm-sheet-box{display:flex;flex-direction:column;gap:.5rem;width:100%;max-width:36rem;height:100%;max-height:100%;padding:1rem 1rem max(1rem,env(safe-area-inset-bottom));background:#0b0d24;background:linear-gradient(180deg,rgba(17,19,48,.96),rgba(20,11,46,.96));overflow:hidden;animation:g1-rise .48s var(--glide) both}
+@media (min-width:640px){.hm-sheet{align-items:center;padding:1.5rem}.hm-sheet-box{height:auto;max-height:100%;border-radius:1.75rem;box-shadow:0 30px 80px rgba(0,0,0,.5)}}
 .hm-sheet-head{display:flex;align-items:center;justify-content:space-between;gap:.5rem}
 .hm-x{background:transparent;color:var(--g-2)}
 .hm-sheet-t{margin:0;font-size:1.375rem;font-weight:300;letter-spacing:-.02em}

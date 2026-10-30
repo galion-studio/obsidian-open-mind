@@ -230,7 +230,8 @@
   function scrollEnd() {
     log.scrollTop = log.scrollHeight;
     var m = document.getElementById("main");
-    if (m) m.scrollTop = m.scrollHeight;
+    // Only a conversation follows the newest line; the idle room stays at the top.
+    if (m && /(^| )g1-chat( |$)/.test(root.className)) m.scrollTop = m.scrollHeight;
   }
   // Streaming reveal: while the text only grows and has no code fence, each
   // new chunk is appended as its own fading span (no re-render). Anything

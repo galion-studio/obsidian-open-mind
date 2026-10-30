@@ -10,7 +10,12 @@ while IFS= read -r line; do
     *'"method":"initialize"'*)
       printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"mockw","version":"1"}}}\n' "$id" ;;
     *'"method":"tools/list"'*)
-      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"argv","description":"server argv","annotations":{"readOnlyHint":true}},{"name":"push_files","description":"push files","inputSchema":{"type":"object","properties":{"files":{"type":"array"},"message":{"type":"string"},"token":{"type":"string"}}}},{"name":"create_or_update_file","description":"write one file","inputSchema":{"type":"object","properties":{"path":{"type":"string"},"content":{"type":"string"}}}}]}}\n' "$id" ;;
+      t1='{"name":"argv","description":"server argv","annotations":{"readOnlyHint":true}}'
+      t2='{"name":"push_files","description":"push files","inputSchema":{"type":"object",'
+      t2="$t2"'"properties":{"files":{"type":"array"},"message":{"type":"string"},"token":{"type":"string"}}}}'
+      t3='{"name":"create_or_update_file","description":"write one file","inputSchema":{"type":"object",'
+      t3="$t3"'"properties":{"path":{"type":"string"},"content":{"type":"string"}}}}'
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[%s,%s,%s]}}\n' "$id" "$t1" "$t2" "$t3" ;;
     *'"method":"tools/call"'*)
       [ -n "$CALL_LOG" ] && printf '%s\n' "$line" >> "$CALL_LOG"
       case "$line" in

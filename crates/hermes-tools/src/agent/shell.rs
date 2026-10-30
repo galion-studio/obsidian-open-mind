@@ -32,6 +32,7 @@ pub fn policy(cfg: &super::AgentToolsConfig, timeout: Duration) -> SandboxPolicy
     let mut p = SandboxPolicy::new(ws);
     let tmp = ws.join(".tmp");
     let _ = std::fs::create_dir_all(&tmp);
+    cfg.own(&tmp);
     p.env_allowlist = vec!["LANG".into(), "LC_ALL".into(), "TZ".into()];
     p.env_set = vec![
         ("PATH".into(), "/usr/local/bin:/usr/bin:/bin".into()),
@@ -58,6 +59,7 @@ pub fn policy(cfg: &super::AgentToolsConfig, timeout: Duration) -> SandboxPolicy
     p.cgroup_parent = cfg.cgroup_parent.clone();
     p.cgroup_pids_max = 128;
     p.cgroup_mem_bytes = 1 << 30;
+    p.run_as = cfg.run_as;
     p
 }
 

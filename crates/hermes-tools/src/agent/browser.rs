@@ -150,6 +150,7 @@ impl Tool for Browser {
             if let Err(e) = std::fs::create_dir_all(d) {
                 return ToolOutput::err(format!("browser dirs: {e}"));
             }
+            sh.cfg.own_up(d);
         }
         let shot = (mode == "screenshot").then(|| shots.join(format!("shot-{id}.png")));
         let timeout = Duration::from_secs(sh.cfg.browser_timeout_s);
@@ -173,7 +174,17 @@ impl Tool for Browser {
         p.cgroup_pids_max = 256;
         p.fsize_bytes = 64 << 20;
         p.output_cap = 4 << 20;
-        p.proc_fallback = openmind_sandbox::ProcFallback::Mask;
+        // Chromium needs /proc/self. Where no private /proc can be mounted
+        // (LXC + lxcfs) it would crash under the mask; the host /proc is
+        // allowed only when the run drops to another, non-root user (then it
+        // can not read the environ or memory of the gateway or any root
+        // process), else the mask stays.
+        p.proc_fallback = match sh.cfg.run_as {
+            Some((u, _)) if u != 0 && u != openmind_sandbox::effective_uid() => {
+                openmind_sandbox::ProcFallback::Host
+            }
+            _ => openmind_sandbox::ProcFallback::Mask,
+        };
         let argv = chrome_args(
             &bin.display().to_string(),
             &profile.display().to_string(),
@@ -216,8 +227,14 @@ impl Tool for Browser {
         }
         let html = String::from_utf8_lossy(&out.stdout).to_string();
         if html.trim().is_empty() {
+            let how = match out.status {
+                Status::Exited(c) => format!("exit {c}"),
+                Status::Signaled(s) => format!("signal {s}"),
+                Status::Error => "error".into(),
+            };
             return ToolOutput::err(format!(
-                "the page did not load (blocked, private address, or network error); browser said: {}",
+                "the page did not load (blocked, private address, or network error); browser {how} after {} ms; browser said: {}",
+                out.wall.as_millis(),
                 hermes_rs::redact(&cut(stderr.trim(), 600))
             ));
         }

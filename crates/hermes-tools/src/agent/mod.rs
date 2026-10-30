@@ -111,6 +111,36 @@ pub struct AgentToolsConfig {
     /// Delegated cgroup v2 parent for per-run cgroups (memory.max, pids.max
     /// for the whole process tree). None = rlimits + wall timeout only.
     pub cgroup_parent: Option<PathBuf>,
+    /// (uid, gid) the terminal and browser run as. Set when the gateway runs
+    /// as root (default 65534:65534, `HERMES_RS_TOOLS_RUN_AS`), so a
+    /// sandboxed process is an ordinary user outside its namespace. None =
+    /// the gateway user.
+    pub run_as: Option<(u32, u32)>,
+}
+
+impl AgentToolsConfig {
+    /// Hand `p` (a file or dir the in-process tools made in the workspace)
+    /// to the `run_as` user, without following symlinks. No-op otherwise.
+    pub fn own(&self, p: &Path) {
+        if let Some((u, g)) = self.run_as {
+            let _ = std::os::unix::fs::lchown(p, Some(u), Some(g));
+        }
+    }
+
+    /// `own` on `p` and every dir between it and the workspace.
+    pub fn own_up(&self, p: &Path) {
+        if self.run_as.is_none() {
+            return;
+        }
+        let mut cur = Some(p);
+        while let Some(c) = cur {
+            if !c.starts_with(&self.workspace) || c == self.workspace {
+                break;
+            }
+            self.own(c);
+            cur = c.parent();
+        }
+    }
 }
 
 fn num(env: &dyn Fn(&str) -> Option<String>, k: &str, d: u64) -> Result<u64, String> {
@@ -260,6 +290,29 @@ impl AgentToolsConfig {
                 Some(c)
             }
         };
+        let euid = openmind_sandbox::effective_uid();
+        let run_as = match env("HERMES_RS_TOOLS_RUN_AS").map(|s| s.trim().to_string()) {
+            Some(s) if s == "gateway" => None,
+            Some(s) if !s.is_empty() => {
+                let (u, g) = s
+                    .split_once(':')
+                    .ok_or("HERMES_RS_TOOLS_RUN_AS must be uid:gid or gateway")?;
+                let u: u32 = u.parse().map_err(|_| "HERMES_RS_TOOLS_RUN_AS: bad uid")?;
+                let g: u32 = g.parse().map_err(|_| "HERMES_RS_TOOLS_RUN_AS: bad gid")?;
+                if u == 0 || g == 0 {
+                    return Err("HERMES_RS_TOOLS_RUN_AS may not be root".into());
+                }
+                if euid != 0 {
+                    return Err("HERMES_RS_TOOLS_RUN_AS needs a root gateway".into());
+                }
+                Some((u, g))
+            }
+            _ if euid == 0 => Some((65534, 65534)),
+            _ => None,
+        };
+        if let Some((u, g)) = run_as {
+            let _ = std::os::unix::fs::chown(&ws, Some(u), Some(g));
+        }
         Ok(Some(AgentToolsConfig {
             workspace: ws,
             read_roots,
@@ -282,6 +335,7 @@ impl AgentToolsConfig {
                 .clamp(1024, 20 << 20),
             hide,
             cgroup_parent,
+            run_as,
         }))
     }
 
@@ -305,6 +359,7 @@ impl AgentToolsConfig {
             vision_max_image_bytes: 5 << 20,
             hide: vec![],
             cgroup_parent: None,
+            run_as: None,
         }
     }
 }

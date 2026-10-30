@@ -788,3 +788,38 @@ fn staged_skills_load_and_are_current() {
         }
     }
 }
+
+/// `run_as`: a non-root caller may name only its own ids (the run then
+/// checks it really is that user); any other id fails closed before the
+/// command starts. The root path (drop to 65534) is checked on the VPS.
+#[test]
+fn run_as_fails_closed_for_foreign_ids() {
+    let ws = tmpdir("runas");
+    let me = openmind_sandbox::effective_uid();
+    if me == 0 {
+        eprintln!("SKIP: running as root");
+        return;
+    }
+    let mut cfg = AgentToolsConfig::for_tests(&ws);
+    cfg.run_as = Some((me.wrapping_add(1), 12345));
+    let p = agent::shell::policy(&cfg, std::time::Duration::from_secs(5));
+    let o = openmind_sandbox::run(&["/bin/true".to_string()], &p);
+    assert_eq!(o.status, openmind_sandbox::Status::Error);
+    assert!(
+        o.error.as_deref().unwrap_or("").contains("run_as"),
+        "{:?}",
+        o.error
+    );
+    // the env knob refuses root and refuses a non-root gateway
+    let hermes = Config::defaults(&ws);
+    for (v, want) in [("0:0", "root"), ("1000:1000", "root gateway")] {
+        let env = |k: &str| match k {
+            "HERMES_RS_TOOLS_WORKSPACE" => Some(ws.display().to_string()),
+            "HERMES_RS_TOOLS_RUN_AS" => Some(v.to_string()),
+            _ => None,
+        };
+        let e = AgentToolsConfig::from_env(&env, &hermes).unwrap_err();
+        assert!(e.contains(want), "{v}: {e}");
+    }
+    let _ = std::fs::remove_dir_all(&ws);
+}

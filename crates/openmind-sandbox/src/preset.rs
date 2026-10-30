@@ -220,6 +220,7 @@ impl Preset {
             workdir_tmpfs_inodes: self.workdir_tmpfs_inodes,
             // Never the host /proc: masked when no private proc can be mounted.
             proc_fallback: crate::ProcFallback::Mask,
+            run_as: None,
         }
     }
 }

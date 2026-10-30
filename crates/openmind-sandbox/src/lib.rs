@@ -147,6 +147,13 @@ pub struct SandboxPolicy {
     /// What to show at /proc when the kernel refuses a fresh proc mount for
     /// the PID namespace (unprivileged LXC with lxcfs, see [`ProcFallback`]).
     pub proc_fallback: ProcFallback,
+    /// Drop to this (uid, gid) in the child before any namespace is made,
+    /// with no supplementary groups. Only a root caller can drop to another
+    /// id; a non-root caller may only name its own ids (else the run fails
+    /// closed). With a user namespace the drop makes the command an ordinary
+    /// user outside it, so a host /proc (ProcFallback::Host) does not let it
+    /// read the environ or memory of root processes. None = keep the caller.
+    pub run_as: Option<(u32, u32)>,
 }
 
 /// What the sandbox shows at `/proc` when a fresh proc mount for its PID
@@ -188,6 +195,12 @@ pub enum ProcView {
     Masked { static_files: u32, live_files: u32 },
     /// The host /proc (every host process visible).
     Host,
+}
+
+/// The effective uid of this process (for callers that pick `run_as`).
+pub fn effective_uid() -> u32 {
+    // SAFETY: plain id getter.
+    unsafe { libc::geteuid() }
 }
 
 impl SandboxPolicy {
@@ -239,6 +252,7 @@ impl SandboxPolicy {
             workdir_tmpfs_bytes: 0,
             workdir_tmpfs_inodes: 0,
             proc_fallback: ProcFallback::Mask,
+            run_as: None,
         }
     }
 
@@ -869,6 +883,7 @@ const E_UIDMAP: i32 = libc::ENOTRECOVERABLE;
 const E_CGROUP: i32 = libc::ESTALE;
 const E_WDQ: i32 = libc::ENOTUNIQ;
 const E_PROC: i32 = libc::ENOMEDIUM;
+const E_RUNAS: i32 = libc::EKEYREJECTED;
 // Work dir tmpfs report, written by the pre-exec child (copy in failed) or by
 // the PID-namespace supervisor (after the copy back): 11 x u64, one write.
 const WDQ_MAGIC: u64 = 0x5744_5131_3531_0001;
@@ -1198,6 +1213,17 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
     // ---- everything the forked child needs, prepared here ----
     // SAFETY: plain id getters.
     let (uid, gid, euid) = unsafe { (libc::getuid(), libc::getgid(), libc::geteuid()) };
+    let run_as = policy.run_as;
+    if let Some((ru, rg)) = run_as {
+        if euid != 0 && (ru, rg) != (uid, gid) {
+            return fail(
+                format!("run_as {ru}:{rg} needs a root caller (running as {uid}:{gid})"),
+                start,
+                enforced,
+            );
+        }
+    }
+    let (uid, gid) = run_as.unwrap_or((uid, gid));
     let uid_map = format!("{uid} {uid} 1");
     let gid_map = format!("{gid} {gid} 1");
     let want_ns = policy.namespaces && feat.userns;
@@ -1436,6 +1462,25 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             }
             bits |= B_NNP;
 
+            if let Some((ru, rg)) = run_as {
+                if libc::geteuid() == 0 {
+                    if libc::setgroups(0, std::ptr::null()) != 0
+                        || libc::setresgid(rg, rg, rg) != 0
+                        || libc::setresuid(ru, ru, ru) != 0
+                    {
+                        return Err(std::io::Error::from_raw_os_error(E_RUNAS));
+                    }
+                    // a uid change clears the dumpable flag, which makes
+                    // /proc/self root-owned: the uid_map write below and
+                    // the command's own /proc/self would then fail
+                    if libc::prctl(libc::PR_SET_DUMPABLE, 1, 0, 0, 0) != 0 {
+                        return Err(std::io::Error::from_raw_os_error(E_RUNAS));
+                    }
+                }
+                if libc::getuid() != ru || libc::geteuid() != ru || libc::getgid() != rg {
+                    return Err(std::io::Error::from_raw_os_error(E_RUNAS));
+                }
+            }
             // Namespaces, best effort, biggest set first.
             let mut got: libc::c_int = 0;
             for f in attempts {
@@ -1770,6 +1815,8 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                 } else {
                     "/proc mask: pivot_root done but the old root could not be detached; refusing to run".to_string()
                 }
+            } else if e.raw_os_error() == Some(E_RUNAS) {
+                "could not drop to the run_as uid/gid; refusing to run as the caller".to_string()
             } else if e.raw_os_error() == Some(E_CGROUP) {
                 "could not join the per-run cgroup (the caller must live inside the same delegated subtree)".to_string()
             } else if e.raw_os_error() == Some(E_WDQ) {

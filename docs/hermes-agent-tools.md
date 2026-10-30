@@ -62,3 +62,11 @@ hermes-agent 0.21.4, toolset `hermes-cli`:
 ## Staged skills
 
 `stack/research-agent/hermes/skills-staged-20261029/` (see its README): the 3 empty addy skills filled, hearth / grok-session / local-primary updated, and a new `tools/agent-tools` skill.
+
+## run_as (2026-10-30, CET +01:00)
+
+- `HERMES_RS_TOOLS_RUN_AS=uid:gid` sets the user for the terminal and browser children. When the gateway runs as root, the default is `65534:65534`. Use `gateway` to keep the gateway's own user. Root ids are refused, and a non-root gateway that names other ids is refused.
+- The child drops its ids (setgroups, setresgid, setresuid, then a check) before any namespace is made. It then sets itself dumpable again so the uid_map write works. If the drop fails, the run fails closed.
+- The browser gets the host /proc only when it was dropped to a different non-root user. Chromium needs /proc/self, and on LXC with lxcfs no private /proc can be mounted. In every other case it gets the masked /proc.
+- Files written by the file tools, and the browser's directories, are lchowned to the run_as user.
+- Residual risk: with the host /proc, the browser can see other processes' cmdlines (not their environ or memory).

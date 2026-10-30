@@ -180,10 +180,13 @@ fn atomic_write(sh: &Shared, target: &Path, data: &[u8]) -> Result<(), String> {
         let _ = std::fs::remove_file(&tmp);
         return Err(format!("write: {e}"));
     }
+    sh.cfg.own(&tmp);
     std::fs::rename(&tmp, target).map_err(|e| {
         let _ = std::fs::remove_file(&tmp);
         format!("rename into place: {e}")
-    })
+    })?;
+    sh.cfg.own_up(dir);
+    Ok(())
 }
 
 /// Read at most `max` bytes from `offset`.

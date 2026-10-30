@@ -1322,3 +1322,12 @@ impl Ui {
         r
     }
 }
+
+#[cfg(test)]
+#[path = "connectors_tests.rs"]
+mod tests;
+
+/// The page through `Ui::handle`: owner gate, CSRF, writes, no secret echo.
+#[cfg(test)]
+#[path = "connectors_page_tests.rs"]
+mod page_tests;

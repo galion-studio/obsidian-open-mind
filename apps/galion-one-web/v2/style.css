@@ -83,6 +83,12 @@ body[data-state=error] .g1-cap{color:var(--g-e)}
 .hm-item{display:flex;flex-direction:column;gap:.125rem;width:100%;padding:.5rem 0 .5rem .75rem;border:0;background:transparent;text-align:left;color:var(--g-2);min-height:2.75rem;cursor:pointer}
 .hm-it{font-size:.875rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--g-fg)}
 .hm-im{font-size:.75rem;color:var(--g-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g1-threads{display:flex;align-items:flex-start;gap:.5rem}
+.g1-threads .hm-hist{flex:1;min-width:0}
+.g1-new-chat{flex:none;min-height:2.75rem;padding:0 .25rem 0 .75rem;border:0;background:transparent;color:var(--g-2);font-size:.8125rem;cursor:pointer}
+.g1-new-chat:hover,.g1-new-chat:focus-visible{color:var(--g-fg)}
+.hm-item[aria-current=true] .hm-it{color:var(--g-fg);font-weight:600}
+.hm-item[aria-current=true] .hm-im:before{content:"Open now · "}
 .hm-empty{margin:0;padding:.5rem 0;font-size:.8125rem;color:var(--g-3)}
 .hm-log{flex:1;min-height:4rem;padding:.5rem .125rem 1rem;display:flex;flex-direction:column;gap:1.5rem;outline:none}
 .hm-msg{max-width:min(42rem,100%);display:flex;flex-direction:column;gap:.375rem}
@@ -155,3 +161,4 @@ html.g1v2 body #galion-boot{animation:g1-boot-out .5s cubic-bezier(.4,0,.2,1) 2.
 html.g1v2 .hm{animation:g1-room-in .9s var(--g1-glide) 2.15s both}
 @keyframes g1-room-in{from{opacity:0}to{opacity:1}}
 @media (prefers-reduced-motion:reduce){html.g1v2 .hm{animation:none!important}html.g1v2 body #galion-boot{animation:g1-boot-out 0s 2.1s forwards!important}.hm *,.hm *:before,.hm *:after,.g1-sky i,html.g1v2 body #galion-boot .lock::before{animation:none!important;transition:none!important}html.g1v2 body #galion-boot .lock::before{opacity:1}html.g1v2 body #galion-boot.go .lock{transform:translateY(-8%);filter:none}}
+.g1-threads[hidden]{display:none}

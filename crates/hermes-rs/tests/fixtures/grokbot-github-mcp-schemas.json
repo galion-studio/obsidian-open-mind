@@ -4,7 +4,10 @@
  "tools": [
   {
    "name": "add_comment_to_pending_review",
-   "description": "Add an inline comment to the caller's pending (unsubmitted) review on a pull request, via GraphQL addPullRequestReviewThread. Start the review with create_pull_request_review and no `event`, add comments one at a time here, then submit_pending_pull_request_review. The reply is the new review thread with its first comment.",
+   "description": [
+    "Add an inline comment to the caller's pending (unsubmitted) review on a pull request, via GraphQL addPullRequestReviewThread. Start the review with create_pull_request_review and no `event`, add ",
+    "comments one at a time here, then submit_pending_pull_request_review. The reply is the new review thread with its first comment."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -189,7 +192,10 @@
   },
   {
    "name": "compare_commits",
-   "description": "GET /repos/{owner}/{repo}/compare/{base}...{head}: how `head` differs from `base` (`status`, `ahead_by`, `behind_by`), one page of the commits between them, and the files changed with their patches. Pass `base` and `head` as separate arguments, not GitHub REST's single `basehead` path parameter. Both are branches, tags, or SHAs; `head` may be `owner:branch` for a fork.",
+   "description": [
+    "GET /repos/{owner}/{repo}/compare/{base}...{head}: how `head` differs from `base` (`status`, `ahead_by`, `behind_by`), one page of the commits between them, and the files changed with their patches. ",
+    "Pass `base` and `head` as separate arguments, not GitHub REST's single `basehead` path parameter. Both are branches, tags, or SHAs; `head` may be `owner:branch` for a fork."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -406,7 +412,10 @@
   },
   {
    "name": "create_pull_request_review",
-   "description": "POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews: approve, request changes, or comment, optionally with inline comments on specific files and lines (each needs `path` and `line`, or a legacy `position`). Omit `event` to leave the review PENDING (unsubmitted): then add comments with add_comment_to_pending_review and publish it with submit_pending_pull_request_review.",
+   "description": [
+    "POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews: approve, request changes, or comment, optionally with inline comments on specific files and lines (each needs `path` and `line`, or a legacy ",
+    "`position`). Omit `event` to leave the review PENDING (unsubmitted): then add comments with add_comment_to_pending_review and publish it with submit_pending_pull_request_review."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -531,7 +540,10 @@
   },
   {
    "name": "delete_label",
-   "description": "DELETE /repos/{owner}/{repo}/labels/{name}: delete a label from the repository, removing it from every issue and pull request that carries it. Irreversible; confirm with the user when not explicitly asked. Always call `list_labels` first.",
+   "description": [
+    "DELETE /repos/{owner}/{repo}/labels/{name}: delete a label from the repository, removing it from every issue and pull request that carries it. Irreversible; confirm with the user when not explicitly ",
+    "asked. Always call `list_labels` first."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -790,7 +802,10 @@
   },
   {
    "name": "get_git_tree",
-   "description": "GET /repos/{owner}/{repo}/git/trees/{tree_sha}: a tree object. `tree_sha` may be a branch or tag name, or a commit or tree SHA; pass `recursive: true` to list the whole subtree in one call (GitHub truncates very large trees and says so with `truncated: true`).",
+   "description": [
+    "GET /repos/{owner}/{repo}/git/trees/{tree_sha}: a tree object. `tree_sha` may be a branch or tag name, or a commit or tree SHA; pass `recursive: true` to list the whole subtree in one call (GitHub ",
+    "truncates very large trees and says so with `truncated: true`)."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -908,7 +923,11 @@
   },
   {
    "name": "get_job_logs",
-   "description": "Plain-text GitHub Actions logs. Provide `job_id` (preferred) for GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs, or `run_id` to get the logs of that workflow run's failed jobs (conclusion failure or timed_out, latest attempt, at most 3), each under a header naming the job; a run with no failed jobs answers its job list instead. Whole logs past ~50 MiB cannot be fetched; pass `tail_bytes` to get only the end of each log, where a failure usually is (with `run_id` it defaults to the last 64 KiB per job). Expired logs answer 410.",
+   "description": [
+    "Plain-text GitHub Actions logs. Provide `job_id` (preferred) for GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs, or `run_id` to get the logs of that workflow run's failed jobs (conclusion ",
+    "failure or timed_out, latest attempt, at most 3), each under a header naming the job; a run with no failed jobs answers its job list instead. Whole logs past ~50 MiB cannot be fetched; pass ",
+    "`tail_bytes` to get only the end of each log, where a failure usually is (with `run_id` it defaults to the last 64 KiB per job). Expired logs answer 410."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -1117,7 +1136,10 @@
   },
   {
    "name": "get_tag",
-   "description": "One tag by name: GET /repos/{owner}/{repo}/git/ref/tags/{tag}, and when it is an annotated tag, GET /git/tags/{sha} for the tag object (tagger, message, and the commit it points at). The reply is `{ref, tag}`; `tag` is null for a lightweight tag, whose `ref.object` is the commit itself.",
+   "description": [
+    "One tag by name: GET /repos/{owner}/{repo}/git/ref/tags/{tag}, and when it is an annotated tag, GET /git/tags/{sha} for the tag object (tagger, message, and the commit it points at). The reply is ",
+    "`{ref, tag}`; `tag` is null for a lightweight tag, whose `ref.object` is the commit itself."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -1592,7 +1614,10 @@
   },
   {
    "name": "list_my_repositories",
-   "description": "GET /user/repos for every GitHub account connected to this Cursor account: one page of the repositories each account can access, as a JSON array holding one array of repository objects per account (in get_me order). Use it to find a repository's owner/name before calling a repository tool.",
+   "description": [
+    "GET /user/repos for every GitHub account connected to this Cursor account: one page of the repositories each account can access, as a JSON array holding one array of repository objects per account (in ",
+    "get_me order). Use it to find a repository's owner/name before calling a repository tool."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -1961,7 +1986,10 @@
   },
   {
    "name": "list_repository_collaborators",
-   "description": "GET /repos/{owner}/{repo}/collaborators: one page of the users with access to the repository, each with its `permissions` and `role_name`. Organization members with access through teams count unless `affiliation` narrows it.",
+   "description": [
+    "GET /repos/{owner}/{repo}/collaborators: one page of the users with access to the repository, each with its `permissions` and `role_name`. Organization members with access through teams count unless ",
+    "`affiliation` narrows it."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -2291,7 +2319,10 @@
   },
   {
    "name": "merge_pull_request",
-   "description": "PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge. Irreversible: check the pull request's mergeable state and its checks first, and confirm with the user when the merge was not explicitly requested. GitHub answers 405 when the PR is not mergeable and 409 when the head SHA does not match.",
+   "description": [
+    "PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge. Irreversible: check the pull request's mergeable state and its checks first, and confirm with the user when the merge was not explicitly requested. ",
+    "GitHub answers 405 when the PR is not mergeable and 409 when the head SHA does not match."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -2456,7 +2487,10 @@
   },
   {
    "name": "search_code",
-   "description": "GET /search/code across the repositories every connected account can see, GitHub code-search syntax (e.g. \"repo:owner/name path:src language:ts <terms>\"). To search inside one repository, put `repo:owner/name` in `q`. GitHub indexes only the default branch. Results merge across accounts.",
+   "description": [
+    "GET /search/code across the repositories every connected account can see, GitHub code-search syntax (e.g. \"repo:owner/name path:src language:ts <terms>\"). To search inside one repository, put ",
+    "`repo:owner/name` in `q`. GitHub indexes only the default branch. Results merge across accounts."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -2491,7 +2525,11 @@
     "properties": {
      "q": {
       "type": "string",
-      "description": "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      "description": [
+       "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: ",
+       "`author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search ",
+       "per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      ]
      },
      "sort": {
       "description": "Sort field; best match when omitted.",
@@ -2525,13 +2563,20 @@
   },
   {
    "name": "search_issues",
-   "description": "GET /search/issues restricted to issues (`is:issue` is added to the query), e.g. \"repo:owner/name is:open label:bug\". Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "description": [
+    "GET /search/issues restricted to issues (`is:issue` is added to the query), e.g. \"repo:owner/name is:open label:bug\". Runs as every connected account and merges the envelopes (items verbatim, ",
+    "deduplicated)."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
      "q": {
       "type": "string",
-      "description": "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      "description": [
+       "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: ",
+       "`author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search ",
+       "per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      ]
      },
      "sort": {
       "description": "Sort field; best match when omitted.",
@@ -2565,13 +2610,20 @@
   },
   {
    "name": "search_orgs",
-   "description": "GET /search/users restricted to organizations (`type:org` is added), e.g. \"acme\", \"location:california created:>=2025-01-01\". Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "description": [
+    "GET /search/users restricted to organizations (`type:org` is added), e.g. \"acme\", \"location:california created:>=2025-01-01\". Runs as every connected account and merges the envelopes (items verbatim, ",
+    "deduplicated)."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
      "q": {
       "type": "string",
-      "description": "GitHub user-search syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      "description": [
+       "GitHub user-search syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: ",
+       "`author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search ",
+       "per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      ]
      },
      "sort": {
       "type": "string",
@@ -2609,13 +2661,20 @@
   },
   {
    "name": "search_pull_requests",
-   "description": "GET /search/issues restricted to pull requests (`is:pr` is added to the query), e.g. \"repo:owner/name is:open review-requested:@me\". Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "description": [
+    "GET /search/issues restricted to pull requests (`is:pr` is added to the query), e.g. \"repo:owner/name is:open review-requested:@me\". Runs as every connected account and merges the envelopes (items ",
+    "verbatim, deduplicated)."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
      "q": {
       "type": "string",
-      "description": "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      "description": [
+       "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: ",
+       "`author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search ",
+       "per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      ]
      },
      "sort": {
       "description": "Sort field; best match when omitted.",
@@ -2649,13 +2708,20 @@
   },
   {
    "name": "search_repositories",
-   "description": "GET /search/repositories with GitHub repository-search syntax (e.g. \"user:octocat language:ts\", \"org:acme topic:cli\"). Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "description": [
+    "GET /search/repositories with GitHub repository-search syntax (e.g. \"user:octocat language:ts\", \"org:acme topic:cli\"). Runs as every connected account and merges the envelopes (items verbatim, ",
+    "deduplicated)."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
      "q": {
       "type": "string",
-      "description": "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      "description": [
+       "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: ",
+       "`author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search ",
+       "per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      ]
      },
      "sort": {
       "description": "Sort field; best match when omitted.",
@@ -2689,13 +2755,20 @@
   },
   {
    "name": "search_users",
-   "description": "GET /search/users restricted to user accounts (`type:user` is added), e.g. \"octocat\", \"fullname:Jane location:berlin\", \"followers:>100\". Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "description": [
+    "GET /search/users restricted to user accounts (`type:user` is added), e.g. \"octocat\", \"fullname:Jane location:berlin\", \"followers:>100\". Runs as every connected account and merges the envelopes (items ",
+    "verbatim, deduplicated)."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
      "q": {
       "type": "string",
-      "description": "GitHub user-search syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      "description": [
+       "GitHub user-search syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: ",
+       "`author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search ",
+       "per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+      ]
      },
      "sort": {
       "type": "string",
@@ -2733,7 +2806,10 @@
   },
   {
    "name": "set_pull_request_draft",
-   "description": "Mark a pull request ready for review (`draft: false`) or convert it back to a draft (`draft: true`). GitHub exposes this only through GraphQL (markPullRequestReadyForReview / convertPullRequestToDraft), so the reply is that mutation's `pullRequest` object, not the REST one. A pull request already in the requested state is returned as is.",
+   "description": [
+    "Mark a pull request ready for review (`draft: false`) or convert it back to a draft (`draft: true`). GitHub exposes this only through GraphQL (markPullRequestReadyForReview / ",
+    "convertPullRequestToDraft), so the reply is that mutation's `pullRequest` object, not the REST one. A pull request already in the requested state is returned as is."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -2767,7 +2843,10 @@
   },
   {
    "name": "submit_pending_pull_request_review",
-   "description": "POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/events: submit the caller's pending review as APPROVE, REQUEST_CHANGES, or COMMENT, publishing every comment added to it. `body` is the review summary (required by GitHub for REQUEST_CHANGES and COMMENT when the pending review has no body).",
+   "description": [
+    "POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/events: submit the caller's pending review as APPROVE, REQUEST_CHANGES, or COMMENT, publishing every comment added to it. `body` is ",
+    "the review summary (required by GitHub for REQUEST_CHANGES and COMMENT when the pending review has no body)."
+   ],
    "inputSchema": {
     "type": "object",
     "properties": {
@@ -3043,5 +3122,6 @@
     "additionalProperties": false
    }
   }
- ]
+ ],
+ "format_note": "Long description strings are stored as arrays of chunks (no line over 400 chars); join each array with '' to get the exact reference text. The canonical unchunked copy is /workspace/swarm/specs/grokbot-github-mcp-schemas.json."
 }

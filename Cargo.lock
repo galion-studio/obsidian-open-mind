@@ -912,14 +912,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "github-mcp-rs"
-version = "0.1.0"
-dependencies = [
- "hermes-rs",
- "serde_json",
-]
-
-[[package]]
 name = "guardian-tick"
 version = "0.1.0"
 dependencies = [

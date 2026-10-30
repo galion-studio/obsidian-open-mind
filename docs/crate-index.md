@@ -32,7 +32,7 @@
 | openmind-fallback | Pure provider fallback policy: GPU, else an approved LAN row, else a CPU local row. Tests only. No network. |
 | openmind-llama | Parse llama.cpp llama-server fixture bodies for /health and /v1/models. No sockets and no GPU. |
 | openmind-mcp-stack | Read-only stdio MCP stub. initialize and tools/list for stack_status. Fixture JSON only. No sockets. |
-| github-mcp-rs | Stdio MCP server with exactly the Grok Bot GitHub tool interface (75 tools, reference/grokbot-github-mcp-schemas.json) over the GitHub REST/GraphQL API via curl. Writes refused unless --allow-writes. |
+| hermes-rs (bin github-mcp-rs) | Stdio MCP server with exactly the Grok Bot GitHub tool interface (75 tools, tests/fixtures/grokbot-github-mcp-schemas.json) over the GitHub REST/GraphQL API via curl. Writes refused unless --allow-writes. |
 | openmind-memory | Fixture-backed memory store and search for the Hermes gateway subset. |
 | openmind-nerve | Append-only JSONL nerve log: Europe/Zagreb timestamps, size rotation, caller-supplied path. |
 | openmind-origin | Pure function that builds an HTTP 302 redirect. Location comes from the caller; the default is /. The body is empty. No listener. |

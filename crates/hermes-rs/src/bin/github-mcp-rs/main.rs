@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! `github-mcp-rs [--token-file PATH] [--allow-writes] [--api-url URL]`: stdio MCP server.
-use github_mcp_rs::Server;
+#[allow(dead_code)]
+mod server;
+use server::Server;
 use std::io::{BufRead, Write};
 
 fn main() {
@@ -21,7 +23,7 @@ fn main() {
             "--list-tools" => {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&github_mcp_rs::tools_list()).unwrap_or_default()
+                    serde_json::to_string_pretty(&server::tools_list()).unwrap_or_default()
                 );
                 return;
             }
@@ -37,7 +39,7 @@ fn main() {
     }
     eprintln!(
         "github-mcp-rs: ready ({} tools, writes {})",
-        github_mcp_rs::reference_tools().len(),
+        server::reference_tools().len(),
         if s.allow_writes { "ON" } else { "off" }
     );
     let stdin = std::io::stdin();

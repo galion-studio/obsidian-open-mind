@@ -6,6 +6,10 @@
 //! name, description and input schema, nothing more, nothing less; write
 //! tools registered but gated off. Any mismatch fails with the differences.
 
+#[allow(dead_code)]
+#[path = "../src/bin/github-mcp-rs/server.rs"]
+mod github_mcp_rs;
+
 use hermes_rs::config::{McpServerCfg, McpWriteTools};
 use hermes_rs::tools::{Tool, ToolCtx, ToolOutput};
 use serde_json::{json, Value};
@@ -17,9 +21,10 @@ use std::sync::{Arc, Mutex};
 
 const REF_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/reference/grokbot-github-mcp-schemas.json"
+    "/tests/fixtures/grokbot-github-mcp-schemas.json"
 );
-/// The swarm copy, when present, must be byte-identical to the crate copy.
+/// The swarm copy (unchunked), when present, must equal the crate copy once
+/// its chunked descriptions are joined.
 const SWARM_REF: &str = "/workspace/swarm/specs/grokbot-github-mcp-schemas.json";
 
 fn call(t: &Arc<dyn Tool>, args: Value) -> ToolOutput {
@@ -56,17 +61,42 @@ fn github_cfg(extra: &[&str]) -> McpServerCfg {
     }
 }
 
+/// Independent of the server's own joiner: `description` arrays -> strings.
+fn unchunk(v: &mut Value) {
+    match v {
+        Value::Object(m) => {
+            for (k, x) in m.iter_mut() {
+                match x {
+                    Value::Array(p) if k == "description" && p.iter().all(|e| e.is_string()) => {
+                        *x = Value::String(p.iter().map(|e| e.as_str().unwrap()).collect())
+                    }
+                    _ => unchunk(x),
+                }
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(unchunk),
+        _ => {}
+    }
+}
+
 fn reference() -> Vec<Value> {
-    let v: Value = serde_json::from_str(&std::fs::read_to_string(REF_PATH).unwrap()).unwrap();
+    let mut v: Value = serde_json::from_str(&std::fs::read_to_string(REF_PATH).unwrap()).unwrap();
+    unchunk(&mut v);
     v["tools"].as_array().unwrap().clone()
 }
 
 #[test]
 fn reference_copies_agree() {
+    let raw = std::fs::read_to_string(REF_PATH).unwrap();
+    assert!(
+        raw.lines().all(|l| l.len() < 400),
+        "a reference line is 400+ chars"
+    );
     if let Ok(s) = std::fs::read_to_string(SWARM_REF) {
+        let swarm: Value = serde_json::from_str(&s).unwrap();
         assert_eq!(
-            s,
-            std::fs::read_to_string(REF_PATH).unwrap(),
+            swarm["tools"].as_array().unwrap(),
+            &reference(),
             "{SWARM_REF} and the crate reference differ"
         );
     }

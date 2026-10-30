@@ -2,8 +2,9 @@
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 //! github-mcp-rs: a stdio MCP server whose tool list is EXACTLY the Grok Bot
 //! `cursor-github` interface (names, descriptions, input schemas; see
-//! `src/tools.json`, a copy of `reference/grokbot-github-mcp-schemas.json`;
-//! the `hermes_interface` test diffs what Hermes registers against the
+//! `tools.json` next to this file, a copy of
+//! `tests/fixtures/grokbot-github-mcp-schemas.json`; the
+//! `github_mcp_interface` test diffs what Hermes registers against that
 //! reference), implemented over the GitHub
 //! REST and GraphQL APIs with the system `curl` (config on stdin, so the
 //! token never appears on a command line).
@@ -28,7 +29,32 @@ pub const TOKEN_ENV: &str = "GITHUB_PERSONAL_ACCESS_TOKEN";
 /// The reference tool list (`name`, `description`, `inputSchema`).
 pub fn reference_tools() -> Vec<Value> {
     let v: Value = serde_json::from_str(REFERENCE).expect("reference json");
-    v["tools"].as_array().cloned().unwrap_or_default()
+    let mut tools = v["tools"].as_array().cloned().unwrap_or_default();
+    tools.iter_mut().for_each(join_descriptions);
+    tools
+}
+
+/// `tools.json` stores long `description` strings as arrays of chunks (so no
+/// line is over 400 chars); joined with "" they are the exact reference text.
+pub fn join_descriptions(v: &mut Value) {
+    match v {
+        Value::Object(m) => {
+            for (k, x) in m.iter_mut() {
+                if k == "description" {
+                    if let Value::Array(parts) = x {
+                        if parts.iter().all(Value::is_string) {
+                            let s: String = parts.iter().filter_map(Value::as_str).collect();
+                            *x = Value::String(s);
+                            continue;
+                        }
+                    }
+                }
+                join_descriptions(x);
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(join_descriptions),
+        _ => {}
+    }
 }
 
 pub fn is_read(name: &str) -> bool {

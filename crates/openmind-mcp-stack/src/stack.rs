@@ -8,15 +8,13 @@
 //! only `GET` is used. Files are only read (spend ledger, readiness
 //! snapshot) or only `stat`ed (backup archives: names, sizes and times,
 //! never contents). Nothing here restarts, deploys, writes or reads a
-//! secret file; the one key used (Hermes `API_SERVER_KEY`, for the
-//! read-only `/api/sessions` routes) is loaded by `main.rs` from the key
-//! file the server already reads, kept in memory, and never returned.
+//! secret file, and no key is sent to these services.
+//! Galion One is out of scope (deferred by Mate, t452u): no tool reads it.
 //!
 //! Sources (live VPS, 2026-10-30):
 //! - galion-nerve `:8670` `GET /health`, `/state`, `/alerts`, `/incidents`
 //! - gaia-cortex `:8674` `GET /health`, `/heals`, `/escalations`, `/alerts`
 //! - openmind-queue `:19120` `GET /healthz`, `/stats`, `/gaia/status`
-//! - hermes-rs `:8642` `GET /api/sessions`, `/api/sessions/{id}`, `/api/sessions/{id}/messages`
 //! - `/var/lib/hermes-rs/rs-spend.json` (OpenRouter spend ledger)
 //! - `/var/backups/galion` (galion-backup archives) and its `offsite/` folder
 
@@ -27,12 +25,8 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Session key Galion One uses for its threads in Hermes.
-pub const ONE_SESSION_KEY: &str = "galion-one";
 /// Largest spend ledger / readiness file read.
 pub const MAX_FILE_BYTES: u64 = 1024 * 1024;
-/// Longest single thread message returned (chars).
-pub const MSG_MAX_CHARS: usize = 4000;
 /// Most archives listed by `backup_status`.
 pub const BACKUP_LIST_MAX: usize = 10;
 
@@ -66,8 +60,6 @@ pub struct Stack {
     pub cortex: Option<MemoryClient>,
     /// openmind-queue.
     pub queue: Option<MemoryClient>,
-    /// hermes-rs API (with its Bearer key) for Galion One threads.
-    pub hermes: Option<MemoryClient>,
     /// Spend ledger file.
     pub spend_file: Option<PathBuf>,
     /// Spend thresholds.
@@ -140,9 +132,6 @@ impl Stack {
         }
         if self.queue.is_some() {
             out.push("queue_status");
-        }
-        if self.hermes.as_ref().is_some_and(MemoryClient::has_key) {
-            out.extend(["one_threads", "one_thread_read"]);
         }
         if self.docs.is_some() {
             out.extend(["docs_list", "docs_read", "docs_search"]);
@@ -411,93 +400,6 @@ impl Stack {
         }))
     }
 
-    /// `one_threads`: Galion One threads (newest first).
-    ///
-    /// # Errors
-    /// Hermes not configured or unreachable.
-    pub fn one_threads(&self, limit: usize) -> Result<Value, String> {
-        let h = need(&self.hermes, "hermes api")?;
-        let v = h.get("/api/sessions?limit=200")?;
-        let mut rows: Vec<Value> = v["data"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter(|r| r["session_key"].as_str() == Some(ONE_SESSION_KEY))
-                    .map(|r| {
-                        let at = r["ended_at"].as_f64().filter(|x| *x > 0.0).or(r["started_at"].as_f64()).unwrap_or(0.0);
-                        json!({
-                            "id": r["id"],
-                            "title": r["title"].as_str().map(|t| t.chars().take(80).collect::<String>()),
-                            "messages": r["message_count"],
-                            "model": r["model"],
-                            "last": zagreb(at as u64),
-                            "_at": at,
-                        })
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        rows.sort_by(|a, b| {
-            b["_at"]
-                .as_f64()
-                .unwrap_or(0.0)
-                .total_cmp(&a["_at"].as_f64().unwrap_or(0.0))
-        });
-        let total = rows.len();
-        rows.truncate(limit);
-        for r in &mut rows {
-            if let Some(o) = r.as_object_mut() {
-                o.remove("_at");
-            }
-        }
-        Ok(json!({ "count": total, "shown": rows.len(), "threads": rows }))
-    }
-
-    /// `one_thread_read`: one Galion One thread's user/assistant messages.
-    ///
-    /// # Errors
-    /// Bad id, not a Galion One thread, Hermes unreachable.
-    pub fn one_thread_read(&self, id: &str, limit: usize) -> Result<Value, String> {
-        let h = need(&self.hermes, "hermes api")?;
-        let id = id.trim();
-        if id.is_empty()
-            || id.len() > 80
-            || !id
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        {
-            return Err("id must be a Galion One thread id (letters, digits, '-', '_')".into());
-        }
-        let meta = h.get(&format!("/api/sessions/{id}"))?;
-        let row = if meta.get("session_key").is_some() {
-            meta.clone()
-        } else {
-            meta["data"].clone()
-        };
-        if row["session_key"].as_str() != Some(ONE_SESSION_KEY) {
-            return Err("not a Galion One thread".into());
-        }
-        let msgs = h.get(&format!("/api/sessions/{id}/messages"))?;
-        let all: Vec<Value> = msgs["data"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter(|m| matches!(m["role"].as_str(), Some("user" | "assistant")))
-                    .map(|m| json!({ "role": m["role"], "text": cap_text(&content_text(&m["content"]), MSG_MAX_CHARS) }))
-                    .filter(|m| !m["text"].as_str().unwrap_or("").trim().is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let skip = all.len().saturating_sub(limit);
-        Ok(json!({
-            "id": id,
-            "title": row["title"],
-            "messages_total": all.len(),
-            "shown": all.len() - skip,
-            "messages": &all[skip..],
-        }))
-    }
-
     /// `hermes_readiness`: the hermes-core G1..G15 snapshot file.
     ///
     /// # Errors
@@ -514,15 +416,6 @@ impl Stack {
             "snapshot": v,
         }))
     }
-}
-
-fn cap_text(s: &str, n: usize) -> String {
-    if s.chars().count() <= n {
-        return s.to_string();
-    }
-    let mut t: String = s.chars().take(n).collect();
-    t.push_str(" …[cut]");
-    t
 }
 
 fn round4(x: f64) -> f64 {
@@ -546,17 +439,4 @@ fn list_files(
         .collect();
     v.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| b.0.cmp(&a.0)));
     Ok(v)
-}
-
-/// Message content as plain text (string, or an array of `{text}` parts).
-fn content_text(c: &Value) -> String {
-    match c {
-        Value::String(s) => s.clone(),
-        Value::Array(parts) => parts
-            .iter()
-            .filter_map(|p| p["text"].as_str().or(p.as_str()))
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => String::new(),
-    }
 }

@@ -7,7 +7,6 @@
 # nerve_url = http://127.0.0.1:8670
 # cortex_url = http://127.0.0.1:8674
 # queue_url = http://127.0.0.1:19120
-# hermes_url = http://127.0.0.1:8642
 # spend_file = /var/lib/hermes-rs/rs-spend.json
 # spend_baseline_usd = 3.449
 # spend_limit_usd = 5

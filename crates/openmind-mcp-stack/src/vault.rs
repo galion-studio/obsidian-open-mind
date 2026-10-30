@@ -41,6 +41,8 @@ const NOTE_EXTS: [&str; 3] = ["md", "markdown", "txt"];
 #[derive(Debug, Clone)]
 pub struct Vault {
     root: PathBuf,
+    /// Canonical folders inside the root that are never listed, searched or read.
+    excluded: Vec<PathBuf>,
 }
 
 /// One listed note: relative path, size in bytes, modified unix seconds.
@@ -82,7 +84,24 @@ impl Vault {
         if root.parent().is_none() {
             return Err("vault root must not be /".into());
         }
-        Ok(Vault { root })
+        Ok(Vault {
+            root,
+            excluded: Vec::new(),
+        })
+    }
+
+    /// Never list, search or read these top-level folders (plain names).
+    /// Names that do not exist are ignored.
+    #[must_use]
+    pub fn with_excluded(mut self, names: &[&str]) -> Self {
+        for n in names {
+            if let Ok(p) = fs::canonicalize(self.root.join(n)) {
+                if p.starts_with(&self.root) && p != self.root {
+                    self.excluded.push(p);
+                }
+            }
+        }
+        self
     }
 
     /// Canonical root.
@@ -126,6 +145,9 @@ impl Vault {
         let canon = fs::canonicalize(&joined).map_err(|_| "no such note".to_string())?;
         if !canon.starts_with(&self.root) {
             return Err("path leaves the vault".into());
+        }
+        if self.excluded.iter().any(|x| canon.starts_with(x)) {
+            return Err("that folder is out of scope here".into());
         }
         Ok(canon)
     }
@@ -290,6 +312,9 @@ impl Vault {
             }
             let path = e.path();
             if meta.is_dir() {
+                if self.excluded.contains(&path) {
+                    continue;
+                }
                 if !self.walk(&path, depth + 1, f) {
                     return false;
                 }

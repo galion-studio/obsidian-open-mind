@@ -15,8 +15,8 @@
 //!   count, one Europe/Zagreb timestamp.
 //! - Stack tools (read-only, see [`stack`]): `stack_health`, `stack_alerts`,
 //!   `cortex_heals`, `spend_status`, `backup_status`, `queue_status`,
-//!   `one_threads`, `one_thread_read`, `docs_list`, `docs_read`,
-//!   `docs_search`, `hermes_readiness`.
+//!   `docs_list`, `docs_read`, `docs_search` (Galion One folders excluded),
+//!   `hermes_readiness`.
 //! - `vault_note_create` (see [`notes`]): the only write tool; **off by
 //!   default**, listed only when switched on in the stack config file.
 //!
@@ -80,15 +80,13 @@ pub const TOOL_NAMES: [&str; 8] = [
 ];
 
 /// Read-only stack tools (listed when their part is configured).
-pub const STACK_TOOL_NAMES: [&str; 12] = [
+pub const STACK_TOOL_NAMES: [&str; 10] = [
     "stack_health",
     "stack_alerts",
     "cortex_heals",
     "spend_status",
     "backup_status",
     "queue_status",
-    "one_threads",
-    "one_thread_read",
     "docs_list",
     "docs_read",
     "docs_search",
@@ -219,7 +217,7 @@ impl Server {
                 "protocolVersion": protocol,
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION },
-                "instructions": "OpenMind long-term memory (search, recall, save), a read-only Obsidian vault (list, read, search) and read-only views of the Galion stack: health, alerts, cortex heals, OpenRouter spend, backups, work queue, Galion One threads, the docs tree and hermes-core readiness. Nothing here restarts, deploys or edits existing notes.",
+                "instructions": "OpenMind long-term memory (search, recall, save), a read-only Obsidian vault (list, read, search) and read-only views of the Galion stack: health, alerts, cortex heals, OpenRouter spend, backups, work queue, the docs tree (Galion One excluded) and hermes-core readiness. Nothing here restarts, deploys or edits existing notes.",
             }),
         )
     }
@@ -380,13 +378,6 @@ impl Server {
             "spend_status" => s.spend(),
             "backup_status" => s.backup(),
             "queue_status" => s.queue(),
-            "one_threads" => s.one_threads(lim(20, 50)),
-            "one_thread_read" => s.one_thread_read(
-                a.get("id")
-                    .and_then(Value::as_str)
-                    .ok_or("id is required")?,
-                lim(40, 50),
-            ),
             "docs_list" | "docs_read" | "docs_search" => {
                 let docs = s.docs.as_ref().ok_or("docs tree is not configured")?;
                 match name {
@@ -630,14 +621,6 @@ pub fn tool_spec(name: &str) -> Value {
         "queue_status" => (
             "openmind-queue (POSEIDON work queue) health, depth (ready, leased, delayed, dead), load and per-agent budgets. Read-only.",
             obj_schema(&json!({}), &[]),
-        ),
-        "one_threads" => (
-            "List Galion One chat threads (id, title, message count, last activity), newest first. Read-only.",
-            obj_schema(&json!({ "limit": limit }), &[]),
-        ),
-        "one_thread_read" => (
-            "Read one Galion One thread's user and assistant messages (newest `limit` messages) by its id from one_threads. Read-only.",
-            obj_schema(&json!({ "id": { "type": "string" }, "limit": limit }), &["id"]),
         ),
         "docs_list" => (
             "List notes in the whole Galion docs tree (the Obsidian vault folder build-session plus the sibling docs: one, platform, grok-computer, ...). Read-only.",

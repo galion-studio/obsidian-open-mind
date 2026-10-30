@@ -252,23 +252,3 @@ pub fn key_from_env_text(text: &str) -> Option<String> {
     }
     found.into_iter().flatten().next()
 }
-
-/// Read one named value (for example `API_SERVER_KEY`) from env-style
-/// text. Same parsing as [`key_from_env_text`]; nothing else is kept.
-#[must_use]
-pub fn named_key_from_env_text(text: &str, name: &str) -> Option<String> {
-    for line in text.lines() {
-        let line = line.trim();
-        let line = line.strip_prefix("export ").unwrap_or(line);
-        let Some((k, v)) = line.split_once('=') else {
-            continue;
-        };
-        if k.trim() == name {
-            let v = v.trim().trim_matches('"').trim_matches('\'').to_string();
-            if !v.is_empty() {
-                return Some(v);
-            }
-        }
-    }
-    None
-}

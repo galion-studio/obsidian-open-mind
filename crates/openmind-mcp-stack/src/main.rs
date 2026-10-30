@@ -19,13 +19,12 @@
 //! `STACK_DEFAULTS`); `/etc/openmind-mcp-stack/stack.conf` (or `--stack-conf`)
 //! can override them (`key = value`). The only write tool,
 //! `vault_note_create`, stays off unless that file says `vault_note_create = on`.
-//! The key file is read once: the memory key and Hermes `API_SERVER_KEY`
-//! (for read-only Galion One thread listing) are kept, nothing else.
+//! The key file is read once and only the memory key is kept.
 //! Exit 2 = bad arguments (non-loopback memory URL, missing vault root).
 
 #![forbid(unsafe_code)]
 
-use openmind_mcp_stack::memory::{key_from_env_text, named_key_from_env_text, MemoryClient};
+use openmind_mcp_stack::memory::{key_from_env_file, key_from_env_text, MemoryClient};
 use openmind_mcp_stack::notes::NoteCreator;
 use openmind_mcp_stack::stack::{SpendRules, Stack};
 use openmind_mcp_stack::vault::Vault;
@@ -104,16 +103,12 @@ fn build(args: &[String]) -> Result<(Server, bool), String> {
         Some(p) => Some(Vault::open(&p)?),
         None => None,
     };
-    let key_text = match &key_file {
-        Some(p) => Some(std::fs::read_to_string(p).map_err(|e| format!("key file: {e}"))?),
-        None => None,
-    };
     let timeout = Duration::from_millis(timeout_ms.clamp(100, 60_000));
     let memory = if no_memory {
         None
     } else {
-        let key = match &key_text {
-            Some(t) => key_from_env_text(t),
+        let key = match &key_file {
+            Some(p) => key_from_env_file(p)?,
             None => {
                 let env: String = openmind_mcp_stack::memory::KEY_NAMES
                     .iter()
@@ -132,10 +127,7 @@ fn build(args: &[String]) -> Result<(Server, bool), String> {
             None => std::fs::read_to_string(DEFAULT_STACK_CONF).unwrap_or_default(),
         };
         let conf = parse_stack_conf(&conf_text)?;
-        let hermes_key = key_text
-            .as_deref()
-            .and_then(|t| named_key_from_env_text(t, "API_SERVER_KEY"));
-        let (s, n) = build_stack(&conf, hermes_key, timeout, vault.as_ref())?;
+        let (s, n) = build_stack(&conf, timeout, vault.as_ref())?;
         (Some(s), n)
     };
     if check {
@@ -169,11 +161,14 @@ fn build(args: &[String]) -> Result<(Server, bool), String> {
 const DEFAULT_STACK_CONF: &str = "/etc/openmind-mcp-stack/stack.conf";
 
 /// Built-in defaults (live VPS layout, loopback only).
-const STACK_DEFAULTS: [(&str, &str); 12] = [
+/// Top-level docs folders the docs tools never touch: Galion One is out of
+/// scope (deferred by Mate, t452u).
+const DOCS_EXCLUDED: &[&str] = &["one", "galion-one"];
+
+const STACK_DEFAULTS: [(&str, &str); 11] = [
     ("nerve_url", "http://127.0.0.1:8670"),
     ("cortex_url", "http://127.0.0.1:8674"),
     ("queue_url", "http://127.0.0.1:19120"),
-    ("hermes_url", "http://127.0.0.1:8642"),
     ("spend_file", "/var/lib/hermes-rs/rs-spend.json"),
     ("backup_dir", "/var/backups/galion"),
     ("docs_root", "/opt/galion/galion-light/docs"),
@@ -218,7 +213,6 @@ fn off(v: &str) -> bool {
 
 fn build_stack(
     conf: &[(String, String)],
-    hermes_key: Option<String>,
     timeout: Duration,
     vault: Option<&Vault>,
 ) -> Result<(Stack, Option<NoteCreator>), String> {
@@ -259,14 +253,13 @@ fn build_stack(
             .ok_or(format!("{k} must be a number"))
     };
     let docs = match path("docs_root") {
-        Some(p) if p.is_dir() => Some(Vault::open(&p)?),
+        Some(p) if p.is_dir() => Some(Vault::open(&p)?.with_excluded(DOCS_EXCLUDED)),
         _ => None,
     };
     let stack = Stack {
         nerve: client("nerve_url", "nerve", None)?,
         cortex: client("cortex_url", "cortex", None)?,
         queue: client("queue_url", "queue", None)?,
-        hermes: client("hermes_url", "hermes", hermes_key)?,
         spend_file: path("spend_file"),
         spend: SpendRules {
             baseline_usd: usd("spend_baseline_usd")?,

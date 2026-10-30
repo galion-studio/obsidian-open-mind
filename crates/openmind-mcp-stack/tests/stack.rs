@@ -137,30 +137,6 @@ fn fixture(readiness: bool) -> Fixture {
             json!({"function":"POSEIDON","health":{"integrity":100,"load":0},"systems":[]}),
         ),
     ]);
-    let (hermes, s4) = mock(vec![
-        (
-            "/api/sessions?limit=200",
-            json!({"object":"list","data":[
-            {"id":"one-20261030-1000-aaaaaa","session_key":"galion-one","title":"Old chat","message_count":4,"started_at":1793350000.0,"ended_at":null,"model":"river-flash"},
-            {"id":"one-20261030-1100-bbbbbb","session_key":"galion-one","title":"New chat","message_count":2,"started_at":1793353600.0,"ended_at":1793354000.0,"model":"river-flash"},
-            {"id":"api-123","session_key":"desk","title":"desk work","message_count":9,"started_at":1793354000.0}]}),
-        ),
-        (
-            "/api/sessions/one-20261030-1100-bbbbbb",
-            json!({"id":"one-20261030-1100-bbbbbb","session_key":"galion-one","title":"New chat"}),
-        ),
-        (
-            "/api/sessions/one-20261030-1100-bbbbbb/messages",
-            json!({"object":"list","data":[
-            {"role":"system","content":"SOUL"},
-            {"role":"user","content":"hello"},
-            {"role":"assistant","content":[{"type":"text","text":"hi there"}]}]}),
-        ),
-        (
-            "/api/sessions/api-123",
-            json!({"id":"api-123","session_key":"desk"}),
-        ),
-    ]);
     let files = TempDir::new("stackfiles");
     let f = files.path();
     std::fs::write(
@@ -201,11 +177,10 @@ fn fixture(readiness: bool) -> Fixture {
         nerve: Some(client(&nerve, None).with_label("nerve")),
         cortex: Some(client(&cortex, None).with_label("cortex")),
         queue: Some(client(&queue, None).with_label("queue")),
-        hermes: Some(client(&hermes, Some("hermes-test-key")).with_label("hermes")),
         spend_file: Some(f.join("rs-spend.json")),
         spend: SpendRules::default(),
         backup_dir: Some(bdir),
-        docs: Some(Vault::open(docs.path()).unwrap()),
+        docs: Some(Vault::open(docs.path()).unwrap().with_excluded(&["one"])),
         readiness_file: Some(f.join("readiness.json")),
     };
     let server = Server::new(Config {
@@ -215,7 +190,7 @@ fn fixture(readiness: bool) -> Fixture {
     });
     Fixture {
         server,
-        seen: vec![s1, s2, s3, s4],
+        seen: vec![s1, s2, s3],
         files,
         _docs: docs,
         _o: o,
@@ -252,7 +227,7 @@ fn every_stack_tool_listed_and_answers_without_leaks() {
     for t in WRITE_TOOL_NAMES {
         assert!(!names.contains(&t), "write tool {t} must be off by default");
     }
-    let args: [(&str, Value); 13] = [
+    let args: [(&str, Value); 11] = [
         ("stack_health", json!({})),
         ("stack_health", json!({"component":"console"})),
         ("stack_alerts", json!({"limit":5})),
@@ -260,8 +235,6 @@ fn every_stack_tool_listed_and_answers_without_leaks() {
         ("spend_status", json!({})),
         ("backup_status", json!({})),
         ("queue_status", json!({})),
-        ("one_threads", json!({})),
-        ("one_thread_read", json!({"id":"one-20261030-1100-bbbbbb"})),
         ("docs_list", json!({"folder":"platform"})),
         ("docs_read", json!({"path":"platform/plan.md"})),
         ("docs_search", json!({"query":"universal environment"})),
@@ -278,11 +251,11 @@ fn every_stack_tool_listed_and_answers_without_leaks() {
             "{name} leaked the key: {text}"
         );
     }
-    // only GET was ever sent, and only Hermes got the Bearer key
-    for (i, s) in fx.seen.iter().enumerate() {
+    // only GET was ever sent, and no key to any stack service
+    for s in &fx.seen {
         for (m, p, auth) in s.lock().unwrap().iter() {
             assert_eq!(m, "GET", "{p}");
-            assert_eq!(auth.is_some(), i == 3, "{p}");
+            assert!(auth.is_none(), "{p}");
         }
     }
 }
@@ -320,19 +293,27 @@ fn stack_tool_shapes() {
     assert_eq!(b["state"], json!("ok"), "{b}");
     let (_, _, q) = call(&fx.server, "queue_status", &json!({}));
     assert_eq!(q["depth"]["ready"], json!(2));
-    let (_, _, t) = call(&fx.server, "one_threads", &json!({}));
-    assert_eq!(t["count"], json!(2));
-    assert_eq!(t["threads"][0]["id"], json!("one-20261030-1100-bbbbbb"));
-    let (_, _, m) = call(
-        &fx.server,
-        "one_thread_read",
-        &json!({"id":"one-20261030-1100-bbbbbb"}),
+    // Galion One is out of scope: its docs folder is never listed, searched or read
+    for t in ["one_threads", "one_thread_read"] {
+        let (err, text, _) = call(&fx.server, t, &json!({}));
+        assert!(err && text.contains("unknown tool"), "{text}");
+    }
+    let (_, text, _) = call(&fx.server, "docs_list", &json!({}));
+    assert!(
+        text.contains("platform/plan.md") && !text.contains("one/app.md"),
+        "{text}"
     );
-    assert_eq!(m["messages_total"], json!(2));
-    assert_eq!(m["messages"][1]["text"], json!("hi there"));
-    let (err, text, _) = call(&fx.server, "one_thread_read", &json!({"id":"api-123"}));
-    assert!(err && text.contains("not a Galion One thread"), "{text}");
-    let (err, _, _) = call(&fx.server, "one_thread_read", &json!({"id":"../etc"}));
+    let (_, text, _) = call(
+        &fx.server,
+        "docs_search",
+        &json!({"query":"universal environment"}),
+    );
+    assert!(!text.contains("one/app.md"), "{text}");
+    for p in ["one/app.md", "one"] {
+        let (err, _, _) = call(&fx.server, "docs_read", &json!({"path":p}));
+        assert!(err, "{p} must be refused");
+    }
+    let (err, _, _) = call(&fx.server, "docs_list", &json!({"folder":"one"}));
     assert!(err);
     let (_, _, d) = call(
         &fx.server,

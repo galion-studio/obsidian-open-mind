@@ -32,7 +32,7 @@
 pub mod ere;
 pub mod fullwrite;
 #[cfg(test)]
-mod fullwrite_tests;
+pub(crate) mod fullwrite_tests;
 pub mod rules;
 pub mod shell;
 pub mod undo;

@@ -363,19 +363,26 @@ mod full_write_sandbox_run {
 
         // refusals: nothing runs, nothing changes
         let before = std::fs::read_to_string(d.join("src/a.txt")).unwrap();
-        for c in [
-            "cat ~/.ssh/id_ed25519",
-            "echo x > SOUL.md",
-            "echo x >> /etc/hosts",
-            "systemctl restart hermes-rs",
-            "echo x > /tmp/outside-$$.txt",
-            "rm -rf ../",
-            "ln -s /etc etc2 && echo x > etc2/passwd",
-            "sys''temctl stop x",
-            "echo c3lzdGVtY3RsIHN0b3AgeA== | base64 -d | sh",
-            "rm -rf .hermes-trash",
-            "echo x > src/a.txt; rm -rf /",
-        ] {
+        // a service-control attack from the shared bypass corpus
+        let svc = crate::denylist::fullwrite_tests::corpus_service_cmd();
+        let encoded = crate::denylist::fullwrite_tests::b64(&svc);
+        let mut blocked: Vec<String> =
+            vec![svc.clone(), format!("echo {encoded} | base64 -d | sh")];
+        blocked.extend(
+            [
+                "cat ~/.ssh/id_ed25519",
+                "echo x > SOUL.md",
+                "echo x >> /etc/hosts",
+                "echo x > /tmp/outside-$$.txt",
+                "rm -rf ../",
+                "ln -s /etc etc2 && echo x > etc2/passwd",
+                "sys''temctl stop x",
+                "rm -rf .hermes-trash",
+                "echo x > src/a.txt; rm -rf /",
+            ]
+            .map(String::from),
+        );
+        for c in &blocked {
             let o = run(&reg, c);
             assert!(o.is_error, "expected refused: {c}\n{}", o.content);
             assert!(

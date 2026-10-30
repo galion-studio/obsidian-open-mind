@@ -825,15 +825,23 @@ pub fn snapshot(plan: &Plan, pol: &Policy, tool: &str, what: &str) -> Result<Opt
     let io = |e: std::io::Error| too_big(&format!("the undo copy failed: {e}"));
     std::fs::create_dir_all(&store).map_err(io)?;
     let _ = std::fs::set_permissions(&store, std::fs::Permissions::from_mode(0o755));
-    let id = format!(
-        "{}-{}-{}-{}",
-        stamp(),
-        std::process::id(),
-        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-        label_of(tool)
-    );
-    let dir = store.join(&id);
-    std::fs::create_dir(&dir).map_err(io)?;
+    // unique by the exclusive create: a name that exists already (another
+    // gateway process, the same second) moves on to the next number
+    let stamp = stamp();
+    let label = label_of(tool);
+    let mut tries = 0;
+    let (id, dir) = loop {
+        let id = format!(
+            "{stamp}-{}-{label}",
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        );
+        let dir = store.join(&id);
+        match std::fs::create_dir(&dir) {
+            Ok(()) => break (id, dir),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && tries < 1000 => tries += 1,
+            Err(e) => return Err(io(e)),
+        }
+    };
     let mut rel_list = Vec::new();
     if plan.whole {
         c.prev = std::fs::read_to_string(store.join(".last-whole"))

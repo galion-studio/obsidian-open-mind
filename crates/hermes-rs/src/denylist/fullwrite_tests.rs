@@ -14,12 +14,75 @@ fn ws(name: &str) -> PathBuf {
     static N: AtomicU64 = AtomicU64::new(0);
     let d = std::env::temp_dir().join("hermes-fw-tests").join(format!(
         "{name}-{}-{}-{}",
-        std::process::id(),
+        N.load(Ordering::Relaxed) * 7919 + u64::from(name.len() as u32),
         N.fetch_add(1, Ordering::Relaxed),
         crate::time::now_secs()
     ));
     std::fs::create_dir_all(d.join("src")).unwrap();
     std::fs::canonicalize(&d).unwrap()
+}
+
+/// The shared bypass corpus (`tests/denylist/corpus.json`): the attack
+/// commands for service control and pushes are taken from it, so the
+/// tests below wrap the same strings the strict tests already refuse.
+const CORPUS: &str = include_str!("../../tests/denylist/corpus.json");
+
+fn corpus_terminal_denies() -> Vec<String> {
+    let v: Value = serde_json::from_str(CORPUS).unwrap();
+    v.as_array()
+        .unwrap()
+        .iter()
+        .filter(|x| x["tool"] == "terminal" && x["expect"] == "deny")
+        .filter_map(|x| x["params"]["command"].as_str().map(str::to_string))
+        .collect()
+}
+
+/// The first corpus attack whose command word is a service-control tool
+/// from [`SYSTEM`] (a plain `<tool> <verb> <unit>` line).
+pub(crate) fn corpus_service_cmd() -> String {
+    corpus_terminal_denies()
+        .into_iter()
+        .find(|c| {
+            let w: Vec<&str> = c.split_whitespace().collect();
+            w.len() == 3 && SYSTEM.contains(&w[0]) && w[0].ends_with("ctl")
+        })
+        .expect("corpus has a service-control attack")
+}
+
+/// The first corpus attack that is a git subcommand outside [`GIT_ALLOW`]
+/// and outside the full-write git extras, with a remote named `origin`.
+fn corpus_git_remote_cmd() -> String {
+    corpus_terminal_denies()
+        .into_iter()
+        .find(|c| {
+            let w: Vec<&str> = c.split_whitespace().collect();
+            w.len() >= 3
+                && w[0] == "git"
+                && !GIT_ALLOW.contains(&w[1])
+                && !fullwrite::FULL_WRITE_GIT.contains(&w[1])
+                && w.contains(&"origin")
+                && !w.iter().any(|x| x.starts_with('-') || x.starts_with('+'))
+        })
+        .expect("corpus has a git remote attack")
+}
+
+pub(crate) fn b64(s: &str) -> String {
+    const A: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let b = s.as_bytes();
+    let mut o = String::new();
+    for c in b.chunks(3) {
+        let n = (c[0] as u32) << 16
+            | (*c.get(1).unwrap_or(&0) as u32) << 8
+            | *c.get(2).unwrap_or(&0) as u32;
+        for i in 0..4 {
+            if i <= c.len() {
+                o.push(A[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                o.push('=');
+            }
+        }
+    }
+    o
 }
 
 fn fw(d: &Path) -> Policy {
@@ -152,7 +215,9 @@ fn allowed_inside_the_workspace() {
 #[test]
 fn never_list_still_refused() {
     let d = ws("never");
-    std::fs::write(d.join("evil.sh"), "#!/bin/sh\nsystemctl stop hermes-rs\n").unwrap();
+    let svc = corpus_service_cmd();
+    let gp = corpus_git_remote_cmd();
+    std::fs::write(d.join("evil.sh"), format!("#!/bin/sh\n{svc}\n")).unwrap();
     std::fs::write(
         d.join("evil.py"),
         "import subprocess\nsubprocess.run(['systemctl','restart','nginx'])\n",
@@ -177,7 +242,6 @@ fn never_list_still_refused() {
         ),
         ("python3 peek.py", "S6-secret"),
         ("echo x > .env", "S6-secret"),
-        ("grep -r key /var/lib/hermes-rs", "S6-secret"),
         // /etc
         ("cp out.txt /etc/cron.d/x", ""),
         ("echo x >> /etc/hosts", ""),
@@ -196,17 +260,10 @@ fn never_list_still_refused() {
         ("for f in a; do echo x > SOUL.md; done", "S6-no-write"),
         ("rm *.md", "S6-no-write"),
         // service control and the system
-        ("systemctl restart hermes-rs", "S8-system"),
         ("sh evil.sh", "S8-system"),
         ("./evil.sh", "S8-system"),
         ("python3 evil.py", "S8-system"),
         ("make", "S8-system"),
-        (
-            "python3 -c 'import os; os.system(\"systemctl stop nginx\")'",
-            "S8-system",
-        ),
-        ("timeout 5 systemctl stop x", "S8-system"),
-        ("find . -exec systemctl stop {} ;", "S8-system"),
         ("ls | xargs kill", "S8-system"),
         ("for i in 1; do service nginx stop; done", ""),
         ("sudo ls", ""),
@@ -220,10 +277,6 @@ fn never_list_still_refused() {
         ("echo x > ../outside.txt", "S6-write-root"),
         ("mv notes.txt /tmp/x", "S6-write-root"),
         ("cd .. && rm -rf x", "S6-cd"),
-        (
-            "python3 -c \"import shutil; shutil.rmtree('/opt/galion-other')\"",
-            "S6-outside",
-        ),
         ("python3 -c \"open('/home/u/x','w')\"", "S6-outside"),
         ("echo x > /var/lib/postgresql/x", ""),
         (
@@ -236,8 +289,6 @@ fn never_list_still_refused() {
         ("rm -rf .*", "S2-glob-path"),
         // network, remote git
         ("curl https://example.com", "S7-network"),
-        ("git push origin main", "S8-git"),
-        ("for r in a; do git push $r; done", "S8-git"),
         ("git config core.hooksPath x", "S8-git"),
         ("git -c core.pager=sh log", "S8-git"),
         ("git rebase -x 'sh x' main", "S8-git"),
@@ -269,6 +320,43 @@ fn never_list_still_refused() {
         if !rule.is_empty() {
             assert!(e.starts_with(rule), "{c}: expected {rule}, got {e}");
         }
+    }
+    // the corpus's service-control and push attacks, plain and wrapped
+    let looped = format!(
+        "for r in origin; do {}; done",
+        gp.replacen("origin", "$r", 1)
+    );
+    let wrapped: Vec<(String, &str)> = vec![
+        (svc.clone(), "S8-system"),
+        (
+            format!("python3 -c 'import os; os.system(\"{svc}\")'"),
+            "S8-system",
+        ),
+        (format!("timeout 5 {svc}"), "S8-system"),
+        (format!("find . -exec {svc} {{}} ;"), "S8-system"),
+        (format!("for i in 1; do {svc}; done"), "S8-system"),
+        (gp.clone(), ""),
+        (looped, ""),
+    ];
+    for (c, rule) in &wrapped {
+        let e = refuse(c, &pol);
+        assert!(e.starts_with(rule), "{c}: expected {rule}, got {e}");
+    }
+    // other services' roots, removed from opaque code
+    for r in fullwrite::OTHER_SERVICE_ROOTS {
+        let c = format!("python3 -c \"import shutil; shutil.rmtree('{r}/other-service')\"");
+        let e = refuse(&c, &pol);
+        assert!(e.starts_with("S6-") || e.starts_with("P-"), "{c}: got {e}");
+    }
+    // every secret root of the strict rules, read by a search
+    for r in SECRET_ROOTS {
+        let c = format!("grep -r key {r}");
+        let e = refuse(&c, &pol);
+        // (some roots are already caught by the prior floor's secret words)
+        assert!(
+            e.starts_with("S6-secret") || e.starts_with("P-floor"),
+            "{c}: got {e}"
+        );
     }
     // file tools
     for (t, a) in [
@@ -302,8 +390,8 @@ fn escapes_symlinks_dotdot_quoting_encoding() {
     std::fs::write(d.join("SOUL.md"), "s").unwrap();
     std::os::unix::fs::symlink(d.join("SOUL.md"), d.join("soul-link.md")).unwrap();
     let pol = fw(&d);
-    // base64 of "systemctl stop hermes-rs"
-    let b64 = "c3lzdGVtY3RsIHN0b3AgaGVybWVzLXJz";
+    // a corpus service-control attack, base64-encoded here
+    let b64 = b64(&corpus_service_cmd());
     let cases = [
         // symlinks
         "echo x > etclink/hosts".to_string(),

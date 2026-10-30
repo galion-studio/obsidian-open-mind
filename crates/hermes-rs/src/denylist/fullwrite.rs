@@ -296,7 +296,7 @@ pub const LOCKED_NAMES: &[&str] = &[
 /// Roots that belong to other services (or the system) and may not be
 /// named by code the deny list can not parse. The workspace itself and
 /// read-only system code (`/usr`, `/bin`, `/lib`) are fine.
-const OTHER_SERVICE_ROOTS: &[&str] = &[
+pub(super) const OTHER_SERVICE_ROOTS: &[&str] = &[
     "/opt",
     "/srv",
     "/var/lib",
@@ -1150,8 +1150,8 @@ fn strip_keywords(piece: &str) -> &str {
 }
 
 /// Every piece of opaque shell text that the strict lexer can parse gets
-/// the full strict check (in full-write mode), so `git push`, `curl`,
-/// `systemctl` ... are refused inside loops and scripts too.
+/// the full strict check (in full-write mode), so the S7 network and S8
+/// git / system refusals hold inside loops and scripts too.
 fn pieces_strict(text: &str, cwd: &Path, pol: &Policy, depth: usize) -> R {
     // literal values of simple assignments (`x=/`, `d="build"`), used for
     // `$x` below; anything else is an unknown run-time value

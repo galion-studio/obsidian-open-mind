@@ -735,13 +735,13 @@ fn browser_real_page_text_and_screenshot() {
     drop(srv);
 }
 
-/// The staged skills (stack/research-agent/hermes/skills-staged-20261029)
+/// The staged skills (docs/hermes-skills-staged-20261029)
 /// load through the real skills index, are not empty, name only tools that
 /// exist, and drop the stale rules the live copies still carry.
 #[test]
 fn staged_skills_load_and_are_current() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../stack/research-agent/hermes/skills-staged-20261029");
+    let root =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/hermes-skills-staged-20261029");
     let idx = hermes_rs::skills::SkillIndex::scan(std::slice::from_ref(&root));
     let want = [
         "planning-and-task-breakdown",

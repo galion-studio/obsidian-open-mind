@@ -61,7 +61,7 @@ hermes-agent 0.21.4, toolset `hermes-cli`:
 
 ## Staged skills
 
-`stack/research-agent/hermes/skills-staged-20261029/` (see its README): the 3 empty addy skills filled, hearth / grok-session / local-primary updated, and a new `tools/agent-tools` skill.
+`docs/hermes-skills-staged-20261029/` (see its README): the 3 empty addy skills filled, hearth / grok-session / local-primary updated, and a new `tools/agent-tools` skill.
 
 ## run_as (2026-10-30, CET +01:00)
 

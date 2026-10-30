@@ -201,12 +201,24 @@ pub fn expand(s: &str, sec: &Secrets) -> Result<String, String> {
     Ok(out)
 }
 
-/// Effective uid of this process (owner of /proc/self).
+/// Effective uid of this process: the second `Uid:` field of
+/// /proc/self/status (mapped into our user namespace), else the owner of
+/// /proc/self. The owner alone is wrong inside a sandbox with its own
+/// user + pid namespace and /proc (it reads as root there), which made a
+/// non-root test runner look like root.
 pub fn effective_uid() -> Option<u32> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        std::fs::metadata("/proc/self").ok().map(|m| m.uid())
+        let from_status = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find_map(|l| l.strip_prefix("Uid:"))
+                    .and_then(|r| r.split_whitespace().nth(1))
+                    .and_then(|u| u.parse().ok())
+            });
+        from_status.or_else(|| std::fs::metadata("/proc/self").ok().map(|m| m.uid()))
     }
     #[cfg(not(unix))]
     {

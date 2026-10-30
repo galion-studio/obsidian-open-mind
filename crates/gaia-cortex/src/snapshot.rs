@@ -28,6 +28,8 @@ pub enum Route {
     Decisions,
     Alerts,
     Escalations,
+    /// Heal verification book (gaia-heal-verify).
+    Heals,
 }
 
 #[derive(Debug, Clone)]
@@ -51,6 +53,8 @@ pub struct Snapshot {
     published: AtomicU64,
     /// The decider is inside a batch (plan, nerve calls, commit).
     busy: AtomicBool,
+    /// `GET /heals` view, stored with every publish.
+    heals: Mutex<Option<Value>>,
 }
 
 /// One snapshot read: the body and how old it is.
@@ -85,6 +89,11 @@ impl Snapshot {
         self.published.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Store the heal-verification view (with every publish).
+    pub fn store_heals(&self, v: Value) {
+        *self.heals.lock().unwrap_or_else(|e| e.into_inner()) = Some(v);
+    }
+
     /// How many times a snapshot was stored.
     /// Set by the decider around each batch (slot 247: the engine lock is
     /// no longer held across the nerve calls, so "busy" is this flag).
@@ -104,6 +113,14 @@ impl Snapshot {
     /// routes). `None` before the first publish.
     pub fn read(&self, route: Route, n: usize) -> Option<Read> {
         let g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        if route == Route::Heals {
+            let at = g.as_ref()?.at;
+            let h = self.heals.lock().unwrap_or_else(|e| e.into_inner());
+            return Some(Read {
+                body: h.clone()?,
+                age_ms: at.elapsed().as_millis() as u64,
+            });
+        }
         let s = g.as_ref()?;
         let take = |v: &Value| match v {
             Value::Array(a) => Value::Array(a.iter().take(n).cloned().collect()),
@@ -116,6 +133,7 @@ impl Snapshot {
             Route::Decisions => take(&s.decisions),
             Route::Alerts => take(&s.alerts),
             Route::Escalations => s.escalations.clone(),
+            Route::Heals => Value::Null,
         };
         Some(Read {
             body,

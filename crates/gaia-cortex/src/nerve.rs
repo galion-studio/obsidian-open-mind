@@ -424,6 +424,35 @@ pub fn nerve_incidents(addr: SocketAddr, timeout: Duration) -> Option<serde_json
     Some(v)
 }
 
+/// Nerve `GET /state` (the heal verifier's deadline read). `Err` when the
+/// nerve does not answer 200 with a JSON object in `timeout`.
+pub fn nerve_state(addr: SocketAddr, timeout: Duration) -> Result<serde_json::Value, String> {
+    let host = addr.to_string();
+    let req = ClientRequest::get("/state", &host);
+    let r = send(addr, &req, timeout, 8 * 1024 * 1024).map_err(|e| format!("GET /state: {e}"))?;
+    if r.status != 200 {
+        return Err(format!("GET /state: HTTP {}", r.status));
+    }
+    let v: serde_json::Value =
+        serde_json::from_str(&r.text()).map_err(|e| format!("GET /state: bad JSON: {e}"))?;
+    if !v.is_object() {
+        return Err("GET /state: not a JSON object".into());
+    }
+    Ok(v)
+}
+
+/// The deadline read for one unit (see [`crate::verify::state_of`]).
+pub fn read_unit_state(
+    addr: SocketAddr,
+    timeout: Duration,
+    unit: &str,
+) -> crate::verify::StateRead {
+    match nerve_state(addr, timeout) {
+        Ok(v) => crate::verify::state_of(&v, unit),
+        Err(e) => crate::verify::StateRead::Unreachable(e),
+    }
+}
+
 /// Resume point after a (re)connect. `known` is the nerve instance seen on
 /// the previous connection, `now` the one answering now. Returns the
 /// `since` to use and whether the nerve restarted in between.

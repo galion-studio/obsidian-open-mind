@@ -83,6 +83,11 @@ pub struct Config {
     /// stream on (nerve keepalive 300 s), else 3 x `pull_every_s` (min 30 s),
     /// else 660 s.
     pub nerve_stale_s: u64,
+    /// Heal verification window (gaia-heal-verify): seconds after an
+    /// executed restart within which the unit must show a held recovery,
+    /// else one nerve `/state` read decides (see [`crate::verify`]).
+    /// Default 180; 0 = off; else 30..=3600 (anything else refuses to start).
+    pub heal_verify_s: u64,
     pub llm: LlmConfig,
     /// Cortex -> Hermes boss handoff (inbox files; see `handoff`).
     pub hermes: HermesConfig,
@@ -114,6 +119,7 @@ impl Default for Config {
             restart_allow: vec![],
             nerve_stream: true,
             nerve_stale_s: 0,
+            heal_verify_s: crate::verify::DEFAULT_VERIFY_S,
             llm: LlmConfig::default(),
             hermes: HermesConfig::default(),
         }
@@ -273,6 +279,11 @@ impl Config {
         if let Some(v) = get("CORTEX_NERVE_STALE_S").and_then(|v| v.parse().ok()) {
             c.nerve_stale_s = v;
         }
+        if let Some(v) = get("CORTEX_HEAL_VERIFY_S") {
+            c.heal_verify_s = v.trim().parse().map_err(|_| {
+                format!("CORTEX_HEAL_VERIFY_S must be a number of seconds, got {v:?}")
+            })?;
+        }
         if let Some(v) = get("CORTEX_REPEAT_POLL_S").and_then(|v| v.parse().ok()) {
             c.repeat_poll_s = v;
         }
@@ -316,6 +327,13 @@ impl Config {
             if nerve_cortex_addr(u).is_none() {
                 return Err(format!("nerve_url must be http://<loopback>:port, got {u}"));
             }
+        }
+        let (lo, hi) = crate::verify::VERIFY_S_RANGE;
+        if self.heal_verify_s != 0 && !(lo..=hi).contains(&self.heal_verify_s) {
+            return Err(format!(
+                "heal_verify_s must be 0 (off) or {lo}..={hi}, got {}",
+                self.heal_verify_s
+            ));
         }
         if !(self.llm.budget_usd_total.is_finite() && self.llm.budget_usd_total >= 0.0) {
             return Err("llm.budget_usd_total must be >= 0".into());

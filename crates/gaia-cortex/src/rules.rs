@@ -24,6 +24,8 @@
 //! | `R9-process-exit` | process exit: non-zero, warn+ | alert |
 //! | `R10-remediation` | nerve `action.result` / `circuit.open` | rate-limited/circuit-open opens the cortex circuit + escalates once; echoes of our own requests are info |
 //! | `R11-nerve-incident` | nerve engine `incident.opened` (warn/error alert, critical escalate) / `incident.resolved` (info) | no action |
+//! | `R12-heal-failed` | heal verify ([`crate::verify`], not a rule here): a restart the nerve executed did not heal (the unit failed again, or nerve `/state` shows it not active at the deadline) | open circuit, alert + escalate once; no further restart while open |
+//! | `R12-heal-unverified` | heal verify: the deadline read of nerve `/state` failed or the nerve cannot see the unit | alert only |
 //! | `R99-default` | anything else: error+ | escalate (LLM-eligible); warn | alert; info | nothing |
 
 use crate::guard::Guard;
@@ -54,7 +56,7 @@ pub struct Verdict {
 }
 
 impl Verdict {
-    fn new(rule: &'static str, sev: Sev, reason: impl Into<String>) -> Self {
+    pub fn new(rule: &'static str, sev: Sev, reason: impl Into<String>) -> Self {
         Verdict {
             rule,
             outcome: Outcome::None,
@@ -199,6 +201,12 @@ impl Rules {
             .get(unit)
             .and_then(|b| b.circuit_until)
             .is_some_and(|t| t > now)
+    }
+
+    /// Open `unit`'s circuit from outside the rules (a restart that did not
+    /// heal it, [`crate::verify`]). Returns true when it was not open yet.
+    pub fn hold_circuit(&mut self, unit: &str, now: u64) -> bool {
+        self.open_circuit(unit, now)
     }
 
     fn open_circuit(&mut self, unit: &str, now: u64) -> bool {

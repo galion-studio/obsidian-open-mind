@@ -23,6 +23,7 @@ pub mod rules;
 pub mod server;
 pub mod sink;
 pub mod snapshot;
+pub mod verify;
 
 use std::path::Path;
 

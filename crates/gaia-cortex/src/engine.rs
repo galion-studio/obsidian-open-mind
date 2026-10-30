@@ -175,6 +175,8 @@ pub struct Cortex {
     pub repeats: Option<Arc<crate::repeat::RepeatWatch>>,
     /// Alert/escalation post counters, shared with the courier thread.
     pub posts: Arc<PostCounters>,
+    /// Heal verification (did an executed restart fix the unit?).
+    pub heals: crate::verify::Verifier,
     outgoing: Vec<Post>,
     seen: HashSet<u64>,
     seen_order: VecDeque<u64>,
@@ -215,6 +217,11 @@ impl Cortex {
         let esc_epoch = reload.max_epoch.map_or(started, |m| started.max(m + 1));
         if reload.lines > 0 {
             eprintln!("gaia-cortex: escalations reloaded: {reload:?}, id epoch {esc_epoch}");
+        }
+        let mut heals = crate::verify::Verifier::new(cfg.heal_verify_s, file("heals.jsonl"));
+        let rearmed = heals.reload(started);
+        if rearmed > 0 {
+            eprintln!("gaia-cortex: heal checks re-armed from heals.jsonl: {rearmed}");
         }
         let rules = Rules::new(
             guard,
@@ -257,6 +264,7 @@ impl Cortex {
             snap: Arc::new(Snapshot::default()),
             contact: Arc::new(crate::contact::NerveContact::default()),
             posts: Arc::new(PostCounters::default()),
+            heals,
             outgoing: vec![],
             seen: HashSet::new(),
             seen_order: VecDeque::new(),
@@ -506,6 +514,9 @@ impl Cortex {
         let evs = self.admit(evs);
         if evs.is_empty() {
             return vec![];
+        }
+        for d in self.heals.observe(&evs, now) {
+            self.heal_done(d, now);
         }
         self.stats.batches += 1;
         self.stats.last_event = evs.last().map(|e| {
@@ -890,6 +901,7 @@ impl Cortex {
             req,
         } = p;
         let mut action = Value::Null;
+        let mut action_heal = Value::Null;
         if let Some(req) = req {
             // No outcome = the call phase never ran (cannot happen; be safe).
             let o = o.unwrap_or_else(|| crate::nerve::not_sent(&req, "no call made"));
@@ -920,7 +932,15 @@ impl Cortex {
             ) {
                 v.escalate = true;
             }
+            if !req.dry_run && (unknown || o.status == ActionStatus::Executed) {
+                if let Some(c) = self.heals.arm(&id, &incident, &req.unit, now) {
+                    action_heal = json!({"check": c.id, "due": ts(c.due)});
+                }
+            }
             action = json!({"request": req, "status": o.status.as_str(), "by": o.by, "reason": o.reason});
+            if !action_heal.is_null() {
+                action["verify"] = action_heal;
+            }
         }
         self.stats.decisions += 1;
         let kinds: Vec<&str> = s.events.iter().map(|e| e.kind.as_str()).collect();
@@ -950,6 +970,112 @@ impl Cortex {
             d["action"]["status"].as_str().unwrap_or("no action")
         );
         d
+    }
+
+    /// Due heal checks (removed from the pending book): the caller reads the
+    /// nerve `/state` for each OUTSIDE the engine lock, then calls
+    /// [`Cortex::heal_judged`].
+    pub fn heal_due(&mut self, now: u64) -> Vec<crate::verify::Check> {
+        self.heals.take_due(now)
+    }
+
+    /// Finish a due check from its `/state` read.
+    pub fn heal_judged(
+        &mut self,
+        c: crate::verify::Check,
+        read: &crate::verify::StateRead,
+        now: u64,
+    ) {
+        let (verdict, by, detail) = crate::verify::judge(read);
+        let d = self.heals.finish(c, verdict, &by, &detail, now);
+        self.heal_done(d, now);
+    }
+
+    /// Side effects of a finished heal check: a `gaia.heal.<outcome>` event
+    /// to the nerve; `failed` also opens the unit's circuit (no more blind
+    /// restarts) and escalates to a human; `unverified` alerts.
+    fn heal_done(&mut self, d: crate::verify::Done, now: u64) {
+        use crate::verify::Verdict as H;
+        let u = d.check.unit.clone();
+        let sev = match d.verdict {
+            H::Verified => "info",
+            H::FailedAgain | H::Unverified => "warn",
+            H::Failed => "error",
+        };
+        eprintln!(
+            "gaia-cortex {} heal {} {} -> {} ({}: {})",
+            ts(now),
+            d.check.id,
+            u,
+            d.verdict.as_str(),
+            d.by,
+            d.detail
+        );
+        let mut data = d.to_json();
+        data["unit"] = json!(u);
+        let mut ev = Event::new(
+            CORTEX_SOURCE,
+            &format!("gaia.heal.{}", d.verdict.as_str()),
+            sev,
+            data,
+        );
+        ev.unit = Some(u.clone());
+        self.outgoing.push(Post {
+            event: ev,
+            alert: false,
+        });
+        let (rule, vsev, why) = match d.verdict {
+            H::Failed => {
+                let fresh = self.rules.hold_circuit(&u, now);
+                (
+                    "R12-heal-failed",
+                    Sev::Error,
+                    format!(
+                        "{u}: restart {} did not heal it within {}s ({}); circuit {}, human needed",
+                        d.check.decision,
+                        d.at.saturating_sub(d.check.asked),
+                        d.detail,
+                        if fresh { "opened" } else { "kept open" }
+                    ),
+                )
+            }
+            H::Unverified => (
+                "R12-heal-unverified",
+                Sev::Warn,
+                format!(
+                    "{u}: restart {} could not be verified ({}: {})",
+                    d.check.decision, d.by, d.detail
+                ),
+            ),
+            H::Verified | H::FailedAgain => return,
+        };
+        let s = Subject {
+            key: format!("unit:{u}"),
+            unit: Some(u.clone()),
+            host: None,
+            events: vec![],
+        };
+        let mut v = Verdict::new(rule, vsev, why);
+        v.alert = true;
+        v.escalate = d.verdict == H::Failed;
+        let id = self.next_id("dec");
+        self.stats.decisions += 1;
+        let rec = json!({
+            "id": id, "ts": ts(now), "incident": d.check.incident, "subject": s.key, "unit": u,
+            "rule": rule, "severity": vsev.as_str(), "reason": v.reason, "outcome": "none",
+            "decided_by": "heal-verify", "dry_run": self.cfg.dry_run(), "action": Value::Null,
+            "alert": v.alert, "escalate": v.escalate, "llm": Value::Null, "events": 0, "failures": 0,
+            "kinds": Vec::<String>::new(), "repeat_of": Vec::<String>::new(), "heal": d.to_json(),
+        });
+        self.decisions.push(rec);
+        self.alert(&id, &s, &d.check.incident, &v, now);
+        if v.escalate {
+            self.escalate(&id, &s, &d.check.incident, &v, now);
+        }
+    }
+
+    pub fn heals_json(&self) -> Value {
+        self.heals.to_json()
     }
 
     /// Alert/escalation events waiting to be posted to the nerve.
@@ -1079,6 +1205,7 @@ impl Cortex {
             "llm_spend_usd": llm["ledger"]["spent_usd"].clone(),
             "llm": llm,
             "last_event": s.last_event, "last_batch": s.last_batch,
+            "heals": self.heals.summary_json(),
         });
         if let (Some(o), Value::Object(m)) = (v.as_object_mut(), more) {
             o.extend(m);
@@ -1125,6 +1252,7 @@ impl Cortex {
                "events_in": self.stats.events_in,
                "incidents_open": self.correlator.open.len(), "escalations_open": self.escalations.open.len(),
                "hermes_handoff": self.handoff.enabled, "handoffs": self.stats.handoffs,
+               "heals_pending": self.heals.pending.len(), "heal_verify": self.heals.window_s > 0,
                "busy": self.snap.busy()});
         self.contact.overlay(
             &mut v,
@@ -1151,6 +1279,7 @@ impl Cortex {
             self.alerts.recent(usize::MAX),
             self.escalations_json(),
         );
+        self.snap.store_heals(self.heals_json());
     }
 }
 
@@ -1311,6 +1440,52 @@ pub fn escalation_sweep_every(max_age_s: u64) -> Option<Duration> {
     (max_age_s > 0).then(|| Duration::from_secs((max_age_s / 4).clamp(5, 900)))
 }
 
+/// Finish every due heal check: take them under the lock, read the nerve
+/// `/state` for each WITHOUT the lock (`read`), judge under the lock again.
+/// Returns the posts to send. No due check = no I/O.
+pub fn run_heal_checks(
+    cx: &Arc<Mutex<Cortex>>,
+    read: &dyn Fn(&str) -> crate::verify::StateRead,
+    now: u64,
+) -> Vec<Post> {
+    let due = lock(cx).heal_due(now);
+    if due.is_empty() {
+        return vec![];
+    }
+    let reads: Vec<_> = due
+        .into_iter()
+        .map(|c| {
+            let r = read(&c.unit);
+            (c, r)
+        })
+        .collect();
+    let mut g = lock(cx);
+    for (c, r) in reads {
+        g.heal_judged(c, &r, now);
+    }
+    g.publish();
+    g.take_posts()
+}
+
+/// The decider's `/state` reader for heal checks (loopback nerve, 5 s).
+pub fn state_reader(nerve_url: Option<&str>) -> impl Fn(&str) -> crate::verify::StateRead {
+    let addr = nerve_url.and_then(crate::config::nerve_cortex_addr);
+    move |unit: &str| match addr {
+        Some(a) => crate::nerve::read_unit_state(a, Duration::from_secs(5), unit),
+        None => crate::verify::StateRead::Unreachable("no nerve configured".into()),
+    }
+}
+
+/// How long the decider may sleep: the escalation sweep and the next heal
+/// deadline, whichever is first. `None` = until the next event.
+pub fn decider_wait(sweep: Option<Duration>, next_heal: Option<u64>, now: u64) -> Option<Duration> {
+    let heal = next_heal.map(|t| Duration::from_secs(t.saturating_sub(now).max(1)));
+    match (sweep, heal) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
 pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: Duration) {
     let (mut link, snap, counters) = {
         let mut g = lock(&cx);
@@ -1321,8 +1496,21 @@ pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: D
         .fork()
         .map(|l| Courier::spawn(l, counters.clone(), COURIER_CAP));
     let sweep = escalation_sweep_every(lock(&cx).cfg.escalation_max_age_s);
+    let reader = state_reader(lock(&cx).cfg.nerve_url.as_deref());
+    let send = |link: &mut Box<dyn NerveLink>, posts: Vec<Post>| {
+        for p in posts {
+            match &courier {
+                Some(c) => c.send(p),
+                None => {
+                    let ok = link.post_event(&p.event);
+                    counters.note(p.alert, ok);
+                }
+            }
+        }
+    };
     loop {
-        let first = match sweep {
+        let wait = decider_wait(sweep, lock(&cx).heals.next_due(), now_secs());
+        let first = match wait {
             None => match rx.recv() {
                 Ok(v) => v,
                 Err(_) => break,
@@ -1330,11 +1518,16 @@ pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: D
             Some(every) => match rx.recv_timeout(every) {
                 Ok(v) => v,
                 Err(RecvTimeoutError::Timeout) => {
-                    // idle: no burst for `every`, still age out escalations
-                    let mut g = lock(&cx);
-                    if g.expire_escalations(now_secs()) > 0 {
-                        g.publish();
+                    // idle: no burst, still age out escalations and finish due heal checks
+                    let now = now_secs();
+                    {
+                        let mut g = lock(&cx);
+                        if g.expire_escalations(now) > 0 {
+                            g.publish();
+                        }
                     }
+                    let posts = run_heal_checks(&cx, &reader, now);
+                    send(&mut link, posts);
                     continue;
                 }
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -1364,14 +1557,8 @@ pub fn run_decider(rx: Receiver<Vec<Event>>, cx: Arc<Mutex<Cortex>>, coalesce: D
             g.publish();
             g.take_posts()
         };
-        for p in posts {
-            match &courier {
-                Some(c) => c.send(p),
-                None => {
-                    let ok = link.post_event(&p.event);
-                    counters.note(p.alert, ok);
-                }
-            }
-        }
+        send(&mut link, posts);
+        let posts = run_heal_checks(&cx, &reader, now_secs());
+        send(&mut link, posts);
     }
 }

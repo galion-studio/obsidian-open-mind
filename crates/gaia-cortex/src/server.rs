@@ -168,6 +168,7 @@ pub fn handle(req: &Request, api: &Api) -> Response {
         ("GET", "/decisions") => read(api, Route::Decisions, n, |g| g.decisions.recent(n)),
         ("GET", "/alerts") => read(api, Route::Alerts, n, |g| g.alerts.recent(n)),
         ("GET", "/escalations") => read(api, Route::Escalations, n, Cortex::escalations_json),
+        ("GET", "/heals") => read(api, Route::Heals, n, Cortex::heals_json),
         ("POST", "/escalations/ack") => {
             let Some(id) = q(req.query(), "id") else {
                 return Response::json(400, r#"{"ok":false,"error":"id required"}"#);
@@ -187,7 +188,7 @@ pub fn handle(req: &Request, api: &Api) -> Response {
         }
         ("GET", "/") => Response::json(
             200,
-            r#"{"routes":["/health","/stats","/incidents","/decisions","/alerts","/escalations","POST /v1/events","POST /escalations/ack?id="]}"#,
+            r#"{"routes":["/health","/stats","/incidents","/decisions","/alerts","/escalations","/heals","POST /v1/events","POST /escalations/ack?id="]}"#,
         ),
         _ => Response::json(404, r#"{"ok":false,"error":"not found"}"#),
     }

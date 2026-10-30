@@ -61,6 +61,8 @@ fn fake2(dir: &std::path::Path) -> McpServerCfg {
             dir.join("starts").display().to_string(),
         )]
         .into(),
+        // keep the runner's uid (a user-namespace root cannot switch to 65534)
+        run_as: Some("root".into()),
         ..McpServerCfg::default()
     }
 }

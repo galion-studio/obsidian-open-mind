@@ -30,6 +30,9 @@ fn stdio_server_discovery_paging_call_and_reconnect() {
         timeout_s: 5,
         connect_timeout_s: 5,
         lazy: true,
+        // keep the runner's uid: a sandbox "root" in a user namespace cannot
+        // switch to the default 65534 (not mapped there)
+        run_as: Some("root".into()),
         ..McpServerCfg::default()
     };
     let broken = McpServerCfg {

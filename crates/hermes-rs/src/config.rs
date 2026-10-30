@@ -133,6 +133,19 @@ pub struct McpServerCfg {
     pub cwd: Option<String>,
     /// `oauth` is not implemented yet (TODO): such servers are not started.
     pub auth: Option<String>,
+    /// Arguments the server needs to accept writes (github-mcp-rs:
+    /// `--allow-writes`, the default when the command is github-mcp-rs*).
+    /// Appended to `args` only while `allow_writes: true`; stripped from
+    /// `args` otherwise, so a server can not get writes the entry denies.
+    pub writes_args: Vec<String>,
+    /// Write tools resolve relative path arguments against this directory
+    /// (and may only write inside it) for the deny list. For remote servers
+    /// (GitHub repo paths) this is a virtual root; it is not created. None =
+    /// the gateway-wide deny-list policy.
+    pub write_root: Option<String>,
+    /// JSONL file every write-tool call is appended to (also always logged
+    /// to stderr). None = HERMES_RS_MCP_AUDIT_FILE, or stderr only.
+    pub audit_file: Option<String>,
     /// Where the entry came from (config.yaml or the MCP servers file).
     pub source: String,
 }
@@ -165,7 +178,41 @@ impl Default for McpServerCfg {
             run_as: None,
             cwd: None,
             auth: None,
+            writes_args: Vec::new(),
+            write_root: None,
+            audit_file: None,
             source: String::new(),
+        }
+    }
+}
+
+impl McpServerCfg {
+    /// The argv a stdio child really gets: `args` without any
+    /// `writes_args`, plus `writes_args` when `allow_writes` is on.
+    pub fn effective_args(&self) -> Vec<String> {
+        let mut a: Vec<String> = self
+            .args
+            .iter()
+            .filter(|x| !self.writes_args.contains(x))
+            .cloned()
+            .collect();
+        if self.allow_writes {
+            a.extend(self.writes_args.iter().cloned());
+        }
+        a
+    }
+
+    /// Default `writes_args` for a command: our github-mcp-rs refuses
+    /// writes unless started with `--allow-writes`.
+    pub fn default_writes_args(command: &str) -> Vec<String> {
+        let base = std::path::Path::new(command)
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if base.starts_with("github-mcp-rs") {
+            vec!["--allow-writes".to_string()]
+        } else {
+            Vec::new()
         }
     }
 }
@@ -290,6 +337,16 @@ impl McpServerCfg {
                 ))
             }
         };
+        let write_root = s(&sv["write_root"]);
+        if let Some(w) = &write_root {
+            if !w.starts_with('/') || w.split('/').any(|c| c == "..") {
+                return Err(format!(
+                    "mcp server {name} ({source}): write_root must be an absolute path without .."
+                ));
+            }
+        }
+        let writes_args = str_list(&sv["writes_args"])
+            .unwrap_or_else(|| McpServerCfg::default_writes_args(&command));
         let u64_or = |k: &str, dflt: u64| sv[k].as_u64().unwrap_or(dflt);
         Ok(Some(McpServerCfg {
             name: name.to_string(),
@@ -321,6 +378,9 @@ impl McpServerCfg {
             run_as: s(&sv["run_as"]),
             cwd: s(&sv["cwd"]),
             auth: s(&sv["auth"]),
+            writes_args,
+            write_root,
+            audit_file: s(&sv["audit_file"]),
             source: source.to_string(),
         }))
     }

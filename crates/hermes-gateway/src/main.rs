@@ -224,10 +224,23 @@ fn main() {
                 )),
             }
         }
-        log(&format!("mcp: {} tools", mcp_tools.len()));
-        for t in mcp_tools {
-            tools.add(t);
+        for s in cfg.mcp_servers.iter().filter(|s| s.allow_writes) {
+            log(&format!(
+                "mcp: {}: WRITES ON (class {:?}, deny list applies{}, every write call audited{})",
+                s.name,
+                s.class,
+                s.write_root
+                    .as_deref()
+                    .map(|r| format!(", write_root {r}"))
+                    .unwrap_or_default(),
+                s.audit_file
+                    .as_deref()
+                    .map(|f| format!(" to {f}"))
+                    .unwrap_or_default()
+            ));
         }
+        log(&format!("mcp: {} tools", mcp_tools.len()));
+        hermes_rs::mcp::register(&mut tools, &cfg.mcp_servers, mcp_tools);
     }
     #[cfg(feature = "coding")]
     match hermes_tools::CodingConfig::from_env(&env, &cfg.home) {

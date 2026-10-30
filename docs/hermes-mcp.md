@@ -31,7 +31,31 @@ mcp_servers:
 `headers`, `require_env`, `allow_tools` (`prefix*`), `deny_tools`, `class` (read/write/shell: feeds
 the deny list), `allow_writes` (default **false**), `write_tools` (`hidden` default, or `gated`:
 registered with their exact names but refused at call time), `trusted_descriptions` (our own
-servers only), `max_result_chars`, `max_description_chars`, `max_tools`, `run_as`, `cwd`, `auth`.
+servers only), `max_result_chars`, `max_description_chars`, `max_tools`, `run_as`, `cwd`, `auth`, `writes_args`, `write_root`, `audit_file`.
+
+## Writes (behind the gate)
+
+With `allow_writes: true` a server's write tools are registered like any other tool. Safety:
+
+- **Deny list first.** Every write tool is a write tool to the Hermes deny list, even on a
+  `class: read` server and even when its name has no write word (`push_files`,
+  `merge_pull_request`): the gateway tags it `<name>__write`, so every path argument (also
+  nested, e.g. `files[].path`) is checked as a write target. SOUL.md/AGENTS.md, `.env`, `.github/`,
+  `..`, secret roots, `/etc`, `/opt`, `/usr`, `/root` stay refused; the call never reaches the server.
+- **`write_root`** (optional): relative path arguments resolve inside this directory and may only
+  write there. For remote servers (GitHub repo paths) it is a virtual root and is not created.
+  Without it the gateway-wide policy applies (live today: no guard workspace, so every write
+  with a path argument is refused).
+- **`writes_args`**: arguments a server needs to accept writes, appended only while
+  `allow_writes: true` and stripped from `args` otherwise. Default for `github-mcp-rs*` is
+  `["--allow-writes"]`, so the server's own write switch follows the entry.
+- **Audit**: every call to a write tool (ok, error, or refused because writes are off) is one JSON
+  line `{ts, server, tool, args, outcome, result, session}` on stderr (`hermes-rs mcp-audit: ...`,
+  so in the journal) and appended to `audit_file` (or `HERMES_RS_MCP_AUDIT_FILE`), created 0600.
+  Args: values under token/secret/password/authorization/api_key/... keys are `[REDACTED]`, the
+  server's env-file secrets and known token shapes are scrubbed, long strings are cut at 200 chars.
+  Calls the deny list refuses are logged by the deny list (`hermes-rs denylist: refused tool=...
+  rule=...`) and never reach the server.
 
 Secrets never go in config files: inline secret-looking `env` values and inline
 `Authorization` headers are refused. Server output is always prefixed

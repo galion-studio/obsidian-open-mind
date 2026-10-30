@@ -19,6 +19,15 @@
 //! to that server only; tool descriptions and results are untrusted text:
 //! control characters stripped, length-capped, redacted, labelled.
 //!
+//! Writes (owner lifted read-only 2026-10-30): with `allow_writes: true` a
+//! server's write tools are registered like any other tool. Each one is
+//! tagged as a write tool for the deny list (so path arguments are write
+//! targets: SOUL.md, config files, secrets, /etc, /opt stay refused), may be
+//! given a `write_root` for its relative paths, and every call to it is
+//! written as one audit line (tool, redacted args, outcome, redacted result)
+//! to stderr and the optional `audit_file`. With writes off a write tool is
+//! hidden or, with `write_tools: gated`, registered and refused (audited).
+//!
 //! Done: discovery in parallel bounded by `connect_timeout`, per-call
 //! `timeout`, `lazy` (stop after discovery, start on first call), one
 //! reconnect on a dead pipe / expired HTTP session, server `ping` answered.
@@ -27,7 +36,7 @@
 
 use crate::config::{McpClass, McpServerCfg, McpTransport, McpWriteTools};
 use crate::mcp_transport::{self, Conn};
-use crate::tools::{Tool, ToolCtx, ToolOutput};
+use crate::tools::{Registry, Tool, ToolCtx, ToolOutput};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -422,6 +431,12 @@ pub fn is_gated(cfg: &McpServerCfg, tool: &Value) -> bool {
     !cfg.allow_writes && (cfg.class != McpClass::Read || !is_read_only(tool))
 }
 
+/// Not read-only, or on a write/shell-class server: calls are audited and
+/// the deny list sees a write tool.
+pub fn is_write(cfg: &McpServerCfg, tool: &Value) -> bool {
+    cfg.class != McpClass::Read || !is_read_only(tool)
+}
+
 pub struct McpTool {
     client: Arc<McpClient>,
     tool: String,
@@ -430,6 +445,113 @@ pub struct McpTool {
     schema: Value,
     /// Registered but refused at call time (writes off, `write_tools: gated`).
     gated: bool,
+    /// A write tool (see [`is_write`]).
+    write: bool,
+}
+
+// -------------------------------------------------------------------- audit
+
+const SECRET_KEY_HINTS: &[&str] = &[
+    "token",
+    "secret",
+    "password",
+    "passwd",
+    "authorization",
+    "api_key",
+    "apikey",
+    "private_key",
+    "credential",
+    "cookie",
+];
+
+/// Arguments for the audit line: values under secret-looking keys replaced,
+/// every string scrubbed of this server's secrets and known token shapes,
+/// long strings cut to 200 chars (with their length).
+pub fn redact_args(v: &Value, scrub: &dyn Fn(&str) -> String) -> Value {
+    fn walk(key: &str, v: &Value, scrub: &dyn Fn(&str) -> String, depth: usize) -> Value {
+        let k = key.to_ascii_lowercase();
+        if SECRET_KEY_HINTS.iter().any(|h| k.contains(h)) && !v.is_null() {
+            return json!("[REDACTED]");
+        }
+        if depth > 16 {
+            return json!("[nested]");
+        }
+        match v {
+            Value::String(s) => {
+                let r = crate::redact(&scrub(s));
+                let n = r.chars().count();
+                if n > 200 {
+                    let head: String = r.chars().take(200).collect();
+                    json!(format!("{head}…[{n} chars]"))
+                } else {
+                    json!(r)
+                }
+            }
+            Value::Array(a) => Value::Array(
+                a.iter()
+                    .take(64)
+                    .map(|x| walk(key, x, scrub, depth + 1))
+                    .collect(),
+            ),
+            Value::Object(o) => Value::Object(
+                o.iter()
+                    .map(|(k2, x)| (k2.clone(), walk(k2, x, scrub, depth + 1)))
+                    .collect(),
+            ),
+            other => other.clone(),
+        }
+    }
+    walk("", v, scrub, 0)
+}
+
+/// One audit line (JSON) for a write-tool call.
+pub fn audit_line(
+    cfg: &McpServerCfg,
+    tool: &str,
+    args: &Value,
+    outcome: &str,
+    result: &str,
+    session: &str,
+    scrub: &dyn Fn(&str) -> String,
+) -> String {
+    let res = clean_text(&crate::redact(&scrub(result)), 500);
+    json!({
+        "ts": crate::time::utc_rfc3339(crate::time::now_secs()),
+        "server": cfg.name,
+        "tool": tool,
+        "args": redact_args(args, scrub),
+        "outcome": outcome,
+        "result": res,
+        "session": session,
+    })
+    .to_string()
+}
+
+/// Write the audit line to stderr (journal) and the audit file, if any.
+/// The file is created 0600 and only appended to.
+pub fn write_audit(cfg: &McpServerCfg, line: &str) {
+    eprintln!("hermes-rs mcp-audit: {line}");
+    let path = cfg
+        .audit_file
+        .clone()
+        .or_else(|| std::env::var("HERMES_RS_MCP_AUDIT_FILE").ok())
+        .filter(|p| !p.trim().is_empty());
+    if let Some(p) = path {
+        use std::io::Write;
+        let mut o = std::fs::OpenOptions::new();
+        o.create(true).append(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            o.mode(0o600);
+        }
+        match o.open(&p) {
+            Ok(mut f) => {
+                let _ = writeln!(f, "{line}");
+            }
+            Err(e) => eprintln!("hermes-rs mcp-audit: WARNING cannot append to {p}: {e}"),
+        }
+    }
 }
 
 impl McpTool {
@@ -474,12 +596,42 @@ impl Tool for McpTool {
     /// The server's class feeds the deny-list tool kind.
     fn deny_name(&self) -> String {
         match self.client.cfg.class {
+            // a write tool of a read-class server is still a write tool
+            McpClass::Read if self.write => format!("{}__write", self.name),
             McpClass::Read => self.name.clone(),
             McpClass::Write => format!("{}__write", self.name),
             McpClass::Shell => format!("{}__shell", self.name),
         }
     }
-    fn call(&self, args: &Value, _ctx: &ToolCtx) -> ToolOutput {
+    fn call(&self, args: &Value, ctx: &ToolCtx) -> ToolOutput {
+        let out = self.call_inner(args);
+        if self.write {
+            let cfg = &self.client.cfg;
+            let outcome = if self.gated {
+                "refused-writes-off"
+            } else if out.is_error {
+                "error"
+            } else {
+                "ok"
+            };
+            let scrub = |s: &str| self.client.scrub(s);
+            let line = audit_line(
+                cfg,
+                &self.tool,
+                args,
+                outcome,
+                &out.content,
+                ctx.session_id,
+                &scrub,
+            );
+            write_audit(cfg, &line);
+        }
+        out
+    }
+}
+
+impl McpTool {
+    fn call_inner(&self, args: &Value) -> ToolOutput {
         let cfg = &self.client.cfg;
         if self.gated {
             return ToolOutput::err(format!(
@@ -577,6 +729,7 @@ fn tools_of(
             .unwrap_or_else(|| format!("MCP tool {tn}"));
         let name = prefixed_name(&s.name, &tn);
         let gated = is_gated(s, &t);
+        let write = is_write(s, &t);
         rep.registered.push(name.clone());
         if gated {
             rep.gated.push(name.clone());
@@ -593,6 +746,7 @@ fn tools_of(
             description,
             schema,
             gated,
+            write,
         }));
     }
     (tools, rep)
@@ -650,6 +804,23 @@ pub fn discover_report(servers: &[McpServerCfg]) -> (Vec<Arc<dyn Tool>>, Vec<Ser
         reps.push(r);
     }
     (tools, reps)
+}
+
+/// Add discovered MCP tools to `reg` (each wrapped in the deny list). A tool
+/// of a server with `write_root` gets a policy whose cwd and only writable
+/// root is that directory; everything else uses the registry's policy.
+pub fn register(reg: &mut Registry, servers: &[McpServerCfg], tools: Vec<Arc<dyn Tool>>) {
+    for t in tools {
+        let n = t.name();
+        let srv = servers
+            .iter()
+            .filter(|s| n.starts_with(&format!("{PREFIX}{}__", sanitize(&s.name))))
+            .max_by_key(|s| sanitize(&s.name).len());
+        match srv.and_then(|s| s.write_root.as_deref()) {
+            Some(root) => reg.add_in_workspace(t, std::path::Path::new(root)),
+            None => reg.add(t),
+        }
+    }
 }
 
 /// Back-compatible: tools plus `"<server>: <error>"` lines.
@@ -742,6 +913,48 @@ mod tests {
         );
         sh.allow_writes = true;
         assert!(skip_reason(&sh, &r).is_none());
+    }
+
+    #[test]
+    fn write_detection_and_audit_redaction() {
+        let c = McpServerCfg::default();
+        assert!(is_write(&c, &json!({"name": "push_files"})));
+        assert!(!is_write(
+            &c,
+            &json!({"name": "get_me", "annotations": {"readOnlyHint": true}})
+        ));
+        let w = McpServerCfg {
+            class: McpClass::Write,
+            ..Default::default()
+        };
+        assert!(is_write(&w, &json!({"name": "search_code"})));
+        let scrub = |s: &str| s.replace("hunter2hunter2", "[REDACTED]");
+        let a = redact_args(
+            &json!({"Authorization": "x", "api_key": 5, "nested": {"github_token": "y"},
+                    "msg": "pw hunter2hunter2", "long": "z".repeat(300), "n": 3, "none": null}),
+            &scrub,
+        );
+        assert_eq!(a["Authorization"], "[REDACTED]");
+        assert_eq!(a["api_key"], "[REDACTED]");
+        assert_eq!(a["nested"]["github_token"], "[REDACTED]");
+        assert_eq!(a["msg"], "pw [REDACTED]");
+        assert!(a["long"].as_str().unwrap().ends_with("…[300 chars]"));
+        assert_eq!(a["n"], 3);
+        let line = audit_line(
+            &c,
+            "push_files",
+            &json!({}),
+            "ok",
+            "res hunter2hunter2",
+            "s1",
+            &scrub,
+        );
+        let v: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["outcome"], "ok");
+        assert_eq!(v["result"], "res [REDACTED]");
+        assert!(
+            v["ts"].as_str().unwrap().ends_with('Z') || v["ts"].as_str().unwrap().contains('+')
+        );
     }
 
     #[test]

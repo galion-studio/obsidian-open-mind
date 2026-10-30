@@ -237,7 +237,7 @@ pub fn spawn_stdio(
     run_as: Option<(u32, u32)>,
 ) -> Result<Conn, String> {
     let mut cmd = Command::new(&cfg.command);
-    cmd.args(&cfg.args);
+    cmd.args(cfg.effective_args());
     base_env(&mut cmd);
     for (k, v) in &cfg.env {
         cmd.env(k, expand(v, sec).map_err(|e| format!("env {k}: {e}"))?);

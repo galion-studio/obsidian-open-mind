@@ -92,7 +92,7 @@ fn fixture(readiness: bool) -> Fixture {
             json!({"ts":"2026-10-30T12:16:01+01:00","system":{"status":"degrading","score":91,"verdict":"1 open incident"},
             "components":[
                 {"name":"openmind-memory","status":"healthy","unit":"openmind-memory.service","unit_state":"active","unit_sub":"running","port":8420,"http":200,"restarts_1h":0,"reasons":[],"last_error":null,"host":LEAK_IP},
-                {"name":"console","status":"degrading","unit":"console-rust-primary.service","unit_state":"active","unit_sub":"running","port":18080,"http":200,"restarts_1h":1,"reasons":["1 restart"],"last_error":format!("ssh to {LEAK_IP} failed")}]}),
+                {"name":"console","status":"degrading","unit":"console-rust-primary.service","unit_state":"active","unit_sub":"running","port":18080,"http":200,"restarts_1h":1,"reasons":["1 restart"],"last_error":format!("probe of {LEAK_IP} failed")}]}),
         ),
         (
             "/alerts",

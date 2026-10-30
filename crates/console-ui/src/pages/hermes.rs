@@ -336,8 +336,9 @@ fn history_html(history: Option<&Value>, current: Option<&str>) -> String {
         if t.get("console").as_bool() == Some(true) {
             meta.push("console".into());
         }
+        let pill = origin_pill(t);
         out.push_str(&format!(
-            "<li><a class=\"hm-item\" href=\"/hermes?id={href}\" data-id=\"{id}\" data-at=\"{at}\"{cur}><span class=\"hm-it\">{title}</span><span class=\"hm-im\">{meta}</span></a></li>",
+            "<li><a class=\"hm-item\" href=\"/hermes?id={href}\" data-id=\"{id}\" data-at=\"{at}\"{cur}><span class=\"hm-it\">{title}</span><span class=\"hm-im\">{pill}{meta}</span></a></li>",
             href = esc(&url_enc(id)),
             id = esc(id),
             at = at,
@@ -352,6 +353,16 @@ fn history_html(history: Option<&Value>, current: Option<&str>) -> String {
     out
 }
 
+/// Small source pill for threads started from one.galion.app (gateway
+/// session key `galion-one`, see `console_static::hermes::session_origin`).
+fn origin_pill(t: &Value) -> &'static str {
+    if t.get("origin").as_str() == Some("galion-one") {
+        "<span class=\"hm-src\" title=\"Started from one.galion.app\">Galion One</span> "
+    } else {
+        ""
+    }
+}
+
 fn thread_html(id: &str, v: Option<&Value>) -> String {
     let Some(v) = v else {
         return format!(
@@ -360,8 +371,9 @@ fn thread_html(id: &str, v: Option<&Value>) -> String {
         );
     };
     let mut out = format!(
-        "<p class=\"hm-thread-meta\"><span class=\"hm-it\">{}</span> <span class=\"hm-im\">{} · {} · {} tokens{}</span></p>",
+        "<p class=\"hm-thread-meta\"><span class=\"hm-it\">{}</span> <span class=\"hm-im\">{}{} · {} · {} tokens{}</span></p>",
         esc(&text(v.get("title"), id)),
+        origin_pill(v),
         esc(&stamp(num(v.get("at")))),
         esc(&text(v.get("model"), "model ?")),
         compact(num(v.get("tokens").get("total"))),
@@ -661,5 +673,17 @@ mod self_modify_tests {
         assert_eq!(super::one_pair_html(ps, 1000), "");
         std::fs::write(&p, r#"{"code":"ABCD-EFGH","expires":7200000,"ntfy":"a b"}"#).unwrap();
         assert!(!super::one_pair_html(ps, 1000).contains("ntfy://"));
+    }
+
+    #[test]
+    fn galion_one_threads_get_a_pill() {
+        let h = parse(br#"{"ok":true,"items":[{"id":"one-1","title":"hi","count":2,"at":1792340805,"origin":"galion-one"},{"id":"api-2","title":"x","count":2,"at":1792340805,"origin":""}]}"#).unwrap();
+        let out = history_html(Some(&h), None);
+        assert_eq!(out.matches("class=\"hm-src\"").count(), 1);
+        assert!(out.contains(">Galion One</span>"));
+        let t =
+            parse(br#"{"title":"hi","at":1792340805,"origin":"galion-one","tokens":{"total":1}}"#)
+                .unwrap();
+        assert!(thread_html("one-1", Some(&t)).contains("hm-src"));
     }
 }

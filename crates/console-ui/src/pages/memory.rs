@@ -48,6 +48,7 @@ pub fn body(snap: Option<&MemorySnap>) -> String {
         "<section class=\"p4-sec\" aria-label=\"Layers\"><h2>Layers</h2><ul class=\"rows\">",
     );
     out.push_str(&row("L0 Conversation", &c(|s| s.l0)));
+    out.push_str(&row("L0 from Galion One", &c(|s| s.l0_one)));
     out.push_str(&row("L1 Atom", &c(|s| s.l1)));
     out.push_str(&row("L2 Scenario", &c(|s| s.l2)));
     out.push_str(&row("L3 Persona", &c(|s| s.l3_bytes)));
@@ -77,6 +78,7 @@ mod tests {
     fn snap() -> MemorySnap {
         MemorySnap {
             l0: 249,
+            l0_one: 1,
             l1: 215,
             l2: 249,
             l3_bytes: 34_907,
@@ -96,6 +98,7 @@ mod tests {
         let h = body(Some(&snap()));
         for (label, v) in [
             ("L0 Conversation", "249"),
+            ("L0 from Galion One", "1"),
             ("L1 Atom", "215"),
             ("L2 Scenario", "249"),
             ("L3 Persona", "34907"),

@@ -409,6 +409,23 @@ pub fn console_spend(sessions: &Value) -> (f64, usize) {
     (total, k)
 }
 
+/// Session keys galion-one (one.galion.app and its voice line) sends to the
+/// gateway as `X-Hermes-Session-Key`. Read-only: the stored rows are not
+/// rewritten; older rows carry the same key, so they are labelled too.
+pub const GALION_ONE_KEYS: [&str; 2] = ["galion-one", "one-warm"];
+
+/// Where a session came from, from its gateway `session_key`:
+/// `"galion-one"`, `"console"` or `""` (anything else).
+pub fn session_origin(key: &str) -> &'static str {
+    if GALION_ONE_KEYS.contains(&key) || key.starts_with("galion-one:") {
+        "galion-one"
+    } else if key.starts_with(SESSION_KEY_PREFIX) {
+        "console"
+    } else {
+        ""
+    }
+}
+
 /// Gateway session row -> history item.
 pub fn history_item(r: &Value) -> Value {
     let input = r.get("input_tokens").as_f64().unwrap_or(0.0);
@@ -436,6 +453,10 @@ pub fn history_item(r: &Value) -> Value {
         (
             "provider",
             s(r.get("billing_provider").as_str().unwrap_or("")),
+        ),
+        (
+            "origin",
+            s(session_origin(r.get("session_key").as_str().unwrap_or(""))),
         ),
         (
             "console",
@@ -1364,5 +1385,20 @@ mod self_modify_tests {
         assert_eq!(v.get("changed_by").as_str(), Some("Mate"));
         assert_eq!(v.get("owner_only").as_bool(), Some(true));
         std::fs::remove_dir_all(&d).ok();
+    }
+
+    #[test]
+    fn galion_one_sessions_carry_their_origin() {
+        assert_eq!(session_origin("galion-one"), "galion-one");
+        assert_eq!(session_origin("one-warm"), "galion-one");
+        assert_eq!(session_origin("galion-one:x"), "galion-one");
+        assert_eq!(session_origin("console:hermes:ab"), "console");
+        assert_eq!(session_origin(""), "");
+        assert_eq!(session_origin("galion-oneX"), "");
+        let row = json::parse(br#"{"id":"s1","session_key":"galion-one","source":"api_server"}"#)
+            .unwrap();
+        let h = history_item(&row);
+        assert_eq!(h.get("origin").as_str(), Some("galion-one"));
+        assert_eq!(h.get("console").as_bool(), Some(false));
     }
 }

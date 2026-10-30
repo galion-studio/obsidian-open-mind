@@ -30,6 +30,12 @@
     if (text != null) n.textContent = text;
     return n;
   }
+  function srcPill(t) {
+    if (!t || t.origin !== "galion-one") return null;
+    var p = el("span", "hm-src", "Galion One");
+    p.title = "Started from one.galion.app";
+    return p;
+  }
   function usd(n) { return "$" + (Number(n) || 0).toFixed(2); }
   function setNote(t, bad) { note.textContent = t || ""; note.className = "hm-note" + (bad ? " t-bad" : ""); }
   function api(path, opts) {
@@ -116,7 +122,10 @@
         var meta = [stamp(t.at), (t.count || 0) + " msgs"];
         if (t.cost_usd > 0) meta.push(usd(t.cost_usd));
         if (t.console) meta.push("console");
-        a.appendChild(el("span", "hm-im", meta.join(" · ")));
+        var im = el("span", "hm-im"), pill = srcPill(t);
+        if (pill) { im.appendChild(pill); im.appendChild(document.createTextNode(" ")); }
+        im.appendChild(document.createTextNode(meta.join(" · ")));
+        a.appendChild(im);
         li.appendChild(a);
         list.appendChild(li);
       });
@@ -136,7 +145,10 @@
       clearLog();
       var meta = el("p", "hm-thread-meta");
       meta.appendChild(el("span", "hm-it", j.title || id));
-      meta.appendChild(el("span", "hm-im", [stamp(j.at), j.model || "", (j.cost_usd > 0 ? usd(j.cost_usd) : "")].filter(Boolean).join(" · ")));
+      var tim = el("span", "hm-im"), tpill = srcPill(j);
+      if (tpill) { tim.appendChild(tpill); tim.appendChild(document.createTextNode(" ")); }
+      tim.appendChild(document.createTextNode([stamp(j.at), j.model || "", (j.cost_usd > 0 ? usd(j.cost_usd) : "")].filter(Boolean).join(" · ")));
+      meta.appendChild(tim);
       log.appendChild(meta);
       (j.items || []).forEach(function (it) {
         if (it.kind === "tool") tool(it.name || "tool");

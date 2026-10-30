@@ -47,6 +47,10 @@ pub fn owns(path: &str) -> bool {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct MemorySnap {
     pub l0: u64,
+    /// L0 conversation files from galion-one (one.galion.app): the memory
+    /// layer names each file after the gateway session key, so
+    /// `galion-one*.md` / `one-warm*.md`. Read-only count.
+    pub l0_one: u64,
     pub l1: u64,
     pub l2: u64,
     pub l3_bytes: u64,
@@ -188,6 +192,11 @@ pub fn why(e: &std::io::Error) -> String {
 }
 
 /// The `/memory` snapshot for `files` (`None` when no root is configured).
+/// An L0 file named after a galion-one session key.
+pub fn is_galion_one_l0(name: &str) -> bool {
+    name.ends_with(".md") && (name.starts_with("galion-one") || name.starts_with("one-warm"))
+}
+
 pub fn memory_snap(files: &HostFiles) -> Option<MemorySnap> {
     let root = files.memory_root.as_deref()?;
     let mut s = MemorySnap::default();
@@ -202,6 +211,11 @@ pub fn memory_snap(files: &HostFiles) -> Option<MemorySnap> {
     if s.root_ok {
         let pyr = root.join("pyramid");
         s.l0 = w.files_under(&pyr.join("l0"), 0);
+        s.l0_one = w
+            .list(&pyr.join("l0"), 0)
+            .into_iter()
+            .filter(|(name, _)| is_galion_one_l0(name))
+            .count() as u64;
         s.l1 = w.files_under(&pyr.join("l1"), 0);
         s.l2 = w.files_under(&pyr.join("l2"), 0);
         s.l3_bytes = bytes_of(&pyr.join("l3").join("persona.md"));

@@ -48,6 +48,10 @@ pub struct HostFiles {
     /// `--connectors-logo-dir`: `<name>.png` brand logos for `/connectors`,
     /// read once at start. `None` = monograms.
     pub connectors_logo_dir: Option<PathBuf>,
+    /// `--connectors-oauth-dir`: provider app credentials for the account
+    /// sign-in (`google.env`, `canva.env`, `box.env`, `wix.env`; 0600).
+    /// `None` = sign-in off ("needs sign-in setup").
+    pub connectors_oauth_dir: Option<PathBuf>,
 }
 
 /// Whether `/md/...` is ours (any name: unknown names get our 404 page).

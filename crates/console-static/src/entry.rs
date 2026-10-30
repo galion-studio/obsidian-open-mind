@@ -144,6 +144,28 @@ pub fn run() -> ExitCode {
         addr_or_none(cfg.data_upstream),
         cfg.data_paths
     );
+    if let (Some(d), Some(_)) = (&cfg.files.connectors_dir, &cfg.files.connectors_oauth_dir) {
+        let st = console_ui::connectors::Store::new(d)
+            .with_hermes_file(cfg.files.connectors_hermes_file.clone())
+            .with_oauth_dir(cfg.files.connectors_oauth_dir.clone());
+        // Sign-in connectors get their Hermes entries (waiting for a token).
+        match st.sync_oauth_entries() {
+            Ok(changed) => eprintln!(
+                "galion-console-static: connectors oauth entries {}",
+                if changed { "written" } else { "unchanged" }
+            ),
+            Err(e) => eprintln!(
+                "galion-console-static: connectors oauth entries not written ({})",
+                e.kind()
+            ),
+        }
+        if let Err(e) = console_ui::oauth::spawn_refresher(st) {
+            eprintln!(
+                "galion-console-static: oauth refresher not started ({})",
+                e.kind()
+            );
+        }
+    }
     let state = Arc::new(State::new(site, routes, cfg));
     if let Some(h) = &state.hermes {
         // Whether a key was found, never the key.

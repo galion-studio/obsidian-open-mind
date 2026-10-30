@@ -27,6 +27,7 @@ pub mod icons;
 pub mod json;
 pub mod layout;
 pub mod logos;
+pub mod oauth;
 pub mod overview;
 pub mod pages;
 pub mod port2;
@@ -34,6 +35,7 @@ pub mod port3;
 pub mod port4;
 pub mod port5;
 pub mod rooms;
+pub mod sha256;
 
 use client::Forward;
 use gate::Decision;
@@ -343,6 +345,7 @@ impl Ui {
             || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || port4::owns(path)
             || path == connectors::PATH
+            || path == oauth::CALLBACK_PATH
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
     }
@@ -538,7 +541,8 @@ impl Ui {
         }
         if let Err(mut r) = self.gate(req) {
             // /connectors: a refused owner gate is a 401 (same gate as /hermes).
-            if req.path == connectors::PATH && r.status == 200 {
+            if (req.path == connectors::PATH || req.path == oauth::CALLBACK_PATH) && r.status == 200
+            {
                 r.status = 401;
             }
             return r;
@@ -565,6 +569,7 @@ impl Ui {
             p if port4::owns(p) => self.port4_room(req),
             "/node" | "/security" | "/session" => self.port5_room(req),
             connectors::PATH => self.connectors_room(req),
+            oauth::CALLBACK_PATH => self.oauth_callback(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);

@@ -162,6 +162,7 @@ pub fn reason(code: u16) -> &'static str {
         201 => "Created",
         204 => "No Content",
         302 => "Found",
+        303 => "See Other",
         304 => "Not Modified",
         307 => "Temporary Redirect",
         400 => "Bad Request",

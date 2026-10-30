@@ -59,6 +59,10 @@ usage: galion-console-static --root DIR [options]
                        beside it, console entries to a marked block in it
   --connectors-logo-dir DIR  brand logos for /connectors (<name>.png, read
                        once at start); default none (monograms)
+  --connectors-oauth-dir DIR  account sign-in (OAuth 2.0 + PKCE) for the
+                       featured Google, Canva, Box and Wix connectors: app
+                       credentials in DIR/<provider>.env (0600, root); tokens
+                       stay under --connectors-dir/oauth; default none (off)
   --memory-root DIR    host folder of Hermes memory for /memory and
                        /md/persona, e.g. /var/lib/memory-tencentdb; default none
   --model-file FILE    file holding the model name shown on /memory,
@@ -414,6 +418,12 @@ impl Config {
                     files.connectors_logo_dir = Some(abs_path(
                         val("--connectors-logo-dir")?,
                         "--connectors-logo-dir",
+                    )?)
+                }
+                "--connectors-oauth-dir" => {
+                    files.connectors_oauth_dir = Some(abs_path(
+                        val("--connectors-oauth-dir")?,
+                        "--connectors-oauth-dir",
                     )?)
                 }
                 "--connectors-command-dir" => {

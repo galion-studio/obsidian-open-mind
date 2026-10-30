@@ -36,8 +36,10 @@
 //! New servers start read-only: `class: read`, `allow_writes: false`.
 //! Disconnect renames the entry (and its secrets file) to `.off`; nothing
 //! is deleted. A replaced entry or token is renamed to `.bak.<unix>` first.
-//! OAuth-only connectors show "needs sign-in setup" and write nothing
-//! (TODO: OAuth flow; the generic client does not start `auth: oauth` yet).
+//! Featured OAuth connectors (Google, Canva, Box, Wix) sign in through the
+//! server-side authorization-code + PKCE flow in `oauth.rs` when the console
+//! runs with `--connectors-oauth-dir`; without it, and for every other OAuth
+//! row, they show "needs sign-in setup" and write nothing.
 //! Hermes reads the file only at start (no reload path). This console does
 //! restart services; anything saved after Hermes started says "Saved, not
 //! live yet" until the owner restarts `hermes-rs`.
@@ -393,10 +395,15 @@ pub enum State {
     Off,
     Available,
     NeedsSignIn,
+    /// Account sign-in is built, but the provider app (client id/secret)
+    /// is not registered on this console yet.
+    NeedsCredentials,
+    /// Sign-in failed, a refresh was refused, or the app config is refused.
+    Error,
     Builtin,
 }
 
-fn now_unix() -> u64 {
+pub(crate) fn now_unix() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -431,7 +438,7 @@ fn create_private(path: &Path, dir: bool) -> std::io::Result<()> {
 }
 
 /// Write `data` to `path` as a new 0600 file (via a temp name + rename).
-fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
     write_mode(path, data, 0o600)
 }
 
@@ -460,7 +467,7 @@ fn write_mode(path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
 
 /// Rename `path` out of the way (`<path><suffix>`, then `.<unix>` if that
 /// name is taken). Nothing is deleted.
-fn rename_aside(path: &Path, suffix: &str) -> std::io::Result<()> {
+pub(crate) fn rename_aside(path: &Path, suffix: &str) -> std::io::Result<()> {
     if !path.exists() {
         return Ok(());
     }
@@ -491,6 +498,9 @@ pub struct Store {
     pub hermes_file: Option<PathBuf>,
     /// Unix start time of the running Hermes gateway (from `/proc`).
     pub hermes_started: Option<u64>,
+    /// `--connectors-oauth-dir`: provider app credentials (`<provider>.env`,
+    /// 0600). `None` = account sign-in is off on this console.
+    pub oauth_cfg_dir: Option<PathBuf>,
 }
 
 /// Result of a write action (the page shows a fixed message for each).
@@ -509,7 +519,67 @@ impl Store {
             cmd_dir: None,
             hermes_file: None,
             hermes_started: None,
+            oauth_cfg_dir: None,
         }
+    }
+    /// Turn account sign-in on, reading provider apps from `d`.
+    pub fn with_oauth_dir(mut self, d: Option<PathBuf>) -> Store {
+        self.oauth_cfg_dir = d;
+        self
+    }
+    /// Account sign-in handles this connector here.
+    pub fn oauth_on(&self, c: &Connector) -> bool {
+        self.oauth_cfg_dir.is_some()
+            && c.auth == Auth::OAuth
+            && wired(c)
+            && crate::oauth::provider_of(&c.id).is_some()
+    }
+    /// The OAuth connector as a Hermes server: its access token comes from
+    /// `<ID>_ACCESS_TOKEN` in its env file.
+    pub fn oauth_entry(&self, c: &Connector) -> String {
+        let mut h = c.clone();
+        h.token_env = crate::oauth::token_env(&c.id);
+        entry_yaml(&h, Some(&self.secret_path(&c.id)))
+    }
+    /// Make sure every sign-in connector has its Hermes entry (env file named,
+    /// token required), so before a sign-in Hermes and the nerve see it as
+    /// waiting for its token, never failing. No write when nothing changes.
+    pub fn sync_oauth_entries(&self) -> std::io::Result<bool> {
+        if self.oauth_cfg_dir.is_none() {
+            return Ok(false);
+        }
+        let cat = catalog();
+        let mut changed = false;
+        for c in cat.connectors.iter().filter(|c| self.oauth_on(c)) {
+            if self.hand(&c.id).is_some() {
+                continue;
+            }
+            let want = self.oauth_entry(c);
+            let p = self.entry_path(&c.id);
+            if fs::read_to_string(&p).ok().as_deref() == Some(want.as_str()) {
+                continue;
+            }
+            self.ensure_dirs()?;
+            rename_aside(&p, ".bak")?;
+            write_private(&p, want.as_bytes())?;
+            changed = true;
+        }
+        let in_file = self
+            .hermes_file
+            .as_deref()
+            .and_then(|f| fs::read_to_string(f).ok())
+            .map(|t| {
+                cat.connectors
+                    .iter()
+                    .filter(|c| self.oauth_on(c) && self.hand(&c.id).is_none())
+                    .all(|c| t.contains(&format!("\n  {}:\n", c.id)))
+            })
+            .unwrap_or(true);
+        if changed || !in_file || !self.servers_file().is_file() {
+            self.regenerate()?;
+            changed = true;
+        }
+        Ok(changed)
     }
     /// Allow local stdio commands directly inside `d`.
     pub fn with_command_dir(mut self, d: Option<String>) -> Store {
@@ -582,6 +652,17 @@ impl Store {
     }
 
     pub fn state(&self, c: &Connector) -> State {
+        if self.oauth_on(c) {
+            use crate::oauth::Status as O;
+            return match crate::oauth::status(self, &c.id) {
+                O::NotEnabled => State::NeedsSignIn,
+                O::NeedsCredentials => State::NeedsCredentials,
+                O::ConfigError(_) | O::Error(_) => State::Error,
+                O::Ready => State::Available,
+                O::Connected { live: true, .. } => State::Connected,
+                O::Connected { live: false, .. } => State::Saved,
+            };
+        }
         match c.auth {
             Auth::Builtin => return State::Builtin,
             Auth::OAuth => return State::NeedsSignIn,
@@ -1187,6 +1268,10 @@ fn done_text(done: &str, name: &str) -> Option<String> {
         "saved" => format!("{name}: saved. Read-only (writes off)."),
         "added" => format!("{name}: added. Read-only (writes off)."),
         "disconnected" => format!("{name}: disconnected (entry renamed to .off, nothing deleted)."),
+        "signed-in" => format!("{name}: signed in. Read-only scopes; the token stays on the server."),
+        "signed-out" => format!("{name}: disconnected. Access revoked at the provider and the stored token removed."),
+        "signed-out-local" => format!("{name}: disconnected. The stored token was removed; the provider did not confirm the revoke, so also remove access in your account settings."),
+        "refreshed" => format!("{name}: access token refreshed."),
         _ => return None,
     })
 }
@@ -1200,6 +1285,73 @@ impl Ui {
         c
     }
 
+    fn cn_bind_cookie(req: &Request<'_>, v: &str, max_age: u64) -> String {
+        let mut c = format!(
+            "{}={v}; HttpOnly; Path=/connectors/oauth; SameSite=Lax; Max-Age={max_age}",
+            crate::oauth::BIND_COOKIE
+        );
+        if Self::cookie_secure(req) {
+            c.push_str("; Secure");
+        }
+        c
+    }
+
+    /// The connectors store as this console is configured.
+    pub(crate) fn cn_store(&self, cmd_dir: Option<String>) -> Option<Store> {
+        self.cfg.files.connectors_dir.as_ref().map(|d| {
+            Store::new(d)
+                .with_command_dir(cmd_dir)
+                .with_hermes_file(self.cfg.files.connectors_hermes_file.clone())
+                .with_oauth_dir(self.cfg.files.connectors_oauth_dir.clone())
+        })
+    }
+
+    /// `GET /connectors/oauth/callback` (owner gate already passed).
+    pub(crate) fn oauth_callback(&self, req: &Request<'_>) -> Reply {
+        use crate::oauth::{self, CallbackError};
+        let Some(st) = self.cn_store(None).filter(|s| s.oauth_cfg_dir.is_some()) else {
+            return Reply::text(404, "Not Found\n");
+        };
+        let qp = html::form_pairs(req.query);
+        let state = html::form_get(&qp, "state").unwrap_or("");
+        let bind = gate::cookie(req.cookie, oauth::BIND_COOKIE);
+        let clear = Self::cn_bind_cookie(req, "", 0);
+        let (id, verifier) = match oauth::take_pending(&st, state, bind.as_deref()) {
+            Ok(x) => x,
+            Err(e) => {
+                let msg = match e {
+                    CallbackError::StateMismatch => "Sign-in refused: the state check failed (unknown, already used, or started in another browser). Start again from /connectors.\n",
+                    CallbackError::Expired => "Sign-in refused: it took longer than 10 minutes. Start again from /connectors.\n",
+                };
+                let mut r = Reply::text(400, msg);
+                r.headers.push(("Set-Cookie".into(), clear));
+                return r;
+            }
+        };
+        let done = if let Some(err) = html::form_get(&qp, "error") {
+            oauth::provider_said_no(&st, &id, err);
+            "oauth-error"
+        } else {
+            match oauth::finish(
+                &st,
+                &id,
+                html::form_get(&qp, "code").unwrap_or(""),
+                &verifier,
+            ) {
+                Ok(()) => "signed-in",
+                Err(_) => "oauth-error",
+            }
+        };
+        let mut r = Reply::redirect(
+            303,
+            &format!("{PATH}?done={done}&id={}", html::url_enc(&id)),
+        );
+        r.headers.push(("Set-Cookie".into(), clear));
+        r.headers
+            .push(("Referrer-Policy".into(), "no-referrer".into()));
+        r
+    }
+
     pub(crate) fn connectors_room(&self, req: &Request<'_>) -> Reply {
         let cat = catalog();
         let cmd_dir = self.cfg.files.connectors_command_dir.as_ref().map(|p| {
@@ -1209,11 +1361,7 @@ impl Ui {
             }
             s
         });
-        let store = self.cfg.files.connectors_dir.as_ref().map(|d| {
-            Store::new(d)
-                .with_command_dir(cmd_dir)
-                .with_hermes_file(self.cfg.files.connectors_hermes_file.clone())
-        });
+        let store = self.cn_store(cmd_dir);
         let have = gate::cookie(req.cookie, CSRF_COOKIE).filter(|t| csrf_ok(t));
         let customs = store.as_ref().map(Store::customs).unwrap_or_default();
         let name_of = |id: &str| -> String {
@@ -1249,7 +1397,42 @@ impl Ui {
                     Some(c) => st.connect(c, token).map(|_| ("saved", c.id.clone())),
                     None => Err("unknown connector".into()),
                 },
+                Some("disconnect")
+                    if cat.connectors.iter().any(|c| c.id == id && st.oauth_on(c)) =>
+                {
+                    crate::oauth::disconnect(st, id).map(|revoked| {
+                        (
+                            if revoked {
+                                "signed-out"
+                            } else {
+                                "signed-out-local"
+                            },
+                            id.to_string(),
+                        )
+                    })
+                }
                 Some("disconnect") => st.disconnect(id).map(|_| ("disconnected", id.to_string())),
+                Some("oauth-start") => {
+                    match cat.connectors.iter().find(|c| c.id == id && st.oauth_on(c)) {
+                        Some(c) => match crate::oauth::start(st, c) {
+                            Ok((to, bind)) => {
+                                let mut r = Reply::redirect(303, &to);
+                                r.headers.push((
+                                    "Set-Cookie".into(),
+                                    Self::cn_bind_cookie(req, &bind, 600),
+                                ));
+                                return r;
+                            }
+                            Err(e) => Err(e),
+                        },
+                        None => Err("this connector does not use account sign-in here".into()),
+                    }
+                }
+                Some("oauth-refresh")
+                    if cat.connectors.iter().any(|c| c.id == id && st.oauth_on(c)) =>
+                {
+                    crate::oauth::refresh(st, id, 0, true).map(|_| ("refreshed", id.to_string()))
+                }
                 Some("add") => custom_from_form(
                     html::form_get(&form, "name").unwrap_or(""),
                     html::form_get(&form, "target").unwrap_or(""),
@@ -1293,6 +1476,18 @@ impl Ui {
             if let Some(d) = html::form_get(&qp, "done") {
                 let id = html::form_get(&qp, "id").filter(|i| id_ok(i)).unwrap_or("");
                 notice = done_text(d, &name_of(id)).map(|m| (true, m));
+                if d == "oauth-error" {
+                    // The reason comes from our own record, never the URL.
+                    let why = store
+                        .as_ref()
+                        .map(|s| match crate::oauth::status(s, id) {
+                            crate::oauth::Status::Error(e)
+                            | crate::oauth::Status::ConfigError(e) => e,
+                            _ => "sign-in did not finish".into(),
+                        })
+                        .unwrap_or_default();
+                    notice = Some((false, format!("{}: {why}", name_of(id))));
+                }
             }
         }
         let token = have.clone().or_else(new_csrf).unwrap_or_default();
@@ -1316,6 +1511,21 @@ impl Ui {
         // The reference screen is dark whatever the console theme is.
         f.light = Some(false);
         let mut r = Reply::html(status, layout::document(&f, " class=\"cn-body\"", &body));
+        if let Some(st) = store.as_ref() {
+            // Sign-in forms post here and 303 to the provider: allow exactly
+            // the configured providers' sign-in origins as form targets.
+            let extra = crate::oauth::form_origins(st);
+            if !extra.is_empty() {
+                for h in r.headers.iter_mut() {
+                    if h.0 == "Content-Security-Policy" {
+                        h.1 = h.1.replace(
+                            "form-action 'self'",
+                            &format!("form-action 'self' {}", extra.join(" ")),
+                        );
+                    }
+                }
+            }
+        }
         if have.is_none() && csrf_ok(&token) {
             r.headers
                 .push(("Set-Cookie".into(), Self::cn_csrf_cookie(req, &token)));

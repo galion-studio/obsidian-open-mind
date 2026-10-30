@@ -102,7 +102,94 @@ fn facts(c: &Connector) -> String {
     s
 }
 
+/// `HH:MM CET` / `HH:MM CEST` (with the date when not today) on the Zagreb clock.
+fn zagreb_time(unix: u64) -> String {
+    let (y, m, d, hh, mm, off) = super::p2::zagreb(unix as i64);
+    let (ny, nm, nd, ..) = super::p2::zagreb(crate::connectors::now_unix() as i64);
+    let zone = if off == 2 { "CEST" } else { "CET" };
+    if (y, m, d) == (ny, nm, nd) {
+        format!("{hh:02}:{mm:02} {zone}")
+    } else {
+        format!("{y}-{m:02}-{d:02} {hh:02}:{mm:02} {zone}")
+    }
+}
+
+/// Panel for a connector that signs in with OAuth on this console.
+fn oauth_panel(v: &View<'_>, st: &Store, c: &Connector) -> String {
+    use crate::oauth::{self, Status};
+    let info = facts(c);
+    let Some(p) = oauth::provider_of(&c.id) else {
+        return format!("<div class=\"cn-panel\">{info}</div>");
+    };
+    let form = |op: &str, label: &str, pri: bool| {
+        format!(
+            "<form method=\"post\" action=\"/connectors\" class=\"cn-form\">{}\
+<button class=\"cn-btn{}\" type=\"submit\">{}</button></form>",
+            hidden(v.csrf, op, &c.id),
+            if pri { " cn-pri" } else { "" },
+            esc(label)
+        )
+    };
+    let scopes = oauth::default_scopes(&c.id).unwrap_or("");
+    let scope_line = format!(
+        "<p class=\"cn-fine\">Read-only access: <span class=\"cn-mono\">{}</span>. Writes stay off.</p>",
+        esc(scopes)
+    );
+    let act = match oauth::status(st, &c.id) {
+        Status::NotEnabled => String::new(),
+        Status::NeedsCredentials => format!(
+            "<p class=\"cn-wait\">Needs app credentials</p>\
+<p class=\"cn-fine\">Sign-in is ready on this console, but no {name} OAuth app is registered yet. Register one at {at}, give it this redirect URI: <span class=\"cn-mono\">{uri}</span>, then save its client id and secret in <span class=\"cn-mono\">{key}.env</span> (0600) in the console sign-in folder.</p>{scope_line}\
+<button class=\"cn-btn\" type=\"button\" disabled>Sign in with {name}</button>",
+            name = esc(p.name),
+            at = esc(p.register_at),
+            uri = esc(oauth::DEFAULT_REDIRECT),
+            key = esc(p.key),
+        ),
+        Status::ConfigError(e) => format!(
+            "<p class=\"cn-err\">Error</p><p class=\"cn-fine\">{} app credentials refused: {}</p>",
+            esc(p.name),
+            esc(&e)
+        ),
+        Status::Ready => format!(
+            "<p class=\"cn-fine\">Signs in with your {} account. The token stays on the server and never reaches this browser.</p>{scope_line}{}",
+            esc(p.name),
+            form("oauth-start", &format!("Sign in with {}", p.name), true)
+        ),
+        Status::Error(e) => format!(
+            "<p class=\"cn-err\">Error</p><p class=\"cn-fine\">{}</p>{}{}",
+            esc(&e),
+            form("oauth-start", "Sign in again", true),
+            form("disconnect", "Disconnect", false)
+        ),
+        Status::Connected { live, expires_at } => {
+            let exp = if expires_at == 0 {
+                String::new()
+            } else {
+                format!(" Access token renews by itself; current one valid until {}.", zagreb_time(expires_at))
+            };
+            let head = if live {
+                "<p class=\"cn-fine\">Connected, read-only (writes off).".to_string()
+            } else {
+                "<p class=\"cn-wait\">Signed in, not live yet</p><p class=\"cn-fine\">Hermes loads it at its next restart, which this screen never does.".to_string()
+            };
+            format!(
+                "{head}{exp}</p>{scope_line}{}{}",
+                form("oauth-refresh", "Refresh now", false),
+                form("disconnect", "Disconnect", false)
+            )
+        }
+    };
+    format!("<div class=\"cn-panel\">{info}{act}</div>")
+}
+
 fn panel(v: &View<'_>, c: &Connector, s: State) -> String {
+    if let Some(st) = v
+        .store
+        .filter(|st| st.oauth_on(c) && !st.hand_configured(&c.id))
+    {
+        return oauth_panel(v, st, c);
+    }
     let info = if v.store.is_some_and(|st| st.hand_configured(&c.id)) {
         let tok = if c.auth == Auth::Token {
             format!(
@@ -134,6 +221,7 @@ fn panel(v: &View<'_>, c: &Connector, s: State) -> String {
         State::NeedsSignIn => "<p class=\"cn-wait\">Needs sign-in setup</p>\
 <p class=\"cn-fine\">This connector signs in with OAuth, which Hermes does not have yet. Nothing has been saved.</p>\
 <button class=\"cn-btn\" type=\"button\" disabled>Sign in (coming later)</button>".to_string(),
+        State::NeedsCredentials | State::Error => String::new(),
         State::Builtin => "<p class=\"cn-fine\">Built in to Hermes; this screen does not change it.</p>".to_string(),
         _ if v.store.is_none() => "<p class=\"cn-fine\">Read-only here: connector storage is not configured on this console.</p>".to_string(),
         State::Connected => {
@@ -163,6 +251,8 @@ fn right_label(s: State) -> &'static str {
     match s {
         State::Connected | State::Builtin => "",
         State::Saved => "Saved",
+        State::NeedsCredentials => "Set up",
+        State::Error => "Error",
         _ => "Connect",
     }
 }

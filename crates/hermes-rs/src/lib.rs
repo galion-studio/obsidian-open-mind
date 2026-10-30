@@ -24,6 +24,7 @@ pub mod memory;
 pub mod persona;
 pub mod provider;
 pub mod runs;
+pub mod self_modify;
 pub mod session;
 #[cfg(feature = "sqlite")]
 pub mod session_sqlite;

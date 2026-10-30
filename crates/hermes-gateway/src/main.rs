@@ -279,6 +279,15 @@ fn main() {
             std::process::exit(2);
         }
     }
+    // Self-modify (propose_self_change): off unless HERMES_RS_SELF_MODIFY_REPO.
+    match hermes_rs::self_modify::Cfg::from_env(&env) {
+        Ok(None) => {}
+        Ok(Some(c)) => {
+            tools.add(Arc::new(hermes_rs::self_modify::SelfModifyTool::new(c)));
+            log("self-modify: propose_self_change on (gate + owner approval required)");
+        }
+        Err(e) => log(&format!("self-modify: OFF: {e}")),
+    }
     let cron_agent = Arc::new(hermes_rs::agent::Agent {
         cfg: cfg.clone(),
         provider: provider.clone(),

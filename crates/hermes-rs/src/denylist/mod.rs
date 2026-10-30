@@ -476,7 +476,7 @@ fn check_path_x(raw: &str, access: Access, cwd: &Path, pol: &Policy, strict: boo
                 ));
             }
             if pol.full_write_on() {
-                if fullwrite::in_trash(p, pol) {
+                if undo::in_trash(p, pol) {
                     return Err(deny(
                         "S6-trash",
                         format!(

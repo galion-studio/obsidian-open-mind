@@ -373,7 +373,7 @@ impl<'a> Planner<'a> {
                     }
                 }
                 if n == "time" {
-                    if let Ok(Some(inner)) = fullwrite::unwrap_wrapper(n, args) {
+                    if let Ok(Some(inner)) = unwrap_wrapper(n, args) {
                         self.inner(inner, depth);
                     }
                 }
@@ -466,7 +466,7 @@ impl<'a> Planner<'a> {
             "timeout" | "nice" | "ionice" | "nohup" | "stdbuf" | "xargs" | "command" | "env" => {
                 if n == "xargs" {
                     // the arguments come from stdin: targets unknown
-                    let inner = fullwrite::unwrap_wrapper(n, args).ok().flatten();
+                    let inner = unwrap_wrapper(n, args).ok().flatten();
                     let destructive = inner
                         .and_then(|i| i.first())
                         .map(|w| w.text.rsplit('/').next().unwrap_or("").to_string())
@@ -477,7 +477,7 @@ impl<'a> Planner<'a> {
                     return;
                 }
                 let inner: Vec<&Word> = if n == "env" {
-                    match fullwrite::unwrap_wrapper(n, args) {
+                    match unwrap_wrapper(n, args) {
                         Ok(Some(i)) => i
                             .iter()
                             .copied()
@@ -486,7 +486,7 @@ impl<'a> Planner<'a> {
                         _ => Vec::new(),
                     }
                 } else {
-                    fullwrite::unwrap_wrapper(n, args)
+                    unwrap_wrapper(n, args)
                         .ok()
                         .flatten()
                         .map(|i| i.to_vec())
@@ -636,7 +636,7 @@ pub fn plan(tool: &str, args: &Value, pol: &Policy) -> Plan {
         !regen
             && p.symlink_metadata().is_ok()
             && pol.in_write_roots(p)
-            && !fullwrite::in_trash(p, pol)
+            && !in_trash(p, pol)
             && seen.insert(p.clone())
     });
     if plan.whole {
@@ -910,4 +910,92 @@ pub fn snapshot(plan: &Plan, pol: &Policy, tool: &str, what: &str) -> Result<Opt
         rel: rel_list,
         workspace: ws,
     }))
+}
+
+/// The undo store: written only by the guard itself.
+pub(super) fn in_trash(p: &Path, pol: &Policy) -> bool {
+    pol.trash_dir().is_some_and(|t| under(p, &t))
+}
+
+/// The command a wrapper runs, with its own options skipped. `None` when
+/// the wrapper runs nothing (`command -v x`). Refuses options that change
+/// directory, split strings into commands or read commands from files.
+pub(super) fn unwrap_wrapper<'w>(
+    n: &str,
+    args: &'w [&'w Word],
+) -> Result<Option<&'w [&'w Word]>, Deny> {
+    let mut i = 0;
+    let opt_with_value: &[&str] = match n {
+        "timeout" => &["-s", "--signal", "-k", "--kill-after"],
+        "nice" => &["-n", "--adjustment"],
+        "ionice" => &["-c", "-n", "--class", "--classdata"],
+        "stdbuf" => &["-i", "-o", "-e", "--input", "--output", "--error"],
+        "time" => &["-f", "--format"],
+        "xargs" => &[
+            "-I",
+            "-n",
+            "-P",
+            "-d",
+            "-L",
+            "-s",
+            "-E",
+            "-e",
+            "--max-args",
+            "--max-procs",
+            "--delimiter",
+            "--max-lines",
+            "--max-chars",
+            "--eof",
+        ],
+        "env" => &["-u", "--unset"],
+        _ => &[],
+    };
+    while i < args.len() {
+        let t = args[i].text.as_str();
+        if t == "--" {
+            i += 1;
+            break;
+        }
+        if n == "env" && is_assignment(args[i]).is_some() {
+            break;
+        }
+        if !t.starts_with('-') || t == "-" {
+            break;
+        }
+        match (n, t) {
+            ("env", "-S") | ("env", "-C") | ("env", "--chdir") => {
+                return Err(deny("S4-wrapper", format!("env {t} runs a hidden command")))
+            }
+            (_, t) if t.starts_with("--split-string") || t.starts_with("--chdir") => {
+                return Err(deny("S4-wrapper", format!("{n} {t} runs a hidden command")))
+            }
+            ("xargs", "-a") | ("xargs", "--arg-file") => {
+                return Err(deny(
+                    "S4-wrapper",
+                    "xargs -a reads its arguments from a file the deny list can not see",
+                ))
+            }
+            ("ionice", "-p") | ("ionice", "-P") | ("ionice", "-u") => {
+                return Err(deny("S8-system", "ionice on other processes"))
+            }
+            ("time", "-o") | ("time", "--output") | ("time", "-a") => {
+                return Err(deny(
+                    "S6-no-write",
+                    "time -o writes a file; redirect instead",
+                ))
+            }
+            ("command", "-v") | ("command", "-V") => return Ok(None),
+            _ => {}
+        }
+        if opt_with_value.contains(&t) {
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    if n == "timeout" {
+        // the duration
+        i += 1;
+    }
+    Ok(args.get(i..).filter(|r| !r.is_empty()))
 }

@@ -128,7 +128,7 @@ impl Fx {
         let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".into());
         let mut stages = vec![
             json!({"name": "build", "argv": [cargo, "build", "--offline"], "timeout_s": 600}),
-            json!({"name": "test", "argv": [cargo, "test", "--offline"], "timeout_s": 600}),
+            json!({"name": "test", "argv": [cargo, "test", "--offline", "--all-targets"], "timeout_s": 600}),
         ];
         let clippy = Command::new(&cargo)
             .args(["clippy", "--version"])
@@ -273,7 +273,7 @@ fn full_flow_build_sign_pending_approve_install_rollback() {
     let (rec, _) = en
         .verified_record(&fx.spub())
         .expect("record verifies with the gate key");
-    assert_eq!(rec["verdict"], "pass", "{rec}");
+    assert_eq!(rec["verdict"], "pass", "{rec}\n{}", stage_logs(&e));
     let names: Vec<&str> = rec["stages"]
         .as_array()
         .unwrap()
@@ -376,6 +376,9 @@ fn failing_test_is_rejected() {
         rec["why"].as_str().unwrap().contains("stage test failed"),
         "{rec}"
     );
+    // Failed for the right reason: the injected failing unit test.
+    let log = std::fs::read_to_string(e.join("gate/logs/test.log")).unwrap();
+    assert!(log.contains("greets ... FAILED"), "{log}");
     assert!(
         out["state"]
             .as_str()
@@ -619,4 +622,24 @@ fn registered_tool_passes_the_deny_list_and_queues() {
     );
     let (err, out) = call(t.as_ref(), json!({"action": "approve", "id": out["id"]}));
     assert!(err, "{out}");
+}
+
+/// All gate stage logs of an entry (for assertion messages).
+fn stage_logs(e: &Path) -> String {
+    let mut s = String::new();
+    if let Ok(rd) = std::fs::read_dir(e.join("gate").join("logs")) {
+        for f in rd.flatten() {
+            let t = std::fs::read_to_string(f.path()).unwrap_or_default();
+            let tail: String = t
+                .chars()
+                .rev()
+                .take(3000)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+            s.push_str(&format!("== {}\n{tail}\n", f.path().display()));
+        }
+    }
+    s
 }

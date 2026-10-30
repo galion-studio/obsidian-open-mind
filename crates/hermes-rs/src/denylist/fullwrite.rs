@@ -264,7 +264,8 @@ fn collect_paths(v: &Value, out: &mut Vec<String>, depth: usize) {
 
 /// Full-write: a new note in the vault. Allowed only for a `.md` file that
 /// does not exist yet, under a vault root, with no hidden or protected
-/// directory on the way; anything else in the vault stays read-only.
+/// directory between the root and the note; anything else in the vault
+/// stays read-only.
 pub(super) fn vault_new_note(raw: &str, cwd: &Path, pol: &Policy) -> R {
     let lex = lexical(raw, cwd, &pol.home)?;
     let phys = physical(&lex);
@@ -297,7 +298,15 @@ pub(super) fn vault_new_note(raw: &str, cwd: &Path, pol: &Policy) -> R {
                 format!("{name} is locked by the owner"),
             ));
         }
-        for c in p.components() {
+        // only the part below the vault root: the root itself may sit under
+        // a hidden directory (a temp dir, `~/.local/...`)
+        let below = pol
+            .vaults()
+            .iter()
+            .filter(|v| under(p, v))
+            .filter_map(|v| p.strip_prefix(v).ok().map(Path::to_path_buf))
+            .collect::<Vec<_>>();
+        for c in below.iter().flat_map(|r| r.components()) {
             if let Component::Normal(n) = c {
                 let n = n.to_string_lossy();
                 if n.starts_with('.') || NO_WRITE_DIRS.iter().any(|d| *d == n) {

@@ -22,7 +22,7 @@ const USAGE_HEAD: &str = "usage: gaia <command> [options]
   heal-tick --service NAME --port P --allow-ports A-B --nerve 127.0.0.1:N --state DIR
             --hades-config C [--token-file F] [--health /health] [--wait-ms MS] -- /abs/start/cmd ARGS...
                                  M2 live heal, BOX TEST SERVICES ONLY (127.0.0.1, ports 19000-19999;
-                                 real tests: GAIA_TEST_PORTS=LO-HI with GALION_REAL=1, inside 19000-22999):
+                                 real tests: GAIA_TEST_PORTS=LO-HI with GALION_REAL=1, inside 19000-23999):
                                  probe -> nerve event -> GAIA -> DEMETER heal-dry -> HADES plan ->
                                  hades-gate check (disable, admin safety, Ed25519 token scoped to
                                  heal-apply + service + plan hash, expiry, single use) ->

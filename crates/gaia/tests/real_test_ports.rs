@@ -5,7 +5,7 @@
 //! override with the real release `gaia` and `gaia-dummy` binaries, gated by
 //! `GALION_REAL=1`; run with `--release`. Ports 22930-22939 by default
 //! (`GAIA_TEST_PORTS_REAL_PORT_BASE` moves the block; it must stay inside
-//! 19000-22999). Nothing here touches a live port, hades-gate or systemd:
+//! 19000-23999). Nothing here touches a live port, hades-gate or systemd:
 //! `heal-plan` only prints, `heal-tick` stops at the scope guard, and the
 //! dummy is a loopback child that is killed at the end.
 //!
@@ -122,12 +122,12 @@ fn real_gaia_test_ports_override() {
     );
 
     // D. Default-range plan text unchanged (so signed hashes are unchanged).
-    let o = plan(19005, "19000-19009", &[]);
+    let o = plan(19005, "19000-19009", &[]); // repo-check: allow (default-range plan text, t423)
     assert_eq!(o.status.code(), Some(0), "{o:?}");
     let v: Value = serde_json::from_slice(&o.stdout).expect("plan JSON");
     assert_eq!(
         v["result"]["plan"][1],
-        "restart box test service t423 on 127.0.0.1:19005 (box test ports 19000-19999 only)"
+        "restart box test service t423 on 127.0.0.1:19005 (box test ports 19000-19999 only)" // repo-check: allow
     );
     eprintln!(
         "D. default plan line unchanged, sha256 {}",
@@ -136,8 +136,8 @@ fn real_gaia_test_ports_override() {
 
     // E. Out-of-bounds overrides and live ports stay refused.
     for (ov, port, allow) in [
-        ("23000-23009", 23001u16, "23000-23009"),
-        ("18990-19009", 19001, "19000-19009"),
+        ("24000-24009", 24001u16, "24000-24009"),
+        ("18990-19009", 19001, "19000-19009"), // repo-check: allow (bounds edge)
         ("8000-8999", 8670, "8670"),
         ("1-65535", 8080, "8080"),
     ] {
@@ -148,17 +148,17 @@ fn real_gaia_test_ports_override() {
         );
         assert_eq!(o.status.code(), Some(2), "{ov}: {o:?}");
         let e = stderr_line(&o);
-        assert!(e.contains("override bounds 19000-22999"), "{ov}: {e}");
+        assert!(e.contains("override bounds 19000-23999"), "{ov}: {e}");
         eprintln!("E. GAIA_TEST_PORTS={ov}: exit 2 | {e}");
     }
     let o = plan(
         8670,
         "8670",
-        &[("GALION_REAL", "1"), ("GAIA_TEST_PORTS", "19000-22999")],
+        &[("GALION_REAL", "1"), ("GAIA_TEST_PORTS", "19000-23999")],
     );
     assert_eq!(o.status.code(), Some(2), "{o:?}");
     eprintln!(
-        "E. live nerve 8670 under 19000-22999: exit 2 | {}",
+        "E. live nerve 8670 under 19000-23999: exit 2 | {}",
         stderr_line(&o)
     );
 

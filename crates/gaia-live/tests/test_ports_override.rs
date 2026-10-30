@@ -50,8 +50,8 @@ fn override_parses_inside_bounds() {
         Ok(22930..=22939)
     );
     assert_eq!(
-        test_ports_from(Some(" 19000-22999 "), true),
-        Ok(19000..=22999)
+        test_ports_from(Some(" 19000-23999 "), true),
+        Ok(19000..=23999)
     );
     assert_eq!(test_ports_from(Some("22931"), true), Ok(22931..=22931));
     assert_eq!(
@@ -65,8 +65,8 @@ fn override_refuses_bad_and_out_of_bounds() {
     for bad in [
         "22939-22930", // reversed (empty)
         "18999-19009", // starts below
-        "22990-23000", // ends above
-        "23000-23009",
+        "23990-24000", // ends above
+        "24000-24009",
         "8670",      // live nerve
         "8000-8999", // live stack
         "1-65535",
@@ -104,14 +104,14 @@ fn check_target_in_never_widens_past_bounds() {
     for wide in [
         1..=65535u16,
         8000..=19999,
-        19000..=23000,
-        std::ops::RangeInclusive::new(22999, 22990),
+        19000..=24000,
+        std::ops::RangeInclusive::new(23999, 23990),
     ] {
         let e = check_target_in(&target(19005), &(19000..=19009), &wide).unwrap_err();
-        assert!(e.contains("override bounds 19000-22999"), "{wide:?}: {e}");
+        assert!(e.contains("override bounds 19000-23999"), "{wide:?}: {e}");
     }
     // Live stack ports stay refused whatever the test range.
-    let r = test_ports_from(Some("19000-22999"), true).unwrap();
+    let r = test_ports_from(Some("19000-23999"), true).unwrap();
     for live in [8080u16, 8091, 8420, 8642, 8650, 8670] {
         assert!(check_target_in(&target(live), &(live..=live), &r).is_err());
     }
@@ -127,4 +127,29 @@ fn production_check_target_is_default_without_env() {
     }
     check_target(&target(19005), &(19000..=19009)).unwrap();
     assert!(check_target(&target(22931), &(22930..=22939)).is_err());
+}
+
+#[test]
+fn bounds_edge_is_23999_after_widening() {
+    // Owner t429u (Q3, 2026-10-30): bounds widened 19000-22999 -> 19000-23999
+    // so the wave-4 23xxx slot blocks (e.g. slot 436 23060-23069) can run.
+    assert_eq!(TEST_PORTS_OVERRIDE_BOUNDS, 19000..=23999);
+    assert_eq!(
+        test_ports_from(Some("23060-23069"), true),
+        Ok(23060..=23069)
+    );
+    assert_eq!(
+        test_ports_from(Some("23990-23999"), true),
+        Ok(23990..=23999)
+    );
+    assert_eq!(test_ports_from(Some("23999"), true), Ok(23999..=23999));
+    for bad in ["24000", "23999-24000", "24000-24009"] {
+        let e = test_ports_from(Some(bad), true).unwrap_err();
+        assert!(e.contains("override bounds 19000-23999"), "{bad}: {e}");
+    }
+    // Still refused without GALION_REAL, and the production default is unchanged.
+    assert!(test_ports_from(Some("23060-23069"), false).is_err());
+    assert_eq!(TEST_PORTS, 19000..=19999);
+    let r = test_ports_from(Some("23060-23069"), true).unwrap();
+    check_target_in(&target(23061), &(23060..=23069), &r).unwrap();
 }

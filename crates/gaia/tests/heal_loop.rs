@@ -28,16 +28,25 @@ fn closed_port() -> std::net::SocketAddr {
     a
 }
 
+/// Slot 436: the last port of the heal test range in force (default 19999;
+/// `GAIA_TEST_PORTS` with `GALION_REAL=1` moves it into a slot block).
+fn edge_port() -> u16 {
+    *gaia_live::heal::test_ports()
+        .unwrap_or_else(|e| panic!("{e}"))
+        .end()
+}
+
 fn cfg(dir: &std::path::Path) -> LoopCfg {
+    let port = edge_port();
     LoopCfg {
         tick: HealCfg {
             target: TestTarget {
                 name: "gaia-dummy".into(),
-                port: 19999,
+                port,
                 health_path: "/health".into(),
-                argv: vec!["/bin/true".into(), "--port".into(), "19999".into()],
+                argv: vec!["/bin/true".into(), "--port".into(), port.to_string()],
             },
-            allowed: 19999..=19999,
+            allowed: port..=port,
             nerve: closed_port(),
             state_dir: dir.join("state"),
             hades_config: dir.join("hades.toml"),

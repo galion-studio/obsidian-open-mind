@@ -265,3 +265,41 @@ fn check_names_roundtrip() {
     }
     assert_eq!(Check::parse("nope"), None);
 }
+
+#[test]
+fn gaia_ports_flags_hard_coded_19xxx_in_gaia_real_tests_only() {
+    let p = format!("{}{}", "190", "42");
+    let hard = format!("{HDR}fn f() {{ let port = {p}; }}\n");
+    let real = "crates/gaia/tests/real_new.rs";
+    assert_eq!(checks(real, &hard), vec![Check::GaiaPorts]);
+    assert_eq!(
+        checks("crates/gaia-live/tests/real_x.rs", &hard),
+        vec![Check::GaiaPorts]
+    );
+    // Outside gaia real tests: no finding (unit tests, other crates, src).
+    for other in [
+        "crates/gaia/tests/heal_tick.rs",
+        "crates/openmind-nerve/tests/real_x.rs",
+        "crates/gaia/src/main.rs",
+        "crates/gaiax/tests/real_x.rs",
+    ] {
+        assert!(checks(other, &hard).is_empty(), "{other}");
+    }
+    // Movable block defaults, comments, the default range name, other
+    // numbers and the allow marker pass.
+    let ok = [
+        format!("static PORTS: Block = Block::new(\"X_REAL_PORT_BASE\", {p}, 10);"),
+        format!("let n = ports::base_from_env(ENV, {p}, 1);"),
+        format!("const DEFAULT_DUMMY_BASE: u16 = {p};"),
+        format!("// slot 23 used {p}"),
+        "assert!(e.contains(\"outside the test range 19000-19999\"));".to_string(),
+        "assert!(e.contains(\"override bounds 19000-23999\"));".to_string(),
+        "let a = 23061; let b = 8670; let c = 190420; let d = x19042;".to_string(),
+        format!("let port = {p}; // {}", ALLOW_MARKER),
+    ];
+    for line in ok {
+        let t = format!("{HDR}{line}\n");
+        assert!(checks(real, &t).is_empty(), "{line}");
+    }
+    assert_eq!(Check::parse("gaia-ports"), Some(Check::GaiaPorts));
+}

@@ -53,10 +53,11 @@ pub enum Check {
     Hosts,
     Portable,
     Deps,
+    GaiaPorts,
 }
 
 impl Check {
-    pub const ALL: [Check; 9] = [
+    pub const ALL: [Check; 10] = [
         Check::License,
         Check::Spdx,
         Check::Cjk,
@@ -66,6 +67,7 @@ impl Check {
         Check::Hosts,
         Check::Portable,
         Check::Deps,
+        Check::GaiaPorts,
     ];
 
     pub fn name(self) -> &'static str {
@@ -79,6 +81,7 @@ impl Check {
             Check::Hosts => "hosts",
             Check::Portable => "portable",
             Check::Deps => "deps",
+            Check::GaiaPorts => "gaia-ports",
         }
     }
 
@@ -106,6 +109,7 @@ impl Check {
             Check::Hosts => "no public IPv4 literals in crates/, deploy/, .github/",
             Check::Portable => "no inline asm, arch intrinsics, target-cpu/target-feature, openssl-sys (UNIVERSAL-CPU.md)",
             Check::Deps => "serde_json features are pinned once in the root [workspace.dependencies] (preserve_order); member crates use { workspace = true } with no features",
+            Check::GaiaPorts => "gaia real tests (crates/gaia*/tests/real_*.rs) use no hard-coded 19000-19999 port; take a REAL_*_PORT_BASE / Block default plus GAIA_TEST_PORTS (slot 436)",
         }
     }
 }
@@ -221,6 +225,7 @@ pub fn scan_text(path: &str, text: &str) -> Vec<Finding> {
         under(path, &["crates", "deploy", ".github"]) && file_name(path) != "Cargo.lock";
     let portable_rs = rs;
     let portable_cfg = ext(path) == "toml" || under(path, &[".cargo"]) || under(path, &[".github"]);
+    let gaia_ports_scope = rs && is_gaia_real_test(path);
 
     for (i, line) in text.lines().enumerate() {
         let n = i + 1;
@@ -261,6 +266,9 @@ pub fn scan_text(path: &str, text: &str) -> Vec<Finding> {
                     break;
                 }
             }
+        }
+        if gaia_ports_scope {
+            gaia_ports_line(path, n, line, &mut out);
         }
         if portable_cfg {
             for pat in PORTABLE_CFG {
@@ -723,4 +731,73 @@ pub fn json_escape(s: &str) -> String {
         }
     }
     o
+}
+
+// ---------------------------------------------------------------- gaia-ports
+
+/// `crates/gaia/tests/real_*.rs` or `crates/gaia-*/tests/real_*.rs` (slot 436).
+pub fn is_gaia_real_test(path: &str) -> bool {
+    let mut parts = path.split('/');
+    let (Some("crates"), Some(krate), Some("tests"), Some(file), None) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return false;
+    };
+    (krate == "gaia" || krate.starts_with("gaia-"))
+        && file.starts_with("real_")
+        && file.ends_with(".rs")
+}
+
+/// Lines that may name a 19xxx port: the env-movable block default
+/// (`Block::new(..)`, `base_from_env(..)`, a `const DEFAULT_*`).
+const GAIA_PORT_OK: &[&str] = &["Block::new(", "base_from_env(", "const DEFAULT_"];
+
+/// The production default range and the override bounds are named in
+/// messages and assertions; those names are not hard-coded ports.
+const GAIA_RANGE_NAMES: &[&str] = &["19000-19999", "19000-23999"];
+
+/// Flag a hard-coded port 19000-19999 in a gaia real test (slot 436): such a
+/// test cannot move into its slot block with `GAIA_TEST_PORTS`.
+pub fn gaia_ports_line(path: &str, n: usize, line: &str, out: &mut Vec<Finding>) {
+    let t = line.trim_start();
+    if t.starts_with("//") || GAIA_PORT_OK.iter().any(|p| line.contains(p)) {
+        return;
+    }
+    let mut cleaned = line.to_string();
+    for r in GAIA_RANGE_NAMES {
+        cleaned = cleaned.replace(r, "");
+    }
+    let b = cleaned.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if !b[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let s = i;
+        while i < b.len() && (b[i].is_ascii_digit() || b[i] == b'_') {
+            i += 1;
+        }
+        let before = s.checked_sub(1).map(|j| b[j]);
+        let word = before.is_some_and(|c| c.is_ascii_alphanumeric() || c == b'_');
+        let digits: String = cleaned[s..i].chars().filter(|c| *c != '_').collect();
+        if word || digits.len() != 5 {
+            continue;
+        }
+        if let Ok(p) = digits.parse::<u32>() {
+            if (19000..=19999).contains(&p) {
+                out.push(finding(
+                    Check::GaiaPorts,
+                    path,
+                    n,
+                    format!("hard-coded test port {p}; use a REAL_*_PORT_BASE block (galion_realtest::ports::Block) and the range in force (gaia_live::heal::test_ports)"),
+                ));
+                return;
+            }
+        }
+    }
 }

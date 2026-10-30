@@ -167,7 +167,7 @@ fn cfg(tag: &str, nerve: SocketAddr, port: u16) -> (HealCfg, Gate) {
             health_path: "/health".into(),
             argv: vec![prog(), "--port".into(), port.to_string()],
         },
-        allowed: 19000..=19999,
+        allowed: range_in_force(),
         nerve,
         state_dir: d.join("state"),
         hades_config: gate.config.clone(),
@@ -196,10 +196,22 @@ fn with_token(c: &mut HealCfg, token: &str) {
     c.token_file = Some(p);
 }
 
-/// A port in 19000-19999 with nothing listening (slot 23's range first).
+/// The heal test range in force (slot 436): default 19000-19999, or
+/// `GAIA_TEST_PORTS` with `GALION_REAL=1` (inside 19000-23999), so a run can
+/// stay inside its slot block. Every check_target call reads the same env.
+fn range_in_force() -> std::ops::RangeInclusive<u16> {
+    gaia_live::heal::test_ports().unwrap_or_else(|e| panic!("{e}"))
+}
+
+/// A free port in the range in force (default: slot 23's range first).
 fn free_test_port() -> u16 {
-    (19236..=19239)
-        .chain(19900..=19999)
+    let r = range_in_force();
+    let pick: Vec<u16> = if r == gaia_live::heal::TEST_PORTS {
+        (19236..=19239).chain(19900..=19999).collect()
+    } else {
+        r.collect()
+    };
+    pick.into_iter()
         .find(|p| {
             TcpListener::bind(("127.0.0.1", *p)).is_ok()
                 && std::net::TcpStream::connect(("127.0.0.1", *p)).is_err()
@@ -472,19 +484,27 @@ fn heal_plan_cli_writes_a_new_plan_file() {
     let out = d.join("plan.txt");
     let p = prog();
     let out_s = out.display().to_string();
+    // Slot 436: a 10-port block inside the range in force (default 19230-19239).
+    let r = range_in_force();
+    let lo = if r == gaia_live::heal::TEST_PORTS {
+        19230
+    } else {
+        *r.start()
+    };
+    let (port_s, allow_s) = ((lo + 1).to_string(), format!("{lo}-{}", lo + 9));
     let args = [
         "--service",
         "gaia-dummy",
         "--port",
-        "19231",
+        port_s.as_str(),
         "--allow-ports",
-        "19230-19239",
+        allow_s.as_str(),
         "--out",
         &out_s,
         "--",
         &p,
         "--port",
-        "19231",
+        port_s.as_str(),
     ];
     let j = heal_plan_cli(&args).unwrap();
     let bytes = std::fs::read(&out).unwrap();

@@ -37,26 +37,38 @@ fn ok_argv(port: u16) -> Vec<String> {
     vec![prog(), "--port".into(), port.to_string()]
 }
 
+/// Slot 436: a 10-port block in the heal test range in force (default
+/// 19030-19039; `GAIA_TEST_PORTS` with `GALION_REAL=1` moves it into the slot
+/// block) and the target port inside it.
+fn block() -> (u16, std::ops::RangeInclusive<u16>) {
+    let tp = test_ports().unwrap_or_else(|e| panic!("{e}"));
+    let lo = if tp == TEST_PORTS { 19030 } else { *tp.start() };
+    (lo + 2, lo..=lo + 9)
+}
+
 #[test]
 fn scope_accepts_a_box_test_service() {
-    check_target(&target(19032, ok_argv(19032)), &(19030..=19039)).unwrap();
+    let (p, r) = block();
+    check_target(&target(p, ok_argv(p)), &r).unwrap();
 }
 
 #[test]
 fn scope_refuses_live_stack_ports_and_wide_ranges() {
+    let (p, r) = block();
     for live in [8080u16, 8091, 8002, 8420, 8642, 8646, 8650, 8670] {
-        let e = check_target(&target(live, ok_argv(live)), &(19030..=19039)).unwrap_err();
+        let e = check_target(&target(live, ok_argv(live)), &r).unwrap_err();
         assert!(e.contains("outside the allowed"), "{live}: {e}");
         // Even an operator range that includes the live port is refused.
         let e = check_target(&target(live, ok_argv(live)), &(1..=65535)).unwrap_err();
         assert!(e.contains("outside the test range"), "{live}: {e}");
     }
-    let e = check_target(&target(19040, ok_argv(19040)), &(19030..=19039)).unwrap_err();
+    let e = check_target(&target(p + 8, ok_argv(p + 8)), &r).unwrap_err();
     assert!(e.contains("outside the allowed"), "{e}");
 }
 
 #[test]
 fn scope_refuses_service_managers_shells_and_strangers() {
+    let (p, r) = block();
     for bad in [
         "/usr/bin/systemctl",
         "/bin/systemctl",
@@ -70,33 +82,25 @@ fn scope_refuses_service_managers_shells_and_strangers() {
         "/usr/bin/python3",
         "/usr/bin/env",
     ] {
-        let t = target(19032, vec![bad.into(), "restart".into(), "19032".into()]);
-        let e = check_target(&t, &(19030..=19039)).unwrap_err();
+        let t = target(p, vec![bad.into(), "restart".into(), p.to_string()]);
+        let e = check_target(&t, &r).unwrap_err();
         assert!(e.contains("forbidden"), "{bad}: {e}");
     }
-    let rel = target(
-        19032,
-        vec!["gaia-dummy".into(), "--port".into(), "19032".into()],
-    );
-    assert!(check_target(&rel, &(19030..=19039))
-        .unwrap_err()
-        .contains("absolute"));
-    let missing = target(
-        19032,
-        vec!["/nonexistent/gaia-dummy".into(), "19032".into()],
-    );
-    assert!(check_target(&missing, &(19030..=19039))
+    let rel = target(p, vec!["gaia-dummy".into(), "--port".into(), p.to_string()]);
+    assert!(check_target(&rel, &r).unwrap_err().contains("absolute"));
+    let missing = target(p, vec!["/nonexistent/gaia-dummy".into(), p.to_string()]);
+    assert!(check_target(&missing, &r)
         .unwrap_err()
         .contains("does not exist"));
-    let other_port = target(19032, vec![prog(), "--port".into(), "8420".into()]);
-    assert!(check_target(&other_port, &(19030..=19039))
+    let other_port = target(p, vec![prog(), "--port".into(), "8420".into()]);
+    assert!(check_target(&other_port, &r)
         .unwrap_err()
         .contains("does not name the target port"));
-    let empty = target(19032, vec![]);
-    assert!(check_target(&empty, &(19030..=19039)).is_err());
-    let mut bad_name = target(19032, ok_argv(19032));
+    let empty = target(p, vec![]);
+    assert!(check_target(&empty, &r).is_err());
+    let mut bad_name = target(p, ok_argv(p));
     bad_name.name = "x; rm -rf /".into();
-    assert!(check_target(&bad_name, &(19030..=19039)).is_err());
+    assert!(check_target(&bad_name, &r).is_err());
 }
 
 #[test]

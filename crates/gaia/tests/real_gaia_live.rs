@@ -3,7 +3,8 @@
 
 //! REAL test (GALION_REAL=1): the real `openmind-nerve` binary
 //! (GAIA_NERVE_BIN) on 127.0.0.1:19233 and `gaia-dummy` on 127.0.0.1:19234,
-//! both slot 23 ports on the box. Kill the dummy, let `gaia heal-tick`
+//! both slot 23 ports on the box (block movable with GAIA_LIVE_REAL_PORT_BASE
+//! plus GAIA_TEST_PORTS, slot 436). Kill the dummy, let `gaia heal-tick`
 //! restart it three times, each with a fresh hades-gate token (Ed25519,
 //! 300 s, single use, scoped to heal-apply + gaia-dummy + plan hash), see
 //! no-token, forged and replayed tokens refused, the fourth valid token
@@ -11,7 +12,7 @@
 //! Run with: `GALION_REAL=1 GAIA_NERVE_BIN=/path/openmind-nerve cargo test -p gaia --test real_gaia_live`.
 
 use gaia::live_heal::heal_plan;
-use gaia_live::heal::{TestTarget, TEST_PORTS};
+use gaia_live::heal::{test_ports, TestTarget};
 use galion_realtest::ports::Block;
 use hades_gate::adapter::gaia_plan_bytes;
 use hades_gate::approval::unix_now;
@@ -23,19 +24,22 @@ use std::time::Duration;
 
 /// Slot 375 (real-ports-batch-2): the block is movable by
 /// `GAIA_LIVE_REAL_PORT_BASE` (unset = 19230-19239): nerve +3, dummy +4,
-/// `--allow-ports` = the whole block. The block must stay inside
-/// `gaia_live::heal::TEST_PORTS` (19000-19999); that safety guard of the heal
-/// apply path is not widened, so a base outside it is a test error.
+/// `--allow-ports` = the whole block. Slot 436: the block must lie inside the
+/// heal test range IN FORCE (`gaia_live::heal::test_ports()`: default
+/// 19000-19999; `GAIA_TEST_PORTS=LO-HI` with `GALION_REAL=1` replaces it inside
+/// the override bounds 19000-23999). This process and every child (`gaia`,
+/// `gaia-dummy`) read the same env, so signed plan hashes agree.
 static PORTS: Block = Block::new("GAIA_LIVE_REAL_PORT_BASE", 19230, 10);
 
 fn ports_checked() -> &'static Block {
     let (lo, hi) = (PORTS.base(), PORTS.port(9));
+    let tp = test_ports().unwrap_or_else(|e| panic!("{e}"));
     assert!(
-        TEST_PORTS.contains(&lo) && TEST_PORTS.contains(&hi),
+        tp.contains(&lo) && tp.contains(&hi),
         "{}: {lo}-{hi} must lie inside the heal test range {}-{}",
         PORTS.var(),
-        TEST_PORTS.start(),
-        TEST_PORTS.end()
+        tp.start(),
+        tp.end()
     );
     &PORTS
 }

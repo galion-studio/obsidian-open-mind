@@ -7,7 +7,7 @@
 //! * [`check_target`]: the service must listen on 127.0.0.1 on a port inside
 //!   the operator-given range, and that range must sit inside
 //!   [`TEST_PORTS`] (19000-19999; real tests only may move it inside
-//!   19000-22999 with `GAIA_TEST_PORTS`, see [`test_ports`]). Live stack ports (8080, 8091, 8420, 8642,
+//!   19000-23999 with `GAIA_TEST_PORTS`, see [`test_ports`]). Live stack ports (8080, 8091, 8420, 8642,
 //!   8650, 8670, ...) are therefore always refused. The start command must be
 //!   an absolute path to a program that is not a service manager, shell,
 //!   remote shell or killer, and it must name the target port.
@@ -90,10 +90,11 @@ pub struct TestTarget {
 /// real-test switch) and only inside [`TEST_PORTS_OVERRIDE_BOUNDS`]; it
 /// replaces the box test range, it never adds live stack ports.
 pub const TEST_PORTS_ENV: &str = "GAIA_TEST_PORTS";
-/// The swarm slot port ranges on the box (19000-22999). A
+/// The swarm slot port ranges on the box (19000-23999; widened from
+/// 19000-22999 for the wave-4 23xxx slot blocks, owner t429u Q3). A
 /// [`TEST_PORTS_ENV`] override outside this is refused. Every live stack
 /// port (8080, 8091, 8420, 8642, 8650, 8670, ...) is below it.
-pub const TEST_PORTS_OVERRIDE_BOUNDS: RangeInclusive<u16> = 19000..=22999;
+pub const TEST_PORTS_OVERRIDE_BOUNDS: RangeInclusive<u16> = 19000..=23999;
 
 /// The box test range in force, from explicit inputs (pure, for tests):
 /// `value` is the [`TEST_PORTS_ENV`] value, `real` whether `GALION_REAL=1`.

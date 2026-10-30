@@ -164,7 +164,7 @@ fn heal_tick(gaia: Option<&str>, dir: &Path, up: bool) -> String {
             ])
             // Slot 423: the slot block may sit above gaia's default box test
             // range 19000-19999; GAIA_TEST_PORTS (honoured only with
-            // GALION_REAL=1, inside 19000-22999) moves it to this block.
+            // GALION_REAL=1, inside 19000-23999) moves it to this block.
             .env("GAIA_TEST_PORTS", PORTS.range())
             .stderr(Stdio::null())
             .output()

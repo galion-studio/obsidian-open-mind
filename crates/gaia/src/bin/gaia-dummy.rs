@@ -8,7 +8,7 @@
 //! /health` answers `{"status":"ok","service":"gaia-dummy","pid":N,
 //! "started":"<Europe/Zagreb>","mode":"..."}`; everything else is 404. It
 //! binds 127.0.0.1 only and refuses ports outside 19000-19999 (a real test may
-//! move that inside 19000-22999 with `GAIA_TEST_PORTS` + `GALION_REAL=1`).
+//! move that inside 19000-23999 with `GAIA_TEST_PORTS` + `GALION_REAL=1`).
 //!
 //! Fault modes (Gaia S3.1 loop tests):
 //! * `ok` (default): serves forever.
@@ -54,7 +54,7 @@ fn main() -> ExitCode {
     };
     let Some(port) = port.filter(|p| range.contains(p)) else {
         eprintln!(
-            "usage: gaia-dummy --port P [--mode ok|hang|flap|crash] [--up-ms MS] [--once-file F]   (P in {}-{}; GAIA_TEST_PORTS with GALION_REAL=1 may move it inside 19000-22999)",
+            "usage: gaia-dummy --port P [--mode ok|hang|flap|crash] [--up-ms MS] [--once-file F]   (P in {}-{}; GAIA_TEST_PORTS with GALION_REAL=1 may move it inside 19000-23999)",
             range.start(),
             range.end()
         );

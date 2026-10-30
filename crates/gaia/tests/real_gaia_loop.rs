@@ -9,7 +9,7 @@
 //! 19600-19609 because the heal apply path only ever touches 19000-19999
 //! (`gaia_live::heal::TEST_PORTS`, a safety guard this test does not widen).
 //! Since slot 423 a run may move the block above 19999 with GAIA_TEST_PORTS=LO-HI (honoured only with
-//! GALION_REAL=1, inside 19000-22999); the dummy block is checked against
+//! GALION_REAL=1, inside 19000-23999); the dummy block is checked against
 //! that range and the nerve port may share it (never a dummy port).
 //! Since slot 363 the nerve port (`GAIA_LOOP_NERVE_PORT`) and the dummy block
 //! (`GAIA_LOOP_DUMMY_PORT_BASE`, must stay in the heal test range) are env knobs;
@@ -69,7 +69,7 @@ fn p() -> &'static Ports {
         let n = ports::base_from_env(NERVE_PORT_ENV, DEFAULT_NERVE_PORT, 1);
         let d = ports::base_from_env(DUMMY_BASE_ENV, DEFAULT_DUMMY_BASE, 10);
         // Slot 423: the range in force (GAIA_TEST_PORTS with GALION_REAL=1,
-        // inside 19000-22999; unset = 19000-19999). This process and every
+        // inside 19000-23999; unset = 19000-19999). This process and every
         // child gaia read the same env, so signed plan hashes agree.
         let tp = test_ports().unwrap_or_else(|e| panic!("{e}"));
         assert!(

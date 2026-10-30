@@ -167,9 +167,11 @@ pub fn load_secrets(cfg: &McpServerCfg) -> Result<Secrets, String> {
         let me = effective_uid();
         if md.uid() != 0 && Some(md.uid()) != me {
             return Err(format!(
-                "secrets file {} is owned by uid {}; must be root or the gateway user",
+                "secrets file {} is owned by uid {}; must be root or the gateway user (uid {})",
                 p.display(),
-                md.uid()
+                md.uid(),
+                me.map(|u| u.to_string())
+                    .unwrap_or_else(|| "unknown: /proc/self unreadable".into())
             ));
         }
     }

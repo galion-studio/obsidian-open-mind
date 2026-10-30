@@ -4,10 +4,15 @@
 
 //! `/connectors` (owner t453u, menu placement t454u, 2026-10-30 CET): the
 //! connectors settings screen. Each connector is an MCP server for Hermes
-//! (hermes-rs). The layout follows the Grok connectors page as described in
-//! the public docs (docs.x.ai/grok/connectors): a catalog of named
-//! connectors you sign in to, plus "custom" = your own MCP server URL with
-//! its auth. No Grok logo or branding: rows use plain initials.
+//! (hermes-rs). Layout and order follow the Grok app connectors screen
+//! (Mate's reference screenshots, specs/grok-connectors-ref, steering
+//! 2026-10-30 12:58 CET): back arrow, title, subtitle, search box, a
+//! Connected group, then Featured, Productivity, Finance, Developer,
+//! Microsoft 365, Sales, Social Media, Analytics, Advertising and Custom
+//! Connector. Rows carry each brand's own logo, downloaded once and served
+//! from the console (`logos.rs`, sources in `assets/logos/SOURCES.md`).
+//! Only the Featured connectors and GitHub are wired (steering 13:05 CET);
+//! every other row says "Coming soon".
 //!
 //! What a connect does (all behind the console owner gate, CSRF-checked):
 //! * writes one entry `servers.d/<id>.yaml` in `--connectors-dir`, in the
@@ -15,19 +20,27 @@
 //!   (branch swarm/hermes-mcp-generic-20261030, `McpServerCfg::from_value`);
 //! * writes the token, if any, to `secrets/<id>.env` (`NAME=value`, mode
 //!   0600, dirs 0700). The entry only names the file and uses
-//!   `Authorization: Bearer ${NAME}`; the value is never shown, logged or
+//!   an Authorization header (Bearer scheme) built from `${NAME}`; the value is never shown, logged or
 //!   sent back (the page says "saved");
-//! * regenerates `mcp-servers.yaml` (all live entries, atomic rename): the
-//!   file the Hermes unit points `HERMES_RS_MCP_SERVERS_FILE` at.
+//! * regenerates `mcp-servers.yaml` (all live entries, atomic rename).
+//!
+//! With `--connectors-hermes-file` (steering 13:11 CET: the generic client
+//! is live and reads `/etc/hermes-rs/mcp-servers.yaml`) the screen works on
+//! that file instead: tokens go to `mcp.d/<id>.env` beside it, entries the
+//! owner wrote by hand (openmind, github) are never edited (connecting
+//! github only writes its token file), and the console's own entries live
+//! in one marked block at the end of `mcp_servers:` (old file copied to
+//! `.bak-console-<unix>` first). A connector shows Connected only when its
+//! token file is complete and older than the running Hermes gateway.
 //!
 //! New servers start read-only: `class: read`, `allow_writes: false`.
 //! Disconnect renames the entry (and its secrets file) to `.off`; nothing
 //! is deleted. A replaced entry or token is renamed to `.bak.<unix>` first.
 //! OAuth-only connectors show "needs sign-in setup" and write nothing
 //! (TODO: OAuth flow; the generic client does not start `auth: oauth` yet).
-//! Hermes reads the file only at start: "Apply" restarts `hermes-rs`, and is
-//! offered only with `--connectors-apply` (set once the generic client is
-//! deployed).
+//! Hermes reads the file only at start (no reload path). This console does
+//! restart services; anything saved after Hermes started says "Saved, not
+//! live yet" until the owner restarts `hermes-rs`.
 
 use crate::json::{self, Value};
 use crate::layout;
@@ -49,13 +62,6 @@ pub const CSRF_COOKIE: &str = "galion_cn_csrf";
 /// Generated servers file name inside `--connectors-dir`.
 pub const SERVERS_FILE: &str = "mcp-servers.yaml";
 
-/// Directories a custom stdio command may live in (local allowlist). The
-/// file name must also contain `mcp`.
-pub const COMMAND_DIRS: &[&str] = &["/opt/galion/rust/bin/"];
-
-/// The unit restarted by "Apply".
-pub const HERMES_UNIT: &str = "hermes-rs.service";
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Section {
     pub id: String,
@@ -64,7 +70,7 @@ pub struct Section {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Auth {
-    /// Owner pastes a key; sent as `Authorization: Bearer ${token_env}`.
+    /// Owner pastes a key; sent as a Bearer Authorization header from `${token_env}`.
     Token,
     /// Needs an OAuth sign-in (not built: stub).
     OAuth,
@@ -72,6 +78,8 @@ pub enum Auth {
     None,
     /// Configured in the Hermes config; read-only here.
     Builtin,
+    /// Listed for the layout; no MCP endpoint checked yet.
+    Unverified,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,6 +88,8 @@ pub struct Connector {
     pub name: String,
     pub section: String,
     pub initials: String,
+    /// Logo name in [`crate::logos`] (defaults to the id; may be missing).
+    pub logo: String,
     pub blurb: String,
     pub url: Option<String>,
     pub command: Option<String>,
@@ -136,14 +146,36 @@ pub fn parse_catalog(text: &str) -> Result<Catalog, String> {
             "oauth" => Auth::OAuth,
             "none" => Auth::None,
             "builtin" => Auth::Builtin,
+            "unverified" => Auth::Unverified,
             a => return Err(format!("catalog: {id}: unknown auth {a:?}")),
         };
         let url = c.get("url").as_str().map(str::to_string);
         let command = c.get("command").as_str().map(str::to_string);
+        let verified = c.get("verified").as_bool() == Some(true);
+        if (auth == Auth::Unverified) == verified {
+            return Err(format!(
+                "catalog: {id}: verified must be false exactly for unverified"
+            ));
+        }
+        if verified && auth != Auth::Builtin && !st(c, "source").starts_with("https://") {
+            return Err(format!(
+                "catalog: {id}: verified entries need an https source"
+            ));
+        }
         match (&url, &command) {
+            (None, None) if auth == Auth::Unverified => {}
+            (_, _) if auth == Auth::Unverified => {
+                return Err(format!(
+                    "catalog: {id}: unverified entries carry no endpoint"
+                ))
+            }
             (Some(u), None) => check_url(u).map_err(|e| format!("catalog: {id}: {e}"))?,
             (None, Some(_)) if auth == Auth::Builtin => {}
-            (None, Some(cmd)) => check_command(cmd).map_err(|e| format!("catalog: {id}: {e}"))?,
+            (None, Some(_)) => {
+                return Err(format!(
+                    "catalog: {id}: only builtin entries may name a command"
+                ))
+            }
             _ => {
                 return Err(format!(
                     "catalog: {id}: needs exactly one of url or command"
@@ -154,7 +186,12 @@ pub fn parse_catalog(text: &str) -> Result<Catalog, String> {
         if auth == Auth::Token && !env_name_ok(&token_env) {
             return Err(format!("catalog: {id}: token connector needs token_env"));
         }
+        let logo = match st(c, "logo") {
+            l if l.is_empty() => id.clone(),
+            l => l,
+        };
         connectors.push(Connector {
+            logo,
             name: st(c, "name"),
             section,
             initials: st(c, "initials"),
@@ -166,7 +203,7 @@ pub fn parse_catalog(text: &str) -> Result<Catalog, String> {
             auth,
             token_env,
             token_label: st(c, "token_label"),
-            verified: c.get("verified").as_bool() == Some(true),
+            verified,
             source: st(c, "source"),
             note: st(c, "note"),
             custom: false,
@@ -184,6 +221,12 @@ pub fn parse_catalog(text: &str) -> Result<Catalog, String> {
         sections,
         connectors,
     })
+}
+
+/// Connectors with a backend now (owner t456u/t457u): the Featured ones,
+/// GitHub, built-ins and customs. Everything else reads "Coming soon".
+pub fn wired(c: &Connector) -> bool {
+    c.custom || c.auth == Auth::Builtin || c.section == "featured" || c.id == "github"
 }
 
 /// The built-in catalog (panics only if the shipped JSON is broken, which
@@ -236,18 +279,19 @@ pub fn check_url(u: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// A local stdio command: absolute, inside [`COMMAND_DIRS`], file name with
+/// A local stdio command: absolute, directly inside `dir` (the console flag
+/// `--connectors-command-dir`; `None` = no local commands), file name with
 /// `mcp` in it, no `..`.
-pub fn check_command(cmd: &str) -> Result<(), String> {
+pub fn check_command(cmd: &str, dir: Option<&str>) -> Result<(), String> {
     if cmd.len() > 256 || !yaml_safe(cmd) || cmd.contains("..") {
         return Err("command has characters that are not allowed".into());
     }
-    let Some(dir) = COMMAND_DIRS.iter().find(|d| cmd.starts_with(**d)) else {
-        return Err(format!(
-            "command must be in {} (local allowlist)",
-            COMMAND_DIRS.join(", ")
-        ));
+    let Some(dir) = dir.filter(|d| d.starts_with('/') && d.ends_with('/')) else {
+        return Err("local commands are not enabled on this console".into());
     };
+    if !cmd.starts_with(dir) {
+        return Err(format!("command must be in {dir} (local allowlist)"));
+    }
     let file = &cmd[dir.len()..];
     if file.is_empty()
         || file.contains('/')
@@ -339,7 +383,12 @@ pub fn entry_yaml(c: &Connector, secrets: Option<&Path>) -> String {
 /// What the screen shows for one connector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
+    /// Configured, token present, and loaded by the running Hermes.
     Connected,
+    /// Saved, but not loaded by Hermes yet (needs a restart).
+    Saved,
+    /// No MCP endpoint checked yet.
+    Unavailable,
     /// An `.off` entry exists (disconnected earlier).
     Off,
     Available,
@@ -363,8 +412,10 @@ fn create_private(path: &Path, dir: bool) -> std::io::Result<()> {
                 .recursive(true)
                 .mode(0o700)
                 .create(path)?;
+            // Only folders we create; an existing one keeps its mode.
+            fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
         }
-        fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        Ok(())
     } else {
         Ok(())
     }
@@ -381,13 +432,24 @@ fn create_private(path: &Path, dir: bool) -> std::io::Result<()> {
 
 /// Write `data` to `path` as a new 0600 file (via a temp name + rename).
 fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    write_mode(path, data, 0o600)
+}
+
+/// Atomic write (temp name in the same folder, then rename) with `mode`.
+fn write_mode(path: &Path, data: &[u8], mode: u32) -> std::io::Result<()> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    let tmp = path.with_extension(format!("tmp.{t}.{n}"));
     let mut o = fs::OpenOptions::new();
     o.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        o.mode(0o600);
+        o.mode(mode);
     }
     let mut f = o.open(&tmp)?;
     f.write_all(data)?;
@@ -421,6 +483,14 @@ fn rename_aside(path: &Path, suffix: &str) -> std::io::Result<()> {
 #[derive(Debug, Clone)]
 pub struct Store {
     pub dir: PathBuf,
+    /// Local command allowlist dir (ends with `/`); `None` = URLs only.
+    pub cmd_dir: Option<String>,
+    /// `--connectors-hermes-file`: the live Hermes MCP servers file
+    /// (`HERMES_RS_MCP_SERVERS_FILE`). When set, tokens go to `mcp.d/` next
+    /// to it and the console keeps its own entries in a marked block there.
+    pub hermes_file: Option<PathBuf>,
+    /// Unix start time of the running Hermes gateway (from `/proc`).
+    pub hermes_started: Option<u64>,
 }
 
 /// Result of a write action (the page shows a fixed message for each).
@@ -434,13 +504,72 @@ pub enum Done {
 
 impl Store {
     pub fn new(dir: impl Into<PathBuf>) -> Store {
-        Store { dir: dir.into() }
+        Store {
+            dir: dir.into(),
+            cmd_dir: None,
+            hermes_file: None,
+            hermes_started: None,
+        }
+    }
+    /// Allow local stdio commands directly inside `d`.
+    pub fn with_command_dir(mut self, d: Option<String>) -> Store {
+        self.cmd_dir = d.map(|d| if d.ends_with('/') { d } else { format!("{d}/") });
+        self
     }
     fn servers_d(&self) -> PathBuf {
         self.dir.join("servers.d")
     }
+    /// Point at the live Hermes servers file (and read Hermes' start time).
+    pub fn with_hermes_file(mut self, f: Option<PathBuf>) -> Store {
+        self.hermes_started = f.as_ref().and_then(|_| hermes_started());
+        self.hermes_file = f;
+        self
+    }
     fn secrets_d(&self) -> PathBuf {
-        self.dir.join("secrets")
+        match self.hermes_file.as_deref().and_then(Path::parent) {
+            Some(p) => p.join("mcp.d"),
+            None => self.dir.join("secrets"),
+        }
+    }
+    /// Entries written by hand in the live Hermes file (outside our block).
+    pub fn hand_entries(&self) -> Vec<HandEntry> {
+        self.hermes_file
+            .as_deref()
+            .and_then(|f| fs::read_to_string(f).ok())
+            .map(|t| hand_entries(&t))
+            .unwrap_or_default()
+    }
+    fn hand(&self, id: &str) -> Option<HandEntry> {
+        self.hand_entries().into_iter().find(|h| h.name == id)
+    }
+    /// Configured by hand in the live Hermes file (shown in the panel).
+    pub fn hand_configured(&self, id: &str) -> bool {
+        self.hand(id).is_some()
+    }
+    /// Every name in `need` has a `NAME=value` line in `p` (values never read out).
+    fn env_complete(p: &Path, need: &[String]) -> bool {
+        let Ok(t) = fs::read_to_string(p) else {
+            return need.is_empty();
+        };
+        need.iter().all(|n| {
+            t.lines().any(|l| {
+                l.strip_prefix(n.as_str())
+                    .is_some_and(|r| r.len() > 1 && r.starts_with('='))
+            })
+        })
+    }
+    /// Written after Hermes started (or Hermes not found): not loaded yet.
+    fn pending(&self, files: &[PathBuf]) -> bool {
+        let Some(start) = self.hermes_started else {
+            return true;
+        };
+        files.iter().any(|f| {
+            fs::metadata(f)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                .is_some_and(|d| d.as_secs() >= start)
+        })
     }
     pub fn entry_path(&self, id: &str) -> PathBuf {
         self.servers_d().join(format!("{id}.yaml"))
@@ -456,11 +585,42 @@ impl Store {
         match c.auth {
             Auth::Builtin => return State::Builtin,
             Auth::OAuth => return State::NeedsSignIn,
+            Auth::Unverified => return State::Unavailable,
             _ => {}
         }
-        if self.entry_path(&c.id).is_file() {
-            State::Connected
-        } else if Path::new(&format!("{}.off", self.entry_path(&c.id).display())).exists() {
+        if self.hermes_file.is_some() {
+            let secret = self.secret_path(&c.id);
+            if let Some(h) = self.hand(&c.id) {
+                let env = h.env_file.map(PathBuf::from).unwrap_or(secret);
+                if !Self::env_complete(&env, &h.require_env) {
+                    return State::Available;
+                }
+                return if self.pending(&[env]) {
+                    State::Saved
+                } else {
+                    State::Connected
+                };
+            }
+            if self.entry_path(&c.id).is_file() {
+                let need: Vec<String> = if c.auth == Auth::Token {
+                    vec![c.token_env.clone()]
+                } else {
+                    Vec::new()
+                };
+                if !Self::env_complete(&secret, &need) {
+                    return State::Available;
+                }
+                let f = self.hermes_file.clone().unwrap_or_default();
+                return if self.pending(&[secret, f]) {
+                    State::Saved
+                } else {
+                    State::Connected
+                };
+            }
+        } else if self.entry_path(&c.id).is_file() {
+            return State::Saved;
+        }
+        if Path::new(&format!("{}.off", self.entry_path(&c.id).display())).exists() {
             State::Off
         } else {
             State::Available
@@ -512,9 +672,15 @@ impl Store {
     /// Connect a catalog or custom connector. `token` is required for
     /// token auth, refused for others.
     pub fn connect(&self, c: &Connector, token: Option<&str>) -> Result<(), String> {
+        if !wired(c) {
+            return Err("coming soon: this connector is not wired up yet".into());
+        }
         match c.auth {
             Auth::OAuth => return Err("needs sign-in setup (OAuth is not built yet)".into()),
             Auth::Builtin => return Err("built in; managed in the Hermes config".into()),
+            Auth::Unverified => {
+                return Err("no MCP endpoint is verified for this connector yet".into())
+            }
             _ => {}
         }
         if !id_ok(&c.id) {
@@ -523,7 +689,7 @@ impl Store {
         match (&c.url, &c.command) {
             (Some(u), None) => check_url(u)?,
             (None, Some(cmd)) => {
-                check_command(cmd)?;
+                check_command(cmd, self.cmd_dir.as_deref())?;
                 check_args(&c.args)?;
             }
             _ => return Err("needs a URL or a command".into()),
@@ -541,6 +707,25 @@ impl Store {
         };
         let io = |e: std::io::Error| format!("could not write the connector files ({})", e.kind());
         self.ensure_dirs().map_err(io)?;
+        if let Some(h) = self.hand(&c.id) {
+            // Configured by hand in the live file: only its token file is ours
+            // to write, and only at the conventional path.
+            let Some(t) = token else {
+                return Err("configured in the Hermes file; paste its token".into());
+            };
+            let p = self.secret_path(&c.id);
+            if h.env_file.as_deref() != Some(&*p.display().to_string())
+                || !h.require_env.contains(&c.token_env)
+            {
+                return Err("the Hermes file names a different token file or variable".into());
+            }
+            rename_aside(&p, ".bak").map_err(io)?;
+            let body = format!(
+                "# {} token for Hermes MCP. Written by the console /connectors screen.\n{}={t}\n",
+                c.id, c.token_env
+            );
+            return write_private(&p, body.as_bytes()).map_err(io);
+        }
         let secrets = match token {
             Some(t) => {
                 let p = self.secret_path(&c.id);
@@ -570,11 +755,19 @@ impl Store {
         if !id_ok(id) {
             return Err("bad connector id".into());
         }
+        let io = |e: std::io::Error| format!("could not rename the connector files ({})", e.kind());
+        if self.hand(id).is_some() {
+            // Hand-written entry: take its token away (renamed .off).
+            let s = self.secret_path(id);
+            if !s.is_file() {
+                return Err("not connected".into());
+            }
+            return rename_aside(&s, ".off").map_err(io);
+        }
         let p = self.entry_path(id);
         if !p.is_file() {
             return Err("not connected".into());
         }
-        let io = |e: std::io::Error| format!("could not rename the connector files ({})", e.kind());
         rename_aside(&p, ".off").map_err(io)?;
         rename_aside(&self.secret_path(id), ".off").map_err(io)?;
         self.regenerate().map_err(io)
@@ -604,12 +797,198 @@ impl Store {
             }
             n += 1;
         }
+        if let Some(f) = &self.hermes_file {
+            let block: String = out
+                .lines()
+                .filter(|l| l.starts_with("  "))
+                .map(|l| format!("{l}\n"))
+                .collect();
+            splice_hermes_file(f, &block)?;
+        }
         if n == 0 {
             // An empty map keeps the file valid for the loader.
             out = out.replace("mcp_servers:\n", "mcp_servers: {}\n");
         }
         write_private(&self.servers_file(), out.as_bytes())
     }
+}
+
+/// Start of the console's block in the live Hermes servers file.
+pub const BLOCK_BEGIN: &str =
+    "# >>> console /connectors entries (managed by the console; edit through the screen) >>>";
+/// End of that block.
+pub const BLOCK_END: &str = "# <<< console /connectors entries <<<";
+
+/// A server written by hand in the live Hermes file (not by this screen).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HandEntry {
+    pub name: String,
+    pub env_file: Option<String>,
+    pub require_env: Vec<String>,
+}
+
+fn yaml_scalar(s: &str) -> String {
+    s.trim().trim_matches('"').trim_matches('\'').to_string()
+}
+
+/// Servers under `mcp_servers:` outside the console block, with their
+/// `env_file` and `require_env` (two-space names, four-space keys).
+pub fn hand_entries(text: &str) -> Vec<HandEntry> {
+    let mut out: Vec<HandEntry> = Vec::new();
+    let (mut in_map, mut in_block) = (false, false);
+    for line in text.lines() {
+        if line == BLOCK_BEGIN {
+            in_block = true;
+            continue;
+        }
+        if line == BLOCK_END {
+            in_block = false;
+            continue;
+        }
+        if line.trim_start().starts_with('#') || line.trim().is_empty() {
+            continue;
+        }
+        if !line.starts_with(' ') {
+            in_map = line.trim_end() == "mcp_servers:";
+            continue;
+        }
+        if !in_map || in_block {
+            continue;
+        }
+        if let Some(name) = line.strip_prefix("  ").and_then(|r| r.strip_suffix(':')) {
+            if id_ok(name) {
+                out.push(HandEntry {
+                    name: name.to_string(),
+                    ..HandEntry::default()
+                });
+            }
+            continue;
+        }
+        let Some(e) = out.last_mut() else { continue };
+        let kv = line.trim_start();
+        if let Some(v) = kv.strip_prefix("env_file:") {
+            e.env_file = Some(yaml_scalar(v));
+        } else if let Some(v) = kv.strip_prefix("require_env:") {
+            let v = v.trim().trim_start_matches('[').trim_end_matches(']');
+            e.require_env = v
+                .split(',')
+                .map(yaml_scalar)
+                .filter(|s| env_name_ok(s))
+                .collect();
+        }
+    }
+    out
+}
+
+/// Put `entries` (two-space YAML under `mcp_servers:`) into the console
+/// block of the live Hermes file, keeping everything else byte for byte.
+/// `mcp_servers:` must be the last top-level key. A copy of the old file is
+/// kept as `<file>.bak-console-<unix>` first; the file keeps its mode.
+pub fn splice_hermes_file(f: &Path, entries: &str) -> std::io::Result<()> {
+    let bad = |m: &str| std::io::Error::new(std::io::ErrorKind::InvalidData, m.to_string());
+    let old = fs::read_to_string(f)?;
+    let mut keep = String::new();
+    let (mut in_block, mut last_top) = (false, String::new());
+    for line in old.lines() {
+        if line == BLOCK_BEGIN {
+            in_block = true;
+            continue;
+        }
+        if line == BLOCK_END {
+            in_block = false;
+            continue;
+        }
+        if in_block {
+            continue;
+        }
+        if !line.starts_with(' ') && !line.starts_with('#') && !line.trim().is_empty() {
+            last_top = line.trim_end().to_string();
+        }
+        keep.push_str(line);
+        keep.push('\n');
+    }
+    if in_block {
+        return Err(bad("console block is not closed"));
+    }
+    if last_top != "mcp_servers:" {
+        return Err(bad("mcp_servers: is not the last top-level key"));
+    }
+    let hand: Vec<String> = hand_entries(&keep).into_iter().map(|h| h.name).collect();
+    for l in entries.lines() {
+        if let Some(n) = l.strip_prefix("  ").and_then(|r| r.strip_suffix(':')) {
+            if hand.iter().any(|h| h == n) {
+                return Err(bad("name already configured by hand"));
+            }
+        }
+    }
+    let mut new = keep;
+    if !entries.is_empty() {
+        new.push_str(&format!("{BLOCK_BEGIN}\n{entries}{BLOCK_END}\n"));
+    }
+    if new == old {
+        return Ok(());
+    }
+    let mode = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::metadata(f)?.permissions().mode() & 0o777
+        }
+        #[cfg(not(unix))]
+        {
+            0o644
+        }
+    };
+    let mut bak = PathBuf::from(format!("{}.bak-console-{}", f.display(), now_unix()));
+    let mut n = 0;
+    while bak.exists() {
+        n += 1;
+        bak = PathBuf::from(format!("{}.bak-console-{}.{n}", f.display(), now_unix()));
+    }
+    fs::copy(f, &bak)?;
+    write_mode(f, new.as_bytes(), mode)
+}
+
+/// Start (unix seconds) of the running Hermes gateway: the oldest process
+/// whose executable name starts with `hermes-gateway`, from `/proc`.
+pub fn hermes_started() -> Option<u64> {
+    let stat = fs::read_to_string("/proc/stat").ok()?;
+    let btime: u64 = stat
+        .lines()
+        .find_map(|l| l.strip_prefix("btime "))?
+        .trim()
+        .parse()
+        .ok()?;
+    let mut best: Option<u64> = None;
+    for e in fs::read_dir("/proc").ok()?.flatten() {
+        let name = e.file_name().to_string_lossy().to_string();
+        if !name.bytes().all(|b| b.is_ascii_digit()) {
+            continue;
+        }
+        let Ok(exe) = fs::read_link(e.path().join("exe")) else {
+            continue;
+        };
+        let base = exe
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if !base.starts_with("hermes-gateway") {
+            continue;
+        }
+        let Ok(st) = fs::read_to_string(e.path().join("stat")) else {
+            continue;
+        };
+        // Field 22 (starttime, clock ticks after boot); fields after the ")".
+        let after = st.rsplit_once(')').map(|x| x.1).unwrap_or("");
+        let ticks: u64 = after
+            .split_whitespace()
+            .nth(19)
+            .and_then(|t| t.parse().ok())
+            .unwrap_or(0);
+        let t = btime + ticks / 100;
+        best = Some(best.map_or(t, |b| b.min(t)));
+    }
+    best
 }
 
 /// First line of a custom entry: `# custom name=<name> section=custom auth=<a> env=<E>`.
@@ -662,6 +1041,7 @@ fn parse_custom_tag(text: &str) -> Option<Connector> {
         .collect::<String>()
         .to_uppercase();
     Some(Connector {
+        logo: String::new(),
         blurb: match (&url, &command) {
             (Some(u), _) => u.clone(),
             (_, Some(c)) => c.clone(),
@@ -693,6 +1073,7 @@ pub fn custom_from_form(
     auth: &str,
     env: &str,
     catalog: &Catalog,
+    cmd_dir: Option<&str>,
 ) -> Result<Connector, String> {
     let name: String = name.chars().filter(|c| !c.is_control()).collect();
     let name = name.trim();
@@ -719,7 +1100,7 @@ pub fn custom_from_form(
     } else if target.starts_with('/') {
         let mut parts = target.split_whitespace();
         let cmd = parts.next().unwrap_or("").to_string();
-        check_command(&cmd)?;
+        check_command(&cmd, cmd_dir)?;
         let args: Vec<String> = parts.map(str::to_string).collect();
         check_args(&args)?;
         (None, Some(cmd), args, "stdio")
@@ -746,6 +1127,7 @@ pub fn custom_from_form(
         String::new()
     };
     Ok(Connector {
+        logo: String::new(),
         id,
         name: name.to_string(),
         section: "custom".into(),
@@ -797,21 +1179,6 @@ pub fn ct_eq(a: &str, b: &str) -> bool {
         == 0
 }
 
-/// Restart Hermes so it reloads the servers file (fixed argv, no shell).
-pub fn apply_restart() -> Result<(), String> {
-    match std::process::Command::new("systemctl")
-        .args(["--no-block", "restart", HERMES_UNIT])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-    {
-        Ok(s) if s.success() => Ok(()),
-        Ok(_) => Err("systemctl refused the restart".into()),
-        Err(_) => Err("systemctl not available".into()),
-    }
-}
-
 // ---- the page handler (owner gate already passed in `Ui::handle`) ----
 
 /// Fixed messages after a successful post (PRG redirect `?done=..&id=..`).
@@ -820,7 +1187,6 @@ fn done_text(done: &str, name: &str) -> Option<String> {
         "saved" => format!("{name}: saved. Read-only (writes off)."),
         "added" => format!("{name}: added. Read-only (writes off)."),
         "disconnected" => format!("{name}: disconnected (entry renamed to .off, nothing deleted)."),
-        "applied" => "Hermes is restarting to load the connectors.".into(),
         _ => return None,
     })
 }
@@ -836,8 +1202,18 @@ impl Ui {
 
     pub(crate) fn connectors_room(&self, req: &Request<'_>) -> Reply {
         let cat = catalog();
-        let store = self.cfg.files.connectors_dir.as_ref().map(Store::new);
-        let apply = self.cfg.files.connectors_apply;
+        let cmd_dir = self.cfg.files.connectors_command_dir.as_ref().map(|p| {
+            let mut s = p.display().to_string();
+            if !s.ends_with('/') {
+                s.push('/');
+            }
+            s
+        });
+        let store = self.cfg.files.connectors_dir.as_ref().map(|d| {
+            Store::new(d)
+                .with_command_dir(cmd_dir)
+                .with_hermes_file(self.cfg.files.connectors_hermes_file.clone())
+        });
         let have = gate::cookie(req.cookie, CSRF_COOKIE).filter(|t| csrf_ok(t));
         let customs = store.as_ref().map(Store::customs).unwrap_or_default();
         let name_of = |id: &str| -> String {
@@ -850,6 +1226,7 @@ impl Ui {
         };
         let mut status = 200;
         let mut notice = None;
+        let mut q = String::new();
         if req.method == "POST" {
             let form = html::form_pairs(&String::from_utf8_lossy(req.body));
             let sent = html::form_get(&form, "csrf").unwrap_or("");
@@ -879,6 +1256,7 @@ impl Ui {
                     html::form_get(&form, "auth").unwrap_or("none"),
                     html::form_get(&form, "env").unwrap_or(""),
                     &cat,
+                    st.cmd_dir.as_deref(),
                 )
                 .and_then(|c| {
                     if st.entry_path(&c.id).exists() {
@@ -889,10 +1267,6 @@ impl Ui {
                     }
                     st.connect(&c, token).map(|_| ("added", c.id.clone()))
                 }),
-                Some("apply") if apply => apply_restart().map(|_| ("applied", String::new())),
-                Some("apply") => {
-                    Err("Apply is off until the Hermes MCP client update is deployed".into())
-                }
                 _ => Err("unknown action".into()),
             };
             match r {
@@ -908,9 +1282,16 @@ impl Ui {
                 }
             }
         } else {
-            let q = html::form_pairs(req.query);
-            if let Some(d) = html::form_get(&q, "done") {
-                let id = html::form_get(&q, "id").filter(|i| id_ok(i)).unwrap_or("");
+            let qp = html::form_pairs(req.query);
+            q = html::form_get(&qp, "q")
+                .unwrap_or("")
+                .trim()
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(64)
+                .collect();
+            if let Some(d) = html::form_get(&qp, "done") {
+                let id = html::form_get(&qp, "id").filter(|i| id_ok(i)).unwrap_or("");
                 notice = done_text(d, &name_of(id)).map(|m| (true, m));
             }
         }
@@ -924,16 +1305,16 @@ impl Ui {
             customs: &customs,
             store: store.as_ref(),
             csrf: &token,
-            apply,
             notice,
             saved,
+            q: &q,
         };
         let body = crate::pages::connectors::body(&view);
-        let fwd = self.forward(req);
-        let origin = self.origin(&fwd);
         let mut f = self.frame(req, "Galion Console · Connectors");
         f.extra_css_href = Some(&self.cn_css_href);
-        let mut r = Reply::html(status, layout::console(&f, origin, &body));
+        // The reference screen is dark whatever the console theme is.
+        f.light = Some(false);
+        let mut r = Reply::html(status, layout::document(&f, " class=\"cn-body\"", &body));
         if have.is_none() && csrf_ok(&token) {
             r.headers
                 .push(("Set-Cookie".into(), Self::cn_csrf_cookie(req, &token)));
@@ -950,26 +1331,75 @@ mod tests {
     fn shipped_catalog_parses_with_sections() {
         let c = catalog();
         let ids: Vec<&str> = c.connectors.iter().map(|x| x.id.as_str()).collect();
-        for want in [
-            "github",
-            "gmail",
-            "google-calendar",
-            "google-drive",
-            "notion",
-            "slack",
-            "linear",
-            "atlassian",
-            "stripe",
-            "paypal",
-            "openmind",
-        ] {
-            assert!(ids.contains(&want), "{want}");
-        }
+        // Mate's reference order (steering 2026-10-30 12:58 CET).
+        let order = |sec: &str| -> Vec<&str> {
+            c.connectors
+                .iter()
+                .filter(|x| x.section == sec)
+                .map(|x| x.name.as_str())
+                .collect()
+        };
+        assert_eq!(
+            order("featured"),
+            [
+                "Gmail",
+                "Google Calendar",
+                "Google Drive",
+                "Canva",
+                "Stripe",
+                "Notion",
+                "Box",
+                "Wix"
+            ]
+        );
+        assert_eq!(order("productivity").len(), 11);
+        assert_eq!(order("productivity")[0], "Asana");
+        assert_eq!(order("finance").len(), 11);
+        assert_eq!(order("finance")[10], "etoro");
+        assert_eq!(
+            order("developer"),
+            [
+                "GitHub",
+                "Datadog",
+                "Excalidraw",
+                "Mixpanel",
+                "Netlify",
+                "Vercel"
+            ]
+        );
+        assert_eq!(
+            order("microsoft"),
+            ["Outlook", "Outlook Calendar", "Microsoft Teams"]
+        );
+        assert_eq!(order("sales"), ["HubSpot", "Meltwater"]);
+        assert_eq!(order("social"), ["Buffer"]);
+        assert_eq!(order("analytics"), ["Google Cloud BigQuery"]);
+        assert_eq!(order("advertising"), ["X Ads"]);
         let titles: Vec<&str> = c.sections.iter().map(|s| s.title.as_str()).collect();
-        assert!(titles.contains(&"Productivity") && titles.contains(&"Finance"));
+        assert_eq!(
+            &titles[..9],
+            [
+                "Featured",
+                "Productivity",
+                "Finance",
+                "Developer",
+                "Microsoft 365",
+                "Sales",
+                "Social Media",
+                "Analytics",
+                "Advertising"
+            ]
+        );
+        assert!(ids.contains(&"openmind"));
         for x in &c.connectors {
-            assert!(x.verified, "{} must be verified or dropped", x.id);
-            assert!(x.source.starts_with("https://") || x.auth == Auth::Builtin);
+            if x.verified {
+                assert!(x.source.starts_with("https://") || x.auth == Auth::Builtin);
+                assert!(x.url.is_some() || x.command.is_some());
+            } else {
+                assert_eq!(x.auth, Auth::Unverified, "{}", x.id);
+                assert!(x.url.is_none() && x.command.is_none());
+            }
+            assert!(!x.initials.is_empty() && x.initials.len() <= 3);
         }
         let oauth: Vec<&str> = c
             .connectors
@@ -999,11 +1429,30 @@ mod tests {
         ))
         .is_err());
         assert!(parse_catalog(&base(
-            r#"{"id":"x","section":"p","auth":"none","command":"/bin/sh"}"#
+            r#"{"id":"x","section":"p","auth":"none","command":"/usr/lib/x-mcp","verified":true,"source":"https://s"}"#
         ))
         .is_err());
+        assert!(
+            parse_catalog(&base(
+                r#"{"id":"x","section":"p","auth":"none","url":"https://x/mcp"}"#
+            ))
+            .is_err(),
+            "verified entries need a source"
+        );
+        assert!(
+            parse_catalog(&base(
+                r#"{"id":"x","section":"p","auth":"unverified","url":"https://x/mcp"}"#
+            ))
+            .is_err(),
+            "unverified entries carry no endpoint"
+        );
         assert!(parse_catalog(&base(
-            r#"{"id":"x","section":"p","auth":"none","url":"https://x/mcp"}"#
+            r#"{"id":"x","section":"p","auth":"unverified","verified":true}"#
+        ))
+        .is_err());
+        assert!(parse_catalog(&base(r#"{"id":"x","section":"p","auth":"unverified"}"#)).is_ok());
+        assert!(parse_catalog(&base(
+            r#"{"id":"x","section":"p","auth":"none","url":"https://x/mcp","verified":true,"source":"https://s"}"#
         ))
         .is_ok());
     }
@@ -1023,15 +1472,17 @@ mod tests {
         ] {
             assert!(check_url(bad).is_err(), "{bad}");
         }
-        assert!(check_command("/opt/galion/rust/bin/openmind-mcp-stack-498244ec").is_ok());
+        let dir = Some("/srv/mcp-bin/");
+        assert!(check_command("/srv/mcp-bin/openmind-mcp-stack", dir).is_ok());
+        assert!(check_command("/srv/mcp-bin/openmind-mcp-stack", None).is_err());
         for bad in [
-            "/bin/sh",
-            "/opt/galion/rust/bin/galion-console-serve",
-            "/opt/galion/rust/bin/../../../bin/mcp",
-            "/opt/galion/rust/bin/sub/mcp",
+            "/usr/bin/env",
+            "/srv/mcp-bin/console-serve",
+            "/srv/mcp-bin/../../../usr/bin/mcp",
+            "/srv/mcp-bin/sub/mcp",
             "npx",
         ] {
-            assert!(check_command(bad).is_err(), "{bad}");
+            assert!(check_command(bad, dir).is_err(), "{bad}");
         }
         assert!(check_args(&["--vault".into(), "/a/b".into()]).is_ok());
         assert!(check_args(&["$(id)".into()]).is_err());
@@ -1075,9 +1526,10 @@ mod page_tests {
         }
     }
     fn tmp(tag: &str) -> Tmp {
+        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let d = std::env::temp_dir().join(format!(
             "cn-test-{tag}-{}-{}",
-            std::process::id(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap()
@@ -1087,33 +1539,9 @@ mod page_tests {
         Tmp(d)
     }
 
-    /// A stand-in admin API on loopback that says "not the owner".
-    fn not_owner_api() -> std::net::SocketAddr {
-        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let a = l.local_addr().unwrap();
-        std::thread::spawn(move || {
-            for s in l.incoming().flatten() {
-                let mut s = s;
-                let mut buf = [0u8; 4096];
-                let _ = s.read(&mut buf);
-                let b = "{\"you\":false}";
-                let _ = write!(
-                    s,
-                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{b}",
-                    b.len()
-                );
-            }
-        });
-        a
-    }
-
     fn ui(dir: Option<&Path>) -> Ui {
-        ui_with(dir, "127.0.0.1:9".parse().unwrap())
-    }
-
-    fn ui_with(dir: Option<&Path>, upstream: std::net::SocketAddr) -> Ui {
         Ui::new(UiConfig {
-            upstream,
+            upstream: "127.0.0.1:9".parse().unwrap(),
             pulse: None,
             extra_hosts: vec![],
             desk: None,
@@ -1191,21 +1619,76 @@ mod page_tests {
         assert_eq!(r.status, 200);
         let b = body(&r);
         for s in [
+            "Connectors let Hermes use external tools and data sources.",
+            "placeholder=\"Search connectors...\"",
+            "href=\"/console\" aria-label=\"Back",
+            "Featured",
             "Productivity",
-            "Developer tools",
             "Finance",
-            "Obsidian OpenMind",
-            "Add custom connector",
+            "Developer",
+            "Microsoft 365",
+            "Social Media",
+            "Advertising",
+            "Custom Connector",
+            "Add your own custom connector",
             "GitHub",
             "Gmail",
             "Needs sign-in setup",
             "/_ui/connectors.",
+            "data-theme=\"dark\"",
         ] {
             assert!(b.contains(s), "missing {s}");
         }
+        // Section order follows the reference screenshots.
+        let at = |s: &str| b.find(&format!("<h2 class=\"cn-lab\">{s}</h2>")).unwrap();
+        assert!(at("Connected") < at("Featured") && at("Featured") < at("Productivity"));
+        assert!(at("Finance") < at("Developer") && at("Advertising") < at("Custom Connector"));
+        // Only really wired connectors are under Connected: OpenMind (built
+        // in), not GitHub (nothing saved, client not live).
+        let connected = &b[at("Connected")..at("Featured")];
+        assert!(connected.contains("OpenMind") && !connected.contains("GitHub"));
+        assert!(b[at("Developer")..].contains("GitHub"));
+        // Real logos, served locally (never hotlinked).
+        assert!(b.matches("<img ").count() >= 40);
+        for src in b.split("src=\"").skip(1) {
+            assert!(src.starts_with(crate::logos::PREFIX), "local logo only");
+        }
+        let src = b.split("src=\"").nth(1).unwrap();
+        let src = &src[..src.find('"').unwrap()];
+        let img = ui.handle(&Request {
+            path: src,
+            ..get("127.0.0.1:18080", true, "")
+        });
+        assert_eq!(img.status, 200);
+        // Scope (t456u/t457u): Featured and GitHub connect; the rest say
+        // "Coming soon" instead of Connect.
+        let row_of = |id: &str| {
+            let s = b.find(&format!("id=\"c-{id}\"")).unwrap();
+            &b[s..s + b[s..].find("</summary>").unwrap()]
+        };
+        for id in ["gmail", "stripe", "wix", "github"] {
+            assert!(
+                row_of(id).contains(">Connect<") && !row_of(id).contains("Coming soon"),
+                "{id}"
+            );
+        }
+        for id in ["linear", "asana", "coinbase", "vercel", "hubspot", "x-ads"] {
+            assert!(
+                row_of(id).contains("Coming soon") && !row_of(id).contains(">Connect<"),
+                "{id}"
+            );
+        }
+        // Search filters on the server.
+        let s = body(&ui.handle(&get("127.0.0.1:18080", true, "q=goo")));
+        assert!(
+            s.contains("Google Drive")
+                && !s.contains(">Stripe<")
+                && !s.contains("Custom Connector")
+        );
+        let s = body(&ui.handle(&get("127.0.0.1:18080", true, "q=zzzz")));
+        assert!(s.contains("No connectors match."));
         assert!(!b.contains("<script"), "no script on /connectors");
         // The three-dash console menu lists the room.
-        assert!(b.contains("href=\"/connectors\""));
         let m = ui.handle(&Request {
             path: "/console",
             ..get("127.0.0.1:18080", true, "")
@@ -1224,20 +1707,19 @@ mod page_tests {
     #[test]
     fn refused_without_owner_auth() {
         let t = tmp("gate");
-        let ui = ui_with(Some(&t.0), not_owner_api());
-        // Public console host, admin API says "not the owner".
+        // Public console host, no owner cookie, admin API unreachable: fail
+        // closed. (The "not the owner" answer -> 401 is covered end to end in
+        // console-static tests/ui.rs with its fake admin API.)
+        let ui = ui(Some(&t.0));
         let r = ui.handle(&get("console.galion.app", false, ""));
-        assert_eq!(r.status, 401);
-        assert!(!body(&r).contains("Add custom connector"));
-        let mut p = post(None, b"op=apply");
+        assert!(r.status >= 400, "{}", r.status);
+        assert!(!body(&r).contains("Add your own custom connector"));
+        let b = format!("op=connect&id=github&token={TOKEN}");
+        let mut p = post(None, b.as_bytes());
         p.host = "console.galion.app";
         p.peer_loopback = false;
-        assert_eq!(ui.handle(&p).status, 401);
+        assert!(ui.handle(&p).status >= 400);
         assert!(!t.0.join(SERVERS_FILE).exists());
-        // Admin API down: still refused (fail closed).
-        let down = ui_with(Some(&t.0), "127.0.0.1:9".parse().unwrap());
-        let r = down.handle(&get("console.galion.app", false, ""));
-        assert!(r.status >= 400 && !body(&r).contains("Add custom connector"));
     }
 
     #[test]
@@ -1276,7 +1758,11 @@ mod page_tests {
         let page = ui.handle(&g);
         let pb = body(&page);
         assert!(pb.contains("GitHub: saved"));
-        assert!(pb.contains("token saved"));
+        assert!(pb.contains("Saved, not live yet"));
+        // Saved is not Connected until Hermes loads the file.
+        let c0 = pb.find("<h2 class=\"cn-lab\">Connected</h2>").unwrap();
+        let sec = pb.find("<h2 class=\"cn-lab\">Featured</h2>").unwrap();
+        assert!(!pb[c0..sec].contains("GitHub"));
         assert!(!pb.contains(TOKEN));
         for (_, v) in &page.headers {
             assert!(!v.contains(TOKEN));
@@ -1335,7 +1821,7 @@ mod page_tests {
         ));
         assert_eq!(r.status, 400);
         let r = send(format!(
-            "csrf={tok}&op=add&name=Echo&target=%2Fbin%2Fsh+-c+id&auth=none"
+            "csrf={tok}&op=add&name=Echo&target=%2Fusr%2Fbin%2Fenv+id&auth=none"
         ));
         assert_eq!(r.status, 400);
         // Custom https, no auth.
@@ -1362,10 +1848,17 @@ mod page_tests {
         assert!(!t.0.join("servers.d/echo-test.yaml").exists());
         let s = fs::read_to_string(t.0.join(SERVERS_FILE)).unwrap();
         assert!(s.trim_end().ends_with("\nmcp_servers: {}"));
-        // OAuth-only and Apply (client not deployed) are refused, nothing faked.
+        // OAuth-only, unverified and unknown actions are refused, nothing faked.
+        assert_eq!(
+            send(format!("csrf={tok}&op=connect&id=coinbase")).status,
+            400
+        );
+        let b = format!("csrf={tok}&op=connect&id=linear&token={TOKEN}");
+        assert_eq!(send(b).status, 400, "not featured: coming soon");
+        assert!(!t.0.join("servers.d/linear.yaml").exists());
         assert_eq!(send(format!("csrf={tok}&op=connect&id=gmail")).status, 400);
         assert!(!t.0.join("servers.d/gmail.yaml").exists());
-        assert_eq!(send(format!("csrf={tok}&op=apply")).status, 400);
+        assert_eq!(send(format!("csrf={tok}&op=restart")).status, 400);
     }
 
     #[test]
@@ -1374,6 +1867,159 @@ mod page_tests {
         let r = ui.handle(&get("127.0.0.1:18080", true, ""));
         assert_eq!(r.status, 200);
         let b = body(&r);
-        assert!(b.contains("read-only") && !b.contains("Add custom connector"));
+        assert!(b.contains("read-only") && !b.contains("name=\"target\""));
+    }
+
+    const HERMES_YAML: &str = r#"# Hermes MCP servers (hand-written header)
+log_level: info
+mcp_servers:
+  openmind:
+    command: openmind-mcp-stack
+    class: read
+  github:
+    command: github-mcp-local
+    env_file: @/mcp.d/github.env
+    require_env: ["GITHUB_PERSONAL_ACCESS_TOKEN"]
+    class: read
+    allow_writes: false
+    lazy: true
+"#;
+
+    /// A fake /etc/hermes-rs: servers file (mode 0644) plus an mcp.d folder.
+    fn hermes_dir(t: &Tmp) -> PathBuf {
+        use std::os::unix::fs::PermissionsExt;
+        let h = t.0.join("hermes");
+        fs::create_dir_all(h.join("mcp.d")).unwrap();
+        fs::set_permissions(h.join("mcp.d"), fs::Permissions::from_mode(0o711)).unwrap();
+        let f = h.join("mcp-servers.yaml");
+        fs::write(&f, HERMES_YAML.replace('@', &h.display().to_string())).unwrap();
+        fs::set_permissions(&f, fs::Permissions::from_mode(0o644)).unwrap();
+        f
+    }
+
+    fn by_id(id: &str) -> Connector {
+        catalog()
+            .connectors
+            .into_iter()
+            .find(|c| c.id == id)
+            .unwrap()
+    }
+
+    #[test]
+    fn hand_entries_parse_names_env_file_and_vars() {
+        let h = hand_entries(&HERMES_YAML.replace('@', "/h"));
+        let names: Vec<&str> = h.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["openmind", "github"]);
+        assert_eq!(h[1].env_file.as_deref(), Some("/h/mcp.d/github.env"));
+        assert_eq!(h[1].require_env, ["GITHUB_PERSONAL_ACCESS_TOKEN"]);
+        assert!(h[0].require_env.is_empty());
+    }
+
+    #[test]
+    fn live_file_github_token_only_touches_its_env_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = tmp("hermes-gh");
+        let f = hermes_dir(&t);
+        let before = fs::read_to_string(&f).unwrap();
+        let mut s = Store::new(t.0.join("console")).with_hermes_file(Some(f.clone()));
+        s.hermes_started = None;
+        let gh = by_id("github");
+        assert!(s.hand_configured("github"));
+        assert_eq!(s.state(&gh), State::Available, "no token yet: Connect");
+        let secret = "test-token-not-real-123";
+        s.connect(&gh, Some(secret)).unwrap();
+        assert_eq!(fs::read_to_string(&f).unwrap(), before, "YAML untouched");
+        let env = f.parent().unwrap().join("mcp.d/github.env");
+        let m = fs::metadata(&env).unwrap().permissions().mode() & 0o777;
+        assert_eq!(m, 0o600);
+        assert!(fs::read_to_string(&env)
+            .unwrap()
+            .contains("GITHUB_PERSONAL_ACCESS_TOKEN=test-token"));
+        let d = fs::metadata(f.parent().unwrap().join("mcp.d")).unwrap();
+        assert_eq!(
+            d.permissions().mode() & 0o777,
+            0o711,
+            "existing dir mode kept"
+        );
+        assert_eq!(s.state(&gh), State::Saved, "Hermes not seen: not live yet");
+        s.hermes_started = Some(u64::MAX);
+        assert_eq!(s.state(&gh), State::Connected, "token older than Hermes");
+        s.hermes_started = Some(0);
+        assert_eq!(s.state(&gh), State::Saved, "token newer than Hermes");
+        // Replace keeps the old token as .bak; disconnect renames to .off.
+        s.connect(&gh, Some(secret)).unwrap();
+        assert!(env.with_extension("env.bak").exists());
+        s.disconnect("github").unwrap();
+        assert!(!env.exists() && env.with_extension("env.off").exists());
+        assert_eq!(s.state(&gh), State::Available);
+        assert_eq!(fs::read_to_string(&f).unwrap(), before);
+    }
+
+    #[test]
+    fn live_file_new_entry_goes_to_marked_block_and_back_out() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = tmp("hermes-block");
+        let f = hermes_dir(&t);
+        let before = fs::read_to_string(&f).unwrap();
+        let s = Store::new(t.0.join("console")).with_hermes_file(Some(f.clone()));
+        let stripe = by_id("stripe");
+        assert_eq!(s.state(&stripe), State::Available);
+        s.connect(&stripe, Some("test-stripe-not-real-456"))
+            .unwrap();
+        let after = fs::read_to_string(&f).unwrap();
+        assert!(
+            after.starts_with(&before),
+            "hand-written part kept byte for byte"
+        );
+        assert!(after.contains(BLOCK_BEGIN) && after.contains(BLOCK_END));
+        assert!(after.contains("  stripe:\n") && after.contains("allow_writes: false"));
+        assert!(
+            !after.contains("test-stripe-not-real"),
+            "no token in the YAML"
+        );
+        let names: Vec<String> = hand_entries(&after).into_iter().map(|h| h.name).collect();
+        assert_eq!(
+            names,
+            ["openmind", "github"],
+            "block entries are not hand-written"
+        );
+        assert_eq!(
+            fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+            0o644
+        );
+        let baks = fs::read_dir(f.parent().unwrap())
+            .unwrap()
+            .flatten()
+            .filter(|e| e.file_name().to_string_lossy().contains(".bak-console-"))
+            .count();
+        assert_eq!(baks, 1, "old file copied aside first");
+        assert!(f.parent().unwrap().join("mcp.d/stripe.env").exists());
+        assert_eq!(s.state(&stripe), State::Saved);
+        // Notion joins the same block; the block is rebuilt, not repeated.
+        s.connect(&by_id("notion"), Some("test-notion-not-real-789"))
+            .unwrap();
+        let two = fs::read_to_string(&f).unwrap();
+        assert_eq!(two.matches(BLOCK_BEGIN).count(), 1);
+        assert!(two.contains("  notion:\n") && two.contains("  stripe:\n"));
+        s.disconnect("stripe").unwrap();
+        s.disconnect("notion").unwrap();
+        assert_eq!(
+            fs::read_to_string(&f).unwrap(),
+            before,
+            "back to the hand-written file"
+        );
+        assert!(f.parent().unwrap().join("mcp.d/stripe.env.off").exists());
+        // Hermes-file names cannot be shadowed by a custom entry.
+        assert!(splice_hermes_file(&f, "  github:\n    url: https://x.example/mcp\n").is_err());
+    }
+
+    #[test]
+    fn splice_refuses_when_mcp_servers_is_not_last() {
+        let t = tmp("hermes-order");
+        let f = t.0.join("m.yaml");
+        fs::write(&f, "mcp_servers:\n  a:\n    command: x\nother: 1\n").unwrap();
+        let before = fs::read_to_string(&f).unwrap();
+        assert!(splice_hermes_file(&f, "  b:\n    command: y\n").is_err());
+        assert_eq!(fs::read_to_string(&f).unwrap(), before);
     }
 }

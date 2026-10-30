@@ -39,9 +39,12 @@ pub struct HostFiles {
     /// `--connectors-dir`: where `/connectors` keeps MCP server entries,
     /// 0600 secrets and the generated `mcp-servers.yaml`. `None` = read-only.
     pub connectors_dir: Option<PathBuf>,
-    /// `--connectors-apply`: the Hermes MCP client that reads the file is
-    /// live; show "Apply (restarts Hermes)".
-    pub connectors_apply: bool,
+    /// `--connectors-command-dir`: local stdio MCP commands allowed for custom
+    /// connectors must sit directly in this folder. `None` = URLs only.
+    pub connectors_command_dir: Option<PathBuf>,
+    /// `--connectors-hermes-file`: the live Hermes MCP servers file. `None` =
+    /// entries are only saved under `--connectors-dir` (not loaded).
+    pub connectors_hermes_file: Option<PathBuf>,
 }
 
 /// Whether `/md/...` is ours (any name: unknown names get our 404 page).

@@ -50,8 +50,13 @@ usage: galion-console-static --root DIR [options]
                        0600 token files (secrets/) and the generated
                        mcp-servers.yaml for HERMES_RS_MCP_SERVERS_FILE, e.g.
                        /var/lib/galion-console-connectors; default none (read-only)
-  --connectors-apply   the Hermes MCP client reading that file is deployed:
-                       show the Apply button (systemctl restart hermes-rs)
+  --connectors-command-dir DIR  custom connectors may run local stdio MCP
+                       servers only from directly inside DIR (file name
+                       containing mcp); default none (https URLs only)
+  --connectors-hermes-file FILE  the live Hermes MCP servers file
+                       (HERMES_RS_MCP_SERVERS_FILE), e.g.
+                       /etc/hermes-rs/mcp-servers.yaml: tokens go to mcp.d/
+                       beside it, console entries to a marked block in it
   --memory-root DIR    host folder of Hermes memory for /memory and
                        /md/persona, e.g. /var/lib/memory-tencentdb; default none
   --model-file FILE    file holding the model name shown on /memory,
@@ -397,7 +402,18 @@ impl Config {
                     files.connectors_dir =
                         Some(abs_path(val("--connectors-dir")?, "--connectors-dir")?)
                 }
-                "--connectors-apply" => files.connectors_apply = true,
+                "--connectors-hermes-file" => {
+                    files.connectors_hermes_file = Some(abs_path(
+                        val("--connectors-hermes-file")?,
+                        "--connectors-hermes-file",
+                    )?)
+                }
+                "--connectors-command-dir" => {
+                    files.connectors_command_dir = Some(abs_path(
+                        val("--connectors-command-dir")?,
+                        "--connectors-command-dir",
+                    )?)
+                }
                 "--memory-root" => {
                     files.memory_root = Some(abs_path(val("--memory-root")?, "--memory-root")?)
                 }

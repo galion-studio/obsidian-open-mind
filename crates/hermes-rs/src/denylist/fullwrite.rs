@@ -37,6 +37,8 @@ use super::*;
 /// Opaque text: interpreter code, scripts and shell the strict lexer can
 /// not follow (loops, `$VAR`, `$( )`).
 mod text;
+#[cfg(test)]
+pub(crate) use text::OTHER_SERVICE_ROOTS;
 pub(crate) use text::{is_fallback, shell_scan};
 
 pub(super) use super::undo::{in_trash, unwrap_wrapper};

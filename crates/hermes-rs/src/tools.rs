@@ -245,3 +245,157 @@ impl Tool for ClockTool {
         ToolOutput::ok(crate::time::zagreb_rfc3339(crate::time::now_secs()))
     }
 }
+
+/// Sandbox run: a real `/bin/sh` terminal tool behind the guard, in a temp
+/// workspace, full-write mode on.
+#[cfg(test)]
+mod full_write_sandbox_run {
+    use super::*;
+
+    struct Sh(std::path::PathBuf);
+    impl Tool for Sh {
+        fn name(&self) -> String {
+            "terminal".into()
+        }
+        fn parameters(&self) -> Value {
+            json!({"type": "object"})
+        }
+        fn description(&self) -> String {
+            "test shell".into()
+        }
+        fn call(&self, args: &Value, _ctx: &ToolCtx) -> ToolOutput {
+            let c = args["command"].as_str().unwrap_or_default();
+            let o = std::process::Command::new("/bin/sh")
+                .arg("-c")
+                .arg(c)
+                .current_dir(&self.0)
+                .output()
+                .unwrap();
+            let s = format!(
+                "{}{}",
+                String::from_utf8_lossy(&o.stdout),
+                String::from_utf8_lossy(&o.stderr)
+            );
+            if o.status.success() {
+                ToolOutput::ok(s)
+            } else {
+                ToolOutput::err(s)
+            }
+        }
+    }
+
+    fn run(reg: &Registry, c: &str) -> ToolOutput {
+        let cancel = Arc::new(AtomicBool::new(false));
+        let emit = |_e: Event| {};
+        let ctx = ToolCtx {
+            session_id: "t",
+            spend_session: "t",
+            depth: 0,
+            user_text: "",
+            cancel: &cancel,
+            emit: &emit,
+        };
+        reg.get("terminal")
+            .unwrap()
+            .call(&json!({ "command": c }), &ctx)
+    }
+
+    #[test]
+    fn write_delete_undo_shell_script_and_refusals() {
+        let d = std::env::temp_dir().join(format!(
+            "hermes-fw-sandbox-{}-{}",
+            std::process::id(),
+            crate::time::now_secs()
+        ));
+        std::fs::create_dir_all(&d).unwrap();
+        let d = std::fs::canonicalize(&d).unwrap();
+        let pol = crate::denylist::Policy::workspace(&d).full_write();
+        let mut reg = Registry::with_policy(pol);
+        reg.add(Arc::new(Sh(d.clone())));
+
+        // allowed write
+        let o = run(&reg, "mkdir -p src && echo 'hello' > src/a.txt");
+        assert!(!o.is_error, "{}", o.content);
+        assert_eq!(
+            std::fs::read_to_string(d.join("src/a.txt")).unwrap(),
+            "hello\n"
+        );
+
+        // delete with an undo copy, then restore it
+        let o = run(&reg, "rm src/a.txt");
+        assert!(!o.is_error, "{}", o.content);
+        assert!(o.content.contains("[undo]"), "{}", o.content);
+        assert!(!d.join("src/a.txt").exists());
+        let trash = d.join(".hermes-trash");
+        let id = std::fs::read_dir(&trash)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .find(|p| p.join("src/a.txt").exists())
+            .expect("undo copy");
+        let st = std::process::Command::new("cp")
+            .arg("-a")
+            .arg(id.join("src/a.txt"))
+            .arg(d.join("src/a.txt"))
+            .status()
+            .unwrap();
+        assert!(st.success());
+        assert_eq!(
+            std::fs::read_to_string(d.join("src/a.txt")).unwrap(),
+            "hello\n"
+        );
+
+        // overwrite keeps the old content too
+        let o = run(&reg, "echo new > src/a.txt");
+        assert!(!o.is_error && o.content.contains("[undo]"), "{}", o.content);
+
+        // a shell command and a script
+        let o = run(&reg, "ls src | wc -l > count.txt && cat count.txt");
+        assert!(!o.is_error, "{}", o.content);
+        std::fs::write(
+            d.join("build.sh"),
+            "#!/bin/sh\nset -e\nmkdir -p out\nfor f in src/*; do cp \"$f\" out/; done\necho built\n",
+        )
+        .unwrap();
+        let o = run(&reg, "sh build.sh");
+        assert!(!o.is_error && o.content.contains("built"), "{}", o.content);
+        assert!(d.join("out/a.txt").exists());
+
+        // refusals: nothing runs, nothing changes
+        let before = std::fs::read_to_string(d.join("src/a.txt")).unwrap();
+        // a service-control attack from the shared bypass corpus
+        let svc = crate::denylist::fullwrite_tests::corpus_service_cmd();
+        let encoded = crate::denylist::fullwrite_tests::b64(&svc);
+        let mut blocked: Vec<String> =
+            vec![svc.clone(), format!("echo {encoded} | base64 -d | sh")];
+        blocked.extend(
+            [
+                "cat ~/.ssh/id_ed25519",
+                "echo x > SOUL.md",
+                "echo x >> /etc/hosts",
+                "echo x > /tmp/outside-$$.txt",
+                "rm -rf ../",
+                "ln -s /etc etc2 && echo x > etc2/passwd",
+                "sys''temctl stop x",
+                "rm -rf .hermes-trash",
+                "echo x > src/a.txt; rm -rf /",
+            ]
+            .map(String::from),
+        );
+        for c in &blocked {
+            let o = run(&reg, c);
+            assert!(o.is_error, "expected refused: {c}\n{}", o.content);
+            assert!(
+                o.content.contains("refused") || o.content.contains("S"),
+                "{c}: {}",
+                o.content
+            );
+        }
+        assert_eq!(
+            std::fs::read_to_string(d.join("src/a.txt")).unwrap(),
+            before
+        );
+        assert!(!d.join("SOUL.md").exists() && !d.join("etc2").exists());
+        assert!(trash.exists());
+    }
+}

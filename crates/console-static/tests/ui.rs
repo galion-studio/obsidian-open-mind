@@ -688,6 +688,8 @@ fn read_rooms_render_get_only() {
     let not_ported: Vec<&str> = console_ui::rooms::ROOMS
         .iter()
         .filter_map(|r| r.to)
+        // t453u: /connectors is a new Rust-only room, not an SPA port.
+        .filter(|p| *p != console_ui::connectors::PATH)
         .filter(|p| !console_ui::PORTED.contains(p))
         .collect();
     // 28 in-console rooms; every one is either ported or says so.
@@ -961,4 +963,49 @@ fn sprite_and_health_cache() {
         health_hits, 1,
         "8×/data + 8×/console must share one cached health GET, got {health_hits}: {calls:?}"
     );
+}
+
+/// t453u: `/connectors` is owner-only. Not the owner (fake admin API says
+/// `you:false`): 401 and nothing written. Owner cookie: 200 and the screen.
+#[test]
+fn connectors_owner_gate() {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("cn-ui-{nanos}"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let d = dir.display().to_string();
+    let (a, _) = start(&["--connectors-dir", &d]);
+    let r = get(a, "/connectors", "console.galion.app", "");
+    assert_eq!(r.code, 401);
+    assert!(!r.body.contains("Search connectors"));
+    let r = post(
+        a,
+        "/connectors",
+        "console.galion.app",
+        "Origin: https://console.galion.app\r\n",
+        "op=connect&id=github&token=not-a-real-token-12345",
+    );
+    assert_eq!(r.code, 401);
+    assert!(!dir.join("servers.d").exists());
+    let r = get(
+        a,
+        "/connectors",
+        "console.galion.app",
+        "Cookie: galion_admin=good\r\n",
+    );
+    assert_eq!(r.code, 200);
+    for s in [
+        "Connectors let Hermes use external tools and data sources.",
+        "Search connectors...",
+        "Featured",
+        "Finance",
+        "Custom Connector",
+    ] {
+        assert!(r.body.contains(s), "missing {s}");
+    }
+    assert!(r.head.contains("galion_cn_csrf="));
+    // Test scratch only (under the system temp dir).
+    let _ = std::fs::remove_dir_all(&dir);
 }

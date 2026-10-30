@@ -19,12 +19,14 @@
 #![forbid(unsafe_code)]
 
 pub mod client;
+pub mod connectors;
 pub mod css;
 pub mod gate;
 pub mod html;
 pub mod icons;
 pub mod json;
 pub mod layout;
+pub mod logos;
 pub mod overview;
 pub mod pages;
 pub mod port2;
@@ -236,6 +238,12 @@ pub struct Ui {
     hermes_js_etag: String,
     hermes_mic_href: String,
     hermes_mic_etag: String,
+    /// `/connectors` brand logos (`--connectors-logo-dir`, read at start).
+    cn_logos: Vec<logos::Logo>,
+    /// `/connectors` sheet (t453u).
+    cn_css: String,
+    cn_css_href: String,
+    cn_css_etag: String,
     /// Shared /api/v1/health payload + stamp; see [`HEALTH_CACHE_TTL`].
     health: Mutex<HealthSlot>,
 }
@@ -276,6 +284,9 @@ impl Ui {
         let hc = css::fnv64(hermes_css.as_bytes());
         let hj = css::fnv64(HERMES_JS.as_bytes());
         let hm = css::fnv64(HERMES_MIC_JS.as_bytes());
+        let cn_logos = logos::load(cfg.files.connectors_logo_dir.as_deref());
+        let cn_css = css::connectors_sheet();
+        let cc = css::fnv64(cn_css.as_bytes());
         Ui {
             cfg,
             css_href: format!("/_ui/console.{h:016x}.css"),
@@ -294,6 +305,10 @@ impl Ui {
             hermes_js_etag: format!("\"{hj:016x}\""),
             hermes_mic_href: format!("/_ui/hermes-mic.{hm:016x}.js"),
             hermes_mic_etag: format!("\"{hm:016x}\""),
+            cn_css_href: format!("/_ui/connectors.{cc:016x}.css"),
+            cn_css_etag: format!("\"{cc:016x}\""),
+            cn_css,
+            cn_logos,
             health: Mutex::new(HealthSlot {
                 at: None,
                 value: None,
@@ -327,6 +342,7 @@ impl Ui {
         path.starts_with("/_ui/")
             || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || port4::owns(path)
+            || path == connectors::PATH
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
     }
@@ -455,6 +471,19 @@ impl Ui {
             p if p == self.css_href => return self.stylesheet(req, false),
             p if p == self.overview_css_href => return self.stylesheet(req, true),
             p if p == self.sprite_href => return self.sprite(req),
+            p if p.starts_with(logos::PREFIX) => {
+                return match logos::by_path(&self.cn_logos, p) {
+                    Some(l) => asset(l.mime, &l.etag, &l.bytes),
+                    None => Reply::text(404, "Not found\n"),
+                }
+            }
+            p if p == self.cn_css_href => {
+                return asset(
+                    "text/css; charset=utf-8",
+                    &self.cn_css_etag,
+                    self.cn_css.as_bytes(),
+                )
+            }
             p if p == self.hermes_css_href => {
                 return asset(
                     "text/css; charset=utf-8",
@@ -499,14 +528,19 @@ impl Ui {
         let post_ok = (req.path == "/agents"
             || port2::POST_ROUTES.contains(&req.path)
             || port3::POST_ROUTES.contains(&req.path)
-            || port5::POST_ROUTES.contains(&req.path))
+            || port5::POST_ROUTES.contains(&req.path)
+            || req.path == connectors::PATH)
             && req.method == "POST";
         if req.method != "GET" && req.method != "HEAD" && !post_ok {
             let mut r = Reply::text(405, "Method Not Allowed\n");
             r.headers.push(("Allow".into(), "GET, HEAD".into()));
             return r;
         }
-        if let Err(r) = self.gate(req) {
+        if let Err(mut r) = self.gate(req) {
+            // /connectors: a refused owner gate is a 401 (same gate as /hermes).
+            if req.path == connectors::PATH && r.status == 200 {
+                r.status = 401;
+            }
             return r;
         }
         match req.path {
@@ -530,6 +564,7 @@ impl Ui {
             "/memory" | "/mesh" => self.port4_room(req),
             p if port4::owns(p) => self.port4_room(req),
             "/node" | "/security" | "/session" => self.port5_room(req),
+            connectors::PATH => self.connectors_room(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);

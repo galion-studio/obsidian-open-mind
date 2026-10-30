@@ -39,6 +39,7 @@ mod services;
 mod speech;
 mod sqlite_ro;
 mod stt;
+mod threads;
 mod trace;
 mod zagreb;
 
@@ -577,7 +578,14 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
                 None,
             );
         }
-        let bytes = admin_say(&json_string(&body, "text"));
+        let fresh = String::from_utf8_lossy(&body)
+            .replace(' ', "")
+            .contains("\"fresh\":true");
+        let bytes = admin_say(
+            &json_string(&body, "text"),
+            &json_string(&body, "thread"),
+            fresh,
+        );
         return write_response(&mut stream, 200, "application/json", &bytes, None);
     }
     if method == "POST" && path == "/pair/invite" {
@@ -633,6 +641,28 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
             return reply_live(&mut stream, &body, &with_files);
         };
         return write_response(&mut stream, 200, "application/json", &bytes, None);
+    }
+    if method == "GET" && path == "/threads" {
+        // Galion One's own threads (t443u/t444u): list, or one thread's
+        // messages with ?id=. Paired only; read from the Hermes gateway.
+        if !token_ok(&cookie) {
+            return write_response(
+                &mut stream,
+                401,
+                "application/json",
+                br#"{"error":"pair"}"#,
+                None,
+            );
+        }
+        let id = query_get(&query, "id");
+        let (status, bytes) = threads_route(&id);
+        return write_response(
+            &mut stream,
+            status,
+            "application/json",
+            bytes.as_bytes(),
+            None,
+        );
     }
     if method == "GET" && path == "/session" {
         if !token_ok(&cookie) {
@@ -873,6 +903,7 @@ fn pull_hermes(heard: &str, mut on_delta: impl FnMut(&str) -> bool) -> bool {
     ));
     let key = hermes_key();
     let auth = format!("Bearer {key}");
+    let thread = pick_thread("", false);
     let addr = mind_addr();
     let mut sock = match TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
         Ok(sock) => sock,
@@ -881,7 +912,8 @@ fn pull_hermes(heard: &str, mut on_delta: impl FnMut(&str) -> bool) -> bool {
     let _ = sock.set_read_timeout(Some(Duration::from_secs(22)));
     let _ = sock.set_write_timeout(Some(Duration::from_secs(5)));
     let head = format!(
-        "POST /v1/chat/completions HTTP/1.0\r\nHost: {addr}\r\nConnection: close\r\nContent-Type: application/json\r\nAuthorization: {auth}\r\nX-Hermes-Session-Id: one-voice\r\nX-Hermes-Session-Key: galion-one\r\nContent-Length: {}\r\n\r\n",
+        "POST /v1/chat/completions HTTP/1.0\r\nHost: {addr}\r\nConnection: close\r\nContent-Type: application/json\r\nAuthorization: {auth}\r\nX-Hermes-Session-Id: {thread}\r\nX-Hermes-Session-Key: {}\r\nContent-Length: {}\r\n\r\n",
+        threads::KEY,
         payload.len()
     );
     if sock.write_all(head.as_bytes()).is_err() || sock.write_all(payload.as_bytes()).is_err() {
@@ -1060,6 +1092,7 @@ fn ask_hermes(heard: &str) -> String {
     ));
     let key = hermes_key();
     let auth = format!("Bearer {key}");
+    let thread = pick_thread("", false);
     let body = match http_to(
         mind_addr(),
         "POST",
@@ -1067,8 +1100,8 @@ fn ask_hermes(heard: &str) -> String {
         &[
             ("Authorization", auth.as_str()),
             ("Content-Type", "application/json"),
-            ("X-Hermes-Session-Id", "one-voice"),
-            ("X-Hermes-Session-Key", "galion-one"),
+            ("X-Hermes-Session-Id", thread.as_str()),
+            ("X-Hermes-Session-Key", threads::KEY),
         ],
         payload.as_bytes(),
         Duration::from_secs(22),
@@ -1086,7 +1119,7 @@ fn ask_hermes(heard: &str) -> String {
     }
 }
 
-fn admin_say(text: &str) -> Vec<u8> {
+fn admin_say(text: &str, requested: &str, fresh: bool) -> Vec<u8> {
     let text = text.trim();
     if text.is_empty() {
         return br#"{"say":""}"#.to_vec();
@@ -1094,27 +1127,15 @@ fn admin_say(text: &str) -> Vec<u8> {
     let Ok(_guard) = mouth().try_lock() else {
         return br#"{"say":"Wait"}"#.to_vec();
     };
-    let prior: Vec<Turn> = nerve()
-        .lock()
-        .ok()
-        .map(|n| n.line.iter().take(3).cloned().collect())
-        .unwrap_or_default();
+    // One conversation = one gateway thread (t443u). The gateway keeps the
+    // thread's transcript, so only the system line and the new message are
+    // sent; the shared session key keeps memory common to every thread.
+    let thread = pick_thread(requested, fresh);
     let setting = persona::admin_line();
-    let mut messages = vec![format!(
-        "{{\"role\":\"system\",\"content\":{}}}",
-        quote(setting)
-    )];
-    for turn in prior.iter().rev() {
-        messages.push(format!(
-            "{{\"role\":\"user\",\"content\":{}}}",
-            quote(&turn.you)
-        ));
-        messages.push(format!(
-            "{{\"role\":\"assistant\",\"content\":{}}}",
-            quote(&turn.hermes)
-        ));
-    }
-    messages.push(format!("{{\"role\":\"user\",\"content\":{}}}", quote(text)));
+    let messages = [
+        format!("{{\"role\":\"system\",\"content\":{}}}", quote(setting)),
+        format!("{{\"role\":\"user\",\"content\":{}}}", quote(text)),
+    ];
     let payload = with_lane_model(format!(
         "{{\"model\":\"hermes-agent\",\"stream\":false,\"max_tokens\":180,\"messages\":[{}]}}",
         messages.join(",")
@@ -1129,14 +1150,16 @@ fn admin_say(text: &str) -> Vec<u8> {
         &[
             ("Authorization", auth.as_str()),
             ("Content-Type", "application/json"),
-            ("X-Hermes-Session-Id", "one-admin"),
-            ("X-Hermes-Session-Key", "galion-one"),
+            ("X-Hermes-Session-Id", thread.as_str()),
+            ("X-Hermes-Session-Key", threads::KEY),
         ],
         payload.as_bytes(),
         Duration::from_secs(22),
     ) {
         Ok((_, body)) => body,
-        Err(_) => return br#"{"say":"Again"}"#.to_vec(),
+        Err(_) => {
+            return format!("{{\"say\":\"Again\",\"thread\":{}}}", quote(&thread)).into_bytes()
+        }
     };
     let ms = t.elapsed().as_millis() as u32;
     note(format!("admin {ms} ms"));
@@ -1158,7 +1181,82 @@ fn admin_say(text: &str) -> Vec<u8> {
         );
         n.line.truncate(8);
     }
-    format!("{{\"say\":{}}}", quote(&say)).into_bytes()
+    format!("{{\"say\":{},\"thread\":{}}}", quote(&say), quote(&thread)).into_bytes()
+}
+
+fn thread_state_path() -> String {
+    p("one/thread.json")
+}
+
+fn rnd3() -> [u8; 3] {
+    let mut buf = [0u8; 3];
+    if let Ok(mut file) = File::open("/dev/urandom") {
+        let _ = file.read_exact(&mut buf);
+    }
+    buf
+}
+
+fn thread_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// The thread for this turn ([`threads::choose`]); records it as current.
+fn pick_thread(requested: &str, fresh: bool) -> String {
+    let _g = thread_lock().lock();
+    let path = thread_state_path();
+    let cur = fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| threads::parse_state(&t));
+    let now = unix_secs();
+    let id = threads::choose(
+        requested,
+        fresh,
+        cur.as_ref().map(|(i, l)| (i.as_str(), *l)),
+        now,
+        rnd3(),
+    );
+    let tmp = format!("{path}.tmp");
+    if fs::write(&tmp, threads::state_text(&id, now)).is_ok() {
+        let _ = fs::rename(&tmp, &path);
+    }
+    id
+}
+
+/// The current thread if still inside the idle gap ("" otherwise).
+fn active_thread() -> String {
+    fs::read_to_string(thread_state_path())
+        .ok()
+        .and_then(|t| threads::parse_state(&t))
+        .filter(|(_, last)| unix_secs().saturating_sub(*last) < threads::IDLE_SECS)
+        .map(|(id, _)| id)
+        .unwrap_or_default()
+}
+
+/// GET /threads (list) and /threads?id= (one thread's messages).
+fn threads_route(id: &str) -> (u16, String) {
+    let key = hermes_key();
+    let auth = format!("Bearer {key}");
+    let hdr = [("Authorization", auth.as_str())];
+    let get = |path: &str| http_to(mind_addr(), "GET", path, &hdr, b"", Duration::from_secs(6));
+    if id.is_empty() {
+        return match get("/api/sessions?limit=200") {
+            Ok((200, body)) => (200, threads::list_json(&body, &active_thread())),
+            _ => (502, r#"{"error":"hermes"}"#.to_string()),
+        };
+    }
+    if !threads::valid(id) {
+        return (400, r#"{"error":"id"}"#.to_string());
+    }
+    match get(&format!("/api/sessions/{id}")) {
+        Ok((200, meta)) if threads::is_one_row(&meta) => {}
+        Ok((200, _)) | Ok((404, _)) => return (404, r#"{"error":"thread"}"#.to_string()),
+        _ => return (502, r#"{"error":"hermes"}"#.to_string()),
+    }
+    match get(&format!("/api/sessions/{id}/messages")) {
+        Ok((200, body)) => (200, threads::messages_json(id, &body)),
+        _ => (502, r#"{"error":"hermes"}"#.to_string()),
+    }
 }
 
 fn load_edge() -> Vec<Edge> {

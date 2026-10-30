@@ -1,6 +1,6 @@
 // Galion One V2 room (owner orders t431u/t432u, 2026-10-30 CET), ported from the console V2 /hermes room (68d5711e hermes.js).
 // Plain ES5-style script, no framework, no build step. Talks only to the galion-one routes of this host:
-// /me /pair /pair/invite /admin/say /session /files /model /models /voice /api/v1/awake /stt/health /stt/stream.
+// /me /pair /pair/invite /admin/say /threads /session /files /model /models /voice /api/v1/awake /stt/health /stt/stream.
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
@@ -155,10 +155,15 @@
     wait.textContent = "Hermes is thinking";
     log.appendChild(wait);
     scrollEnd();
-    post("/admin/say", { text: text }).then(function (r) {
+    var pick = threadFor();
+    post("/admin/say", { text: text, thread: pick.thread, fresh: pick.fresh }).then(function (r) {
       if (wait.parentNode) wait.parentNode.removeChild(wait);
       if (r.status === 401 || r.json.error === "pair") { setBusy(false); unpaired("This phone is no longer paired. Enter your pairing code."); return; }
       var say = (r.json.say || "").trim();
+      if (r.json.thread) {
+        var was = getThread();
+        setThread({ id: r.json.thread, last: Date.now(), pinned: was.id === r.json.thread && !!was.pinned, fresh: false });
+      }
       if (say === "Wait") return fail("Hermes is still answering something else. Try again in a moment.");
       if (!say || say === "Again") return fail("Hermes did not answer. Try again.");
       setState("speak");
@@ -168,6 +173,62 @@
       if (wait.parentNode) wait.parentNode.removeChild(wait);
       fail("No connection. Check your network and try again.");
     });
+  }
+  // ---- Threads (t443u/t444u): one conversation = one Hermes thread.
+  // The active thread is kept on this phone with the time of its last turn.
+  // After 30 idle minutes the next message starts a new thread, unless the
+  // user reopened this thread from History (pinned) -- then it stays open
+  // until they tap New chat or open another one.
+  var TH = "galion-one-thread", IDLE_MS = 30 * 60 * 1000;
+  function getThread() {
+    try { var t = JSON.parse(localStorage.getItem(TH) || "null"); if (t && typeof t === "object") return t; } catch (e) {}
+    return { id: "", last: 0, pinned: false, fresh: false };
+  }
+  function setThread(t) { try { localStorage.setItem(TH, JSON.stringify(t)); } catch (e) {} }
+  function threadFor() {
+    var t = getThread();
+    if (t.fresh || !t.id) return { thread: "", fresh: true };
+    if (!t.pinned && Date.now() - (t.last || 0) >= IDLE_MS) return { thread: "", fresh: true };
+    return { thread: t.id, fresh: false };
+  }
+  function clearLog() { log.textContent = ""; }
+  function newChat(quiet) {
+    if (busy) return;
+    setThread({ id: "", last: 0, pinned: false, fresh: true });
+    clearLog();
+    chatting = false; hm.classList.remove("g1-chat");
+    $("hm-hist").open = false;
+    markThread("");
+    if (!quiet) { setState("idle", "New chat"); cue("done"); }
+    q.focus();
+  }
+  function markThread(id) {
+    Array.prototype.forEach.call($("hm-list").querySelectorAll("button.hm-item"), function (b) {
+      if (id && b.getAttribute("data-id") === id) b.setAttribute("aria-current", "true"); else b.removeAttribute("aria-current");
+    });
+  }
+  function openThread(id, pinned) {
+    return api("/threads?id=" + encodeURIComponent(id)).then(function (r) {
+      if (r.status !== 200) { if (pinned) fail("That conversation did not load. Try again."); return false; }
+      clearLog();
+      var msgs = r.json.messages || [];
+      msgs.forEach(function (m) { var el = addMsg(m.role === "user" ? "user" : "assistant", ""); el.textContent = m.text || ""; });
+      if (!msgs.length) { chatting = false; hm.classList.remove("g1-chat"); }
+      var t = getThread();
+      setThread({ id: id, last: pinned ? Date.now() : (t.last || Date.now()), pinned: pinned || (t.id === id && t.pinned), fresh: false });
+      markThread(id);
+      $("hm-hist").open = false;
+      if (pinned) setState("idle", "Back in this conversation");
+      scrollEnd();
+      return true;
+    });
+  }
+  $("g1-new").addEventListener("click", function () { newChat(false); });
+  function resumeThread() {
+    var t = getThread();
+    if (!t.id || t.fresh) return;
+    if (!t.pinned && Date.now() - (t.last || 0) >= IDLE_MS) return;
+    openThread(t.id, false).catch(function () {});
   }
   function fail(msg) {
     var p = document.createElement("p");
@@ -193,23 +254,31 @@
   form.addEventListener("submit", function (e) { e.preventDefault(); ask(q.value); });
   function say(text, bad) { note.textContent = text || NOTE; note.className = "hm-note" + (bad ? " t-bad" : ""); }
 
-  // ---- History (spoken turns kept by galion-one).
+  // ---- History: this phone's Galion One conversations (one Hermes thread each).
+  function when(sec) {
+    if (!sec) return "";
+    try { return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zagreb" }).format(new Date(sec * 1000)); }
+    catch (e) { return new Date(sec * 1000).toLocaleString(); }
+  }
   function loadHistory() {
     if (!paired) return;
-    api("/session").then(function (r) {
-      var turns = r.json.turns || [], list = $("hm-list");
+    api("/session").then(function (r) { if (r.json.voice) paintVoice(r.json.voice); }).catch(function () {});
+    api("/threads").then(function (r) {
+      if (r.status !== 200) return;
+      var rows = r.json.threads || [], list = $("hm-list");
       list.textContent = "";
-      if (r.json.voice) paintVoice(r.json.voice);
-      if (!turns.length) { var e = document.createElement("li"); e.className = "hm-empty"; e.textContent = "Nothing yet."; list.appendChild(e); return; }
-      turns.forEach(function (turn) {
+      if (!rows.length) { var e = document.createElement("li"); e.className = "hm-empty"; e.textContent = "Nothing yet."; list.appendChild(e); return; }
+      rows.forEach(function (th) {
         var li = document.createElement("li"), b = document.createElement("button");
-        b.type = "button"; b.className = "hm-item";
-        var a = document.createElement("span"); a.className = "hm-it"; a.textContent = turn.heard || "";
-        var m = document.createElement("span"); m.className = "hm-im"; m.textContent = turn.said || "";
+        b.type = "button"; b.className = "hm-item"; b.setAttribute("data-id", th.id);
+        var a = document.createElement("span"); a.className = "hm-it"; a.textContent = th.title || th.id;
+        var m = document.createElement("span"); m.className = "hm-im"; m.textContent = [when(th.at), (th.count || 0) + " messages"].filter(Boolean).join(" · ");
         b.appendChild(a); b.appendChild(m);
-        b.addEventListener("click", function () { addMsg("user", turn.heard || ""); addMsg("assistant", turn.said || ""); $("hm-hist").open = false; });
+        b.addEventListener("click", function () { if (!busy) openThread(th.id, true).catch(function () { fail("No connection. Check your network and try again."); }); });
         li.appendChild(b); list.appendChild(li);
       });
+      var t = getThread();
+      markThread(t.fresh ? "" : t.id);
     }).catch(function () {});
   }
 
@@ -293,7 +362,7 @@
     paired = false;
     form.hidden = true;
     pairForm.hidden = false;
-    $("hm-hist").hidden = true;
+    $("g1-threads").hidden = true;
     pill("st-dev", "warn", "not paired");
     pill("st-stt", "", "pair first");
     $("g1-pair-note").textContent = msg || "";
@@ -303,10 +372,10 @@
     paired = true;
     pairForm.hidden = true;
     form.hidden = false;
-    $("hm-hist").hidden = false;
+    $("g1-threads").hidden = false;
     pill("st-dev", "ok", "paired");
     setState("idle");
-    loadModel(); loadHistory(); sttHealth();
+    loadModel(); loadHistory(); sttHealth(); resumeThread();
   }
   pairForm.addEventListener("submit", function (e) {
     e.preventDefault();

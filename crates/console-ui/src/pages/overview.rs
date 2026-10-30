@@ -105,7 +105,7 @@ About {lo} to {hi} agents hold at once. Agents stopped by the request limit go b
 <line class=\"ov-arrow\" x1=\"180\" y1=\"56\" x2=\"180\" y2=\"80\" marker-end=\"url(#ov-ah)\"/>\
 <rect class=\"ov-node ov-hi\" x=\"40\" y=\"82\" width=\"280\" height=\"64\" rx=\"12\"/>\
 <text class=\"ov-t\" x=\"180\" y=\"104\" text-anchor=\"middle\">Hermes · coordinator</text>\
-<text class=\"ov-ts\" x=\"180\" y=\"121\" text-anchor=\"middle\">governor cap {gov} · readiness 11/15</text>\
+<text class=\"ov-ts\" x=\"180\" y=\"121\" text-anchor=\"middle\">governor cap {gov} · readiness {ready}</text>\
 <text class=\"ov-ts ov-mono\" x=\"180\" y=\"137\" text-anchor=\"middle\">{hb} {hs}</text>\
 <line class=\"ov-arrow\" x1=\"180\" y1=\"146\" x2=\"180\" y2=\"168\" marker-end=\"url(#ov-ah)\"/>\
 <rect class=\"ov-group\" x=\"8\" y=\"170\" width=\"344\" height=\"232\" rx=\"14\"/>\
@@ -132,6 +132,7 @@ About {lo} to {hi} agents hold at once. Agents stopped by the request limit go b
         lo = PROCESS.measured_lo,
         hi = PROCESS.measured_hi,
         gov = PROCESS.governor,
+        ready = esc(ov::HERMES_READINESS),
         ceiling = PROCESS.ceiling,
         hb = esc(hb),
         hs = esc(hs),
@@ -382,5 +383,20 @@ mod tests {
         // Ceiling 250 spans the track (336 px); 20 is 26.9 px of it.
         assert!(c.contains("width=\"336.0\""));
         assert!(c.contains(">18–20<"));
+    }
+
+    #[test]
+    fn hermes_readiness_is_one_number_on_card_and_diagram() {
+        let h = SECTORS.iter().find(|s| s.id == "hermes").unwrap();
+        assert!(h
+            .status
+            .starts_with(&format!("readiness {}, ", ov::HERMES_READINESS)));
+        let b = body(14);
+        assert!(b.contains(&format!("readiness {}</text>", ov::HERMES_READINESS)));
+        assert!(
+            !b.contains("11/15"),
+            "stale 11/15 readiness left on the page"
+        );
+        assert!(!b.contains("OpenRouter 402"), "stale G11 wording");
     }
 }

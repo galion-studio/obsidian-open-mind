@@ -19,6 +19,11 @@
 /// When these facts were last checked.
 pub const AS_OF: &str = "2026-10-20 22:52 CEST (+02:00)";
 
+/// Hermes readiness score, from `hermes readiness --repo <main 7ba85b60>` on
+/// swarm/hermes-readiness-core-20261030, 2026-10-30 11:44 CET (+01:00). The
+/// Hermes card status and the process diagram both show it.
+pub const HERMES_READINESS: &str = "12/15";
+
 pub const KICKER: &str = "PROJECT 42 · Gaia · Galion Studio";
 
 /// Vision headline.
@@ -131,15 +136,19 @@ pub const SECTORS: &[Sector] = &[
         name: "Hermes",
         role: "Boss operator, research, and coordinator of the 7 sectors.",
         state: State::Blocked,
-        status: "readiness 11/15, not ready",
+        status: "readiness 12/15, not ready (re-run 2026-10-30 11:44 CET)",
         facts: &[
-            "Coordinator: sector registry, task queue, hash-chained ledger, governor cap 16",
+            "Coordinator (hermes-core, built, not deployed): sector registry, task queue, hash-chained ledger, governor cap 16",
             "Retry backoff 30 → 600 s, 8 tries; model calls mocked",
             "HADES gate: merge always refused; deploy and destructive steps need Slavik's signature",
-            "Failing gates: G9 HADES admin key, G11 OpenRouter 402, G12 branches not on main, G14 7 open decisions",
-            "hermes-rs live on 8642 since 2026-10-18 22:00 CEST",
+            "Failing gates: G9 HADES admin key, G11 paid model approval, G14 5 open owner decisions",
+            "G12 now passes: integration-1, hades-approval and gaia-land are on main 7ba85b60",
+            "hermes-rs live on 8642: 22 tools, 54 skills, deny list, default x-ai/grok-4.7 (2026-10-30)",
         ],
-        refs: &[("swarm/hermes-core", "45b7980")],
+        refs: &[
+            ("swarm/hermes-core", "45b7980"),
+            ("swarm/hermes-readiness-core-20261030", "64166c7"),
+        ],
     },
     Sector {
         id: "console",

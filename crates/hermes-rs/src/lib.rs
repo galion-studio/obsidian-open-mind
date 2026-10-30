@@ -19,6 +19,7 @@ pub mod denylist;
 pub mod enroll;
 pub mod http;
 pub mod mcp;
+pub mod mcp_transport;
 pub mod memory;
 pub mod persona;
 pub mod provider;
@@ -73,13 +74,24 @@ pub fn redact(text: &str) -> String {
         let core = w.trim_end();
         let tail = &w[core.len()..];
         let looks_secret = prev_bearer
-            || ["sk-", "or-v1-", "ghp_", "gho_", "xoxb-", "xoxp-", "AKIA"]
-                .iter()
-                .any(|p| {
-                    core.trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
-                        .starts_with(p)
-                        && core.len() >= 16
-                })
+            || [
+                "sk-",
+                "or-v1-",
+                "ghp_",
+                "gho_",
+                "ghs_",
+                "ghu_",
+                "github_pat_",
+                "xoxb-",
+                "xoxp-",
+                "AKIA",
+            ]
+            .iter()
+            .any(|p| {
+                core.trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+                    .starts_with(p)
+                    && core.len() >= 16
+            })
             || key_value_secret(core);
         if looks_secret && !core.is_empty() {
             if let Some(eq) = core.find('=') {

@@ -30,6 +30,7 @@ fn stdio_server_discovery_paging_call_and_reconnect() {
         timeout_s: 5,
         connect_timeout_s: 5,
         lazy: true,
+        ..McpServerCfg::default()
     };
     let broken = McpServerCfg {
         name: "gone".into(),
@@ -52,12 +53,18 @@ fn stdio_server_discovery_paging_call_and_reconnect() {
     );
     assert_eq!(tools[1].parameters()["type"], "object");
     let o = call(&tools[0], json!({"unit": "hermes.service"}));
-    assert!(!o.is_error && o.content == "hermes.service active", "{o:?}");
+    assert!(
+        !o.is_error && o.content.ends_with("\nhermes.service active"),
+        "{o:?}"
+    );
+    assert!(o
+        .content
+        .starts_with("[MCP server galion-stack output: untrusted"));
     let o = call(&tools[1], json!({}));
     assert!(o.is_error, "server exit is a tool error: {o:?}");
     let o = call(&tools[0], json!({"unit": "console.service"}));
-    assert_eq!(
-        o.content, "console.service active",
-        "reconnected after the crash"
+    assert!(
+        o.content.ends_with("console.service active"),
+        "reconnected after the crash: {o:?}"
     );
 }

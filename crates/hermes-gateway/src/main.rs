@@ -128,6 +128,32 @@ fn main() {
         );
         return;
     }
+    // Dry run of MCP discovery (no port, no stores): what would register.
+    if args.iter().any(|a| a == "--check-mcp") {
+        for w in &cfg.mcp_warnings {
+            println!("WARNING {w}");
+        }
+        let (_t, reports) = hermes_rs::mcp::discover_report(&cfg.mcp_servers);
+        for r in reports {
+            match r.error {
+                Some(e) => println!("server {} NOT CONNECTED: {e}", r.name),
+                None => {
+                    println!("server {} tools {}", r.name, r.registered.len());
+                    for n in &r.registered {
+                        if r.gated.contains(n) {
+                            println!("  + {n} (gated: writes off)");
+                        } else {
+                            println!("  + {n}");
+                        }
+                    }
+                    for (n, why) in r.skipped {
+                        println!("  - {n} ({why})");
+                    }
+                }
+            }
+        }
+        return;
+    }
     let api_key = cfg.api_key(&env);
     let cfg = Arc::new(cfg);
     let provider: Arc<dyn Provider> = if mock {
@@ -169,10 +195,34 @@ fn main() {
         tools.add(Arc::new(hermes_rs::citations::CitationsTool { dir }));
         log("skill tools: arxiv_search, citations");
     }
+    for w in &cfg.mcp_warnings {
+        log(&format!("mcp: WARNING: {w}"));
+    }
     if !cfg.mcp_servers.is_empty() {
-        let (mcp_tools, errors) = hermes_rs::mcp::discover(&cfg.mcp_servers);
-        for e in errors {
-            log(&format!("mcp: {e}"));
+        let (mcp_tools, reports) = hermes_rs::mcp::discover_report(&cfg.mcp_servers);
+        for r in &reports {
+            match &r.error {
+                Some(e) => log(&format!("mcp: {}: NOT CONNECTED: {e}", r.name)),
+                None => log(&format!(
+                    "mcp: {}: {} tools ({} write tools gated off){}",
+                    r.name,
+                    r.registered.len(),
+                    r.gated.len(),
+                    if r.skipped.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            ", skipped {}: {}",
+                            r.skipped.len(),
+                            r.skipped
+                                .iter()
+                                .map(|(n, why)| format!("{n} ({why})"))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    }
+                )),
+            }
         }
         log(&format!("mcp: {} tools", mcp_tools.len()));
         for t in mcp_tools {

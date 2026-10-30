@@ -63,6 +63,11 @@ pub trait Tool: Send + Sync {
     fn parameters(&self) -> Value;
     fn description(&self) -> String;
     fn call(&self, args: &Value, ctx: &ToolCtx) -> ToolOutput;
+    /// Name the deny list classifies this tool by (shell / write / code
+    /// hints). Defaults to `name()`; MCP tools add their server's class.
+    fn deny_name(&self) -> String {
+        self.name()
+    }
 }
 
 #[derive(Clone, Default)]
@@ -90,9 +95,12 @@ impl Tool for Guarded {
     fn description(&self) -> String {
         self.inner.description()
     }
+    fn deny_name(&self) -> String {
+        self.inner.deny_name()
+    }
     fn call(&self, args: &Value, ctx: &ToolCtx) -> ToolOutput {
         let name = self.inner.name();
-        match crate::denylist::check_tool_call(&name, args, &self.policy) {
+        match crate::denylist::check_tool_call(&self.inner.deny_name(), args, &self.policy) {
             Ok(()) => self.inner.call(args, ctx),
             Err(d) => {
                 eprintln!(

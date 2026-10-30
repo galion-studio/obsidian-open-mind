@@ -45,14 +45,308 @@ pub struct DelegationCfg {
     pub require_user_ask: bool,
 }
 
+/// How hermes-rs talks to an MCP server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum McpTransport {
+    /// Child process, newline-delimited JSON-RPC on stdin/stdout.
+    #[default]
+    Stdio,
+    /// MCP "Streamable HTTP" (2025-03-26+): one POST per message, JSON or SSE reply.
+    Http,
+    /// Legacy HTTP+SSE (2024-11-05): GET event stream + POST to the `endpoint` event URL.
+    Sse,
+}
+
+/// What a server's tools can do, as far as the deny list is concerned.
+/// `Read` uses the tool-name hints only; `Write` makes every tool a write
+/// tool (paths are write targets, vault writes refused); `Shell` makes every
+/// tool a shell tool (needs an inspectable command argument).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum McpClass {
+    #[default]
+    Read,
+    Write,
+    Shell,
+}
+
+/// How write tools of a server with writes off are exposed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum McpWriteTools {
+    #[default]
+    Hidden,
+    Gated,
+}
+
+/// One MCP server. Secrets never live here: only the path of a per-server
+/// env file (mode 0600, or a systemd credential) whose values are read at
+/// connect time and handed to that server alone.
 #[derive(Debug, Clone, PartialEq)]
 pub struct McpServerCfg {
     pub name: String,
+    /// stdio: program to run (empty for url servers).
     pub command: String,
     pub args: Vec<String>,
+    /// http / sse: server URL.
+    pub url: Option<String>,
+    pub transport: McpTransport,
     pub timeout_s: u64,
     pub connect_timeout_s: u64,
+    /// Lazy: discover tools at startup (in parallel), then stop the server;
+    /// it is started again on the first call.
     pub lazy: bool,
+    /// Literal env for the child; `${NAME}` is replaced from `env_file`.
+    pub env: BTreeMap<String, String>,
+    /// `KEY=VALUE` secrets file (mode 0600/0400, owner root or us), or
+    /// `credential:<name>` for `$CREDENTIALS_DIRECTORY/<name>` (LoadCredential=).
+    pub env_file: Option<String>,
+    /// Names from `env_file` passed to a stdio child. None = all of them.
+    pub pass_env: Option<Vec<String>>,
+    /// HTTP headers (url servers); `${NAME}` is replaced from `env_file`.
+    pub headers: BTreeMap<String, String>,
+    /// Secrets that must be present, else the server waits (not started).
+    pub require_env: Vec<String>,
+    /// Only these tools are registered (exact names, or `prefix*`). None = all.
+    pub allow_tools: Option<Vec<String>>,
+    pub deny_tools: Vec<String>,
+    pub class: McpClass,
+    /// Writes are OFF unless set: tools that are not read-only (MCP
+    /// `readOnlyHint`, or no write hint in the name) are not registered.
+    pub allow_writes: bool,
+    /// What "writes off" means for a write tool: `hidden` (default, not
+    /// registered) or `gated` (registered with its exact name and schema,
+    /// but every call is refused until `allow_writes: true`).
+    pub write_tools: McpWriteTools,
+    /// Our own vetted server (e.g. github-mcp-rs): descriptions are passed
+    /// through as written (still capped and control-stripped) instead of
+    /// being labelled untrusted. Tool OUTPUT is always labelled untrusted.
+    pub trusted_descriptions: bool,
+    /// Cap on the text a tool call returns to the model.
+    pub max_result_chars: usize,
+    /// Cap on each tool description (server text is untrusted).
+    pub max_description_chars: usize,
+    pub max_tools: usize,
+    /// `uid:gid` the stdio child (and curl) runs as when the gateway is
+    /// root; `root` keeps root (logged loudly). None = HERMES_RS_MCP_RUN_AS
+    /// or 65534:65534.
+    pub run_as: Option<String>,
+    /// Working directory of a stdio child (default `/`).
+    pub cwd: Option<String>,
+    /// `oauth` is not implemented yet (TODO): such servers are not started.
+    pub auth: Option<String>,
+    /// Where the entry came from (config.yaml or the MCP servers file).
+    pub source: String,
+}
+
+impl Default for McpServerCfg {
+    fn default() -> Self {
+        McpServerCfg {
+            name: String::new(),
+            command: String::new(),
+            args: Vec::new(),
+            url: None,
+            transport: McpTransport::Stdio,
+            timeout_s: 30,
+            connect_timeout_s: 15,
+            lazy: false,
+            env: BTreeMap::new(),
+            env_file: None,
+            pass_env: None,
+            headers: BTreeMap::new(),
+            require_env: Vec::new(),
+            allow_tools: None,
+            deny_tools: Vec::new(),
+            class: McpClass::Read,
+            allow_writes: false,
+            write_tools: McpWriteTools::Hidden,
+            trusted_descriptions: false,
+            max_result_chars: 50_000,
+            max_description_chars: 1_024,
+            max_tools: 128,
+            run_as: None,
+            cwd: None,
+            auth: None,
+            source: String::new(),
+        }
+    }
+}
+
+fn str_list(v: &Value) -> Option<Vec<String>> {
+    match v {
+        Value::Array(a) => Some(a.iter().filter_map(s).collect()),
+        Value::String(x) => Some(
+            x.split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+fn str_map(v: &Value) -> BTreeMap<String, String> {
+    v.as_object()
+        .map(|o| {
+            o.iter()
+                .filter_map(|(k, x)| match x {
+                    Value::String(t) => Some((k.clone(), t.clone())),
+                    Value::Number(n) => Some((k.clone(), n.to_string())),
+                    Value::Bool(b) => Some((k.clone(), b.to_string())),
+                    _ => None,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+impl McpServerCfg {
+    /// Parse one `mcp_servers:` entry. `Ok(None)` = disabled. `Err` = a
+    /// broken entry (logged loudly by the caller, never silently dropped).
+    pub fn from_value(name: &str, sv: &Value, source: &str) -> Result<Option<Self>, String> {
+        if !sv.is_object() {
+            return Err(format!("mcp server {name} ({source}): entry is not a map"));
+        }
+        if sv["enabled"].as_bool() == Some(false) {
+            return Ok(None);
+        }
+        let d = McpServerCfg::default();
+        let command = s(&sv["command"]).unwrap_or_default();
+        let url = s(&sv["url"]);
+        let transport = match s(&sv["transport"]).as_deref().map(str::to_ascii_lowercase) {
+            None => {
+                if url.is_some() && command.is_empty() {
+                    McpTransport::Http
+                } else {
+                    McpTransport::Stdio
+                }
+            }
+            Some(t) => match t.as_str() {
+                "stdio" => McpTransport::Stdio,
+                "http" | "streamable_http" | "streamable-http" | "streamablehttp" => {
+                    McpTransport::Http
+                }
+                "sse" => McpTransport::Sse,
+                other => {
+                    return Err(format!(
+                        "mcp server {name} ({source}): unknown transport {other:?}"
+                    ))
+                }
+            },
+        };
+        match transport {
+            McpTransport::Stdio if command.is_empty() => {
+                return Err(format!(
+                    "mcp server {name} ({source}): stdio needs `command:` (got neither command nor a usable url)"
+                ))
+            }
+            McpTransport::Http | McpTransport::Sse if url.is_none() => {
+                return Err(format!("mcp server {name} ({source}): needs `url:`"))
+            }
+            _ => {}
+        }
+        if let Some(u) = &url {
+            if !(u.starts_with("https://") || u.starts_with("http://")) {
+                return Err(format!(
+                    "mcp server {name} ({source}): url must be http(s)://"
+                ));
+            }
+        }
+        let class = match s(&sv["class"]).as_deref().map(str::to_ascii_lowercase) {
+            None => McpClass::Read,
+            Some(c) => match c.as_str() {
+                "read" | "read_only" | "readonly" => McpClass::Read,
+                "write" => McpClass::Write,
+                "shell" | "exec" => McpClass::Shell,
+                other => {
+                    return Err(format!(
+                        "mcp server {name} ({source}): unknown class {other:?} (read, write, shell)"
+                    ))
+                }
+            },
+        };
+        // Old Python-Hermes key: `env:` inline. Values that look like real
+        // secrets are refused here; put them in `env_file`.
+        let env = str_map(&sv["env"]);
+        for (k, v) in &env {
+            if !v.contains("${") && crate::redact(&format!("{k}={v}")) != format!("{k}={v}") {
+                return Err(format!(
+                    "mcp server {name} ({source}): env {k} looks like an inline secret; move it to env_file"
+                ));
+            }
+        }
+        let headers = str_map(&sv["headers"]);
+        for (k, v) in &headers {
+            if k.eq_ignore_ascii_case("authorization") && !v.contains("${") {
+                return Err(format!(
+                    "mcp server {name} ({source}): inline Authorization header; use \"Bearer ${{NAME}}\" with env_file"
+                ));
+            }
+        }
+        let write_tools = match s(&sv["write_tools"]).as_deref() {
+            None | Some("hidden") => McpWriteTools::Hidden,
+            Some("gated") => McpWriteTools::Gated,
+            Some(o) => {
+                return Err(format!(
+                    "mcp server {name} ({source}): write_tools must be hidden or gated, not {o:?}"
+                ))
+            }
+        };
+        let u64_or = |k: &str, dflt: u64| sv[k].as_u64().unwrap_or(dflt);
+        Ok(Some(McpServerCfg {
+            name: name.to_string(),
+            command,
+            args: sv["args"]
+                .as_array()
+                .map(|a| a.iter().filter_map(s).collect())
+                .unwrap_or_default(),
+            url,
+            transport,
+            timeout_s: u64_or("timeout", d.timeout_s),
+            connect_timeout_s: u64_or("connect_timeout", d.connect_timeout_s),
+            lazy: sv["lazy"].as_bool().unwrap_or(false),
+            env,
+            env_file: s(&sv["env_file"]).or_else(|| s(&sv["secrets_file"])),
+            pass_env: str_list(&sv["pass_env"]),
+            headers,
+            require_env: str_list(&sv["require_env"]).unwrap_or_default(),
+            allow_tools: str_list(&sv["allow_tools"]).or_else(|| str_list(&sv["tools"])),
+            deny_tools: str_list(&sv["deny_tools"]).unwrap_or_default(),
+            class,
+            allow_writes: sv["allow_writes"].as_bool().unwrap_or(false),
+            write_tools,
+            trusted_descriptions: sv["trusted_descriptions"].as_bool().unwrap_or(false),
+            max_result_chars: u64_or("max_result_chars", d.max_result_chars as u64) as usize,
+            max_description_chars: u64_or("max_description_chars", d.max_description_chars as u64)
+                as usize,
+            max_tools: u64_or("max_tools", d.max_tools as u64) as usize,
+            run_as: s(&sv["run_as"]),
+            cwd: s(&sv["cwd"]),
+            auth: s(&sv["auth"]),
+            source: source.to_string(),
+        }))
+    }
+}
+
+/// Merge `mcp_servers:` from `v` into `list` (same name = replaced).
+/// Returns loud warnings for broken entries.
+pub fn merge_mcp_servers(list: &mut Vec<McpServerCfg>, v: &Value, source: &str) -> Vec<String> {
+    let mut warn = Vec::new();
+    let Some(obj) = v["mcp_servers"].as_object() else {
+        if !v["mcp_servers"].is_null() {
+            warn.push(format!("{source}: mcp_servers is not a map; ignored"));
+        }
+        return warn;
+    };
+    for (name, sv) in obj {
+        match McpServerCfg::from_value(name, sv, source) {
+            Ok(Some(c)) => {
+                list.retain(|x| x.name != *name);
+                list.push(c);
+            }
+            Ok(None) => list.retain(|x| x.name != *name),
+            Err(e) => warn.push(format!("NOT LOADED: {e}")),
+        }
+    }
+    warn
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,6 +385,8 @@ pub struct Config {
     pub cron_output_dir: PathBuf,
     pub script_timeout_s: u64,
     pub mcp_servers: Vec<McpServerCfg>,
+    /// Broken / skipped MCP entries, logged loudly at startup.
+    pub mcp_warnings: Vec<String>,
     pub spend: SpendCfg,
     pub spend_file: PathBuf,
     /// Own session DB (read-write).
@@ -183,6 +479,7 @@ impl Config {
             cron_output_dir: home.join("rs-cron-output"),
             script_timeout_s: 120,
             mcp_servers: Vec::new(),
+            mcp_warnings: Vec::new(),
             spend: SpendCfg {
                 session_usd_cap: 1.0,
                 daily_usd_cap: 2.0,
@@ -321,28 +618,10 @@ impl Config {
         if let Some(n) = v["tool_loop_guardrails"]["hard_stop_after"]["exact_failure"].as_u64() {
             self.tool_hard_stop_after = n as usize;
         }
-        if let Some(obj) = v["mcp_servers"].as_object() {
+        if v["mcp_servers"].is_object() {
             self.mcp_servers.clear();
-            for (name, sv) in obj {
-                let Some(command) = s(&sv["command"]) else {
-                    continue;
-                };
-                if sv["enabled"].as_bool() == Some(false) {
-                    continue;
-                }
-                let args = sv["args"]
-                    .as_array()
-                    .map(|a| a.iter().filter_map(s).collect())
-                    .unwrap_or_default();
-                self.mcp_servers.push(McpServerCfg {
-                    name: name.clone(),
-                    command,
-                    args,
-                    timeout_s: sv["timeout"].as_u64().unwrap_or(30),
-                    connect_timeout_s: sv["connect_timeout"].as_u64().unwrap_or(15),
-                    lazy: sv["lazy"].as_bool().unwrap_or(false),
-                });
-            }
+            let w = merge_mcp_servers(&mut self.mcp_servers, v, "config.yaml");
+            self.mcp_warnings.extend(w);
         }
         // hermes-rs only keys (ignored by Python Hermes)
         let rs = &v["hermes_rs"];
@@ -406,6 +685,37 @@ impl Config {
         }
         if let Some(x) = get("HERMES_RS_CRON_OUTPUT") {
             self.cron_output_dir = PathBuf::from(x);
+        }
+        // Extra MCP servers file (config.yaml stays untouched): same
+        // `mcp_servers:` shape; an entry with the same name replaces the
+        // config.yaml one, `enabled: false` removes it.
+        if let Some(x) = get("HERMES_RS_MCP_SERVERS_FILE") {
+            match std::fs::read_to_string(&x) {
+                Ok(text) => match yaml::parse(&text) {
+                    Ok(v) => {
+                        let w = merge_mcp_servers(&mut self.mcp_servers, &v, &x);
+                        self.mcp_warnings.extend(w);
+                    }
+                    Err(e) => self
+                        .mcp_warnings
+                        .push(format!("NOT LOADED: MCP servers file {x}: parse: {e}")),
+                },
+                Err(e) => self
+                    .mcp_warnings
+                    .push(format!("NOT LOADED: MCP servers file {x}: {e}")),
+            }
+        }
+        // Default low-privilege user for MCP children when the gateway is root.
+        let run_as = get("HERMES_RS_MCP_RUN_AS");
+        for m in &mut self.mcp_servers {
+            if m.run_as.is_none() {
+                m.run_as = run_as.clone();
+            }
+        }
+        // HERMES_RS_MCP_ONLY=a,b keeps only the named servers.
+        if let Some(x) = get("HERMES_RS_MCP_ONLY") {
+            let keep: Vec<&str> = x.split(',').map(str::trim).collect();
+            self.mcp_servers.retain(|m| keep.contains(&m.name.as_str()));
         }
         // HERMES_RS_MCP=0 skips every configured MCP server (shadow runs).
         if get("HERMES_RS_MCP").is_some_and(|x| matches!(x.as_str(), "0" | "false" | "no" | "off"))
@@ -598,10 +908,7 @@ mcp_servers:
         d.mcp_servers.push(McpServerCfg {
             name: "x".into(),
             command: "true".into(),
-            args: vec![],
-            timeout_s: 1,
-            connect_timeout_s: 1,
-            lazy: false,
+            ..McpServerCfg::default()
         });
         d.apply_env(&env).unwrap();
         assert!(d.mcp_servers.is_empty());

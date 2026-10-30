@@ -1,0 +1,3047 @@
+{
+ "source": "Grok Bot cursor-github MCP (GetDynamicTools namespace cursor-github), captured 2026-10-30 12:37 CET",
+ "read_write_rule": "get_*/list_*/search_*/compare_commits are reads; everything else writes",
+ "tools": [
+  {
+   "name": "add_comment_to_pending_review",
+   "description": "Add an inline comment to the caller's pending (unsubmitted) review on a pull request, via GraphQL addPullRequestReviewThread. Start the review with create_pull_request_review and no `event`, add comments one at a time here, then submit_pending_pull_request_review. The reply is the new review thread with its first comment.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "review_id": {
+      "description": "The pending review's id (from create_pull_request_review). Looked up when omitted: the caller's one PENDING review on the pull request.",
+      "type": "integer",
+      "minimum": 1
+     },
+     "path": {
+      "type": "string",
+      "description": "File path relative to the repository root."
+     },
+     "body": {
+      "type": "string",
+      "minLength": 1
+     },
+     "subject_type": {
+      "description": "LINE (default; needs `line`) or FILE for a whole-file comment.",
+      "type": "string",
+      "enum": [
+       "LINE",
+       "FILE"
+      ]
+     },
+     "line": {
+      "description": "Line in the diff the comment applies to (the last line of a range).",
+      "type": "integer",
+      "minimum": 1
+     },
+     "side": {
+      "type": "string",
+      "enum": [
+       "LEFT",
+       "RIGHT"
+      ]
+     },
+     "start_line": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "start_side": {
+      "type": "string",
+      "enum": [
+       "LEFT",
+       "RIGHT"
+      ]
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number",
+     "path",
+     "body"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "add_discussion_comment",
+   "description": "Comment on a discussion (GraphQL `addDiscussionComment`): a new top-level comment, or a reply when `reply_to_id` names a top-level comment (Discussions nest one level; replying to a reply is refused).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "discussion_number": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "body": {
+      "type": "string",
+      "minLength": 1
+     },
+     "reply_to_id": {
+      "description": "Node id of the top-level comment to reply to.",
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "discussion_number",
+     "body"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "add_issue_comment",
+   "description": "POST /repos/{owner}/{repo}/issues/{issue_number}/comments: comment on an issue or on a pull request's conversation (pass the PR number).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Issue number."
+     },
+     "body": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "issue_number",
+     "body"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "add_sub_issue",
+   "description": "POST /repos/{owner}/{repo}/issues/{issue_number}/sub_issues: make an existing issue a sub-issue of `issue_number`. An issue has one parent: pass `replace_parent: true` to move it from another.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Issue number."
+     },
+     "sub_issue_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The sub-issue's `id` (the numeric id on the issue object, not its number)."
+     },
+     "replace_parent": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "issue_number",
+     "sub_issue_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "compare_commits",
+   "description": "GET /repos/{owner}/{repo}/compare/{base}...{head}: how `head` differs from `base` (`status`, `ahead_by`, `behind_by`), one page of the commits between them, and the files changed with their patches. Pass `base` and `head` as separate arguments, not GitHub REST's single `basehead` path parameter. Both are branches, tags, or SHAs; `head` may be `owner:branch` for a fork.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "base": {
+      "type": "string",
+      "description": "Base branch, tag, or commit SHA."
+     },
+     "head": {
+      "type": "string",
+      "description": "Head branch, tag, or commit SHA."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "base",
+     "head"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "create_branch",
+   "description": "POST /repos/{owner}/{repo}/git/refs: create a branch at `sha`, at the head of `from_branch`, or at the head of the default branch. GitHub answers 422 when the branch already exists.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "branch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Name for the new branch."
+     },
+     "from_branch": {
+      "description": "Branch to start from (default branch when omitted).",
+      "type": "string",
+      "minLength": 1
+     },
+     "sha": {
+      "description": "Exact commit to start from; overrides from_branch.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "branch"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "create_issue",
+   "description": "POST /repos/{owner}/{repo}/issues: open an issue.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "title": {
+      "type": "string",
+      "minLength": 1
+     },
+     "body": {
+      "type": "string"
+     },
+     "labels": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "assignees": {
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "milestone": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "title"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "create_label",
+   "description": "POST /repos/{owner}/{repo}/labels: create a label. GitHub answers 422 `already_exists` when the name is taken.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Label name (case-insensitive)."
+     },
+     "color": {
+      "description": "Random when omitted.",
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{6}$"
+     },
+     "description": {
+      "type": "string",
+      "maxLength": 100
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "name"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "create_pull_request",
+   "description": "POST /repos/{owner}/{repo}/pulls: open a pull request from an existing branch. `head` is the branch with the changes (`user:branch` for a fork), `base` the target branch.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "title": {
+      "type": "string",
+      "minLength": 1
+     },
+     "head": {
+      "type": "string",
+      "minLength": 1
+     },
+     "base": {
+      "type": "string",
+      "minLength": 1
+     },
+     "body": {
+      "description": "Markdown description.",
+      "type": "string"
+     },
+     "draft": {
+      "type": "boolean"
+     },
+     "maintainer_can_modify": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "title",
+     "head",
+     "base"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "create_pull_request_review",
+   "description": "POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews: approve, request changes, or comment, optionally with inline comments on specific files and lines (each needs `path` and `line`, or a legacy `position`). Omit `event` to leave the review PENDING (unsubmitted): then add comments with add_comment_to_pending_review and publish it with submit_pending_pull_request_review.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "event": {
+      "description": "Submit as this; omitted = create a pending review.",
+      "type": "string",
+      "enum": [
+       "APPROVE",
+       "REQUEST_CHANGES",
+       "COMMENT"
+      ]
+     },
+     "body": {
+      "description": "Review summary; required for REQUEST_CHANGES and COMMENT.",
+      "type": "string"
+     },
+     "commit_id": {
+      "description": "Head SHA the review applies to; defaults to the current head.",
+      "type": "string"
+     },
+     "comments": {
+      "maxItems": 50,
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "path": {
+         "type": "string",
+         "description": "File path relative to the repository root."
+        },
+        "body": {
+         "type": "string",
+         "minLength": 1
+        },
+        "line": {
+         "description": "Line in the diff the comment applies to (the last line of a range).",
+         "type": "integer",
+         "minimum": 1
+        },
+        "side": {
+         "type": "string",
+         "enum": [
+          "LEFT",
+          "RIGHT"
+         ]
+        },
+        "start_line": {
+         "type": "integer",
+         "minimum": 1
+        },
+        "start_side": {
+         "type": "string",
+         "enum": [
+          "LEFT",
+          "RIGHT"
+         ]
+        },
+        "position": {
+         "description": "Legacy diff position; prefer line/side.",
+         "type": "integer",
+         "minimum": 1
+        }
+       },
+       "required": [
+        "path",
+        "body"
+       ],
+       "additionalProperties": false
+      }
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "delete_discussion_comment",
+   "description": "Delete a discussion comment (GraphQL `deleteDiscussionComment`). Irreversible; confirm with the user when not explicitly asked.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "comment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The comment's node id (`id`, e.g. DC_kwDO...), from get_discussion_comments."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "comment_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "delete_label",
+   "description": "DELETE /repos/{owner}/{repo}/labels/{name}: delete a label from the repository, removing it from every issue and pull request that carries it. Irreversible; confirm with the user when not explicitly asked. Always call `list_labels` first.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Label name (case-insensitive)."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "name"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "delete_pending_pull_request_review",
+   "description": "DELETE /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}: discard the caller's pending review and every comment queued on it. Only a PENDING review can be deleted; submitted reviews stay.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "review_id": {
+      "description": "The pending review's id (from create_pull_request_review). Looked up when omitted: the caller's one PENDING review on the pull request.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_branch",
+   "description": "GET /repos/{owner}/{repo}/branches/{branch}: one branch with its head commit and protection summary.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "branch": {
+      "type": "string",
+      "description": "Branch name (may contain `/`)."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "branch"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_commit",
+   "description": "GET /repos/{owner}/{repo}/commits/{ref}: one commit with its stats and the files it touched (each with a `patch`), by SHA, branch, or tag.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "ref": {
+      "type": "string",
+      "description": "Commit SHA, branch name, or tag name."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "ref"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_commit_combined_status",
+   "description": "GET /repos/{owner}/{repo}/commits/{ref}/status: the combined commit status (legacy status API) for a ref, e.g. a pull request's head SHA.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "ref": {
+      "type": "string",
+      "description": "Commit SHA, branch name, or tag name."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "ref"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_discussion",
+   "description": "One discussion by number (GraphQL `repository.discussion`): title, body, category, labels, the accepted answer if any, and counts.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "discussion_number": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "discussion_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_discussion_comments",
+   "description": "One page of a discussion's top-level comments (GraphQL `discussion.comments`), each with `isAnswer`; `include_replies` nests up to 100 replies under each (Discussions nest one level).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "discussion_number": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "include_replies": {
+      "type": "boolean"
+     },
+     "first": {
+      "description": "Page size (default 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "after": {
+      "description": "`pageInfo.endCursor` from the previous page.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "discussion_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_file_contents",
+   "description": "GET /repos/{owner}/{repo}/contents/{path} with the raw media type: the file's bytes as text (not the base64 JSON envelope). For a directory GitHub answers with the JSON listing instead.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "path": {
+      "type": "string",
+      "description": "Path within the repository."
+     },
+     "ref": {
+      "description": "Branch, tag, or commit SHA (default branch when omitted).",
+      "type": "string"
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "path"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_git_tree",
+   "description": "GET /repos/{owner}/{repo}/git/trees/{tree_sha}: a tree object. `tree_sha` may be a branch or tag name, or a commit or tree SHA; pass `recursive: true` to list the whole subtree in one call (GitHub truncates very large trees and says so with `truncated: true`).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "tree_sha": {
+      "type": "string",
+      "description": "Tree SHA, commit SHA, branch, or tag."
+     },
+     "recursive": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "tree_sha"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_issue",
+   "description": "GET /repos/{owner}/{repo}/issues/{issue_number}: the issue object.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Issue number."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "issue_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_issue_comment",
+   "description": "GET /repos/{owner}/{repo}/issues/comments/{comment_id}: one issue or pull request conversation comment by id (a comment's `id`).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "comment_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Comment id."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "comment_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_job",
+   "description": "GET /repos/{owner}/{repo}/actions/jobs/{job_id}: one job of a workflow run with its steps (status, conclusion, timings) and runner details.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "job_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Job id from list_workflow_run_jobs."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "job_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_job_logs",
+   "description": "Plain-text GitHub Actions logs. Provide `job_id` (preferred) for GET /repos/{owner}/{repo}/actions/jobs/{job_id}/logs, or `run_id` to get the logs of that workflow run's failed jobs (conclusion failure or timed_out, latest attempt, at most 3), each under a header naming the job; a run with no failed jobs answers its job list instead. Whole logs past ~50 MiB cannot be fetched; pass `tail_bytes` to get only the end of each log, where a failure usually is (with `run_id` it defaults to the last 64 KiB per job). Expired logs answer 410.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "job_id": {
+      "description": "Job id from list_workflow_run_jobs. Give this or run_id, not both.",
+      "type": "integer",
+      "minimum": 1
+     },
+     "run_id": {
+      "description": "Workflow run id; returns the logs of the run's failed jobs.",
+      "type": "integer",
+      "minimum": 1
+     },
+     "tail_bytes": {
+      "description": "Return only the last N bytes of each log.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_label",
+   "description": "GET /repos/{owner}/{repo}/labels/{name}: one label. Always call `list_labels` first.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Label name (case-insensitive)."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "name"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_latest_release",
+   "description": "GET /repos/{owner}/{repo}/releases/latest: the most recent non-prerelease, non-draft release. Always call `list_releases` first.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_me",
+   "description": "GET /user for every GitHub account connected to this Cursor account, as a JSON array of GitHub user objects. Repository tools act as whichever of these can see the repository.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {},
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_pull_request",
+   "description": "GET /repos/{owner}/{repo}/pulls/{pull_number}: the pull request object (body, head/base, mergeability, change counts).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_pull_request_diff",
+   "description": "GET /repos/{owner}/{repo}/pulls/{pull_number} with the diff media type: the pull request's unified diff as text. GitHub answers 406 when the diff is too large to render; list the files instead.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_release_by_tag",
+   "description": "GET /repos/{owner}/{repo}/releases/tags/{tag}: the release published for a tag. Always call `list_releases` first.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "tag": {
+      "type": "string",
+      "description": "Tag name, e.g. v1.2.0."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "tag"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_repository",
+   "description": "GET /repos/{owner}/{repo}: the repository object.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_tag",
+   "description": "One tag by name: GET /repos/{owner}/{repo}/git/ref/tags/{tag}, and when it is an annotated tag, GET /git/tags/{sha} for the tag object (tagger, message, and the commit it points at). The reply is `{ref, tag}`; `tag` is null for a lightweight tag, whose `ref.object` is the commit itself.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "tag": {
+      "type": "string",
+      "description": "Tag name, e.g. v1.2.0."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "tag"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_workflow",
+   "description": "GET /repos/{owner}/{repo}/actions/workflows/{workflow_id}: one workflow object (id, name, path, state, badge URL).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "workflow_id": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "string",
+        "minLength": 1
+       }
+      ],
+      "description": "Numeric workflow id or the workflow file name, e.g. ci.yml."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "workflow_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "get_workflow_run",
+   "description": "GET /repos/{owner}/{repo}/actions/runs/{run_id}: the workflow run object.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "run_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Workflow run id."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "run_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_branches",
+   "description": "GET /repos/{owner}/{repo}/branches: one page of branches.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "protected": {
+      "description": "Only protected (true) or only unprotected (false) branches.",
+      "type": "boolean"
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_check_runs_for_ref",
+   "description": "GET /repos/{owner}/{repo}/commits/{ref}/check-runs: one page of check runs (GitHub Actions and other Checks API apps) for a ref.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "ref": {
+      "type": "string",
+      "description": "Commit SHA, branch name, or tag name."
+     },
+     "check_name": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "queued",
+       "in_progress",
+       "completed"
+      ]
+     },
+     "filter": {
+      "type": "string",
+      "enum": [
+       "latest",
+       "all"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "ref"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_commits",
+   "description": "GET /repos/{owner}/{repo}/commits: one page of commits, optionally from a branch or SHA, touching a path, or by author or date range.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "sha": {
+      "description": "Branch name or commit SHA to start from (default branch when omitted).",
+      "type": "string"
+     },
+     "path": {
+      "description": "Only commits touching this path.",
+      "type": "string"
+     },
+     "author": {
+      "description": "GitHub login or email address.",
+      "type": "string"
+     },
+     "since": {
+      "description": "ISO 8601 timestamp.",
+      "type": "string"
+     },
+     "until": {
+      "description": "ISO 8601 timestamp.",
+      "type": "string"
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_discussion_categories",
+   "description": "A repository's discussion categories (GraphQL `repository.discussionCategories`), each with its `id` for list_discussions and whether it is answerable (Q&A).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_discussions",
+   "description": "One page of a repository's discussions (GraphQL `repository.discussions`), optionally within one category (`category_id` from list_discussion_categories) and ordered by creation or last update.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "category_id": {
+      "type": "string"
+     },
+     "order_by": {
+      "type": "string",
+      "enum": [
+       "CREATED_AT",
+       "UPDATED_AT"
+      ]
+     },
+     "direction": {
+      "description": "Default DESC.",
+      "type": "string",
+      "enum": [
+       "ASC",
+       "DESC"
+      ]
+     },
+     "first": {
+      "description": "Page size (default 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "after": {
+      "description": "`pageInfo.endCursor` from the previous page.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_issue_comments",
+   "description": "GET /repos/{owner}/{repo}/issues/{issue_number}/comments: one page of an issue's comments.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Issue number."
+     },
+     "since": {
+      "description": "ISO 8601 timestamp.",
+      "type": "string"
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "issue_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_issues",
+   "description": "GET /repos/{owner}/{repo}/issues: one page of issues. GitHub includes pull requests here (they carry a `pull_request` key).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "state": {
+      "description": "Default open.",
+      "type": "string",
+      "enum": [
+       "open",
+       "closed",
+       "all"
+      ]
+     },
+     "labels": {
+      "description": "Comma-separated label names.",
+      "type": "string"
+     },
+     "assignee": {
+      "description": "Login, `none`, or `*` for any assignee.",
+      "type": "string"
+     },
+     "creator": {
+      "type": "string"
+     },
+     "mentioned": {
+      "type": "string"
+     },
+     "sort": {
+      "type": "string",
+      "enum": [
+       "created",
+       "updated",
+       "comments"
+      ]
+     },
+     "direction": {
+      "type": "string",
+      "enum": [
+       "asc",
+       "desc"
+      ]
+     },
+     "since": {
+      "description": "ISO 8601 timestamp.",
+      "type": "string"
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_labels",
+   "description": "GET /repos/{owner}/{repo}/labels: one page of the repository's labels. Pass `issue_number` for GET .../issues/{issue_number}/labels, the labels on one issue or pull request.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "issue_number": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_my_repositories",
+   "description": "GET /user/repos for every GitHub account connected to this Cursor account: one page of the repositories each account can access, as a JSON array holding one array of repository objects per account (in get_me order). Use it to find a repository's owner/name before calling a repository tool.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "affiliation": {
+      "description": "Comma-separated owner, collaborator, organization_member (GitHub's default is all three).",
+      "type": "string"
+     },
+     "visibility": {
+      "type": "string",
+      "enum": [
+       "all",
+       "public",
+       "private"
+      ]
+     },
+     "sort": {
+      "type": "string",
+      "enum": [
+       "created",
+       "updated",
+       "pushed",
+       "full_name"
+      ]
+     },
+     "direction": {
+      "type": "string",
+      "enum": [
+       "asc",
+       "desc"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_pull_request_comments",
+   "description": "GET /repos/{owner}/{repo}/issues/{pull_number}/comments: one page of the pull request's conversation comments (not review comments).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_pull_request_commits",
+   "description": "GET /repos/{owner}/{repo}/pulls/{pull_number}/commits: one page of the pull request's commits, oldest first (GitHub returns at most 250).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_pull_request_files",
+   "description": "GET /repos/{owner}/{repo}/pulls/{pull_number}/files: one page of the files a pull request changes, each with its patch.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_pull_request_review_comments",
+   "description": "GET /repos/{owner}/{repo}/pulls/{pull_number}/comments: one page of inline review comments (each with path, line, and diff hunk).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "sort": {
+      "type": "string",
+      "enum": [
+       "created",
+       "updated"
+      ]
+     },
+     "direction": {
+      "type": "string",
+      "enum": [
+       "asc",
+       "desc"
+      ]
+     },
+     "since": {
+      "description": "ISO 8601 timestamp.",
+      "type": "string"
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_pull_request_reviews",
+   "description": "GET /repos/{owner}/{repo}/pulls/{pull_number}/reviews: one page of reviews (state APPROVED, CHANGES_REQUESTED, COMMENTED, ...).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_pull_requests",
+   "description": "GET /repos/{owner}/{repo}/pulls: one page of pull requests.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "state": {
+      "description": "Default open.",
+      "type": "string",
+      "enum": [
+       "open",
+       "closed",
+       "all"
+      ]
+     },
+     "head": {
+      "description": "Filter by head as `user:ref-name` or `org:ref-name`.",
+      "type": "string"
+     },
+     "base": {
+      "description": "Filter by base branch name.",
+      "type": "string"
+     },
+     "sort": {
+      "type": "string",
+      "enum": [
+       "created",
+       "updated",
+       "popularity",
+       "long-running"
+      ]
+     },
+     "direction": {
+      "type": "string",
+      "enum": [
+       "asc",
+       "desc"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_releases",
+   "description": "GET /repos/{owner}/{repo}/releases: one page of releases (drafts and prereleases included), newest first, each with its assets.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_repository_collaborators",
+   "description": "GET /repos/{owner}/{repo}/collaborators: one page of the users with access to the repository, each with its `permissions` and `role_name`. Organization members with access through teams count unless `affiliation` narrows it.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "affiliation": {
+      "description": "Default all.",
+      "type": "string",
+      "enum": [
+       "outside",
+       "direct",
+       "all"
+      ]
+     },
+     "permission": {
+      "description": "Only collaborators with at least this permission.",
+      "type": "string",
+      "enum": [
+       "pull",
+       "triage",
+       "push",
+       "maintain",
+       "admin"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_sub_issues",
+   "description": "GET /repos/{owner}/{repo}/issues/{issue_number}/sub_issues: one page of an issue's sub-issues, in priority order.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Issue number."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "issue_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_tags",
+   "description": "GET /repos/{owner}/{repo}/tags: one page of tags, newest first, each with the commit it points at.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_workflow_run_jobs",
+   "description": "GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs: one page of the run's jobs with their steps (status, conclusion, timings).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "run_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Workflow run id."
+     },
+     "filter": {
+      "type": "string",
+      "enum": [
+       "latest",
+       "all"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "run_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_workflow_runs",
+   "description": "GET /repos/{owner}/{repo}/actions/runs, or /actions/workflows/{workflow_id}/runs when `workflow_id` is given: one page of workflow runs, newest first, with GitHub's run filters.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "workflow_id": {
+      "description": "Workflow id or file name (ci.yml); all workflows when omitted.",
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "string",
+        "minLength": 1
+       }
+      ]
+     },
+     "actor": {
+      "description": "Login of the user who triggered the run.",
+      "type": "string"
+     },
+     "branch": {
+      "type": "string"
+     },
+     "event": {
+      "description": "Trigger event, e.g. push, pull_request.",
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "completed",
+       "action_required",
+       "cancelled",
+       "failure",
+       "neutral",
+       "skipped",
+       "stale",
+       "success",
+       "timed_out",
+       "in_progress",
+       "queued",
+       "requested",
+       "waiting",
+       "pending"
+      ]
+     },
+     "created": {
+      "description": "Date range in GitHub search syntax, e.g. >=2026-01-01.",
+      "type": "string"
+     },
+     "head_sha": {
+      "type": "string"
+     },
+     "exclude_pull_requests": {
+      "type": "boolean"
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "list_workflows",
+   "description": "GET /repos/{owner}/{repo}/actions/workflows: one page of the repository's workflows (id, name, path, state).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "mark_discussion_comment_as_answer",
+   "description": "Mark (`answer: true`) or unmark a comment as the accepted answer of a Q&A discussion (GraphQL `markDiscussionCommentAsAnswer` / `unmarkDiscussionCommentAsAnswer`).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "comment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The comment's node id (`id`, e.g. DC_kwDO...), from get_discussion_comments."
+     },
+     "answer": {
+      "type": "boolean",
+      "description": "true marks, false unmarks."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "comment_id",
+     "answer"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "merge_pull_request",
+   "description": "PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge. Irreversible: check the pull request's mergeable state and its checks first, and confirm with the user when the merge was not explicitly requested. GitHub answers 405 when the PR is not mergeable and 409 when the head SHA does not match.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "merge_method": {
+      "type": "string",
+      "enum": [
+       "merge",
+       "squash",
+       "rebase"
+      ]
+     },
+     "commit_title": {
+      "type": "string"
+     },
+     "commit_message": {
+      "type": "string"
+     },
+     "sha": {
+      "description": "Head SHA the merge must apply to; refused if the head moved.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "remove_sub_issue",
+   "description": "DELETE /repos/{owner}/{repo}/issues/{issue_number}/sub_issue: detach a sub-issue from its parent (the issue itself is kept).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Issue number."
+     },
+     "sub_issue_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The sub-issue's `id` (the numeric id on the issue object, not its number)."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "issue_number",
+     "sub_issue_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "reply_to_pull_request_review_comment",
+   "description": "POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies: reply in an existing review-comment thread.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "comment_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Id from list_pull_request_review_comments."
+     },
+     "body": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number",
+     "comment_id",
+     "body"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "reprioritize_sub_issue",
+   "description": "PATCH /repos/{owner}/{repo}/issues/{issue_number}/sub_issues/priority: move a sub-issue within its parent's list, placing it after `after_id` or before `before_id` (pass exactly one).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Issue number."
+     },
+     "sub_issue_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "The sub-issue's `id` (the numeric id on the issue object, not its number)."
+     },
+     "after_id": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "before_id": {
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "issue_number",
+     "sub_issue_id"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search_code",
+   "description": "GET /search/code across the repositories every connected account can see, GitHub code-search syntax (e.g. \"repo:owner/name path:src language:ts <terms>\"). To search inside one repository, put `repo:owner/name` in `q`. GitHub indexes only the default branch. Results merge across accounts.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string",
+      "description": "GitHub code-search query."
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search_commits",
+   "description": "GET /search/commits with GitHub commit-search syntax (e.g. \"repo:owner/name fix login author:octocat\"). Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string",
+      "description": "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+     },
+     "sort": {
+      "description": "Sort field; best match when omitted.",
+      "type": "string"
+     },
+     "order": {
+      "type": "string",
+      "enum": [
+       "asc",
+       "desc"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search_issues",
+   "description": "GET /search/issues restricted to issues (`is:issue` is added to the query), e.g. \"repo:owner/name is:open label:bug\". Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string",
+      "description": "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+     },
+     "sort": {
+      "description": "Sort field; best match when omitted.",
+      "type": "string"
+     },
+     "order": {
+      "type": "string",
+      "enum": [
+       "asc",
+       "desc"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search_orgs",
+   "description": "GET /search/users restricted to organizations (`type:org` is added), e.g. \"acme\", \"location:california created:>=2025-01-01\". Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string",
+      "description": "GitHub user-search syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+     },
+     "sort": {
+      "type": "string",
+      "enum": [
+       "followers",
+       "repositories",
+       "joined"
+      ]
+     },
+     "order": {
+      "type": "string",
+      "enum": [
+       "asc",
+       "desc"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search_pull_requests",
+   "description": "GET /search/issues restricted to pull requests (`is:pr` is added to the query), e.g. \"repo:owner/name is:open review-requested:@me\". Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string",
+      "description": "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+     },
+     "sort": {
+      "description": "Sort field; best match when omitted.",
+      "type": "string"
+     },
+     "order": {
+      "type": "string",
+      "enum": [
+       "asc",
+       "desc"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search_repositories",
+   "description": "GET /search/repositories with GitHub repository-search syntax (e.g. \"user:octocat language:ts\", \"org:acme topic:cli\"). Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string",
+      "description": "GitHub search query syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+     },
+     "sort": {
+      "description": "Sort field; best match when omitted.",
+      "type": "string"
+     },
+     "order": {
+      "type": "string",
+      "enum": [
+       "asc",
+       "desc"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "search_users",
+   "description": "GET /search/users restricted to user accounts (`type:user` is added), e.g. \"octocat\", \"fullname:Jane location:berlin\", \"followers:>100\". Runs as every connected account and merges the envelopes (items verbatim, deduplicated).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "q": {
+      "type": "string",
+      "description": "GitHub user-search syntax. A query can mix two kinds of terms:\n- Qualifiers such as `repo:owner/name`, `is:open`, `label:bug`, `author:octocat`, separated by spaces. Every qualifier must match: `author:octocat repo:owner/name` means items by `octocat` in `owner/name`. Exclude with `-`, e.g. `-label:wontfix`. AND / OR / NOT never apply to qualifiers; for `repo:a/b OR repo:c/d`, run one search per repo.\n- Plain text terms, which may be joined with AND / OR / NOT (at most five per query), e.g. `repo:owner/name crash OR panic`."
+     },
+     "sort": {
+      "type": "string",
+      "enum": [
+       "followers",
+       "repositories",
+       "joined"
+      ]
+     },
+     "order": {
+      "type": "string",
+      "enum": [
+       "asc",
+       "desc"
+      ]
+     },
+     "per_page": {
+      "description": "Results per page (GitHub's default is 30, max 100).",
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100
+     },
+     "page": {
+      "description": "1-based page number.",
+      "type": "integer",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "q"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "set_pull_request_draft",
+   "description": "Mark a pull request ready for review (`draft: false`) or convert it back to a draft (`draft: true`). GitHub exposes this only through GraphQL (markPullRequestReadyForReview / convertPullRequestToDraft), so the reply is that mutation's `pullRequest` object, not the REST one. A pull request already in the requested state is returned as is.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "draft": {
+      "type": "boolean",
+      "description": "true = convert to draft; false = ready."
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number",
+     "draft"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "submit_pending_pull_request_review",
+   "description": "POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews/{review_id}/events: submit the caller's pending review as APPROVE, REQUEST_CHANGES, or COMMENT, publishing every comment added to it. `body` is the review summary (required by GitHub for REQUEST_CHANGES and COMMENT when the pending review has no body).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "review_id": {
+      "description": "The pending review's id (from create_pull_request_review). Looked up when omitted: the caller's one PENDING review on the pull request.",
+      "type": "integer",
+      "minimum": 1
+     },
+     "event": {
+      "type": "string",
+      "enum": [
+       "APPROVE",
+       "REQUEST_CHANGES",
+       "COMMENT"
+      ]
+     },
+     "body": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number",
+     "event"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "update_discussion_comment",
+   "description": "Edit a discussion comment's body (GraphQL `updateDiscussionComment`).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "comment_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The comment's node id (`id`, e.g. DC_kwDO...), from get_discussion_comments."
+     },
+     "body": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "comment_id",
+     "body"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "update_issue",
+   "description": "PATCH /repos/{owner}/{repo}/issues/{issue_number}: edit title, body, labels, assignees, or state (with `state_reason`). `labels` and `assignees` replace the existing sets.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "issue_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Issue number."
+     },
+     "title": {
+      "type": "string"
+     },
+     "body": {
+      "type": "string"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "open",
+       "closed"
+      ]
+     },
+     "state_reason": {
+      "type": "string",
+      "enum": [
+       "completed",
+       "not_planned",
+       "reopened"
+      ]
+     },
+     "labels": {
+      "maxItems": 20,
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "assignees": {
+      "maxItems": 10,
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "milestone": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "minimum": 1
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "issue_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "update_label",
+   "description": "PATCH /repos/{owner}/{repo}/labels/{name}: rename (`new_name`), recolor, or redescribe a label; issues carrying it follow. Always call `list_labels` first.",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Label name (case-insensitive)."
+     },
+     "new_name": {
+      "type": "string",
+      "minLength": 1
+     },
+     "color": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{6}$",
+      "description": "Six-digit hex color without the leading #, e.g. f29513."
+     },
+     "description": {
+      "type": "string",
+      "maxLength": 100
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "name"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "update_pull_request",
+   "description": "PATCH /repos/{owner}/{repo}/pulls/{pull_number}: change title, body, base branch, or state (open/closed).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "title": {
+      "type": "string"
+     },
+     "body": {
+      "type": "string"
+     },
+     "base": {
+      "type": "string"
+     },
+     "state": {
+      "type": "string",
+      "enum": [
+       "open",
+       "closed"
+      ]
+     },
+     "maintainer_can_modify": {
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  },
+  {
+   "name": "update_pull_request_branch",
+   "description": "PUT /repos/{owner}/{repo}/pulls/{pull_number}/update-branch: bring the head branch up to date with its base (GitHub's \"Update branch\"). Asynchronous on GitHub's side (202).",
+   "inputSchema": {
+    "type": "object",
+    "properties": {
+     "owner": {
+      "type": "string",
+      "description": "Repository owner (user or org login)."
+     },
+     "repo": {
+      "type": "string",
+      "description": "Repository name."
+     },
+     "pull_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pull request number."
+     },
+     "expected_head_sha": {
+      "description": "Refuse if the head has moved past this SHA.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "owner",
+     "repo",
+     "pull_number"
+    ],
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "additionalProperties": false
+   }
+  }
+ ]
+}

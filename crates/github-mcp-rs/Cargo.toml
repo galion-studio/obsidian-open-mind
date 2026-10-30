@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "github-mcp-rs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Small stdio MCP server exposing exactly the Grok Bot GitHub tool interface (75 tools) over the GitHub REST/GraphQL API via curl. Writes are off unless --allow-writes."
+
+[[bin]]
+name = "github-mcp-rs"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
+
+[dev-dependencies]
+hermes-rs = { path = "../hermes-rs", default-features = false }

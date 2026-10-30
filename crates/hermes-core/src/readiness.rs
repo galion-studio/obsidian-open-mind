@@ -244,7 +244,7 @@ pub fn evaluate(inp: &Inputs<'_>) -> Readiness {
     // G11 provider.
     checks.push(check(
         "G11",
-        "A real model provider is usable (boss Opus, sub-agents Sonnet)",
+        "A real model provider is usable for the boss and the sub-agents",
         hc.provider != "mock",
         false,
         format!(
@@ -270,22 +270,35 @@ pub fn evaluate(inp: &Inputs<'_>) -> Readiness {
     }
 
     // G14 owner decisions.
-    let open: Vec<String> = reg
-        .readiness
-        .owner
+    let owner = &reg.readiness.owner;
+    let open: Vec<String> = owner
         .iter()
-        .filter(|o| !o.decided)
+        .filter(|o| o.is_open())
         .map(|o| o.item.clone())
         .collect();
+    let closed: Vec<String> = owner
+        .iter()
+        .filter(|o| !o.decided && !o.is_open())
+        .map(|o| format!("{} ({})", o.item, o.closed.as_deref().unwrap_or_default()))
+        .collect();
+    let closed_text = if closed.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "; {} closed by events, not by Slavik: {}",
+            closed.len(),
+            closed.join(" | ")
+        )
+    };
     checks.push(check(
         "G14",
         "Slavik's open decisions are recorded as decided",
         open.is_empty(),
         false,
         if open.is_empty() {
-            "none open".into()
+            format!("none open{closed_text}")
         } else {
-            format!("{} open: {}", open.len(), open.join(" | "))
+            format!("{} open: {}{closed_text}", open.len(), open.join(" | "))
         },
     ));
 

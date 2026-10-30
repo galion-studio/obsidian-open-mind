@@ -61,7 +61,7 @@ commit = "9d3ec18"
 into = "main"
 
 [[readiness.owner]]
-item = "OpenRouter credit (402) and spend approval for boss and sub-agent models"
+item = "Spend approval for the coordinator's own boss and sub-agent model calls (no OpenRouter 402 seen on the VPS since 2026-10-18; live hermes-rs already answers on x-ai/grok-4.7 inside its own caps)"
 decided = false
 
 [[readiness.owner]]
@@ -71,6 +71,7 @@ decided = false
 [[readiness.owner]]
 item = "Wave-1 merge order (ucpu before edge-boot, tuner-cutover before common, nerve main.rs over gaia-live)"
 decided = false
+closed = "moot 2026-10-30 11:41 CET: integration-1 8fd26f6, hades-approval ccaab42 and gaia-land 9d3ec18 are all on main 7ba85b60 (PR #12, 2026-10-28)"
 
 [[readiness.owner]]
 item = "POSEIDON vs HEPHAESTUS ownership of compute (gaia-land decision record)"
@@ -83,6 +84,7 @@ decided = false
 [[readiness.owner]]
 item = "Stray processes on the VPS: hermes-gateway --mock on 8652 (from /opt/galion/rust/bin, up since 2026-10-18 22:15 CEST, RSS ~52 MB) and hermes-gateway.new --mock on 8653 (from /root/growth-20261018), plus openmind-memory 8431-8433: keep or stop, one port per approval"
 decided = false
+closed = "gone 2026-10-30 11:41 CET: nothing listens on 8652, 8653 or 8431-8433 on the VPS (ss -ltn); stopped in the 2026-10-21 04:35 CEST deploy run"
 
 [[readiness.owner]]
 item = "Max-agents rule: SOURCE-OF-TRUTH.md says 3 at once; the swarm runs 16. Record the new cap"

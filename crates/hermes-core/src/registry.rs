@@ -108,12 +108,27 @@ pub struct ReadinessCfg {
 }
 
 /// A decision only Slavik can make; the gate fails until `decided = true`.
+///
+/// `closed` is for an item that no longer needs a decision because events
+/// settled it (for example the branch it was about is already on main). It
+/// holds the evidence, is shown in the G14 evidence, and never counts as
+/// "decided": only Slavik sets `decided`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct OwnerItem {
     pub item: String,
     #[serde(default)]
     pub decided: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closed: Option<String>,
+}
+
+impl OwnerItem {
+    /// Still waiting for Slavik: not decided and not closed by events.
+    pub fn is_open(&self) -> bool {
+        let closed = self.closed.as_deref().is_some_and(|c| !c.trim().is_empty());
+        !self.decided && !closed
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -413,5 +428,33 @@ gaia_systems = ["teacher-docs"]
         assert_eq!(r.hermes.concurrency_cap, 16);
         let tasks: usize = r.sectors.iter().map(|s| s.planner_tasks).sum();
         assert_eq!(tasks, 200);
+    }
+
+    #[test]
+    fn owner_item_closed_by_events_is_not_open_and_not_decided() {
+        let t: ReadinessCfg = toml::from_str(
+            r#"
+[[owner]]
+item = "a"
+[[owner]]
+item = "b"
+decided = true
+[[owner]]
+item = "c"
+closed = "moot: branch already on main"
+[[owner]]
+item = "d"
+closed = "  "
+"#,
+        )
+        .unwrap();
+        let open: Vec<&str> = t
+            .owner
+            .iter()
+            .filter(|o| o.is_open())
+            .map(|o| o.item.as_str())
+            .collect();
+        assert_eq!(open, ["a", "d"]);
+        assert!(!t.owner[2].decided);
     }
 }

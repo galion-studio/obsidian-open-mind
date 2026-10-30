@@ -124,13 +124,13 @@ mod tests {
     fn unconfigured_and_unreadable() {
         let h = body(None);
         assert!(h.contains("No memory folder is configured"));
-        assert_eq!(h.matches(">—</span>").count(), 7);
+        assert_eq!(h.matches(">—</span>").count(), 8);
         let mut s = snap();
         s.root_ok = false;
         s.error = "permission denied".into();
         let h = body(Some(&s));
         assert!(h.contains("could not be read: permission denied."));
-        assert_eq!(h.matches(">—</span>").count(), 7);
+        assert_eq!(h.matches(">—</span>").count(), 8);
         let mut s = snap();
         s.capped = true;
         assert!(body(Some(&s)).contains("lower bounds"));

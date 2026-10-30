@@ -2069,47 +2069,137 @@ fn delegate_protected_words(text: &str) -> R {
     Ok(())
 }
 
+/// Does a path-less write sentence point at a target named elsewhere
+/// (in context or another sentence)? True only when it references one:
+/// a file / the target / "it" / "in context". A write that names a
+/// concrete inline artifact ("a headline", "a summary paragraph") does
+/// not reach out to other sentences, so a protected word that merely
+/// appears elsewhere in the task is not its write target.
+fn targets_elsewhere(sent: &str) -> bool {
+    const EXTERNAL: &[&str] = &[
+        "it",
+        "them",
+        "they",
+        "that",
+        "this",
+        "those",
+        "these",
+        "there",
+        "file",
+        "files",
+        "target",
+        "targets",
+        "path",
+        "paths",
+        "note",
+        "notes",
+        "config",
+        "configs",
+        "document",
+        "documents",
+        "doc",
+        "docs",
+        "content",
+        "contents",
+        "persona",
+        "above",
+        "context",
+        "output",
+        "line",
+        "lines",
+        "rule",
+        "rules",
+    ];
+    sent.split_whitespace()
+        .map(word_of)
+        .any(|w| EXTERNAL.contains(&w.as_str()))
+}
+
 /// S9 for delegate tools: a path or protected file is a write target only
 /// when a sentence actually asks to write or execute (not "do not modify
 /// anything", not a noun like "the patch"). A write sentence with no path
-/// of its own ("append to the file named in context") makes every path and
-/// protected name in that task a write target.
+/// of its own that points elsewhere ("append to the file named in
+/// context", "overwrite the target") makes every path AND protected name
+/// in that task a write target. A write that produces a concrete inline
+/// artifact ("write one headline") does NOT: a protected word such as
+/// "vault" or "soul.md" that only appears descriptively in another
+/// sentence is then not a write target (the vault/protected-word check
+/// fires only for the sentence that is itself an imperative write).
+fn delegate_strings_check(strs: &[&str], pol: &Policy) -> R {
+    let mut pathless = false;
+    for s in strs {
+        for sent in sentences(s) {
+            let (active, imperative, forced) = sentence_intent(&sent);
+            for p in &forced {
+                delegate_target(p, pol)?;
+            }
+            if !active {
+                continue;
+            }
+            let paths = text_paths(&sent);
+            if paths.is_empty() && imperative && targets_elsewhere(&sent) {
+                pathless = true;
+            }
+            for p in &paths {
+                delegate_target(p, pol)?;
+            }
+            // Same-sentence rule: a protected-file/vault word counts as a
+            // write target only when THIS sentence is an imperative write,
+            // not when a write verb elsewhere in the task co-occurs with a
+            // descriptive mention ("the vault note was read").
+            if imperative {
+                delegate_protected_words(&sent)?;
+            }
+        }
+    }
+    // A path-less write that points elsewhere: a path or protected name in
+    // another string of the task is the write target.
+    if pathless {
+        for s in strs {
+            for p in text_paths(s) {
+                delegate_target(&p, pol)?;
+            }
+            delegate_protected_words(s)?;
+        }
+    }
+    Ok(())
+}
+
+/// Check one delegated task (goal + optional context strings).
+pub fn delegate_task_check(goal: &str, context: &str, pol: &Policy) -> R {
+    let strs: Vec<&str> = [goal, context]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
+    delegate_strings_check(&strs, pol)
+}
+
+/// Whole-call write verdict for the Guarded wrapper. A call is refused
+/// here only when EVERY task would be refused; a call with at least one
+/// safe task passes the guard so `DelegateTool` can run the safe tasks and
+/// skip the refused ones (per-task enforcement lives in `DelegateTool`,
+/// which calls `delegate_task_check` for each task before spawning it).
+/// Returns the first task's refusal when all tasks are refused.
 pub fn delegate_write_check(args: &Value, pol: &Policy) -> R {
     let tasks: Vec<&Value> = match args.get("tasks").and_then(Value::as_array) {
         Some(a) if !a.is_empty() => a.iter().collect(),
         _ => vec![args],
     };
+    let mut first_err = None;
     for task in tasks {
         let mut strs = Vec::new();
         collect_strings(task, &mut strs, 0);
-        let mut pathless = false;
-        for s in &strs {
-            for sent in sentences(s) {
-                let (active, imperative, forced) = sentence_intent(&sent);
-                for p in &forced {
-                    delegate_target(p, pol)?;
+        match delegate_strings_check(&strs, pol) {
+            Ok(()) => return Ok(()),
+            Err(d) => {
+                if first_err.is_none() {
+                    first_err = Some(d);
                 }
-                if !active {
-                    continue;
-                }
-                let paths = text_paths(&sent);
-                if paths.is_empty() && imperative {
-                    pathless = true;
-                }
-                for p in &paths {
-                    delegate_target(p, pol)?;
-                }
-                delegate_protected_words(&sent)?;
-            }
-        }
-        if pathless {
-            for s in &strs {
-                for p in text_paths(s) {
-                    delegate_target(&p, pol)?;
-                }
-                delegate_protected_words(s)?;
             }
         }
     }
-    Ok(())
+    match first_err {
+        Some(d) => Err(d),
+        None => Ok(()),
+    }
 }

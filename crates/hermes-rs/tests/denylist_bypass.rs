@@ -318,7 +318,8 @@ mod chokepoint {
         let mock = Arc::new(mock);
         let spend = Arc::new(SpendTracker::new(cfg.spend.clone(), None));
         (
-            DelegateTool::new(cfg, mock.clone(), spend, child_tools),
+            DelegateTool::new(cfg, mock.clone(), spend, child_tools)
+                .with_policy(Arc::new(policy())),
             mock,
         )
     }
@@ -394,6 +395,55 @@ mod chokepoint {
             out.content
         );
         assert_eq!(ran.load(Ordering::SeqCst), 0, "the vault write never ran");
+    }
+
+    /// Fix 4 (partial rerun): a call that mixes a refused vault-write task
+    /// with a safe task runs the safe task and reports the other as refused,
+    /// instead of failing the whole call. Guard lets the mixed call through
+    /// (not every task is refused); DelegateTool enforces per task.
+    #[test]
+    fn partial_rerun_runs_safe_task_when_one_refused() {
+        let base = Registry::with_policy(policy());
+        let child_mock = MockProvider::new(|_t, _r| ChatResult {
+            content: "the sum is 6".into(),
+            finish_reason: "stop".into(),
+            ..Default::default()
+        });
+        let (dt, mock) = delegate(base.clone(), child_mock);
+        let mut reg = base.clone();
+        reg.add(Arc::new(dt));
+        let t = reg.get("delegate_task").unwrap();
+        let out = ctx_call(
+            &*t,
+            json!({"tasks": [
+                {"goal": "Save this as a vault note: user prefers tea"},
+                {"goal": "Add 1, 2 and 3 and report the total."}
+            ]}),
+            "use a helper please",
+        );
+        assert!(
+            !out.is_error,
+            "mixed call must not fail wholesale: {}",
+            out.content
+        );
+        let v: Value = serde_json::from_str(&out.content).unwrap();
+        let results = v["results"].as_array().unwrap();
+        assert_eq!(results.len(), 2, "{}", out.content);
+        assert_eq!(results[0]["status"], "refused", "{}", out.content);
+        assert!(
+            results[0]["error"]
+                .as_str()
+                .unwrap()
+                .contains("S9-vault-write"),
+            "{}",
+            out.content
+        );
+        assert_eq!(results[1]["status"], "completed", "{}", out.content);
+        assert_eq!(
+            mock.calls.lock().unwrap().len(),
+            1,
+            "only the safe task ran"
+        );
     }
 }
 
@@ -506,4 +556,53 @@ fn s9_delegate_intent_not_mentions() {
         }
     }
     assert!(wrong.is_empty(), "{}", wrong.join("\n"));
+}
+
+/// Fix 1 (2026-10-30): the helper-vault false positive. A delegated task
+/// that writes a concrete inline artifact ("one headline") must pass even
+/// when another sentence of the same task mentions "vault" and "SOUL.md"
+/// descriptively. A task that actually asks to write the vault, or names a
+/// protected file as its write target in context, must still be refused.
+#[test]
+fn fix1_helper_vault_mention_is_not_a_write() {
+    for pol in [policy(), Policy::from_env()] {
+        // (1) the real 2026-10-30 helper call: inline-output write + the
+        //     word "vault"/"SOUL.md" only as descriptive facts -> ALLOW.
+        let helper = json!({"tasks": [{
+            "goal": "Write one headline of at most 12 words for an ops brief. \
+                     The brief covers today's demo: codeword recall across chats, \
+                     the vault live-status note that was read, a refused SOUL.md \
+                     write, and a denied disk-wipe request.",
+            "context": "You are a copywriter helper. Reply with the headline only."
+        }]});
+        assert!(
+            check_tool_call("delegate_task", &helper, &pol).is_ok(),
+            "helper headline wrongly refused: {:?}",
+            check_tool_call("delegate_task", &helper, &pol)
+        );
+
+        // (2) a genuine request to write the vault -> still REFUSED.
+        let write_vault = json!({"tasks": [{
+            "goal": "Write a new note into the vault with today's status."
+        }]});
+        let r = check_tool_call("delegate_task", &write_vault, &pol);
+        assert!(
+            r.as_ref()
+                .err()
+                .map(|d| d.to_string())
+                .unwrap_or_default()
+                .starts_with("S9-vault-write"),
+            "vault write should be refused: {r:?}"
+        );
+
+        // (3) protected file named as the write target in context -> REFUSED.
+        let persona = json!({"tasks": [{
+            "goal": "Update the persona file with the new rules.",
+            "context": "it is called soul.md"
+        }]});
+        assert!(
+            check_tool_call("delegate_task", &persona, &pol).is_err(),
+            "persona-file-in-context write should be refused"
+        );
+    }
 }

@@ -5,13 +5,14 @@
 //   galion-one set-model <plan|action> <provider/model>   (one/set-model.py)
 //   galion-one trace <src.pgm|src.ppm> <dest.svg> [--no-caption]  (one/trace.py)
 //   galion-one pdf-text <file.pdf>   (first-page text, pure Rust; replaces pdftotext)
+//   galion-one pair-invite [minutes]  (one-time pairing code, 15 min default; invite.rs)
 // With no arguments main() starts the server as before.
 
 use crate::json::{self, dump_str, Json};
 use std::path::Path;
 use std::time::Duration;
 
-const USAGE: &str = "usage: galion-one [set-model <plan|action> <provider/model> | trace <src.pgm|.ppm> <dest.svg> [--no-caption] | pdf-text <file.pdf> [--content] | version]";
+const USAGE: &str = "usage: galion-one [set-model <plan|action> <provider/model> | trace <src.pgm|.ppm> <dest.svg> [--no-caption] | pdf-text <file.pdf> [--content] | pair-invite [minutes] | version]";
 
 pub fn run(args: &[String]) -> i32 {
     match args[0].as_str() {
@@ -78,6 +79,38 @@ pub fn run(args: &[String]) -> i32 {
                 other => {
                     eprintln!("pdf-text: {other:?}");
                     3
+                }
+            }
+        }
+        // Operator path for a short-lived pairing invite (invite.rs). The code
+        // goes to stdout only; stderr says when it expires (Unix ms).
+        "pair-invite" if args.len() <= 2 => {
+            let minutes = match args.get(1) {
+                Some(m) => match m.parse::<u64>() {
+                    Ok(n) if (1..=crate::invite::MAX_MINUTES).contains(&n) => n,
+                    _ => {
+                        eprintln!(
+                            "pair-invite: minutes must be 1-{}",
+                            crate::invite::MAX_MINUTES
+                        );
+                        return 2;
+                    }
+                },
+                None => crate::invite::DEFAULT_MINUTES,
+            };
+            let now = std::time::SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            match crate::invite::mint_at(&crate::invite::store_path(), now, minutes) {
+                Ok((code, expires)) => {
+                    println!("{}", crate::invite::pretty(&code));
+                    eprintln!("pair-invite: expires_unix_ms={expires} minutes={minutes}");
+                    0
+                }
+                Err(e) => {
+                    eprintln!("pair-invite: {e}");
+                    1
                 }
             }
         }

@@ -1,0 +1,40 @@
+<div class="g1-sky" aria-hidden="true"><i class="g1-f1"></i><i class="g1-f2"></i><i class="g1-f3"></i><i class="g1-fe"></i></div>
+<main class="hm" id="hm" aria-label="Galion One">
+  <header class="hm-head">
+    <div class="hm-title"><p class="k">Galion One · Hermes</p><h1>The mind</h1></div>
+    <button type="button" class="g1-snd" id="g1-sound" aria-pressed="false">Sound off</button>
+    <ul class="hm-status" aria-label="Status">
+      <li class="hm-pill"><span class="hm-dot" id="st-mind"></span>Mind <span class="hm-pv" id="st-mind-v">checking</span></li>
+      <li class="hm-pill"><span class="hm-dot" id="st-stt"></span>Dictation <span class="hm-pv" id="st-stt-v">checking</span></li>
+      <li class="hm-pill"><span class="hm-dot" id="st-dev"></span>Phone <span class="hm-pv" id="st-dev-v">checking</span></li>
+    </ul>
+  </header>
+  <section class="g1-stage" aria-label="Hermes">
+    <button type="button" class="g1-orb" id="g1-orb" aria-label="Start dictation"><span class="g1-halo"></span><span class="g1-ring"></span><span class="g1-ball"><span class="g1-l1"></span><span class="g1-l2"></span><span class="g1-l3"></span><span class="g1-gl"></span></span></button>
+    <h2 class="g1-hi" id="g1-hi"><span class="g1-hi1" id="g1-hi1">Hello.</span><span class="g1-hi2" id="g1-hi2">What shall we explore?</span></h2>
+    <p class="g1-cap" id="g1-cap" role="status" aria-live="polite">Waking up</p>
+  </section>
+  <details class="hm-hist" id="hm-hist"><summary class="hm-hist-sum">History</summary><ul class="hm-list" id="hm-list"><li class="hm-empty">Nothing yet.</li></ul></details>
+  <div class="hm-log" id="hm-log" aria-live="polite" tabindex="-1"></div>
+  <form class="hm-composer" id="g1-pair" autocomplete="off" hidden>
+    <p class="hm-note">This phone is not paired yet. Enter your pairing code.</p>
+    <div class="hm-box"><label class="sr-only" for="g1-code">Pairing code</label><input class="hm-q hm-pairin" id="g1-code" name="code" placeholder="Pairing code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><button type="submit" class="hm-btn hm-primary hm-pairbtn">Pair</button></div>
+    <p class="hm-note" id="g1-pair-note" role="status"></p>
+  </form>
+  <form class="hm-composer" id="hm-form" hidden>
+    <div class="hm-row">
+      <button type="button" class="hm-pick" id="hm-model" aria-label="Model"><span class="hm-pick-k">Model</span><span class="hm-pick-v" id="hm-model-v">checking</span></button>
+      <details class="g1-more" id="g1-voice"><summary class="g1-more-s">Voice</summary><div class="hm-seg" role="group" aria-label="Spoken voice"><button type="button" class="hm-opt" data-voice="samantha" aria-pressed="false">Samantha<span class="hm-opts">Warm</span></button><button type="button" class="hm-opt" data-voice="jarvis" aria-pressed="false">Jarvis<span class="hm-opts">Calm</span></button></div></details>
+      <details class="g1-more" id="g1-files"><summary class="g1-more-s">Files</summary><div class="hm-seg"><button type="button" class="hm-opt" id="g1-add">Add a file<span class="hm-opts">Kept on your Galion</span></button><input type="file" id="g1-file" hidden></div><ul class="g1-files" id="g1-flist"></ul></details>
+      <details class="g1-more" id="g1-dev"><summary class="g1-more-s">Devices</summary><div class="hm-seg"><button type="button" class="hm-opt" id="g1-invite">Pair another phone<span class="hm-opts">Shows a one-time code for 15 minutes</span></button><a class="hm-opt" href="/link">Space<span class="hm-opts">Your Galion space</span></a></div><div id="g1-invite-out" hidden><p class="g1-code" id="g1-invite-code"></p><p class="g1-codehint" id="g1-invite-hint"></p><div id="g1-ntfy" hidden><p class="g1-codehint">Phone alerts: install the free ntfy app, then tap below to subscribe (server https://ntfy.sh).</p><div class="hm-seg"><a class="hm-opt" id="g1-ntfy-app" href="#">Subscribe in ntfy<span class="hm-opts">Opens the ntfy app</span></a><a class="hm-opt" id="g1-ntfy-web" href="#" target="_blank" rel="noopener">Open in browser<span class="hm-opts" id="g1-ntfy-topic"></span></a></div></div></div></details>
+    </div>
+    <p class="hm-partial" id="hm-partial" hidden></p>
+    <div class="hm-box">
+      <span class="hm-mic-slot"><button type="button" class="hm-btn hm-mic" id="hm-mic" data-state="checking" aria-pressed="false" aria-label="Dictate" title="Dictate"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button></span>
+      <label class="sr-only" for="hm-q">Message</label>
+      <textarea class="hm-q" id="hm-q" rows="1" placeholder="Ask Hermes anything" enterkeyhint="send"></textarea>
+      <button type="submit" class="hm-btn hm-primary" id="hm-send" aria-label="Send" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+    </div>
+    <p class="hm-note" id="hm-note" role="status">Enter sends. Shift+Enter adds a line.</p>
+  </form>
+</main>

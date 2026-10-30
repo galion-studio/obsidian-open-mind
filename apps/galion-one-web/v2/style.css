@@ -149,6 +149,9 @@ html.g1v2 body #galion-boot .name{font-weight:300;letter-spacing:-.025em}
 html.g1v2 body #galion-boot .stack{color:#b9bdd9;letter-spacing:.16em}
 html.g1v2 body #galion-boot.go .lock{transform:translateY(-9vh) scale(.96);filter:blur(6px);transition:transform .5s var(--g1-glide),filter .5s var(--g1-glide)}
 @keyframes g1-boot-orb{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:none}}
-html.g1v2 #galion-boot:not(.go) ~ .hm{opacity:0}
-html.g1v2 .hm{transition:opacity .9s var(--g1-glide) .15s}
-@media (prefers-reduced-motion:reduce){.hm *,.hm *:before,.hm *:after,.g1-sky i,html.g1v2 body #galion-boot .lock::before{animation:none!important;transition:none!important}html.g1v2 body #galion-boot .lock::before{opacity:1}html.g1v2 body #galion-boot.go .lock{transform:translateY(-8%);filter:none}}
+/* CSS-timed, so it also lifts with JavaScript off: the binary's script removes the screen at about 2.5 s; this fades it by 2.6 s anyway. */
+html.g1v2 body #galion-boot{animation:g1-boot-out .5s cubic-bezier(.4,0,.2,1) 2.1s forwards}
+@keyframes g1-boot-out{to{opacity:0;visibility:hidden}}
+html.g1v2 .hm{animation:g1-room-in .9s var(--g1-glide) 2.15s both}
+@keyframes g1-room-in{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion:reduce){html.g1v2 .hm{animation:none!important}html.g1v2 body #galion-boot{animation:g1-boot-out 0s 2.1s forwards!important}.hm *,.hm *:before,.hm *:after,.g1-sky i,html.g1v2 body #galion-boot .lock::before{animation:none!important;transition:none!important}html.g1v2 body #galion-boot .lock::before{opacity:1}html.g1v2 body #galion-boot.go .lock{transform:translateY(-8%);filter:none}}

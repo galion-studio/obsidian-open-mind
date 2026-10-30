@@ -4,7 +4,7 @@ set -eu
 cd "$(dirname "$0")"
 {
 printf '%s\n' '<!doctype html>' '<html lang="en" class="g1v2">' '<head>' '<meta charset="utf-8">' '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">' '<meta name="theme-color" content="#05060f">' '<meta name="color-scheme" content="dark">' '<title>Galion One</title>'
-printf '%s\n' '<style>'; cat style.css; printf '%s\n' '</style>' '</head>' '<body>'
+printf '%s\n' '<style>'; cat style.css; printf '%s\n' '</style>' '<noscript><style>#galion-boot{display:none!important}html.g1v2 .hm{opacity:1!important}.hm-composer,.g1-snd,.hm-hist{display:none!important}</style></noscript>' '</head>' '<body>'
 cat body.html
 printf '%s\n' '<script type="text/plain" id="g1-worklet">'; cat mic-worklet.js; printf '%s\n' '</script>' '<script>'; cat app.js; printf '%s\n' '</script>' '</body>' '</html>'
 } > index-v2.html

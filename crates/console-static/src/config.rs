@@ -46,6 +46,17 @@ usage: galion-console-static --root DIR [options]
                        e.g. 127.0.0.1:8091; default none
   --desk ADDR          loopback galion-desk for /cache, /context (GET /desk),
                        e.g. 127.0.0.1:8646; default none
+  --connectors-dir DIR  where /connectors keeps MCP server entries (servers.d/),
+                       0600 token files (secrets/) and the generated
+                       mcp-servers.yaml for HERMES_RS_MCP_SERVERS_FILE, e.g.
+                       /var/lib/galion-console-connectors; default none (read-only)
+  --connectors-command-dir DIR  custom connectors may run local stdio MCP
+                       servers only from directly inside DIR (file name
+                       containing mcp); default none (https URLs only)
+  --connectors-hermes-file FILE  the live Hermes MCP servers file
+                       (HERMES_RS_MCP_SERVERS_FILE), e.g.
+                       /etc/hermes-rs/mcp-servers.yaml: tokens go to mcp.d/
+                       beside it, console entries to a marked block in it
   --memory-root DIR    host folder of Hermes memory for /memory and
                        /md/persona, e.g. /var/lib/memory-tencentdb; default none
   --model-file FILE    file holding the model name shown on /memory,
@@ -386,6 +397,22 @@ impl Config {
                         return Err(bad("--console-host must be a plain host name or IP"));
                     }
                     extra_hosts.push(h);
+                }
+                "--connectors-dir" => {
+                    files.connectors_dir =
+                        Some(abs_path(val("--connectors-dir")?, "--connectors-dir")?)
+                }
+                "--connectors-hermes-file" => {
+                    files.connectors_hermes_file = Some(abs_path(
+                        val("--connectors-hermes-file")?,
+                        "--connectors-hermes-file",
+                    )?)
+                }
+                "--connectors-command-dir" => {
+                    files.connectors_command_dir = Some(abs_path(
+                        val("--connectors-command-dir")?,
+                        "--connectors-command-dir",
+                    )?)
                 }
                 "--memory-root" => {
                     files.memory_root = Some(abs_path(val("--memory-root")?, "--memory-root")?)

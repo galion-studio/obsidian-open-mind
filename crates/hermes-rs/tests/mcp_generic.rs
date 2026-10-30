@@ -492,6 +492,7 @@ fn streamable_http_session_sse_auth_and_expiry() {
         env_file: Some(secret_file(&d, "TOK=tok-http-123456\n", 0o600)),
         headers: [("Authorization".to_string(), "Bearer ${TOK}".to_string())].into(),
         timeout_s: 5,
+        run_as: Some("root".into()),
         connect_timeout_s: 5,
         ..McpServerCfg::default()
     };
@@ -589,6 +590,8 @@ fn legacy_sse_transport() {
         url: Some(url),
         transport: McpTransport::Sse,
         timeout_s: 5,
+        // curl runs as run_as too; keep the runner's uid (user-namespace root)
+        run_as: Some("root".into()),
         connect_timeout_s: 5,
         ..McpServerCfg::default()
     };

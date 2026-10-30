@@ -278,10 +278,33 @@ impl SkillsCfg {
 }
 
 /// Runtime block: facts the gateway knows and the model does not. Keeps the
-/// persona honest about which model and tools this turn really has.
+/// persona honest about which model and tools this turn really has. The
+/// "missing" list is derived from the tool list, so it never contradicts it.
 pub fn runtime_block(model: &str, provider: &str, tools: &[String]) -> String {
+    let has = |n: &str| tools.iter().any(|t| t == n);
+    let mut missing: Vec<&str> = Vec::new();
+    if !has("terminal") {
+        missing.push("no terminal or shell");
+    }
+    if !has("write_file") && !has("edit_file") {
+        missing.push("no file writes");
+    }
+    if !has("read_file") && !has("list_files") {
+        missing.push("no file reads");
+    }
+    if !has("browser") {
+        missing.push("no browser");
+    }
+    if !has("vision_analyze") {
+        missing.push("no vision (images arrive as text only)");
+    }
+    let other = if missing.is_empty() {
+        "You have no other tools.".to_string()
+    } else {
+        format!("You have no other tools: {}.", missing.join(", "))
+    };
     format!(
-        "## Runtime (set by the gateway for this turn; trust this over older notes)\nModel this turn: {model} (provider: {provider}). Never claim a different model.\nYour tools this turn: {}. You have no other tools: no terminal, no shell, no browser, no code execution, no file writes.",
+        "## Runtime (set by the gateway for this turn; trust this over older notes)\nModel this turn: {model} (provider: {provider}). Never claim a different model.\nYour tools this turn: {}. {other} The deny list checks every tool call; a refusal is final.",
         if tools.is_empty() { "none".to_string() } else { tools.join(", ") }
     )
 }
@@ -591,6 +614,25 @@ mod tests {
         );
         assert!(b.contains("Model this turn: deepseek-ai/DeepSeek-V4.1-Flash (provider: river)"));
         assert!(b.contains("clock, skill_view"));
-        assert!(b.contains("no terminal"));
+        assert!(b.contains("no terminal or shell"));
+        assert!(b.contains("no browser"));
+        assert!(b.contains("deny list"));
+        let all: Vec<String> = [
+            "terminal",
+            "read_file",
+            "write_file",
+            "browser",
+            "vision_analyze",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let b = runtime_block("x-ai/grok-4.7", "openrouter", &all);
+        assert!(!b.contains("no terminal"));
+        assert!(!b.contains("no browser"));
+        assert!(!b.contains("no file writes"));
+        assert!(!b.contains("no vision"));
+        assert!(b.contains("You have no other tools."));
+        assert!(b.contains("deny list"));
     }
 }

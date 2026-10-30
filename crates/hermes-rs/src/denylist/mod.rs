@@ -22,12 +22,15 @@
 //! * S9 — tool level: code tools, shell tools without an inspectable command,
 //!   delegated writes, vault writes, MCP tools, size limits. Fail closed.
 //!
-//! Full-write mode (opt-in, `HERMES_RS_GUARD_FULL_WRITE=1`, 2026-10-30):
-//! before a tool call that may delete or overwrite workspace files runs,
-//! an undo copy is kept ([`undo`]); a call whose copy can not be made is
-//! refused. The rules that widen what may run come in a later change.
+//! Full-write mode (opt-in, `HERMES_RS_GUARD_FULL_WRITE=1`, 2026-10-30, see
+//! [`fullwrite`]): inside the workspace the agent may write, delete, rename
+//! and run any command or script, with an undo copy before every delete or
+//! overwrite ([`undo`]); the never-list (secrets, /etc, locked files, other
+//! services, the vault's notes, service control, flashing, writes outside
+//! the workspace) stays refused.
 
 pub mod ere;
+pub mod fullwrite;
 pub mod rules;
 pub mod shell;
 pub mod undo;
@@ -82,8 +85,7 @@ pub struct Policy {
     /// Extra read-only vault roots on top of [`VAULT_ROOTS`].
     pub extra_vaults: Vec<PathBuf>,
     /// Full-write mode (`HERMES_RS_GUARD_FULL_WRITE=1`): coding-assistant
-    /// access inside the write roots (undo copies, see [`undo`]). Off by
-    /// default.
+    /// access inside the write roots, see [`fullwrite`]. Off by default.
     pub full_write: bool,
     /// Undo store override (`HERMES_RS_GUARD_TRASH`); default
     /// `<first write root>/.hermes-trash`.
@@ -480,6 +482,12 @@ fn check_path_x(raw: &str, access: Access, cwd: &Path, pol: &Policy, strict: boo
                     ),
                 ));
             }
+            if pol.full_write_on() && fullwrite::locked_name(&name) {
+                return Err(deny(
+                    "S6-no-write",
+                    format!("{name} is locked by the owner"),
+                ));
+            }
         }
     }
     Ok(())
@@ -855,6 +863,14 @@ impl<'a> Cmd<'a> {
     fn word_path(&self, w: &Word, a: Access) -> R {
         if w.glob {
             let t = &w.text;
+            if a == Access::Write
+                && self.pol.full_write_on()
+                && !t.starts_with('/')
+                && !w.tilde
+                && !t.contains("..")
+            {
+                return self.fw_write_glob(t);
+            }
             if t.starts_with('/') || w.tilde || t.contains("..") || a == Access::Write {
                 return Err(deny(
                     "S2-glob-path",
@@ -946,7 +962,9 @@ impl<'a> Cmd<'a> {
             let Some((name, val)) = is_assignment(w) else {
                 break;
             };
-            if !ENV_ALLOW.contains(&name) {
+            // full-write: ordinary shell variables; loader variables stay refused
+            let fw_ok = self.pol.full_write_on() && !fullwrite::loader_var(name);
+            if !ENV_ALLOW.contains(&name) && !fw_ok {
                 return Err(deny(
                     "S5-env-assign",
                     format!("{name}= changes how programs load or find code"),
@@ -1030,11 +1048,49 @@ impl<'a> Cmd<'a> {
                 format!("{n} is not on the terminal allow list"),
             ));
         }
+        if self.pol.full_write_on()
+            && matches!(n, "set" | "export")
+            && args.first().is_some_and(|a| {
+                let t = a.text.as_str();
+                (n == "set" && (t.starts_with('-') || t.starts_with('+')) && t != "-p")
+                    || (n == "export" && is_assignment(a).is_some())
+            })
+        {
+            // full-write scripts: `set -euo pipefail`, `export NAME=value`
+            // (no dump; loader variables stay refused)
+            if n == "export" {
+                for a in args {
+                    match is_assignment(a) {
+                        Some((name, _))
+                            if ENV_ALLOW.contains(&name) || !fullwrite::loader_var(name) => {}
+                        _ => {
+                            return Err(deny(
+                                "S5-env-assign",
+                                format!(
+                                    "export {}: changes how programs load or find code",
+                                    a.text
+                                ),
+                            ))
+                        }
+                    }
+                }
+            }
+            return Ok(());
+        }
         if n == "env" && args.is_empty() || ENV_DUMPERS.contains(&n) && n != "env" {
             return Err(deny(
                 "S5-env-dump",
                 format!("{n} prints the environment (provider keys live there)"),
             ));
+        }
+        fullwrite::flash_check(n)?;
+        if self.pol.full_write_on() {
+            if fullwrite::FULL_WRITE_WRAPPERS.contains(&n) {
+                return self.fw_wrapper(n, args);
+            }
+            if n == "find" {
+                return self.fw_find(args);
+            }
         }
         if interp_base(n) {
             // Fix 3 (owner-approved t448u): a shell or awk invocation may run a
@@ -1113,7 +1169,7 @@ impl<'a> Cmd<'a> {
                     }
                 }
             }
-            "sed" => self.sed(args)?,
+            "sed" => return self.sed(args),
             "rg" | "sort" => {
                 for a in args {
                     let t = a.text.as_str();
@@ -1423,7 +1479,15 @@ impl<'a> Cmd<'a> {
     }
 
     fn sed(&self, args: &[&Word]) -> R {
-        let mut script: Option<String> = None;
+        let fw = self.pol.full_write_on();
+        // every -e / --expression script is checked (before 2026-10-30 only
+        // the last one was); with any -e, every bare operand is a file
+        let has_e = args.iter().any(|a| {
+            a.text == "-e" || a.text == "--expression" || a.text.starts_with("--expression=")
+        });
+        let mut scripts: Vec<String> = Vec::new();
+        let mut files: Vec<&Word> = Vec::new();
+        let mut inplace = false;
         let mut it = args.iter();
         while let Some(a) = it.next() {
             let t = a.text.as_str();
@@ -1431,34 +1495,50 @@ impl<'a> Cmd<'a> {
                 || t.starts_with("--in-place")
                 || (t.starts_with('-') && !t.starts_with("--") && t.contains('i'))
             {
-                return Err(deny("S4-sed", "sed -i edits files in place"));
+                if !fw {
+                    return Err(deny("S4-sed", "sed -i edits files in place"));
+                }
+                // full-write: in-place edits of workspace files (undo copy kept)
+                inplace = true;
+                continue;
             }
             if t == "-f" || t.starts_with("--file") {
                 return Err(deny("S4-sed", "sed -f runs a script file"));
             }
             if t == "-e" || t == "--expression" {
-                script = it.next().map(|w| w.text.clone());
-            } else if !t.starts_with('-') && script.is_none() {
-                script = Some(t.to_string());
+                match it.next() {
+                    Some(w) => scripts.push(w.text.clone()),
+                    None => return Err(deny("S4-sed", "sed -e with no script")),
+                }
+            } else if let Some(v) = t.strip_prefix("--expression=") {
+                scripts.push(v.to_string());
+            } else if !t.starts_with('-') && !has_e && scripts.is_empty() {
+                scripts.push(t.to_string());
             } else if !t.starts_with('-') {
-                check_path_x(t, Access::Read, &self.cwd, self.pol, true)?;
+                files.push(a);
             }
         }
-        let s = script.unwrap_or_default();
-        let ok = |p: &str| -> bool {
-            let f = Flags::default();
-            ere::Regex::new(p, f)
-                .map(|r| r.is_match(&s))
-                .unwrap_or(false)
-        };
+        if inplace && files.is_empty() {
+            return Err(deny("S4-sed", "sed -i with no file"));
+        }
+        for f in files {
+            self.word_path(f, if inplace { Access::Write } else { Access::Read })?;
+        }
         use ere::Flags;
-        if s.is_empty()
-            || ok(r"^([0-9]+|\$)?(,([0-9]+|\$))?[pd]$")
-            || ok(r"^/[^/;]*/[pd]$")
-            || ok(r"^[0-9]+q$")
-            || ok(r"^s/[^/;]*/[^/;]*/[gpI0-9]*$")
-            || ok(r"^s\|[^|;]*\|[^|;]*\|[gpI0-9]*$")
-        {
+        let shape_ok = |s: &str| -> bool {
+            let ok = |p: &str| -> bool {
+                ere::Regex::new(p, Flags::default())
+                    .map(|r| r.is_match(s))
+                    .unwrap_or(false)
+            };
+            s.is_empty()
+                || ok(r"^([0-9]+|\$)?(,([0-9]+|\$))?[pd]$")
+                || ok(r"^/[^/;]*/[pd]$")
+                || ok(r"^[0-9]+q$")
+                || ok(r"^s/[^/;]*/[^/;]*/[gpI0-9]*$")
+                || ok(r"^s\|[^|;]*\|[^|;]*\|[gpI0-9]*$")
+        };
+        if scripts.iter().all(|s| shape_ok(s)) {
             return Ok(());
         }
         Err(deny(
@@ -1571,7 +1651,8 @@ impl<'a> Cmd<'a> {
             return Ok(());
         };
         let sub = sub.text.as_str();
-        if !GIT_ALLOW.contains(&sub) {
+        let fw = self.pol.full_write_on();
+        if !GIT_ALLOW.contains(&sub) && !(fw && fullwrite::FULL_WRITE_GIT.contains(&sub)) {
             return Err(deny("S8-git", format!("git {sub} is not allowed (push, fetch, clone, config, hooks, gc, reset ... are refused)")));
         }
         let rest = &args[i + 1..];
@@ -1588,6 +1669,9 @@ impl<'a> Cmd<'a> {
                 || t.starts_with("--receive-pack")
                 || t.starts_with("--config")
                 || t == "-c"
+                || t.starts_with("--template")
+                || t.starts_with("--separate-git-dir")
+                || (sub == "rebase" && (t == "-x" || t == "-i" || t == "--interactive"))
             {
                 return Err(deny(
                     "S8-git",
@@ -1596,6 +1680,22 @@ impl<'a> Cmd<'a> {
             }
         }
         match sub {
+            // full-write: delete (-d) and rename (-m) of local branches; force,
+            // -D and upstream changes stay refused
+            "branch"
+                if fw
+                    && !rest.iter().any(|a| {
+                        matches!(
+                            a.text.as_str(),
+                            "-D" | "-M"
+                                | "-C"
+                                | "-f"
+                                | "--force"
+                                | "-u"
+                                | "--set-upstream-to"
+                                | "--edit-description"
+                        ) || a.text.starts_with("--set-upstream")
+                    }) => {}
             "branch" | "tag" => {
                 if rest.iter().any(|a| {
                     matches!(
@@ -1628,20 +1728,20 @@ impl<'a> Cmd<'a> {
                 }
             }
             "stash" => {
-                if rest
-                    .first()
-                    .is_some_and(|a| matches!(a.text.as_str(), "drop" | "clear" | "pop"))
-                {
+                if rest.first().is_some_and(|a| {
+                    matches!(a.text.as_str(), "drop" | "clear") || (!fw && a.text == "pop")
+                }) {
                     return Err(deny("S8-git", "git stash drop/clear/pop"));
                 }
             }
             "restore" | "switch"
-                if rest.iter().any(|a| {
-                    matches!(
-                        a.text.as_str(),
-                        "-f" | "--force" | "--discard-changes" | "-C" | "--force-create"
-                    )
-                }) =>
+                if !fw
+                    && rest.iter().any(|a| {
+                        matches!(
+                            a.text.as_str(),
+                            "-f" | "--force" | "--discard-changes" | "-C" | "--force-create"
+                        )
+                    }) =>
             {
                 return Err(deny("S8-git", format!("git {sub} --force discards work")));
             }
@@ -1652,8 +1752,26 @@ impl<'a> Cmd<'a> {
             cwd,
             depth: self.depth,
         };
+        let writes = fw && fullwrite::GIT_WRITES_PATHS.contains(&sub);
         for a in rest {
-            if looks_like_path(&a.text) && !a.text.starts_with('-') {
+            if a.text.starts_with('-') {
+                continue;
+            }
+            if writes {
+                // the files git would remove, move or overwrite
+                let lex = lexical(&a.text, &sub_cmd.cwd, &self.pol.home)?;
+                if looks_like_path(&a.text) || a.glob || lex.symlink_metadata().is_ok() {
+                    sub_cmd.word_path(a, Access::Write)?;
+                    if matches!(sub, "rm" | "mv" | "clean")
+                        && self.pol.write_roots.iter().any(|w| under(w, &lex))
+                    {
+                        return Err(deny(
+                            "S6-rm-root",
+                            format!("git {sub} on the workspace root or above it"),
+                        ));
+                    }
+                }
+            } else if looks_like_path(&a.text) {
                 sub_cmd.word_path(a, Access::Read)?;
             }
         }
@@ -1681,7 +1799,8 @@ impl<'a> Cmd<'a> {
         }
         let Some(sub) = sub else { return Ok(()) };
         let s = sub.text.as_str();
-        if !CARGO_ALLOW.contains(&s) {
+        let fw = self.pol.full_write_on();
+        if !CARGO_ALLOW.contains(&s) && !(fw && fullwrite::FULL_WRITE_CARGO.contains(&s)) {
             return Err(deny(
                 "S8-cargo",
                 format!("cargo {s} is not allowed (install, run, publish, login ... are refused)"),
@@ -1702,7 +1821,10 @@ impl<'a> Cmd<'a> {
         let offline = args
             .iter()
             .any(|a| matches!(a.text.as_str(), "--offline" | "--frozen"));
-        if !offline && !matches!(s, "version" | "--version" | "-V" | "fmt") {
+        if !offline
+            && !matches!(s, "version" | "--version" | "-V" | "fmt")
+            && !(fw && matches!(s, "new" | "init" | "clean"))
+        {
             return Err(deny(
                 "S8-cargo",
                 "cargo must run with --offline or --frozen (no downloads)",
@@ -1885,6 +2007,10 @@ impl<'a> Walk<'a> {
                 Access::Read
             };
             if self.k.vault && self.k.write {
+                if self.pol.full_write_on() && fullwrite::vault_create_tool(self.tool) {
+                    // full-write: a new note only, never an existing one
+                    return fullwrite::vault_new_note(s, &self.cwd, self.pol);
+                }
                 return Err(deny(
                     "S9-vault-write",
                     format!("{} writes to the vault, which is read-only", self.tool),
@@ -2060,10 +2186,12 @@ pub fn check_tool_call(tool: &str, args: &Value, pol: &Policy) -> R {
             format!("{tool} runs inline code the deny list can not inspect"),
         ));
     }
-    if k.vault && k.write {
+    if k.vault && k.write && pol.full_write_on() && fullwrite::vault_create_tool(tool) {
+        fullwrite::vault_create_args(args, pol)?;
+    } else if k.vault && k.write {
         return Err(deny(
             "S9-vault-write",
-            format!("{tool} writes to the vault, which is read-only"),
+            format!("{tool} writes to the vault, which is read-only (full-write mode allows new notes through a create tool only)"),
         ));
     }
     let mut w = Walk {

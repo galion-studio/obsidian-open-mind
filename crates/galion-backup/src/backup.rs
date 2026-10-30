@@ -9,7 +9,8 @@
 //! removed on every exit (also SIGTERM/SIGINT/SIGHUP); online SQLite
 //! snapshots + integrity verify + db/MAP; files.tar of the same path list and
 //! excludes; SHA256SUMS (C-locale sorted); DEST/.galion-STAMP.tar.gz.part
-//! (0600) renamed into place; keep the newest KEEP archives; one ok log line.
+//! (0600) fsynced and renamed into place (dir fsynced); keep the newest KEEP
+//! archives; one ok log line (size_kb/size_bytes = real byte length).
 
 use crate::gzip::GzWriter;
 use crate::sha256::{hex, Sha256};
@@ -196,6 +197,21 @@ pub fn avail_kb(dir: &Path) -> io::Result<u64> {
 pub fn du_kb(p: &Path) -> io::Result<u64> {
     let m = fs::symlink_metadata(p)?;
     Ok((m.blocks() * 512).div_ceil(1024))
+}
+
+/// Real byte length of FILE (`stat -c %s`) and that length in KiB, rounded up.
+///
+/// The `ok` log line uses this, not [`du_kb`]: on ZFS a freshly written file
+/// has almost no allocated blocks until the transaction group commits
+/// (~5 s), so `du -k` right after the write logged `size_kb=1`.
+pub fn file_size(p: &Path) -> io::Result<(u64, u64)> {
+    let len = fs::metadata(p)?.len();
+    Ok((len, len.div_ceil(1024)))
+}
+
+/// fsync a directory so a rename inside it is durable.
+pub fn sync_dir(dir: &Path) -> io::Result<()> {
+    File::open(dir)?.sync_all()
 }
 
 fn random_suffix() -> String {
@@ -498,10 +514,13 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
         let mut t = tarw::writer(gz);
         t.cancel = interrupted;
         t.add_tree(&s, top.as_bytes(), &|_| false)?;
-        t.finish()?
+        let f = t
+            .finish()?
             .finish()?
             .into_inner()
             .map_err(|e| e.into_error())?;
+        // Data on disk before the rename publishes the name.
+        f.sync_all()?;
         Ok(())
     })();
     if let Err(e) = r {
@@ -515,6 +534,9 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
     if let Err(e) = fs::rename(&part, &final_) {
         return err("mv", e);
     }
+    if let Err(e) = sync_dir(dest) {
+        return err("sync dir", e);
+    }
 
     // ---- rotation: keep newest KEEP
     let ordered = newest_first(archives(dest));
@@ -525,13 +547,13 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
             }
         }
     }
-    let size = match du_kb(&final_) {
-        Ok(k) => k,
-        Err(e) => return err("du", e),
+    let (size_bytes, size_kb) = match file_size(&final_) {
+        Ok(v) => v,
+        Err(e) => return err("stat", e),
     };
     let kept = archives(dest).len();
     log(&format!(
-        "level=info msg=\"ok\" archive={top}.tar.gz size_kb={size} kept={kept}"
+        "level=info msg=\"ok\" archive={top}.tar.gz size_kb={size_kb} size_bytes={size_bytes} kept={kept}"
     ));
     0
 }
@@ -539,6 +561,29 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn file_size_is_byte_length_not_blocks() {
+        let d = std::env::temp_dir().join(format!("gb-size-{}", random_suffix()));
+        fs::create_dir_all(&d).unwrap();
+        let cases: [(usize, u64); 5] = [(0, 0), (1, 1), (1024, 1), (1025, 2), (19_308_253, 18_856)];
+        for (n, kb) in cases {
+            let p = d.join(format!("f{n}"));
+            // Sparse file: allocated blocks are ~0, so du_kb would be wrong.
+            let f = File::create(&p).unwrap();
+            f.set_len(n as u64).unwrap();
+            drop(f);
+            assert_eq!(file_size(&p).unwrap(), (n as u64, kb), "len {n}");
+        }
+        let big = d.join(format!("f{}", 19_308_253));
+        assert!(
+            du_kb(&big).unwrap() < 18_856,
+            "sparse file: du is not the length"
+        );
+        sync_dir(&d).unwrap();
+        assert!(file_size(&d.join("missing")).is_err());
+        let _ = fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn stamp_format() {

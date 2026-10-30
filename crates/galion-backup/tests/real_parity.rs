@@ -204,6 +204,8 @@ enum Impl {
 }
 
 /// Log lines with the volatile parts blanked: ts, stamp, size, free KB.
+/// The Rust-only ` size_bytes=N` field (2026-10-30 size fix) is dropped, so
+/// the rest of the line must still match bash.
 fn norm_log(out: &[u8]) -> Vec<String> {
     String::from_utf8_lossy(out)
         .lines()
@@ -211,6 +213,16 @@ fn norm_log(out: &[u8]) -> Vec<String> {
             let l = match l.find(" svc=") {
                 Some(i) if l.starts_with("ts=") => &l[i + 1..],
                 _ => l,
+            };
+            let dropped;
+            let l = match l.find(" size_bytes=") {
+                Some(i) => {
+                    let rest = &l[i + 1..];
+                    let end = rest.find(' ').map_or(l.len(), |e| i + 1 + e);
+                    dropped = format!("{}{}", &l[..i], &l[end..]);
+                    dropped.as_str()
+                }
+                None => l,
             };
             let mut s = String::new();
             let mut digits = false;
@@ -415,6 +427,24 @@ fn real_parity_inner() {
         j.host("/var/backups/sh-full"),
         j.host("/var/backups/rs-full"),
     );
+    {
+        // Rust logs the real byte length (not ZFS-lag-prone allocated blocks).
+        let a = archives(&rd);
+        let len = a.first().map(|p| fs::metadata(p).unwrap().len());
+        let out = String::from_utf8_lossy(&r.stdout).into_owned();
+        let field = |k: &str| -> Option<u64> {
+            out.split_whitespace()
+                .find_map(|w| w.strip_prefix(k))
+                .and_then(|v| v.parse().ok())
+        };
+        t.check(
+            "rust size_bytes = archive length, size_kb = ceil(len/1024)",
+            len.is_some()
+                && field("size_bytes=") == len
+                && field("size_kb=") == len.map(|n| n.div_ceil(1024)),
+            || format!("len={len:?} out={out}"),
+        );
+    }
     t.check(
         "DEST mode 0700 both",
         mode(&sd) == 0o700 && mode(&rd) == 0o700,

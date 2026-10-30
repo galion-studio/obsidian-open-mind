@@ -47,7 +47,7 @@ does the whole script in-process:
 | `tar -czf DEST/.galion-STAMP.tar.gz.part`; `chmod 0600`; `mv` | own tar + gzip (miniz_oxide deflate level 6); 0600; atomic rename |
 | (none) | optional `GALION_BACKUP_GZIP_LEVEL` 0-9, default 6; invalid -> exit 1 before anything is written (swarm/backup-perf) |
 | `ls -1t galion-*.tar.gz \| tail -n +KEEP+1 \| xargs rm -f` | mtime (ns) newest first, ties by name, same glob; same survivors |
-| `du -k`, `kept=$(ls ... \| wc -l)`, `level=info msg="ok" archive=... size_kb=N kept=K` | `st_blocks` KiB rounded up; same line |
+| `du -k`, `kept=$(ls ... \| wc -l)`, `level=info msg="ok" archive=... size_kb=N kept=K` | since 2026-10-30: real byte length (`st_size`), `size_kb` = KiB rounded up plus a new `size_bytes=` field (bash used `du -k`, which reads ~1 KiB on ZFS right after the write); the archive is fsynced before the rename and DEST is fsynced after it |
 
 Backups stay **0600** (archives, lock, files inside) and **0700**
 (DEST at backup time, work dir, dirs inside the archive), exactly as before.

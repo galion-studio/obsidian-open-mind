@@ -52,3 +52,5 @@ It is a oneshot, so no restart is needed; the next timer run uses the bash scrip
 
 - B1 gzip level (6 or 5), B2 `size_kb` fix (use the file length) and deploy timing are owner decisions (slot 119).
 - The nerve has no spec for `galion-backup.timer` (plans/nerve.md T2.3). galion-health checks only that the timer is active, not that the last run succeeded.
+
+**2026-10-30 (B2 fixed, Mate approval):** branch `swarm/backup-size-fix-20261030` logs `size_kb` from the real byte length (`fs::metadata().len()`) plus `size_bytes=`, fsyncs the archive before the rename and DEST after it. The bash parity test drops `size_bytes` and checks it against the archive length.

@@ -24,8 +24,12 @@
 //! | `R9-process-exit` | process exit: non-zero, warn+ | alert |
 //! | `R10-remediation` | nerve `action.result` / `circuit.open` | rate-limited/circuit-open opens the cortex circuit + escalates once; echoes of our own requests are info |
 //! | `R11-nerve-incident` | nerve engine `incident.opened` (warn/error alert, critical escalate) / `incident.resolved` (info) | no action |
-//! | `R12-heal-failed` | heal verify ([`crate::verify`], not a rule here): a restart the nerve executed did not heal (the unit failed again, or nerve `/state` shows it not active at the deadline) | open circuit, alert + escalate once; no further restart while open |
+//! | `R12-heal-failed` | heal verify ([`crate::verify`], not a rule here): a restart the nerve executed did not heal (nerve `/state` shows it not active at the deadline; for a freeze heal the health probe still fails) | open circuit, ALERT only (no escalation, Mate 2026-10-30); no further restart while open |
 //! | `R12-heal-unverified` | heal verify: the deadline read of nerve `/state` failed or the nerve cannot see the unit | alert only |
+//! | `R13-frozen` | internal `unit.frozen` ([`crate::freeze`]): an allowlisted unit systemd shows `active` failed its health probe N times in a row over >= 90 s, outside any lifecycle cooldown | restart via the nerve (same caps, verify by probe) + alert |
+//! | `R13-freeze-wide` | ... but 2+ watched services are failing at once (dependency / host problem) | alert only |
+//! | `R13-freeze-cap` | ... but the unit already had its freeze restart(s) this hour (`freeze.per_unit_hour`, default 1) | open circuit, alert only |
+//! | `R2-circuit-open` (freeze) | ... but the unit's circuit is open (e.g. its last heal failed) | alert only, no restart |
 //! | `R99-default` | anything else: error+ | escalate (LLM-eligible); warn | alert; info | nothing |
 
 use crate::guard::Guard;
@@ -149,6 +153,8 @@ pub struct UnitBook {
     pub circuit_escalated: bool,
     /// Last time a stop/restart job marker was seen for the unit (slot 309).
     pub planned_at: Option<u64>,
+    /// Freeze restarts decided ([`crate::freeze`]), last hour.
+    pub freezes: VecDeque<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +172,8 @@ pub struct Rules {
     pub allow: Vec<String>,
     pub limits: Limits,
     pub books: BTreeMap<String, UnitBook>,
+    /// Freeze restarts per unit per hour (`freeze.per_unit_hour`).
+    pub freeze_per_unit_hour: u32,
 }
 
 impl Rules {
@@ -189,7 +197,110 @@ impl Rules {
             allow,
             limits,
             books: BTreeMap::new(),
+            freeze_per_unit_hour: 1,
         }
+    }
+
+    /// `R13-*`: a running unit stopped answering its health probe. Every
+    /// way out except the restart is alert only.
+    fn decide_frozen(&mut self, u: &str, fz: &Event, now: u64) -> Verdict {
+        let d = |k: &str| fz.data.get(k).cloned().unwrap_or(Value::Null);
+        let what = format!(
+            "{u} running but not answering: {} failed health probes over {} s ({})",
+            d("bad_probes"),
+            d("span_s"),
+            d("detail").as_str().unwrap_or("?")
+        );
+        if d("wide").as_bool() == Some(true) {
+            return Verdict::new(
+                "R13-freeze-wide",
+                Sev::Error,
+                format!("{what}; 2+ services unresponsive at once (dependency or host problem): alert only, no restart"),
+            )
+            .alert();
+        }
+        if !self.restart_allowed(u) {
+            return Verdict::new(
+                "R13-frozen",
+                Sev::Error,
+                format!("{what}; not on the restart allowlist: alert only"),
+            )
+            .alert();
+        }
+        if self.circuit_open(u, now) {
+            return Verdict::new(
+                "R2-circuit-open",
+                Sev::Error,
+                format!(
+                    "{what}; its circuit is open (an earlier restart did not heal it): no restart"
+                ),
+            )
+            .alert();
+        }
+        let per = self.freeze_per_unit_hour;
+        let b = self.books.entry(u.to_string()).or_default();
+        while b
+            .freezes
+            .front()
+            .is_some_and(|t| now.saturating_sub(*t) > 3600)
+        {
+            b.freezes.pop_front();
+        }
+        while b
+            .restarts
+            .front()
+            .is_some_and(|t| now.saturating_sub(*t) > 3600)
+        {
+            b.restarts.pop_front();
+        }
+        let (nfz, nr) = (b.freezes.len() as u32, b.restarts.len() as u32);
+        if nfz >= per {
+            let _ = self.open_circuit(u, now);
+            return Verdict::new(
+                "R13-freeze-cap",
+                Sev::Error,
+                format!("{what}; {nfz} freeze restart(s) in the last hour (cap {per}): circuit open, alert only"),
+            )
+            .alert();
+        }
+        if nr >= self.limits.restarts_per_unit_hour {
+            let _ = self.open_circuit(u, now);
+            return Verdict::new(
+                "R3-cap",
+                Sev::Error,
+                format!(
+                    "{what}; {nr} restarts asked in the last hour (cap {}): circuit open, alert only",
+                    self.limits.restarts_per_unit_hour
+                ),
+            )
+            .alert();
+        }
+        let total = self.restarts_last_hour(now);
+        if total >= self.limits.restarts_total_hour {
+            return Verdict::new(
+                "R3-cap-total",
+                Sev::Error,
+                format!(
+                    "{what}; {total} restarts asked in the last hour across all units (cap {}): alert only",
+                    self.limits.restarts_total_hour
+                ),
+            )
+            .alert();
+        }
+        self.books
+            .entry(u.to_string())
+            .or_default()
+            .freezes
+            .push_back(now);
+        Verdict {
+            outcome: Outcome::Restart(u.to_string()),
+            ..Verdict::new(
+                "R13-frozen",
+                Sev::Error,
+                format!("{what}; restart via the nerve allowlist, verified by probe"),
+            )
+        }
+        .alert()
     }
 
     pub fn restart_allowed(&self, unit: &str) -> bool {
@@ -304,6 +415,13 @@ impl Rules {
                     ),
                 );
             }
+        }
+        // Freeze heal (internal `unit.frozen`, crate::freeze).
+        if let (Some(u), Some(fz)) = (
+            s.unit.clone(),
+            s.events.iter().find(|e| crate::freeze::is_frozen(e)),
+        ) {
+            return self.decide_frozen(&u, fz, now);
         }
         // Nerve-side remediation outcomes.
         if lead_kind == EventKind::Remediation || lead_kind == EventKind::CircuitOpen {

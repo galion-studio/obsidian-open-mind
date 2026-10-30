@@ -24,9 +24,17 @@
 //! - at the deadline (`heal_verify_s`, default 180 s) with neither, ONE
 //!   read of the nerve `/state` (GET, loopback) decides: unit `active` ->
 //!   **verified** (`by: nerve-state`); any other state -> **failed**: the
-//!   cortex alerts, escalates to a human once and opens the unit's circuit
+//!   cortex alerts (only) and opens the unit's circuit
 //!   breaker, so it stops restarting a unit that restarts do not fix; nerve
 //!   unreachable / unit not in `/state` -> **unverified** (alert only).
+//! - a **freeze heal** ([`crate::freeze`]: the unit was running but not
+//!   answering) is judged by a fresh health probe instead: the nerve's
+//!   recovery events only say the process runs again, the probe says it
+//!   answers. Answer below 500 -> **verified** (`by: probe`), else
+//!   **failed**. A new crash is still **failed-again**.
+//!
+//! A failed heal ALERTS only (nerve / ntfy path); it is not handed to the
+//! human / Hermes escalation queue (Mate, 2026-10-30 11:27 CET).
 //!
 //! The verifier never acts on a service: it only reads, and its only
 //! effect on the rules is to make them *more* conservative (circuit open).
@@ -78,13 +86,21 @@ pub struct Check {
     /// Unix seconds the restart was asked.
     pub asked: u64,
     pub due: u64,
+    /// Freeze heal: judged by probing this loopback port + path.
+    pub probe: Option<(u16, String)>,
 }
 
 impl Check {
     fn to_json(&self) -> Value {
-        json!({"id": self.id, "decision": self.decision, "incident": self.incident, "unit": self.unit,
+        let mut v = json!({"id": self.id, "decision": self.decision, "incident": self.incident, "unit": self.unit,
                "asked": crate::engine::ts(self.asked), "asked_unix": self.asked,
-               "due": crate::engine::ts(self.due), "due_unix": self.due})
+               "due": crate::engine::ts(self.due), "due_unix": self.due});
+        if let Some((port, path)) = &self.probe {
+            v["kind"] = json!("freeze");
+            v["probe_port"] = json!(port);
+            v["probe_path"] = json!(path);
+        }
+        v
     }
 }
 
@@ -121,6 +137,8 @@ pub enum StateRead {
     Missing,
     /// No answer / not JSON.
     Unreachable(String),
+    /// Freeze heal: the deadline health probe (`up` = answered below 500).
+    Probe { up: bool, detail: String },
 }
 
 /// Find `unit` in a nerve `/state` body (`components[].unit`).
@@ -185,6 +203,16 @@ pub fn judge(read: &StateRead) -> (Verdict, String, String) {
             "unit not listed in nerve /state".into(),
         ),
         StateRead::Unreachable(e) => (Verdict::Unverified, "nerve-unreachable".into(), e.clone()),
+        StateRead::Probe { up: true, detail } => (
+            Verdict::Verified,
+            "probe".into(),
+            format!("health probe answers ({detail})"),
+        ),
+        StateRead::Probe { up: false, detail } => (
+            Verdict::Failed,
+            "probe".into(),
+            format!("still not answering after the restart ({detail})"),
+        ),
     }
 }
 
@@ -269,6 +297,13 @@ impl Verifier {
                     let n = |k: &str| v.get(k).and_then(Value::as_u64).unwrap_or(0);
                     if !id.is_empty() && !s("unit").is_empty() {
                         open.retain(|c| c.id != id);
+                        let probe = v
+                            .get("probe_port")
+                            .and_then(Value::as_u64)
+                            .and_then(|p| u16::try_from(p).ok())
+                            .filter(|p| *p > 0)
+                            .map(|p| (p, s("probe_path")))
+                            .filter(|(_, path)| path.starts_with('/'));
                         open.push(Check {
                             id: id.into(),
                             decision: s("decision"),
@@ -276,6 +311,7 @@ impl Verifier {
                             unit: s("unit"),
                             asked: n("asked_unix"),
                             due: n("due_unix"),
+                            probe,
                         });
                     }
                 }
@@ -295,6 +331,18 @@ impl Verifier {
     /// Arm a check for a restart of `unit` asked at `now`. No-op when off.
     /// A newer restart of the same unit replaces its pending check.
     pub fn arm(&mut self, decision: &str, incident: &str, unit: &str, now: u64) -> Option<Check> {
+        self.arm_with(decision, incident, unit, None, now)
+    }
+
+    /// [`Verifier::arm`] for a freeze heal: judged by probing `probe`.
+    pub fn arm_with(
+        &mut self,
+        decision: &str,
+        incident: &str,
+        unit: &str,
+        probe: Option<(u16, String)>,
+        now: u64,
+    ) -> Option<Check> {
         if self.window_s == 0 {
             return None;
         }
@@ -306,6 +354,7 @@ impl Verifier {
             unit: unit.into(),
             asked: now,
             due: now + self.window_s,
+            probe,
         };
         let mut v = c.to_json();
         v["event"] = json!("armed");
@@ -332,7 +381,8 @@ impl Verifier {
             }
             let found = if is_failure(e) {
                 Some((Verdict::FailedAgain, "nerve-failure", e.kind.clone()))
-            } else if is_held_recovery(e) {
+            } else if is_held_recovery(e) && self.pending[i].probe.is_none() {
+                // a freeze heal waits for its probe: running is not answering
                 Some((Verdict::Verified, "nerve-recovery", e.kind.clone()))
             } else {
                 None
@@ -562,13 +612,61 @@ mod tests {
     }
 
     #[test]
+    fn freeze_heal_waits_for_the_probe() {
+        let mut v = v();
+        let c = v
+            .arm_with(
+                "dec-1",
+                "inc",
+                "a.service",
+                Some((23222, "/health".into())),
+                100,
+            )
+            .unwrap();
+        assert_eq!(c.to_json()["kind"], "freeze");
+        // the held recovery after the restart does not verify a freeze heal
+        assert!(v
+            .observe(
+                &[ev(
+                    "unit.state",
+                    "a.service",
+                    135,
+                    json!({"to": "active", "recovered": true})
+                )],
+                135
+            )
+            .is_empty());
+        assert_eq!(v.pending.len(), 1);
+        // a new crash still does
+        let d = v.observe(&[ev("unit.failed", "a.service", 140, json!({}))], 140);
+        assert_eq!(d[0].verdict, Verdict::FailedAgain);
+        let up = StateRead::Probe {
+            up: true,
+            detail: "HTTP 200".into(),
+        };
+        assert_eq!(judge(&up).0, Verdict::Verified);
+        assert_eq!(judge(&up).1, "probe");
+        let down = StateRead::Probe {
+            up: false,
+            detail: "HTTP 503".into(),
+        };
+        assert_eq!(judge(&down).0, Verdict::Failed);
+    }
+
+    #[test]
     fn log_and_reload_rearms_only_unfinished() {
         let dir = std::env::temp_dir().join(format!("heal-verify-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let p = dir.join("heals.jsonl");
         let _ = std::fs::write(&p, "");
         let mut v = Verifier::new(180, Some(p.clone()));
-        v.arm("dec-1", "inc", "a.service", 100);
+        v.arm_with(
+            "dec-1",
+            "inc",
+            "a.service",
+            Some((23222, "/health".into())),
+            100,
+        );
         let c = v.arm("dec-2", "inc", "b.service", 100).unwrap();
         v.pending.retain(|x| x.id != c.id);
         v.finish(c, Verdict::Verified, "nerve-recovery", "", 130);
@@ -580,6 +678,7 @@ mod tests {
         let mut w = Verifier::new(180, Some(p.clone()));
         assert_eq!(w.reload(1_000), 1);
         assert_eq!(w.pending[0].unit, "a.service");
+        assert_eq!(w.pending[0].probe, Some((23222, "/health".to_string())));
         assert_eq!(w.pending[0].due, 1_030, "past deadline gets the grace");
         assert_eq!(w.counts.rearmed, 1);
         let mut off = Verifier::new(0, Some(p));

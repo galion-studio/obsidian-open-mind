@@ -88,6 +88,10 @@ pub struct Config {
     /// else one nerve `/state` read decides (see [`crate::verify`]).
     /// Default 180; 0 = off; else 30..=3600 (anything else refuses to start).
     pub heal_verify_s: u64,
+    /// Freeze heal (gaia-freeze-heal): restart an allowlisted service that
+    /// runs but stopped answering its health probe (see [`crate::freeze`]).
+    /// Off by default; `CORTEX_FREEZE=1` turns it on, `0` off.
+    pub freeze: crate::freeze::FreezeCfg,
     pub llm: LlmConfig,
     /// Cortex -> Hermes boss handoff (inbox files; see `handoff`).
     pub hermes: HermesConfig,
@@ -120,6 +124,7 @@ impl Default for Config {
             nerve_stream: true,
             nerve_stale_s: 0,
             heal_verify_s: crate::verify::DEFAULT_VERIFY_S,
+            freeze: crate::freeze::FreezeCfg::default(),
             llm: LlmConfig::default(),
             hermes: HermesConfig::default(),
         }
@@ -284,6 +289,41 @@ impl Config {
                 format!("CORTEX_HEAL_VERIFY_S must be a number of seconds, got {v:?}")
             })?;
         }
+        if let Some(v) = get("CORTEX_FREEZE") {
+            c.freeze.enabled = match v.trim() {
+                "1" | "true" => true,
+                "0" | "false" | "" => false,
+                _ => return Err(format!("CORTEX_FREEZE must be 0 or 1, got {v:?}")),
+            };
+        }
+        let num = |k: &str| -> Result<Option<u64>, String> {
+            match get(k) {
+                Some(v) => v
+                    .trim()
+                    .parse()
+                    .map(Some)
+                    .map_err(|_| format!("{k} must be a whole number, got {v:?}")),
+                None => Ok(None),
+            }
+        };
+        if let Some(v) = num("CORTEX_FREEZE_PROBE_S")? {
+            c.freeze.probe_s = v;
+        }
+        if let Some(v) = num("CORTEX_FREEZE_FAILS")? {
+            c.freeze.fails = u32::try_from(v).unwrap_or(u32::MAX);
+        }
+        if let Some(v) = num("CORTEX_FREEZE_MIN_S")? {
+            c.freeze.min_s = v;
+        }
+        if let Some(v) = num("CORTEX_FREEZE_COOLDOWN_S")? {
+            c.freeze.cooldown_s = v;
+        }
+        if let Some(v) = num("CORTEX_FREEZE_PER_HOUR")? {
+            c.freeze.per_unit_hour = u32::try_from(v).unwrap_or(u32::MAX);
+        }
+        if let Some(v) = num("CORTEX_FREEZE_TIMEOUT_S")? {
+            c.freeze.timeout_s = v;
+        }
         if let Some(v) = get("CORTEX_REPEAT_POLL_S").and_then(|v| v.parse().ok()) {
             c.repeat_poll_s = v;
         }
@@ -334,6 +374,9 @@ impl Config {
                 "heal_verify_s must be 0 (off) or {lo}..={hi}, got {}",
                 self.heal_verify_s
             ));
+        }
+        if self.freeze.enabled {
+            self.freeze.validate()?;
         }
         if !(self.llm.budget_usd_total.is_finite() && self.llm.budget_usd_total >= 0.0) {
             return Err("llm.budget_usd_total must be >= 0".into());

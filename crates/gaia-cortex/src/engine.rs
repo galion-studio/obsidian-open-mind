@@ -177,6 +177,8 @@ pub struct Cortex {
     pub posts: Arc<PostCounters>,
     /// Heal verification (did an executed restart fix the unit?).
     pub heals: crate::verify::Verifier,
+    /// Freeze watch (running but not answering; see [`crate::freeze`]).
+    pub freeze: crate::freeze::FreezeWatch,
     outgoing: Vec<Post>,
     seen: HashSet<u64>,
     seen_order: VecDeque<u64>,
@@ -194,6 +196,9 @@ pub struct Cortex {
     /// quiet), newest last.
     resolved_by: VecDeque<(String, &'static str)>,
 }
+
+/// Kinds of the heal outcome events the cortex posts (`gaia.heal.<outcome>`).
+pub const HEAL_KIND_PREFIX: &str = "gaia.heal.";
 
 pub fn now_secs() -> u64 {
     std::time::SystemTime::now() // repo-check: allow (unix seconds; every printed time goes through zagreb_time::from_unix)
@@ -223,7 +228,7 @@ impl Cortex {
         if rearmed > 0 {
             eprintln!("gaia-cortex: heal checks re-armed from heals.jsonl: {rearmed}");
         }
-        let rules = Rules::new(
+        let mut rules = Rules::new(
             guard,
             &cfg.restart_allow,
             Limits {
@@ -234,6 +239,8 @@ impl Cortex {
                 circuit_open_s: cfg.circuit_open_s,
             },
         );
+        rules.freeze_per_unit_hour = cfg.freeze.per_unit_hour;
+        let freeze = crate::freeze::FreezeWatch::new(cfg.freeze.clone());
         Cortex {
             advisor: Advisor::new(cfg.llm.clone(), &dir),
             rules,
@@ -265,6 +272,7 @@ impl Cortex {
             contact: Arc::new(crate::contact::NerveContact::default()),
             posts: Arc::new(PostCounters::default()),
             heals,
+            freeze,
             outgoing: vec![],
             seen: HashSet::new(),
             seen_order: VecDeque::new(),
@@ -304,7 +312,16 @@ impl Cortex {
                 continue;
             }
             self.stats.events_in += 1;
-            if e.source == CORTEX_SOURCE || e.kind() == EventKind::CortexAlert {
+            // `unit.frozen` is internal only (crate::freeze): from outside it
+            // could ask for a restart of a healthy unit. `gaia.heal.*` are our
+            // own heal outcomes; the nerve re-emits what we POST (source
+            // `http`, error -> `high`), and that echo must not be decided
+            // again (it reached R99 and escalated a failed heal).
+            if e.source == CORTEX_SOURCE
+                || e.kind() == EventKind::CortexAlert
+                || e.kind == crate::freeze::FREEZE_KIND
+                || e.kind.starts_with(HEAL_KIND_PREFIX)
+            {
                 self.stats.events_ignored += 1;
                 continue;
             }
@@ -503,6 +520,43 @@ impl Cortex {
         out
     }
 
+    /// Freeze watch bookkeeping for one burst: a systemd lifecycle event
+    /// (start, stop, crash, exit, restart, recovery) starts the unit's
+    /// freeze cooldown (a deploy restart is not a freeze); fired freezes
+    /// join the burst unless their unit just had such an event.
+    fn freeze_merge(&mut self, evs: &mut Vec<Event>, now: u64) {
+        if !self.freeze.enabled() {
+            self.freeze.inbox.clear();
+            return;
+        }
+        let until = now + self.freeze.cfg.cooldown_s;
+        let mut moved: HashSet<String> = HashSet::new();
+        for e in evs.iter() {
+            let life = matches!(
+                e.kind(),
+                EventKind::UnitState
+                    | EventKind::UnitCrash
+                    | EventKind::RestartScheduled
+                    | EventKind::StartLimit
+                    | EventKind::ProcessExit
+                    | EventKind::Oom
+            );
+            if let (true, Some(u)) = (life, e.unit()) {
+                let u = crate::freeze::norm_unit(&u);
+                self.freeze.cooldown(&u, until);
+                moved.insert(u);
+            }
+        }
+        for f in std::mem::take(&mut self.freeze.inbox) {
+            let u = f.unit.as_deref().map(crate::freeze::norm_unit);
+            if u.as_ref().is_some_and(|u| moved.contains(u)) {
+                self.freeze.counts.cooldowns += 1;
+                continue;
+            }
+            evs.push(f);
+        }
+    }
+
     /// Phase 1 (engine lock held, no I/O to the nerve): admit, correlate,
     /// decide every subject, build the action requests. A restart request
     /// is reserved against its unit's hourly cap here, so the cap can never
@@ -511,7 +565,8 @@ impl Cortex {
     pub fn plan(&mut self, evs: Vec<Event>, now: u64) -> Vec<Pending> {
         self.stats.events_invalid += self.snap.take_invalid();
         self.expire_escalations(now);
-        let evs = self.admit(evs);
+        let mut evs = self.admit(evs);
+        self.freeze_merge(&mut evs, now);
         if evs.is_empty() {
             return vec![];
         }
@@ -933,7 +988,14 @@ impl Cortex {
                 v.escalate = true;
             }
             if !req.dry_run && (unknown || o.status == ActionStatus::Executed) {
-                if let Some(c) = self.heals.arm(&id, &incident, &req.unit, now) {
+                // our own restart: never mistaken for a freeze right after
+                let cool = now + self.freeze.cfg.cooldown_s;
+                self.freeze.cooldown(&req.unit, cool);
+                let probe = (v.rule == "R13-frozen")
+                    .then(|| self.freeze.target(&req.unit))
+                    .flatten()
+                    .map(|t| (t.port, t.path.clone()));
+                if let Some(c) = self.heals.arm_with(&id, &incident, &req.unit, probe, now) {
                     action_heal = json!({"check": c.id, "due": ts(c.due)});
                 }
             }
@@ -993,7 +1055,8 @@ impl Cortex {
 
     /// Side effects of a finished heal check: a `gaia.heal.<outcome>` event
     /// to the nerve; `failed` also opens the unit's circuit (no more blind
-    /// restarts) and escalates to a human; `unverified` alerts.
+    /// restarts) and alerts; `unverified` alerts. Neither escalates to a
+    /// human / Hermes (Mate, 2026-10-30 11:27 CET: failed heal = alert only).
     fn heal_done(&mut self, d: crate::verify::Done, now: u64) {
         use crate::verify::Verdict as H;
         let u = d.check.unit.clone();
@@ -1015,7 +1078,7 @@ impl Cortex {
         data["unit"] = json!(u);
         let mut ev = Event::new(
             CORTEX_SOURCE,
-            &format!("gaia.heal.{}", d.verdict.as_str()),
+            &format!("{HEAL_KIND_PREFIX}{}", d.verdict.as_str()),
             sev,
             data,
         );
@@ -1031,7 +1094,7 @@ impl Cortex {
                     "R12-heal-failed",
                     Sev::Error,
                     format!(
-                        "{u}: restart {} did not heal it within {}s ({}); circuit {}, human needed",
+                        "{u}: restart {} did not heal it within {}s ({}); circuit {}, no further restart",
                         d.check.decision,
                         d.at.saturating_sub(d.check.asked),
                         d.detail,
@@ -1057,7 +1120,7 @@ impl Cortex {
         };
         let mut v = Verdict::new(rule, vsev, why);
         v.alert = true;
-        v.escalate = d.verdict == H::Failed;
+        v.escalate = false;
         let id = self.next_id("dec");
         self.stats.decisions += 1;
         let rec = json!({
@@ -1069,13 +1132,12 @@ impl Cortex {
         });
         self.decisions.push(rec);
         self.alert(&id, &s, &d.check.incident, &v, now);
-        if v.escalate {
-            self.escalate(&id, &s, &d.check.incident, &v, now);
-        }
     }
 
     pub fn heals_json(&self) -> Value {
-        self.heals.to_json()
+        let mut v = self.heals.to_json();
+        v["freeze"] = self.freeze.to_json();
+        v
     }
 
     /// Alert/escalation events waiting to be posted to the nerve.
@@ -1253,6 +1315,7 @@ impl Cortex {
                "incidents_open": self.correlator.open.len(), "escalations_open": self.escalations.open.len(),
                "hermes_handoff": self.handoff.enabled, "handoffs": self.stats.handoffs,
                "heals_pending": self.heals.pending.len(), "heal_verify": self.heals.window_s > 0,
+               "freeze_watch": self.freeze.enabled(), "freeze_targets": self.freeze.targets.len(),
                "busy": self.snap.busy()});
         self.contact.overlay(
             &mut v,
@@ -1279,6 +1342,11 @@ impl Cortex {
             self.alerts.recent(usize::MAX),
             self.escalations_json(),
         );
+        self.snap.store_heals(self.heals_json());
+    }
+
+    /// Refresh only the `/heals` snapshot (freeze watch rounds).
+    pub fn publish_heals(&self) {
         self.snap.store_heals(self.heals_json());
     }
 }
@@ -1452,10 +1520,30 @@ pub fn run_heal_checks(
     if due.is_empty() {
         return vec![];
     }
+    let timeout = lock(cx).freeze.cfg.timeout_s;
     let reads: Vec<_> = due
         .into_iter()
         .map(|c| {
-            let r = read(&c.unit);
+            let r = match &c.probe {
+                Some((port, path)) => {
+                    let t = crate::freeze::Target {
+                        unit: c.unit.clone(),
+                        port: *port,
+                        path: path.clone(),
+                    };
+                    match crate::freeze::probe(&t, timeout) {
+                        crate::freeze::Probe::Up(code) => crate::verify::StateRead::Probe {
+                            up: true,
+                            detail: format!("HTTP {code}"),
+                        },
+                        crate::freeze::Probe::Down(d) => crate::verify::StateRead::Probe {
+                            up: false,
+                            detail: d,
+                        },
+                    }
+                }
+                None => read(&c.unit),
+            };
             (c, r)
         })
         .collect();
@@ -1473,6 +1561,82 @@ pub fn state_reader(nerve_url: Option<&str>) -> impl Fn(&str) -> crate::verify::
     move |unit: &str| match addr {
         Some(a) => crate::nerve::read_unit_state(a, Duration::from_secs(5), unit),
         None => crate::verify::StateRead::Unreachable("no nerve configured".into()),
+    }
+}
+
+/// The freeze watcher thread (only when `freeze.enabled`): probe every
+/// watched target each `probe_s` (outside the engine lock), feed the
+/// streaks, and hand fired freezes to the decider (`wake` carries an empty
+/// burst; the events themselves go through [`Cortex::freeze`]'s inbox, so
+/// nothing from outside can impersonate them). Targets come from the nerve
+/// `/state` (unit + health port) filtered by the restart allowlist.
+pub fn run_freeze_watch(
+    cx: Arc<Mutex<Cortex>>,
+    wake: std::sync::mpsc::Sender<Vec<Event>>,
+    nerve: std::net::SocketAddr,
+) {
+    let (probe_s, timeout) = {
+        let g = lock(&cx);
+        (g.freeze.cfg.probe_s, g.freeze.cfg.timeout_s)
+    };
+    let io = Duration::from_secs(5);
+    let mut targets_at: Option<u64> = None;
+    loop {
+        let now = now_secs();
+        if targets_at.is_none_or(|t| now.saturating_sub(t) >= crate::freeze::TARGETS_EVERY_S) {
+            if let Ok(st) = crate::nerve::nerve_state(nerve, io) {
+                let mut g = lock(&cx);
+                let t = {
+                    let r = &g.rules;
+                    crate::freeze::targets_from_state(&st, &|u| r.restart_allowed(u))
+                };
+                g.freeze.set_targets(t);
+                targets_at = Some(now);
+            }
+        }
+        let targets = lock(&cx).freeze.targets.clone();
+        let results: Vec<_> = targets
+            .into_iter()
+            .map(|t| {
+                let p = crate::freeze::probe(&t, timeout);
+                (t, p)
+            })
+            .collect();
+        let now = now_secs();
+        let fired = lock(&cx).freeze.round(&results, now);
+        let mut evs = vec![];
+        for f in fired {
+            // systemd must still say running (a crash belongs to R3)
+            let read = crate::nerve::read_unit_state(nerve, io, &f.target.unit);
+            if !f.wide && !crate::freeze::says_active(&read) {
+                lock(&cx).freeze.counts.held_not_active += 1;
+                eprintln!(
+                    "gaia-cortex {} freeze {} held: nerve does not say active ({read:?})",
+                    ts(now),
+                    f.target.unit
+                );
+                continue;
+            }
+            eprintln!(
+                "gaia-cortex {} freeze {} fired: {} bad probes over {} s ({}){}",
+                ts(now),
+                f.target.unit,
+                f.bad,
+                f.span_s,
+                f.detail,
+                if f.wide { ", wide" } else { "" }
+            );
+            evs.push(f.event(now));
+        }
+        if !evs.is_empty() {
+            lock(&cx).freeze.inbox.extend(evs);
+            if wake.send(vec![]).is_err() {
+                return;
+            }
+        } else if !results.is_empty() {
+            lock(&cx).publish_heals();
+        }
+        std::thread::sleep(Duration::from_secs(probe_s));
     }
 }
 

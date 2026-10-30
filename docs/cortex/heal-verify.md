@@ -23,7 +23,7 @@ check per unit with a deadline (`heal_verify_s`, default 180 s):
 | nerve `unit.state` `recovered:true` / `incident.resolved` (state active) for the unit, after the request | `verified` | nerve event `gaia.heal.verified` (info) |
 | a new crash / OOM / start-limit / `failed` state of the unit before the deadline | `failed_again` | nerve event `gaia.heal.failed_again` (warn); the rules decide the crash as usual (R2 flap / R3 cap) |
 | deadline: one `GET /state` from the nerve, unit `active`/`running` | `verified` (by nerve-state) | `gaia.heal.verified` |
-| deadline: unit listed but not active (`failed`, `inactive`, still `activating`, ...) | `failed` | **R12-heal-failed**: open the unit's circuit (1 h, no more restarts), alert, escalate once; `gaia.heal.failed` (error) |
+| deadline: unit listed but not active (`failed`, `inactive`, still `activating`, ...) | `failed` | **R12-heal-failed**: open the unit's circuit (1 h, no more restarts), ALERT only (no Hermes / human escalation, Mate 2026-10-30 11:27 CET); `gaia.heal.failed` (error) via the nerve / ntfy path |
 | deadline: nerve unreachable, unit not listed, or no `unit_state` (nerve without systemd) | `unverified` | **R12-heal-unverified**: alert only, never opens a circuit |
 
 Never adds an action, never touches a unit; the only rule effect is *more* conservative
@@ -51,7 +51,7 @@ Anything else (or not a number) refuses to start (exit 2).
 
 - `src/verify.rs` unit tests (9): matching, replacement, ordering, persistence.
 - `tests/heal_verify.rs` (9): engine wiring with a mock nerve (verified, failed + circuit +
-  escalation, deadline state reads, failed-again keeps the rules, dry-run/off/lost reply,
+  alert-only failed heal (no escalation), deadline state reads, failed-again keeps the rules, dry-run/off/lost reply,
   restart survival, lock-free read, wait choice, config bounds).
 - `tests/real_heal_verify.rs` (GALION_REAL=1, ports 23200-23209): release cortex + REAL
   release event-mode nerve with live actions and a fake `systemctl` first on `PATH`
@@ -64,3 +64,12 @@ Anything else (or not a number) refuses to start (exit 2).
 GALION_REAL=1 GALION_NERVE_BIN=<openmind-nerve 18a5a72 release> \
   cargo test --release -p gaia-cortex --test real_heal_verify -- --nocapture --test-threads 1
 ```
+
+## Freeze heals
+
+A restart asked by **R13-frozen** ([freeze-heal.md](freeze-heal.md)) is judged by the
+health probe, not by systemd: the unit was `active` all along, so a held nerve recovery
+proves nothing. At the deadline the cortex probes the same loopback port + path once:
+an answer below 500 = `verified` (by `probe`), no answer / timeout / 5xx = `failed`
+(R12-heal-failed, circuit open, alert only). A crash before the deadline is still
+`failed_again`. `/heals` shows such checks with `"kind": "freeze"`.

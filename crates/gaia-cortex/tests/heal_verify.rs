@@ -5,7 +5,7 @@
 //! Heal verification through the whole cortex pipeline (mock nerve, no
 //! network): an executed restart arms one check; a held nerve recovery
 //! verifies it; a unit still down at the deadline fails it, which opens
-//! the circuit and escalates; dry-run / refused restarts arm nothing.
+//! the circuit and alerts only (no escalation, Mate 2026-10-30); dry-run / refused restarts arm nothing.
 
 use gaia_cortex::config::Config;
 use gaia_cortex::engine::{decider_wait, run_heal_checks, Cortex};
@@ -143,7 +143,7 @@ fn executed_restart_is_verified_by_held_recovery() {
 }
 
 #[test]
-fn unit_still_down_at_deadline_fails_opens_circuit_and_escalates() {
+fn unit_still_down_at_deadline_fails_opens_circuit_and_alerts_only() {
     let (mut cx, nerve) = cortex(live_cfg(tmpdir()));
     cx.process(vec![crash(T0)], T0);
     let esc_before = cx.escalations.open.len();
@@ -161,7 +161,12 @@ fn unit_still_down_at_deadline_fails_opens_circuit_and_escalates() {
     let h = cx.heals_json();
     assert_eq!(h["failed"], 1, "{h}");
     assert!(cx.rules.circuit_open(U, T0 + 181), "no more blind restarts");
-    assert_eq!(cx.escalations.open.len(), esc_before + 1);
+    assert_eq!(
+        cx.escalations.open.len(),
+        esc_before,
+        "failed heal: alert only, no escalation"
+    );
+    assert_eq!(cx.stats.handoffs, 0, "no Hermes handoff");
     let k = kinds(&cx_posts(&mut cx, &nerve));
     assert!(k.contains(&"gaia.heal.failed".to_string()), "{k:?}");
     let last = cx.decisions.recent(1)[0].clone();
@@ -172,6 +177,8 @@ fn unit_still_down_at_deadline_fails_opens_circuit_and_escalates() {
     let d = cx.process(vec![crash(T0 + 200)], T0 + 200);
     assert_eq!(d[0]["outcome"], "none", "{}", d[0]);
     assert_eq!(nerve.reqs.lock().unwrap().len(), reqs_before);
+    assert_eq!(cx.escalations.open.len(), esc_before, "still no escalation");
+    assert_eq!(last["escalate"], false, "{last}");
 }
 
 /// `heal_judged` queues posts; `process` would flush them on the next batch.
@@ -332,4 +339,28 @@ fn config_window_bounds() {
     assert!(Config::load(None, &env("10")).is_err());
     assert!(Config::load(None, &env("3601")).is_err());
     assert!(Config::load(None, &env("soon")).is_err());
+}
+
+/// The nerve re-emits every event the cortex POSTs (source `http`,
+/// severity error -> `high`). The echo of our own `gaia.heal.failed` must
+/// not be decided again: before 2026-10-30 it reached R99-default and
+/// escalated a failed heal to Hermes.
+#[test]
+fn echo_of_our_own_heal_event_is_ignored() {
+    let (mut cx, nerve) = cortex(live_cfg(tmpdir()));
+    let mut echo = ev(
+        "gaia.heal.failed",
+        "high",
+        T0,
+        json!({"unit": U, "outcome": "failed", "id": "heal-1-dec-1"}),
+    );
+    echo.source = "http".into();
+    echo.unit = Some(U.into());
+    echo.key = Some("http:gaia-cortex:gaia.heal.failed:\"heal-1-dec-1\"".into());
+    let ignored = cx.stats.events_ignored;
+    let d = cx.process(vec![echo], T0);
+    assert!(d.is_empty(), "{d:?}");
+    assert_eq!(cx.stats.events_ignored, ignored + 1);
+    assert_eq!(cx.escalations.open.len(), 0);
+    assert!(nerve.reqs.lock().unwrap().is_empty());
 }

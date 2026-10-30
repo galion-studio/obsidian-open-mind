@@ -127,6 +127,14 @@ fn serve_main(cfg: Config) -> ExitCode {
         }
     };
     let coalesce = Duration::from_millis(cfg.coalesce_ms);
+    let freeze_on = cfg.freeze.enabled;
+    if freeze_on {
+        let f = &cfg.freeze;
+        eprintln!(
+            "gaia-cortex: freeze watch ON: probe every {}s (timeout {}s), {} consecutive failures over >= {}s, cooldown {}s, {} freeze restart(s)/unit/h",
+            f.probe_s, f.timeout_s, f.fails, f.min_s, f.cooldown_s, f.per_unit_hour
+        );
+    }
     let (socket, pull_every, nerve_url, stream, repeat_poll, flap_window) = (
         cfg.socket.clone(),
         cfg.pull_every_s,
@@ -187,6 +195,18 @@ fn serve_main(cfg: Config) -> ExitCode {
             }
             let (tx, cx) = (tx.clone(), cx.clone());
             std::thread::spawn(move || subscribe(addr, tx, cx));
+        }
+    }
+    if freeze_on {
+        match nerve_url
+            .as_deref()
+            .and_then(gaia_cortex::config::nerve_cortex_addr)
+        {
+            Some(addr) => {
+                let (tx, cx) = (tx.clone(), cx.clone());
+                std::thread::spawn(move || gaia_cortex::engine::run_freeze_watch(cx, tx, addr));
+            }
+            None => eprintln!("gaia-cortex: freeze watch needs nerve_url; not started"),
         }
     }
     if pull_every > 0 {

@@ -13,6 +13,7 @@ pub mod config;
 pub mod contact;
 pub mod dispatch;
 pub mod engine;
+pub mod freeze;
 pub mod guard;
 pub mod handoff;
 pub mod handoff_exclude;

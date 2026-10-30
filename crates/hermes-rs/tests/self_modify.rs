@@ -184,9 +184,12 @@ impl Fx {
             queue: self.queue.clone(),
             base: "HEAD".into(),
             sandbox_pub: self.spub(),
-            owner_pub: self.opub(),
+            owner_pub: Some(self.opub()),
             sandbox_key_path: self.root.join("not-for-hermes.seed"),
             gate_cmd,
+            run_as: None,
+            cli: None,
+            child_env: vec![],
         })
     }
 }
@@ -516,7 +519,7 @@ fn hermes_cannot_approve_sign_or_deploy() {
         .contains("can read the gate signing key"));
     cfg.sandbox_key_path = fx.root.join("gate-only/sandbox.seed");
     cfg.preflight().unwrap();
-    cfg.owner_pub = cfg.sandbox_pub;
+    cfg.owner_pub = Some(cfg.sandbox_pub);
     assert!(cfg.preflight().is_err());
 }
 
@@ -642,4 +645,78 @@ fn stage_logs(e: &Path) -> String {
         }
     }
     s
+}
+
+#[test]
+fn run_as_user_proposes_through_the_cli_and_no_owner_key_means_no_approval() {
+    use std::os::unix::fs::MetadataExt;
+    let fx = Fx::new("runas");
+    let m = std::fs::metadata(&fx.root).unwrap();
+    let (u, g) = (m.uid(), m.gid());
+    let s = |p: &Path| p.to_str().unwrap().to_string();
+    let env = [
+        ("REPO", s(&fx.repo)),
+        ("QUEUE", s(&fx.queue)),
+        ("SANDBOX_PUB", s(&fx.sandbox_pub)),
+        ("OWNER_PUB", s(&fx.root.join("owner-not-installed.pub"))),
+        ("SANDBOX_KEY", s(&fx.root.join("gate-only/sandbox.seed"))),
+        ("RUN_AS", format!("{u}:{g}")),
+        ("CLI", env!("CARGO_BIN_EXE_hermes-self-modify").to_string()),
+    ];
+    let get = |k: &str| {
+        env.iter()
+            .find(|(n, _)| format!("HERMES_RS_SELF_MODIFY_{n}") == k)
+            .map(|(_, v)| v.clone())
+    };
+    if u == 0 {
+        assert!(sm::Cfg::from_env(&get).unwrap_err().contains("root"));
+        return;
+    }
+    let cfg = sm::Cfg::from_env(&get).unwrap().unwrap();
+    assert_eq!((cfg.run_as, cfg.owner_pub), (Some((u, g)), None));
+    let t = sm::SelfModifyTool::new(cfg.clone());
+    let (err, out) = call(
+        &t,
+        json!({"action": "propose", "summary": "say hello",
+            "files": [{"path": "crates/hermes-rs/src/lib.rs", "content": LIB_OK.replace("\"hi\"", "\"hello\"")}]}),
+    );
+    assert!(!err, "{out}");
+    assert_eq!(out["state"], "waiting for the sandbox gate", "{out}");
+    let e = entry(&fx, &out);
+    sm::gate_entry(
+        &e,
+        &fx.repo,
+        &fx.root.join("gs"),
+        &sm::Plan::from_json(
+            &serde_json::from_str(&std::fs::read_to_string(fx.quick_plan()).unwrap()).unwrap(),
+        )
+        .unwrap(),
+        &fx.sandbox_key(),
+    )
+    .unwrap();
+    // Even a (forged) approval cannot count while no owner key is installed.
+    sm::approve(&e, &fx.owner_key(), &fx.spub(), "slavik", 3600).unwrap();
+    assert!(cfg
+        .state(&sm::Entry::open(&e))
+        .contains("owner key not installed yet"));
+    // The run-as key check refuses when that user can read the gate key.
+    let mut c2 = cfg.clone();
+    c2.sandbox_key_path = fx.root.join("missing-dir/x");
+    c2.preflight().unwrap();
+    let readable = fx.root.join("readable.seed");
+    std::fs::write(&readable, "x").unwrap();
+    c2.sandbox_key_path = readable;
+    assert!(c2
+        .preflight()
+        .unwrap_err()
+        .contains("can read the gate signing key"));
+    // Refusals still come back from the child.
+    let (err, out) = call(
+        &t,
+        json!({"action": "propose", "summary": "x", "files": [{"path": "crates/hermes-rs/SOUL.md", "content": "y"}]}),
+    );
+    assert!(
+        err && out["error"].as_str().unwrap().contains("refused"),
+        "{out}"
+    );
 }

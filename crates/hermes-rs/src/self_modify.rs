@@ -478,13 +478,35 @@ pub struct Cfg {
     /// Base revision changes are made against.
     pub base: String,
     pub sandbox_pub: VerifyingKey,
-    pub owner_pub: VerifyingKey,
+    /// None until Slavik installs his public key: nothing can be approved.
+    pub owner_pub: Option<VerifyingKey>,
     /// The gate's signing key path: Hermes must NOT be able to read it.
     pub sandbox_key_path: PathBuf,
-    /// Command that runs the gate as the gate user, e.g. a sudo rule to
-    /// `hermes-self-modify gate ...`; `--entry <dir>` is appended. None =
-    /// the entry waits for the runner.
+    /// Command that hands the entry to the gate (a sudo rule or a request
+    /// file for a path unit); `--entry <dir>` is appended. None = the entry
+    /// waits for the runner.
     pub gate_cmd: Option<Vec<String>>,
+    /// When Hermes runs as root: do the propose work as this unprivileged
+    /// uid:gid through `<cli> propose` (HERMES_RS_SELF_MODIFY_RUN_AS).
+    pub run_as: Option<(u32, u32)>,
+    /// The hermes-self-modify CLI (HERMES_RS_SELF_MODIFY_CLI), needed with run_as.
+    pub cli: Option<PathBuf>,
+    /// HERMES_RS_SELF_MODIFY_* settings handed to the run-as child.
+    pub child_env: Vec<(String, String)>,
+}
+
+fn parse_run_as(s: &str) -> Result<(u32, u32), String> {
+    let (u, g) = s.split_once(':').ok_or("RUN_AS must be uid:gid")?;
+    let n = |x: &str| {
+        x.trim()
+            .parse::<u32>()
+            .map_err(|_| "RUN_AS must be uid:gid")
+    };
+    let (u, g) = (n(u)?, n(g)?);
+    if u == 0 || g == 0 {
+        return Err("RUN_AS must not be root".into());
+    }
+    Ok((u, g))
 }
 
 impl Cfg {
@@ -499,25 +521,50 @@ impl Cfg {
                 .filter(|s| !s.is_empty())
                 .ok_or(format!("{k} is required"))
         };
-        let pubk = |k: &str| -> Result<VerifyingKey, String> {
-            verifying_key(&String::from_utf8_lossy(&read(Path::new(&need(k)?))?))
+        let pubk = |p: &str| -> Result<VerifyingKey, String> {
+            verifying_key(&String::from_utf8_lossy(&read(Path::new(p))?))
         };
+        let owner_pub = match env("HERMES_RS_SELF_MODIFY_OWNER_PUB").filter(|s| !s.is_empty()) {
+            Some(p) if Path::new(&p).exists() => Some(pubk(&p)?),
+            _ => None,
+        };
+        let child_env = [
+            "REPO",
+            "QUEUE",
+            "BASE",
+            "SANDBOX_PUB",
+            "OWNER_PUB",
+            "SANDBOX_KEY",
+            "GATE_CMD",
+        ]
+        .iter()
+        .map(|k| format!("HERMES_RS_SELF_MODIFY_{k}"))
+        .filter_map(|k| env(&k).map(|v| (k, v)))
+        .collect();
         let cfg = Cfg {
             repo: PathBuf::from(repo),
             queue: PathBuf::from(need("HERMES_RS_SELF_MODIFY_QUEUE")?),
             base: env("HERMES_RS_SELF_MODIFY_BASE").unwrap_or_else(|| "HEAD".into()),
-            sandbox_pub: pubk("HERMES_RS_SELF_MODIFY_SANDBOX_PUB")?,
-            owner_pub: pubk("HERMES_RS_SELF_MODIFY_OWNER_PUB")?,
+            sandbox_pub: pubk(&need("HERMES_RS_SELF_MODIFY_SANDBOX_PUB")?)?,
+            owner_pub,
             sandbox_key_path: PathBuf::from(need("HERMES_RS_SELF_MODIFY_SANDBOX_KEY")?),
             gate_cmd: env("HERMES_RS_SELF_MODIFY_GATE_CMD")
                 .filter(|s| !s.trim().is_empty())
                 .map(|s| s.split_whitespace().map(String::from).collect()),
+            run_as: match env("HERMES_RS_SELF_MODIFY_RUN_AS").filter(|s| !s.is_empty()) {
+                Some(s) => Some(parse_run_as(&s)?),
+                None => None,
+            },
+            cli: env("HERMES_RS_SELF_MODIFY_CLI")
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from),
+            child_env,
         };
         cfg.preflight()?;
         Ok(Some(cfg))
     }
 
-    /// Refuse to run when Hermes could sign for itself.
+    /// Refuse to run when Hermes (or its run-as user) could sign for itself.
     pub fn preflight(&self) -> Result<(), String> {
         if std::fs::File::open(&self.sandbox_key_path).is_ok() {
             return Err(format!(
@@ -525,10 +572,66 @@ impl Cfg {
                 self.sandbox_key_path.display()
             ));
         }
-        if self.sandbox_pub == self.owner_pub {
+        if self.owner_pub == Some(self.sandbox_pub) {
             return Err("refusing: the gate key and the owner key are the same".into());
         }
+        if let Some((u, g)) = self.run_as {
+            let st = self
+                .child(u, g, &["can-read"])?
+                .arg(&self.sandbox_key_path)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map_err(|e| format!("refusing: run-as check failed: {e}"))?;
+            match st.code() {
+                Some(3) => {}
+                Some(0) => {
+                    return Err(format!(
+                        "refusing: the run-as user {u}:{g} can read the gate signing key {}",
+                        self.sandbox_key_path.display()
+                    ))
+                }
+                c => return Err(format!("refusing: run-as key check exit {c:?}")),
+            }
+        }
         Ok(())
+    }
+
+    /// `<cli> args..` as uid:gid with a clean environment.
+    fn child(&self, u: u32, g: u32, args: &[&str]) -> Result<Command, String> {
+        use std::os::unix::process::CommandExt;
+        let cli = self
+            .cli
+            .as_ref()
+            .ok_or("HERMES_RS_SELF_MODIFY_CLI is required with RUN_AS")?;
+        let mut c = Command::new(cli);
+        c.args(args)
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin")
+            .env("HOME", &self.queue)
+            .uid(u)
+            .gid(g)
+            .stdin(Stdio::null());
+        Ok(c)
+    }
+
+    /// Entry state; with no owner key installed nothing counts as approved.
+    pub fn state(&self, e: &Entry) -> String {
+        match &self.owner_pub {
+            Some(o) => e.state(&self.sandbox_pub, o),
+            None => {
+                let s = e.state(&self.sandbox_pub, &self.sandbox_pub);
+                if s.starts_with("gate PASS")
+                    || s.starts_with("approved")
+                    || s.starts_with("pending owner")
+                {
+                    "gate PASS (signed); pending Slavik's approval (owner key not installed yet)"
+                        .into()
+                } else {
+                    s
+                }
+            }
+        }
     }
 }
 
@@ -657,16 +760,41 @@ impl SelfModifyTool {
         };
         Ok(json!({
             "id": id, "base_commit": base, "files": patch_files(&patch), "gate": gate_note,
-            "state": e.state(&self.cfg.sandbox_pub, &self.cfg.owner_pub),
+            "state": self.cfg.state(&e),
             "next": "Only Slavik can approve; deploy is a separate owner step. Hermes cannot approve, sign or deploy.",
         }))
+    }
+
+    /// propose as the unprivileged run-as user: `<cli> propose` gets the
+    /// same settings and the arguments on stdin, and prints the result.
+    pub fn propose_as(&self, u: u32, g: u32, args: &Value) -> Result<Value, String> {
+        use std::io::Write;
+        let mut c = self.cfg.child(u, g, &["propose"])?;
+        c.envs(self.cfg.child_env.iter().cloned())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut ch = c.spawn().map_err(|e| format!("propose as {u}:{g}: {e}"))?;
+        if let Some(mut i) = ch.stdin.take() {
+            i.write_all(args.to_string().as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+        let o = ch.wait_with_output().map_err(|e| e.to_string())?;
+        if !o.status.success() {
+            let e = String::from_utf8_lossy(&o.stderr);
+            return Err(e
+                .trim()
+                .trim_start_matches("hermes-self-modify: ")
+                .to_string());
+        }
+        serde_json::from_slice(&o.stdout).map_err(|e| format!("propose output: {e}"))
     }
 
     fn status(&self, id: &str) -> Result<Value, String> {
         let e = self.entry(id)?;
         let (p, _) = e.proposal()?;
         let mut v = json!({"id": id, "summary": p["summary"], "files": p["files"],
-            "state": e.state(&self.cfg.sandbox_pub, &self.cfg.owner_pub)});
+            "state": self.cfg.state(&e)});
         if let Ok((rec, _)) = e.verified_record(&self.cfg.sandbox_pub) {
             v["gate"] = json!({"verdict": rec["verdict"], "why": rec["why"], "checks": rec["checks"], "stages": rec["stages"]});
         }
@@ -684,9 +812,7 @@ impl SelfModifyTool {
             names.sort();
             for n in names {
                 let e = Entry::open(&self.cfg.queue.join(&n));
-                out.push(
-                    json!({"id": n, "state": e.state(&self.cfg.sandbox_pub, &self.cfg.owner_pub)}),
-                );
+                out.push(json!({"id": n, "state": self.cfg.state(&e)}));
             }
         }
         Ok(json!({"changes": out}))
@@ -735,7 +861,10 @@ impl Tool for SelfModifyTool {
             }
         }
         let r = match action {
-            "propose" => self.propose(args),
+            "propose" => match self.cfg.run_as {
+                Some((u, g)) => self.propose_as(u, g, args),
+                None => self.propose(args),
+            },
             "status" => self.status(args["id"].as_str().unwrap_or("")),
             "list" => self.list(),
             "approve" | "sign" | "deploy" | "rollback" | "install" | "merge" => Err(format!(

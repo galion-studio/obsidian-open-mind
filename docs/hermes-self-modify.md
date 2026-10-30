@@ -44,6 +44,9 @@ and owner public keys are equal. Records signed by any other key do not verify.
 Env (tool off unless REPO is set): `HERMES_RS_SELF_MODIFY_REPO`, `_QUEUE`,
 `_BASE` (default HEAD), `_SANDBOX_PUB`, `_OWNER_PUB` (files with hex keys),
 `_SANDBOX_KEY` (path Hermes must NOT be able to read), `_GATE_CMD` (optional).
+When hermes-rs runs as root: `_RUN_AS=uid:gid` + `_CLI` make the propose work run as that
+unprivileged user via `hermes-self-modify propose`; the key check is done as that user too.
+No `_OWNER_PUB` file yet = nothing can be approved.
 
 Tests: `cargo test -p hermes-rs --test self_modify` (fake Hermes repo, real
 cargo build/test/clippy in the gate copy, real CLI as the gate runner).

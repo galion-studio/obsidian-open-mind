@@ -11,6 +11,8 @@
 //!   hermes-self-modify deploy   --entry E --sandbox-pub PUB --owner-pub PUB --bin-dir D --dropin-dir D
 //!                               [--dropin-name N.conf] [--line 'Environment=K=V']...   (root, by a person)
 //!   hermes-self-modify rollback --entry E
+//!   hermes-self-modify propose  < ARGS.json   (Hermes run-as user; settings from HERMES_RS_SELF_MODIFY_*)
+//!   hermes-self-modify can-read PATH          (exit 0 readable, 3 not; the run-as key check)
 //!
 //! approve, deploy and rollback refuse to run with a Hermes runtime
 //! environment (HERMES_HOME / HERMES_RS_* set), as one more layer on top of
@@ -90,6 +92,22 @@ fn main() {
                 &key,
             )
         }
+        Some("can-read") => {
+            let p = a.get(1).unwrap_or_else(|| die(2, "PATH"));
+            std::process::exit(if std::fs::File::open(p).is_ok() { 0 } else { 3 })
+        }
+        Some("propose") => {
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut s)
+                .unwrap_or_else(|e| die(2, &e.to_string()));
+            let args: serde_json::Value = serde_json::from_str(&s).unwrap_or_else(|e| die(2, &e.to_string()));
+            let env = |k: &str| if k.ends_with("_RUN_AS") { None } else { std::env::var(k).ok() };
+            match sm::Cfg::from_env(&env) {
+                Ok(Some(c)) => sm::SelfModifyTool::new(c).propose(&args),
+                Ok(None) => Err("HERMES_RS_SELF_MODIFY_REPO is not set".into()),
+                Err(e) => Err(e),
+            }
+        }
         Some("status") => {
             let e = sm::Entry::open(&entry());
             Ok(serde_json::json!({"state": e.state(&vk(&a, "--sandbox-pub"), &vk(&a, "--owner-pub"))}))
@@ -120,7 +138,7 @@ fn main() {
             not_hermes("rollback");
             sm::rollback(&entry())
         }
-        _ => die(2, "usage: keygen | gate | status | approve | deploy | rollback (see --help in the source header)"),
+        _ => die(2, "usage: keygen | gate | propose | can-read | status | approve | deploy | rollback (see --help in the source header)"),
     };
     match out {
         Ok(v) => {

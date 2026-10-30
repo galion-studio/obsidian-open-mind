@@ -36,6 +36,9 @@ pub struct HostFiles {
     pub memory_root: Option<PathBuf>,
     pub model_file: Option<PathBuf>,
     pub user_md: Option<PathBuf>,
+    /// `--connectors-logo-dir`: `<name>.png` brand logos for `/connectors`,
+    /// read once at start. `None` = monograms.
+    pub connectors_logo_dir: Option<PathBuf>,
 }
 
 /// Whether `/md/...` is ours (any name: unknown names get our 404 page).
@@ -391,6 +394,7 @@ mod tests {
             memory_root: Some(t.0.clone()),
             model_file: Some(t.0.join("model")),
             user_md: None,
+            ..HostFiles::default()
         };
         let s = memory_snap(&files).unwrap();
         assert!(s.root_ok && !s.capped, "{s:?}");
@@ -458,6 +462,7 @@ mod tests {
             memory_root: Some(t.0.clone()),
             model_file: None,
             user_md: Some(t.0.join("USER.md")),
+            ..HostFiles::default()
         };
         let p = md_read(&files, "persona").unwrap();
         assert_eq!((p.bytes, p.text.as_str(), p.cut), (7, "# P <b>", false));

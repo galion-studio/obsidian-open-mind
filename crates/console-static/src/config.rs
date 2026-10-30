@@ -50,6 +50,8 @@ usage: galion-console-static --root DIR [options]
                        /md/persona, e.g. /var/lib/memory-tencentdb; default none
   --model-file FILE    file holding the model name shown on /memory,
                        e.g. /opt/galion/galion-light/one/model; default none
+  --connectors-logo-dir DIR  brand logos for /connectors (<name>.png, read
+                       once at start); default none (monograms)
   --user-md FILE       USER.md shown on /md/user,
                        e.g. /opt/galion/hermes/memories/USER.md; default none
   --arena-root DIR     arena files (board.jsonl, champions/current.json,
@@ -386,6 +388,12 @@ impl Config {
                         return Err(bad("--console-host must be a plain host name or IP"));
                     }
                     extra_hosts.push(h);
+                }
+                "--connectors-logo-dir" => {
+                    files.connectors_logo_dir = Some(abs_path(
+                        val("--connectors-logo-dir")?,
+                        "--connectors-logo-dir",
+                    )?)
                 }
                 "--memory-root" => {
                     files.memory_root = Some(abs_path(val("--memory-root")?, "--memory-root")?)

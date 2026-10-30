@@ -25,6 +25,7 @@ pub mod html;
 pub mod icons;
 pub mod json;
 pub mod layout;
+pub mod logos;
 pub mod overview;
 pub mod pages;
 pub mod port2;
@@ -236,6 +237,8 @@ pub struct Ui {
     hermes_js_etag: String,
     hermes_mic_href: String,
     hermes_mic_etag: String,
+    /// `/connectors` brand logos (`--connectors-logo-dir`, read at start).
+    cn_logos: Vec<logos::Logo>,
     /// Shared /api/v1/health payload + stamp; see [`HEALTH_CACHE_TTL`].
     health: Mutex<HealthSlot>,
 }
@@ -276,6 +279,7 @@ impl Ui {
         let hc = css::fnv64(hermes_css.as_bytes());
         let hj = css::fnv64(HERMES_JS.as_bytes());
         let hm = css::fnv64(HERMES_MIC_JS.as_bytes());
+        let cn_logos = logos::load(cfg.files.connectors_logo_dir.as_deref());
         Ui {
             cfg,
             css_href: format!("/_ui/console.{h:016x}.css"),
@@ -294,6 +298,7 @@ impl Ui {
             hermes_js_etag: format!("\"{hj:016x}\""),
             hermes_mic_href: format!("/_ui/hermes-mic.{hm:016x}.js"),
             hermes_mic_etag: format!("\"{hm:016x}\""),
+            cn_logos,
             health: Mutex::new(HealthSlot {
                 at: None,
                 value: None,
@@ -455,6 +460,12 @@ impl Ui {
             p if p == self.css_href => return self.stylesheet(req, false),
             p if p == self.overview_css_href => return self.stylesheet(req, true),
             p if p == self.sprite_href => return self.sprite(req),
+            p if p.starts_with(logos::PREFIX) => {
+                return match logos::by_path(&self.cn_logos, p) {
+                    Some(l) => asset(l.mime, &l.etag, &l.bytes),
+                    None => Reply::text(404, "Not found\n"),
+                }
+            }
             p if p == self.hermes_css_href => {
                 return asset(
                     "text/css; charset=utf-8",

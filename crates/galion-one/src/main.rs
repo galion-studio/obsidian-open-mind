@@ -28,6 +28,7 @@ mod cli;
 mod host;
 mod http_plain;
 mod inflate;
+mod invite;
 mod json;
 mod models_refresh;
 mod pdf_crypt;
@@ -37,6 +38,7 @@ mod probe;
 mod services;
 mod speech;
 mod sqlite_ro;
+mod stt;
 mod trace;
 mod zagreb;
 
@@ -113,8 +115,37 @@ fn p(rel: &str) -> String {
 // Listen addresses (`ONE_BIND`, `ONE_MOUTH_BIND`) live in probe.rs, so the
 // listeners and the self probes read the same values.
 
-fn one_page() -> Vec<u8> {
-    let raw = std::fs::read(p("one/index.html")).unwrap_or_else(|_| b"missing".to_vec());
+// Galion One V2 (owner order t431u, 2026-10-30 CET): the full V2 interface
+// lives in `one/index-v2.html` and is served only to the V2 hosts
+// (`ONE_V2_HOSTS`, comma list, default `one.galion.app`). Every other host
+// (galion.app, www.galion.app, loopback) keeps `one/index.html` unchanged.
+// A missing V2 file falls back to index.html, so rollback is a rename.
+fn v2_host(host: &str) -> bool {
+    let list = std::env::var("ONE_V2_HOSTS").unwrap_or_else(|_| "one.galion.app".to_string());
+    v2_host_in(&list, host)
+}
+
+fn v2_host_in(list: &str, host: &str) -> bool {
+    let host = stt::normalize_host(host);
+    if host.is_empty() {
+        return false;
+    }
+    list.split(',')
+        .map(|h| h.trim().to_ascii_lowercase())
+        .any(|h| !h.is_empty() && h == host)
+}
+
+fn page_file(host: &str) -> Vec<u8> {
+    if v2_host(host) {
+        if let Ok(raw) = std::fs::read(p("one/index-v2.html")) {
+            return raw;
+        }
+    }
+    std::fs::read(p("one/index.html")).unwrap_or_else(|_| b"missing".to_vec())
+}
+
+fn one_page(host: &str) -> Vec<u8> {
+    let raw = page_file(host);
     let mut html = String::from_utf8_lossy(&raw).into_owned();
     let boot = r##"<style id="galion-fit">html,body{overflow-x:clip;max-width:100%}body{grid-template-columns:minmax(0,1fr)!important;width:100%}#pair{position:fixed!important;left:50%!important;bottom:max(6.4rem,24vh)!important;transform:translateX(-50%);z-index:3;width:min(12rem,calc(100% - 3rem));max-width:100%;margin:0}</style><div id="galion-boot" role="status" aria-label="Galion One"><div class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3M8 19h8"/></svg><p class="name">Galion One</p><p class="stack">Obsidian Open Mind Stack</p></div></div><style>#galion-boot{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#C4553A;color:#FFFFFF;font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-weight:400}#galion-boot .lock{display:flex;flex-direction:column;align-items:center;transform:translateY(-8%)}#galion-boot svg{width:40px;height:40px;opacity:0;animation:galion-in .8s cubic-bezier(.22,1,.36,1) forwards}#galion-boot .name{margin:20px 0 0;font-size:21px;font-weight:400;letter-spacing:-.03em;opacity:0;animation:galion-in .8s cubic-bezier(.22,1,.36,1) .12s forwards}#galion-boot .stack{margin:8px 0 0;font-size:11px;font-weight:400;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.78);opacity:0;animation:galion-in .8s cubic-bezier(.22,1,.36,1) .24s forwards}@keyframes galion-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}#galion-boot.go{opacity:0;transition:opacity .5s cubic-bezier(.4,0,.2,1)}</style><script>setTimeout(function(){var n=document.getElementById("galion-boot");if(!n)return;n.classList.add("go");setTimeout(function(){n.remove()},520)},2000)</script>"##;
     if let Some(at) = html.find("<body>") {
@@ -134,6 +165,37 @@ fn env_path(name: &str, default: &str) -> String {
         Ok(v) if !v.trim().is_empty() => v.trim().to_string(),
         _ => default.to_string(),
     }
+}
+
+// Phone alerts (t433u): the ntfy.sh topic from the relay env file
+// (`ONE_NTFY_ENV`, default /etc/galion/ntfy-relay.env, `NTFY_URL=https://ntfy.sh/<topic>`).
+// Only a paired device ever sees it, next to its pairing code; empty if unset or odd.
+fn ntfy_topic() -> String {
+    let text = fs::read_to_string(env_path("ONE_NTFY_ENV", "/etc/galion/ntfy-relay.env"))
+        .unwrap_or_default();
+    ntfy_topic_in(&text)
+}
+
+fn ntfy_topic_in(text: &str) -> String {
+    for line in text.lines() {
+        let Some(v) = line.trim().strip_prefix("NTFY_URL=") else {
+            continue;
+        };
+        let v = v.trim().trim_matches('"').trim_matches('\'');
+        let Some(topic) = v.strip_prefix("https://ntfy.sh/") else {
+            continue;
+        };
+        let topic = topic.trim_end_matches('/');
+        if !topic.is_empty()
+            && topic.len() <= 64
+            && topic
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        {
+            return topic.to_string();
+        }
+    }
+    String::new()
 }
 
 fn store_path() -> String {
@@ -332,6 +394,11 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     let mut cookie = String::new();
     let mut file_name = String::new();
     let mut with_files = String::new();
+    let mut host = String::new();
+    let mut ws_head = stt::Head {
+        method: method.clone(),
+        headers: Vec::new(),
+    };
     for line in lines {
         let lower = line.to_ascii_lowercase();
         if let Some(rest) = lower.strip_prefix("content-length:") {
@@ -347,6 +414,22 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
             if name.eq_ignore_ascii_case("x-files") {
                 with_files = value.trim().to_string();
             }
+            if name.eq_ignore_ascii_case("host") {
+                host = value.trim().to_string();
+            }
+            let lname = name.trim().to_ascii_lowercase();
+            if matches!(
+                lname.as_str(),
+                "host"
+                    | "origin"
+                    | "upgrade"
+                    | "connection"
+                    | "sec-websocket-key"
+                    | "sec-websocket-version"
+                    | "sec-websocket-protocol"
+            ) {
+                ws_head.headers.push((lname, value.trim().to_string()));
+            }
         }
     }
     let from_name = query_get(&query, "name");
@@ -356,6 +439,36 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     let from_files = query_get(&query, "files");
     if !from_files.is_empty() {
         with_files = from_files;
+    }
+    // Dictation (t431u): paired only; the stream route is a WebSocket
+    // tunnel to galion-stt, so it is answered before any body is read.
+    if path == stt::HEALTH || path == stt::STREAM {
+        if !token_ok(&cookie) {
+            return write_response(
+                &mut stream,
+                401,
+                "application/json",
+                br#"{"error":"pair"}"#,
+                None,
+            );
+        }
+        if path == stt::HEALTH {
+            if method != "GET" {
+                return write_response(&mut stream, 405, "text/plain", b"use GET\n", None);
+            }
+            return write_response(&mut stream, 200, "application/json", &stt::health(), None);
+        }
+        let carry = buf[header_end + 4..].to_vec();
+        if let Err((status, body)) = stt::tunnel(&mut stream, &ws_head, &carry) {
+            return write_response(
+                &mut stream,
+                status,
+                "application/json",
+                body.as_bytes(),
+                None,
+            );
+        }
+        return Ok(());
     }
     let _ = stream.set_read_timeout(Some(Duration::from_secs(if path == "/files" {
         90
@@ -381,7 +494,7 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     body.truncate(length);
 
     if method == "GET" && (path == "/" || path == "/index.html") {
-        let bytes = one_page();
+        let bytes = one_page(&host);
         return write_response(&mut stream, 200, "text/html; charset=utf-8", &bytes, None);
     }
     if method == "GET" && path == "/nerve" {
@@ -466,6 +579,33 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
         }
         let bytes = admin_say(&json_string(&body, "text"));
         return write_response(&mut stream, 200, "application/json", &bytes, None);
+    }
+    if method == "POST" && path == "/pair/invite" {
+        // A paired device mints a short-lived code for a new device and
+        // shows it on its own screen (t433u). Unpaired: 401, nothing written.
+        if !token_ok(&cookie) {
+            return write_response(
+                &mut stream,
+                401,
+                "application/json",
+                br#"{"error":"pair"}"#,
+                None,
+            );
+        }
+        let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let bytes = match invite::mint_at(&invite::store_path(), now, invite::DEFAULT_MINUTES) {
+            Ok((code, expires)) => format!(
+                "{{\"code\":{},\"expires\":{expires},\"minutes\":{},\"ntfy\":{}}}",
+                quote(&invite::pretty(&code)),
+                invite::DEFAULT_MINUTES,
+                quote(&ntfy_topic())
+            ),
+            Err(_) => r#"{"error":"invite"}"#.to_string(),
+        };
+        return write_response(&mut stream, 200, "application/json", bytes.as_bytes(), None);
     }
     if method == "POST" && path == "/pair" {
         let (status, bytes, token) = pair(&json_string(&body, "code"));
@@ -3071,7 +3211,9 @@ fn pair(code: &str) -> (u16, Vec<u8>, Option<String>) {
     }
     let code = code.trim().to_ascii_uppercase();
     let want = json_string(text.as_bytes(), "codeHash");
-    if want.is_empty() || code.is_empty() || sha256(&code) != want {
+    // A live one-time invite (invite.rs) pairs too; the owner code is unchanged.
+    let invited = !code.is_empty() && invite::take_at(&invite::store_path(), now, &code);
+    if !invited && (want.is_empty() || code.is_empty() || sha256(&code) != want) {
         fails += 1;
         let lock = if fails >= 5 { now + 15 * 60 * 1000 } else { 0 };
         write_store(&text, &json_array(&text, "tokenHashes"), fails, lock);
@@ -3418,9 +3560,15 @@ fn write_response(
 ) -> std::io::Result<()> {
     let reason = match status {
         200 => "OK",
+        400 => "Bad Request",
         401 => "Unauthorized",
+        403 => "Forbidden",
         404 => "Not Found",
+        405 => "Method Not Allowed",
         413 => "Payload Too Large",
+        426 => "Upgrade Required",
+        429 => "Too Many Requests",
+        502 => "Bad Gateway",
         503 => "Service Unavailable",
         _ => "OK",
     };
@@ -3526,5 +3674,42 @@ mod common_tests {
         assert_eq!(super::b64url(&[0xfb, 0xff, 0xfe]), "-__-");
         assert_eq!(super::b64url(b"M"), "TQ");
         assert_eq!(super::new_token().len(), 43);
+    }
+}
+
+#[cfg(test)]
+mod v2_host_tests {
+    use super::v2_host_in;
+
+    #[test]
+    fn ntfy_topic_reads_only_ntfy_sh_topics() {
+        assert_eq!(
+            super::ntfy_topic_in("# c\nNTFY_URL=https://ntfy.sh/galion_Alerts-1\n"),
+            "galion_Alerts-1"
+        );
+        assert_eq!(
+            super::ntfy_topic_in("NTFY_URL=\"https://ntfy.sh/abc/\""),
+            "abc"
+        );
+        assert_eq!(
+            super::ntfy_topic_in("NTFY_URL=https://evil.example/abc"),
+            ""
+        );
+        assert_eq!(super::ntfy_topic_in("NTFY_URL=https://ntfy.sh/a b"), "");
+        assert_eq!(super::ntfy_topic_in(""), "");
+    }
+
+    #[test]
+    fn only_one_galion_app_gets_v2() {
+        let d = "one.galion.app";
+        assert!(v2_host_in(d, "one.galion.app"));
+        assert!(v2_host_in(d, "One.Galion.App:443"));
+        assert!(!v2_host_in(d, "galion.app"));
+        assert!(!v2_host_in(d, "www.galion.app"));
+        assert!(!v2_host_in(d, "127.0.0.1:8091"));
+        assert!(!v2_host_in(d, ""));
+        assert!(!v2_host_in(d, "one.galion.app.evil.example"));
+        assert!(!v2_host_in("", "one.galion.app"));
+        assert!(v2_host_in("one.galion.app, 127.0.0.1", "127.0.0.1:18091"));
     }
 }

@@ -388,6 +388,61 @@ fn thread_html(id: &str, v: Option<&Value>) -> String {
     out
 }
 
+/// Galion One pairing notice (owner order t439u, 2026-10-30 CET). The page is
+/// behind the console pairing gate, so only a paired owner phone sees it.
+/// The file is written by an operator with `galion-one pair-invite`; it holds
+/// `{"code":"XXXX-XXXX","expires":<unix ms>,"ntfy":"<topic>"}`. Nothing shows
+/// when the file is missing, malformed or expired. Read per request; no write path.
+pub const ONE_PAIR_PATH: &str = "/var/lib/galion-console-hermes/one-pair.json";
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now() // repo-check: allow (unix epoch number for an expiry check; printed only as CET clock time)
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn one_pair_html(path: &str, now: u64) -> String {
+    let Some(v) = std::fs::metadata(path)
+        .ok()
+        .filter(|m| m.len() <= 4096)
+        .and_then(|_| std::fs::read(path).ok())
+        .and_then(|b| crate::json::parse(&b).ok())
+    else {
+        return String::new();
+    };
+    let code = v.get("code").as_str().unwrap_or("").to_string();
+    let expires = v.get("expires").as_f64().unwrap_or(0.0) as u64;
+    let code_ok = (8..=12).contains(&code.len())
+        && code.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-');
+    if !code_ok || expires <= now {
+        return String::new();
+    }
+    // CET (UTC+1) clock time; the notice lives at most 60 minutes.
+    let secs = (expires / 1000 + 3600) % 86_400;
+    let at = format!("{:02}:{:02}", secs / 3600, secs / 60 % 60);
+    let topic = v.get("ntfy").as_str().unwrap_or("").to_string();
+    let topic_ok = !topic.is_empty()
+        && topic.len() <= 64
+        && topic
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
+    let ntfy = if topic_ok {
+        format!(
+            "<p class=\"hm-im\">Phone alerts: install the free ntfy app, then <a href=\"ntfy://ntfy.sh/{t}\">subscribe in ntfy</a> (or <a href=\"https://ntfy.sh/{t}\" rel=\"noopener\">open ntfy.sh/{t}</a>). Server: https://ntfy.sh</p>",
+            t = esc(&topic)
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "<section class=\"hm-welcome\" id=\"hm-one-pair\" aria-label=\"Galion One pairing code\"><p class=\"hm-im\">Galion One pairing code (one-time, owner only)</p><p class=\"hm-it\" id=\"hm-one-code\" style=\"font-size:2rem;letter-spacing:.12em\">{}</p><p class=\"hm-im\">On this phone open <a href=\"https://one.galion.app/\">one.galion.app</a>, type the code in the <b>Pairing code</b> field and tap <b>Pair</b>. Works once, until {} CET.</p>{}</section>",
+        esc(&code),
+        at,
+        ntfy
+    )
+}
+
 /// The page body (inside the console shell).
 pub fn body(v: &View<'_>) -> String {
     let current = v.thread.map(|(id, _)| id);
@@ -404,6 +459,7 @@ pub fn body(v: &View<'_>) -> String {
         selfmod,
         lock_tip,
     ));
+    out.push_str(&one_pair_html(ONE_PAIR_PATH, now_ms()));
     out.push_str("<div class=\"hm-grid\">");
     // History.
     out.push_str("<aside class=\"hm-side\" aria-label=\"History\"><details class=\"hm-hist\" open><summary class=\"hm-hist-sum\">History</summary><div class=\"hm-side-tools\"><a class=\"hm-btn\" id=\"hm-new\" href=\"/hermes\">New thread</a><label class=\"sr-only\" for=\"hm-search\">Search history</label><input id=\"hm-search\" class=\"hm-search\" type=\"search\" placeholder=\"Search history\" autocomplete=\"off\" spellcheck=\"false\"></div>");
@@ -579,5 +635,31 @@ mod self_modify_tests {
             !b.contains("<button") || !b.contains("hm-selfmod-toggle"),
             "read-only"
         );
+    }
+
+    #[test]
+    fn one_pair_notice_shows_only_live_codes() {
+        let dir = std::env::temp_dir().join(format!("one-pair-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let p = dir.join("one-pair.json");
+        let ps = p.to_str().unwrap();
+        assert_eq!(super::one_pair_html(ps, 1), "");
+        std::fs::write(
+            &p,
+            r#"{"code":"ABCD-EFGH","expires":7200000,"ntfy":"topic_1"}"#,
+        )
+        .unwrap();
+        let h = super::one_pair_html(ps, 1000);
+        assert!(
+            h.contains("ABCD-EFGH")
+                && h.contains("ntfy://ntfy.sh/topic_1")
+                && h.contains("03:00 CET"),
+            "{h}"
+        );
+        assert_eq!(super::one_pair_html(ps, 7_200_000), "", "expired");
+        std::fs::write(&p, r#"{"code":"<script>","expires":7200000}"#).unwrap();
+        assert_eq!(super::one_pair_html(ps, 1000), "");
+        std::fs::write(&p, r#"{"code":"ABCD-EFGH","expires":7200000,"ntfy":"a b"}"#).unwrap();
+        assert!(!super::one_pair_html(ps, 1000).contains("ntfy://"));
     }
 }

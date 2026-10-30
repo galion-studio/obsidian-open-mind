@@ -35,6 +35,7 @@ pub struct MemoryClient {
     host_header: String,
     key: Option<String>,
     timeout: Duration,
+    label: &'static str,
 }
 
 impl std::fmt::Debug for MemoryClient {
@@ -75,7 +76,23 @@ impl MemoryClient {
             host_header: hostport.to_string(),
             key: key.filter(|k| !k.is_empty()),
             timeout,
+            label: "memory",
         })
+    }
+
+    /// Same client, but errors name `label` (e.g. "nerve") instead of "memory".
+    #[must_use]
+    pub fn with_label(mut self, label: &'static str) -> Self {
+        self.label = label;
+        self
+    }
+
+    /// `GET <path>` (path may carry a query string).
+    ///
+    /// # Errors
+    /// Connection, HTTP or JSON error.
+    pub fn get(&self, path: &str) -> Result<Value, String> {
+        self.call("GET", path, None)
     }
 
     /// True when a Bearer key is configured.
@@ -103,7 +120,7 @@ impl MemoryClient {
 
     fn call(&self, method: &str, path: &str, body: Option<&Value>) -> Result<Value, String> {
         let mut s = TcpStream::connect_timeout(&self.addr, self.timeout)
-            .map_err(|e| format!("memory unreachable: {e}"))?;
+            .map_err(|e| format!("{} unreachable: {e}", self.label))?;
         let _ = s.set_read_timeout(Some(self.timeout));
         let _ = s.set_write_timeout(Some(self.timeout));
         let payload = body.map(Value::to_string).unwrap_or_default();
@@ -122,17 +139,17 @@ impl MemoryClient {
         req.push_str(&payload);
         s.write_all(req.as_bytes())
             .and_then(|()| s.flush())
-            .map_err(|e| format!("memory write: {e}"))?;
+            .map_err(|e| format!("{} write: {e}", self.label))?;
         let mut raw = Vec::new();
         s.take(MAX_REPLY_BYTES as u64 + 64 * 1024)
             .read_to_end(&mut raw)
-            .map_err(|e| format!("memory read: {e}"))?;
+            .map_err(|e| format!("{} read: {e}", self.label))?;
         let (status, body) = parse_response(&raw)?;
         let v: Value = serde_json::from_slice(&body)
-            .map_err(|_| format!("memory {path}: HTTP {status}, reply is not JSON"))?;
+            .map_err(|_| format!("{} {path}: HTTP {status}, reply is not JSON", self.label))?;
         if !(200..300).contains(&status) {
             let msg = v["error"].as_str().unwrap_or("error");
-            return Err(format!("memory {path}: HTTP {status}: {msg}"));
+            return Err(format!("{} {path}: HTTP {status}: {msg}", self.label));
         }
         Ok(v)
     }
@@ -234,4 +251,24 @@ pub fn key_from_env_text(text: &str) -> Option<String> {
         }
     }
     found.into_iter().flatten().next()
+}
+
+/// Read one named value (for example `API_SERVER_KEY`) from env-style
+/// text. Same parsing as [`key_from_env_text`]; nothing else is kept.
+#[must_use]
+pub fn named_key_from_env_text(text: &str, name: &str) -> Option<String> {
+    for line in text.lines() {
+        let line = line.trim();
+        let line = line.strip_prefix("export ").unwrap_or(line);
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
+        if k.trim() == name {
+            let v = v.trim().trim_matches('"').trim_matches('\'').to_string();
+            if !v.is_empty() {
+                return Some(v);
+            }
+        }
+    }
+    None
 }

@@ -13,6 +13,15 @@
 //!   vault (see [`vault`]). No tool writes, renames or deletes a vault file.
 //! - `openmind_status`: which parts are configured, memory `/health`, note
 //!   count, one Europe/Zagreb timestamp.
+//! - Stack tools (read-only, see [`stack`]): `stack_health`, `stack_alerts`,
+//!   `cortex_heals`, `spend_status`, `backup_status`, `queue_status`,
+//!   `one_threads`, `one_thread_read`, `docs_list`, `docs_read`,
+//!   `docs_search`, `hermes_readiness`.
+//! - `vault_note_create` (see [`notes`]): the only write tool; **off by
+//!   default**, listed only when switched on in the stack config file.
+//!
+//! Every tool result goes through [`redact::value`] (secret-named fields,
+//! token-like strings and non-loopback IPv4 addresses are masked).
 //!
 //! A part that is not configured (no `--vault`, or `--no-memory`) does not
 //! list its tools. Tool errors are returned as `isError: true` results,
@@ -23,17 +32,22 @@
 #![forbid(unsafe_code)]
 
 pub mod memory;
+pub mod notes;
+pub mod redact;
+pub mod stack;
 pub mod vault;
 
 use memory::MemoryClient;
+use notes::NoteCreator;
 use serde_json::{json, Map, Value};
+use stack::Stack;
 use vault::Vault;
 
 /// MCP server name advertised in `initialize`.
 pub const SERVER_NAME: &str = "openmind-mcp-stack";
 
 /// MCP server version advertised in `initialize`.
-pub const SERVER_VERSION: &str = "0.2.0";
+pub const SERVER_VERSION: &str = "0.3.0";
 
 /// Protocol versions this server echoes. Anything else gets [`DEFAULT_PROTOCOL`].
 pub const SUPPORTED_PROTOCOLS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18"];
@@ -65,6 +79,25 @@ pub const TOOL_NAMES: [&str; 8] = [
     "openmind_status",
 ];
 
+/// Read-only stack tools (listed when their part is configured).
+pub const STACK_TOOL_NAMES: [&str; 12] = [
+    "stack_health",
+    "stack_alerts",
+    "cortex_heals",
+    "spend_status",
+    "backup_status",
+    "queue_status",
+    "one_threads",
+    "one_thread_read",
+    "docs_list",
+    "docs_read",
+    "docs_search",
+    "hermes_readiness",
+];
+
+/// Write tools: each off by default, behind its own switch.
+pub const WRITE_TOOL_NAMES: [&str; 1] = ["vault_note_create"];
+
 /// Server configuration.
 #[derive(Debug, Clone, Default)]
 pub struct Config {
@@ -74,6 +107,10 @@ pub struct Config {
     pub vault: Option<Vault>,
     /// Session key for saved notes.
     pub save_session: String,
+    /// Rest of the stack (None = stack tools off).
+    pub stack: Option<Stack>,
+    /// `vault_note_create` (None = off, the default).
+    pub notes: Option<NoteCreator>,
     /// Fixed timestamp for tests; None = now (Europe/Zagreb).
     pub fixed_time: Option<String>,
 }
@@ -97,7 +134,7 @@ impl Server {
     /// Names of the tools this configuration lists.
     #[must_use]
     pub fn tool_names(&self) -> Vec<&'static str> {
-        TOOL_NAMES
+        let mut out: Vec<&'static str> = TOOL_NAMES
             .iter()
             .copied()
             .filter(|n| {
@@ -109,7 +146,14 @@ impl Server {
                     true
                 }
             })
-            .collect()
+            .collect();
+        if let Some(s) = &self.cfg.stack {
+            out.extend(s.tool_names());
+        }
+        if self.cfg.notes.is_some() {
+            out.extend(WRITE_TOOL_NAMES);
+        }
+        out
     }
 
     /// Answer newline-delimited JSON-RPC messages. One response line per
@@ -175,7 +219,7 @@ impl Server {
                 "protocolVersion": protocol,
                 "capabilities": { "tools": { "listChanged": false } },
                 "serverInfo": { "name": SERVER_NAME, "version": SERVER_VERSION },
-                "instructions": "OpenMind long-term memory (search, recall, save) and a read-only Obsidian vault (list, read, search). The vault cannot be written.",
+                "instructions": "OpenMind long-term memory (search, recall, save), a read-only Obsidian vault (list, read, search) and read-only views of the Galion stack: health, alerts, cortex heals, OpenRouter spend, backups, work queue, Galion One threads, the docs tree and hermes-core readiness. Nothing here restarts, deploys or edits existing notes.",
             }),
         )
     }
@@ -210,7 +254,8 @@ impl Server {
             "vault_read" => self.vault_read(args),
             "vault_search" => self.vault_search(args),
             "openmind_status" => Ok(self.status()),
-            _ => Err("unknown tool".into()),
+            "vault_note_create" => self.note_create(args),
+            other => self.stack_call(other, args),
         };
         result_response(
             id,
@@ -307,49 +352,71 @@ impl Server {
     }
 
     fn vault_list(&self, a: &Map<String, Value>) -> Result<Value, String> {
-        let dir = a.get("folder").and_then(Value::as_str).unwrap_or("");
-        let limit = usize::try_from(limit_arg(a, 200, vault::LIST_MAX as u64)).unwrap_or(200);
-        let (notes, truncated) = self.vault()?.list(dir, limit)?;
-        let notes: Vec<Value> = notes
-            .into_iter()
-            .map(|(p, size, mtime)| json!({ "path": p, "bytes": size, "modified": zagreb(mtime) }))
-            .collect();
-        Ok(json!({ "count": notes.len(), "truncated": truncated, "notes": notes }))
+        list_notes(self.vault()?, a)
     }
 
     fn vault_read(&self, a: &Map<String, Value>) -> Result<Value, String> {
-        let path = a
-            .get("path")
-            .and_then(Value::as_str)
-            .ok_or("path is required")?;
-        let max = a
-            .get("max_bytes")
-            .and_then(Value::as_u64)
-            .map_or(vault::READ_DEFAULT_BYTES, |n| {
-                usize::try_from(n).unwrap_or(vault::READ_MAX_BYTES)
-            });
-        let (text, size, cut) = self.vault()?.read(path, max)?;
-        Ok(json!({ "path": path.trim(), "bytes": size, "truncated": cut, "text": text }))
+        read_note(self.vault()?, a)
     }
 
     fn vault_search(&self, a: &Map<String, Value>) -> Result<Value, String> {
-        let q = a
-            .get("query")
-            .and_then(Value::as_str)
-            .ok_or("query is required")?;
-        let limit = usize::try_from(limit_arg(a, 20, vault::SEARCH_MAX_HITS as u64)).unwrap_or(20);
-        let r = self.vault()?.search(q, limit)?;
-        let hits: Vec<Value> = r
-            .hits
-            .into_iter()
-            .map(|h| json!({ "path": h.path, "line": h.line, "text": h.text }))
-            .collect();
-        Ok(json!({
-            "count": hits.len(),
-            "files_scanned": r.files_scanned,
-            "truncated": r.truncated,
-            "hits": hits,
-        }))
+        search_notes(self.vault()?, a)
+    }
+
+    fn stack(&self) -> Result<&Stack, String> {
+        self.cfg
+            .stack
+            .as_ref()
+            .ok_or_else(|| "stack tools are not configured".into())
+    }
+
+    fn stack_call(&self, name: &str, a: &Map<String, Value>) -> Result<Value, String> {
+        let s = self.stack()?;
+        let lim = |d: u64, m: u64| usize::try_from(limit_arg(a, d, m)).unwrap_or(10);
+        match name {
+            "stack_health" => s.health(a.get("component").and_then(Value::as_str)),
+            "stack_alerts" => s.alerts(lim(10, 50)),
+            "cortex_heals" => s.heals(lim(10, 50)),
+            "spend_status" => s.spend(),
+            "backup_status" => s.backup(),
+            "queue_status" => s.queue(),
+            "one_threads" => s.one_threads(lim(20, 50)),
+            "one_thread_read" => s.one_thread_read(
+                a.get("id")
+                    .and_then(Value::as_str)
+                    .ok_or("id is required")?,
+                lim(40, 50),
+            ),
+            "docs_list" | "docs_read" | "docs_search" => {
+                let docs = s.docs.as_ref().ok_or("docs tree is not configured")?;
+                match name {
+                    "docs_list" => list_notes(docs, a),
+                    "docs_read" => read_note(docs, a),
+                    _ => search_notes(docs, a),
+                }
+            }
+            "hermes_readiness" => s.readiness(),
+            _ => Err("unknown tool".into()),
+        }
+    }
+
+    fn note_create(&self, a: &Map<String, Value>) -> Result<Value, String> {
+        let n = self
+            .cfg
+            .notes
+            .as_ref()
+            .ok_or("vault_note_create is switched off")?;
+        let title = a.get("title").and_then(Value::as_str).unwrap_or("");
+        let text = a.get("text").and_then(Value::as_str).unwrap_or("");
+        let stamp = self
+            .cfg
+            .fixed_time
+            .clone()
+            .unwrap_or_else(zagreb_time::now_rfc3339);
+        let path = n.create(title, text, &stamp)?;
+        Ok(
+            json!({ "created": true, "path": path, "note": "new file only; existing notes are never changed" }),
+        )
     }
 
     fn status(&self) -> Value {
@@ -364,11 +431,25 @@ impl Server {
             None => json!({ "configured": false }),
             Some(v) => json!({ "configured": true, "read_only": true, "notes": v.note_count() }),
         };
+        let stack = match &self.cfg.stack {
+            None => json!({ "configured": false }),
+            Some(s) => json!({
+                "configured": true,
+                "tools": s.tool_names(),
+                "docs_notes": s.docs.as_ref().map(Vault::note_count),
+            }),
+        };
+        let writes: Vec<Value> = WRITE_TOOL_NAMES
+            .iter()
+            .map(|n| json!({ "tool": n, "on": self.tool_names().contains(n) }))
+            .collect();
         json!({
             "server": SERVER_NAME,
             "version": SERVER_VERSION,
             "memory": memory,
             "vault": vault,
+            "stack": stack,
+            "write_tools": writes,
             "observed_at": self
                 .cfg
                 .fixed_time
@@ -376,6 +457,52 @@ impl Server {
                 .unwrap_or_else(zagreb_time::now_rfc3339),
         })
     }
+}
+
+fn list_notes(v: &Vault, a: &Map<String, Value>) -> Result<Value, String> {
+    let dir = a.get("folder").and_then(Value::as_str).unwrap_or("");
+    let limit = usize::try_from(limit_arg(a, 200, vault::LIST_MAX as u64)).unwrap_or(200);
+    let (notes, truncated) = v.list(dir, limit)?;
+    let notes: Vec<Value> = notes
+        .into_iter()
+        .map(|(p, size, mtime)| json!({ "path": p, "bytes": size, "modified": zagreb(mtime) }))
+        .collect();
+    Ok(json!({ "count": notes.len(), "truncated": truncated, "notes": notes }))
+}
+
+fn read_note(v: &Vault, a: &Map<String, Value>) -> Result<Value, String> {
+    let path = a
+        .get("path")
+        .and_then(Value::as_str)
+        .ok_or("path is required")?;
+    let max = a
+        .get("max_bytes")
+        .and_then(Value::as_u64)
+        .map_or(vault::READ_DEFAULT_BYTES, |n| {
+            usize::try_from(n).unwrap_or(vault::READ_MAX_BYTES)
+        });
+    let (text, size, cut) = v.read(path, max)?;
+    Ok(json!({ "path": path.trim(), "bytes": size, "truncated": cut, "text": text }))
+}
+
+fn search_notes(v: &Vault, a: &Map<String, Value>) -> Result<Value, String> {
+    let q = a
+        .get("query")
+        .and_then(Value::as_str)
+        .ok_or("query is required")?;
+    let limit = usize::try_from(limit_arg(a, 20, vault::SEARCH_MAX_HITS as u64)).unwrap_or(20);
+    let r = v.search(q, limit)?;
+    let hits: Vec<Value> = r
+        .hits
+        .into_iter()
+        .map(|h| json!({ "path": h.path, "line": h.line, "text": h.text }))
+        .collect();
+    Ok(json!({
+        "count": hits.len(),
+        "files_scanned": r.files_scanned,
+        "truncated": r.truncated,
+        "hits": hits,
+    }))
 }
 
 fn zagreb(unix: u64) -> String {
@@ -407,7 +534,7 @@ fn cut(s: &str, n: usize) -> String {
 }
 
 fn tool_ok(v: Value) -> Value {
-    let mut text = serde_json::to_string(&v).unwrap_or_else(|_| "{}".into());
+    let mut text = serde_json::to_string(&redact::value(v)).unwrap_or_else(|_| "{}".into());
     if text.len() > MAX_TOOL_TEXT {
         let mut end = MAX_TOOL_TEXT;
         while !text.is_char_boundary(end) {
@@ -420,7 +547,7 @@ fn tool_ok(v: Value) -> Value {
 }
 
 fn tool_error(msg: &str) -> Value {
-    json!({ "content": [{ "type": "text", "text": msg }], "isError": true })
+    json!({ "content": [{ "type": "text", "text": redact::text(msg) }], "isError": true })
 }
 
 fn obj_schema(props: &Value, required: &[&str]) -> Value {
@@ -480,8 +607,68 @@ pub fn tool_spec(name: &str) -> Value {
             "Case-insensitive text search across notes in the read-only Obsidian vault.",
             obj_schema(&json!({ "query": { "type": "string" }, "limit": limit }), &["query"]),
         ),
+        "stack_health" => (
+            "Live health of the whole Galion/OpenMind stack from the nerve: system status, score and verdict, cortex state, and one line per service (unit state, HTTP, restarts, reasons). Pass component=<name> for one service's full record. Read-only.",
+            obj_schema(&json!({ "component": { "type": "string" } }), &[]),
+        ),
+        "stack_alerts" => (
+            "Newest stack alerts and open incidents (nerve) plus cortex alerts, newest first. Read-only.",
+            obj_schema(&json!({ "limit": limit }), &[]),
+        ),
+        "cortex_heals" => (
+            "Gaia cortex self-healing history: heal-verify stats (verified, failed, pending, success rate), recent heals and open escalations. Read-only.",
+            obj_schema(&json!({ "limit": limit }), &[]),
+        ),
+        "spend_status" => (
+            "Current OpenRouter spend from the Hermes ledger against the fresh $5 budget and the $4.50 stop line, today's spend and calls, top sessions. Check before any paid model call. Read-only.",
+            obj_schema(&json!({}), &[]),
+        ),
+        "backup_status" => (
+            "galion-backup status: newest archives (name, size, time), age of the newest, offsite encrypted copies, and any problem. Metadata only. Read-only.",
+            obj_schema(&json!({}), &[]),
+        ),
+        "queue_status" => (
+            "openmind-queue (POSEIDON work queue) health, depth (ready, leased, delayed, dead), load and per-agent budgets. Read-only.",
+            obj_schema(&json!({}), &[]),
+        ),
+        "one_threads" => (
+            "List Galion One chat threads (id, title, message count, last activity), newest first. Read-only.",
+            obj_schema(&json!({ "limit": limit }), &[]),
+        ),
+        "one_thread_read" => (
+            "Read one Galion One thread's user and assistant messages (newest `limit` messages) by its id from one_threads. Read-only.",
+            obj_schema(&json!({ "id": { "type": "string" }, "limit": limit }), &["id"]),
+        ),
+        "docs_list" => (
+            "List notes in the whole Galion docs tree (the Obsidian vault folder build-session plus the sibling docs: one, platform, grok-computer, ...). Read-only.",
+            obj_schema(&json!({ "folder": { "type": "string" }, "limit": limit }), &[]),
+        ),
+        "docs_read" => (
+            "Read one note from the whole Galion docs tree by its path relative to the docs root (e.g. build-session/00-summary.md). Read-only.",
+            obj_schema(
+                &json!({ "path": { "type": "string" },
+                         "max_bytes": { "type": "integer", "minimum": 1, "maximum": vault::READ_MAX_BYTES } }),
+                &["path"],
+            ),
+        ),
+        "docs_search" => (
+            "Case-insensitive text search across the whole Galion docs tree (all notes, including the vault). Read-only.",
+            obj_schema(&json!({ "query": { "type": "string" }, "limit": limit }), &["query"]),
+        ),
+        "hermes_readiness" => (
+            "hermes-core readiness checks G1..G15 (score, pass/fail and why) from the last recorded run. A snapshot, not a live probe. Read-only.",
+            obj_schema(&json!({}), &[]),
+        ),
+        "vault_note_create" => (
+            "Create one NEW note in the vault inbox folder (never edits, renames or deletes an existing note). Only available when the owner switched it on.",
+            obj_schema(
+                &json!({ "title": { "type": "string", "maxLength": 120 },
+                         "text": { "type": "string", "maxLength": notes::MAX_NOTE_CHARS } }),
+                &["title", "text"],
+            ),
+        ),
         _ => (
-            "Which OpenMind parts are configured, memory health and vault note count.",
+            "Which OpenMind parts are configured: memory health, vault and docs note counts, which stack tools are on, and whether the (off-by-default) write tool is switched on.",
             obj_schema(&json!({}), &[]),
         ),
     };

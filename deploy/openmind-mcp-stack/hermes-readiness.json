@@ -1,0 +1,27 @@
+{
+  "source": "hermes-core readiness G1-G15, re-run by hand on main 7ba85b60 (hermes-core is not deployed, so this is a snapshot, not a live probe)",
+  "as_of": "2026-10-30T11:41:00+01:00",
+  "score": "12/15",
+  "ready": false,
+  "checks": [
+    {"id": "G1", "check": "Registry loads", "result": "PASS", "why": "7 sectors, 34/52 systems"},
+    {"id": "G2", "check": "Gaia ownership row", "result": "PASS", "why": "hermes-core -> boss-node / ARTEMIS"},
+    {"id": "G3", "check": "Plans have no cycles", "result": "PASS", "why": "7 plans, 200 tasks, 0 cycles"},
+    {"id": "G4", "check": "Plan task counts match", "result": "PASS", "why": "200 = 200"},
+    {"id": "G5", "check": "Every sector dispatchable", "result": "PASS", "why": "no idle sector"},
+    {"id": "G6", "check": "Agent cap at least 2 under limit", "result": "PASS", "why": "cap 16, limit 18-20"},
+    {"id": "G7", "check": "Retry self-test", "result": "PASS", "why": "68 dispatched, 25 done, 0 failed"},
+    {"id": "G8", "check": "Ledger self-test", "result": "PASS", "why": "ok"},
+    {"id": "G9", "check": "HADES admin key configured", "result": "FAIL", "why": "not set up: owner decision (key custody)"},
+    {"id": "G10", "check": "Merge/deploy not dispatchable without approval", "result": "PASS", "why": "refused"},
+    {"id": "G11", "check": "Real model provider usable", "result": "FAIL", "why": "provider is mock; no spend approved for hermes-core calls"},
+    {"id": "G12", "check": "Required branches merged", "result": "PASS", "why": "on main 7ba85b60"},
+    {"id": "G13", "check": "Loopback-only HTTP self-test", "result": "PASS", "why": "0.0.0.0 refused, loopback 200"},
+    {"id": "G14", "check": "No open owner decisions", "result": "FAIL", "why": "5 open owner decisions"},
+    {"id": "G15", "check": "Spoken sentence", "result": "PASS", "why": ""}
+  ],
+  "open_questions": [
+    "Set up the HADES admin key (G9)?",
+    "Approve spending for hermes-core's own model calls (G11)?"
+  ]
+}

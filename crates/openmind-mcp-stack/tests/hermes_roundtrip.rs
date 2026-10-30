@@ -106,7 +106,7 @@ fn binary_refuses_non_loopback_memory_and_missing_vault() {
         .unwrap();
     assert_eq!(st.status.code(), Some(2));
     let st = std::process::Command::new(bin)
-        .args(["--no-memory", "--check"])
+        .args(["--no-memory", "--no-stack", "--check"])
         .output()
         .unwrap();
     assert_eq!(st.status.code(), Some(0));
@@ -114,4 +114,64 @@ fn binary_refuses_non_loopback_memory_and_missing_vault() {
         String::from_utf8_lossy(&st.stdout).trim(),
         "tools=openmind_status"
     );
+    // Stack tools are on by default (loopback defaults); the write tool is not.
+    let st = std::process::Command::new(bin)
+        .args(["--no-memory", "--check"])
+        .output()
+        .unwrap();
+    assert_eq!(st.status.code(), Some(0));
+    let out = String::from_utf8_lossy(&st.stdout).to_string();
+    for t in [
+        "stack_health",
+        "stack_alerts",
+        "cortex_heals",
+        "spend_status",
+        "backup_status",
+        "queue_status",
+        "hermes_readiness",
+    ] {
+        assert!(out.contains(t), "{t} missing: {out}");
+    }
+    assert!(!out.contains("vault_note_create"), "{out}");
+    assert!(
+        !out.contains("one_threads"),
+        "no Hermes key, no thread tools: {out}"
+    );
+    // A typo in the stack conf is refused (exit 2), not silently ignored.
+    let kd = TempDir::new("conf");
+    let conf = kd.path().join("stack.conf");
+    std::fs::write(&conf, "vault_note_creat = on\n").unwrap();
+    let st = std::process::Command::new(bin)
+        .args([
+            "--no-memory",
+            "--stack-conf",
+            conf.to_str().unwrap(),
+            "--check",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(st.status.code(), Some(2));
+    std::fs::write(&conf, "vault_note_create = maybe\n").unwrap();
+    let st = std::process::Command::new(bin)
+        .args([
+            "--no-memory",
+            "--stack-conf",
+            conf.to_str().unwrap(),
+            "--check",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(st.status.code(), Some(2));
+    // Non-loopback stack URL refused.
+    std::fs::write(&conf, "nerve_url = http://10.1.2.3:8670\n").unwrap();
+    let st = std::process::Command::new(bin)
+        .args([
+            "--no-memory",
+            "--stack-conf",
+            conf.to_str().unwrap(),
+            "--check",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(st.status.code(), Some(2));
 }

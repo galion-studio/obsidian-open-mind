@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# Optional: /etc/openmind-mcp-stack/stack.conf. Every key is optional; the
+# values below are the compiled-in defaults. Unknown keys are refused.
+# URLs must be loopback (127.0.0.1 / localhost / ::1).
+# nerve_url = http://127.0.0.1:8670
+# cortex_url = http://127.0.0.1:8674
+# queue_url = http://127.0.0.1:19120
+# hermes_url = http://127.0.0.1:8642
+# spend_file = /var/lib/hermes-rs/rs-spend.json
+# spend_baseline_usd = 3.449
+# spend_limit_usd = 5
+# spend_stop_usd = 4.5
+# backup_dir = /var/backups/galion
+# docs_root = /opt/galion/galion-light/docs
+# readiness_file = /var/lib/openmind-mcp-stack/hermes-readiness.json
+#
+# Write tool: OFF by default. Switching it on only lets Hermes create NEW
+# notes in one folder of the vault; existing notes are never edited.
+# Needs Mate's yes, and the vault must be writable for hermes-rs.
+# vault_note_create = off
+# vault_note_folder = hermes-inbox

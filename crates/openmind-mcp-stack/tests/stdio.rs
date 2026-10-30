@@ -22,6 +22,8 @@ fn server(vault: Option<&std::path::Path>, mem_url: Option<&str>, key: Option<&s
         vault: vault.map(|p| Vault::open(p).unwrap()),
         save_session: String::new(),
         fixed_time: Some(STAMP.into()),
+        stack: None,
+        notes: None,
     })
 }
 

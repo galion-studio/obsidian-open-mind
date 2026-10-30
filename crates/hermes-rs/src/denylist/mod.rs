@@ -574,6 +574,85 @@ fn is_assignment(w: &Word) -> Option<(&str, &str)> {
     .then_some((n, v))
 }
 
+/// The script file a shell interpreter would run: the first bare (non-option)
+/// argument. `None` for stdin scripts (`-`), inline code (`-c`/`-s`), or no
+/// file at all â those keep the S4 refusal.
+fn shell_script_arg<'w>(args: &[&'w Word]) -> Option<&'w Word> {
+    let mut i = 0;
+    while i < args.len() {
+        let t = args[i].text.as_str();
+        if t == "-c" || t == "-s" || t == "-" {
+            return None;
+        }
+        if t == "-o" {
+            i += 2; // option value
+            continue;
+        }
+        if t == "--" {
+            return args.get(i + 1).copied();
+        }
+        if t.starts_with('-') && t.len() > 1 {
+            i += 1;
+            continue;
+        }
+        return Some(args[i]);
+    }
+    None
+}
+
+/// Fix 3: an awk program is allowed only if it is pure text processing â no
+/// command execution and no file-writing redirect.
+fn awk_program_ok(prog: &str) -> R {
+    for bad in [
+        "system",
+        "getline",
+        "|&",
+        "ENVIRON",
+        "/dev/stdin",
+        "/dev/fd/",
+    ] {
+        if prog.contains(bad) {
+            return Err(deny(
+                "S4-interpreter",
+                format!("awk program uses {bad}, which can run commands or reach outside"),
+            ));
+        }
+    }
+    if prog.contains('|') {
+        return Err(deny(
+            "S4-interpreter",
+            "awk program pipes to or from a command",
+        ));
+    }
+    if prog.contains('`') {
+        return Err(deny(
+            "S4-interpreter",
+            "awk program runs a command via backticks",
+        ));
+    }
+    let b = prog.as_bytes();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'>' {
+            let mut j = i + 1;
+            if j < b.len() && b[j] == b'>' {
+                j += 1;
+            }
+            while j < b.len() && (b[j] == b' ' || b[j] == b'\t') {
+                j += 1;
+            }
+            if j < b.len() && (b[j] == b'"' || b[j] == b'\'') {
+                return Err(deny(
+                    "S4-interpreter",
+                    "awk program redirects output to a file",
+                ));
+            }
+        }
+        i += 1;
+    }
+    Ok(())
+}
+
 fn interp_base(name: &str) -> bool {
     if INTERPRETERS.contains(&name) {
         return true;
@@ -878,6 +957,19 @@ impl<'a> Cmd<'a> {
             ));
         }
         if interp_base(n) {
+            // Fix 3 (owner-approved t448u): a shell or awk invocation may run a
+            // script that lives inside the workspace, once the script's own
+            // contents pass this same deny list. Scripts outside the workspace,
+            // stdin scripts and `-c`/`-e` inline code stay refused.
+            if self.depth < 2 {
+                if matches!(n, "sh" | "bash" | "dash" | "ash" | "ksh" | "zsh") {
+                    if let Some(script) = shell_script_arg(args) {
+                        return self.run_shell_script(n, script);
+                    }
+                } else if matches!(n, "awk" | "gawk" | "mawk" | "nawk") {
+                    return self.run_awk(args);
+                }
+            }
             return Err(deny(
                 "S4-interpreter",
                 format!("{n} runs code the deny list can not see"),
@@ -1096,6 +1188,125 @@ impl<'a> Cmd<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Read a script file that must resolve inside the workspace. Used by the
+    /// Fix 3 script-exec path so the script can be scanned before it runs.
+    fn read_workspace_script(&self, w: &Word) -> Result<(PathBuf, String), Deny> {
+        if w.glob {
+            return Err(deny(
+                "S4-interpreter",
+                "a glob script path can not be scanned",
+            ));
+        }
+        let lex = lexical(&w.text, &self.cwd, &self.pol.home)?;
+        let phys = physical(&lex);
+        for p in [&lex, &phys] {
+            if let Some(why) = secret_reason(p) {
+                return Err(deny("S6-secret", format!("{}: {why}", p.display())));
+            }
+            if !self.pol.in_write_roots(p) {
+                return Err(deny(
+                    "S4-interpreter",
+                    format!(
+                        "{} is outside the workspace; only scripts inside the workspace are scanned and run",
+                        p.display()
+                    ),
+                ));
+            }
+        }
+        match std::fs::metadata(&phys) {
+            Ok(md) if md.is_file() && md.len() as usize <= MAX_COMMAND_BYTES => {}
+            Ok(md) if !md.is_file() => {
+                return Err(deny(
+                    "S4-interpreter",
+                    format!("{} is not a file", phys.display()),
+                ))
+            }
+            Ok(_) => return Err(deny("S4-interpreter", "script is too long to check")),
+            Err(_) => {
+                return Err(deny(
+                    "S4-interpreter",
+                    format!("can not read {} to check it", phys.display()),
+                ))
+            }
+        }
+        let content = std::fs::read_to_string(&phys).map_err(|_| {
+            deny(
+                "S4-interpreter",
+                format!("can not read {} to check it", phys.display()),
+            )
+        })?;
+        Ok((phys, content))
+    }
+
+    /// Fix 3: scan a workspace shell script's contents through this same deny
+    /// list; allow the run only if every command inside would be allowed.
+    fn run_shell_script(&self, n: &str, script: &Word) -> R {
+        let (path, content) = self.read_workspace_script(script)?;
+        let cwd = path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| self.cwd.clone());
+        let mut sub = Cmd {
+            pol: self.pol,
+            cwd,
+            depth: self.depth + 1,
+        };
+        sub.all(&content)
+            .map_err(|e| deny(&e.rule, format!("{n} script {}: {}", script.text, e.reason)))
+    }
+
+    /// Fix 3: allow awk only when its program is pure text processing. Any
+    /// command execution (system/getline/pipes/backticks) or file-writing
+    /// redirect keeps the old S4 refusal; a `-f` program file must be in the
+    /// workspace and is scanned too.
+    fn run_awk(&self, args: &[&Word]) -> R {
+        let mut program = String::new();
+        let mut have_prog = false;
+        let mut i = 0;
+        while i < args.len() {
+            let t = args[i].text.as_str();
+            if t == "-f" {
+                i += 1;
+                if i < args.len() {
+                    let (_p, c) = self.read_workspace_script(args[i])?;
+                    program.push('\n');
+                    program.push_str(&c);
+                    have_prog = true;
+                }
+            } else if let Some(f) = t.strip_prefix("-f") {
+                let w = Word {
+                    text: f.to_string(),
+                    ..Default::default()
+                };
+                let (_p, c) = self.read_workspace_script(&w)?;
+                program.push('\n');
+                program.push_str(&c);
+                have_prog = true;
+            } else if t == "-v" || t == "-F" {
+                i += 1; // option takes a value
+            } else if t.starts_with('-') && t.len() > 1 && t != "--" {
+                // other awk flag (e.g. -v var=val joined, -Fsep)
+            } else if t == "--" {
+                // separator; next bare arg handled below
+            } else if !have_prog {
+                program.push('\n');
+                program.push_str(t);
+                have_prog = true;
+            } else {
+                // remaining bare args are input data files: reads must be allowed
+                self.word_path(args[i], Access::Read)?;
+            }
+            i += 1;
+        }
+        if program.trim().is_empty() {
+            return Err(deny(
+                "S4-interpreter",
+                "awk with no program the deny list can see",
+            ));
+        }
+        awk_program_ok(&program)
     }
 
     fn net_client(&self, n: &str, args: &[&Word]) -> R {
@@ -1639,9 +1850,16 @@ impl<'a> Walk<'a> {
         }
         // free text: secret paths anywhere; protected writes for delegated work
         let wants_write = self.wants_write;
+        // Fix 2 (owner-approved t448u): the body written into a workspace file is
+        // text, not access. The file being written is checked via its path key
+        // (a write to a protected path is still refused there); a protected path
+        // merely mentioned inside the content does not count as touching it.
+        let content_is_text = self.k.write && !self.k.delegate && key_in(key, CONTENT_KEYS);
         for p in text_paths(s) {
-            check_path_x(&p, Access::Read, &self.cwd, self.pol, false)
-                .map_err(|e| deny(&e.rule, format!("path in {key}: {}", e.reason)))?;
+            if !content_is_text {
+                check_path_x(&p, Access::Read, &self.cwd, self.pol, false)
+                    .map_err(|e| deny(&e.rule, format!("path in {key}: {}", e.reason)))?;
+            }
             if wants_write && self.k.delegate {
                 check_path_x(&p, Access::Write, &self.cwd, self.pol, false).map_err(|e| {
                     deny(
@@ -1654,7 +1872,7 @@ impl<'a> Walk<'a> {
                     )
                 })?;
             }
-            if p.contains("://") {
+            if p.contains("://") && !content_is_text {
                 check_url(&p, self.pol, false)?;
             }
         }

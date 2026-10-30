@@ -566,6 +566,24 @@ pub const PATH_KEYS: &[&str] = &[
 pub const PATCH_KEYS: &[&str] = &["patch", "diff", "unified_diff", "edits"];
 pub const URL_KEYS: &[&str] = &["url", "uri", "href", "endpoint", "link"];
 pub const ENV_KEYS: &[&str] = &["env", "environment", "envs", "env_vars"];
+/// Keys whose string value is the body written into a file (not a path to
+/// touch). A protected path merely mentioned inside such content is text,
+/// not access (the file itself is still checked via its path key).
+pub const CONTENT_KEYS: &[&str] = &[
+    "new_text",
+    "old_text",
+    "new_str",
+    "old_str",
+    "new_string",
+    "old_string",
+    "content",
+    "contents",
+    "text",
+    "body",
+    "data",
+    "file_text",
+    "replacement",
+];
 
 /// S6: file names that steer an agent or run code on their own (shell rc
 /// files, git hooks, build config, the guard itself). Refused for writes even

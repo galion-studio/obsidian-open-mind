@@ -24,7 +24,7 @@
 #![allow(clippy::sliced_string_as_bytes)]
 #![allow(dead_code)]
 
-mod approvals;
+use galion_one::approvals;
 mod cli;
 mod host;
 mod http_plain;

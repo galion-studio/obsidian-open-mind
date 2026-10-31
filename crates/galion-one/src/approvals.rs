@@ -60,6 +60,21 @@ fn env_or(name: &str, default: &str) -> String {
 }
 
 impl Cfg {
+    /// The server paths with no environment lookup (the console spells its
+    /// values out as flags and starts from these).
+    pub fn defaults() -> Cfg {
+        Cfg {
+            queue: "/var/lib/openmind-hermes/queue".into(),
+            state: "/var/lib/galion-one/approval".into(),
+            out: None,
+            owner_pub: ok::OWNER_PUB.into(),
+            sandbox_pub: "/etc/hermes-self-modify/sandbox-v2.pub".into(),
+            stack_pub: "/etc/hermes-self-modify/stack.pub".into(),
+            rp_id: "galion.app".into(),
+            origins: vec!["https://galion.app".into(), "https://one.galion.app".into()],
+        }
+    }
+
     pub fn from_env() -> Cfg {
         Cfg {
             queue: env_or("ONE_APPROVAL_QUEUE", "/var/lib/openmind-hermes/queue").into(),
@@ -113,6 +128,20 @@ fn err(status: u16, msg: impl Into<String>) -> Resp {
 
 pub fn handles(path: &str) -> bool {
     path == "/approvals" || path.starts_with("/api/approvals") || path.starts_with("/api/owner-key")
+}
+
+/// The page parts on their own, for hosts that wrap the same screen in
+/// their own page (console-static `--phone`, 2026-10-31).
+pub mod parts {
+    /// V2 style sheet + approvals sheet.
+    pub const STYLE: &str = concat!(
+        include_str!("../../../apps/galion-one-web/v2/style.css"),
+        include_str!("../../../apps/galion-one-web/v2/approvals/approvals.css"),
+    );
+    /// The `<body>` markup of the approvals screen.
+    pub const BODY: &str = include_str!("../../../apps/galion-one-web/v2/approvals/approvals.html");
+    /// The screen's script (passkey / key file signing, cards).
+    pub const SCRIPT: &str = include_str!("../../../apps/galion-one-web/v2/approvals/approvals.js");
 }
 
 /// The approvals page: the V2 style sheet plus this screen, built in.

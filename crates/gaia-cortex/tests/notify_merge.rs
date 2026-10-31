@@ -30,7 +30,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-const FRIDAY: &str = include_str!("fixtures/friday-20261030-self-modify-gate.jsonl");
+const FRIDAY: &str = include_str!("fixtures/friday-20261030-self-modify-gate.json");
 /// 2026-10-30 16:09:40 CET
 const T: u64 = 1_793_372_980;
 
@@ -475,8 +475,10 @@ fn free_port() -> u16 {
 fn http(port: u16, method: &str, path: &str, auth: Option<&str>, body: &str) -> (u16, Value) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
     s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    // (name, value) like dispatch.rs builds its headers
     let a = auth
-        .map(|t| format!("Authorization: Bearer {t}\r\n"))
+        .map(|t| ("Authorization", format!("Bearer {t}")))
+        .map(|(n, v)| format!("{n}: {v}\r\n"))
         .unwrap_or_default();
     write!(s, "{method} {path} HTTP/1.1\r\nHost: x\r\n{a}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
     let mut out = String::new();

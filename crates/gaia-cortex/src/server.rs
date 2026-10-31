@@ -15,7 +15,7 @@
 //! | `POST /escalations/ack?id=ID` | acknowledge one item |
 //! | `POST /v1/events` | ingest: one B33 event, a JSON array, or NDJSON |
 //! | `GET /approvals` | parked actions (`CORTEX_ACTION_MODE=approve_each`) |
-//! | `POST /approvals/<id>/approve` / `.../reject` | owner decision; `Authorization: Bearer <token>` from `approval_token_file`; only in approve_each |
+//! | `POST /approvals/<id>/approve` / `.../reject` | owner decision; bearer token (Authorization header) from `approval_token_file`; only in approve_each |
 //!
 //! Reads never wait for the decider (slot 236). Since slot 247 the decider
 //! holds the engine lock only for in-memory work (plan, commit), never

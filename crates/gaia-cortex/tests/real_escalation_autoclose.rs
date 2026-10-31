@@ -162,6 +162,9 @@ fn cortex_cmd(cortex_bin: &Path, dir: &Path, extra: &[(&str, &str)]) -> Command 
         .env("CORTEX_NERVE_STREAM", "1")
         .env("CORTEX_PULL_EVERY_S", "0")
         .env("CORTEX_HERMES_HANDOFF", "1")
+        // 2026-10-31: the default action mode is notify (never hands off); this
+        // replays the pre-notify live config, which handed off.
+        .env("CORTEX_ACTION_MODE", "auto")
         .env("CORTEX_HERMES_PER_HOUR", "6")
         .env("CORTEX_HERMES_INBOX", dir.join("inbox"));
     for (k, v) in extra {

@@ -7,6 +7,12 @@ edition.workspace = true
 license.workspace = true
 description = "Galion One: the operator's own ear, mind and mouth on one box."
 
+# Library half (2026-10-31, console-phone-home): the approvals module, so the
+# console (console-static --phone) serves the same approval cards in-process.
+[lib]
+name = "galion_one"
+path = "src/lib.rs"
+
 [[bin]]
 name = "galion-one"
 path = "src/main.rs"

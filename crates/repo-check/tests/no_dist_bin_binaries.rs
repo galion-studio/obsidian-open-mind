@@ -25,7 +25,12 @@ fn dist_bin_holds_no_binaries() {
         for e in rd.flatten() {
             let p = e.path();
             if p.is_file() && std::fs::read(&p).is_ok_and(|b| is_binary(&b)) {
-                bad.push(p.file_name().unwrap_or_default().to_string_lossy().into_owned());
+                bad.push(
+                    p.file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned(),
+                );
             }
         }
     }
@@ -40,7 +45,13 @@ fn removed_manifest_lists_the_five_binaries() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let m = std::fs::read_to_string(root.join("docs/release/dist-bin-removed-manifest.txt"))
         .expect("manifest");
-    for b in ["desk-hermes", "galion-desk", "galion-one", "link-watch", "room"] {
+    for b in [
+        "desk-hermes",
+        "galion-desk",
+        "galion-one",
+        "link-watch",
+        "room",
+    ] {
         let line = m
             .lines()
             .find(|l| l.split_whitespace().next() == Some(&format!("dist/bin/{b}")))

@@ -218,6 +218,11 @@ impl Gateway {
                 data.push(json!({"id": alias, "object": "model", "created": now, "owned_by": "hermes", "permission": [], "root": r.model, "parent": root}));
             }
         }
+        if let Some(l) = &self.cfg.model_lock {
+            if !data.iter().any(|d| d["id"] == l.model.as_str()) {
+                data.push(json!({"id": l.model, "object": "model", "created": now, "owned_by": "hermes", "permission": [], "root": l.model, "parent": root, "locked": true}));
+            }
+        }
         Response::json(200, &json!({"object": "list", "data": data}))
     }
 
@@ -311,6 +316,17 @@ impl Gateway {
         // model applies only when this turn named no model and no provider.
         let req_model = body["model"].as_str().filter(|m| !is_generic_model(m));
         let req_provider = body["provider"].as_str().filter(|p| !p.trim().is_empty());
+        if let Some(l) = &self.cfg.model_lock {
+            if let Err(e) = l.allows_request(&self.cfg, req_model, req_provider) {
+                let msg = crate::model_lock::refused("api request", &e);
+                return Err(error(
+                    400,
+                    &msg,
+                    "invalid_request_error",
+                    Some(crate::model_lock::CODE),
+                ));
+            }
+        }
         let target = if req_model.is_some() || req_provider.is_some() {
             resolve_target(&self.cfg, req_model, req_provider)
         } else if let Some(pinned) = row.model.as_deref() {
@@ -318,7 +334,8 @@ impl Gateway {
         } else {
             resolve_target(&self.cfg, None, None)
         };
-        if row.model.is_none() {
+        // Under the model lock an old pin (e.g. Opus) is rewritten to the lock.
+        if row.model.is_none() || self.cfg.model_lock.is_some() {
             row.model = Some(target.model.clone());
             row.provider = Some(target.provider.clone());
         }
@@ -607,6 +624,18 @@ impl Gateway {
                 Some("session_not_found"),
             );
         };
+        if let Some(l) = &self.cfg.model_lock {
+            let m = body["model"].as_str().filter(|m| !m.trim().is_empty());
+            if let Err(e) = l.allows_request(&self.cfg, m, body["provider"].as_str()) {
+                let msg = crate::model_lock::refused("session model pin", &e);
+                return error(
+                    403,
+                    &msg,
+                    "invalid_request_error",
+                    Some(crate::model_lock::CODE),
+                );
+            }
+        }
         match body["model"].as_str().filter(|m| !m.trim().is_empty()) {
             Some(m) => {
                 let t = resolve_target(&self.cfg, Some(m), body["provider"].as_str());

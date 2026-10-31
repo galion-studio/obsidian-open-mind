@@ -116,6 +116,18 @@ fn provider_cfg(cfg: &Config, name: &str) -> ProviderCfg {
 /// Order: api_server model_routes, model_aliases, raw id. A provider-only
 /// request uses that provider's default model.
 pub fn resolve_target(cfg: &Config, model: Option<&str>, provider: Option<&str>) -> Target {
+    if let Some(l) = &cfg.model_lock {
+        // Hard lock: every name resolves to the locked model (logged when forced).
+        let req = model.map(str::trim).filter(|m| !is_generic_model(m));
+        let prov = provider.map(str::trim).filter(|p| !p.is_empty());
+        if l.allows_request(cfg, req, prov).is_err() {
+            crate::model_lock::forced(
+                &format!("{}/{}", req.unwrap_or("-"), prov.unwrap_or("-")),
+                l,
+            );
+        }
+        return l.target(cfg, req.unwrap_or("hermes-agent"));
+    }
     let requested = model
         .map(str::trim)
         .filter(|m| !is_generic_model(m))

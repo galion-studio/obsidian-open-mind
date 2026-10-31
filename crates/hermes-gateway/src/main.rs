@@ -111,6 +111,16 @@ fn main() {
     }
     if args.iter().any(|a| a == "--check-config") {
         println!(
+            "model_lock={}",
+            cfg.model_lock
+                .as_ref()
+                .map(|l| format!("{} on {}", l.model, l.provider))
+                .unwrap_or_else(|| "off".into())
+        );
+        for n in &cfg.model_lock_notes {
+            println!("model_lock: {n}");
+        }
+        println!(
             "home={} bind={}:{} default_model={} routes={:?} aliases={:?} delegation(max_children={}, depth={}) max_concurrent_runs={} context_length={} mcp={:?} cron={} memory={}",
             cfg.home.display(),
             cfg.host,
@@ -155,6 +165,18 @@ fn main() {
         return;
     }
     let api_key = cfg.api_key(&env);
+    match &cfg.model_lock {
+        Some(l) => {
+            log(&format!(
+                "model lock ON: every call uses {} on {} (HERMES_RS_MODEL_LOCK); requests for other models are refused",
+                l.model, l.provider
+            ));
+            for n in &cfg.model_lock_notes {
+                log(&format!("model lock: {n}"));
+            }
+        }
+        None => log("model lock off (HERMES_RS_MODEL_LOCK unset): callers may choose models"),
+    }
     let cfg = Arc::new(cfg);
     let provider: Arc<dyn Provider> = if mock {
         let slow = env("HERMES_RS_MOCK_DELAY_MS")
@@ -165,6 +187,15 @@ fn main() {
         Arc::new(TestMock(MockProvider::echo().without_call_log(), slow))
     } else {
         Arc::new(CurlProvider::new(Arc::new(|k: &str| std::env::var(k).ok())))
+    };
+    // Backstop: with the lock on, no call to another model leaves the process.
+    let provider: Arc<dyn Provider> = match &cfg.model_lock {
+        Some(l) => Arc::new(hermes_rs::model_lock::LockedProvider {
+            inner: provider,
+            lock: l.clone(),
+            cfg: cfg.clone(),
+        }),
+        None => provider,
     };
     let spend = Arc::new(SpendTracker::new(
         cfg.spend.clone(),

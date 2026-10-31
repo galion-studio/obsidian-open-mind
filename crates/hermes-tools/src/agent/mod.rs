@@ -255,6 +255,9 @@ impl AgentToolsConfig {
         };
         let vision_models = if env("HERMES_RS_TOOLS_VISION").as_deref() == Some("0") {
             vec![]
+        } else if let Some(l) = &hermes.model_lock {
+            // Model lock: vision uses the locked model only (no free fallback).
+            vec![l.model.clone()]
         } else {
             let first = env("HERMES_RS_VISION_MODEL")
                 .filter(|s| !s.trim().is_empty())

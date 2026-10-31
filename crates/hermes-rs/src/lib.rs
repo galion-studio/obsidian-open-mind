@@ -21,6 +21,7 @@ pub mod http;
 pub mod mcp;
 pub mod mcp_transport;
 pub mod memory;
+pub mod model_lock;
 pub mod persona;
 pub mod provider;
 pub mod runs;

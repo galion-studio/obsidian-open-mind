@@ -99,6 +99,21 @@ impl Agent {
             .and_then(|m| m["content"].as_str())
             .unwrap_or("")
             .to_string();
+        if let Some(l) = &self.cfg.model_lock {
+            if !l.target_ok(&self.cfg, &turn.target) {
+                let msg = crate::model_lock::refused(
+                    "agent turn",
+                    &format!(
+                        "model {} on {} refused; locked to {}",
+                        turn.target.model, turn.target.provider, l.model
+                    ),
+                );
+                res.failed = true;
+                res.error = Some(msg);
+                res.finish_reason = "error".into();
+                return res;
+            }
+        }
         let system = json!({"role": "system", "content": turn.system});
         let schemas = self.tools.schemas();
         let mut failures: HashMap<String, usize> = HashMap::new();

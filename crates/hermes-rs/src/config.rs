@@ -408,6 +408,11 @@ pub struct Config {
     pub skill_tools_enabled: bool,
     /// Citation ledgers (one per session). Default: next to the spend file.
     pub citations_dir: Option<PathBuf>,
+    /// Hard model lock from `HERMES_RS_MODEL_LOCK` (env only, never
+    /// config.yaml). When set, every provider call uses this one model.
+    pub model_lock: Option<crate::model_lock::ModelLock>,
+    /// What the lock changed in the loaded config (logged at startup).
+    pub model_lock_notes: Vec<String>,
 }
 
 fn s(v: &Value) -> Option<String> {
@@ -497,6 +502,8 @@ impl Config {
             skills_dirs: vec![home.join("skills")],
             skill_tools_enabled: true,
             citations_dir: None,
+            model_lock: None,
+            model_lock_notes: Vec::new(),
         }
     }
 
@@ -758,6 +765,13 @@ impl Config {
             self.citations_dir = Some(PathBuf::from(x));
         }
         self.memory.apply_env(&get)?;
+        // Last, so it wins over every model setting above (incl.
+        // HERMES_RS_DELEGATION_MODEL) and over config.yaml.
+        if let Some(l) = crate::model_lock::ModelLock::from_env(&get) {
+            let notes = l.enforce(self);
+            self.model_lock_notes.extend(notes);
+            self.model_lock = Some(l);
+        }
         Ok(())
     }
 

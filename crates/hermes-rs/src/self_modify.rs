@@ -66,6 +66,8 @@ pub const PROTECTED_PREFIXES: &[&str] = &[
     "crates/galion-guard/",
     "crates/hermes-rs/src/denylist/",
     "crates/hermes-rs/src/self_modify.rs",
+    "crates/hermes-rs/src/model_lock.rs",
+    "crates/hermes-rs/tests/model_lock.rs",
     "crates/hermes-rs/src/bin/hermes-self-modify.rs",
     "crates/hermes-rs/tests/self_modify.rs",
     "crates/hermes-rs/tests/denylist",
@@ -96,6 +98,7 @@ pub const PROTECTED_ADDED: &[(&str, &str)] = &[
     ("owner.pub", "owner key"),
     ("hermes-self-modify", "self-modify gate"),
     ("self_modify::", "self-modify gate"),
+    ("model_lock", "model lock"),
     ("hermes-gate", "sandbox gate"),
     ("galion-gate", "sandbox gate"),
     (concat!("-----", "begin"), "key material"),
@@ -320,6 +323,16 @@ pub fn check_patch(patch: &str) -> Vec<Value> {
                 if low.contains(m) && !live.contains(&s) {
                     live.push(s);
                 }
+            }
+        }
+    }
+    // The model lock may not be weakened: no removed line may mention it.
+    for l in patch.lines() {
+        if l.starts_with('-') && !l.starts_with("---") {
+            let low = l.to_ascii_lowercase();
+            let s = "removed line touches the model lock".to_string();
+            if low.contains("model_lock") && !live.contains(&s) {
+                live.push(s);
             }
         }
     }

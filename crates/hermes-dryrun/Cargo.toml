@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "hermes-dryrun"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Dry-run harness for a candidate hermes-gateway: runs it against a copy of the live stack (dummy secrets, fake model, stub services) inside a loopback-only network namespace on a GAIA test port, checks health and real tool tasks, and writes the unsigned galion-sm/dryrun-result/v1 record for the signer."
+
+[[bin]]
+name = "hermes-dryrun"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+# Same pinned features as hermes-rs (portable, no SIMD dispatch).
+sha2 = { version = "0.10", default-features = false, features = ["std", "force-soft-compact"] }

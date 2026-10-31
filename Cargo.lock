@@ -1007,6 +1007,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "hermes-dryrun"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "sha2",
+]
+
+[[package]]
 name = "hermes-gateway"
 version = "0.1.0"
 dependencies = [

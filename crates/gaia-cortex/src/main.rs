@@ -153,9 +153,10 @@ fn serve_main(cfg: Config) -> ExitCode {
         cfg.flap_window_s,
     );
     eprintln!(
-        "gaia-cortex: listening {} mode {} llm {} (feature {}) nerve {} stream {} pull {}s repeat-poll {}s",
+        "gaia-cortex: listening {} mode {} action-mode {} llm {} (feature {}) nerve {} stream {} pull {}s repeat-poll {}s",
         cfg.listen,
         if cfg.dry_run() { "dry-run" } else { "live" },
+        cfg.action_mode.as_str(),
         if cfg.llm.enabled {
             "ENABLED"
         } else {

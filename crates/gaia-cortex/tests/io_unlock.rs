@@ -96,6 +96,7 @@ fn cfg(live: bool) -> Config {
     };
     if live {
         c.actions = "live".into();
+        c.action_mode = gaia_cortex::config::ActionMode::Auto;
     }
     c
 }

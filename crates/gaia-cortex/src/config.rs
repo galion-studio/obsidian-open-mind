@@ -9,6 +9,49 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Who may act (owner 2026-10-31, `CORTEX_ACTION_MODE`):
+/// * `notify` (default): never restart (every request is dry-run whatever
+///   `actions` says), never hand off to Hermes; page the owner through the
+///   loopback ntfy relay for every alert/escalation at severity error or
+///   above, once per incident.
+/// * `approve_each`: like notify, but each restart (and each handoff, when
+///   the handoff is enabled) is parked in `<data_dir>/pending-approvals.jsonl`
+///   and paged; it runs only after `POST /approvals/<id>/approve`
+///   (loopback + bearer token), and live only with `actions = "live"`.
+/// * `auto`: the old behaviour (rules act on their own; `actions` decides).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionMode {
+    #[default]
+    Notify,
+    ApproveEach,
+    Auto,
+}
+
+impl ActionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ActionMode::Notify => "notify",
+            ActionMode::ApproveEach => "approve_each",
+            ActionMode::Auto => "auto",
+        }
+    }
+
+    pub fn parse(v: &str) -> Result<Self, String> {
+        match v.trim() {
+            "notify" | "" => Ok(ActionMode::Notify),
+            "approve_each" | "approve-each" => Ok(ActionMode::ApproveEach),
+            "auto" => Ok(ActionMode::Auto),
+            o => Err(format!(
+                "CORTEX_ACTION_MODE must be notify, approve_each or auto, got {o:?}"
+            )),
+        }
+    }
+}
+
+/// `approval_ttl_s` bounds: a parked action expires after this long.
+pub const APPROVAL_TTL_RANGE: (u64, u64) = (60, 86_400);
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -24,8 +67,18 @@ pub struct Config {
     /// Pull adapter: poll `GET <nerve_url>/events` every N seconds (0 = off,
     /// the default; push or socket is the zero-idle path).
     pub pull_every_s: u64,
-    /// `"dry-run"` (default) or `"live"`. Live also needs the nerve live.
+    /// `"dry-run"` (default) or `"live"`. Live also needs the nerve live
+    /// and `action_mode` `auto` (or an approved action in `approve_each`).
     pub actions: String,
+    /// See [`ActionMode`]. Default `notify`.
+    pub action_mode: ActionMode,
+    /// `approve_each`: a parked action expires after this many seconds
+    /// (default 3600, 60..=86400).
+    pub approval_ttl_s: u64,
+    /// `approve_each`: root-only file holding the bearer token for
+    /// `POST /approvals/<id>/approve|reject`. Unset or unreadable = the
+    /// POST routes answer 403 (nothing can be approved).
+    pub approval_token_file: Option<PathBuf>,
     /// Wait this long after the first event of a burst before deciding.
     pub coalesce_ms: u64,
     /// Same unit, same rule: one decision per this many seconds.
@@ -110,6 +163,9 @@ impl Default for Config {
             nerve_url: None,
             pull_every_s: 0,
             actions: "dry-run".into(),
+            action_mode: ActionMode::Notify,
+            approval_ttl_s: 3600,
+            approval_token_file: None,
             coalesce_ms: 1500,
             decision_cooldown_s: 120,
             restarts_per_unit_hour: nerve_cortex_contract::NERVE_RESTARTS_PER_UNIT_HOUR,
@@ -234,7 +290,15 @@ impl Config {
         }
     }
 
+    /// Requests the rules make on their own are dry-run unless `actions`
+    /// is live AND the mode is `auto` (owner 2026-10-31: notify first).
     pub fn dry_run(&self) -> bool {
+        self.actions != "live" || self.action_mode != ActionMode::Auto
+    }
+
+    /// An owner-approved action (`approve_each`) runs live only when
+    /// `actions` is live.
+    pub fn approved_dry_run(&self) -> bool {
         self.actions != "live"
     }
 
@@ -267,6 +331,18 @@ impl Config {
         }
         if let Some(v) = get("CORTEX_ACTIONS") {
             c.actions = v;
+        }
+        if let Some(v) = get("CORTEX_ACTION_MODE") {
+            c.action_mode = ActionMode::parse(&v)?;
+        }
+        if let Some(v) = get("CORTEX_APPROVAL_TTL_S") {
+            c.approval_ttl_s = v
+                .trim()
+                .parse()
+                .map_err(|_| format!("CORTEX_APPROVAL_TTL_S must be seconds, got {v:?}"))?;
+        }
+        if let Some(v) = get("CORTEX_APPROVAL_TOKEN_FILE") {
+            c.approval_token_file = Some(v.into()).filter(|p: &PathBuf| !p.as_os_str().is_empty());
         }
         if let Some(v) = get("CORTEX_COALESCE_MS").and_then(|v| v.parse().ok()) {
             c.coalesce_ms = v;
@@ -364,6 +440,17 @@ impl Config {
                 "actions must be dry-run or live, not {:?}",
                 self.actions
             ));
+        }
+        let (lo, hi) = APPROVAL_TTL_RANGE;
+        if !(lo..=hi).contains(&self.approval_ttl_s) {
+            return Err(format!(
+                "approval_ttl_s must be {lo}..={hi}, got {}",
+                self.approval_ttl_s
+            ));
+        }
+        // Outside `auto` every alert/escalation >= error pages the owner.
+        if let Some(p) = self.phone.as_mut() {
+            p.page_all = self.action_mode != ActionMode::Auto;
         }
         let addr: std::net::SocketAddr = self
             .listen
@@ -515,7 +602,66 @@ mod tests {
         )
         .unwrap();
         assert_eq!(c.listen, "127.0.0.1:20791");
+        // notify first: live actions alone never act (owner 2026-10-31)
+        assert_eq!(c.action_mode, ActionMode::Notify);
+        assert!(c.dry_run());
+        assert!(!c.approved_dry_run());
+        let c = Config::load(
+            None,
+            &env(&[("CORTEX_ACTIONS", "live"), ("CORTEX_ACTION_MODE", "auto")]),
+        )
+        .unwrap();
         assert!(!c.dry_run());
+    }
+
+    #[test]
+    fn action_mode_env_parse_and_ttl_bounds() {
+        let c = Config::load(None, &env(&[])).unwrap();
+        assert_eq!(
+            (c.action_mode, c.approval_ttl_s),
+            (ActionMode::Notify, 3600)
+        );
+        assert!(c.dry_run());
+        for (v, m) in [
+            ("notify", ActionMode::Notify),
+            ("approve_each", ActionMode::ApproveEach),
+            ("auto", ActionMode::Auto),
+        ] {
+            let c = Config::load(None, &env(&[("CORTEX_ACTION_MODE", v)])).unwrap();
+            assert_eq!(c.action_mode, m);
+            assert!(c.dry_run(), "{v} with dry-run actions");
+        }
+        assert!(Config::load(None, &env(&[("CORTEX_ACTION_MODE", "yolo")])).is_err());
+        assert!(Config::load(None, &env(&[("CORTEX_APPROVAL_TTL_S", "5")])).is_err());
+        assert!(Config::load(None, &env(&[("CORTEX_APPROVAL_TTL_S", "x")])).is_err());
+        let c = Config::load(
+            None,
+            &env(&[
+                ("CORTEX_ACTION_MODE", "approve_each"),
+                ("CORTEX_ACTIONS", "live"),
+                ("CORTEX_APPROVAL_TTL_S", "600"),
+                ("CORTEX_ALERT_RELAY", "http://127.0.0.1:2586/gaia-cortex"),
+            ]),
+        )
+        .unwrap();
+        assert!(c.dry_run() && !c.approved_dry_run());
+        assert_eq!(c.approval_ttl_s, 600);
+        assert!(c.phone.as_ref().unwrap().page_all, "pages outside auto");
+        let c = Config::load(
+            None,
+            &env(&[
+                ("CORTEX_ACTION_MODE", "auto"),
+                ("CORTEX_ALERT_RELAY", "http://127.0.0.1:2586/gaia-cortex"),
+            ]),
+        )
+        .unwrap();
+        assert!(
+            !c.phone.as_ref().unwrap().page_all,
+            "auto: failed heals only"
+        );
+        // JSON file key
+        let c: Config = serde_json::from_str(r#"{"action_mode":"approve_each"}"#).unwrap();
+        assert_eq!(c.action_mode, ActionMode::ApproveEach);
     }
 
     #[test]

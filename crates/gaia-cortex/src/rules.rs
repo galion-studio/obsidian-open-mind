@@ -14,7 +14,8 @@
 //! | `R3-cap` | ... but the cortex hourly cap for the unit is used up (default 2 = the nerve executor cap, applied in dry-run too) | open circuit, alert + escalate |
 //! | `R3-cap-total` | ... but restarts asked for all units in the last hour reached `restarts_total_hour` (default 6 = the nerve cap) | alert + escalate, no circuit |
 //! | `R3b-systemd-restarting` | failure with `unit.restart_scheduled` (systemd restarts it itself) | alert, no extra action (failure still counts toward flapping) |
-//! | `R4-unknown-unit` | failure of a unit no rule may restart | alert + escalate |
+//! | `R4-unknown-unit` | failure of a unit no rule may restart | alert + escalate once per circuit |
+//! | `R4-trigger-failed` | only a `.path`/`.timer`/`.socket` folded into its service failed | alert + escalate once per circuit, never restart |
 //! | `R4b-sandbox-oom` | `oom.kill` on a `sbxtest*` unit / `sbxtest.slice` (sandbox memory cap) | info only, never escalate to Hermes |
 //! | `R5b-planned-stop` | failure or exit of a unit with a stop/restart job marker (`job_type` stop/restart, nerve `planned`), or a stop-signal exit (143/130, TERM/INT) that is active again / within 10 s of a job marker; no crash evidence (OOM, core dump, other exit, systemd restart) | nothing, never counts toward flapping (slot 309, D-271-2 A) |
 //! | `R5-recovered` | unit back to `active` / info state change | nothing (incident quiets) |
@@ -105,9 +106,22 @@ impl Subject {
     /// counts its [`Event::occurrences`]: the duplicates the nerve folded
     /// into it (`count`), or the new ones a repeat event reports.
     pub fn failures(&self) -> u32 {
+        self.failures_of(false)
+    }
+
+    /// Failures of trigger units (`.path`/`.timer`/`.socket`) folded into
+    /// this service subject ([`trigger_target`]). They count toward the
+    /// incident and its severity, never as a crash of the service: a
+    /// trigger's failure can never cause a restart.
+    pub fn trigger_failures(&self) -> u32 {
+        self.failures_of(true)
+    }
+
+    fn failures_of(&self, via_trigger: bool) -> u32 {
         let c = |f: &dyn Fn(&Event) -> bool| {
             self.events
                 .iter()
+                .filter(|e| is_via_trigger(e) == via_trigger)
                 .filter(|e| f(e))
                 .map(Event::occurrences)
                 .fold(0u32, u32::saturating_add)
@@ -122,7 +136,7 @@ impl Subject {
 
     pub fn recovered(&self) -> bool {
         self.failures() == 0
-            && self.events.iter().any(|e| {
+            && self.events.iter().filter(|e| !is_via_trigger(e)).any(|e| {
                 e.kind() == EventKind::UnitState
                     && matches!(e.to_state(), Some("active" | "running"))
             })
@@ -307,6 +321,18 @@ impl Rules {
         self.guard.unit(unit).is_none() && self.allow.iter().any(|a| a == unit)
     }
 
+    /// Both restart caps (per unit, all units) still have room this hour.
+    pub fn restart_cap_free(&self, unit: &str, now: u64) -> bool {
+        let unit_n = self.books.get(unit).map_or(0, |b| {
+            b.restarts
+                .iter()
+                .filter(|t| now.saturating_sub(**t) <= 3600)
+                .count() as u32
+        });
+        unit_n < self.limits.restarts_per_unit_hour
+            && self.restarts_last_hour(now) < self.limits.restarts_total_hour
+    }
+
     pub fn circuit_open(&self, unit: &str, now: u64) -> bool {
         self.books
             .get(unit)
@@ -485,6 +511,25 @@ impl Rules {
                 return Verdict::new("R5b-planned-stop", Sev::Info, why);
             }
             let fails = s.failures();
+            if fails == 0 && s.trigger_failures() > 0 {
+                // Only the trigger (.path/.timer/.socket) failed: one subject
+                // with its service (Friday 2026-10-30: the self-modify gate
+                // .path and .service were two incidents and two paid
+                // hand-offs). Never a restart; escalate once per circuit.
+                let trig = s
+                    .events
+                    .iter()
+                    .find_map(|e| e.data.get(VIA_TRIGGER).and_then(Value::as_str))
+                    .unwrap_or("trigger")
+                    .to_string();
+                let esc = self.open_circuit(&u, now);
+                let v = Verdict::new(
+                    "R4-trigger-failed",
+                    sev.max(Sev::Warn),
+                    format!("{trig} (trigger of {u}) failed; folded into {u}, never restarted"),
+                );
+                return if esc { v.escalate() } else { v.alert() };
+            }
             if fails > 0 {
                 let w = self.limits.flap_window_s;
                 let b = self.books.entry(u.clone()).or_default();
@@ -532,12 +577,15 @@ impl Rules {
                     return Verdict::new("R3b-systemd-restarting", sev.max(Sev::Warn), format!("{u} failed; systemd already scheduled its own restart (failure {nf} in {w}s), no extra action")).alert();
                 }
                 if !self.restart_allowed(&u) {
-                    return Verdict::new(
+                    // One escalation per circuit (was: every failure escalated;
+                    // 32 galion-ntfy-relay@ hand-offs on 2026-10-30/31).
+                    let esc = self.open_circuit(&u, now);
+                    let v = Verdict::new(
                         "R4-unknown-unit",
                         sev.max(Sev::Warn),
                         format!("{u} failed; not on the restart allowlist, no rule can act"),
-                    )
-                    .escalate();
+                    );
+                    return if esc { v.escalate() } else { v.alert() };
                 }
                 if nr >= self.limits.restarts_per_unit_hour {
                     let esc = self.open_circuit(&u, now);
@@ -712,9 +760,44 @@ impl Rules {
     }
 }
 
-/// Subject key and unit for an event.
+/// Event data key naming the trigger unit an event was folded from.
+pub const VIA_TRIGGER: &str = "via_trigger";
+
+/// The service a trigger unit starts: `X.path`, `X.timer`, `X.socket` ->
+/// `X.service` (systemd's default `Unit=`; templates keep their `@`).
+/// `None` for anything else.
+pub fn trigger_target(unit: &str) -> Option<String> {
+    [".path", ".timer", ".socket"].iter().find_map(|suf| {
+        let stem = unit.strip_suffix(suf)?;
+        (!stem.is_empty() && !stem.ends_with('.')).then(|| format!("{stem}.service"))
+    })
+}
+
+/// Was this event folded into its service subject from a trigger unit?
+pub fn is_via_trigger(e: &Event) -> bool {
+    e.data.get(VIA_TRIGGER).is_some_and(Value::is_string)
+}
+
+/// Tag a trigger unit's event with [`VIA_TRIGGER`] (the engine does this
+/// before grouping, so [`Subject::failures`] can tell them apart).
+pub fn tag_trigger(e: &mut Event) {
+    let Some(u) = e.unit() else { return };
+    if trigger_target(&u).is_none() {
+        return;
+    }
+    if !e.data.is_object() {
+        e.data = Value::Object(Default::default());
+    }
+    if let Some(o) = e.data.as_object_mut() {
+        o.insert(VIA_TRIGGER.into(), Value::String(u));
+    }
+}
+
+/// Subject key and unit for an event. Trigger units fold into the service
+/// they start (one problem counts as one subject).
 pub fn subject_key(e: &Event) -> (String, Option<String>) {
     if let Some(u) = e.unit() {
+        let u = trigger_target(&u).unwrap_or(u);
         return (format!("unit:{u}"), Some(u));
     }
     let k = e.kind();

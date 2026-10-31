@@ -68,6 +68,7 @@ fn live_cfg(dir: PathBuf) -> Config {
     Config {
         data_dir: dir,
         actions: "live".into(),
+        action_mode: gaia_cortex::config::ActionMode::Auto,
         ..Config::default()
     }
 }

@@ -421,6 +421,7 @@ fn freeze_heal_against_the_real_nerve() {
             .env("CORTEX_DATA_DIR", dir.join("cortex-data"))
             .env("CORTEX_COALESCE_MS", "500")
             .env("CORTEX_ACTIONS", "live")
+            .env("CORTEX_ACTION_MODE", "auto")
             .env("CORTEX_HEAL_VERIFY_S", "30")
             .env("CORTEX_FREEZE", "1")
             .env("CORTEX_FREEZE_PROBE_S", "5")

@@ -14,9 +14,11 @@
 //! 2. budget: the combined logged Hermes spend (sum of every session in
 //!    hermes-rs's spend file, i.e. all callers: research helper, chat,
 //!    handoffs) plus a per-handoff reserve must stay under the ceiling
-//!    (Mate t218: $20 total, hard max here). Otherwise refuse, and drop the
+//!    (owner 2026-10-31: $5 total, hard max here; was $20, Mate t218). Otherwise refuse, and drop the
 //!    `BUDGET-STOP` file into the inbox so the cortex stops handing off;
-//! 3. ask the Hermes boss model once (no retries) with the
+//! 3. ask Hermes once (no retries), always with model `x-ai/grok-4.7`
+//!    ([`MODEL_LOCK`]; any other `HANDOFF_MODEL` refuses to start), at most
+//!    [`HARD_MAX_PER_RUN`] call per run, with the
 //!    `cortex-escalation` skill as the system prompt: diagnose, propose a
 //!    fix, change nothing;
 //! 4. write the proposal to `<state>/proposals/<id>.md` +
@@ -31,8 +33,14 @@
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-/// The dispatcher never allows more than this, whatever the env says.
-pub const HARD_BUDGET_USD: f64 = 20.0;
+/// The dispatcher never allows more than this, whatever the env says
+/// (owner 2026-10-31: hand-offs capped at $5; was $20, Mate t218).
+pub const HARD_BUDGET_USD: f64 = 5.0;
+/// MODEL LOCK (owner 2026-10-31): the only model a hand-off may ask for.
+/// `boss` (alias of an Opus id) or any other id refuses to start.
+pub const MODEL_LOCK: &str = "x-ai/grok-4.7";
+/// At most this many paid calls per dispatcher run (default and maximum).
+pub const HARD_MAX_PER_RUN: u64 = 1;
 pub const SESSION_KEY: &str = "cortex-escalation";
 
 #[derive(Debug, Clone)]
@@ -75,7 +83,7 @@ impl DispatchCfg {
             budget_usd: f("HANDOFF_BUDGET_USD", HARD_BUDGET_USD).clamp(0.0, HARD_BUDGET_USD),
             reserve_usd: f("HANDOFF_RESERVE_USD", 1.0).max(0.0),
             hermes_url: s("HERMES_URL", "http://127.0.0.1:8642"),
-            model: s("HANDOFF_MODEL", "boss"),
+            model: s("HANDOFF_MODEL", MODEL_LOCK).trim().to_string(),
             skill: s(
                 "HANDOFF_SKILL",
                 "/opt/galion/hermes/skills/galion/cortex-escalation/SKILL.md",
@@ -84,8 +92,14 @@ impl DispatchCfg {
             max_tokens: n("HANDOFF_MAX_TOKENS", 3000).min(8000) as u32,
             timeout_s: n("HANDOFF_TIMEOUT_S", 900).min(1800),
             key_env: s("HANDOFF_KEY_ENV", "API_SERVER_KEY"),
-            max_per_run: n("HANDOFF_MAX_PER_RUN", 6).min(6) as usize,
+            max_per_run: n("HANDOFF_MAX_PER_RUN", HARD_MAX_PER_RUN).min(HARD_MAX_PER_RUN) as usize,
         };
+        if c.model != MODEL_LOCK {
+            return Err(format!(
+                "HANDOFF_MODEL {:?} refused: model lock allows only {MODEL_LOCK}",
+                c.model.chars().take(80).collect::<String>()
+            ));
+        }
         if !loopback_http(&c.hermes_url) {
             return Err(format!(
                 "HERMES_URL must be http://<loopback>:port, got {}",
@@ -307,6 +321,15 @@ pub fn run(
             out.push(refuse(format!("{} not set", cfg.key_env), spent, "failed"));
             continue;
         };
+        // Model lock, re-checked here (a cfg built in code skips from_env).
+        if cfg.model != MODEL_LOCK {
+            out.push(refuse(
+                format!("model lock: {:?} is not {MODEL_LOCK}", cfg.model),
+                spent,
+                "refused-model-lock",
+            ));
+            continue;
+        }
         // 3. one call, no retry.
         let sid = format!("cortex-{id}");
         let user = format!(
@@ -340,6 +363,16 @@ pub fn run(
             .unwrap_or(Value::Null);
         let cost = sess["estimated_cost_usd"].as_f64().unwrap_or(0.0);
         let model = sess["model"].as_str().unwrap_or(&cfg.model).to_string();
+        // Hermes answered with another model (alias remap): record it and stop
+        // further hand-offs until a human looks (BUDGET-STOP blocks the cortex).
+        if model != MODEL_LOCK {
+            stop_file(
+                cfg,
+                &format!("model lock: Hermes answered with {model:?}, not {MODEL_LOCK}"),
+                spent + cost,
+                &ts,
+            );
+        }
         let (code, text) = match res {
             Ok((c, b)) => {
                 let v: Value = serde_json::from_str(&b).unwrap_or(Value::Null);
@@ -497,6 +530,7 @@ mod tests {
         chat: (u16, String),
         cost: f64,
         spend_file: PathBuf,
+        answered_model: &'static str,
     }
 
     impl Http for Mock {
@@ -511,7 +545,7 @@ mod tests {
             assert!(h.iter().all(|(_, v)| !v.contains('\n')));
             if url.ends_with("/v1/chat/completions") {
                 let b: Value = serde_json::from_str(body.unwrap()).unwrap();
-                assert_eq!(b["model"], "boss");
+                assert_eq!(b["model"], MODEL_LOCK);
                 assert!(b["messages"][0]["content"]
                     .as_str()
                     .unwrap()
@@ -527,7 +561,7 @@ mod tests {
             if url.contains("/api/sessions/") {
                 return Ok((
                     200,
-                    json!({"estimated_cost_usd": self.cost, "model": "anthropic/claude-opus-5.5"})
+                    json!({"estimated_cost_usd": self.cost, "model": self.answered_model})
                         .to_string(),
                 ));
             }
@@ -561,7 +595,7 @@ mod tests {
             _ => None,
         };
         let c = DispatchCfg::from_env(&get).unwrap();
-        assert_eq!(c.budget_usd, 20.0, "clamped to the $20 ceiling");
+        assert_eq!(c.budget_usd, 5.0, "clamped to the $5 ceiling");
         (d, c)
     }
 
@@ -581,6 +615,7 @@ mod tests {
             ),
             cost: 0.08,
             spend_file: c.spend_file.clone(),
+            answered_model: MODEL_LOCK,
         };
         let r = run(&c, &m, &env_with_key, &|| {
             "2026-10-21T23:00:00+02:00".into()
@@ -605,12 +640,13 @@ mod tests {
 
     #[test]
     fn budget_refusal_writes_stop_file_and_calls_nothing_paid() {
-        let (d, c) = setup("budget", 19.5, 2);
+        let (d, c) = setup("budget", 4.5, 2);
         let m = Mock {
             calls: RefCell::new(vec![]),
             chat: (200, "{}".into()),
             cost: 0.0,
             spend_file: c.spend_file.clone(),
+            answered_model: MODEL_LOCK,
         };
         let r = run(&c, &m, &env_with_key, &|| "t".into());
         assert_eq!(r["results"][0]["status"], "refused-budget");
@@ -628,6 +664,7 @@ mod tests {
             chat: (502, json!({"error": {"message": "upstream"}}).to_string()),
             cost: 0.0,
             spend_file: c.spend_file.clone(),
+            answered_model: MODEL_LOCK,
         };
         let r = run(&c, &m, &env_with_key, &|| "t".into());
         assert_eq!(r["results"][0]["status"], "failed");
@@ -655,7 +692,75 @@ mod tests {
         let c = DispatchCfg::from_env(&|_| None).unwrap();
         assert_eq!(
             (c.model.as_str(), c.budget_usd, c.max_per_run),
-            ("boss", 20.0, 6)
+            (MODEL_LOCK, 5.0, 1)
         );
+    }
+
+    #[test]
+    fn model_lock_refuses_boss_and_opus_and_caps_budget_and_runs() {
+        for m in [
+            "boss",
+            "anthropic/claude-opus-5.5",
+            "anthropic/claude-opus-4",
+            "x-ai/grok-4",
+            "openrouter/auto",
+        ] {
+            let get = |k: &str| (k == "HANDOFF_MODEL").then(|| m.to_string());
+            let e = DispatchCfg::from_env(&get).unwrap_err();
+            assert!(e.contains("model lock"), "{m}: {e}");
+        }
+        let get = |k: &str| match k {
+            "HANDOFF_MODEL" => Some(" x-ai/grok-4.7 ".into()),
+            "HANDOFF_BUDGET_USD" => Some("20".into()),
+            "HANDOFF_MAX_PER_RUN" => Some("6".into()),
+            _ => None,
+        };
+        let c = DispatchCfg::from_env(&get).unwrap();
+        assert_eq!(
+            (c.model.as_str(), c.budget_usd, c.max_per_run),
+            (MODEL_LOCK, 5.0, 1)
+        );
+        // A cfg built in code with another model never calls Hermes.
+        let (d, mut c) = setup("lock", 0.0, 1);
+        c.model = "boss".into();
+        let m = Mock {
+            calls: RefCell::new(vec![]),
+            chat: (200, "{}".into()),
+            cost: 0.0,
+            spend_file: c.spend_file.clone(),
+            answered_model: MODEL_LOCK,
+        };
+        let r = run(&c, &m, &env_with_key, &|| "t".into());
+        assert_eq!(r["results"][0]["status"], "refused-model-lock");
+        assert!(m.calls.borrow().is_empty(), "no paid call");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn one_call_per_run_and_a_remapped_model_stops_handoffs() {
+        let (d, c) = setup("perrun", 0.5, 2);
+        let m = Mock {
+            calls: RefCell::new(vec![]),
+            chat: (
+                200,
+                json!({"choices": [{"message": {"content": "proposal"}}]}).to_string(),
+            ),
+            cost: 0.02,
+            spend_file: c.spend_file.clone(),
+            answered_model: "anthropic/claude-opus-5.5",
+        };
+        let r = run(&c, &m, &env_with_key, &|| "t".into());
+        assert_eq!(r["results"][0]["status"], "awaiting-mate-approval");
+        assert_eq!(r["results"][1]["status"], "refused-cap");
+        let paid = m
+            .calls
+            .borrow()
+            .iter()
+            .filter(|u| u.ends_with("/completions"))
+            .count();
+        assert_eq!(paid, 1, "max one paid call per run");
+        let stop = std::fs::read_to_string(c.inbox.join(crate::handoff::STOP_FILE)).unwrap();
+        assert!(stop.contains("model lock"), "{stop}");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

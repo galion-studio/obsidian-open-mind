@@ -18,6 +18,10 @@
 //! * Only `cortex.alert` events whose rule is `R12-heal-failed` go out.
 //!   Body: the alert text (max 1000 chars); title names the unit.
 //! * Never escalates to Hermes; a failed send is counted, not retried.
+//! * Notify first (owner 2026-10-31): outside `CORTEX_ACTION_MODE=auto`
+//!   ([`PhoneCfg::page_all`]) every `cortex.alert` / `cortex.escalation`
+//!   at severity error or above also pages, ONE page per incident (a parked
+//!   approval is its own page), inside the same per-hour cap.
 
 use galion_common::http::{send, ClientRequest};
 use nerve_cortex_contract::Event;
@@ -38,6 +42,9 @@ pub struct PhoneCfg {
     pub addr: SocketAddr,
     pub path: String,
     pub per_hour: u32,
+    /// Page every alert/escalation >= error (set by the config from the
+    /// action mode: true unless `auto`).
+    pub page_all: bool,
 }
 
 impl PhoneCfg {
@@ -67,6 +74,7 @@ impl PhoneCfg {
             addr,
             path,
             per_hour,
+            page_all: false,
         }))
     }
 }
@@ -93,6 +101,22 @@ pub fn wants(ev: &Event) -> bool {
     ev.kind == "cortex.alert" && ev.data.get("rule").and_then(Value::as_str) == Some(PHONE_RULE)
 }
 
+/// Notify-first page: an alert or escalation at severity error or above.
+pub fn wants_page(ev: &Event) -> bool {
+    matches!(ev.kind.as_str(), "cortex.alert" | "cortex.escalation")
+        && matches!(ev.severity.as_str(), "error" | "critical")
+}
+
+/// One page per incident (and per parked approval).
+fn page_key(ev: &Event) -> String {
+    let d = |k: &str| ev.data.get(k).and_then(Value::as_str).unwrap_or("");
+    let inc = match d("incident") {
+        "" => d("subject"),
+        i => i,
+    };
+    format!("{inc}|{}", d("approval"))
+}
+
 fn clean(s: &str, max: usize) -> String {
     s.chars()
         .map(|c| if c.is_control() { ' ' } else { c })
@@ -107,6 +131,35 @@ pub fn message(ev: &Event) -> (String, String) {
         .unit
         .clone()
         .unwrap_or_else(|| d("subject").trim_start_matches("unit:").to_string());
+    if d("rule") != PHONE_RULE {
+        let what = match d("msg") {
+            "" => d("reason"),
+            m => m,
+        };
+        let ask = match d("approval") {
+            "" => String::new(),
+            a => format!(
+                " APPROVAL {a}: {} pending; approve with POST /approvals/{a}/approve (loopback)",
+                d("proposed")
+            ),
+        };
+        let kind = if ev.kind == "cortex.escalation" {
+            "escalation"
+        } else {
+            "alert"
+        };
+        return (
+            clean(&format!("Gaia {}: {} {unit}", ev.severity, d("rule")), 120),
+            clean(
+                &format!(
+                    "{what} [{kind} {} incident {}]{ask}",
+                    d("rule"),
+                    d("incident")
+                ),
+                BODY_MAX,
+            ),
+        );
+    }
     (
         clean(&format!("Gaia: heal failed: {unit}"), 120),
         clean(
@@ -122,8 +175,12 @@ struct Book {
     sent: u64,
     failed: u64,
     rate_limited: u64,
+    duplicate: u64,
+    paged: VecDeque<String>,
     last: Option<String>,
 }
+
+const PAGED_MAX: usize = 1024;
 
 /// Sends failed-heal alerts to the relay (one short loopback POST, 5 s).
 #[derive(Debug)]
@@ -136,6 +193,8 @@ pub struct Phone {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Sent {
     NotForPhone,
+    /// This incident already paged.
+    Duplicate,
     RateLimited,
     Ok,
     Failed(String),
@@ -155,11 +214,20 @@ impl Phone {
 
     /// Offer one nerve post; only failed-heal alerts are sent.
     pub fn offer(&self, ev: &Event, now: u64) -> Sent {
-        if !wants(ev) {
+        let heal = wants(ev);
+        let page = !heal && self.cfg.page_all && wants_page(ev);
+        if !heal && !page {
             return Sent::NotForPhone;
         }
         {
             let mut b = self.lock();
+            let key = page.then(|| page_key(ev));
+            if let Some(k) = &key {
+                if b.paged.contains(k) {
+                    b.duplicate += 1;
+                    return Sent::Duplicate;
+                }
+            }
             while b
                 .sent_at
                 .front()
@@ -172,6 +240,12 @@ impl Phone {
                 return Sent::RateLimited;
             }
             b.sent_at.push_back(now);
+            if let Some(k) = key {
+                b.paged.push_back(k);
+                while b.paged.len() > PAGED_MAX {
+                    b.paged.pop_front();
+                }
+            }
         }
         let (title, body) = message(ev);
         let host = self.cfg.addr.to_string();
@@ -182,9 +256,18 @@ impl Phone {
             body.as_bytes(),
         );
         req.headers.push(("Title".into(), title));
-        req.headers.push(("Priority".into(), "urgent".into()));
-        req.headers
-            .push(("Tags".into(), "rotating_light,gaia".into()));
+        let prio = if heal || ev.severity == "critical" {
+            "urgent"
+        } else {
+            "high"
+        };
+        req.headers.push(("Priority".into(), prio.into()));
+        let tags = if ev.data.get("approval").is_some_and(Value::is_string) {
+            "rotating_light,gaia,approve"
+        } else {
+            "rotating_light,gaia"
+        };
+        req.headers.push(("Tags".into(), tags.into()));
         let r = match send(self.cfg.addr, &req, Duration::from_secs(5), 64 * 1024) {
             Ok(r) if (200..300).contains(&r.status) => Sent::Ok,
             Ok(r) => Sent::Failed(format!("relay HTTP {}", r.status)),
@@ -204,6 +287,7 @@ impl Phone {
         let b = self.lock();
         json!({"configured": true, "path": self.cfg.path, "priority": "urgent", "rule": PHONE_RULE,
                "per_hour": self.cfg.per_hour, "in_window": b.sent_at.len(), "sent": b.sent,
+               "page_all_error": self.cfg.page_all, "duplicate": b.duplicate,
                "failed": b.failed, "rate_limited": b.rate_limited, "last": b.last})
     }
 }
@@ -341,6 +425,86 @@ mod tests {
         (a, h)
     }
 
+    fn ev(kind: &str, sev: &str, inc: &str, approval: Option<&str>) -> Event {
+        let mut d = json!({"rule": "R4-unknown-unit", "decision": "dec-9", "incident": inc,
+                           "subject": "unit:gate.service", "msg": "gate.service failed", "reason": "gate.service failed"});
+        if let Some(a) = approval {
+            d["approval"] = json!(a);
+            d["proposed"] = json!("restart gate.service");
+        }
+        Event::new("gaia-cortex", kind, sev, d)
+    }
+
+    #[test]
+    fn notify_mode_pages_error_and_up_once_per_incident() {
+        assert!(wants_page(&ev("cortex.alert", "error", "inc-1", None)));
+        assert!(wants_page(&ev(
+            "cortex.escalation",
+            "critical",
+            "inc-1",
+            None
+        )));
+        assert!(!wants_page(&ev("cortex.alert", "warn", "inc-1", None)));
+        assert!(!wants_page(&ev("cortex.alert", "info", "inc-1", None)));
+        assert!(!wants_page(&ev("gaia.heal.failed", "error", "inc-1", None)));
+        let (addr, h) = relay(3);
+        let p = Phone::new(PhoneCfg {
+            addr,
+            path: "/gaia-cortex".into(),
+            per_hour: 6,
+            page_all: true,
+        });
+        assert_eq!(
+            p.offer(&ev("cortex.alert", "warn", "inc-1", None), 10),
+            Sent::NotForPhone
+        );
+        assert_eq!(
+            p.offer(&ev("cortex.alert", "error", "inc-1", None), 10),
+            Sent::Ok
+        );
+        // the escalation and a repeat of the same incident: no second page
+        assert_eq!(
+            p.offer(&ev("cortex.escalation", "error", "inc-1", None), 11),
+            Sent::Duplicate
+        );
+        assert_eq!(
+            p.offer(&ev("cortex.alert", "critical", "inc-1", None), 12),
+            Sent::Duplicate
+        );
+        // a parked approval is its own page
+        assert_eq!(
+            p.offer(&ev("cortex.alert", "error", "inc-1", Some("apr-1")), 13),
+            Sent::Ok
+        );
+        // failed heals still page as before
+        assert_eq!(p.offer(&alert("R12-heal-failed"), 14), Sent::Ok);
+        let got = h.join().unwrap();
+        assert!(
+            got[0].contains("Title: Gaia error: R4-unknown-unit gate.service"),
+            "{}",
+            got[0]
+        );
+        assert!(got[0].contains("Priority: high"), "{}", got[0]);
+        assert!(
+            got[1].contains("APPROVAL apr-1") && got[1].contains("/approvals/apr-1/approve"),
+            "{}",
+            got[1]
+        );
+        assert!(got[2].contains("Priority: urgent"), "{}", got[2]);
+        assert_eq!(p.to_json()["duplicate"].as_u64(), Some(2));
+        // auto mode: only failed heals
+        let auto = Phone::new(PhoneCfg {
+            addr: "127.0.0.1:9".parse().unwrap(),
+            path: "/x".into(),
+            per_hour: 6,
+            page_all: false,
+        });
+        assert_eq!(
+            auto.offer(&ev("cortex.alert", "critical", "inc-2", None), 1),
+            Sent::NotForPhone
+        );
+    }
+
     #[test]
     fn sends_urgent_and_caps_per_hour() {
         let (addr, h) = relay(2);
@@ -348,6 +512,7 @@ mod tests {
             addr,
             path: "/gaia-cortex".into(),
             per_hour: 2,
+            page_all: false,
         });
         assert_eq!(p.offer(&alert("R13-frozen"), 100), Sent::NotForPhone);
         assert_eq!(p.offer(&alert("R12-heal-failed"), 100), Sent::Ok);
@@ -376,6 +541,7 @@ mod tests {
             addr: "127.0.0.1:9".parse().unwrap(),
             path: "/x".into(),
             per_hour: 1,
+            page_all: false,
         });
         assert!(matches!(
             dead.offer(&alert("R12-heal-failed"), 10),

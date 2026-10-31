@@ -637,6 +637,7 @@ fn own_alerts_are_not_re_ingested() {
 fn live_mode_sends_live_request_only_when_configured() {
     let mut c = cfg();
     c.actions = "live".into();
+    c.action_mode = gaia_cortex::config::ActionMode::Auto;
     let (mut cx, nerve, _) = cortex(c);
     let d = cx.process(vec![crash("tuner.service")], T0);
     assert_eq!(d[0]["dry_run"], false);
@@ -644,6 +645,7 @@ fn live_mode_sends_live_request_only_when_configured() {
     // Without a nerve endpoint a live request is refused, never run locally.
     let mut c = cfg();
     c.actions = "live".into();
+    c.action_mode = gaia_cortex::config::ActionMode::Auto;
     let mut cx = Cortex::new(
         c,
         Guard::with_hosts(ProtectedHosts::builtin(), &[]),
@@ -819,6 +821,7 @@ fn nerve_batches_and_engine_incidents_do_not_loop() {
 fn unresolved_incident_handed_to_hermes_once() {
     let mut c = cfg();
     c.actions = "live".into();
+    c.action_mode = gaia_cortex::config::ActionMode::Auto;
     c.hermes.enabled = true;
     let inbox = c.data_dir.join("hermes-inbox");
     let (mut cx, nerve, _) = cortex(c);
@@ -871,6 +874,7 @@ fn unresolved_incident_handed_to_hermes_once() {
 fn sbxtest_oom_is_info_no_hermes_handoff() {
     let mut c = cfg();
     c.actions = "live".into();
+    c.action_mode = gaia_cortex::config::ActionMode::Auto;
     c.hermes.enabled = true;
     let inbox = c.data_dir.join("hermes-inbox");
     let (mut cx, nerve, _) = cortex(c);

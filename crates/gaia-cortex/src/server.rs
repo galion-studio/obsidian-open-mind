@@ -14,6 +14,8 @@
 //! | `GET /escalations` | open escalate-to-human items |
 //! | `POST /escalations/ack?id=ID` | acknowledge one item |
 //! | `POST /v1/events` | ingest: one B33 event, a JSON array, or NDJSON |
+//! | `GET /approvals` | parked actions (`CORTEX_ACTION_MODE=approve_each`) |
+//! | `POST /approvals/<id>/approve` / `.../reject` | owner decision; `Authorization: Bearer <token>` from `approval_token_file`; only in approve_each |
 //!
 //! Reads never wait for the decider (slot 236). Since slot 247 the decider
 //! holds the engine lock only for in-memory work (plan, commit), never
@@ -47,11 +49,14 @@ pub struct Api {
     /// Nerve reachability for `/health` from the snapshot path (slot 347):
     /// contact, configured, stale seconds.
     pub nerve: (Arc<crate::contact::NerveContact>, bool, u64),
+    /// Bearer token for the approval POSTs (`None` = they answer 403).
+    pub approval_token: Option<String>,
+    pub action_mode: crate::config::ActionMode,
 }
 
 impl Api {
     pub fn new(cx: Arc<Mutex<Cortex>>, tx: Sender<Vec<Event>>) -> Api {
-        let (snap, nerve) = {
+        let (snap, nerve, token_file, action_mode) = {
             let g = cx.lock().unwrap_or_else(|e| e.into_inner());
             (
                 g.snap.clone(),
@@ -60,13 +65,24 @@ impl Api {
                     g.cfg.nerve_url.is_some(),
                     g.cfg.nerve_stale_eff(),
                 ),
+                g.cfg.approval_token_file.clone(),
+                g.cfg.action_mode,
             )
         };
+        let approval_token = token_file.and_then(|p| match crate::approvals::read_token(&p) {
+            Ok(t) => Some(t),
+            Err(e) => {
+                eprintln!("gaia-cortex: approvals: {e}; approve/reject disabled");
+                None
+            }
+        });
         Api {
             cx,
             tx: Mutex::new(tx),
             snap,
             nerve,
+            approval_token,
+            action_mode,
         }
     }
 }
@@ -186,11 +202,83 @@ pub fn handle(req: &Request, api: &Api) -> Response {
             }
             Response::json(if hit { 200 } else { 404 }, json!({"ok": hit}).to_string())
         }
+        ("GET", "/approvals") => {
+            let Some(g) = lock_for(&api.cx, ACK_WAIT) else {
+                return Response::json(
+                    503,
+                    r#"{"ok":false,"busy":true,"error":"decider busy, retry"}"#,
+                )
+                .with_header("retry-after", "1");
+            };
+            let mut v = g.approvals.to_json(now_secs());
+            v["action_mode"] = json!(api.action_mode.as_str());
+            Response::json(200, v.to_string())
+        }
+        ("POST", p) if p.starts_with("/approvals/") => approve(req, api, p),
         ("GET", "/") => Response::json(
             200,
             r#"{"routes":["/health","/stats","/incidents","/decisions","/alerts","/escalations","/heals","POST /v1/events","POST /escalations/ack?id="]}"#,
         ),
         _ => Response::json(404, r#"{"ok":false,"error":"not found"}"#),
+    }
+}
+
+/// `POST /approvals/<id>/approve|reject` (owner only: bearer token).
+fn approve(req: &Request, api: &Api, path: &str) -> Response {
+    use crate::approvals::Decision;
+    if api.action_mode != crate::config::ActionMode::ApproveEach {
+        return Response::json(
+            409,
+            r#"{"ok":false,"error":"approvals need CORTEX_ACTION_MODE=approve_each"}"#,
+        );
+    }
+    let Some(tok) = &api.approval_token else {
+        return Response::json(
+            403,
+            r#"{"ok":false,"error":"no approval token configured"}"#,
+        );
+    };
+    let given = req
+        .header("authorization")
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(str::trim)
+        .unwrap_or("");
+    if !crate::approvals::token_eq(given, tok) {
+        return Response::json(401, r#"{"ok":false,"error":"bad or missing bearer token"}"#);
+    }
+    let rest = path.trim_start_matches("/approvals/");
+    let (id, d) = match rest.rsplit_once('/') {
+        Some((id, "approve")) => (id, Decision::Approve),
+        Some((id, "reject")) => (id, Decision::Reject),
+        _ => return Response::json(404, r#"{"ok":false,"error":"not found"}"#),
+    };
+    let Some(mut g) = lock_for(&api.cx, ACK_WAIT) else {
+        return Response::json(
+            503,
+            r#"{"ok":false,"busy":true,"error":"decider busy, retry"}"#,
+        )
+        .with_header("retry-after", "1");
+    };
+    match g.approvals.decide(id, d, now_secs()) {
+        Ok(p) => {
+            g.publish();
+            drop(g);
+            if d == Decision::Approve {
+                // wake the decider: an empty batch runs the approved action
+                let _ = api
+                    .tx
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .send(vec![]);
+            }
+            Response::json(
+                200,
+                json!({"ok": true, "id": p.id, "action": p.action, "unit": p.unit,
+                       "decision": if d == Decision::Approve { "approved" } else { "rejected" }})
+                .to_string(),
+            )
+        }
+        Err(e) => Response::json(404, json!({"ok": false, "error": e}).to_string()),
     }
 }
 

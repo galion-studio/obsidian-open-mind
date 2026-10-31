@@ -71,6 +71,7 @@ fn cortex_with(enabled: bool) -> (Cortex, MockNerve) {
     let cfg = Config {
         data_dir: tmpdir(),
         actions: "live".into(),
+        action_mode: gaia_cortex::config::ActionMode::Auto,
         freeze: FreezeCfg {
             enabled,
             ..FreezeCfg::default()
@@ -382,6 +383,7 @@ fn failed_heal_is_a_critical_phone_alert_through_the_relay() {
             addr,
             path: "/gaia-cortex".into(),
             per_hour: 6,
+            page_all: false,
         },
     )));
     let (_, d) = freeze_and_restart(&mut cx, &nerve, TUNER, T0);

@@ -18,7 +18,7 @@
 //! call the nerve (no lock, one lost reply stops the rest of the batch) ->
 //! commit (lock); alert/escalation posts go to a courier thread.
 
-use crate::config::Config;
+use crate::config::{ActionMode, Config};
 use crate::guard::Guard;
 use crate::handoff::{Handoff, Offer};
 use crate::llm::{Advisor, Choice};
@@ -71,10 +71,14 @@ fn clears(s: &Subject, sev: Sev) -> bool {
     if s.unit.is_some() {
         return s.recovered()
             || (s.failures() == 0
-                && s.events.iter().any(|e| {
-                    e.kind() == EventKind::UnitState
-                        && matches!(e.to_state(), Some("inactive" | "dead"))
-                }));
+                && s.trigger_failures() == 0
+                && s.events
+                    .iter()
+                    .filter(|e| !crate::rules::is_via_trigger(e))
+                    .any(|e| {
+                        e.kind() == EventKind::UnitState
+                            && matches!(e.to_state(), Some("inactive" | "dead"))
+                    }));
     }
     if s.key.starts_with("nerve-incident:") {
         return s
@@ -147,6 +151,9 @@ pub struct Stats {
     pub handoffs_budget_stopped: u64,
     pub handoffs_failed: u64,
     pub handoffs_excluded: u64,
+    pub handoffs_same_root: u64,
+    pub handoffs_notify_only: u64,
+    pub handoffs_parked: u64,
     pub llm_calls: u64,
     pub llm_refused: u64,
     pub llm_skipped_disabled: u64,
@@ -181,6 +188,10 @@ pub struct Cortex {
     pub freeze: crate::freeze::FreezeWatch,
     /// Failed-heal phone alerts (loopback ntfy relay), shared with the courier.
     pub phone: Option<Arc<crate::phone::Phone>>,
+    /// Parked actions (`CORTEX_ACTION_MODE=approve_each`).
+    pub approvals: crate::approvals::Approvals,
+    /// Decision id -> (approval id, proposed action) for the alert it pages.
+    approval_of: BTreeMap<String, (String, String)>,
     outgoing: Vec<Post>,
     seen: HashSet<u64>,
     seen_order: VecDeque<u64>,
@@ -279,6 +290,12 @@ impl Cortex {
                 .phone
                 .clone()
                 .map(|c| Arc::new(crate::phone::Phone::new(c))),
+            approvals: crate::approvals::Approvals::new(
+                file("pending-approvals.jsonl"),
+                cfg.approval_ttl_s,
+                started,
+            ),
+            approval_of: BTreeMap::new(),
             outgoing: vec![],
             seen: HashSet::new(),
             seen_order: VecDeque::new(),
@@ -571,10 +588,17 @@ impl Cortex {
     pub fn plan(&mut self, evs: Vec<Event>, now: u64) -> Vec<Pending> {
         self.stats.events_invalid += self.snap.take_invalid();
         self.expire_escalations(now);
+        // Owner-approved actions (approve_each) go first, in this batch.
+        let mut approved_plan = vec![];
+        for a in self.approvals.take_approved() {
+            if let Some(p) = self.plan_approved(a, now) {
+                approved_plan.push(p);
+            }
+        }
         let mut evs = self.admit(evs);
         self.freeze_merge(&mut evs, now);
         if evs.is_empty() {
-            return vec![];
+            return approved_plan;
         }
         for d in self.heals.observe(&evs, now) {
             self.heal_done(d, now);
@@ -597,7 +621,8 @@ impl Cortex {
         }
         // Subjects.
         let mut subjects: BTreeMap<String, Subject> = BTreeMap::new();
-        for e in evs {
+        for mut e in evs {
+            crate::rules::tag_trigger(&mut e);
             let (key, unit) = subject_key(&e);
             let host = e.host().map(str::to_string);
             let s = subjects.entry(key.clone()).or_insert(Subject {
@@ -622,7 +647,7 @@ impl Cortex {
                 let lead = s.lead().map(|e| e.kind.clone()).unwrap_or_default();
                 let mut g =
                     Signal::new(&s.key, &s.key, sev, format!("{} x{}", lead, s.events.len()));
-                g.hard = s.failures() > 0 && !planned;
+                g.hard = (s.failures() > 0 || s.trigger_failures() > 0) && !planned;
                 g
             })
             .collect();
@@ -787,7 +812,7 @@ impl Cortex {
                 self.note_resolved(id, why, now);
             }
         }
-        let mut out = vec![];
+        let mut out = approved_plan;
         let mut stack_wide_done = false;
         for s in subjects.into_values() {
             let cause = home.get(&s.key).cloned().unwrap_or_else(|| s.key.clone());
@@ -902,7 +927,39 @@ impl Cortex {
                 }
             }
         }
+        // approve_each: the rules never act on their own; park the restart
+        // for the owner and page it (owner 2026-10-31).
+        let mut parked = None;
+        if self.cfg.action_mode == ActionMode::ApproveEach {
+            if let Outcome::Restart(u) = v.outcome.clone() {
+                v.outcome = Outcome::None;
+                v.alert = true;
+                v.sev = v.sev.max(Sev::Error);
+                match self.approvals.park(
+                    &incident,
+                    &s.key,
+                    Some(&u),
+                    "restart",
+                    v.rule,
+                    &v.reason,
+                    Value::Null,
+                    now,
+                ) {
+                    Some(aid) => {
+                        v.reason = format!("{}; parked for approval {aid} (restart {u})", v.reason);
+                        parked = Some((aid, format!("restart {u}")));
+                    }
+                    None => {
+                        v.reason =
+                            format!("{}; approval book full, restart {u} NOT parked", v.reason);
+                    }
+                }
+            }
+        }
         let id = self.next_id("dec");
+        if let Some(x) = parked {
+            self.approval_of.insert(id.clone(), x);
+        }
         let mut req = None;
         if let Outcome::Restart(unit) = &v.outcome {
             req = Some(ActionRequest {
@@ -930,6 +987,102 @@ impl Cortex {
             llm,
             decided_by,
             req,
+        })
+    }
+
+    /// An owner-approved parked action (approve_each). A restart is sent
+    /// (live only with `actions = "live"`) if the unit is still allowed,
+    /// its circuit closed and the caps free; a handoff goes to the inbox
+    /// through every handoff cap. Either way one decision is recorded.
+    fn plan_approved(&mut self, a: crate::approvals::Parked, now: u64) -> Option<Pending> {
+        let s = Subject {
+            key: a.subject.clone(),
+            unit: a.unit.clone(),
+            host: None,
+            events: vec![],
+        };
+        if a.action == "handoff" {
+            let o = self.handoff.offer(&a.payload, now);
+            match &o {
+                Offer::Written(_) => self.stats.handoffs += 1,
+                Offer::Failed(_) => self.stats.handoffs_failed += 1,
+                _ => {}
+            }
+            eprintln!(
+                "gaia-cortex {} approval {} handoff {} -> {}",
+                ts(now),
+                a.id,
+                a.incident,
+                o.code()
+            );
+            let did = self.next_id("dec");
+            self.decisions.push(json!({"id": did, "ts": ts(now), "incident": a.incident,
+                "subject": a.subject, "unit": a.unit, "rule": "R14-owner-approved", "severity": "warn",
+                "reason": format!("owner approved {}: handoff to Hermes", a.id), "outcome": "none",
+                "decided_by": "owner", "dry_run": self.cfg.dry_run(), "action": Value::Null,
+                "handoff": o.code(), "approval": a.id}));
+            self.stats.decisions += 1;
+            return None;
+        }
+        let u = a.unit.clone()?;
+        let refuse = if !self.rules.restart_allowed(&u) {
+            Some("not on the restart allowlist (or protected)")
+        } else if self.rules.circuit_open(&u, now) {
+            Some("its circuit is open")
+        } else if !self.rules.restart_cap_free(&u, now) {
+            Some("the restart cap is reached")
+        } else {
+            None
+        };
+        let id = self.next_id("dec");
+        if let Some(why) = refuse {
+            let v = Verdict::new(
+                "R14-approval-refused",
+                Sev::Error,
+                format!("owner approved {} (restart {u}) but {why}; not sent", a.id),
+            );
+            let mut v = v;
+            v.alert = true;
+            return Some(Pending {
+                id,
+                subject: s,
+                incident: a.incident,
+                verdict: v,
+                llm: Value::Null,
+                decided_by: DecidedBy::Rules,
+                req: None,
+            });
+        }
+        let mut v = Verdict::new(
+            "R14-owner-approved",
+            Sev::Warn,
+            format!("owner approved {} ({}): restart {u}", a.id, a.reason),
+        );
+        v.outcome = Outcome::Restart(u.clone());
+        v.alert = true;
+        let req = ActionRequest {
+            v: CONTRACT_VERSION,
+            request_id: format!("{id}-{}", a.incident),
+            source: CORTEX_SOURCE.to_string(),
+            ts: ts(now),
+            incident: a.incident.clone(),
+            action: ActionKind::Restart,
+            unit: u.clone(),
+            dry_run: self.cfg.approved_dry_run(),
+            rule: v.rule.to_string(),
+            decided_by: DecidedBy::Rules,
+            reason: v.reason.clone(),
+        };
+        self.stats.actions_requested += 1;
+        self.rules.note_restart(&u, now);
+        Some(Pending {
+            id,
+            subject: s,
+            incident: a.incident,
+            verdict: v,
+            llm: Value::Null,
+            decided_by: DecidedBy::Rules,
+            req: Some(req),
         })
     }
 
@@ -1157,8 +1310,12 @@ impl Cortex {
 
     fn alert(&mut self, dec: &str, s: &Subject, incident: &str, v: &Verdict, now: u64) {
         let id = self.next_id("al");
-        let a = json!({"id": id, "ts": ts(now), "decision": dec, "incident": incident, "subject": s.key,
+        let mut a = json!({"id": id, "ts": ts(now), "decision": dec, "incident": incident, "subject": s.key,
                        "rule": v.rule, "severity": v.sev.as_str(), "msg": v.reason});
+        if let Some((aid, what)) = self.approval_of.remove(dec) {
+            a["approval"] = json!(aid);
+            a["proposed"] = json!(what);
+        }
         self.stats.alerts += 1;
         if let Some(p) = &self.outbox {
             let _ = crate::sink::append(p, &a);
@@ -1185,12 +1342,14 @@ impl Cortex {
         if let Offer::Excluded(p) = &offer {
             e["handoff_excluded_by"] = json!(p);
         }
-        let event = Event::new(
-            CORTEX_SOURCE,
-            "cortex.escalation",
-            v.sev.as_str(),
-            json!({"id": id, "incident": incident, "subject": s.key, "rule": v.rule}),
-        );
+        let mut data = json!({"id": id, "incident": incident, "subject": s.key, "rule": v.rule,
+                              "severity": v.sev.as_str(), "msg": v.reason, "handoff": offer.code()});
+        if let Offer::Parked(aid) = &offer {
+            e["approval"] = json!(aid);
+            data["approval"] = json!(aid);
+            data["proposed"] = json!("handoff to Hermes");
+        }
+        let event = Event::new(CORTEX_SOURCE, "cortex.escalation", v.sev.as_str(), data);
         self.outgoing.push(Post {
             event,
             alert: false,
@@ -1225,13 +1384,33 @@ impl Cortex {
                        "unit_books": self.rules.books_json(now)},
             "ask": "diagnose, propose a fix (code or config), notify Mate, change NOTHING until Mate approves",
         });
-        let o = self.handoff.offer(&ticket, now);
+        let o = match self.cfg.action_mode {
+            // Notify first: the owner is paged (phone), Hermes is not asked.
+            ActionMode::Notify => Offer::NotifyOnly,
+            ActionMode::ApproveEach => match self.approvals.park(
+                esc["incident"].as_str().unwrap_or(""),
+                &s.key,
+                s.unit.as_deref(),
+                "handoff",
+                esc["rule"].as_str().unwrap_or(""),
+                esc["reason"].as_str().unwrap_or(""),
+                ticket,
+                now,
+            ) {
+                Some(aid) => Offer::Parked(aid),
+                None => Offer::Failed("approval book full".into()),
+            },
+            ActionMode::Auto => self.handoff.offer(&ticket, now),
+        };
         match &o {
             Offer::Written(_) => self.stats.handoffs += 1,
             Offer::Duplicate => self.stats.handoffs_duplicate += 1,
             Offer::RateLimited => self.stats.handoffs_rate_limited += 1,
             Offer::BudgetStopped => self.stats.handoffs_budget_stopped += 1,
             Offer::Excluded(_) => self.stats.handoffs_excluded += 1,
+            Offer::SameRoot(_) => self.stats.handoffs_same_root += 1,
+            Offer::NotifyOnly => self.stats.handoffs_notify_only += 1,
+            Offer::Parked(_) => self.stats.handoffs_parked += 1,
             Offer::Failed(e) => {
                 self.stats.handoffs_failed += 1;
                 eprintln!("gaia-cortex: hermes handoff failed: {e}");
@@ -1272,6 +1451,8 @@ impl Cortex {
             "incidents_resolved_cleared": s.incidents_resolved_cleared, "incidents_resolved_expired": s.incidents_resolved_expired, "incidents_resolved_stale": s.incidents_resolved_stale,
             "handoffs": s.handoffs, "handoffs_duplicate": s.handoffs_duplicate, "handoffs_rate_limited": s.handoffs_rate_limited,
             "handoffs_budget_stopped": s.handoffs_budget_stopped, "handoffs_failed": s.handoffs_failed, "handoffs_excluded": s.handoffs_excluded,
+            "handoffs_same_root": s.handoffs_same_root, "handoffs_notify_only": s.handoffs_notify_only, "handoffs_parked": s.handoffs_parked,
+            "action_mode": self.cfg.action_mode.as_str(), "approvals": self.approvals.to_json(now_secs()),
             "hermes_handoff": self.handoff.to_json(now_secs()),
             "llm_calls": s.llm_calls, "llm_refused": s.llm_refused, "llm_skipped_disabled": s.llm_skipped_disabled,
             "llm_spend_usd": llm["ledger"]["spent_usd"].clone(),
@@ -1327,6 +1508,8 @@ impl Cortex {
                "heals_pending": self.heals.pending.len(), "heal_verify": self.heals.window_s > 0,
                "freeze_watch": self.freeze.enabled(), "freeze_targets": self.freeze.targets.len(),
                "phone_alerts": self.phone.is_some(),
+               "action_mode": self.cfg.action_mode.as_str(),
+               "approvals_pending": self.approvals.to_json(now_secs())["pending"].as_array().map_or(0, Vec::len),
                "busy": self.snap.busy()});
         self.contact.overlay(
             &mut v,
@@ -1467,8 +1650,13 @@ impl Courier {
                     let r = ph.offer(&p.event, now_secs());
                     if !matches!(r, crate::phone::Sent::NotForPhone) {
                         eprintln!(
-                            "gaia-cortex: phone alert ({}): {r:?}",
-                            crate::phone::PHONE_RULE
+                            "gaia-cortex: phone ({} {}): {r:?}",
+                            p.event.kind,
+                            p.event
+                                .data
+                                .get("rule")
+                                .and_then(Value::as_str)
+                                .unwrap_or("")
                         );
                     }
                 }

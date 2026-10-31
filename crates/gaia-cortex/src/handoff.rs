@@ -16,7 +16,8 @@
 //! and a proposed fix, to be approved by Mate before any change.
 //!
 //! Caps: one handoff per incident (persisted), one per subject+rule per
-//! `subject_window_s`, at most `per_hour` (hard max 6) per rolling hour, and
+//! `subject_window_s`, one per root unit per [`ROOT_WINDOW_S`]
+//! ([`root_unit`]: trigger -> service, template instance -> template), at most `per_hour` (hard max 6) per rolling hour, and
 //! none at all while the dispatcher's budget stop file exists.
 
 use serde_json::{json, Value};
@@ -28,6 +29,21 @@ pub const STOP_FILE: &str = "BUDGET-STOP";
 /// Never more handoffs per hour than this, whatever the config says.
 pub const HARD_MAX_PER_HOUR: u32 = 6;
 const INCIDENTS_MAX: usize = 4096;
+/// One handoff per root unit per this many seconds (owner 2026-10-31: the
+/// Friday self-modify gate .path/.service pair and the 32
+/// `galion-ntfy-relay@<conn>.service` instances each cost one paid call).
+pub const ROOT_WINDOW_S: u64 = 3600;
+
+/// The unit a handoff is really about: a trigger (`.path`/`.timer`/
+/// `.socket`) is its service, and a per-connection or other template
+/// instance (`x@anything.service`) is its template (`x@.service`).
+pub fn root_unit(unit: &str) -> String {
+    let u = crate::rules::trigger_target(unit).unwrap_or_else(|| unit.to_string());
+    match (u.split_once('@'), u.rsplit_once('.')) {
+        (Some((stem, _)), Some((_, ext))) if !stem.is_empty() => format!("{stem}@.{ext}"),
+        _ => u,
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Offer {
@@ -38,6 +54,13 @@ pub enum Offer {
     BudgetStopped,
     /// The unit matched `hermes.exclude_units` (the pattern); no inbox file.
     Excluded(String),
+    /// Another incident of the same root unit was handed off within
+    /// [`ROOT_WINDOW_S`] (carries the root unit).
+    SameRoot(String),
+    /// `CORTEX_ACTION_MODE=notify`: the owner is paged, Hermes is not asked.
+    NotifyOnly,
+    /// `approve_each`: parked in pending-approvals (carries the approval id).
+    Parked(String),
     Failed(String),
 }
 
@@ -50,6 +73,9 @@ impl Offer {
             Offer::RateLimited => "rate-limited",
             Offer::BudgetStopped => "budget-stopped",
             Offer::Excluded(_) => "excluded",
+            Offer::SameRoot(_) => "skipped-same-root-unit",
+            Offer::NotifyOnly => "notify-only",
+            Offer::Parked(_) => "awaiting-approval",
             Offer::Failed(_) => "failed",
         }
     }
@@ -65,6 +91,7 @@ pub struct Handoff {
     incidents: HashSet<String>,
     incident_order: VecDeque<String>,
     subjects: BTreeMap<String, u64>,
+    roots: BTreeMap<String, u64>,
     sent: VecDeque<u64>,
     seq: u64,
 }
@@ -106,6 +133,7 @@ impl Handoff {
             incidents: HashSet::new(),
             incident_order: VecDeque::new(),
             subjects: BTreeMap::new(),
+            roots: BTreeMap::new(),
             sent: VecDeque::new(),
             seq: 0,
         };
@@ -151,6 +179,13 @@ impl Handoff {
                 }
             }
         }
+        if let Some(o) = v["roots"].as_object() {
+            for (k, t) in o {
+                if let Some(t) = t.as_u64() {
+                    self.roots.insert(k.clone(), t);
+                }
+            }
+        }
         self.sent = v["sent"]
             .as_array()
             .into_iter()
@@ -163,7 +198,7 @@ impl Handoff {
     fn save(&self) {
         let Some(p) = &self.state_path else { return };
         let v = json!({"incidents": self.incident_order, "subjects": self.subjects,
-                       "sent": self.sent, "seq": self.seq});
+                       "roots": self.roots, "sent": self.sent, "seq": self.seq});
         let tmp = p.with_extension("json.tmp");
         if std::fs::write(&tmp, v.to_string()).is_ok() {
             let _ = std::fs::rename(&tmp, p);
@@ -219,6 +254,18 @@ impl Handoff {
                 return Offer::Duplicate;
             }
         }
+        let root = crate::handoff_exclude::ticket_unit(ticket).map(root_unit);
+        if let Some(r) = &root {
+            if self
+                .roots
+                .get(r)
+                .is_some_and(|t| now.saturating_sub(*t) < ROOT_WINDOW_S)
+            {
+                self.remember(&incident);
+                self.save();
+                return Offer::SameRoot(r.clone());
+            }
+        }
         if self.budget_stopped() {
             return Offer::BudgetStopped;
         }
@@ -244,6 +291,11 @@ impl Handoff {
         self.subjects.insert(skey, now);
         self.subjects
             .retain(|_, t| now.saturating_sub(*t) < 7 * 24 * 3600);
+        if let Some(r) = root {
+            self.roots.insert(r, now);
+        }
+        self.roots
+            .retain(|_, t| now.saturating_sub(*t) < ROOT_WINDOW_S);
         self.sent.push_back(now);
         self.save();
         Offer::Written(id)
@@ -321,6 +373,73 @@ mod tests {
         let mut h2 = Handoff::new(true, inbox.clone(), Some(st), 6, 3600);
         assert_eq!(h2.offer(&ticket("inc-1", "zz"), 9000), Offer::Duplicate);
         assert_eq!(h2.sent_last_hour(4700), 1);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn root_unit_folds_triggers_and_instances() {
+        assert_eq!(
+            root_unit("hermes-self-modify-gate.path"),
+            "hermes-self-modify-gate.service"
+        );
+        assert_eq!(
+            root_unit("hermes-self-modify-gate.service"),
+            "hermes-self-modify-gate.service"
+        );
+        assert_eq!(
+            root_unit("galion-ntfy-relay@64-127.0.0.1:2586-127.0.0.1:52528.service"),
+            "galion-ntfy-relay@.service"
+        );
+        assert_eq!(root_unit("x.timer"), "x.service");
+        assert_eq!(root_unit("system.slice"), "system.slice");
+    }
+
+    #[test]
+    fn same_root_unit_skipped_within_the_hour_and_persisted() {
+        let d = tmpdir("root");
+        let inbox = d.join("inbox");
+        let st = d.join("state.json");
+        let mut h = Handoff::new(true, inbox.clone(), Some(st.clone()), 6, 3600);
+        let t = |inc: &str, unit: &str, rule: &str| json!({"incident": inc, "subject": format!("unit:{unit}"), "unit": unit, "rule": rule, "severity": "error"});
+        assert!(matches!(
+            h.offer(&t("inc-a", "gate.service", "R2-start-limit"), 1000),
+            Offer::Written(_)
+        ));
+        // Friday: the .path became its own incident with another rule
+        assert_eq!(
+            h.offer(&t("inc-b", "gate.path", "R4-unknown-unit"), 1001),
+            Offer::SameRoot("gate.service".into())
+        );
+        // 32 relay instances: one handoff
+        assert!(matches!(
+            h.offer(
+                &t("inc-c", "relay@1-a:1-b:2.service", "R4-unknown-unit"),
+                1002
+            ),
+            Offer::Written(_)
+        ));
+        for i in 2..33 {
+            let r = h.offer(
+                &t(
+                    &format!("inc-r{i}"),
+                    &format!("relay@{i}-a:1-b:{i}.service"),
+                    "R4-unknown-unit",
+                ),
+                1002 + i,
+            );
+            assert_eq!(r.code(), "skipped-same-root-unit");
+        }
+        assert_eq!(json_files(&inbox), 2);
+        // survives a restart, frees after the window
+        let mut h2 = Handoff::new(true, inbox.clone(), Some(st), 6, 0);
+        assert!(matches!(
+            h2.offer(&t("inc-z", "gate.service", "R3-cap"), 1500),
+            Offer::SameRoot(_)
+        ));
+        assert!(matches!(
+            h2.offer(&t("inc-y", "gate.service", "R3-cap"), 1000 + ROOT_WINDOW_S),
+            Offer::Written(_)
+        ));
         let _ = std::fs::remove_dir_all(&d);
     }
 

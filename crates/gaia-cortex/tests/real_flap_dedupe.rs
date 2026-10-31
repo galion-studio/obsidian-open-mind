@@ -424,7 +424,11 @@ fn flap_rule_sees_folded_repeats_before_after() {
         let mut s = start(
             &bin,
             &format!("caps-{mode}"),
-            &[("CORTEX_REPEAT_POLL_S", "2"), ("CORTEX_ACTIONS", mode)],
+            &[
+                ("CORTEX_REPEAT_POLL_S", "2"),
+                ("CORTEX_ACTIONS", mode),
+                ("CORTEX_ACTION_MODE", "auto"),
+            ],
             json!({"flap_failures": 100}),
         );
         assert_eq!(get(CORTEX_PORT, "/health")["mode"], mode);

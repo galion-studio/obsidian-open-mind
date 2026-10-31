@@ -94,6 +94,26 @@ usage: galion-console-static --root DIR [options]
                        https APIs; http://127.0.0.1:PORT allowed for tests);
                        the River key (RIVER_API_KEY) comes from the env or
                        --hermes-key-file, sent to curl on stdin, never logged
+  --phone              (needs --local-api) the phone home page /phone: Hermes
+                       up/down + build id, OpenRouter spend vs the limit,
+                       watchdog alerts waiting, cortex/nerve/console health,
+                       then the galion-one approval cards (same signing flow);
+                       read-only GET /api/v1/phone/status + /api/approvals*,
+                       /api/owner-key* behind the same pairing gate
+  --nerve ADDR / --cortex ADDR
+                       (with --phone) loopback openmind-nerve / gaia-cortex,
+                       default 127.0.0.1:8670 / 127.0.0.1:8674; --hermes is
+                       read for /health (default 127.0.0.1:8642)
+  --status-dir DIR     (with --phone) OpenMind no-secrets snapshots (spend.json,
+                       backup.json), default /var/lib/openmind-mcp-stack/status
+  --unit-dir DIR       (with --phone, repeatable) systemd unit dirs read for the
+                       Hermes build id; --hermes-unit NAME (default hermes-rs.service)
+  --approval-queue DIR / --approval-state DIR / --approval-out DIR /
+  --owner-pub F / --sandbox-pub F / --stack-pub F / --webauthn-rp-id ID /
+  --webauthn-origin URL (repeatable)
+                       (with --phone) as galion-one ONE_APPROVAL_* / ONE_WEBAUTHN_*;
+                       origins default https://console.galion.app,
+                       https://galion.app, https://one.galion.app
   --stt ADDR           (needs --local-api) loopback galion-stt for live dictation:
                        GET /api/stt/health and the WebSocket /api/stt/stream,
                        behind the same pairing gate, e.g. 127.0.0.1:8650
@@ -203,6 +223,8 @@ pub struct Config {
     pub stt: Option<SocketAddr>,
     /// `--stt-max-sessions`: concurrent `/api/stt/stream` tunnels.
     pub stt_max_sessions: usize,
+    /// `--phone`: the phone home page ([`crate::phone`]).
+    pub phone: Option<crate::phone::PhoneCfg>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -289,6 +311,11 @@ impl Config {
         let mut sources_set = false;
         let mut stt: Option<SocketAddr> = None;
         let mut stt_max_sessions: Option<usize> = None;
+        let mut phone = false;
+        let mut pc = crate::phone::PhoneCfg::defaults();
+        let mut phone_flags: Vec<String> = Vec::new();
+        let mut unit_dirs: Vec<PathBuf> = Vec::new();
+        let mut origins: Vec<String> = Vec::new();
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             let mut val = |name: &str| {
@@ -494,6 +521,82 @@ impl Config {
                     }
                     stt_max_sessions = Some(n);
                 }
+                "--phone" => phone = true,
+                "--nerve" | "--cortex" => {
+                    let flag = a.clone();
+                    let p: SocketAddr = val(&flag)?
+                        .parse()
+                        .map_err(|_| bad(format!("{flag} must be IP:port")))?;
+                    if !p.ip().is_loopback() {
+                        return Err(bad(format!("{flag} must be a loopback address")));
+                    }
+                    if flag == "--nerve" {
+                        pc.nerve = p;
+                    } else {
+                        pc.cortex = p;
+                    }
+                    phone_flags.push(flag);
+                }
+                "--status-dir" | "--unit-dir" | "--approval-queue" | "--approval-state"
+                | "--approval-out" | "--owner-pub" | "--sandbox-pub" | "--stack-pub" => {
+                    let flag = a.clone();
+                    let p = abs_path(val(&flag)?, &flag)?;
+                    match flag.as_str() {
+                        "--status-dir" => pc.status_dir = p,
+                        "--unit-dir" => unit_dirs.push(p),
+                        "--approval-queue" => pc.queue = p,
+                        "--approval-state" => pc.state = p,
+                        "--approval-out" => pc.out = Some(p),
+                        "--owner-pub" => pc.owner_pub = p,
+                        "--sandbox-pub" => pc.sandbox_pub = p,
+                        _ => pc.stack_pub = p,
+                    }
+                    phone_flags.push(flag);
+                }
+                "--hermes-unit" => {
+                    let u = val("--hermes-unit")?;
+                    if !u.ends_with(".service")
+                        || !u
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b"-_.@".contains(&b))
+                    {
+                        return Err(bad("--hermes-unit must be a plain NAME.service"));
+                    }
+                    pc.hermes_unit = u;
+                    phone_flags.push(a.clone());
+                }
+                "--webauthn-rp-id" => {
+                    let r = val("--webauthn-rp-id")?.to_ascii_lowercase();
+                    if r.is_empty()
+                        || !r
+                            .bytes()
+                            .all(|b| b.is_ascii_alphanumeric() || b == b'.' || b == b'-')
+                    {
+                        return Err(bad("--webauthn-rp-id must be a plain domain"));
+                    }
+                    pc.rp_id = r;
+                    phone_flags.push(a.clone());
+                }
+                "--webauthn-origin" => {
+                    let o = val("--webauthn-origin")?;
+                    let ok = o
+                        .strip_prefix("https://")
+                        .or_else(|| o.strip_prefix("http://127.0.0.1:"))
+                        .or_else(|| o.strip_prefix("http://localhost:"))
+                        .is_some_and(|rest| {
+                            !rest.is_empty()
+                                && rest
+                                    .bytes()
+                                    .all(|b| b.is_ascii_alphanumeric() || b".-:".contains(&b))
+                        });
+                    if !ok {
+                        return Err(bad(
+                            "--webauthn-origin must be https://HOST (or http://127.0.0.1:PORT)",
+                        ));
+                    }
+                    origins.push(o);
+                    phone_flags.push(a.clone());
+                }
                 "--user-md" => files.user_md = Some(abs_path(val("--user-md")?, "--user-md")?),
                 "--allow-public-bind" => public = true,
                 "--quiet" => access_log = false,
@@ -546,9 +649,33 @@ impl Config {
                 "--owner-routes needs --local-api or --dist (the API gate)",
             ));
         }
-        if hermes.is_some() && !owner_routes && !hermes_api {
-            return Err(bad("--hermes needs --owner-routes or --hermes-api"));
+        if hermes.is_some() && !owner_routes && !hermes_api && !phone {
+            return Err(bad(
+                "--hermes needs --owner-routes, --hermes-api or --phone",
+            ));
         }
+        if phone && !local_api {
+            return Err(bad(
+                "--phone needs --local-api (or --dist): the pairing gate",
+            ));
+        }
+        if !phone {
+            if let Some(f) = phone_flags.first() {
+                return Err(bad(format!("{f} needs --phone")));
+            }
+        }
+        let phone = phone.then(|| {
+            if let Some(h) = hermes {
+                pc.hermes = h;
+            }
+            if !unit_dirs.is_empty() {
+                pc.unit_dirs = unit_dirs;
+            }
+            if !origins.is_empty() {
+                pc.origins = origins;
+            }
+            pc
+        });
         if hermes_api && (!local_api || hermes.is_none()) {
             return Err(bad(
                 "--hermes-api needs --local-api (or --dist) and --hermes",
@@ -640,6 +767,7 @@ impl Config {
             hermes_sources,
             stt,
             stt_max_sessions,
+            phone,
         })
     }
 }

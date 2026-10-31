@@ -1,0 +1,22 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 3000 Galion / galion-studio */
+/* Console phone home (console-static --phone): status tiles above the approval cards. */
+.ph .hm-head{flex-wrap:wrap}
+.ph-top{display:grid;grid-template-columns:1fr 1fr;gap:.5rem}
+.ph-tile{background:rgba(20,24,52,.62);border:1px solid rgba(140,150,220,.16);border-radius:.9rem;padding:.65rem .75rem;min-width:0}
+.ph-wide{grid-column:1/-1}
+.ph-k{margin:0;display:flex;align-items:center;gap:.4rem;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--g-3)}
+.ph-v{margin:.3rem 0 0;font-size:1.15rem;font-weight:650;color:var(--g-fg);overflow-wrap:anywhere}
+.ph-s{margin:.25rem 0 0;font-size:.8rem;line-height:1.35;color:var(--g-2);overflow-wrap:anywhere}
+.ph-bar{position:relative;height:.55rem;margin:.5rem 0 .1rem;border-radius:.3rem;background:rgba(140,150,220,.18);overflow:hidden}
+.ph-bar i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--g-t);border-radius:.3rem}
+.ph-bar.warn i{background:var(--g-w)}.ph-bar.bad i{background:var(--g-e)}
+.ph-bar b{position:absolute;top:0;bottom:0;width:2px;left:95%;background:var(--g-e)}
+.ph-list,.ph-health{list-style:none;margin:.35rem 0 0;padding:0;display:flex;flex-direction:column;gap:.4rem}
+.ph-list li{font-size:.82rem;line-height:1.35;color:var(--g-fg);border-left:2px solid var(--g-w);padding-left:.5rem;overflow-wrap:anywhere}
+.ph-list li span{display:block;color:var(--g-3);font-size:.74rem}
+.ph-health li{display:flex;align-items:center;gap:.5rem;font-size:.86rem;color:var(--g-fg)}
+.ph-health li em{font-style:normal;color:var(--g-2);margin-left:auto;font-size:.78rem;text-align:right}
+.ph-upd{grid-column:1/-1;margin:0;font-size:.74rem;color:var(--g-3)}
+.ph-h2{margin:.5rem 0 0;font-size:1rem;font-weight:650;color:var(--g-fg)}
+.ph .ap-intro{font-size:.82rem}

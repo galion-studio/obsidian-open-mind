@@ -22,7 +22,13 @@ path = "src/bin/galion-console-serve.rs"
 
 [dependencies]
 console-ui = { path = "../console-ui" }
+# --phone (console-phone-home, 2026-10-31): galion-one's approvals module
+# (same cards + owner-key checks as /approvals) and JSON for the status tiles.
+galion-one = { path = "../galion-one" }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 # Port-base env for GALION_REAL tests (slot 375); path crate, serde_json + zagreb-time only.
 galion-realtest = { path = "../galion-realtest" }
+# Software owner devices (fake passkey) + fake queue entry for tests/phone_home.rs.
+galion-owner-key = { path = "../galion-owner-key", features = ["testkit"] }

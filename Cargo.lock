@@ -215,7 +215,10 @@ name = "console-static"
 version = "0.1.0"
 dependencies = [
  "console-ui",
+ "galion-one",
+ "galion-owner-key",
  "galion-realtest",
+ "serde_json",
 ]
 
 [[package]]

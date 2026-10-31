@@ -19,7 +19,10 @@
 //!   board catalog ([`board`]), admin-device pairing ([`admin`]) and the
 //!   session phone-gate in-process (Rust port of the former Node board API).
 //!
-//! std only, no dependencies, `#![forbid(unsafe_code)]`. Prefer this crate over
+//! - [`phone`] (`--phone`) is the phone home page: status tiles + the
+//!   galion-one approval cards in-process.
+//!
+//! std only (plus galion-one / serde_json for `--phone`), `#![forbid(unsafe_code)]`. Prefer this crate over
 //! adding axum/tower-http for ServeDir (licence-ok but not needed).
 
 #![forbid(unsafe_code)]
@@ -36,6 +39,7 @@ pub mod http;
 pub mod mime;
 pub mod owners;
 pub mod path;
+pub mod phone;
 pub mod proxy;
 pub mod routes;
 pub mod server;

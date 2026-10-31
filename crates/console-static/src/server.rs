@@ -352,6 +352,80 @@ fn handle_request(
         }
     }
 
+    // `--phone` (console-phone-home): status JSON + galion-one approvals.
+    // Reached only after the local API gate passed (401 above otherwise).
+    if let Some(pc) = state
+        .cfg
+        .phone
+        .as_ref()
+        .filter(|_| state.cfg.local_api && crate::phone::owns_api(&clean))
+    {
+        let mut body = Vec::new();
+        if crate::phone::wants_body(method, &clean) {
+            match read_small_body(stream, head, std::mem::take(&mut carry)) {
+                Ok(b) => body = b,
+                Err(code) => {
+                    let e = format!(r#"{{"ok":false,"error":"bad request body ({code})"}}"#);
+                    let _ = write_json(stream, code, &e, head_only, false);
+                    log(state, method, &clean, code);
+                    return false;
+                }
+            }
+        }
+        let origin = head.header("origin").unwrap_or("");
+        let out = crate::phone::api(pc, method, &clean, &body, origin);
+        let extra = format!(
+            "Content-Type: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n",
+            out.kind
+        );
+        let _ = http::write_head(stream, out.status, &extra, out.body.len() as u64, false)
+            .and_then(|_| {
+                if head_only {
+                    Ok(())
+                } else {
+                    stream.write_all(&out.body)
+                }
+            })
+            .and_then(|_| stream.flush());
+        log(state, method, &clean, out.status);
+        return false;
+    }
+    if state.cfg.phone.is_some() && clean == crate::phone::PAGE_PATH {
+        let host = head.header("host").unwrap_or("");
+        if console_ui::gate::is_console_host(host, &state.cfg.extra_hosts) {
+            let code = if method == "GET" || head_only {
+                200
+            } else {
+                405
+            };
+            let page = crate::phone::page();
+            let body: &str = if code == 200 {
+                page
+            } else {
+                "Method Not Allowed\n"
+            };
+            let extra = format!(
+                "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: {}\r\n",
+                crate::phone::CSP
+            );
+            let ok = http::write_head(stream, code, &extra, body.len() as u64, keep)
+                .and_then(|_| {
+                    if head_only {
+                        Ok(())
+                    } else {
+                        stream.write_all(body.as_bytes())
+                    }
+                })
+                .and_then(|_| stream.flush());
+            log(state, method, &clean, code);
+            if keep && ok.is_ok() {
+                *next_carry = carry;
+                return true;
+            }
+            return false;
+        }
+    }
+
     // Data routes the local API did not answer (it already ran the gate:
     // anything that reaches here passed host + loopback/admin checks).
     if let Some(up) = state.cfg.data_upstream {

@@ -26,9 +26,14 @@ console-ui = { path = "../console-ui" }
 # (same cards + owner-key checks as /approvals) and JSON for the status tiles.
 galion-one = { path = "../galion-one" }
 serde_json = { workspace = true }
+# --files (console-files, 2026-11-01): the jailed file explorer core (pure
+# Rust: zip, rars, galion-tar; shared with the Hermes files tools).
+galion-files = { path = "../galion-files" }
 
 [dev-dependencies]
 # Port-base env for GALION_REAL tests (slot 375); path crate, serde_json + zagreb-time only.
 galion-realtest = { path = "../galion-realtest" }
 # Software owner devices (fake passkey) + fake queue entry for tests/phone_home.rs.
 galion-owner-key = { path = "../galion-owner-key", features = ["testkit"] }
+# Zip fixtures for tests/files_api.rs (stored members; no compression features).
+zip = { version = "9", default-features = false }

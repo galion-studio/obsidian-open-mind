@@ -114,6 +114,21 @@ usage: galion-console-static --root DIR [options]
                        (with --phone) as galion-one ONE_APPROVAL_* / ONE_WEBAUTHN_*;
                        origins default https://console.galion.app,
                        https://galion.app, https://one.galion.app
+  --files DIR          (needs --local-api) the file explorer /files: browse,
+                       preview (images, video/audio with play, PDF, markdown,
+                       code in a CodeMirror 6 editor, archives listed, hex for
+                       the rest) and download everything under DIR only (path
+                       traversal and symlinks out of DIR refused), behind the
+                       same pairing gate; read-only unless --files-write
+  --files-write        allow edits, uploads, new file/folder, rename, move,
+                       copy, extract and delete (delete = move to DIR/.trash,
+                       never a real delete; every edit keeps a .bak there)
+  --files-max-upload N largest upload in bytes (default 2147483648)
+  --files-extract-max N
+                       largest total an archive may expand to (default 8589934592)
+  --files-ffmpeg PATH  host ffmpeg (ffprobe next to it) for video posters and
+                       media facts, e.g. /usr/bin/ffmpeg; default none
+  --files-cache DIR    poster cache (outside --files DIR); default none (no cache)
   --stt ADDR           (needs --local-api) loopback galion-stt for live dictation:
                        GET /api/stt/health and the WebSocket /api/stt/stream,
                        behind the same pairing gate, e.g. 127.0.0.1:8650
@@ -225,6 +240,8 @@ pub struct Config {
     pub stt_max_sessions: usize,
     /// `--phone`: the phone home page ([`crate::phone`]).
     pub phone: Option<crate::phone::PhoneCfg>,
+    /// `--files`: the file explorer ([`crate::files`]).
+    pub files_explorer: Option<crate::files::FilesCfg>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -312,6 +329,13 @@ impl Config {
         let mut stt: Option<SocketAddr> = None;
         let mut stt_max_sessions: Option<usize> = None;
         let mut phone = false;
+        let mut fx: Option<crate::files::FilesCfg> = None;
+        let mut fx_flags: Vec<String> = Vec::new();
+        let mut fx_write = false;
+        let mut fx_upload: Option<u64> = None;
+        let mut fx_extract: Option<u64> = None;
+        let mut fx_ffmpeg: Option<PathBuf> = None;
+        let mut fx_cache: Option<PathBuf> = None;
         let mut pc = crate::phone::PhoneCfg::defaults();
         let mut phone_flags: Vec<String> = Vec::new();
         let mut unit_dirs: Vec<PathBuf> = Vec::new();
@@ -522,6 +546,47 @@ impl Config {
                     stt_max_sessions = Some(n);
                 }
                 "--phone" => phone = true,
+                "--files" => {
+                    let d = abs_path(val("--files")?, "--files")?;
+                    let d = std::fs::canonicalize(&d)
+                        .ok()
+                        .filter(|c| c.is_dir())
+                        .ok_or_else(|| bad("--files must be an existing folder"))?;
+                    if d.parent().is_none() {
+                        return Err(bad("--files may not be / (pick one folder to share)"));
+                    }
+                    fx = Some(crate::files::FilesCfg::new(d));
+                }
+                "--files-write" => {
+                    fx_write = true;
+                    fx_flags.push(a.clone());
+                }
+                "--files-max-upload" | "--files-extract-max" => {
+                    let flag = a.clone();
+                    let n: u64 = val(&flag)?
+                        .parse()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or_else(|| bad(format!("{flag} must be a byte count > 0")))?;
+                    if flag == "--files-max-upload" {
+                        fx_upload = Some(n);
+                    } else {
+                        fx_extract = Some(n);
+                    }
+                    fx_flags.push(flag);
+                }
+                "--files-ffmpeg" => {
+                    let p = abs_path(val("--files-ffmpeg")?, "--files-ffmpeg")?;
+                    if !p.is_file() {
+                        return Err(bad("--files-ffmpeg must be an existing file"));
+                    }
+                    fx_ffmpeg = Some(p);
+                    fx_flags.push(a.clone());
+                }
+                "--files-cache" => {
+                    fx_cache = Some(abs_path(val("--files-cache")?, "--files-cache")?);
+                    fx_flags.push(a.clone());
+                }
                 "--nerve" | "--cortex" => {
                     let flag = a.clone();
                     let p: SocketAddr = val(&flag)?
@@ -692,6 +757,32 @@ impl Config {
                 "--hermes-key-file / --hermes-providers / --hermes-laptop / --hermes-prefs / --hermes-*-models need --hermes-api",
             ));
         }
+        if fx.is_some() && !local_api {
+            return Err(bad(
+                "--files needs --local-api (or --dist): the pairing gate",
+            ));
+        }
+        if fx.is_none() {
+            if let Some(f) = fx_flags.first() {
+                return Err(bad(format!("{f} needs --files")));
+            }
+        }
+        if let Some(f) = fx.as_mut() {
+            f.write = fx_write;
+            if let Some(n) = fx_upload {
+                f.max_upload = n;
+            }
+            if let Some(n) = fx_extract {
+                f.extract_max = n;
+            }
+            f.ffmpeg = fx_ffmpeg;
+            if let Some(c) = fx_cache {
+                if c.starts_with(&f.root) {
+                    return Err(bad("--files-cache must be outside the --files folder"));
+                }
+                f.cache = Some(c);
+            }
+        }
         if stt.is_some() && !local_api {
             return Err(bad("--stt needs --local-api (or --dist): the pairing gate"));
         }
@@ -768,6 +859,7 @@ impl Config {
             stt,
             stt_max_sessions,
             phone,
+            files_explorer: fx,
         })
     }
 }

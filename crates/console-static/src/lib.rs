@@ -33,6 +33,7 @@ pub mod arena;
 pub mod board;
 pub mod config;
 pub mod entry;
+pub mod files;
 pub mod hermes;
 pub mod hermes_models;
 pub mod http;

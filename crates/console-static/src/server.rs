@@ -45,6 +45,8 @@ pub struct State {
     pub hermes: Option<crate::hermes::Hermes>,
     /// Live dictation tunnel (`--stt`).
     pub stt: Option<crate::stt::Stt>,
+    /// File explorer (`--files`).
+    pub files: Option<crate::files::Files>,
     active: AtomicUsize,
 }
 
@@ -83,7 +85,9 @@ impl State {
         let stt = cfg
             .stt
             .map(|a| crate::stt::Stt::new(a, cfg.stt_max_sessions));
+        let files = cfg.files_explorer.clone().map(crate::files::Files::new);
         State {
+            files,
             site,
             routes,
             cfg,
@@ -347,6 +351,71 @@ fn handle_request(
                     let code = proxy::forward(stream, &up, Vec::new(), h.addr, 0);
                     log(state, method, &clean, code);
                 }
+            }
+            return false;
+        }
+    }
+
+    // `--files` (console-files): the file explorer API. Reached only after
+    // the local API gate passed (401 above otherwise); always closes.
+    if let Some(fx) = state
+        .files
+        .as_ref()
+        .filter(|_| state.cfg.local_api && crate::files::owns_api(&clean))
+    {
+        let code = fx.handle(
+            stream,
+            head,
+            method,
+            &clean,
+            query,
+            std::mem::take(&mut carry),
+        );
+        log(state, method, &clean, code);
+        return false;
+    }
+    if state.files.is_some()
+        && (clean == crate::files::PAGE_PATH || clean == crate::files::EDITOR_PATH)
+    {
+        let host = head.header("host").unwrap_or("");
+        if console_ui::gate::is_console_host(host, &state.cfg.extra_hosts) {
+            let code = if method == "GET" || head_only {
+                200
+            } else {
+                405
+            };
+            let (body, extra): (&[u8], String) = if code != 200 {
+                (
+                    b"Method Not Allowed\n",
+                    "Content-Type: text/plain\r\n".into(),
+                )
+            } else if clean == crate::files::EDITOR_PATH {
+                (
+                    crate::files::EDITOR_JS,
+                    "Content-Type: application/javascript; charset=utf-8\r\nCache-Control: public, max-age=86400\r\n".into(),
+                )
+            } else {
+                (
+                    crate::files::page().as_bytes(),
+                    format!(
+                        "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nReferrer-Policy: no-referrer\r\nContent-Security-Policy: {}\r\n",
+                        crate::files::CSP
+                    ),
+                )
+            };
+            let ok = http::write_head(stream, code, &extra, body.len() as u64, keep)
+                .and_then(|_| {
+                    if head_only {
+                        Ok(())
+                    } else {
+                        stream.write_all(body)
+                    }
+                })
+                .and_then(|_| stream.flush());
+            log(state, method, &clean, code);
+            if keep && ok.is_ok() {
+                *next_carry = carry;
+                return true;
             }
             return false;
         }

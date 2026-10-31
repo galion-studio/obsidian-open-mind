@@ -101,3 +101,13 @@ SPDX-FileCopyrightText = "The HuggingFace Inc. team and the candle contributors"
 SPDX-License-Identifier = "MIT OR Apache-2.0"
 
 # Its binary test fixtures carry .license sidecars.
+
+# swarm/console-files-20261101: the CodeMirror 6 editor bundle for
+# console-static --files, built with esbuild from npm codemirror 6.0.2 and the
+# @codemirror/* packages pinned in assets/files/editor/package.json (all 64
+# packages in the lock are MIT). Upstream https://github.com/codemirror/dev.
+[[annotations]]
+path = "crates/console-static/assets/files/editor/cm6.min.js"
+precedence = "override"
+SPDX-FileCopyrightText = "2018-2026 Marijn Haverbeke, Adrian Heine and others (CodeMirror)"
+SPDX-License-Identifier = "MIT"

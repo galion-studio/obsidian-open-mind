@@ -1,0 +1,49 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 3000 Galion / galion-studio -->
+<div class="g1-sky" aria-hidden="true"><i class="g1-f1"></i><i class="g1-f2"></i><i class="g1-f3"></i><i class="g1-fe"></i></div>
+<main class="hm ap" id="hm" aria-label="Approvals">
+  <header class="hm-head">
+    <div class="hm-title"><p class="k">Galion One · Approvals</p><h1>Hermes self-changes</h1></div>
+    <a class="g1-snd ap-back" href="/">Back to the mind</a>
+    <ul class="hm-status" aria-label="Status">
+      <li class="hm-pill"><span class="hm-dot" id="st-key"></span>Admin key <span class="hm-pv" id="st-key-v">checking</span></li>
+      <li class="hm-pill"><span class="hm-dot" id="st-wait"></span>Waiting for you <span class="hm-pv" id="st-wait-v">checking</span></li>
+      <li class="hm-pill"><span class="hm-dot ok"></span>Deploys <span class="hm-pv">only by the root step</span></li>
+    </ul>
+  </header>
+  <p class="ap-intro">Hermes can ask to change its own code. Nothing changes until you sign the exact tested build on this device. Your private key never leaves the device; the Galion server only checks the signature and hands it to the root deploy step.</p>
+  <p class="hm-note ap-unpaired" id="ap-unpaired" hidden>This device is not paired. <a href="/">Open Galion One</a> and pair first.</p>
+  <section class="ap-list" id="ap-list" aria-label="Requests" aria-live="polite"><p class="hm-empty">Loading requests…</p></section>
+  <details class="ap-key" id="ap-key">
+    <summary class="hm-hist-sum">Admin key</summary>
+    <div class="ap-keybody">
+      <p class="ap-keystate" id="ap-keystate">Checking…</p>
+      <div class="ap-fp" id="ap-active" hidden><p class="ap-k">Active key fingerprint</p><p class="ap-hex" id="ap-active-fp"></p></div>
+      <div class="hm-seg" id="ap-create">
+        <button type="button" class="hm-opt" id="ap-new-passkey">Create a passkey on this device<span class="hm-opts">Recommended. Face, fingerprint or device PIN.</span></button>
+        <button type="button" class="hm-opt" id="ap-new-file">Create a key file instead<span class="hm-opts">Ed25519, kept in this browser; a backup file is saved on this device</span></button>
+        <button type="button" class="hm-opt" id="ap-import">Use a key file I have<span class="hm-opts">Read here only, never uploaded</span></button>
+        <input type="file" id="ap-import-file" accept=".pk8,.key,application/octet-stream" hidden>
+      </div>
+      <div class="ap-compare" id="ap-compare" hidden>
+        <p class="ap-k">Compare before you activate</p>
+        <div class="ap-pair">
+          <div class="ap-fp"><p class="ap-k">This device made</p><p class="ap-hex" id="ap-fp-dev"></p></div>
+          <div class="ap-fp"><p class="ap-k">Your Galion received</p><p class="ap-hex" id="ap-fp-srv"></p></div>
+        </div>
+        <p class="ap-match" id="ap-match"></p>
+        <label class="ap-check"><input type="checkbox" id="ap-confirm"> I compared them and they are the same</label>
+        <p class="hm-note" id="ap-replace-note" hidden>Replacing the current key: you will also sign with the CURRENT key.</p>
+        <div class="ap-actions"><button type="button" class="hm-btn hm-primary ap-wide" id="ap-activate" disabled>Activate this key</button></div>
+      </div>
+      <div class="ap-staged" id="ap-staged" hidden>
+        <p class="ap-k">Waiting for the root step</p>
+        <p class="ap-hex" id="ap-staged-fp"></p>
+        <p class="g1-codehint">The key is staged. It becomes active only when root runs the helper on the server:</p>
+        <pre class="ap-cmd" id="ap-cmd"></pre>
+      </div>
+      <p class="hm-note" id="ap-key-note" role="status"></p>
+    </div>
+  </details>
+  <p class="hm-note ap-foot" id="ap-note" role="status"></p>
+</main>

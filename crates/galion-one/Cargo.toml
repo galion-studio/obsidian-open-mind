@@ -13,6 +13,9 @@ path = "src/main.rs"
 
 [dependencies]
 galion-common = { path = "../galion-common" }
+# Approvals screen (2026-10-31): owner key formats + signature checks, JSON.
+galion-owner-key = { path = "../galion-owner-key" }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 # Test-only cross-check of the dependency-free Zagreb clock (src/zagreb.rs)
@@ -20,3 +23,5 @@ galion-common = { path = "../galion-common" }
 zagreb-time = { path = "../zagreb-time" }
 # Port-base env for tests/real_one_probe.rs (slot 375); path crate, serde_json + zagreb-time only.
 galion-realtest = { path = "../galion-realtest" }
+# Software owner devices (fake passkey, Ed25519 key file) for the approvals tests.
+galion-owner-key = { path = "../galion-owner-key", features = ["testkit"] }

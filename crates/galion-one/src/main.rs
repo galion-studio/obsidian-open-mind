@@ -24,6 +24,7 @@
 #![allow(clippy::sliced_string_as_bytes)]
 #![allow(dead_code)]
 
+mod approvals;
 mod cli;
 mod host;
 mod http_plain;
@@ -494,6 +495,30 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     }
     body.truncate(length);
 
+    // Approvals screen + owner key setup (approval-system C, 2026-10-31 CET).
+    // Paired only; never deploys and never writes owner.pub (see approvals.rs).
+    if approvals::handles(&path) {
+        let origin = ws_head
+            .headers
+            .iter()
+            .find(|(n, _)| n == "origin")
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("");
+        let now = SystemTime::now() // repo-check: allow (unix epoch number for ages, ids or temp names; never printed as a timestamp)
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let req = approvals::Req {
+            method: &method,
+            path: &path,
+            body: &body,
+            origin,
+            paired: token_ok(&cookie),
+            now,
+        };
+        let r = approvals::route(&approvals::Cfg::from_env(), &req);
+        return write_response(&mut stream, r.status, r.kind, &r.body, None);
+    }
     if method == "GET" && (path == "/" || path == "/index.html") {
         let bytes = one_page(&host);
         return write_response(&mut stream, 200, "text/html; charset=utf-8", &bytes, None);
@@ -3663,6 +3688,7 @@ fn write_response(
         403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
+        409 => "Conflict",
         413 => "Payload Too Large",
         426 => "Upgrade Required",
         429 => "Too Many Requests",

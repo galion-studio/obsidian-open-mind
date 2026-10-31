@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# The ONLY root step: deploy ONE owner-approved change (%i = entry id). FILE ONLY: not installed.
+# Manual start only (no .path trigger, never enabled): systemctl start galion-sm-deploy@<id>
+# Refuses unless stack + test + dry-run + owner signatures and the artifact fingerprint verify,
+# the nonce is unused and the approval (<= 30 min) has not expired. Then: burn nonce, backup,
+# install binary + 99j drop-in, ONE restart of hermes-rs, /health check, auto-rollback, ntfy both ways.
+[Unit]
+Description=Hermes self-change deploy %i (owner-approved only)
+ConditionPathExists=/var/lib/openmind-hermes/queue/%i/owner/approval.json
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/lib/galion-sm/galion-sm-deploy deploy --entry /var/lib/openmind-hermes/queue/%i
+UMask=0022
+TimeoutStartSec=5min

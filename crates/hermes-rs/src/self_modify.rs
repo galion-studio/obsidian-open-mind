@@ -346,15 +346,17 @@ fn failed(c: &[Value]) -> String {
 }
 
 // ---------- signed envelopes ----------
+// Public since swarm/approval-core-20261031: crates/galion-self-modify reuses
+// the exact envelope (domain + "\n" + inner text) for the four approval signatures.
 
-fn sign_env(domain: &str, body: &Value, field: &str, sk: &SigningKey) -> Value {
+pub fn sign_env(domain: &str, body: &Value, field: &str, sk: &SigningKey) -> Value {
     let text = body.to_string();
     let sig = sk.sign(format!("{domain}\n{text}").as_bytes());
     json!({ field: text, "sig": hex(&sig.to_bytes()), "key_id": key_id(&sk.verifying_key()) })
 }
 
 /// Verify an envelope; returns (inner JSON, sha256 of the inner text).
-fn verify_env(
+pub fn verify_env(
     domain: &str,
     env: &Value,
     field: &str,

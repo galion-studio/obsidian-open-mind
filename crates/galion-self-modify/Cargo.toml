@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+
+[package]
+name = "galion-self-modify"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hermes self-change approval core: four signatures (stack, sandbox test, sandbox dry-run, owner incl. WebAuthn ES256), the signer CLI and the root deploy verifier."
+
+[[bin]]
+name = "galion-sm"
+path = "src/bin/galion-sm.rs"
+
+[[bin]]
+name = "galion-sm-sign"
+path = "src/bin/galion-sm-sign.rs"
+
+[[bin]]
+name = "galion-sm-deploy"
+path = "src/bin/galion-sm-deploy.rs"
+
+[dependencies]
+# Reuse: hex/sha256/key helpers and the signed envelope (sign_env/verify_env)
+# from hermes-rs self_modify. No sqlite (pure Rust, no C).
+hermes-rs = { path = "../hermes-rs", default-features = false }
+serde_json = { workspace = true }
+# Same pins as hermes-rs so the workspace unifies to one build of each.
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
+sha2 = { version = "0.10", default-features = false, features = ["std", "force-soft-compact"] }
+getrandom = "0.2"
+# WebAuthn / passkey owner assertions: ECDSA P-256 (ES256). Pure Rust, RustCrypto.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+# O_NOFOLLOW / geteuid / flock (constants differ per arch, so not hard-coded).
+libc = "0.2"

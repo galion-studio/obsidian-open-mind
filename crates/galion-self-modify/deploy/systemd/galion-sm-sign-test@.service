@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Signer: sign the test record of ONE queued change (%i = entry id). FILE ONLY: not installed.
+# Runs as galion-sm-sign with the NEW sandbox key. galion-sm-sign never executes tested code:
+# it re-hashes the artifact and logs itself, verifies the stack signature, then signs.
+[Unit]
+Description=Hermes self-change signer: test record %i
+ConditionPathExists=/var/lib/openmind-hermes/queue/%i/test/result.json
+
+[Service]
+Type=oneshot
+User=galion-sm-sign
+Group=galion-sm-sign
+ExecStart=/usr/local/lib/galion-sm/galion-sm-sign sign-test --entry /var/lib/openmind-hermes/queue/%i --stack-pub /etc/hermes-self-modify/stack.pub --key /var/lib/galion-sm-sign/keys/sandbox-v2.seed
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/openmind-hermes/queue/%i
+ReadWritePaths=/var/lib/openmind-hermes/queue/%i/test
+PrivateTmp=yes
+PrivateNetwork=yes
+IPAddressDeny=any
+RestrictAddressFamilies=none
+PrivateIPC=yes
+InaccessiblePaths=-/run/dbus -/run/systemd/resolve -/var/lib/galion-gate -/opt/galion/hermes -/root
+NoNewPrivileges=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @debug
+# Belt and braces: no fork/exec beyond the signer itself.
+TasksMax=4
+UMask=0022
+TimeoutStartSec=5min

@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Sandbox test of ONE queued change (%i = entry id). FILE ONLY: not installed, not enabled.
+# The runner (galion-sm-test-run) is agent B's sandbox-closure work; this unit is the account
+# boundary: no keys, no network, no DNS/dbus/resolved/IPC, fresh private build area wiped on stop,
+# code copy + plan read-only (root-owned), output only into the entry's test/ directory.
+[Unit]
+Description=Hermes self-change sandbox test %i (no keys, no network)
+ConditionPathExists=/var/lib/openmind-hermes/queue/%i/proposal.stack-sig.json
+
+[Service]
+Type=oneshot
+User=galion-sm-test
+Group=galion-sm-test
+ExecStart=/usr/local/lib/galion-sm/galion-sm-test-run --entry /var/lib/openmind-hermes/queue/%i --plan /var/lib/galion-sm-test/plan.json
+# Fresh, empty build area per check; wiped when the unit stops.
+PrivateTmp=yes
+Environment=CARGO_TARGET_DIR=/tmp/target CARGO_HOME=/tmp/cargo-home CARGO_NET_OFFLINE=true HOME=/tmp
+# Read-only inputs, single writable output.
+ProtectSystem=strict
+ProtectHome=yes
+ReadOnlyPaths=/var/lib/galion-sm-test/plan.json /var/lib/galion-sm-test/repo.git
+ReadWritePaths=/var/lib/openmind-hermes/queue/%i/test
+InaccessiblePaths=-/var/lib/galion-sm-sign -/var/lib/galion-gate -/var/lib/openmind-hermes/keys -/etc/hermes-self-modify -/root -/opt/galion/hermes
+# No network at all, no name lookups, no system messaging.
+PrivateNetwork=yes
+IPAddressDeny=any
+RestrictAddressFamilies=none
+PrivateIPC=yes
+InaccessiblePaths=-/run/dbus -/run/systemd/resolve -/var/run/nscd
+# Generic hardening.
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @debug
+UMask=0027
+MemoryMax=6G
+CPUQuota=200%
+TasksMax=256
+TimeoutStartSec=45min

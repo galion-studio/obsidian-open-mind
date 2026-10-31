@@ -368,6 +368,10 @@
     $("g1-pair-note").textContent = msg || "";
     setState("idle", "Pair this phone to talk");
   }
+  // Approvals (2026-10-31 CET): how many Hermes self-changes wait for a signature; the screen is /approvals.
+  function loadApprovals() {
+    api("/api/approvals/count").then(function (r) { var n = r.json.ready || 0; if (n) { $("g1-appr-n").textContent = n + " waiting for you"; $("g1-dev").open = true; } }).catch(function () {});
+  }
   function ready() {
     paired = true;
     pairForm.hidden = true;
@@ -376,6 +380,7 @@
     pill("st-dev", "ok", "paired");
     setState("idle");
     loadModel(); loadHistory(); sttHealth(); resumeThread();
+    loadApprovals();
   }
   pairForm.addEventListener("submit", function (e) {
     e.preventDefault();

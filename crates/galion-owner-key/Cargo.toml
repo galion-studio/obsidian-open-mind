@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-owner-key"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Owner (Slavik) key formats for the Hermes self-change approval card: owner.pub parsing, fingerprints, Ed25519 key-file and WebAuthn ES256 passkey verification (galion-sm FORMATS v1), and the root helper that installs /etc/hermes-self-modify/owner.pub."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "galion-owner-key"
+path = "src/bin/galion-owner-key.rs"
+
+[dependencies]
+galion-common = { path = "../galion-common" }
+serde_json = { workspace = true }
+# Same pins as hermes-rs / galion-self-modify so the workspace unifies to one build.
+ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
+sha2 = { version = "0.10", default-features = false, features = ["std", "force-soft-compact"] }
+# WebAuthn / passkey (ES256 = ECDSA P-256 + SHA-256). Pure Rust, RustCrypto, MIT OR Apache-2.0.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+
+[features]
+default = []
+# Software owner devices for tests only (a fake passkey authenticator and an
+# Ed25519 key file). Never enabled in a release build.
+testkit = []
+
+[dev-dependencies]
+galion-owner-key = { path = ".", features = ["testkit"] }

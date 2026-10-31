@@ -1,0 +1,58 @@
+/* SPDX-License-Identifier: MIT */
+/* Copyright (c) 3000 Galion / galion-studio */
+/* Approvals screen (approval-system C, 2026-10-31 CET). Same sky, type and glass as the V2 room (style.css); no boot screen here. */
+html.g1v2 .hm.ap{animation:none;gap:1rem;padding-bottom:2rem}
+.ap-back{text-decoration:none;display:inline-flex;align-items:center}
+.ap-intro{margin:0;font-size:.875rem;line-height:1.6;color:var(--g-2)}
+.ap-unpaired a,.ap-intro a{color:var(--g-fg)}
+.ap-list{display:flex;flex-direction:column;gap:1rem}
+.ap-card{display:flex;flex-direction:column;gap:.875rem;padding:1.125rem 1.125rem 1rem;border-radius:1.75rem;background:rgba(255,255,255,.055);box-shadow:0 12px 40px rgba(0,0,0,.3),inset 0 1px 0 rgba(255,255,255,.07)}
+@supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.ap-card{-webkit-backdrop-filter:blur(18px) saturate(1.3);backdrop-filter:blur(18px) saturate(1.3)}}
+.ap-card[data-state=ready]{box-shadow:0 12px 40px rgba(0,0,0,.3),0 0 0 1px rgba(109,123,255,.35),0 0 36px rgba(109,123,255,.18)}
+.ap-top{display:flex;flex-wrap:wrap;align-items:baseline;gap:.25rem .75rem}
+.ap-k{margin:0;font-size:.6875rem;letter-spacing:.16em;text-transform:uppercase;color:var(--g-3)}
+.ap-badge{margin-left:auto;font-size:.75rem;padding:.25rem .625rem;border-radius:999px;background:rgba(255,255,255,.07);color:var(--g-2)}
+.ap-badge.ok{background:rgba(47,230,200,.14);color:#8ff5e3}.ap-badge.warn{background:rgba(255,179,107,.14);color:#ffcf9e}.ap-badge.bad{background:rgba(255,93,115,.16);color:#ff9aa8}.ap-badge.go{background:linear-gradient(135deg,rgba(109,123,255,.45),rgba(196,92,255,.45));color:#fff}
+.ap-plain{margin:0;font-size:1.0625rem;line-height:1.6;color:var(--g-fg);overflow-wrap:anywhere}
+.ap-checks{display:flex;flex-wrap:wrap;gap:.375rem;margin:0;padding:0;list-style:none}
+.ap-chip{display:inline-flex;align-items:center;gap:.375rem;min-height:2rem;padding:0 .75rem;border-radius:999px;background:rgba(255,255,255,.06);font-size:.75rem;color:var(--g-2)}
+.ap-chip .hm-dot{width:.4375rem;height:.4375rem}
+.ap-more{border-radius:1.25rem;background:rgba(5,6,15,.28)}
+.ap-more>summary{display:flex;align-items:center;gap:.5rem;min-height:2.75rem;padding:0 .875rem;list-style:none;cursor:pointer;font-size:.8125rem;color:var(--g-2)}
+.ap-more>summary::-webkit-details-marker{display:none}
+.ap-more>summary:before{content:"";width:.375rem;height:.375rem;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .3s var(--glide)}
+.ap-more[open]>summary:before{transform:rotate(45deg)}
+.ap-more[open]>summary{color:var(--g-fg)}
+.ap-diff{margin:0;padding:.25rem 0 .75rem;max-height:22rem;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.75rem;line-height:1.55;white-space:pre;color:var(--g-2)}
+.ap-diff span{display:block;padding:0 .875rem}
+.ap-diff .a{background:rgba(47,230,200,.1);color:#9ff7e8}.ap-diff .d{background:rgba(255,93,115,.1);color:#ffb0bb}.ap-diff .h{color:#aab3ff}.ap-diff .f{color:var(--g-fg);font-weight:600}
+.ap-rows{margin:0;padding:0 .875rem .75rem;list-style:none;display:flex;flex-direction:column;gap:.25rem;font-size:.8125rem;color:var(--g-2)}
+.ap-rows li{display:flex;gap:.5rem;align-items:baseline}
+.ap-rows .hm-dot{flex:none;transform:translateY(-.05rem)}
+.ap-why{padding:0 .875rem .75rem;margin:0;font-size:.8125rem;color:var(--g-3);line-height:1.5}
+.ap-fp{display:flex;flex-direction:column;gap:.25rem;min-width:0}
+.ap-hex{margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.8125rem;line-height:1.6;letter-spacing:.04em;color:var(--g-fg);overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.ap-hex b{font-weight:600;color:#c9cfff}
+.ap-meta{margin:0;font-size:.75rem;color:var(--g-3)}
+.ap-sign{display:flex;flex-direction:column;gap:.625rem;padding-top:.25rem}
+.ap-timer{display:flex;align-items:center;gap:.625rem;font-size:.8125rem;color:var(--g-2)}
+.ap-clock{font-size:1.375rem;font-weight:300;letter-spacing:.06em;color:var(--g-fg);font-variant-numeric:tabular-nums}
+.ap-timer.low .ap-clock{color:#ffcf9e}.ap-timer.gone .ap-clock{color:#ff9aa8}
+.ap-actions{display:flex;flex-wrap:wrap;gap:.5rem}
+.hm-btn.ap-wide{width:auto;padding:0 1.25rem;font-size:.875rem;font-weight:500}
+.ap-reject{background:rgba(255,93,115,.12);color:#ffb0bb}
+.ap-ghost{background:rgba(255,255,255,.06);color:var(--g-2)}
+.ap-out{margin:0;font-size:.8125rem;line-height:1.5;color:var(--g-2)}
+.ap-out.t-bad{color:#ff8a9a}.ap-out.t-ok{color:#8ff5e3}
+.ap-key{border-radius:1.75rem;background:rgba(255,255,255,.04);padding:0 1.125rem}
+.ap-keybody{display:flex;flex-direction:column;gap:.875rem;padding:0 0 1.125rem}
+.ap-keystate{margin:0;font-size:.9375rem;line-height:1.55;color:var(--g-fg)}
+.ap-pair{display:grid;grid-template-columns:1fr 1fr;gap:.875rem}
+@media (max-width:520px){.ap-pair{grid-template-columns:1fr}}
+.ap-pair .ap-fp{padding:.75rem .875rem;border-radius:1.125rem;background:rgba(5,6,15,.3)}
+.ap-match{margin:0;font-size:.875rem;font-weight:500}
+.ap-match.ok{color:#8ff5e3}.ap-match.bad{color:#ff9aa8}
+.ap-check{display:flex;align-items:center;gap:.5rem;min-height:2.75rem;font-size:.875rem;color:var(--g-fg)}
+.ap-check input{width:1.125rem;height:1.125rem;accent-color:#6d7bff}
+.ap-cmd{margin:0;padding:.75rem .875rem;border-radius:1rem;background:rgba(5,6,15,.45);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.75rem;color:var(--g-fg);white-space:pre-wrap;overflow-wrap:anywhere}
+.ap-foot{text-align:left}

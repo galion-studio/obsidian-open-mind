@@ -506,10 +506,13 @@ fn real_handoff_exclude_end_to_end() {
         on.stats["hermes_handoff"]["exclude_units"],
         json!(["noloop*", "sbxtest*"])
     );
-    // R4 (unknown unit) then R2 (circuit open): two rules, two tickets, as live
+    // Was "R4 then R2: two rules, two tickets" (live 2026-10-28). Owner
+    // 2026-10-31 (watchdog-notify-merge): one problem counts as one, R4
+    // escalates once per circuit and one hand-off per root unit per hour,
+    // so the control unit's crash loop is ONE ticket.
     assert_eq!(
-        on.tickets_control, 2,
-        "a real unit is still handed to Hermes"
+        on.tickets_control, 1,
+        "a real unit is still handed to Hermes, once"
     );
     assert!(on
         .esc_control

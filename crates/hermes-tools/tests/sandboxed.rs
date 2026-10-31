@@ -3,7 +3,13 @@
 // Copyright (c) 3000 Galion / galion-studio
 
 //! The tools for real, through openmind-sandbox, on a throwaway git repo.
-//! Skips (with a SKIP line) where the kernel has neither Landlock nor user
+//!
+//! Every test here RUNS the sandbox, so every test goes through
+//! `vps_sandbox_gate::sandbox_real` first (standing rule `sandbox_vps_only`,
+//! D-400-2, slot 444): it runs only with `GALION_REAL=1` +
+//! `GALION_REAL_SANDBOX=1` on the VPS, and is a SKIP / REFUSED line
+//! everywhere else (box, CI, an ambient `GALION_REAL`). On the VPS it still
+//! skips (with a SKIP line) where the kernel has neither Landlock nor user
 //! namespaces, or git/dd/install are missing.
 
 use hermes_rs::config::SpendCfg;
@@ -17,7 +23,12 @@ use std::process::Command;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-fn skip() -> bool {
+/// True when `test` must not run here. The VPS gate comes first, so on the
+/// box nothing below (not even the sandbox feature probe) is reached.
+fn skip(test: &str) -> bool {
+    if !vps_sandbox_gate::sandbox_real(test) {
+        return true;
+    }
     // GH Actions runners often cannot write userns uid_map even after sysctl;
     // cloud bc-06dcb59d enables userns in self-eval — keep this CI skip as
     // belt-and-suspenders (RULES.md sandbox_vps_only).
@@ -143,7 +154,7 @@ fn body(o: &ToolOutput) -> Value {
 
 #[test]
 fn read_write_git_commit_on_branch() {
-    if skip() {
+    if skip("read_write_git_commit_on_branch") {
         return;
     }
     let fx = fixture("flow", caps(), &[]);
@@ -220,7 +231,7 @@ fn read_write_git_commit_on_branch() {
 
 #[test]
 fn escapes_are_refused_and_audited() {
-    if skip() {
+    if skip("escapes_are_refused_and_audited") {
         return;
     }
     let fx = fixture("esc", caps(), &[]);
@@ -310,7 +321,7 @@ fn escapes_are_refused_and_audited() {
 
 #[test]
 fn wrong_branch_is_refused() {
-    if skip() {
+    if skip("wrong_branch_is_refused") {
         return;
     }
     let fx = fixture("branch", caps(), &[]);
@@ -331,7 +342,7 @@ fn wrong_branch_is_refused() {
 
 #[test]
 fn spend_cap_and_call_cap_block_tools() {
-    if skip() {
+    if skip("spend_cap_and_call_cap_block_tools") {
         return;
     }
     let fx = fixture(
@@ -358,7 +369,7 @@ fn spend_cap_and_call_cap_block_tools() {
 
 #[test]
 fn sandbox_layers_are_reported_for_runs() {
-    if skip() {
+    if skip("sandbox_layers_are_reported_for_runs") {
         return;
     }
     let fx = fixture("layers", caps(), &[]);
@@ -422,7 +433,7 @@ fn tree_bytes(p: &Path) -> u64 {
 
 #[test]
 fn worktree_cap_on_by_default_and_changes_come_back() {
-    if skip() {
+    if skip("worktree_cap_on_by_default_and_changes_come_back") {
         return;
     }
     let fx = fixture("wdq-on", caps(), &[]);
@@ -474,7 +485,7 @@ fn worktree_cap_on_by_default_and_changes_come_back() {
 
 #[test]
 fn fs_write_past_a_16_mib_cap_gets_enospc() {
-    if skip() {
+    if skip("fs_write_past_a_16_mib_cap_gets_enospc") {
         return;
     }
     let fx = fixture(
@@ -533,7 +544,7 @@ fn fs_write_past_a_16_mib_cap_gets_enospc() {
 
 #[test]
 fn preflight_refuses_a_worktree_bigger_than_the_cap() {
-    if skip() {
+    if skip("preflight_refuses_a_worktree_bigger_than_the_cap") {
         return;
     }
     let root = std::env::temp_dir().join(format!("hermes-tools-sbx-{}-wdq-pf", std::process::id()));
@@ -576,11 +587,9 @@ fn preflight_refuses_a_worktree_bigger_than_the_cap() {
 /// fs_write. Heavy (512 MiB of tmpfs), so GALION_REAL=1 GALION_REAL_SANDBOX=1 on the VPS only.
 #[test]
 fn real_default_512_mib_cap_stops_fs_write() {
-    // sandbox_vps_only + F-383-10: GALION_REAL=1 alone is not enough.
-    if !vps_sandbox_gate::sandbox_real("real_default_512_mib_cap_stops_fs_write") {
-        return;
-    }
-    if skip() {
+    // sandbox_vps_only + F-383-10: GALION_REAL=1 alone is not enough
+    // (skip() runs the VPS gate first).
+    if skip("real_default_512_mib_cap_stops_fs_write") {
         return;
     }
     let fx = fixture(
@@ -629,7 +638,7 @@ fn real_partial_copy_back_on_a_full_host_fs_is_reported() {
         eprintln!("SKIP: set HERMES_TOOLS_SMALL_FS to a dir on a ~32 MiB fs (VPS only)");
         return;
     };
-    if skip() {
+    if skip("real_partial_copy_back_on_a_full_host_fs_is_reported") {
         return;
     }
     let fx = fixture_in(

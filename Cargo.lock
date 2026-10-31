@@ -209,7 +209,10 @@ name = "console-static"
 version = "0.1.0"
 dependencies = [
  "console-ui",
+ "galion-files",
  "galion-realtest",
+ "serde_json",
+ "zip",
 ]
 
 [[package]]
@@ -643,6 +646,18 @@ dependencies = [
  "galion-common",
  "openmind-config",
  "serde_json",
+]
+
+[[package]]
+name = "galion-files"
+version = "0.1.0"
+dependencies = [
+ "galion-tar",
+ "miniz_oxide",
+ "rars",
+ "serde_json",
+ "zagreb-time",
+ "zip",
 ]
 
 [[package]]
@@ -1527,6 +1542,16 @@ checksum = "6a8615d50dcf34fa31f7ab52692afec947c4dd0ab803cc87cb3b0b4570ff7463"
 dependencies = [
  "num-traits",
  "rand",
+]
+
+[[package]]
+name = "rars"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8cfe43d4831a02f45c89f11a84fb32b45e818e8914396038cf3494501041f95"
+dependencies = [
+ "aho-corasick",
+ "crc32fast",
 ]
 
 [[package]]

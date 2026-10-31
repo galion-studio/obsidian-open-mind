@@ -1,0 +1,35 @@
+<div class="fx" id="fx">
+  <header class="fx-top">
+    <a class="fx-home" href="/phone" title="Phone home">Galion</a>
+    <h1 class="fx-title">Files</h1>
+    <span class="fx-mode" id="fx-mode"></span>
+  </header>
+  <nav class="fx-crumbs" id="fx-crumbs" aria-label="Folder path"></nav>
+  <div class="fx-tools" id="fx-tools">
+    <button type="button" data-act="up" title="Up one folder">↑ Up</button>
+    <button type="button" data-act="refresh" title="Reload">⟳</button>
+    <label class="fx-chk"><input type="checkbox" id="fx-hidden"> dotfiles</label>
+    <input type="search" id="fx-filter" placeholder="Filter" aria-label="Filter names">
+    <span class="fx-w">
+      <button type="button" data-act="newfile">+ File</button>
+      <button type="button" data-act="newdir">+ Folder</button>
+      <button type="button" data-act="upload">Upload</button>
+      <button type="button" data-act="trashdir" title="Open the trash">Trash</button>
+    </span>
+    <input type="file" id="fx-up" multiple hidden>
+  </div>
+  <div class="fx-msg" id="fx-msg" role="status" aria-live="polite"></div>
+  <main class="fx-main">
+    <section class="fx-list" id="fx-list" aria-label="Folder contents"></section>
+    <section class="fx-view" id="fx-view" aria-label="Preview">
+      <div class="fx-empty">Pick a file to preview it.</div>
+    </section>
+  </main>
+  <dialog class="fx-dlg" id="fx-dlg">
+    <form method="dialog">
+      <p id="fx-dlg-q"></p>
+      <input id="fx-dlg-in" autocomplete="off" spellcheck="false">
+      <div class="fx-dlg-b"><button value="cancel" type="submit">Cancel</button><button value="ok" type="submit" class="pri" id="fx-dlg-ok">OK</button></div>
+    </form>
+  </dialog>
+</div>

@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Files removed from dist/bin/ by swarm/dist-bin-release-plan (slot 445, D-428-2), off publish-gates-main 442805c0.
+# Git history keeps every byte (no rewrite). Columns: path  size_bytes  sha256  git_blob
+dist/bin/SHA256SUMS  381  d24547f9e184c9fb736dc7064a58c0ff7e7210a8332e600c8d826a2510c367c0  010e9449a3bbc67360ce9dc013f2942b7c61fc2d
+dist/bin/desk-hermes  1427792  89bc45cd42db326c0ce1ff0cadd3be21649b641fa7ada232c9af3b5aa4889762  5f1a35b45658c60f99ca990f704a97106f8fceb5
+dist/bin/desk-hermes.license  81  b23b6c72cb52b85786dbc89518f00b8e514c9fa3429ee16af9dc71ea2c6febe9  498367c6e329c36a4d0aff4d0c34630f84b5e7ca
+dist/bin/galion-desk  403056  889737d0337e7a3a087348566be29f0c2c57ee79db6eece61ea5463ff72adb5f  0e586c13d1f972a441591fcfeda51aa9d59faed8
+dist/bin/galion-desk.license  81  b23b6c72cb52b85786dbc89518f00b8e514c9fa3429ee16af9dc71ea2c6febe9  498367c6e329c36a4d0aff4d0c34630f84b5e7ca
+dist/bin/galion-one  616600  3357e2648e57ab0fe2d85e27226a9b50002c08897b64f6c06c86ae900bf6be9f  478f59ac82888653e7357e23287f3c853e478eb3
+dist/bin/galion-one.license  81  b23b6c72cb52b85786dbc89518f00b8e514c9fa3429ee16af9dc71ea2c6febe9  498367c6e329c36a4d0aff4d0c34630f84b5e7ca
+dist/bin/link-watch  394392  6b9d04de6bcaaae86a5d3a411eb29793fb242ef9e71e4ccfbe7dee69218db92b  eed59657e4ca186ed27fdcce2d4ecd38ca7efead
+dist/bin/link-watch.license  81  b23b6c72cb52b85786dbc89518f00b8e514c9fa3429ee16af9dc71ea2c6febe9  498367c6e329c36a4d0aff4d0c34630f84b5e7ca
+dist/bin/room  344304  eb89d8f30d12a5715fed037d6b0f3947bd27289a9884bf4e8b758c68ddd2bfd0  eece59d82d907fd825ef6876476849923c5b3df6
+dist/bin/room.license  81  b23b6c72cb52b85786dbc89518f00b8e514c9fa3429ee16af9dc71ea2c6febe9  498367c6e329c36a4d0aff4d0c34630f84b5e7ca

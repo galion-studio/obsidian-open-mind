@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/galion/openmind/dist/bin/guardian-tick --probes /opt/galion/openmind/deploy/survival/probes.toml --out /tmp/guardian-tick.json
+ExecStart=/opt/galion/rust/bin/guardian-tick --probes /opt/galion/openmind/deploy/survival/probes.toml --out /tmp/guardian-tick.json
 
 # No [Install] section on purpose: this unit must not be enabled until Slavik
 # approves. It runs the guardian-tick binary once. The JSON report is written
 # under /tmp. It does not open a database. The binary is not installed under
-# dist/bin yet.
+# /opt/galion/rust/bin yet (dist/bin/ binaries were removed from git, slot 445).

@@ -9,7 +9,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/galion/openmind/dist/bin/link-watch
+ExecStart=/opt/galion/rust/bin/link-watch
 Restart=always
 RestartSec=5
 StartLimitIntervalSec=60

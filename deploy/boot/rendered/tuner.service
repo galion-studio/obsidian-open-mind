@@ -9,7 +9,7 @@ After=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/galion/openmind/dist/bin/tuner
+ExecStart=/opt/galion/tuner/bin/tuner
 Environment=TUNER_ADDR=127.0.0.1:8650
 Restart=always
 RestartSec=5

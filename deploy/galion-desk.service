@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-ExecStart=/opt/galion/openmind/dist/bin/galion-desk
+ExecStart=/opt/galion/rust/bin/galion-desk
 Environment=DESK_BIND=127.0.0.1:8646
-Environment=DESK_HERMES_BIN=/opt/galion/openmind/dist/bin/desk-hermes
+Environment=DESK_HERMES_BIN=/opt/galion/rust/bin/desk-hermes
 Restart=on-failure
 RestartSec=2
 

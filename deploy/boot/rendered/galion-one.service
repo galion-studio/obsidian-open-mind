@@ -10,7 +10,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/galion/openmind/dist/bin/galion-one
+ExecStart=/opt/galion/rust/bin/galion-one
 Environment=ONE_BIND=127.0.0.1:8091
 Environment=ONE_MOUTH_BIND=127.0.0.1:8002
 Restart=always

@@ -31,5 +31,7 @@
 
 # --- build artefacts: shipped as signed release assets, not in the source tree
 # (OpenSSF Scorecard "Binary-Artifacts" check).
+# dist/bin/ binaries were git rm'ed in slot 445 (D-428-2; manifest docs/release/dist-bin-removed-manifest.txt,
+# rebuild with scripts/build-dist-bins.sh). The line stays so a local build copied there is never exported.
 /dist/bin export-ignore
 /edge/dist export-ignore

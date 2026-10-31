@@ -23,7 +23,7 @@
 //!   DESK_HERMES_DIR  Hermes state directory (default `/opt/galion/hermes`;
 //!                    from a present file: `paths.base/hermes`)
 //!   DESK_HERMES_BIN  mindpack binary (default
-//!                    `/opt/galion/openmind/dist/bin/desk-hermes`)
+//!                    `/opt/galion/rust/bin/desk-hermes`)
 //!
 //! TCP probe targets for the `services` list, the `hermes`/`one`/`tunnel`
 //! flags and the `stamp` note. Each is a `host:port`. The defaults are the
@@ -58,7 +58,7 @@ pub const DEFAULTS: Defaults = Defaults {
     state_dir: "/opt/galion/galion-light/state",
     one_dir: "/workspace/galion-light/one",
     hermes_dir: "/opt/galion/hermes",
-    hermes_bin: "/opt/galion/openmind/dist/bin/desk-hermes",
+    hermes_bin: "/opt/galion/rust/bin/desk-hermes",
 };
 
 /// Probe targets (`host:port`). Defaults are the live loopback ports.

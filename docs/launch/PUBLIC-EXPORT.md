@@ -31,7 +31,7 @@ of the private repo is the alternative; it is an owner decision, and
 | `*.redacted export-ignore` | 25 (22 in stack/kms, 3 in stack/hermes) | values are `REDACTED` markers, but names, paths and ids map the secret store |
 | `/stack/kms export-ignore` | 30 | the key-management mirror: console key routes, cloudflared `config.yml` (tunnel id), `lock-secrets.sh` |
 | `/stack/INDEX.md export-ignore` | 1 | lists every secret path and the sha256 of each secret-holding original |
-| `/dist/bin export-ignore` | 11 | committed release binaries (+ `.license` companions); ship as signed release assets instead (Scorecard Binary-Artifacts) |
+| `/dist/bin export-ignore` | 0 (was 11) | the committed release binaries (+ `.license` companions) were `git rm`'ed on swarm/dist-bin-release-plan (slot 445, D-428-2): manifest `docs/release/dist-bin-removed-manifest.txt`, rebuild with `scripts/build-dist-bins.sh`; the line stays as a guard for local copies |
 | `/edge/dist export-ignore` | 6 | same, for omnode |
 
 Result at `17d7b73`: **738 of 830 tracked files exported, 92 export-ignored.**

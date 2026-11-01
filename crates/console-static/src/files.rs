@@ -28,6 +28,9 @@ use std::io::{self, Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 
+/// What an unpaired visitor gets at /files (401): no listing, no names.
+pub const UNPAIRED_HTML: &str = "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\"><title>Files</title><body style=\"background:#0b0e14;color:#e6e6e6;font:16px system-ui;padding:2rem\"><h1>Files</h1><p>This screen needs a paired console device.</p><p><a style=\"color:#8ab4ff\" href=\"/\">Open the console to pair this device</a></p></body>\n";
+
 pub const PAGE_PATH: &str = "/files";
 pub const EDITOR_PATH: &str = "/files/editor.js";
 pub const API_PREFIX: &str = "/api/files/";

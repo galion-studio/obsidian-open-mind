@@ -434,7 +434,7 @@ const CONNECTORS: &str = r##"
 .cn-plus{font-size:1.75rem;font-weight:300;background:transparent;color:#f2f2f2}
 .cn-name{flex:1;min-width:0;font-size:1rem;color:#f2f2f2}
 .cn-go{flex:none;font-size:.875rem;color:#9a9a9a}
-.cn-panel{display:grid;gap:.5rem;padding:.25rem 1.25rem 1.25rem 4.75rem;font-size:.875rem;color:#d4d4d4}
+.cn-panel{display:grid;grid-template-columns:minmax(0,1fr);gap:.5rem;padding:.25rem 1.25rem 1.25rem 4.75rem;font-size:.875rem;color:#d4d4d4;overflow-wrap:anywhere}
 .cn-panel p{margin:0}
 .cn-fine{font-size:.8125rem;color:#9a9a9a}
 .cn-mono{font-family:var(--mono);word-break:break-all}
@@ -453,6 +453,7 @@ const CONNECTORS: &str = r##"
 .cn-err{color:#f08a8a}
 .cn-none{margin:1.5rem .5rem;color:#9a9a9a}
 .cn-foot{margin:1.5rem .5rem 0;font-size:.8125rem;color:#8a8a8a}
+@media (max-width:480px){.cn-row>summary{gap:.875rem;padding:0 1rem}.cn-panel{padding:.25rem 1rem 1.25rem}.cn-form{max-width:none}}
 "##;
 
 /// Base sheet: tokens + RULES + PORT1-4. Linked on every page. Budget 20 KiB.
@@ -600,5 +601,21 @@ mod tests {
         );
         assert!(!s.contains(".dock{"), "room chrome stays in the base sheet");
         assert_eq!(s.matches('{').count(), s.matches('}').count());
+    }
+
+    #[test]
+    fn connectors_sheet_fits_a_phone() {
+        let s = connectors_sheet();
+        assert!(
+            s.len() <= 4 * 1024,
+            "connectors sheet {} B exceeds 4 KiB",
+            s.len()
+        );
+        assert_eq!(s.matches('{').count(), s.matches('}').count());
+        // console-connectors-mobile-panel: long URLs in an open row wrapped
+        // inside the panel instead of running off a 390 px screen.
+        assert!(s.contains(".cn-panel{display:grid;grid-template-columns:minmax(0,1fr);"));
+        assert!(s.contains("overflow-wrap:anywhere"));
+        assert!(s.contains("@media (max-width:480px){.cn-row>summary{"));
     }
 }

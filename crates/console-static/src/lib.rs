@@ -37,6 +37,7 @@ pub mod files;
 pub mod hermes;
 pub mod hermes_models;
 pub mod http;
+pub mod instances;
 pub mod mime;
 pub mod owners;
 pub mod path;

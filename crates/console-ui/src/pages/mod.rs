@@ -13,6 +13,7 @@ pub mod cache;
 pub mod catalog;
 pub mod connectors;
 pub mod context;
+pub mod fleet;
 pub mod gate;
 pub mod gateway;
 pub mod guardian;

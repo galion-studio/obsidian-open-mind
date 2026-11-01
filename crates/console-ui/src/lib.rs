@@ -171,6 +171,12 @@ pub const HERMES_JS: &str = include_str!("assets/hermes.js");
 /// 'self' covers it).
 pub const HERMES_MIC_JS: &str = include_str!("assets/hermes-mic.js");
 
+/// The `/join` script (console-instances): browser readings + reports.
+pub const JOIN_JS: &str = include_str!("assets/join.js");
+
+/// CSP for `/join`: [`PAGE_CSP`] plus its own script and same-origin XHR.
+pub const JOIN_CSP: &str = "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+
 /// The file explorer room (served by console-static `--files`).
 pub const FILES_PATH: &str = "/files";
 
@@ -267,6 +273,12 @@ pub struct Ui {
     cn_css: String,
     cn_css_href: String,
     cn_css_etag: String,
+    /// `/instances` + `/join` sheet and the `/join` script (console-instances).
+    fl_css: String,
+    fl_css_href: String,
+    fl_css_etag: String,
+    fl_js_href: String,
+    fl_js_etag: String,
     /// Shared /api/v1/health payload + stamp; see [`HEALTH_CACHE_TTL`].
     health: Mutex<HealthSlot>,
 }
@@ -310,6 +322,9 @@ impl Ui {
         let cn_logos = logos::load(cfg.files.connectors_logo_dir.as_deref());
         let cn_css = css::connectors_sheet();
         let cc = css::fnv64(cn_css.as_bytes());
+        let fl_css = css::fleet_sheet();
+        let fc = css::fnv64(fl_css.as_bytes());
+        let fj = css::fnv64(JOIN_JS.as_bytes());
         Ui {
             cfg,
             css_href: format!("/_ui/console.{h:016x}.css"),
@@ -332,6 +347,11 @@ impl Ui {
             cn_css_etag: format!("\"{cc:016x}\""),
             cn_css,
             cn_logos,
+            fl_css_href: format!("/_ui/instances.{fc:016x}.css"),
+            fl_css_etag: format!("\"{fc:016x}\""),
+            fl_css,
+            fl_js_href: format!("/_ui/join.{fj:016x}.js"),
+            fl_js_etag: format!("\"{fj:016x}\""),
             health: Mutex::new(HealthSlot {
                 at: None,
                 value: None,
@@ -392,6 +412,67 @@ impl Ui {
         for h in r.headers.iter_mut() {
             if h.0 == "Content-Security-Policy" {
                 h.1 = page.csp.to_string();
+            }
+        }
+        r.headers
+            .push(("Referrer-Policy".into(), "no-referrer".into()));
+        r
+    }
+
+    /// The checks for a room another crate answers with plain forms
+    /// (console-static `/instances` with `--instances`): GET/HEAD/POST only,
+    /// the page gate, the caller's own device check (`paired`), and for a
+    /// POST the same-origin check. `Ok` means: act on the form, then
+    /// [`Ui::fleet_page`]. Nothing may change state before this is `Ok`.
+    pub fn room_check(&self, req: &Request<'_>, paired: bool) -> Result<(), Reply> {
+        if !matches!(req.method, "GET" | "HEAD" | "POST") {
+            let mut r = Reply::text(405, "Method Not Allowed\n");
+            r.headers.push(("Allow".into(), "GET, HEAD, POST".into()));
+            return Err(r);
+        }
+        if !paired {
+            let f = self.frame(req, "Admin");
+            return Err(Reply::html(
+                401,
+                layout::document(&f, "", &pages::gate::pair(safe_back(req.path), None)),
+            ));
+        }
+        if let Err(mut r) = self.gate(req) {
+            if r.status == 200 {
+                r.status = 401;
+            }
+            return Err(r);
+        }
+        if req.method == "POST" && !Self::same_origin(req) {
+            return Err(Reply::text(403, "Forbidden\n"));
+        }
+        Ok(())
+    }
+
+    /// `/instances` drawn in the console shell with the `fl-` sheet. Call
+    /// only after [`Ui::room_check`] passed.
+    pub fn fleet_page(&self, req: &Request<'_>, status: u16, main: &str) -> Reply {
+        let fwd = self.forward(req);
+        let origin = self.origin(&fwd);
+        let mut f = self.frame(req, "Galion Console · Instances");
+        f.extra_css_href = Some(&self.fl_css_href);
+        Reply::html(status, layout::console(&f, origin, main))
+    }
+
+    /// The public `/join` page (a device that is not paired types its code
+    /// here). No console menu: the visitor is not the owner. Only the
+    /// page gate's host check applies (the caller checks the console host).
+    pub fn join_page(&self, req: &Request<'_>, status: u16, main: &str) -> Reply {
+        let mut f = self.frame(req, "Galion · Add this device");
+        f.extra_css_href = Some(&self.fl_css_href);
+        let body = format!(
+            "<main class=\"page w46\">{main}</main><script src=\"{}\" defer></script>",
+            html::esc(&self.fl_js_href)
+        );
+        let mut r = Reply::html(status, layout::document(&f, "", &body));
+        for h in r.headers.iter_mut() {
+            if h.0 == "Content-Security-Policy" {
+                h.1 = JOIN_CSP.to_string();
             }
         }
         r.headers
@@ -547,6 +628,20 @@ impl Ui {
                     "text/css; charset=utf-8",
                     &self.cn_css_etag,
                     self.cn_css.as_bytes(),
+                )
+            }
+            p if p == self.fl_css_href => {
+                return asset(
+                    "text/css; charset=utf-8",
+                    &self.fl_css_etag,
+                    self.fl_css.as_bytes(),
+                )
+            }
+            p if p == self.fl_js_href => {
+                return asset(
+                    "text/javascript; charset=utf-8",
+                    &self.fl_js_etag,
+                    JOIN_JS.as_bytes(),
                 )
             }
             p if p == self.hermes_css_href => {

@@ -146,6 +146,15 @@ usage: galion-console-static --root DIR [options]
                        (with --phone) as galion-one ONE_APPROVAL_* / ONE_WEBAUTHN_*;
                        origins default https://console.galion.app,
                        https://galion.app, https://one.galion.app
+  --instances DIR      (needs --local-api) the device list on /instances: a
+                       one-time pairing code (10 min, single use) adds a laptop
+                       (galion-join) or a phone (/join page); each device
+                       reports CPU, RAM and GPU/VRAM every 30 s; DIR/fleet.json
+                       keeps names and token hashes only (0600)
+  --instances-lan PORT (with --instances) answer LAN discovery broadcasts on
+                       this UDP port (galion-join uses 47474) so devices on the
+                       same network find the console with no internet
+  --instances-name NAME  name given in LAN answers (default: Galion console)
   --stt ADDR           (needs --local-api) loopback galion-stt for live dictation:
                        GET /api/stt/health and the WebSocket /api/stt/stream,
                        behind the same pairing gate, e.g. 127.0.0.1:8650
@@ -259,6 +268,19 @@ pub struct Config {
     pub files_explorer: Option<crate::files::FilesCfg>,
     /// `--phone`: the phone home page ([`crate::phone`]).
     pub phone: Option<crate::phone::PhoneCfg>,
+    /// `--instances`: the device list on `/instances` ([`crate::instances`]).
+    pub instances: Option<InstancesCfg>,
+}
+
+/// `--instances DIR` (+ `--instances-lan PORT`, `--instances-name NAME`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstancesCfg {
+    /// State folder: `fleet.json` (device list, token hashes only).
+    pub dir: PathBuf,
+    /// UDP port answering LAN discovery; `None` = off.
+    pub lan_port: Option<u16>,
+    /// Name the console gives in LAN answers.
+    pub name: String,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -355,6 +377,9 @@ impl Config {
         let mut fx_ffmpeg: Option<PathBuf> = None;
         let mut fx_cache: Option<PathBuf> = None;
         let mut phone = false;
+        let mut inst_dir: Option<PathBuf> = None;
+        let mut inst_lan: Option<u16> = None;
+        let mut inst_name: Option<String> = None;
         let mut pc = crate::phone::PhoneCfg::defaults();
         let mut phone_flags: Vec<String> = Vec::new();
         let mut unit_dirs: Vec<PathBuf> = Vec::new();
@@ -633,6 +658,25 @@ impl Config {
                     fx_cache = Some(abs_path(val("--files-cache")?, "--files-cache")?);
                     fx_flags.push(a.clone());
                 }
+                "--instances" => {
+                    inst_dir = Some(abs_path(val("--instances")?, "--instances")?);
+                }
+                "--instances-lan" => {
+                    inst_lan = Some(
+                        val("--instances-lan")?
+                            .parse::<u16>()
+                            .ok()
+                            .filter(|p| *p > 0)
+                            .ok_or_else(|| bad("--instances-lan must be a UDP port 1..=65535"))?,
+                    );
+                }
+                "--instances-name" => {
+                    let n = galion_instances::fleet::clean_name(&val("--instances-name")?);
+                    if n.is_empty() {
+                        return Err(bad("--instances-name must not be empty"));
+                    }
+                    inst_name = Some(n);
+                }
                 "--phone" => phone = true,
                 "--nerve" | "--cortex" => {
                     let flag = a.clone();
@@ -788,6 +832,21 @@ impl Config {
             }
             pc
         });
+        if inst_dir.is_some() && !local_api {
+            return Err(bad(
+                "--instances needs --local-api (or --dist): the pairing gate",
+            ));
+        }
+        if (inst_lan.is_some() || inst_name.is_some()) && inst_dir.is_none() {
+            return Err(bad(
+                "--instances-lan / --instances-name need --instances DIR",
+            ));
+        }
+        let instances = inst_dir.map(|dir| InstancesCfg {
+            dir,
+            lan_port: inst_lan,
+            name: inst_name.unwrap_or_else(|| "Galion console".into()),
+        });
         if hermes_api && (!local_api || hermes.is_none()) {
             return Err(bad(
                 "--hermes-api needs --local-api (or --dist) and --hermes",
@@ -907,6 +966,7 @@ impl Config {
             stt_max_sessions,
             files_explorer: fx,
             phone,
+            instances,
         })
     }
 }

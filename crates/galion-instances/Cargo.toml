@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "galion-instances"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Device fleet for the Galion console /instances page: one-time pairing codes, device tokens, CPU/RAM/GPU readings, LAN discovery over UDP broadcast, and the galion-join agent. Pure Rust, std + serde_json."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "galion-join"
+path = "src/bin/galion-join.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+galion-common = { path = "../galion-common" }

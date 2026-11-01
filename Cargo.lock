@@ -216,6 +216,7 @@ version = "0.1.0"
 dependencies = [
  "console-ui",
  "galion-files",
+ "galion-instances",
  "galion-one",
  "galion-owner-key",
  "galion-realtest",
@@ -745,6 +746,14 @@ version = "0.2.0"
 dependencies = [
  "galion-realtest",
  "zagreb-time",
+]
+
+[[package]]
+name = "galion-instances"
+version = "0.1.0"
+dependencies = [
+ "galion-common",
+ "serde_json",
 ]
 
 [[package]]

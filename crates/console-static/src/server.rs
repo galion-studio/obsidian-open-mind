@@ -47,6 +47,8 @@ pub struct State {
     pub stt: Option<crate::stt::Stt>,
     /// File explorer (`--files`).
     pub files: Option<crate::files::Files>,
+    /// Device list (`--instances`).
+    pub instances: Option<crate::instances::Instances>,
     active: AtomicUsize,
 }
 
@@ -86,8 +88,31 @@ impl State {
             .stt
             .map(|a| crate::stt::Stt::new(a, cfg.stt_max_sessions));
         let files = cfg.files_explorer.clone().map(crate::files::Files::new);
+        let instances =
+            cfg.instances
+                .clone()
+                .and_then(|c| match crate::instances::Instances::open(c) {
+                    Ok(i) => {
+                        match i.start_lan(cfg.bind.port()) {
+                            Ok(Some(a)) => eprintln!(
+                                "console-static: instances: LAN discovery on udp port {}",
+                                a.port()
+                            ),
+                            Ok(None) => {}
+                            Err(e) => {
+                                eprintln!("console-static: instances: LAN discovery off ({e})")
+                            }
+                        }
+                        Some(i)
+                    }
+                    Err(e) => {
+                        eprintln!("console-static: instances: cannot open the device list ({e})");
+                        None
+                    }
+                });
         State {
             files,
+            instances,
             site,
             routes,
             cfg,
@@ -223,6 +248,18 @@ fn handle_request(
     };
 
     let mut carry = carry;
+    // `--instances` (console-instances): device API, /instances, /join.
+    // Before the local API gate: devices prove themselves with a code or
+    // token in the body, and the owner page does its own checks.
+    if let Some(inst) = state.instances.as_ref() {
+        if let Some(k) = serve_instances(stream, head, inst, &clean, query, &mut carry, state, keep)
+        {
+            if k {
+                *next_carry = carry;
+            }
+            return k;
+        }
+    }
     if state.cfg.local_api {
         let peer = stream.peer_addr().ok();
         let peer_loopback = peer.is_some_and(|p| p.ip().is_loopback());
@@ -918,4 +955,149 @@ fn write_json(
         }
     })
     .and_then(|_| stream.flush())
+}
+
+/// `--instances`: answer the device API, `/instances`, `/join` and
+/// `/join/beat`. `None` when the request is not ours. `Some(keep)` once
+/// answered.
+#[allow(clippy::too_many_arguments)]
+fn serve_instances(
+    stream: &mut TcpStream,
+    head: &RequestHead,
+    inst: &crate::instances::Instances,
+    clean: &str,
+    query: &str,
+    carry: &mut Vec<u8>,
+    state: &State,
+    keep: bool,
+) -> Option<bool> {
+    use crate::instances as ins;
+    let method = head.method.as_str();
+    let head_only = method == "HEAD";
+    let is_page = clean == ins::PAGE_PATH && state.ui.is_some();
+    let is_join = (clean == ins::JOIN_PATH || clean == ins::JOIN_BEAT) && state.ui.is_some();
+    if !(ins::owns_device_api(clean) || clean == ins::LIST || is_page || is_join) {
+        return None;
+    }
+    let host = head.header("host").unwrap_or("");
+    let console_host = console_ui::gate::is_console_host(host, &state.cfg.extra_hosts);
+    let peer = stream.peer_addr().ok();
+    let peer_lb = peer.is_some_and(|p| p.ip().is_loopback());
+    let ip = ins::client_ip(
+        peer,
+        head.header("x-forwarded-for"),
+        head.header("cf-connecting-ip"),
+    );
+    // The join page: a console host, or a visitor on the same network
+    // (a LAN console reached by its IP address).
+    if is_join && !console_host && !galion_instances::fleet::is_lan(&ip) {
+        return None;
+    }
+    let mut keep = keep;
+    let mut body = Vec::new();
+    if ins::wants_body(method, clean) {
+        match read_small_body(stream, head, std::mem::take(carry)) {
+            Ok(b) => body = b,
+            Err(code) => {
+                let _ = http::write_simple(stream, code, "", "Bad Request\n", head_only, false);
+                log(state, method, clean, code);
+                return Some(false);
+            }
+        }
+        keep = false;
+    } else if head
+        .header("content-length")
+        .is_some_and(|v| v.trim() != "0")
+        || head.header("transfer-encoding").is_some()
+    {
+        keep = false;
+    }
+    let json_out = |stream: &mut TcpStream, o: ins::Out| -> bool {
+        let ok = write_json(stream, o.status, &o.body, head_only, keep).is_ok();
+        log(state, method, clean, o.status);
+        ok && keep
+    };
+    if ins::owns_device_api(clean) {
+        return Some(json_out(stream, inst.device_api(method, clean, &body, &ip)));
+    }
+    let lb_host = console_ui::gate::is_loopback_host(&console_ui::gate::normalize_host(host));
+    let paired = (lb_host && peer_lb)
+        || state
+            .admin
+            .as_ref()
+            .is_some_and(|a| a.is_admin(head.header("cookie")));
+    if clean == ins::LIST {
+        if !console_host || !paired {
+            return Some(json_out(
+                stream,
+                ins::Out {
+                    status: 401,
+                    body: r#"{"ok":false,"error":"pair this device first"}"#.into(),
+                },
+            ));
+        }
+        return Some(json_out(stream, inst.owner_list(method)));
+    }
+    if clean == ins::JOIN_BEAT {
+        return Some(json_out(
+            stream,
+            inst.join_beat(method, &body, head.header("cookie"), &ip),
+        ));
+    }
+    let ui = state.ui.as_ref()?;
+    let fproto = head.header("x-forwarded-proto").filter(|_| peer_lb);
+    let req = console_ui::Request {
+        method,
+        path: clean,
+        query,
+        host,
+        cookie: head.header("cookie"),
+        origin: head.header("origin"),
+        sec_fetch_site: head.header("sec-fetch-site"),
+        forwarded_proto: fproto,
+        peer_loopback: peer_lb,
+        client_ip: ip.clone(),
+        content_type: head.header("content-type"),
+        body: &[],
+    };
+    let reply = if clean == ins::JOIN_PATH {
+        if !matches!(method, "GET" | "HEAD" | "POST") {
+            console_ui::Reply {
+                status: 405,
+                headers: vec![("Allow".into(), "GET, HEAD, POST".into())],
+                body: b"Method Not Allowed\n".to_vec(),
+            }
+        } else {
+            let secure = fproto.is_some_and(|p| p.eq_ignore_ascii_case("https"));
+            let (status, main, cookie) =
+                inst.join_page(method, &body, head.header("cookie"), &ip, secure);
+            let mut r = ui.join_page(&req, status, &main);
+            if let Some(c) = cookie {
+                r.headers.push(("Set-Cookie".into(), c));
+            }
+            r
+        }
+    } else {
+        match ui.room_check(&req, paired && console_host) {
+            Err(r) => r,
+            Ok(()) => {
+                let (code, notice) = if method == "POST" {
+                    let (c, n) = inst.owner_form(&body);
+                    (c, Some(n))
+                } else {
+                    (None, None)
+                };
+                let url = ins::console_url(host, fproto);
+                let main = inst.page_body(code, notice.as_ref(), &url);
+                let status = match &notice {
+                    Some(n) if !n.ok => 400,
+                    _ => 200,
+                };
+                ui.fleet_page(&req, status, &main)
+            }
+        }
+    };
+    let ok = write_reply(stream, &reply, head_only, keep);
+    log(state, method, clean, reply.status);
+    Some(keep && ok)
 }

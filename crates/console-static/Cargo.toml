@@ -21,6 +21,9 @@ name = "galion-console-serve"
 path = "src/bin/galion-console-serve.rs"
 
 [dependencies]
+# --instances (console-instances, 2026-11-01): device fleet, pairing codes,
+# CPU/RAM/GPU readings and LAN discovery (pure Rust, std + serde_json).
+galion-instances = { path = "../galion-instances" }
 console-ui = { path = "../console-ui" }
 serde_json = { workspace = true }
 # --files (console-files, 2026-11-01): the jailed file explorer core (pure

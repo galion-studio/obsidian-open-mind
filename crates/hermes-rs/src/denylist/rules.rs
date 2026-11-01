@@ -896,3 +896,40 @@ pub const WRITE_VERBS: &[&str] = &[
     "new note",
     "fs_write",
 ];
+
+/// Script mode: shell variables a workspace script may not set (they change
+/// how the shell or programs find and load code, or where output goes).
+/// `LD_*`, `BASH_FUNC*`, `HERMES_*`, `OPENROUTER*` and `GIT_*` prefixes are
+/// refused as well.
+pub const SCRIPT_VAR_DENY: &[&str] = &[
+    "PATH",
+    "IFS",
+    "ENV",
+    "BASH_ENV",
+    "SHELLOPTS",
+    "BASHOPTS",
+    "PS4",
+    "PROMPT_COMMAND",
+    "CDPATH",
+    "GCONV_PATH",
+    "PYTHONPATH",
+    "PYTHONSTARTUP",
+    "PERL5LIB",
+    "PERL5OPT",
+    "RUBYOPT",
+    "NODE_OPTIONS",
+    "RUSTC_WRAPPER",
+    "RUSTC",
+    "RUSTFLAGS",
+    "CARGO_HOME",
+    "CARGO_BUILD_RUSTC_WRAPPER",
+    "HOME",
+    "TMPDIR",
+    "SHELL",
+    "EDITOR",
+    "VISUAL",
+    "PAGER",
+    "MANPAGER",
+    "LESSOPEN",
+    "HISTFILE",
+];

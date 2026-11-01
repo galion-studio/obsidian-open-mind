@@ -403,7 +403,7 @@ fn plain_words(summary: &str, reason: &str, files: &[String]) -> String {
         });
     let n = files.len();
     let mut s = format!(
-        "Hermes wants to change {n} file{} in {}.",
+        "Your agent wants to change {n} file{} in {}.",
         if n == 1 { "" } else { "s" },
         if areas.is_empty() {
             "its own code".to_string()
@@ -756,7 +756,7 @@ pub fn next_step(f: &Facts) -> Value {
             "root",
             "You approved it. The root deploy step installs it; this screen never deploys.".into(),
         ),
-        "rejected" => ("nobody", "You rejected it. Hermes can send a new request.".into()),
+        "rejected" => ("nobody", "You rejected it. Your agent can send a new request.".into()),
         "ready" => ("you", "Check the change, then approve or reject it below.".into()),
         "unsigned" => (
             "server",
@@ -785,7 +785,7 @@ pub fn next_step(f: &Facts) -> Value {
         ),
         "blocked" => (
             "nobody",
-            "Do not approve: a check failed (see below). Reject it so Hermes can try again.".into(),
+            "Do not approve: a check failed (see below). Reject it so your agent can try again.".into(),
         ),
         _ if f.test == "waiting" => (
             "server",
@@ -1570,7 +1570,7 @@ mod tests {
             },
         );
         assert_eq!(r.status, 200);
-        assert!(String::from_utf8_lossy(&r.body).contains("Hermes self-changes"));
+        assert!(String::from_utf8_lossy(&r.body).contains("<h1>Self-changes</h1>"));
     }
 
     #[test]
@@ -1586,7 +1586,7 @@ mod tests {
         assert!(c["plain"]
             .as_str()
             .unwrap()
-            .starts_with("Hermes wants to change 1 file in hermes-rs."));
+            .starts_with("Your agent wants to change 1 file in hermes-rs."));
         assert_eq!(c["state"], "blocked");
         assert_eq!(c["ready"], false);
         assert_eq!(l["owner_key"]["state"], "none");

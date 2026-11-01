@@ -26,6 +26,7 @@
 
 mod accounts_proxy;
 mod approvals;
+mod ask;
 mod cli;
 mod home;
 mod host;
@@ -153,6 +154,10 @@ fn page_file(host: &str) -> Vec<u8> {
 fn one_page(host: &str) -> Vec<u8> {
     let raw = page_file(host);
     let mut html = String::from_utf8_lossy(&raw).into_owned();
+    // No internal agent name in the room's visible text (src/ask.rs).
+    if v2_host(host) {
+        html = ask::plain_room(&html);
+    }
     // Approvals link in the V2 room (room_links.rs); hidden until paired.
     if v2_host(host) && room_links::enabled() {
         html = room_links::with_approvals_link(&html);
@@ -567,6 +572,27 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
             let _ = stream.shutdown(std::net::Shutdown::Write);
             return Ok(());
         }
+    }
+    // one.galion.app "Ask anything" first screen (src/ask.rs): V2 hosts only.
+    // The full room moves to /room; ONE_ASK=off puts it back at /.
+    if method == "GET" && (path == "/" || path == "/index.html") && v2_host(&host) && ask::enabled()
+    {
+        let page = if pwa::enabled() {
+            pwa::with_install(ask::PAGE)
+        } else {
+            ask::PAGE.to_string()
+        };
+        return write_response(
+            &mut stream,
+            200,
+            "text/html; charset=utf-8",
+            page.as_bytes(),
+            None,
+        );
+    }
+    if method == "GET" && path == "/room" && v2_host(&host) {
+        let bytes = one_page(&host);
+        return write_response(&mut stream, 200, "text/html; charset=utf-8", &bytes, None);
     }
     if method == "GET" && (path == "/" || path == "/index.html") {
         let bytes = one_page(&host);

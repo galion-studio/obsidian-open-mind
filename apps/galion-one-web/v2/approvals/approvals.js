@@ -101,7 +101,7 @@
     var t = c.test || {}, d = c.dryrun || {}, s = c.stack || {}, a = c.artifact || {};
     var ch = el('ul', 'ap-checks');
     var ns = function (x) { return x.state === 'not_started'; };
-    ch.appendChild(chip(s.ok, s.missing, s.ok ? 'From Hermes, signed' : s.missing ? 'Not signed by the stack yet' : 'Origin not proven'));
+    ch.appendChild(chip(s.ok, s.missing, s.ok ? 'From your agent, signed' : s.missing ? 'Not signed by the stack yet' : 'Origin not proven'));
     ch.appendChild(chip(t.ok, t.state === 'waiting' || ns(t), t.ok ? 'Sandbox test passed' : ns(t) ? 'Sandbox test not started' : t.state === 'waiting' ? 'Sandbox test running' : 'Sandbox test failed'));
     ch.appendChild(chip(d.ok, d.state === 'waiting' || ns(d), d.ok ? 'Dry run passed · 0 real model calls' : ns(d) ? 'Dry run not started' : d.state === 'waiting' ? 'Dry run pending' : 'Dry run failed'));
     ch.appendChild(chip(a.on_disk_matches, !a.sha256, a.on_disk_matches ? 'Built file matches the tested one' : 'Built file not verified'));
@@ -158,7 +158,7 @@
           .catch(function (e) { yes.disabled = false; out.className = 'ap-out t-bad'; out.textContent = 'Not approved: ' + e.message; });
       };
       no.onclick = function () {
-        var why = window.prompt('Reject this build? Optional note for Hermes:', '');
+        var why = window.prompt('Reject this build? Optional note for your agent:', '');
         if (why === null) return;
         api('/api/approvals/reject', { id: c.id, note: why }).then(function () { delete chals[c.id]; load(); })
           .catch(function (e) { out.className = 'ap-out t-bad'; out.textContent = e.message; });
@@ -182,7 +182,7 @@
     var box = $('ap-list'); box.textContent = '';
     var items = j.items || [], ready = items.filter(function (i) { return i.state === 'ready'; }).length;
     $('st-wait').className = 'hm-dot ' + (ready ? 'warn' : 'ok'); $('st-wait-v').textContent = ready ? String(ready) : 'nothing';
-    if (!items.length) { box.appendChild(el('p', 'hm-empty', 'No self-change requests. Hermes has not asked for anything.')); return; }
+    if (!items.length) { box.appendChild(el('p', 'hm-empty', 'No self-change requests. Your agent has not asked for anything.')); return; }
     items.forEach(function (c) { box.appendChild(card(c)); });
   }
 

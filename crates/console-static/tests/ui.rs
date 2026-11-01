@@ -692,6 +692,8 @@ fn read_rooms_render_get_only() {
         .filter(|p| *p != console_ui::connectors::PATH)
         // console-files-nav: /files is console-static's own room (--files).
         .filter(|p| *p != console_ui::FILES_PATH)
+        // console-phone-in-nav: /phone is console-static's own room (--phone).
+        .filter(|p| *p != console_ui::PHONE_PATH)
         .filter(|p| !console_ui::PORTED.contains(p))
         .collect();
     // 28 in-console rooms; every one is either ported or says so.
@@ -714,6 +716,18 @@ fn read_rooms_render_get_only() {
     assert!(f
         .body
         .contains("<li><a href=\"/files\" aria-current=\"page\">"));
+    // console-phone-in-nav: /phone is in the menu; without --phone it says so.
+    let ph = get(a, "/phone", "127.0.0.1", "");
+    assert_eq!(ph.code, 200);
+    assert!(
+        ph.body.contains("Phone is off on this console."),
+        "{}",
+        ph.body
+    );
+    assert!(ph
+        .body
+        .contains("<a class=\"room\" href=\"/phone\" aria-current=\"page\">"));
+    assert!(f.body.contains("<a class=\"room\" href=\"/phone\">"));
     assert_eq!(console_ui::PORTED.len(), 30);
     let ov = get(a, "/console", "127.0.0.1", "");
     assert!(ov.body.contains("31 of 31 routes in Rust"), "{}", ov.body);

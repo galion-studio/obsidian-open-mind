@@ -54,6 +54,12 @@ pub const ROOMS: &[Room] = &[
         "desk",
     ),
     r(
+        "/phone",
+        "Phone",
+        "Today at a glance, then approvals.",
+        "phone",
+    ),
+    r(
         "/instances",
         "Instances",
         "Phone, pod, laptop. The private path.",
@@ -221,7 +227,7 @@ mod tests {
 
     #[test]
     fn rooms_and_dock_agree() {
-        assert_eq!(ROOMS.len(), 31);
+        assert_eq!(ROOMS.len(), 32);
         for (to, _) in DOCK {
             assert!(icon_of(to).is_some(), "{to}");
         }
@@ -233,5 +239,8 @@ mod tests {
         assert_eq!(current("/files").label, "Files");
         assert_eq!(icon_of("/files"), Some("folder"));
         assert!(DOCK.iter().any(|(to, _)| *to == "/files"));
+        assert_eq!(current("/phone").label, "Phone");
+        assert_eq!(icon_of("/phone"), Some("phone"));
+        assert!(crate::icons::PATHS.iter().any(|(n, _)| *n == "phone"));
     }
 }

@@ -259,7 +259,19 @@ fn page_sits_in_the_console_shell() {
     // The explorer itself is still there, scripts after the dock.
     assert!(t.contains("id=\"fx-list\"") && t.contains("/files/editor.js?v="));
     assert!(t.find("class=\"dock\"").unwrap() < t.find("/files/editor.js?v=").unwrap());
-    assert!(!t.contains("href=\"/phone\""), "no separate-site home link");
+    // The old explorer-only "Galion" link to /phone stays gone; /phone is
+    // reached through the console menu like every other room
+    // (console-phone-in-nav).
+    assert!(!t.contains("fx-home"), "no separate-site home link");
+    assert_eq!(
+        t.matches("href=\"/phone\"").count(),
+        1,
+        "only the menu tile"
+    );
+    assert!(
+        t.contains("<a class=\"room\" href=\"/phone\">"),
+        "phone in the menu"
+    );
     assert!(r.has("content-security-policy: default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"));
     assert!(r.has("x-frame-options: deny"));
     // The other rooms link to Files too.

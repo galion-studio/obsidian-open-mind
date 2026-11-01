@@ -319,7 +319,21 @@ fn page_is_the_approvals_screen_with_tiles() {
     }
     assert!(!r.body.contains("5.1501"), "page holds no data");
     let r = get(b.addr, "/phone", "evil.example", "");
-    assert_ne!(r.code, 200, "not served to foreign hosts");
+    // Foreign hosts never get the phone page. Since /phone is a console room
+    // (console-phone-in-nav) they get the same public placeholder as /files
+    // or /instances instead of a bare 404.
+    assert!(
+        !r.body.contains("Today at a glance"),
+        "not served to foreign hosts"
+    );
+    assert!(
+        !r.body.contains("id=\"ap-list\""),
+        "not served to foreign hosts"
+    );
+    assert!(
+        !r.body.contains("/api/v1/phone/status"),
+        "not served to foreign hosts"
+    );
 }
 
 #[test]

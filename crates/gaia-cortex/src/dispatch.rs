@@ -16,7 +16,7 @@
 //!    handoffs) plus a per-handoff reserve must stay under the ceiling
 //!    (owner 2026-10-31: $5 total, hard max here; was $20, Mate t218). Otherwise refuse, and drop the
 //!    `BUDGET-STOP` file into the inbox so the cortex stops handing off;
-//! 3. ask Hermes once (no retries), always with model `x-ai/grok-4.7`
+//! 3. ask Hermes once (no retries), always with model `deepseek-ai/DeepSeek-V4.1-Flash-1017`
 //!    ([`MODEL_LOCK`]; any other `HANDOFF_MODEL` refuses to start), at most
 //!    [`HARD_MAX_PER_RUN`] call per run, with the
 //!    `cortex-escalation` skill as the system prompt: diagnose, propose a
@@ -36,9 +36,10 @@ use std::path::{Path, PathBuf};
 /// The dispatcher never allows more than this, whatever the env says
 /// (owner 2026-10-31: hand-offs capped at $5; was $20, Mate t218).
 pub const HARD_BUDGET_USD: f64 = 5.0;
-/// MODEL LOCK (owner 2026-10-31): the only model a hand-off may ask for.
+/// MODEL LOCK (owner 2026-10-31; model moved to DeepSeek V4.1 Flash on River 2026-11-01,
+/// was x-ai/grok-4.7): the only model a hand-off may ask for.
 /// `boss` (alias of an Opus id) or any other id refuses to start.
-pub const MODEL_LOCK: &str = "x-ai/grok-4.7";
+pub const MODEL_LOCK: &str = "deepseek-ai/DeepSeek-V4.1-Flash-1017";
 /// At most this many paid calls per dispatcher run (default and maximum).
 pub const HARD_MAX_PER_RUN: u64 = 1;
 pub const SESSION_KEY: &str = "cortex-escalation";
@@ -703,6 +704,7 @@ mod tests {
             "anthropic/claude-opus-5.5",
             "anthropic/claude-opus-4",
             "x-ai/grok-4",
+            "x-ai/grok-4.7",
             "openrouter/auto",
         ] {
             let get = |k: &str| (k == "HANDOFF_MODEL").then(|| m.to_string());
@@ -710,7 +712,7 @@ mod tests {
             assert!(e.contains("model lock"), "{m}: {e}");
         }
         let get = |k: &str| match k {
-            "HANDOFF_MODEL" => Some(" x-ai/grok-4.7 ".into()),
+            "HANDOFF_MODEL" => Some(" deepseek-ai/DeepSeek-V4.1-Flash-1017 ".into()),
             "HANDOFF_BUDGET_USD" => Some("20".into()),
             "HANDOFF_MAX_PER_RUN" => Some("6".into()),
             _ => None,

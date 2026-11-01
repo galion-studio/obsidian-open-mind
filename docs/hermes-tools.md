@@ -105,3 +105,10 @@ crate. `hermes-mock-model` is a test binary: a scripted OpenAI-compatible server
   scripts and proc macros run, but inside the same sandbox.
 - `fs_write` replaces whole files. There is no patch or delete tool; deletion is a commit of a
   removed file, which needs a write tool that can delete. That was left out on purpose.
+
+## Shared-folder file tools
+
+Separate from the coding tools above: `files_list`, `files_read`, `files_info`,
+`files_kinds` and (with `HERMES_RS_FILES_WRITE=1`) `files_write`, `files_mkdir`,
+`files_rename`, `files_move`, `files_extract`, `files_trash` over
+`HERMES_RS_FILES_ROOT`. See docs/hermes-files-skill.md.

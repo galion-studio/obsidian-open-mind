@@ -17,3 +17,9 @@ path = "src/bin/hermes-mock-model.rs"
 hermes-rs = { path = "../hermes-rs", default-features = false }
 openmind-sandbox = { path = "../openmind-sandbox" }
 serde_json = { workspace = true }
+# The jailed file layer the console /files explorer uses (pure Rust).
+galion-files = { path = "../galion-files" }
+
+[dev-dependencies]
+# Stored-member zip fixture for tests/files_tools.rs (no compression features).
+zip = { version = "9", default-features = false }

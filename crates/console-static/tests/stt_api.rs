@@ -324,8 +324,11 @@ fn session_cap_holds_and_frees() {
     let b = start(None, &["--stt-max-sessions", "1"]);
     let (first, head, _) = open(b.addr, HOST, &paired());
     assert_eq!(code_of(&head), 101);
-    let (_, head, rest) = open(b.addr, HOST, &paired());
+    let (mut s2, head, mut rest) = open(b.addr, HOST, &paired());
     assert_eq!(code_of(&head), 429, "{head}");
+    // The body can arrive after the head (separate read): wait for it.
+    read_until(&mut s2, &mut rest, b"too many dictation sessions");
+    drop(s2);
     assert!(String::from_utf8_lossy(&rest).contains("too many dictation sessions"));
     let (_, _, body) = health(b.addr, "127.0.0.1", "");
     assert!(body.contains(r#""sessions":1"#), "{body}");
@@ -355,8 +358,11 @@ fn stt_offline_is_clear() {
         body.contains(r#""ok":false"#) && body.contains("STT offline"),
         "{body}"
     );
-    let (_, head, rest) = open(b.addr, HOST, &paired());
+    let (mut s2, head, mut rest) = open(b.addr, HOST, &paired());
     assert_eq!(code_of(&head), 502, "{head}");
+    // The body can arrive after the head (separate read): wait for it.
+    read_until(&mut s2, &mut rest, b"STT offline");
+    drop(s2);
     assert!(String::from_utf8_lossy(&rest).contains("STT offline"));
     // The failed attempt released its slot.
     let (_, _, body) = health(b.addr, "127.0.0.1", "");

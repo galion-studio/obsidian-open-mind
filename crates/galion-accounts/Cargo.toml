@@ -1,0 +1,33 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-accounts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Mullvad-style anonymous numbered accounts for the whole Galion platform: 16-digit account numbers (argon2id hash only, no email), one paid-until per account, Stripe Checkout/Portal/webhooks (EUR subscriptions), cash-by-post vouchers, a crypto adapter stub and one small internal entitlement API."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "galion-accounts"
+path = "src/main.rs"
+
+[features]
+default = []
+# Optional HTTPS transport for the Stripe REST API through reqwest (blocking,
+# rustls). Off by default: the swarm's no-asm/no-openssl rule (RULES.md hard
+# rule 1) keeps the default build on the repo's curl-subprocess convention
+# (same as hermes-rs/galion-one). See DESIGN.md "Transport".
+reqwest = ["dep:reqwest"]
+
+[dependencies]
+galion-common = { path = "../galion-common" }
+serde_json = { workspace = true }
+rusqlite = { version = "0.32", default-features = false, features = ["bundled"] }
+# argon2id (RustCrypto, MIT OR Apache-2.0). Pure Rust, no SIMD by default.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+getrandom = "0.2"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls-native-roots"], optional = true }

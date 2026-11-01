@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 3000 Galion / galion-studio -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070A">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex">
+<title>Your account · Galion</title>
+<link rel="stylesheet" href="/account/account.css">
+<script src="/account/account.js" defer></script>
+</head>
+<body>
+<svg width="0" height="0" class="defs" aria-hidden="true" focusable="false">
+ <defs>
+  <linearGradient id="gk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#B8E8FF"/><stop offset=".55" stop-color="#58C4FF"/><stop offset="1" stop-color="#9D8CFF"/></linearGradient>
+  <symbol id="mk" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#0B0F14" stroke="#24303C" stroke-width="1.5"/><path d="M47.6 18.4A20 20 0 1 0 52 32H34" fill="none" stroke="url(#gk)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="32" cy="32" r="4.2" fill="#B8E8FF"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="12" r="4"/><path d="M12 12h9M18 12v3M15 12v2"/></g></symbol>
+  <symbol id="i-in" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14M10 8l4 4-4 4M14 12H4"/></g></symbol>
+  <symbol id="i-card" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 9.5h19M6 15h4"/></g></symbol>
+  <symbol id="i-coin" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><path d="M12 9.5v5"/></g></symbol>
+  <symbol id="i-env" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></g></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="8.5" y="8.5" width="11" height="11" rx="2"/><path d="M15.5 8.5V6a1.5 1.5 0 0 0-1.5-1.5H6A1.5 1.5 0 0 0 4.5 6v8A1.5 1.5 0 0 0 6 15.5h2.5"/></g></symbol>
+ </defs>
+</svg>
+<a class="skip" href="#main">Skip to content</a>
+<div class="sky" aria-hidden="true"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+
+<header class="top">
+ <div class="wrap">
+  <a class="brand" href="/" aria-label="Galion home"><svg aria-hidden="true"><use href="#mk"/></svg><span class="word">Galion</span></a>
+  <nav class="nav" aria-label="Main">
+   <a href="/#pricing">Pricing</a>
+   <a href="/#private">Privacy</a>
+   <button class="btn sm" id="logout" type="button" hidden>Log out</button>
+  </nav>
+ </div>
+</header>
+
+<main id="main" class="wrap acc">
+ <p class="kick">Your account</p>
+ <h1 class="h1">No email. No name. <span class="grad">Just a number.</span></h1>
+ <p class="lead">Your account is a 16-digit number. It is your user name and your password, so keep it safe. We store only a scrambled form of it and cannot show it to you again.</p>
+
+ <p class="notice" id="notice" role="status" hidden></p>
+ <noscript><p class="notice">This page needs JavaScript to create an account or log in.</p></noscript>
+
+ <!-- Logged out -->
+ <div class="grid g2" id="out" hidden>
+  <article class="card">
+   <span class="ico"><svg aria-hidden="true"><use href="#i-key"/></svg></span>
+   <h2 class="h3">New here?</h2>
+   <p>Get a random account number. No email, no details, nothing to fill in.</p>
+   <button class="btn pri" id="create" type="button">Generate account number</button>
+  </article>
+  <article class="card">
+   <span class="ico"><svg aria-hidden="true"><use href="#i-in"/></svg></span>
+   <h2 class="h3">Log in</h2>
+   <form id="login" autocomplete="off" novalidate>
+    <label for="num">Account number</label>
+    <input id="num" name="number" inputmode="numeric" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="0000 0000 0000 0000" maxlength="23" required>
+    <button class="btn pri" type="submit">Log in</button>
+   </form>
+  </article>
+ </div>
+
+ <!-- Just created -->
+ <article class="card reveal" id="fresh" hidden>
+  <h2 class="h3">This is your account number</h2>
+  <p class="num" id="freshnum" aria-live="polite"></p>
+  <div class="row">
+   <button class="btn" id="copy" type="button"><svg aria-hidden="true"><use href="#i-copy"/></svg>Copy</button>
+  </div>
+  <p class="warn">Write it down or keep it in a password manager now. Anyone with this number can use your account, and we cannot recover it.</p>
+  <label class="chk"><input type="checkbox" id="saved"> I have saved my number</label>
+  <button class="btn pri" id="cont" type="button" disabled>Continue</button>
+ </article>
+
+ <!-- Logged in -->
+ <section id="in" hidden aria-labelledby="h-status">
+  <article class="card status">
+   <p class="kick" id="h-status">Plan</p>
+   <p class="plan" id="plan">Free</p>
+   <p class="muted" id="until">No paid time on this account.</p>
+   <button class="btn" id="manage" type="button" hidden><svg aria-hidden="true"><use href="#i-card"/></svg>Manage or cancel card subscription</button>
+  </article>
+
+  <div class="grid g2 plans">
+   <article class="card price feat" data-plan="plus">
+    <span class="badge">Plus</span>
+    <h3>Plus</h3>
+    <p class="amt">&euro;20<span>/ month</span></p>
+    <p>For one person. The whole platform, hosted for you, Galion One included.</p>
+    <div class="pays">
+     <button class="btn pay" type="button" data-m="stripe" disabled><svg aria-hidden="true"><use href="#i-card"/></svg>Card</button>
+     <button class="btn pay" type="button" data-m="crypto" disabled><svg aria-hidden="true"><use href="#i-coin"/></svg>Crypto</button>
+     <button class="btn pay" type="button" data-m="cash" disabled><svg aria-hidden="true"><use href="#i-env"/></svg>Cash by post</button>
+    </div>
+   </article>
+   <article class="card price" data-plan="pro">
+    <h3>Pro</h3>
+    <p class="amt">&euro;220<span>/ month</span></p>
+    <p>Your Hermes agent gets its own cloud computer and SSD. Everything in Plus.</p>
+    <div class="pays">
+     <button class="btn pay" type="button" data-m="stripe" disabled><svg aria-hidden="true"><use href="#i-card"/></svg>Card</button>
+     <button class="btn pay" type="button" data-m="crypto" disabled><svg aria-hidden="true"><use href="#i-coin"/></svg>Crypto</button>
+     <button class="btn pay" type="button" data-m="cash" disabled><svg aria-hidden="true"><use href="#i-env"/></svg>Cash by post</button>
+    </div>
+   </article>
+  </div>
+  <ul class="methods" id="methods"></ul>
+
+  <article class="card cash" id="cashbox" hidden>
+   <h3>Cash by post</h3>
+   <p class="num sm" id="cashref"></p>
+   <pre id="cashtext"></pre>
+  </article>
+ </section>
+
+ <p class="note">Free stays free: Galion is open source (MIT) and runs on your own computer without any account. Prices in euros. Card payments go through Stripe, which asks for your card details itself; we send Stripe a random payment reference, never your account number.</p>
+</main>
+
+<footer>
+ <div class="wrap"><p>Galion · Your account is a number. We keep no email, no name and no IP address with it.</p></div>
+</footer>
+</body>
+</html>

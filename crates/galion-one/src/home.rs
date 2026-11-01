@@ -24,6 +24,17 @@ pub const HTML_GZ: &[u8] = include_bytes!("../home/index.html.gz");
 pub const JS: &[u8] = include_bytes!("../home/home.js");
 pub const MARK: &[u8] = include_bytes!("../home/galion-mark.svg");
 pub const ACCOUNT: &[u8] = include_bytes!("../home/account.html");
+/// Legal pages (DRAFT, swarm/galion-legal-pages-20261101): plain static HTML,
+/// markdown sources in tmp/legal. Home hosts only, like the rest of this file.
+pub const PRIVACY: &[u8] = include_bytes!("../home/privacy.html");
+pub const TERMS: &[u8] = include_bytes!("../home/terms.html");
+pub const REFUNDS: &[u8] = include_bytes!("../home/refunds.html");
+/// (path, body) for every legal page.
+pub const LEGAL: [(&str, &[u8]); 3] = [
+    ("/privacy", PRIVACY),
+    ("/terms", TERMS),
+    ("/refunds", REFUNDS),
+];
 
 const CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
@@ -143,6 +154,24 @@ pub fn respond(method: &str, path: &str, accept: &str, if_none_match: &str) -> O
         },
         // Placeholder only: the real account system is another worker's job (t549u).
         "/account" | "/account/" => ("text/html; charset=utf-8", ACCOUNT, None, "no-store"),
+        "/privacy" | "/privacy/" => (
+            "text/html; charset=utf-8",
+            PRIVACY,
+            None,
+            "public, max-age=300",
+        ),
+        "/terms" | "/terms/" => (
+            "text/html; charset=utf-8",
+            TERMS,
+            None,
+            "public, max-age=300",
+        ),
+        "/refunds" | "/refunds/" => (
+            "text/html; charset=utf-8",
+            REFUNDS,
+            None,
+            "public, max-age=300",
+        ),
         "/pricing" | "/pricing/" => {
             return Some(
                 b"HTTP/1.1 301 Moved Permanently\r\nLocation: /#pricing\r\nContent-Length: 0\r\nCache-Control: public, max-age=3600\r\nConnection: close\r\n\r\n".to_vec(),
@@ -210,6 +239,8 @@ mod tests {
     #[test]
     fn page_is_small_and_self_contained() {
         let total = HTML.len() + JS.len() + MARK.len() + ACCOUNT.len();
+        let legal: usize = LEGAL.iter().map(|(_, b)| b.len()).sum();
+        assert!(legal < 96 * 1024, "legal pages weight {legal}");
         assert!(total < 300 * 1024, "page weight {total}");
         let s = std::str::from_utf8(HTML).unwrap();
         for bad in [
@@ -225,6 +256,12 @@ mod tests {
         assert!(s.contains("https://one.galion.app"));
         assert!(s.contains("id=\"pricing\""));
         assert!(s.contains("href=\"/account\""));
+        for (path, _) in LEGAL {
+            assert!(
+                s.contains(&format!("href=\"{path}\"")),
+                "footer links {path}"
+            );
+        }
         for plan in PLANS {
             assert!(s.contains(&format!("<!--pay:{plan}-->")), "{plan}");
             assert!(s.contains(&format!("data-plan=\"{plan}\"")), "{plan}");
@@ -298,5 +335,112 @@ mod tests {
             "accounts owns it"
         );
         assert!(respond("POST", "/", "", "").is_none());
+    }
+
+    #[test]
+    fn legal_pages_are_marked_draft_and_self_contained() {
+        for (path, body) in LEGAL {
+            let s = std::str::from_utf8(body).unwrap();
+            assert!(s.starts_with("<!doctype html>"), "{path}");
+            assert!(
+                s.contains("<meta name=\"robots\" content=\"noindex\">"),
+                "{path}"
+            );
+            assert!(
+                s.contains("Draft, not legal advice"),
+                "{path} must say DRAFT"
+            );
+            assert!(s.contains("(draft) | Galion</title>"), "{path}");
+            assert!(
+                s.contains("[COMPANY NAME]") && s.contains("[CONTACT EMAIL"),
+                "{path} placeholders"
+            );
+            assert!(
+                s.contains(&format!("href=\"{path}\" aria-current=\"page\"")),
+                "{path} nav"
+            );
+            assert!(s.contains("mullvad.net/en/help/"), "{path} cites its model");
+            for bad in [
+                "http://",
+                "<script",
+                "cdn.",
+                "googleapis",
+                "<iframe",
+                "<link rel=\"stylesheet\"",
+                " style=\"",
+                "@TITLE@",
+                "@CUR_",
+            ] {
+                assert!(!s.contains(bad), "{path}: {bad}");
+            }
+            for (other, _) in LEGAL {
+                assert!(
+                    s.contains(&format!("href=\"{other}\"")),
+                    "{path} links {other}"
+                );
+            }
+            assert!(s.trim_end().ends_with("</html>"), "{path}");
+        }
+        let p = std::str::from_utf8(PRIVACY).unwrap();
+        for fact in [
+            "galion_acct",
+            "30 days",
+            "120 days",
+            "20 days",
+            "no</strong> link to any account",
+            "AZOP",
+            "Stripe",
+        ] {
+            assert!(p.contains(fact), "privacy: {fact}");
+        }
+        let r = std::str::from_utf8(REFUNDS).unwrap();
+        assert!(
+            r.contains("14 days")
+                && r.contains("Model withdrawal form")
+                && r.contains("2011/83/EU")
+        );
+        let t = std::str::from_utf8(TERMS).unwrap();
+        assert!(
+            t.contains("&euro;20 per month")
+                && t.contains("&euro;220 per month")
+                && t.contains("MIT License")
+        );
+    }
+
+    #[test]
+    fn legal_routes() {
+        for (path, body) in LEGAL {
+            for p in [path.to_string(), format!("{path}/")] {
+                let r = respond("GET", &p, "gzip", "").unwrap();
+                let head = String::from_utf8_lossy(&r[..r.len() - body.len()]).into_owned();
+                assert!(head.starts_with("HTTP/1.1 200 OK\r\n"), "{p}");
+                assert!(
+                    head.contains("Content-Type: text/html; charset=utf-8\r\n"),
+                    "{p}"
+                );
+                assert!(
+                    head.contains("Content-Security-Policy: default-src 'none'"),
+                    "{p}"
+                );
+                assert!(head.contains("X-Content-Type-Options: nosniff\r\n"), "{p}");
+                assert!(
+                    !head.contains("Content-Encoding"),
+                    "{p}: plain, the edge compresses"
+                );
+                assert!(r.ends_with(body), "{p}");
+            }
+            let h = respond("HEAD", path, "", "").unwrap();
+            assert!(String::from_utf8_lossy(&h).ends_with("\r\n\r\n"));
+            let r = respond("GET", path, "", &etag(body)).unwrap();
+            assert!(
+                String::from_utf8_lossy(&r).starts_with("HTTP/1.1 304"),
+                "{path}"
+            );
+            assert!(respond("POST", path, "", "").is_none(), "{path}");
+            assert!(
+                respond("GET", &format!("{path}.html"), "", "").is_none(),
+                "{path}.html"
+            );
+        }
     }
 }

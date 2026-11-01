@@ -1,0 +1,166 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 3000 Galion / galion-studio -->
+<!-- galion.app legal page, DRAFT (swarm/galion-legal-pages-20261101, 2026-11-01 CET). Not legal advice: needs review by a Croatian lawyer and accountant. Static, no libraries, served by galion-one src/home.rs. Markdown source: tmp/legal/*.md -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070A">
+<meta name="robots" content="noindex">
+<title>Refunds and withdrawal (draft) | Galion</title>
+<link rel="icon" href="/galion-mark.svg" type="image/svg+xml">
+<style>
+@font-face{font-family:Jost;src:url(/font/jost.woff2) format("woff2");font-weight:400;font-display:swap}
+:root{--ob:#05070A;--ink:#0B0F14;--sur:#131A22;--line:rgba(167,182,196,.16);--line2:rgba(167,182,196,.28);--mist:#A7B6C4;--tx:#E6EDF3;--sky:#58C4FF;--ice:#B8E8FF;--vio:#9D8CFF;--warn:#FFC86B;
+--disp:Jost,"Futura PT",Futura,"Avenir Next",Avenir,"Segoe UI",system-ui,-apple-system,sans-serif;--txt:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--ob);color:var(--tx);-webkit-text-size-adjust:100%;text-size-adjust:100%;overflow-x:hidden}
+body{margin:0;font:400 1rem/1.65 var(--txt);min-height:100vh;background:radial-gradient(120% 60% at 50% -10%,#0E1A2A 0%,var(--ob) 55%) no-repeat;-webkit-font-smoothing:antialiased}
+img{display:block;max-width:100%}
+a{color:var(--sky);text-underline-offset:.18em}
+a:hover{color:var(--ice)}
+:focus-visible{outline:2px solid var(--sky);outline-offset:3px;border-radius:.4rem}
+.skip{position:absolute;left:-999px;top:0;z-index:50;background:var(--sky);color:var(--ob);padding:.6rem 1rem;border-radius:0 0 .6rem 0}
+.skip:focus{left:0}
+.wrap{width:100%;max-width:72rem;margin:0 auto;padding:0 1.25rem}
+.top{position:-webkit-sticky;position:sticky;top:0;z-index:20;background:rgba(5,7,10,.92);border-bottom:1px solid var(--line)}
+@supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.top{background:rgba(5,7,10,.6);-webkit-backdrop-filter:saturate(140%) blur(16px);backdrop-filter:saturate(140%) blur(16px)}}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:3.75rem}
+.brand{display:flex;align-items:center;text-decoration:none;color:var(--tx)}
+.brand:hover{color:var(--tx)}
+.brand img{width:2rem;height:2rem;margin-right:.6rem}
+.word{font-family:var(--disp);font-size:1.15rem;letter-spacing:.32em;text-transform:uppercase;padding-left:.1em}
+.nav{display:flex;align-items:center}
+.nav a{white-space:nowrap;text-decoration:none;color:var(--mist);font-size:.92rem;padding:.5rem .6rem;border-radius:.6rem}
+.nav a:hover,.nav a[aria-current]{color:var(--tx)}
+.nav a[aria-current]{box-shadow:inset 0 -2px 0 var(--sky)}
+@media (max-width:30rem){.nav a{padding:.5rem .4rem;font-size:.86rem}.word{letter-spacing:.24em}.brand img{margin-right:.4rem}}
+@media (max-width:23rem){.word{display:none}}
+main{padding:2.2rem 0 4rem}
+.doc{max-width:46rem;margin:0 auto}
+.draft{border:1px dashed rgba(255,200,107,.6);background:rgba(255,200,107,.07);border-radius:1rem;padding:1rem 1.2rem;margin:0 0 2rem;color:var(--tx);font-size:.95rem}
+.draft strong{color:var(--warn);letter-spacing:.08em;text-transform:uppercase;font-size:.82rem;display:block;margin-bottom:.25rem}
+.kick{font-size:.78rem;letter-spacing:.2em;text-transform:uppercase;color:var(--sky);margin:0}
+h1,h2,h3{font-family:var(--disp);font-weight:400;letter-spacing:-.02em;line-height:1.15}
+h1{font-size:2.3rem;font-size:clamp(2rem,6vw,3.2rem);margin:.5rem 0 .4rem}
+h2{font-size:1.55rem;margin:2.6rem 0 .7rem;padding-top:1.4rem;border-top:1px solid var(--line)}
+h3{font-size:1.2rem;margin:1.6rem 0 .4rem;color:var(--ice)}
+p,ul,ol,blockquote,.tbl{margin:0 0 1rem}
+.upd{color:var(--mist);font-size:.92rem}
+ul,ol{padding-left:1.3rem}
+li{margin:.3rem 0}
+li::marker{color:var(--sky)}
+.short{border:1px solid var(--line);border-radius:1.25rem;padding:1.2rem 1.4rem .4rem;background:linear-gradient(180deg,rgba(27,38,51,.55),rgba(11,15,20,.55));margin-top:1.6rem}
+.short h2{border:0;padding:0;margin:0 0 .6rem;font-size:1.3rem}
+.tbl{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:1rem}
+table{border-collapse:collapse;width:100%;font-size:.93rem;min-width:34rem}
+th,td{text-align:left;vertical-align:top;padding:.65rem .8rem;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+th{font-weight:500;color:var(--mist);font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;background:rgba(19,26,34,.7)}
+code{font:.9em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:rgba(167,182,196,.1);border-radius:.35rem;padding:.08em .35em;word-break:break-word}
+blockquote{border-left:3px solid var(--sky);background:rgba(88,196,255,.06);border-radius:0 .8rem .8rem 0;padding:.8rem 1rem;color:var(--tx)}
+blockquote p:last-child{margin-bottom:0}
+.ph{background:rgba(255,200,107,.14);color:var(--warn);border-radius:.3rem;padding:0 .25em;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.note{border-left:3px solid var(--warn);padding:.6rem 1rem;background:rgba(255,200,107,.05);border-radius:0 .8rem .8rem 0;color:var(--mist);font-size:.93rem}
+.src{color:var(--mist);font-size:.86rem;margin-top:2.6rem;padding-top:1.2rem;border-top:1px solid var(--line)}
+address{font-style:normal}
+footer{border-top:1px solid var(--line);padding:2rem 0 2.6rem;color:var(--mist);font-size:.88rem}
+footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center}
+footer a{color:var(--mist);margin-right:1.2rem;text-decoration:none;display:inline-block;padding:.3rem 0}
+footer a:hover{color:var(--tx)}
+footer p{margin:.4rem 0}
+@media print{.top,footer,.skip{display:none}html,body{background:#fff;color:#000}a,.ph,h3{color:#000}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+ <div class="wrap">
+  <a class="brand" href="/" aria-label="Galion home"><img src="/galion-mark.svg" alt="" width="32" height="32"><span class="word">Galion</span></a>
+  <nav class="nav" aria-label="Legal">
+   <a href="/privacy">Privacy</a>
+   <a href="/terms">Terms</a>
+   <a href="/refunds" aria-current="page">Refunds</a>
+  </nav>
+ </div>
+</header>
+<main id="main">
+<article class="doc wrap">
+<div class="draft" role="note"><strong>Draft, not legal advice</strong>This page is a draft. It has not yet been reviewed by a Croatian lawyer or accountant and is not in force. Text in <span class="ph">[brackets]</span> is still to be filled in.</div>
+<p class="kick">Legal</p>
+<h1>Refunds and the 14-day right of withdrawal</h1>
+<p class="upd">Last updated: <span class="ph">[DATE OF PUBLICATION]</span></p>
+
+<section class="short" aria-labelledby="r-short">
+<h2 id="r-short">The short version</h2>
+<ul>
+<li>If you live in the EU, you can withdraw from a new Plus or Pro subscription within <strong>14 days</strong>, without giving a reason.</li>
+<li>Because the hosted service starts right away, we ask you at checkout to agree to that. If you withdraw within the 14 days, we refund what you paid <span class="ph">[in full / minus the days already used]</span>.</li>
+<li>After 14 days, you can cancel any time and keep the time you have already paid for. We do not refund part-months, except where the law requires it or we close the service.</li>
+<li>The Free version costs nothing, so there is nothing to refund.</li>
+</ul>
+</section>
+<p class="note"><span class="ph">[Decide one: (A) full refund within 14 days, like Mullvad&rsquo;s money-back guarantee; or (B) the legal minimum, a refund minus a fair amount for the days already used.]</span></p>
+
+<h2 id="consent">Starting right away (consent at checkout)</h2>
+<p>Paid plans begin as soon as your payment reaches us. At checkout you will see:</p>
+<blockquote><p>&ldquo;I want my Galion subscription to start right away. I understand that if I withdraw within 14 days, <span class="ph">[I get a full refund / I pay for the days I have already used]</span>.&rdquo;</p></blockquote>
+<p class="note"><span class="ph">[To confirm the wording under Directive 2011/83/EU (Art. 14(3) and 16(a), as amended by 2019/2161) and the Croatian Consumer Protection Act. Also decide how we confirm the contract and this consent on a durable medium without an email, for example a printable receipt on the account page.]</span></p>
+
+<h2 id="how">How to withdraw or ask for a refund</h2>
+<p>Tell us clearly, within 14 days of your first payment for a plan, that you want to withdraw. You can use the <a href="#form">form below</a>, but you do not have to. Send it to <span class="ph">[CONTACT EMAIL OR OTHER CONTACT CHANNEL]</span> or by post to <span class="ph">[ADDRESS]</span>.</p>
+<p>To find your payment we need <strong>one</strong> of:</p>
+<ul>
+<li><strong>Card:</strong> the payment reference shown on your account page, or the Stripe receipt (date and amount). You do not have to give us your account number.</li>
+<li><strong>Cash:</strong> your account number and the cash reference (<code>GC-&hellip;</code>), plus how you would like the money back (see below).</li>
+<li><strong>Crypto (when available):</strong> your account number and the payment reference.</li>
+</ul>
+<p>We will confirm that we received your request and refund within <strong>14 days</strong> of receiving it.</p>
+
+<h2 id="back">How the money comes back</h2>
+<div class="tbl" role="region" aria-label="Refund methods" tabindex="0"><table>
+<thead><tr><th scope="col">Paid by</th><th scope="col">Refund goes to</th></tr></thead>
+<tbody>
+<tr><td>Card (Stripe)</td><td>The same card, through Stripe. Your bank may take a few more days to show it.</td></tr>
+<tr><td>Cash by post</td><td><span class="ph">[Decide: bank transfer to an IBAN you give us, or cash by post to an address you give us.]</span> Either way you would be telling us who you are, so we delete those details once the refund is done, apart from what accounting law requires.</td></tr>
+<tr><td>Crypto</td><td><span class="ph">[The same coin, to an address you give us, for the euro amount you paid. Decide who pays the network fee.]</span></td></tr>
+</tbody></table></div>
+<p>The paid time on the account ends when the refund is made.</p>
+
+<h2 id="after">After 14 days</h2>
+<ul>
+<li><strong>Card:</strong> cancel any time on your account page. The subscription stops at the end of the month you have paid for. No further charges.</li>
+<li><strong>Cash and crypto:</strong> these are one-off top-ups that never renew. Unused time is not refunded, except as below.</li>
+<li>If the service did not work as promised, contact us. You have legal remedies for digital services (fixing the problem, a price reduction or ending the contract), whatever you paid with.</li>
+<li>If we close your account without a good reason under the <a href="/terms">Terms</a>, or stop the hosted service, we refund the unused paid time.</li>
+</ul>
+
+<h2 id="examples">Examples</h2>
+<ul>
+<li>You subscribe to Plus by card on 1 March and withdraw on 10 March: <span class="ph">[Option A]</span> &euro;20 back to your card. <span class="ph">[Option B]</span> &euro;20 minus 9/30 of &euro;20, so &euro;14 back.</li>
+<li>You subscribe on 1 March, keep it, and cancel on 20 April: no refund. Plus keeps working until the end of the month you paid for, then the account goes back to Free.</li>
+</ul>
+
+<h2 id="form">Model withdrawal form</h2>
+<p>(Fill in and send this form only if you want to withdraw from the contract.)</p>
+<blockquote>
+<p>To: <span class="ph">[COMPANY NAME]</span>, <span class="ph">[ADDRESS]</span>, <span class="ph">[CONTACT EMAIL OR OTHER CONTACT CHANNEL]</span></p>
+<p>I hereby give notice that I withdraw from my contract for the provision of the following service: Galion <span class="ph">[Plus / Pro]</span> subscription.</p>
+<p>Ordered on: ________ &nbsp; Payment reference: ________</p>
+<p>Name (only if needed for the refund method): ________</p>
+<p>Date: ________</p>
+</blockquote>
+
+<p class="src">The layout per payment method follows Mullvad VPN&rsquo;s public <a href="https://mullvad.net/en/help/refunds" rel="noopener">Refunds</a> page and the refund section of its <a href="https://mullvad.net/en/help/terms-service" rel="noopener">Terms of service</a>, read on 1 November 2026. Unlike Mullvad, which does not refund cash or crypto, this draft offers withdrawal for every payment method, because the EU right of withdrawal does not depend on how you pay. The model form follows Annex I(B) of Directive 2011/83/EU. Galion is not affiliated with Mullvad.</p>
+</article>
+</main>
+<footer>
+ <div class="wrap">
+  <p>Galion and the Obsidian Open Mind stack. Open source under the MIT License.</p>
+  <div><a href="/">Home</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/refunds">Refunds</a></div>
+ </div>
+</footer>
+</body>
+</html>

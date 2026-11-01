@@ -1,0 +1,199 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 3000 Galion / galion-studio -->
+<!-- galion.app legal page, DRAFT (swarm/galion-legal-pages-20261101, 2026-11-01 CET). Not legal advice: needs review by a Croatian lawyer and accountant. Static, no libraries, served by galion-one src/home.rs. Markdown source: tmp/legal/*.md -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070A">
+<meta name="robots" content="noindex">
+<title>Privacy Policy (draft) | Galion</title>
+<link rel="icon" href="/galion-mark.svg" type="image/svg+xml">
+<style>
+@font-face{font-family:Jost;src:url(/font/jost.woff2) format("woff2");font-weight:400;font-display:swap}
+:root{--ob:#05070A;--ink:#0B0F14;--sur:#131A22;--line:rgba(167,182,196,.16);--line2:rgba(167,182,196,.28);--mist:#A7B6C4;--tx:#E6EDF3;--sky:#58C4FF;--ice:#B8E8FF;--vio:#9D8CFF;--warn:#FFC86B;
+--disp:Jost,"Futura PT",Futura,"Avenir Next",Avenir,"Segoe UI",system-ui,-apple-system,sans-serif;--txt:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--ob);color:var(--tx);-webkit-text-size-adjust:100%;text-size-adjust:100%;overflow-x:hidden}
+body{margin:0;font:400 1rem/1.65 var(--txt);min-height:100vh;background:radial-gradient(120% 60% at 50% -10%,#0E1A2A 0%,var(--ob) 55%) no-repeat;-webkit-font-smoothing:antialiased}
+img{display:block;max-width:100%}
+a{color:var(--sky);text-underline-offset:.18em}
+a:hover{color:var(--ice)}
+:focus-visible{outline:2px solid var(--sky);outline-offset:3px;border-radius:.4rem}
+.skip{position:absolute;left:-999px;top:0;z-index:50;background:var(--sky);color:var(--ob);padding:.6rem 1rem;border-radius:0 0 .6rem 0}
+.skip:focus{left:0}
+.wrap{width:100%;max-width:72rem;margin:0 auto;padding:0 1.25rem}
+.top{position:-webkit-sticky;position:sticky;top:0;z-index:20;background:rgba(5,7,10,.92);border-bottom:1px solid var(--line)}
+@supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.top{background:rgba(5,7,10,.6);-webkit-backdrop-filter:saturate(140%) blur(16px);backdrop-filter:saturate(140%) blur(16px)}}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:3.75rem}
+.brand{display:flex;align-items:center;text-decoration:none;color:var(--tx)}
+.brand:hover{color:var(--tx)}
+.brand img{width:2rem;height:2rem;margin-right:.6rem}
+.word{font-family:var(--disp);font-size:1.15rem;letter-spacing:.32em;text-transform:uppercase;padding-left:.1em}
+.nav{display:flex;align-items:center}
+.nav a{white-space:nowrap;text-decoration:none;color:var(--mist);font-size:.92rem;padding:.5rem .6rem;border-radius:.6rem}
+.nav a:hover,.nav a[aria-current]{color:var(--tx)}
+.nav a[aria-current]{box-shadow:inset 0 -2px 0 var(--sky)}
+@media (max-width:30rem){.nav a{padding:.5rem .4rem;font-size:.86rem}.word{letter-spacing:.24em}.brand img{margin-right:.4rem}}
+@media (max-width:23rem){.word{display:none}}
+main{padding:2.2rem 0 4rem}
+.doc{max-width:46rem;margin:0 auto}
+.draft{border:1px dashed rgba(255,200,107,.6);background:rgba(255,200,107,.07);border-radius:1rem;padding:1rem 1.2rem;margin:0 0 2rem;color:var(--tx);font-size:.95rem}
+.draft strong{color:var(--warn);letter-spacing:.08em;text-transform:uppercase;font-size:.82rem;display:block;margin-bottom:.25rem}
+.kick{font-size:.78rem;letter-spacing:.2em;text-transform:uppercase;color:var(--sky);margin:0}
+h1,h2,h3{font-family:var(--disp);font-weight:400;letter-spacing:-.02em;line-height:1.15}
+h1{font-size:2.3rem;font-size:clamp(2rem,6vw,3.2rem);margin:.5rem 0 .4rem}
+h2{font-size:1.55rem;margin:2.6rem 0 .7rem;padding-top:1.4rem;border-top:1px solid var(--line)}
+h3{font-size:1.2rem;margin:1.6rem 0 .4rem;color:var(--ice)}
+p,ul,ol,blockquote,.tbl{margin:0 0 1rem}
+.upd{color:var(--mist);font-size:.92rem}
+ul,ol{padding-left:1.3rem}
+li{margin:.3rem 0}
+li::marker{color:var(--sky)}
+.short{border:1px solid var(--line);border-radius:1.25rem;padding:1.2rem 1.4rem .4rem;background:linear-gradient(180deg,rgba(27,38,51,.55),rgba(11,15,20,.55));margin-top:1.6rem}
+.short h2{border:0;padding:0;margin:0 0 .6rem;font-size:1.3rem}
+.tbl{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:1rem}
+table{border-collapse:collapse;width:100%;font-size:.93rem;min-width:34rem}
+th,td{text-align:left;vertical-align:top;padding:.65rem .8rem;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+th{font-weight:500;color:var(--mist);font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;background:rgba(19,26,34,.7)}
+code{font:.9em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:rgba(167,182,196,.1);border-radius:.35rem;padding:.08em .35em;word-break:break-word}
+blockquote{border-left:3px solid var(--sky);background:rgba(88,196,255,.06);border-radius:0 .8rem .8rem 0;padding:.8rem 1rem;color:var(--tx)}
+blockquote p:last-child{margin-bottom:0}
+.ph{background:rgba(255,200,107,.14);color:var(--warn);border-radius:.3rem;padding:0 .25em;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.note{border-left:3px solid var(--warn);padding:.6rem 1rem;background:rgba(255,200,107,.05);border-radius:0 .8rem .8rem 0;color:var(--mist);font-size:.93rem}
+.src{color:var(--mist);font-size:.86rem;margin-top:2.6rem;padding-top:1.2rem;border-top:1px solid var(--line)}
+address{font-style:normal}
+footer{border-top:1px solid var(--line);padding:2rem 0 2.6rem;color:var(--mist);font-size:.88rem}
+footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center}
+footer a{color:var(--mist);margin-right:1.2rem;text-decoration:none;display:inline-block;padding:.3rem 0}
+footer a:hover{color:var(--tx)}
+footer p{margin:.4rem 0}
+@media print{.top,footer,.skip{display:none}html,body{background:#fff;color:#000}a,.ph,h3{color:#000}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+ <div class="wrap">
+  <a class="brand" href="/" aria-label="Galion home"><img src="/galion-mark.svg" alt="" width="32" height="32"><span class="word">Galion</span></a>
+  <nav class="nav" aria-label="Legal">
+   <a href="/privacy" aria-current="page">Privacy</a>
+   <a href="/terms">Terms</a>
+   <a href="/refunds">Refunds</a>
+  </nav>
+ </div>
+</header>
+<main id="main">
+<article class="doc wrap">
+<div class="draft" role="note"><strong>Draft, not legal advice</strong>This page is a draft. It has not yet been reviewed by a Croatian lawyer or accountant and is not in force. Text in <span class="ph">[brackets]</span> is still to be filled in.</div>
+<p class="kick">Legal</p>
+<h1>Privacy Policy</h1>
+<p class="upd">Last updated: <span class="ph">[DATE OF PUBLICATION]</span></p>
+
+<section class="short" aria-labelledby="p-short">
+<h2 id="p-short">The short version</h2>
+<ul>
+<li>Your Galion account is a random 16-digit number. We do not ask for your name, email or phone.</li>
+<li>We do not store your IP address. We keep no activity logs about what you do with your account.</li>
+<li>We keep only what we need to know whether your account has paid time, and the totals our accountant is required by law to keep.</li>
+<li>If you pay by card, Stripe handles the payment. Stripe may ask for your email and country and keeps its own records. If you want no link at all between you and your account, pay by cash (or by crypto, when it is switched on).</li>
+<li>If you run Galion yourself (the Free, open source version), it runs on your computer and sends nothing to us.</li>
+</ul>
+</section>
+
+<h2 id="controller">Who is responsible</h2>
+<p>The data controller is:</p>
+<address><span class="ph">[COMPANY NAME]</span><br><span class="ph">[LEGAL FORM]</span><br><span class="ph">[ADDRESS]</span>, Croatia<br>OIB: <span class="ph">[OIB]</span><br>Contact: <span class="ph">[CONTACT EMAIL OR OTHER CONTACT CHANNEL]</span></address>
+
+<h2 id="account">Your numbered account</h2>
+<p>When you press &ldquo;Generate account number&rdquo;, our server creates a random 16-digit number and shows it to you once. That number is your user name and your password.</p>
+<ul>
+<li>We store only a <strong>scrambled form</strong> of the number (a one-way hash made with a secret key). It cannot be turned back into the number. This is why <strong>we cannot show you your number again, and we cannot recover a lost number.</strong></li>
+<li>With the account we store: the plan (Free, Plus or Pro) and the date your paid time ends.</li>
+<li>Anyone can create as many accounts as they like. An account number does not tell us who you are.</li>
+</ul>
+
+<h2 id="keep">What we keep, and for how long</h2>
+<div class="tbl" role="region" aria-label="What we keep" tabindex="0"><table>
+<thead><tr><th scope="col">What</th><th scope="col">Why</th><th scope="col">How long</th></tr></thead>
+<tbody>
+<tr><td>Scrambled account number, plan, paid-until date</td><td>To know whether your account has paid time</td><td>While the account exists <span class="ph">[decide: are unpaid Free accounts deleted after N months?]</span></td></tr>
+<tr><td>Sign-in session (cookie <code>galion_acct</code>; we store only a scrambled copy)</td><td>To keep you signed in</td><td>Up to 30 days, or until you sign out</td></tr>
+<tr><td>Stripe customer id and subscription id</td><td>So monthly card renewals reach your account</td><td>Only while your card subscription is active. Deleted when it ends</td></tr>
+<tr><td>Payment reference (a random code such as <code>gp_&hellip;</code> or <code>GC-&hellip;</code>)</td><td>To match a payment to your account</td><td>Card and online: 20 days. Cash: 120 days (post can be slow). Unlinked from your account once used</td></tr>
+<tr><td>Stripe event ids</td><td>To avoid counting one payment twice</td><td>30 days</td></tr>
+<tr><td>Money ledger: day, payment method, amount, currency</td><td>Required by accounting and tax law</td><td>The legal retention period <span class="ph">[confirm: Croatian law may require up to 11 years for some records]</span>. It has <strong>no</strong> link to any account</td></tr>
+<tr><td>Rate-limit counters (a scrambled form of your IP address, with a key replaced every 24 hours)</td><td>To stop password guessing and abuse</td><td>In memory only, never written to disk, gone within 24 hours</td></tr>
+</tbody></table></div>
+<p><strong>What we do not keep:</strong> IP addresses, email addresses, names, phone numbers, browsing or activity logs, or analytics. We use no tracking cookies and no third-party analytics.</p>
+
+<h2 id="payments">Payments</h2>
+<h3>Card (Stripe)</h3>
+<p>Card payments run on Stripe&rsquo;s own checkout page. We never see your card number.</p>
+<ul>
+<li>We send Stripe a random payment reference. We never send it your account number or an email.</li>
+<li>Stripe may ask you for an email address and your billing country (for receipts, fraud checks and VAT) and keeps its own records as a payment company. For that processing Stripe is generally its own controller; see <a href="https://stripe.com/privacy" rel="noopener">Stripe&rsquo;s privacy policy</a>.</li>
+<li><strong>Be aware:</strong> while a monthly card subscription is active, we keep Stripe&rsquo;s customer and subscription ids next to your account. Someone holding both our records and Stripe&rsquo;s could link that account to the card holder. When the subscription ends, we delete those ids.</li>
+</ul>
+<h3>Cash by post</h3>
+<p>You get a reference such as <code>GC-PA20-FS10-VCT8</code>. Put only that reference on a slip of paper, with euro notes, in an envelope, and post it to <span class="ph">[CASH POSTAL ADDRESS]</span>. Please do not write your name, your address or your account number on the envelope or the slip.</p>
+<p>We open the envelope, add the time to the account, and shred the envelope and slip. We keep the day, the amount and the currency in the money ledger, with no link to any account.</p>
+<h3>Crypto (not yet available)</h3>
+<p>When it is switched on, we plan to use our own self-hosted wallet (<span class="ph">[BTCPay Server for Bitcoin and/or Monero]</span>, no third-party custodian). Note that Bitcoin payments are public on the blockchain. This section will be updated before crypto payments open.</p>
+
+<h2 id="hosted">Using the hosted service (Plus and Pro)</h2>
+<p class="note"><span class="ph">[To fill in: exactly what the hosted Galion One, Hermes and the Pro cloud computer store (for example conversations, memory, files on the Pro SSD); where it is stored; whether any request goes to a third-party AI model provider, and which one; and when this data is deleted after a subscription ends. This section is required and must match how the service really works.]</span></p>
+<p>Your own content belongs to you. We do not sell it, and we do not use it to train AI models <span class="ph">[confirm]</span>.</p>
+
+<h2 id="free">Running Galion yourself (Free)</h2>
+<p>The Free version is open source under the MIT License and runs on your own computer. It does not send us your data. If you connect it to an online AI model, that model&rsquo;s provider receives what you send it, under that provider&rsquo;s terms.</p>
+
+<h2 id="others">Who else processes data</h2>
+<p>We only share data with suppliers who help us run the service:</p>
+<div class="tbl" role="region" aria-label="Suppliers" tabindex="0"><table>
+<thead><tr><th scope="col">Supplier</th><th scope="col">What they do</th><th scope="col">What they can see</th></tr></thead>
+<tbody>
+<tr><td>Stripe <span class="ph">[STRIPE ENTITY]</span></td><td>Card payments</td><td>What you enter on the Stripe checkout page</td></tr>
+<tr><td>Cloudflare <span class="ph">[CLOUDFLARE ENTITY]</span></td><td>Network in front of galion.app (delivery and protection from attacks)</td><td>Your IP address and the requests you make, as part of delivering them <span class="ph">[confirm Cloudflare&rsquo;s role and logging]</span></td></tr>
+<tr><td><span class="ph">[HOSTING PROVIDER]</span></td><td>The servers Galion runs on</td><td>Data stored on those servers</td></tr>
+<tr><td><span class="ph">[ACCOUNTANT]</span></td><td>Bookkeeping</td><td>The money ledger only (no account link)</td></tr>
+</tbody></table></div>
+<h3>Transfers outside the EU/EEA</h3>
+<p class="note"><span class="ph">[To confirm: Stripe and Cloudflare belong to groups based in the United States and may transfer data there, under the EU-US Data Privacy Framework or Standard Contractual Clauses. State where Galion&rsquo;s own servers are.]</span></p>
+
+<h2 id="bases">Why we are allowed to process this</h2>
+<ul>
+<li><strong>To provide the service you asked for</strong> (GDPR Art. 6(1)(b)): account, sessions, plan and paid time, payment references, Stripe ids.</li>
+<li><strong>Legal obligation</strong> (Art. 6(1)(c)): the money ledger for accounting and tax.</li>
+<li><strong>Legitimate interest</strong> (Art. 6(1)(f)): rate limits and security, to protect accounts from guessing and the service from abuse.</li>
+</ul>
+<p>We make no automated decisions about you, and we do no profiling.</p>
+
+<h2 id="rights">Your rights</h2>
+<p>Under the GDPR you can ask to see, correct or delete personal data about you, to restrict or object to its processing, and to receive it in a portable form.</p>
+<p>Because we do not know who owns an account, in most cases we hold nothing that identifies you (GDPR Art. 11). If you can show us your account number, we can tell you what is stored for that account, and delete the account. Deleting an account cannot be undone and ends any paid time.</p>
+<p>You can complain to the Croatian data protection authority, Agencija za za&scaron;titu osobnih podataka (AZOP), <span class="ph">[AZOP ADDRESS]</span>, <a href="https://azop.hr" rel="noopener">azop.hr</a>, or to the authority where you live.</p>
+
+<h2 id="authorities">If authorities ask</h2>
+<p>We follow the law. But we can only hand over what we have, and that is described above: for most accounts, &ldquo;some account has paid time until a certain date&rdquo;, with no way to say who owns it.</p>
+
+<h2 id="changes">Changes</h2>
+<p>If we change this policy, we will publish the new version here with a new date, and announce material changes on galion.app at least <span class="ph">[30]</span> days before they apply.</p>
+
+<h2 id="contact">Contact</h2>
+<p><span class="ph">[CONTACT EMAIL OR OTHER CONTACT CHANNEL]</span>. Please do not send your account number by email unless we ask for it, and never give it to anyone claiming to be us.</p>
+
+<p class="src">The layout and plain language follow Mullvad VPN&rsquo;s public <a href="https://mullvad.net/en/help/privacy-policy" rel="noopener">Privacy policy</a> and <a href="https://mullvad.net/en/help/no-logging-data-policy" rel="noopener">No-logging policy</a>, read on 1 November 2026. Galion is not affiliated with Mullvad.</p>
+</article>
+</main>
+<footer>
+ <div class="wrap">
+  <p>Galion and the Obsidian Open Mind stack. Open source under the MIT License.</p>
+  <div><a href="/">Home</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/refunds">Refunds</a></div>
+ </div>
+</footer>
+</body>
+</html>

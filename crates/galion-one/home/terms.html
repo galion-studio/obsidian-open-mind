@@ -1,0 +1,180 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 3000 Galion / galion-studio -->
+<!-- galion.app legal page, DRAFT (swarm/galion-legal-pages-20261101, 2026-11-01 CET). Not legal advice: needs review by a Croatian lawyer and accountant. Static, no libraries, served by galion-one src/home.rs. Markdown source: tmp/legal/*.md -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070A">
+<meta name="robots" content="noindex">
+<title>Terms of Service (draft) | Galion</title>
+<link rel="icon" href="/galion-mark.svg" type="image/svg+xml">
+<style>
+@font-face{font-family:Jost;src:url(/font/jost.woff2) format("woff2");font-weight:400;font-display:swap}
+:root{--ob:#05070A;--ink:#0B0F14;--sur:#131A22;--line:rgba(167,182,196,.16);--line2:rgba(167,182,196,.28);--mist:#A7B6C4;--tx:#E6EDF3;--sky:#58C4FF;--ice:#B8E8FF;--vio:#9D8CFF;--warn:#FFC86B;
+--disp:Jost,"Futura PT",Futura,"Avenir Next",Avenir,"Segoe UI",system-ui,-apple-system,sans-serif;--txt:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--ob);color:var(--tx);-webkit-text-size-adjust:100%;text-size-adjust:100%;overflow-x:hidden}
+body{margin:0;font:400 1rem/1.65 var(--txt);min-height:100vh;background:radial-gradient(120% 60% at 50% -10%,#0E1A2A 0%,var(--ob) 55%) no-repeat;-webkit-font-smoothing:antialiased}
+img{display:block;max-width:100%}
+a{color:var(--sky);text-underline-offset:.18em}
+a:hover{color:var(--ice)}
+:focus-visible{outline:2px solid var(--sky);outline-offset:3px;border-radius:.4rem}
+.skip{position:absolute;left:-999px;top:0;z-index:50;background:var(--sky);color:var(--ob);padding:.6rem 1rem;border-radius:0 0 .6rem 0}
+.skip:focus{left:0}
+.wrap{width:100%;max-width:72rem;margin:0 auto;padding:0 1.25rem}
+.top{position:-webkit-sticky;position:sticky;top:0;z-index:20;background:rgba(5,7,10,.92);border-bottom:1px solid var(--line)}
+@supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.top{background:rgba(5,7,10,.6);-webkit-backdrop-filter:saturate(140%) blur(16px);backdrop-filter:saturate(140%) blur(16px)}}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:3.75rem}
+.brand{display:flex;align-items:center;text-decoration:none;color:var(--tx)}
+.brand:hover{color:var(--tx)}
+.brand img{width:2rem;height:2rem;margin-right:.6rem}
+.word{font-family:var(--disp);font-size:1.15rem;letter-spacing:.32em;text-transform:uppercase;padding-left:.1em}
+.nav{display:flex;align-items:center}
+.nav a{white-space:nowrap;text-decoration:none;color:var(--mist);font-size:.92rem;padding:.5rem .6rem;border-radius:.6rem}
+.nav a:hover,.nav a[aria-current]{color:var(--tx)}
+.nav a[aria-current]{box-shadow:inset 0 -2px 0 var(--sky)}
+@media (max-width:30rem){.nav a{padding:.5rem .4rem;font-size:.86rem}.word{letter-spacing:.24em}.brand img{margin-right:.4rem}}
+@media (max-width:23rem){.word{display:none}}
+main{padding:2.2rem 0 4rem}
+.doc{max-width:46rem;margin:0 auto}
+.draft{border:1px dashed rgba(255,200,107,.6);background:rgba(255,200,107,.07);border-radius:1rem;padding:1rem 1.2rem;margin:0 0 2rem;color:var(--tx);font-size:.95rem}
+.draft strong{color:var(--warn);letter-spacing:.08em;text-transform:uppercase;font-size:.82rem;display:block;margin-bottom:.25rem}
+.kick{font-size:.78rem;letter-spacing:.2em;text-transform:uppercase;color:var(--sky);margin:0}
+h1,h2,h3{font-family:var(--disp);font-weight:400;letter-spacing:-.02em;line-height:1.15}
+h1{font-size:2.3rem;font-size:clamp(2rem,6vw,3.2rem);margin:.5rem 0 .4rem}
+h2{font-size:1.55rem;margin:2.6rem 0 .7rem;padding-top:1.4rem;border-top:1px solid var(--line)}
+h3{font-size:1.2rem;margin:1.6rem 0 .4rem;color:var(--ice)}
+p,ul,ol,blockquote,.tbl{margin:0 0 1rem}
+.upd{color:var(--mist);font-size:.92rem}
+ul,ol{padding-left:1.3rem}
+li{margin:.3rem 0}
+li::marker{color:var(--sky)}
+.short{border:1px solid var(--line);border-radius:1.25rem;padding:1.2rem 1.4rem .4rem;background:linear-gradient(180deg,rgba(27,38,51,.55),rgba(11,15,20,.55));margin-top:1.6rem}
+.short h2{border:0;padding:0;margin:0 0 .6rem;font-size:1.3rem}
+.tbl{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:1rem}
+table{border-collapse:collapse;width:100%;font-size:.93rem;min-width:34rem}
+th,td{text-align:left;vertical-align:top;padding:.65rem .8rem;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+th{font-weight:500;color:var(--mist);font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;background:rgba(19,26,34,.7)}
+code{font:.9em ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:rgba(167,182,196,.1);border-radius:.35rem;padding:.08em .35em;word-break:break-word}
+blockquote{border-left:3px solid var(--sky);background:rgba(88,196,255,.06);border-radius:0 .8rem .8rem 0;padding:.8rem 1rem;color:var(--tx)}
+blockquote p:last-child{margin-bottom:0}
+.ph{background:rgba(255,200,107,.14);color:var(--warn);border-radius:.3rem;padding:0 .25em;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+.note{border-left:3px solid var(--warn);padding:.6rem 1rem;background:rgba(255,200,107,.05);border-radius:0 .8rem .8rem 0;color:var(--mist);font-size:.93rem}
+.src{color:var(--mist);font-size:.86rem;margin-top:2.6rem;padding-top:1.2rem;border-top:1px solid var(--line)}
+address{font-style:normal}
+footer{border-top:1px solid var(--line);padding:2rem 0 2.6rem;color:var(--mist);font-size:.88rem}
+footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center}
+footer a{color:var(--mist);margin-right:1.2rem;text-decoration:none;display:inline-block;padding:.3rem 0}
+footer a:hover{color:var(--tx)}
+footer p{margin:.4rem 0}
+@media print{.top,footer,.skip{display:none}html,body{background:#fff;color:#000}a,.ph,h3{color:#000}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top">
+ <div class="wrap">
+  <a class="brand" href="/" aria-label="Galion home"><img src="/galion-mark.svg" alt="" width="32" height="32"><span class="word">Galion</span></a>
+  <nav class="nav" aria-label="Legal">
+   <a href="/privacy">Privacy</a>
+   <a href="/terms" aria-current="page">Terms</a>
+   <a href="/refunds">Refunds</a>
+  </nav>
+ </div>
+</header>
+<main id="main">
+<article class="doc wrap">
+<div class="draft" role="note"><strong>Draft, not legal advice</strong>This page is a draft. It has not yet been reviewed by a Croatian lawyer or accountant and is not in force. Text in <span class="ph">[brackets]</span> is still to be filled in.</div>
+<p class="kick">Legal</p>
+<h1>Terms of Service</h1>
+<p class="upd">Last updated: <span class="ph">[DATE OF PUBLICATION]</span></p>
+<p>By creating a Galion account, paying for a plan, or using the hosted service at galion.app, you agree to these terms. If you are a consumer, nothing here takes away the rights the law gives you.</p>
+
+<h2 id="who">Who we are</h2>
+<address><span class="ph">[COMPANY NAME]</span>, <span class="ph">[LEGAL FORM]</span>, <span class="ph">[ADDRESS]</span>, Croatia, OIB <span class="ph">[OIB]</span>, contact <span class="ph">[CONTACT EMAIL OR OTHER CONTACT CHANNEL]</span> (&ldquo;we&rdquo;, &ldquo;us&rdquo;).</address>
+
+<h2 id="service">The service</h2>
+<p>Galion is a personal AI assistant. It comes in three plans:</p>
+<div class="tbl" role="region" aria-label="Plans" tabindex="0"><table>
+<thead><tr><th scope="col">Plan</th><th scope="col">Price</th><th scope="col">What you get</th></tr></thead>
+<tbody>
+<tr><td>Free</td><td>&euro;0</td><td>The open source software (MIT License). You run it yourself, on your own computer. No account needed.</td></tr>
+<tr><td>Plus</td><td>&euro;20 per month</td><td>For one person. The whole galion.app platform hosted for you, Galion One included.</td></tr>
+<tr><td>Pro</td><td>&euro;220 per month</td><td>Everything in Plus, and your Hermes agent gets its own cloud computer and SSD.</td></tr>
+</tbody></table></div>
+<p>Prices are in euros and <span class="ph">[include VAT / exclude VAT: to confirm]</span>. We may improve or change features over time. We will not reduce the main features of a plan you have already paid for during the period you paid for.</p>
+<p>The Free software is licensed under the MIT License, which applies on its own terms. These terms cover the hosted service and paid plans.</p>
+
+<h2 id="account">Your account number</h2>
+<p>Your account is a random 16-digit number. It is your only key.</p>
+<ul>
+<li><strong>Write it down and keep it safe.</strong> We store only a scrambled form of it, so we cannot show it again or recover it. If you lose it, the account and its paid time are lost.</li>
+<li>Anyone who has the number can use the account. Do not share it.</li>
+<li>A plan is for the use described above (Plus: one person).</li>
+</ul>
+
+<h2 id="paying">Paying</h2>
+<ul>
+<li><strong>Card (Stripe):</strong> a monthly subscription that renews automatically each month until you cancel. You can cancel at any time from your account page (Stripe&rsquo;s billing page). Cancelling stops the next renewal; you keep the time already paid for.</li>
+<li><strong>Cash by post:</strong> a one-off top-up. &euro;20 buys 30 days of Plus, and other amounts are counted pro rata (30 days per monthly price). We accept euro notes only. Cash never renews.</li>
+<li><strong>Crypto:</strong> not available yet. When it opens, it will be a one-off top-up like cash.</li>
+<li>Paid time starts when the payment reaches us (for cash: when we open the envelope). If you pay for more time, it is added on top of the time you have left. Paying for a different plan switches the account to that plan.</li>
+<li>If your paid time runs out, the account goes back to Free.</li>
+</ul>
+<p>We will tell you about any price change at least <span class="ph">[30]</span> days before it applies to your subscription, and you can cancel before then.</p>
+
+<h2 id="withdrawal">Withdrawal and refunds</h2>
+<p>You have a 14-day right of withdrawal under EU law. How it works for a service that starts right away is explained on our <a href="/refunds">Refunds and withdrawal</a> page, which is part of these terms.</p>
+
+<h2 id="use">Acceptable use</h2>
+<p>Do not use Galion to:</p>
+<ul>
+<li>break the law, or help anyone else break it;</li>
+<li>harm, harass or defraud other people;</li>
+<li>attack, probe or overload our systems or anyone else&rsquo;s (for example spam, malware, denial of service, or breaking into accounts);</li>
+<li>mine cryptocurrency, run a public proxy or VPN, or resell the service, on any plan <span class="ph">[confirm the list for the Pro cloud computer]</span>;</li>
+<li>create material that sexually exploits children, or any content that is illegal where you or we are.</li>
+</ul>
+<p><strong>Pro cloud computer:</strong> you are responsible for what you, and the agents you instruct, do with it. If it is used against these rules, we may pause it to stop the harm, and we will tell you why where we can (on the account page).</p>
+
+<h2 id="content">Your content</h2>
+<p>What you put into Galion stays yours. You give us only the permission we need to store and process it to run the service for you. See the <a href="/privacy">Privacy Policy</a>.</p>
+<p>AI can be wrong. Check important answers, and do not rely on Galion for medical, legal or financial decisions without checking with a qualified person.</p>
+
+<h2 id="ending">Suspension and ending</h2>
+<ul>
+<li>You can stop using Galion at any time. Cancel a card subscription first so it does not renew.</li>
+<li>We may suspend or close an account that seriously or repeatedly breaks these terms. If we close an account without a good reason under these terms, we will refund the unused paid time.</li>
+<li>If we stop offering the hosted service, we will tell you at least <span class="ph">[60]</span> days in advance on galion.app and refund unused paid time <span class="ph">[how, for cash payers]</span>. The open source software stays available under the MIT License.</li>
+</ul>
+
+<h2 id="liability">Availability and liability</h2>
+<p>We work to keep Galion running and safe, but no online service is up all the time. We may need to pause it for maintenance or security.</p>
+<p>If the service is not as described, you have the legal remedies for digital services (for example having it fixed, a price reduction, or ending the contract) <span class="ph">[cite the Croatian law implementing Directive (EU) 2019/770]</span>.</p>
+<p>We are not liable for indirect losses that we could not reasonably foresee. Nothing in these terms limits liability where the law does not allow it, including for damage caused on purpose or by gross negligence, or for injury to life, body or health <span class="ph">[confirm under the Croatian Obligations Act]</span>.</p>
+
+<h2 id="changes">Changes to these terms</h2>
+<p>We will announce material changes on galion.app at least <span class="ph">[30]</span> days before they apply. If you do not agree, you can cancel before they apply, and we will refund any time paid for after that date <span class="ph">[confirm]</span>.</p>
+
+<h2 id="law">Law and disputes</h2>
+<p>These terms are governed by Croatian law. If you are a consumer living elsewhere in the EU, you also keep the protection of the mandatory consumer law of your country.</p>
+<p>Please contact us first; most problems can be sorted out quickly. Consumers can also go to an out-of-court dispute body: <span class="ph">[ADR BODY]</span>. Courts: <span class="ph">[COMPETENT COURT]</span>, without limiting a consumer&rsquo;s right to sue in their home courts.</p>
+
+<h2 id="contact">Contact</h2>
+<p><span class="ph">[CONTACT EMAIL OR OTHER CONTACT CHANNEL]</span>, <span class="ph">[ADDRESS]</span>.</p>
+
+<p class="src">The layout and plain language follow Mullvad VPN&rsquo;s public <a href="https://mullvad.net/en/help/terms-service" rel="noopener">Terms of service</a>, read on 1 November 2026. Galion is not affiliated with Mullvad.</p>
+</article>
+</main>
+<footer>
+ <div class="wrap">
+  <p>Galion and the Obsidian Open Mind stack. Open source under the MIT License.</p>
+  <div><a href="/">Home</a><a href="/privacy">Privacy</a><a href="/terms">Terms</a><a href="/refunds">Refunds</a></div>
+ </div>
+</footer>
+</body>
+</html>

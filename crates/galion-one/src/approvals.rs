@@ -1739,4 +1739,21 @@ mod crosscheck {
         approve(&cfg, &json!({"nonce": ch["nonce"], "assertion": s}), now).unwrap();
         println!("crosscheck entry {}", root.join("queue").join(id).display());
     }
+
+    #[test]
+    fn page_is_phone_ready() {
+        // 2026-11-01 phone polish: back link first, one unpaired card, safe areas, no outside hosts.
+        assert!(PAGE.contains("<a class=\"ap-back\" href=\"/\">"));
+        let back = PAGE.find("class=\"ap-back\"").unwrap();
+        let title = PAGE.find("<div class=\"hm-title\">").unwrap();
+        assert!(back < title);
+        assert!(PAGE.contains("id=\"ap-unpaired\" hidden"));
+        assert!(PAGE.contains("How signing works"));
+        assert!(PAGE.contains("env(safe-area-inset-bottom)"));
+        assert!(PAGE.contains("viewport-fit=cover"));
+        assert!(!PAGE.contains("Back to the mind"));
+        for bad in ["http://", "https://", " onclick="] {
+            assert!(!PAGE.contains(bad), "{bad}");
+        }
+    }
 }

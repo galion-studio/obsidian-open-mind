@@ -14,12 +14,19 @@
     if (body !== undefined) { o.method = 'POST'; o.headers['content-type'] = 'application/json'; o.body = JSON.stringify(body); }
     return fetch(path, o).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
-        if (r.status === 401) { $('ap-unpaired').hidden = false; throw new Error('This device is not paired.'); }
+        if (r.status === 401) { unpaired(); throw new Error(''); }
         if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
         return j;
       });
     });
   }
+  // Not paired: one clear card, no admin-key panel, no "checking" forever.
+  function unpaired() {
+    $('ap-unpaired').hidden = false; $('hm').classList.add('unpaired');
+    ['st-key', 'st-wait'].forEach(function (id) { $(id).className = 'hm-dot'; $(id + '-v').textContent = 'pair first'; });
+  }
+  // Keep names like hermes-rs on one line (non-breaking hyphen between letters or digits).
+  function nb(s) { return String(s || '').replace(/([A-Za-z0-9])-(?=[A-Za-z0-9])/g, '$1\u2011'); }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function hex(buf) { return Array.prototype.map.call(new Uint8Array(buf), function (b) { return ('0' + b.toString(16)).slice(-2); }).join(''); }
   function b64u(buf) { var s = '', a = new Uint8Array(buf); for (var i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
@@ -88,7 +95,7 @@
     var art = el('article', 'ap-card'); art.dataset.state = c.state; art.dataset.id = c.id;
     var top = el('div', 'ap-top');
     top.appendChild(el('p', 'ap-k', 'Request ' + c.id)); top.appendChild(badge(c)); art.appendChild(top);
-    art.appendChild(el('p', 'ap-plain', c.plain || ''));
+    art.appendChild(el('p', 'ap-plain', nb(c.plain)));
     if (c.state === 'broken') { art.appendChild(el('p', 'ap-out t-bad', (c.blockers || []).join(' · '))); return art; }
     var t = c.test || {}, d = c.dryrun || {}, s = c.stack || {}, a = c.artifact || {};
     var ch = el('ul', 'ap-checks');
@@ -275,8 +282,14 @@
   function loadKey() { return api('/api/owner-key').then(renderKey); }
   function load() {
     return api('/api/approvals').then(function (j) {
-      list = j; skew = j.now - Date.now() / 1000; renderKey(j.owner_key); renderList(j);
+      list = j; skew = j.now - Date.now() / 1000; renderKey(j.owner_key); placeKey(j.owner_key); renderList(j);
     }).catch(function (e) { note('ap-note', e.message, true); $('ap-list').textContent = ''; });
+  }
+  // Until the admin key is active it is the first thing to do, so it sits above the requests.
+  function placeKey(k) {
+    var key = $('ap-key'), lst = $('ap-list'), first = k && k.state !== 'active';
+    if (first && key.nextElementSibling !== lst) lst.parentNode.insertBefore(key, lst);
+    if (!first && lst.nextElementSibling !== key) lst.parentNode.insertBefore(key, lst.nextSibling);
   }
 
   $('ap-new-passkey').onclick = newPasskey;

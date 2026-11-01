@@ -65,7 +65,7 @@ impl Plan {
         match self {
             Plan::Free => "Private and open source. Run it yourself, no account needed.",
             Plan::Plus => "One person, the whole Galion platform.",
-            Plan::Pro => "Your Hermes agent gets its own cloud computer and SSD.",
+            Plan::Pro => "Your agent gets its own cloud computer and SSD.",
         }
     }
 

@@ -121,6 +121,46 @@ pub fn stamp(secs: i64) -> String {
     }
 }
 
+/// `(y, m, d, hh, mm)` of a unix second on the Europe/Zagreb clock.
+fn zagreb_parts(secs: i64) -> Option<(i32, u32, u32, u32, u32)> {
+    let s = zagreb_time::from_unix(secs);
+    let n = |a: usize, b: usize| s.get(a..b).and_then(|v| v.parse::<u32>().ok());
+    Some((n(0, 4)? as i32, n(5, 7)?, n(8, 10)?, n(11, 13)?, n(14, 16)?))
+}
+
+/// Short Europe/Zagreb time for the file list, relative to `now`:
+/// `today 12:41`, `yesterday 18:02`, `31 Oct 09:14` (this year) or
+/// `12 Mar 2025`. A time ahead of `now` (clock skew) gets the full
+/// `2026-11-03 10:00`. The exact RFC 3339 value stays in `mtime_local`.
+pub fn short_stamp(secs: i64, now: i64) -> String {
+    const MON: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    let (Some((y, m, d, hh, mm)), Some((ny, nm, nd, nh, nmin))) =
+        (zagreb_parts(secs), zagreb_parts(now))
+    else {
+        return zagreb_time::from_unix(secs);
+    };
+    let mon = MON[(m.clamp(1, 12) - 1) as usize];
+    if secs > now + 60 {
+        return format!("{y}-{m:02}-{d:02} {hh:02}:{mm:02}");
+    }
+    if (y, m, d) == (ny, nm, nd) {
+        return format!("today {hh:02}:{mm:02}");
+    }
+    // Two hours before today's local midnight is yesterday on every day,
+    // including the two DST switch days (23 h and 25 h long).
+    let since_midnight = i64::from(nh) * 3600 + i64::from(nmin) * 60 + now.rem_euclid(60);
+    if zagreb_parts(now - since_midnight - 7200).map(|(a, b, c, ..)| (a, b, c)) == Some((y, m, d)) {
+        return format!("yesterday {hh:02}:{mm:02}");
+    }
+    if y == ny {
+        format!("{d} {mon} {hh:02}:{mm:02}")
+    } else {
+        format!("{d} {mon} {y}")
+    }
+}
+
 fn mtime_secs(m: &fs::Metadata) -> i64 {
     m.modified()
         .ok()
@@ -335,6 +375,7 @@ impl Root {
             "size": if dir { 0 } else { m.len() },
             "mtime": secs,
             "mtime_local": zagreb_time::from_unix(secs),
+            "mtime_short": short_stamp(secs, now_secs()),
             "kind": t.map(|t| t.kind.as_str()).unwrap_or("folder"),
             "mime": t.map(|t| t.mime).unwrap_or("inode/directory"),
             "lang": t.map(|t| t.lang).unwrap_or(""),
@@ -893,6 +934,32 @@ pub fn hexdump(offset: u64, data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn short_stamp_reads_like_a_person() {
+        // 2026-11-01 12:40:00 CET (+01:00) = 11:40:00 UTC.
+        let now = 1_793_533_200;
+        assert_eq!(zagreb_time::from_unix(now), "2026-11-01T12:40:00+01:00");
+        assert_eq!(short_stamp(now - 60, now), "today 12:39");
+        assert_eq!(short_stamp(now - 12 * 3600 - 39 * 60, now), "today 00:01");
+        assert_eq!(
+            short_stamp(now - 12 * 3600 - 41 * 60, now),
+            "yesterday 23:59"
+        );
+        assert_eq!(short_stamp(now - 36 * 3600, now), "yesterday 00:40");
+        assert_eq!(short_stamp(now - 2 * 86400, now), "30 Oct 12:40");
+        // Summer time in the same year: CEST hour.
+        assert_eq!(short_stamp(now - 200 * 86400, now), "15 Apr 13:40");
+        assert_eq!(short_stamp(now - 400 * 86400, now), "27 Sep 2025");
+        // Ahead of the clock: full date, never "today".
+        assert_eq!(short_stamp(now + 2 * 86400, now), "2026-11-03 12:40");
+        // Day after the autumn switch (2026-10-25 is 25 h long).
+        let mon = 1_792_998_000; // 2026-10-26 08:00 CET
+        assert_eq!(zagreb_time::from_unix(mon), "2026-10-26T08:00:00+01:00");
+        assert_eq!(short_stamp(mon - 9 * 3600, mon), "yesterday 23:00");
+        assert_eq!(short_stamp(mon - 33 * 3600, mon), "yesterday 00:00");
+        assert_eq!(short_stamp(mon - 34 * 3600, mon), "24 Oct 23:00");
+    }
 
     #[test]
     fn segments_refuse_traversal() {

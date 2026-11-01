@@ -103,7 +103,7 @@
       var row = el("a", { cls: "fx-row" + (e.hidden ? " fx-hid" : "") + (st.sel && st.sel.path === e.path ? " sel" : ""), href: "#" + encodeURIComponent(e.path), "data-path": e.path,
         onclick: function (ev) { ev.preventDefault(); if (e.dir) open(e.path); else select(e); } }, [
         icon(e),
-        el("span", { cls: "fx-nm" }, [e.name + (e.dir ? "/" : ""), el("small", { text: (e.broken ? "broken or outside link" : e.mtime_local || "") })]),
+        el("span", { cls: "fx-nm" }, [e.name + (e.dir ? "/" : ""), el("small", { text: (e.broken ? "broken or outside link" : e.mtime_short || e.mtime_local || ""), title: e.broken ? "" : (e.mtime_local || "") })]),
         el("span", { cls: "fx-sz", text: e.dir ? "" : size(e.size) })
       ]);
       list.appendChild(row);
@@ -146,7 +146,7 @@
   function show(i) {
     view.textContent = "";
     var body = el("div", { cls: "fx-body" });
-    var meta = [size(i.size), i.mime, i.mtime_local, i.mode ? "mode " + i.mode : null];
+    var meta = [size(i.size), i.mime, i.mtime_short ? { t: "modified " + i.mtime_short, title: i.mtime_local } : i.mtime_local, i.mode ? "mode " + i.mode : null];
     if (i.media && i.media.duration_s) meta.push(Math.round(i.media.duration_s) + " s");
     if (i.media && i.media.video) meta.push(i.media.video.width + "×" + i.media.video.height + " " + (i.media.video.codec || ""));
     var acts = [act("Download", function () { location.href = raw(i.path, true); })];
@@ -162,7 +162,7 @@
       act("← Back", function () { if (leaveOk()) closeView(); }, "fx-back"),
       el("h2", { text: i.name })
     ]));
-    view.appendChild(el("div", { cls: "fx-meta" }, meta.filter(Boolean).map(function (m) { return el("span", { text: m }); })));
+    view.appendChild(el("div", { cls: "fx-meta" }, meta.filter(Boolean).map(function (m) { return typeof m === "string" ? el("span", { text: m }) : el("span", { text: m.t, title: m.title }); })));
     var actBar = el("div", { cls: "fx-acts" }, acts);
     view.appendChild(actBar);
     view.appendChild(body);

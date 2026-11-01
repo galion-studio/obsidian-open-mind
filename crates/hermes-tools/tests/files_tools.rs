@@ -39,6 +39,13 @@ fn cfg(d: &std::path::Path, write: bool) -> FilesConfig {
         .unwrap()
 }
 
+/// The live setup: the Hermes guard workspace (HERMES_RS_GUARD_WORKSPACE)
+/// is the same folder as HERMES_RS_FILES_ROOT, so the deny list and the
+/// file tools agree on the root. Same as `Policy::from_env()` on the VPS.
+fn live_registry(d: &std::path::Path) -> Registry {
+    Registry::with_policy(hermes_rs::denylist::Policy::workspace(d.join("share")))
+}
+
 fn call(reg: &Registry, tool: &str, args: Value) -> (bool, Value) {
     let cancel = Arc::new(AtomicBool::new(false));
     let emit = |_e: hermes_rs::tools::Event| {};
@@ -79,7 +86,7 @@ fn config_off_relative_and_locked_roots() {
 #[test]
 fn read_only_by_default() {
     let d = scratch("ro");
-    let mut reg = Registry::new();
+    let mut reg = live_registry(&d);
     let names = register_files(&mut reg, cfg(&d, false), None).unwrap();
     assert_eq!(names, READ_TOOLS.to_vec());
     for w in WRITE_TOOLS {
@@ -106,7 +113,8 @@ fn read_only_by_default() {
     );
     let (ok, v) = call(&reg, "files_read", json!({"path": ".env"}));
     assert!(
-        !ok && v["error"].as_str().unwrap().contains("secrets"),
+        // Refused either by the deny list (S6-secret) or by the tool itself.
+        !ok && v["error"].as_str().unwrap().contains("secret"),
         "{v}"
     );
     let (ok, _) = call(&reg, "files_read", json!({"path": "../home/x"}));
@@ -128,7 +136,7 @@ fn read_only_by_default() {
 #[test]
 fn write_round_trip_never_deletes() {
     let d = scratch("rw");
-    let mut reg = Registry::new();
+    let mut reg = live_registry(&d);
     register_files(&mut reg, cfg(&d, true), None).unwrap();
     let share = d.join("share");
     // An edit needs the version from a read.

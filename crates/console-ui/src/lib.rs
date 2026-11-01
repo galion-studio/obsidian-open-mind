@@ -174,6 +174,9 @@ pub const HERMES_MIC_JS: &str = include_str!("assets/hermes-mic.js");
 /// The file explorer room (served by console-static `--files`).
 pub const FILES_PATH: &str = "/files";
 
+/// The phone home page (served by console-static `--phone`).
+pub const PHONE_PATH: &str = "/phone";
+
 /// Page CSP. Only `/hermes` adds `script-src` / `connect-src` ('self').
 pub const PAGE_CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 /// CSP for `/hermes`: same as [`PAGE_CSP`] plus its own script and fetch/SSE.
@@ -642,6 +645,22 @@ impl Ui {
                         origin,
                         "<section class=\"gate\"><p class=\"k\">Files</p><h1>Files is off on this console.</h1>\
 <p class=\"lede\">The shared folder screen runs when the console starts with <code>--files DIR</code>.</p></section>",
+                    ),
+                )
+            }
+            // console-static answers /phone itself when started with
+            // --phone; reaching here means it is off.
+            PHONE_PATH => {
+                let fwd = self.forward(req);
+                let origin = self.origin(&fwd);
+                let f = self.frame(req, "Phone");
+                Reply::html(
+                    200,
+                    layout::console(
+                        &f,
+                        origin,
+                        "<section class=\"gate\"><p class=\"k\">Phone</p><h1>Phone is off on this console.</h1>\
+<p class=\"lede\">The phone home page runs when the console starts with <code>--phone</code>.</p></section>",
                     ),
                 )
             }

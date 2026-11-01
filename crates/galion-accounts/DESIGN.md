@@ -34,8 +34,9 @@ in Galion One and across the OpenMind stack:
 2. **Cash in an envelope.** You get a reference such as `GC-PA20-FS10-VCT8`. Write only that
    on a slip of paper, put it in an envelope with euro notes and post it. We open the
    envelope, add the time and shred the envelope. €20 gives 30 days of Plus.
-3. **Crypto.** Designed, not switched on yet. The choice is between BTCPay Server (Bitcoin)
-   and monero-wallet-rpc (Monero).
+3. **Crypto (when switched on).** Bitcoin through our own BTCPay Server, or Monero through
+   our own wallet. You pay an invoice that carries only a random reference. Once it is paid,
+   that reference is unlinked from your account. The invoice record is deleted 2 days later.
 
 **What we keep:** a scrambled form of your number (a one-way hash that can't be turned back
 into the number), your plan, the date your paid time ends, sessions that last up to 30 days,
@@ -189,18 +190,69 @@ the matching buttons are disabled.
   - The ledger line has no account.
 - Shred the envelope.
 
-**Crypto (`pay/crypto.rs`):** a stub that reports "not connected". The two options:
+**Crypto (`pay/crypto.rs`, `pay/json_transport.rs`):** two self-hosted backends, both
+**off by default**. A backend switches on only when it is listed in
+`ACCOUNTS_CRYPTO_BACKENDS` **and** every one of its settings is present. If either is
+missing, `/api/account/plans` reports crypto as not connected, and the `/account` page
+keeps the "Pay with crypto" button hidden. No third-party price API is hard-coded.
 
-| | BTCPay Server | monero-wallet-rpc |
+| | BTCPay Server (`btcpay`) | monero-wallet-rpc (`monero`) |
 |---|---|---|
 | Coins | BTC (+ Lightning), others via plugins | XMR only |
-| Privacy | On-chain BTC is public and traceable. A new address per invoice helps, but the payment is still visible. | Private by default. Our view key sees only our own incoming payments. |
-| Ops | Docker stack with bitcoind/NBXplorer/Postgres, around 600 GB for a full node (or pruned). Webhooks are HMAC-signed (`BTCPay-Sig`). | monerod (around 100 GB pruned) plus wallet-rpc. We poll `get_transfers` and match by subaddress. No inbound webhook. |
+| Privacy | On-chain BTC is public and traceable. BTCPay uses a new address per invoice, but the payment is still visible on the chain. | Private by default. Our wallet sees only our own incoming payments. |
+| Ops | Docker stack with bitcoind/NBXplorer/Postgres, around 600 GB for a full node (or pruned). | monerod (around 100 GB pruned) plus wallet-rpc. No inbound webhook; we poll. |
 | Licence | MIT | BSD-3 (Monero) |
-| Prices | Fiat-denominated invoices, rate from BTCPay | We would need our own EUR/XMR rate source. |
+| Prices | The invoice is in EUR and BTCPay fixes the BTC rate | EUR→XMR rate from config (`MONERO_EUR_RATE`) or from our own BTCPay store's rate endpoint (`MONERO_RATE_SOURCE=btcpay`) |
 
-Recommendation: start with Monero only if privacy is the goal. Add BTCPay if demand for
-Bitcoin shows up. Either way, a self-hosted wallet on its own VPS, with no custodian.
+How BTCPay works here (Greenfield API, `Authorization: token …`):
+
+1. `POST /api/pay/crypto {"backend":"btcpay","plan":"plus"}` makes a one-shot `gx_…` pay
+   reference, then calls `POST /api/v1/stores/{store}/invoices` with amount `"20.00"`,
+   currency `EUR`, `metadata.orderId = gx_…` (nothing else: no email, no account),
+   the expiry from `BTCPAY_INVOICE_MINUTES` and a redirect back to `/account?crypto=done`.
+   The browser is sent to the BTCPay checkout page.
+2. BTCPay sends a webhook to `POST /webhooks/crypto`. We check `BTCPay-Sig:
+   sha256=<HMAC-SHA256(secret, raw body)>` in constant time and the `storeId`. We act only
+   on `InvoiceSettled`.
+3. We do **not** trust the body for money. We `GET` the invoice back from BTCPay. It must
+   be `Settled`, in EUR, and its `orderId` must match the invoice row we stored. Then the
+   EUR amount becomes days of the plan, pro rata like cash (`days_for`), through the same
+   `pay::apply` path. That path deduplicates replays (event id `btcpay:<invoice id>`) and
+   unlinks the reference.
+4. Partly paid or expired BTCPay invoices are never credited automatically. BTCPay's
+   own refund flow handles them.
+
+How Monero works here (JSON-RPC at `/json_rpc`, HTTP digest auth from `--rpc-login`):
+
+1. `POST /api/pay/crypto {"backend":"monero","plan":"plus"}` prices the plan in
+   piconero with integer math (`ceil(cents·10¹⁸ / rate·10⁸)`), then asks the wallet for
+   either a new subaddress (`create_address`, the default) or an integrated address
+   (`make_integrated_address`, `MONERO_ADDRESS_MODE=integrated`). The page shows the
+   address, the XMR amount, a `monero:` URI and the deadline. The price is locked for
+   `MONERO_INVOICE_MINUTES`.
+2. A poll (a thread in `serve` every `MONERO_POLL_SECONDS`, `galion-accounts crypto-poll`,
+   or the admin `POST /internal/v1/crypto/poll`) calls `get_transfers` for the open
+   invoices. Only incoming transfers with `confirmations ≥ MONERO_CONFIRMATIONS` (default
+   10), `unlock_time = 0` and no `double_spend_seen` are counted.
+3. When the confirmed total reaches the amount due, the full plan month is credited. If
+   less arrived, we wait until the price lock plus a 2-hour grace (so late confirmations
+   still count), then credit pro rata: `received × price / due`. Overpayment is credited
+   pro rata too. Each invoice credits once (one-shot reference + `settled_at`).
+4. A view-only wallet is enough, because we only read incoming transfers. The server can
+   never spend.
+
+What is stored (`crypto_invoices`): `pay_ref`, `backend`, `invoice_id` (the BTCPay id,
+`sub:<account>/<minor>` or `pid:<payment id>`), the amount due in atomic units, the
+price-lock deadline and `settled_at`. There is **no** account id, address, txid, amount
+paid or IP. The only link to an account is the `pay_refs` row, and it is unlinked
+(`account_id = NULL`) the moment the invoice is credited. Both rows are deleted by the sweep
+2 days after settlement or expiry (`CRYPTO_SETTLE_WINDOW`). The ledger gets only the day,
+method (`crypto`), EUR amount and currency. Secrets travel to `curl` on stdin, never on
+argv, and every config `Debug` output hides them.
+
+Recommendation: if privacy is the goal, switch on Monero first, with a view-only wallet. Add
+BTCPay if people ask for Bitcoin. In both cases, run a self-hosted wallet on its own
+machine, with no custodian.
 
 ### 2.7 The subscription privacy tradeoff (be honest about it)
 
@@ -225,7 +277,8 @@ how we contain it:
 | lookup hash, plan, paid_until | while the account exists. A sweep could delete accounts that have stayed free for N months (not built, Slavik to decide) | accounts |
 | Stripe customer/subscription ids | only while subscribed | accounts |
 | sessions | 30 days at most | sessions |
-| payment refs | online 20 days, cash 120 days, unlinked once used | pay_refs |
+| payment refs | online 20 days, cash 120 days, crypto price lock + 2 days; unlinked once used | pay_refs |
+| crypto invoices (pay ref, backend, invoice id, amount due, deadline, settled_at; no account, address or txid) | 2 days after settlement or expiry | crypto_invoices |
 | webhook event ids | 30 days | processed_events |
 | money ledger (day, method, amount, currency) | statutory accounting period, no account link | ledger |
 | IPs | never stored. Rate-limit keys stay in memory with a daily salt | n/a |
@@ -289,6 +342,8 @@ This matches the proposal in the galion-home worktree (`docs/payments/galion-hom
     under MiCA, but check it.
   - The EU AMLR (from 2027) bans anonymous crypto accounts at CASPs, not at merchants.
     Check the Croatian tax treatment (HANFA and Porezna uprava).
+  - Book crypto income at its EUR value on the day (the ledger stores the EUR amount).
+    Holding or selling the received coins is a separate tax matter for the accountant.
 - **KYC thresholds:** none apply to a merchant selling subscriptions, as far as we know.
   Stripe does its own KYC on Slavik's business.
 - **Accounting retention:** Croatian law requires bookkeeping records (11 years for some
@@ -315,7 +370,31 @@ This matches the proposal in the galion-home worktree (`docs/payments/galion-hom
    - in the Dashboard, configure the Customer Portal (allow cancel, plan switch
      Plus↔Pro, card update);
    - decide on Stripe Tax (`STRIPE_AUTOMATIC_TAX=1`).
-2. **Crypto:** choose BTCPay Server, monero-wallet-rpc, or neither for now.
+2. **Crypto** (both are optional; leave `ACCOUNTS_CRYPTO_BACKENDS` unset to keep crypto off):
+   - **BTCPay Server** (`btcpay`):
+     - a self-hosted BTCPay instance on its own machine, with its node (a pruned
+       bitcoind is fine) and, if wanted, Lightning;
+     - `BTCPAY_URL` (for example `https://pay.example`) and `BTCPAY_STORE_ID`;
+     - `BTCPAY_API_KEY`: a Greenfield API key limited to *create invoice*, *view
+       invoices* and *view store settings* (the last is needed only for the rate);
+     - a store webhook to `https://galion.app/webhooks/crypto` with the event
+       `InvoiceSettled` (or "all events"). Put its secret in `BTCPAY_WEBHOOK_SECRET`;
+     - the store default currency EUR, and optionally `BTCPAY_INVOICE_MINUTES` (default 60).
+   - **Monero** (`monero`):
+     - `monerod` plus `monero-wallet-rpc` on our own machine, ideally from a **view-only**
+       wallet, started with `--rpc-login user:pass` and bound to localhost or a private
+       network;
+     - `MONERO_WALLET_RPC_URL` (for example `http://127.0.0.1:18083`),
+       `MONERO_WALLET_RPC_LOGIN`, and optionally `MONERO_ACCOUNT_INDEX` (default 0);
+     - `MONERO_CONFIRMATIONS` (default 10), `MONERO_ADDRESS_MODE` (`subaddress` or
+       `integrated`), `MONERO_INVOICE_MINUTES` (default 60), `MONERO_POLL_SECONDS`
+       (default 60);
+     - a rate source: either `MONERO_EUR_RATE=150.25` (EUR per XMR, updated by the
+       operator), or `MONERO_RATE_SOURCE=btcpay` with the BTCPay settings above and an
+       `XMR_EUR` rate in that store (rate-provider choice is Slavik's).
+   - `ACCOUNTS_PUBLIC_URL` (default `https://galion.app`) for the BTCPay redirect.
+   - Legal: the crypto points in 2.12 (VAT on payments with no location evidence, the
+     tax treatment of crypto income, bookkeeping at the EUR value on the day).
 3. **Cash:** a mailing address (a PO box is best) for `ACCOUNTS_CASH_ADDRESS`, and who
    opens the envelopes.
 4. **Secrets on the server:**

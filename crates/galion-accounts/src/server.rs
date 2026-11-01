@@ -17,7 +17,8 @@
 //! | POST /api/pay/stripe/portal    | -> Customer Portal URL                  |
 //! | POST /api/pay/cash             | `{"plan"}` -> cash reference + address  |
 //! | POST /webhooks/stripe          | Stripe webhook (signature checked)      |
-//! | POST /webhooks/crypto          | crypto processor webhook (stub)         |
+//! | POST /api/pay/crypto           | `{"plan","backend"?}` -> BTCPay link or XMR address |
+//! | POST /webhooks/crypto          | BTCPay webhook (BTCPay-Sig checked)     |
 //!
 //! Internal (loopback only, bearer token):
 //!
@@ -25,6 +26,7 @@
 //! |--------------------------------|-----------------------------------------|
 //! | POST /internal/v1/entitlement  | `{"session"}` or `{"number"}` -> plan   |
 //! | POST /internal/v1/cash/credit  | operator credits a cash reference       |
+//! | POST /internal/v1/crypto/poll  | one monero-wallet-rpc poll (admin token) |
 //! | GET  /internal/v1/health       | counts + payment method status          |
 
 use std::sync::Arc;
@@ -35,7 +37,7 @@ use serde_json::{json, Value};
 use crate::hash::Hasher;
 use crate::number::AccountNumber;
 use crate::pay::cash::{self, Cash};
-use crate::pay::crypto::Crypto;
+use crate::pay::crypto::{self, Crypto};
 use crate::pay::stripe::Stripe;
 use crate::pay::{self, Applied, Method, PayError, PaymentAdapter, StartOutcome, StartRequest};
 use crate::plans::Plan;
@@ -221,9 +223,18 @@ impl App {
                 pay::Status::NotConnected(_) => json!(format!("{name} is not connected yet.")),
             }})
         };
+        let mut crypto_st = st(&self.crypto, "Crypto payment");
+        crypto_st["backends"] = Value::Array(
+            self.crypto
+                .cfg
+                .ready()
+                .iter()
+                .map(|b| json!({"id": b.id(), "label": b.label()}))
+                .collect(),
+        );
         json!({
             "stripe": st(&self.stripe, "Card payment"),
-            "crypto": st(&self.crypto, "Crypto payment"),
+            "crypto": crypto_st,
             "cash": st(&self.cash, "Cash by post"),
         })
     }
@@ -241,7 +252,7 @@ impl App {
             ("HEAD", "/api/checkout") => self.checkout_probe(req),
             ("GET", "/api/checkout") => self.checkout_link(req),
             ("POST", "/webhooks/stripe") => self.webhook(&self.stripe, req),
-            ("POST", "/webhooks/crypto") => self.webhook(&self.crypto, req),
+            ("POST", "/webhooks/crypto") => self.crypto_webhook(req),
             ("POST", p) if p.starts_with("/api/") && !self.browser_post_ok(req) => {
                 err(415, "bad_request", "Send JSON from the Galion site.")
             }
@@ -252,6 +263,7 @@ impl App {
             ("POST", "/api/pay/stripe/checkout") => self.checkout(req),
             ("POST", "/api/pay/stripe/portal") => self.portal(req),
             ("POST", "/api/pay/cash") => self.cash_ref(req),
+            ("POST", "/api/pay/crypto") => self.crypto_start(req),
             _ => err(404, "not_found", "Not found."),
         }
     }
@@ -543,6 +555,86 @@ impl App {
         }
     }
 
+    /// `POST /api/pay/crypto {"plan", "backend"?}`: a BTCPay checkout link,
+    /// or a Monero address + amount. `backend` defaults to the first ready one.
+    fn crypto_start(&self, req: &Request) -> Response {
+        let a = match self.current(req) {
+            Ok(Some(a)) => a,
+            Ok(None) => return err(401, "no_session", "Log in first."),
+            Err(e) => return db_err(e),
+        };
+        let Some(plan) = Self::paid_plan(req) else {
+            return err(400, "bad_plan", "Choose plus or pro.");
+        };
+        let ready = self.crypto.cfg.ready();
+        let asked = body_json(req).and_then(|b| {
+            b.get("backend")
+                .and_then(|x| x.as_str())
+                .map(str::to_string)
+        });
+        let backend = match asked.as_deref() {
+            None | Some("") => ready.first().copied(),
+            Some(s) => crypto::Backend::parse(s).filter(|b| ready.contains(b)),
+        };
+        let Some(backend) = backend else {
+            return err(503, "not_connected", NOT_CONNECTED);
+        };
+        match crypto::start(&self.crypto, &self.store, backend, a.id, plan, self.now()) {
+            Ok(crypto::CryptoStart::Redirect { url }) => json_resp(
+                200,
+                json!({"ok": true, "backend": backend.id(), "url": url}),
+            ),
+            Ok(crypto::CryptoStart::Monero {
+                address,
+                amount_xmr,
+                uri,
+                expires_at,
+                confirmations,
+            }) => json_resp(
+                200,
+                json!({"ok": true, "backend": backend.id(), "address": address,
+                       "amount_xmr": amount_xmr, "uri": uri,
+                       "expires_at": expires_at,
+                       "expires_label": galion_common::time::label(expires_at),
+                       "instructions": format!(
+                           "Send exactly {amount_xmr} XMR to this address before {} (Zagreb time). \
+                            This address is for this payment only. {} days of {} are added after \
+                            {confirmations} confirmations (about {} minutes). Paying less adds time \
+                            pro rata. Do not reuse the address.",
+                           galion_common::time::label(expires_at),
+                           crate::plans::days_for(plan, plan.eur_cents()),
+                           plan.name(),
+                           confirmations * 2)}),
+            ),
+            Err(crypto::CryptoError::Pay(e)) => pay_err(e),
+            Err(crypto::CryptoError::Store(e)) => db_err(e),
+        }
+    }
+
+    /// `POST /webhooks/crypto`: BTCPay Server webhook.
+    fn crypto_webhook(&self, req: &Request) -> Response {
+        match crypto::btcpay_hook(
+            &self.crypto,
+            &self.store,
+            &req.head.headers,
+            &req.body,
+            self.now(),
+        ) {
+            Ok(crypto::HookOutcome::Credited(c)) => {
+                json_resp(200, json!({"ok": true, "applied": 1, "eur_cents": c}))
+            }
+            Ok(crypto::HookOutcome::Replay) => json_resp(200, json!({"ok": true, "replay": true})),
+            Ok(crypto::HookOutcome::Ignored(why)) => {
+                json_resp(200, json!({"ok": true, "ignored": why}))
+            }
+            Ok(crypto::HookOutcome::Retry) => {
+                err(409, "retry", "Payment not matched yet; retry later.")
+            }
+            Err(crypto::CryptoError::Pay(e)) => pay_err(e),
+            Err(crypto::CryptoError::Store(e)) => db_err(e),
+        }
+    }
+
     fn webhook(&self, adapter: &dyn PaymentAdapter, req: &Request) -> Response {
         let now = self.now();
         let hook = match adapter.webhook(&req.head.headers, &req.body, now) {
@@ -588,6 +680,20 @@ impl App {
                     return err(401, "unauthorized", "Admin token required.");
                 }
                 self.cash_credit(req)
+            }
+            ("POST", "/internal/v1/crypto/poll") => {
+                if !token_ok(req, &self.settings.admin_token) {
+                    return err(401, "unauthorized", "Admin token required.");
+                }
+                match crypto::poll_monero(&self.crypto, &self.store, self.now()) {
+                    Ok(r) => json_resp(
+                        200,
+                        json!({"ok": true, "open": r.open, "credited": r.credited,
+                               "credited_eur_cents": r.credited_cents}),
+                    ),
+                    Err(crypto::CryptoError::Pay(e)) => pay_err(e),
+                    Err(crypto::CryptoError::Store(e)) => db_err(e),
+                }
             }
             _ => err(404, "not_found", "Not found."),
         }

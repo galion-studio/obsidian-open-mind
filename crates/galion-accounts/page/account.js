@@ -49,6 +49,7 @@
     list.textContent = "";
     ["stripe", "crypto", "cash"].forEach(function (m) {
       var st = state.methods[m] || {};
+      if (m === "crypto" && !st.connected) return;
       var li = document.createElement("li");
       li.className = st.connected ? "on" : "";
       li.textContent = LABEL[m] + ": " + (st.connected ? "ready" : (st.note || "not connected yet"));
@@ -60,6 +61,7 @@
       var st2 = state.methods[b.getAttribute("data-m")] || {};
       var blocked = b.getAttribute("data-m") === "stripe" && me.renewing;
       b.disabled = !st2.connected || blocked;
+      if (b.getAttribute("data-m") === "crypto") b.hidden = !st2.connected;
       b.title = st2.connected ? "" : (st2.note || "Not connected yet");
     }
   }
@@ -132,15 +134,56 @@
         $("cashbox").hidden = false;
         $("cashbox").scrollIntoView({ behavior: "smooth", block: "start" });
       });
-    } else {
-      note("Crypto is not connected yet.", true);
+    } else if (m === "crypto") {
+      var bs = (state.methods.crypto || {}).backends || [];
+      if (bs.length === 1) { startCrypto(plan, bs[0].id); return; }
+      var box = $("cryptochoices");
+      box.textContent = "";
+      bs.forEach(function (x) {
+        var c = document.createElement("button");
+        c.type = "button";
+        c.className = "btn cpick";
+        c.setAttribute("data-b", x.id);
+        c.setAttribute("data-p", plan);
+        c.textContent = x.label;
+        box.appendChild(c);
+      });
+      $("cryptobox").hidden = true;
+      $("cryptopick").hidden = false;
+      $("cryptopick").scrollIntoView({ behavior: "smooth", block: "start" });
     }
+  });
+
+  document.addEventListener("click", function (e) {
+    var c = e.target.closest ? e.target.closest(".cpick") : null;
+    if (!c) return;
+    startCrypto(c.getAttribute("data-p"), c.getAttribute("data-b"));
+  });
+
+  function startCrypto(plan, backend) {
+    api("POST", "/api/pay/crypto", { plan: plan, backend: backend }).then(function (j) {
+      if (!j.ok) { note(j.message || "Crypto payment is not available.", true); return; }
+      if (j.url) { location.href = j.url; return; }
+      $("xmramount").textContent = j.amount_xmr + " XMR";
+      $("xmraddr").textContent = j.address;
+      $("xmruri").setAttribute("href", j.uri);
+      $("xmrtext").textContent = j.instructions;
+      $("cryptopick").hidden = true;
+      $("cryptobox").hidden = false;
+      $("cryptobox").scrollIntoView({ behavior: "smooth", block: "start" });
+    }).catch(function () { note("Could not reach the account service.", true); });
+  }
+
+  $("xmrcopy").addEventListener("click", function () {
+    var t = $("xmraddr").textContent;
+    if (navigator.clipboard && t) navigator.clipboard.writeText(t).then(function () { note("Address copied."); });
   });
 
   var q = location.search;
   if (q.indexOf("checkout=done") >= 0) note("Thank you. Your time appears as soon as Stripe confirms the payment, usually within seconds. Reload if it does not show yet.");
   if (q.indexOf("checkout=cancelled") >= 0) note("Payment cancelled. Nothing was charged.");
   if (q.indexOf("checkout=error") >= 0) note("Card checkout could not start. Try again in a minute.", true);
+  if (q.indexOf("crypto=done") >= 0) note("Thank you. Your time is added as soon as the payment is confirmed on chain. Reload later if it does not show yet.");
   var wanted = /[?&]plan=(plus|pro)/.exec(q);
   if (wanted && !q.match(/checkout=/)) {
     var nm = wanted[1] === "pro" ? "Pro (€220 / month)" : "Plus (€20 / month)";

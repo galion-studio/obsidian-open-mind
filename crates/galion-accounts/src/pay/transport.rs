@@ -73,7 +73,7 @@ pub fn form_encode(pairs: &[(String, String)]) -> String {
 }
 
 /// Escape for a double-quoted curl config value.
-fn curl_quote(s: &str) -> String {
+pub(crate) fn curl_quote(s: &str) -> String {
     let mut o = String::with_capacity(s.len() + 2);
     o.push('"');
     for c in s.chars() {
@@ -106,7 +106,7 @@ impl Default for CurlTransport {
     }
 }
 
-const STATUS_MARK: &str = "\n__galion_status__:";
+pub(crate) const STATUS_MARK: &str = "\n__galion_status__:";
 
 impl CurlTransport {
     /// The curl config text (fed on stdin). Public for tests.
@@ -194,7 +194,7 @@ impl Transport for CurlTransport {
 #[cfg(feature = "reqwest")]
 #[derive(Debug, Clone)]
 pub struct ReqwestTransport {
-    client: reqwest::blocking::Client,
+    pub(crate) client: reqwest::blocking::Client,
 }
 
 #[cfg(feature = "reqwest")]

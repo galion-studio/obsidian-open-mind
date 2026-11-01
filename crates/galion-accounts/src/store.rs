@@ -11,6 +11,7 @@
 //! | pay_refs         | opaque reference, account_id (nulled once used), method, plan, expires_at, used |
 //! | processed_events | webhook event id, seen_at (replay guard, swept after 30 days)   |
 //! | ledger           | day, method, amount, currency (bookkeeping; NO account link)    |
+//! | crypto_invoices  | pay_ref, backend, invoice id, due (piconero), price-lock end, settled_at (NO account id; swept 2 days after settling or expiry) |
 //!
 //! No email, no name, no IP address, no user agent, no creation time.
 
@@ -54,6 +55,14 @@ CREATE TABLE IF NOT EXISTS ledger(
   amount_cents INTEGER NOT NULL,
   currency TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS crypto_invoices(
+  pay_ref TEXT PRIMARY KEY,
+  backend TEXT NOT NULL,
+  invoice_id TEXT NOT NULL UNIQUE,
+  due_atomic INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL,
+  settled_at INTEGER
+);
 ";
 
 /// Seconds in a day.
@@ -64,6 +73,40 @@ pub const REF_TTL_ONLINE: i64 = 20 * DAY;
 pub const REF_TTL_CASH: i64 = 120 * DAY;
 /// Webhook ids are kept 30 days (Stripe retries for up to 3 days).
 pub const EVENT_TTL: i64 = 30 * DAY;
+
+/// Crypto settlement window: an invoice (and its payment reference) lives
+/// this long after its price lock ends or after it is credited, so late
+/// confirmations and webhook redeliveries still land. Then both rows are
+/// deleted by the sweep.
+pub const CRYPTO_SETTLE_WINDOW: i64 = 2 * DAY;
+
+/// A crypto invoice: payment reference -> processor invoice id. No account
+/// id, no address, no transaction id, no amount paid.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CryptoInvoice {
+    pub pay_ref: String,
+    pub backend: String,
+    pub invoice_id: String,
+    /// Monero: piconero due at the locked rate. 0 for BTCPay (BTCPay holds the
+    /// price itself).
+    pub due_atomic: i64,
+    /// End of the price lock.
+    pub expires_at: i64,
+    pub settled_at: Option<i64>,
+}
+
+const CRYPTO_COLS: &str = "pay_ref, backend, invoice_id, due_atomic, expires_at, settled_at";
+
+fn row_crypto(r: &rusqlite::Row<'_>) -> rusqlite::Result<CryptoInvoice> {
+    Ok(CryptoInvoice {
+        pay_ref: r.get(0)?,
+        backend: r.get(1)?,
+        invoice_id: r.get(2)?,
+        due_atomic: r.get(3)?,
+        expires_at: r.get(4)?,
+        settled_at: r.get(5)?,
+    })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Account {
@@ -467,9 +510,71 @@ impl Store {
             .query_row("SELECT COUNT(*) FROM ledger", [], |r| r.get(0))?)
     }
 
+    // ---------------------------------------------------------- crypto invoices
+
+    /// Remember which processor invoice belongs to a payment reference. The
+    /// row holds no account id: the only link to an account is the
+    /// `pay_refs` row, which is cut when the invoice is credited.
+    pub fn put_crypto_invoice(
+        &self,
+        pay_ref: &str,
+        backend: &str,
+        invoice_id: &str,
+        due_atomic: i64,
+        expires_at: i64,
+    ) -> Result<(), StoreError> {
+        match self.db().execute(
+            "INSERT INTO crypto_invoices(pay_ref, backend, invoice_id, due_atomic, expires_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![pay_ref, backend, invoice_id, due_atomic, expires_at],
+        ) {
+            Ok(_) => Ok(()),
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if e.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                Err(StoreError::Exists)
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// The invoice with this processor id (BTCPay invoice id, or the Monero
+    /// `sub:<account>/<index>` / `pid:<payment id>` key).
+    pub fn crypto_invoice(&self, invoice_id: &str) -> Result<Option<CryptoInvoice>, StoreError> {
+        Ok(self
+            .db()
+            .query_row(
+                &format!("SELECT {CRYPTO_COLS} FROM crypto_invoices WHERE invoice_id = ?1"),
+                params![invoice_id],
+                row_crypto,
+            )
+            .optional()?)
+    }
+
+    /// Invoices of `backend` that are not settled yet.
+    pub fn open_crypto_invoices(&self, backend: &str) -> Result<Vec<CryptoInvoice>, StoreError> {
+        let db = self.db();
+        let mut st = db.prepare(&format!(
+            "SELECT {CRYPTO_COLS} FROM crypto_invoices \
+             WHERE backend = ?1 AND settled_at IS NULL ORDER BY expires_at"
+        ))?;
+        let rows = st.query_map(params![backend], row_crypto)?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Mark an invoice credited (kept only until the settlement window ends,
+    /// to answer redeliveries, then swept).
+    pub fn settle_crypto_invoice(&self, pay_ref: &str, now: i64) -> Result<(), StoreError> {
+        self.db().execute(
+            "UPDATE crypto_invoices SET settled_at = ?2 WHERE pay_ref = ?1 AND settled_at IS NULL",
+            params![pay_ref, now],
+        )?;
+        Ok(())
+    }
+
     /// Data-minimisation sweep: expired sessions, used or expired payment
-    /// references, and webhook ids older than [`EVENT_TTL`]. Returns rows
-    /// removed.
+    /// references, webhook ids older than [`EVENT_TTL`] and crypto invoices
+    /// past [`CRYPTO_SETTLE_WINDOW`]. Returns rows removed.
     pub fn sweep(&self, now: i64) -> Result<usize, StoreError> {
         let db = self.db();
         let mut n = db.execute("DELETE FROM sessions WHERE expires_at <= ?1", params![now])?;
@@ -480,6 +585,10 @@ impl Store {
         n += db.execute(
             "DELETE FROM processed_events WHERE seen_at <= ?1",
             params![now - EVENT_TTL],
+        )?;
+        n += db.execute(
+            "DELETE FROM crypto_invoices WHERE COALESCE(settled_at, expires_at) <= ?1",
+            params![now - CRYPTO_SETTLE_WINDOW],
         )?;
         Ok(n)
     }
@@ -497,6 +606,7 @@ impl Store {
             "pay_refs",
             "processed_events",
             "ledger",
+            "crypto_invoices",
         ] {
             let Ok(mut st) = db.prepare(&format!("SELECT * FROM {t}")) else {
                 continue;

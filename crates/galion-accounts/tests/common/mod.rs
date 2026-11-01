@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use galion_accounts::hash::{Cost, Hasher};
 use galion_accounts::pay::cash::{Cash, CashConfig};
-use galion_accounts::pay::crypto::{Crypto, CryptoConfig};
+use galion_accounts::pay::crypto::Crypto;
 use galion_accounts::pay::stripe::{Stripe, StripeConfig};
 use galion_accounts::pay::transport::{ApiRequest, ApiResponse, MockTransport, Transport};
 use galion_accounts::ratelimit::Limiter;
@@ -91,6 +91,16 @@ impl TestApp {
 }
 
 pub fn app(stripe_on: bool, cash_on: bool, transport: Arc<dyn Transport>) -> TestApp {
+    app_with_crypto(stripe_on, cash_on, transport, Crypto::disabled())
+}
+
+/// Same as [`app`] with a given crypto adapter.
+pub fn app_with_crypto(
+    stripe_on: bool,
+    cash_on: bool,
+    transport: Arc<dyn Transport>,
+    crypto: Crypto,
+) -> TestApp {
     let clock = Arc::new(AtomicI64::new(T0));
     let c2 = clock.clone();
     let cfg = if stripe_on {
@@ -108,9 +118,7 @@ pub fn app(stripe_on: bool, cash_on: bool, transport: Arc<dyn Transport>) -> Tes
         limiter: Limiter::new(),
         stripe: Stripe::new(cfg, transport),
         cash: Cash { cfg: cash_cfg },
-        crypto: Crypto {
-            cfg: CryptoConfig::from_vars(|_| None),
-        },
+        crypto,
         settings: Settings {
             cookie_domain: None,
             secure_cookies: true,

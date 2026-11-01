@@ -96,7 +96,7 @@
     <p>For one person. The whole platform, hosted for you, Galion One included.</p>
     <div class="pays">
      <button class="btn pay" type="button" data-m="stripe" disabled><svg aria-hidden="true"><use href="#i-card"/></svg>Card</button>
-     <button class="btn pay" type="button" data-m="crypto" disabled><svg aria-hidden="true"><use href="#i-coin"/></svg>Crypto</button>
+     <button class="btn pay" type="button" data-m="crypto" hidden disabled><svg aria-hidden="true"><use href="#i-coin"/></svg>Pay with crypto</button>
      <button class="btn pay" type="button" data-m="cash" disabled><svg aria-hidden="true"><use href="#i-env"/></svg>Cash by post</button>
     </div>
    </article>
@@ -106,12 +106,31 @@
     <p>Your Hermes agent gets its own cloud computer and SSD. Everything in Plus.</p>
     <div class="pays">
      <button class="btn pay" type="button" data-m="stripe" disabled><svg aria-hidden="true"><use href="#i-card"/></svg>Card</button>
-     <button class="btn pay" type="button" data-m="crypto" disabled><svg aria-hidden="true"><use href="#i-coin"/></svg>Crypto</button>
+     <button class="btn pay" type="button" data-m="crypto" hidden disabled><svg aria-hidden="true"><use href="#i-coin"/></svg>Pay with crypto</button>
      <button class="btn pay" type="button" data-m="cash" disabled><svg aria-hidden="true"><use href="#i-env"/></svg>Cash by post</button>
     </div>
    </article>
   </div>
   <ul class="methods" id="methods"></ul>
+
+  <article class="card cash" id="cryptopick" hidden>
+   <h3>Pay with crypto</h3>
+   <p class="muted">Choose a coin. Payments go to our own wallet, not to an exchange. We see only a random payment reference, never your account number.</p>
+   <div class="pays" id="cryptochoices"></div>
+  </article>
+
+  <article class="card cash" id="cryptobox" hidden>
+   <h3>Pay with Monero</h3>
+   <p class="muted">Amount</p>
+   <p class="num sm" id="xmramount"></p>
+   <p class="muted">Address (for this payment only)</p>
+   <p class="num sm addr" id="xmraddr"></p>
+   <div class="row">
+    <button class="btn" id="xmrcopy" type="button"><svg aria-hidden="true"><use href="#i-copy"/></svg>Copy address</button>
+    <a class="btn" id="xmruri" href="#">Open in wallet</a>
+   </div>
+   <pre id="xmrtext"></pre>
+  </article>
 
   <article class="card cash" id="cashbox" hidden>
    <h3>Cash by post</h3>

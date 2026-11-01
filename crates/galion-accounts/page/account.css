@@ -77,6 +77,7 @@ input:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(88,19
 .methods li.on::before{background:var(--sky);box-shadow:0 0 10px var(--sky)}
 .cash{margin-top:1rem}
 .cash pre{white-space:pre-wrap;color:var(--mist);font:400 .92rem/1.6 var(--txt);margin:.6rem 0 0}
+.addr{word-break:break-all;overflow-wrap:anywhere}
 .note{margin-top:2.5rem;color:var(--mist);font-size:.88rem;max-width:44rem}
 footer{border-top:1px solid var(--line);padding:2rem 0 2.5rem;color:var(--mist);font-size:.85rem}
 @media (prefers-reduced-motion:no-preference){

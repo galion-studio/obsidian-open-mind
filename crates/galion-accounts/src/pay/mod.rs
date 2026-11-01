@@ -8,6 +8,7 @@
 
 pub mod cash;
 pub mod crypto;
+pub mod json_transport;
 pub mod stripe;
 pub mod transport;
 

@@ -9,6 +9,7 @@
 //!                              [--db accounts.sqlite] [--pepper-file pepper] [--insecure-cookies]
 //! galion-accounts stripe-setup [--apply] [--webhook-url https://galion.app/webhooks/stripe]
 //! galion-accounts cash-credit  --ref GC-XXXX-XXXX-XXXX --amount-cents 2000 [--currency EUR] [--db ..]
+//! galion-accounts crypto-poll  [--db ..]
 //! galion-accounts sweep        [--db ..]
 //! galion-accounts new-pepper   --out pepper
 //! ```
@@ -21,7 +22,7 @@ use std::sync::Arc;
 
 use galion_accounts::hash::{Cost, Hasher};
 use galion_accounts::pay::cash::{Cash, CashConfig};
-use galion_accounts::pay::crypto::{Crypto, CryptoConfig};
+use galion_accounts::pay::crypto::{self, Backend, Crypto, CryptoConfig};
 use galion_accounts::pay::stripe::{Stripe, StripeConfig};
 use galion_accounts::pay::transport::CurlTransport;
 use galion_accounts::pay::PaymentAdapter;
@@ -29,10 +30,11 @@ use galion_accounts::ratelimit::Limiter;
 use galion_accounts::server::{self, App, Settings};
 use galion_accounts::store::Store;
 
-const USAGE: &str = "usage: galion-accounts <serve|stripe-setup|cash-credit|sweep|new-pepper> [options]\n\
+const USAGE: &str = "usage: galion-accounts <serve|stripe-setup|cash-credit|crypto-poll|sweep|new-pepper> [options]\n\
   serve        [--listen ADDR] [--internal ADDR] [--db PATH] [--pepper-file PATH] [--insecure-cookies]\n\
   stripe-setup [--apply] [--webhook-url URL]   (dry run unless --apply; uses STRIPE_SECRET_KEY)\n\
   cash-credit  --ref REF --amount-cents N [--currency EUR] [--db PATH]\n\
+  crypto-poll  [--db PATH]   (one monero-wallet-rpc poll; needs the MONERO_* config)\n\
   sweep        [--db PATH]\n\
   new-pepper   --out PATH";
 
@@ -97,6 +99,13 @@ fn stripe() -> Stripe {
     Stripe::new(StripeConfig::from_env(), Arc::new(CurlTransport::default()))
 }
 
+fn crypto() -> Crypto {
+    Crypto::new(
+        CryptoConfig::from_vars(env),
+        Arc::new(CurlTransport::default()),
+    )
+}
+
 fn cmd_serve(a: &Args) {
     let listen = a
         .opt("--listen")
@@ -125,9 +134,7 @@ fn cmd_serve(a: &Args) {
         cash: Cash {
             cfg: CashConfig::from_vars(env),
         },
-        crypto: Crypto {
-            cfg: CryptoConfig::from_vars(env),
-        },
+        crypto: crypto(),
         settings,
         clock: Box::new(galion_accounts::now_unix),
     });
@@ -152,6 +159,20 @@ fn cmd_serve(a: &Args) {
         let _ = sweeper.store.sweep(galion_accounts::now_unix());
         std::thread::sleep(std::time::Duration::from_secs(3600));
     });
+    if app.crypto.cfg.ready().contains(&Backend::Monero) {
+        let poller = app.clone();
+        let every = poller.crypto.cfg.monero.poll_seconds;
+        std::thread::spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(every));
+            match crypto::poll_monero(&poller.crypto, &poller.store, galion_accounts::now_unix()) {
+                Ok(r) if r.credited > 0 => {
+                    eprintln!("monero poll: credited {} invoice(s)", r.credited)
+                }
+                Ok(_) => {}
+                Err(e) => eprintln!("monero poll: {e:?}"),
+            }
+        });
+    }
     eprintln!("galion-accounts listening on {listen} (public) and {internal} (internal)");
     if let Err(e) = server::serve(app, public, inner) {
         die(&format!("serve: {e}"));
@@ -227,6 +248,16 @@ fn main() {
                 .sweep(galion_accounts::now_unix())
                 .unwrap_or_else(|e| die(&format!("database: {e}")));
             println!("swept {n} expired rows");
+        }
+        "crypto-poll" => {
+            let c = crypto();
+            match crypto::poll_monero(&c, &open_store(&a), galion_accounts::now_unix()) {
+                Ok(r) => println!(
+                    "open {} credited {} ({} EUR cents)",
+                    r.open, r.credited, r.credited_cents
+                ),
+                Err(e) => die(&format!("crypto-poll: {e:?}")),
+            }
         }
         "new-pepper" => cmd_new_pepper(&a),
         "-h" | "--help" | "help" => println!("{USAGE}"),

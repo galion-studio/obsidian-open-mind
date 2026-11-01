@@ -6,7 +6,7 @@
 Galion accounts work the way Mullvad's do: an account is a 16-digit number, with no email
 and no name. One subscription covers all of galion.app: Free, Plus at €20/month and Pro at
 €220/month. You can pay by card through Stripe (a monthly subscription), by cash in an
-envelope, or by crypto (designed, not wired up yet). See [DESIGN.md](DESIGN.md) for why it
+envelope, or by crypto through our own BTCPay Server or Monero wallet (off unless configured). See [DESIGN.md](DESIGN.md) for why it
 works this way and what it stores.
 
 ## Run it locally
@@ -38,7 +38,12 @@ the reason. Any method that isn't connected stays switched off on the page.
 | `STRIPE_AUTOMATIC_TAX=1` | Turns on Stripe Tax in Checkout (Stripe then collects the billing country). |
 | `STRIPE_WEBHOOK_TOLERANCE_SECS` | Default 300. |
 | `ACCOUNTS_CASH_ADDRESS` | Postal address, with lines separated by `\|`. If unset, cash shows as not connected. |
-| `ACCOUNTS_CRYPTO_BACKEND` | `btcpay` or `monero` (both are still stubs). |
+| `ACCOUNTS_CRYPTO_BACKENDS` | Comma list: `btcpay`, `monero`. Unset means crypto is off and the button stays hidden. |
+| `BTCPAY_URL`, `BTCPAY_STORE_ID`, `BTCPAY_API_KEY`, `BTCPAY_WEBHOOK_SECRET` | BTCPay Greenfield settings (all four are needed). `BTCPAY_INVOICE_MINUTES` defaults to 60. |
+| `MONERO_WALLET_RPC_URL`, `MONERO_WALLET_RPC_LOGIN` | monero-wallet-rpc `/json_rpc` and its `--rpc-login`. |
+| `MONERO_EUR_RATE` or `MONERO_RATE_SOURCE=btcpay` | EUR per XMR, or the `XMR_EUR` rate of our BTCPay store. One of them is required. |
+| `MONERO_CONFIRMATIONS`, `MONERO_ADDRESS_MODE`, `MONERO_ACCOUNT_INDEX`, `MONERO_INVOICE_MINUTES`, `MONERO_POLL_SECONDS` | Defaults: 10, `subaddress`, 0, 60, 60. |
+| `ACCOUNTS_PUBLIC_URL` | Base URL for the BTCPay redirect (default `https://galion.app`). |
 
 ## Stripe setup (the owner runs this, not an agent)
 
@@ -69,22 +74,37 @@ between Plus and Pro, and updating the payment method. The "Manage" button opens
 
 3. Shred the envelope.
 
+## Crypto
+
+Both backends are self-hosted and stay off unless they are configured (DESIGN 2.6).
+
+- **BTCPay:** we create a EUR invoice tagged only with a `gx_…` reference. BTCPay calls
+  `/webhooks/crypto`. We check `BTCPay-Sig`, read the invoice back and credit the plan pro
+  rata.
+- **Monero:** each payment gets a new subaddress (or integrated address), priced in XMR
+  from the configured rate. `serve` polls `get_transfers`. You can also run one poll by
+  hand:
+
+  ```sh
+  galion-accounts crypto-poll --db /path/accounts.sqlite
+  ```
+
 ## Routes
 
 - Public:
   - `/account` and its css/js;
   - `/api/account/{create,login,logout,me,plans}`;
-  - `/api/pay/stripe/{checkout,portal}` and `/api/pay/cash`;
+  - `/api/pay/stripe/{checkout,portal}`, `/api/pay/cash` and `/api/pay/crypto`;
   - `HEAD|GET /api/checkout?plan=` (the galion-home contract);
   - `/webhooks/{stripe,crypto}`.
-- Internal (keep off the internet): `/internal/v1/{health,entitlement,cash/credit}`.
+- Internal (keep off the internet): `/internal/v1/{health,entitlement,cash/credit,crypto/poll}`.
 
 Rust consumers can call `galion_accounts::client::check_session`. It fails closed to Free.
 
 ## Tests
 
 ```sh
-cargo test -p galion-accounts                    # no network; Stripe is a local mock
+cargo test -p galion-accounts                    # no network; Stripe, BTCPay and wallet-rpc are local mocks
 GALION_REAL=1 cargo test -p galion-accounts --release --test real_binary -- --ignored --nocapture
 ```
 

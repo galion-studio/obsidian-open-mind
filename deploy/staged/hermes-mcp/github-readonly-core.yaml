@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# STAGED, not installed. "GitHub read-only first" for Hermes: replaces the
+# github entry of /etc/hermes-rs/mcp-servers.yaml (same name wins).
+# - write tools hidden (not even listed) and allow_writes false; the server
+#   also runs without --allow-writes: three locks.
+# - 17 core read tools instead of 75: ~3.7K prompt tokens per model call
+#   instead of ~16K (all 51 reads would be ~10.8K).
+# - stays "not connected" (0 tokens) until a read-only fine-grained token is
+#   put in the env file (mode 0600) as GITHUB_PERSONAL_ACCESS_TOKEN.
+mcp_servers:
+  github:
+    command: /opt/galion/rust/bin/github-mcp-rs-COMMIT
+    args: ["--token-file", "/etc/hermes-rs/mcp.d/github.env"]
+    env_file: /etc/hermes-rs/mcp.d/github.env
+    require_env: [GITHUB_PERSONAL_ACCESS_TOKEN]
+    class: read
+    allow_writes: false
+    write_tools: hidden
+    allow_tools: [get_me, list_my_repositories, get_repository, get_file_contents, get_git_tree, search_code, list_branches, list_commits, get_commit, compare_commits, list_pull_requests, get_pull_request, get_pull_request_diff, list_issues, get_issue, list_workflow_runs, get_job_logs]

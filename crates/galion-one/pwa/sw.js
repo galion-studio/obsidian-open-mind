@@ -6,7 +6,7 @@
 // requests: anything not listed in SHELL goes straight to the network,
 // untouched, and only GET requests are ever looked at.
 "use strict";
-var V = "g1-shell-v3";
+var V = "g1-shell-v4";
 var PAGE = "/";
 var SHELL = [
   PAGE,

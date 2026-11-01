@@ -197,7 +197,7 @@ registerProcessor("galion-pcm16", GalionPcm16);
     opts.credentials = "same-origin";
     opts.cache = "no-store";
     return fetch(path, opts).then(function (r) {
-      return r.text().then(function (t) { var j = null; try { j = JSON.parse(t); } catch (e) {} return { status: r.status, json: j || {} }; });
+      return r.text().then(function (t) { var j = null; try { j = JSON.parse(t); } catch (e) {} return { status: r.status, ok: j !== null, json: j || {} }; });
     });
   }
   function post(path, data) { return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data || {}) }); }
@@ -300,6 +300,24 @@ registerProcessor("galion-pcm16", GalionPcm16);
   }
 
   // ---- Ask: the same path as the Galion One room (POST /admin/say).
+  // Each question has an id; the server answers it once and holds the answer,
+  // so a retry, a dropped connection or a phone waking up just asks for the
+  // same id again (never a second question). A request waits at most ~25 s
+  // and says "pending"; the page then simply asks again for that id.
+  var PK = "galion-one-pending", WAIT_MS = 40000, LONG_MS = 6 * 60 * 1000;
+  var job = null, jobT = 0, ctl = null, note = null;
+  function newId() {
+    var a = new Uint8Array(12), s = "q-";
+    try { crypto.getRandomValues(a); } catch (e) { for (var i = 0; i < 12; i++) a[i] = Math.random() * 256 | 0; }
+    for (var k = 0; k < 12; k++) s += (a[k] < 16 ? "0" : "") + a[k].toString(16);
+    return s;
+  }
+  function keep() { try { if (job) localStorage.setItem(PK, JSON.stringify(job)); else localStorage.removeItem(PK); } catch (e) {} }
+  function status(t) {
+    if (t && !note) { note = line("ans soft", t); }
+    else if (note) { if (t) note.textContent = t; else { if (note.parentNode) note.parentNode.removeChild(note); note = null; } }
+    if (t) { body.classList.remove("think"); solo1(t, "soft"); } else if (job) { body.classList.add("think"); }
+  }
   function ask(text, again) {
     text = (text || "").trim();
     if (!text || busy) return;
@@ -307,20 +325,58 @@ registerProcessor("galion-pcm16", GalionPcm16);
     q.value = ""; grow();
     if (!again) line("q", text);
     if (!paired) { micAfterPair = false; waiting = text; askPair(); return; }
-    busy = true; grow();
-    think(true);
     var pick = threadFor();
-    post("/admin/say", { text: text, thread: pick.thread, fresh: pick.fresh }).then(function (r) {
-      think(false);
-      if (r.status === 401 || r.json.error === "pair") { busy = false; grow(); paired = false; waiting = text; askPair(); return; }
-      if (r.json.thread) { var was = getThread(); setThread({ id: r.json.thread, last: Date.now(), pinned: was.id === r.json.thread && !!was.pinned, fresh: false }); }
-      var s = (r.json.say || "").trim();
-      if (s === "Wait") { done(); soft("Still finishing the last answer. Try again in a moment."); return; }
-      if (!s || s === "Again") { done(); soft("No answer came back. Try again."); return; }
-      answer(s, done);
-    }).catch(function () { think(false); done(); soft("No connection. Check your network and try again."); });
+    job = { id: newId(), text: text, thread: pick.thread, fresh: pick.fresh, at: Date.now(), tries: 0 };
+    keep(); go();
   }
+  function go() {
+    if (!job) return;
+    busy = true; grow(); think(true);
+    var j = job;
+    clearTimeout(jobT); jobT = 0;
+    ctl = window.AbortController ? new AbortController() : null;
+    var c = ctl, t = setTimeout(function () { if (c) c.abort(); }, WAIT_MS);
+    var o = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: j.text, thread: j.thread, fresh: j.fresh, id: j.id }) };
+    if (c) o.signal = c.signal;
+    api("/admin/say", o).then(function (r) { clearTimeout(t); if (ctl === c) ctl = null; if (job === j) got(j, r); }, function () { clearTimeout(t); if (ctl === c) ctl = null; if (job === j) later(j); });
+  }
+  function got(j, r) {
+    if (r.status === 401 || r.json.error === "pair") { stop(); paired = false; waiting = j.text; askPair(); return; }
+    // An edge page, a proxy error or a busy server: not an answer, ask again for the same id.
+    if (!r.ok || r.status >= 500 || r.status === 403 || r.status === 429 || r.status === 408) { later(j); return; }
+    if (r.json.thread) {
+      var was = getThread();
+      setThread({ id: r.json.thread, last: Date.now(), pinned: was.id === r.json.thread && !!was.pinned, fresh: false });
+      j.thread = r.json.thread; j.fresh = false;
+    }
+    if (r.json.pending) { j.tries = 0; status(""); keep(); go(); return; }
+    var s = (r.json.say || "").trim(), e = r.json.error;
+    stop();
+    if (e || !s) { soft(s || "The agent came back without words. Saying it differently usually helps."); return; }
+    answer(s, done);
+  }
+  function later(j) {
+    j.tries++; keep();
+    if (Date.now() - j.at > LONG_MS) {
+      stop();
+      soft("The connection did not come back. Your question is back in the field.");
+      q.value = j.text; grow(); return;
+    }
+    if (j.tries > 1) status(navigator.onLine === false ? "Offline. Waiting for the network\u2026" : "Reconnecting\u2026");
+    if (document.hidden) return;
+    jobT = setTimeout(go, Math.min(1000 * Math.pow(2, j.tries - 1), 15000));
+  }
+  function stop() { job = null; keep(); clearTimeout(jobT); jobT = 0; ctl = null; status(""); think(false); done(); }
+  function wake() { if (!job || document.hidden) return; if (ctl) { try { ctl.abort(); } catch (e) {} } else go(); }
+  document.addEventListener("visibilitychange", wake);
+  window.addEventListener("online", wake);
+  window.addEventListener("pageshow", wake);
   function done() { busy = false; grow(); }
+  function resume() {
+    var p = null; try { p = JSON.parse(localStorage.getItem(PK) || "null"); } catch (e) {}
+    if (!p || !p.id || !p.text || Date.now() - (p.at || 0) > LONG_MS) { try { localStorage.removeItem(PK); } catch (e) {} return; }
+    job = p; job.tries = 0; line("q", p.text); go();
+  }
 
   // ---- Pairing (the room's own /pair route): only when an unpaired device asks.
   function askPair(msg) {
@@ -336,8 +392,8 @@ registerProcessor("galion-pcm16", GalionPcm16);
         if (waiting) { var t = waiting; waiting = ""; ask(t, true); } else if (micAfterPair) { micAfterPair = false; startMic(); }
         return;
       }
-      soft(r.json.error === "later" ? "Too many tries. Wait 15 minutes, then try again." : "That code did not work.");
-    }).catch(function () { soft("No connection."); });
+      soft(r.json.error === "later" ? "Too many tries. Pairing opens again in 15 minutes." : "That code did not work.");
+    }).catch(function () { soft("Offline. Pairing needs the network."); });
   });
 
   // ---- The field: mic while empty, the send arrow once there is text.
@@ -445,7 +501,7 @@ registerProcessor("galion-pcm16", GalionPcm16);
 
   // ---- State.
   showChat(chat, false);
-  api("/me").then(function (r) { paired = !!r.json.you; }).catch(function () {});
+  api("/me").then(function (r) { paired = !!r.json.you; if (paired) resume(); }).catch(function () {});
   // ?q= fills the field (never sends), so a link can open with a question ready.
   try { var pre = new URLSearchParams(location.search).get("q"); if (pre) q.value = pre.slice(0, 500); } catch (e) {}
   grow();

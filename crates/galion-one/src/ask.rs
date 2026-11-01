@@ -152,6 +152,26 @@ mod tests {
         assert!(!PAGE.contains("linear-gradient(to top,var(--ob)"));
     }
 
+    /// 2026-11-01 ask fix: every question has an id (the server answers it
+    /// once), waits are bounded, drops resume, and no line says "try again".
+    #[test]
+    fn asks_resume_and_never_say_try_again() {
+        assert!(!PAGE.to_ascii_lowercase().contains("try again"));
+        assert!(!PAGE.contains("=== \"Again\"") && !PAGE.contains("=== \"Wait\""));
+        for want in [
+            "id: j.id",
+            "r.json.pending",
+            "AbortController",
+            "Reconnecting",
+            "\"galion-one-pending\"",
+            "resume()",
+            "ok: j !== null",
+            "addEventListener(\"online\", wake)",
+        ] {
+            assert!(PAGE.contains(want), "{want}");
+        }
+    }
+
     #[test]
     fn room_text_loses_the_name() {
         let real = std::fs::read_to_string(concat!(

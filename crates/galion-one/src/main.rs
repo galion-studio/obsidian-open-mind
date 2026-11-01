@@ -41,6 +41,7 @@ mod persona;
 mod probe;
 mod pwa;
 mod room_links;
+mod say;
 mod services;
 mod speech;
 mod sqlite_ro;
@@ -678,14 +679,7 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
                 None,
             );
         }
-        let fresh = String::from_utf8_lossy(&body)
-            .replace(' ', "")
-            .contains("\"fresh\":true");
-        let bytes = admin_say(
-            &json_string(&body, "text"),
-            &json_string(&body, "thread"),
-            fresh,
-        );
+        let bytes = admin_say(say::parse_ask(&body));
         return write_response(&mut stream, 200, "application/json", &bytes, None);
     }
     if method == "POST" && path == "/pair/invite" {
@@ -1259,69 +1253,102 @@ fn ask_hermes(heard: &str) -> String {
     }
 }
 
-fn admin_say(text: &str, requested: &str, fresh: bool) -> Vec<u8> {
-    let text = text.trim();
+/// POST /admin/say (see say.rs): one background turn per question id,
+/// joined by any repeat of the same id; waits at most [`say::HOLD`].
+fn admin_say(ask: say::Ask) -> Vec<u8> {
+    let text = ask.text.trim().to_string();
     if text.is_empty() {
         return br#"{"say":""}"#.to_vec();
     }
-    let Ok(_guard) = mouth().try_lock() else {
-        return br#"{"say":"Wait"}"#.to_vec();
+    let (id, hold) = if say::valid_id(&ask.id) {
+        (ask.id.clone(), say::HOLD)
+    } else {
+        // The older /room page sends no id: wait longer, still under the edge limit.
+        let r = rnd3();
+        let r2 = rnd3();
+        (
+            format!(
+                "srv-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                r[0], r[1], r[2], r2[0], r2[1], r2[2]
+            ),
+            say::HOLD_NO_ID,
+        )
     };
-    // One conversation = one gateway thread (t443u). The gateway keeps the
-    // thread's transcript, so only the system line and the new message are
-    // sent; the shared session key keeps memory common to every thread.
-    let thread = pick_thread(requested, fresh);
+    let jobs = say::jobs();
+    if let say::Begin::New(thread) = jobs.begin(&id, || pick_thread(&ask.thread, ask.fresh)) {
+        let id2 = id.clone();
+        thread::spawn(move || {
+            let body = admin_turn(&id2, &text, &thread);
+            say::jobs().finish(&id2, body);
+        });
+    }
+    match jobs.wait(&id, hold) {
+        say::Poll::Done(body) => body,
+        say::Poll::Pending(thread) => say::pending_json(&id, &thread),
+        say::Poll::Unknown => say::reply_json(&say::Outcome::Down, ""),
+    }
+}
+
+/// One typed turn against the gateway, with the quiet retry from say.rs.
+fn admin_turn(id: &str, text: &str, thread: &str) -> Vec<u8> {
+    let _lane = say::lane(thread, Duration::from_secs(150));
     let setting = persona::admin_line();
-    let messages = [
-        format!("{{\"role\":\"system\",\"content\":{}}}", quote(setting)),
-        format!("{{\"role\":\"user\",\"content\":{}}}", quote(text)),
-    ];
-    let payload = with_lane_model(format!(
-        "{{\"model\":\"hermes-agent\",\"stream\":false,\"max_tokens\":180,\"messages\":[{}]}}",
-        messages.join(",")
-    ));
+    let model = lane_model();
     let key = hermes_key();
     let auth = format!("Bearer {key}");
     let t = Instant::now();
-    let body = match http_to(
-        mind_addr(),
-        "POST",
-        "/v1/chat/completions",
-        &[
-            ("Authorization", auth.as_str()),
-            ("Content-Type", "application/json"),
-            ("X-Hermes-Session-Id", thread.as_str()),
-            ("X-Hermes-Session-Key", threads::KEY),
-        ],
-        payload.as_bytes(),
-        Duration::from_secs(22),
-    ) {
-        Ok((_, body)) => body,
-        Err(_) => {
-            return format!("{{\"say\":\"Again\",\"thread\":{}}}", quote(&thread)).into_bytes()
-        }
-    };
+    let mut statuses = Vec::new();
+    let (outcome, tries) = say::run(
+        |reasoning| {
+            let payload = say::payload(&model, setting, text, reasoning);
+            let reply = http_to(
+                mind_addr(),
+                "POST",
+                "/v1/chat/completions",
+                &[
+                    ("Authorization", auth.as_str()),
+                    ("Content-Type", "application/json"),
+                    ("X-Hermes-Session-Id", thread),
+                    ("X-Hermes-Session-Key", threads::KEY),
+                ],
+                payload.as_bytes(),
+                say::UPSTREAM,
+            )
+            .ok();
+            let o = say::classify(reply.as_ref().map(|(c, b)| (*c, b.as_slice())));
+            statuses.push(format!(
+                "{}:{}",
+                reply.as_ref().map(|(c, _)| *c).unwrap_or(0),
+                o.name()
+            ));
+            o
+        },
+        thread::sleep,
+    );
     let ms = t.elapsed().as_millis() as u32;
-    note(format!("admin {ms} ms"));
-    let say = json_string(&body, "content");
-    let say: String = say.chars().take(600).collect();
-    let say = if say.is_empty() {
-        "Again".to_string()
-    } else {
-        say
-    };
-    if let Ok(mut n) = nerve().lock() {
-        n.line.insert(
-            0,
-            Turn {
-                you: text.to_string(),
-                hermes: say.clone(),
-                ms,
-            },
-        );
-        n.line.truncate(8);
+    // Journal line for failed-prompt forensics: no text, no tokens.
+    eprintln!(
+        "one: say id={} thread={thread} tries={tries} {} result={} {ms} ms",
+        id.chars().take(12).collect::<String>(),
+        statuses.join(","),
+        outcome.name()
+    );
+    note(format!("admin {ms} ms {}", outcome.name()));
+    let body = say::reply_json(&outcome, thread);
+    if let say::Outcome::Answer(said) = &outcome {
+        if let Ok(mut n) = nerve().lock() {
+            n.line.insert(
+                0,
+                Turn {
+                    you: text.to_string(),
+                    hermes: said.clone(),
+                    ms,
+                },
+            );
+            n.line.truncate(8);
+        }
     }
-    format!("{{\"say\":{},\"thread\":{}}}", quote(&say), quote(&thread)).into_bytes()
+    body
 }
 
 fn thread_state_path() -> String {

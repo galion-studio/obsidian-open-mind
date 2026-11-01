@@ -75,6 +75,7 @@ impl Provider for FakeVision {
                 completion_tokens: 5,
                 total_tokens: 105,
                 cost_usd: 0.0003,
+                cached_tokens: 0,
             },
         })
     }

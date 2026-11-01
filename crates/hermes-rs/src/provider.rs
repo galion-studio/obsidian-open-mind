@@ -57,6 +57,8 @@ pub struct Usage {
     pub completion_tokens: u64,
     pub total_tokens: u64,
     pub cost_usd: f64,
+    /// Cached subset of `prompt_tokens` (`prompt_tokens_details.cached_tokens`).
+    pub cached_tokens: u64,
 }
 
 impl Usage {
@@ -65,7 +67,44 @@ impl Usage {
         self.completion_tokens += o.completion_tokens;
         self.total_tokens += o.total_tokens;
         self.cost_usd += o.cost_usd;
+        self.cached_tokens += o.cached_tokens;
     }
+}
+
+/// List prices in USD per 1M tokens: (model id, input, cached input, output).
+/// Used only when the provider's usage block has no `cost` (River does not
+/// send one; OpenRouter does), so the spend caps can see that spend.
+/// Source: https://console.river.ai/api/public/pricing (2026-11-01).
+const MODEL_PRICES: &[(&str, f64, f64, f64)] = &[
+    ("deepseek-ai/DeepSeek-V4.1-Flash-1017", 0.12, 0.0024, 0.48),
+    ("deepseek-ai/DeepSeek-V4.1-Flash", 0.12, 0.0024, 0.48),
+];
+
+/// (input, cached input, output) USD per 1M tokens for a model id, if known.
+pub fn model_price(model: &str) -> Option<(f64, f64, f64)> {
+    let m = model.trim();
+    MODEL_PRICES
+        .iter()
+        .find(|(id, ..)| id.eq_ignore_ascii_case(m))
+        .map(|&(_, i, c, o)| (i, c, o))
+}
+
+/// Estimated USD cost of one call from the price table, if the model is listed.
+pub fn estimate_cost(model: &str, u: &Usage) -> Option<f64> {
+    let (inp, cached, out) = model_price(model)?;
+    let c = u.cached_tokens.min(u.prompt_tokens);
+    let fresh = u.prompt_tokens - c;
+    Some((fresh as f64 * inp + c as f64 * cached + u.completion_tokens as f64 * out) / 1e6)
+}
+
+/// Fill `usage.cost_usd` from the price table when the provider sent no cost.
+pub fn fill_estimated_cost(t: &Target, mut r: ChatResult) -> ChatResult {
+    if r.usage.cost_usd <= 0.0 && !t.is_free() {
+        if let Some(c) = estimate_cost(&t.model, &r.usage) {
+            r.usage.cost_usd = c;
+        }
+    }
+    r
 }
 
 #[derive(Debug, Clone, Default)]
@@ -364,6 +403,9 @@ impl StreamAcc {
         if let Some(c) = u["cost"].as_f64() {
             self.result.usage.cost_usd = c;
         }
+        if let Some(c) = u["prompt_tokens_details"]["cached_tokens"].as_u64() {
+            self.result.usage.cached_tokens = c;
+        }
     }
 
     pub fn finish(mut self) -> Result<ChatResult, String> {
@@ -511,7 +553,7 @@ impl Provider for CurlProvider {
                         std::thread::sleep(std::time::Duration::from_millis(200));
                     }
                 }
-                other => return other,
+                other => return other.map(|res| fill_estimated_cost(t, res)),
             }
         }
     }
@@ -705,6 +747,7 @@ impl MockProvider {
                 completion_tokens: 8,
                 total_tokens: 0,
                 cost_usd: 0.0,
+                cached_tokens: 0,
             };
             res.usage.total_tokens = res.usage.prompt_tokens + 8;
             if last["role"] == "tool" {
@@ -922,6 +965,53 @@ platforms:
         assert_eq!(r.tool_calls[0].arguments, "{\"tasks\":[]}");
         assert_eq!(r.usage.total_tokens, 15);
         assert!((r.usage.cost_usd - 0.0012).abs() < 1e-9);
+    }
+
+    #[test]
+    fn river_prices_fill_missing_cost() {
+        let t = Target {
+            provider: "custom".into(),
+            base_url: "https://api.river.ai/v1".into(),
+            model: "deepseek-ai/DeepSeek-V4.1-Flash-1017".into(),
+            requested: "river-ds".into(),
+            key_env: Some("RIVER_API_KEY".into()),
+            inline_key: None,
+        };
+        let mut r = ChatResult::default();
+        r.usage.prompt_tokens = 1_000_000;
+        r.usage.cached_tokens = 500_000;
+        r.usage.completion_tokens = 1_000_000;
+        let r = fill_estimated_cost(&t, r);
+        // 0.5M fresh * 0.12 + 0.5M cached * 0.0024 + 1M out * 0.48
+        assert!((r.usage.cost_usd - (0.06 + 0.0012 + 0.48)).abs() < 1e-9);
+        // The older id is priced too; case-insensitive.
+        assert_eq!(
+            model_price("DEEPSEEK-AI/deepseek-v4.1-flash"),
+            Some((0.12, 0.0024, 0.48))
+        );
+        // A provider-sent cost always wins.
+        let mut r2 = ChatResult::default();
+        r2.usage.prompt_tokens = 10;
+        r2.usage.cost_usd = 0.5;
+        assert_eq!(fill_estimated_cost(&t, r2).usage.cost_usd, 0.5);
+        // Unknown models stay at 0.
+        let mut u = t.clone();
+        u.model = "x-ai/grok-4.7".into();
+        let mut r3 = ChatResult::default();
+        r3.usage.prompt_tokens = 10;
+        assert_eq!(fill_estimated_cost(&u, r3).usage.cost_usd, 0.0);
+    }
+
+    #[test]
+    fn sse_usage_reads_cached_tokens() {
+        let mut p = StreamAcc::default();
+        p.feed_line(r#"data: {"choices":[{"delta":{"content":"ok"}}]}"#);
+        p.feed_line(
+            r#"data: {"choices":[],"usage":{"prompt_tokens":276,"completion_tokens":41,"total_tokens":317,"prompt_tokens_details":{"cached_tokens":200}}}"#,
+        );
+        let r = p.finish().unwrap();
+        assert_eq!(r.usage.cached_tokens, 200);
+        assert_eq!(r.usage.cost_usd, 0.0);
     }
 
     #[test]

@@ -260,7 +260,8 @@ fn memory_unconfigured_and_unreadable() {
     let r = get(a, "/memory", "127.0.0.1", "");
     assert_eq!(r.code, 200);
     assert!(r.body.contains("No memory folder is configured"));
-    assert_eq!(r.body.matches(">—</span>").count(), 7);
+    // 8 since the "L0 from Galion One" row (d59ffa41 fixed console-ui, not this test).
+    assert_eq!(r.body.matches(">—</span>").count(), 8);
     let t = host_tree("gone");
     fs::remove_dir_all(t.0.join("mem")).unwrap();
     let (a, _) = start(Mesh::Live, Some(&t.0));

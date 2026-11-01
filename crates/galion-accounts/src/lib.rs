@@ -27,6 +27,7 @@ pub mod pay;
 pub mod plans;
 pub mod ratelimit;
 pub mod rng;
+pub mod roles;
 pub mod server;
 pub mod session;
 pub mod store;

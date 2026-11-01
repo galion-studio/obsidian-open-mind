@@ -7,6 +7,7 @@
 //! ```text
 //! galion-accounts serve        [--listen 127.0.0.1:19970] [--internal 127.0.0.1:19971]
 //!                              [--db accounts.sqlite] [--pepper-file pepper] [--insecure-cookies]
+//! galion-accounts init         --admin-email EMAIL [--access-db access.sqlite] [--db ..]
 //! galion-accounts stripe-setup [--apply] [--webhook-url https://galion.app/webhooks/stripe]
 //!                              [--secret-out whsec.txt] [--env-file accounts.env]
 //! galion-accounts cash-credit  --ref GC-XXXX-XXXX-XXXX --amount-cents 2000 [--currency EUR] [--db ..]
@@ -33,8 +34,10 @@ use galion_accounts::ratelimit::Limiter;
 use galion_accounts::server::{self, App, Settings};
 use galion_accounts::store::Store;
 
-const USAGE: &str = "usage: galion-accounts <serve|stripe-setup|cash-credit|crypto-poll|readiness|sweep|new-pepper> [options]\n\
+const USAGE: &str = "usage: galion-accounts <serve|init|stripe-setup|cash-credit|crypto-poll|readiness|sweep|new-pepper> [options]\n\
   serve        [--listen ADDR] [--internal ADDR] [--db PATH] [--pepper-file PATH] [--insecure-cookies]\n\
+  init         --admin-email EMAIL [--access-db PATH] [--db PATH]\n\
+               idempotent: roles, products (whitelist waves) and the admin record in access.sqlite; no secrets\n\
   stripe-setup [--apply] [--webhook-url URL] [--secret-out PATH]\n\
                dry run unless --apply (with a key the dry run only reads); uses STRIPE_SECRET_KEY.\n\
                A new webhook signing secret is written to --secret-out (0600, must not exist), never printed.\n\
@@ -136,6 +139,61 @@ fn read_pepper(a: &Args) -> Vec<u8> {
         die("pepper file must hold at least 32 bytes");
     }
     s
+}
+
+/// `--access-db`, else ACCOUNTS_ACCESS_DB, else `access.sqlite` next to the
+/// accounts database (a separate file: the accounts DB stays email-free).
+fn access_db_path(a: &Args) -> PathBuf {
+    if let Some(p) = a.opt("--access-db").or_else(|| env("ACCOUNTS_ACCESS_DB")) {
+        return p.into();
+    }
+    let db = db_path(a);
+    match db.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir.join("access.sqlite"),
+        _ => PathBuf::from("access.sqlite"),
+    }
+}
+
+/// `init --admin-email EMAIL`: roles schema, products (whitelist waves) and
+/// the admin record. Idempotent. Stores no secret.
+fn cmd_init(a: &Args) {
+    let email = a
+        .opt("--admin-email")
+        .unwrap_or_else(|| die("init needs --admin-email EMAIL"));
+    let p = access_db_path(a);
+    let mut access = galion_accounts::roles::Access::open(&p)
+        .unwrap_or_else(|e| die(&format!("cannot open {}: {e}", p.display())));
+    let r = access
+        .init(&email, galion_accounts::now_unix())
+        .unwrap_or_else(|e| die(&format!("init: {e}")));
+    println!("access db: {}", p.display());
+    println!(
+        "admin {}: {}",
+        r.admin_email,
+        if r.admin_created {
+            "created"
+        } else if r.admin_promoted {
+            "promoted to admin"
+        } else {
+            "already admin (no change)"
+        }
+    );
+    println!(
+        "roles {} | products {} | admin grants changed {} | other admins {}",
+        r.roles, r.products, r.admin_grants_changed, r.other_admins
+    );
+    for prod in galion_accounts::roles::PRODUCTS {
+        println!(
+            "  product {:<16} wave {} {}",
+            prod.id,
+            prod.wave,
+            if prod.available {
+                "open (seed)"
+            } else {
+                "later (seed)"
+            }
+        );
+    }
 }
 
 fn stripe() -> Stripe {
@@ -476,6 +534,7 @@ fn main() {
     }
     match cmd.as_str() {
         "serve" => cmd_serve(&a),
+        "init" => cmd_init(&a),
         "stripe-setup" => cmd_stripe_setup(&a),
         "cash-credit" => cmd_cash_credit(&a),
         "readiness" => cmd_readiness(&a),

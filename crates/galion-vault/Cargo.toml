@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+[package]
+name = "galion-vault"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Per-instance local secrets vault for the admin of a Galion / Obsidian Open Mind instance: envelope encryption (random data key wrapped by key-encryption keys from a passphrase via Argon2id, a WebAuthn PRF output or a recovery key), XChaCha20-Poly1305 per secret with encrypted names, zeroized keys, re-auth before reveal, an audit log without names or values, and encrypted-only export."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "galion-vault"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = { workspace = true }
+# RustCrypto, MIT OR Apache-2.0, pure Rust.
+argon2 = { version = "0.5", default-features = false, features = ["alloc"] }
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+sha2 = { version = "0.10", default-features = false }
+zeroize = { version = "1", default-features = false, features = ["alloc"] }
+getrandom = "0.2"

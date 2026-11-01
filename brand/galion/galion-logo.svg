@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="160" viewBox="0 0 640 160" role="img" aria-labelledby="t">
+  <title id="t">Galion</title>
+  <!-- SPDX-License-Identifier: MIT. Copyright (c) 3000 Galion / galion-studio. Galion logo: original hand-written SVG (2026-11-01 CET). -->
+  <!-- Mark: an open orbit drawn as a G, its bar pointing into a lit core. -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#B8E8FF"/><stop offset=".55" stop-color="#58C4FF"/><stop offset="1" stop-color="#9D8CFF"/></linearGradient>
+  </defs>
+  <rect width="640" height="160" rx="28" fill="#05070A"/>
+  <g transform="translate(32 32) scale(1.5)">
+    <circle cx="32" cy="32" r="30" fill="#0B0F14" stroke="#24303C" stroke-width="1.5"/>
+    <path d="M47.6 18.4A20 20 0 1 0 52 32H34" fill="none" stroke="url(#g)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="32" cy="32" r="4.2" fill="#B8E8FF"/>
+  </g>
+  <text x="168" y="96" fill="#E6EDF3" font-family="Jost, 'Futura PT', Futura, 'Avenir Next', 'Segoe UI', sans-serif" font-size="52" letter-spacing="17">GALION</text>
+  <text x="170" y="126" fill="#A7B6C4" font-family="'Segoe UI', -apple-system, Roboto, Arial, sans-serif" font-size="15" letter-spacing="3.5">OBSIDIAN OPEN MIND STACK · BUILT IN RUST</text>
+</svg>

@@ -1,0 +1,10 @@
+{
+  "cost_per_call": 0.0,
+  "steps": [
+    {"tool": "write_file", "args": {"path": "jobs/count.sh", "content": "#!/bin/sh\nset -eu\nN=${1:-3}\nOUT=\"count-$N.txt\"\n: > \"$OUT\"\nfor i in $(seq 1 \"$N\"); do\n  echo \"line $i\" >> \"$OUT\"\ndone\necho \"wrote $(wc -l < \"$OUT\") lines\"\n"}},
+    {"tool": "terminal", "args": {"command": "sh jobs/count.sh 3"}},
+    {"tool": "write_file", "args": {"path": "jobs/bad.sh", "content": "#!/bin/sh\necho start\ncurl -s http://example.com\n"}},
+    {"tool": "terminal", "args": {"command": "sh jobs/bad.sh"}},
+    {"final": "Script script finished."}
+  ]
+}

@@ -75,6 +75,11 @@ pub struct Policy {
     pub net_allow: Vec<String>,
     /// Extra read-only vault roots on top of [`VAULT_ROOTS`].
     pub extra_vaults: Vec<PathBuf>,
+    /// `HERMES_RS_GUARD_SCRIPT_MODE=1`: a shell script that lives in the
+    /// workspace may use variables, `$( )`, here-documents, if/for/while and
+    /// functions (every command inside is still checked), and `./script.sh`
+    /// runs it like `sh script.sh`. Default off (the strict 10-30 rules).
+    pub script_mode: bool,
 }
 
 /// Tool-call size bounds (over = refused, never partially checked).
@@ -100,6 +105,7 @@ impl Policy {
             home: PathBuf::from("/root"),
             net_allow: Vec::new(),
             extra_vaults: Vec::new(),
+            script_mode: false,
         };
         p.sanitise();
         p
@@ -120,7 +126,8 @@ impl Policy {
     /// `HERMES_RS_GUARD_WORKSPACE` or else `HERMES_RS_CODING_WORKTREE` = the
     /// writable root and cwd (none set = nothing writable, cwd `/nonexistent`);
     /// `HERMES_RS_GUARD_MODE=allowlist` = default-deny terminal;
-    /// `HERMES_RS_GUARD_NET_ALLOW=host,host`; `HERMES_RS_GUARD_VAULTS=/a:/b`.
+    /// `HERMES_RS_GUARD_NET_ALLOW=host,host`; `HERMES_RS_GUARD_VAULTS=/a:/b`;
+    /// `HERMES_RS_GUARD_SCRIPT_MODE=1` = [`Policy::script_mode`].
     pub fn from_env() -> Policy {
         let ws = std::env::var("HERMES_RS_GUARD_WORKSPACE")
             .ok()
@@ -136,6 +143,7 @@ impl Policy {
                 home: PathBuf::from("/root"),
                 net_allow: Vec::new(),
                 extra_vaults: Vec::new(),
+                script_mode: false,
             },
         };
         if let Ok(h) = std::env::var("HOME") {
@@ -156,6 +164,9 @@ impl Policy {
                 .filter(|h| !h.is_empty())
                 .collect();
         }
+        p.script_mode = std::env::var("HERMES_RS_GUARD_SCRIPT_MODE")
+            .map(|v| v.trim() == "1")
+            .unwrap_or(false);
         if let Ok(v) = std::env::var("HERMES_RS_GUARD_VAULTS") {
             p.extra_vaults = v
                 .split(':')
@@ -564,6 +575,10 @@ struct Cmd<'a> {
     pol: &'a Policy,
     cwd: PathBuf,
     depth: usize,
+    /// Checking the contents of a workspace script with script mode on
+    /// ([`Policy::script_mode`]): the lexer and [`Cmd::segment`] accept the
+    /// ordinary script forms (variables, `$( )`, if/for/while, functions).
+    script: bool,
 }
 
 fn is_assignment(w: &Word) -> Option<(&str, &str)> {
@@ -803,7 +818,12 @@ impl<'a> Cmd<'a> {
             ));
         }
         prior_check(src, true, true)?;
-        let segs = shell::lex(src)?;
+        let segs = shell::lex_opts(
+            src,
+            shell::LexOpts {
+                script: self.script,
+            },
+        )?;
         // P again on the de-quoted, basename-normalised reconstruction
         let rebuilt: Vec<String> = segs
             .iter()
@@ -834,6 +854,7 @@ impl<'a> Cmd<'a> {
                             pol: self.pol,
                             cwd: self.cwd.clone(),
                             depth: self.depth + 1,
+                            script: false,
                         };
                         if let Err(e) = sub.all(&d) {
                             return Err(deny(
@@ -852,6 +873,236 @@ impl<'a> Cmd<'a> {
         Ok(())
     }
 
+    /// Script mode: check the `$( )` bodies of this segment, strip shell
+    /// keywords (`if then elif else do while until ! {`), accept the closers,
+    /// loop headers, function headers, plain assignments and the harmless
+    /// script builtins. Returns the simple command still to be checked, or
+    /// `None` when nothing is left to run.
+    fn script_prelude<'s>(&self, s: &'s Segment) -> Result<Option<Vec<&'s Word>>, Deny> {
+        for sub in &s.subs {
+            let mut c = Cmd {
+                pol: self.pol,
+                cwd: self.cwd.clone(),
+                depth: self.depth,
+                script: true,
+            };
+            c.all(sub)
+                .map_err(|e| deny(&e.rule, format!("inside $( ): {}", e.reason)))?;
+        }
+        let kw =
+            |w: &Word, list: &[&str]| !w.quoted && !w.dynamic && list.contains(&w.text.as_str());
+        let mut ws: Vec<&Word> = s.words.iter().collect();
+        while ws.first().is_some_and(|w| {
+            kw(
+                w,
+                &[
+                    "if", "then", "elif", "else", "do", "while", "until", "!", "{",
+                ],
+            )
+        }) {
+            ws.remove(0);
+        }
+        let Some(first) = ws.first() else {
+            return Ok(None);
+        };
+        let ident = |w: &Word| {
+            !w.dynamic
+                && !w.text.is_empty()
+                && w.text
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                && !w.text.starts_with(|c: char| c.is_ascii_digit())
+        };
+        // closers: `fi`, `done`, `}` (redirections were checked by the caller)
+        if ws.len() == 1 && kw(first, &["fi", "done", "}"]) {
+            return Ok(None);
+        }
+        if kw(first, &["for"]) {
+            // `for NAME [in WORDS...]`: the words are data
+            return match ws.get(1) {
+                Some(n) if ident(n) && ws.get(2).is_none_or(|w| w.text == "in") => Ok(None),
+                _ => Err(deny(
+                    "S1-compound",
+                    "for loop without a plain variable name",
+                )),
+            };
+        }
+        if kw(first, &["case", "select", "coproc"]) {
+            return Err(deny(
+                "S1-compound",
+                format!(
+                    "{} is not supported in workspace scripts yet; use if/elif",
+                    first.text
+                ),
+            ));
+        }
+        if kw(first, &["[["]) {
+            // bash test: never runs anything; `$( )` inside was checked above
+            return match ws.last() {
+                Some(l) if l.text == "]]" && !l.quoted => Ok(None),
+                _ => Err(deny("S1-syntax", "[[ without ]]")),
+            };
+        }
+        // function headers: `name()`, `name() {`, `function name [()] [{]`
+        let fn_tail_ok = |rest: &[&Word]| {
+            rest.iter()
+                .all(|w| !w.quoted && (w.text == "()" || w.text == "{"))
+        };
+        if ws.len() >= 2 && ws[1].text == "()" && !ws[1].quoted && ident(first) {
+            if fn_tail_ok(&ws[2..]) {
+                return Ok(None);
+            }
+            return Err(deny(
+                "S1-compound",
+                "function body must start on its own `{`",
+            ));
+        }
+        if kw(first, &["function"]) {
+            if ws.get(1).is_some_and(|n| ident(n)) && fn_tail_ok(&ws[2..]) {
+                return Ok(None);
+            }
+            return Err(deny(
+                "S1-compound",
+                "function header must be `function name {`",
+            ));
+        }
+        // a line of plain assignments only: shell variables, not program env
+        if ws.iter().all(|w| is_assignment(w).is_some()) {
+            for w in &ws {
+                self.script_assignment(w)?;
+            }
+            return Ok(None);
+        }
+        if !first.quoted && !first.dynamic {
+            let args = &ws[1..];
+            match first.text.as_str() {
+                "export" | "local" | "readonly" if !args.is_empty() => {
+                    for a in args {
+                        if is_assignment(a).is_some() {
+                            self.script_assignment(a)?;
+                        } else if !ident(a) && !(first.text == "local" && a.text == "-r") {
+                            return Err(deny(
+                                "S5-env-assign",
+                                format!(
+                                    "{} {}: only plain names or NAME=value",
+                                    first.text, a.text
+                                ),
+                            ));
+                        }
+                    }
+                    return Ok(None);
+                }
+                "unset" if !args.is_empty() && args.iter().all(|a| ident(a)) => return Ok(None),
+                "set" if !args.is_empty() => {
+                    let mut prev_o = false;
+                    for a in args {
+                        let t = a.text.as_str();
+                        let ok = if prev_o {
+                            matches!(
+                                t,
+                                "errexit"
+                                    | "nounset"
+                                    | "pipefail"
+                                    | "xtrace"
+                                    | "noglob"
+                                    | "noclobber"
+                            )
+                        } else {
+                            (t.starts_with('-') || t.starts_with('+'))
+                                && t.len() > 1
+                                && t[1..].chars().all(|c| "euxofCnv".contains(c))
+                        };
+                        if !ok || a.dynamic {
+                            return Err(deny(
+                                "S5-env-assign",
+                                format!("set {t}: only shell options like -e, -u, -o pipefail"),
+                            ));
+                        }
+                        prev_o = t == "-o" || t == "+o";
+                    }
+                    return Ok(None);
+                }
+                "read"
+                    if args
+                        .iter()
+                        .all(|a| ident(a) || matches!(a.text.as_str(), "-r" | "-s")) =>
+                {
+                    return Ok(None)
+                }
+                "shift" | "return" | "exit" | "break" | "continue"
+                    if args.len() <= 1
+                        && args
+                            .iter()
+                            .all(|a| a.dynamic || a.text.chars().all(|c| c.is_ascii_digit())) =>
+                {
+                    return Ok(None)
+                }
+                "local" | "true" | "false" | ":" | "wait" if args.is_empty() => return Ok(None),
+                _ => {}
+            }
+        }
+        if first.dynamic {
+            return Err(deny(
+                "S5-expand",
+                format!("the command name {} comes from a variable", first.text),
+            ));
+        }
+        Ok(Some(ws))
+    }
+
+    /// Script mode: one shell-variable assignment. Names that change how the
+    /// shell or programs find and load code stay refused.
+    fn script_assignment(&self, w: &Word) -> R {
+        let Some((name, val)) = is_assignment(w) else {
+            return Err(deny("S5-env-assign", "not an assignment"));
+        };
+        let upper = name.to_ascii_uppercase();
+        if SCRIPT_VAR_DENY.contains(&upper.as_str())
+            || upper.starts_with("LD_")
+            || upper.starts_with("BASH_FUNC")
+            || upper.starts_with("HERMES_")
+            || upper.starts_with("OPENROUTER")
+            || upper.starts_with("GIT_")
+        {
+            return Err(deny(
+                "S5-env-assign",
+                format!("{name}= changes how the shell or programs find and load code"),
+            ));
+        }
+        if !w.dynamic && looks_like_path(val) {
+            self.path(val, Access::Read)?;
+        }
+        Ok(())
+    }
+
+    /// Script mode, `./x.sh`: the file if it resolves inside the workspace and
+    /// is a shell script (`#!/bin/sh`, `#!/bin/bash`, `#!/usr/bin/env sh|bash`,
+    /// or no `#!` line and a `.sh` name). `None` = not a workspace script.
+    fn workspace_shell_script(&self, w: &Word) -> Option<&'static str> {
+        if w.dynamic || w.glob {
+            return None;
+        }
+        let lex = lexical(&w.text, &self.cwd, &self.pol.home).ok()?;
+        let phys = physical(&lex);
+        if !self.pol.in_write_roots(&lex) || !self.pol.in_write_roots(&phys) {
+            return None;
+        }
+        let mut head = [0u8; 64];
+        let n = {
+            use std::io::Read;
+            std::fs::File::open(&phys).ok()?.read(&mut head).ok()?
+        };
+        let first = String::from_utf8_lossy(&head[..n]);
+        let first = first.lines().next().unwrap_or("").trim_end();
+        match first {
+            "#!/bin/sh" | "#!/usr/bin/sh" | "#!/usr/bin/env sh" => Some("sh"),
+            "#!/bin/bash" | "#!/usr/bin/bash" | "#!/usr/bin/env bash" => Some("bash"),
+            "#!/bin/dash" | "#!/usr/bin/dash" => Some("dash"),
+            f if !f.starts_with("#!") && w.text.ends_with(".sh") => Some("sh"),
+            _ => None,
+        }
+    }
+
     fn segment(&mut self, s: &Segment, _more: bool) -> R {
         for r in &s.redirs {
             let a = if r.kind == RedirKind::Write {
@@ -861,7 +1112,15 @@ impl<'a> Cmd<'a> {
             };
             self.word_path(&r.target, a)?;
         }
-        let mut words = s.words.iter().peekable();
+        let list: Vec<&Word> = if self.script {
+            match self.script_prelude(s)? {
+                None => return Ok(()),
+                Some(w) => w,
+            }
+        } else {
+            s.words.iter().collect()
+        };
+        let mut words = list.iter().copied().peekable();
         while let Some(w) = words.peek() {
             let Some((name, val)) = is_assignment(w) else {
                 break;
@@ -882,6 +1141,12 @@ impl<'a> Cmd<'a> {
             return Ok(());
         };
         let args = &rest[1..];
+        if cmd.dynamic {
+            return Err(deny(
+                "S5-expand",
+                format!("the command name {} comes from a variable", cmd.text),
+            ));
+        }
         if cmd.glob {
             return Err(deny(
                 "S2-glob-cmd",
@@ -901,6 +1166,12 @@ impl<'a> Cmd<'a> {
                     .map(|f| f.to_string_lossy().to_string())
                     .unwrap_or_default();
             } else {
+                // script mode: `./x.sh` inside the workspace runs like `sh x.sh`
+                if self.pol.script_mode && self.depth < 2 && !self.script {
+                    if let Some(sh) = self.workspace_shell_script(cmd) {
+                        return self.run_shell_script(sh, cmd);
+                    }
+                }
                 return Err(deny(
                     "S4-path-exec",
                     format!(
@@ -961,8 +1232,10 @@ impl<'a> Cmd<'a> {
             // script that lives inside the workspace, once the script's own
             // contents pass this same deny list. Scripts outside the workspace,
             // stdin scripts and `-c`/`-e` inline code stay refused.
+            // Script mode: a script may not start another script (the inner file
+            // could be rewritten by the outer one after this check).
             if self.depth < 2 {
-                if matches!(n, "sh" | "bash" | "dash" | "ash" | "ksh" | "zsh") {
+                if matches!(n, "sh" | "bash" | "dash" | "ash" | "ksh" | "zsh") && !self.script {
                     if let Some(script) = shell_script_arg(args) {
                         return self.run_shell_script(n, script);
                     }
@@ -1252,6 +1525,7 @@ impl<'a> Cmd<'a> {
             pol: self.pol,
             cwd,
             depth: self.depth + 1,
+            script: self.pol.script_mode,
         };
         sub.all(&content)
             .map_err(|e| deny(&e.rule, format!("{n} script {}: {}", script.text, e.reason)))
@@ -1571,6 +1845,7 @@ impl<'a> Cmd<'a> {
             pol: self.pol,
             cwd,
             depth: self.depth,
+            script: self.script,
         };
         for a in rest {
             if looks_like_path(&a.text) && !a.text.starts_with('-') {
@@ -1650,6 +1925,7 @@ pub fn check_command_in(cmd: &str, cwd: &Path, pol: &Policy) -> R {
         pol,
         cwd: cwd.to_path_buf(),
         depth: 0,
+        script: false,
     };
     c.all(cmd)
 }

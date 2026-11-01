@@ -108,12 +108,21 @@ impl Tool for Terminal {
         "terminal".into()
     }
     fn description(&self) -> String {
-        "Run one shell command (sh -c) in the Hermes workspace sandbox: no network, read-only system, only the workspace writable, secrets hidden, every command checked by the Hermes deny list first. Default timeout 60 s (timeout_s up to 300). Output is capped.".into()
+        let c = &self.0.cfg;
+        let scripts = if hermes_rs::denylist::Policy::global().script_mode {
+            " Scripts: write a .sh file in the workspace and run it with `sh file.sh` or `./file.sh`; its variables, $( ), here-documents, if/for/while and functions are allowed, every command inside is checked, and a script may not start another script."
+        } else {
+            ""
+        };
+        format!(
+            "Run one shell command (sh -c) in the Hermes workspace sandbox: no network, read-only system, only the workspace writable, secrets hidden, every command checked by the Hermes deny list first. Default timeout {} s (timeout_s up to {}). Output is capped.{scripts}",
+            c.shell_timeout_s, c.shell_timeout_max_s
+        )
     }
     fn parameters(&self) -> Value {
         json!({"type": "object", "properties": {
             "command": {"type": "string"},
-            "timeout_s": {"type": "integer", "minimum": 1, "maximum": 300}
+            "timeout_s": {"type": "integer", "minimum": 1, "maximum": self.0.cfg.shell_timeout_max_s}
         }, "required": ["command"]})
     }
     fn call(&self, args: &Value, ctx: &ToolCtx) -> ToolOutput {

@@ -105,6 +105,37 @@ fn listing_types_and_hidden() {
 }
 
 #[test]
+fn listing_has_short_local_times() {
+    let d = scratch();
+    let r = Root::new(&d, false).unwrap();
+    let top = r.list("", false).unwrap();
+    for e in top["entries"].as_array().unwrap() {
+        let short = e["mtime_short"].as_str().unwrap();
+        // Just written: today on the Zagreb clock ("yesterday" only if the
+        // test straddles local midnight).
+        assert!(
+            (short.starts_with("today ") && short.len() == 11) || short.starts_with("yesterday "),
+            "{e}"
+        );
+        let exact = e["mtime_local"].as_str().unwrap();
+        assert!(
+            exact.ends_with("+01:00") || exact.ends_with("+02:00"),
+            "{exact}"
+        );
+    }
+    let i = r.info("docs/a.md").unwrap();
+    let s = i["mtime_short"].as_str().unwrap();
+    assert!(
+        s.starts_with("today ") || s.starts_with("yesterday "),
+        "{s}"
+    );
+    assert_eq!(
+        galion_files::short_stamp(1_793_533_200 - 2 * 86400, 1_793_533_200),
+        "30 Oct 12:40"
+    );
+}
+
+#[test]
 fn read_only_refuses_every_write() {
     let d = scratch();
     let r = Root::new(&d, false).unwrap();

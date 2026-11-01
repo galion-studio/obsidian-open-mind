@@ -140,6 +140,21 @@ pub struct Request<'a> {
     pub body: &'a [u8],
 }
 
+/// A page body owned by another crate, for [`Ui::shell_page`]. `head`,
+/// `main` and `tail` are trusted markup (that crate's own constants).
+#[derive(Debug, Clone, Copy)]
+pub struct ShellPage<'a> {
+    pub title: &'a str,
+    /// Extra `<head>` markup after the console stylesheet.
+    pub head: &'a str,
+    /// The `<main>` contents.
+    pub main: &'a str,
+    /// End-of-body markup (scripts), after the dock.
+    pub tail: &'a str,
+    /// Content-Security-Policy for the page (it needs its own scripts).
+    pub csp: &'a str,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reply {
     pub status: u16,
@@ -155,6 +170,9 @@ pub const HERMES_JS: &str = include_str!("assets/hermes.js");
 /// served as `/_ui/hermes-mic.<hash>.js` (worklets load by URL; script-src
 /// 'self' covers it).
 pub const HERMES_MIC_JS: &str = include_str!("assets/hermes-mic.js");
+
+/// The file explorer room (served by console-static `--files`).
+pub const FILES_PATH: &str = "/files";
 
 /// Page CSP. Only `/hermes` adds `script-src` / `connect-src` ('self').
 pub const PAGE_CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
@@ -335,6 +353,47 @@ impl Ui {
 
     pub fn css_href(&self) -> &str {
         &self.css_href
+    }
+
+    /// A page whose body comes from another crate (console-static `/files`),
+    /// drawn inside the console shell (header, menu, dock) behind the same
+    /// page gate as every room. `paired` is the caller's own device check;
+    /// both must pass. A refused gate is a 401 with the pairing form (back
+    /// to this page), the same answer `/connectors` gives; never the page.
+    pub fn shell_page(&self, req: &Request<'_>, paired: bool, page: &ShellPage<'_>) -> Reply {
+        if req.method != "GET" && req.method != "HEAD" {
+            let mut r = Reply::text(405, "Method Not Allowed\n");
+            r.headers.push(("Allow".into(), "GET, HEAD".into()));
+            return r;
+        }
+        if let Err(mut r) = self.gate(req) {
+            if r.status == 200 {
+                r.status = 401;
+            }
+            return r;
+        }
+        if !paired {
+            let f = self.frame(req, "Admin");
+            return Reply::html(
+                401,
+                layout::document(&f, "", &pages::gate::pair(safe_back(req.path), None)),
+            );
+        }
+        let fwd = self.forward(req);
+        let origin = self.origin(&fwd);
+        let f = self.frame(req, page.title);
+        let mut r = Reply::html(
+            200,
+            layout::console_with(&f, origin, page.head, page.main, page.tail),
+        );
+        for h in r.headers.iter_mut() {
+            if h.0 == "Content-Security-Policy" {
+                h.1 = page.csp.to_string();
+            }
+        }
+        r.headers
+            .push(("Referrer-Policy".into(), "no-referrer".into()));
+        r
     }
 
     /// Whether this UI answers `path`. With an SPA fallback configured only
@@ -570,6 +629,22 @@ impl Ui {
             "/node" | "/security" | "/session" => self.port5_room(req),
             connectors::PATH => self.connectors_room(req),
             oauth::CALLBACK_PATH => self.oauth_callback(req),
+            // console-static answers /files itself when started with
+            // --files DIR (Ui::shell_page); reaching here means it is off.
+            FILES_PATH => {
+                let fwd = self.forward(req);
+                let origin = self.origin(&fwd);
+                let f = self.frame(req, "Files");
+                Reply::html(
+                    200,
+                    layout::console(
+                        &f,
+                        origin,
+                        "<section class=\"gate\"><p class=\"k\">Files</p><h1>Files is off on this console.</h1>\
+<p class=\"lede\">The shared folder screen runs when the console starts with <code>--files DIR</code>.</p></section>",
+                    ),
+                )
+            }
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);

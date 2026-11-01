@@ -690,6 +690,8 @@ fn read_rooms_render_get_only() {
         .filter_map(|r| r.to)
         // t453u: /connectors is a new Rust-only room, not an SPA port.
         .filter(|p| *p != console_ui::connectors::PATH)
+        // console-files-nav: /files is console-static's own room (--files).
+        .filter(|p| *p != console_ui::FILES_PATH)
         .filter(|p| !console_ui::PORTED.contains(p))
         .collect();
     // 28 in-console rooms; every one is either ported or says so.
@@ -702,6 +704,16 @@ fn read_rooms_render_get_only() {
     // console-port-merge (slot 169): all 28 rooms are ported; PORTED holds 30
     // entries, and the overview (/console) counts itself: 31 of 31.
     assert!(not_ported.is_empty(), "{not_ported:?}");
+    let f = get(a, "/files", "127.0.0.1", "");
+    assert_eq!(f.code, 200);
+    assert!(
+        f.body.contains("Files is off on this console."),
+        "{}",
+        f.body
+    );
+    assert!(f
+        .body
+        .contains("<li><a href=\"/files\" aria-current=\"page\">"));
     assert_eq!(console_ui::PORTED.len(), 30);
     let ov = get(a, "/console", "127.0.0.1", "");
     assert!(ov.body.contains("31 of 31 routes in Rust"), "{}", ov.body);

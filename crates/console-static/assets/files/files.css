@@ -1,18 +1,19 @@
 /* SPDX-License-Identifier: MIT */
 /* Copyright (c) 3000 Galion / galion-studio */
 /* Console file explorer (console-static --files): phone first, two panes from 860px. */
-:root{--bg:#05060f;--tile:rgba(20,24,52,.62);--line:rgba(140,150,220,.16);--fg:#e8eaff;--2:#b3b8e0;--3:#7f86b8;--acc:#7aa2ff;--ok:#5fd4a0;--warn:#f5c26b;--err:#ff7a8a;--r:.8rem}
-*{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
-button,input,select{font:inherit;color:inherit}
-button{background:rgba(122,162,255,.12);border:1px solid var(--line);border-radius:.6rem;padding:.45rem .7rem;min-height:2.4rem;cursor:pointer;white-space:nowrap}
-button:hover{border-color:rgba(122,162,255,.5)}button:disabled{opacity:.45;cursor:default}
-button.pri{background:var(--acc);color:#08102a;border-color:var(--acc);font-weight:600}
-button.bad{color:var(--err)}
-a{color:var(--acc)}
-.fx{max-width:1500px;margin:0 auto;padding:max(.6rem,env(safe-area-inset-top)) .7rem 1rem;min-height:100vh;display:flex;flex-direction:column;gap:.5rem}
+/* Drawn inside the console shell (header, menu, dock): colours follow the
+   console theme (--c-*), with the old dark palette as the fallback for the
+   standalone page (no Rust UI). Every rule is scoped to .fx. */
+.fx{--bg:var(--c-bg,#05060f);--tile:var(--c-surface,rgba(20,24,52,.62));--line:var(--c-line,rgba(140,150,220,.16));--fg:var(--c-fg,#e8eaff);--2:var(--c-muted,#b3b8e0);--3:var(--c-subtle,#7f86b8);--acc:#7aa2ff;--ok:#5fd4a0;--warn:#f5c26b;--err:#ff7a8a;--r:.8rem;color:var(--fg)}
+.fx,.fx *{box-sizing:border-box}
+.fx button,.fx input,.fx select{font:inherit;color:inherit}
+.fx button{background:rgba(122,162,255,.12);border:1px solid var(--line);border-radius:.6rem;padding:.45rem .7rem;min-height:2.4rem;cursor:pointer;white-space:nowrap}
+.fx button:hover{border-color:rgba(122,162,255,.5)}.fx button:disabled{opacity:.45;cursor:default}
+.fx button.pri{background:var(--acc);color:#08102a;border-color:var(--acc);font-weight:600}
+.fx button.bad{color:var(--err)}
+.fx a{color:var(--acc)}
+.fx{max-width:1500px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;gap:.5rem}
 .fx-top{display:flex;align-items:center;gap:.6rem}
-.fx-home{font-weight:700;text-decoration:none;color:var(--2);font-size:.85rem;letter-spacing:.05em;text-transform:uppercase}
 .fx-title{margin:0;font-size:1.25rem}
 .fx-mode{margin-left:auto;font-size:.75rem;padding:.15rem .5rem;border-radius:1rem;border:1px solid var(--line);color:var(--3)}
 .fx-mode.rw{color:var(--warn);border-color:rgba(245,194,107,.4)}
@@ -54,20 +55,25 @@ a{color:var(--acc)}
 .fx-tbl tr.bad td{color:var(--err)}
 .fx-prog{height:.4rem;border-radius:.2rem;background:rgba(140,150,220,.18);overflow:hidden}.fx-prog i{display:block;height:100%;width:0;background:var(--acc)}
 .fx-back{display:inline-flex}
-.fx-dlg{background:#0d1030;color:var(--fg);border:1px solid var(--line);border-radius:var(--r);width:min(28rem,92vw);padding:1rem}
+.fx-dlg{background:var(--c-elevated,#0d1030);color:var(--fg);border:1px solid var(--line);border-radius:var(--r);width:min(28rem,92vw);padding:1rem}
 .fx-dlg::backdrop{background:rgba(0,0,0,.6)}
 .fx-dlg input{width:100%;background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:.5rem;padding:.55rem;margin:.4rem 0 .8rem}
 .fx-dlg-b{display:flex;justify-content:flex-end;gap:.5rem}
 .fx-dlg p{margin:0;overflow-wrap:anywhere}
 /* Phone: the preview is a full-screen sheet over the list. */
 @media (max-width:859px){
-  .fx.viewing .fx-view{display:flex;position:fixed;inset:0;z-index:5;border-radius:0;border:0;background:#070920;padding:max(.6rem,env(safe-area-inset-top)) .6rem max(.6rem,env(safe-area-inset-bottom));overflow:auto}
-  .fx.viewing{overflow:hidden;height:100vh}
+  /* Between the console header and the dock (same box as the menu sheet). */
+  .fx.viewing .fx-view{display:flex;position:fixed;left:0;right:0;top:calc(3.6rem + env(safe-area-inset-top));bottom:calc(3.6rem + env(safe-area-inset-bottom));z-index:20;border-radius:0;border:0;background:var(--bg);padding:.6rem;overflow:auto}
   .fx-body img,.fx-body video{max-height:60vh}
   .fx-ed{height:60vh}
 }
 @media (min-width:860px){
-  .fx-main{grid-template-columns:minmax(18rem,26rem) 1fr;height:calc(100vh - 10.5rem)}
+  /* Fill the console main area; the list and the preview scroll. */
+  .fx{height:100%}
+  .fx-main{grid-template-columns:minmax(18rem,26rem) 1fr;grid-template-rows:minmax(0,1fr)}
   .fx-view{display:flex;overflow:auto}
   .fx-back{display:none}
 }
+/* Light console theme: kind badges use the page text colour. */
+html[data-theme=light] .fx .fx-ic{color:var(--fg)}
+@media (prefers-color-scheme:light){html:not([data-theme]) .fx .fx-ic{color:var(--fg)}}

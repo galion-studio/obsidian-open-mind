@@ -72,6 +72,12 @@ pub const ROOMS: &[Room] = &[
         "plug",
     ),
     r(
+        "/files",
+        "Files",
+        "The shared folder. Look, play, edit.",
+        "folder",
+    ),
+    r(
         "/context",
         "Context",
         "The window, the sessions, the tools.",
@@ -178,6 +184,7 @@ pub const DOCK: &[(&str, &str)] = &[
     ("/bank", "Bank"),
     ("/instances", "Instances"),
     ("/hermes", "Research"),
+    ("/files", "Files"),
     ("/analytics", "Nerve"),
     ("/security", "Defence"),
 ];
@@ -214,7 +221,7 @@ mod tests {
 
     #[test]
     fn rooms_and_dock_agree() {
-        assert_eq!(ROOMS.len(), 30);
+        assert_eq!(ROOMS.len(), 31);
         for (to, _) in DOCK {
             assert!(icon_of(to).is_some(), "{to}");
         }
@@ -223,5 +230,8 @@ mod tests {
         assert_eq!(current("/md/user").label, "Desk");
         assert!(exact("/agents").is_some());
         assert!(exact("/agents/x").is_none());
+        assert_eq!(current("/files").label, "Files");
+        assert_eq!(icon_of("/files"), Some("folder"));
+        assert!(DOCK.iter().any(|(to, _)| *to == "/files"));
     }
 }

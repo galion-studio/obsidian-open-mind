@@ -213,7 +213,12 @@ fn gate_comes_first_then_page_and_editor() {
         "GET /files HTTP/1.1\r\nHost: evil.example\r\nConnection: close\r\n\r\n",
         b"",
     );
-    assert_ne!(r.code, 200, "page only on the console host");
+    // A foreign host gets what every console room gives it (the quiet
+    // "Soon" page), never the explorer.
+    assert!(
+        !r.text().contains("fx-list"),
+        "page only on the console host"
+    );
     // Unpaired (no cookie, or a wrong one): the page and the editor are 401.
     for (p, c) in [
         ("/files", ""),
@@ -228,6 +233,85 @@ fn gate_comes_first_then_page_and_editor() {
         assert_eq!(r.code, 401, "{p} unpaired");
         assert!(!r.text().contains("fx-list") && !r.text().contains("GalionEditor"));
     }
+}
+
+#[test]
+fn page_sits_in_the_console_shell() {
+    let b = start(&[]);
+    let r = get(b.addr, "/files", "");
+    assert_eq!(r.code, 200);
+    let t = r.text();
+    // Same header, menu and dock as every console room, Files marked current.
+    assert!(t.contains("<header class=\"top\">"), "console header");
+    assert!(t.contains("<details class=\"menu\">"), "console menu");
+    assert!(
+        t.contains("<nav class=\"dock\" aria-label=\"Primary\">"),
+        "console dock"
+    );
+    assert!(t.contains("<a class=\"room\" href=\"/files\" aria-current=\"page\">"));
+    assert!(t.contains("<li><a href=\"/files\" aria-current=\"page\">"));
+    assert!(
+        t.contains("<span class=\"ell\">Files</span>"),
+        "header title"
+    );
+    assert!(t.contains("href=\"/_ui/console."), "console stylesheet");
+    assert!(t.contains("#folder\""), "folder icon from the sprite");
+    // The explorer itself is still there, scripts after the dock.
+    assert!(t.contains("id=\"fx-list\"") && t.contains("/files/editor.js?v="));
+    assert!(t.find("class=\"dock\"").unwrap() < t.find("/files/editor.js?v=").unwrap());
+    assert!(!t.contains("href=\"/phone\""), "no separate-site home link");
+    assert!(r.has("content-security-policy: default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"));
+    assert!(r.has("x-frame-options: deny"));
+    // The other rooms link to Files too.
+    let c = get(b.addr, "/console", "");
+    assert_eq!(c.code, 200);
+    assert!(
+        c.text().contains("<a class=\"room\" href=\"/files\">"),
+        "menu"
+    );
+    assert!(c.text().contains("<li><a href=\"/files\">"), "dock");
+    // HEAD: same status, no body.
+    let h = send(
+        b.addr,
+        &format!(
+            "HEAD /files HTTP/1.1\r\nHost: {HOST}\r\n{}Connection: close\r\n\r\n",
+            cookie()
+        ),
+        b"",
+    );
+    assert_eq!(h.code, 200);
+    assert!(h.body.is_empty());
+}
+
+#[test]
+fn unpaired_gets_the_console_pairing_form_with_401() {
+    let b = start(&[]);
+    for c in ["", "Cookie: galion_admin=not-the-token\r\n"] {
+        let r = send(
+            b.addr,
+            &format!("GET /files HTTP/1.1\r\nHost: {HOST}\r\n{c}Connection: close\r\n\r\n"),
+            b"",
+        );
+        assert_eq!(r.code, 401);
+        let t = r.text();
+        assert!(
+            t.contains("action=\"/_ui/pair?back=/files\""),
+            "pair, then back to /files: {t}"
+        );
+        assert!(!t.contains("fx-list") && !t.contains("GalionEditor"));
+        assert!(
+            !t.contains("class=\"dock\""),
+            "no console chrome before pairing"
+        );
+    }
+    // Same answer shape as another owner room (/connectors).
+    let r = send(
+        b.addr,
+        &format!("GET /connectors HTTP/1.1\r\nHost: {HOST}\r\nConnection: close\r\n\r\n"),
+        b"",
+    );
+    assert_eq!(r.code, 401);
+    assert!(r.text().contains("action=\"/_ui/pair?back=/connectors\""));
 }
 
 #[test]

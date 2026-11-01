@@ -393,6 +393,48 @@ fn handle_request(
                     .admin
                     .as_ref()
                     .is_some_and(|a| a.is_admin(head.header("cookie")));
+            // Inside the Rust console UI: the page is drawn in the console
+            // shell (header, menu, dock) and an unpaired visitor gets the
+            // console's own pairing form with a 401, like /connectors.
+            if let (Some(ui), true) = (&state.ui, clean == crate::files::PAGE_PATH) {
+                let peer = stream.peer_addr().ok();
+                let peer_loopback = peer.is_some_and(|p| p.ip().is_loopback());
+                let req = console_ui::Request {
+                    method,
+                    path: &clean,
+                    query,
+                    host,
+                    cookie: head.header("cookie"),
+                    origin: head.header("origin"),
+                    sec_fetch_site: head.header("sec-fetch-site"),
+                    forwarded_proto: head.header("x-forwarded-proto").filter(|_| peer_loopback),
+                    peer_loopback,
+                    client_ip: peer.map(|p| p.ip().to_string()).unwrap_or_default(),
+                    content_type: head.header("content-type"),
+                    body: &[],
+                };
+                let (fhead, fmain, ftail) = crate::files::shell_parts();
+                let reply = ui.shell_page(
+                    &req,
+                    paired,
+                    &console_ui::ShellPage {
+                        title: "Files",
+                        head: fhead,
+                        main: fmain,
+                        tail: ftail,
+                        csp: crate::files::SHELL_CSP,
+                    },
+                );
+                // Never the explorer without both checks (defence in depth).
+                debug_assert!(paired || reply.status != 200);
+                let ok = write_reply(stream, &reply, head_only, keep);
+                log(state, method, &clean, reply.status);
+                if keep && ok {
+                    *next_carry = carry;
+                    return true;
+                }
+                return false;
+            }
             let code = if !paired {
                 401
             } else if method == "GET" || head_only {
@@ -719,6 +761,17 @@ fn serve_ui(
         body: &body,
     };
     let reply = ui.handle(&req);
+    let ok = write_reply(stream, &reply, head_only, keep);
+    (reply.status, keep && ok)
+}
+
+/// Write one Rust UI reply. True when it was written completely.
+fn write_reply(
+    stream: &mut TcpStream,
+    reply: &console_ui::Reply,
+    head_only: bool,
+    keep: bool,
+) -> bool {
     let extra: String = reply
         .headers
         .iter()
@@ -727,7 +780,7 @@ fn serve_ui(
             format!("{k}: {v}\r\n")
         })
         .collect();
-    let ok = http::write_head(stream, reply.status, &extra, reply.body.len() as u64, keep)
+    http::write_head(stream, reply.status, &extra, reply.body.len() as u64, keep)
         .and_then(|_| {
             if head_only {
                 Ok(())
@@ -735,8 +788,8 @@ fn serve_ui(
                 stream.write_all(&reply.body)
             }
         })
-        .and_then(|_| stream.flush());
-    (reply.status, keep && ok.is_ok())
+        .and_then(|_| stream.flush())
+        .is_ok()
 }
 
 /// Read a small Content-Length body for a local API POST. Errors are the

@@ -55,6 +55,27 @@ API (all under the gate; `path` is relative and percent-encoded): GET
 `/api/files/{write,mkdir,rename,move,copy,trash,extract}` (JSON), PUT
 `/api/files/upload?dir=&name=` (raw body).
 
+## In the console nav (branch `swarm/console-files-nav-20261101`, 2026-11-01 CET)
+
+Mate could not find `/files`: no console link pointed at it, and an
+unpaired browser got a bare 401 page. Now:
+
+- **Files** is a console room (`console_ui::rooms`, icon `folder`, new in
+  the sprite): a tile in the header menu (after Connectors) and an item in
+  the bottom dock (after Research; the dock is 8 wide). Both carry
+  `aria-current="page"` on `/files`, like every room.
+- `/files` is drawn inside the console shell (`Ui::shell_page`): the same
+  header (Files title + line, origin dot, theme toggle, menu) and dock as
+  the other rooms. The explorer CSS is scoped to `.fx` and follows the
+  console theme colours (light and dark). The old "Galion" link to `/phone`
+  is gone. CSP: the page CSP plus `style-src 'self'` for the console sheet.
+- Unpaired visitors still get **401**, now with the console's own pairing
+  form (`/_ui/pair?back=/files`), the same answer `/connectors` gives.
+  Both checks must pass: the console page gate and the existing
+  galion_admin / loopback rule. `/files/editor.js` keeps the bare 401.
+- Without `--files`, `/files` shows "Files is off on this console" in the
+  shell (not "Not in Rust yet").
+
 ## Research (GitHub, 2026-11-01 CET; licences read from each LICENSE file)
 
 | Project | Licence | Stars | Last push | Use |

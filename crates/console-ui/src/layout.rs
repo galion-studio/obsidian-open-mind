@@ -35,6 +35,12 @@ pub enum Origin {
 
 /// `body_attrs` is empty or starts with a space (e.g. ` class="x"`).
 pub fn document(f: &Frame<'_>, body_attrs: &str, body: &str) -> String {
+    document_with(f, body_attrs, "", body)
+}
+
+/// [`document`] with trusted extra `<head>` markup (our own constants, e.g.
+/// the `/files` inline stylesheet), placed after the console stylesheet.
+pub fn document_with(f: &Frame<'_>, body_attrs: &str, head: &str, body: &str) -> String {
     let (attr, scheme, tc) = match f.light {
         Some(true) => (
             " data-theme=\"light\"",
@@ -70,7 +76,7 @@ pub fn document(f: &Frame<'_>, body_attrs: &str, body: &str) -> String {
 <meta name=\"color-scheme\" content=\"{scheme}\">\
 <meta name=\"description\" content=\"Lightweight operator console for the Galion Studio fleet. API-first. CPU-safe.\">\
 <link rel=\"icon\" type=\"image/svg+xml\" href=\"/_ui/favicon.svg\">\
-<link rel=\"stylesheet\" href=\"{css}\">{extra}</head>\
+<link rel=\"stylesheet\" href=\"{css}\">{extra}{head}</head>\
 <body{body_attrs}>{body}</body></html>\n",
         title = esc(f.title),
         css = esc(f.css_href),
@@ -140,6 +146,12 @@ fn room_grid(title: &str, zone: Zone, path: &str, extra_class: &str) -> String {
 
 /// The console shell around a page body.
 pub fn console(f: &Frame<'_>, origin: Origin, main: &str) -> String {
+    console_with(f, origin, "", main, "")
+}
+
+/// [`console`] for a page whose body comes from another crate (console-static
+/// `/files`): trusted extra `<head>` markup and end-of-body markup (scripts).
+pub fn console_with(f: &Frame<'_>, origin: Origin, head: &str, main: &str, tail: &str) -> String {
     let room = rooms::current(f.path);
     let (dot, word) = match origin {
         Origin::Up => ("online", "up"),
@@ -170,7 +182,7 @@ pub fn console(f: &Frame<'_>, origin: Origin, main: &str) -> String {
 <div class=\"sheet\">{up}{down}</div></details>\
 </div></header>\
 <div class=\"body\"><main id=\"main\" class=\"main\" tabindex=\"-1\">{main}</main></div>\
-<nav class=\"dock\" aria-label=\"Primary\"><ul>{dock}</ul></nav></div>",
+<nav class=\"dock\" aria-label=\"Primary\"><ul>{dock}</ul></nav></div>{tail}",
         mark = mark("i i-md"),
         ricon = icon(room.icon, "i i-sm"),
         label = esc(room.label),
@@ -181,7 +193,7 @@ pub fn console(f: &Frame<'_>, origin: Origin, main: &str) -> String {
         up = room_grid("Open", Zone::Up, f.path, ""),
         down = room_grid("Cold", Zone::Down, f.path, " class=\"cold\""),
     );
-    document(f, "", &body)
+    document_with(f, "", head, &body)
 }
 
 #[cfg(test)]
@@ -209,5 +221,42 @@ mod tests {
             "services icon path not inlined"
         );
         assert_eq!(html.matches("<li><a href=").count(), DOCK.len());
+        assert!(
+            html.contains("<a class=\"room\" href=\"/files\">"),
+            "Files in the menu"
+        );
+        assert!(
+            html.contains("<li><a href=\"/files\">"),
+            "Files in the dock"
+        );
+    }
+
+    #[test]
+    fn files_page_is_current_in_menu_and_dock() {
+        let f = Frame {
+            title: "Files",
+            css_href: "/_ui/console.x.css",
+            extra_css_href: None,
+            light: None,
+            path: "/files",
+        };
+        let html = console_with(
+            &f,
+            Origin::Up,
+            "<style>.fx{}</style>",
+            "<div class=\"fx\"></div>",
+            "<script>1</script>",
+        );
+        assert!(html.contains("<a class=\"room\" href=\"/files\" aria-current=\"page\">"));
+        assert!(html.contains("<li><a href=\"/files\" aria-current=\"page\">"));
+        assert!(html.contains("#folder\""), "folder icon from the sprite");
+        assert!(
+            html.contains("<span class=\"ell\">Files</span>"),
+            "header title"
+        );
+        let style = html.find("<style>.fx{}</style>").unwrap();
+        assert!(style < html.find("</head>").unwrap());
+        assert!(html.find("console.x.css").unwrap() < style);
+        assert!(html.ends_with("</nav></div><script>1</script></body></html>\n"));
     }
 }

@@ -574,23 +574,54 @@ fn send(stream: &mut TcpStream, o: Out, head_only: bool) -> u16 {
     o.status
 }
 
-/// The `/files` page.
+/// CSP for `/files` inside the console shell: [`CSP`] plus the console's own
+/// stylesheet and icon sprite (`'self'`).
+pub const SHELL_CSP: &str = "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self'; frame-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+
+/// Page-level rules only the standalone page needs (inside the console the
+/// shell stylesheet owns `html`/`body`).
+const STANDALONE_CSS: &str = "html,body{margin:0;background:#05060f;color:#e8eaff;font:15px/1.4 system-ui,-apple-system,\"Segoe UI\",Roboto,sans-serif;-webkit-text-size-adjust:100%}\n.fx{padding:max(.6rem,env(safe-area-inset-top)) .7rem 1rem;min-height:100vh}\n@media (min-width:860px){.fx{height:100vh}}\n";
+
+fn tail_into(s: &mut String) {
+    s.push_str("<script src=\"/files/editor.js?v=");
+    s.push_str(&crate::sha256::hex(EDITOR_JS)[..12]);
+    s.push_str("\" defer></script>\n<script>\n");
+    s.push_str(include_str!("../assets/files/files.js"));
+    s.push_str("</script>\n");
+}
+
+/// The standalone `/files` page (used only when the Rust console UI is off).
 pub fn page() -> &'static str {
     static PAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     PAGE.get_or_init(|| {
         let mut s = String::with_capacity(64 << 10);
         s.push_str(include_str!("../assets/files/head.html"));
         s.push_str("<style>\n");
+        s.push_str(STANDALONE_CSS);
         s.push_str(include_str!("../assets/files/files.css"));
         s.push_str("</style>\n</head>\n<body>\n");
         s.push_str(include_str!("../assets/files/body.html"));
-        s.push_str("<script src=\"/files/editor.js?v=");
-        s.push_str(&crate::sha256::hex(EDITOR_JS)[..12]);
-        s.push_str("\" defer></script>\n<script>\n");
-        s.push_str(include_str!("../assets/files/files.js"));
-        s.push_str("</script>\n</body>\n</html>\n");
+        tail_into(&mut s);
+        s.push_str("</body>\n</html>\n");
         s
     })
+}
+
+/// `/files` drawn inside the console shell (same header, menu and dock as
+/// every console room): extra `<head>` markup, the main area, and the
+/// end-of-body scripts.
+pub fn shell_parts() -> (&'static str, &'static str, &'static str) {
+    static P: std::sync::OnceLock<(String, String)> = std::sync::OnceLock::new();
+    let (head, tail) = P.get_or_init(|| {
+        let head = format!(
+            "<meta name=\"referrer\" content=\"no-referrer\"><style>\n{}</style>",
+            include_str!("../assets/files/files.css")
+        );
+        let mut tail = String::with_capacity(32 << 10);
+        tail_into(&mut tail);
+        (head, tail)
+    });
+    (head, include_str!("../assets/files/body.html"), tail)
 }
 
 #[cfg(test)]
@@ -637,5 +668,10 @@ mod tests {
         assert!(p.contains("/files/editor.js?v="));
         assert!(!p.contains("http://") && !p.contains("https://"));
         assert!(EDITOR_JS.len() > 100_000);
+        let (head, main, tail) = shell_parts();
+        assert!(head.contains("<style>") && !head.contains("html,body"));
+        assert!(main.contains("id=\"fx-list\"") && !main.contains("<body"));
+        assert!(tail.contains("/files/editor.js?v=") && !tail.contains("</body>"));
+        assert!(!p.contains("href=\"/phone\""), "no separate-site home link");
     }
 }

@@ -127,7 +127,7 @@ button,input{font:inherit;color:inherit}
 .room[aria-current=page] .tile{background:var(--c-elevated)}
 .cold{margin-top:1.5rem}
 .dock{flex-shrink:0;border-top:1px solid var(--c-line);background:var(--c-bg);padding-bottom:env(safe-area-inset-bottom);z-index:40}
-.dock ul{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));max-width:32rem;margin:0 auto}
+.dock ul{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));max-width:32rem;margin:0 auto}
 .dock a{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.25rem;min-height:3.5rem;font-size:10px;color:var(--c-muted);text-decoration:none}
 .dock a[aria-current=page]{color:var(--c-fg)}
 .dot{display:inline-block;width:.375rem;height:.375rem;border-radius:999px;flex-shrink:0;background:var(--c-subtle)}

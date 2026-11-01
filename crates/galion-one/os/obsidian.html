@@ -1,0 +1,149 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 3000 Galion / galion-studio -->
+<!-- galion.app/obsidian: the Obsidian OpenMind stack, the heart and interface of Galion OS (2026-11-01 CET).
+     One static page: no framework, no CDN, no web fonts, no script. Served by galion-one (src/home.rs) from include_bytes!. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#07060B">
+<title>Obsidian OpenMind: the heart of Galion OS</title>
+<meta name="description" content="Obsidian OpenMind is memory, tools and agents working together, with Hermes at the centre. Private, on your own hardware, built in Rust. Free and MIT licensed.">
+<link rel="icon" href="/galion-mark.svg" type="image/svg+xml">
+<style>
+:root{--ob:#07060B;--tx:#F3EDE4;--mu:#B9AFA3;--am:#FFB45C;--ro:#FF8FA0;--vi:#9C7BFF;--line:rgba(243,237,228,.12);--card:rgba(22,18,28,.66);
+--r:ui-rounded,"SF Pro Rounded","Hiragino Maru Gothic ProN",Quicksand,Nunito,"Varela Round","Segoe UI",system-ui,-apple-system,sans-serif}
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--ob);color:var(--tx);-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{margin:0;font:400 1.0625rem/1.65 var(--r);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--am);outline-offset:4px;border-radius:.6rem}
+.skip{position:absolute;left:-999px;top:0;background:var(--am);color:var(--ob);padding:.6rem 1rem;border-radius:0 0 .8rem 0}.skip:focus{left:0}
+.glow{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.glow i{position:absolute;width:80vmax;height:80vmax;border-radius:50%;filter:blur(40px);opacity:.5;will-change:transform}
+.glow .a{left:-30vmax;top:-35vmax;background:radial-gradient(circle,rgba(255,180,92,.40),transparent 60%);animation:drift 28s ease-in-out infinite alternate}
+.glow .v{right:-35vmax;bottom:-40vmax;background:radial-gradient(circle,rgba(156,123,255,.40),transparent 60%);animation:drift 34s ease-in-out infinite alternate-reverse}
+.glow .r{left:20vmax;top:30vh;width:50vmax;height:50vmax;background:radial-gradient(circle,rgba(255,143,160,.16),transparent 62%);animation:drift 40s ease-in-out infinite alternate}
+@keyframes drift{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(12vmax,10vmax,0) scale(1.15)}}
+.w{max-width:68rem;margin:0 auto;padding:0 1.5rem}
+header{padding:1.5rem 0}header .w{display:flex;justify-content:space-between;align-items:center;gap:1rem}
+.brand{text-decoration:none;font-weight:600;letter-spacing:.02em}
+header nav a{color:var(--mu);text-decoration:none;margin-left:1.2rem;font-size:.95rem}header nav a:hover{color:var(--tx)}
+h1,h2,h3{font-weight:600;letter-spacing:-.025em;line-height:1.08;margin:0}
+.k{display:inline-block;font-size:.8rem;letter-spacing:.18em;text-transform:uppercase;color:var(--mu);border:1px solid var(--line);border-radius:99px;padding:.35rem .9rem}
+.g{background:linear-gradient(100deg,var(--am),var(--ro) 45%,var(--vi));-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero{padding:10vh 0 6vh;text-align:center}
+h1{font-size:clamp(2.6rem,8.5vw,5.6rem);margin:1.4rem 0 1.2rem}
+.lead{font-size:clamp(1.15rem,2.6vw,1.4rem);max-width:40rem;margin:0 auto;color:var(--tx)}
+/* The one window */
+.win{position:relative;max-width:52rem;margin:3.2rem auto 0;border-radius:2rem;padding:1px;background:linear-gradient(135deg,rgba(255,180,92,.6),rgba(255,255,255,.08) 40%,rgba(156,123,255,.6))}
+.win>div{border-radius:calc(2rem - 1px);overflow:hidden;background:#0B0910;position:relative;min-height:21rem;display:flex;flex-direction:column;justify-content:flex-end;padding:1.4rem}
+.win .bar{position:absolute;top:1rem;left:1.2rem;display:flex;gap:.45rem}.win .bar i{width:.7rem;height:.7rem;border-radius:50%;background:rgba(243,237,228,.18)}
+.win .sky{position:absolute;inset:-30%;background:conic-gradient(from 180deg at 50% 60%,rgba(255,180,92,.55),rgba(255,143,160,.35),rgba(156,123,255,.55),rgba(255,180,92,.55));filter:blur(60px);opacity:.75;animation:turn 36s linear infinite}
+@keyframes turn{to{transform:rotate(1turn)}}
+.win .say{position:relative;text-align:center;font-size:clamp(1.3rem,3.6vw,2rem);font-weight:600;margin:auto 0 1.6rem;text-shadow:0 2px 20px rgba(0,0,0,.45)}
+.field{position:relative;display:flex;align-items:center;gap:.8rem;padding:1rem 1rem 1rem 1.4rem;border-radius:99px;text-decoration:none;color:var(--mu);text-align:left;background:rgba(7,6,11,.72);border:1px solid rgba(255,255,255,.16);transition:border-color .3s}
+.field:hover{border-color:rgba(255,180,92,.6)}
+.field span{flex:1}
+.field b{width:2.4rem;height:2.4rem;border-radius:50%;flex:none;background:linear-gradient(135deg,var(--am),var(--vi));display:grid;place-items:center}
+.field svg{width:1.1rem;height:1.1rem;fill:none;stroke:#07060B;stroke-width:2;stroke-linecap:round}
+.hint{font-size:.85rem;color:var(--mu);margin-top:.9rem}
+.mit{margin-top:1.2rem;color:var(--mu);font-size:.95rem}
+section.s{padding:5rem 0 1rem}
+.kick{color:var(--am);font-size:.85rem;letter-spacing:.16em;text-transform:uppercase;margin:0 0 .8rem}
+h2{font-size:clamp(1.8rem,5vw,3rem);margin-bottom:1rem;max-width:40rem}
+.s>.w>p{color:var(--mu);max-width:40rem;margin:0 0 1rem}
+/* Orbit: Hermes at the centre */
+.orbit{position:relative;width:min(26rem,86vw);aspect-ratio:1;margin:3rem auto 1rem}
+.orbit .ring{position:absolute;inset:0;border-radius:50%;border:1px dashed rgba(243,237,228,.18);animation:turn 80s linear infinite}
+.orbit .ring.i{inset:18%;border-style:solid;border-color:rgba(156,123,255,.25);animation-direction:reverse;animation-duration:60s}
+.orbit .core{position:absolute;inset:33%;border-radius:50%;display:grid;place-items:center;text-align:center;font-weight:600;font-size:clamp(1rem,3vw,1.25rem);color:var(--ob);
+background:radial-gradient(circle at 35% 30%,#FFE2B8,var(--am) 40%,var(--vi));box-shadow:0 0 60px rgba(255,180,92,.45),0 0 120px rgba(156,123,255,.35)}
+.orbit .n{position:absolute;transform:translate(-50%,-50%);padding:.45rem .95rem;border-radius:99px;background:var(--card);border:1px solid var(--line);font-size:.95rem;white-space:nowrap;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+.orbit .m{left:50%;top:2%}.orbit .t{left:93%;top:72%}.orbit .ag{left:7%;top:72%}
+.grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));margin-top:2rem}
+.card{padding:1.6rem;border-radius:1.6rem;background:var(--card);border:1px solid var(--line)}
+.card h3{font-size:1.25rem;margin-bottom:.5rem}
+.card p{margin:0;color:var(--mu)}
+.card .dot{width:2.2rem;height:2.2rem;border-radius:.9rem;margin-bottom:1rem;background:linear-gradient(135deg,var(--am),var(--vi));opacity:.9}
+.card:nth-child(2n) .dot{background:linear-gradient(135deg,var(--vi),var(--ro))}
+.card:nth-child(3n) .dot{background:linear-gradient(135deg,var(--ro),var(--am))}
+.ctas{display:flex;flex-wrap:wrap;gap:.8rem;margin-top:1.6rem}
+.btn{display:inline-flex;flex-direction:column;justify-content:center;padding:.85rem 1.4rem;border-radius:1.2rem;text-decoration:none;font-weight:600;border:1px solid var(--line);background:var(--card);line-height:1.25}
+.btn small{font-weight:400;color:var(--mu);font-size:.8rem}
+.btn.pri{color:var(--ob);background:linear-gradient(100deg,var(--am),var(--vi));border-color:transparent}
+.btn:hover{border-color:rgba(255,180,92,.5)}
+.note{margin:3rem 0 0;padding:1.6rem 1.8rem;border-radius:1.6rem;border:1px solid rgba(255,180,92,.3);background:rgba(255,180,92,.06);max-width:46rem}
+.note p{margin:0;color:var(--tx)}
+footer{margin-top:5rem;padding:3rem 0 4rem;border-top:1px solid var(--line);color:var(--mu);font-size:.9rem}
+footer a{color:var(--mu);margin-right:1.2rem}
+@media (max-width:30rem){.win>div{min-height:18rem;padding:1rem}.orbit .n{font-size:.85rem;padding:.35rem .75rem}.orbit .t{left:86%}.orbit .ag{left:14%}}
+@media (prefers-reduced-motion:reduce){.glow i,.win .sky,.orbit .ring{animation:none}.field,.btn{transition:none}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="glow" aria-hidden="true"><i class="a"></i><i class="r"></i><i class="v"></i></div>
+<header><div class="w"><a class="brand" href="/">Galion</a><nav aria-label="Main"><a href="/operating-system">Galion OS</a><a href="#get">Get it</a><a href="https://github.com/galion-studio/galion-operating-system">GitHub</a></nav></div></header>
+<main id="main">
+<section class="hero"><div class="w">
+ <span class="k">Obsidian OpenMind</span>
+ <h1>The mind at the heart of <span class="g">Galion OS</span></h1>
+ <p class="lead">One window. One gradient. One prompt field. OpenMind is the whole interface: you ask, Hermes does the work.</p>
+ <div class="win"><div>
+  <div class="sky" aria-hidden="true"></div>
+  <div class="bar" aria-hidden="true"><i></i><i></i><i></i></div>
+  <p class="say">Type or speak, then watch what happens.</p>
+  <a class="field" href="https://one.galion.app" aria-label="Talk to Hermes in Galion One"><span>Ask Hermes anything&hellip;</span><b><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></b></a>
+ </div></div>
+ <p class="hint">A preview of the prompt field. Today it opens Hermes in Galion One.</p>
+ <p class="mit">Free &middot; Open source &middot; MIT License &middot; Built in Rust</p>
+</div></section>
+
+<section class="s"><div class="w">
+ <p class="kick">What OpenMind is</p>
+ <h2>Memory, tools and agents, working together.</h2>
+ <p>OpenMind is the stack that makes your computer think with you. It remembers what matters, it reaches for the right tool, and it lets small agents split up the work. All of it on your own hardware.</p>
+ <div class="grid">
+  <article class="card"><div class="dot"></div><h3>Memory</h3><p>It remembers your projects, your notes and how you like things done, so you never start from zero.</p></article>
+  <article class="card"><div class="dot"></div><h3>Tools</h3><p>Files, the web, your apps and your own scripts. OpenMind picks the right tool and shows you what it used.</p></article>
+  <article class="card"><div class="dot"></div><h3>Agents</h3><p>Small helpers that take on parts of a task and report back to Hermes, so big jobs get done in parallel.</p></article>
+  <article class="card"><div class="dot"></div><h3>Private</h3><p>It runs on your own hardware. Your data stays with you unless you choose to share it.</p></article>
+  <article class="card"><div class="dot"></div><h3>Lightning fast</h3><p>Built in Rust, light on memory and quick to answer, even on a small board like the Raspberry Pi.</p></article>
+  <article class="card"><div class="dot"></div><h3>Free and MIT</h3><p>Free to use, free to change, free to share. Open source under the MIT License.</p></article>
+ </div>
+</div></section>
+
+<section class="s"><div class="w">
+ <p class="kick">Hermes at the centre</p>
+ <h2>No menus. Just Hermes.</h2>
+ <p>Hermes is your own AI agent and the centre of OpenMind. It does the work in front of you, where you can watch every step, and it always asks before anything important. It can even write its own code, and its own compilers, on top of Galion OS.</p>
+ <div class="orbit" aria-hidden="true">
+  <div class="ring"></div><div class="ring i"></div>
+  <div class="core">Hermes</div>
+  <span class="n m">Memory</span><span class="n t">Tools</span><span class="n ag">Agents</span>
+ </div>
+</div></section>
+
+<section class="s" id="get"><div class="w">
+ <p class="kick">Try it today</p>
+ <h2>Start with Galion One.</h2>
+ <p>OpenMind and Hermes already power Galion One. Use it on the web or install it from the web on your phone.</p>
+ <div class="ctas">
+  <a class="btn pri" href="https://one.galion.app">Use it on the web</a>
+  <a class="btn" href="https://one.galion.app">Android<small>Install from the web</small></a>
+  <a class="btn" href="https://one.galion.app">iOS<small>Install from the web</small></a>
+  <a class="btn" href="/#local">Run it on your computer</a>
+ </div>
+ <div class="ctas">
+  <a class="btn" href="/operating-system">Galion Operating System &rarr;</a>
+  <a class="btn" href="https://github.com/galion-studio/galion-operating-system">GitHub<small>galion-studio/galion-operating-system</small></a>
+ </div>
+ <div class="note"><p>Galion OS is the direction we're building towards, starting with OpenMind and Hermes. Downloads come once the first image is ready.</p></div>
+</div></section>
+</main>
+<footer><div class="w"><p><a href="/">Galion</a><a href="/operating-system">Galion OS</a><a href="https://one.galion.app">Galion One</a><a href="https://github.com/galion-studio/galion-operating-system">GitHub</a></p><p>Galion OS and the Obsidian OpenMind stack. MIT License. Built in Rust. Obsidian OpenMind is not affiliated with the Obsidian note-taking app.</p></div></footer>
+</body>
+</html>

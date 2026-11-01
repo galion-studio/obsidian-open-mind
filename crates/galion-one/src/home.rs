@@ -25,6 +25,11 @@ pub const JS: &[u8] = include_bytes!("../home/home.js");
 pub const MARK: &[u8] = include_bytes!("../home/galion-mark.svg");
 /// Friendly placeholder for `/account` while galion-accounts is off or down.
 pub const ACCOUNT: &[u8] = include_bytes!("../home/account.html");
+/// galion.app/operating-system: the public Galion OS page (2026-11-01 CET).
+/// Plain body, no script; the Cloudflare edge compresses it.
+pub const OS_PAGE: &[u8] = include_bytes!("../os/operating-system.html");
+/// galion.app/obsidian: the Obsidian OpenMind stack page for Galion OS.
+pub const OBSIDIAN: &[u8] = include_bytes!("../os/obsidian.html");
 
 const CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
@@ -150,6 +155,18 @@ pub fn respond(method: &str, path: &str, accept: &str, if_none_match: &str) -> O
                 b"HTTP/1.1 301 Moved Permanently\r\nLocation: /#pricing\r\nContent-Length: 0\r\nCache-Control: public, max-age=3600\r\nConnection: close\r\n\r\n".to_vec(),
             );
         }
+        "/operating-system" | "/operating-system/" => (
+            "text/html; charset=utf-8",
+            OS_PAGE,
+            None,
+            "public, max-age=300",
+        ),
+        "/obsidian" | "/obsidian/" => (
+            "text/html; charset=utf-8",
+            OBSIDIAN,
+            None,
+            "public, max-age=300",
+        ),
         "/home.js" => (
             "text/javascript; charset=utf-8",
             JS,
@@ -273,6 +290,59 @@ mod tests {
         let bad = |k: &str| (k == "ONE_WAITLIST_URL").then(|| "javascript:alert(1)".to_string());
         assert!(render(&bad).is_none());
         assert!(!safe_url("https://x.example/\"onmouseover=1"));
+    }
+
+    #[test]
+    fn os_pages() {
+        for (path, page, head) in [
+            (
+                "/operating-system",
+                OS_PAGE,
+                "<h1><span class=\"g\">Galion Operating System</span></h1>",
+            ),
+            (
+                "/obsidian",
+                OBSIDIAN,
+                "Type or speak, then watch what happens.",
+            ),
+        ] {
+            let s = std::str::from_utf8(page).unwrap();
+            assert!(page.len() < 24 * 1024, "{path} weight {}", page.len());
+            assert!(s.contains(head), "{path}");
+            for bad in [
+                "http://",
+                "cdn.",
+                "googleapis",
+                "<script",
+                "<iframe",
+                "@import",
+                "url(",
+            ] {
+                assert!(!s.contains(bad), "{path}: {bad}");
+            }
+            assert!(s.contains("prefers-reduced-motion:reduce"), "{path}");
+            assert!(s.contains("https://github.com/galion-studio/galion-operating-system"));
+            assert!(s.contains("MIT License"));
+            assert!(s.contains("Downloads come once the first image is ready."));
+            for p in [path.to_string(), format!("{path}/")] {
+                let r = respond("GET", &p, "gzip", "").unwrap();
+                assert!(
+                    r.starts_with(b"HTTP/1.1 200 OK\r\n") && r.ends_with(page),
+                    "{p}"
+                );
+            }
+            let r = respond("GET", path, "", &etag(page)).unwrap();
+            assert!(r.starts_with(b"HTTP/1.1 304"));
+        }
+        let s = std::str::from_utf8(OS_PAGE).unwrap();
+        assert!(s.contains("Galion OS is a free, open-source operating system built on Linux and Rust. It runs on any device, from a laptop to a tiny Raspberry Pi. MIT licensed."));
+        assert!(s.contains(
+            "One window. One gradient. One prompt field. Type or speak, then watch what happens."
+        ));
+        assert!(std::str::from_utf8(OBSIDIAN)
+            .unwrap()
+            .contains("href=\"/operating-system\""));
+        assert!(respond("POST", "/obsidian", "", "").is_none());
     }
 
     #[test]

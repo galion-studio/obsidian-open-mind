@@ -4,18 +4,17 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#05060f">
 <meta name="color-scheme" content="dark">
 <meta name="referrer" content="no-referrer">
 <title>Galion One</title>
 <style>
-:root{--ob:#05060f;--fg:#f3ede4;--mu:rgba(243,237,228,.56);--line:rgba(243,237,228,.12);--am:#ffb36b;--vi:#9c7bff;--glide:cubic-bezier(.22,1,.36,1)}
+:root{--ob:#05060f;--fg:#f3ede4;--mu:rgba(243,237,228,.56);--faint:rgba(243,237,228,.34);--line:rgba(243,237,228,.14);--am:#ffb36b;--vi:#9c7bff;--glide:cubic-bezier(.22,1,.36,1);--h:100dvh}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;background:var(--ob);color:var(--fg)}
-body{font:400 1.0625rem/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;min-height:100vh;min-height:100dvh}
+html,body{margin:0;height:100%;background:var(--ob);color:var(--fg);overflow:hidden;overscroll-behavior:none}
+body{font:400 1.0625rem/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:100%}
 button,input,textarea{font:inherit;color:inherit}
-a{color:inherit}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 /* One gradient: obsidian with a slow amber-to-violet drift. */
 .sky{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none;background:radial-gradient(120% 90% at 50% 110%,#120d1c 0,var(--ob) 60%)}
@@ -25,30 +24,25 @@ a{color:inherit}
 @keyframes drift-a{to{transform:translate(38vmax,-22vmax) scale(1.15)}}
 @keyframes drift-v{to{transform:translate(-34vmax,26vmax) scale(1.1)}}
 body.think .sky i{opacity:.44;transition:opacity 2s var(--glide)}
-/* Chrome: the mark and one quiet menu icon. */
-.top{position:fixed;z-index:3;top:0;left:0;right:0;display:flex;align-items:center;justify-content:space-between;padding:max(.75rem,env(safe-area-inset-top)) max(1rem,env(safe-area-inset-right)) .5rem max(1rem,env(safe-area-inset-left))}
-.brand{display:inline-flex;align-items:center;gap:.55rem;text-decoration:none;font-size:.9375rem;letter-spacing:-.01em;color:var(--fg);opacity:.86}
-.brand svg{width:26px;height:26px}
-.ico{display:inline-grid;place-items:center;width:44px;height:44px;border:0;border-radius:50%;background:transparent;cursor:pointer;color:var(--mu);-webkit-tap-highlight-color:transparent;transition:color .3s,background .3s}
-.ico:hover,.ico[aria-expanded="true"]{color:var(--fg);background:rgba(243,237,228,.06)}
-.ico:focus-visible,.go:focus-visible,.menu a:focus-visible,.menu button:focus-visible{outline:2px solid var(--vi);outline-offset:2px}
-.ico svg{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
-.badge{position:absolute;margin:-18px 0 0 18px;min-width:8px;height:8px;border-radius:99px;background:var(--am)}
-.badge[hidden]{display:none}
-/* Menu: one small sheet. */
-.menu{position:fixed;z-index:4;top:calc(max(.75rem,env(safe-area-inset-top)) + 3rem);right:max(1rem,env(safe-area-inset-right));width:min(17rem,calc(100vw - 2rem));padding:.4rem;margin:0;list-style:none;border-radius:1.1rem;border:1px solid var(--line);background:rgba(14,12,22,.92);-webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);box-shadow:0 20px 60px rgba(0,0,0,.5);opacity:0;transform:translateY(-6px);pointer-events:none;transition:opacity .25s var(--glide),transform .25s var(--glide)}
-.menu.open{opacity:1;transform:none;pointer-events:auto}
-.menu li[hidden]{display:none}
-.menu a,.menu button{display:flex;justify-content:space-between;align-items:center;gap:.75rem;width:100%;min-height:2.75rem;padding:.55rem .85rem;border:0;border-radius:.8rem;background:none;text-align:left;text-decoration:none;font-size:.9375rem;cursor:pointer}
-.menu a:hover,.menu button:hover{background:rgba(243,237,228,.07)}
-.menu small{color:var(--mu);font-size:.8rem}
-.menu hr{border:0;border-top:1px solid var(--line);margin:.3rem .5rem}
-/* The one window. */
-main{position:relative;z-index:1;display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;max-width:42rem;margin:0 auto;padding:calc(max(.75rem,env(safe-area-inset-top)) + 4rem) max(1.25rem,env(safe-area-inset-right)) 0 max(1.25rem,env(safe-area-inset-left))}
-.lead{margin:auto 0 1.4rem;text-align:center;color:var(--mu);font-size:1rem;transition:opacity .6s var(--glide)}
-body.talk .lead{display:none}
-.stream{flex:1 1 auto;display:none;padding-bottom:1rem}
-body.talk .stream{display:block}
+/* The whole screen: a quiet mark, one switch, the words, the field. */
+.app{position:relative;z-index:1;display:flex;flex-direction:column;height:var(--h);max-width:42rem;margin:0 auto;padding:0 max(1.25rem,env(safe-area-inset-right)) 0 max(1.25rem,env(safe-area-inset-left))}
+.top{flex:none;display:flex;align-items:center;justify-content:space-between;padding-top:max(.6rem,env(safe-area-inset-top));min-height:3.4rem}
+.brand{display:inline-flex;align-items:center;gap:.5rem;font-size:.875rem;letter-spacing:.01em;color:var(--fg);opacity:.5;user-select:none}
+.brand svg{width:20px;height:20px}
+/* The one control: chat visibility. */
+.eye{position:relative;display:inline-grid;place-items:center;width:44px;height:44px;margin-right:-.6rem;padding:0;border:0;border-radius:50%;background:transparent;color:var(--faint);cursor:pointer;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;transition:color .4s var(--glide)}
+.eye:hover,.eye[aria-checked="true"]{color:var(--fg)}
+.eye:focus{outline:0}
+.eye:focus-visible{outline:1.5px solid rgba(156,123,255,.7);outline-offset:-4px}
+.eye svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.eye .slash{transition:opacity .4s var(--glide)}
+.eye[aria-checked="true"] .slash{opacity:0}
+.tip{position:absolute;top:100%;right:.15rem;white-space:nowrap;font-size:.75rem;letter-spacing:.02em;color:var(--mu);opacity:0;transform:translateY(-3px);pointer-events:none;transition:opacity .5s var(--glide),transform .5s var(--glide)}
+.tip b{font-weight:400;color:var(--fg)}
+.eye:hover .tip,.eye:focus-visible .tip,.eye.said .tip{opacity:1;transform:none}
+/* Chat on: the full stream. */
+.stream{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;padding:1rem 0 .75rem;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 1.5rem,#000 calc(100% - 1.5rem),transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 1.5rem,#000 calc(100% - 1.5rem),transparent 100%)}
+.stream::-webkit-scrollbar{display:none}
 .q{margin:2rem 0 .5rem;color:var(--mu);font-size:.9375rem;white-space:pre-wrap;overflow-wrap:anywhere}
 .q:first-child{margin-top:.5rem}
 .ans{margin:0 0 1rem;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--fg)}
@@ -57,65 +51,146 @@ body.talk .stream{display:block}
 @keyframes rise{from{opacity:0;filter:blur(3px)}to{opacity:1;filter:none}}
 .presence{display:block;width:2.2rem;height:2.2rem;margin:1rem 0;border-radius:50%;background:radial-gradient(circle,rgba(255,200,150,.95) 0,rgba(255,179,107,.45) 35%,rgba(156,123,255,.18) 62%,rgba(156,123,255,0) 72%);animation:breathe 2.8s ease-in-out infinite}
 @keyframes breathe{0%,100%{transform:scale(.78);opacity:.55}50%{transform:scale(1.08);opacity:1}}
-/* The prompt field. */
-.dock{position:sticky;bottom:0;padding:.5rem 0 max(1.1rem,env(safe-area-inset-bottom));margin-bottom:auto}
-body.talk .dock{margin-bottom:0;background:linear-gradient(to top,var(--ob) 55%,rgba(5,6,15,0))}
-.field{display:flex;align-items:flex-end;gap:.35rem;padding:.4rem .4rem .4rem 1.15rem;border-radius:1.75rem;border:1px solid rgba(243,237,228,.16);background:rgba(18,15,28,.62);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);box-shadow:0 0 0 0 rgba(255,179,107,0),0 18px 50px rgba(0,0,0,.35);transition:border-color .4s,box-shadow .6s var(--glide)}
-.field:focus-within{border-color:rgba(255,179,107,.42);box-shadow:0 0 0 4px rgba(255,179,107,.07),0 18px 50px rgba(0,0,0,.35)}
-body.think .field{box-shadow:0 0 38px rgba(255,179,107,.14),0 0 80px rgba(156,123,255,.12)}
-textarea{flex:1;min-width:0;resize:none;border:0;outline:0;background:transparent;padding:.62rem 0;max-height:30vh;font-size:1.0625rem;line-height:1.5}
-textarea::placeholder{color:var(--mu)}
-.go{flex:none;display:inline-grid;place-items:center;width:44px;height:44px;border:0;border-radius:50%;cursor:pointer;background:transparent;color:var(--mu);transition:background .3s,color .3s,opacity .3s}
-.go svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+/* Chat off (default): only the latest answer, softly in the centre. */
+.solo{flex:1 1 auto;min-height:0;display:none;flex-direction:column;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;padding:1rem 0}
+.solo::-webkit-scrollbar{display:none}
+body.off .stream{display:none}
+body.off .solo{display:flex}
+.say{margin:auto 0;padding:0 .25rem;white-space:pre-wrap;overflow-wrap:anywhere;font-size:1.125rem;line-height:1.65;color:var(--fg);opacity:1;filter:none;transition:opacity 1.8s var(--glide),filter 1.8s var(--glide)}
+.say.short{text-align:center;font-size:1.25rem}
+.say.soft{color:var(--mu);font-size:1rem;text-align:center}
+.say.gone{opacity:0;filter:blur(4px)}
+.say span{animation:rise .9s var(--glide)}
+.orb{display:none;margin:auto;width:3.4rem;height:3.4rem;border-radius:50%;background:radial-gradient(circle,rgba(255,200,150,.9) 0,rgba(255,179,107,.42) 35%,rgba(156,123,255,.16) 62%,rgba(156,123,255,0) 72%);animation:breathe 3.2s ease-in-out infinite}
+body.think .orb{display:block}
+body.think .say{display:none}
+/* Pairing: shows by itself when an unpaired device asks. */
+.pair{flex:none;display:flex;gap:.5rem;margin:0 0 .75rem}
+.pair[hidden]{display:none}
+.pair input{flex:1;min-width:0;min-height:46px;padding:0 1.1rem;border-radius:999px;border:1px solid var(--line);background:rgba(20,17,31,.86);font-size:1rem;letter-spacing:.08em;text-transform:uppercase;-webkit-appearance:none;appearance:none;box-shadow:none}
+.pair input:focus{outline:0;border-color:rgba(255,179,107,.42)}
+.pair button{min-height:46px;padding:0 1.25rem;border:0;border-radius:999px;background:var(--fg);color:var(--ob);cursor:pointer;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent}
+/* The prompt field: one clean pill, text then the mic, nothing behind it. */
+.dock{flex:none;padding:.5rem 0 max(1rem,calc(env(safe-area-inset-bottom) + .5rem));background:none}
+.field{display:flex;align-items:flex-end;gap:0;margin:0;padding:.25rem .3rem .25rem 1.2rem;border-radius:29px;border:1px solid rgba(243,237,228,.15);background:rgba(20,17,31,.82);background-clip:padding-box;box-shadow:0 14px 40px rgba(0,0,0,.28);transition:border-color .4s,box-shadow .6s var(--glide)}
+.field:focus-within{border-color:rgba(255,179,107,.38);box-shadow:0 0 0 4px rgba(255,179,107,.06),0 14px 40px rgba(0,0,0,.28)}
+body.think .field{box-shadow:0 0 38px rgba(255,179,107,.13),0 0 80px rgba(156,123,255,.11)}
+.field textarea{flex:1 1 auto;min-width:0;display:block;margin:0;padding:.75rem 0;height:3rem;max-height:30vh;border:0;border-radius:0;outline:0;box-shadow:none;background:transparent;resize:none;overflow-y:hidden;scrollbar-width:none;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;font-size:1.0625rem;line-height:1.5rem;caret-color:var(--am);color:var(--fg)}
+.field textarea::-webkit-scrollbar{display:none;width:0;height:0}
+.field textarea::-webkit-resizer{display:none}
+.field textarea::placeholder{color:var(--mu);opacity:1}
+.field textarea:-webkit-autofill{-webkit-text-fill-color:var(--fg);-webkit-box-shadow:0 0 0 1000px rgba(20,17,31,1) inset;transition:background-color 9999s}
+.field textarea.scroll{overflow-y:auto}
+.go{flex:none;display:inline-grid;place-items:center;width:42px;height:42px;margin:0 0 3px;padding:0;border:0;border-radius:50%;outline:0;box-shadow:none;background:transparent;color:var(--mu);cursor:pointer;-webkit-appearance:none;appearance:none;-webkit-tap-highlight-color:transparent;transition:background .3s,color .3s}
+.go:hover{color:var(--fg)}
+.go:focus-visible{outline:1.5px solid rgba(156,123,255,.7);outline-offset:-3px}
+.go svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 .go[hidden]{display:none}
 #send{background:var(--fg);color:var(--ob)}
-#send:disabled{opacity:0;pointer-events:none;width:0;margin-left:-.35rem}
 #mic.live{color:var(--ob);background:var(--am);animation:breathe 2.4s ease-in-out infinite}
-.pair{display:flex;gap:.5rem;margin:.25rem 0 1rem}
-.pair input{flex:1;min-width:0;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--line);background:rgba(18,15,28,.62);font-size:1rem;letter-spacing:.08em;text-transform:uppercase}
-.pair input:focus{outline:0;border-color:rgba(255,179,107,.42)}
-.pair button{min-height:44px;padding:0 1.2rem;border:0;border-radius:999px;background:var(--fg);color:var(--ob);cursor:pointer}
-.code{font-size:1.6rem;letter-spacing:.18em;margin:.2rem 0}
-@media (prefers-reduced-motion:reduce){.sky i,.presence,#mic.live{animation:none}.ans span{animation:none;opacity:1}.menu,.field,.lead{transition:none}}
+@media (prefers-reduced-motion:reduce){.sky i,.presence,.orb,#mic.live{animation:none}.ans span,.say span{animation:none;opacity:1}.say,.field,.tip,.eye{transition:none}}
 </style>
 </head>
-<body>
+<body class="off">
 <div class="sky" aria-hidden="true"><i class="a"></i><i class="v"></i></div>
-<header class="top">
- <a class="brand" href="/" aria-label="Galion One"><svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="gm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#B8E8FF"/><stop offset=".55" stop-color="#58C4FF"/><stop offset="1" stop-color="#9D8CFF"/></linearGradient></defs><circle cx="32" cy="32" r="30" fill="#0B0F14" stroke="#24303C" stroke-width="1.5"/><path d="M47.6 18.4A20 20 0 1 0 52 32H34" fill="none" stroke="url(#gm)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="32" cy="32" r="4.2" fill="#B8E8FF"/></svg><span>Galion One</span></a>
- <button type="button" class="ico" id="menu-b" aria-label="Menu" aria-haspopup="true" aria-expanded="false" aria-controls="menu"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h14M5 15h14"/></svg><span class="badge" id="menu-dot" hidden></span></button>
-</header>
-<ul class="menu" id="menu" aria-label="Menu">
- <li><button type="button" id="m-new">New conversation</button></li>
- <li><a href="/room">Conversations<small>history, files, voice</small></a></li>
- <li><a href="/approvals">Approvals<small id="m-appr"></small></a></li>
- <li id="m-pair-li"><button type="button" id="m-pair">Pair this device</button></li>
- <li id="m-invite-li" hidden><button type="button" id="m-invite">Pair another device</button></li>
- <li><button type="button" id="m-install">Install app<small id="m-install-s">on this device</small></button></li>
- <li><hr></li>
- <li><a href="https://galion.app/account">Account<small>galion.app</small></a></li>
-</ul>
-<main id="main">
- <p class="lead" id="lead">Type or speak, then watch what happens.</p>
+<div class="app" id="app">
+ <header class="top">
+  <span class="brand"><svg viewBox="0 0 64 64" aria-hidden="true"><defs><linearGradient id="gm" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#B8E8FF"/><stop offset=".55" stop-color="#58C4FF"/><stop offset="1" stop-color="#9D8CFF"/></linearGradient></defs><circle cx="32" cy="32" r="30" fill="#0B0F14" stroke="#24303C" stroke-width="1.5"/><path d="M47.6 18.4A20 20 0 1 0 52 32H34" fill="none" stroke="url(#gm)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="32" cy="32" r="4.2" fill="#B8E8FF"/></svg><span>Galion One</span></span>
+  <button type="button" class="eye" id="eye" role="switch" aria-checked="false" aria-label="Show chat" title="Show chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/><path class="slash" d="M4 20 20 4"/></svg><span class="tip" aria-hidden="true">Show chat <b id="tip-s">off</b></span></button>
+ </header>
  <div class="stream" id="stream" aria-live="polite"></div>
+ <div class="solo" id="solo" aria-live="polite"><span class="orb" role="status" aria-label="Thinking"></span><p class="say" id="say"></p></div>
+ <form class="pair" id="pairf" autocomplete="off" hidden><label class="sr" for="code">Pairing code</label><input id="code" placeholder="Pairing code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><button type="submit">Pair</button></form>
  <div class="dock">
   <form class="field" id="form" autocomplete="off">
    <label class="sr" for="q">Ask anything</label>
-   <textarea id="q" rows="1" placeholder="Ask anything&hellip;" enterkeyhint="send"></textarea>
-   <button type="button" class="go" id="mic" aria-label="Speak" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
-   <button type="submit" class="go" id="send" aria-label="Send" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
+   <textarea id="q" rows="1" placeholder="Ask anything&hellip;" enterkeyhint="send" autocomplete="off" spellcheck="true"></textarea>
+   <button type="button" class="go" id="mic" aria-label="Dictate" title="Dictate" aria-pressed="false" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+   <button type="submit" class="go" id="send" aria-label="Send" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg></button>
   </form>
  </div>
- <noscript><p class="lead">Turn on JavaScript to use Galion One.</p></noscript>
-</main>
+ <noscript><p class="say soft">Turn on JavaScript to use Galion One.</p></noscript>
+</div>
+<script type="text/plain" id="g1-worklet">
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 3000 Galion / galion-studio
+// Copyright (c) 3000 Galion / galion-studio
+//
+// Galion One dictation AudioWorklet (the same one the room uses): mono input at the
+// context rate -> 16 kHz PCM16 little-endian, posted as 50 ms frames
+// (800 samples = 1600 bytes) to the page, which sends them to galion-stt
+// over /stt/stream (galion-one proxy). Linear resampling after a light low-pass.
+"use strict";
+var OUT_RATE = 16000;
+var FRAME = 800;
+
+class GalionPcm16 extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.step = sampleRate / OUT_RATE; // input samples per output sample
+    // One-pole low-pass near the new Nyquist to limit aliasing.
+    var fc = Math.min(7200, sampleRate / 2 - 1);
+    this.alpha = 1 - Math.exp((-2 * Math.PI * fc) / sampleRate);
+    this.lp = 0;
+    this.prev = 0; // last filtered sample of the previous block (index -1)
+    this.t = 0; // next output position, in input samples, block-relative
+    this.frame = new Int16Array(FRAME);
+    this.n = 0;
+    this.on = true;
+    var self = this;
+    this.port.onmessage = function (e) { if (e.data === "stop") self.on = false; };
+  }
+
+  push(v) {
+    if (v > 1) v = 1; else if (v < -1) v = -1;
+    this.frame[this.n++] = v < 0 ? v * 0x8000 : v * 0x7fff;
+    if (this.n === FRAME) {
+      var out = this.frame.buffer; // Int16Array is little-endian on every browser platform
+      this.port.postMessage(out, [out]);
+      this.frame = new Int16Array(FRAME);
+      this.n = 0;
+    }
+  }
+
+  process(inputs) {
+    if (!this.on) return false;
+    var ch = inputs[0] && inputs[0][0];
+    if (!ch || !ch.length) return true;
+    var len = ch.length;
+    var x = new Float32Array(len);
+    var lp = this.lp;
+    for (var i = 0; i < len; i++) { lp += this.alpha * (ch[i] - lp); x[i] = lp; }
+    this.lp = lp;
+    if (this.step === 1) {
+      for (var k = 0; k < len; k++) this.push(x[k]);
+      return true;
+    }
+    // Position -1 is this.prev; interpolate between floor(t) and floor(t)+1.
+    while (this.t < len - 1) {
+      var j = Math.floor(this.t);
+      var f = this.t - j;
+      var a = j < 0 ? this.prev : x[j];
+      var b = x[j + 1];
+      this.push(a + (b - a) * f);
+      this.t += this.step;
+    }
+    this.t -= len;
+    this.prev = x[len - 1];
+    return true;
+  }
+}
+
+registerProcessor("galion-pcm16", GalionPcm16);
+</script>
 <script>
 (function () {
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
   var body = document.body, q = $("q"), send = $("send"), mic = $("mic"), form = $("form"), stream = $("stream");
-  var menu = $("menu"), menuB = $("menu-b");
+  var say = $("say"), solo = $("solo"), eye = $("eye"), pairf = $("pairf"), code = $("code");
   var paired = false, busy = false, waiting = "";
   var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var canMic = !!(window.AudioWorkletNode && navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.WebSocket && window.isSecureContext !== false), base = "";
 
   function api(path, opts) {
     opts = opts || {};
@@ -127,9 +202,27 @@ textarea::placeholder{color:var(--mu)}
   }
   function post(path, data) { return api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data || {}) }); }
 
-  // ---- The calm stream.
+  // ---- Chat visibility: the one setting. Off unless this device turned it on.
+  var KEY = "galion-one-chat";
+  var chat = false;
+  try { chat = localStorage.getItem(KEY) === "on"; } catch (e) {}
+  var saidT = 0;
+  function showChat(on, save) {
+    chat = on;
+    body.classList.toggle("off", !on);
+    eye.setAttribute("aria-checked", on ? "true" : "false");
+    $("tip-s").textContent = on ? "on" : "off";
+    if (save) {
+      try { localStorage.setItem(KEY, on ? "on" : "off"); } catch (e) {}
+      eye.classList.add("said"); clearTimeout(saidT);
+      saidT = setTimeout(function () { eye.classList.remove("said"); }, 1600);
+    }
+    if (on) end(); else if (say.textContent) idle();
+  }
+  eye.addEventListener("click", function () { showChat(!chat, true); });
+
+  // ---- Chat on: the calm stream (every question and answer).
   function line(cls, text) {
-    body.classList.add("talk");
     var p = document.createElement("p");
     p.className = cls;
     p.textContent = text || "";
@@ -137,7 +230,33 @@ textarea::placeholder{color:var(--mu)}
     end();
     return p;
   }
-  function end() { window.scrollTo(0, document.documentElement.scrollHeight); }
+  function end() { stream.scrollTop = stream.scrollHeight; }
+
+  // ---- Chat off: only the latest answer, then it fades once it has been read.
+  var fadeT = 0, clearT = 0, READ_MS = 60 * 1000;
+  function solo1(text, cls) {
+    clearTimeout(fadeT); clearTimeout(clearT);
+    say.className = "say" + (cls ? " " + cls : "") + (text.length <= 120 && text.indexOf("\n") < 0 ? " short" : "");
+    say.textContent = text;
+    solo.scrollTop = 0;
+  }
+  function idle() {
+    clearTimeout(fadeT);
+    if (!say.textContent || say.classList.contains("gone")) return;
+    fadeT = setTimeout(fade, READ_MS);
+  }
+  function fade() {
+    clearTimeout(fadeT);
+    if (!say.textContent) return;
+    say.classList.add("gone");
+    clearTimeout(clearT);
+    clearT = setTimeout(function () { say.textContent = ""; say.className = "say"; }, reduce ? 0 : 1900);
+  }
+  ["pointerdown", "wheel", "touchstart"].forEach(function (ev) { solo.addEventListener(ev, idle, { passive: true }); });
+  solo.addEventListener("scroll", idle, { passive: true });
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) idle(); });
+
+  // ---- Both views from one place.
   function reveal(el, text, done) {
     if (reduce) { el.textContent = text; done(); return; }
     var parts = text.split(/(\s+)/), i = 0;
@@ -147,17 +266,27 @@ textarea::placeholder{color:var(--mu)}
       s.textContent = parts.slice(i, i + 4).join("");
       el.appendChild(s);
       i += 4;
-      end();
+      if (el !== say) end();
       setTimeout(step, 70);
     })();
   }
+  function answer(text, after) {
+    var p = line("ans", "");
+    solo1("", "");
+    say.className = "say" + (text.length <= 120 && text.indexOf("\n") < 0 ? " short" : "");
+    var left = 2;
+    function one() { if (--left === 0) { after(); idle(); } }
+    reveal(p, text, one);
+    reveal(say, text, one);
+  }
+  function soft(text) { line("ans soft", text); solo1(text, "soft"); idle(); }
   var presence = null;
   function think(on) {
     body.classList.toggle("think", on);
+    if (on) { solo1("", ""); }
     if (on && !presence) { presence = document.createElement("span"); presence.className = "presence"; presence.setAttribute("role", "status"); presence.setAttribute("aria-label", "Thinking"); stream.appendChild(presence); end(); }
     if (!on && presence) { if (presence.parentNode) presence.parentNode.removeChild(presence); presence = null; }
   }
-  function soft(text) { return line("ans soft", text); }
 
   // ---- Conversation threads: shared with /room on this device.
   var TH = "galion-one-thread", IDLE_MS = 30 * 60 * 1000;
@@ -171,126 +300,152 @@ textarea::placeholder{color:var(--mu)}
   }
 
   // ---- Ask: the same path as the Galion One room (POST /admin/say).
-  function ask(text) {
+  function ask(text, again) {
     text = (text || "").trim();
     if (!text || busy) return;
     stopMic();
     q.value = ""; grow();
-    line("q", text);
-    if (!paired) { waiting = text; askPair(); return; }
+    if (!again) line("q", text);
+    if (!paired) { micAfterPair = false; waiting = text; askPair(); return; }
     busy = true; grow();
     think(true);
     var pick = threadFor();
     post("/admin/say", { text: text, thread: pick.thread, fresh: pick.fresh }).then(function (r) {
       think(false);
-      if (r.status === 401 || r.json.error === "pair") { busy = false; grow(); paired = false; paint(); waiting = text; askPair(); return; }
+      if (r.status === 401 || r.json.error === "pair") { busy = false; grow(); paired = false; waiting = text; askPair(); return; }
       if (r.json.thread) { var was = getThread(); setThread({ id: r.json.thread, last: Date.now(), pinned: was.id === r.json.thread && !!was.pinned, fresh: false }); }
-      var say = (r.json.say || "").trim();
-      if (say === "Wait") { done(); soft("Still finishing the last answer. Try again in a moment."); return; }
-      if (!say || say === "Again") { done(); soft("No answer came back. Try again."); return; }
-      reveal(line("ans", ""), say, done);
+      var s = (r.json.say || "").trim();
+      if (s === "Wait") { done(); soft("Still finishing the last answer. Try again in a moment."); return; }
+      if (!s || s === "Again") { done(); soft("No answer came back. Try again."); return; }
+      answer(s, done);
     }).catch(function () { think(false); done(); soft("No connection. Check your network and try again."); });
   }
   function done() { busy = false; grow(); }
 
-  // ---- Pairing (the room's own /pair route).
-  function askPair() {
-    var old = $("pairf"); if (old) old.parentNode.removeChild(old);
-    soft(waiting ? "First, pair this device. Enter your pairing code and your question goes right after." : "Enter your pairing code to pair this device.");
-    var f = document.createElement("form");
-    f.className = "pair"; f.id = "pairf"; f.setAttribute("autocomplete", "off");
-    f.innerHTML = '<label class="sr" for="code">Pairing code</label><input id="code" placeholder="Pairing code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" enterkeyhint="go"><button type="submit">Pair</button>';
-    stream.appendChild(f); end();
-    var c = $("code"); c.focus();
-    f.addEventListener("submit", function (e) {
-      e.preventDefault();
-      var code = c.value.trim(); if (!code) return;
-      post("/pair", { code: code }).then(function (r) {
-        if (r.json.ok) {
-          f.parentNode.removeChild(f); paired = true; paint(); soft("Paired. Welcome.");
-          if (waiting) { var t = waiting; waiting = ""; q.value = t; ask(t); }
-          return;
-        }
-        soft(r.json.error === "later" ? "Too many tries. Wait 15 minutes, then try again." : "That code did not work.");
-      }).catch(function () { soft("No connection."); });
-    });
+  // ---- Pairing (the room's own /pair route): only when an unpaired device asks.
+  function askPair(msg) {
+    soft(msg || (waiting ? "First, pair this device. Enter your pairing code and your question goes right after." : "Enter your pairing code to pair this device."));
+    pairf.hidden = false; code.value = ""; code.focus();
   }
+  pairf.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var c = code.value.trim(); if (!c) return;
+    post("/pair", { code: c }).then(function (r) {
+      if (r.json.ok) {
+        pairf.hidden = true; paired = true; soft("Paired. Welcome.");
+        if (waiting) { var t = waiting; waiting = ""; ask(t, true); } else if (micAfterPair) { micAfterPair = false; startMic(); }
+        return;
+      }
+      soft(r.json.error === "later" ? "Too many tries. Wait 15 minutes, then try again." : "That code did not work.");
+    }).catch(function () { soft("No connection."); });
+  });
 
-  // ---- The field.
+  // ---- The field: mic while empty, the send arrow once there is text.
   function grow() {
-    send.disabled = busy || !q.value.trim();
+    var has = !!q.value.trim();
+    send.hidden = !has || busy || micOn;
+    mic.hidden = !canMic || (has && !micOn);
     q.style.height = "auto";
-    q.style.height = Math.min(q.scrollHeight, window.innerHeight * 0.3) + "px";
+    var cap = Math.round(window.innerHeight * 0.3), h = Math.max(q.scrollHeight, 48);
+    q.style.height = Math.min(h, cap) + "px";
+    q.classList.toggle("scroll", h > cap);
   }
-  q.addEventListener("input", grow);
+  q.addEventListener("input", function () { if (q.value.trim()) fade(); grow(); });
   window.addEventListener("resize", grow);
   q.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(q.value); } });
   form.addEventListener("submit", function (e) { e.preventDefault(); ask(q.value); });
 
-  // ---- Voice: the browser's own speech recognition, only where it exists.
-  var SR = window.SpeechRecognition || window.webkitSpeechRecognition, rec = null, base = "";
-  if (SR) mic.hidden = false;
-  function stopMic() { if (rec) { try { rec.stop(); } catch (e) {} } }
-  mic.addEventListener("click", function () {
-    if (rec) { stopMic(); return; }
-    try { rec = new SR(); } catch (e) { mic.hidden = true; return; }
-    rec.lang = navigator.language || "en-GB";
-    rec.interimResults = true;
-    rec.continuous = false;
-    base = q.value.trim();
-    rec.onresult = function (e) {
-      var t = "";
-      for (var i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
-      q.value = (base ? base + " " : "") + t.trim(); grow();
-    };
-    rec.onerror = function (e) { if (e && (e.error === "not-allowed" || e.error === "service-not-allowed")) soft("The microphone is blocked for this site. You can still type."); };
-    rec.onend = function () { rec = null; mic.classList.remove("live"); mic.setAttribute("aria-pressed", "false"); mic.setAttribute("aria-label", "Speak"); q.focus(); };
-    try { rec.start(); mic.classList.add("live"); mic.setAttribute("aria-pressed", "true"); mic.setAttribute("aria-label", "Stop"); } catch (e) { rec = null; }
-  });
+  // ---- Voice: private dictation only, the same path as the room.
+  // AudioWorklet -> 16 kHz PCM16 frames -> /stt/stream on this host (galion-one
+  // tunnels it to the box's own speech-to-text). No browser speech service.
+  var ws = null, actx = null, node = null, src = null, mstream = null, finalText = "", stopT = 0, micOn = false, micAfterPair = false;
+  function setLive(on) {
+    micOn = on;
+    mic.classList.toggle("live", on);
+    mic.setAttribute("aria-pressed", on ? "true" : "false");
+    mic.setAttribute("aria-label", on ? "Stop dictation" : "Dictate");
+    mic.title = on ? "Stop dictation" : "Dictate";
+  }
+  var workletUrl = null;
+  function worklet() {
+    if (!workletUrl) workletUrl = URL.createObjectURL(new Blob([$("g1-worklet").textContent], { type: "application/javascript" }));
+    return workletUrl;
+  }
+  function cleanup() {
+    if (mstream) { mstream.getTracks().forEach(function (t) { t.stop(); }); mstream = null; }
+    if (actx) { try { actx.close(); } catch (e) {} actx = null; }
+    node = null; src = null;
+  }
+  function showWords(partial) {
+    var t = (finalText + (partial ? " " + partial : "")).trim();
+    q.value = (base ? base + " " : "") + t; grow();
+  }
+  function finish(failed) {
+    clearTimeout(stopT);
+    if (!micOn) return;
+    ws = null; cleanup(); setLive(false); grow();
+    if (failed) { soft("Dictation is offline right now. You can still type."); return; }
+    q.focus();
+  }
+  function startMic() {
+    if (micOn || busy) return;
+    if (!paired) { micAfterPair = true; waiting = ""; askPair("Pair this device to dictate."); return; }
+    fade();
+    var C = window.AudioContext || window.webkitAudioContext;
+    try { actx = new C(); } catch (e) { soft("Dictation needs a newer browser."); return; }
+    setLive(true);
+    finalText = ""; base = q.value.trim();
+    api("/stt/health").then(function (r) {
+      if (r.status === 401) { cleanup(); setLive(false); paired = false; micAfterPair = true; askPair("Pair this device to dictate."); return null; }
+      if (!r.json.ok) { finish(true); return null; }
+      return navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then(function (s) {
+        if (!micOn || !actx) { s.getTracks().forEach(function (t) { t.stop(); }); return; }
+        mstream = s;
+        return actx.audioWorklet.addModule(worklet()).then(function () {
+          if (actx.resume) actx.resume();
+          src = actx.createMediaStreamSource(s);
+          node = new AudioWorkletNode(actx, "galion-pcm16");
+          ws = new WebSocket((location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host + "/stt/stream");
+          ws.binaryType = "arraybuffer";
+          var opened = false;
+          ws.onopen = function () {
+            opened = true;
+            node.port.onmessage = function (e) { if (ws && ws.readyState === 1) ws.send(e.data); };
+            src.connect(node);
+          };
+          ws.onmessage = function (e) {
+            var m = null; try { m = JSON.parse(e.data); } catch (x) { return; }
+            if (m.type === "partial") showWords(m.text || "");
+            else if (m.type === "final") { if (m.text) finalText = (finalText + " " + m.text).trim(); showWords(""); }
+          };
+          ws.onclose = function () { finish(!opened); };
+        });
+      });
+    }).catch(function (err) {
+      var blocked = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
+      if (blocked) { cleanup(); setLive(false); grow(); soft("The microphone is blocked for this site. You can still type."); return; }
+      finish(true);
+    });
+  }
+  function stopMic() {
+    if (!micOn) return;
+    if (node) { try { node.port.postMessage("stop"); } catch (e) {} }
+    if (src) { try { src.disconnect(); } catch (e) {} }
+    if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify({ type: "stop" })); } catch (e) {} }
+    else if (!ws) { cleanup(); setLive(false); grow(); return; }
+    stopT = setTimeout(function () { if (ws) { try { ws.close(); } catch (e) {} } finish(false); }, 2500);
+  }
+  mic.addEventListener("click", function () { if (micOn) stopMic(); else startMic(); });
+  document.addEventListener("visibilitychange", function () { if (document.hidden) stopMic(); });
 
-  // ---- Menu.
-  function openMenu(on) { menu.classList.toggle("open", on); menuB.setAttribute("aria-expanded", on ? "true" : "false"); }
-  menuB.addEventListener("click", function (e) { e.stopPropagation(); openMenu(!menu.classList.contains("open")); });
-  document.addEventListener("click", function (e) { if (!menu.contains(e.target)) openMenu(false); });
-  document.addEventListener("keydown", function (e) { if (e.key === "Escape") openMenu(false); });
-  $("m-new").addEventListener("click", function () {
-    if (busy) return;
-    setThread({ id: "", last: 0, pinned: false, fresh: true });
-    stream.textContent = ""; body.classList.remove("talk"); openMenu(false); q.focus();
-  });
-  $("m-pair").addEventListener("click", function () { openMenu(false); waiting = ""; askPair(); });
-  $("m-invite").addEventListener("click", function () {
-    openMenu(false);
-    post("/pair/invite").then(function (r) {
-      if (!r.json.code) { soft("Could not make a code. Try again."); return; }
-      var hh; try { hh = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Zagreb" }).format(new Date(r.json.expires)); } catch (e) { hh = ""; }
-      soft("On the new device open one.galion.app, tap Pair this device in the menu and enter this code. It works once" + (hh ? ", until " + hh + " (Zagreb time)." : "."));
-      line("ans code", r.json.code);
-    }).catch(function () { soft("No connection."); });
-  });
-  // Install: the browser's own prompt where it offers one, otherwise one line of help.
-  var deferred = null;
-  window.addEventListener("beforeinstallprompt", function (e) { e.preventDefault(); deferred = e; });
-  var standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
-  if (standalone) $("m-install-s").textContent = "installed";
-  $("m-install").addEventListener("click", function () {
-    openMenu(false);
-    if (standalone) { soft("Galion One is already installed on this device."); return; }
-    if (deferred) { deferred.prompt(); deferred = null; return; }
-    var ios = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    soft(ios ? "In Safari, tap Share, then Add to Home Screen." : "Use your browser menu and choose Install app or Add to Home screen.");
-  });
+  // ---- Height follows the visible screen (keyboard open on phones).
+  var vv = window.visualViewport;
+  function fit() { if (vv) document.documentElement.style.setProperty("--h", Math.round(vv.height) + "px"); if (window.scrollY) window.scrollTo(0, 0); }
+  if (vv) { vv.addEventListener("resize", fit); fit(); }
 
   // ---- State.
-  function paint() { $("m-pair-li").hidden = paired; $("m-invite-li").hidden = !paired; }
-  function approvals() {
-    api("/api/approvals/count").then(function (r) {
-      var n = r.status === 200 && typeof r.json.ready === "number" ? r.json.ready : 0;
-      $("m-appr").textContent = n ? n + " waiting" : "";
-      $("menu-dot").hidden = !n;
-    }).catch(function () {});
-  }
-  api("/me").then(function (r) { paired = !!r.json.you; paint(); if (paired) approvals(); }).catch(function () { paint(); });
+  showChat(chat, false);
+  api("/me").then(function (r) { paired = !!r.json.you; }).catch(function () {});
   // ?q= fills the field (never sends), so a link can open with a question ready.
   try { var pre = new URLSearchParams(location.search).get("q"); if (pre) q.value = pre.slice(0, 500); } catch (e) {}
   grow();

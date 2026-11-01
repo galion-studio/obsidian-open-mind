@@ -6,8 +6,13 @@
 //!
 //! One window, one gradient, one prompt field. The page (`ask/index.html`)
 //! is compiled in and served at `/` on the V2 hosts. It talks to the agent
-//! through the room's existing routes only (`/me`, `/pair`, `/pair/invite`,
-//! `/admin/say`, `/api/approvals/count`); there is no new backend.
+//! through the room's existing routes only (`/me`, `/pair`, `/admin/say`).
+//! There is no new backend.
+//!
+//! 2026-11-01 CET, calm: the only control is a chat-visibility switch (off
+//! by default, saved in localStorage). Off shows just the latest answer in
+//! the centre and fades it after about a minute; on shows the full stream.
+//! No menu: /room, /approvals, /pair and /account stay reachable by URL.
 //!
 //! The full room (history, files, voice, model, devices) moves to `/room`,
 //! still read from `one/index-v2.html` on disk with the same serve-time
@@ -78,24 +83,17 @@ mod tests {
     fn page_is_one_field_and_uses_the_room_routes() {
         assert!(PAGE.contains("placeholder=\"Ask anything&hellip;\""));
         assert!(!PAGE.to_ascii_lowercase().contains("hermes"));
-        for route in [
-            "\"/admin/say\"",
-            "\"/me\"",
-            "\"/pair\"",
-            "\"/pair/invite\"",
-            "\"/api/approvals/count\"",
-        ] {
+        for route in ["\"/admin/say\"", "\"/me\"", "\"/pair\""] {
             assert!(PAGE.contains(route), "{route}");
         }
-        for link in [
-            "href=\"/room\"",
-            "href=\"/approvals\"",
-            "https://galion.app/account",
-        ] {
-            assert!(PAGE.contains(link), "{link}");
-        }
         assert!(PAGE.contains("prefers-reduced-motion:reduce"));
-        assert!(PAGE.contains("webkitSpeechRecognition"));
+        // Private dictation only: the room's worklet and /stt/stream, no browser speech service.
+        assert!(PAGE.contains("\"/stt/stream\"") && PAGE.contains("\"/stt/health\""));
+        assert!(
+            PAGE.contains("id=\"g1-worklet\"")
+                && PAGE.contains("registerProcessor(\"galion-pcm16\"")
+        );
+        assert!(!PAGE.contains("SpeechRecognition") && !PAGE.contains("speechSynthesis"));
         assert!(
             !PAGE.contains("<link") && !PAGE.contains("@import") && !PAGE.contains("src=\"http")
         );
@@ -105,6 +103,53 @@ mod tests {
         assert_eq!(s.matches("rel=\"manifest\"").count(), 1);
         assert_eq!(s.matches("id=\"g1-pwa\"").count(), 1);
         assert_eq!(s.matches("name=\"theme-color\"").count(), 1);
+    }
+
+    /// One control only: chat visibility, off by default, kept per device.
+    /// No menu and no links; /room, /approvals, /pair, /account stay URL-only.
+    #[test]
+    fn one_switch_no_menu() {
+        assert_eq!(PAGE.matches("role=\"switch\"").count(), 1);
+        assert!(PAGE.contains("aria-label=\"Show chat\"") && PAGE.contains("title=\"Show chat\""));
+        assert!(PAGE.contains("aria-checked=\"false\""));
+        assert!(PAGE.contains("<body class=\"off\">"));
+        assert!(PAGE.contains("localStorage.getItem(KEY) === \"on\""));
+        assert_eq!(
+            PAGE.matches("<button").count(),
+            4,
+            "switch, mic, send, pair"
+        );
+        for gone in [
+            "href=\"/room\"",
+            "href=\"/approvals\"",
+            "/account",
+            "aria-haspopup",
+            "class=\"menu\"",
+            "New conversation",
+            "Install app",
+            "/pair/invite",
+            "/api/approvals/count",
+        ] {
+            assert!(!PAGE.contains(gone), "{gone}");
+        }
+        // The pairing field still comes up by itself.
+        assert!(PAGE.contains("id=\"pairf\"") && PAGE.contains("pairf.hidden = false"));
+    }
+
+    /// The field is one pill: no scrollbar, resize handle, inner box or seam.
+    #[test]
+    fn field_is_one_clean_pill() {
+        for want in [
+            "resize:none;overflow-y:hidden;scrollbar-width:none;-webkit-appearance:none;appearance:none",
+            "textarea::-webkit-scrollbar{display:none",
+            "border:0;border-radius:0;outline:0;box-shadow:none;background:transparent",
+            ".dock{flex:none;padding:.5rem 0 max(1rem,calc(env(safe-area-inset-bottom) + .5rem));background:none}",
+            "caret-color:var(--am)",
+        ] {
+            assert!(PAGE.contains(want), "{want}");
+        }
+        assert!(!PAGE.contains("backdrop-filter"));
+        assert!(!PAGE.contains("linear-gradient(to top,var(--ob)"));
     }
 
     #[test]

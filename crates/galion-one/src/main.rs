@@ -24,6 +24,7 @@
 #![allow(clippy::sliced_string_as_bytes)]
 #![allow(dead_code)]
 
+mod accounts_proxy;
 mod approvals;
 mod cli;
 mod home;
@@ -537,6 +538,15 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
         };
         let r = approvals::route(&approvals::Cfg::from_env(), &req);
         return write_response(&mut stream, r.status, r.kind, &r.body, None);
+    }
+    // galion.app account routes (src/accounts_proxy.rs): home hosts only, sent
+    // to galion-accounts on loopback. When it is off or down, /account falls
+    // through to the built-in placeholder below and the API paths answer 503.
+    if home::host_on(&host)
+        && accounts_proxy::routes(&path)
+        && accounts_route(&mut stream, &head, &method, &path, &query, &body)?
+    {
+        return Ok(());
     }
     // galion.app public home (src/home.rs): home hosts only; everything else falls through.
     if home::host_on(&host) {
@@ -1070,6 +1080,46 @@ fn write_chunk(stream: &mut TcpStream, data: &[u8]) -> std::io::Result<()> {
     match stream.flush() {
         Ok(()) => Ok(()),
         Err(err) => quiet(err),
+    }
+}
+
+/// Forward one galion.app account request (see accounts_proxy.rs). Ok(true)
+/// when it was answered; Ok(false) sends `/account` on to the placeholder.
+fn accounts_route(
+    stream: &mut TcpStream,
+    head: &str,
+    method: &str,
+    path: &str,
+    query: &str,
+    body: &[u8],
+) -> std::io::Result<bool> {
+    let answer = |stream: &mut TcpStream, resp: &[u8]| -> std::io::Result<bool> {
+        if let Err(err) = stream.write_all(resp).and_then(|()| stream.flush()) {
+            quiet(err)?;
+        }
+        let _ = stream.shutdown(std::net::Shutdown::Write);
+        Ok(true)
+    };
+    if accounts_proxy::chunked(head) {
+        return answer(stream, &accounts_proxy::length_required());
+    }
+    if let Some(addr) = accounts_proxy::upstream(&|k| std::env::var(k).ok()) {
+        let target = if query.is_empty() {
+            path.to_string()
+        } else {
+            format!("{path}?{query}")
+        };
+        let peer = stream.peer_addr().ok().map(|a| a.ip());
+        let client = accounts_proxy::client_ip(head, peer);
+        let req = accounts_proxy::build_request(method, &target, head, body, &client);
+        if let accounts_proxy::Outcome::Relayed(_) = accounts_proxy::forward(addr, &req, stream) {
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            return Ok(true);
+        }
+    }
+    match accounts_proxy::unavailable(method, path) {
+        Some(resp) => answer(stream, &resp),
+        None => Ok(false),
     }
 }
 

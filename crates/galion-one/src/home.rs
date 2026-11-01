@@ -23,6 +23,7 @@ pub const HTML: &[u8] = include_bytes!("../home/index.html");
 pub const HTML_GZ: &[u8] = include_bytes!("../home/index.html.gz");
 pub const JS: &[u8] = include_bytes!("../home/home.js");
 pub const MARK: &[u8] = include_bytes!("../home/galion-mark.svg");
+/// Friendly placeholder for `/account` while galion-accounts is off or down.
 pub const ACCOUNT: &[u8] = include_bytes!("../home/account.html");
 
 const CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
@@ -141,7 +142,8 @@ pub fn respond(method: &str, path: &str, accept: &str, if_none_match: &str) -> O
                 "public, max-age=300",
             ),
         },
-        // Placeholder only: the real account system is another worker's job (t549u).
+        // Fallback only: with galion-accounts up, main.rs forwards /account to it
+        // (src/accounts_proxy.rs); this page shows when it is off or down.
         "/account" | "/account/" => ("text/html; charset=utf-8", ACCOUNT, None, "no-store"),
         "/pricing" | "/pricing/" => {
             return Some(

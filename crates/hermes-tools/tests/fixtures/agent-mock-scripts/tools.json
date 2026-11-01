@@ -1,0 +1,20 @@
+{
+  "cost_per_call": 0.0,
+  "steps": [
+    {"tool": "terminal", "args": {"command": "echo hello-from-terminal && pwd"}},
+    {"tool": "write_file", "args": {"path": "notes/a.txt", "content": "alpha beta\n"}},
+    {"tool": "read_file", "args": {"path": "notes/a.txt"}},
+    {"tool": "edit_file", "args": {"path": "notes/a.txt", "old_text": "alpha", "new_text": "gamma"}},
+    {"tool": "list_files", "args": {"path": "notes"}},
+    {"tool": "search_files", "args": {"query": "gamma"}},
+    {"tool": "files_list", "args": {"path": "notes"}},
+    {"tool": "files_read", "args": {"path": "notes/a.txt"}},
+    {"tool": "terminal", "args": {"command": "rm -rf /"}},
+    {"tool": "terminal", "args": {"command": "curl -s http://example.com"}},
+    {"tool": "terminal", "args": {"command": "cat /etc/shadow"}},
+    {"tool": "write_file", "args": {"path": "../escape.txt", "content": "x"}},
+    {"tool": "terminal", "args": {"command": "sleep 5", "timeout_s": 1}},
+    {"tool": "terminal", "args": {"command": "ls @CANARY@"}},
+    {"final": "Tools script finished."}
+  ]
+}

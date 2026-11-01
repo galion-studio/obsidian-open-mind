@@ -379,12 +379,36 @@ fn handle_request(
     {
         let host = head.header("host").unwrap_or("");
         if console_ui::gate::is_console_host(host, &state.cfg.extra_hosts) {
-            let code = if method == "GET" || head_only {
+            // The page itself needs a paired device too (same rule as the
+            // local API gate: loopback Host from a loopback peer, or a valid
+            // galion_admin cookie). Unpaired visitors get a 401 pointer.
+            let peer_lb = stream
+                .peer_addr()
+                .ok()
+                .is_some_and(|p| p.ip().is_loopback());
+            let lb_host =
+                console_ui::gate::is_loopback_host(&console_ui::gate::normalize_host(host));
+            let paired = (lb_host && peer_lb)
+                || state
+                    .admin
+                    .as_ref()
+                    .is_some_and(|a| a.is_admin(head.header("cookie")));
+            let code = if !paired {
+                401
+            } else if method == "GET" || head_only {
                 200
             } else {
                 405
             };
-            let (body, extra): (&[u8], String) = if code != 200 {
+            let (body, extra): (&[u8], String) = if code == 401 {
+                (
+                    crate::files::UNPAIRED_HTML.as_bytes(),
+                    format!(
+                        "Content-Type: text/html; charset=utf-8\r\nCache-Control: no-store\r\nContent-Security-Policy: {}\r\n",
+                        crate::files::CSP
+                    ),
+                )
+            } else if code != 200 {
                 (
                     b"Method Not Allowed\n",
                     "Content-Type: text/plain\r\n".into(),

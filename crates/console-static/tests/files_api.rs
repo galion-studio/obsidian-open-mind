@@ -214,6 +214,20 @@ fn gate_comes_first_then_page_and_editor() {
         b"",
     );
     assert_ne!(r.code, 200, "page only on the console host");
+    // Unpaired (no cookie, or a wrong one): the page and the editor are 401.
+    for (p, c) in [
+        ("/files", ""),
+        ("/files/editor.js?v=1", ""),
+        ("/files", "Cookie: galion_admin=not-the-token\r\n"),
+    ] {
+        let r = send(
+            b.addr,
+            &format!("GET {p} HTTP/1.1\r\nHost: {HOST}\r\n{c}Connection: close\r\n\r\n"),
+            b"",
+        );
+        assert_eq!(r.code, 401, "{p} unpaired");
+        assert!(!r.text().contains("fx-list") && !r.text().contains("GalionEditor"));
+    }
 }
 
 #[test]

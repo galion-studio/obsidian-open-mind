@@ -93,6 +93,19 @@ bytes (magic numbers, else "looks like text" => editor, else hex).
 - The coding tools (`fs_read`, `fs_write`, `git`, `cargo`) are separate and
   unchanged; they keep their sandbox and worktree.
 
+## Owner and modes (2026-11-01)
+Hermes runs as root with `UMask=0077`, so the write tools used to leave `root:root 0600` files
+and `0700` folders that the sandboxed terminal (uid 65534) could not read. Now every entry the
+write tools make or move (files_write and its `.trash/edits` backup, files_mkdir, files_rename,
+files_move with and without copy, files_extract, files_trash) is handed to the same user the
+agent tools run as (`HERMES_RS_TOOLS_RUN_AS`, default 65534:65534 under a root gateway; `gateway`
+= leave as created), with files 0644 (0755 if executable) and folders 0755, set explicitly, so
+the unit's umask stays 0077. Links are never followed (O_NOFOLLOW, the open handle's real path
+must be inside the root, fchown/fchmod on the handle; links only get lchown), and only entries
+the gateway's own uid owns are changed. A result carries `owner_failed: N` if some entries could
+not be handed over. Tests: `crates/galion-files/tests/owner.rs`,
+`crates/hermes-tools/tests/files_owner.rs` (run as root they check the real 65534 hand-over).
+
 ## Tests
 
 `cargo test -p hermes-tools --test files_tools`: config refusals (off,

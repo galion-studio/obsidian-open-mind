@@ -13,6 +13,11 @@
 //! version in `<root>/.trash/edits/`, and no operation overwrites an existing
 //! name (rename, move, copy, upload and extract pick a free name instead or
 //! refuse).
+//!
+//! With [`Root::with_owner`] every entry a write makes (save, edit backup,
+//! new folder, copy, upload, extraction, and whatever a rename, move or
+//! trash moves) is handed to that `uid:gid` with files `0644` and folders
+//! `0755`, whatever the process umask; see [`owner`].
 
 #![forbid(unsafe_code)]
 
@@ -20,10 +25,12 @@ pub mod archive;
 pub mod inflate;
 pub mod kinds;
 pub mod media;
+pub mod owner;
 
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -206,6 +213,9 @@ pub fn check_name(name: &str) -> Result<()> {
 pub struct Root {
     base: PathBuf,
     pub writable: bool,
+    /// Hand new and moved entries to this user (see [`owner`]). None = leave
+    /// them as created (the process user and its umask).
+    owner: Option<owner::Owner>,
 }
 
 static TMP_N: AtomicU64 = AtomicU64::new(0);
@@ -220,11 +230,59 @@ impl Root {
                 "root is not a directory",
             ));
         }
-        Ok(Root { base, writable })
+        Ok(Root {
+            base,
+            writable,
+            owner: None,
+        })
     }
 
     pub fn base(&self) -> &Path {
         &self.base
+    }
+
+    /// Hand every new or moved entry to `uid:gid` with files `0644` and
+    /// folders `0755` (see [`owner`]). `None` keeps today's behaviour.
+    pub fn with_owner(mut self, owner: Option<(u32, u32)>) -> Root {
+        self.owner = owner.map(|(u, g)| owner::Owner::new(u, g));
+        self
+    }
+
+    /// The `(uid, gid)` new entries get, if any.
+    pub fn owner(&self) -> Option<(u32, u32)> {
+        self.owner.map(|o| (o.uid, o.gid))
+    }
+
+    /// A handle this crate just created. Returns 1 when it failed.
+    fn own_new(&self, f: &File) -> u64 {
+        match self.owner {
+            Some(o) => u64::from(o.new_file(f).is_err()),
+            None => 0,
+        }
+    }
+
+    /// One entry. Returns 1 when it failed.
+    fn own_one(&self, p: &Path) -> u64 {
+        match self.owner {
+            Some(o) => u64::from(o.path(&self.base, p).is_err()),
+            None => 0,
+        }
+    }
+
+    /// An entry and everything under it. Returns the failures.
+    fn own_tree(&self, p: &Path) -> u64 {
+        match self.owner {
+            Some(o) => o.tree(&self.base, p).1,
+            None => 0,
+        }
+    }
+
+    /// An entry and the folders between it and the root. Returns failures.
+    fn own_up(&self, p: &Path) -> u64 {
+        match self.owner {
+            Some(o) => o.up(&self.base, p),
+            None => 0,
+        }
     }
 
     fn inside(&self, p: &Path) -> bool {
@@ -532,7 +590,8 @@ impl Root {
                 .map_err(io_err)?;
             f.write_all(content.as_bytes()).map_err(io_err)?;
             f.sync_all().map_err(io_err)?;
-            return self.saved(&p, None);
+            let bad = self.own_new(&f);
+            return self.saved(&p, None).map(|v| owner_note(v, bad));
         }
         let abs = self.existing(rel)?;
         self.not_trash(&abs)?;
@@ -548,8 +607,10 @@ impl Root {
         // Keep the previous version.
         let edits = self.trash_dir().join("edits");
         fs::create_dir_all(&edits).map_err(io_err)?;
+        let mut bad = self.own_up(&edits);
         let bak = unique(&edits, &format!("{}-{}.bak", stamp(now_secs()), name));
         fs::copy(&abs, &bak).map_err(io_err)?;
+        bad += self.own_one(&bak);
         // Atomic replace through a sibling temp file, same permissions.
         let dir = abs.parent().ok_or(Error::NotFound)?;
         let tmp = dir.join(format!(
@@ -565,13 +626,20 @@ impl Root {
                 .map_err(io_err)?;
             f.write_all(content.as_bytes()).map_err(io_err)?;
             f.sync_all().map_err(io_err)?;
+            // With an owner: owner + 0644 and the old exec bits, set on the
+            // handle. Without: the old permissions, as before.
+            if let Some(o) = self.owner {
+                bad += u64::from(o.fd(&f, owner::file_mode(m.mode())).is_err());
+            }
         }
-        let _ = fs::set_permissions(&tmp, m.permissions());
+        if self.owner.is_none() {
+            let _ = fs::set_permissions(&tmp, m.permissions());
+        }
         if let Err(e) = fs::rename(&tmp, &abs) {
             let _ = fs::rename(&tmp, tmp.with_extension("off"));
             return Err(io_err(e));
         }
-        self.saved(&abs, Some(&bak))
+        self.saved(&abs, Some(&bak)).map(|v| owner_note(v, bad))
     }
 
     fn saved(&self, abs: &Path, bak: Option<&Path>) -> Result<Value> {
@@ -590,7 +658,11 @@ impl Root {
         let (dir, p) = self.fresh(dir_rel, name)?;
         self.not_trash(&dir)?;
         fs::create_dir(&p).map_err(io_err)?;
-        Ok(json!({"ok": true, "path": self.rel_of(&p)}))
+        let bad = self.own_one(&p);
+        Ok(owner_note(
+            json!({"ok": true, "path": self.rel_of(&p)}),
+            bad,
+        ))
     }
 
     /// Rename in place. Never overwrites.
@@ -606,7 +678,11 @@ impl Root {
             return Err(Error::Exists(new_name.into()));
         }
         fs::rename(&abs, &to).map_err(io_err)?;
-        Ok(json!({"ok": true, "from": self.rel_of(&abs), "path": self.rel_of(&to)}))
+        let bad = self.own_tree(&to);
+        Ok(owner_note(
+            json!({"ok": true, "from": self.rel_of(&abs), "path": self.rel_of(&to)}),
+            bad,
+        ))
     }
 
     /// The entry itself (a symlink is moved as a link, not followed), which
@@ -647,7 +723,11 @@ impl Root {
             return Err(Error::Exists(name.to_string_lossy().into_owned()));
         }
         fs::rename(&abs, &to).map_err(io_err)?;
-        Ok(json!({"ok": true, "from": self.rel_of(&abs), "path": self.rel_of(&to)}))
+        let bad = self.own_tree(&to);
+        Ok(owner_note(
+            json!({"ok": true, "from": self.rel_of(&abs), "path": self.rel_of(&to)}),
+            bad,
+        ))
     }
 
     /// Copy a file or folder (recursive) into a folder; a taken name gets
@@ -673,8 +753,14 @@ impl Root {
             .into_owned();
         let to = unique(&dest, &name);
         let mut count = 0u64;
-        copy_tree(&abs, &to, &mut count)?;
-        Ok(json!({"ok": true, "from": self.rel_of(&abs), "path": self.rel_of(&to), "files": count}))
+        let res = copy_tree(&abs, &to, &mut count);
+        // Also what a failed copy left behind, so it stays readable.
+        let bad = self.own_tree(&to);
+        res?;
+        Ok(owner_note(
+            json!({"ok": true, "from": self.rel_of(&abs), "path": self.rel_of(&to), "files": count}),
+            bad,
+        ))
     }
 
     /// "Delete": move into `.trash/<stamp>-<name>`. Nothing is removed from
@@ -690,6 +776,7 @@ impl Root {
         }
         let t = self.trash_dir();
         fs::create_dir_all(&t).map_err(io_err)?;
+        let mut bad = self.own_one(&t);
         let name = abs
             .file_name()
             .ok_or(Error::NotFound)?
@@ -697,10 +784,12 @@ impl Root {
             .into_owned();
         let to = unique(&t, &format!("{}-{}", stamp(now_secs()), name));
         fs::rename(&abs, &to).map_err(io_err)?;
-        Ok(
+        bad += self.own_tree(&to);
+        Ok(owner_note(
             json!({"ok": true, "from": self.rel_of(&abs), "path": self.rel_of(&to),
             "note": "moved to the trash; move it back to restore"}),
-        )
+            bad,
+        ))
     }
 
     /// Stream an upload into `dir_rel/name` (a taken name gets ` (1)` ...).
@@ -754,10 +843,14 @@ impl Root {
             }
         }
         f.sync_all().map_err(io_err)?;
+        let bad = self.own_new(&f);
         drop(f);
         let to = unique(&dir, name);
         fs::rename(&tmp, &to).map_err(io_err)?;
-        Ok(json!({"ok": true, "path": self.rel_of(&to), "size": total}))
+        Ok(owner_note(
+            json!({"ok": true, "path": self.rel_of(&to), "size": total}),
+            bad,
+        ))
     }
 
     // ------------------------------------------------------------ archives
@@ -800,14 +893,18 @@ impl Root {
         ));
         fs::create_dir(&stage).map_err(io_err)?;
         let res = archive::extract(&abs, &stage, max_bytes);
+        // Owner and modes before the folder appears under its real name (a
+        // failed run's `*.off` folder stays readable too).
+        let bad = self.own_tree(&stage);
         match res {
             Ok(stats) => {
                 let to = unique(&dest, &stem);
                 fs::rename(&stage, &to).map_err(io_err)?;
-                Ok(
+                Ok(owner_note(
                     json!({"ok": true, "path": self.rel_of(&to), "files": stats.files,
                     "bytes": stats.bytes, "skipped": stats.skipped}),
-                )
+                    bad,
+                ))
             }
             Err(e) => {
                 let _ = fs::rename(&stage, stage.with_extension("off"));
@@ -815,6 +912,15 @@ impl Root {
             }
         }
     }
+}
+
+/// Adds `owner_failed` to a result when some entries could not be handed to
+/// the owner (the operation itself still happened).
+fn owner_note(mut v: Value, failed: u64) -> Value {
+    if failed > 0 {
+        v["owner_failed"] = json!(failed);
+    }
+    v
 }
 
 /// `name`, or `name (1).ext`, `name (2).ext` ... whichever is free in `dir`.

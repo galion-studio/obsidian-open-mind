@@ -293,9 +293,13 @@ fn main() {
         Ok(None) => {}
         Ok(Some(fc)) => {
             let (root, write) = (fc.root.display().to_string(), fc.write);
+            let owner = match fc.owner {
+                Some((u, g)) => format!("{u}:{g}"),
+                None => "unchanged".into(),
+            };
             match hermes_tools::files::register_files(&mut tools, fc, Some(spend.clone())) {
                 Ok(names) => log(&format!(
-                    "files: root {root} write {write} tools on: {names:?}"
+                    "files: root {root} write {write} owner {owner} tools on: {names:?}"
                 )),
                 Err(e) => {
                     log(&format!("files: refusing to start: {e}"));

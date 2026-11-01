@@ -21,5 +21,7 @@ serde_json = { workspace = true }
 galion-files = { path = "../galion-files" }
 
 [dev-dependencies]
+# umask(2) in tests/files_owner.rs (the live UMask=0077). Already in Cargo.lock.
+libc = "0.2"
 # Stored-member zip fixture for tests/files_tools.rs (no compression features).
 zip = { version = "9", default-features = false }

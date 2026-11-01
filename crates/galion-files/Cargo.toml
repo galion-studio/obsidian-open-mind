@@ -11,6 +11,9 @@ description = "Jailed file operations for the console file explorer (console-sta
 publish = false
 
 [dependencies]
+# Open flags (O_NOFOLLOW, O_NONBLOCK, O_NOCTTY) for src/owner.rs; constants only,
+# no unsafe. Already in Cargo.lock (galion-backup, galion-guard, openmind-sandbox).
+libc = "0.2"
 # Pure-Rust RAR 1.3..7 reader (Apache-2.0, github.com/bitplane/rars). Read-only
 # build: no write/parallel/recovery/encryption features (no rayon, no getrandom).
 rars = { version = "0.12", default-features = false }

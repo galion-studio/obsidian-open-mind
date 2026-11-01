@@ -666,6 +666,7 @@ name = "galion-files"
 version = "0.1.0"
 dependencies = [
  "galion-tar",
+ "libc",
  "miniz_oxide",
  "rars",
  "serde_json",
@@ -1049,6 +1050,7 @@ version = "0.1.0"
 dependencies = [
  "galion-files",
  "hermes-rs",
+ "libc",
  "openmind-sandbox",
  "serde_json",
  "zip",

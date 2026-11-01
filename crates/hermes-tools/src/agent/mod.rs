@@ -143,6 +143,37 @@ impl AgentToolsConfig {
     }
 }
 
+/// `HERMES_RS_TOOLS_RUN_AS` for a gateway with effective uid `euid`: the
+/// (uid, gid) sandboxed processes run as and in-process tools hand their
+/// files to. Default 65534:65534 under a root gateway, None otherwise;
+/// `gateway` = None. Shared by the agent tools and the files tools.
+pub fn run_as_from_env(
+    env: &dyn Fn(&str) -> Option<String>,
+    euid: u32,
+) -> Result<Option<(u32, u32)>, String> {
+    Ok(
+        match env("HERMES_RS_TOOLS_RUN_AS").map(|s| s.trim().to_string()) {
+            Some(s) if s == "gateway" => None,
+            Some(s) if !s.is_empty() => {
+                let (u, g) = s
+                    .split_once(':')
+                    .ok_or("HERMES_RS_TOOLS_RUN_AS must be uid:gid or gateway")?;
+                let u: u32 = u.parse().map_err(|_| "HERMES_RS_TOOLS_RUN_AS: bad uid")?;
+                let g: u32 = g.parse().map_err(|_| "HERMES_RS_TOOLS_RUN_AS: bad gid")?;
+                if u == 0 || g == 0 {
+                    return Err("HERMES_RS_TOOLS_RUN_AS may not be root".into());
+                }
+                if euid != 0 {
+                    return Err("HERMES_RS_TOOLS_RUN_AS needs a root gateway".into());
+                }
+                Some((u, g))
+            }
+            _ if euid == 0 => Some((65534, 65534)),
+            _ => None,
+        },
+    )
+}
+
 fn num(env: &dyn Fn(&str) -> Option<String>, k: &str, d: u64) -> Result<u64, String> {
     match env(k) {
         None => Ok(d),
@@ -290,26 +321,7 @@ impl AgentToolsConfig {
                 Some(c)
             }
         };
-        let euid = openmind_sandbox::effective_uid();
-        let run_as = match env("HERMES_RS_TOOLS_RUN_AS").map(|s| s.trim().to_string()) {
-            Some(s) if s == "gateway" => None,
-            Some(s) if !s.is_empty() => {
-                let (u, g) = s
-                    .split_once(':')
-                    .ok_or("HERMES_RS_TOOLS_RUN_AS must be uid:gid or gateway")?;
-                let u: u32 = u.parse().map_err(|_| "HERMES_RS_TOOLS_RUN_AS: bad uid")?;
-                let g: u32 = g.parse().map_err(|_| "HERMES_RS_TOOLS_RUN_AS: bad gid")?;
-                if u == 0 || g == 0 {
-                    return Err("HERMES_RS_TOOLS_RUN_AS may not be root".into());
-                }
-                if euid != 0 {
-                    return Err("HERMES_RS_TOOLS_RUN_AS needs a root gateway".into());
-                }
-                Some((u, g))
-            }
-            _ if euid == 0 => Some((65534, 65534)),
-            _ => None,
-        };
+        let run_as = run_as_from_env(env, openmind_sandbox::effective_uid())?;
         if let Some((u, g)) = run_as {
             let _ = std::os::unix::fs::chown(&ws, Some(u), Some(g));
         }

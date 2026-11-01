@@ -50,6 +50,12 @@ pub struct FilesConfig {
     /// Total unpacked bytes one `files_extract` may write.
     pub extract_max_bytes: u64,
     pub max_calls_per_session: u64,
+    /// (uid, gid) every entry the write tools make or move is handed to,
+    /// with files 0644 and folders 0755 (the gateway's UMask=0077 would
+    /// leave them root-only). Same as the agent tools'
+    /// `HERMES_RS_TOOLS_RUN_AS`: 65534:65534 under a root gateway, None
+    /// (leave as created) otherwise.
+    pub owner: Option<(u32, u32)>,
 }
 
 impl FilesConfig {
@@ -104,6 +110,7 @@ impl FilesConfig {
             max_read_bytes: num("HERMES_RS_FILES_MAX_READ", 1 << 20)?,
             extract_max_bytes: num("HERMES_RS_FILES_EXTRACT_MAX_MB", 4096)? << 20,
             max_calls_per_session: num("HERMES_RS_FILES_MAX_CALLS", 400)?,
+            owner: crate::agent::run_as_from_env(env, openmind_sandbox::effective_uid())?,
         }))
     }
 }
@@ -144,7 +151,8 @@ pub struct FilesShared {
 impl FilesShared {
     pub fn new(cfg: FilesConfig, spend: Option<Arc<SpendTracker>>) -> Result<Self, String> {
         let root = Root::new(&cfg.root, cfg.write)
-            .map_err(|e| format!("files root {}: {e}", cfg.root.display()))?;
+            .map_err(|e| format!("files root {}: {e}", cfg.root.display()))?
+            .with_owner(cfg.owner);
         Ok(FilesShared {
             audit: Audit::new(cfg.audit_path.clone()),
             cfg,

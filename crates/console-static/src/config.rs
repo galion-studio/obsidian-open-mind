@@ -271,7 +271,9 @@ impl std::fmt::Display for ArgsError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ArgsError::Help => f.write_str(USAGE),
-            ArgsError::Bad(m) => write!(f, "{m}\n\n{USAGE}"),
+            // One line: under systemd a bad drop-in restarts in a loop, and
+            // ~150 lines of usage per try buried the one line that matters.
+            ArgsError::Bad(m) => write!(f, "{m} (run with --help for every option)"),
         }
     }
 }
@@ -928,6 +930,25 @@ mod tests {
 
     fn args(s: &str) -> Vec<String> {
         s.split_whitespace().map(str::to_string).collect()
+    }
+
+    #[test]
+    fn bad_flag_error_is_one_line() {
+        let e = Config::from_args(args("--status-dir rel/path --phone --local-api")).unwrap_err();
+        let text = e.to_string();
+        assert!(!text.contains('\n'), "{text}");
+        assert!(text.contains("--status-dir"), "{text}");
+        assert!(
+            text.ends_with("(run with --help for every option)"),
+            "{text}"
+        );
+        assert!(!text.contains("usage:"), "{text}");
+        let e = Config::from_args(args("--no-such-flag")).unwrap_err();
+        assert!(!e.to_string().contains('\n'), "{e}");
+        assert_eq!(
+            Config::from_args(args("--help")).unwrap_err().to_string(),
+            USAGE
+        );
     }
 
     #[test]

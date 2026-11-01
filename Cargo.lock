@@ -752,6 +752,7 @@ dependencies = [
  "galion-common",
  "galion-owner-key",
  "galion-realtest",
+ "miniz_oxide",
  "serde_json",
  "zagreb-time",
 ]

@@ -38,6 +38,7 @@ mod pdf_crypt;
 mod pdf_text;
 mod persona;
 mod probe;
+mod pwa;
 mod room_links;
 mod services;
 mod speech;
@@ -155,6 +156,10 @@ fn one_page(host: &str) -> Vec<u8> {
     // Approvals link in the V2 room (room_links.rs); hidden until paired.
     if v2_host(host) && room_links::enabled() {
         html = room_links::with_approvals_link(&html);
+    }
+    // Home-screen install (pwa.rs): manifest, icons, service worker.
+    if v2_host(host) && pwa::enabled() {
+        html = pwa::with_install(&html);
     }
     let boot = r##"<style id="galion-fit">html,body{overflow-x:clip;max-width:100%}body{grid-template-columns:minmax(0,1fr)!important;width:100%}#pair{position:fixed!important;left:50%!important;bottom:max(6.4rem,24vh)!important;transform:translateX(-50%);z-index:3;width:min(12rem,calc(100% - 3rem));max-width:100%;margin:0}</style><div id="galion-boot" role="status" aria-label="Galion One"><div class="lock"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V7a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3M8 19h8"/></svg><p class="name">Galion One</p><p class="stack">Obsidian Open Mind Stack</p></div></div><style>#galion-boot{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;overflow:hidden;background:#C4553A;color:#FFFFFF;font-family:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;font-weight:400}#galion-boot .lock{display:flex;flex-direction:column;align-items:center;transform:translateY(-8%)}#galion-boot svg{width:40px;height:40px;opacity:0;animation:galion-in .8s cubic-bezier(.22,1,.36,1) forwards}#galion-boot .name{margin:20px 0 0;font-size:21px;font-weight:400;letter-spacing:-.03em;opacity:0;animation:galion-in .8s cubic-bezier(.22,1,.36,1) .12s forwards}#galion-boot .stack{margin:8px 0 0;font-size:11px;font-weight:400;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.78);opacity:0;animation:galion-in .8s cubic-bezier(.22,1,.36,1) .24s forwards}@keyframes galion-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}#galion-boot.go{opacity:0;transition:opacity .5s cubic-bezier(.4,0,.2,1)}</style><script>setTimeout(function(){var n=document.getElementById("galion-boot");if(!n)return;n.classList.add("go");setTimeout(function(){n.remove()},520)},2000)</script>"##;
     if let Some(at) = html.find("<body>") {
@@ -546,6 +551,16 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     // galion.app public home (src/home.rs): home hosts only; everything else falls through.
     if home::host_on(&host) {
         if let Some(resp) = home::respond(&method, &path, &accept_encoding, &if_none_match) {
+            if let Err(err) = stream.write_all(&resp).and_then(|()| stream.flush()) {
+                return quiet(err);
+            }
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            return Ok(());
+        }
+    }
+    // Home-screen install files (pwa.rs): manifest, worker, icons; compiled in.
+    if !home::host_on(&host) {
+        if let Some(resp) = pwa::respond(&method, &path, &if_none_match, pwa::enabled()) {
             if let Err(err) = stream.write_all(&resp).and_then(|()| stream.flush()) {
                 return quiet(err);
             }

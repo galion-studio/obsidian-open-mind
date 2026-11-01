@@ -97,7 +97,7 @@ fn rendered() -> Option<&'static [u8]> {
         .as_deref()
 }
 
-fn etag(body: &[u8]) -> String {
+pub(crate) fn etag(body: &[u8]) -> String {
     // FNV-1a 64: a stable validator for the compiled-in bytes.
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in body {

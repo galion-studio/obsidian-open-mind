@@ -25,3 +25,5 @@ zagreb-time = { path = "../zagreb-time" }
 galion-realtest = { path = "../galion-realtest" }
 # Software owner devices (fake passkey, Ed25519 key file) for the approvals tests.
 galion-owner-key = { path = "../galion-owner-key", features = ["testkit"] }
+# PNG compression for examples/pwa_icons.rs (home-screen icons); already in Cargo.lock.
+miniz_oxide = "0.8"

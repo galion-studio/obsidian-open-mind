@@ -20,11 +20,16 @@
 //!
 //! Off by default: nothing is registered unless `HERMES_RS_CODING_WORKTREE`
 //! is set. See docs/hermes-tools.md.
+//!
+//! Separately, `files` adds file tools over one shared folder
+//! (`HERMES_RS_FILES_ROOT`, read-only unless `HERMES_RS_FILES_WRITE=1`); see
+//! docs/hermes-files-skill.md.
 
 pub mod audit;
 pub mod cgroup_self;
 pub mod config;
 pub mod exec;
+pub mod files;
 pub mod guard;
 pub mod tools;
 

@@ -1127,9 +1127,11 @@ dependencies = [
 name = "hermes-tools"
 version = "0.1.0"
 dependencies = [
+ "galion-files",
  "hermes-rs",
  "openmind-sandbox",
  "serde_json",
+ "zip",
 ]
 
 [[package]]

@@ -174,6 +174,26 @@ fn main() {
             std::process::exit(2);
         }
     }
+    #[cfg(feature = "coding")]
+    match hermes_tools::files::FilesConfig::from_env(&env, &cfg.home) {
+        Ok(None) => {}
+        Ok(Some(fc)) => {
+            let (root, write) = (fc.root.display().to_string(), fc.write);
+            match hermes_tools::files::register_files(&mut tools, fc, Some(spend.clone())) {
+                Ok(names) => log(&format!(
+                    "files: root {root} write {write} tools on: {names:?}"
+                )),
+                Err(e) => {
+                    log(&format!("files: refusing to start: {e}"));
+                    std::process::exit(2);
+                }
+            }
+        }
+        Err(e) => {
+            log(&format!("files: config error: {e}"));
+            std::process::exit(2);
+        }
+    }
     let cron_agent = Arc::new(hermes_rs::agent::Agent {
         cfg: cfg.clone(),
         provider: provider.clone(),

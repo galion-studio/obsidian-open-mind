@@ -80,3 +80,15 @@ html.g1v2 .hm.ap{padding-left:max(.75rem,env(safe-area-inset-left));padding-righ
 .ap-check input{width:1.125rem;height:1.125rem;accent-color:#6d7bff}
 .ap-cmd{margin:0;padding:.75rem .875rem;border-radius:1rem;background:rgba(5,6,15,.45);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.75rem;color:var(--g-fg);white-space:pre-wrap;overflow-wrap:anywhere}
 .ap-foot{text-align:left}
+/* Next step + admin key steps (2026-11-01). */
+.ap-next{display:flex;flex-direction:column;gap:.25rem;padding:.75rem .875rem;border-radius:1.125rem;background:rgba(5,6,15,.3);border-left:3px solid rgba(255,255,255,.18)}
+.ap-next.ap-who-you{border-left-color:var(--g-a)}.ap-next.ap-who-root{border-left-color:var(--g-w)}.ap-next.ap-who-server{border-left-color:var(--g-3)}
+.ap-next-t{margin:0;font-size:.875rem;line-height:1.55;color:var(--g-fg)}
+.ap-steps{display:flex;flex-direction:column;gap:.5rem;margin:0;padding:0;list-style:none}
+.ap-steps[hidden]{display:none}
+.ap-step{display:flex;gap:.75rem;align-items:flex-start;padding:.625rem .75rem;border-radius:1rem;background:rgba(5,6,15,.22);color:var(--g-3)}
+.ap-step.now{background:rgba(109,123,255,.12);color:var(--g-2)}
+.ap-step-n{flex:none;display:inline-flex;align-items:center;justify-content:center;width:1.5rem;height:1.5rem;border-radius:999px;background:rgba(255,255,255,.08);font-size:.75rem;color:var(--g-2)}
+.ap-step.now .ap-step-n{background:var(--g-a);color:#fff}.ap-step.done .ap-step-n{background:rgba(47,230,200,.2);color:#8ff5e3}
+.ap-step-x{display:flex;flex-direction:column;gap:.125rem;font-size:.8125rem;line-height:1.45}
+.ap-step-x b{font-weight:500;color:var(--g-fg)}.ap-step.later .ap-step-x b{color:var(--g-2)}

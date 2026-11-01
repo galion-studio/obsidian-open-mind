@@ -480,7 +480,10 @@ pub fn card(cfg: &Cfg, id: &str, owner: Option<&ok::OwnerKey>, now: i64) -> Resu
     // 1. Stack signature (origin proof from openmind-hermes).
     let stack_key = load_pub(&cfg.stack_pub);
     let mut stack_sig_sha = String::new();
+    let stack_missing = !dir.join("proposal.stack-sig.json").exists();
     let stack = match read_json(&dir.join("proposal.stack-sig.json")) {
+        Err(_) if stack_missing => json!({"ok": false, "missing": true,
+            "why": "not signed by the OpenMind stack yet"}),
         Err(e) => json!({"ok": false, "why": e}),
         Ok(env) => {
             let (b, ssha, chk) = open_env(&env, "body_json", STACK_SIG_V, stack_key.as_ref());
@@ -511,6 +514,8 @@ pub fn card(cfg: &Cfg, id: &str, owner: Option<&ok::OwnerKey>, now: i64) -> Resu
     let mut artifact_sha = String::new();
     let mut artifact_bytes = 0u64;
     let test = match read_json(&dir.join("test").join("record.json")) {
+        Err(_) if stack_missing => json!({"state": "not_started", "ok": false,
+            "why": "the sandbox test starts only after the stack has signed the request"}),
         Err(_) => {
             json!({"state": "waiting", "ok": false, "why": "the sandbox test has not finished"})
         }
@@ -566,6 +571,8 @@ pub fn card(cfg: &Cfg, id: &str, owner: Option<&ok::OwnerKey>, now: i64) -> Resu
     // 3. Dry-run record.
     let mut dry_sha = String::new();
     let dryrun = match read_json(&dir.join("dryrun").join("record.json")) {
+        Err(_) if stack_missing => json!({"state": "not_started", "ok": false,
+            "why": "the dry run comes after a passed sandbox test"}),
         Err(_) => json!({"state": "waiting", "ok": false, "why": "the dry run has not finished"}),
         Ok(env) => {
             let (b, sha, chk) =
@@ -642,16 +649,35 @@ pub fn card(cfg: &Cfg, id: &str, owner: Option<&ok::OwnerKey>, now: i64) -> Resu
         }
     }
     if owner.is_none() {
-        blockers.push("no admin key installed yet (set it up below)".into());
+        blockers.push("no admin key installed yet (see Admin key)".into());
     }
     let ready = blockers.is_empty() && state == "ready";
     if state == "ready" && !blockers.is_empty() {
-        state = if test["state"] == "waiting" || dryrun["state"] == "waiting" {
+        state = if stack_missing {
+            "unsigned"
+        } else if test["state"] == "waiting" || dryrun["state"] == "waiting" {
             "waiting"
         } else {
             "blocked"
         };
     }
+    let key_state = key_status(cfg)["state"]
+        .as_str()
+        .unwrap_or("none")
+        .to_string();
+    let voided = voided_on(&dir);
+    // Every check passed and only the admin key is missing: not a failure.
+    let key_only = owner.is_none() && blockers.len() == 1;
+    let next = next_step(&Facts {
+        key_only,
+        state,
+        stack_missing,
+        stack_ok: stack["ok"] == true,
+        test: test["state"].as_str().unwrap_or(""),
+        dryrun: dryrun["state"].as_str().unwrap_or(""),
+        key: &key_state,
+        voided: !voided.is_empty(),
+    });
     let (diff, cut) = if patch.len() > DIFF_CAP {
         let mut end = DIFF_CAP;
         while !patch.is_char_boundary(end) {
@@ -671,6 +697,7 @@ pub fn card(cfg: &Cfg, id: &str, owner: Option<&ok::OwnerKey>, now: i64) -> Resu
         "artifact": {"sha256": artifact_sha, "bytes": artifact_bytes, "on_disk_matches": artifact_ok,
                      "name": art_path.file_name().map(|s| s.to_string_lossy().into_owned())},
         "approval": approval, "created": created,
+        "next": next, "voided_on": voided, "key_only": key_only,
     });
     Ok(Card {
         id: id.to_string(),
@@ -681,6 +708,110 @@ pub fn card(cfg: &Cfg, id: &str, owner: Option<&ok::OwnerKey>, now: i64) -> Resu
         test_record_sha256: test_sha,
         dryrun_record_sha256: dry_sha,
     })
+}
+
+/// Dates (YYYY-MM-DD) of earlier gate passes that were voided and kept for
+/// audit (`gate.void-YYYYMMDD-HHMMSS`, approval-system B step 40).
+fn voided_on(dir: &Path) -> Vec<String> {
+    let mut v: Vec<String> = fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter_map(|n| void_date(&n))
+                .collect()
+        })
+        .unwrap_or_default();
+    v.sort();
+    v.dedup();
+    v
+}
+
+fn void_date(name: &str) -> Option<String> {
+    let d = name.strip_prefix("gate.void-")?.get(..8)?;
+    if !d.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some(format!("{}-{}-{}", &d[..4], &d[4..6], &d[6..8]))
+}
+
+/// What a card knows when it picks its one "next step" line.
+pub struct Facts<'a> {
+    /// Blocked only because no admin key is installed yet.
+    pub key_only: bool,
+    pub state: &'a str,
+    pub stack_missing: bool,
+    pub stack_ok: bool,
+    pub test: &'a str,
+    pub dryrun: &'a str,
+    /// Admin key state from key_status: none, pending, staged, active.
+    pub key: &'a str,
+    pub voided: bool,
+}
+
+/// One plain sentence: who acts next ("you", "root", "server", "nobody") and what.
+pub fn next_step(f: &Facts) -> Value {
+    let (who, text) = match f.state {
+        "deployed" => ("nobody", "Deployed. Nothing left to do.".to_string()),
+        "approved" => (
+            "root",
+            "You approved it. The root deploy step installs it; this screen never deploys.".into(),
+        ),
+        "rejected" => ("nobody", "You rejected it. Hermes can send a new request.".into()),
+        "ready" => ("you", "Check the change, then approve or reject it below.".into()),
+        "unsigned" => (
+            "server",
+            format!(
+                "Nothing to do here yet. This request is not signed by the OpenMind stack, so it cannot be tested or approved as it is.{} Once the server's signing and sandbox step (the sandbox closure) is installed, the change comes back as a new request with its own card.",
+                if f.voided { " An earlier test pass was voided and kept for audit." } else { "" }
+            ),
+        ),
+        "blocked" if f.key_only => match f.key {
+            "staged" => (
+                "root",
+                "Tests passed. Your new admin key is staged; root installs it on the server, then you can approve.".into(),
+            ),
+            "pending" => (
+                "you",
+                "Tests passed. Compare the fingerprints in Admin key and activate the key, then approve.".into(),
+            ),
+            _ => (
+                "you",
+                "Tests passed. Set up your admin key first (Admin key), then approve.".into(),
+            ),
+        },
+        "blocked" if !f.stack_ok => (
+            "nobody",
+            "Do not approve: the signature does not match this request. Reject it or leave it.".into(),
+        ),
+        "blocked" => (
+            "nobody",
+            "Do not approve: a check failed (see below). Reject it so Hermes can try again.".into(),
+        ),
+        _ if f.test == "waiting" => (
+            "server",
+            "The sandbox test is queued or running. Come back when it has passed.".into(),
+        ),
+        _ if f.dryrun == "waiting" => (
+            "server",
+            "The test passed; the dry run on a copy of the stack is queued or running.".into(),
+        ),
+        _ => match f.key {
+            "staged" => (
+                "root",
+                "Tests passed. Your new admin key is staged; root installs it on the server, then you can approve.".into(),
+            ),
+            "pending" => (
+                "you",
+                "Tests passed. Compare the fingerprints in Admin key and activate the key, then approve.".into(),
+            ),
+            "active" => ("server", "Checks are still settling. Reload in a minute.".into()),
+            _ => (
+                "you",
+                "Tests passed. Set up your admin key first (Admin key, above), then approve.".into(),
+            ),
+        },
+    };
+    json!({"who": who, "text": text})
 }
 
 fn ids(cfg: &Cfg) -> Vec<String> {
@@ -1245,6 +1376,115 @@ mod tests {
         let (s, v) = call(cfg, "GET", path, Value::Null, "", true, now);
         assert_eq!(s, 200, "{v}");
         v
+    }
+
+    /// Like the live sm-20261030160939-597392: proposal + patch from before the
+    /// signing system, no stack signature, an old voided gate pass kept for audit.
+    #[test]
+    fn unsigned_old_request_says_what_happens_next() {
+        let cfg = setup("unsigned");
+        let id = "sm-20261030160939-597392";
+        let d = cfg.queue.join(id);
+        fs::create_dir_all(d.join("gate.void-20261031-083121")).unwrap();
+        let patch = "diff --git a/docs/x.md b/docs/x.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/x.md\n@@ -0,0 +1 @@\n+note\n";
+        fs::write(d.join("change.patch"), patch).unwrap();
+        fs::write(
+            d.join("proposal.json"),
+            json!({"version": "hermes-self-modify/proposal/v1", "id": id, "base_commit": "6da98fdcdc81330900fc1b8fe71b7d3f79704e59",
+                   "summary": "Install test (harmless): docs note.", "reason": "", "files": ["docs/x.md"],
+                   "patch_sha256": ok::sha256_hex(patch.as_bytes())}).to_string(),
+        )
+        .unwrap();
+        let l = get(&cfg, "/api/approvals", NOW);
+        let c = l["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["id"] == id)
+            .unwrap()
+            .clone();
+        assert_eq!(c["state"], "unsigned", "{c}");
+        assert_eq!(c["ready"], false);
+        assert_eq!(c["stack"]["missing"], true);
+        assert_eq!(c["test"]["state"], "not_started");
+        assert_eq!(c["dryrun"]["state"], "not_started");
+        assert_eq!(c["next"]["who"], "server");
+        let t = c["next"]["text"].as_str().unwrap();
+        assert!(t.contains("not signed by the OpenMind stack"), "{t}");
+        assert!(t.contains("new request with its own card"), "{t}");
+        assert!(t.contains("voided"), "{t}");
+        assert_eq!(c["voided_on"], json!(["2026-10-31"]));
+        let b = c["blockers"].to_string();
+        assert!(b.contains("not signed by the OpenMind stack yet"), "{b}");
+        assert!(
+            !b.contains("proposal.stack-sig.json"),
+            "no file names in the plain reasons: {b}"
+        );
+        // Never counted as waiting for you; never challengeable.
+        assert_eq!(get(&cfg, "/api/approvals/count", NOW)["ready"], 0);
+        let (s, v) = post(&cfg, "/api/approvals/challenge", json!({"id": id}), NOW);
+        assert_ne!(s, 200, "{v}");
+    }
+
+    #[test]
+    fn signed_request_without_key_points_at_the_key() {
+        let cfg = setup("nokey-next");
+        let l = get(&cfg, "/api/approvals", NOW);
+        let c = &l["items"][0];
+        assert_eq!(c["id"], ID);
+        assert_eq!(c["next"]["who"], "you", "{c}");
+        assert!(c["next"]["text"].as_str().unwrap().contains("admin key"));
+        assert!(c["voided_on"].as_array().unwrap().is_empty());
+        assert_eq!(c["key_only"], true);
+        assert_eq!(c["state"], "blocked", "state names stay as they were");
+    }
+
+    #[test]
+    fn next_step_table() {
+        let f = |state, test, dryrun, key| Facts {
+            key_only: false,
+            state,
+            stack_missing: false,
+            stack_ok: true,
+            test,
+            dryrun,
+            key,
+            voided: false,
+        };
+        let who = |x: &Facts| next_step(x)["who"].as_str().unwrap().to_string();
+        assert_eq!(who(&f("ready", "pass", "pass", "active")), "you");
+        assert_eq!(who(&f("approved", "pass", "pass", "active")), "root");
+        assert_eq!(who(&f("deployed", "pass", "pass", "active")), "nobody");
+        assert_eq!(who(&f("waiting", "waiting", "waiting", "active")), "server");
+        assert!(next_step(&f("waiting", "pass", "waiting", "none"))["text"]
+            .as_str()
+            .unwrap()
+            .contains("dry run"));
+        assert_eq!(who(&f("waiting", "pass", "pass", "staged")), "root");
+        assert_eq!(who(&f("waiting", "pass", "pass", "pending")), "you");
+        assert_eq!(who(&f("blocked", "fail", "waiting", "active")), "nobody");
+        let mut k = f("blocked", "pass", "pass", "none");
+        k.key_only = true;
+        assert_eq!(who(&k), "you");
+        k.key = "staged";
+        assert_eq!(who(&k), "root");
+        let mut bad = f("blocked", "pass", "pass", "active");
+        bad.stack_ok = false;
+        assert!(next_step(&bad)["text"]
+            .as_str()
+            .unwrap()
+            .contains("signature does not match"));
+    }
+
+    #[test]
+    fn void_dates() {
+        assert_eq!(
+            void_date("gate.void-20261031-083121").as_deref(),
+            Some("2026-10-31")
+        );
+        assert_eq!(void_date("gate.void-2026"), None);
+        assert_eq!(void_date("gate.void-2026103x-0"), None);
+        assert_eq!(void_date("test"), None);
     }
 
     /// Stand-in for the root helper: install the staged request into cfg.owner_pub.

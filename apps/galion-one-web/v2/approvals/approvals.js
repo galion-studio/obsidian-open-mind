@@ -74,7 +74,7 @@
   // ---- approval cards ----
   function badge(c) {
     var m = { ready: ['go', 'Waiting for you'], approved: ['ok', 'Approved'], rejected: ['bad', 'Rejected'], deployed: ['ok', 'Deployed'],
-      waiting: ['warn', 'Still testing'], blocked: ['bad', 'Blocked'], broken: ['bad', 'Unreadable'] }[c.state] || ['', c.state];
+      waiting: ['warn', 'Still testing'], unsigned: ['', 'Not signed yet'], blocked: ['bad', 'Blocked'], broken: ['bad', 'Unreadable'] }[c.state] || ['', c.state];
     return el('span', 'ap-badge ' + m[0], m[1]);
   }
   function chip(ok, warn, text) { var li = el('li', 'ap-chip'); li.appendChild(dot(ok, warn)); li.appendChild(document.createTextNode(text)); return li; }
@@ -94,14 +94,16 @@
   function card(c) {
     var art = el('article', 'ap-card'); art.dataset.state = c.state; art.dataset.id = c.id;
     var top = el('div', 'ap-top');
-    top.appendChild(el('p', 'ap-k', 'Request ' + c.id)); top.appendChild(badge(c)); art.appendChild(top);
+    top.appendChild(el('p', 'ap-k', 'Request ' + c.id));
+    top.appendChild(c.key_only && c.state === 'blocked' ? el('span', 'ap-badge warn', 'Needs your admin key') : badge(c)); art.appendChild(top);
     art.appendChild(el('p', 'ap-plain', nb(c.plain)));
     if (c.state === 'broken') { art.appendChild(el('p', 'ap-out t-bad', (c.blockers || []).join(' · '))); return art; }
     var t = c.test || {}, d = c.dryrun || {}, s = c.stack || {}, a = c.artifact || {};
     var ch = el('ul', 'ap-checks');
-    ch.appendChild(chip(s.ok, false, s.ok ? 'From Hermes, signed' : 'Origin not proven'));
-    ch.appendChild(chip(t.ok, t.state === 'waiting', t.ok ? 'Sandbox test passed' : t.state === 'waiting' ? 'Sandbox test running' : 'Sandbox test failed'));
-    ch.appendChild(chip(d.ok, d.state === 'waiting', d.ok ? 'Dry run passed · 0 real model calls' : d.state === 'waiting' ? 'Dry run pending' : 'Dry run failed'));
+    var ns = function (x) { return x.state === 'not_started'; };
+    ch.appendChild(chip(s.ok, s.missing, s.ok ? 'From Hermes, signed' : s.missing ? 'Not signed by the stack yet' : 'Origin not proven'));
+    ch.appendChild(chip(t.ok, t.state === 'waiting' || ns(t), t.ok ? 'Sandbox test passed' : ns(t) ? 'Sandbox test not started' : t.state === 'waiting' ? 'Sandbox test running' : 'Sandbox test failed'));
+    ch.appendChild(chip(d.ok, d.state === 'waiting' || ns(d), d.ok ? 'Dry run passed · 0 real model calls' : ns(d) ? 'Dry run not started' : d.state === 'waiting' ? 'Dry run pending' : 'Dry run failed'));
     ch.appendChild(chip(a.on_disk_matches, !a.sha256, a.on_disk_matches ? 'Built file matches the tested one' : 'Built file not verified'));
     art.appendChild(ch);
     var fd = el('div', 'ap-fp'); fd.appendChild(el('p', 'ap-k', 'Build fingerprint (sha256)'));
@@ -114,7 +116,17 @@
     m2.appendChild(el('p', 'ap-why', t.why || '')); m2.appendChild(rows(t.stages, function (x) { return x.name + (x.ok ? ' — ok' : ' — exit ' + x.exit); })); art.appendChild(m2);
     var m3 = more('Dry run' + (d.port ? ' · port ' + d.port : ''), false);
     m3.appendChild(el('p', 'ap-why', (d.why || '') + (d.when ? ' (' + d.when + ')' : ''))); m3.appendChild(rows(d.checks, function (x) { return x.name + (x.detail ? ' — ' + x.detail : ''); })); art.appendChild(m3);
-    if ((c.blockers || []).length && c.state !== 'approved') art.appendChild(el('p', 'ap-out t-bad', 'Cannot sign yet: ' + c.blockers.join(' · ')));
+    // One plain "next step" line (who acts, what), then the exact reasons folded away.
+    if (c.next && c.next.text) {
+      var nx = el('div', 'ap-next ap-who-' + (c.next.who || 'server'));
+      nx.appendChild(el('p', 'ap-k', { you: 'Next · you', root: 'Next · root on the server', server: 'Next · the server', nobody: 'Next' }[c.next.who] || 'Next'));
+      nx.appendChild(el('p', 'ap-next-t', nb(c.next.text)));
+      art.appendChild(nx);
+    }
+    if ((c.blockers || []).length && c.state !== 'approved') {
+      if (c.state === 'blocked' && !c.key_only) art.appendChild(el('p', 'ap-out t-bad', 'Cannot sign: ' + c.blockers.join(' · ')));
+      else { var wb = more('Why it cannot be signed yet · ' + c.blockers.length, false); wb.appendChild(rows(c.blockers.map(function (b) { return { ok: false, t: b }; }), function (x) { return x.t; })); art.appendChild(wb); }
+    }
     var sign = el('div', 'ap-sign');
     if (c.state === 'approved') sign.appendChild(el('p', 'ap-out t-ok', 'You approved this build. Your signature is valid until ' + c.approval.when + '. The root deploy step installs it; this screen never deploys.'));
     if (c.state === 'rejected') sign.appendChild(el('p', 'ap-out', 'You rejected this build' + (c.approval && c.approval.when ? ' on ' + c.approval.when : '') + (c.approval && c.approval.note ? ': ' + c.approval.note : '.')));
@@ -189,6 +201,7 @@
       active: 'Your admin key is active (' + (a && a.scheme === 'ed25519' ? 'key file' : 'passkey') + '). To replace it, create a new key here; you will sign with the current key too.'
     }[k.state] || '';
     $('ap-keystate').textContent = txt;
+    keySteps(k.state);
     $('ap-key').open = k.state !== 'active';
     $('ap-create').hidden = k.state === 'staged';
     $('ap-staged').hidden = k.state !== 'staged';
@@ -197,6 +210,22 @@
       var dev = setup && setup.fp || localStorage.getItem('galion-owner-pending-fp') || '';
       showCompare(dev, k.pending.fingerprint, !!a && a.fingerprint !== k.pending.fingerprint);
     } else $('ap-compare').hidden = true;
+  }
+  // Admin key setup in three steps, so it is clear who acts next.
+  function keySteps(state) {
+    var at = { none: 0, pending: 1, staged: 2, active: 3 }[state]; if (at === undefined) at = 0;
+    var steps = [['Create a key on this phone', 'You: passkey (Face, fingerprint or PIN) or a key file. Only the public half is sent.'],
+      ['Compare and activate', 'You: check that both fingerprints match, then sign once with the new key.'],
+      ['Root installs it', 'Root, by hand on the server: run the helper shown here. It never sees a private key.']];
+    var ol = $('ap-steps'); ol.textContent = '';
+    steps.forEach(function (s, i) {
+      var li = el('li', 'ap-step ' + (i < at ? 'done' : i === at ? 'now' : 'later'));
+      li.appendChild(el('span', 'ap-step-n', i < at ? '✓' : String(i + 1)));
+      var tx = el('span', 'ap-step-x'); tx.appendChild(el('b', null, s[0])); tx.appendChild(el('span', null, s[1])); li.appendChild(tx);
+      if (i === at) li.setAttribute('aria-current', 'step');
+      ol.appendChild(li);
+    });
+    ol.hidden = at === 3;
   }
   function showCompare(dev, srv, replacing) {
     $('ap-compare').hidden = false;

@@ -36,7 +36,7 @@ toml = "0.8"
 #   serde_json `preserve_order` (no std) depend on crates/galion-feature-pin.
 # Members use `{ workspace = true }`. Guard: crates/galion-feature-pin/tests/release_feature_unify.rs
 # (cargo tree: every release binary alone == inside the full release set, x86_64 + aarch64 musl).
-rusqlite = { version = "0.32", default-features = false, features = ["bundled", "backup"] }
+rusqlite = { version = "0.41", default-features = false, features = ["bundled", "backup"] }
 indexmap = "2"
 
 # Release profile:

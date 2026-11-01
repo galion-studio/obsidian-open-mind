@@ -1,0 +1,386 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- Copyright (c) 3000 Galion / galion-studio -->
+<!-- galion.app home (Mate for Slavik, t545u-t547u, 2026-11-01 CET). One static page: no framework, no CDN, no third-party code.
+     Served by galion-one (crates/galion-one/src/home.rs) from include_bytes!, gzip precompressed. Original artwork, hand-written SVG. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#05070A">
+<title>Galion: your own AI, on everything you own</title>
+<meta name="description" content="Galion is a personal AI that runs on the computers you already have. Built in Rust, light on hardware, works offline. Open source under the MIT License.">
+<link rel="icon" href="/galion-mark.svg" type="image/svg+xml">
+<link rel="preload" href="/font/jost.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+@font-face{font-family:Jost;src:url(/font/jost.woff2) format("woff2");font-weight:400;font-display:swap}
+:root{--ob:#05070A;--ink:#0B0F14;--sur:#131A22;--gl:#1B2633;--line:rgba(167,182,196,.16);--line2:rgba(167,182,196,.28);--mist:#A7B6C4;--tx:#E6EDF3;--sky:#58C4FF;--ice:#B8E8FF;--vio:#9D8CFF;--glide:cubic-bezier(.22,1,.36,1);
+--disp:Jost,"Futura PT",Futura,"Avenir Next",Avenir,"Segoe UI",system-ui,-apple-system,sans-serif;--txt:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+*,*::before,*::after{box-sizing:border-box}
+html{background:var(--ob);color:var(--tx);-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-behavior:smooth;overflow-x:hidden}
+body{margin:0;font:400 1rem/1.6 var(--txt);overflow-x:hidden;min-height:100vh;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+img,svg{display:block;max-width:100%}
+a{color:inherit}
+h1,h2,h3{font-family:var(--disp);font-weight:400;letter-spacing:-.02em;line-height:1.1;margin:0}
+p{margin:0}
+.skip{position:absolute;left:-999px;top:0;z-index:50;background:var(--sky);color:var(--ob);padding:.6rem 1rem;border-radius:0 0 .6rem 0}
+.skip:focus{left:0}
+:focus-visible{outline:2px solid var(--sky);outline-offset:3px;border-radius:.5rem}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.wrap{width:100%;max-width:72rem;margin:0 auto;padding:0 1.25rem}
+
+/* Sky: fixed aurora + star grid. transform/opacity only. */
+.sky{position:fixed;top:0;left:0;right:0;bottom:0;z-index:-1;overflow:hidden;pointer-events:none;background:radial-gradient(120% 80% at 50% -10%,#0E1A2A 0%,var(--ob) 60%)}
+.sky i{position:absolute;border-radius:50%;opacity:.55;will-change:transform}
+.sky .a1{width:70vmax;height:70vmax;left:-20vmax;top:-30vmax;background:radial-gradient(circle,rgba(88,196,255,.22),transparent 62%)}
+.sky .a2{width:60vmax;height:60vmax;right:-22vmax;top:10vmax;background:radial-gradient(circle,rgba(157,140,255,.16),transparent 62%)}
+.sky .a3{width:55vmax;height:55vmax;left:15vmax;bottom:-35vmax;background:radial-gradient(circle,rgba(184,232,255,.10),transparent 62%)}
+.sky::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;background-image:linear-gradient(rgba(167,182,196,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(167,182,196,.05) 1px,transparent 1px);background-size:56px 56px;-webkit-mask-image:radial-gradient(ellipse at 50% 20%,#000 0%,transparent 70%);mask-image:radial-gradient(ellipse at 50% 20%,#000 0%,transparent 70%)}
+
+/* Header */
+.top{position:-webkit-sticky;position:sticky;top:0;z-index:20;background:rgba(5,7,10,.92);border-bottom:1px solid var(--line)}
+@supports ((-webkit-backdrop-filter:blur(1px)) or (backdrop-filter:blur(1px))){.top{background:rgba(5,7,10,.6);-webkit-backdrop-filter:saturate(140%) blur(16px);backdrop-filter:saturate(140%) blur(16px)}}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:3.75rem}
+.brand{display:flex;align-items:center;text-decoration:none}
+.brand svg{width:2rem;height:2rem;margin-right:.6rem}
+.word{font-family:var(--disp);font-size:1.15rem;letter-spacing:.32em;text-transform:uppercase;padding-left:.1em}
+.nav{display:flex;align-items:center}
+.nav a{white-space:nowrap;text-decoration:none;color:var(--mist);font-size:.92rem;padding:.5rem .7rem;border-radius:.6rem;transition:color .2s}
+.nav a:hover{color:var(--tx)}
+.nav .hide-s{display:none}
+.snd{display:flex;align-items:center;margin-left:.35rem;background:transparent;border:1px solid var(--line2);color:var(--mist);border-radius:999px;height:2.25rem;padding:0 .7rem;font:inherit;font-size:.82rem;cursor:pointer}
+.snd[hidden]{display:none}
+.snd svg{width:1rem;height:1rem}
+.snd .lbl{margin-left:.4rem;white-space:nowrap}
+@media (max-width:30rem){.snd{width:2.25rem;padding:0;justify-content:center}.snd .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.nav a{padding:.5rem .55rem}.word{letter-spacing:.24em}}
+.snd .on{display:none}
+.snd[aria-pressed="true"]{color:var(--sky);border-color:rgba(88,196,255,.5)}
+.snd[aria-pressed="true"] .on{display:block}
+.snd[aria-pressed="true"] .off{display:none}
+@media (min-width:52rem){.nav .hide-s{display:inline-block}}
+
+/* Hero */
+.hero{position:relative;min-height:calc(100vh - 3.75rem);min-height:calc(100svh - 3.75rem);display:flex;align-items:center;padding:2.5rem 0 3rem}
+.hero .wrap{display:flex;flex-direction:column;align-items:center;text-align:center}
+.eyebrow{display:inline-flex;align-items:center;font-size:.78rem;letter-spacing:.18em;text-transform:uppercase;color:var(--ice);border:1px solid rgba(88,196,255,.3);background:rgba(88,196,255,.06);border-radius:999px;padding:.4rem .9rem}
+.eyebrow b{width:.45rem;height:.45rem;border-radius:50%;background:var(--sky);margin-right:.6rem;box-shadow:0 0 12px var(--sky)}
+.hero h1{font-size:2.6rem;font-size:clamp(2.4rem,7.4vw,5.4rem);margin:1.4rem 0 1.1rem;max-width:15ch}
+.grad{background:linear-gradient(100deg,var(--tx) 10%,var(--ice) 45%,var(--sky) 70%,var(--vio) 100%);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:var(--ice)}
+.lead{font-size:1.08rem;font-size:clamp(1.05rem,2.2vw,1.3rem);color:var(--mist);max-width:38rem}
+.ctas{display:flex;flex-wrap:wrap;justify-content:center;margin:2rem -.35rem 0}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:3rem;margin:.35rem;padding:0 1.25rem;border-radius:999px;text-decoration:none;font-size:.98rem;border:1px solid var(--line2);color:var(--tx);background:rgba(19,26,34,.6);transition:transform .25s var(--glide),border-color .25s,background-color .25s}
+.btn svg{width:1.15rem;height:1.15rem;margin-right:.55rem;flex:none}
+.btn:hover{transform:translateY(-2px);border-color:rgba(88,196,255,.55)}
+.btn.pri{background:linear-gradient(135deg,var(--ice),var(--sky));color:var(--ob);border-color:transparent;box-shadow:0 8px 30px -8px rgba(88,196,255,.6)}
+.btn.soon{color:var(--mist);cursor:default;border-style:dashed}
+.btn.soon:hover{transform:none;border-color:var(--line2)}
+.btn small{font-size:.72rem;margin-left:.5rem;opacity:.85;letter-spacing:.06em;text-transform:uppercase}
+.mit{margin-top:1.4rem;font-size:.9rem;color:var(--mist)}
+.mit strong{color:var(--tx);font-weight:500}
+
+/* The core: Galion's lit mind */
+.core{position:relative;width:15rem;height:15rem;margin:2.6rem auto 0}
+.core .ring{position:absolute;border-radius:50%;border:1px solid var(--line2)}
+.core .r1{top:0;left:0;right:0;bottom:0}
+.core .r2{top:14%;left:14%;right:14%;bottom:14%;border-color:rgba(88,196,255,.25)}
+.core .r3{top:30%;left:30%;right:30%;bottom:30%;border-color:rgba(184,232,255,.35)}
+.core .arc{position:absolute;top:-1px;left:-1px;right:-1px;bottom:-1px;border-radius:50%;border:2px solid transparent;border-top-color:var(--sky);border-right-color:rgba(88,196,255,.35)}
+.core .arc2{top:14%;left:14%;right:14%;bottom:14%;border-top-color:transparent;border-right-color:transparent;border-bottom-color:var(--vio);border-left-color:rgba(157,140,255,.3)}
+.core .glow{position:absolute;top:34%;left:34%;right:34%;bottom:34%;border-radius:50%;background:radial-gradient(circle,var(--ice) 0%,var(--sky) 35%,rgba(88,196,255,0) 72%);filter:blur(2px)}
+.core .dot{position:absolute;top:-4px;left:50%;width:8px;height:8px;margin-left:-4px;border-radius:50%;background:var(--ice);box-shadow:0 0 14px var(--sky)}
+.core .orb{position:absolute;top:0;left:0;right:0;bottom:0}
+.core .orb2{top:14%;left:14%;right:14%;bottom:14%}
+.core .orb2 .dot{background:var(--vio);box-shadow:0 0 14px var(--vio)}
+.core .tag{position:absolute;font-size:.72rem;letter-spacing:.14em;text-transform:uppercase;color:var(--mist);white-space:nowrap;display:none}
+@media (min-width:52rem){.core{width:20rem;height:20rem}.core .tag{display:block}
+.t1{top:6%;left:-34%}.t2{top:6%;right:-30%}.t3{top:47%;left:-44%}.t4{top:47%;right:-40%}.t5{bottom:6%;left:-30%}.t6{bottom:6%;right:-34%}}
+.core .tag::before{content:"";display:inline-block;width:.35rem;height:.35rem;border-radius:50%;background:var(--sky);margin-right:.5rem;vertical-align:middle}
+
+/* Sections */
+section{padding:4.5rem 0}
+.kick{font-size:.78rem;letter-spacing:.2em;text-transform:uppercase;color:var(--sky)}
+.h2{font-size:2rem;font-size:clamp(1.9rem,4.6vw,3.2rem);margin:.7rem 0 1rem;max-width:20ch}
+.sub{color:var(--mist);max-width:40rem;font-size:1.06rem}
+.grid{display:grid;grid-template-columns:1fr;gap:1rem;margin-top:2.2rem}
+@media (min-width:40rem){.grid.g2,.grid.g3{grid-template-columns:1fr 1fr}}
+@media (min-width:62rem){.grid.g3{grid-template-columns:1fr 1fr 1fr}}
+.card{position:relative;border:1px solid var(--line);border-radius:1.25rem;padding:1.5rem;background:linear-gradient(180deg,rgba(27,38,51,.55),rgba(11,15,20,.55));overflow:hidden;transition:border-color .3s,transform .4s var(--glide)}
+.card:hover{border-color:rgba(88,196,255,.35);transform:translateY(-3px)}
+.card h3{font-size:1.3rem;margin:.9rem 0 .45rem}
+.card p{color:var(--mist);font-size:.98rem}
+.ico{width:2.75rem;height:2.75rem;border-radius:.85rem;display:flex;align-items:center;justify-content:center;background:rgba(88,196,255,.08);border:1px solid rgba(88,196,255,.22);color:var(--sky)}
+.ico svg{width:1.4rem;height:1.4rem}
+.more{display:inline-flex;align-items:center;margin-top:1rem;color:var(--sky);text-decoration:none;font-size:.95rem}
+.more:hover{text-decoration:underline}
+.small{display:block;margin-top:.8rem;font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;color:var(--mist);opacity:.8}
+
+/* Feature pair: Galion One + Hermes research */
+.duo{display:grid;grid-template-columns:1fr;gap:1rem;margin-top:2.2rem}
+@media (min-width:52rem){.duo{grid-template-columns:1fr 1fr}}
+.big{padding:2rem;min-height:18rem;display:flex;flex-direction:column;justify-content:flex-end}
+.big h3{font-size:1.9rem;font-size:clamp(1.6rem,3.2vw,2.3rem)}
+.big .halo{position:absolute;top:-30%;right:-20%;width:70%;height:90%;border-radius:50%;background:radial-gradient(circle,rgba(88,196,255,.22),transparent 65%);pointer-events:none}
+.big.h .halo{background:radial-gradient(circle,rgba(157,140,255,.24),transparent 65%)}
+.big .ico{position:absolute;top:2rem;left:2rem}
+
+/* Built strip */
+.pill3{display:grid;grid-template-columns:1fr;gap:1rem;margin-top:2.2rem}
+@media (min-width:52rem){.pill3{grid-template-columns:1fr 1fr 1fr}}
+
+/* Pricing */
+.price{display:flex;flex-direction:column}
+.price .amt{font-family:var(--disp);font-size:2.6rem;line-height:1;margin:1rem 0 .2rem;color:var(--tx)}
+.price .amt span{font-family:var(--txt);font-size:.95rem;color:var(--mist);margin-left:.3rem}
+.price ul{list-style:none;margin:1.2rem 0 1.5rem;padding:0;color:var(--mist);font-size:.95rem}
+.price li{padding:.4rem 0 .4rem 1.6rem;position:relative;border-top:1px solid var(--line)}
+.price li::before{content:"";position:absolute;left:.15rem;top:.95rem;width:.7rem;height:.38rem;border-left:2px solid var(--sky);border-bottom:2px solid var(--sky);-webkit-transform:rotate(-45deg);transform:rotate(-45deg)}
+.price .btn{margin:auto 0 0;width:100%}
+.price.feat{border-color:rgba(88,196,255,.45);background:linear-gradient(180deg,rgba(88,196,255,.12),rgba(11,15,20,.6))}
+.badge{position:absolute;top:1.2rem;right:1.2rem;font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ob);background:var(--ice);border-radius:999px;padding:.25rem .6rem}
+.pay{list-style:none;margin:.7rem 0 0;padding:0;color:var(--mist)}
+.pay li{display:flex;align-items:center;padding:.3rem 0}
+.pay svg{width:1.15rem;height:1.15rem;margin-right:.6rem;color:var(--sky);flex:none}
+.acct{margin:1.6rem 0 0}
+.note{margin-top:1.4rem;color:var(--mist);font-size:.88rem}
+
+/* Get it */
+.get .card{display:flex;flex-direction:column}
+.get .btn{margin:1.2rem 0 0;align-self:flex-start}
+
+footer{border-top:1px solid var(--line);padding:2.5rem 0 3rem;color:var(--mist);font-size:.88rem}
+footer .wrap{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center}
+footer .row{display:flex;flex-wrap:wrap;align-items:center;margin:.4rem 0}
+footer a{color:var(--mist);margin-right:1.2rem;text-decoration:none}
+footer a:hover{color:var(--tx)}
+footer p{margin:.4rem 0;max-width:40rem}
+
+/* Motion: only when the reader has not asked for less. */
+@media (prefers-reduced-motion:no-preference){
+.sky .a1{-webkit-animation:drift 38s ease-in-out infinite alternate;animation:drift 38s ease-in-out infinite alternate}
+.sky .a2{-webkit-animation:drift 46s ease-in-out -12s infinite alternate-reverse;animation:drift 46s ease-in-out -12s infinite alternate-reverse}
+.sky .a3{-webkit-animation:drift 52s ease-in-out -20s infinite alternate;animation:drift 52s ease-in-out -20s infinite alternate}
+.core .arc,.core .orb{-webkit-animation:spin 18s linear infinite;animation:spin 18s linear infinite}
+.core .arc2,.core .orb2{-webkit-animation:spin 26s linear infinite reverse;animation:spin 26s linear infinite reverse}
+.core .glow{-webkit-animation:breathe 5.5s ease-in-out infinite;animation:breathe 5.5s ease-in-out infinite}
+.eyebrow b,.mk-core{-webkit-animation:breathe 3.2s ease-in-out infinite;animation:breathe 3.2s ease-in-out infinite}
+.rise{-webkit-animation:rise .9s var(--glide) both;animation:rise .9s var(--glide) both}
+.d1{-webkit-animation-delay:.08s;animation-delay:.08s}.d2{-webkit-animation-delay:.16s;animation-delay:.16s}.d3{-webkit-animation-delay:.24s;animation-delay:.24s}.d4{-webkit-animation-delay:.34s;animation-delay:.34s}
+}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn,.card{transition:none}.btn:hover,.card:hover{transform:none}}
+@-webkit-keyframes drift{from{-webkit-transform:translate3d(0,0,0) scale(1)}to{-webkit-transform:translate3d(6vmax,4vmax,0) scale(1.12)}}
+@keyframes drift{from{transform:translate3d(0,0,0) scale(1)}to{transform:translate3d(6vmax,4vmax,0) scale(1.12)}}
+@-webkit-keyframes spin{to{-webkit-transform:rotate(360deg)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@-webkit-keyframes breathe{0%,100%{opacity:.75}50%{opacity:1}}
+@keyframes breathe{0%,100%{opacity:.75}50%{opacity:1}}
+@-webkit-keyframes rise{from{opacity:0;-webkit-transform:translateY(14px)}to{opacity:1;-webkit-transform:none}}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+ <defs>
+  <linearGradient id="gk" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#B8E8FF"/><stop offset=".55" stop-color="#58C4FF"/><stop offset="1" stop-color="#9D8CFF"/></linearGradient>
+  <!-- Galion mark: an open orbit (the G) whose bar points into a lit core. Original artwork. -->
+  <symbol id="mk" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="#0B0F14" stroke="#24303C" stroke-width="1.5"/><path d="M47.6 18.4A20 20 0 1 0 52 32H34" fill="none" stroke="url(#gk)" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/><circle class="mk-core" cx="32" cy="32" r="4.2" fill="#B8E8FF"/></symbol>
+  <symbol id="i-web" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.6 2.6 3.8 5.6 3.8 9S14.6 18.4 12 21C9.4 18.4 8.2 15.4 8.2 12S9.4 5.6 12 3z"/></g></symbol>
+  <symbol id="i-phone" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="6.5" y="2.5" width="11" height="19" rx="2.6"/><path d="M10.5 18.5h3"/></g></symbol>
+  <symbol id="i-tab" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2.5" width="14" height="19" rx="3.2"/><circle cx="12" cy="18" r=".9" fill="currentColor"/><path d="M10 5.2h4"/></g></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7.5 8.5l2.5 2-2.5 2M12 12.5h4"/></g></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 0 1 4 13.5z"/><path d="M8.5 9.5h7M8.5 12.5h4"/></g></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21M8 10.5h5M10.5 8v5"/></g></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l2-5 3.5 10 2.5-7 1.5 2H21"/></g></symbol>
+  <symbol id="i-mem" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="7.5" ry="3"/><path d="M4.5 6v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3V6M4.5 12v6c0 1.7 3.4 3 7.5 3s7.5-1.3 7.5-3v-6"/></g></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3v4M15 3v4M6.5 7h11v3.5a5.5 5.5 0 0 1-11 0zM12 16v5"/></g></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9c2 0 2-2 4.5-2S10 9 12 9s2.5-2 4.5-2S19 9 21 9M3 15c2 0 2-2 4.5-2s2.5 2 4.5 2 2.5-2 4.5-2 2.5 2 4.5 2"/></g></symbol>
+  <symbol id="i-arena" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 3M16 6h3a3 3 0 0 1-3 3M12 13v4M8.5 20h7M10 17h4v3h-4z"/></g></symbol>
+  <symbol id="i-dial" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M7 15v-3M11 15V9M15 15v-5M19 15v-2" transform="translate(-1 0)"/></g></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="12" r="2.5"/><circle cx="18.5" cy="5.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/><path d="M8 11l8-4.3M8 13l8 4.3"/></g></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2.5 5 13.5h6l-1 8 8-11h-6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="6" y="6" width="12" height="12" rx="2"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><path d="M9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></g></symbol>
+  <symbol id="i-off" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 4l9 6.5M5.5 9v10.5h13V9M10 19.5v-5h4v5"/></g></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a4.5 4.5 0 0 1-.6-9A6 6 0 0 1 18 9.5a4.3 4.3 0 0 1-.5 8.5z"/></g></symbol>
+  <symbol id="i-open" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8.5 7 3.5 12l5 5M15.5 7l5 5-5 5M13.5 5l-3 14"/></g></symbol>
+  <symbol id="i-snd-off" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4zM16 9.5l5 5M21 9.5l-5 5"/></g></symbol>
+  <symbol id="i-snd-on" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4zM15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/></g></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="12" r="4"/><path d="M12 12h9M18 12v3M15 12v2"/></g></symbol>
+  <symbol id="i-card" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 9.5h19M6 15h4"/></g></symbol>
+  <symbol id="i-coin" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><path d="M12 9.5v5"/></g></symbol>
+  <symbol id="i-env" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></g></symbol>
+  <symbol id="i-mailx" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM5.6 5.6l12.8 12.8"/></g></symbol>
+ </defs>
+</svg>
+<a class="skip" href="#main">Skip to content</a>
+<div class="sky" aria-hidden="true"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
+
+<header class="top">
+ <div class="wrap">
+  <a class="brand" href="/" aria-label="Galion home"><svg aria-hidden="true"><use href="#mk"/></svg><span class="word">Galion</span></a>
+  <nav class="nav" aria-label="Main">
+   <a class="hide-s" href="#stack">Stack</a>
+   <a class="hide-s" href="#built">How it works</a>
+   <a class="hide-s" href="#private">Privacy</a>
+   <a href="#pricing">Pricing</a>
+   <a href="#get">Get it</a>
+   <button class="snd" id="snd" type="button" aria-pressed="false" hidden><svg class="off" aria-hidden="true"><use href="#i-snd-off"/></svg><svg class="on" aria-hidden="true"><use href="#i-snd-on"/></svg><span class="lbl">Sound off</span></button>
+  </nav>
+ </div>
+</header>
+
+<main id="main">
+<section class="hero" aria-labelledby="h1">
+ <div class="wrap">
+  <span class="eyebrow rise"><b></b>Obsidian Open Mind stack</span>
+  <h1 id="h1" class="rise d1">Your own AI, <span class="grad">on everything you own.</span></h1>
+  <p class="lead rise d2">Galion is a personal assistant that lives on your phone, your laptop and the web. It runs light and fast on ordinary computers, keeps working when you are offline, and it is free and open for everyone.</p>
+  <div class="ctas rise d3">
+   <a class="btn pri" href="https://one.galion.app"><svg aria-hidden="true"><use href="#i-web"/></svg>Use it on the web</a>
+   <span class="btn soon" role="link" aria-disabled="true"><svg aria-hidden="true"><use href="#i-phone"/></svg>Android<small>Coming soon</small></span>
+   <span class="btn soon" role="link" aria-disabled="true"><svg aria-hidden="true"><use href="#i-tab"/></svg>iOS<small>Coming soon</small></span>
+   <a class="btn" href="#local"><svg aria-hidden="true"><use href="#i-home"/></svg>Run it on your computer</a>
+  </div>
+  <p class="mit rise d4"><strong>Open source</strong> &middot; MIT License &middot; Built in Rust</p>
+  <div class="core" aria-hidden="true">
+   <div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div>
+   <div class="arc"></div><div class="arc arc2"></div>
+   <div class="orb"><span class="dot"></span></div><div class="orb orb2"><span class="dot"></span></div>
+   <div class="glow"></div>
+   <span class="tag t1">Galion One</span><span class="tag t2">Hermes</span><span class="tag t3">Memory</span><span class="tag t4">Gaia</span><span class="tag t5">Arena</span><span class="tag t6">Console</span>
+  </div>
+ </div>
+</section>
+
+<section id="galion" aria-labelledby="h-galion">
+ <div class="wrap">
+  <p class="kick">Meet Galion</p>
+  <h2 class="h2" id="h-galion">One assistant. A whole team behind it.</h2>
+  <p class="sub">You talk to Galion One. Behind it, Hermes does the deep thinking and the legwork, so you get real answers and real help, not just chat.</p>
+  <div class="duo">
+   <article class="card big">
+    <span class="halo"></span><span class="ico"><svg aria-hidden="true"><use href="#i-chat"/></svg></span>
+    <h3>Galion One</h3>
+    <p>Talk or type to one assistant that follows you from your phone to your laptop to the browser. Pair a device once and it simply knows you.</p>
+    <a class="more" href="https://one.galion.app">Open Galion One &rarr;</a>
+   </article>
+   <article class="card big h">
+    <span class="halo"></span><span class="ico"><svg aria-hidden="true"><use href="#i-search"/></svg></span>
+    <h3>Hermes research</h3>
+    <p>Ask a big question and let it go. Hermes, the research agent, breaks the job into steps, does the reading, and comes back with an answer you can use.</p>
+    <span class="small">The agent inside Galion</span>
+   </article>
+  </div>
+ </div>
+</section>
+
+<section id="stack" aria-labelledby="h-stack">
+ <div class="wrap">
+  <p class="kick">The Obsidian Open Mind stack</p>
+  <h2 class="h2" id="h-stack">Everything Galion is made of.</h2>
+  <p class="sub">Open Mind is the family of projects that power Galion. Each one does a single job well, and together they give you an assistant that is quick, careful and yours.</p>
+  <div class="grid g3">
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-chat"/></svg></span><h3>Galion One</h3><p>The assistant you talk to, on your phone, your laptop or the web.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-search"/></svg></span><h3>Hermes</h3><p>The research agent. It plans the work, shares it out and brings back the results.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-heart"/></svg></span><h3>Gaia: cortex, nerve, guard</h3><p>Looks after everything. It notices when something is wrong and keeps intruders out.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-mem"/></svg></span><h3>Open Mind memory</h3><p>Remembers what matters to you, kept on your own machine, even offline.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-plug"/></svg></span><h3>Open Mind MCP stack</h3><p>Plugs your assistant into the tools and apps you already use.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-wave"/></svg></span><h3>Poseidon</h3><p>Lines up the work in order and keeps spending inside the limits you set.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-arena"/></svg></span><h3>Galleon Arena</h3><p>A practice ground where agents are tested and scored before they help you.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-dial"/></svg></span><h3>Console</h3><p>One calm place to see your devices, keys and approvals.</p><a class="more" href="https://console.galion.app">console.galion.app &rarr;</a></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-link"/></svg></span><h3>Your devices</h3><p>Add a laptop, a phone or a small computer, and it becomes part of your Galion.</p></article>
+  </div>
+ </div>
+</section>
+
+<section id="built" aria-labelledby="h-built">
+ <div class="wrap">
+  <p class="kick">How it works</p>
+  <h2 class="h2" id="h-built">Light enough for any computer. Fast on all of them.</h2>
+  <p class="sub">Galion is made to do a lot with a little. No giant servers, no special hardware: the computers you already have are enough.</p>
+  <div class="pill3">
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-bolt"/></svg></span><h3>Built in Rust</h3><p>Rust is a programming language known for speed and safety. Galion is written in it from top to bottom, so it is small, quick and sturdy.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-chip"/></svg></span><h3>Runs on an ordinary processor</h3><p>Galion is built for the everyday chip in your computer. If one of your machines has a graphics card, Galion will use it too, but it never needs one.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-off"/></svg></span><h3>Yours, even offline</h3><p>Connect any laptop or device and it serves you at home, on your own network, even without the internet. To answer, it uses an AI model you choose: one on your own computer, or an online one.</p></article>
+  </div>
+ </div>
+</section>
+
+<section id="private" aria-labelledby="h-private">
+ <div class="wrap">
+  <p class="kick">Private by design</p>
+  <h2 class="h2" id="h-private">No email. No name. Just a number.</h2>
+  <p class="sub">You do not need an email address or any personal details. We give you an account number, and that number is your account. Keep it somewhere safe: it is the only key to your account.</p>
+  <div class="grid g3">
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-mailx"/></svg></span><h3>No email needed</h3><p>Nothing to fill in, nothing to verify, nothing to leak.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-key"/></svg></span><h3>Your number is your account</h3><p>One generated number signs you in. Write it down and keep it safe.</p></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-card"/></svg></span><h3>Pay the way you like</h3>
+    <ul class="pay"><li><svg aria-hidden="true"><use href="#i-card"/></svg>Card (Stripe)</li><li><svg aria-hidden="true"><use href="#i-coin"/></svg>Crypto</li><li><svg aria-hidden="true"><use href="#i-env"/></svg>Cash by post</li></ul></article>
+  </div>
+  <a class="btn pri acct" href="/account"><svg aria-hidden="true"><use href="#i-key"/></svg>Get an account number</a>
+ </div>
+</section>
+
+<section id="pricing" aria-labelledby="h-pricing">
+ <div class="wrap">
+  <p class="kick">Pricing</p>
+  <h2 class="h2" id="h-pricing">One subscription for everything.</h2>
+  <p class="sub">Run it yourself for free, forever. Or subscribe once and use all of galion.app, Galion One included, with nothing to set up.</p>
+  <div class="grid g3">
+   <article class="card price">
+    <span class="ico"><svg aria-hidden="true"><use href="#i-open"/></svg></span>
+    <h3>Free</h3>
+    <p class="amt">&euro;0</p>
+    <p>Private, open source (MIT), run it on your own computer.</p>
+    <ul><li>Download it and run it yourself</li><li>Works on your own computer, even offline</li><li>Change it, share it, do whatever you want with it</li></ul>
+    <a class="btn" href="#get">Get it free</a>
+   </article>
+   <article class="card price feat">
+    <span class="badge">Plus</span>
+    <span class="ico"><svg aria-hidden="true"><use href="#i-cloud"/></svg></span>
+    <h3>Plus</h3>
+    <p class="amt">&euro;20<span>/ month</span></p>
+    <p>For one person. The whole platform, hosted for you.</p>
+    <ul><li>Everything on galion.app, Galion One included</li><li>Hosted for you, no setup</li><li>Use it from your phone, laptop or browser</li></ul>
+    <!--pay:plus--><span class="btn soon" role="link" aria-disabled="true" data-plan="plus">Coming soon</span><!--/pay-->
+   </article>
+   <article class="card price">
+    <span class="ico"><svg aria-hidden="true"><use href="#i-chip"/></svg></span>
+    <h3>Pro</h3>
+    <p class="amt">&euro;220<span>/ month</span></p>
+    <p>Your own Hermes agent gets its own computer and SSD in the cloud, to do real work for you.</p>
+    <ul><li>Made for people without a powerful computer or a graphics card at home</li><li>A cloud computer that works only for you</li><li>Everything in Plus</li></ul>
+    <!--pay:pro--><span class="btn soon" role="link" aria-disabled="true" data-plan="pro">Coming soon</span><!--/pay-->
+   </article>
+  </div>
+  <p class="note">Prices in euros. No email needed: your account is a number. Pay by card (Stripe), crypto or cash by post. <!--soon--><span id="paysoon">Paid plans are not open yet; there is nothing to pay today.</span><!--/soon--></p>
+ </div>
+</section>
+
+
+<section id="get" class="get" aria-labelledby="h-get">
+ <div class="wrap">
+  <p class="kick">Get Galion</p>
+  <h2 class="h2" id="h-get">Start wherever you are.</h2>
+  <div class="grid g2">
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-web"/></svg></span><h3>On the web</h3><p>Open Galion One in your browser. Nothing to install.</p><a class="btn pri" href="https://one.galion.app">Open one.galion.app</a></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-phone"/></svg></span><h3>Android</h3><p>The Android app is on its way.</p><span class="btn soon" role="link" aria-disabled="true">Coming soon</span></article>
+   <article class="card"><span class="ico"><svg aria-hidden="true"><use href="#i-tab"/></svg></span><h3>iPhone and iPad</h3><p>The iOS app is on its way.</p><span class="btn soon" role="link" aria-disabled="true">Coming soon</span></article>
+   <article class="card" id="local"><span class="ico"><svg aria-hidden="true"><use href="#i-home"/></svg></span><h3>On your own computer</h3><p>Run the whole stack at home on localhost: one Rust build, no special hardware, works offline. Open source under the MIT License; the public code release is coming.</p><span class="btn soon" role="link" aria-disabled="true">Source coming soon</span></article>
+  </div>
+ </div>
+</section>
+</main>
+
+<footer>
+ <div class="wrap">
+  <div>
+   <a class="brand" href="/" aria-label="Galion home"><svg aria-hidden="true"><use href="#mk"/></svg><span class="word">Galion</span></a>
+   <p>Galion and the Obsidian Open Mind stack. Open source under the MIT License. Built in Rust.</p>
+   <p>Obsidian Open Mind is not affiliated with the Obsidian note-taking app.</p>
+  </div>
+  <div class="row"><a href="https://one.galion.app">Galion One</a><a href="https://console.galion.app">Console</a><a href="#pricing">Pricing</a></div>
+ </div>
+</footer>
+<script src="/home.js" defer></script>
+</body>
+</html>

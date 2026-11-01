@@ -26,6 +26,7 @@
 
 mod approvals;
 mod cli;
+mod home;
 mod host;
 mod http_plain;
 mod inflate;
@@ -397,6 +398,8 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     let mut file_name = String::new();
     let mut with_files = String::new();
     let mut host = String::new();
+    let mut accept_encoding = String::new();
+    let mut if_none_match = String::new();
     let mut ws_head = stt::Head {
         method: method.clone(),
         headers: Vec::new(),
@@ -418,6 +421,12 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
             }
             if name.eq_ignore_ascii_case("host") {
                 host = value.trim().to_string();
+            }
+            if name.eq_ignore_ascii_case("accept-encoding") {
+                accept_encoding = value.trim().to_string();
+            }
+            if name.eq_ignore_ascii_case("if-none-match") {
+                if_none_match = value.trim().to_string();
             }
             let lname = name.trim().to_ascii_lowercase();
             if matches!(
@@ -518,6 +527,16 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
         };
         let r = approvals::route(&approvals::Cfg::from_env(), &req);
         return write_response(&mut stream, r.status, r.kind, &r.body, None);
+    }
+    // galion.app public home (src/home.rs): home hosts only; everything else falls through.
+    if home::host_on(&host) {
+        if let Some(resp) = home::respond(&method, &path, &accept_encoding, &if_none_match) {
+            if let Err(err) = stream.write_all(&resp).and_then(|()| stream.flush()) {
+                return quiet(err);
+            }
+            let _ = stream.shutdown(std::net::Shutdown::Write);
+            return Ok(());
+        }
     }
     if method == "GET" && (path == "/" || path == "/index.html") {
         let bytes = one_page(&host);

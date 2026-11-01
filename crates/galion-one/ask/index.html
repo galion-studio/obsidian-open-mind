@@ -52,7 +52,7 @@ body.talk .stream{display:block}
 .q{margin:2rem 0 .5rem;color:var(--mu);font-size:.9375rem;white-space:pre-wrap;overflow-wrap:anywhere}
 .q:first-child{margin-top:.5rem}
 .ans{margin:0 0 1rem;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--fg)}
-.ans span{opacity:0;animation:rise .7s var(--glide) forwards}
+.ans span{animation:rise .7s var(--glide)}
 .soft{color:var(--mu)}
 @keyframes rise{from{opacity:0;filter:blur(3px)}to{opacity:1;filter:none}}
 .presence{display:block;width:2.2rem;height:2.2rem;margin:1rem 0;border-radius:50%;background:radial-gradient(circle,rgba(255,200,150,.95) 0,rgba(255,179,107,.45) 35%,rgba(156,123,255,.18) 62%,rgba(156,123,255,0) 72%);animation:breathe 2.8s ease-in-out infinite}
@@ -73,6 +73,7 @@ textarea::placeholder{color:var(--mu)}
 #mic.live{color:var(--ob);background:var(--am);animation:breathe 2.4s ease-in-out infinite}
 .pair{display:flex;gap:.5rem;margin:.25rem 0 1rem}
 .pair input{flex:1;min-width:0;min-height:44px;padding:0 1rem;border-radius:999px;border:1px solid var(--line);background:rgba(18,15,28,.62);font-size:1rem;letter-spacing:.08em;text-transform:uppercase}
+.pair input:focus{outline:0;border-color:rgba(255,179,107,.42)}
 .pair button{min-height:44px;padding:0 1.2rem;border:0;border-radius:999px;background:var(--fg);color:var(--ob);cursor:pointer}
 .code{font-size:1.6rem;letter-spacing:.18em;margin:.2rem 0}
 @media (prefers-reduced-motion:reduce){.sky i,.presence,#mic.live{animation:none}.ans span{animation:none;opacity:1}.menu,.field,.lead{transition:none}}
@@ -90,7 +91,6 @@ textarea::placeholder{color:var(--mu)}
  <li><a href="/approvals">Approvals<small id="m-appr"></small></a></li>
  <li id="m-pair-li"><button type="button" id="m-pair">Pair this device</button></li>
  <li id="m-invite-li" hidden><button type="button" id="m-invite">Pair another device</button></li>
- <li><a href="/link">Space</a></li>
  <li><button type="button" id="m-install">Install app<small id="m-install-s">on this device</small></button></li>
  <li><hr></li>
  <li><a href="https://galion.app/account">Account<small>galion.app</small></a></li>
@@ -218,11 +218,12 @@ textarea::placeholder{color:var(--mu)}
 
   // ---- The field.
   function grow() {
+    send.disabled = busy || !q.value.trim();
     q.style.height = "auto";
     q.style.height = Math.min(q.scrollHeight, window.innerHeight * 0.3) + "px";
-    send.disabled = busy || !q.value.trim();
   }
   q.addEventListener("input", grow);
+  window.addEventListener("resize", grow);
   q.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); ask(q.value); } });
   form.addEventListener("submit", function (e) { e.preventDefault(); ask(q.value); });
 
@@ -290,6 +291,8 @@ textarea::placeholder{color:var(--mu)}
     }).catch(function () {});
   }
   api("/me").then(function (r) { paired = !!r.json.you; paint(); if (paired) approvals(); }).catch(function () { paint(); });
+  // ?q= fills the field (never sends), so a link can open with a question ready.
+  try { var pre = new URLSearchParams(location.search).get("q"); if (pre) q.value = pre.slice(0, 500); } catch (e) {}
   grow();
 })();
 </script>

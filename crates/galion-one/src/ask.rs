@@ -90,7 +90,6 @@ mod tests {
         for link in [
             "href=\"/room\"",
             "href=\"/approvals\"",
-            "href=\"/link\"",
             "https://galion.app/account",
         ] {
             assert!(PAGE.contains(link), "{link}");

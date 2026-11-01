@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+# Copyright (c) 3000 Galion / galion-studio
+
+[package]
+name = "galion-files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Jailed file operations for the console file explorer (console-static --files) and the Hermes file tools: list, info, text/hex read, archive list/extract (zip, rar, tar), write with backups, rename/move/copy, delete-to-.trash (never a real delete), plus the file-type table."
+publish = false
+
+[dependencies]
+# Pure-Rust RAR 1.3..7 reader (Apache-2.0, github.com/bitplane/rars). Read-only
+# build: no write/parallel/recovery/encryption features (no rayon, no getrandom).
+rars = { version = "0.12", default-features = false }
+# ZIP directory reader (MIT, github.com/zip-rs/zip2), no features at all: no
+# C (zstd-sys, bzip2-sys), no AES, and no flate2 (flate2 1.1 forces
+# miniz_oxide's `simd` feature). Members are read raw and inflated by
+# src/inflate.rs on miniz_oxide 0.8 below.
+zip = { version = "9", default-features = false }
+# Pure-Rust inflate for zip members and .tar.gz (no SIMD feature), the same
+# pin as galion-backup (already in Cargo.lock).
+miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
+galion-tar = { path = "../galion-tar" }
+serde_json = { workspace = true }
+zagreb-time = { path = "../zagreb-time" }
+
+
+[dev-dependencies]
+# Stored-member zip fixtures (ZipWriter, no compression features).
+zip = { version = "9", default-features = false }

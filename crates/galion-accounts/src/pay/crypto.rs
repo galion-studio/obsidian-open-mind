@@ -406,6 +406,15 @@ pub struct BtcPayHook {
     pub store_id: Option<String>,
 }
 
+/// What an invoice is worth, per [`Crypto::btcpay_value`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BtcPayValue {
+    Credit(BtcPaySettled),
+    /// Payments seen but not confirmed yet: look again later.
+    Pending,
+    Nothing,
+}
+
 /// A created BTCPay invoice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BtcPayInvoice {
@@ -509,6 +518,86 @@ impl Crypto {
         })
     }
 
+    /// What a BTCPay invoice is worth now, read back from BTCPay (never from
+    /// a webhook body):
+    ///
+    /// * `Settled` -> the invoice amount; `Settled` + `PaidOver` -> pro rata
+    ///   of the confirmed payments (more time for more money).
+    /// * `Expired` + `PaidPartial` -> pro rata of the *confirmed* payments;
+    ///   while any payment is still unconfirmed -> [`BtcPayValue::Pending`].
+    /// * anything else -> [`BtcPayValue::Nothing`] (not paid, or still open).
+    pub fn btcpay_value(&self, invoice_id: &str) -> Result<BtcPayValue, PayError> {
+        let path = format!("{}/invoices/{}", self.store_path()?, pct(invoice_id));
+        let v = self.btcpay_req("GET", &path, None)?;
+        let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("");
+        let extra = v
+            .get("additionalStatus")
+            .and_then(|s| s.as_str())
+            .unwrap_or("None");
+        // PaidLate: money arrived after the window; credit what confirmed.
+        let partial = status == "Expired" && matches!(extra, "PaidPartial" | "PaidLate");
+        let over = status == "Settled" && matches!(extra, "PaidOver" | "PaidLate");
+        if status == "Processing" {
+            return Ok(BtcPayValue::Pending);
+        }
+        if status != "Settled" && !partial {
+            return Ok(BtcPayValue::Nothing);
+        }
+        let Some(full) = self.btcpay_settled_doc(&v) else {
+            return Err(PayError::BadPayload("invoice is not a EUR amount".into()));
+        };
+        if !(partial || over) {
+            return Ok(BtcPayValue::Credit(full));
+        }
+        // Pro rata from the payment methods: confirmed value / amount due,
+        // in the method's own currency (integer, 1e-12 units).
+        let pm = self.btcpay_req("GET", &format!("{path}/payment-methods"), None)?;
+        let mut paid_frac_e6: i64 = 0;
+        let mut pending = false;
+        for m in pm.as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+            let due = as_decimal_str(m.get("amount")).and_then(|a| parse_decimal(&a, 12));
+            let Some(due) = due.filter(|d| *d > 0) else {
+                continue;
+            };
+            let mut settled: u128 = 0;
+            for p in m
+                .get("payments")
+                .and_then(|p| p.as_array())
+                .map(|a| a.as_slice())
+                .unwrap_or(&[])
+            {
+                let val = as_decimal_str(p.get("value"))
+                    .and_then(|a| parse_decimal(&a, 12))
+                    .unwrap_or(0);
+                match p.get("status").and_then(|s| s.as_str()) {
+                    Some("Settled") => settled += val,
+                    Some("Processing") => pending = true,
+                    _ => {}
+                }
+            }
+            let frac = (settled.saturating_mul(1_000_000) / due).min(i64::MAX as u128) as i64;
+            paid_frac_e6 = paid_frac_e6.saturating_add(frac);
+        }
+        if pending {
+            return Ok(BtcPayValue::Pending);
+        }
+        // At most a year of time for one invoice (a fat-finger overpay is
+        // refunded by hand instead).
+        let paid_frac_e6 = paid_frac_e6.min(12_000_000);
+        let mut cents =
+            (i128::from(full.amount_cents) * i128::from(paid_frac_e6) / 1_000_000) as i64;
+        if over {
+            cents = cents.max(full.amount_cents);
+        }
+        if cents <= 0 {
+            return Ok(BtcPayValue::Nothing);
+        }
+        Ok(BtcPayValue::Credit(BtcPaySettled {
+            amount_cents: cents,
+            ..full
+        }))
+    }
+
     /// Read an invoice back. `Ok(None)` unless BTCPay itself says Settled.
     pub fn btcpay_settled(&self, invoice_id: &str) -> Result<Option<BtcPaySettled>, PayError> {
         let v = self.btcpay_req(
@@ -519,6 +608,10 @@ impl Crypto {
         if v.get("status").and_then(|s| s.as_str()) != Some("Settled") {
             return Ok(None);
         }
+        Ok(self.btcpay_settled_doc(&v))
+    }
+
+    fn btcpay_settled_doc(&self, v: &Value) -> Option<BtcPaySettled> {
         let order_id = v
             .pointer("/metadata/orderId")
             .and_then(|o| o.as_str())
@@ -533,11 +626,14 @@ impl Crypto {
             .and_then(|a| parse_decimal(&a, 2))
             .and_then(|c| i64::try_from(c).ok())
             .unwrap_or(0);
-        Ok(Some(BtcPaySettled {
+        if currency != "EUR" || amount_cents <= 0 {
+            return None;
+        }
+        Some(BtcPaySettled {
             order_id,
             amount_cents,
             currency,
-        }))
+        })
     }
 
     /// EUR per 1 unit of `asset`, scaled by 1e8, from the BTCPay store's own
@@ -910,7 +1006,9 @@ pub fn btcpay_hook(
     now: i64,
 ) -> Result<HookOutcome, CryptoError> {
     let hook = crypto.btcpay_webhook(headers, body)?;
-    if hook.kind != "InvoiceSettled" {
+    // Settled: paid (maybe overpaid). Expired: maybe partly paid. The
+    // value is always read back from BTCPay.
+    if !matches!(hook.kind.as_str(), "InvoiceSettled" | "InvoiceExpired") {
         return Ok(HookOutcome::Ignored("event type"));
     }
     if hook.store_id.is_some() && hook.store_id != crypto.cfg.btcpay.store_id {
@@ -928,16 +1026,75 @@ pub fn btcpay_hook(
     if inv.settled_at.is_some() {
         return Ok(HookOutcome::Replay);
     }
-    let Some(s) = crypto.btcpay_settled(&inv_id)? else {
-        return Ok(HookOutcome::Retry);
+    let s = match crypto.btcpay_value(&inv_id)? {
+        BtcPayValue::Credit(s) => s,
+        // The reconcile poll picks it up once confirmed.
+        BtcPayValue::Pending => return Ok(HookOutcome::Ignored("payment not confirmed yet")),
+        BtcPayValue::Nothing if hook.kind == "InvoiceExpired" => {
+            return Ok(HookOutcome::Ignored("expired unpaid"))
+        }
+        BtcPayValue::Nothing => return Ok(HookOutcome::Retry),
     };
     if s.order_id != inv.pay_ref {
         return Err(PayError::BadPayload("invoice orderId does not match".into()).into());
     }
-    if s.currency != "EUR" || s.amount_cents <= 0 {
-        return Err(PayError::BadPayload("invoice is not a EUR amount".into()).into());
-    }
     credit(store, &inv, s.amount_cents, now)
+}
+
+/// Reconcile open BTCPay invoices by reading each back (missed webhooks,
+/// late confirmations of partial payments). Runs with the Monero poll.
+pub fn poll_btcpay(crypto: &Crypto, store: &Store, now: i64) -> Result<PollReport, CryptoError> {
+    if let Some(why) = crypto.cfg.missing(Backend::BtcPay) {
+        return Err(PayError::NotConnected(why.into()).into());
+    }
+    let open: Vec<CryptoInvoice> = store
+        .open_crypto_invoices(Backend::BtcPay.id())?
+        .into_iter()
+        .filter(|i| i.expires_at + CRYPTO_SETTLE_WINDOW > now)
+        .collect();
+    let mut rep = PollReport {
+        open: open.len(),
+        ..PollReport::default()
+    };
+    for inv in &open {
+        // Still inside the payment window and nothing to see: skip quickly.
+        let s = match crypto.btcpay_value(&inv.invoice_id) {
+            Ok(BtcPayValue::Credit(s)) => s,
+            Ok(_) => continue,
+            // One bad invoice does not stop the others.
+            Err(PayError::Api(404, _)) => continue,
+            Err(e) => return Err(e.into()),
+        };
+        if s.order_id != inv.pay_ref {
+            continue;
+        }
+        if let HookOutcome::Credited(c) = credit(store, inv, s.amount_cents, now)? {
+            rep.credited += 1;
+            rep.credited_cents += c;
+        }
+    }
+    Ok(rep)
+}
+
+/// Both crypto polls, each only when its backend is ready.
+pub fn poll_all(crypto: &Crypto, store: &Store, now: i64) -> Result<PollReport, CryptoError> {
+    let ready = crypto.cfg.ready();
+    let mut rep = PollReport::default();
+    for (b, f) in [
+        (
+            Backend::Monero,
+            poll_monero as fn(&Crypto, &Store, i64) -> Result<PollReport, CryptoError>,
+        ),
+        (Backend::BtcPay, poll_btcpay),
+    ] {
+        if ready.contains(&b) && crypto.cfg.missing(b).is_none() {
+            let r = f(crypto, store, now)?;
+            rep.open += r.open;
+            rep.credited += r.credited;
+            rep.credited_cents += r.credited_cents;
+        }
+    }
+    Ok(rep)
 }
 
 fn credit(

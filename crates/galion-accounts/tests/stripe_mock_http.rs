@@ -106,6 +106,12 @@ fn mock() -> &'static Mutex<Vec<Seen>> {
                 ("POST", "/v1/webhook_endpoints") => {
                     Response::json(200, r#"{"id":"we_http","secret":"whsec_from_mock"}"#)
                 }
+                ("GET", "/v1/webhook_endpoints") | ("GET", "/v1/billing_portal/configurations") => {
+                    Response::json(200, r#"{"object":"list","data":[]}"#)
+                }
+                ("POST", "/v1/billing_portal/configurations") => {
+                    Response::json(200, r#"{"id":"bpc_http"}"#)
+                }
                 _ => Response::json(404, r#"{"error":{"message":"unknown route"}}"#),
             }
         });
@@ -149,6 +155,8 @@ fn checkout_and_portal_over_curl() {
             pay_ref: "gp_TESTREF0000000000000000000".into(),
             plan: Plan::Plus,
             existing_customer: None,
+            trial_end: None,
+            expires_at: None,
         })
         .expect("checkout");
     assert_eq!(
@@ -191,6 +199,8 @@ fn checkout_and_portal_over_curl() {
         pay_ref: "gp_TESTREF0000000000000000001".into(),
         plan: Plan::Plus,
         existing_customer: Some("cus_old".into()),
+        trial_end: None,
+        expires_at: None,
     })
     .unwrap();
     let seen = since(n);
@@ -211,6 +221,8 @@ fn api_errors_surface_without_leaking_the_key() {
         pay_ref: "gp_X".into(),
         plan: Plan::Pro,
         existing_customer: None,
+        trial_end: None,
+        expires_at: None,
     }) {
         Err(PayError::Api(402, m)) => assert!(m.contains("No such price")),
         other => panic!("{other:?}"),
@@ -242,7 +254,8 @@ fn setup_dry_run_sends_nothing_and_apply_creates_eur_prices() {
     // Dry run: works without any key and makes no request.
     let dry = client(None)
         .setup(false, Some("https://galion.app/webhooks/stripe"))
-        .unwrap();
+        .unwrap()
+        .lines;
     assert_eq!(since(start).len(), 0);
     assert!(dry
         .iter()
@@ -287,7 +300,7 @@ fn setup_dry_run_sends_nothing_and_apply_creates_eur_prices() {
     }
     let wh = seen
         .iter()
-        .find(|s| s.path == "/v1/webhook_endpoints")
+        .find(|s| s.method == "POST" && s.path == "/v1/webhook_endpoints")
         .expect("webhook created");
     assert!(wh
         .idem
@@ -306,8 +319,9 @@ fn setup_dry_run_sends_nothing_and_apply_creates_eur_prices() {
             "{e}"
         );
     }
-    assert!(out.iter().any(|l| l.starts_with("created plus")));
-    assert!(out
-        .iter()
-        .any(|l| l == "STRIPE_WEBHOOK_SECRET=whsec_from_mock"));
+    assert!(out.lines.iter().any(|l| l.starts_with("created plus")));
+    // The signing secret comes back for a 0600 file, never in the printed lines.
+    assert_eq!(out.webhook_secret.as_deref(), Some("whsec_from_mock"));
+    assert!(out.lines.iter().all(|l| !l.contains("whsec_")));
+    assert!(!format!("{out:?}").contains("whsec_from_mock"));
 }

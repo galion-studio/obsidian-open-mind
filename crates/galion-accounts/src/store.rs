@@ -12,6 +12,13 @@
 //! | processed_events | webhook event id, seen_at (replay guard, swept after 30 days)   |
 //! | ledger           | day, method, amount, currency (bookkeeping; NO account link)    |
 //! | crypto_invoices  | pay_ref, backend, invoice id, due (piconero), price-lock end, settled_at (NO account id; swept 2 days after settling or expiry) |
+//! | duplicate_subscriptions | Stripe subscription id of a second checkout on an account that already had one (NO account id; for the operator to refund) |
+//!
+//! Added columns (migrated in place, see [`MIGRATIONS`]): `accounts.billing`
+//! (`ok` / `past_due` / `canceling`), `accounts.cancel_at`,
+//! `accounts.banked_secs` + `banked_plan` (cash/crypto time bought while a
+//! card subscription runs, released when it ends), `pay_refs.url` +
+//! `url_until` (an open Stripe Checkout page, reused instead of a second one).
 //!
 //! No email, no name, no IP address, no user agent, no creation time.
 
@@ -63,7 +70,54 @@ CREATE TABLE IF NOT EXISTS crypto_invoices(
   expires_at INTEGER NOT NULL,
   settled_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS duplicate_subscriptions(
+  subscription TEXT PRIMARY KEY,
+  seen_at INTEGER NOT NULL
+);
 ";
+
+/// Columns added after the first live schema (2026-11-01, build 95244f0d).
+/// Applied with `ALTER TABLE .. ADD COLUMN` when missing; never dropped.
+pub const MIGRATIONS: [(&str, &str, &str); 6] = [
+    ("accounts", "billing", "TEXT NOT NULL DEFAULT 'ok'"),
+    ("accounts", "cancel_at", "INTEGER"),
+    ("accounts", "banked_secs", "INTEGER NOT NULL DEFAULT 0"),
+    ("accounts", "banked_plan", "TEXT"),
+    ("pay_refs", "url", "TEXT"),
+    ("pay_refs", "url_until", "INTEGER"),
+];
+
+/// Billing state of a card subscription.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Billing {
+    /// Paid, or no subscription at all.
+    Ok,
+    /// A renewal failed; Stripe is retrying. Access runs until the grace end.
+    PastDue,
+    /// Cancelled at the period end (`cancel_at`); no more renewals.
+    Canceling,
+}
+
+impl Billing {
+    pub fn id(self) -> &'static str {
+        match self {
+            Billing::Ok => "ok",
+            Billing::PastDue => "past_due",
+            Billing::Canceling => "canceling",
+        }
+    }
+    pub fn parse(s: &str) -> Billing {
+        match s {
+            "past_due" => Billing::PastDue,
+            "canceling" => Billing::Canceling,
+            _ => Billing::Ok,
+        }
+    }
+}
+
+/// Grace after a failed renewal: access stays on this long past the end of
+/// the last paid period while Stripe retries the card.
+pub const PAYMENT_GRACE: i64 = 7 * DAY;
 
 /// Seconds in a day.
 pub const DAY: i64 = 86_400;
@@ -115,6 +169,12 @@ pub struct Account {
     pub paid_until: i64,
     pub stripe_customer: Option<String>,
     pub stripe_subscription: Option<String>,
+    pub billing: Billing,
+    pub cancel_at: Option<i64>,
+    /// Cash/crypto time bought while a card subscription runs (seconds of
+    /// `banked_plan`), added when the subscription ends.
+    pub banked_secs: i64,
+    pub banked_plan: Option<Plan>,
 }
 
 /// What other services get to know.
@@ -126,6 +186,7 @@ pub struct Entitlement {
     pub paid_until: i64,
     /// A Stripe subscription renews this account.
     pub renewing: bool,
+    pub billing: Billing,
 }
 
 impl Account {
@@ -135,7 +196,12 @@ impl Account {
             plan: if active { self.plan } else { Plan::Free },
             active,
             paid_until: self.paid_until,
-            renewing: self.stripe_subscription.is_some(),
+            renewing: self.stripe_subscription.is_some() && self.billing != Billing::Canceling,
+            billing: if self.stripe_subscription.is_some() {
+                self.billing
+            } else {
+                Billing::Ok
+            },
         }
     }
 }
@@ -185,10 +251,44 @@ fn row_account(r: &rusqlite::Row<'_>) -> rusqlite::Result<Account> {
         paid_until: r.get(2)?,
         stripe_customer: r.get(3)?,
         stripe_subscription: r.get(4)?,
+        billing: Billing::parse(&r.get::<_, String>(5)?),
+        cancel_at: r.get(6)?,
+        banked_secs: r.get(7)?,
+        banked_plan: r
+            .get::<_, Option<String>>(8)?
+            .as_deref()
+            .and_then(Plan::parse),
     })
 }
 
-const ACCOUNT_COLS: &str = "id, plan, paid_until, stripe_customer, stripe_subscription";
+const ACCOUNT_COLS: &str = "id, plan, paid_until, stripe_customer, stripe_subscription, \
+                            billing, cancel_at, banked_secs, banked_plan";
+
+/// Seconds of `from` time worth the same money in `to` (plan switch on a
+/// top-up: remaining Pro time becomes 11x as much Plus time, and back).
+pub fn convert_secs(secs: i64, from: Plan, to: Plan) -> i64 {
+    if secs <= 0 || from == to || from.eur_cents() == 0 || to.eur_cents() == 0 {
+        return secs.max(0);
+    }
+    ((secs as i128) * (from.eur_cents() as i128) / (to.eur_cents() as i128)) as i64
+}
+
+/// Counts for the admin view (no contents, no ids).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AdminStats {
+    pub accounts: i64,
+    pub active_plus: i64,
+    pub active_pro: i64,
+    pub subscriptions: i64,
+    pub past_due: i64,
+    pub canceling: i64,
+    pub sessions: i64,
+    pub open_refs: Vec<(String, i64)>,
+    pub open_crypto: Vec<(String, i64)>,
+    pub duplicate_subscriptions: i64,
+    /// (month YYYY-MM, method, currency, cents) for the last 3 months.
+    pub ledger: Vec<(String, String, String, i64)>,
+}
 
 impl Store {
     pub fn open(path: &std::path::Path) -> Result<Store, StoreError> {
@@ -201,8 +301,24 @@ impl Store {
 
     fn from_conn(c: Connection) -> Result<Store, StoreError> {
         c.execute_batch(SCHEMA)?;
+        for (table, col, ddl) in MIGRATIONS {
+            let has: i64 = c.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info(?1) WHERE name = ?2",
+                params![table, col],
+                |r| r.get(0),
+            )?;
+            if has == 0 {
+                c.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {ddl}"))?;
+            }
+        }
         c.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(Store { db: Mutex::new(c) })
+    }
+
+    /// Open a database file created with an older schema (tests).
+    #[doc(hidden)]
+    pub fn from_connection(c: Connection) -> Result<Store, StoreError> {
+        Self::from_conn(c)
     }
 
     fn db(&self) -> std::sync::MutexGuard<'_, Connection> {
@@ -410,7 +526,15 @@ impl Store {
     // ---------------------------------------------------------- time
 
     /// Add `days` of `plan` time (cash, crypto, vouchers): paid_until =
-    /// max(paid_until, now) + days.
+    /// max(paid_until, now) + days. Returns the new paid_until (or, while a
+    /// card subscription runs, when the banked time would end if the
+    /// subscription ended now).
+    ///
+    /// * Remaining time on another plan is converted at the price ratio, so
+    ///   a Plus top-up on running Pro time loses nothing.
+    /// * While a card subscription runs, the days are banked and added when
+    ///   it ends ([`Store::end_stripe`]), so the subscription's own period
+    ///   end cannot swallow them.
     pub fn add_days(
         &self,
         account_id: i64,
@@ -418,16 +542,203 @@ impl Store {
         days: i64,
         now: i64,
     ) -> Result<i64, StoreError> {
+        let Some(a) = self.get(account_id)? else {
+            return Ok(0);
+        };
         let db = self.db();
+        let add = days.max(0) * DAY;
+        if a.stripe_subscription.is_some() {
+            let banked_plan = a.banked_plan.unwrap_or(plan);
+            let banked = convert_secs(a.banked_secs, banked_plan, plan) + add;
+            db.execute(
+                "UPDATE accounts SET banked_secs = ?2, banked_plan = ?3 WHERE id = ?1",
+                params![account_id, banked, plan.id()],
+            )?;
+            return Ok(a.paid_until.max(now) + banked);
+        }
+        let remaining = if a.plan != Plan::Free && a.paid_until > now {
+            convert_secs(a.paid_until - now, a.plan, plan)
+        } else {
+            0
+        };
+        let until = now + remaining + add;
         db.execute(
-            "UPDATE accounts SET plan = ?2, paid_until = MAX(paid_until, ?3) + ?4 WHERE id = ?1",
-            params![account_id, plan.id(), now, days * DAY],
+            "UPDATE accounts SET plan = ?2, paid_until = ?3 WHERE id = ?1",
+            params![account_id, plan.id(), until],
         )?;
-        Ok(db.query_row(
-            "SELECT paid_until FROM accounts WHERE id = ?1",
-            params![account_id],
-            |r| r.get(0),
-        )?)
+        Ok(until)
+    }
+
+    /// Billing state of the card subscription (and when it cancels).
+    pub fn set_billing(
+        &self,
+        account_id: i64,
+        billing: Billing,
+        cancel_at: Option<i64>,
+    ) -> Result<(), StoreError> {
+        self.db().execute(
+            "UPDATE accounts SET billing = ?2, cancel_at = ?3 WHERE id = ?1",
+            params![account_id, billing.id(), cancel_at],
+        )?;
+        Ok(())
+    }
+
+    /// A renewal failed: mark past due and keep access until `grace_until`
+    /// (never shortens paid time).
+    pub fn payment_failed(&self, account_id: i64, grace_until: i64) -> Result<(), StoreError> {
+        self.db().execute(
+            "UPDATE accounts SET billing = 'past_due', paid_until = MAX(paid_until, ?2) WHERE id = ?1",
+            params![account_id, grace_until],
+        )?;
+        Ok(())
+    }
+
+    /// A card payment was refunded in full (or charged back): the time it
+    /// bought stops now. Banked cash/crypto time is kept.
+    pub fn cut_to(&self, account_id: i64, at: i64) -> Result<(), StoreError> {
+        self.db().execute(
+            "UPDATE accounts SET paid_until = MIN(paid_until, ?2) WHERE id = ?1",
+            params![account_id, at],
+        )?;
+        Ok(())
+    }
+
+    /// Remember a second subscription that checkout created for an account
+    /// that already had one (the operator refunds and cancels it).
+    pub fn record_duplicate(&self, subscription: &str, now: i64) -> Result<(), StoreError> {
+        self.db().execute(
+            "INSERT OR IGNORE INTO duplicate_subscriptions(subscription, seen_at) VALUES (?1, ?2)",
+            params![subscription, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn duplicates(&self) -> Result<Vec<String>, StoreError> {
+        let db = self.db();
+        let mut st =
+            db.prepare("SELECT subscription FROM duplicate_subscriptions ORDER BY seen_at")?;
+        let rows = st.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Remember the Checkout page for a payment reference.
+    pub fn set_ref_url(&self, reference: &str, url: &str, until: i64) -> Result<(), StoreError> {
+        self.db().execute(
+            "UPDATE pay_refs SET url = ?2, url_until = ?3 WHERE reference = ?1",
+            params![reference, url, until],
+        )?;
+        Ok(())
+    }
+
+    /// An unused Checkout page of `account_id` for `plan` that is still
+    /// open, so a double click does not make a second subscription.
+    pub fn open_checkout(
+        &self,
+        account_id: i64,
+        plan: Plan,
+        now: i64,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(self
+            .db()
+            .query_row(
+                "SELECT url FROM pay_refs WHERE account_id = ?1 AND method = 'stripe' AND plan = ?2 \
+                 AND used = 0 AND url IS NOT NULL AND url_until > ?3 ORDER BY url_until DESC LIMIT 1",
+                params![account_id, plan.id(), now],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    /// What an operator may see about an open reference: method, plan and
+    /// expiry. Never the account.
+    pub fn pay_ref_info(
+        &self,
+        reference: &str,
+        now: i64,
+    ) -> Result<Option<(String, Plan, i64)>, StoreError> {
+        Ok(self
+            .db()
+            .query_row(
+                "SELECT method, plan, expires_at FROM pay_refs \
+                 WHERE reference = ?1 AND used = 0 AND expires_at > ?2 AND account_id IS NOT NULL",
+                params![reference, now],
+                |r| {
+                    let p: String = r.get(1)?;
+                    Ok((r.get(0)?, Plan::parse(&p).unwrap_or(Plan::Plus), r.get(2)?))
+                },
+            )
+            .optional()?)
+    }
+
+    /// Open (unused, unexpired) references of one account and method.
+    pub fn open_refs_of(
+        &self,
+        account_id: i64,
+        method: &str,
+        now: i64,
+    ) -> Result<Vec<(String, Plan, i64)>, StoreError> {
+        let db = self.db();
+        let mut st = db.prepare(
+            "SELECT reference, plan, expires_at FROM pay_refs WHERE account_id = ?1 \
+             AND method = ?2 AND used = 0 AND expires_at > ?3 ORDER BY expires_at",
+        )?;
+        let rows = st.query_map(params![account_id, method, now], |r| {
+            let p: String = r.get(1)?;
+            Ok((r.get(0)?, Plan::parse(&p).unwrap_or(Plan::Plus), r.get(2)?))
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// Counts for the admin status view.
+    pub fn admin_stats(&self, now: i64) -> Result<AdminStats, StoreError> {
+        let db = self.db();
+        let one = |sql: &str| -> Result<i64, StoreError> {
+            Ok(db.query_row(sql, params![now], |r| r.get(0))?)
+        };
+        let mut s = AdminStats {
+            accounts: one("SELECT COUNT(*) FROM accounts WHERE ?1 = ?1")?,
+            active_plus: one("SELECT COUNT(*) FROM accounts WHERE plan = 'plus' AND paid_until > ?1")?,
+            active_pro: one("SELECT COUNT(*) FROM accounts WHERE plan = 'pro' AND paid_until > ?1")?,
+            subscriptions: one(
+                "SELECT COUNT(*) FROM accounts WHERE stripe_subscription IS NOT NULL AND ?1 = ?1",
+            )?,
+            past_due: one(
+                "SELECT COUNT(*) FROM accounts WHERE stripe_subscription IS NOT NULL AND billing = 'past_due' AND ?1 = ?1",
+            )?,
+            canceling: one(
+                "SELECT COUNT(*) FROM accounts WHERE stripe_subscription IS NOT NULL AND billing = 'canceling' AND ?1 = ?1",
+            )?,
+            sessions: one("SELECT COUNT(*) FROM sessions WHERE expires_at > ?1")?,
+            duplicate_subscriptions: one(
+                "SELECT COUNT(*) FROM duplicate_subscriptions WHERE ?1 = ?1",
+            )?,
+            ..AdminStats::default()
+        };
+        let mut st = db.prepare(
+            "SELECT method, COUNT(*) FROM pay_refs WHERE used = 0 AND expires_at > ?1 GROUP BY method ORDER BY method",
+        )?;
+        s.open_refs = st
+            .query_map(params![now], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        let mut st = db.prepare(
+            "SELECT backend, COUNT(*) FROM crypto_invoices WHERE settled_at IS NULL AND expires_at + ?2 > ?1 GROUP BY backend ORDER BY backend",
+        )?;
+        s.open_crypto = st
+            .query_map(params![now, CRYPTO_SETTLE_WINDOW], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        let since = &day_of(now - 92 * DAY)[..7];
+        let mut st = db.prepare(
+            "SELECT substr(day, 1, 7) AS m, method, currency, SUM(amount_cents) FROM ledger \
+             WHERE substr(day, 1, 7) >= ?1 GROUP BY m, method, currency ORDER BY m, method, currency",
+        )?;
+        s.ledger = st
+            .query_map(params![since], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok(s)
     }
 
     /// Attach a Stripe customer and subscription after checkout.
@@ -437,7 +748,25 @@ impl Store {
         customer: Option<&str>,
         subscription: Option<&str>,
         plan: Plan,
+        now: i64,
     ) -> Result<(), StoreError> {
+        // Prepaid (cash/crypto) time on a different plan is banked in its own
+        // plan and comes back when the subscription ends. Same-plan prepaid
+        // time is covered by the checkout's trial_end instead.
+        if let Some(a) = self.get(account_id)? {
+            if a.stripe_subscription.is_none()
+                && a.plan != Plan::Free
+                && a.plan != plan
+                && a.paid_until > now
+            {
+                let bp = a.banked_plan.unwrap_or(a.plan);
+                let banked = convert_secs(a.banked_secs, bp, a.plan) + (a.paid_until - now);
+                self.db().execute(
+                    "UPDATE accounts SET banked_secs = ?2, banked_plan = ?3, paid_until = ?4 WHERE id = ?1",
+                    params![account_id, banked, a.plan.id(), now],
+                )?;
+            }
+        }
         let db = self.db();
         // A customer/subscription id can belong to one account only.
         if let Some(s) = subscription {
@@ -479,12 +808,24 @@ impl Store {
     }
 
     /// The subscription ended at `ended_at`: paid time stops there (or
-    /// earlier if it already ran out) and the Stripe ids are forgotten.
+    /// earlier if it already ran out), cash/crypto time banked meanwhile is
+    /// added on top, and the Stripe ids are forgotten.
     pub fn end_stripe(&self, account_id: i64, ended_at: i64) -> Result<(), StoreError> {
+        let Some(a) = self.get(account_id)? else {
+            return Ok(());
+        };
+        let mut until = a.paid_until.min(ended_at);
+        let mut plan = a.plan;
+        if a.banked_secs > 0 {
+            let bp = a.banked_plan.unwrap_or(a.plan);
+            until = until.max(ended_at) + a.banked_secs;
+            plan = bp;
+        }
         self.db().execute(
-            "UPDATE accounts SET paid_until = MIN(paid_until, ?2), \
+            "UPDATE accounts SET paid_until = ?2, plan = ?3, banked_secs = 0, banked_plan = NULL, \
+             billing = 'ok', cancel_at = NULL, \
              stripe_subscription = NULL, stripe_customer = NULL WHERE id = ?1",
-            params![account_id, ended_at],
+            params![account_id, until, plan.id()],
         )?;
         Ok(())
     }
@@ -607,6 +948,7 @@ impl Store {
             "processed_events",
             "ledger",
             "crypto_invoices",
+            "duplicate_subscriptions",
         ] {
             let Ok(mut st) = db.prepare(&format!("SELECT * FROM {t}")) else {
                 continue;
@@ -646,6 +988,49 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The schema the live 95244f0d binary created (copied from that commit).
+    const SCHEMA_95244F0D: &str = "
+CREATE TABLE accounts(id INTEGER PRIMARY KEY, lookup BLOB NOT NULL UNIQUE,
+  plan TEXT NOT NULL DEFAULT 'free', paid_until INTEGER NOT NULL DEFAULT 0,
+  stripe_customer TEXT UNIQUE, stripe_subscription TEXT UNIQUE);
+CREATE TABLE sessions(token_hash BLOB PRIMARY KEY, account_id INTEGER NOT NULL, expires_at INTEGER NOT NULL);
+CREATE TABLE pay_refs(reference TEXT PRIMARY KEY, account_id INTEGER, method TEXT NOT NULL,
+  plan TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE processed_events(id TEXT PRIMARY KEY, seen_at INTEGER NOT NULL);
+CREATE TABLE ledger(id INTEGER PRIMARY KEY, day TEXT NOT NULL, method TEXT NOT NULL,
+  amount_cents INTEGER NOT NULL, currency TEXT NOT NULL);
+CREATE TABLE crypto_invoices(pay_ref TEXT PRIMARY KEY, backend TEXT NOT NULL,
+  invoice_id TEXT NOT NULL UNIQUE, due_atomic INTEGER NOT NULL DEFAULT 0,
+  expires_at INTEGER NOT NULL, settled_at INTEGER);
+INSERT INTO accounts(id, lookup, plan, paid_until, stripe_customer, stripe_subscription)
+  VALUES (1, x'0101010101010101010101010101010101010101010101010101010101010101', 'plus', 5000000, 'cus_old', 'sub_old');
+INSERT INTO pay_refs VALUES ('GC-AAAA-BBBB-CCCC', 1, 'cash', 'plus', 9000000, 0);
+";
+
+    #[test]
+    fn upgrades_a_95244f0d_database_in_place() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch(SCHEMA_95244F0D).unwrap();
+        let s = Store::from_connection(c).unwrap();
+        let a = s.get(1).unwrap().unwrap();
+        assert_eq!(a.plan, Plan::Plus);
+        assert_eq!(a.paid_until, 5_000_000);
+        assert_eq!(a.stripe_subscription.as_deref(), Some("sub_old"));
+        assert_eq!(a.billing, Billing::Ok);
+        assert_eq!(a.cancel_at, None);
+        assert_eq!(a.banked_secs, 0);
+        // New columns and tables work on the upgraded file.
+        s.payment_failed(1, 6_000_000).unwrap();
+        assert_eq!(s.get(1).unwrap().unwrap().billing, Billing::PastDue);
+        assert_eq!(s.open_refs_of(1, "cash", 1000).unwrap().len(), 1);
+        s.record_duplicate("sub_dup", 1000).unwrap();
+        assert_eq!(s.admin_stats(1000).unwrap().duplicate_subscriptions, 1);
+        // Opening again is a no-op.
+        let c = s.db.into_inner().unwrap();
+        let s = Store::from_connection(c).unwrap();
+        assert_eq!(s.get(1).unwrap().unwrap().billing, Billing::PastDue);
+    }
 
     #[test]
     fn account_lifecycle() {
@@ -706,7 +1091,7 @@ mod tests {
     fn stripe_link_renew_end() {
         let s = Store::in_memory().unwrap();
         let id = s.create_account(&[2; 32]).unwrap();
-        s.link_stripe(id, Some("cus_A"), Some("sub_A"), Plan::Plus)
+        s.link_stripe(id, Some("cus_A"), Some("sub_A"), Plan::Plus, 0)
             .unwrap();
         s.renew(id, None, 5000).unwrap();
         s.renew(id, Some(Plan::Pro), 4000).unwrap();

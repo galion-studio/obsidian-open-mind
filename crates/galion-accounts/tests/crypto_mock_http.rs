@@ -35,6 +35,10 @@ struct Mock {
     rate: String,
     /// Wallet answers only with an HTTP digest `Authorization` (`--rpc-login`).
     digest: bool,
+    /// BTCPay `additionalStatus` per invoice (default "None").
+    extra: HashMap<String, String>,
+    /// BTCPay payment methods per invoice: (amount due in BTC, [(value, status)]).
+    payments: HashMap<String, (String, Vec<(String, String)>)>,
 }
 
 type Shared = Arc<Mutex<Mock>>;
@@ -96,12 +100,25 @@ fn mocks() -> (Shared, String, String) {
                     .to_string(),
                 )
             }
+            ("GET", p) if p.starts_with(&format!("{inv}/")) && p.ends_with("/payment-methods") => {
+                let id = &p[inv.len() + 1..p.len() - "/payment-methods".len()];
+                match m.payments.get(id) {
+                    Some((due, pays)) => Response::json(
+                        200,
+                        json!([{"paymentMethodId": "BTC-CHAIN", "currency": "BTC", "amount": due,
+                            "payments": pays.iter().map(|(v, s)| json!({"id": "tx", "value": v, "status": s})).collect::<Vec<_>>()}])
+                        .to_string(),
+                    ),
+                    None => Response::json(200, "[]"),
+                }
+            }
             ("GET", p) if p.starts_with(&format!("{inv}/")) => {
                 let id = &p[inv.len() + 1..];
+                let extra = m.extra.get(id).cloned().unwrap_or_else(|| "None".into());
                 match m.invoices.get(id) {
                     Some((o, a, s)) => Response::json(
                         200,
-                        json!({"id": id, "status": s, "amount": a,
+                        json!({"id": id, "status": s, "additionalStatus": extra, "amount": a,
                         "currency": "EUR", "metadata": {"orderId": o}})
                         .to_string(),
                     ),
@@ -556,6 +573,126 @@ fn unknown_or_disabled_backend_is_refused() {
         r#"{"plan":"free"}"#,
     ));
     assert_eq!(r.status, 400);
-    // Monero poll when monero is off.
+    // The poll covers only the backends that are on (BTCPay reconcile here,
+    // no Monero call).
+    let p = poll(&t);
+    assert_eq!(p["ok"], true, "{p}");
+    assert_eq!(p["open"], 0);
+    // With no crypto backend at all the poll says so.
+    let t = app(false, false, mock_transport());
     assert_eq!(poll(&t)["error"], "not_connected");
+}
+
+fn expired(inv: &str) -> Value {
+    json!({"deliveryId": format!("x-{inv}"), "webhookId": "wh1", "type": "InvoiceExpired",
+           "timestamp": T0, "storeId": STORE, "invoiceId": inv,
+           "partiallyPaid": true, "metadata": {"orderId": "gp_whatever"}})
+}
+
+fn btcpay_app(m_b: &str) -> TestApp {
+    let mut v = btcpay_vars(m_b);
+    v.push(("ACCOUNTS_CRYPTO_BACKENDS", "btcpay".into()));
+    app_with_crypto(false, false, mock_transport(), crypto(v))
+}
+
+#[test]
+fn btcpay_underpaid_expired_credits_confirmed_part_pro_rata() {
+    let (m, b, _) = mocks();
+    let t = btcpay_app(&b);
+    let (_, c) = account(&t);
+    let r = t.app.handle(&post_json(
+        "/api/pay/crypto",
+        Some(&c),
+        r#"{"plan":"plus"}"#,
+    ));
+    assert_eq!(r.status, 200);
+    {
+        let mut m = m.lock().unwrap();
+        m.invoices.get_mut("Inv1").unwrap().2 = "Expired".into();
+        m.extra.insert("Inv1".into(), "PaidPartial".into());
+        // Half paid, but one of the two payments is not confirmed yet.
+        m.payments.insert(
+            "Inv1".into(),
+            (
+                "0.00040000".into(),
+                vec![
+                    ("0.00010000".into(), "Settled".into()),
+                    ("0.00010000".into(), "Processing".into()),
+                ],
+            ),
+        );
+    }
+    let r = hook(&t, &expired("Inv1"), WHS);
+    assert_eq!(r.status, 200);
+    assert_eq!(json(&r)["ignored"], "payment not confirmed yet");
+    assert_eq!(me(&t, &c)["active"], false);
+    // A later reconcile poll credits it once both are confirmed: 50 % = 15 days.
+    m.lock().unwrap().payments.get_mut("Inv1").unwrap().1[1].1 = "Settled".into();
+    let p = poll(&t);
+    assert_eq!(p["credited"], 1, "{p}");
+    assert_eq!(p["credited_eur_cents"], 1000);
+    let mm = me(&t, &c);
+    assert_eq!(mm["active"], true);
+    assert_eq!(mm["paid_until"], T0 + 15 * DAY);
+    // Webhook redelivery and another poll: no second credit.
+    assert_eq!(json(&hook(&t, &expired("Inv1"), WHS))["replay"], true);
+    assert_eq!(poll(&t)["credited"], 0);
+    assert_eq!(me(&t, &c)["paid_until"], T0 + 15 * DAY);
+}
+
+#[test]
+fn btcpay_expired_unpaid_is_ignored_and_overpaid_gets_more_time() {
+    let (m, b, _) = mocks();
+    let t = btcpay_app(&b);
+    let (_, c) = account(&t);
+    for _ in 0..2 {
+        let r = t.app.handle(&post_json(
+            "/api/pay/crypto",
+            Some(&c),
+            r#"{"plan":"plus"}"#,
+        ));
+        assert_eq!(r.status, 200);
+    }
+    // Inv1 expired with nothing paid.
+    m.lock().unwrap().invoices.get_mut("Inv1").unwrap().2 = "Expired".into();
+    assert_eq!(
+        json(&hook(&t, &expired("Inv1"), WHS))["ignored"],
+        "expired unpaid"
+    );
+    // Inv2 settled with 150 % paid: 45 days.
+    {
+        let mut m = m.lock().unwrap();
+        m.invoices.get_mut("Inv2").unwrap().2 = "Settled".into();
+        m.extra.insert("Inv2".into(), "PaidOver".into());
+        m.payments.insert(
+            "Inv2".into(),
+            (
+                "0.00040000".into(),
+                vec![("0.00060000".into(), "Settled".into())],
+            ),
+        );
+    }
+    let r = hook(&t, &settled("Inv2"), WHS);
+    assert_eq!(r.status, 200, "{:?}", json(&r));
+    assert_eq!(json(&r)["eur_cents"], 3000);
+    assert_eq!(me(&t, &c)["paid_until"], T0 + 45 * DAY);
+}
+
+#[test]
+fn btcpay_missed_webhook_is_reconciled_by_the_poll() {
+    let (m, b, _) = mocks();
+    let t = btcpay_app(&b);
+    let (_, c) = account(&t);
+    let r = t
+        .app
+        .handle(&post_json("/api/pay/crypto", Some(&c), r#"{"plan":"pro"}"#));
+    assert_eq!(r.status, 200);
+    assert_eq!(poll(&t)["credited"], 0);
+    m.lock().unwrap().invoices.get_mut("Inv1").unwrap().2 = "Settled".into();
+    let p = poll(&t);
+    assert_eq!(p["credited"], 1, "{p}");
+    assert_eq!(p["credited_eur_cents"], 22000);
+    let mm = me(&t, &c);
+    assert_eq!(mm["plan"], "pro");
+    assert_eq!(mm["paid_until"], T0 + 30 * DAY);
 }

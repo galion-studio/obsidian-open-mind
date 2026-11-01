@@ -15,7 +15,10 @@
 //! | GET  /api/account/me           | plan, paid-until, which payments work   |
 //! | POST /api/pay/stripe/checkout  | `{"plan"}` -> Stripe Checkout URL       |
 //! | POST /api/pay/stripe/portal    | -> Customer Portal URL                  |
+//! | POST /api/pay/stripe/cancel    | cancel at the end of the paid period    |
+//! | POST /api/pay/stripe/resume    | undo that                               |
 //! | POST /api/pay/cash             | `{"plan"}` -> cash reference + address  |
+//! | GET  /account/cash-slip?ref=   | printable slip for one's own reference  |
 //! | POST /webhooks/stripe          | Stripe webhook (signature checked)      |
 //! | POST /api/pay/crypto           | `{"plan","backend"?}` -> BTCPay link or XMR address |
 //! | POST /webhooks/crypto          | BTCPay webhook (BTCPay-Sig checked)     |
@@ -26,7 +29,10 @@
 //! |--------------------------------|-----------------------------------------|
 //! | POST /internal/v1/entitlement  | `{"session"}` or `{"number"}` -> plan   |
 //! | POST /internal/v1/cash/credit  | operator credits a cash reference       |
-//! | POST /internal/v1/crypto/poll  | one monero-wallet-rpc poll (admin token) |
+//! | POST /internal/v1/crypto/poll  | Monero + BTCPay reconcile (admin token) |
+//! | GET  /internal/v1/cash/lookup?ref= | what a cash reference expects (admin) |
+//! | GET  /internal/v1/admin/status | counts, ledger, duplicates (admin token) |
+//! | GET  /internal/v1/ready        | which methods are configured (booleans) |
 //! | GET  /internal/v1/health       | counts + payment method status          |
 
 use std::sync::Arc;
@@ -38,12 +44,12 @@ use crate::hash::Hasher;
 use crate::number::AccountNumber;
 use crate::pay::cash::{self, Cash};
 use crate::pay::crypto::{self, Crypto};
-use crate::pay::stripe::Stripe;
+use crate::pay::stripe::{Stripe, CHECKOUT_TTL, MIN_TRIAL};
 use crate::pay::{self, Applied, Method, PayError, PaymentAdapter, StartOutcome, StartRequest};
 use crate::plans::Plan;
 use crate::ratelimit::{Limiter, Refused};
 use crate::session;
-use crate::store::{Account, Store, StoreError, REF_TTL_CASH, REF_TTL_ONLINE};
+use crate::store::{Account, Billing, Store, StoreError, REF_TTL_CASH, REF_TTL_ONLINE};
 
 /// Server settings that are not payment config.
 #[derive(Clone, Default)]
@@ -148,6 +154,14 @@ pub fn entitlement_json(a: &Account, now: i64) -> Value {
         "paid_until_local": if a.paid_until > 0 { json!(galion_common::time::from_unix(a.paid_until)) } else { Value::Null },
         "paid_until_label": if a.paid_until > 0 { json!(galion_common::time::label(a.paid_until)) } else { Value::Null },
         "renewing": e.renewing,
+        // ok | past_due (card failed, access kept until paid_until) |
+        // canceling (ends at cancel_at, no more charges)
+        "billing": e.billing.id(),
+        "cancel_at": a.cancel_at.filter(|_| e.billing == Billing::Canceling),
+        "cancel_at_label": a.cancel_at.filter(|_| e.billing == Billing::Canceling).map(galion_common::time::label),
+        // Cash/crypto time waiting behind a card subscription.
+        "banked_days": a.banked_secs / crate::store::DAY,
+        "banked_plan": a.banked_plan.filter(|_| a.banked_secs > 0).map(|p| p.id()),
     })
 }
 
@@ -246,6 +260,7 @@ impl App {
             ("GET" | "HEAD", "/account" | "/account/") => crate::page::html(),
             ("GET" | "HEAD", "/account/account.css") => crate::page::css(),
             ("GET" | "HEAD", "/account/account.js") => crate::page::js(),
+            ("GET", "/account/cash-slip") => self.cash_slip(req),
             ("GET", "/api/account/plans") => self.plans(),
             // Contract with the galion.app home page (swarm/galion-home-20261101,
             // docs/payments/galion-home-checkout.md): HEAD probes, GET starts.
@@ -262,6 +277,8 @@ impl App {
             ("GET", "/api/account/me") => self.me(req),
             ("POST", "/api/pay/stripe/checkout") => self.checkout(req),
             ("POST", "/api/pay/stripe/portal") => self.portal(req),
+            ("POST", "/api/pay/stripe/cancel") => self.cancel(req, true),
+            ("POST", "/api/pay/stripe/resume") => self.cancel(req, false),
             ("POST", "/api/pay/cash") => self.cash_ref(req),
             ("POST", "/api/pay/crypto") => self.crypto_start(req),
             _ => err(404, "not_found", "Not found."),
@@ -372,6 +389,21 @@ impl App {
                 let mut v = entitlement_json(&a, self.now());
                 v["methods"] = self.methods_json();
                 v["can_manage"] = json!(a.stripe_customer.is_some());
+                v["can_cancel"] = json!(a.stripe_subscription.is_some());
+                // Open cash references, so the slip can be printed again.
+                let now = self.now();
+                v["cash_refs"] = match self.store.open_refs_of(a.id, Method::Cash.id(), now) {
+                    Ok(refs) => Value::Array(
+                        refs.into_iter()
+                            .map(|(r, p, exp)| {
+                                json!({"reference": r, "plan": p.id(),
+                                       "expires_label": galion_common::time::label(exp),
+                                       "slip_url": format!("/account/cash-slip?ref={r}")})
+                            })
+                            .collect(),
+                    ),
+                    Err(e) => return db_err(e),
+                };
                 json_resp(200, v)
             }
             Ok(None) => {
@@ -443,23 +475,34 @@ impl App {
     }
 
     fn start_checkout(&self, a: &Account, plan: Plan) -> Result<String, Response> {
+        let now = self.now();
+        // Double click / second tab: hand out the same open Checkout page,
+        // so one account cannot end up with two subscriptions.
+        if let Some(url) = self.store.open_checkout(a.id, plan, now).map_err(db_err)? {
+            return Ok(url);
+        }
         let r = pay::new_online_ref();
         self.store
-            .put_pay_ref(
-                &r,
-                a.id,
-                Method::Stripe.id(),
-                plan,
-                self.now() + REF_TTL_ONLINE,
-            )
+            .put_pay_ref(&r, a.id, Method::Stripe.id(), plan, now + REF_TTL_ONLINE)
             .map_err(db_err)?;
+        // Prepaid cash/crypto time of the same plan: first charge when it
+        // runs out (Stripe needs at least 48 h for a trial).
+        let trial_end = (a.plan == plan && a.paid_until > now + MIN_TRIAL).then_some(a.paid_until);
         let sr = StartRequest {
-            pay_ref: r,
+            pay_ref: r.clone(),
             plan,
             existing_customer: a.stripe_customer.clone(),
+            trial_end,
+            expires_at: Some(now + CHECKOUT_TTL),
         };
         match self.stripe.start(&sr) {
-            Ok(StartOutcome::Redirect(url)) => Ok(url),
+            Ok(StartOutcome::Redirect(url)) => {
+                // Reuse until 5 minutes before Stripe closes the page.
+                self.store
+                    .set_ref_url(&r, &url, now + CHECKOUT_TTL - 300)
+                    .map_err(db_err)?;
+                Ok(url)
+            }
             Ok(_) => Err(err(500, "unexpected", "Unexpected payment answer.")),
             Err(e) => Err(pay_err(e)),
         }
@@ -509,6 +552,94 @@ impl App {
         }
     }
 
+    /// `POST /api/pay/stripe/cancel|resume`: stop (or restart) renewals at
+    /// the end of the paid period, without the portal. Paid time is kept.
+    fn cancel(&self, req: &Request, cancel: bool) -> Response {
+        let a = match self.current(req) {
+            Ok(Some(a)) => a,
+            Ok(None) => return err(401, "no_session", "Log in first."),
+            Err(e) => return db_err(e),
+        };
+        let Some(sub) = a.stripe_subscription.clone() else {
+            return err(
+                404,
+                "no_subscription",
+                "There is no card subscription on this account.",
+            );
+        };
+        let now = self.now();
+        match self.stripe.set_cancel_at_period_end(&sub, cancel, now) {
+            Ok(at) => {
+                let (billing, at) = if cancel {
+                    (Billing::Canceling, at.or(Some(a.paid_until)))
+                } else {
+                    (Billing::Ok, None)
+                };
+                if let Err(e) = self.store.set_billing(a.id, billing, at) {
+                    return db_err(e);
+                }
+                match self.store.get(a.id) {
+                    Ok(Some(a)) => {
+                        let mut v = entitlement_json(&a, now);
+                        v["message"] = json!(if cancel {
+                            "Cancelled. No more charges; your plan runs until the end of the paid period."
+                        } else {
+                            "Renewal is back on."
+                        });
+                        json_resp(200, v)
+                    }
+                    Ok(None) => err(404, "no_account", "Account not found."),
+                    Err(e) => db_err(e),
+                }
+            }
+            Err(e) => pay_err(e),
+        }
+    }
+
+    /// `GET /account/cash-slip?ref=GC-...`: a printable page for one of the
+    /// logged-in account's own open cash references. No script.
+    fn cash_slip(&self, req: &Request) -> Response {
+        let page = |status: u16, body: String| {
+            Response::new(status, "text/html; charset=utf-8", body)
+                .with_header("content-security-policy", cash::SLIP_CSP)
+                .with_header("x-content-type-options", "nosniff")
+                .with_header("referrer-policy", "no-referrer")
+                .with_header("cache-control", "no-store")
+        };
+        let not_found = || {
+            page(
+                404,
+                "<!doctype html><meta charset=utf-8><title>Not found</title><p>No open cash reference with that code on this account. <a href=\"/account\">Back</a></p>".into(),
+            )
+        };
+        let a = match self.current(req) {
+            Ok(Some(a)) => a,
+            Ok(None) => return not_found(),
+            Err(e) => return db_err(e),
+        };
+        let Some(r) = req
+            .query()
+            .split('&')
+            .find_map(|kv| kv.strip_prefix("ref="))
+            .and_then(cash::normalise_reference)
+        else {
+            return not_found();
+        };
+        let now = self.now();
+        let refs = match self.store.open_refs_of(a.id, Method::Cash.id(), now) {
+            Ok(v) => v,
+            Err(e) => return db_err(e),
+        };
+        let Some((_, plan, exp)) = refs.into_iter().find(|(x, _, _)| *x == r) else {
+            return not_found();
+        };
+        let addr = self.cash.cfg.address.clone().unwrap_or_default();
+        page(
+            200,
+            cash::slip_html(&r, plan, &addr, &galion_common::time::label(exp)),
+        )
+    }
+
     fn cash_ref(&self, req: &Request) -> Response {
         let a = match self.current(req) {
             Ok(Some(a)) => a,
@@ -541,6 +672,8 @@ impl App {
             pay_ref: r,
             plan,
             existing_customer: None,
+            trial_end: None,
+            expires_at: None,
         };
         match self.cash.start(&sr) {
             Ok(StartOutcome::Reference {
@@ -548,7 +681,8 @@ impl App {
                 instructions,
             }) => json_resp(
                 200,
-                json!({"ok": true, "reference": reference, "instructions": instructions}),
+                json!({"ok": true, "reference": reference, "instructions": instructions,
+                       "slip_url": format!("/account/cash-slip?ref={reference}")}),
             ),
             Ok(_) => err(500, "unexpected", "Unexpected payment answer."),
             Err(e) => pay_err(e),
@@ -685,7 +819,10 @@ impl App {
                 if !token_ok(req, &self.settings.admin_token) {
                     return err(401, "unauthorized", "Admin token required.");
                 }
-                match crypto::poll_monero(&self.crypto, &self.store, self.now()) {
+                if self.crypto.cfg.ready().is_empty() {
+                    return pay_err(PayError::NotConnected("no crypto backend".into()));
+                }
+                match crypto::poll_all(&self.crypto, &self.store, self.now()) {
                     Ok(r) => json_resp(
                         200,
                         json!({"ok": true, "open": r.open, "credited": r.credited,
@@ -695,7 +832,98 @@ impl App {
                     Err(crypto::CryptoError::Store(e)) => db_err(e),
                 }
             }
+            ("GET", "/internal/v1/cash/lookup") => {
+                if !token_ok(req, &self.settings.admin_token) {
+                    return err(401, "unauthorized", "Admin token required.");
+                }
+                self.cash_lookup(req)
+            }
+            ("GET", "/internal/v1/admin/status") => {
+                if !token_ok(req, &self.settings.admin_token) {
+                    return err(401, "unauthorized", "Admin token required.");
+                }
+                self.admin_status()
+            }
+            // Loopback only and booleans only: safe without a token, so a
+            // deploy script can check it before any token exists.
+            ("GET", "/internal/v1/ready") => json_resp(200, self.readiness()),
             _ => err(404, "not_found", "Not found."),
+        }
+    }
+
+    /// Which methods are configured, as booleans (never a value).
+    pub fn readiness(&self) -> Value {
+        let ready = self.crypto.cfg.ready();
+        let stripe = self.stripe.status().is_connected();
+        let cash = self.cash.status().is_connected();
+        json!({
+            "ok": true,
+            "version": env!("CARGO_PKG_VERSION"),
+            "stripe": {
+                "configured": stripe,
+                "mode": self.stripe.cfg.mode(),
+                "secret_key": self.stripe.cfg.secret_key.is_some(),
+                "webhook_secret": self.stripe.cfg.webhook_secret.is_some(),
+                "portal_config": self.stripe.cfg.portal_config.is_some(),
+                "automatic_tax": self.stripe.cfg.automatic_tax,
+            },
+            "btcpay": {"configured": ready.contains(&crypto::Backend::BtcPay)},
+            "monero": {"configured": ready.contains(&crypto::Backend::Monero)},
+            "cash": {"configured": cash},
+            "internal_token": self.settings.internal_token.is_some(),
+            "admin_token": self.settings.admin_token.is_some(),
+            "checkout_ready": stripe,
+        })
+    }
+
+    fn admin_status(&self) -> Response {
+        let now = self.now();
+        match self.store.admin_stats(now) {
+            Ok(s) => {
+                let pairs = |v: &[(String, i64)]| {
+                    Value::Object(v.iter().map(|(k, n)| (k.clone(), json!(n))).collect())
+                };
+                json_resp(
+                    200,
+                    json!({"ok": true, "now_label": galion_common::time::label(now),
+                        "accounts": s.accounts, "active_plus": s.active_plus, "active_pro": s.active_pro,
+                        "subscriptions": s.subscriptions, "past_due": s.past_due, "canceling": s.canceling,
+                        "sessions": s.sessions,
+                        "open_refs": pairs(&s.open_refs), "open_crypto": pairs(&s.open_crypto),
+                        "duplicate_subscriptions": s.duplicate_subscriptions,
+                        "duplicate_subscription_ids": self.store.duplicates().unwrap_or_default(),
+                        "ledger": s.ledger.iter().map(|(m, me, c, n)| json!({"month": m, "method": me, "currency": c, "cents": n})).collect::<Vec<_>>(),
+                        "readiness": self.readiness()}),
+                )
+            }
+            Err(e) => db_err(e),
+        }
+    }
+
+    /// `GET /internal/v1/cash/lookup?ref=`: what an envelope with this
+    /// reference should hold. Never says which account.
+    fn cash_lookup(&self, req: &Request) -> Response {
+        let Some(r) = req
+            .query()
+            .split('&')
+            .find_map(|kv| kv.strip_prefix("ref="))
+            .and_then(cash::normalise_reference)
+        else {
+            return err(400, "bad_request", "Need ?ref=GC-XXXX-XXXX-XXXX.");
+        };
+        match self.store.pay_ref_info(&r, self.now()) {
+            Ok(Some((m, plan, exp))) if m == Method::Cash.id() => json_resp(
+                200,
+                json!({"ok": true, "reference": r, "plan": plan.id(),
+                       "eur_cents_per_month": plan.eur_cents(),
+                       "expires_at": exp, "expires_label": galion_common::time::label(exp)}),
+            ),
+            Ok(_) => err(
+                404,
+                "unknown_reference",
+                "No open cash reference with that code (used, expired or mistyped).",
+            ),
+            Err(e) => db_err(e),
         }
     }
 

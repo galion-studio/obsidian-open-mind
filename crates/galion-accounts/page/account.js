@@ -37,7 +37,9 @@
     state.methods = me.methods || {};
     $("plan").textContent = me.plan_name || "Free";
     var u = $("until");
-    if (me.active && me.paid_until_label) {
+    if (me.active && me.billing === "canceling") {
+      u.textContent = "Cancelled: no more charges. Your plan runs until " + (me.cancel_at_label || me.paid_until_label) + " (Zagreb time).";
+    } else if (me.active && me.paid_until_label) {
       u.textContent = (me.renewing ? "Renews by card. Paid until " : "Paid until ") + me.paid_until_label + " (Zagreb time).";
     } else if (me.paid_until_label) {
       u.textContent = "Paid time ended " + me.paid_until_label + ".";
@@ -45,6 +47,29 @@
       u.textContent = "No paid time on this account yet.";
     }
     $("manage").hidden = !me.can_manage;
+    var bl = $("billing");
+    bl.hidden = me.billing !== "past_due";
+    bl.textContent = me.billing === "past_due"
+      ? "Your last card payment failed. Stripe retries it; update the card with Manage. Access stays on until " + (me.paid_until_label || "the grace period ends") + "."
+      : "";
+    $("cancelsub").hidden = !me.can_cancel || me.billing === "canceling";
+    $("resumesub").hidden = !me.can_cancel || me.billing !== "canceling";
+    var bk = $("banked");
+    bk.hidden = !(me.banked_days > 0);
+    bk.textContent = me.banked_days > 0 ? me.banked_days + " prepaid day(s) of " + (me.banked_plan || "your plan") + " wait behind the card subscription and start when it ends." : "";
+    var cr = $("cashrefs");
+    cr.textContent = "";
+    (me.cash_refs || []).forEach(function (r) {
+      var li = document.createElement("li");
+      var a = document.createElement("a");
+      a.href = r.slip_url; a.target = "_blank"; a.rel = "noopener";
+      a.textContent = r.reference;
+      li.appendChild(document.createTextNode("Open cash reference "));
+      li.appendChild(a);
+      li.appendChild(document.createTextNode(" (" + r.plan + ", valid until " + r.expires_label + ")"));
+      cr.appendChild(li);
+    });
+    cr.hidden = !(me.cash_refs && me.cash_refs.length);
     var list = $("methods");
     list.textContent = "";
     ["stripe", "crypto", "cash"].forEach(function (m) {
@@ -117,6 +142,18 @@
     });
   });
 
+  function subToggle(path, ask) {
+    if (ask && !window.confirm(ask)) return;
+    api("POST", path, {}).then(function (j) {
+      note(j.message || (j.ok ? "Done." : "Could not change the subscription."), !j.ok);
+      if (j.ok) refresh();
+    }).catch(function () { note("Could not reach the account service.", true); });
+  }
+  $("cancelsub").addEventListener("click", function () {
+    subToggle("/api/pay/stripe/cancel", "Stop renewing? Your plan keeps running until the end of the paid period.");
+  });
+  $("resumesub").addEventListener("click", function () { subToggle("/api/pay/stripe/resume"); });
+
   document.addEventListener("click", function (e) {
     var b = e.target.closest ? e.target.closest(".pay") : null;
     if (!b || b.disabled) return;
@@ -131,7 +168,9 @@
         if (!j.ok) { note(j.message || "Cash is not available.", true); return; }
         $("cashref").textContent = j.reference;
         $("cashtext").textContent = j.instructions;
+        $("cashslip").setAttribute("href", j.slip_url || "#");
         $("cashbox").hidden = false;
+        refresh();
         $("cashbox").scrollIntoView({ behavior: "smooth", block: "start" });
       });
     } else if (m === "crypto") {

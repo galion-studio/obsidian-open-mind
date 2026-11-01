@@ -85,7 +85,12 @@
    <p class="kick" id="h-status">Plan</p>
    <p class="plan" id="plan">Free</p>
    <p class="muted" id="until">No paid time on this account.</p>
-   <button class="btn" id="manage" type="button" hidden><svg aria-hidden="true"><use href="#i-card"/></svg>Manage or cancel card subscription</button>
+   <p class="notice bad" id="billing" hidden></p>
+   <p class="muted" id="banked" hidden></p>
+   <button class="btn" id="manage" type="button" hidden><svg aria-hidden="true"><use href="#i-card"/></svg>Manage card or switch plan</button>
+   <button class="btn" id="cancelsub" type="button" hidden>Cancel at end of paid period</button>
+   <button class="btn" id="resumesub" type="button" hidden>Keep renewing</button>
+   <ul class="muted" id="cashrefs" hidden></ul>
   </article>
 
   <div class="grid g2 plans">
@@ -136,6 +141,7 @@
    <h3>Cash by post</h3>
    <p class="num sm" id="cashref"></p>
    <pre id="cashtext"></pre>
+   <p><a class="btn" id="cashslip" href="#" target="_blank" rel="noopener">Print the slip</a></p>
   </article>
  </section>
 

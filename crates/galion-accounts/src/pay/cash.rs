@@ -103,6 +103,62 @@ impl PaymentAdapter for Cash {
     }
 }
 
+/// Escape text for HTML.
+pub fn esc(s: &str) -> String {
+    let mut o = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => o.push_str("&amp;"),
+            '<' => o.push_str("&lt;"),
+            '>' => o.push_str("&gt;"),
+            '"' => o.push_str("&quot;"),
+            '\'' => o.push_str("&#39;"),
+            c => o.push(c),
+        }
+    }
+    o
+}
+
+/// Content-Security-Policy of the printable slip: no script at all.
+pub const SLIP_CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+/// A printable slip for one cash payment: the part that goes in the
+/// envelope carries only the reference and the plan; the address is for
+/// the outside of the envelope. No account number anywhere.
+pub fn slip_html(
+    reference: &str,
+    plan: crate::plans::Plan,
+    address: &str,
+    valid_until: &str,
+) -> String {
+    let addr: String = address.lines().map(esc).collect::<Vec<_>>().join("<br>");
+    format!(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\
+<meta name=\"robots\" content=\"noindex\"><title>Galion cash slip</title><style>\
+body{{font:16px/1.45 system-ui,sans-serif;max-width:40rem;margin:2rem auto;padding:0 1rem;color:#111}}\
+.slip{{border:2px dashed #111;padding:1.5rem;margin:1.5rem 0;text-align:center}}\
+.ref{{font:700 2rem/1.2 ui-monospace,monospace;letter-spacing:.08em}}\
+.addr{{border:1px solid #999;padding:1rem;font-size:1.1rem}}\
+@media print{{.noprint{{display:none}}body{{margin:0}}}}\
+</style></head><body>\
+<h1>Pay Galion {plan} in cash</h1>\
+<ol><li>Cut out the slip below and put it in an envelope with <b>{price}</b> in euro notes per month of {plan}.</li>\
+<li>Do not write your account number, name or a return address anywhere.</li>\
+<li>Post it to the address below. Time is added when the envelope is opened.</li></ol>\
+<div class=\"slip\"><div>Galion {plan} &middot; {price} per month</div>\
+<div class=\"ref\">{reference}</div><div>valid until {valid_until}</div></div>\
+<p>Address for the envelope:</p><div class=\"addr\">{addr}</div>\
+<p class=\"noprint\">Print this page (Ctrl+P) or copy the reference by hand. \
+More notes = more months, pro rata. Coins and other currencies cannot be counted.</p>\
+</body></html>",
+        plan = esc(plan.name()),
+        price = esc(&fmt_eur(plan.eur_cents())),
+        reference = esc(reference),
+        valid_until = esc(valid_until),
+    )
+}
+
 pub fn fmt_eur(cents: i64) -> String {
     if cents % 100 == 0 {
         format!("€{}", cents / 100)

@@ -360,6 +360,13 @@ This matches the proposal in the galion-home worktree (`docs/payments/galion-hom
 
 ### 2.13 What Slavik has to provide
 
+The step-by-step version, with exact commands, is [SWITCH-ON.md](SWITCH-ON.md). Since then:
+
+- `stripe-setup --apply` also creates the Customer Portal configuration.
+- The `whsec_…` is written to a 0600 file and is never printed.
+- The restricted key also needs write access to Subscriptions (for cancel and resume on
+  `/account`) and to Customer portal configurations.
+
 1. **Stripe:**
    - an account for the Galion business (and its KYC);
    - run `galion-accounts stripe-setup` (dry run), then `--apply --webhook-url

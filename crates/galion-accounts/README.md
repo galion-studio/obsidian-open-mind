@@ -28,13 +28,14 @@ the reason. Any method that isn't connected stays switched off on the page.
 |---|---|
 | `ACCOUNTS_DB`, `ACCOUNTS_PEPPER_FILE` | Same as `--db` and `--pepper-file`. |
 | `ACCOUNTS_INTERNAL_TOKEN` | Bearer token for `/internal/v1/entitlement` on the internal port. |
-| `ACCOUNTS_ADMIN_TOKEN` | Bearer token for `/internal/v1/cash/credit`. |
+| `ACCOUNTS_ADMIN_TOKEN` | Bearer token for `/internal/v1/{cash/credit,cash/lookup,admin/status,crypto/poll}`. |
 | `ACCOUNTS_COOKIE_DOMAIN` | For example `.galion.app`, to share the login across subdomains. |
 | `ACCOUNTS_TRUST_PROXY=1` | Read the client IP from `X-Forwarded-For`. The IP is only used for in-memory rate limits. |
 | `ACCOUNTS_PUBLIC_URL` | Base URL for the Stripe return URLs. Default `https://galion.app`. |
 | `STRIPE_SECRET_KEY` | `sk_…` or a restricted `rk_…` key. If unset, card payment shows as not connected. |
 | `STRIPE_WEBHOOK_SECRET` | `whsec_…` from the webhook endpoint. |
 | `STRIPE_PRICE_PLUS`, `STRIPE_PRICE_PRO` | Optional price ids. Otherwise the server looks up `galion_plus_monthly` / `galion_pro_monthly`. |
+| `STRIPE_PORTAL_CONFIG` | `bpc_…` printed by `stripe-setup --apply`. If unset, the account's default portal configuration is used. |
 | `STRIPE_AUTOMATIC_TAX=1` | Turns on Stripe Tax in Checkout (Stripe then collects the billing country). |
 | `STRIPE_WEBHOOK_TOLERANCE_SECS` | Default 300. |
 | `ACCOUNTS_CASH_ADDRESS` | Postal address, with lines separated by `\|`. If unset, cash shows as not connected. |
@@ -47,26 +48,57 @@ the reason. Any method that isn't connected stays switched off on the page.
 
 ## Stripe setup (the owner runs this, not an agent)
 
+The full step-by-step guide is in [SWITCH-ON.md](SWITCH-ON.md).
+
 ```sh
-export STRIPE_SECRET_KEY=sk_live_...           # or a restricted key
-galion-accounts stripe-setup                   # dry run: prints the plan, sends nothing
-galion-accounts stripe-setup --apply --webhook-url https://galion.app/webhooks/stripe
-# put the printed STRIPE_WEBHOOK_SECRET=whsec_... into the service environment
+# STRIPE_SECRET_KEY is in the env file (typed there by the owner, never on a command line)
+galion-accounts stripe-setup --env-file accounts.env --webhook-url https://galion.app/webhooks/stripe   # dry run: GETs only
+galion-accounts stripe-setup --env-file accounts.env --apply \
+    --webhook-url https://galion.app/webhooks/stripe --secret-out /root/whsec.env
+galion-accounts readiness --env-file accounts.env --pepper-file … --db … --require stripe   # yes/no only
 ```
 
-This creates the Plus and Pro products and their EUR monthly prices (tax-inclusive, with
-lookup keys `galion_plus_monthly` and `galion_pro_monthly`). It also creates a webhook
-endpoint for `checkout.session.completed`, `invoice.paid`, `customer.subscription.updated`
-and `customer.subscription.deleted`. Running it twice is safe.
+`stripe-setup --apply` creates these, each with an idempotency key, and a re-run creates
+nothing:
 
-In the Stripe Dashboard, turn on the **Customer Portal** and allow cancelling, switching
-between Plus and Pro, and updating the payment method. The "Manage" button opens it.
+- The Plus and Pro products, with EUR monthly prices (tax inclusive, lookup keys
+  `galion_plus_monthly` and `galion_pro_monthly`).
+- A Customer Portal configuration that allows cancelling at the period end, switching
+  between Plus and Pro, card update and invoice history. It prints
+  `set STRIPE_PORTAL_CONFIG=bpc_…`.
+- A webhook endpoint for these events:
+  - `checkout.session.completed`
+  - `invoice.paid`
+  - `invoice.payment_failed`
+  - `customer.subscription.updated`
+  - `customer.subscription.deleted`
+  - `charge.refunded`
+
+  An existing endpoint gets any missing events added. The new signing secret goes only
+  into the `--secret-out` file (0600), and is never printed.
+
+How a subscription behaves:
+
+- **Checkout:** a double click reuses the same page. Pages expire after 1 hour. Prepaid
+  time on the same plan becomes a trial, so it is not charged twice.
+- **Cancel or resume:** the customer does this on `/account` (cancel at the period end),
+  or in the portal.
+- **Failed renewal:** `past_due`, with 7 days of grace while Stripe retries.
+- **Refunds:** they are booked in the ledger. A full refund ends the paid time.
+- **Duplicates:** a second subscription for the same account gives no time. It is listed
+  in `/internal/v1/admin/status` so the operator can cancel and refund it.
+- **Other invoices:** invoices for other products on the same Stripe account are
+  acknowledged and ignored.
 
 ## Cash
 
-1. The visitor asks for a reference and posts euro notes with a slip that shows only
-   `GC-XXXX-XXXX-XXXX`.
-2. The operator credits it:
+1. The visitor asks for a reference and prints the slip at `/account/cash-slip?ref=…`.
+   The slip shows the reference, plan, amount and postal address, and no account number.
+   Then they post euro notes with it.
+2. The operator looks it up (`GET /internal/v1/cash/lookup?ref=`, which returns the plan
+   and price, never the account). Then they mark it received through the internal API
+   (`POST /internal/v1/cash/credit {"reference","amount_cents"}` with the admin token),
+   or with:
 
    ```sh
    galion-accounts cash-credit --ref GC-XXXX-XXXX-XXXX --amount-cents 4000 --db /path/accounts.sqlite
@@ -78,9 +110,14 @@ between Plus and Pro, and updating the payment method. The "Manage" button opens
 
 Both backends are self-hosted and stay off unless they are configured (DESIGN 2.6).
 
-- **BTCPay:** we create a EUR invoice tagged only with a `gx_…` reference. BTCPay calls
-  `/webhooks/crypto`. We check `BTCPay-Sig`, read the invoice back and credit the plan pro
-  rata.
+- **BTCPay:** we create a EUR invoice tagged only with a `gp_…` reference. BTCPay calls
+  `/webhooks/crypto` on `InvoiceSettled` or `InvoiceExpired`.
+  - We check `BTCPay-Sig` (constant time) and read the invoice back.
+  - A full payment credits 30 days.
+  - Partly paid, late or overpaid invoices are credited pro rata from the **confirmed**
+    payments only (overpayments are capped at 12 months).
+  - While a payment is still confirming, nothing is credited yet.
+  - `serve` also reconciles open invoices every 5 minutes, in case a webhook is lost.
 - **Monero:** each payment gets a new subaddress (or integrated address), priced in XMR
   from the configured rate. `serve` polls `get_transfers`. You can also run one poll by
   hand:
@@ -97,7 +134,12 @@ Both backends are self-hosted and stay off unless they are configured (DESIGN 2.
   - `/api/pay/stripe/{checkout,portal}`, `/api/pay/cash` and `/api/pay/crypto`;
   - `HEAD|GET /api/checkout?plan=` (the galion-home contract);
   - `/webhooks/{stripe,crypto}`.
-- Internal (keep off the internet): `/internal/v1/{health,entitlement,cash/credit,crypto/poll}`.
+  - `POST /api/pay/stripe/{cancel,resume}`
+  - `GET /account/cash-slip?ref=`
+- Internal (keep off the internet):
+  - `/internal/v1/{health,entitlement,cash/credit,crypto/poll}`;
+  - admin-only `/internal/v1/{cash/lookup,admin/status}`;
+  - `GET /internal/v1/ready`, which needs no token and returns booleans only.
 
 Rust consumers can call `galion_accounts::client::check_session`. It fails closed to Free.
 

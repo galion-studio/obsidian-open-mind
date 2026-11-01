@@ -4,18 +4,25 @@
   <img src="brand/galion/galion-logo.svg" alt="Galion, the Obsidian Open Mind stack, built in Rust" width="100%">
 </p>
 
-<h1 align="center">Galion</h1>
-<p align="center"><strong>Your own AI, on everything you own.</strong></p>
+<h1 align="center">Galion OS</h1>
+<p align="center"><strong>One window. One gradient. Hermes at the centre.</strong></p>
 <p align="center">
-  <a href="LICENSE">MIT License</a> · Built in Rust · <a href="https://galion.app">galion.app</a>
+  Starting with Open Mind and Hermes · <a href="LICENSE">MIT License</a> · Built in Rust · <a href="https://galion.app">galion.app</a>
 </p>
 
-Galion is a personal assistant that lives on your phone, your laptop and the web. It runs
-light and fast on ordinary computers, keeps working when you are offline, and it is free and
-open for everyone.
+Galion OS is the full Galion operating system experience: one window, one gradient,
+ultra-minimal, with Hermes at the centre. Its heart and its interface is the **Obsidian Open
+Mind** stack in this repository, built in Rust so it stays light and lightning fast, and made
+to run on any processor: Linux, Mac, Windows, Android, iPhone and ARM chips such as
+Snapdragon. It is open source under the MIT License: free for everybody to download and do
+anything with.
 
-It is made from the **Obsidian Open Mind** stack: a family of small projects, each doing one
-job well.
+Galion OS is where we are heading, not a finished operating system you can install today. It
+starts here, with Open Mind and Hermes. What you can use now is **Galion One**, a personal
+assistant that lives on your phone, your laptop and the web. It runs light and fast on ordinary
+computers, keeps working when you are offline, and it is free and open for everyone.
+
+The Obsidian Open Mind stack is a family of small projects, each doing one job well.
 
 | Project | What it does for you |
 |---|---|

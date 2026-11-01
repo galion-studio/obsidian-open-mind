@@ -1,4 +1,12 @@
-# Obsidian Open Mind
+# Galion OS, starting with Obsidian Open Mind
+
+**Galion OS** is the full Galion operating system experience: one window, one gradient,
+ultra-minimal, with Hermes at the centre. Obsidian Open Mind is its heart and its interface,
+built in Rust so it stays light and lightning fast, and made to run on any processor: Linux,
+Mac, Windows, Android, iPhone and ARM chips such as Snapdragon. Galion OS is where we are
+heading, not a finished operating system you can install today; it starts here, with Open Mind
+and Hermes. Open source under the MIT License: free for everybody to download and do anything
+with.
 
 Obsidian Open Mind ("Open Mind") is the stance and the code of the Obsidian stack by
 Galion Studio: a lightweight, CPU-light Rust foundation where the CPU box owns the loop, the

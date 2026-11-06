@@ -29,6 +29,7 @@ mod approvals;
 mod ask;
 mod cli;
 mod home;
+mod pricing;
 mod host;
 mod http_plain;
 mod inflate;
@@ -417,6 +418,8 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     let mut host = String::new();
     let mut accept_encoding = String::new();
     let mut if_none_match = String::new();
+    let mut cf_ip_country = String::new();
+    let mut vercel_ip_country = String::new();
     let mut ws_head = stt::Head {
         method: method.clone(),
         headers: Vec::new(),
@@ -444,6 +447,12 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
             }
             if name.eq_ignore_ascii_case("if-none-match") {
                 if_none_match = value.trim().to_string();
+            }
+            if name.eq_ignore_ascii_case("cf-ipcountry") {
+                cf_ip_country = value.trim().to_string();
+            }
+            if name.eq_ignore_ascii_case("x-vercel-ip-country") {
+                vercel_ip_country = value.trim().to_string();
             }
             let lname = name.trim().to_ascii_lowercase();
             if matches!(
@@ -556,7 +565,10 @@ fn handle(mut stream: TcpStream) -> std::io::Result<()> {
     }
     // galion.app public home (src/home.rs): home hosts only; everything else falls through.
     if home::host_on(&host) {
-        if let Some(resp) = home::respond(&method, &path, &accept_encoding, &if_none_match) {
+        let country = home::pricing_country(&cf_ip_country, &vercel_ip_country);
+        if let Some(resp) =
+            home::respond(&method, &path, &accept_encoding, &if_none_match, country, &query)
+        {
             if let Err(err) = stream.write_all(&resp).and_then(|()| stream.flush()) {
                 return quiet(err);
             }

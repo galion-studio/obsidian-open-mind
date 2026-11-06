@@ -41,7 +41,7 @@
   var soon = document.querySelectorAll("[data-plan]");
   for (var i = 0; i < soon.length; i++) (function (el) {
     var plan = el.getAttribute("data-plan");
-    if (plan !== "plus" && plan !== "pro") return;
+    if (plan !== "one" && plan !== "research") return;
     var url = "/api/checkout?plan=" + plan;
     fetch(url, { method: "HEAD", cache: "no-store", credentials: "same-origin", redirect: "manual" }).then(function (r) {
       if (!(r.type === "opaqueredirect" || (r.status >= 200 && r.status < 400))) return;

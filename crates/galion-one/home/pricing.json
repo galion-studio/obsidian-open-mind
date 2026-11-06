@@ -1,0 +1,24 @@
+{
+  "comment": "Owner-editable Galion pricing. Same nominal numbers in USD and EUR (not FX-converted). Country lists use ISO 3166-1 alpha-2. GB and IE are listed under eur_countries by default — edit here to move them.",
+  "default_currency": "usd",
+  "galion_os": { "label": "Free", "forever": true },
+  "galion_one": {
+    "usd": 20,
+    "eur": 20,
+    "period": "month",
+    "plan_id": "one"
+  },
+  "galion_research": {
+    "usd": 220,
+    "eur": 220,
+    "period": "one-time",
+    "plan_id": "research"
+  },
+  "usd_countries": ["US", "CA", "AU", "NZ"],
+  "eur_countries": [
+    "AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU",
+    "IS", "IE", "IT", "LV", "LI", "LT", "LU", "MT", "NL", "NO", "PL", "PT", "RO",
+    "SK", "SI", "ES", "SE", "CH", "GB", "AL", "AD", "BA", "BY", "FO", "GI", "GG",
+    "IM", "JE", "XK", "MD", "MC", "ME", "MK", "RU", "SM", "RS", "UA", "VA"
+  ]
+}

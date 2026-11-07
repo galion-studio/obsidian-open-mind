@@ -120,6 +120,24 @@ border), Sky line art at 2.25 px stroke, round caps and joins, at most one fille
 They read on both GitHub light and dark themes because each carries its own tile. Keep new icons
 angular and geometric (facets, diamonds, chips), no gradients inside icons, no text.
 
+| Icon | File | Feature (SVG `<title>`) |
+|---|---|---|
+| <img src="icons/cpu.svg" width="32" height="32" alt=""> | [`icons/cpu.svg`](icons/cpu.svg) | CPU-only Rust foundation |
+| <img src="icons/config.svg" width="32" height="32" alt=""> | [`icons/config.svg`](icons/config.svg) | No hard-coded hosts |
+| <img src="icons/galion-one.svg" width="32" height="32" alt=""> | [`icons/galion-one.svg`](icons/galion-one.svg) | Galion One voice surface |
+| <img src="icons/guardian.svg" width="32" height="32" alt=""> | [`icons/guardian.svg`](icons/guardian.svg) | Rust guardian and healer |
+| <img src="icons/hermes.svg" width="32" height="32" alt=""> | [`icons/hermes.svg`](icons/hermes.svg) | Hermes boss agent with capped subagents |
+| <img src="icons/omnode.svg" width="32" height="32" alt=""> | [`icons/omnode.svg`](icons/omnode.svg) | omnode phone and edge node |
+| <img src="icons/sandbox.svg" width="32" height="32" alt=""> | [`icons/sandbox.svg`](icons/sandbox.svg) | CPU agent sandbox |
+| <img src="icons/security.svg" width="32" height="32" alt=""> | [`icons/security.svg`](icons/security.svg) | Open-source security: SBOM, signed releases, Scorecard |
+| <img src="icons/voice.svg" width="32" height="32" alt=""> | [`icons/voice.svg`](icons/voice.svg) | Persona Plex full-duplex voice relay |
+
+Colours used: Ink `#0B0F14` (tile), `#24303C` (tile border), Sky `#58C4FF` (line art and the one
+filled facet) and `#B8E8FF` (one highlight, in `galion-one.svg`); all four are in `palette.json` and
+`tokens.css`, so no recolouring was needed. SVG only: there are no PNG exports of the feature icons.
+Origin: drawn for this project (first added in commit `6f3c9ba`); no third-party icon set, licence
+header or attribution in any file. They are covered by the repository's MIT licence.
+
 ## 8. Copyright line
 
 `Copyright (c) 3000 Galion / galion-studio`, as in [`../LICENSE`](../LICENSE). The year 3000 is a

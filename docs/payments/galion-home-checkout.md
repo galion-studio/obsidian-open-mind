@@ -12,8 +12,8 @@ by post. Coins and the mailing address are to be decided. The account system its
 another worker; galion.app only links to `/account`, which is a static placeholder for now.
 
 ## Phase 1: buttons wired to galion-accounts (built)
-One universal subscription for all of galion.app (t550u): `plus` = EUR 20 / month, `pro` = EUR 220 / month.
-The page shows "Coming soon" by default. With `ONE_CHECKOUT=probe`, `home.js` sends `HEAD /api/checkout?plan=plus|pro` (no
+One universal subscription for all of galion.app (t550u): `one` = USD/EUR 20 / month (Galion One), `research` = USD/EUR 220 one-time (Galion Research). Same nominal numbers; currency from CF-IPCountry / x-vercel-ip-country or `?currency=usd|eur`. Config: crates/galion-one/home/pricing.json.
+The page shows "Coming soon" by default. With `ONE_CHECKOUT=probe`, `home.js` sends `HEAD /api/checkout?plan=one|research` (no
 session is created by a HEAD); only a 2xx or 3xx answer turns the button into a `Subscribe` link to
 `/api/checkout?plan=..`. A "not connected" answer (any 4xx/5xx), a 404 or no network keeps "Coming soon".
 `/api/checkout` itself is served by galion-accounts (swarm/galion-accounts-20261101, another worker),
@@ -33,7 +33,7 @@ galion-one answers that path with 404 (checked locally and on live galion.app, 2
 
 ## Phase 2: `/api/checkout` (sketch, not built)
 ```text
-POST /api/checkout {plan: "plus"|"pro", account: "<number>"}
+POST /api/checkout {plan: "one"|"research", account: "<number>"}
   -> provider = config.provider (default "stripe")
   -> stripe: POST https://api.stripe.com/v1/checkout/sessions
        mode=subscription, line_items[0][price]=<PRICE_ID>, line_items[0][quantity]=1,
@@ -49,7 +49,7 @@ POST /api/stripe/webhook  (verify Stripe-Signature with the webhook secret)
 - Trait sketch: `trait Checkout { fn create(&self, plan: Plan, account: &str) -> Result<Url>; fn verify_webhook(&self, body: &[u8], sig: &str) -> Result<Event>; }`, with `Stripe` first; crypto and cash are separate flows (manual cash credit, crypto processor TBD).
 
 ## Needed from Slavik's Stripe account (nothing created yet)
-1. One product (the universal subscription) with two **recurring monthly Prices** in EUR: EUR 20.00 (`plus`) and EUR 220.00 (`pro`) (price IDs).
+1. One product (the universal subscription) with two **recurring monthly Prices** in EUR: USD/EUR 20.00 (`one`, monthly) and USD/EUR 220.00 (`research`, one-time) (price IDs).
 2. Phase 1: a **Payment Link** for each Price (two `https://buy.stripe.com/...` URLs).
    Phase 2 instead: a **restricted API key** with write access to Checkout Sessions only (plus
    read on Prices), stored in an env file on the server, never in git or the page.

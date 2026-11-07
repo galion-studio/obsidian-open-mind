@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 3000 Galion / galion-studio
-//! galion.app public home page (Mate for Slavik, t545u-t550u, 2026-11-01 CET).
+//! galion.app public home page (Mate for Slavik, t545u–t550u + t880u, 2026-11-06 CET).
 //!
 //! The page is compiled into the binary (`include_bytes!`), with a gzip copy
 //! made by `gzip -9 -n -k -f home/index.html` (a test checks it still matches
@@ -9,15 +9,22 @@
 //! keep the Galion One app. `ONE_HOME_HOSTS=` (empty) switches the home page
 //! off without a new binary. Brotli is left to the Cloudflare edge.
 //!
-//! Paid plans (t548u/t550u): one universal subscription, `plus` (EUR 20 / month)
-//! and `pro` (EUR 220 / month). Checkout belongs to galion-accounts
-//! (`/api/checkout?plan=plus|pro`, another worker). The page shows
-//! "Coming soon" until that answers: home.js sends `HEAD /api/checkout?plan=..`
-//! and only a 2xx/3xx turns the button into a link; that probe runs only with
-//! `ONE_CHECKOUT=probe` (off by default, so no 404 noise today). `ONE_CHECKOUT=on` renders
-//! the links server-side (for visitors without JS) once accounts is live.
-//! `ONE_WAITLIST_URL` (https: or mailto:) turns the waiting buttons into
-//! "Coming soon: join the waitlist" links. See docs/payments/galion-home-checkout.md.
+//! Pricing (owner config `home/pricing.json`): Galion OS free forever under
+//! the perpetual open MIT licence; Galion One `$20` / `€20` per month;
+//! Galion Research `$220` / `€220` one-time. Same nominal numbers, not
+//! FX-converted. Currency is chosen server-side from `CF-IPCountry` or
+//! `x-vercel-ip-country`, with `?currency=usd|eur` for testing. No third-party
+//! geo API, no cookies. The HTML is filled on the server so there is no
+//! client currency flicker.
+//!
+//! Checkout belongs to galion-accounts (`/api/checkout?plan=one|research`).
+//! The page shows "Coming soon" until that answers: home.js sends
+//! `HEAD /api/checkout?plan=..` and only a 2xx/3xx turns the button into a
+//! link; that probe runs only with `ONE_CHECKOUT=probe`. `ONE_CHECKOUT=on`
+//! renders the links server-side. `ONE_WAITLIST_URL` turns waiting buttons
+//! into waitlist links. See docs/payments/galion-home-checkout.md.
+
+use crate::pricing::{self, Currency};
 
 pub const HTML: &[u8] = include_bytes!("../home/index.html");
 pub const HTML_GZ: &[u8] = include_bytes!("../home/index.html.gz");
@@ -33,12 +40,22 @@ pub const OBSIDIAN: &[u8] = include_bytes!("../os/obsidian.html");
 
 const CSP: &str = "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
-pub const PLANS: [&str; 2] = ["plus", "pro"];
+/// Checkout plan ids (must match `<!--pay:…-->` markers and home.js).
+pub const PLANS: [&str; 2] = ["one", "research"];
+
 
 pub fn host_on(host: &str) -> bool {
     let list =
         std::env::var("ONE_HOME_HOSTS").unwrap_or_else(|_| "galion.app,www.galion.app".to_string());
     super::v2_host_in(&list, host)
+}
+
+/// Country string for pricing: Cloudflare first, then Vercel.
+pub fn pricing_country<'a>(cf_ip_country: &'a str, vercel_ip_country: &'a str) -> &'a str {
+    pricing::country_from_headers(
+        (!cf_ip_country.is_empty()).then_some(cf_ip_country),
+        (!vercel_ip_country.is_empty()).then_some(vercel_ip_country),
+    )
 }
 
 fn safe_url(url: &str) -> bool {
@@ -49,23 +66,67 @@ fn safe_url(url: &str) -> bool {
         })
 }
 
-/// The page with the plan buttons filled in, or None when nothing is
-/// configured (then the precompressed copy is served as is).
-pub fn render(get: &dyn Fn(&str) -> Option<String>) -> Option<Vec<u8>> {
+fn replace_marker(html: &mut String, open: &str, close: &str, value: &str) {
+    if let Some(a) = html.find(open) {
+        if let Some(end) = html[a..].find(close) {
+            html.replace_range(a..a + end + close.len(), value);
+        }
+    }
+}
+
+/// Fill currency amounts / note, then optional checkout buttons.
+pub fn render_page(
+    currency: Currency,
+    get: &dyn Fn(&str) -> Option<String>,
+) -> Vec<u8> {
     let mode = get("ONE_CHECKOUT")
         .map(|v| v.trim().to_string())
         .unwrap_or_default();
     let live = mode == "on";
     let probe = mode == "probe";
     let wait = get("ONE_WAITLIST_URL").filter(|u| safe_url(u));
-    if !live && !probe && wait.is_none() {
-        return None;
-    }
+
     let mut html = String::from_utf8_lossy(HTML).into_owned();
+    let p = pricing::prices(currency);
+
+    // Server-side currency: set on <html> so CSS/content match with no client flicker.
+    html = html.replacen(
+        "<html lang=\"en\" data-currency=\"usd\">",
+        &format!("<html lang=\"en\" data-currency=\"{}\">", currency.as_str()),
+        1,
+    );
+
+    let one_amt = format!(
+        "{}<span>/ {}</span>",
+        pricing::amount_html(currency, p.one),
+        p.one_period
+    );
+    let research_amt = format!(
+        "{}<span> {}</span>",
+        pricing::amount_html(currency, p.research),
+        p.research_period
+    );
+    replace_marker(&mut html, "<!--ONE_AMT-->", "<!--/ONE_AMT-->", &one_amt);
+    replace_marker(
+        &mut html,
+        "<!--RESEARCH_AMT-->",
+        "<!--/RESEARCH_AMT-->",
+        &research_amt,
+    );
+    replace_marker(
+        &mut html,
+        "<!--PRICE_NOTE-->",
+        "<!--/PRICE_NOTE-->",
+        pricing::note_html(currency),
+    );
+
     if probe {
         html = html.replacen(
-            "<html lang=\"en\">",
-            "<html lang=\"en\" data-checkout=\"probe\">",
+            &format!("<html lang=\"en\" data-currency=\"{}\">", currency.as_str()),
+            &format!(
+                "<html lang=\"en\" data-currency=\"{}\" data-checkout=\"probe\">",
+                currency.as_str()
+            ),
             1,
         );
     }
@@ -78,8 +139,16 @@ pub fn render(get: &dyn Fn(&str) -> Option<String>) -> Option<Vec<u8>> {
         if probe && wait.is_none() {
             break;
         }
+        if !live && wait.is_none() {
+            break;
+        }
+        let label = if plan == "research" {
+            "Buy"
+        } else {
+            "Subscribe"
+        };
         let button = if live {
-            format!("<a class=\"btn pri\" href=\"/api/checkout?plan={plan}\">Subscribe</a>")
+            format!("<a class=\"btn pri\" href=\"/api/checkout?plan={plan}\">{label}</a>")
         } else {
             let w = wait.as_deref().unwrap_or("").replace('&', "&amp;");
             format!(
@@ -93,13 +162,19 @@ pub fn render(get: &dyn Fn(&str) -> Option<String>) -> Option<Vec<u8>> {
             }
         }
     }
-    Some(html.into_bytes())
+    html.into_bytes()
 }
 
-fn rendered() -> Option<&'static [u8]> {
-    static SLOT: std::sync::OnceLock<Option<Vec<u8>>> = std::sync::OnceLock::new();
-    SLOT.get_or_init(|| render(&|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty())))
-        .as_deref()
+/// Back-compat helper used by older tests: checkout-only render, USD default.
+pub fn render(get: &dyn Fn(&str) -> Option<String>) -> Option<Vec<u8>> {
+    let mode = get("ONE_CHECKOUT")
+        .map(|v| v.trim().to_string())
+        .unwrap_or_default();
+    let wait = get("ONE_WAITLIST_URL").filter(|u| safe_url(u));
+    if mode != "on" && mode != "probe" && wait.is_none() {
+        return None;
+    }
+    Some(render_page(Currency::Usd, get))
 }
 
 pub(crate) fn etag(body: &[u8]) -> String {
@@ -124,58 +199,80 @@ fn gzip_ok(accept: &str) -> bool {
     })
 }
 
+fn redirect(location: &str) -> Vec<u8> {
+    format!(
+        "HTTP/1.1 301 Moved Permanently\r\nLocation: {location}\r\nContent-Length: 0\r\nCache-Control: public, max-age=3600\r\nConnection: close\r\n\r\n"
+    )
+    .into_bytes()
+}
+
 /// A full HTTP response for a home-page route, or None to fall through to
 /// the Galion One routes (fonts, /space, APIs and so on).
-pub fn respond(method: &str, path: &str, accept: &str, if_none_match: &str) -> Option<Vec<u8>> {
+///
+/// `country` is the raw edge country header value (may be empty).
+/// `query` is the raw URL query string (may be empty); `currency=usd|eur` overrides.
+pub fn respond(
+    method: &str,
+    path: &str,
+    accept: &str,
+    if_none_match: &str,
+    country: &str,
+    query: &str,
+) -> Option<Vec<u8>> {
     let head_only = method == "HEAD";
     if method != "GET" && !head_only {
         return None;
     }
-    let (kind, plain, gz, cache): (&str, &[u8], Option<&[u8]>, &str) = match path {
-        "/" | "/index.html" => match rendered() {
-            // Configured buttons: plain body (the Cloudflare edge compresses it).
-            Some(page) => (
+
+    if matches!(path, "/pricing" | "/pricing/") {
+        return Some(redirect("/#pricing"));
+    }
+    // Live 404 today; send people to the Galion One section on the home page.
+    if matches!(path, "/galion-one" | "/galion-one/") {
+        return Some(redirect("/#galion"));
+    }
+
+    let currency = pricing::resolve(country, query);
+    let override_on = query
+        .split('&')
+        .any(|p| p.split('=').next().unwrap_or("").eq_ignore_ascii_case("currency"));
+
+    // Home HTML is always filled server-side (currency + optional checkout) so
+    // the visitor never sees a wrong currency flash. Edge compresses the body.
+    let home_owned: Option<Vec<u8>> = matches!(path, "/" | "/index.html")
+        .then(|| render_page(currency, &|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty())));
+
+    let (kind, plain, gz, cache, vary_currency): (&str, &[u8], Option<&[u8]>, &str, bool) =
+        match path {
+            "/" | "/index.html" => (
                 "text/html; charset=utf-8",
-                page,
+                home_owned.as_deref().unwrap(),
                 None,
-                "public, max-age=300",
+                if override_on {
+                    "private, max-age=60"
+                } else {
+                    "public, max-age=300"
+                },
+                true,
             ),
-            None => (
-                "text/html; charset=utf-8",
-                HTML,
-                Some(HTML_GZ),
-                "public, max-age=300",
+            "/account" | "/account/" => ("text/html; charset=utf-8", ACCOUNT, None, "no-store", false),
+            "/operating-system" | "/operating-system/" => {
+                ("text/html; charset=utf-8", OS_PAGE, None, "public, max-age=300", false)
+            }
+            "/obsidian" | "/obsidian/" => {
+                ("text/html; charset=utf-8", OBSIDIAN, None, "public, max-age=300", false)
+            }
+            "/home.js" => (
+                "text/javascript; charset=utf-8",
+                JS,
+                None,
+                "public, max-age=3600",
+                false,
             ),
-        },
-        // Fallback only: with galion-accounts up, main.rs forwards /account to it
-        // (src/accounts_proxy.rs); this page shows when it is off or down.
-        "/account" | "/account/" => ("text/html; charset=utf-8", ACCOUNT, None, "no-store"),
-        "/pricing" | "/pricing/" => {
-            return Some(
-                b"HTTP/1.1 301 Moved Permanently\r\nLocation: /#pricing\r\nContent-Length: 0\r\nCache-Control: public, max-age=3600\r\nConnection: close\r\n\r\n".to_vec(),
-            );
-        }
-        "/operating-system" | "/operating-system/" => (
-            "text/html; charset=utf-8",
-            OS_PAGE,
-            None,
-            "public, max-age=300",
-        ),
-        "/obsidian" | "/obsidian/" => (
-            "text/html; charset=utf-8",
-            OBSIDIAN,
-            None,
-            "public, max-age=300",
-        ),
-        "/home.js" => (
-            "text/javascript; charset=utf-8",
-            JS,
-            None,
-            "public, max-age=3600",
-        ),
-        "/galion-mark.svg" => ("image/svg+xml", MARK, None, "public, max-age=86400"),
-        _ => return None,
-    };
+            "/galion-mark.svg" => ("image/svg+xml", MARK, None, "public, max-age=86400", false),
+            _ => return None,
+        };
+
     let tag = etag(plain);
     let mut extra = String::new();
     let body: &[u8] = match gz {
@@ -187,6 +284,10 @@ pub fn respond(method: &str, path: &str, accept: &str, if_none_match: &str) -> O
     };
     if gz.is_some() {
         extra.push_str("Vary: Accept-Encoding\r\n");
+    }
+    if vary_currency && !override_on {
+        // So shared caches keep USD and EUR copies apart.
+        extra.push_str("Vary: CF-IPCountry, X-Vercel-Ip-Country\r\n");
     }
     let common = format!(
         "Content-Type: {kind}\r\nCache-Control: {cache}\r\nETag: {tag}\r\n{extra}X-Content-Type-Options: nosniff\r\nReferrer-Policy: strict-origin-when-cross-origin\r\nContent-Security-Policy: {CSP}\r\nConnection: close\r\n"
@@ -202,6 +303,8 @@ pub fn respond(method: &str, path: &str, accept: &str, if_none_match: &str) -> O
     if !head_only {
         out.extend_from_slice(body);
     }
+    // home_owned must live through the body copy above.
+    drop(home_owned);
     Some(out)
 }
 
@@ -215,6 +318,11 @@ mod tests {
         let (out, res) = crate::inflate::inflate_raw(&z[10..z.len() - 8], 1 << 22);
         assert!(res.is_ok());
         out
+    }
+
+    fn body_of(resp: &[u8]) -> &str {
+        let s = std::str::from_utf8(resp).unwrap();
+        s.split("\r\n\r\n").nth(1).unwrap_or("")
     }
 
     #[test]
@@ -244,6 +352,13 @@ mod tests {
         assert!(s.contains("https://one.galion.app"));
         assert!(s.contains("id=\"pricing\""));
         assert!(s.contains("href=\"/account\""));
+        assert!(s.contains("Galion Research"));
+        assert!(!s.contains("Hermes Research") && !s.contains("Hermes research"));
+        assert!(s.contains("G.A.L.I.O.N. — General Autonomous Local Intelligence Open Network"));
+        assert!(s.contains("Developed and distributed by Galion Labs"));
+        assert!(s.contains("Perpetual Open MIT License"));
+        assert!(s.contains("Copyright © 2026 Galion Labs. All rights reserved."));
+        assert!(s.contains("data-currency=\"usd\""));
         for plan in PLANS {
             assert!(s.contains(&format!("<!--pay:{plan}-->")), "{plan}");
             assert!(s.contains(&format!("data-plan=\"{plan}\"")), "{plan}");
@@ -271,17 +386,17 @@ mod tests {
     fn plan_buttons() {
         assert!(
             render(&|_| None).is_none(),
-            "nothing configured: static page"
+            "nothing configured: currency-only path uses render_page"
         );
         let live = |k: &str| (k == "ONE_CHECKOUT").then(|| "on".to_string());
         let s = String::from_utf8(render(&live).unwrap()).unwrap();
-        assert!(s.contains("href=\"/api/checkout?plan=plus\""));
-        assert!(s.contains("href=\"/api/checkout?plan=pro\""));
+        assert!(s.contains("href=\"/api/checkout?plan=one\""));
+        assert!(s.contains("href=\"/api/checkout?plan=research\""));
         let probe = |k: &str| (k == "ONE_CHECKOUT").then(|| "probe".to_string());
         let s = String::from_utf8(render(&probe).unwrap()).unwrap();
-        assert!(s.contains("<html lang=\"en\" data-checkout=\"probe\">"));
+        assert!(s.contains("data-checkout=\"probe\""));
         assert!(
-            s.contains("<!--pay:plus-->"),
+            s.contains("<!--pay:one-->"),
             "probe keeps Coming soon until accounts answers"
         );
         let wait = |k: &str| (k == "ONE_WAITLIST_URL").then(|| "mailto:hi@example.org".to_string());
@@ -293,7 +408,36 @@ mod tests {
     }
 
     #[test]
-    fn os_pages() {
+    fn currency_rendered_server_side() {
+        let usd = String::from_utf8(render_page(Currency::Usd, &|_| None)).unwrap();
+        assert!(usd.contains("data-currency=\"usd\""));
+        assert!(usd.contains("&#36;20"));
+        assert!(usd.contains("&#36;220"));
+        assert!(usd.contains("Prices in US dollars."));
+        assert!(!usd.contains("$"));
+
+        let eur = String::from_utf8(render_page(Currency::Eur, &|_| None)).unwrap();
+        assert!(eur.contains("data-currency=\"eur\""));
+        assert!(eur.contains("&euro;20"));
+        assert!(eur.contains("&euro;220"));
+        assert!(eur.contains("Prices in euros."));
+
+        let r = respond("GET", "/", "", "", "DE", "").unwrap();
+        let b = body_of(&r);
+        assert!(b.contains("data-currency=\"eur\""));
+        assert!(b.contains("&euro;20"));
+        assert!(std::str::from_utf8(&r).unwrap().contains("Vary: CF-IPCountry"));
+
+        let r = respond("GET", "/", "", "", "US", "").unwrap();
+        assert!(body_of(&r).contains("data-currency=\"usd\""));
+
+        let r = respond("GET", "/", "", "", "DE", "currency=usd").unwrap();
+        assert!(body_of(&r).contains("data-currency=\"usd\""));
+        assert!(std::str::from_utf8(&r).unwrap().contains("Cache-Control: private"));
+    }
+
+    #[test]
+    fn os_pages_carry_footer() {
         for (path, page, head) in [
             (
                 "/operating-system",
@@ -307,7 +451,7 @@ mod tests {
             ),
         ] {
             let s = std::str::from_utf8(page).unwrap();
-            assert!(page.len() < 24 * 1024, "{path} weight {}", page.len());
+            assert!(page.len() < 28 * 1024, "{path} weight {}", page.len());
             assert!(s.contains(head), "{path}");
             for bad in [
                 "http://",
@@ -322,16 +466,18 @@ mod tests {
             }
             assert!(s.contains("prefers-reduced-motion:reduce"), "{path}");
             assert!(s.contains("https://github.com/galion-studio/galion-operating-system"));
-            assert!(s.contains("MIT License"));
-            assert!(s.contains("Downloads come once the first image is ready."));
+            assert!(s.contains("G.A.L.I.O.N. — General Autonomous Local Intelligence Open Network"));
+            assert!(s.contains("Developed and distributed by Galion Labs"));
+            assert!(s.contains("Perpetual Open MIT License"));
+            assert!(s.contains("Copyright © 2026 Galion Labs. All rights reserved."));
             for p in [path.to_string(), format!("{path}/")] {
-                let r = respond("GET", &p, "gzip", "").unwrap();
+                let r = respond("GET", &p, "gzip", "", "", "").unwrap();
                 assert!(
                     r.starts_with(b"HTTP/1.1 200 OK\r\n") && r.ends_with(page),
                     "{p}"
                 );
             }
-            let r = respond("GET", path, "", &etag(page)).unwrap();
+            let r = respond("GET", path, "", &etag(page), "", "").unwrap();
             assert!(r.starts_with(b"HTTP/1.1 304"));
         }
         let s = std::str::from_utf8(OS_PAGE).unwrap();
@@ -342,33 +488,44 @@ mod tests {
         assert!(std::str::from_utf8(OBSIDIAN)
             .unwrap()
             .contains("href=\"/operating-system\""));
-        assert!(respond("POST", "/obsidian", "", "").is_none());
+        assert!(respond("POST", "/obsidian", "", "", "", "").is_none());
     }
 
     #[test]
     fn routes() {
-        let r = String::from_utf8_lossy(&respond("GET", "/", "gzip, br", "").unwrap()).into_owned();
+        let r = String::from_utf8_lossy(&respond("GET", "/", "gzip, br", "", "", "").unwrap())
+            .into_owned();
         assert!(r.starts_with("HTTP/1.1 200 OK\r\n"));
-        assert!(r.contains("Content-Encoding: gzip\r\n"));
-        assert!(r.contains("Vary: Accept-Encoding\r\n"));
-        let r = respond("GET", "/", "gzip;q=0", "").unwrap();
-        assert!(!String::from_utf8_lossy(&r).contains("Content-Encoding"));
-        assert!(r.ends_with(HTML));
-        let head = respond("HEAD", "/", "", "").unwrap();
+        // Dynamic currency page: no precompressed gzip (edge compresses).
+        assert!(!r.contains("Content-Encoding: gzip\r\n"));
+        let r = respond("GET", "/", "gzip;q=0", "", "US", "").unwrap();
+        assert!(body_of(&r).contains("data-currency=\"usd\""));
+        let head = respond("HEAD", "/", "", "", "", "").unwrap();
         assert!(String::from_utf8_lossy(&head).ends_with("\r\n\r\n"));
-        let tag = etag(HTML);
-        let r = respond("GET", "/", "gzip", &tag).unwrap();
+        let page = render_page(Currency::Usd, &|_| None);
+        let tag = etag(&page);
+        let r = respond("GET", "/", "gzip", &tag, "US", "").unwrap();
         assert!(String::from_utf8_lossy(&r).starts_with("HTTP/1.1 304"));
-        let r = respond("GET", "/pricing", "", "").unwrap();
+        let r = respond("GET", "/pricing", "", "", "", "").unwrap();
         assert!(String::from_utf8_lossy(&r).contains("Location: /#pricing\r\n"));
-        let r = String::from_utf8_lossy(&respond("GET", "/account", "", "").unwrap()).into_owned();
+        let r = respond("GET", "/galion-one", "", "", "", "").unwrap();
+        assert!(String::from_utf8_lossy(&r).contains("Location: /#galion\r\n"));
+        let r = String::from_utf8_lossy(&respond("GET", "/account", "", "", "", "").unwrap())
+            .into_owned();
         assert!(r.starts_with("HTTP/1.1 200 OK\r\n") && r.contains("Cache-Control: no-store\r\n"));
-        assert!(respond("GET", "/home.js", "", "").is_some());
-        assert!(respond("GET", "/font/jost.woff2", "", "").is_none());
+        assert!(respond("GET", "/home.js", "", "", "", "").is_some());
+        assert!(respond("GET", "/font/jost.woff2", "", "", "", "").is_none());
         assert!(
-            respond("HEAD", "/api/checkout", "", "").is_none(),
+            respond("HEAD", "/api/checkout", "", "", "", "").is_none(),
             "accounts owns it"
         );
-        assert!(respond("POST", "/", "", "").is_none());
+        assert!(respond("POST", "/", "", "", "", "").is_none());
+    }
+
+    #[test]
+    fn account_has_footer() {
+        let s = std::str::from_utf8(ACCOUNT).unwrap();
+        assert!(s.contains("G.A.L.I.O.N. — General Autonomous Local Intelligence Open Network"));
+        assert!(s.contains("Developed and distributed by Galion Labs"));
     }
 }

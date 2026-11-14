@@ -1,0 +1,240 @@
+/* SPDX-License-Identifier: MIT */
+/* SPDX-FileCopyrightText: 3000 Galion / galion-studio */
+/* Copyright (c) 3000 Galion / galion-studio */
+/*
+ * TypeScript console IDE shell. Tokens match crates/console-ui/src/css.rs
+ * on cursor/console-research-brand-e674 (draft PR 32): --c-*, --sans,
+ * --display, --mono. No font download. Cap: 8 KiB.
+ * Tailwind utilities in this panel read --color-*; those aliases point
+ * at the --c-* tokens so there is one palette.
+ */
+
+.galion-console {
+  --c-bg: #0B0F14;
+  --c-surface: #131A22;
+  --c-elevated: #1B2633;
+  --c-fg: #E6EDF3;
+  --c-muted: #A7B6C4;
+  --c-subtle: #A7B6C4;
+  --c-line: #24303C;
+  --c-accent: #58C4FF;
+  --c-accent-fg: #0B0F14;
+  --c-online: #89d185;
+  --c-offline: #f14c4c;
+  --c-held: #cca700;
+  --c-ring: #58C4FF;
+  --c-frost: #58C4FF;
+  --c-ice: #B8E8FF;
+  --c-winter: #05070A;
+  --c-ok: #89d185;
+  --c-warn: #e2c04a;
+  --c-bad: #f48771;
+  --c-link: #58C4FF;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --display: "Jost", var(--sans);
+  --mono: "IBM Plex Mono", "Cascadia Code", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --color-bg: var(--c-bg);
+  --color-surface: var(--c-surface);
+  --color-elevated: var(--c-elevated);
+  --color-fg: var(--c-fg);
+  --color-muted: var(--c-muted);
+  --color-subtle: var(--c-subtle);
+  --color-line: var(--c-line);
+  --color-accent: var(--c-accent);
+  --color-accent-fg: var(--c-accent-fg);
+  --color-winter: var(--c-winter);
+  --color-frost: var(--c-frost);
+  --color-ice: var(--c-ice);
+  background: var(--c-bg);
+  color: var(--c-fg);
+  font-family: var(--sans);
+  color-scheme: dark;
+}
+
+.galion-console[data-theme="light"] {
+  --c-bg: #F7F9FB;
+  --c-surface: #EEF2F6;
+  --c-elevated: #FFFFFF;
+  --c-fg: #0B0F14;
+  --c-muted: #3F4C59;
+  --c-subtle: #3F4C59;
+  --c-line: #D5DDE5;
+  --c-accent: #0B5FA5;
+  --c-accent-fg: #fff;
+  --c-ring: #0B5FA5;
+  --c-frost: #0B5FA5;
+  --c-ice: #0B5FA5;
+  --c-winter: #F7F9FB;
+  --c-ok: #1f7a34;
+  --c-warn: #835c00;
+  --c-bad: #b42318;
+  --c-link: #0B5FA5;
+  background: var(--c-bg);
+  color: var(--c-fg);
+  color-scheme: light;
+}
+
+.galion-console .life-stage {
+  background:
+    radial-gradient(90% 48% at 50% -14%, color-mix(in srgb, var(--c-ice) 38%, transparent), transparent 62%),
+    var(--c-bg);
+}
+
+.galion-console h1 {
+  font-family: var(--display);
+  font-weight: 500;
+}
+
+.galion-console .one-kicker,
+.galion-console .font-mono {
+  font-family: var(--mono);
+}
+
+.galion-console .one-kicker {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+}
+
+.galion-console .research-empty,
+.galion-console .one-stage {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.85rem;
+  max-width: 26rem;
+  margin: 0 auto;
+  padding: 1.25rem 0.25rem 2rem;
+}
+
+.galion-console .research-empty { align-items: flex-start; }
+
+.galion-console .one-stage {
+  align-items: center;
+  min-height: 100%;
+  text-align: center;
+}
+
+.galion-console .research-empty h1,
+.galion-console .one-stage h1 {
+  margin: 0;
+  font-size: 2.25rem;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  color: var(--c-fg);
+}
+
+.galion-console .one-hint {
+  margin: 0;
+  max-width: 22rem;
+  color: var(--c-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.galion-console .one-switch {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--c-accent);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.galion-console .one-switch:focus-visible,
+.galion-console .one-dot:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 3px;
+}
+
+/* Galion One voice control. Same fill as .ask-voice in the Rust research sheet. */
+.galion-console .one-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.75rem;
+  height: 4.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  color: #0B0F14;
+  background: linear-gradient(135deg,#B8E8FF,#58C4FF 55%,#0B5FA5);
+  cursor: pointer;
+}
+
+/* Ink on the ocean stop is 2.92:1. Paper plate behind the glyph, same as PR 39. Gradient unchanged. */
+.galion-console .one-dot-core {
+  display: block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #0B0F14;
+  box-shadow: 0 0 0 3px #F7F9FB;
+}
+
+.galion-console .one-dot-sm {
+  width: 2.75rem;
+  height: 2.75rem;
+}
+
+.galion-console .one-dot[data-phase="listen"] { animation: galion-dot-listen 1.6s ease-in-out infinite; }
+.galion-console .one-dot[data-phase="speak"] { animation: galion-dot-speak 0.9s ease-in-out infinite; }
+.galion-console .one-dot[data-phase="hold"] { animation: galion-dot-hold 2.4s ease-in-out infinite; }
+
+.galion-console .galion-bar,
+.galion-console .research-composer {
+  background: transparent;
+  border-color: transparent;
+}
+
+/* Empty Research: the prompt and voice control are the screen. */
+.galion-console .life-stage:has(.research-empty) {
+  justify-content: center;
+}
+
+.galion-console .life-stage:has(.research-empty) .research-composer {
+  max-width: 40rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.galion-console .life-stage:has(.research-empty) .research-composer textarea {
+  min-height: 8.5rem;
+  font-size: 1.35rem;
+  line-height: 1.45;
+}
+
+.galion-console .life-stage:has(.research-empty) .research-composer form {
+  align-items: flex-end;
+  padding: 1rem;
+  border: 1px solid var(--c-line);
+  border-radius: 2rem;
+  background: var(--c-surface);
+}
+
+.galion-console .research-composer {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+@keyframes galion-dot-listen {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+}
+
+@keyframes galion-dot-speak {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.04); }
+}
+
+@keyframes galion-dot-hold {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .galion-console .one-dot { animation: none; }
+}

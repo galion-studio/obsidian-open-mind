@@ -14,7 +14,8 @@
 //! microphone, or call a model.
 //!
 //! Printing the page opens no socket. [`listen`] binds a loopback address
-//! only.
+//! only. Live checks of nerve, cortex, console, Hermes and voice are
+//! [`probe`]: read-only GETs, and only when `--probe` or `GET /probes` asks.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -23,6 +24,7 @@ pub mod cli;
 pub mod error;
 pub mod http;
 pub mod page;
+pub mod probe;
 pub mod sound;
 pub mod stack;
 
@@ -30,6 +32,7 @@ pub use cli::{parse, Mode, USAGE};
 pub use error::DesktopError;
 pub use http::listen;
 pub use page::document;
+pub use probe::{probe_all, probe_one, ProbeConfig, ProbeSet, Service, State, SERVICES};
 pub use sound::{wav, TONES};
 pub use stack::LAYERS;
 

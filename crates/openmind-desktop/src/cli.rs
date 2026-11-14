@@ -3,15 +3,24 @@
 // Copyright (c) 3000 Galion / galion-studio
 
 //! Command-line parsing. Pure: no environment reads, no sockets.
+//!
+//! `--probe SPEC` checks the spec here. `OPENMIND_DESKTOP_PROBES` is read
+//! later, only for `--probe` without a spec and for `--listen`.
 
 use crate::error::DesktopError;
+use crate::probe::ProbeConfig;
 
 /// Usage line printed for `--help` and for every rejected argument list.
 pub const USAGE: &str = "\
-usage: openmind-desktop [--listen [ADDR] | --help | --version]
+usage: openmind-desktop [--listen [ADDR] | --probe [SPEC] | --help | --version]
   (no flags)     print the control-console page and exit; no socket
   --listen       serve that page on 127.0.0.1:18081
-  --listen ADDR  serve it on a loopback ADDR only (for example 127.0.0.1:0)";
+  --listen ADDR  serve it on a loopback ADDR only (for example 127.0.0.1:0)
+  --probe        GET nerve, cortex, console, hermes and voice; print the report
+  --probe SPEC   same, with SPEC (name=host:port/path, comma-separated)
+                 timeout=MILLISECONDS (50 to 10000) is one SPEC entry
+                 name=- skips that service and opens no socket for it
+                 OPENMIND_DESKTOP_PROBES is used when SPEC is omitted";
 
 /// What the operator asked the binary to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,6 +33,9 @@ pub enum Mode {
     Help,
     /// `--version` or `-V` (also handled before `main` returns).
     Version,
+    /// Read-only health report. `None` means defaults, or
+    /// `OPENMIND_DESKTOP_PROBES` when that variable is set.
+    Probe(Option<String>),
 }
 
 impl Mode {
@@ -39,7 +51,7 @@ impl Mode {
         match self {
             Mode::Listen(Some(addr)) => Some(addr.as_str()),
             Mode::Listen(None) => Some(crate::DEFAULT_BIND),
-            Mode::Page | Mode::Help | Mode::Version => None,
+            Mode::Page | Mode::Help | Mode::Version | Mode::Probe(_) => None,
         }
     }
 }
@@ -59,6 +71,15 @@ pub fn parse(args: &[String]) -> Result<Mode, DesktopError> {
         ["--listen", _] => Err(DesktopError::Usage(
             "openmind-desktop: --listen needs a loopback address".into(),
         )),
+        ["--probe"] => Ok(Mode::Probe(None)),
+        ["--probe", spec] if is_addr_token(spec) => {
+            ProbeConfig::parse(spec)
+                .map_err(|err| DesktopError::Usage(format!("openmind-desktop: {err}\n{USAGE}")))?;
+            Ok(Mode::Probe(Some((*spec).to_string())))
+        }
+        ["--probe", _] => Err(DesktopError::Usage(format!(
+            "openmind-desktop: --probe needs a spec (name=host:port/path)\n{USAGE}"
+        ))),
         [first, ..] => Err(DesktopError::Usage(format!(
             "openmind-desktop: unexpected argument {first:?}\n{USAGE}"
         ))),
@@ -89,6 +110,11 @@ mod tests {
             parse(&args(&["--listen", "127.0.0.1:9"])).unwrap(),
             Mode::Listen(Some("127.0.0.1:9".into()))
         );
+        assert_eq!(parse(&args(&["--probe"])).unwrap(), Mode::Probe(None));
+        assert_eq!(
+            parse(&args(&["--probe", "voice=-"])).unwrap(),
+            Mode::Probe(Some("voice=-".into()))
+        );
     }
 
     #[test]
@@ -99,6 +125,8 @@ mod tests {
         assert!(Mode::Page.bind_addr().is_none());
         assert!(!Mode::Help.serves());
         assert!(!Mode::Version.serves());
+        assert!(!Mode::Probe(None).serves());
+        assert!(Mode::Probe(None).bind_addr().is_none());
     }
 
     #[test]
@@ -110,6 +138,10 @@ mod tests {
             vec!["--bogus"],
             vec!["listen"],
             vec!["--page"],
+            vec!["--probe", ""],
+            vec!["--probe", "--listen"],
+            vec!["--probe", "nope=localhost:1/health"],
+            vec!["--probe", "nerve=https://localhost:1/health"],
         ] {
             let err = parse(&args(&bad)).unwrap_err();
             assert_eq!(err.exit_code(), 2, "{bad:?}");

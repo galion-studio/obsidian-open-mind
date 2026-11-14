@@ -151,7 +151,7 @@ pub const ROOMS: &[Room] = &[
     d("/pack", "Pack", "Chilled compose. It does not run.", "pack"),
     Room {
         to: None,
-        href: Some("https://one.galion.app"),
+        href: Some("https://galion.app"),
         label: "One",
         line: "The mouth. Already running.",
         icon: "one",

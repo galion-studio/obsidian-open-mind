@@ -440,7 +440,7 @@ fn serve_ui(
                 return (400, false);
             }
         };
-        if n > console_ui::MAX_FORM {
+        if n > console_ui::attach::body_limit(method, clean) {
             let _ = http::write_simple(stream, 413, "", "Content Too Large\n", head_only, false);
             return (413, false);
         }

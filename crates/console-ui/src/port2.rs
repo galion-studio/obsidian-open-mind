@@ -294,7 +294,14 @@ impl Ui {
             history: g(4),
             thread: id.map(|i| (i, thread.as_ref())),
         };
-        let mut body = hermes::body(&view);
+        let action = if req.path == "/research" {
+            "/research/attach"
+        } else {
+            "/hermes/attach"
+        };
+        let fault = html::form_get(&q, "attach").and_then(crate::attach::fault_note);
+        let chips = self.attach.list();
+        let mut body = hermes::body(&view, action, &chips, fault);
         if status == 400 {
             body = format!("<p class=\"note t-bad\">That thread id is not valid.</p>{body}");
         }
@@ -303,6 +310,22 @@ impl Ui {
         // Research prompt rules live in their own sheet (base sheet is at the 20 KiB budget).
         f.extra_css_href = Some(&self.research_css_href);
         Reply::html(status, layout::console(&f, origin, &body))
+    }
+
+    /// Keep one Research attachment on this machine. The redirect carries a
+    /// short token, never the file name or the bytes, and nothing is sent
+    /// upstream.
+    pub(crate) fn research_attach(&self, req: &Request<'_>) -> Reply {
+        if !Self::same_origin(req) {
+            return Reply::text(403, "Forbidden\n");
+        }
+        let back = crate::attach::back_path(req.path);
+        let loc = match crate::attach::keep(&self.attach, req.content_type.unwrap_or(""), req.body)
+        {
+            Ok(_) => back.to_string(),
+            Err(code) => format!("{back}?attach={}", code.token()),
+        };
+        Reply::redirect(303, &loc)
     }
 }
 

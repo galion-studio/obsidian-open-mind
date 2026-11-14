@@ -383,9 +383,15 @@ body{background:radial-gradient(90% 48% at 50% -14%,color-mix(in srgb,var(--c-ic
 .ask{display:flex;align-items:flex-end;gap:.75rem;margin-top:1.75rem;padding:1rem 1rem 1rem 1.1rem;border:1px solid var(--c-line);border-radius:2rem;background:var(--c-surface)}
 .ask-input{flex:1;min-width:0;min-height:8.5rem;border:0;resize:vertical;background:transparent;color:inherit;font:inherit;font-size:1.35rem;line-height:1.45}
 .ask-input::placeholder{color:var(--c-muted)}
-.ask-plus,.ask-voice{display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0;border-radius:999px;border:1px solid var(--c-line);background:var(--c-elevated);color:inherit;cursor:not-allowed}
-.ask-plus{width:2.75rem;height:2.75rem}
-.ask-voice{width:3.75rem;height:3.75rem;border:0;color:#0B0F14;background:linear-gradient(135deg,#B8E8FF,#58C4FF 55%,#0B5FA5)}
+.ask-plus,.ask-voice{display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0;border-radius:999px;border:1px solid var(--c-line);background:var(--c-elevated);color:inherit}
+.ask-file{display:contents}
+.ask-plus{position:relative;width:2.75rem;height:2.75rem;cursor:pointer}
+.ask-plus input{position:absolute;inset:0;opacity:0}
+.ask-go{height:2.75rem;margin:0 0 .15rem;padding:0 .85rem;border-radius:999px;border:1px solid var(--c-line);background:var(--c-elevated);color:inherit;cursor:pointer}
+.ask-chips{display:flex;flex-wrap:wrap;gap:.5rem;margin:.75rem 0 0;padding:0}
+.ask-chip{display:inline-flex;align-items:center;gap:.4rem;max-width:100%;border:1px solid var(--c-line);border-radius:999px;padding:.3rem .7rem;background:var(--c-elevated);font-size:.875rem}
+.ask-chip-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:14rem}
+.ask-voice{width:3.75rem;height:3.75rem;border:0;color:#0B0F14;background:linear-gradient(135deg,#B8E8FF,#58C4FF 55%,#0B5FA5);cursor:not-allowed}
 .ask-voice .i{width:1.65rem;height:1.65rem}
 button.ask-voice:disabled{opacity:1;color:#0B0F14}
 "#;
@@ -595,5 +601,7 @@ mod tests {
         assert!(!s.contains(":root{"), "research sheet has no tokens");
         assert_eq!(s.matches('{').count(), s.matches('}').count());
         assert!(defined_classes().contains(&"ask-plus".to_string()));
+        assert!(defined_classes().contains(&"ask-chip".to_string()));
+        assert!(defined_classes().contains(&"ask-go".to_string()));
     }
 }

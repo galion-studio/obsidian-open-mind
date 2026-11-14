@@ -197,6 +197,24 @@ h1 { font-size: 18px; font-weight: 600; }
 #mute { width: auto; padding: 0 12px; font: inherit; }
 .notes { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
 .notes ul { margin: 8px 0 0; padding-left: 1.1rem; }
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.chips:empty { display: none; }
+.chip {
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: var(--panel);
+  color: var(--fg);
+  font-size: 13px;
+}
 .opt {
   display: flex;
   align-items: flex-start;
@@ -322,6 +340,7 @@ const SCRIPT: &str = r#"
   }
   function sendFile(file, done) {
     var row = document.createElement("li");
+    row.className = "chip";
     row.textContent = file.name;
     picked.appendChild(row);
     if (!file.size || file.size > FILE_MAX) {
@@ -561,10 +580,10 @@ placeholder=\"Ask Open Mind\" enterkeyhint=\"send\" aria-label=\"Command\">\
     html.push_str(MIC);
     html.push_str(
         "</button></div>\
+<ul class=\"chips\" id=\"picked\" aria-label=\"Attached files\"></ul>\
 <label class=\"opt\"><input id=\"mic-opt\" type=\"checkbox\"> Allow the microphone on this machine. Audio is not saved and is not sent.</label>\
 <p class=\"notes\" id=\"voice-state\">Microphone closed.</p>\
 <p class=\"notes\" id=\"mic-level\"></p>\
-<div class=\"notes\"><p>Checked here, then uploaded on loopback.</p><ul id=\"picked\"></ul></div>\
 <div class=\"notes\"><p>Kept on this page</p><ul id=\"kept\"></ul></div>\
 </div></main>",
     );
@@ -637,6 +656,14 @@ mod tests {
         assert!(!html.contains("border-radius:50%"));
         assert!(!html.contains("border-radius: 50%"));
         assert!(!html.contains("id=\"talk\""));
+        let prompt = html.find("class=\"prompt\"").unwrap();
+        let chips = html.find("id=\"picked\"").unwrap();
+        let kept = html.find("id=\"kept\"").unwrap();
+        assert!(prompt < chips && chips < kept);
+        assert!(html[chips.saturating_sub(24)..chips].contains("class=\"chips\""));
+        assert!(html.contains("aria-label=\"Attached files\""));
+        assert!(html.contains("className = \"chip\""));
+        assert!(html.contains("fetch(\"/files\""));
     }
 
     #[test]

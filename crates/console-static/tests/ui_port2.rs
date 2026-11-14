@@ -402,14 +402,15 @@ fn hermes_read_only() {
         assert!(r.body.contains(n), "missing {n}");
     }
     assert!(r.body.contains("/_ui/research."), "research sheet linked");
-    assert!(r
-        .body
-        .contains("disabled aria-label=\"Add files, unavailable\""));
+    assert!(r.body.contains("aria-label=\"Add files\""));
+    assert!(r.body.contains("action=\"/hermes/attach\""));
+    assert!(r.body.contains("enctype=\"multipart/form-data\""));
+    assert!(r.body.contains("type=\"file\""));
+    assert!(!r.body.contains("action=\"/api/"));
     assert!(r
         .body
         .contains("disabled aria-label=\"Voice, unavailable\""));
     assert!(!r.body.contains("127.0.0.1:8642"));
-    assert!(!r.body.contains("<form"), "no form on the Hermes room");
     let r = get(a, "/hermes?id=t-1", "127.0.0.1", "");
     assert!(r.body.contains("<pre class=\"say\">hello hermes</pre>"));
     assert!(r.body.contains("<span class=\"subtle mono\">uptime</span>"));
@@ -505,4 +506,186 @@ fn every_class_is_styled() {
     missing.sort();
     missing.dedup();
     assert!(missing.is_empty(), "unstyled: {missing:?}");
+}
+
+fn exchange(addr: SocketAddr, raw: &str) -> (u16, String, String) {
+    let mut s = TcpStream::connect(addr).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    s.write_all(raw.as_bytes()).unwrap();
+    let mut out = Vec::new();
+    let _ = s.read_to_end(&mut out);
+    let text = String::from_utf8_lossy(&out).to_string();
+    let (head, body) = text.split_once("\r\n\r\n").unwrap_or((&text, ""));
+    let code = head
+        .split(' ')
+        .nth(1)
+        .and_then(|c| c.parse().ok())
+        .unwrap_or(0);
+    (code, head.to_string(), body.to_string())
+}
+
+fn multipart(name: &str, bytes: &str) -> (String, String) {
+    let body = format!(
+        "--bound\r\nContent-Disposition: form-data; name=\"file\"; filename=\"{name}\"\r\n\r\n{bytes}\r\n--bound--\r\n"
+    );
+    let raw_type = "multipart/form-data; boundary=bound";
+    (raw_type.to_string(), body)
+}
+
+fn post_file(
+    addr: SocketAddr,
+    path: &str,
+    host: &str,
+    site: &str,
+    name: &str,
+    bytes: &str,
+) -> (u16, String, String) {
+    let (kind, body) = multipart(name, bytes);
+    let raw = format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}\r\nSec-Fetch-Site: {site}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    exchange(addr, &raw)
+}
+
+#[test]
+fn research_attach_stays_local_and_shows_a_chip() {
+    let (a, log) = start(true);
+    let research = get(a, "/research", "127.0.0.1", "");
+    assert!(research.body.contains("action=\"/research/attach\""));
+    assert!(research
+        .body
+        .contains("aria-label=\"Galion Research prompt\""));
+    assert!(research
+        .body
+        .contains("disabled aria-label=\"Voice, unavailable\""));
+
+    let (code, _, _) = post_file(
+        a,
+        "/hermes/attach",
+        "127.0.0.1",
+        "cross-site",
+        "nope.txt",
+        "hello",
+    );
+    assert_eq!(code, 403);
+
+    let (code, head, _) = post_file(
+        a,
+        "/hermes/attach",
+        "127.0.0.1",
+        "same-origin",
+        "../../etc/passwd.txt",
+        "SENTINEL-BYTES",
+    );
+    assert_eq!(code, 303);
+    assert!(head
+        .to_ascii_lowercase()
+        .contains("location: /hermes?attach=traversal"));
+    assert!(!head.contains("passwd"));
+    assert!(!head.contains("SENTINEL"));
+
+    let (code, head, _) = post_file(
+        a,
+        "/hermes/attach",
+        "127.0.0.1",
+        "same-origin",
+        "page.html",
+        "<p>no</p>",
+    );
+    assert_eq!(code, 303);
+    assert!(head
+        .to_ascii_lowercase()
+        .contains("location: /hermes?attach=type"));
+
+    let (code, _, body) = post_file(
+        a,
+        "/hermes/attach",
+        "console.galion.app",
+        "same-origin",
+        "private.txt",
+        "secret-bytes",
+    );
+    assert_ne!(code, 303);
+    assert!(!body.contains("private.txt"));
+    assert!(!body.contains("ask-chip"));
+
+    let page = get(a, "/hermes?attach=traversal", "127.0.0.1", "");
+    assert!(page.body.contains("That file name was refused."));
+    assert!(!page.body.contains("nope.txt"));
+    assert!(!page.body.contains("private.txt"));
+    assert!(!page.body.contains("passwd"));
+    assert!(!page.body.contains("SENTINEL"));
+    assert!(!page.body.contains("../"));
+    assert!(!page.body.contains("<script"));
+
+    let wide = "w".repeat(5000);
+    let (code, head, _) = post_file(
+        a,
+        "/hermes/attach",
+        "127.0.0.1",
+        "same-origin",
+        "wide.txt",
+        &wide,
+    );
+    assert_eq!(
+        code, 303,
+        "a file over the old 4 KiB form cap must be accepted"
+    );
+    assert!(
+        head.to_ascii_lowercase().contains("location: /hermes\r\n")
+            || head.to_ascii_lowercase().contains("location: /hermes\n")
+    );
+
+    let (code, head, _) = post_file(
+        a,
+        "/research/attach",
+        "127.0.0.1",
+        "same-origin",
+        "notes.txt",
+        "hello research",
+    );
+    assert_eq!(code, 303);
+    assert!(head.to_ascii_lowercase().contains("location: /research"));
+    assert!(!head.contains("notes.txt"));
+    assert!(!head.contains("hello research"));
+
+    let shown = get(a, "/research", "127.0.0.1", "");
+    assert!(shown.body.contains("ask-chip"));
+    assert!(shown.body.contains("notes.txt"));
+    assert!(shown.body.contains("wide.txt"));
+    assert!(shown.body.contains("aria-label=\"Attached files\""));
+    let prompt = shown.body.find("class=\"ask\"").unwrap();
+    let chip = shown.body.find("ask-chip").unwrap();
+    let facts = shown.body.find("class=\"facts\"").unwrap();
+    assert!(prompt < chip && chip < facts);
+    assert!(!shown.body.contains("hello research"));
+    assert!(!shown.body.contains(&wide));
+
+    let logged = log.lock().unwrap();
+    let blob = logged
+        .iter()
+        .map(|s| format!("{} {} {}", s.method, s.path, s.body))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!blob.contains("hello research"));
+    assert!(!blob.contains("SENTINEL"));
+    assert!(!blob.contains("secret-bytes"));
+    assert!(logged.iter().all(|s| s.method == "GET"));
+
+    let huge = console_ui::attach::MAX_BODY + 1;
+    let (code, _, _) = exchange(
+        a,
+        &format!(
+            "POST /hermes/attach HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nContent-Type: multipart/form-data; boundary=bound\r\nContent-Length: {huge}\r\nConnection: close\r\n\r\n"
+        ),
+    );
+    assert_eq!(code, 413);
+
+    let (code, head, _) = exchange(
+        a,
+        "POST /hermes HTTP/1.1\r\nHost: 127.0.0.1\r\nSec-Fetch-Site: same-origin\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: 4\r\nConnection: close\r\n\r\nask=1",
+    );
+    assert_eq!(code, 405);
+    assert!(head.to_ascii_lowercase().contains("allow: get, head"));
 }

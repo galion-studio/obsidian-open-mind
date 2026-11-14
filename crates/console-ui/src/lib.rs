@@ -22,6 +22,7 @@ pub mod a11y;
 pub mod admin_catalog;
 pub mod admin_sheet;
 pub mod admin_views;
+pub mod attach;
 pub mod client;
 pub mod css;
 pub mod cues;
@@ -214,6 +215,8 @@ pub struct Ui {
     sprite: String,
     /// Shared /api/v1/health payload + stamp; see [`HEALTH_CACHE_TTL`].
     health: Mutex<HealthSlot>,
+    /// Files attached from the Galion Research prompt. Local to this process.
+    attach: attach::Store,
 }
 
 struct HealthSlot {
@@ -270,6 +273,7 @@ impl Ui {
                 at: None,
                 value: None,
             }),
+            attach: attach::Store::create(),
         }
     }
 
@@ -285,6 +289,7 @@ impl Ui {
             || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || port4::owns(path)
             || path == "/research"
+            || attach::is_attach_path(path)
             || admin_views::owns(path)
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
@@ -456,7 +461,8 @@ impl Ui {
         let post_ok = (req.path == "/agents"
             || port2::POST_ROUTES.contains(&req.path)
             || port3::POST_ROUTES.contains(&req.path)
-            || port5::POST_ROUTES.contains(&req.path))
+            || port5::POST_ROUTES.contains(&req.path)
+            || attach::is_attach_path(req.path))
             && req.method == "POST";
         if req.method != "GET" && req.method != "HEAD" && !post_ok {
             let mut r = Reply::text(405, "Method Not Allowed\n");
@@ -483,6 +489,15 @@ impl Ui {
             | "/data" => self.read_room(req),
             "/analytics" | "/arena" | "/bank" | "/cache" => self.port1_room(req),
             "/context" | "/gateway" | "/guardian" | "/hermes" | "/research" => self.port2_room(req),
+            p if attach::is_attach_path(p) => {
+                if req.method == "POST" {
+                    self.research_attach(req)
+                } else {
+                    let mut r = Reply::text(405, "Method Not Allowed\n");
+                    r.headers.push(("Allow".into(), "POST".into()));
+                    r
+                }
+            }
             "/instances" | "/keys" | "/markers" => self.port3_room(req),
             "/memory" | "/mesh" => self.port4_room(req),
             p if port4::owns(p) => self.port4_room(req),

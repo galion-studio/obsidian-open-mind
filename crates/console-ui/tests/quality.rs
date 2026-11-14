@@ -82,7 +82,7 @@ fn screens() -> Vec<(&'static str, String)> {
             layout::console(
                 &frame("/hermes"),
                 Origin::Down,
-                &hermes::body(&hermes::View::default()),
+                &hermes::body(&hermes::View::default(), "/hermes/attach", &[], None),
             ),
         ),
         (

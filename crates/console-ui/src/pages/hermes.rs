@@ -15,10 +15,12 @@
 //!
 //! The page shows the Galion Research prompt: a large centred field, a plus
 //! on the left (add files) and a voice button on the right (the Ice → Sky →
-//! Ocean gradient). Those controls are disabled. They do not post.
+//! Ocean gradient). The plus posts a file to `/hermes/attach` or
+//! `/research/attach`. That copy stays on this machine. The voice button
+//! stays disabled.
 //!
 //! Held, on purpose (owner decisions, docs/console-port-2.md):
-//! - asking / runs / steer / stop / approvals / attach / mic / speak
+//! - asking / runs / steer / stop / approvals / mic / speak
 //!   (`/api/hermes/chat`, `/runs*`, `/transcribe`, `/speak`): the JS ruling
 //!   (decision 1: no-JS form, script island, or keep the SPA) and H1 (a
 //!   question may reach a paid model) are Slavik's;
@@ -30,8 +32,8 @@
 //!
 //! Rust-first since console-route-31 (wave 4 slot 170): no longer in
 //! `port2::SPA_FIRST`, so a configured SPA fallback (`--root`) does not take
-//! this room; POST is 405, the `/api/hermes/*` proxy for the old SPA is
-//! untouched.
+//! this room; POST `/hermes` is 405. `POST /hermes/attach` stores a file
+//! locally and does not touch the `/api/hermes/*` proxy.
 
 use super::p2::{clip, compact, js_num, num, stamp, text, zone_label};
 use crate::html::{esc, url_enc};
@@ -241,7 +243,40 @@ fn thread(out: &mut String, id: &str, v: Option<&Value>) {
     out.push_str("</ul></section>");
 }
 
-pub fn body(v: &View<'_>) -> String {
+fn size_label(n: usize) -> String {
+    if n < 1024 {
+        format!("{n} B")
+    } else {
+        format!("{} KiB", n / 1024)
+    }
+}
+
+fn chips_html(chips: &[crate::attach::Chip]) -> String {
+    if chips.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("<ul class=\"ask-chips\" aria-label=\"Attached files\">");
+    for chip in chips {
+        out.push_str(&format!(
+            "<li class=\"ask-chip\"><span class=\"ask-chip-name\">{}</span><span class=\"subtle\">{} · {}</span></li>",
+            esc(&chip.name),
+            esc(chip.kind),
+            size_label(chip.size)
+        ));
+    }
+    out.push_str("</ul>");
+    out
+}
+
+pub fn body(
+    v: &View<'_>,
+    action: &str,
+    chips: &[crate::attach::Chip],
+    fault: Option<&str>,
+) -> String {
+    let fault_html = fault
+        .map(|text| format!("<p class=\"note t-bad\">{}</p>", esc(text)))
+        .unwrap_or_default();
     let mut out = String::from(
         "<div class=\"page ask-page\"><div class=\"ask-stage\"><header class=\"ask-head\"><p class=\"k\">Galion Research</p>",
     );
@@ -249,15 +284,22 @@ pub fn body(v: &View<'_>) -> String {
         "<h1>{mark}<span class=\"ell\">The mind</span></h1>\
 <p class=\"lede\">One window. One prompt. galion.app/research. Type or speak, then watch what happens. This room still only reads threads, models and the guard.</p></header>\
 <div class=\"ask\" role=\"group\" aria-label=\"Galion Research prompt\">\
-<button type=\"button\" class=\"ask-plus\" disabled aria-label=\"Add files, unavailable\" title=\"Adding files is not on this page yet\">{plus}</button>\
+<form class=\"ask-file\" method=\"post\" action=\"{action}\" enctype=\"multipart/form-data\">\
+<label class=\"ask-plus\"><input type=\"file\" name=\"file\" aria-label=\"Add files\" required>{plus}</label>\
+<button type=\"submit\" class=\"ask-go\">Attach</button>\
+</form>\
 <textarea class=\"ask-input\" rows=\"3\" readonly placeholder=\"Ask a big question\" aria-label=\"Prompt\"></textarea>\
 <button type=\"button\" class=\"ask-voice\" disabled aria-label=\"Voice, unavailable\" title=\"Voice is not on this page yet\">{voice}</button>\
 </div>\
-<p class=\"note\">Hermes Research stays read-only here. Asking, runs, the mic and the guard switches are not on this page yet: they wait on Slavik's JavaScript ruling and the paid-model decision (H1). The Hermes gateway is unchanged; this read-only room is served from Rust even when the old console is installed.</p>\
+{fault}{chips}\
+<p class=\"note\">Files you add stay on this machine. Asking, runs, the mic and the guard switches are not on this page yet: they wait on Slavik's JavaScript ruling and the paid-model decision (H1). The Hermes gateway is unchanged; this room is served from Rust even when the old console is installed.</p>\
 </div><ul class=\"facts\">",
         mark = icon("research", "i i-md"),
         plus = icon("plus", "i"),
         voice = icon("voice", "i"),
+        action = esc(action),
+        fault = fault_html,
+        chips = chips_html(chips),
     ));
     let (gw, gw_ok) = match v.health {
         Some(h) => gateway_line(h),
@@ -363,14 +405,19 @@ mod tests {
         let models = parse(r#"{"ok":true,"models":[{"id":"google/gemini-2.5-flash","name":"OpenRouter · Gemini"}]}"#.as_bytes()).unwrap();
         let hist = parse(br#"{"ok":true,"items":[{"id":"openmind-boss-20261018","title":"boss <x>","count":29,"at":1792340805.07,"source":"api_server","pinned":true,"tokens":{"total":1237223}},{"id":"bad id","title":"","count":1,"at":0,"source":"one"}],"files":[]}"#).unwrap();
         let th = parse(br#"{"ok":true,"tokens":{"input":4925718,"output":75876,"total":5001594},"items":[{"kind":"user","text":"hi <b>"},{"kind":"tool","name":"terminal","status":"done","command":"\n  ls -la\nrm x","output":"secret-ish output"},{"kind":"assistant","text":"ok"}]}"#).unwrap();
-        let b = body(&View {
-            health: Some(&health),
-            guard: Some(&guard),
-            modes: Some(&modes),
-            models: Some(&models),
-            history: Some(&hist),
-            thread: Some(("openmind-boss-20261018", Some(&th))),
-        });
+        let b = body(
+            &View {
+                health: Some(&health),
+                guard: Some(&guard),
+                modes: Some(&modes),
+                models: Some(&models),
+                history: Some(&hist),
+                thread: Some(("openmind-boss-20261018", Some(&th))),
+            },
+            "/hermes/attach",
+            &[],
+            None,
+        );
         for n in [
             "hermes-rs 0.1.0 · gateway · loopback · 3 ms",
             ">2<",
@@ -390,7 +437,7 @@ mod tests {
             "Galion Research",
             "galion.app/research",
             "Ask a big question",
-            "disabled aria-label=\"Add files, unavailable\"",
+            "aria-label=\"Add files\"",
             "disabled aria-label=\"Voice, unavailable\"",
             "class=\"ask-plus\"",
             "class=\"ask-voice\"",
@@ -402,17 +449,52 @@ mod tests {
         let field_at = b.find("ask-input").expect("field");
         let voice_at = b.find("ask-voice").expect("voice");
         assert!(ask < plus_at && plus_at < field_at && field_at < voice_at);
+        assert!(b.contains("action=\"/hermes/attach\""));
+        assert!(b.contains("enctype=\"multipart/form-data\""));
+        assert!(b.contains("type=\"file\""));
+        assert!(b.contains("class=\"ask-go\""));
+        assert!(b.contains("disabled aria-label=\"Voice, unavailable\""));
+        assert!(b.contains("Files you add stay on this machine."));
         assert!(!b.contains("127.0.0.1:8642"), "bind address must not show");
         assert!(!b.contains("secret-ish output"), "tool output is not shown");
-        assert!(!b.contains("<form"), "no state-changing form");
+        assert!(!b.contains("action=\"/api/"));
+    }
+
+    #[test]
+    fn chips_sit_under_the_prompt_and_names_are_escaped() {
+        let chips = [crate::attach::Chip {
+            name: "<b>notes.txt".into(),
+            kind: "text",
+            size: 12,
+        }];
+        let b = body(
+            &View::default(),
+            "/research/attach",
+            &chips,
+            Some(crate::attach::Code::Type.note()),
+        );
+        assert!(b.contains("action=\"/research/attach\""));
+        assert!(b.contains("&lt;b&gt;notes.txt"));
+        assert!(!b.contains("<b>notes"));
+        assert!(b.contains("text · 12 B"));
+        assert!(b.contains("That file type is not allowed."));
+        let ask = b.find("class=\"ask\"").unwrap();
+        let chip = b.find("ask-chip").unwrap();
+        let facts = b.find("class=\"facts\"").unwrap();
+        assert!(ask < chip && chip < facts);
     }
 
     #[test]
     fn down_and_missing_thread() {
-        let b = body(&View {
-            thread: Some(("x", None)),
-            ..View::default()
-        });
+        let b = body(
+            &View {
+                thread: Some(("x", None)),
+                ..View::default()
+            },
+            "/hermes/attach",
+            &[],
+            None,
+        );
         assert!(b.contains(
             "Gateway</span><span><span class=\"dot offline\"></span><span class=\"ell\">no answer"
         ));

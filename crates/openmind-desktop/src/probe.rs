@@ -791,7 +791,7 @@ fn validate_path(service: Service, path: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
-    use std::net::{Shutdown, TcpListener, TcpStream};
+    use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
     use std::sync::{Arc, Mutex};
 
     fn looks_like_ipv4(host: &str) -> bool {
@@ -908,7 +908,10 @@ mod tests {
         assert_eq!(down_report.detail, "http 503");
         assert!(down_report.observed_mode.is_none());
 
-        let refused = TcpListener::bind((DEFAULT_HOST, 0)).unwrap();
+        // A closed `[::1]` port on the Windows runner is a timeout, not a
+        // refusal (desktop CI: state unknown, detail "timeout"). The refusal
+        // check uses IPv4 loopback, which Winsock rejects at once.
+        let refused = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let refused_addr = refused.local_addr().unwrap();
         drop(refused);
         let refused_report = probe_one(

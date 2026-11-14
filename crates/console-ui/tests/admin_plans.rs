@@ -105,6 +105,7 @@ fn assert_display_only(paths: &[String]) {
 
 fn unstyled(html: &str) -> Vec<String> {
     let defined = console_ui::css::defined_classes();
+    let admin = console_ui::admin_sheet::classes();
     let allow = [
         "primary", "ghost", "online", "offline", "held", "neutral", "fork", "chill", "i-open",
         "i-close",
@@ -113,7 +114,10 @@ fn unstyled(html: &str) -> Vec<String> {
     for cap in html.split("class=\"").skip(1) {
         let list = cap.split('"').next().unwrap_or("");
         for class in list.split_whitespace() {
-            if !defined.iter().any(|d| d == class) && !allow.contains(&class) {
+            let known = defined.iter().any(|d| d == class)
+                || admin.iter().any(|d| d == class)
+                || allow.contains(&class);
+            if !known {
                 missing.push(class.to_string());
             }
         }
@@ -147,6 +151,11 @@ fn plans_and_accounts_render_without_a_billing_call() {
     assert!(plans_html.contains("Open source. Free forever."));
     assert!(plans_html.contains("Galion One"));
     assert!(plans_html.contains("Galion Research"));
+    assert!(plans_html.contains("Paid plans are not open"));
+    assert!(plans_html.contains("until Slavik says otherwise"));
+    assert!(plans_html.contains(">Open</span>"));
+    assert_eq!(plans_html.matches(">Not open</span>").count(), 2);
+    assert!(plans_html.contains(console_ui::admin_sheet::href()));
     assert!(plans_html.contains(">up<") || plans_html.contains(">up</span>"));
     assert!(!plans_html.contains("<form"));
     assert!(!plans_html.contains("<script"));
@@ -162,6 +171,8 @@ fn plans_and_accounts_render_without_a_billing_call() {
     assert!(accounts_html.contains("No users yet"));
     assert!(accounts_html.contains("This account list is empty"));
     assert!(accounts_html.contains("does not create an account"));
+    assert!(accounts_html.contains("Paid plans are not open"));
+    assert!(accounts_html.contains(console_ui::admin_sheet::href()));
     assert!(accounts_html.contains("href=\"/admin/plans\""));
     assert!(!accounts_html.contains("<form"));
     assert!(!accounts_html.contains("$220"));
@@ -170,6 +181,21 @@ fn plans_and_accounts_render_without_a_billing_call() {
         "{:?}",
         unstyled(&accounts_html)
     );
+
+    let css = ui.handle(&Request {
+        method: "GET",
+        path: console_ui::admin_sheet::href(),
+        host: "127.0.0.1",
+        peer_loopback: true,
+        ..Request::default()
+    });
+    assert_eq!(css.status, 200);
+    assert_eq!(css.header("content-type"), Some("text/css; charset=utf-8"));
+    let sheet = text(&css);
+    assert!(sheet.contains("var(--display)"));
+    assert!(sheet.contains("var(--c-fg)"));
+    assert!(!sheet.contains(":root"));
+    assert!(!console_ui::css::sheet().contains(".adm-hold"));
 
     let head = ui.handle(&Request {
         method: "HEAD",

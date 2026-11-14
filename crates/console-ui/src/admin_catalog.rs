@@ -10,8 +10,9 @@
 //! service. The live account list is empty because this console has no
 //! account directory and must not invent one from a billing call.
 //!
-//! Colours stay in the console palette (`--c-*` in `css.rs`, owned by the
-//! Swarm 2 orchestrator). This module adds no tokens.
+//! Colours stay in the console palette (`--c-*`, `--sans`, `--display`,
+//! `--mono` in `css.rs`, owned by the Swarm 2 orchestrator). This module
+//! adds no tokens. Paid plans stay off until Slavik says otherwise.
 
 /// One plan row. Prices are already formatted for display.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,6 +26,10 @@ pub struct Plan {
     /// `forever`, `per month`, or `one-time`.
     pub cadence: &'static str,
 }
+
+/// Paid plans are not open. Display only, until Slavik says otherwise.
+/// Flipping this does not enable a payment call.
+pub const PAID_PLANS_OPEN: bool = false;
 
 /// The agreed plan list, in display order.
 pub const PLANS: &[Plan] = &[
@@ -77,6 +82,15 @@ pub fn plan_by_id(id: &str) -> Option<&'static Plan> {
     PLANS.iter().find(|p| p.id == id)
 }
 
+/// `Open` for Galion OS, and for a paid plan only after [`PAID_PLANS_OPEN`].
+pub fn availability(plan: &Plan) -> &'static str {
+    if plan.id == "free" || PAID_PLANS_OPEN {
+        "Open"
+    } else {
+        "Not open"
+    }
+}
+
 /// How a plan's price is spoken on the page.
 pub fn price_label(plan: &Plan) -> String {
     if plan.cadence == "forever" {
@@ -108,6 +122,9 @@ mod tests {
         assert_eq!(price_label(ultra), "$220 or EUR 220 one-time");
 
         assert_eq!(LIVE_ACCOUNTS.len(), 0);
+        assert_eq!(availability(free), "Open");
+        assert_eq!(availability(plus), "Not open");
+        assert_eq!(availability(ultra), "Not open");
         assert_eq!(UPSTREAM_READS, &["/api/v1/health"]);
         assert!(plan_by_id("nope").is_none());
     }

@@ -19,6 +19,7 @@
 #![forbid(unsafe_code)]
 
 pub mod admin_catalog;
+pub mod admin_sheet;
 pub mod admin_views;
 pub mod client;
 pub mod css;
@@ -414,6 +415,7 @@ impl Ui {
             p if p == self.research_css_href => {
                 return self.stylesheet(&self.research_css_etag, self.research_css.as_bytes())
             }
+            p if admin_sheet::is_sheet(p) => return admin_sheet::reply(),
             p if p == self.sprite_href => return self.sprite(req),
             "/_ui/favicon.svg" => {
                 return Reply {

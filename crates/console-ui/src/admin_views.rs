@@ -33,7 +33,9 @@ impl Ui {
             _ => ("Accounts", admin_accounts::body(LIVE_ACCOUNTS)),
         };
         let title = format!("Galion Console · {label}");
-        let f = self.frame(req, &title);
+        let mut f = self.frame(req, &title);
+        // Plan rules live in their own sheet. The base sheet is at 20 KiB.
+        f.extra_css_href = Some(crate::admin_sheet::href());
         Reply::html(200, layout::console(&f, origin, &body))
     }
 }

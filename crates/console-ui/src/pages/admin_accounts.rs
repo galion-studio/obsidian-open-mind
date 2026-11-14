@@ -33,7 +33,12 @@ fn label(account: &Account) -> String {
 
 fn plan_label(plan_id: &str) -> String {
     match admin_catalog::plan_by_id(plan_id) {
-        Some(plan) => format!("{} · {}", plan.name, plan.product),
+        Some(plan) => format!(
+            "{} · {} · {}",
+            plan.name,
+            plan.product,
+            admin_catalog::availability(plan).to_ascii_lowercase()
+        ),
         None => "Not on a listed plan".into(),
     }
 }
@@ -62,13 +67,14 @@ pub fn body(accounts: &[Account]) -> String {
         ul
     };
     format!(
-        "<div class=\"page w46\"><header><p class=\"k\">Admin</p>\
+        "<div class=\"page w46 adm\"><header><p class=\"k\">Admin</p>\
 <h1>{}<span class=\"ell\">Accounts</span></h1>\
 <p class=\"lede\">Users on a plan. Display only: this page does not create an account and does not take a payment.</p></header>\
 {}\
-{list}\
-<p class=\"note\">Display only. This screen does not take a payment and does not call a billing service.</p></div>",
+{}\
+{list}</div>",
         icon("agents", "i i-md"),
+        super::admin_plans::hold(),
         super::admin_plans::subnav("/admin/accounts")
     )
 }
@@ -107,7 +113,8 @@ mod tests {
         ]);
         assert!(html.contains("&lt;script&gt;"));
         assert!(!html.contains("<script>"));
-        assert!(html.contains("Plus · Galion One"));
+        assert!(html.contains("Plus · Galion One · not open"));
+        assert!(html.contains("Paid plans are not open"));
         assert!(html.contains("Not on a listed plan"));
         assert!(!html.contains("no-such-plan"));
         assert_eq!(html.matches("<li>").count(), 2);

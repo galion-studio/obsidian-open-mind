@@ -44,8 +44,8 @@ pub const LAYERS: &[Layer] = &[
     Layer {
         id: "voice",
         name: "Voice",
-        role: "Button only. Microphone stays closed",
-        state: "planned",
+        role: "Opt-in microphone on loopback. Audio is not saved",
+        state: "staged",
     },
     Layer {
         id: "galion-one",

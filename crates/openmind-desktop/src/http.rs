@@ -123,6 +123,12 @@ mod tests {
         assert!(reply("POST", "/")
             .to_bytes(false)
             .starts_with(b"HTTP/1.1 405"));
+        assert!(reply("POST", "/mic")
+            .to_bytes(false)
+            .starts_with(b"HTTP/1.1 405"));
+        assert!(reply("PUT", "/audio")
+            .to_bytes(false)
+            .starts_with(b"HTTP/1.1 405"));
         let head = String::from_utf8(home.to_bytes(true)).unwrap();
         assert!(head.contains("content-length:"));
         assert!(!head.contains("data-desktop"));

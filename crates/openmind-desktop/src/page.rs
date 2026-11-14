@@ -20,6 +20,7 @@ style-src 'unsafe-inline'; \
 script-src 'unsafe-inline'; \
 media-src data:; \
 img-src data:; \
+connect-src 'none'; \
 base-uri 'none'; \
 form-action 'none'; \
 frame-ancestors 'none'";
@@ -172,6 +173,15 @@ h1 { font-size: 18px; font-weight: 600; }
 #mute { width: auto; padding: 0 12px; font: inherit; }
 .notes { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
 .notes ul { margin: 8px 0 0; padding-left: 1.1rem; }
+.opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+.opt input { width: 20px; height: 20px; margin-top: 2px; flex: 0 0 auto; }
 audio { display: none; }
 @media (max-width: 720px) {
   .app { grid-template-columns: 1fr; }
@@ -181,16 +191,23 @@ audio { display: none; }
 "#;
 
 /// Browser script. Names and commands stay in the document. File bytes are
-/// not read. The microphone is not opened. Night hours and Mute skip tones.
+/// not read. The microphone opens only after the opt-in box is ticked, and
+/// only on loopback or a `file:` page. Samples are overwritten in one buffer
+/// and then dropped. Night hours and Mute skip tones.
 const SCRIPT: &str = r#"
 (function () {
   var files = document.getElementById("files");
   var command = document.getElementById("command");
   var voice = document.getElementById("voice");
   var voiceState = document.getElementById("voice-state");
+  var level = document.getElementById("mic-level");
+  var opt = document.getElementById("mic-opt");
   var picked = document.getElementById("picked");
   var kept = document.getElementById("kept");
   var mute = document.getElementById("mute");
+  var live = null;
+  var ctx = null;
+  var raf = 0;
   function night() {
     var h = new Date().getHours();
     return h >= 22 || h < 7;
@@ -202,6 +219,71 @@ const SCRIPT: &str = r#"
     try { el.currentTime = 0; } catch (e) {}
     var pending = el.play();
     if (pending && pending.catch) pending.catch(function () {});
+  }
+  function loopbackPage() {
+    var host = location.hostname;
+    if (location.protocol === "file:") return true;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  }
+  function stopMic() {
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    if (live) {
+      var tracks = live.getTracks();
+      var i;
+      for (i = 0; i < tracks.length; i = i + 1) tracks[i].stop();
+      live = null;
+    }
+    if (ctx) { ctx.close(); ctx = null; }
+    voice.setAttribute("aria-pressed", "false");
+    level.textContent = "";
+    voiceState.textContent = "Microphone closed. Nothing was saved.";
+  }
+  function pump(analyser) {
+    var buf = new Float32Array(analyser.fftSize);
+    function tick() {
+      if (!live) return;
+      analyser.getFloatTimeDomainData(buf);
+      var sum = 0;
+      var i;
+      for (i = 0; i < buf.length; i = i + 1) sum = sum + buf[i] * buf[i];
+      level.textContent = "Level " + String(Math.round(Math.sqrt(sum / buf.length) * 100));
+      raf = requestAnimationFrame(tick);
+    }
+    tick();
+  }
+  function startMic() {
+    if (!opt.checked) {
+      voiceState.textContent = "Tick the box before the microphone opens.";
+      play("deny");
+      return;
+    }
+    if (!loopbackPage()) {
+      voiceState.textContent = "Microphone stays closed away from loopback.";
+      play("deny");
+      return;
+    }
+    var devices = navigator.mediaDevices;
+    if (!devices || !devices.getUserMedia) {
+      voiceState.textContent = "This browser has no microphone API.";
+      play("deny");
+      return;
+    }
+    devices.getUserMedia({ audio: true, video: false }).then(function (stream) {
+      live = stream;
+      ctx = new AudioContext();
+      var source = ctx.createMediaStreamSource(stream);
+      var analyser = ctx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      voice.setAttribute("aria-pressed", "true");
+      voiceState.textContent = "Microphone open on this machine. Audio is not saved or sent.";
+      play("ask");
+      pump(analyser);
+    }).catch(function () {
+      stopMic();
+      voiceState.textContent = "Microphone permission was refused. Nothing was saved.";
+      play("deny");
+    });
   }
   files.addEventListener("change", function () {
     picked.textContent = "";
@@ -215,15 +297,15 @@ const SCRIPT: &str = r#"
     if (list.length) play("hear");
   });
   voice.addEventListener("click", function () {
-    var on = voice.getAttribute("aria-pressed") === "true";
-    voice.setAttribute("aria-pressed", on ? "false" : "true");
-    if (on) {
-      voiceState.textContent = "Microphone closed.";
+    if (voice.getAttribute("aria-pressed") === "true") {
+      stopMic();
       play("close");
     } else {
-      voiceState.textContent = "Voice armed. The microphone stays closed.";
-      play("ask");
+      startMic();
     }
+  });
+  opt.addEventListener("change", function () {
+    if (!opt.checked) stopMic();
   });
   command.addEventListener("keydown", function (ev) {
     if (ev.key !== "Enter") return;
@@ -259,6 +341,11 @@ fn render() -> String {
 <title>Obsidian Open Mind</title>\
 <meta name=\"description\" content=\"Open Mind control console. Local only.\">\
 <meta name=\"color-scheme\" content=\"dark light\">\
+<meta http-equiv=\"Content-Security-Policy\" content=\"",
+    );
+    html.push_str(CSP);
+    html.push_str(
+        "\"><meta http-equiv=\"Permissions-Policy\" content=\"microphone=(self)\">\
 <style>",
     );
     html.push_str(CSS);
@@ -297,7 +384,9 @@ placeholder=\"Ask Open Mind\" enterkeyhint=\"send\" aria-label=\"Command\">\
     html.push_str(MIC);
     html.push_str(
         "</button></div>\
+<label class=\"opt\"><input id=\"mic-opt\" type=\"checkbox\"> Allow the microphone on this machine. Audio is not saved and is not sent.</label>\
 <p class=\"notes\" id=\"voice-state\">Microphone closed.</p>\
+<p class=\"notes\" id=\"mic-level\"></p>\
 <div class=\"notes\"><p>Files</p><ul id=\"picked\"></ul></div>\
 <div class=\"notes\"><p>Kept on this page</p><ul id=\"kept\"></ul></div>\
 </div></main>",
@@ -378,18 +467,41 @@ mod tests {
             "https://",
             "ws://",
             "wss://",
-            "getUserMedia",
             "FileReader",
             "innerHTML",
             "XMLHttpRequest",
             "WebSocket",
+            "MediaRecorder",
+            "indexedDB",
+            "localStorage",
+            "createObjectURL",
+            "sendBeacon",
             "fetch(",
         ] {
             assert!(!html.contains(banned), "{banned} leaked into the page");
         }
+        assert!(html.contains("connect-src 'none'"));
         assert!(html.contains("h >= 22"));
         assert!(html.contains("h < 7"));
         assert!(html.contains("textContent"));
+    }
+
+    #[test]
+    fn microphone_is_opt_in_and_loopback_only() {
+        let html = document();
+        let opt = html.find("id=\"mic-opt\"").unwrap();
+        let tag_end = html[opt..].find('>').unwrap() + opt;
+        let tag = &html[opt.saturating_sub(30)..tag_end + 1];
+        assert!(tag.contains("type=\"checkbox\""));
+        assert!(!tag.contains("checked"));
+        let guard = html.find("if (!opt.checked)").unwrap();
+        let host = html.find("127.0.0.1").unwrap();
+        let open = html.find("getUserMedia").unwrap();
+        assert!(guard < open);
+        assert!(host < open);
+        assert!(html.contains("tracks[i].stop()"));
+        assert!(html.contains("Nothing was saved"));
+        assert!(html.contains("fftSize = 256"));
     }
 
     #[test]

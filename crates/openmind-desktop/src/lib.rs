@@ -10,8 +10,10 @@
 //! page is a home screen built around a circle.
 //!
 //! The seven tones are sines tuned from 432 Hz. The page keeps commands and
-//! file names in the browser. It does not read file bytes, open the
-//! microphone, or call a model.
+//! file names in the browser. It does not read file bytes or call a model.
+//! The microphone opens only after an unchecked box is ticked, and only on
+//! loopback or a local file. Samples stay in one reused buffer. They are not
+//! saved, uploaded, or committed.
 //!
 //! Printing the page opens no socket. [`listen`] binds a loopback address
 //! only.

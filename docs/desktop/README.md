@@ -17,7 +17,7 @@ From a checkout of this repository, on Linux:
 nice -n 19 cargo build -j 2 -p openmind-desktop --release --locked
 ```
 
-The binary is `target/release/openmind-desktop`. The crate depends only on `galion-common` (`crates/openmind-desktop/Cargo.toml`).
+The binary is `target/release/openmind-desktop`. The crate depends on `galion-common`, and on `libc` for the Linux `O_NOFOLLOW` value (`crates/openmind-desktop/Cargo.toml`, `open_nofollow` in `crates/openmind-desktop/src/files.rs`).
 
 A local package (tarball and checksums, kept on this machine):
 
@@ -93,4 +93,4 @@ Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src
 
 ## CI
 
-`.github/workflows/openmind-desktop.yml` runs on Linux (`ubuntu-latest`). The job builds the crate, runs clippy with `-D warnings` on all targets, runs the tests, then `package-local.sh` and `verify-local.sh` with the output under the runner temp directory. Workflow permissions are `contents: read`. The job does not upload the tarball and does not create a release. A publish flag must exit 2.
+`.github/workflows/openmind-desktop.yml` runs on Linux (`ubuntu-latest`). The `linux` job builds the crate, runs clippy with `-D warnings` on all targets, runs the tests, then `package-local.sh` and `verify-local.sh` with the output under the runner temp directory. The `linux-aarch64` job cross-builds `aarch64-unknown-linux-musl` (linker `rust-lld`, `.cargo/config.toml`) and runs the same tests under qemu-user (`qemu-aarch64-static` or `qemu-aarch64`, the same package split as the self-eval `ucpu-qemu` job). That is the run that checks `O_NOFOLLOW` (`nofollow_flag_matches_this_target` in `crates/openmind-desktop/src/files.rs`): the flag is `0x8000` on aarch64 and `0x20000` on x86. Workflow permissions are `contents: read`. The jobs do not upload the tarball and do not create a release. A publish flag must exit 2.

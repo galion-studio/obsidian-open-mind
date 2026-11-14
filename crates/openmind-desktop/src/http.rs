@@ -302,18 +302,11 @@ mod tests {
 
     #[test]
     fn files_stay_on_chosen_paths_and_loopback_peers() {
-        let mut buf = [0u8; 8];
-        std::fs::File::open("/dev/urandom")
-            .unwrap()
-            .read_exact(&mut buf)
-            .unwrap();
-        let tmp =
-            std::env::temp_dir().join(format!("om-desk-http-{}", galion_common::hex::encode(&buf)));
-        std::fs::create_dir(&tmp).unwrap();
-        let grant = tmp.join("chosen");
+        let tmp = crate::files::Scratch::new("om-desk-http");
+        let grant = tmp.path.join("chosen");
         std::fs::create_dir(&grant).unwrap();
         std::fs::write(grant.join("notes.txt"), b"inside").unwrap();
-        std::fs::write(tmp.join("secret.txt"), b"SENTINEL-OUTSIDE").unwrap();
+        std::fs::write(tmp.path.join("secret.txt"), b"SENTINEL-OUTSIDE").unwrap();
         let files = Files::open(std::slice::from_ref(&grant), None, Some("127.0.0.1:1")).unwrap();
 
         let traversal = dispatch(
@@ -398,7 +391,6 @@ mod tests {
         let closed_text = String::from_utf8(closed.to_bytes(false)).unwrap();
         assert!(closed_text.starts_with("HTTP/1.1 503 "));
         assert!(closed_text.contains("\"error\":\"no-destination\""));
-        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     fn call_on(

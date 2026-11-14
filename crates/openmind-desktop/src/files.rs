@@ -973,11 +973,15 @@ fn read_limited(path: &Path, max: usize) -> Result<Vec<u8>, FileError> {
 #[cfg(target_os = "linux")]
 const O_NOFOLLOW: i32 = libc::O_NOFOLLOW;
 
+/// Open `path` for reading. A symlink is not followed.
+///
+/// Linux passes [`O_NOFOLLOW`] to `open`, so a last-component swap fails
+/// with `ELOOP`. Every other OS uses [`open_without_o_nofollow`]: this crate
+/// does not pass a Linux `O_NOFOLLOW` value there.
 fn open_nofollow(path: &Path) -> Result<File, FileError> {
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        // A last-component swap cannot be followed: open fails with ELOOP.
         File::options()
             .read(true)
             .custom_flags(O_NOFOLLOW)
@@ -986,12 +990,22 @@ fn open_nofollow(path: &Path) -> Result<File, FileError> {
     }
     #[cfg(not(target_os = "linux"))]
     {
-        let meta = fs::symlink_metadata(path).map_err(|err| map_open_err(path, err))?;
-        if meta.file_type().is_symlink() {
-            return Err(FileError::Symlink);
-        }
-        File::open(path).map_err(|err| map_open_err(path, err))
+        open_without_o_nofollow(path)
     }
+}
+
+/// Open `path` on an OS that does not use Linux `O_NOFOLLOW`.
+///
+/// `symlink_metadata` refuses a symlink before [`File::open`]. The target's
+/// bytes are not returned. A last-component swap between the check and the
+/// open is still possible; the grant walk refuses symlinks as well.
+#[cfg(not(target_os = "linux"))]
+fn open_without_o_nofollow(path: &Path) -> Result<File, FileError> {
+    let meta = fs::symlink_metadata(path).map_err(|err| map_open_err(path, err))?;
+    if meta.file_type().is_symlink() {
+        return Err(FileError::Symlink);
+    }
+    File::open(path).map_err(|err| map_open_err(path, err))
 }
 
 fn map_open_err(path: &Path, err: std::io::Error) -> FileError {
@@ -1442,6 +1456,40 @@ fn utf8_width(first: u8) -> Option<usize> {
     }
 }
 
+/// Empty directory under the OS temp dir. The name is this process, a
+/// counter, and the clock, so tests do not open `/dev/urandom` (Linux and
+/// macOS have it; Windows does not).
+#[cfg(test)]
+pub(crate) struct Scratch {
+    /// Directory removed when this value is dropped.
+    pub path: PathBuf,
+}
+
+#[cfg(test)]
+impl Scratch {
+    /// Create `{prefix}-{pid}-{n}-{nanos}` under the process temp directory.
+    pub(crate) fn new(prefix: &str) -> Self {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let tick = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_nanos())
+            .unwrap_or(0);
+        let path =
+            std::env::temp_dir().join(format!("{prefix}-{}-{seq}-{tick}", std::process::id()));
+        fs::create_dir(&path).unwrap_or_else(|err| panic!("create {}: {err}", path.display()));
+        Self { path }
+    }
+}
+
+#[cfg(test)]
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.path);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1451,29 +1499,27 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    fn scratch() -> PathBuf {
-        let mut buf = [0u8; 8];
-        let mut random = File::open("/dev/urandom").unwrap();
-        random.read_exact(&mut buf).unwrap();
-        let dir =
-            std::env::temp_dir().join(format!("om-desk-{}", galion_common::hex::encode(&buf)));
-        fs::create_dir(&dir).unwrap();
-        dir
-    }
-
-    struct Tmp {
-        path: PathBuf,
-    }
-
-    impl Tmp {
-        fn new() -> Self {
-            Self { path: scratch() }
+    fn symlink_file(original: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(original, link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(original, link).unwrap();
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (original, link);
+            panic!("this OS cannot create a symlink for the no-follow test");
         }
     }
 
-    impl Drop for Tmp {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
+    fn symlink_dir(original: &Path, link: &Path) {
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(original, link).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(original, link).unwrap();
+        #[cfg(not(any(unix, windows)))]
+        {
+            let _ = (original, link);
+            panic!("this OS cannot create a symlink for the no-follow test");
         }
     }
 
@@ -1535,7 +1581,7 @@ mod tests {
 
     #[test]
     fn read_stays_inside_the_chosen_directory() {
-        let tmp = Tmp::new();
+        let tmp = Scratch::new("om-desk");
         let grant = tmp.path.join("chosen");
         fs::create_dir(&grant).unwrap();
         fs::write(grant.join("notes.txt"), b"inside").unwrap();
@@ -1576,7 +1622,7 @@ mod tests {
 
     #[test]
     fn a_chosen_file_does_not_open_its_neighbour() {
-        let tmp = Tmp::new();
+        let tmp = Scratch::new("om-desk");
         let chosen = tmp.path.join("only.txt");
         let other = tmp.path.join("other.txt");
         fs::write(&chosen, b"chosen").unwrap();
@@ -1594,19 +1640,17 @@ mod tests {
         assert_eq!(listed[0].name, "only.txt");
     }
 
-    #[cfg(unix)]
     #[test]
     fn symlinks_are_not_followed() {
-        use std::os::unix::fs::symlink;
-        let tmp = Tmp::new();
+        let tmp = Scratch::new("om-desk");
         let grant = tmp.path.join("chosen");
         fs::create_dir(&grant).unwrap();
         let outside = tmp.path.join("secret.txt");
         fs::write(&outside, b"SENTINEL-LINK").unwrap();
-        symlink(&outside, grant.join("link.txt")).unwrap();
-        symlink(tmp.path.join("nope"), grant.join("dangling.txt")).unwrap();
+        symlink_file(&outside, &grant.join("link.txt"));
+        symlink_file(&tmp.path.join("nope"), &grant.join("dangling.txt"));
         let via = tmp.path.join("via");
-        symlink(&grant, &via).unwrap();
+        symlink_dir(&grant, &via);
         assert!(Files::open_limited(std::slice::from_ref(&via), None, None, 64).is_err());
         let files = limited(&[grant], None, None, 64);
         for name in ["link.txt", "dangling.txt"] {
@@ -1631,15 +1675,13 @@ mod tests {
         }
     }
 
-    #[cfg(unix)]
     #[test]
     fn open_nofollow_does_not_read_a_symlink() {
-        use std::os::unix::fs::symlink;
-        let tmp = Tmp::new();
+        let tmp = Scratch::new("om-desk");
         let real = tmp.path.join("secret.txt");
         fs::write(&real, b"SENTINEL-OPEN").unwrap();
         let link = tmp.path.join("link.txt");
-        symlink(&real, &link).unwrap();
+        symlink_file(&real, &link);
         let err = open_nofollow(&link).unwrap_err();
         assert_eq!(err.code(), "symlink", "{err}");
         assert!(!err.to_string().contains("SENTINEL"));
@@ -1649,9 +1691,29 @@ mod tests {
         assert_eq!(buf, b"SENTINEL-OPEN");
     }
 
+    /// Every target other than Linux compiles `open_without_o_nofollow`
+    /// instead of the `O_NOFOLLOW` open. A symlink is an error. A regular
+    /// file is readable.
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn open_without_o_nofollow_reads_a_file_and_refuses_a_symlink() {
+        let tmp = Scratch::new("om-desk");
+        let real = tmp.path.join("secret.txt");
+        fs::write(&real, b"SENTINEL-PLAIN").unwrap();
+        let mut file = open_without_o_nofollow(&real).unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+        assert_eq!(buf, b"SENTINEL-PLAIN");
+        let link = tmp.path.join("link.txt");
+        symlink_file(&real, &link);
+        let err = open_without_o_nofollow(&link).unwrap_err();
+        assert_eq!(err.code(), "symlink", "{err}");
+        assert!(!err.to_string().contains("SENTINEL"));
+    }
+
     #[test]
     fn oversize_is_refused_before_upload() {
-        let tmp = Tmp::new();
+        let tmp = Scratch::new("om-desk");
         let grant = tmp.path.join("chosen");
         fs::create_dir(&grant).unwrap();
         fs::write(grant.join("big.txt"), b"0123456789").unwrap();
@@ -1664,7 +1726,7 @@ mod tests {
 
     #[test]
     fn upload_stores_a_safe_name_and_dials_loopback() {
-        let tmp = Tmp::new();
+        let tmp = Scratch::new("om-desk");
         let inbox = tmp.path.join("inbox");
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();

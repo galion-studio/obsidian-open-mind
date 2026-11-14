@@ -556,7 +556,9 @@ fn research_attach_stays_local_and_shows_a_chip() {
     assert!(research
         .body
         .contains("aria-label=\"Galion Research prompt\""));
-    assert!(research.body.contains("disabled aria-label=\"Voice, unavailable\""));
+    assert!(research
+        .body
+        .contains("disabled aria-label=\"Voice, unavailable\""));
 
     let (code, _, _) = post_file(
         a,

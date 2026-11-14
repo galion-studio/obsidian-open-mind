@@ -120,7 +120,10 @@ if [ "$skip_build" -eq 0 ]; then
 fi
 
 target_dir=${CARGO_TARGET_DIR:-$root/target}
-host=$(rustc -vV | awk '/^host: /{print $2; exit}')
+# Read all of `rustc -vV`. An awk `exit` closes the pipe early, and
+# pipefail then turns rustc's SIGPIPE (141) into a failed package.
+host=$(rustc -vV | sed -n 's/^host: //p')
+host=${host%%[!A-Za-z0-9_.-]*}
 if [ -z "$host" ]; then
   die "rustc did not report a host"
 fi

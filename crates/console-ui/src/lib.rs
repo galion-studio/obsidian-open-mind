@@ -200,6 +200,9 @@ pub struct Ui {
     overview_css: String,
     overview_css_href: String,
     overview_css_etag: String,
+    research_css: String,
+    research_css_href: String,
+    research_css_etag: String,
     sprite_href: String,
     sprite_etag: String,
     sprite: String,
@@ -225,6 +228,7 @@ fn no_route(status: u16, body: &[u8]) -> bool {
 fn safe_back(back: &str) -> &str {
     let known = PORTED.contains(&back)
         || rooms::ROOMS.iter().any(|r| r.to == Some(back))
+        || back == "/research"
         || back == "/console";
     if known {
         back
@@ -239,6 +243,8 @@ impl Ui {
         let h = css::fnv64(css.as_bytes());
         let overview_css = css::overview_sheet();
         let oh = css::fnv64(overview_css.as_bytes());
+        let research_css = css::research_sheet();
+        let rh = css::fnv64(research_css.as_bytes());
         Ui {
             cfg,
             css_href: format!("/_ui/console.{h:016x}.css"),
@@ -247,6 +253,9 @@ impl Ui {
             overview_css_href: format!("/_ui/overview.{oh:016x}.css"),
             overview_css_etag: format!("\"{oh:016x}\""),
             overview_css,
+            research_css_href: format!("/_ui/research.{rh:016x}.css"),
+            research_css_etag: format!("\"{rh:016x}\""),
+            research_css,
             sprite_href: icons::sprite_href().to_string(),
             sprite_etag: icons::sprite_etag().to_string(),
             sprite: icons::sprite_body().to_string(),
@@ -268,6 +277,7 @@ impl Ui {
         path.starts_with("/_ui/")
             || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || port4::owns(path)
+            || path == "/research"
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
     }
@@ -393,8 +403,13 @@ impl Ui {
 
     pub fn handle(&self, req: &Request<'_>) -> Reply {
         match req.path {
-            p if p == self.css_href => return self.stylesheet(req, false),
-            p if p == self.overview_css_href => return self.stylesheet(req, true),
+            p if p == self.css_href => return self.stylesheet(&self.css_etag, self.css.as_bytes()),
+            p if p == self.overview_css_href => {
+                return self.stylesheet(&self.overview_css_etag, self.overview_css.as_bytes())
+            }
+            p if p == self.research_css_href => {
+                return self.stylesheet(&self.research_css_etag, self.research_css.as_bytes())
+            }
             p if p == self.sprite_href => return self.sprite(req),
             "/_ui/favicon.svg" => {
                 return Reply {
@@ -406,7 +421,7 @@ impl Ui {
                     body: icons::mark("")
                         .replace(
                             "<svg class=\"\"",
-                            "<svg xmlns=\"http://www.w3.org/2000/svg\" color=\"#d4d4d4\"",
+                            "<svg xmlns=\"http://www.w3.org/2000/svg\" color=\"#E6EDF3\"",
                         )
                         .into_bytes(),
                 }
@@ -445,7 +460,7 @@ impl Ui {
             "/domains" | "/repos" | "/docs" | "/cloudflare" | "/pack" | "/chill" | "/jupyter"
             | "/data" => self.read_room(req),
             "/analytics" | "/arena" | "/bank" | "/cache" => self.port1_room(req),
-            "/context" | "/gateway" | "/guardian" | "/hermes" => self.port2_room(req),
+            "/context" | "/gateway" | "/guardian" | "/hermes" | "/research" => self.port2_room(req),
             "/instances" | "/keys" | "/markers" => self.port3_room(req),
             "/memory" | "/mesh" => self.port4_room(req),
             p if port4::owns(p) => self.port4_room(req),
@@ -465,13 +480,7 @@ impl Ui {
         }
     }
 
-    fn stylesheet(&self, req: &Request<'_>, overview: bool) -> Reply {
-        let _ = req;
-        let (etag, body) = if overview {
-            (&self.overview_css_etag, self.overview_css.as_bytes())
-        } else {
-            (&self.css_etag, self.css.as_bytes())
-        };
+    fn stylesheet(&self, etag: &str, body: &[u8]) -> Reply {
         Reply {
             status: 200,
             headers: vec![
@@ -480,7 +489,7 @@ impl Ui {
                     "Cache-Control".into(),
                     "public, max-age=31536000, immutable".into(),
                 ),
-                ("ETag".into(), etag.clone()),
+                ("ETag".into(), etag.to_string()),
             ],
             body: body.to_vec(),
         }

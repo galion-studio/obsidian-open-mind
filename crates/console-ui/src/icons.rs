@@ -39,6 +39,7 @@ pub const PATHS: &[(&str, &str)] = &[
     ("menu", "M4 7h16M4 12h16M4 17h16"),
     ("close", "M6 6l12 12M18 6 6 18"),
     ("search", "M11 6a5 5 0 1 0 0 10 5 5 0 0 0 0-10M15.5 15.5 20 20"),
+    ("plus", "M12 5v14M5 12h14"),
     ("send", "M4 12h14M13 6l6 6-6 6"),
     ("scope", "M5 7h14M5 12h9M5 17h11"),
     ("arena", "M12 4l7 4v8l-7 4-7-4V8z"),

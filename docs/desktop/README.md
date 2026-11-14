@@ -40,19 +40,26 @@ Print the page and exit. This opens no socket (`crates/openmind-desktop/src/cli.
 ./target/release/openmind-desktop > console.html
 ```
 
-Serve on the default loopback address. `DEFAULT_BIND` is `127.0.0.1:18081` (`crates/openmind-desktop/src/lib.rs`):
+Serve on the default loopback address. `DEFAULT_PORT` is 18181 and `DEFAULT_BIND` is `127.0.0.1:18181` (`crates/openmind-desktop/src/lib.rs`). Port 18081 is the staging page beside the Rust console on 18080, so the desktop does not bind it. This listener is not the console probe. The console probe stays on 18080 (`crates/openmind-desktop/src/probe.rs`, `Service::default_port`).
 
 ```sh
 ./target/release/openmind-desktop --listen
 ```
 
-Open `http://127.0.0.1:18081/` in a browser on this machine. The process prints the bound address on stderr (`crates/openmind-desktop/src/http.rs`, `listen`).
+Open `http://127.0.0.1:18181/` in a browser on this machine. The process prints the bound address on stderr (`crates/openmind-desktop/src/http.rs`, `listen`).
 
-Another loopback address, including a free port:
+The port is configurable. `--port` and `OPENMIND_DESKTOP_PORT` both bind `127.0.0.1` on that port. An address given to `--listen` wins, and `--port` cannot be combined with that address. A blank environment value is unset. A value that is not a port from 1 to 65535 is a usage error (exit 2). The binary reads the variable (`crates/openmind-desktop/src/main.rs`, `listen_port_from_env`). `parse` does not (`crates/openmind-desktop/src/cli.rs`, `resolve_listen_addr`).
+
+```sh
+./target/release/openmind-desktop --listen --port 19000
+OPENMIND_DESKTOP_PORT=19000 ./target/release/openmind-desktop --listen
+```
+
+Another loopback address, including a free port or IPv6. The port flag and the environment variable do not change the host; use `--listen` for `::1`.
 
 ```sh
 ./target/release/openmind-desktop --listen 127.0.0.1:0
-./target/release/openmind-desktop --listen '[::1]:18081'
+./target/release/openmind-desktop --listen '[::1]:18181'
 ```
 
 `--help` and `--version` print usage and the version line. They do not listen (`crates/openmind-desktop/src/cli.rs`, `Mode::serves`).
@@ -65,13 +72,13 @@ Only `--listen` may open a socket. With no flags the binary prints the page and 
 
 `parse_loopback` accepts the address only when `ip().is_loopback()` is true (`crates/openmind-desktop/src/http.rs`). `127.0.0.1` and `::1` pass. `0.0.0.0`, a public address, and `[::]` are refused, and a string that is not `host:port` is a usage error. The tests for that refusal are in the same file (`refuses_non_loopback_before_bind`).
 
-The listener answers `GET` and `HEAD` of `/` and `/index.html` with the control console. `/one` and `/research` are the Galion One and Galion Research entries. The Open Mind stack list stays on `/`. `GET /probes` is the read-only probe report. `GET` and `POST` under `/files` are the file gate. Any other path is 404. A method that does not match the path is 405 (`reply` in `crates/openmind-desktop/src/http.rs`). File uploads use a body cap of 8 MiB. Probe reads stay small (`listen` in the same file).
+The listener answers `GET` and `HEAD` of `/` and `/index.html` with the control console. `/one` and `/research` are the Galion One and Galion Research entries (`entry` in `crates/openmind-desktop/src/page.rs`). Each entry is its own page: a title, one sentence, a link back to `/`, the four brand lines, and the MIT text. The Open Mind stack list stays on `/`. The entries do not include it (`one_and_research_are_entries_and_the_stack_stays_on_the_console`). `GET /probes` is the read-only probe report. `GET /files` lists chosen paths. `GET /files/sent` lists what was stored. `POST /files/read` reads one chosen path. `POST /files` uploads picker bytes, or a chosen path when the body is `{"path":"..."}`. Any other path is 404. A method that does not match the path is 405, including `PUT` and a `POST` to `/`, `/mic`, or `/audio` (`reply` in `crates/openmind-desktop/src/http.rs`). A peer that is not loopback is 403 before a file is touched.
 
-Response headers are `content-security-policy`, `referrer-policy: no-referrer`, `x-content-type-options: nosniff`, and `cache-control: no-store`. The policy is `default-src 'none'`, inline style and script only, `media-src data:`, `img-src data:`, `connect-src 'none'`, `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'` (`CSP` in `crates/openmind-desktop/src/page.rs`). The page repeats that policy in a meta tag and sets `Permissions-Policy` to `microphone=(self)` (`render` in the same file). `connect-src 'none'` means the page cannot open its own network connection.
+File uploads are capped at 8 MiB. `MAX_FILE_BYTES` is `8 * 1024 * 1024` (`crates/openmind-desktop/src/files.rs`). The listener uses that as `max_body_bytes` (`listen` in `crates/openmind-desktop/src/http.rs`). The page script uses the same number as `FILE_MAX` (`render` in `crates/openmind-desktop/src/page.rs`). An empty file or a larger file is not sent. The plus is `<input id="files" type="file" multiple>` with no `accept` attribute. On change, each name is shown with `textContent` in `#picked`, then the script `fetch("/files")` with `method: "POST"`, `credentials: "omit"`, header `X-File-Name`, and the file as the body. That is the only `fetch(`. There is no `FileReader`. The server still checks the extension allow-list and the magic bytes (`ALLOWED` and `classify` in `crates/openmind-desktop/src/files.rs`): `txt`, `md`, `json`, `csv`, `log`, `pdf`, `jpg`, `jpeg`, `png`, `webp`. Probe reads stay small (`MAX_BODY` in `crates/openmind-desktop/src/probe.rs`).
 
-The page keeps file names and commands in the document. The plus is `<input type="file" multiple>` with no `accept` attribute. The script copies `file.name` into a list with `textContent`. It does not read file bytes (`FileReader` is absent). Enter on the command field appends the text to "Kept on this page" or plays deny when the field is empty. The page source contains no `http://`, `https://`, `fetch(`, `XMLHttpRequest`, `WebSocket`, `MediaRecorder`, `indexedDB`, `localStorage`, `createObjectURL`, or `sendBeacon` (`page_stays_on_the_machine` in `crates/openmind-desktop/src/page.rs`). No model is called (the presence copy in `render` in the same file). `POST` and `PUT`, including `/mic` and `/audio`, are 405 (`reply` in `crates/openmind-desktop/src/http.rs`).
+Response headers are `content-security-policy`, `referrer-policy: no-referrer`, `x-content-type-options: nosniff`, and `cache-control: no-store`. The policy is `default-src 'none'`, inline style and script only, `media-src data:`, `img-src data:`, `connect-src 'self'`, `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'` (`CSP` in `crates/openmind-desktop/src/page.rs`). `connect-src 'self'` is what allows the one same-origin upload. Any other origin is refused. The console page repeats that policy in a meta tag and sets `Permissions-Policy` to `microphone=(self)` (`render` in the same file). `/one` and `/research` get the same CSP header from the listener (`entry_response` in `crates/openmind-desktop/src/http.rs`). The page source contains no `http://`, `https://`, `XMLHttpRequest`, `WebSocket`, `MediaRecorder`, `indexedDB`, `localStorage`, `createObjectURL`, or `sendBeacon` (`page_stays_on_the_machine` in `crates/openmind-desktop/src/page.rs`). No model is called (the presence copy in `render` in the same file). Enter on the command field appends the text to "Kept on this page" or plays deny when the field is empty. The command is not uploaded.
 
-The microphone is opt-in and loopback-only. The checkbox `#mic-opt` starts unchecked (`render`, and `microphone_is_opt_in_and_loopback_only`). The voice button calls `startMic` only after that box is ticked and `loopbackPage()` is true: a `file:` page, or a hostname of `localhost`, `127.0.0.1`, `::1`, or `[::1]` (`loopbackPage` and `startMic` in `crates/openmind-desktop/src/page.rs`). It then calls `getUserMedia({ audio: true, video: false })`. Samples sit in one reused `Float32Array` the size of `fftSize` (256) for a level number; the next tick overwrites that buffer (`pump`). Closing the button, or clearing the box, calls `stopMic`, which stops every track. The label says the audio is not saved and is not sent. The crate docs state the same (`crates/openmind-desktop/src/lib.rs`). The Voice stack row is `staged` with that role (`crates/openmind-desktop/src/stack.rs`).
+The microphone is opt-in and loopback-only, and the meter is the level line. The checkbox `#mic-opt` starts unchecked (`render`, and `microphone_is_opt_in_and_loopback_only`). The voice button calls `startMic` only after that box is ticked and `loopbackPage()` is true: a `file:` page, or a hostname of `localhost`, `127.0.0.1`, `::1`, or `[::1]` (`loopbackPage` and `startMic` in `crates/openmind-desktop/src/page.rs`). It then calls `getUserMedia({ audio: true, video: false })`. Samples sit in one reused `Float32Array` the size of `fftSize` (256). Each tick writes the RMS into `#mic-level` as `Level N` (`pump`). The next tick overwrites that buffer. Closing the button, or clearing the box, calls `stopMic`, which stops every track and clears the level line. The label says the audio is not saved and is not sent. The crate docs state the same (`crates/openmind-desktop/src/lib.rs`). The Voice stack row is `staged` with that role (`crates/openmind-desktop/src/stack.rs`).
 
 Stack rows do not probe other programs. Nothing on the list is `live` (`crates/openmind-desktop/src/stack.rs`).
 
@@ -83,14 +90,20 @@ Every pitch is an integer ratio of 432 Hz. `REFERENCE_HZ` is 432. `hz` is `REFER
 | --- | --- | --- | --- | --- | --- |
 | wake | 1/1 | 432 | 160 | The console is ready | in the set and in the page; the script does not call it |
 | ask | 5/4 | 540 | 120 | Voice armed, or a question | the microphone opens after the box is ticked on a loopback or file page |
-| hear | 9/8 | 486 | 100 | A file name was kept on the page | the file input changes and at least one name is kept |
+| hear | 9/8 | 486 | 100 | A file was picked for upload | the file input changes and at least one file is selected |
 | notice | 4/3 | 576 | 140 | The stack wants a look | in the set and in the page; the script does not call it |
 | done | 3/2 | 648 | 160 | A command was kept on the page | Enter on a non-empty command |
-| deny | 3/4 | 324 | 180 | Refused. Nothing was sent | empty command, box not ticked, page not on loopback, no microphone API, or permission refused |
+| deny | 3/4 | 324 | 180 | Refused. Nothing was sent | empty command, empty or oversize file, upload refused, box not ticked, page not on loopback, no microphone API, or permission refused |
 | close | 2/3 | 288 | 140 | Voice disarmed | the voice button closes the microphone |
 
 Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src/sound.rs`. The script calls are `play("hear")`, `play("ask")`, `play("close")`, `play("deny")`, and `play("done")` in `crates/openmind-desktop/src/page.rs`. Mute (`aria-pressed` on `#mute`) and local hours 22:00–06:59 skip playback (`night` and `play` in that script). `wake` is checked against 432 Hz, not concert 440 (`wake_is_432_not_440` in `sound.rs`).
 
 ## CI
 
-`.github/workflows/openmind-desktop.yml` runs on Linux (`ubuntu-latest`). The `linux` job builds the crate, runs clippy with `-D warnings` on all targets, runs the tests, then `package-local.sh` and `verify-local.sh` with the output under the runner temp directory. The `linux-aarch64` job cross-builds `aarch64-unknown-linux-musl` (linker `rust-lld`, `.cargo/config.toml`) and runs the same tests under qemu-user (`qemu-aarch64-static` or `qemu-aarch64`, the same package split as the self-eval `ucpu-qemu` job). That is the run that checks `O_NOFOLLOW` (`nofollow_flag_matches_this_target` in `crates/openmind-desktop/src/files.rs`): the flag is `0x8000` on aarch64 and `0x20000` on x86. Workflow permissions are `contents: read`. The jobs do not upload the tarball and do not create a release. A publish flag must exit 2.
+`.github/workflows/openmind-desktop.yml` runs four jobs. Workflow permissions are `contents: read`. No job uploads a tarball or creates a release.
+
+The `linux` job (`ubuntu-latest`) builds the crate, runs clippy with `-D warnings` on all targets, runs the tests, then `package-local.sh` and `verify-local.sh` with the output under the runner temp directory. A publish flag must exit 2.
+
+The `linux-aarch64` job cross-builds `aarch64-unknown-linux-musl` (linker `rust-lld`, `.cargo/config.toml`) and runs the same tests under qemu-user (`qemu-aarch64-static` or `qemu-aarch64`, the same package split as the self-eval `ucpu-qemu` job). That is the run that checks `libc::O_NOFOLLOW` (`O_NOFOLLOW` and `nofollow_flag_matches_this_target` in `crates/openmind-desktop/src/files.rs`): `libc` supplies the flag, which is `0x8000` on aarch64 and `0x20000` on x86. On ARM, `0x20000` is `O_LARGEFILE`, so a hard-coded x86 value would not stop `open` from following a symlink.
+
+Windows (`windows-latest`, target `x86_64-pc-windows-msvc`) and macOS (`macos-latest`, target `aarch64-apple-darwin`) only build the crate. They do not run the tests, package a tarball, or upload an artifact. Linux file opens stay on the `libc::O_NOFOLLOW` path (`open_nofollow` in `crates/openmind-desktop/src/files.rs`). The other targets use the existing non-Linux open, which checks `symlink_metadata` and then opens the file.

@@ -222,16 +222,16 @@ mod tests {
     #[test]
     fn refuses_non_loopback_before_bind() {
         for addr in [
-            "0.0.0.0:18081",
+            "0.0.0.0:18181",
             "10.1.2.3:80",
-            "[::]:18081",
+            "[::]:18181",
             "not-an-address",
         ] {
             let err = parse_loopback(addr).unwrap_err();
             assert_eq!(err.exit_code(), 2, "{addr}");
         }
-        assert!(parse_loopback("127.0.0.1:18081").is_ok());
-        assert!(parse_loopback("[::1]:18081").is_ok());
+        assert!(parse_loopback(crate::DEFAULT_BIND).is_ok());
+        assert!(parse_loopback("[::1]:18181").is_ok());
     }
 
     #[test]

@@ -52,6 +52,23 @@ usage: galion-console-static --root DIR [options]
                        e.g. /opt/galion/galion-light/one/model; default none
   --user-md FILE       USER.md shown on /md/user,
                        e.g. /opt/galion/hermes/memories/USER.md; default none
+  --connectors-dir DIR where /connectors keeps MCP server entries (servers.d/),
+                       secrets (0600) and mcp-servers.yaml; default none
+                       (the screen is read-only)
+  --connectors-command-dir DIR
+                       custom connectors may name a local command only if it
+                       sits directly in this directory; default none
+  --connectors-hermes-file FILE
+                       live Hermes MCP servers file; hand-written entries are
+                       left in place and this screen writes one marked block
+  --connectors-logo-dir DIR
+                       brand logos for /connectors (<name>.png, read once);
+                       default none (rows use a monogram)
+  --connectors-oauth-dir DIR
+                       account sign-in (OAuth 2.0 + PKCE) for Gmail, Google
+                       Calendar, Google Drive, Canva, Box and Wix: app
+                       credentials in <provider>.env (0600); tokens stay under
+                       --connectors-dir; default none (sign-in off)
   --arena-root DIR     arena files (board.jsonl, champions/current.json,
                        spend.json, STOP) for an in-process read-only
                        GET /api/arena (port of `arena.py status`; non-GET
@@ -89,6 +106,7 @@ page /cache
 page /chill
 page /cloudflare
 page /console
+page /connectors
 page /context
 page /data
 page /docs
@@ -348,6 +366,34 @@ impl Config {
                     data_paths.push(p);
                 }
                 "--user-md" => files.user_md = Some(abs_path(val("--user-md")?, "--user-md")?),
+                "--connectors-dir" => {
+                    files.connectors_dir =
+                        Some(abs_path(val("--connectors-dir")?, "--connectors-dir")?)
+                }
+                "--connectors-command-dir" => {
+                    files.connectors_command_dir = Some(abs_path(
+                        val("--connectors-command-dir")?,
+                        "--connectors-command-dir",
+                    )?)
+                }
+                "--connectors-hermes-file" => {
+                    files.connectors_hermes_file = Some(abs_path(
+                        val("--connectors-hermes-file")?,
+                        "--connectors-hermes-file",
+                    )?)
+                }
+                "--connectors-logo-dir" => {
+                    files.connectors_logo_dir = Some(abs_path(
+                        val("--connectors-logo-dir")?,
+                        "--connectors-logo-dir",
+                    )?)
+                }
+                "--connectors-oauth-dir" => {
+                    files.connectors_oauth_dir = Some(abs_path(
+                        val("--connectors-oauth-dir")?,
+                        "--connectors-oauth-dir",
+                    )?)
+                }
                 "--allow-public-bind" => public = true,
                 "--quiet" => access_log = false,
                 other => return Err(bad(format!("unknown argument {other:?}"))),
@@ -555,6 +601,19 @@ mod tests {
         );
         let d = Config::from_args(args("--ui rust --upstream 127.0.0.1:1")).unwrap();
         assert_eq!(d.files, console_ui::port4::HostFiles::default());
+        let cn = Config::from_args(args(
+            "--ui rust --upstream 127.0.0.1:1 --connectors-dir /var/lib/galion-console-connectors --connectors-logo-dir /var/lib/galion-console-connectors/logos --connectors-oauth-dir /var/lib/galion-console-connectors/oauth --connectors-hermes-file /etc/hermes-rs/mcp-servers.yaml --connectors-command-dir /opt/galion/mcp",
+        ))
+        .unwrap();
+        assert_eq!(
+            cn.files.connectors_dir.as_deref(),
+            Some(std::path::Path::new("/var/lib/galion-console-connectors"))
+        );
+        assert!(cn.files.connectors_oauth_dir.is_some());
+        assert!(Config::from_args(args(
+            "--ui rust --upstream 127.0.0.1:1 --connectors-dir rel/dir"
+        ))
+        .is_err());
         for bad in [
             "--memory-root rel/dir",
             "--memory-root /a/../etc",

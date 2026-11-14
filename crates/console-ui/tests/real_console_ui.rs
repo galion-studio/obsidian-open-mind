@@ -283,7 +283,7 @@ fn rust_pages_match_live_api() {
     let not_ported: Vec<&str> = rooms::ROOMS
         .iter()
         .filter_map(|r| r.to)
-        .filter(|p| !PORTED.contains(p))
+        .filter(|p| !PORTED.contains(p) && *p != "/connectors")
         .collect();
     for p in &not_ported {
         let (c, h) = page(front, p, "127.0.0.1");

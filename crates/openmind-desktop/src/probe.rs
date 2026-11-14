@@ -439,7 +439,7 @@ pub fn probe_one(endpoint: &Endpoint, timeout: Duration) -> ProbeReport {
                 return classify_http(endpoint, response.status, mode);
             }
             Err(ClientError::Connect(err)) => {
-                let (state, detail) = io_failure(&err);
+                let (state, detail) = connect_failure(addr, err);
                 if state == State::Down {
                     refused = true;
                     continue;
@@ -593,12 +593,66 @@ fn host_header(host: &str, port: u16) -> String {
     }
 }
 
+fn connect_failure(addr: SocketAddr, err: io::Error) -> (State, &'static str) {
+    if is_refused(&err) {
+        return (State::Down, "connection refused");
+    }
+    // `TcpStream::connect_timeout` on Windows spends the whole budget and
+    // returns a timeout when the port is closed. A blocking connect still
+    // returns the refusal at once. The extra wait is only the confirm.
+    #[cfg(windows)]
+    if is_timeout(&err) && windows_port_refuses(addr) {
+        return (State::Down, "connection refused");
+    }
+    let _ = addr;
+    io_failure(&err)
+}
+
+/// Winsock `WSAECONNREFUSED`.
+#[cfg(windows)]
+const WSAECONNREFUSED: i32 = 10061;
+
+/// Winsock `WSAENOTCONN`.
+#[cfg(windows)]
+const WSAENOTCONN: i32 = 10057;
+
+/// A closed port answered. Windows `connect_timeout` sometimes keeps
+/// `WSAECONNREFUSED` only in the message or the raw code.
+fn is_refused(err: &io::Error) -> bool {
+    if matches!(
+        err.kind(),
+        io::ErrorKind::ConnectionRefused | io::ErrorKind::NotConnected
+    ) {
+        return true;
+    }
+    #[cfg(windows)]
+    if matches!(err.raw_os_error(), Some(WSAECONNREFUSED | WSAENOTCONN)) {
+        return true;
+    }
+    err.to_string().to_ascii_lowercase().contains("refused")
+}
+
+/// `true` when a blocking connect to `addr` is refused before this wait ends.
+#[cfg(windows)]
+fn windows_port_refuses(addr: SocketAddr) -> bool {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(std::net::TcpStream::connect(addr));
+    });
+    match rx.recv_timeout(Duration::from_millis(250)) {
+        Ok(Err(err)) => is_refused(&err),
+        _ => false,
+    }
+}
+
 fn io_failure(err: &io::Error) -> (State, &'static str) {
+    if is_refused(err) {
+        return (State::Down, "connection refused");
+    }
     if is_timeout(err) {
         return (State::Unknown, "timeout");
     }
     match err.kind() {
-        io::ErrorKind::ConnectionRefused => (State::Down, "connection refused"),
         io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted => {
             (State::Down, "connection closed")
         }
@@ -861,7 +915,12 @@ mod tests {
             &endpoint_at(Service::Hermes, refused_addr, "/health"),
             Duration::from_secs(1),
         );
-        assert_eq!(refused_report.state, State::Down);
+        assert_eq!(
+            refused_report.state,
+            State::Down,
+            "{} via {refused_addr}",
+            refused_report.detail
+        );
         assert_eq!(refused_report.detail, "connection refused");
         assert!(refused_report.http_status.is_none());
 

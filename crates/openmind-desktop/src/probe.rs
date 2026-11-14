@@ -854,14 +854,22 @@ mod tests {
         assert_eq!(down_report.detail, "http 503");
         assert!(down_report.observed_mode.is_none());
 
-        let refused = TcpListener::bind((DEFAULT_HOST, 0)).unwrap();
+        // A closed `localhost` port is often `[::1]`. Windows drops that SYN,
+        // so the probe times out. IPv4 loopback refuses the connection on
+        // Windows, macOS, and Linux.
+        let refused = TcpListener::bind("127.0.0.1:0").unwrap();
         let refused_addr = refused.local_addr().unwrap();
         drop(refused);
         let refused_report = probe_one(
             &endpoint_at(Service::Hermes, refused_addr, "/health"),
             Duration::from_secs(1),
         );
-        assert_eq!(refused_report.state, State::Down);
+        assert_eq!(
+            refused_report.state,
+            State::Down,
+            "{}",
+            refused_report.detail
+        );
         assert_eq!(refused_report.detail, "connection refused");
         assert!(refused_report.http_status.is_none());
 

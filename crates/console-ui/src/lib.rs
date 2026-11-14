@@ -18,10 +18,10 @@
 
 #![forbid(unsafe_code)]
 
+pub mod a11y;
 pub mod admin_catalog;
 pub mod admin_sheet;
 pub mod admin_views;
-pub mod a11y;
 pub mod client;
 pub mod css;
 pub mod cues;

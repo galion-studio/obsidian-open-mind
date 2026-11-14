@@ -247,7 +247,7 @@ pub fn body(v: &View<'_>) -> String {
     );
     out.push_str(&format!(
         "<h1>{mark}<span class=\"ell\">The mind</span></h1>\
-<p class=\"lede\">One window. One prompt. Type or speak, then watch what happens. This room still only reads threads, models and the guard.</p></header>\
+<p class=\"lede\">One window. One prompt. galion.app/research. Type or speak, then watch what happens. This room still only reads threads, models and the guard.</p></header>\
 <div class=\"ask\" role=\"group\" aria-label=\"Galion Research prompt\">\
 <button type=\"button\" class=\"ask-plus\" disabled aria-label=\"Add files\" title=\"Adding files is not on this page yet\">{plus}</button>\
 <textarea class=\"ask-input\" rows=\"3\" readonly placeholder=\"Ask a big question\" aria-label=\"Prompt\"></textarea>\
@@ -388,6 +388,7 @@ mod tests {
             "<span class=\"mono\">terminal</span> <span class=\"muted\">done</span> <span class=\"subtle mono\">ls -la</span>",
             "Slavik's JavaScript ruling",
             "Galion Research",
+            "galion.app/research",
             "Ask a big question",
             "aria-label=\"Add files\"",
             "aria-label=\"Voice\"",

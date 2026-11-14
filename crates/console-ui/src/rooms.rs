@@ -180,6 +180,9 @@ pub const DOCK: &[(&str, &str)] = &[
 pub fn on_room(path: &str, to: &str) -> bool {
     if to == "/" {
         path == "/"
+    } else if to == "/hermes" && (path == "/research" || path.starts_with("/research/")) {
+        // galion.app/research is the public Research screen. The room stays /hermes.
+        true
     } else {
         path.starts_with(to)
     }

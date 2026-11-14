@@ -276,6 +276,7 @@ impl Ui {
         path.starts_with("/_ui/")
             || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || port4::owns(path)
+            || path == "/research"
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
     }
@@ -458,7 +459,7 @@ impl Ui {
             "/domains" | "/repos" | "/docs" | "/cloudflare" | "/pack" | "/chill" | "/jupyter"
             | "/data" => self.read_room(req),
             "/analytics" | "/arena" | "/bank" | "/cache" => self.port1_room(req),
-            "/context" | "/gateway" | "/guardian" | "/hermes" => self.port2_room(req),
+            "/context" | "/gateway" | "/guardian" | "/hermes" | "/research" => self.port2_room(req),
             "/instances" | "/keys" | "/markers" => self.port3_room(req),
             "/memory" | "/mesh" => self.port4_room(req),
             p if port4::owns(p) => self.port4_room(req),

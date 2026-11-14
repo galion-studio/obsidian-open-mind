@@ -371,20 +371,22 @@ const PORT2: &str = r#"
 .tool{color:var(--c-muted);overflow-wrap:anywhere}
 "#;
 
-/// Galion Research prompt (`/hermes`). A separate sheet: the base sheet is
-/// at its 20 KiB budget (R1). Linked only on `/hermes`.
+/// Galion Research prompt (`/hermes` and `/research`). A separate sheet: the
+/// base sheet is at its 20 KiB budget (R1).
 const RESEARCH: &str = r#"
 body{background:radial-gradient(90% 48% at 50% -14%,color-mix(in srgb,var(--c-ice) 38%,transparent),transparent 62%),var(--c-bg)}
-.ask-page{max-width:44rem}
-.ask-stage{display:flex;flex-direction:column;justify-content:center;min-height:46vh;padding:1rem 0}
+.ask-page{max-width:40rem}
+.ask-stage{display:flex;flex-direction:column;justify-content:center;min-height:78vh;padding:1.5rem 0 1rem}
 .ask-head{text-align:center}
-.ask-head h1{justify-content:center;font-size:clamp(2rem,5vw,3rem)}
+.ask-head h1{justify-content:center;font-size:clamp(2.4rem,6vw,3.5rem)}
 .ask-head .lede{max-width:34rem;margin-inline:auto}
-.ask{display:flex;align-items:flex-end;gap:.6rem;margin-top:1.5rem;padding:.7rem;border:1px solid var(--c-line);border-radius:1.75rem;background:var(--c-surface)}
-.ask-input{flex:1;min-width:0;min-height:4.75rem;border:0;resize:vertical;background:transparent;color:inherit;font:inherit;font-size:1.125rem;line-height:1.45}
+.ask{display:flex;align-items:flex-end;gap:.75rem;margin-top:1.75rem;padding:1rem 1rem 1rem 1.1rem;border:1px solid var(--c-line);border-radius:2rem;background:var(--c-surface)}
+.ask-input{flex:1;min-width:0;min-height:8.5rem;border:0;resize:vertical;background:transparent;color:inherit;font:inherit;font-size:1.35rem;line-height:1.45}
 .ask-input::placeholder{color:var(--c-muted)}
-.ask-plus,.ask-voice{display:inline-flex;align-items:center;justify-content:center;width:2.75rem;height:2.75rem;flex:none;padding:0;border-radius:999px;border:1px solid var(--c-line);background:var(--c-elevated);color:inherit;cursor:not-allowed}
-.ask-voice{border:0;color:#0B0F14;background:linear-gradient(135deg,#B8E8FF,#58C4FF 55%,#0B5FA5)}
+.ask-plus,.ask-voice{display:inline-flex;align-items:center;justify-content:center;flex:none;padding:0;border-radius:999px;border:1px solid var(--c-line);background:var(--c-elevated);color:inherit;cursor:not-allowed}
+.ask-plus{width:2.75rem;height:2.75rem}
+.ask-voice{width:3.75rem;height:3.75rem;border:0;color:#0B0F14;background:linear-gradient(135deg,#B8E8FF,#58C4FF 55%,#0B5FA5)}
+.ask-voice .i{width:1.65rem;height:1.65rem}
 button.ask-voice:disabled{opacity:1;color:#0B0F14}
 "#;
 

@@ -4,52 +4,65 @@
 
 //! The console stylesheet, generated from Rust.
 //!
-//! Replaces Tailwind v4 (a JS engine) with a hand-written sheet: the design
-//! tokens from console-ide `src/styles.css` (`@theme`) are Rust constants,
-//! the component rules are written once here and only cover the classes the
+//! Replaces Tailwind v4 (a JS engine) with a hand-written sheet. Colour and
+//! type follow Galion Research and Galion One (`brand/tokens.css`,
+//! `brand/palette.json`): Ink, Surface, Sky, Ice and Ocean, Jost for
+//! display, IBM Plex for text and labels. The sheet does not fetch fonts.
+//! Status colours stay, because the brand pack has no status ramp; each one
+//! clears WCAG AA on Ink and on Paper. Slate (`#4A7C99`) is 4.24:1 on Ink,
+//! so small text uses Mist instead.
+//!
+//! Component rules are written once here and only cover the classes the
 //! Rust pages emit. The sheet is built once at start and served under a
 //! content-hashed name with `immutable` caching.
 
-/// Dark tokens (console-ide `@theme`).
+/// Dark tokens. Ink window, Sky accent, Ice highlight.
+/// `frost` and `ice` are the text-safe accents (Sky and Ice on Ink).
 pub const DARK: &[(&str, &str)] = &[
-    ("bg", "#1e1e1e"),
-    ("surface", "#252526"),
-    ("elevated", "#2d2d30"),
-    ("fg", "#d4d4d4"),
-    ("muted", "#9d9d9d"),
-    ("subtle", "#6a6a6a"),
-    ("line", "#3c3c3c"),
-    ("accent", "#007acc"),
-    ("accent-fg", "#ffffff"),
+    ("bg", "#0B0F14"),
+    ("surface", "#131A22"),
+    ("elevated", "#1B2633"),
+    ("fg", "#E6EDF3"),
+    ("muted", "#A7B6C4"),
+    ("subtle", "#A7B6C4"),
+    ("line", "#24303C"),
+    ("accent", "#58C4FF"),
+    ("accent-fg", "#0B0F14"),
     ("online", "#89d185"),
     ("offline", "#f14c4c"),
     ("held", "#cca700"),
-    ("ring", "#007acc"),
-    ("frost", "#007acc"),
-    ("ice", "#569cd6"),
-    ("winter", "#1e1e1e"),
-    // Text-safe status colours and link/bar colour (overview); WCAG AA on
+    ("ring", "#58C4FF"),
+    ("frost", "#58C4FF"),
+    ("ice", "#B8E8FF"),
+    ("winter", "#05070A"),
+    // Text-safe status colours and link colour (overview); WCAG AA on
     // bg, surface and elevated in both themes.
     ("ok", "#89d185"),
     ("warn", "#e2c04a"),
     ("bad", "#f48771"),
-    ("link", "#75beff"),
+    ("link", "#58C4FF"),
 ];
 
-/// Light overrides (console-ide `html[data-theme="light"]` and `LIGHT`).
+/// Light overrides. Paper ground, Ocean for text and buttons.
+/// Sky is 1.85:1 on Paper, so it is never a light-theme text colour.
 pub const LIGHT: &[(&str, &str)] = &[
-    ("bg", "#f6f6f4"),
-    ("surface", "#ffffff"),
-    ("elevated", "#efefec"),
-    ("fg", "#1a1a1a"),
-    ("muted", "#5e5e5e"),
-    ("subtle", "#8a8a86"),
-    ("line", "#e2e2de"),
-    ("winter", "#f6f6f4"),
+    ("bg", "#F7F9FB"),
+    ("surface", "#EEF2F6"),
+    ("elevated", "#FFFFFF"),
+    ("fg", "#0B0F14"),
+    ("muted", "#3F4C59"),
+    ("subtle", "#3F4C59"),
+    ("line", "#D5DDE5"),
+    ("accent", "#0B5FA5"),
+    ("accent-fg", "#fff"),
+    ("ring", "#0B5FA5"),
+    ("frost", "#0B5FA5"),
+    ("ice", "#0B5FA5"),
+    ("winter", "#F7F9FB"),
     ("ok", "#1f7a34"),
     ("warn", "#835c00"),
     ("bad", "#b42318"),
-    ("link", "#005fb8"),
+    ("link", "#0B5FA5"),
 ];
 
 pub const RADII: &[(&str, &str)] = &[
@@ -61,15 +74,18 @@ pub const RADII: &[(&str, &str)] = &[
 ];
 
 pub const FONT_SANS: &str = "\"IBM Plex Sans\",\"Segoe UI\",system-ui,sans-serif";
+/// Display face of Galion One (Jost), then the text stack. The sheet never
+/// `@import`s a font host. `var(--sans)` is expanded in the same `:root` rule.
+pub const FONT_DISPLAY: &str = "\"Jost\",var(--sans)";
 pub const FONT_MONO: &str =
     "\"IBM Plex Mono\",\"Cascadia Code\",\"JetBrains Mono\",ui-monospace,Menlo,Consolas,monospace";
 
-/// Theme colour for `<meta name="theme-color">`.
+/// Theme colour for `<meta name="theme-color">`. Paper, or Ink.
 pub fn theme_color(light: bool) -> &'static str {
     if light {
-        "#f6f6f4"
+        "#F7F9FB"
     } else {
-        "#1e1e1e"
+        "#0B0F14"
     }
 }
 
@@ -87,7 +103,7 @@ const RULES: &str = r#"
 html,body{margin:0;background:var(--c-bg);color:var(--c-fg);font-family:var(--sans);-webkit-font-smoothing:antialiased;overflow-x:clip;max-width:100%}
 body{min-height:100dvh;font-size:1rem;line-height:1.5}
 a{color:inherit}
-h1,h2,h3{text-wrap:balance;margin:0;font-weight:500}
+h1,h2,h3{text-wrap:balance;margin:0;font-family:var(--display);font-weight:500}
 p{text-wrap:pretty;margin:0}
 ul{list-style:none;margin:0;padding:0}
 button,input{font:inherit;color:inherit}
@@ -140,8 +156,7 @@ button,input{font:inherit;color:inherit}
 .badge.online{background:color-mix(in srgb,var(--c-online) 12%,transparent);color:var(--c-online)}
 .badge.held{background:color-mix(in srgb,var(--c-held) 12%,transparent);color:var(--c-held)}
 .badge.offline{background:color-mix(in srgb,var(--c-offline) 12%,transparent);color:var(--c-offline)}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;height:2.75rem;min-height:2.75rem;padding:0 1rem;border-radius:var(--r-md);font-size:.875rem;font-weight:500;white-space:nowrap;cursor:pointer;border:1px solid transparent;text-decoration:none;transition:opacity .15s,transform .15s}
-.btn:active{transform:scale(.96)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;min-height:2.75rem;padding:0 1rem;border-radius:var(--r-md);font-size:.875rem;font-weight:500;white-space:nowrap;cursor:pointer;border:1px solid transparent;text-decoration:none}
 .btn.primary{background:var(--c-accent);color:var(--c-accent-fg)}
 .btn.ghost{background:transparent;color:var(--c-fg);border-color:var(--c-line)}
 .btn.ghost:hover{background:var(--c-elevated)}
@@ -356,6 +371,23 @@ const PORT2: &str = r#"
 .tool{color:var(--c-muted);overflow-wrap:anywhere}
 "#;
 
+/// Galion Research prompt (`/hermes`). A separate sheet: the base sheet is
+/// at its 20 KiB budget (R1). Linked only on `/hermes`.
+const RESEARCH: &str = r#"
+body{background:radial-gradient(90% 48% at 50% -14%,color-mix(in srgb,var(--c-ice) 38%,transparent),transparent 62%),var(--c-bg)}
+.ask-page{max-width:44rem}
+.ask-stage{display:flex;flex-direction:column;justify-content:center;min-height:46vh;padding:1rem 0}
+.ask-head{text-align:center}
+.ask-head h1{justify-content:center;font-size:clamp(2rem,5vw,3rem)}
+.ask-head .lede{max-width:34rem;margin-inline:auto}
+.ask{display:flex;align-items:flex-end;gap:.6rem;margin-top:1.5rem;padding:.7rem;border:1px solid var(--c-line);border-radius:1.75rem;background:var(--c-surface)}
+.ask-input{flex:1;min-width:0;min-height:4.75rem;border:0;resize:vertical;background:transparent;color:inherit;font:inherit;font-size:1.125rem;line-height:1.45}
+.ask-input::placeholder{color:var(--c-muted)}
+.ask-plus,.ask-voice{display:inline-flex;align-items:center;justify-content:center;width:2.75rem;height:2.75rem;flex:none;padding:0;border-radius:999px;border:1px solid var(--c-line);background:var(--c-elevated);color:inherit;cursor:not-allowed}
+.ask-voice{border:0;color:#0B0F14;background:linear-gradient(135deg,#B8E8FF,#58C4FF 55%,#0B5FA5)}
+button.ask-voice:disabled{opacity:1;color:#0B0F14}
+"#;
+
 /// console-port-3 rooms (`/instances`, `/keys`, `/markers`). Kept apart (and
 /// prefixed `p3-`) so the five console-port branches do not edit the same lines.
 const PORT3: &str = r#"
@@ -425,13 +457,22 @@ pub fn overview_sheet() -> String {
     )
 }
 
+/// Research sheet: the Galion Research prompt. Linked only on `/hermes`. Budget 2 KiB.
+pub fn research_sheet() -> String {
+    build_sheet(
+        "/* Galion console UI (research). Generated by crates/console-ui/src/css.rs. SPDX-License-Identifier: MIT */\n",
+        &[RESEARCH],
+        false,
+    )
+}
+
 fn build_sheet(header: &str, blocks: &[&str], with_tokens: bool) -> String {
     let mut out = String::with_capacity(16 * 1024);
     out.push_str(header);
     if with_tokens {
         let light = vars(LIGHT, "c-");
         out.push_str(&format!(
-            ":root{{color-scheme:dark;{}{}--sans:{FONT_SANS};--mono:{FONT_MONO}}}\n",
+            ":root{{color-scheme:dark;{}{}--sans:{FONT_SANS};--display:{FONT_DISPLAY};--mono:{FONT_MONO}}}\n",
             vars(DARK, "c-"),
             vars(RADII, "r-")
         ));
@@ -465,7 +506,7 @@ pub fn fnv64(data: &[u8]) -> u64 {
 
 /// Class names defined in the base + overview sheets (for the class-coverage test).
 pub fn defined_classes() -> Vec<String> {
-    let all = format!("{RULES}{LANDING}{PORT1}{PORT2}{PORT3}{PORT4}");
+    let all = format!("{RULES}{LANDING}{PORT1}{PORT2}{PORT3}{PORT4}{RESEARCH}");
     let mut out = Vec::new();
     let b = all.as_bytes();
     let mut i = 0;
@@ -501,10 +542,16 @@ mod tests {
             s.len()
         );
         assert!(s.contains(
-            "@media (prefers-color-scheme:light){:where(html:not([data-theme])){color-scheme:light;--c-bg:#f6f6f4"
+            "@media (prefers-color-scheme:light){:where(html:not([data-theme])){color-scheme:light;--c-bg:#F7F9FB"
         ));
-        assert!(s.contains("--c-bg:#1e1e1e"));
-        assert!(s.contains("html[data-theme=light]{color-scheme:light;--c-bg:#f6f6f4"));
+        assert!(s.contains("--c-bg:#0B0F14"));
+        assert!(s.contains("--c-accent:#58C4FF"));
+        assert!(s.contains("--display:\"Jost\""));
+        assert!(
+            !s.contains(".ask-page"),
+            "research prompt rules stay off the base sheet"
+        );
+        assert!(s.contains("html[data-theme=light]{color-scheme:light;--c-bg:#F7F9FB"));
         assert!(!s.contains("@import"));
         assert!(
             !s.contains(".ov-card"),
@@ -531,5 +578,20 @@ mod tests {
         );
         assert!(!s.contains(".dock{"), "room chrome stays in the base sheet");
         assert_eq!(s.matches('{').count(), s.matches('}').count());
+    }
+
+    #[test]
+    fn research_sheet_is_the_prompt() {
+        let s = research_sheet();
+        assert!(
+            s.len() <= 2 * 1024,
+            "research sheet {} B exceeds 2 KiB",
+            s.len()
+        );
+        assert!(s.contains(".ask-voice{"));
+        assert!(s.contains("linear-gradient(135deg,#B8E8FF,#58C4FF 55%,#0B5FA5)"));
+        assert!(!s.contains(":root{"), "research sheet has no tokens");
+        assert_eq!(s.matches('{').count(), s.matches('}').count());
+        assert!(defined_classes().contains(&"ask-plus".to_string()));
     }
 }

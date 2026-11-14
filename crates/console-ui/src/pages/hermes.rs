@@ -13,6 +13,10 @@
 //! list and token totals (`/api/hermes/history`) and one thread
 //! (`/api/hermes/history?id=`), all GET.
 //!
+//! The page shows the Galion Research prompt: a large centred field, a plus
+//! on the left (add files) and a voice button on the right (the Ice → Sky →
+//! Ocean gradient). Those controls are disabled. They do not post.
+//!
 //! Held, on purpose (owner decisions, docs/console-port-2.md):
 //! - asking / runs / steer / stop / approvals / attach / mic / speak
 //!   (`/api/hermes/chat`, `/runs*`, `/transcribe`, `/speak`): the JS ruling
@@ -238,11 +242,22 @@ fn thread(out: &mut String, id: &str, v: Option<&Value>) {
 }
 
 pub fn body(v: &View<'_>) -> String {
-    let mut out =
-        String::from("<div class=\"page w46\"><header><p class=\"k\">Hermes Research</p>");
+    let mut out = String::from(
+        "<div class=\"page ask-page\"><div class=\"ask-stage\"><header class=\"ask-head\"><p class=\"k\">Galion Research</p>",
+    );
     out.push_str(&format!(
-        "<h1>{}<span class=\"ell\">The mind</span></h1><p class=\"lede\">One ask, then he waits. Read-only here: threads, models and the guard.</p></header><ul class=\"facts\">",
-        icon("research", "i i-md")
+        "<h1>{mark}<span class=\"ell\">The mind</span></h1>\
+<p class=\"lede\">One window. One prompt. Type or speak, then watch what happens. This room still only reads threads, models and the guard.</p></header>\
+<div class=\"ask\" role=\"group\" aria-label=\"Galion Research prompt\">\
+<button type=\"button\" class=\"ask-plus\" disabled aria-label=\"Add files\" title=\"Adding files is not on this page yet\">{plus}</button>\
+<textarea class=\"ask-input\" rows=\"3\" readonly placeholder=\"Ask a big question\" aria-label=\"Prompt\"></textarea>\
+<button type=\"button\" class=\"ask-voice\" disabled aria-label=\"Voice\" title=\"Voice is not on this page yet\">{voice}</button>\
+</div>\
+<p class=\"note\">Hermes Research stays read-only here. Asking, runs, the mic and the guard switches are not on this page yet: they wait on Slavik's JavaScript ruling and the paid-model decision (H1). The Hermes gateway is unchanged; this read-only room is served from Rust even when the old console is installed.</p>\
+</div><ul class=\"facts\">",
+        mark = icon("research", "i i-md"),
+        plus = icon("plus", "i"),
+        voice = icon("voice", "i"),
     ));
     let (gw, gw_ok) = match v.health {
         Some(h) => gateway_line(h),
@@ -284,9 +299,6 @@ pub fn body(v: &View<'_>) -> String {
         out.push_str(&fact("Action model", &text(modes.get("action"), "—"), None));
     }
     out.push_str("</ul>");
-    out.push_str(
-        "<p class=\"note\">Asking, runs, the mic and the guard switches are not on this page yet: they wait on Slavik's JavaScript ruling and the paid-model decision (H1). The Hermes gateway is unchanged; this read-only room is served from Rust even when the old console is installed.</p>",
-    );
 
     if let Some((id, t)) = v.thread {
         thread(&mut out, id, t);
@@ -375,9 +387,20 @@ mod tests {
             "<pre class=\"say\">hi &lt;b&gt;</pre>",
             "<span class=\"mono\">terminal</span> <span class=\"muted\">done</span> <span class=\"subtle mono\">ls -la</span>",
             "Slavik's JavaScript ruling",
+            "Galion Research",
+            "Ask a big question",
+            "aria-label=\"Add files\"",
+            "aria-label=\"Voice\"",
+            "class=\"ask-plus\"",
+            "class=\"ask-voice\"",
         ] {
             assert!(b.contains(n), "missing {n}\n{b}");
         }
+        let ask = b.find("class=\"ask\"").expect("prompt");
+        let plus_at = b.find("ask-plus").expect("plus");
+        let field_at = b.find("ask-input").expect("field");
+        let voice_at = b.find("ask-voice").expect("voice");
+        assert!(ask < plus_at && plus_at < field_at && field_at < voice_at);
         assert!(!b.contains("127.0.0.1:8642"), "bind address must not show");
         assert!(!b.contains("secret-ish output"), "tool output is not shown");
         assert!(!b.contains("<form"), "no state-changing form");

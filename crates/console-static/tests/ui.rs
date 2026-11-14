@@ -615,7 +615,7 @@ fn theme_css_and_fail_closed() {
     let css = get(a, &href, "127.0.0.1", "");
     assert_eq!(css.code, 200);
     assert!(css.head.contains("immutable"));
-    assert!(css.body.contains("--c-bg:#1e1e1e"));
+    assert!(css.body.contains("--c-bg:#0B0F14"));
     assert_eq!(
         get(a, "/_ui/console.0000000000000000.css", "127.0.0.1", "").code,
         404

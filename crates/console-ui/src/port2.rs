@@ -299,7 +299,9 @@ impl Ui {
             body = format!("<p class=\"note t-bad\">That thread id is not valid.</p>{body}");
         }
         let t = title("Hermes Research");
-        let f = self.frame(req, &t);
+        let mut f = self.frame(req, &t);
+        // Research prompt rules live in their own sheet (base sheet is at the 20 KiB budget).
+        f.extra_css_href = Some(&self.research_css_href);
         Reply::html(status, layout::console(&f, origin, &body))
     }
 }

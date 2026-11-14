@@ -37,3 +37,18 @@ commits = ["d1302286398df540c45a68a1c3289bdca9d6135a"]
 [[allowlists]]
 description = "hermes-offhost-keyrot real-test ids (6845c350). Not on main-staging."
 commits = ["6845c350bf9662a443d750892d63aeab935c4d3c"]
+
+# fetch-depth 0 also reads other remote branches. These three are not
+# ancestors of main. Each hit is a test fixture: a ghp_RealTest constant,
+# a FAKE_TOKEN value, and the RFC 6455 sample Sec-WebSocket-Key.
+[[allowlists]]
+description = "nerve MCP connector test constant (4323ebbd). Not on main."
+commits = ["4323ebbdd03d9b497d3846e557cb97dd31fa660a"]
+
+[[allowlists]]
+description = "hermes-rs MCP test FAKE_TOKEN (9e513a09). Not on main."
+commits = ["9e513a09d390e2d75cb2425a8519898a38e43da5"]
+
+[[allowlists]]
+description = "console-static STT tests use the RFC 6455 sample websocket key (d3c25faa). Not on main."
+commits = ["d3c25faa8c1301e7150ae9a84c2fecac230e2d02"]

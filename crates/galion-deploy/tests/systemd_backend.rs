@@ -21,8 +21,24 @@ use std::time::{Duration, Instant};
 const PORT: u16 = 19394;
 
 fn exe_dir() -> PathBuf {
-    // target/<profile>/deps/systemd_backend-<hash> -> target/<profile>
+    // Cargo 1.100 places this binary at
+    // target/<profile>/build/<pkg>/<hash>/out/<test>. Two parents is not the
+    // profile directory. Walk up to debug or release under a Cargo target dir.
     let me = std::env::current_exe().unwrap();
+    let mut dir = me.parent().unwrap().to_path_buf();
+    for _ in 0..10 {
+        let name = dir.file_name().unwrap_or_default();
+        let profile = name == "debug" || name == "release";
+        let cargo_target = dir
+            .parent()
+            .is_some_and(|p| p.join("CACHEDIR.TAG").is_file());
+        if profile && cargo_target {
+            return dir;
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
     me.parent().unwrap().parent().unwrap().to_path_buf()
 }
 

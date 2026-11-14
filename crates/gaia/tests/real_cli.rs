@@ -122,7 +122,7 @@ fn real_gaia_commands() {
         pick(&own, "system_crates"),
         pick(&own, "systems_with_a_crate")
     );
-    assert!(own.contains("\"crates_total\":63"));
+    assert!(own.contains("\"crates_total\":74"));
     let view = gaia(&[
         "view",
         "--units",

@@ -17,13 +17,51 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn ex(name: &str) -> PathBuf {
-    let exe = std::env::current_exe().unwrap();
-    exe.parent()
-        .unwrap()
-        .parent()
-        .unwrap()
+    // cargo 1.100 puts the test binary under target/debug/build/<pkg>/<hash>/out,
+    // so the old "deps -> debug -> examples" walk misses target/debug/examples.
+    // `cargo test` also does not build examples, and this stand-in is one
+    // std-only file, so compile it when the built example is not there.
+    if let Some(found) = find_example(name) {
+        return found;
+    }
+    compile_example(name)
+}
+
+fn find_example(name: &str) -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let mut dir = exe.parent()?.to_path_buf();
+    for _ in 0..8 {
+        let candidate = dir.join("examples").join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    None
+}
+
+fn compile_example(name: &str) -> PathBuf {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("examples")
-        .join(name)
+        .join(format!("{name}.rs"));
+    let out_dir = std::env::temp_dir().join(format!("gd-ex-{}", std::process::id()));
+    std::fs::create_dir_all(&out_dir).unwrap();
+    let out = out_dir.join(name);
+    let status = Command::new("rustc")
+        .args(["--edition", "2021", "-o"])
+        .arg(&out)
+        .arg(&src)
+        .status()
+        .unwrap_or_else(|e| panic!("rustc for {name}: {e}"));
+    assert!(
+        status.success(),
+        "could not compile {} ({})",
+        name,
+        src.display()
+    );
+    out
 }
 
 fn sim_bin() -> PathBuf {
@@ -159,10 +197,7 @@ fn pre_cutover_backup_overlay_manifest_verify_and_data_delegation() {
     // 1) overlay + data part via a galion-backup stand-in that succeeds
     let dest = w.join("dest-ok");
     let fake = ex("fake_galion_backup");
-    assert!(
-        fake.exists(),
-        "build the examples (plain `cargo test -p galion-deploy`)"
-    );
+    assert!(fake.is_file(), "stand-in missing: {}", fake.display());
     let (code, out) = run(&[
         "backup",
         "--root",

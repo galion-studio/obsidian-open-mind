@@ -1256,6 +1256,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmind-desktop"
+version = "0.1.0"
+dependencies = [
+ "galion-common",
+]
+
+[[package]]
 name = "openmind-discovery"
 version = "0.1.0"
 dependencies = [

@@ -22,9 +22,17 @@ fn run() -> Result<(), DesktopError> {
             );
         }
         Mode::Page => print!("{}", openmind_desktop::document()),
-        Mode::Listen(addr) => {
-            let addr = addr.as_deref().unwrap_or(openmind_desktop::DEFAULT_BIND);
-            openmind_desktop::listen(addr)?;
+        Mode::Listen(opts) => {
+            let addr = opts
+                .addr
+                .as_deref()
+                .unwrap_or(openmind_desktop::DEFAULT_BIND);
+            let files = openmind_desktop::Files::open(
+                &opts.grants,
+                opts.inbox.as_deref(),
+                opts.stack.as_deref(),
+            )?;
+            openmind_desktop::listen_with(addr, &files)?;
         }
     }
     Ok(())

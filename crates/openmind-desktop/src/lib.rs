@@ -9,9 +9,10 @@
 //! system's file picker. The voice button is on the right. Nothing on the
 //! page is a home screen built around a circle.
 //!
-//! The seven tones are sines tuned from 432 Hz. The page keeps commands and
-//! file names in the browser. It does not read file bytes, open the
-//! microphone, or call a model.
+//! The seven tones are sines tuned from 432 Hz. Commands stay in the browser.
+//! Files the operator picks are read only inside the paths they chose, checked
+//! against a type allow-list and a size cap, then uploaded on loopback. The
+//! page does not open the microphone or call a model.
 //!
 //! Printing the page opens no socket. [`listen`] binds a loopback address
 //! only.
@@ -21,6 +22,7 @@
 
 pub mod cli;
 pub mod error;
+pub mod files;
 pub mod http;
 pub mod page;
 pub mod sound;
@@ -28,7 +30,8 @@ pub mod stack;
 
 pub use cli::{parse, Mode, USAGE};
 pub use error::DesktopError;
-pub use http::listen;
+pub use files::Files;
+pub use http::{listen, listen_with};
 pub use page::document;
 pub use sound::{wav, TONES};
 pub use stack::LAYERS;

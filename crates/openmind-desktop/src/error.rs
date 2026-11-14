@@ -21,6 +21,8 @@ pub enum DesktopError {
         /// The OS error.
         source: io::Error,
     },
+    /// A grant, the inbox, or the stack address was rejected before listen.
+    Files(String),
 }
 
 impl DesktopError {
@@ -29,7 +31,7 @@ impl DesktopError {
     #[must_use]
     pub fn exit_code(&self) -> i32 {
         match self {
-            DesktopError::Usage(_) | DesktopError::Refused(_) => 2,
+            DesktopError::Usage(_) | DesktopError::Refused(_) | DesktopError::Files(_) => 2,
             DesktopError::Bind { .. } => 1,
         }
     }
@@ -38,7 +40,9 @@ impl DesktopError {
 impl fmt::Display for DesktopError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DesktopError::Usage(msg) | DesktopError::Refused(msg) => f.write_str(msg),
+            DesktopError::Usage(msg) | DesktopError::Refused(msg) | DesktopError::Files(msg) => {
+                f.write_str(msg)
+            }
             DesktopError::Bind { addr, source } => {
                 write!(f, "openmind-desktop: cannot bind {addr}: {source}")
             }
@@ -50,7 +54,7 @@ impl std::error::Error for DesktopError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             DesktopError::Bind { source, .. } => Some(source),
-            DesktopError::Usage(_) | DesktopError::Refused(_) => None,
+            DesktopError::Usage(_) | DesktopError::Refused(_) | DesktopError::Files(_) => None,
         }
     }
 }

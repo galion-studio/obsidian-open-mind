@@ -6,20 +6,23 @@
 //!
 //! Colours are the Open Mind tokens (Ink, Surface, Sky, Paper). No font is
 //! fetched. The seven tones are embedded as `data:` URLs so opening the
-//! file needs no server and no network.
+//! file needs no server and no network. Uploads, when the page is served,
+//! go to the same loopback origin (`/files`) and nowhere else.
 
 use crate::sound::{self, TONES};
 use crate::stack::LAYERS;
 use std::sync::OnceLock;
 
 /// Content-Security-Policy for the page. Scripts and styles are inline.
-/// Connections, frames and form posts are refused.
+/// `connect-src 'self'` is the page's own loopback origin. Frames, form
+/// posts, and every other host are refused.
 pub const CSP: &str = "\
 default-src 'none'; \
 style-src 'unsafe-inline'; \
 script-src 'unsafe-inline'; \
 media-src data:; \
 img-src data:; \
+connect-src 'self'; \
 base-uri 'none'; \
 form-action 'none'; \
 frame-ancestors 'none'";
@@ -180,8 +183,9 @@ audio { display: none; }
 }
 "#;
 
-/// Browser script. Names and commands stay in the document. File bytes are
-/// not read. The microphone is not opened. Night hours and Mute skip tones.
+/// Browser script. Commands stay in the document. A picked file is posted to
+/// `/files` on this origin only. The microphone is not opened. Night hours
+/// and Mute skip tones. `FILE_MAX` is replaced with the byte cap.
 const SCRIPT: &str = r#"
 (function () {
   var files = document.getElementById("files");
@@ -203,16 +207,64 @@ const SCRIPT: &str = r#"
     var pending = el.play();
     if (pending && pending.catch) pending.catch(function () {});
   }
+  function fault(text) {
+    var key = "\"error\":\"";
+    var at = text.indexOf(key);
+    if (at < 0) return "refused";
+    var rest = text.slice(at + key.length);
+    var end = rest.indexOf("\"");
+    if (end < 0) return "refused";
+    return rest.slice(0, end);
+  }
+  function sendFile(file, done) {
+    var row = document.createElement("li");
+    row.textContent = file.name;
+    picked.appendChild(row);
+    if (!file.size || file.size > FILE_MAX) {
+      row.textContent = file.name + " — " + (file.size ? "too large" : "empty");
+      play("deny");
+      done();
+      return;
+    }
+    var pending;
+    try {
+      pending = fetch("/files", {
+        method: "POST",
+        credentials: "omit",
+        headers: { "X-File-Name": file.name },
+        body: file
+      });
+    } catch (e) {
+      row.textContent = file.name + " — not sent";
+      play("deny");
+      done();
+      return;
+    }
+    pending.then(function (res) {
+      return res.text().then(function (text) {
+        if (res.ok) {
+          row.textContent = file.name + " — sent";
+        } else {
+          row.textContent = file.name + " — " + fault(text);
+          play("deny");
+        }
+        done();
+      });
+    }).catch(function () {
+      row.textContent = file.name + " — not sent";
+      play("deny");
+      done();
+    });
+  }
+  function sendAt(list, i) {
+    if (i >= list.length) return;
+    sendFile(list[i], function () { sendAt(list, i + 1); });
+  }
   files.addEventListener("change", function () {
     picked.textContent = "";
     var list = files.files;
-    var i;
-    for (i = 0; i < list.length; i = i + 1) {
-      var row = document.createElement("li");
-      row.textContent = list[i].name;
-      picked.appendChild(row);
-    }
     if (list.length) play("hear");
+    sendAt(list, 0);
   });
   voice.addEventListener("click", function () {
     var on = voice.getAttribute("aria-pressed") === "true";
@@ -286,8 +338,10 @@ fn render() -> String {
 <h2>Open Mind</h2>\
 <p>Ask from here. The command stays on this page. No model is called.</p>\
 <div class=\"prompt\" role=\"group\" aria-label=\"Command\">\
-<label class=\"plus\"><input id=\"files\" type=\"file\" multiple aria-label=\"Add files\">",
+<label class=\"plus\"><input id=\"files\" type=\"file\" multiple accept=\"",
     );
+    html.push_str(&crate::files::accept_list());
+    html.push_str("\" aria-label=\"Add files\">");
     html.push_str(PLUS);
     html.push_str(
         "</label><input id=\"command\" type=\"text\" autocomplete=\"off\" \
@@ -298,7 +352,8 @@ placeholder=\"Ask Open Mind\" enterkeyhint=\"send\" aria-label=\"Command\">\
     html.push_str(
         "</button></div>\
 <p class=\"notes\" id=\"voice-state\">Microphone closed.</p>\
-<div class=\"notes\"><p>Files</p><ul id=\"picked\"></ul></div>\
+<div class=\"notes\"><p>Files</p>\
+<p>Checked here, then uploaded on loopback.</p><ul id=\"picked\"></ul></div>\
 <div class=\"notes\"><p>Kept on this page</p><ul id=\"kept\"></ul></div>\
 </div></main>",
     );
@@ -316,7 +371,7 @@ placeholder=\"Ask Open Mind\" enterkeyhint=\"send\" aria-label=\"Command\">\
         html.push_str("\" preload=\"none\"></audio>");
     }
     html.push_str("<script>");
-    html.push_str(SCRIPT);
+    html.push_str(&SCRIPT.replace("FILE_MAX", &crate::files::MAX_FILE_BYTES.to_string()));
     html.push_str("</script></div></body></html>\n");
     html
 }
@@ -359,7 +414,10 @@ mod tests {
         let input = &html[plus.saturating_sub(40)..plus + 80];
         assert!(input.contains("type=\"file\""));
         assert!(input.contains("multiple"));
-        assert!(!input.contains("accept="));
+        assert!(input.contains("accept="));
+        assert!(html.contains(&crate::files::accept_list()));
+        assert!(!html.contains(".html"));
+        assert!(!html.contains(".exe"));
         assert!(html.contains("aria-label=\"Voice\""));
         assert!(html.contains(">Open Mind</h2>"));
         assert!(html.contains("Control console"));
@@ -383,10 +441,16 @@ mod tests {
             "innerHTML",
             "XMLHttpRequest",
             "WebSocket",
-            "fetch(",
         ] {
             assert!(!html.contains(banned), "{banned} leaked into the page");
         }
+        assert_eq!(html.matches("fetch(").count(), 1);
+        assert!(html.contains("fetch(\"/files\""));
+        assert!(html.contains("credentials: \"omit\""));
+        assert!(!html.contains("FILE_MAX"));
+        assert!(html.contains(&crate::files::MAX_FILE_BYTES.to_string()));
+        assert!(crate::page::CSP.contains("connect-src 'self'"));
+        assert!(!crate::page::CSP.contains("http://"));
         assert!(html.contains("h >= 22"));
         assert!(html.contains("h < 7"));
         assert!(html.contains("textContent"));

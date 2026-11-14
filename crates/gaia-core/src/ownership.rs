@@ -151,7 +151,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("one-set-model", S(System::GalionOne), "Galion One plan/action model lane, validated, writes nothing (was HEPHAESTUS)"),
     c("one-talk", S(System::GalionOne), "Galion One hear/reply request shapes (was HEPHAESTUS)"),
     c("openmind-config", S(System::ConfigHealth), "config health: TOML, then env, loopback defaults"),
-    c("openmind-desktop", S(System::Console), "local control console: command field, stack view, 432 Hz tones; the desktop, beside the operator rooms in console-ui"),
+    c("openmind-desktop", S(System::Console), "local control console: command field, stack view, file pick/read/upload on loopback, 432 Hz tones; the desktop, beside the operator rooms in console-ui"),
     c("openmind-discovery", S(System::LanDiscovery), "LAN peer seeds and scan path; network identity is AETHER (was APOLLO)"),
     c("openmind-exo", S(System::VramPool), "exo compute adapter (fixtures); external compute is POSEIDON (was HEPHAESTUS)"),
     c("openmind-llama", S(System::VramPool), "llama.cpp compute adapter (fixtures) (was HEPHAESTUS)"),
@@ -358,7 +358,7 @@ mod tests {
         // galion-feature-pin, galion-jsonout from release-repro-unify (wave-4 slot 325).
         // gaia-cortex, nerve-cortex-contract, xtask from cortex-live-merge-3 via
         // cortex-staging-fold (wave-4 slot 293), merged by release-bins-add (slot 337).
-        // openmind-desktop: the local control console (command field, stack view).
+        // openmind-desktop: the local control console (command field, stack view, loopback files).
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
             62

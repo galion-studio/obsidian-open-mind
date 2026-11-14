@@ -61,7 +61,7 @@ pub const TONES: &[Tone] = &[
     },
     Tone {
         id: "hear",
-        role: "A file name was kept on the page",
+        role: "A file was picked for upload",
         num: 9,
         den: 8,
         ms: 100,

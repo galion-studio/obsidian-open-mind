@@ -7,7 +7,7 @@ name = "openmind-desktop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Local control console for the Open Mind desktop: command field, stack view, and a 432 Hz seven-tone set. No model call, no upload, loopback only."
+description = "Local control console for the Open Mind desktop: command field, stack view, and a 432 Hz seven-tone set. Read-only health probes for nerve, cortex, console, Hermes and voice. No model call, no upload, loopback only."
 
 [lib]
 name = "openmind_desktop"

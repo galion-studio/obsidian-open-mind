@@ -21,6 +21,8 @@ pub enum DesktopError {
         /// The OS error.
         source: io::Error,
     },
+    /// A probe report was printed, and at least one enabled service was not up.
+    Probes(String),
 }
 
 impl DesktopError {
@@ -30,7 +32,7 @@ impl DesktopError {
     pub fn exit_code(&self) -> i32 {
         match self {
             DesktopError::Usage(_) | DesktopError::Refused(_) => 2,
-            DesktopError::Bind { .. } => 1,
+            DesktopError::Bind { .. } | DesktopError::Probes(_) => 1,
         }
     }
 }
@@ -38,7 +40,9 @@ impl DesktopError {
 impl fmt::Display for DesktopError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DesktopError::Usage(msg) | DesktopError::Refused(msg) => f.write_str(msg),
+            DesktopError::Usage(msg) | DesktopError::Refused(msg) | DesktopError::Probes(msg) => {
+                f.write_str(msg)
+            }
             DesktopError::Bind { addr, source } => {
                 write!(f, "openmind-desktop: cannot bind {addr}: {source}")
             }
@@ -50,7 +54,7 @@ impl std::error::Error for DesktopError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             DesktopError::Bind { source, .. } => Some(source),
-            DesktopError::Usage(_) | DesktopError::Refused(_) => None,
+            DesktopError::Usage(_) | DesktopError::Refused(_) | DesktopError::Probes(_) => None,
         }
     }
 }

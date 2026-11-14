@@ -4,7 +4,7 @@
 
 //! `openmind-desktop` binary. See the library docs for the modes.
 
-use openmind_desktop::{DesktopError, Mode, USAGE};
+use openmind_desktop::{DesktopError, Mode, ProbeConfig, USAGE};
 use std::process::ExitCode;
 
 fn run() -> Result<(), DesktopError> {
@@ -23,11 +23,37 @@ fn run() -> Result<(), DesktopError> {
         }
         Mode::Page => print!("{}", openmind_desktop::document()),
         Mode::Listen(addr) => {
+            let probes = load_probes(None)?;
             let addr = addr.as_deref().unwrap_or(openmind_desktop::DEFAULT_BIND);
-            openmind_desktop::listen(addr)?;
+            openmind_desktop::listen(addr, &probes)?;
+        }
+        Mode::Probe(spec) => {
+            let probes = load_probes(spec.as_deref())?;
+            let report = openmind_desktop::probe_all(&probes);
+            println!("{}", report.to_json());
+            if !report.confirmed() {
+                return Err(DesktopError::Probes(report.summary()));
+            }
         }
     }
     Ok(())
+}
+
+/// Spec from the command, otherwise `OPENMIND_DESKTOP_PROBES`, otherwise
+/// the localhost defaults. Printing the page never calls this.
+fn load_probes(spec: Option<&str>) -> Result<ProbeConfig, DesktopError> {
+    let chosen = match spec.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => Some(value.to_string()),
+        None => std::env::var("OPENMIND_DESKTOP_PROBES")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+    };
+    match chosen {
+        Some(value) => ProbeConfig::parse(&value)
+            .map_err(|err| DesktopError::Usage(format!("openmind-desktop: {err}\n{USAGE}"))),
+        None => Ok(ProbeConfig::defaults()),
+    }
 }
 
 fn main() -> ExitCode {

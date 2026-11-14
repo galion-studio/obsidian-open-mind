@@ -5,8 +5,9 @@
 //! The stack list shown beside the command field.
 //!
 //! States use the brand words: `staged` (built, not switched on) and
-//! `planned` (not started by this page). Nothing here is marked live,
-//! because this desktop does not probe other programs.
+//! `planned` (not started by this page). Nothing here is marked live.
+//! This list is not a health check. Live checks are [`crate::probe`], and
+//! they run only when the operator asks.
 
 /// One row of the stack view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

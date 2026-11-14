@@ -71,4 +71,13 @@ allow-git = []
 [advisories]
 version = 2
 yanked = "deny"
-ignore = []
+ignore = [
+    # RUSTSEC-2026-0459 (CVE-2026-119375): bundled SQLite before 3.54.0 can
+    # return stale page-cache bytes when a process opens a database together
+    # with a sibling WAL whose page size differs. The fixed libsqlite3-sys
+    # is 0.39, which arrives with rusqlite 0.41 and needs Rust 1.89.
+    # This workspace opens its own database files, not a database plus WAL
+    # written by a less trusted party. The upgrade is the open dependency
+    # bump, not this desktop change.
+    { id = "RUSTSEC-2026-0459", reason = "local WAL page-size mismatch; fix needs rusqlite 0.41" },
+]

@@ -39,8 +39,8 @@ fn plan_is_dry_run_for_hades() {
 #[test]
 fn ownership_counts() {
     let j = gaia::ownership_json();
-    assert_eq!(num(&j, &["crates_total"]), 73); // main-staging: +tunnel-lint, +console-static, +console-ui, +galion-tar; cortex-staging-fold: +gaia-cortex, +nerve-cortex-contract, +xtask; slot 325: +galion-feature-pin, +galion-jsonout
-    assert_eq!(num(&j, &["system_crates"]), 61); // main-staging: +tunnel-lint, +console-static, +console-ui, +galion-tar; cortex-staging-fold: +gaia-cortex, +nerve-cortex-contract, +xtask; slot 325: +galion-feature-pin, +galion-jsonout
+    assert_eq!(num(&j, &["crates_total"]), 74); // +openmind-desktop (control console); prior: main-staging +tunnel-lint, +console-static, +console-ui, +galion-tar; cortex-staging-fold +gaia-cortex, +nerve-cortex-contract, +xtask; slot 325 +galion-feature-pin, +galion-jsonout
+    assert_eq!(num(&j, &["system_crates"]), 62); // +openmind-desktop; prior counts as the crates_total line
     assert_eq!(num(&j, &["systems_total"]), 52);
 }
 

@@ -6,7 +6,7 @@ name = "hermes-rs"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Rust port of the parts of hermes-agent 0.21.4 Galion uses: OpenAI-compatible API, agent loop, delegate_task caps, sessions, cron, stdio MCP, spend."
+description = "Rust port of the parts of hermes-agent 0.21.4 Galion uses: OpenAI-compatible API, agent loop, delegate_task caps, sessions, cron, stdio and streamable-HTTP MCP, spend."
 
 [features]
 # `sqlite` gives read-compat with the Python state.db. It compiles the SQLite

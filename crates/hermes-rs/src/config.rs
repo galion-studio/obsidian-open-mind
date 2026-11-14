@@ -45,14 +45,378 @@ pub struct DelegationCfg {
     pub require_user_ask: bool,
 }
 
+/// Which tools from one MCP server the model may call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolAllow {
+    /// Every tool the server lists. This is the default when `tools` is omitted.
+    All,
+    /// Only these tool names. An empty list allows nothing.
+    Only(Vec<String>),
+}
+
+impl ToolAllow {
+    pub fn permits(&self, name: &str) -> bool {
+        match self {
+            ToolAllow::All => true,
+            ToolAllow::Only(names) => names.iter().any(|n| n == name),
+        }
+    }
+}
+
+/// One MCP server. `command` is stdio. `url` is streamable HTTP
+/// (protocol 2025-03-26). Exactly one of them is set.
+///
+/// `token_env` is the name of an environment variable. The token itself is
+/// read when a request is sent and is never stored on this struct.
 #[derive(Debug, Clone, PartialEq)]
 pub struct McpServerCfg {
     pub name: String,
     pub command: String,
     pub args: Vec<String>,
+    pub url: Option<String>,
     pub timeout_s: u64,
     pub connect_timeout_s: u64,
     pub lazy: bool,
+    pub allow: ToolAllow,
+    pub token_env: Option<String>,
+    /// Static request headers for streamable HTTP. Not a place for secrets:
+    /// `Authorization` is rejected (use `token_env`).
+    pub headers: Vec<(String, String)>,
+}
+
+impl McpServerCfg {
+    pub fn stdio(name: impl Into<String>, command: impl Into<String>, args: Vec<String>) -> Self {
+        McpServerCfg {
+            name: name.into(),
+            command: command.into(),
+            args,
+            url: None,
+            timeout_s: 30,
+            connect_timeout_s: 15,
+            lazy: false,
+            allow: ToolAllow::All,
+            token_env: None,
+            headers: Vec::new(),
+        }
+    }
+
+    pub fn http(name: impl Into<String>, url: impl Into<String>) -> Self {
+        McpServerCfg {
+            name: name.into(),
+            command: String::new(),
+            args: Vec::new(),
+            url: Some(url.into()),
+            timeout_s: 30,
+            connect_timeout_s: 15,
+            lazy: false,
+            allow: ToolAllow::All,
+            token_env: None,
+            headers: Vec::new(),
+        }
+    }
+
+    pub fn is_http(&self) -> bool {
+        self.url.is_some()
+    }
+}
+
+/// Remote GitHub MCP server, read-only toolset, all toolsets.
+/// Documented at https://github.com/github/github-mcp-server (`/x/all/readonly`).
+pub const GITHUB_MCP_URL: &str = "https://api.githubcopilot.com/mcp/x/all/readonly";
+
+/// Environment variable the GitHub entry reads. The value is never copied
+/// into config.
+pub const GITHUB_TOKEN_ENV: &str = "GITHUB_TOKEN";
+
+/// Read-only tool names from the GitHub MCP server README `## Tools` headings
+/// (github/github-mcp-server, fetched 2026-11-15). A heading is included when
+/// its summary is get, list, search, or read. Write, merge, comment, star,
+/// trigger, and assign tools are not included. `mark_all_notifications_read`
+/// is a write, so it is not included.
+///
+/// A server named `github`, or any URL on `api.githubcopilot.com`, is clamped
+/// to this list.
+pub const GITHUB_READONLY_TOOLS: &[&str] = &[
+    "actions_get",
+    "actions_list",
+    "custom_properties_read",
+    "get_code_quality_finding",
+    "get_code_scanning_alert",
+    "get_commit",
+    "get_copilot_space",
+    "get_dependabot_alert",
+    "get_discussion",
+    "get_discussion_comments",
+    "get_file_contents",
+    "get_gist",
+    "get_global_security_advisory",
+    "get_job_logs",
+    "get_label",
+    "get_latest_release",
+    "get_me",
+    "get_notification_details",
+    "get_release_by_tag",
+    "get_repository_tree",
+    "get_secret_scanning_alert",
+    "get_tag",
+    "get_team_members",
+    "get_teams",
+    "github_support_docs_search",
+    "issue_read",
+    "list_branches",
+    "list_code_scanning_alerts",
+    "list_commits",
+    "list_copilot_spaces",
+    "list_dependabot_alerts",
+    "list_discussion_categories",
+    "list_discussions",
+    "list_gists",
+    "list_global_security_advisories",
+    "list_issue_fields",
+    "list_issue_types",
+    "list_issues",
+    "list_label",
+    "list_notifications",
+    "list_org_repository_security_advisories",
+    "list_pull_requests",
+    "list_releases",
+    "list_repository_collaborators",
+    "list_repository_security_advisories",
+    "list_secret_scanning_alerts",
+    "list_starred_repositories",
+    "list_tags",
+    "projects_get",
+    "projects_list",
+    "pull_request_read",
+    "repository_ruleset_read",
+    "search_code",
+    "search_commits",
+    "search_issues",
+    "search_orgs",
+    "search_pull_requests",
+    "search_repositories",
+    "search_users",
+    "ui_get",
+];
+
+/// The built-in GitHub server: streamable HTTP, read-only header, token from
+/// [`GITHUB_TOKEN_ENV`] at request time. Not added unless
+/// `HERMES_RS_MCP_GITHUB` is on (see [`Config::apply_env`]).
+pub fn github_readonly_server() -> McpServerCfg {
+    let mut cfg = McpServerCfg {
+        name: "github".into(),
+        command: String::new(),
+        args: Vec::new(),
+        url: Some(GITHUB_MCP_URL.into()),
+        timeout_s: 60,
+        connect_timeout_s: 15,
+        lazy: false,
+        allow: ToolAllow::All,
+        token_env: Some(GITHUB_TOKEN_ENV.into()),
+        headers: vec![("X-MCP-Readonly".into(), "true".into())],
+    };
+    clamp_github_readonly(&mut cfg);
+    cfg
+}
+
+pub(crate) fn looks_like_secret(value: &str) -> bool {
+    let v = value.trim();
+    let lower = v.to_ascii_lowercase();
+    lower.starts_with("bearer ")
+        || (v.len() >= 16
+            && (v.starts_with(concat!("gh", "p_"))
+                || v.starts_with(concat!("gh", "o_"))
+                || v.starts_with(concat!("github", "_pat_"))
+                || v.starts_with(concat!("s", "k-"))))
+}
+
+pub(crate) fn valid_env_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    match bytes.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == b'_' => {}
+        _ => return false,
+    }
+    name.len() <= 64
+        && bytes.all(|c| c.is_ascii_alphanumeric() || c == b'_')
+        && !looks_like_secret(name)
+}
+
+pub(crate) fn header_safe(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 1024
+        && value
+            .bytes()
+            .all(|c| (0x20..=0x7e).contains(&c) && c != b'"' && c != b'\\')
+}
+
+fn http_token(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&c))
+}
+
+fn header_pair_ok(name: &str, value: &str) -> bool {
+    http_token(name)
+        && name.len() <= 64
+        && !name.eq_ignore_ascii_case("authorization")
+        && !name.eq_ignore_ascii_case("host")
+        && !name.eq_ignore_ascii_case("content-length")
+        && !name.eq_ignore_ascii_case("connection")
+        && header_safe(value)
+        && !looks_like_secret(value)
+}
+
+pub(crate) fn url_host(url: &str) -> Option<&str> {
+    let rest = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))?;
+    if rest.is_empty() || rest.contains('@') {
+        return None;
+    }
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.is_empty() {
+        return None;
+    }
+    let host = if let Some(rest) = authority.strip_prefix('[') {
+        rest.split_once(']')?.0
+    } else if let Some((host, port)) = authority.rsplit_once(':') {
+        if port.is_empty() || !port.bytes().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        host
+    } else {
+        authority
+    };
+    if host.is_empty() {
+        None
+    } else {
+        Some(host)
+    }
+}
+
+fn github_mcp_host(url: &str) -> bool {
+    url_host(url).is_some_and(|h| h.eq_ignore_ascii_case("api.githubcopilot.com"))
+}
+
+fn is_github_entry(cfg: &McpServerCfg) -> bool {
+    cfg.name == "github" || cfg.url.as_deref().is_some_and(github_mcp_host)
+}
+
+/// Force a GitHub entry down to [`GITHUB_READONLY_TOOLS`]. An explicit
+/// `tools` list keeps only the intersection, so a write tool in config
+/// cannot be registered. An omitted list becomes the full read-only set.
+pub fn clamp_github_readonly(cfg: &mut McpServerCfg) {
+    if !is_github_entry(cfg) {
+        return;
+    }
+    let allowed: Vec<String> = match &cfg.allow {
+        ToolAllow::All => GITHUB_READONLY_TOOLS
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
+        ToolAllow::Only(names) => names
+            .iter()
+            .filter(|n| GITHUB_READONLY_TOOLS.contains(&n.as_str()))
+            .cloned()
+            .collect(),
+    };
+    cfg.allow = ToolAllow::Only(allowed);
+    if cfg.url.is_some() {
+        cfg.headers.retain(|(k, _)| {
+            !k.eq_ignore_ascii_case("authorization") && !k.eq_ignore_ascii_case("x-mcp-readonly")
+        });
+        cfg.headers.push(("X-MCP-Readonly".into(), "true".into()));
+        if cfg.token_env.is_none() {
+            cfg.token_env = Some(GITHUB_TOKEN_ENV.into());
+        }
+    }
+}
+
+fn valid_tool_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 128
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'-' | b'.'))
+}
+
+fn string_list(v: &Value) -> Option<Vec<String>> {
+    let arr = v.as_array()?;
+    let mut out = Vec::with_capacity(arr.len());
+    for item in arr {
+        let name = s(item)?;
+        if !valid_tool_name(&name) {
+            return None;
+        }
+        out.push(name);
+    }
+    Some(out)
+}
+
+fn header_value(v: &Value) -> Option<String> {
+    match v {
+        Value::String(x) if !x.trim().is_empty() => Some(x.trim().to_string()),
+        Value::Bool(b) => Some(b.to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+/// `None` drops the entry (disabled, incomplete, or it would have stored a
+/// secret). A GitHub entry that survives is clamped to the read-only list.
+fn mcp_server_from_yaml(name: &str, sv: &Value) -> Option<McpServerCfg> {
+    if sv["enabled"].as_bool() == Some(false) {
+        return None;
+    }
+    let command = s(&sv["command"]);
+    let url = s(&sv["url"]);
+    if command.is_some() == url.is_some() {
+        return None;
+    }
+    let args = sv["args"]
+        .as_array()
+        .map(|a| a.iter().filter_map(s).collect())
+        .unwrap_or_default();
+    let allow = if sv.get("tools").is_none() {
+        ToolAllow::All
+    } else {
+        ToolAllow::Only(string_list(&sv["tools"])?)
+    };
+    let token_env = match s(&sv["token_env"]) {
+        Some(n) if valid_env_name(&n) => Some(n),
+        Some(_) => return None,
+        None => None,
+    };
+    let headers = match sv.get("headers") {
+        None | Some(Value::Null) => Vec::new(),
+        Some(Value::Object(map)) => {
+            let mut h = Vec::new();
+            for (k, v) in map {
+                let val = header_value(v)?;
+                if !header_pair_ok(k, &val) {
+                    return None;
+                }
+                h.push((k.clone(), val));
+            }
+            h
+        }
+        Some(_) => return None,
+    };
+    let mut cfg = McpServerCfg {
+        name: name.to_string(),
+        command: command.unwrap_or_default(),
+        args,
+        url,
+        timeout_s: sv["timeout"].as_u64().unwrap_or(30),
+        connect_timeout_s: sv["connect_timeout"].as_u64().unwrap_or(15),
+        lazy: sv["lazy"].as_bool().unwrap_or(false),
+        allow,
+        token_env,
+        headers,
+    };
+    clamp_github_readonly(&mut cfg);
+    Some(cfg)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -296,24 +660,9 @@ impl Config {
         if let Some(obj) = v["mcp_servers"].as_object() {
             self.mcp_servers.clear();
             for (name, sv) in obj {
-                let Some(command) = s(&sv["command"]) else {
-                    continue;
-                };
-                if sv["enabled"].as_bool() == Some(false) {
-                    continue;
+                if let Some(cfg) = mcp_server_from_yaml(name, sv) {
+                    self.mcp_servers.push(cfg);
                 }
-                let args = sv["args"]
-                    .as_array()
-                    .map(|a| a.iter().filter_map(s).collect())
-                    .unwrap_or_default();
-                self.mcp_servers.push(McpServerCfg {
-                    name: name.clone(),
-                    command,
-                    args,
-                    timeout_s: sv["timeout"].as_u64().unwrap_or(30),
-                    connect_timeout_s: sv["connect_timeout"].as_u64().unwrap_or(15),
-                    lazy: sv["lazy"].as_bool().unwrap_or(false),
-                });
             }
         }
         // hermes-rs only keys (ignored by Python Hermes)
@@ -376,10 +725,22 @@ impl Config {
         if let Some(x) = get("HERMES_RS_CRON_OUTPUT") {
             self.cron_output_dir = PathBuf::from(x);
         }
-        // HERMES_RS_MCP=0 skips every configured MCP server (shadow runs).
-        if get("HERMES_RS_MCP").is_some_and(|x| matches!(x.as_str(), "0" | "false" | "no" | "off"))
-        {
+        // HERMES_RS_MCP=0 skips every configured MCP server (shadow runs),
+        // including the GitHub entry. Otherwise HERMES_RS_MCP_GITHUB=1 adds
+        // the read-only GitHub server when config.yaml did not already
+        // name one. The token stays in GITHUB_TOKEN.
+        let mcp_off = get("HERMES_RS_MCP")
+            .is_some_and(|x| matches!(x.as_str(), "0" | "false" | "no" | "off"));
+        if mcp_off {
             self.mcp_servers.clear();
+        } else if get("HERMES_RS_MCP_GITHUB")
+            .is_some_and(|x| matches!(x.as_str(), "1" | "true" | "yes" | "on"))
+            && !self
+                .mcp_servers
+                .iter()
+                .any(|s| s.name == "github" || s.url.as_deref().is_some_and(github_mcp_host))
+        {
+            self.mcp_servers.push(github_readonly_server());
         }
         if let Some(x) = get("HERMES_RS_PERSONA") {
             self.persona_file = Some(PathBuf::from(x));
@@ -495,6 +856,9 @@ mcp_servers:
         assert_eq!(c.reasoning_overrides["anthropic/claude-haiku-5.5"], "none");
         assert_eq!(c.max_turns, 500);
         assert_eq!(c.mcp_servers[0].name, "galion-stack");
+        assert_eq!(c.mcp_servers[0].allow, ToolAllow::All);
+        assert!(c.mcp_servers[0].url.is_none());
+        assert!(c.mcp_servers[0].token_env.is_none());
         assert!(c.free_only_background);
     }
 
@@ -514,14 +878,128 @@ mcp_servers:
         assert!(c.cron_enabled);
         let mut d = Config::defaults(Path::new("/h"));
         d.mcp_servers.push(McpServerCfg {
-            name: "x".into(),
-            command: "true".into(),
-            args: vec![],
             timeout_s: 1,
             connect_timeout_s: 1,
-            lazy: false,
+            ..McpServerCfg::stdio("x", "true", vec![])
         });
         d.apply_env(&env).unwrap();
         assert!(d.mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn http_allowlist_and_github_clamp() {
+        // The leak entry's token_env is a token pasted where a variable name
+        // belongs. The pieces are split so this source file has no token.
+        let leaked = concat!("gh", "p_abcdefghijklmnopqrstuvwxyz0123456789");
+        let yaml = format!(
+            "
+mcp_servers:
+  lab:
+    url: http://127.0.0.1/mcp
+    tools: [list_notes, get_note]
+    timeout: 12
+  github:
+    url: https://api.githubcopilot.com/mcp/
+    token_env: GITHUB_TOKEN
+    tools: [get_file_contents, push_files, issue_write, merge_pull_request]
+  leak:
+    url: https://example.com/mcp
+    token_env: {leaked}
+  both:
+    command: /bin/true
+    url: http://127.0.0.1/mcp
+  auth:
+    url: https://example.com/mcp
+    headers:
+      Authorization: \"Bearer nope\"
+  off:
+    command: /bin/true
+    enabled: false
+"
+        );
+        let mut c = Config::defaults(Path::new("/h"));
+        c.apply_yaml(&yaml::parse(&yaml).unwrap());
+        let names: Vec<&str> = c.mcp_servers.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(names, ["lab", "github"], "{names:?}");
+        let lab = c.mcp_servers.iter().find(|s| s.name == "lab").unwrap();
+        assert_eq!(
+            lab.allow,
+            ToolAllow::Only(vec!["list_notes".into(), "get_note".into()])
+        );
+        assert_eq!(lab.timeout_s, 12);
+        let gh = c.mcp_servers.iter().find(|s| s.name == "github").unwrap();
+        assert!(gh.allow.permits("get_file_contents"));
+        assert!(!gh.allow.permits("push_files"));
+        assert!(!gh.allow.permits("issue_write"));
+        assert!(!gh.allow.permits("merge_pull_request"));
+        assert!(!gh.allow.permits("mark_all_notifications_read"));
+        assert_eq!(gh.token_env.as_deref(), Some(GITHUB_TOKEN_ENV));
+        assert!(gh
+            .headers
+            .iter()
+            .any(|(k, v)| k == "X-MCP-Readonly" && v == "true"));
+        assert!(gh.headers.iter().all(|(k, _)| k != "Authorization"));
+        let dumped = format!("{gh:?}");
+        assert!(!dumped.contains(concat!("gh", "p_")));
+        assert!(!dumped.contains("Bearer"));
+    }
+
+    #[test]
+    fn github_entry_comes_from_env_and_mcp_off_wins() {
+        let preset = github_readonly_server();
+        assert_eq!(preset.url.as_deref(), Some(GITHUB_MCP_URL));
+        assert!(preset.url.as_deref().unwrap().starts_with("https://"));
+        assert_eq!(preset.token_env.as_deref(), Some(GITHUB_TOKEN_ENV));
+        assert!(preset.command.is_empty());
+        assert!(preset.allow.permits("get_file_contents"));
+        assert!(preset.allow.permits("issue_read"));
+        assert!(preset.allow.permits("pull_request_read"));
+        assert!(preset.allow.permits("search_code"));
+        assert!(!preset.allow.permits("push_files"));
+        assert!(!preset.allow.permits("create_or_update_file"));
+        assert!(!preset.allow.permits("create_pull_request"));
+        assert!(!preset.allow.permits("actions_run_trigger"));
+        let tools = match &preset.allow {
+            ToolAllow::Only(names) => names.clone(),
+            ToolAllow::All => panic!("github allowlist must be explicit"),
+        };
+        let mut sorted = tools.clone();
+        sorted.sort();
+        sorted.dedup();
+        assert_eq!(sorted, tools);
+        for w in [
+            "push_files",
+            "create_or_update_file",
+            "delete_file",
+            "issue_write",
+            "add_issue_comment",
+            "merge_pull_request",
+            "create_pull_request",
+            "fork_repository",
+            "actions_run_trigger",
+            "mark_all_notifications_read",
+            "star_repository",
+        ] {
+            assert!(!tools.iter().any(|t| t == w), "{w}");
+        }
+
+        let on = |k: &str| match k {
+            "HERMES_RS_MCP_GITHUB" => Some("1".into()),
+            _ => None,
+        };
+        let mut c = Config::defaults(Path::new("/h"));
+        c.apply_env(&on).unwrap();
+        assert_eq!(c.mcp_servers.len(), 1);
+        assert_eq!(c.mcp_servers[0].name, "github");
+        c.apply_env(&on).unwrap();
+        assert_eq!(c.mcp_servers.len(), 1, "the flag must not duplicate github");
+
+        let off = |k: &str| match k {
+            "HERMES_RS_MCP" => Some("off".into()),
+            "HERMES_RS_MCP_GITHUB" => Some("1".into()),
+            _ => None,
+        };
+        c.apply_env(&off).unwrap();
+        assert!(c.mcp_servers.is_empty());
     }
 }

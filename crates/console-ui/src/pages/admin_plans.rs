@@ -88,9 +88,9 @@ mod tests {
     #[test]
     fn shows_the_three_prices_and_no_form() {
         let html = body(PLANS);
-        assert!(html.contains("$0 · EUR 0 · forever"));
-        assert!(html.contains("$20 or EUR 20 per month"));
-        assert!(html.contains("$220 or EUR 220 one-time"));
+        assert!(html.contains("$0/€0 forever"));
+        assert!(html.contains("$20/€20 per month"));
+        assert!(html.contains("$220/€220 one-time"));
         assert!(html.contains("Galion OS"));
         assert!(html.contains("Galion One"));
         assert!(html.contains("Galion Research"));

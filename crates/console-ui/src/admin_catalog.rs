@@ -5,8 +5,8 @@
 //! Display catalog for the admin plan and account screens.
 //!
 //! The three prices are the agreed list: Free forever (Galion OS, open
-//! source), Plus for Galion One ($20 or EUR 20 per month), Ultra for Galion
-//! Research ($220 or EUR 220 one-time). Nothing here talks to a payment
+//! source), Plus for Galion One ($20/€20 per month), Ultra for Galion
+//! Research ($220/€220 one-time). Nothing here talks to a payment
 //! service. The live account list is empty because this console has no
 //! account directory and must not invent one from a billing call.
 //!
@@ -39,7 +39,7 @@ pub const PLANS: &[Plan] = &[
         product: "Galion OS",
         summary: "Open source. Free forever.",
         usd: "$0",
-        eur: "EUR 0",
+        eur: "€0",
         cadence: "forever",
     },
     Plan {
@@ -48,7 +48,7 @@ pub const PLANS: &[Plan] = &[
         product: "Galion One",
         summary: "Galion One.",
         usd: "$20",
-        eur: "EUR 20",
+        eur: "€20",
         cadence: "per month",
     },
     Plan {
@@ -57,7 +57,7 @@ pub const PLANS: &[Plan] = &[
         product: "Galion Research",
         summary: "Galion Research.",
         usd: "$220",
-        eur: "EUR 220",
+        eur: "€220",
         cadence: "one-time",
     },
 ];
@@ -94,9 +94,9 @@ pub fn availability(plan: &Plan) -> &'static str {
 /// How a plan's price is spoken on the page.
 pub fn price_label(plan: &Plan) -> String {
     if plan.cadence == "forever" {
-        format!("{} · {} · forever", plan.usd, plan.eur)
+        format!("{}/{} forever", plan.usd, plan.eur)
     } else {
-        format!("{} or {} {}", plan.usd, plan.eur, plan.cadence)
+        format!("{}/{} {}", plan.usd, plan.eur, plan.cadence)
     }
 }
 
@@ -111,15 +111,15 @@ mod tests {
         assert_eq!(free.product, "Galion OS");
         assert!(free.summary.contains("Open source"));
         assert!(free.summary.contains("Free forever"));
-        assert_eq!(price_label(free), "$0 · EUR 0 · forever");
+        assert_eq!(price_label(free), "$0/€0 forever");
 
         let plus = plan_by_id("plus").unwrap();
         assert_eq!(plus.product, "Galion One");
-        assert_eq!(price_label(plus), "$20 or EUR 20 per month");
+        assert_eq!(price_label(plus), "$20/€20 per month");
 
         let ultra = plan_by_id("ultra").unwrap();
         assert_eq!(ultra.product, "Galion Research");
-        assert_eq!(price_label(ultra), "$220 or EUR 220 one-time");
+        assert_eq!(price_label(ultra), "$220/€220 one-time");
 
         assert_eq!(LIVE_ACCOUNTS.len(), 0);
         assert_eq!(availability(free), "Open");

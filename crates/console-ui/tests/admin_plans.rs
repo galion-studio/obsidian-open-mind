@@ -145,9 +145,9 @@ fn plans_and_accounts_render_without_a_billing_call() {
     assert_eq!(plans.status, 200);
     let plans_html = text(&plans);
     assert!(plans_html.contains("<title>Galion Console · Plans</title>"));
-    assert!(plans_html.contains("$0 · EUR 0 · forever"));
-    assert!(plans_html.contains("$20 or EUR 20 per month"));
-    assert!(plans_html.contains("$220 or EUR 220 one-time"));
+    assert!(plans_html.contains("$0/€0 forever"));
+    assert!(plans_html.contains("$20/€20 per month"));
+    assert!(plans_html.contains("$220/€220 one-time"));
     assert!(plans_html.contains("Open source. Free forever."));
     assert!(plans_html.contains("Galion One"));
     assert!(plans_html.contains("Galion Research"));
@@ -236,7 +236,7 @@ fn unpaired_console_host_does_not_see_prices() {
     let html = text(&reply);
     assert!(html.contains("back=/admin/plans"), "{html}");
     assert!(!html.contains("$220"));
-    assert!(!html.contains("$20 or EUR 20"));
+    assert!(!html.contains("$20/€20"));
     assert_display_only(&log.lock().unwrap());
     assert!(log
         .lock()

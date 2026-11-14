@@ -228,6 +228,7 @@ fn no_route(status: u16, body: &[u8]) -> bool {
 fn safe_back(back: &str) -> &str {
     let known = PORTED.contains(&back)
         || rooms::ROOMS.iter().any(|r| r.to == Some(back))
+        || back == "/research"
         || back == "/console";
     if known {
         back

@@ -4,12 +4,14 @@
 
 //! Optional loopback server for the control-console page.
 //!
-//! Only [`crate::Mode::Listen`] calls [`listen`]. Any other address than
-//! loopback is refused before a socket is created. `GET /` and `HEAD /`
-//! are the page and do not dial the stack. `GET /probes` and `HEAD /probes`
-//! run the read-only health probes for the supplied [`ProbeConfig`].
+//! Only [`crate::Mode::Listen`] calls [`listen`] or [`listen_with`]. Any
+//! address that is not loopback is refused before a socket is created.
+//! Uploads are forwarded only to a loopback intake. A peer that is not
+//! loopback is refused before a file is touched. `GET /` does not dial the
+//! stack. `GET /probes` runs the read-only health probes.
 
 use crate::error::DesktopError;
+use crate::files::{self, error_json, error_status, Files};
 use crate::page::{self, CSP};
 use crate::probe::{self, ProbeConfig};
 use galion_common::http::{Limits, Request, Response};
@@ -19,30 +21,42 @@ use std::time::Duration;
 
 /// Serves [`page::document`] until the process is stopped.
 ///
+/// Uploads dial [`files::DEFAULT_STACK`]. There is no inbox and no grant,
+/// so a path read is refused. The browser picker can still upload bytes.
+///
 /// # Errors
 /// [`DesktopError::Refused`] when `addr` is not loopback.
 /// [`DesktopError::Usage`] when `addr` is not `host:port`.
+/// [`DesktopError::Files`] when the default stack address is not loopback.
 /// [`DesktopError::Bind`] when the OS rejects the bind, or the accept loop ends.
 pub fn listen(addr: &str, probes: &ProbeConfig) -> Result<(), DesktopError> {
+    let files = Files::open(&[], None, Some(files::DEFAULT_STACK))?;
+    listen_with(addr, probes, &files)
+}
+
+/// [`listen`] with the operator's grants, inbox, stack address, and probes.
+///
+/// # Errors
+/// See [`listen`].
+pub fn listen_with(addr: &str, probes: &ProbeConfig, files: &Files) -> Result<(), DesktopError> {
     let listener = bind_loopback(addr)?;
     let bound = listener
         .local_addr()
         .map(|a| a.to_string())
         .unwrap_or_else(|_| addr.to_string());
     eprintln!("openmind-desktop: listening on {bound}");
-    let write_timeout = probes
-        .timeout
-        .saturating_add(Duration::from_secs(3))
-        .max(Duration::from_secs(10));
     let limits = Limits {
-        max_body_bytes: 4096,
+        max_body_bytes: files::MAX_FILE_BYTES,
         max_connections: 8,
-        write_timeout,
+        body_timeout: Duration::from_secs(30),
+        write_timeout: Duration::from_secs(30),
+        accept_chunked: true,
         ..Limits::default()
     };
+    let files = files.clone();
     let probes = probes.clone();
     let handler: Arc<galion_common::http::Handler> =
-        Arc::new(move |req: &Request| reply_with(req.method(), req.path(), Some(&probes)));
+        Arc::new(move |req: &Request| reply(req, &probes, &files));
     galion_common::http::serve(listener, limits, handler).map_err(|source| DesktopError::Bind {
         addr: addr.to_string(),
         source,
@@ -78,54 +92,123 @@ pub fn parse_loopback(addr: &str) -> Result<SocketAddr, DesktopError> {
     }
 }
 
-/// One response. `GET` and `HEAD` of `/` return the page. Nothing is uploaded.
+/// One response.
 ///
-/// This helper does not probe. The listen loop passes a config to
-/// [`reply_with`].
+/// `GET /` is the page. `GET /files` lists chosen paths. `POST /files/read`
+/// reads one of them. `POST /files` uploads picker bytes, or a chosen path
+/// when the body is `{"path":"..."}`. Nothing else is a file.
 #[must_use]
-pub fn reply(method: &str, path: &str) -> Response {
-    reply_with(method, path, None)
+pub fn reply(req: &Request, probes: &ProbeConfig, files: &Files) -> Response {
+    if let Some(peer) = req.peer {
+        if !peer.ip().is_loopback() {
+            return guarded(Response::json(403, "{\"error\":\"peer\"}"));
+        }
+    }
+    match (req.method(), req.path()) {
+        ("GET" | "HEAD", "/" | "/index.html") => page_response(),
+        ("GET" | "HEAD", "/probes") => {
+            let body = probe::probe_all(probes).to_json();
+            guarded(Response::json(200, body))
+        }
+        ("GET" | "HEAD", "/files") => guarded(Response::json(200, files.pick_json())),
+        ("GET" | "HEAD", "/files/sent") => guarded(Response::json(200, files.sent_json())),
+        ("POST", "/files/read") => file_result(read_chosen(req, files)),
+        ("POST", "/files") => upload(req, files),
+        ("GET" | "HEAD", _) => guarded(Response::text(404, "Not found\n")),
+        _ => guarded(
+            Response::text(405, "Method not allowed\n").with_header("allow", "GET, HEAD, POST"),
+        ),
+    }
 }
 
-/// [`reply`], plus `GET /probes` when `probes` is set.
-///
-/// The page routes ignore `probes` and open no outbound socket. `/probes`
-/// without a config is a 404, so a page-only caller cannot dial the stack
-/// by accident.
-#[must_use]
-pub fn reply_with(method: &str, path: &str, probes: Option<&ProbeConfig>) -> Response {
-    match (method, path) {
-        ("GET" | "HEAD", "/probes") => match probes {
-            Some(cfg) => {
-                let body = probe::probe_all(cfg).to_json();
-                Response::json(200, body)
-                    .with_header("cache-control", "no-store")
-                    .with_header("x-content-type-options", "nosniff")
-            }
-            None => Response::text(404, "Not found\n"),
-        },
-        ("GET" | "HEAD", "/" | "/index.html") => Response::new(
+fn page_response() -> Response {
+    guarded(
+        Response::new(
             200,
             "text/html; charset=utf-8",
             page::document().as_bytes().to_vec(),
         )
-        .with_header("content-security-policy", CSP)
-        .with_header("referrer-policy", "no-referrer")
+        .with_header("content-security-policy", CSP),
+    )
+}
+
+fn guarded(response: Response) -> Response {
+    response
         .with_header("x-content-type-options", "nosniff")
-        .with_header("cache-control", "no-store"),
-        ("GET" | "HEAD", _) => Response::text(404, "Not found\n"),
-        _ => Response::text(405, "Method not allowed\n").with_header("allow", "GET, HEAD"),
+        .with_header("referrer-policy", "no-referrer")
+        .with_header("cache-control", "no-store")
+}
+
+fn upload(req: &Request, files: &Files) -> Response {
+    let result = if let Some(name) = req.header("x-file-name") {
+        files.upload_bytes(name, &req.body)
+    } else {
+        match files::json_path(&req.body) {
+            Ok(path) => files.upload_path(&path),
+            Err(err) => Err(err),
+        }
+    };
+    file_result(result.map(|receipt| receipt.to_json()))
+}
+
+fn read_chosen(req: &Request, files: &Files) -> Result<String, files::FileError> {
+    let path = files::json_path(&req.body)?;
+    Ok(files.read_path(&path)?.to_json())
+}
+
+fn file_result(result: Result<String, files::FileError>) -> Response {
+    match result {
+        Ok(body) => guarded(Response::json(200, body)),
+        Err(err) => guarded(Response::json(error_status(&err), error_json(&err))),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use galion_common::http::Head;
     use std::io::{Read, Write};
-    use std::net::{TcpListener, TcpStream};
-    use std::sync::Mutex;
+    use std::net::{SocketAddr, TcpStream};
     use std::thread;
     use std::time::Duration;
+
+    fn request(
+        method: &str,
+        target: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+        loopback: bool,
+    ) -> Request {
+        Request {
+            head: Head {
+                method: method.into(),
+                target: target.into(),
+                minor: 1,
+                headers: headers
+                    .iter()
+                    .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+                    .collect(),
+                content_length: Some(body.len() as u64),
+                chunked: false,
+                len: 0,
+            },
+            raw_head: Vec::new(),
+            body: body.to_vec(),
+            peer: Some(if loopback {
+                SocketAddr::from(([127, 0, 0, 1], 9))
+            } else {
+                SocketAddr::from(([10, 1, 2, 3], 9))
+            }),
+        }
+    }
+
+    fn dispatch(req: &Request, files: &Files) -> Response {
+        reply(req, &ProbeConfig::defaults(), files)
+    }
+
+    fn call(method: &str, path: &str) -> Response {
+        dispatch(&request(method, path, &[], b"", true), &Files::closed())
+    }
 
     #[test]
     fn refuses_non_loopback_before_bind() {
@@ -144,22 +227,17 @@ mod tests {
 
     #[test]
     fn get_root_is_the_console() {
-        let home = reply("GET", "/");
+        let home = call("GET", "/");
         let bytes = home.to_bytes(false);
         let text = String::from_utf8(bytes).unwrap();
         assert!(text.starts_with("HTTP/1.1 200 "));
         assert!(text.contains("content-security-policy:"));
+        assert!(text.contains("connect-src 'self'"));
         assert!(text.contains("data-desktop=\"control-console\""));
-        assert!(reply("GET", "/nope")
+        assert!(call("GET", "/nope")
             .to_bytes(false)
             .starts_with(b"HTTP/1.1 404"));
-        assert!(reply("POST", "/")
-            .to_bytes(false)
-            .starts_with(b"HTTP/1.1 405"));
-        assert!(reply("POST", "/mic")
-            .to_bytes(false)
-            .starts_with(b"HTTP/1.1 405"));
-        assert!(reply("PUT", "/audio")
+        assert!(call("POST", "/")
             .to_bytes(false)
             .starts_with(b"HTTP/1.1 405"));
         let head = String::from_utf8(home.to_bytes(true)).unwrap();
@@ -178,8 +256,9 @@ mod tests {
                 max_connections: 4,
                 ..Limits::default()
             };
+            let files = Files::closed();
             let handler: Arc<galion_common::http::Handler> =
-                Arc::new(|req: &Request| reply(req.method(), req.path()));
+                Arc::new(move |req: &Request| dispatch(req, &files));
             let _ = galion_common::http::serve(listener, limits, handler);
         });
         let mut body = String::new();
@@ -202,76 +281,113 @@ mod tests {
     }
 
     #[test]
-    fn probes_are_explicit_and_get_only() {
-        assert!(reply("GET", "/probes")
+    fn files_stay_on_chosen_paths_and_loopback_peers() {
+        let mut buf = [0u8; 8];
+        std::fs::File::open("/dev/urandom")
+            .unwrap()
+            .read_exact(&mut buf)
+            .unwrap();
+        let tmp =
+            std::env::temp_dir().join(format!("om-desk-http-{}", galion_common::hex::encode(&buf)));
+        std::fs::create_dir(&tmp).unwrap();
+        let grant = tmp.join("chosen");
+        std::fs::create_dir(&grant).unwrap();
+        std::fs::write(grant.join("notes.txt"), b"inside").unwrap();
+        std::fs::write(tmp.join("secret.txt"), b"SENTINEL-OUTSIDE").unwrap();
+        let files = Files::open(std::slice::from_ref(&grant), None, Some("127.0.0.1:1")).unwrap();
+
+        let traversal = dispatch(
+            &request("POST", "/files", &[], br#"{"path":"../secret.txt"}"#, true),
+            &files,
+        );
+        let text = String::from_utf8(traversal.to_bytes(false)).unwrap();
+        assert!(text.starts_with("HTTP/1.1 403 "), "{text}");
+        assert!(text.contains("\"error\":\"traversal\""));
+        assert!(!text.contains("SENTINEL"));
+
+        let outside = dispatch(
+            &request(
+                "POST",
+                "/files/read",
+                &[],
+                br#"{"path":"/etc/passwd"}"#,
+                true,
+            ),
+            &files,
+        );
+        let outside_text = String::from_utf8(outside.to_bytes(false)).unwrap();
+        assert!(outside_text.starts_with("HTTP/1.1 403 "), "{outside_text}");
+        assert!(!outside_text.contains("root:"));
+
+        let peer = dispatch(
+            &request(
+                "POST",
+                "/files",
+                &[("x-file-name", "notes.txt")],
+                b"inside",
+                false,
+            ),
+            &files,
+        );
+        let peer_text = String::from_utf8(peer.to_bytes(false)).unwrap();
+        assert!(peer_text.contains("\"error\":\"peer\""));
+        assert!(!peer_text.contains("inside"));
+
+        let listed = String::from_utf8(
+            dispatch(&request("GET", "/files", &[], b"", true), &files).to_bytes(false),
+        )
+        .unwrap();
+        assert!(listed.contains("notes.txt"));
+        assert!(!listed.contains("secret.txt"));
+        assert!(call_on("GET", "/files/notes.txt", &[], b"", &files)
             .to_bytes(false)
             .starts_with(b"HTTP/1.1 404"));
-        let defaults = ProbeConfig::defaults();
-        assert!(reply_with("POST", "/probes", Some(&defaults))
-            .to_bytes(false)
-            .starts_with(b"HTTP/1.1 405"));
+        assert!(!listed.contains("SENTINEL"));
 
-        let hits = Arc::new(Mutex::new(Vec::<String>::new()));
-        let listener = TcpListener::bind(("localhost", 0)).unwrap();
-        let addr = listener.local_addr().unwrap();
-        let recorded = Arc::clone(&hits);
-        thread::spawn(move || {
-            for _ in 0..5 {
-                let Ok((mut sock, _)) = listener.accept() else {
-                    break;
-                };
-                let _ = sock.set_read_timeout(Some(Duration::from_secs(1)));
-                let mut buf = [0u8; 2048];
-                let mut got = Vec::new();
-                loop {
-                    match sock.read(&mut buf) {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => {
-                            got.extend_from_slice(&buf[..n]);
-                            if got.windows(4).any(|window| window == b"\r\n\r\n") {
-                                break;
-                            }
-                        }
-                    }
-                }
-                recorded
-                    .lock()
-                    .expect("hits")
-                    .push(String::from_utf8_lossy(&got).into_owned());
-                let body = "{\"ok\":true,\"mode\":\"dry-run\"}";
-                let bytes = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                );
-                let _ = sock.write_all(bytes.as_bytes());
-            }
-        });
+        let read = dispatch(
+            &request("POST", "/files/read", &[], br#"{"path":"notes.txt"}"#, true),
+            &files,
+        );
+        let read_text = String::from_utf8(read.to_bytes(false)).unwrap();
+        assert!(read_text.contains("\"text\":\"inside\""));
 
-        let mut cfg = ProbeConfig::defaults();
-        cfg.timeout = Duration::from_secs(1);
-        for endpoint in &mut cfg.endpoints {
-            endpoint.host = addr.ip().to_string();
-            endpoint.port = addr.port();
-            endpoint.path = "/health".into();
-        }
-        let page = String::from_utf8(reply_with("GET", "/", Some(&cfg)).to_bytes(false)).unwrap();
-        assert!(page.contains("data-desktop=\"control-console\""));
-        thread::sleep(Duration::from_millis(40));
-        assert!(hits.lock().expect("hits").is_empty());
+        let spoof = dispatch(
+            &request(
+                "POST",
+                "/files?path=/etc/passwd",
+                &[("x-file-name", "/etc/passwd")],
+                b"hello",
+                true,
+            ),
+            &files,
+        );
+        let spoof_text = String::from_utf8(spoof.to_bytes(false)).unwrap();
+        assert!(
+            spoof_text.contains("\"error\":\"type\""),
+            "a name is not a path: {spoof_text}"
+        );
+        assert!(!spoof_text.contains("root:"));
 
-        let report =
-            String::from_utf8(reply_with("GET", "/probes", Some(&cfg)).to_bytes(false)).unwrap();
-        assert!(report.starts_with("HTTP/1.1 200 "));
-        assert!(report.contains("\"read_only\":true"));
-        assert!(report.contains("\"writes\":0"));
-        assert_eq!(report.matches("\"state\":\"up\"").count(), 5);
-        assert!(report.contains("\"observed_mode\":\"dry-run\""));
-        assert!(!report.contains("data-desktop"));
-        let seen = hits.lock().expect("hits");
-        assert_eq!(seen.len(), 5, "{seen:?}");
-        assert!(seen.iter().all(|req| req.starts_with("GET /health ")));
-        assert!(seen
-            .iter()
-            .all(|req| !req.to_ascii_uppercase().contains("POST")));
+        let closed = call_on(
+            "POST",
+            "/files",
+            &[("x-file-name", "a.txt")],
+            b"hi",
+            &Files::closed(),
+        );
+        let closed_text = String::from_utf8(closed.to_bytes(false)).unwrap();
+        assert!(closed_text.starts_with("HTTP/1.1 503 "));
+        assert!(closed_text.contains("\"error\":\"no-destination\""));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    fn call_on(
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+        files: &Files,
+    ) -> Response {
+        dispatch(&request(method, path, headers, body, true), files)
     }
 }

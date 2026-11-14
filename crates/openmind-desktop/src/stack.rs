@@ -39,7 +39,7 @@ pub const LAYERS: &[Layer] = &[
     Layer {
         id: "files",
         name: "Files",
-        role: "Plus opens the picker. Names stay here",
+        role: "Plus picks files. Read and upload stay on loopback",
         state: "staged",
     },
     Layer {

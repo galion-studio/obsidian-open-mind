@@ -20,7 +20,7 @@ style-src 'unsafe-inline'; \
 script-src 'unsafe-inline'; \
 media-src data:; \
 img-src data:; \
-connect-src 'none'; \
+connect-src 'self'; \
 base-uri 'none'; \
 form-action 'none'; \
 frame-ancestors 'none'";
@@ -285,16 +285,64 @@ const SCRIPT: &str = r#"
       play("deny");
     });
   }
+  function fault(text) {
+    var key = "\"error\":\"";
+    var at = text.indexOf(key);
+    if (at < 0) return "refused";
+    var rest = text.slice(at + key.length);
+    var end = rest.indexOf("\"");
+    if (end < 0) return "refused";
+    return rest.slice(0, end);
+  }
+  function sendFile(file, done) {
+    var row = document.createElement("li");
+    row.textContent = file.name;
+    picked.appendChild(row);
+    if (!file.size || file.size > FILE_MAX) {
+      row.textContent = file.name + " — " + (file.size ? "too large" : "empty");
+      play("deny");
+      done();
+      return;
+    }
+    var pending;
+    try {
+      pending = fetch("/files", {
+        method: "POST",
+        credentials: "omit",
+        headers: { "X-File-Name": file.name },
+        body: file
+      });
+    } catch (e) {
+      row.textContent = file.name + " — not sent";
+      play("deny");
+      done();
+      return;
+    }
+    pending.then(function (res) {
+      return res.text().then(function (text) {
+        if (res.ok) {
+          row.textContent = file.name + " — sent";
+        } else {
+          row.textContent = file.name + " — " + fault(text);
+          play("deny");
+        }
+        done();
+      });
+    }).catch(function () {
+      row.textContent = file.name + " — not sent";
+      play("deny");
+      done();
+    });
+  }
+  function sendAt(list, i) {
+    if (i >= list.length) return;
+    sendFile(list[i], function () { sendAt(list, i + 1); });
+  }
   files.addEventListener("change", function () {
     picked.textContent = "";
     var list = files.files;
-    var i;
-    for (i = 0; i < list.length; i = i + 1) {
-      var row = document.createElement("li");
-      row.textContent = list[i].name;
-      picked.appendChild(row);
-    }
     if (list.length) play("hear");
+    sendAt(list, 0);
   });
   voice.addEventListener("click", function () {
     if (voice.getAttribute("aria-pressed") === "true") {
@@ -387,7 +435,7 @@ placeholder=\"Ask Open Mind\" enterkeyhint=\"send\" aria-label=\"Command\">\
 <label class=\"opt\"><input id=\"mic-opt\" type=\"checkbox\"> Allow the microphone on this machine. Audio is not saved and is not sent.</label>\
 <p class=\"notes\" id=\"voice-state\">Microphone closed.</p>\
 <p class=\"notes\" id=\"mic-level\"></p>\
-<div class=\"notes\"><p>Files</p><ul id=\"picked\"></ul></div>\
+<div class=\"notes\"><p>Checked here, then uploaded on loopback.</p><ul id=\"picked\"></ul></div>\
 <div class=\"notes\"><p>Kept on this page</p><ul id=\"kept\"></ul></div>\
 </div></main>",
     );
@@ -405,7 +453,7 @@ placeholder=\"Ask Open Mind\" enterkeyhint=\"send\" aria-label=\"Command\">\
         html.push_str("\" preload=\"none\"></audio>");
     }
     html.push_str("<script>");
-    html.push_str(SCRIPT);
+    html.push_str(&SCRIPT.replace("FILE_MAX", &crate::files::MAX_FILE_BYTES.to_string()));
     html.push_str("</script></div></body></html>\n");
     html
 }
@@ -476,11 +524,13 @@ mod tests {
             "localStorage",
             "createObjectURL",
             "sendBeacon",
-            "fetch(",
         ] {
             assert!(!html.contains(banned), "{banned} leaked into the page");
         }
-        assert!(html.contains("connect-src 'none'"));
+        assert_eq!(html.matches("fetch(").count(), 1);
+        assert!(html.contains("fetch(\"/files\""));
+        assert!(html.contains("credentials: \"omit\""));
+        assert!(html.contains("connect-src 'self'"));
         assert!(html.contains("h >= 22"));
         assert!(html.contains("h < 7"));
         assert!(html.contains("textContent"));

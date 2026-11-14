@@ -113,11 +113,12 @@ fn real_landing_overview() {
         .collect();
     assert_eq!(
         sheets.len(),
-        2,
-        "base + overview stylesheets on /console: {sheets:?}"
+        3,
+        "base + overview + accessibility stylesheets on /console: {sheets:?}"
     );
     assert!(sheets[0].contains("/_ui/console."), "{:?}", sheets[0]);
     assert!(sheets[1].contains("/_ui/overview."), "{:?}", sheets[1]);
+    assert!(sheets[2].contains("/_ui/a11y."), "{:?}", sheets[2]);
     let (c, _, css) = get(sheets[0], "");
     assert_eq!(c, 200);
     assert!(css.contains("prefers-color-scheme:light"));

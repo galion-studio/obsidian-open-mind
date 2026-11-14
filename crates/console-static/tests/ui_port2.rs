@@ -402,8 +402,12 @@ fn hermes_read_only() {
         assert!(r.body.contains(n), "missing {n}");
     }
     assert!(r.body.contains("/_ui/research."), "research sheet linked");
-    assert!(r.body.contains("aria-label=\"Add files\""));
-    assert!(r.body.contains("aria-label=\"Voice\""));
+    assert!(r
+        .body
+        .contains("disabled aria-label=\"Add files, unavailable\""));
+    assert!(r
+        .body
+        .contains("disabled aria-label=\"Voice, unavailable\""));
     assert!(!r.body.contains("127.0.0.1:8642"));
     assert!(!r.body.contains("<form"), "no form on the Hermes room");
     let r = get(a, "/hermes?id=t-1", "127.0.0.1", "");

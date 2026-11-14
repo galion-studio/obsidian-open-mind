@@ -11,16 +11,31 @@
 
 use crate::html::{esc, url_enc};
 
-pub fn pair(back: &str, error: Option<&str>) -> String {
+pub fn pair(back: &str, error: Option<&str>, silence: bool) -> String {
     let err = error
-        .map(|e| format!("<p class=\"err\" role=\"alert\">{}</p>", esc(e)))
+        .map(|e| {
+            format!(
+                "<p id=\"pair-err\" class=\"err\" role=\"alert\">{}</p>",
+                esc(e)
+            )
+        })
         .unwrap_or_default();
+    let described = if error.is_some() {
+        " aria-describedby=\"pair-err\""
+    } else {
+        ""
+    };
+    let cue = match error {
+        Some(_) => crate::cues::admin_tag(crate::sound::Admin::Error, silence),
+        None => crate::cues::admin_tag(crate::sound::Admin::ApprovalNeeded, silence),
+    };
     format!(
-        "<main class=\"gate\"><p class=\"k\">Admin</p><h1>This phone</h1>\
+        "<main class=\"gate\">{silence_link}<p class=\"k\">Admin</p><h1>This phone</h1>\
 <p class=\"lede\">One device. Enter the pairing code once. This phone keeps a sealed resume key so Android can return without the code. Other phones and browsers stay out.</p>\
 <form method=\"post\" action=\"/_ui/pair?back={back}\">\
-<input name=\"code\" type=\"password\" autocomplete=\"one-time-code\" autocapitalize=\"characters\" spellcheck=\"false\" aria-label=\"Pairing code\" required>\
-<button class=\"btn primary\" type=\"submit\">Pair</button></form>{err}</main>",
+<input name=\"code\" type=\"password\" autocomplete=\"one-time-code\" autocapitalize=\"characters\" spellcheck=\"false\" aria-label=\"Pairing code\"{described} required>\
+<button class=\"btn primary\" type=\"submit\">Pair</button></form>{err}{cue}</main>",
+        silence_link = crate::cues::silence_toggle(back, silence),
         back = esc(&url_enc(back)),
     )
 }
@@ -39,10 +54,13 @@ pub fn links() -> String {
         .to_string()
 }
 
-pub fn unavailable() -> String {
-    "<main class=\"gate\"><p class=\"k\">Admin</p><h1>Console API is not answering</h1>\
-<p class=\"lede\">The pairing check runs on the console API. It did not answer, so nothing is shown. Try again in a minute.</p></main>"
-        .to_string()
+pub fn unavailable(silence: bool) -> String {
+    format!(
+        "<main class=\"gate\">{silence_link}<p class=\"k\">Admin</p><h1>Console API is not answering</h1>\
+<p class=\"lede\" role=\"alert\">The pairing check runs on the console API. It did not answer, so nothing is shown. Try again in a minute.</p>{cue}</main>",
+        silence_link = crate::cues::silence_toggle("/console", silence),
+        cue = crate::cues::admin_tag(crate::sound::Admin::Error, silence),
+    )
 }
 
 /// Brand line per host for the `/soon` room (console-ide

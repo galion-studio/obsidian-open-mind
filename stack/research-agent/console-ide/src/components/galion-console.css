@@ -1,0 +1,210 @@
+/* SPDX-License-Identifier: MIT */
+/* SPDX-FileCopyrightText: 3000 Galion / galion-studio */
+/* Copyright (c) 3000 Galion / galion-studio */
+/*
+ * Galion console IDE shell for the TypeScript Hermes panel.
+ * Colour and type from brand/tokens.css and brand/BRAND.md.
+ * Ink ground, one sky gradient, Jost for the name, IBM Plex for text.
+ * This file does not fetch fonts. Hosts that already have Jost and
+ * IBM Plex (Galion One ships Jost) pick them up; everyone else uses
+ * the system faces in the stack.
+ * Size cap: 8 KiB, the console overview sheet budget.
+ */
+
+.galion-console {
+  --color-bg: #0b0f14;
+  --color-surface: #131a22;
+  --color-elevated: #1b2633;
+  --color-fg: #e6edf3;
+  --color-muted: #a7b6c4;
+  --color-subtle: #4a7c99;
+  --color-line: #24303c;
+  --color-accent: #58c4ff;
+  --color-accent-fg: #0b0f14;
+  --color-winter: #05070a;
+  --color-frost: #58c4ff;
+  --color-ice: #b8e8ff;
+  --color-online: #8fd6b0;
+  --color-offline: #e7a39a;
+  --galion-display: "Jost", "IBM Plex Sans", system-ui, sans-serif;
+  --galion-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --galion-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: #0b0f14;
+  color: #e6edf3;
+  font-family: var(--galion-sans);
+  color-scheme: dark;
+}
+
+.galion-console[data-theme="light"] {
+  --color-bg: #f7f9fb;
+  --color-surface: #eef2f6;
+  --color-elevated: #e6edf3;
+  --color-fg: #0b0f14;
+  --color-muted: #3f4c59;
+  --color-subtle: #4a7c99;
+  --color-line: #d5dde5;
+  --color-accent: #0b5fa5;
+  --color-accent-fg: #ffffff;
+  --color-winter: #f7f9fb;
+  --color-frost: #0b5fa5;
+  --color-ice: #0b5fa5;
+  background: #f7f9fb;
+  color: #0b0f14;
+  color-scheme: light;
+}
+
+.galion-console .life-stage {
+  background:
+    radial-gradient(ellipse 72% 46% at 50% -8%, color-mix(in srgb, #58c4ff 30%, transparent), transparent 64%),
+    radial-gradient(ellipse 46% 32% at 50% 108%, color-mix(in srgb, #0b5fa5 24%, transparent), transparent 72%),
+    var(--color-bg);
+}
+
+.galion-console[data-theme="light"] .life-stage {
+  background:
+    radial-gradient(ellipse 72% 46% at 50% -8%, color-mix(in srgb, #0b5fa5 14%, transparent), transparent 64%),
+    var(--color-bg);
+}
+
+.galion-console .one-kicker,
+.galion-console h1 {
+  font-family: var(--galion-display);
+}
+
+.galion-console .one-kicker {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+.galion-console .research-empty,
+.galion-console .one-stage {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.85rem;
+  max-width: 26rem;
+  margin: 0 auto;
+  padding: 1.25rem 0.25rem 2rem;
+}
+
+.galion-console .research-empty {
+  align-items: flex-start;
+}
+
+.galion-console .one-stage {
+  align-items: center;
+  min-height: 100%;
+  text-align: center;
+}
+
+.galion-console .research-empty h1,
+.galion-console .one-stage h1 {
+  margin: 0;
+  font-size: 2.25rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  color: var(--color-fg);
+}
+
+.galion-console .one-hint {
+  margin: 0;
+  max-width: 22rem;
+  color: var(--color-muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.galion-console .one-switch {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.galion-console .one-switch:focus-visible,
+.galion-console .one-dot:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+/* Single-dot Galion One voice control. Galion Voice is the model behind it. */
+.galion-console .one-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 4.75rem;
+  height: 4.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: radial-gradient(circle at 38% 32%, #b8e8ff 0%, #58c4ff 48%, #0b5fa5 100%);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, #58c4ff 40%, transparent),
+    0 18px 42px color-mix(in srgb, #0b5fa5 32%, transparent);
+  cursor: pointer;
+}
+
+.galion-console .one-dot-core {
+  display: block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: #0b0f14;
+}
+
+.galion-console .one-dot-sm {
+  width: 2.75rem;
+  height: 2.75rem;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #58c4ff 40%, transparent);
+}
+
+.galion-console .one-dot[data-phase="listen"] {
+  animation: galion-dot-listen 1.6s ease-in-out infinite;
+}
+
+.galion-console .one-dot[data-phase="speak"] {
+  animation: galion-dot-speak 0.9s ease-in-out infinite;
+}
+
+.galion-console .one-dot[data-phase="hold"] {
+  animation: galion-dot-hold 2.4s ease-in-out infinite;
+}
+
+.galion-console .galion-bar,
+.galion-console .research-composer {
+  background: transparent;
+  border-color: transparent;
+}
+
+.galion-console .research-composer {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+@keyframes galion-dot-listen {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.07); }
+}
+
+@keyframes galion-dot-speak {
+  0%, 100% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.04); filter: brightness(1.16); }
+}
+
+@keyframes galion-dot-hold {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .galion-console .one-dot {
+    animation: none;
+  }
+}

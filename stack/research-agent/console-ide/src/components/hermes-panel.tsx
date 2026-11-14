@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { Icon } from "@/components/icon";
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from "react";
+import "./galion-console.css";
 import { createPortal } from "react-dom";
 import {
   Brain,
@@ -475,6 +476,10 @@ export function HermesPanel() {
   const [recMs, setRecMs] = useState(0);
   const [guard, setGuard] = useState(true);
   const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [surface, setSurface] = useState<"research" | "one">(() => {
+    if (typeof window === "undefined") return "research";
+    return localStorage.getItem("galion-console-surface") === "one" ? "one" : "research";
+  });
   const [accept, setAccept] = useState(false);
   const acceptRef = useRef(false);
   const runRef = useRef("");
@@ -547,7 +552,7 @@ export function HermesPanel() {
       const res = await fetch("/api/hermes/speak", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: spoken, voice: "samantha" }),
+        body: JSON.stringify({ text: spoken, voice: "samantha" }), // Galion Voice speaks as Samantha. Not a separate app.
       });
       if (!res.ok) { setSpeaking(false); setSpeakingAt(null); speakAt.current = null; return; }
       const ctx = earRef.current ?? new AudioContext();
@@ -578,6 +583,12 @@ export function HermesPanel() {
       const rows = await refreshHistory();
       if (dead) return;
       const saved = localStorage.getItem("galion-hermes-session");
+      const face = localStorage.getItem("galion-console-surface") === "one" ? "one" : "research";
+      if (face === "one") {
+        const one = rows.find((t) => t.id === "galion-one");
+        if (one) await openHistory(one.id);
+        return;
+      }
       const research = rows.filter((t) => t.id !== "galion-one");
       const pick = research.find((t) => t.id === saved)?.id ?? research[0]?.id;
       if (pick) await openHistory(pick);
@@ -1490,6 +1501,25 @@ export function HermesPanel() {
       })
       .catch(() => undefined);
   }
+  function chooseSurface(next: "research" | "one") {
+    setSurface(next);
+    setDrawer(false);
+    try {
+      localStorage.setItem("galion-console-surface", next);
+    } catch {
+      /* ignore */
+    }
+    if (next === "one") {
+      const one = threads.find((t) => t.id === "galion-one");
+      if (one) void openHistory(one.id);
+      return;
+    }
+    if (sessionId === "galion-one") {
+      const research = threads.find((t) => t.id !== "galion-one");
+      if (research) void openHistory(research.id);
+    }
+  }
+
   const sessionLoops = loops.filter((j) => j.sessionId === sessionId && !j.stopped);
   const shown = threads.filter((t) => t.title.toLowerCase().includes(chatQuery.trim().toLowerCase()));
   const up = Boolean(health?.ok);
@@ -1509,14 +1539,11 @@ export function HermesPanel() {
     const node = transcriptRef.current;
     if (node) node.scrollTop = node.scrollHeight;
   }
-  const modelId = modes[mode] || "";
-  const modelName = catalog.find((row) => row.id === modelId)?.name || modelId;
-  const modelLabel = (modelName.includes("/") ? modelName.split("/").pop() : modelName) || "No model";
   const canSend = Boolean(input.trim() || clips.length);
   const groups = ["Local", "Addy", "Ondrej", "ZeroAI", "Other"];
 
   return (
-    <div className="relative flex h-full min-h-0 w-full bg-bg">
+    <div className="galion-console relative flex h-full min-h-0 w-full bg-bg" data-theme={theme} data-surface={surface}>
       <input
         ref={fileRef}
         type="file"
@@ -1532,10 +1559,10 @@ export function HermesPanel() {
       />
       <aside
         className={cn(
-          "z-40 flex w-60 max-w-[88vw] shrink-0 flex-col border-r border-line bg-bg",
-          "max-lg:absolute max-lg:inset-0 max-lg:w-full max-lg:max-w-none",
-          drawer ? "max-lg:translate-x-0" : "max-lg:-translate-x-full",
+          "galion-drawer absolute inset-y-0 left-0 z-40 flex w-full max-w-sm flex-col border-r border-line bg-bg",
+          drawer ? "translate-x-0" : "pointer-events-none -translate-x-full",
         )}
+        aria-hidden={!drawer}
       >
         <div className="flex min-h-11 items-center gap-2 border-b border-line px-2">
           <button type="button" onClick={newThread} className="inline-flex shrink-0 items-center gap-1 text-[13px] text-fg">
@@ -1550,7 +1577,7 @@ export function HermesPanel() {
             className="min-h-11 min-w-0 flex-1 bg-transparent text-[12px] text-fg outline-none"
           />
           <span className="shrink-0 text-[12px] text-muted">{up ? "up" : "down"}</span>
-          <button type="button" className="inline-flex shrink-0 items-center gap-1 text-[13px] text-muted lg:hidden" onClick={() => setDrawer(false)} aria-label="Close">
+          <button type="button" className="inline-flex shrink-0 items-center gap-1 text-[13px] text-muted" onClick={() => setDrawer(false)} aria-label="Close">
             <Icon name="close" className="size-3.5" />
             Close
           </button>
@@ -1648,14 +1675,16 @@ export function HermesPanel() {
             onClick={() => {
               const next = theme === "light" ? "dark" : "light";
               const light: Record<string, string> = {
-                "--color-bg": "#f6f6f4",
-                "--color-surface": "#ffffff",
-                "--color-elevated": "#efefec",
-                "--color-fg": "#1a1a1a",
-                "--color-muted": "#5e5e5e",
-                "--color-subtle": "#8a8a86",
-                "--color-line": "#e2e2de",
-                "--color-winter": "#f6f6f4",
+                "--color-bg": "#f7f9fb",
+                "--color-surface": "#eef2f6",
+                "--color-elevated": "#e6edf3",
+                "--color-fg": "#0b0f14",
+                "--color-muted": "#3f4c59",
+                "--color-subtle": "#4a7c99",
+                "--color-line": "#d5dde5",
+                "--color-winter": "#f7f9fb",
+                "--color-accent": "#0b5fa5",
+                "--color-accent-fg": "#ffffff",
               };
               const root = document.documentElement;
               root.dataset.theme = next;
@@ -1740,7 +1769,7 @@ export function HermesPanel() {
             </button>
             <button type="button" className="inline-flex min-h-11 items-center gap-1 text-[12px] text-fg" onClick={() => setVoiceOn((on) => !on)}>
               <Icon name="voice" className="size-3.5" />
-              Voice {voiceOn ? "on" : "off"}
+              Spoken replies {voiceOn ? "on" : "off"}
             </button>
             <button type="button" className="min-h-11 text-[12px] text-fg" onClick={() => void sendRun("Drain the request inbox.")}>
               Inbox
@@ -1856,21 +1885,30 @@ export function HermesPanel() {
       ) : null}
 
       <section
-        className="life-stage relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+        className={cn("life-stage relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", surface === "one" && "one-face")}
         data-phase={rec ? "listen" : speaking ? "speak" : busy ? "hold" : "still"}
       >
-        <header className="flex shrink-0 items-baseline justify-between gap-3 border-b border-line px-3 py-2">
-          <div className="min-w-0">
-            <p className="truncate text-[12px] text-muted">
-              {up ? "Line up" : "Line down"} · {MODE_LABEL[mode]} · {modelLabel} · {busy ? `Working ${clock(workSecs)}` : "idle"}
-            </p>
+        <header className="galion-bar flex shrink-0 items-center justify-between gap-3 px-4 py-3">
+          <p className="one-kicker truncate">
+            {surface === "one" ? "Galion One" : "Galion Research"}
+            {!up ? " · line down" : busy ? ` · ${clock(workSecs)}` : ""}
+          </p>
+          <div className="flex shrink-0 items-center gap-4">
+            <button
+              type="button"
+              className="one-switch min-h-11"
+              onClick={() => chooseSurface(surface === "one" ? "research" : "one")}
+            >
+              {surface === "one" ? "Research" : "One"}
+            </button>
+            <button type="button" className="inline-flex min-h-11 items-center text-[13px] text-muted" onClick={() => setDrawer(true)}>
+              Chats
+            </button>
           </div>
-          <button type="button" className="inline-flex min-h-11 shrink-0 items-center gap-1 text-[12px] text-fg" onClick={() => setDrawer(true)}>
-            <Icon name="chats" className="size-3.5" />
-            Chats
-          </button>
         </header>
-        <MemoryStrip tokens={tokens} sessionId={sessionId} loops={loops} agents={agents} items={items} />
+        {surface === "research" && (busy || (tokens.total || tokens.input + tokens.output) > 0 || agents.length > 0 || sessionLoops.length > 0) ? (
+          <MemoryStrip tokens={tokens} sessionId={sessionId} loops={loops} agents={agents} items={items} />
+        ) : null}
 
         <div className="relative min-h-0 flex-1">
         <div
@@ -1878,14 +1916,35 @@ export function HermesPanel() {
           onScroll={onTranscriptScroll}
           className={items.length === 0 ? "flex h-full min-h-0 flex-col justify-center overflow-hidden px-5" : "panel-scroll h-full min-h-0 overflow-y-auto px-3 py-4"}
         >
-          {items.length === 0 ? (
-            <div className="research-empty max-w-md">
-              <p className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-wider text-subtle">
-                <Icon name="research" className="size-3.5" />
-                By Galion
-              </p>
-              <h1 className="mt-2 text-2xl font-medium tracking-tight">Hermes Research</h1>
-              <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted">Agent. Launched on the Obsidian Open Mind stack.</p>
+          {surface === "one" && items.length === 0 ? (
+            <div className="one-stage">
+              <p className="one-kicker">By Galion</p>
+              <h1>Galion One</h1>
+              <button
+                type="button"
+                className="one-dot"
+                data-phase={rec ? "listen" : speaking ? "speak" : busy ? "hold" : "still"}
+                aria-label={rec ? "Stop" : "Speak to Galion One"}
+                onPointerDown={onMicDown}
+                onPointerUp={onMicUp}
+                onClick={() => {
+                  if (rec && !holdRef.current) stopRec();
+                }}
+              >
+                <span className="one-dot-core" />
+              </button>
+              <p className="one-hint">{rec ? "Listening." : speaking ? "Speaking." : "Tap the dot, or type below."}</p>
+              {rec ? (
+                <button type="button" className="one-switch" onClick={() => stopRec({ cancel: true })}>
+                  Cancel
+                </button>
+              ) : null}
+            </div>
+          ) : items.length === 0 ? (
+            <div className="research-empty">
+              <p className="one-kicker">By Galion</p>
+              <h1>Galion Research</h1>
+              <p className="one-hint">Ask a question. The agent reads, then comes back with an answer you can use.</p>
             </div>
           ) : (
             <ol className="mx-auto flex max-w-lg flex-col gap-3">
@@ -2074,7 +2133,7 @@ export function HermesPanel() {
               </span>
               {busy || runId ? (
                 <button type="button" onClick={() => setDrawer(true)} className="max-w-full truncate rounded-full border border-line px-2 py-1 text-[12px] text-fg">
-                  Hermes · {threads.find((t) => t.id === sessionId)?.title || "this chat"}
+                  {surface === "one" ? "One" : "Research"} · {threads.find((t) => t.id === sessionId)?.title || "this chat"}
                 </button>
               ) : null}
               {busy || runId ? (
@@ -2117,7 +2176,7 @@ export function HermesPanel() {
               ))}
             </ul>
           ) : null}
-          <div className="mx-auto mb-1 flex max-w-lg gap-3 px-1">
+          {surface === "research" ? <div className="mx-auto mb-1 flex max-w-lg gap-3 px-1">
             {(Object.keys(MODE_LABEL) as Mode[]).map((id) => (
               <button
                 key={id}
@@ -2129,7 +2188,7 @@ export function HermesPanel() {
                 {MODE_LABEL[id]}
               </button>
             ))}
-          </div>
+          </div> : null}
           {modelBox && typeof document !== "undefined" ? createPortal(
             <div className="fixed inset-0 z-[80] bg-black/40" onPointerDown={() => setModelBox("")}>
             <div
@@ -2245,7 +2304,7 @@ export function HermesPanel() {
             </div>,
             document.body,
           ) : null}
-          <div className="mx-auto mb-1 flex max-w-lg gap-3 px-1" role="group" aria-label="Provider">
+          {surface === "research" ? <div className="mx-auto mb-1 flex max-w-lg gap-3 px-1" role="group" aria-label="Provider">
             {PROVIDER_CHOICES.map((row) => {
               const on = providerNow === row.id;
               return (
@@ -2295,7 +2354,7 @@ export function HermesPanel() {
                 </button>
               );
             })}
-          </div>
+          </div> : null}
           <form
             className="mx-auto flex max-w-lg items-end gap-1"
             onSubmit={(e: FormEvent) => {
@@ -2304,59 +2363,68 @@ export function HermesPanel() {
               else void sendRun(input, clips);
             }}
           >
-            <button
-              type="button"
-              className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-[12px]"
-              aria-label="Chats"
-              onClick={() => setDrawer(true)}
-            >
-              <Icon name="chats" className="size-5" />
-              {Object.values(unread).some(Boolean) ? <span className="absolute right-2 top-2 size-1.5 rounded-full bg-accent" /> : null}
-            </button>
-            <button
-              type="button"
-              className="inline-flex size-11 shrink-0 items-center justify-center rounded-[12px]"
-              aria-label="Attach"
-              onClick={() => setSheet("plus")}
-            >
-              <Plus className="size-5" />
-            </button>
+            {surface === "one" ? null : (
+              <button
+                type="button"
+                className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-[12px]"
+                aria-label="Chats"
+                onClick={() => setDrawer(true)}
+              >
+                <Icon name="chats" className="size-5" />
+                {Object.values(unread).some(Boolean) ? <span className="absolute right-2 top-2 size-1.5 rounded-full bg-accent" /> : null}
+              </button>
+            )}
+            {surface === "one" && items.length === 0 && clips.length === 0 ? null : (
+              <button
+                type="button"
+                className="inline-flex size-11 shrink-0 items-center justify-center rounded-[12px]"
+                aria-label="Attach"
+                onClick={() => setSheet("plus")}
+              >
+                <Plus className="size-5" />
+              </button>
+            )}
             <textarea
               ref={fieldRef}
               rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={busy ? "Sending…" : rec ? "Listening…" : "Ask"}
-              aria-label="Ask Hermes Research"
+              placeholder={busy ? "Sending…" : rec ? "Listening…" : surface === "one" ? "Type" : "Ask"}
+              aria-label={surface === "one" ? "Message Galion One" : "Ask Galion Research"}
               className="relative z-30 max-h-24 min-h-11 flex-1 resize-none bg-transparent py-2.5 text-[16px] leading-[1.45] text-fg outline-none"
             />
-            {rec ? (
+            {rec && surface !== "one" ? (
               <span className="mb-3 flex items-end gap-0.5" aria-hidden>
                 {Array.from({ length: 7 }).map((_, i) => (
                   <i key={i} className="wave-bar" style={{ animationDelay: `${i * 70}ms` }} />
                 ))}
               </span>
             ) : null}
-            {rec ? (
+            {rec && !(surface === "one" && items.length === 0) ? (
               <span className="mb-4 font-mono text-[11px] text-offline">{Math.floor(recMs / 1000)}s</span>
             ) : null}
-            {rec ? (
+            {rec && !(surface === "one" && items.length === 0) ? (
               <button type="button" className="mb-3 text-sm text-muted" onClick={() => stopRec({ cancel: true })}>
                 Cancel
               </button>
             ) : null}
-            <button
-              type="button"
-              className={cn("inline-flex size-11 shrink-0 items-center justify-center rounded-[12px]", rec && "text-offline")}
-              aria-label={rec ? "Stop recording" : "Voice"}
-              onPointerDown={onMicDown}
-              onPointerUp={onMicUp}
-              onClick={() => {
-                if (rec && !holdRef.current) stopRec();
-              }}
-            >
-              {rec ? <Icon name="stop" className="size-5" /> : <Icon name="voice" className="size-5" />}
-            </button>
+            {surface === "one" && items.length === 0 ? null : (
+              <button
+                type="button"
+                className={cn(
+                  surface === "one" ? "one-dot one-dot-sm" : "inline-flex size-11 shrink-0 items-center justify-center rounded-[12px]",
+                  rec && surface !== "one" && "text-offline",
+                )}
+                aria-label={rec ? "Stop recording" : surface === "one" ? "Speak to Galion One" : "Speak"}
+                onPointerDown={onMicDown}
+                onPointerUp={onMicUp}
+                onClick={() => {
+                  if (rec && !holdRef.current) stopRec();
+                }}
+              >
+                {surface === "one" ? <span className="one-dot-core" /> : rec ? <Icon name="stop" className="size-5" /> : <Icon name="voice" className="size-5" />}
+              </button>
+            )}
             {canSend ? (
               <button
                 type="button"
@@ -2668,7 +2736,7 @@ export function HermesPanel() {
                 <textarea
                   value={settingText}
                   onChange={(e) => setSettingText(e.target.value)}
-                  aria-label="Hermes file"
+                  aria-label="Settings file"
                   className="mt-3 h-40 w-full resize-y rounded-[12px] border border-line bg-bg p-3 font-mono text-xs"
                 />
                 <button

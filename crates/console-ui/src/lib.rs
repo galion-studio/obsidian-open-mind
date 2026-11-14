@@ -18,6 +18,9 @@
 
 #![forbid(unsafe_code)]
 
+pub mod admin_catalog;
+pub mod admin_sheet;
+pub mod admin_views;
 pub mod client;
 pub mod css;
 pub mod gate;
@@ -229,6 +232,7 @@ fn safe_back(back: &str) -> &str {
     let known = PORTED.contains(&back)
         || rooms::ROOMS.iter().any(|r| r.to == Some(back))
         || back == "/research"
+        || admin_views::owns(back)
         || back == "/console";
     if known {
         back
@@ -278,6 +282,7 @@ impl Ui {
             || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || port4::owns(path)
             || path == "/research"
+            || admin_views::owns(path)
             || path == "/"
             || (!spa_fallback && (rooms::exact(path).is_some() || path == "/soon"))
     }
@@ -410,6 +415,7 @@ impl Ui {
             p if p == self.research_css_href => {
                 return self.stylesheet(&self.research_css_etag, self.research_css.as_bytes())
             }
+            p if admin_sheet::is_sheet(p) => return admin_sheet::reply(),
             p if p == self.sprite_href => return self.sprite(req),
             "/_ui/favicon.svg" => {
                 return Reply {
@@ -464,6 +470,7 @@ impl Ui {
             "/instances" | "/keys" | "/markers" => self.port3_room(req),
             "/memory" | "/mesh" => self.port4_room(req),
             p if port4::owns(p) => self.port4_room(req),
+            p if admin_views::owns(p) => self.admin_room(req),
             "/node" | "/security" | "/session" => self.port5_room(req),
             p => match rooms::exact(p) {
                 Some(room) => {

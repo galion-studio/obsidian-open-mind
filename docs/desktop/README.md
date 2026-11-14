@@ -5,7 +5,7 @@
 
 Local control console for the Obsidian Open Mind desktop. The page is a command surface: a stack list, Open Mind as the presence, and one prompt. Printing the page opens no socket. `--listen` binds a loopback address only.
 
-This page covers install, run, the loopback-only security model, and the seven Galion tones at 432 Hz. Packaging writes a tarball on this machine. It does not publish a release.
+This page covers install, run, the loopback-only security model, and the seven Galion tones at 432 Hz. Packaging writes archives on this machine. CI uploads those archives as workflow artifacts. It does not publish a release.
 
 The crate description is in `crates/openmind-desktop/Cargo.toml` (the `description` field). Stack rows are `staged` or `planned`, never `live` (`crates/openmind-desktop/src/stack.rs`, `LAYERS`).
 
@@ -29,6 +29,15 @@ scripts/desktop/verify-local.sh target/openmind-desktop-dist
 `package-local.sh` writes `target/openmind-desktop-dist/openmind-desktop-<version>-<host>.tar.gz` and `SHA256SUMS`. `target/` is gitignored, and the script does not write into `dist/`. The archive holds the release binary, `LICENSE`, this README, `console.html` (page mode, no socket), and `LOCAL-ARTIFACT.txt`.
 
 The scripts refuse `--publish`, `--upload`, `--gh-release`, and `--cargo-publish`, and they refuse `OPENMIND_DESKTOP_PUBLISH=1`. They do not create a GitHub Release and they do not publish a crate. A release still needs Slavik's written go-ahead.
+
+A downloadable workflow artifact is a separate directory, `target/openmind-desktop-ci`:
+
+```sh
+scripts/desktop/package-artifact.sh
+scripts/desktop/check-package.sh target/openmind-desktop-ci
+```
+
+`package-artifact.sh` writes `LICENSE` (the root MIT text plus the four Galion Labs lines in `scripts/desktop/brand-lines.txt`, the same lines as `BRAND_LINES` in `crates/openmind-desktop/src/page.rs`), a short README (`scripts/desktop/artifact-readme.md`), `SHA256SUMS`, and one archive. On a Linux triple the archive is a `.tar.gz` and the directory also contains a `.deb` of the same binary; that `.deb` is inside the tarball as well. A `*-pc-windows-msvc` triple is a `.zip`. An `*-apple-darwin` triple is a `.tar.gz`. `--target`, `--skip-build`, `--runner`, and `--out` are the local knobs. The script refuses `--publish`, `--upload`, `--gh-release`, `--cargo-publish`, `--sign`, and `--signed`, and it refuses `OPENMIND_DESKTOP_PUBLISH=1` and `OPENMIND_DESKTOP_SIGN=1`. It does not upload the directory and it does not sign it. CI uploads that directory with `actions/upload-artifact` after `check-package.sh` passes.
 
 `--out DIR` chooses another local directory. `--target TRIPLE` passes that triple to cargo when the toolchain already has it. `--skip-build` packages a release binary that is already built.
 
@@ -100,10 +109,12 @@ Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src
 
 ## CI
 
-`.github/workflows/openmind-desktop.yml` runs four jobs. Workflow permissions are `contents: read`. No job uploads a tarball or creates a release.
+`.github/workflows/openmind-desktop.yml` runs four jobs. Workflow permissions are `contents: read` and `actions: write`. `actions: write` is the permission `actions/upload-artifact` uses. The workflow does not set `contents: write`, so it cannot create a GitHub Release. It does not sign packages and it does not publish a crate.
 
-The `linux` job (`ubuntu-latest`) builds the crate, runs clippy with `-D warnings` on all targets, runs the tests, then `package-local.sh` and `verify-local.sh` with the output under the runner temp directory. A publish flag must exit 2.
+The `linux` job (`ubuntu-latest`) builds the crate, runs clippy with `-D warnings` on all targets, runs the tests, then `package-local.sh` and `verify-local.sh` with the output under the runner temp directory. It checks that `rustc -vV` reports `x86_64-unknown-linux-gnu`, then `package-artifact.sh --skip-build` and `check-package.sh` write and check `target/openmind-desktop-ci`. That directory is uploaded as `openmind-desktop-linux-x86_64`. A publish or sign flag must exit 2.
 
-The `linux-aarch64` job cross-builds `aarch64-unknown-linux-musl` (linker `rust-lld`, `.cargo/config.toml`) and runs the same tests under qemu-user (`qemu-aarch64-static` or `qemu-aarch64`, the same package split as the self-eval `ucpu-qemu` job). That is the run that checks `libc::O_NOFOLLOW` (`O_NOFOLLOW` and `nofollow_flag_matches_this_target` in `crates/openmind-desktop/src/files.rs`): `libc` supplies the flag, which is `0x8000` on aarch64 and `0x20000` on x86. On ARM, `0x20000` is `O_LARGEFILE`, so a hard-coded x86 value would not stop `open` from following a symlink.
+The `linux-aarch64` job cross-builds `aarch64-unknown-linux-musl` (linker `rust-lld`, `.cargo/config.toml`) and runs the same tests under qemu-user (`qemu-aarch64-static` or `qemu-aarch64`, the same package split as the self-eval `ucpu-qemu` job). That is the run that checks `libc::O_NOFOLLOW` (`O_NOFOLLOW` and `nofollow_flag_matches_this_target` in `crates/openmind-desktop/src/files.rs`): `libc` supplies the flag, which is `0x8000` on aarch64 and `0x20000` on x86. On ARM, `0x20000` is `O_LARGEFILE`, so a hard-coded x86 value would not stop `open` from following a symlink. After the tests it release-builds the same target, packages the tarball and `arm64` `.deb` with `--runner` set to that qemu binary, checks the package, and uploads `openmind-desktop-linux-aarch64`.
 
-Windows (`windows-latest`, target `x86_64-pc-windows-msvc`) and macOS (`macos-latest`, target `aarch64-apple-darwin`) only build the crate. They do not run the tests, package a tarball, or upload an artifact. Linux file opens stay on the `libc::O_NOFOLLOW` path (`open_nofollow` in `crates/openmind-desktop/src/files.rs`). The other targets use the existing non-Linux open, which checks `symlink_metadata` and then opens the file.
+Windows (`windows-latest`, target `x86_64-pc-windows-msvc`) release-builds the crate, writes a zip, checks it, and uploads `openmind-desktop-windows-x86_64`. macOS (`macos-latest`, target `aarch64-apple-darwin`) release-builds the crate, writes a tarball, checks it, and uploads `openmind-desktop-macos-aarch64`. Those two jobs do not run the tests. Linux file opens stay on the `libc::O_NOFOLLOW` path (`open_nofollow` in `crates/openmind-desktop/src/files.rs`). The other targets use the existing non-Linux open, which checks `symlink_metadata` and then opens the file.
+
+Artifact retention is 14 days, the same `retention-days` value as the self-eval upload (`.github/workflows/self-eval.yml`). The upload action is pinned to the same commit as the other workflows in this repository (`actions/upload-artifact` `ea165f8d65b6e75b540449e92b4886f43607fa02`).

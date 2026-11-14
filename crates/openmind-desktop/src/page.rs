@@ -753,6 +753,13 @@ mod tests {
         assert!(!research.contains("https://"));
     }
 
+    #[test]
+    fn brand_lines_file_matches_the_page() {
+        let file = include_str!("../../../scripts/desktop/brand-lines.txt");
+        let lines: Vec<&str> = file.lines().collect();
+        assert_eq!(lines.as_slice(), BRAND_LINES);
+    }
+
     fn embedded(html: &str, id: &str) -> Vec<u8> {
         let key = format!("data-tone=\"{id}\" src=\"data:audio/wav;base64,");
         let start = html.find(&key).unwrap() + key.len();

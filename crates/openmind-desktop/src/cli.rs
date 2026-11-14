@@ -5,8 +5,9 @@
 //! Command-line parsing. Pure: no environment reads, no sockets.
 //!
 //! `--probe SPEC` checks the spec here. `OPENMIND_DESKTOP_PROBES` is read
-//! later, only for `--probe` without a spec and for `--listen`. The pairing
-//! token is never a flag.
+//! later, only for `--probe` without a spec and for `--listen`.
+//! [`crate::PORT_ENV`] is read later, only when `--listen` has no address
+//! and no `--port`. The pairing token is never a flag.
 
 use crate::error::DesktopError;
 use crate::files::DEFAULT_STACK;
@@ -16,11 +17,13 @@ use std::path::PathBuf;
 
 /// Usage line printed for `--help` and for every rejected argument list.
 pub const USAGE: &str = "\
-usage: openmind-desktop [--listen [ADDR]] [--grant PATH]... [--inbox DIR]
+usage: openmind-desktop [--listen [ADDR]] [--port PORT] [--grant PATH]... [--inbox DIR]
                         [--stack ADDR|off] [--probe [SPEC] | --help | --version]
   (no flags)     print the control-console page and exit; no socket
-  --listen       serve that page on 127.0.0.1:18081
+  --listen       serve that page on 127.0.0.1:18181
   --listen ADDR  serve it on a loopback ADDR only (for example 127.0.0.1:0)
+  --port PORT    with --listen and no ADDR, serve on 127.0.0.1:PORT
+                 OPENMIND_DESKTOP_PORT is that port when --port and ADDR are omitted
   --grant PATH   a file or directory the operator chose; repeatable
   --inbox DIR    store accepted files in this directory
   --stack ADDR   upload them to a loopback OpenMind intake (default 127.0.0.1:8091)
@@ -30,12 +33,14 @@ usage: openmind-desktop [--listen [ADDR]] [--grant PATH]... [--inbox DIR]
                  timeout=MILLISECONDS (50 to 10000) is one SPEC entry
                  name=- skips that service and opens no socket for it
                  OPENMIND_DESKTOP_PROBES is used when SPEC is omitted
-  --grant, --inbox and --stack are refused without --listen";
+  --grant, --inbox, --port and --stack are refused without --listen";
 
 /// What the operator asked the binary to do when it serves.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Listen {
-    /// `None` means [`crate::DEFAULT_BIND`].
+    /// `None` means no address on the command line. The binary then uses
+    /// [`crate::PORT_ENV`] or [`crate::DEFAULT_BIND`]. `--port` is stored
+    /// here as `127.0.0.1:PORT`.
     pub addr: Option<String>,
     /// Files and directories the operator chose. Empty means no disk reads.
     pub grants: Vec<PathBuf>,
@@ -68,7 +73,10 @@ impl Mode {
         matches!(self, Mode::Listen(_))
     }
 
-    /// Address to bind, if this mode serves.
+    /// Address from the flags, if this mode serves.
+    ///
+    /// `--port` is already part of that address. [`crate::PORT_ENV`] is not
+    /// applied here; the binary calls [`resolve_listen_addr`].
     #[must_use]
     pub fn bind_addr(&self) -> Option<&str> {
         match self {
@@ -98,6 +106,7 @@ pub fn parse(args: &[String]) -> Result<Mode, DesktopError> {
     }
     let mut listen = false;
     let mut addr: Option<String> = None;
+    let mut port: Option<u16> = None;
     let mut grants = Vec::new();
     let mut inbox: Option<PathBuf> = None;
     let mut stack_set = false;
@@ -118,6 +127,12 @@ pub fn parse(args: &[String]) -> Result<Mode, DesktopError> {
                         index += 1;
                     }
                 }
+            }
+            "--port" => {
+                if port.is_some() {
+                    return unexpected("--port");
+                }
+                port = Some(parse_port(need_value(args, &mut index, "--port")?)?);
             }
             "--grant" => {
                 grants.push(PathBuf::from(need_value(args, &mut index, "--grant")?));
@@ -163,7 +178,9 @@ pub fn parse(args: &[String]) -> Result<Mode, DesktopError> {
             other => return unexpected(other),
         }
     }
-    if probe.is_some() && (listen || !grants.is_empty() || inbox.is_some() || stack_set) {
+    if probe.is_some()
+        && (listen || port.is_some() || !grants.is_empty() || inbox.is_some() || stack_set)
+    {
         return unexpected("--probe");
     }
     if let Some(spec) = probe {
@@ -171,6 +188,12 @@ pub fn parse(args: &[String]) -> Result<Mode, DesktopError> {
     }
     if !listen {
         return unexpected(args[0].as_str());
+    }
+    if port.is_some() && addr.is_some() {
+        return unexpected("--port");
+    }
+    if let Some(port) = port {
+        addr = Some(format!("127.0.0.1:{port}"));
     }
     if !stack_set {
         stack = Some(DEFAULT_STACK.to_string());
@@ -208,6 +231,40 @@ fn unexpected(arg: &str) -> Result<Mode, DesktopError> {
 
 fn is_addr_token(addr: &str) -> bool {
     !addr.is_empty() && !addr.starts_with('-')
+}
+
+/// Listen address for [`Mode::Listen`].
+///
+/// `flag_addr` is `--listen ADDR`, or the `127.0.0.1:PORT` address written
+/// for `--port`. When it is set, `env_port` is ignored. When it is absent,
+/// `env_port` is the raw [`crate::PORT_ENV`] value: blank is unset, and any
+/// other value must be a port from 1 to 65535. Otherwise [`crate::DEFAULT_BIND`].
+///
+/// # Errors
+/// [`DesktopError::Usage`] when `env_port` is set and is not a port.
+pub fn resolve_listen_addr(
+    flag_addr: Option<&str>,
+    env_port: Option<&str>,
+) -> Result<String, DesktopError> {
+    if let Some(addr) = flag_addr {
+        return Ok(addr.to_string());
+    }
+    match env_port.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(raw) => {
+            let port = parse_port(raw)?;
+            Ok(format!("127.0.0.1:{port}"))
+        }
+        None => Ok(crate::DEFAULT_BIND.to_string()),
+    }
+}
+
+fn parse_port(value: &str) -> Result<u16, DesktopError> {
+    match value.parse::<u16>().ok().filter(|port| *port > 0) {
+        Some(port) => Ok(port),
+        None => Err(DesktopError::Usage(format!(
+            "openmind-desktop: bad port {value:?}\n{USAGE}"
+        ))),
+    }
 }
 
 #[cfg(test)]
@@ -295,7 +352,7 @@ mod tests {
                 stack: None,
             })
             .bind_addr(),
-            Some("127.0.0.1:18081")
+            Some(crate::DEFAULT_BIND)
         );
         assert!(!Mode::Page.serves());
         assert!(Mode::Page.bind_addr().is_none());
@@ -316,6 +373,12 @@ mod tests {
             vec!["--page"],
             vec!["--listen", "--grant"],
             vec!["--listen", "--stack"],
+            vec!["--port"],
+            vec!["--port", "0"],
+            vec!["--port", "65536"],
+            vec!["--port", "nope"],
+            vec!["--listen", "127.0.0.1:9", "--port", "18182"],
+            vec!["--port", "18182", "--probe"],
             vec!["--probe", ""],
             vec!["--probe", "--listen"],
             vec!["--probe", "nope=localhost:1/health"],
@@ -326,5 +389,47 @@ mod tests {
         }
         assert!(USAGE.contains("no socket"));
         assert!(USAGE.contains("loopback"));
+        assert!(USAGE.contains("OPENMIND_DESKTOP_PORT"));
+    }
+
+    #[test]
+    fn port_flag_and_env_choose_the_listen_port() {
+        assert_ne!(crate::DEFAULT_PORT, 18081);
+        assert_eq!(
+            crate::DEFAULT_BIND,
+            format!("127.0.0.1:{}", crate::DEFAULT_PORT)
+        );
+        let flagged = listen(parse(&args(&["--port", "18182", "--listen"])).unwrap());
+        assert_eq!(flagged.addr.as_deref(), Some("127.0.0.1:18182"));
+        let after = listen(parse(&args(&["--listen", "--port", "65535"])).unwrap());
+        assert_eq!(after.addr.as_deref(), Some("127.0.0.1:65535"));
+        assert_eq!(
+            super::resolve_listen_addr(None, None).unwrap(),
+            crate::DEFAULT_BIND
+        );
+        assert_eq!(
+            super::resolve_listen_addr(None, Some("  ")).unwrap(),
+            crate::DEFAULT_BIND
+        );
+        assert_eq!(
+            super::resolve_listen_addr(None, Some("19000")).unwrap(),
+            "127.0.0.1:19000"
+        );
+        assert_eq!(
+            super::resolve_listen_addr(Some("127.0.0.1:9"), Some("19000")).unwrap(),
+            "127.0.0.1:9"
+        );
+        assert_eq!(
+            super::resolve_listen_addr(None, Some("0"))
+                .unwrap_err()
+                .exit_code(),
+            2
+        );
+        assert_eq!(
+            super::resolve_listen_addr(None, Some("nope"))
+                .unwrap_err()
+                .exit_code(),
+            2
+        );
     }
 }

@@ -24,16 +24,15 @@ fn run() -> Result<(), DesktopError> {
         Mode::Page => print!("{}", openmind_desktop::document()),
         Mode::Listen(opts) => {
             let probes = load_probes(None)?;
-            let addr = opts
-                .addr
-                .as_deref()
-                .unwrap_or(openmind_desktop::DEFAULT_BIND);
+            let env_port = listen_port_from_env()?;
+            let addr =
+                openmind_desktop::resolve_listen_addr(opts.addr.as_deref(), env_port.as_deref())?;
             let files = openmind_desktop::Files::open(
                 &opts.grants,
                 opts.inbox.as_deref(),
                 opts.stack.as_deref(),
             )?;
-            openmind_desktop::listen_with(addr, &probes, &files)?;
+            openmind_desktop::listen_with(&addr, &probes, &files)?;
         }
         Mode::Probe(spec) => {
             let probes = load_probes(spec.as_deref())?;
@@ -45,6 +44,19 @@ fn run() -> Result<(), DesktopError> {
         }
     }
     Ok(())
+}
+
+/// [`openmind_desktop::PORT_ENV`] when it is set. Unset is `None`. A value
+/// that is not Unicode is a usage error. Blank is handled later as unset.
+fn listen_port_from_env() -> Result<Option<String>, DesktopError> {
+    match std::env::var(openmind_desktop::PORT_ENV) {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(DesktopError::Usage(format!(
+            "openmind-desktop: {} is not unicode\n{USAGE}",
+            openmind_desktop::PORT_ENV
+        ))),
+    }
 }
 
 /// Spec from the command, otherwise `OPENMIND_DESKTOP_PROBES`, otherwise

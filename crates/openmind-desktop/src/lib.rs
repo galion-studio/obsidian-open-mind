@@ -31,7 +31,7 @@ pub mod probe;
 pub mod sound;
 pub mod stack;
 
-pub use cli::{parse, Mode, USAGE};
+pub use cli::{parse, resolve_listen_addr, Mode, USAGE};
 pub use error::DesktopError;
 pub use files::Files;
 pub use http::{listen, listen_with};
@@ -40,6 +40,16 @@ pub use probe::{probe_all, probe_one, ProbeConfig, ProbeSet, Service, State, SER
 pub use sound::{wav, TONES};
 pub use stack::LAYERS;
 
-/// Default loopback address for [`Mode::Listen`] with no address argument.
-/// Chosen to match the desktop port named in the Galion OS notes (18081).
-pub const DEFAULT_BIND: &str = "127.0.0.1:18081";
+/// Listen port when [`Mode::Listen`] has no address, `--port` is absent, and
+/// [`PORT_ENV`] is unset.
+///
+/// 18081 is the staging page beside the Rust console on 18080, so this
+/// desktop does not bind it.
+pub const DEFAULT_PORT: u16 = 18181;
+
+/// Default loopback address: `127.0.0.1` and [`DEFAULT_PORT`].
+pub const DEFAULT_BIND: &str = "127.0.0.1:18181";
+
+/// Environment variable that sets the listen port when `--listen` has no
+/// address and `--port` is absent. Read by the binary, not by [`parse`].
+pub const PORT_ENV: &str = "OPENMIND_DESKTOP_PORT";

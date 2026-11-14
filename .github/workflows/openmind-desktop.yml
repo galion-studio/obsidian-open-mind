@@ -1,11 +1,12 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 3000 Galion / galion-studio
 #
-# Linux gate for the openmind-desktop crate: build, clippy, tests, then a
-# local tarball. The aarch64 job cross-builds and runs those tests under
-# qemu-user (same emulator split as the self-eval ucpu-qemu job). permissions
-# stay contents: read. This file does not create a GitHub Release, upload an
-# artifact, or publish a crate.
+# openmind-desktop gate. Linux builds, runs clippy and tests, then a local
+# tarball. The aarch64 job cross-builds and runs those tests under qemu-user
+# (same emulator split as the self-eval ucpu-qemu job). Windows
+# (x86_64-pc-windows-msvc) and macOS (aarch64-apple-darwin) only build.
+# permissions stay contents: read. This file does not create a GitHub
+# Release, upload an artifact, or publish a crate.
 name: openmind-desktop
 
 on:
@@ -79,9 +80,9 @@ jobs:
           fi
 
   # Cross build of the same crate, then the test binary under qemu-user.
-  # O_NOFOLLOW is 0x8000 on aarch64 and 0x20000 on x86, so the host job
-  # cannot catch a hard-coded x86 flag. No C code, so no zig cc. The linker
-  # is rust-lld from .cargo/config.toml. Nothing is uploaded.
+  # O_NOFOLLOW is libc::O_NOFOLLOW: 0x8000 on aarch64 and 0x20000 on x86, so
+  # the host job cannot catch a hard-coded x86 flag. No C code, so no zig cc.
+  # The linker is rust-lld from .cargo/config.toml. Nothing is uploaded.
   linux-aarch64:
     name: aarch64 build and test (qemu-user)
     runs-on: ubuntu-latest
@@ -133,3 +134,31 @@ jobs:
           test -n "$QEMU"
           export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUNNER="$QEMU"
           cargo test -p openmind-desktop --locked --target aarch64-unknown-linux-musl
+
+  windows:
+    name: build (x86_64-pc-windows-msvc)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+
+      - name: build
+        run: cargo build -p openmind-desktop --locked --target x86_64-pc-windows-msvc
+
+  macos:
+    name: build (aarch64-apple-darwin)
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+          targets: aarch64-apple-darwin
+
+      - name: build
+        run: cargo build -p openmind-desktop --locked --target aarch64-apple-darwin

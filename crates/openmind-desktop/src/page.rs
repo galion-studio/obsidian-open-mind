@@ -13,7 +13,8 @@ use crate::stack::LAYERS;
 use std::sync::OnceLock;
 
 /// Content-Security-Policy for the page. Scripts and styles are inline.
-/// Connections, frames and form posts are refused.
+/// `connect-src 'self'` allows the one same-origin file upload. Any other
+/// origin, frames, and form posts are refused.
 pub const CSP: &str = "\
 default-src 'none'; \
 style-src 'unsafe-inline'; \
@@ -234,10 +235,12 @@ audio { display: none; }
 }
 "#;
 
-/// Browser script. Names and commands stay in the document. File bytes are
-/// not read. The microphone opens only after the opt-in box is ticked, and
-/// only on loopback or a `file:` page. Samples are overwritten in one buffer
-/// and then dropped. Night hours and Mute skip tones.
+/// Browser script. The plus posts each chosen file to `/files` on this
+/// origin, after the 8 MiB cap. Names are shown with `textContent`. The
+/// script does not use `FileReader`. The microphone opens only after the
+/// opt-in box is ticked, and only on loopback or a `file:` page. Samples are
+/// overwritten in one buffer and then dropped. The level line is the only
+/// meter. Night hours and Mute skip tones.
 const SCRIPT: &str = r#"
 (function () {
   var files = document.getElementById("files");

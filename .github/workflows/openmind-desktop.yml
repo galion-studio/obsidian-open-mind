@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# Linux gate for the openmind-desktop crate: build, clippy, tests, then a
+# local tarball. permissions stay contents: read. This file does not create
+# a GitHub Release, upload an artifact, or publish a crate.
+name: openmind-desktop
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openmind-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    name: build, clippy, test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: build
+        run: cargo build -p openmind-desktop --locked
+
+      - name: clippy
+        run: cargo clippy -p openmind-desktop --all-targets --locked -- -D warnings
+
+      - name: test
+        run: cargo test -p openmind-desktop --locked
+
+      - name: local package (not uploaded)
+        run: scripts/desktop/package-local.sh --out "$RUNNER_TEMP/openmind-desktop-dist"
+
+      - name: verify local package
+        run: scripts/desktop/verify-local.sh "$RUNNER_TEMP/openmind-desktop-dist"
+
+      - name: publish flags are refused
+        run: |
+          set -eu
+          expect_refuse() {
+            set +e
+            "$@"
+            status=$?
+            set -e
+            if [ "$status" -eq 0 ]; then
+              printf 'accepted a publish flag: %s\n' "$*" >&2
+              exit 1
+            fi
+            if [ "$status" -ne 2 ]; then
+              printf 'publish flag exited %s, want 2: %s\n' "$status" "$*" >&2
+              exit 1
+            fi
+          }
+          expect_refuse scripts/desktop/package-local.sh --publish
+          expect_refuse scripts/desktop/package-local.sh --upload
+          expect_refuse scripts/desktop/package-local.sh --gh-release
+          expect_refuse scripts/desktop/verify-local.sh --cargo-publish
+          expect_refuse env OPENMIND_DESKTOP_PUBLISH=1 scripts/desktop/package-local.sh --out "$RUNNER_TEMP/openmind-desktop-no-publish"
+          if [ -e "$RUNNER_TEMP/openmind-desktop-no-publish" ]; then
+            printf 'refused publish still created an output directory\n' >&2
+            exit 1
+          fi

@@ -4,6 +4,8 @@
 
 Branch `swarm/console-route-31`, base `console-port-2` 0916684. No new dependencies (std only, as before).
 
+Status on main, 2026-11-15T00:37:16+01:00: the wave text below still says attach is held. On main, `POST /hermes/attach` and `POST /research/attach` store a local file and do not call the Hermes proxy (`crates/console-ui/src/attach.rs`). Asking, runs, steer, stop, approvals, mic, and speak stay held.
+
 ## What changed
 - `crates/console-ui/src/port2.rs`: `SPA_FIRST` is now empty, so `/hermes` is served by the Rust room even when a
   pre-built SPA fallback (`--root`) is configured. The list stays, so handing a room back to the SPA is one line.

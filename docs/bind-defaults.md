@@ -5,6 +5,7 @@
 
 - DESK-ID: openmind.BINDS
 - Written: 2026-10-19T19:56:56+02:00 (Europe/Zagreb, `TZ=Europe/Zagreb date -Iseconds`)
+- Revised: 2026-11-15T00:37:16+01:00 (Europe/Zagreb). Added the openmind-desktop listen default and its stack dial from source.
 - Repo: /opt/galion/openmind
 - Method: source text only. No binary was run. No port was bound.
 
@@ -21,6 +22,8 @@ Strings below are the missing-file defaults visible in source. Test fixtures and
 | link-watch | crates/link-watch/src/main.rs | http://127.0.0.1:8642 |
 | tuner | crates/tuner/src/config.rs | 127.0.0.1:8650 |
 | room | crates/room/src/config.rs | 127.0.0.1:{DEFAULT_PORT} (4020) |
+| openmind-desktop | crates/openmind-desktop/src/lib.rs | 127.0.0.1:18181 (`DEFAULT_BIND`) |
+| openmind-desktop | crates/openmind-desktop/src/files.rs | 127.0.0.1:8091 (`DEFAULT_STACK`, dial) |
 
 ## galion-one
 
@@ -53,3 +56,9 @@ It is the listen address when `TUNER_ADDR` is unset and no config file sets `bin
 When `ROOM_BIND` is unset or blank, the listen address is `127.0.0.1:4020`.
 Only `room --listen` binds; no flags and `--fixture` open no socket (tests/no_bind.rs).
 The host and port `127.0.0.1:4020` is not one string literal in the file.
+
+## openmind-desktop
+
+`DEFAULT_BIND` in `crates/openmind-desktop/src/lib.rs` is the string `127.0.0.1:18181`. `DEFAULT_PORT` is `18181`. `--listen` with no address binds that string. Port 18081 is not a default in this crate. The comment on `DEFAULT_PORT` says 18081 is the staging page beside the Rust console on 18080, so the desktop does not bind it.
+
+`DEFAULT_STACK` in `crates/openmind-desktop/src/files.rs` is the string `127.0.0.1:8091`. Plain `--listen` dials it (`listen` in `crates/openmind-desktop/src/http.rs`). The desktop does not bind 8091. Galion One's own listen default is the same address, listed above.

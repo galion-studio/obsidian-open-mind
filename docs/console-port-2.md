@@ -4,6 +4,8 @@
 
 Wave 4 slot 136, branch `swarm/console-port-2`, base `landing-overview` 669dc18. Written 2026-10-21 05:25 CEST (+02:00).
 
+Status on main, 2026-11-15T00:37:16+01:00: the sections below are that wave. Since then, `POST /hermes/attach` and `POST /research/attach` keep one local file (`crates/console-ui/src/attach.rs`). They do not dial Hermes. Asking, runs, the microphone, and speak are still held (`crates/console-ui/src/pages/hermes.rs`). The desktop's own `/research` path is an entry page, not this room (`docs/desktop/README.md`).
+
 ## Which routes
 The 17 console routes still in TypeScript at 669dc18, alphabetical, split 4/4/3/3/3:
 analytics, arena, bank, cache | **context, gateway, guardian, hermes** | instances, keys, markers | md.$name, memory, mesh |

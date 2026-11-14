@@ -249,9 +249,9 @@ pub fn body(v: &View<'_>) -> String {
         "<h1>{mark}<span class=\"ell\">The mind</span></h1>\
 <p class=\"lede\">One window. One prompt. galion.app/research. Type or speak, then watch what happens. This room still only reads threads, models and the guard.</p></header>\
 <div class=\"ask\" role=\"group\" aria-label=\"Galion Research prompt\">\
-<button type=\"button\" class=\"ask-plus\" disabled aria-label=\"Add files\" title=\"Adding files is not on this page yet\">{plus}</button>\
+<button type=\"button\" class=\"ask-plus\" disabled aria-label=\"Add files, unavailable\" title=\"Adding files is not on this page yet\">{plus}</button>\
 <textarea class=\"ask-input\" rows=\"3\" readonly placeholder=\"Ask a big question\" aria-label=\"Prompt\"></textarea>\
-<button type=\"button\" class=\"ask-voice\" disabled aria-label=\"Voice\" title=\"Voice is not on this page yet\">{voice}</button>\
+<button type=\"button\" class=\"ask-voice\" disabled aria-label=\"Voice, unavailable\" title=\"Voice is not on this page yet\">{voice}</button>\
 </div>\
 <p class=\"note\">Hermes Research stays read-only here. Asking, runs, the mic and the guard switches are not on this page yet: they wait on Slavik's JavaScript ruling and the paid-model decision (H1). The Hermes gateway is unchanged; this read-only room is served from Rust even when the old console is installed.</p>\
 </div><ul class=\"facts\">",
@@ -390,8 +390,8 @@ mod tests {
             "Galion Research",
             "galion.app/research",
             "Ask a big question",
-            "aria-label=\"Add files\"",
-            "aria-label=\"Voice\"",
+            "disabled aria-label=\"Add files, unavailable\"",
+            "disabled aria-label=\"Voice, unavailable\"",
             "class=\"ask-plus\"",
             "class=\"ask-voice\"",
         ] {

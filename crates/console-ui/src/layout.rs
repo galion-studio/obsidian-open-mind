@@ -24,6 +24,8 @@ pub struct Frame<'a> {
     pub light: Option<bool>,
     /// Path of the page being rendered (dock/menu highlighting, theme back link).
     pub path: &'a str,
+    /// Silence mode. Off unless the person opted in (`galion_silence=1`).
+    pub silence: bool,
 }
 
 /// Origin indicator in the header.
@@ -70,7 +72,8 @@ pub fn document(f: &Frame<'_>, body_attrs: &str, body: &str) -> String {
 <meta name=\"color-scheme\" content=\"{scheme}\">\
 <meta name=\"description\" content=\"Lightweight operator console for the Galion Studio fleet. API-first. CPU-safe.\">\
 <link rel=\"icon\" type=\"image/svg+xml\" href=\"/_ui/favicon.svg\">\
-<link rel=\"stylesheet\" href=\"{css}\">{extra}</head>\
+<link rel=\"stylesheet\" href=\"{css}\">{extra}\
+<link rel=\"stylesheet\" href=\"{a11y}\"></head>\
 <body{body_attrs}>{body}</body></html>\n",
         title = esc(f.title),
         css = esc(f.css_href),
@@ -81,6 +84,7 @@ pub fn document(f: &Frame<'_>, body_attrs: &str, body: &str) -> String {
             ),
             None => String::new(),
         },
+        a11y = esc(crate::a11y::href()),
     )
 }
 
@@ -165,7 +169,7 @@ pub fn console(f: &Frame<'_>, origin: Origin, main: &str) -> String {
 <a href=\"#main\" class=\"sr-only\">Skip to console</a>\
 <header class=\"top\"><div class=\"top-row\">{mark}\
 <div class=\"top-title\"><p>{ricon}<span class=\"ell\">{label}</span></p><p>{line}</p></div>\
-<span class=\"origin\"><span class=\"dot {dot}\"></span>{word}</span>{theme}\
+<span class=\"origin\"><span class=\"dot {dot}\"></span>{word}</span>{theme}{silence}\
 <details class=\"menu\"><summary class=\"iconbtn\" aria-label=\"Menu\">{iopen}{iclose}</summary>\
 <div class=\"sheet\">{up}{down}</div></details>\
 </div></header>\
@@ -176,6 +180,7 @@ pub fn console(f: &Frame<'_>, origin: Origin, main: &str) -> String {
         label = esc(room.label),
         line = esc(room.line),
         theme = theme_link(f),
+        silence = crate::cues::silence_toggle(f.path, f.silence),
         iopen = icon("menu", "i i-open"),
         iclose = icon("close", "i i-close"),
         up = room_grid("Open", Zone::Up, f.path, ""),
@@ -196,6 +201,7 @@ mod tests {
             extra_css_href: None,
             light: Some(false),
             path: "/services",
+            silence: false,
         };
         let html = console(&f, Origin::Up, "<p>body</p>");
         assert!(html.contains("<title>Galion &lt;Console&gt;</title>"));

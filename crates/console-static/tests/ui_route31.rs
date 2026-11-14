@@ -223,7 +223,14 @@ fn hermes_is_rust_first_under_spa_fallback() {
         assert!(r.body.contains("Hermes Research"), "{p}");
         assert!(!r.body.to_ascii_lowercase().contains("<script"), "{p}");
         assert!(!r.body.contains("style=\""), "{p}: inline style");
-        assert!(!r.body.contains("<form"), "{p}: no form on /hermes");
+        assert!(
+            r.body.contains("action=\"/hermes/attach\""),
+            "{p}: local attach form"
+        );
+        assert!(
+            !r.body.contains("action=\"/api/"),
+            "{p}: attach does not post upstream"
+        );
         assert!(!r.body.contains("127.0.0.1:8642"), "{p}: bind hidden");
         assert_eq!(r.header("content-security-policy").as_deref(), Some(CSP));
         assert_eq!(r.header("x-frame-options").as_deref(), Some("DENY"));

@@ -24,6 +24,7 @@ import {
 import { StatusDot } from "@/components/status-dot";
 import { CopyButton } from "@/components/copy-button";
 import { cn } from "@/lib/cn";
+import { bell as galionBell, cue as galionCue, setSilence, silenced } from "@/lib/galion-sound";
 import { parseLoop } from "@/lib/loop-parse";
 
 type Mode = "plan" | "action";
@@ -466,6 +467,7 @@ export function HermesPanel() {
   const [pin, setPin] = useState<string | null>(null);
   const [rec, setRec] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
+  const [silent, setSilent] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [speakingAt, setSpeakingAt] = useState<number | null>(null);
   const voiceRef = useRef(true);
@@ -524,6 +526,7 @@ export function HermesPanel() {
   useEffect(() => {
     const voice = localStorage.getItem("galion-life-voice");
     if (voice !== null) setVoiceOn(voice === "1");
+    setSilent(silenced());
   }, []);
 
   function armEar() {
@@ -946,6 +949,8 @@ export function HermesPanel() {
           : event.includes("queued")
             ? "queued"
             : "running";
+      if (status === "done") galionCue("done");
+      else if (status === "error") galionCue("error");
       const preview = String(ev.preview ?? ev.path ?? "").slice(0, 4000);
       const full = String(ev.command ?? "");
       const command = (full || preview).slice(0, 8000);
@@ -1014,10 +1019,12 @@ export function HermesPanel() {
       }
       setHold(next);
       setSheet(null);
+      galionCue("approval");
       push({ kind: "tool", name, status: "needs approval", command: payload, startedAt: Date.now() });
     }
     if (event.includes("fail") || ev.error) {
       const detail = typeof ev.error === "string" && ev.error ? ev.error : typeof ev.preview === "string" && ev.preview ? ev.preview : event;
+      if (!event.includes("tool") && !event.startsWith("hermes.tool")) galionCue("error");
       push({ kind: "status", text: detail.slice(0, 240) });
     }
   }
@@ -1058,6 +1065,23 @@ export function HermesPanel() {
       vv?.removeEventListener("scroll", place);
       window.removeEventListener("resize", place);
     };
+  }, [modelBox]);
+
+  const windowWas = useRef("");
+  useEffect(() => {
+    const prev = windowWas.current;
+    if (!modelBox) {
+      if (prev) galionBell("close");
+      windowWas.current = "";
+      return;
+    }
+    if (!prev) {
+      galionBell("open");
+      const settled = window.setTimeout(() => galionBell("settle"), 250);
+      windowWas.current = modelBox;
+      return () => window.clearTimeout(settled);
+    }
+    windowWas.current = modelBox;
   }, [modelBox]);
 
   async function sendRun(text: string, attached: File[] = [], asMode?: Mode) {
@@ -1910,6 +1934,19 @@ export function HermesPanel() {
             {!up ? " · line down" : busy ? ` · ${clock(workSecs)}` : ""}
           </p>
           <div className="flex shrink-0 items-center gap-4">
+            <button
+              type="button"
+              className="one-switch min-h-11"
+              aria-pressed={silent}
+              aria-label={silent ? "Turn sound on" : "Turn on silence"}
+              onClick={() => {
+                const next = !silent;
+                setSilent(next);
+                setSilence(next);
+              }}
+            >
+              {silent ? "Sound" : "Silence"}
+            </button>
             <button
               type="button"
               className="one-switch min-h-11"

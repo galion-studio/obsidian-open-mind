@@ -191,6 +191,31 @@
   border-color: transparent;
 }
 
+/* Empty Research: the prompt and voice control are the screen. */
+.galion-console .life-stage:has(.research-empty) {
+  justify-content: center;
+}
+
+.galion-console .life-stage:has(.research-empty) .research-composer {
+  max-width: 40rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.galion-console .life-stage:has(.research-empty) .research-composer textarea {
+  min-height: 8.5rem;
+  font-size: 1.35rem;
+  line-height: 1.45;
+}
+
+.galion-console .life-stage:has(.research-empty) .research-composer form {
+  align-items: flex-end;
+  padding: 1rem;
+  border: 1px solid var(--c-line);
+  border-radius: 2rem;
+  background: var(--c-surface);
+}
+
 .galion-console .research-composer {
   padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
 }

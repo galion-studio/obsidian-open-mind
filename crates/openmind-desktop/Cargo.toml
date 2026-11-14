@@ -19,6 +19,8 @@ path = "src/main.rs"
 
 [dependencies]
 galion-common = { path = "../galion-common" }
-# O_NOFOLLOW is not the same number on every Linux architecture. x86 uses
-# 0x20000; on aarch64 and arm that bit is O_LARGEFILE and O_NOFOLLOW is 0x8000.
+# Linux and macOS take O_NOFOLLOW from libc. The value is not shared:
+# Linux x86 is 0x20000; on Linux aarch64 and arm that bit is O_LARGEFILE
+# and O_NOFOLLOW is 0x8000; macOS is 0x0100. Windows does not read this
+# constant. open_nofollow passes FILE_FLAG_OPEN_REPARSE_POINT (0x00200000).
 libc = "0.2"

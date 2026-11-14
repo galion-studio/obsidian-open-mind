@@ -1260,6 +1260,7 @@ name = "openmind-desktop"
 version = "0.1.0"
 dependencies = [
  "galion-common",
+ "libc",
 ]
 
 [[package]]

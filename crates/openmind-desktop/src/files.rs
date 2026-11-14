@@ -965,12 +965,19 @@ fn read_limited(path: &Path, max: usize) -> Result<Vec<u8>, FileError> {
     Ok(bytes)
 }
 
+/// Linux `O_NOFOLLOW` for the architecture this binary is compiled for.
+///
+/// x86 and x86_64 use `0x20000`. aarch64 and arm use `0x8000`. On those ARM
+/// targets `0x20000` is `O_LARGEFILE`, so the x86 literal does not stop
+/// `open` from following a symlink. `libc` supplies the kernel value.
+#[cfg(target_os = "linux")]
+const O_NOFOLLOW: i32 = libc::O_NOFOLLOW;
+
 fn open_nofollow(path: &Path) -> Result<File, FileError> {
     #[cfg(target_os = "linux")]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        // libc::O_NOFOLLOW on Linux. A last-component swap cannot be followed.
-        const O_NOFOLLOW: i32 = 0x20000;
+        // A last-component swap cannot be followed: open fails with ELOOP.
         File::options()
             .read(true)
             .custom_flags(O_NOFOLLOW)
@@ -1608,6 +1615,38 @@ mod tests {
             assert!(!err.to_string().contains("SENTINEL"));
         }
         assert!(files.pick().iter().all(|item| item.name != "link.txt"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn nofollow_flag_matches_this_target() {
+        assert_eq!(O_NOFOLLOW, libc::O_NOFOLLOW);
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        assert_eq!(O_NOFOLLOW, 0x20000);
+        #[cfg(any(target_arch = "aarch64", target_arch = "arm"))]
+        {
+            // Kernel uapi: O_NOFOLLOW is 0x8000. 0x20000 is O_LARGEFILE.
+            assert_eq!(O_NOFOLLOW, 0x8000);
+            assert_ne!(O_NOFOLLOW, 0x20000);
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn open_nofollow_does_not_read_a_symlink() {
+        use std::os::unix::fs::symlink;
+        let tmp = Tmp::new();
+        let real = tmp.path.join("secret.txt");
+        fs::write(&real, b"SENTINEL-OPEN").unwrap();
+        let link = tmp.path.join("link.txt");
+        symlink(&real, &link).unwrap();
+        let err = open_nofollow(&link).unwrap_err();
+        assert_eq!(err.code(), "symlink", "{err}");
+        assert!(!err.to_string().contains("SENTINEL"));
+        let mut file = open_nofollow(&real).unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+        assert_eq!(buf, b"SENTINEL-OPEN");
     }
 
     #[test]

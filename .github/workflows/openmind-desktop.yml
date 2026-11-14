@@ -2,8 +2,10 @@
 # SPDX-FileCopyrightText: 3000 Galion / galion-studio
 #
 # Linux gate for the openmind-desktop crate: build, clippy, tests, then a
-# local tarball. permissions stay contents: read. This file does not create
-# a GitHub Release, upload an artifact, or publish a crate.
+# local tarball. The aarch64 job cross-builds and runs those tests under
+# qemu-user (same emulator split as the self-eval ucpu-qemu job). permissions
+# stay contents: read. This file does not create a GitHub Release, upload an
+# artifact, or publish a crate.
 name: openmind-desktop
 
 on:
@@ -75,3 +77,59 @@ jobs:
             printf 'refused publish still created an output directory\n' >&2
             exit 1
           fi
+
+  # Cross build of the same crate, then the test binary under qemu-user.
+  # O_NOFOLLOW is 0x8000 on aarch64 and 0x20000 on x86, so the host job
+  # cannot catch a hard-coded x86 flag. No C code, so no zig cc. The linker
+  # is rust-lld from .cargo/config.toml. Nothing is uploaded.
+  linux-aarch64:
+    name: aarch64 build and test (qemu-user)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+          targets: aarch64-unknown-linux-musl
+          components: clippy
+
+      - name: install qemu-user
+        run: |
+          set -eu
+          sudo apt-get update -q
+          # The emulator the test invokes by name. Ubuntu 26.04 (resolute)
+          # ships it as qemu-aarch64 in qemu-user. qemu-user-static is a
+          # virtual package there (no candidate) and a real package on older
+          # images, where the name ends in -static. Same split as the
+          # self-eval ucpu-qemu job.
+          sudo apt-get install -y -q qemu-user
+          if apt-cache show qemu-user-static 2>/dev/null | grep -q '^Package: qemu-user-static$'; then
+            sudo apt-get install -y -q qemu-user-static
+          fi
+          pick() {
+            if command -v "$1" >/dev/null; then
+              command -v "$1"
+            elif command -v "$2" >/dev/null; then
+              command -v "$2"
+            else
+              echo "missing $1 and $2" >&2
+              exit 1
+            fi
+          }
+          qemu=$(pick qemu-aarch64-static qemu-aarch64)
+          echo "QEMU=$qemu" >> "$GITHUB_ENV"
+          echo "qemu runner: $qemu"
+
+      - name: build
+        run: cargo build -p openmind-desktop --locked --target aarch64-unknown-linux-musl
+
+      - name: clippy
+        run: cargo clippy -p openmind-desktop --all-targets --locked --target aarch64-unknown-linux-musl -- -D warnings
+
+      - name: test
+        run: |
+          set -eu
+          test -n "$QEMU"
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUNNER="$QEMU"
+          cargo test -p openmind-desktop --locked --target aarch64-unknown-linux-musl

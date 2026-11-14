@@ -5,6 +5,8 @@
 //! Page bodies. Each page is a pure function of the API data it was given,
 //! so it can be tested without a network.
 
+pub mod admin_accounts;
+pub mod admin_plans;
 pub mod agents;
 pub mod analytics;
 pub mod arena;

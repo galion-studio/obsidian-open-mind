@@ -1,0 +1,94 @@
+<!-- SPDX-License-Identifier: MIT -->
+<!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
+
+# openmind-desktop
+
+Local control console for the Obsidian Open Mind desktop. The page is a command surface: a stack list, Open Mind as the presence, and one prompt. Printing the page opens no socket. `--listen` binds a loopback address only.
+
+This page covers install, run, the loopback-only security model, and the seven Galion tones at 432 Hz. Packaging writes a tarball on this machine. It does not publish a release.
+
+The crate description is in `crates/openmind-desktop/Cargo.toml` (the `description` field). Stack rows are `staged` or `planned`, never `live` (`crates/openmind-desktop/src/stack.rs`, `LAYERS`).
+
+## Install
+
+From a checkout of this repository, on Linux:
+
+```sh
+nice -n 19 cargo build -j 2 -p openmind-desktop --release --locked
+```
+
+The binary is `target/release/openmind-desktop`. The crate depends only on `galion-common` (`crates/openmind-desktop/Cargo.toml`).
+
+A local package (tarball and checksums, kept on this machine):
+
+```sh
+scripts/desktop/package-local.sh
+scripts/desktop/verify-local.sh target/openmind-desktop-dist
+```
+
+`package-local.sh` writes `target/openmind-desktop-dist/openmind-desktop-<version>-<host>.tar.gz` and `SHA256SUMS`. `target/` is gitignored, and the script does not write into `dist/`. The archive holds the release binary, `LICENSE`, this README, `console.html` (page mode, no socket), and `LOCAL-ARTIFACT.txt`.
+
+The scripts refuse `--publish`, `--upload`, `--gh-release`, and `--cargo-publish`, and they refuse `OPENMIND_DESKTOP_PUBLISH=1`. They do not create a GitHub Release and they do not publish a crate. A release still needs Slavik's written go-ahead.
+
+`--out DIR` chooses another local directory. `--target TRIPLE` passes that triple to cargo when the toolchain already has it. `--skip-build` packages a release binary that is already built.
+
+## Run
+
+Print the page and exit. This opens no socket (`crates/openmind-desktop/src/cli.rs`, `Mode::Page`, and the usage text):
+
+```sh
+./target/release/openmind-desktop > console.html
+```
+
+Serve on the default loopback address. `DEFAULT_BIND` is `127.0.0.1:18081` (`crates/openmind-desktop/src/lib.rs`):
+
+```sh
+./target/release/openmind-desktop --listen
+```
+
+Open `http://127.0.0.1:18081/` in a browser on this machine. The process prints the bound address on stderr (`crates/openmind-desktop/src/http.rs`, `listen`).
+
+Another loopback address, including a free port:
+
+```sh
+./target/release/openmind-desktop --listen 127.0.0.1:0
+./target/release/openmind-desktop --listen '[::1]:18081'
+```
+
+`--help` and `--version` print usage and the version line. They do not listen (`crates/openmind-desktop/src/cli.rs`, `Mode::serves`).
+
+A non-loopback address is refused before a socket is created. Exit code 2 is a bad command or a refused address. Exit code 1 is a loopback bind the OS rejected (`crates/openmind-desktop/src/error.rs`, `exit_code`).
+
+## Loopback-only security model
+
+Only `--listen` may open a socket. With no flags the binary prints the page and exits (`crates/openmind-desktop/src/main.rs`).
+
+`parse_loopback` accepts the address only when `ip().is_loopback()` is true (`crates/openmind-desktop/src/http.rs`). `127.0.0.1` and `::1` pass. `0.0.0.0`, a public address, and `[::]` are refused, and a string that is not `host:port` is a usage error. The tests for that refusal are in the same file (`refuses_non_loopback_before_bind`).
+
+The listener answers `GET` and `HEAD` of `/` and `/index.html` with the page. Any other path is 404. Any other method is 405 with `allow: GET, HEAD` (`reply` in `crates/openmind-desktop/src/http.rs`). Limits on that server are a 4096-byte body and 8 connections (`listen` in the same file).
+
+Response headers are `content-security-policy`, `referrer-policy: no-referrer`, `x-content-type-options: nosniff`, and `cache-control: no-store`. The policy is `default-src 'none'`, inline style and script only, `media-src data:`, `img-src data:`, `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'` (`CSP` in `crates/openmind-desktop/src/page.rs`). There is no connect source, so the page cannot open its own network connection.
+
+The page keeps file names and commands in the document. The plus is `<input type="file" multiple>` with no `accept` attribute. The script copies `file.name` into a list with `textContent`. It does not read file bytes (`FileReader` is absent). The voice button flips `aria-pressed` and the note stays "Microphone closed." or "Voice armed. The microphone stays closed." `getUserMedia` is absent. Enter on the command field appends the text to "Kept on this page" or plays deny when the field is empty. The page source contains no `http://`, `https://`, `fetch(`, `XMLHttpRequest`, or `WebSocket` (`page_stays_on_the_machine` in `crates/openmind-desktop/src/page.rs`). No model is called (the presence copy in `render` in the same file).
+
+Stack rows do not probe other programs. Nothing on the list is `live` (`crates/openmind-desktop/src/stack.rs`).
+
+## Seven Galion tones at 432 Hz
+
+Every pitch is an integer ratio of 432 Hz. `REFERENCE_HZ` is 432. `hz` is `REFERENCE_HZ * num / den`, and each ratio divides 432 exactly (`crates/openmind-desktop/src/sound.rs`, `REFERENCE_HZ`, `Tone::hz`, and `TONES`). The clips are 16-bit mono WAV at 16 kHz (`SAMPLE_RATE`), one sine with an 8 ms fade, peak amplitude 0.32. They are embedded in the page as `data:audio/wav;base64,...` (`crates/openmind-desktop/src/page.rs`, the tone loop in `render`). Nothing is fetched.
+
+| id | ratio | Hz | ms | role | when the page plays it |
+| --- | --- | --- | --- | --- | --- |
+| wake | 1/1 | 432 | 160 | The console is ready | in the set and in the page; the script does not call it |
+| ask | 5/4 | 540 | 120 | Voice armed, or a question | voice button arms |
+| hear | 9/8 | 486 | 100 | A file name was kept on the page | the file input changes and at least one name is kept |
+| notice | 4/3 | 576 | 140 | The stack wants a look | in the set and in the page; the script does not call it |
+| done | 3/2 | 648 | 160 | A command was kept on the page | Enter on a non-empty command |
+| deny | 3/4 | 324 | 180 | Refused. Nothing was sent | Enter on an empty command |
+| close | 2/3 | 288 | 140 | Voice disarmed | voice button disarms |
+
+Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src/sound.rs`. The script calls are `play("hear")`, `play("ask")`, `play("close")`, `play("deny")`, and `play("done")` in `crates/openmind-desktop/src/page.rs`. Mute (`aria-pressed` on `#mute`) and local hours 22:00–06:59 skip playback (`night` and `play` in that script). `wake` is checked against 432 Hz, not concert 440 (`wake_is_432_not_440` in `sound.rs`).
+
+## CI
+
+`.github/workflows/openmind-desktop.yml` runs on Linux (`ubuntu-latest`). The job builds the crate, runs clippy with `-D warnings` on all targets, runs the tests, then `package-local.sh` and `verify-local.sh` with the output under the runner temp directory. Workflow permissions are `contents: read`. The job does not upload the tarball and does not create a release. A publish flag must exit 2.

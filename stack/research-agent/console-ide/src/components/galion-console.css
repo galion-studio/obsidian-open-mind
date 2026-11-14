@@ -166,12 +166,14 @@
   cursor: pointer;
 }
 
+/* Ink on the ocean stop is 2.92:1. Paper plate behind the glyph, same as PR 39. Gradient unchanged. */
 .galion-console .one-dot-core {
   display: block;
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 999px;
   background: #0B0F14;
+  box-shadow: 0 0 0 3px #F7F9FB;
 }
 
 .galion-console .one-dot-sm {

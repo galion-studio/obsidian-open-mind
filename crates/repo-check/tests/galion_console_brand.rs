@@ -38,6 +38,7 @@ fn console_css_fits_the_overview_budget() {
         "--sans: \"IBM Plex Sans\"",
         "--mono: \"IBM Plex Mono\"",
         "linear-gradient(135deg,#B8E8FF,#58C4FF 55%,#0B5FA5)",
+        "box-shadow: 0 0 0 3px #F7F9FB",
         ".one-dot",
     ] {
         assert!(css.contains(needle), "stylesheet missing {needle}");

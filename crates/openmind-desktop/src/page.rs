@@ -74,6 +74,30 @@ header, footer {
   border-bottom: 1px solid var(--line);
 }
 footer {
+  flex-direction: column;
+  align-items: flex-start;
+  border-bottom: 0;
+  border-top: 1px solid var(--line);
+}
+.entries { display: flex; gap: 8px; flex-wrap: wrap; }
+.entries a, .back {
+  color: var(--fg);
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 10px 14px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+}
+.brand { margin: 0; color: var(--muted); font-size: 13px; }
+.licence {
+  margin: 16px 0 0;
+  white-space: pre-wrap;
+  font: 12px/1.45 "IBM Plex Mono", ui-monospace, monospace;
+  color: var(--muted);
+}
+footer {
   border-bottom: 0;
   border-top: 1px solid var(--line);
   color: var(--muted);
@@ -205,6 +229,8 @@ audio { display: none; }
   .app { grid-template-columns: 1fr; }
   .stack { border-right: 0; border-bottom: 1px solid var(--line); }
   .stage { min-height: 50vh; }
+  header { flex-wrap: wrap; }
+  .entries { width: 100%; }
 }
 "#;
 
@@ -393,6 +419,106 @@ const SCRIPT: &str = r#"
 })();
 "#;
 
+/// The four product lines, in order.
+pub const BRAND_LINES: [&str; 4] = [
+    "G.A.L.I.O.N. \u{2014} General Autonomous Local Intelligence Open Network",
+    "Developed and distributed by Galion Labs",
+    "Perpetual Open MIT License",
+    "Copyright \u{00A9} 2026 Galion Labs. All rights reserved.",
+];
+
+/// Plain MIT licence text shown on the console and the product entries.
+pub const MIT_TEXT: &str = "\
+MIT License
+
+Copyright (c) 3000 Galion / galion-studio
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the \"Software\"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+";
+
+/// Galion One (`/one`) or Galion Research (`/research`).
+#[must_use]
+pub fn entry(path: &str) -> Option<&'static str> {
+    match path {
+        "/one" => Some(entry_page(
+            "one",
+            "Galion One",
+            "Voice companion. Open this path from the console. The Open Mind stack stays on the console.",
+        )),
+        "/research" => Some(entry_page(
+            "research",
+            "Galion Research",
+            "Research entry. Hermes stays the engine. The Open Mind stack view stays on the console.",
+        )),
+        _ => None,
+    }
+}
+
+fn entry_page(id: &'static str, title: &'static str, lede: &'static str) -> &'static str {
+    // Two pages, built once each.
+    match id {
+        "one" => {
+            static PAGE: OnceLock<String> = OnceLock::new();
+            PAGE.get_or_init(|| render_entry(id, title, lede))
+        }
+        _ => {
+            static PAGE: OnceLock<String> = OnceLock::new();
+            PAGE.get_or_init(|| render_entry(id, title, lede))
+        }
+    }
+}
+
+fn render_entry(id: &str, title: &str, lede: &str) -> String {
+    let mut html = String::new();
+    html.push_str(
+        "<!doctype html>\n<html lang=\"en\"><head><meta charset=\"utf-8\">\
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\
+<title>",
+    );
+    html.push_str(&esc(title));
+    html.push_str("</title><style>");
+    html.push_str(CSS);
+    html.push_str("</style></head><body><main class=\"stage\" data-entry=\"");
+    html.push_str(id);
+    html.push_str("\"><div class=\"presence\"><p class=\"kicker\">galion.app</p><h1>");
+    html.push_str(&esc(title));
+    html.push_str("</h1><p>");
+    html.push_str(&esc(lede));
+    html.push_str("</p><p><a class=\"back\" href=\"/\">Open Mind console</a></p>");
+    html.push_str(&brand_block());
+    html.push_str("</div></main></body></html>\n");
+    html
+}
+
+fn brand_block() -> String {
+    let mut html = String::from("<footer>");
+    for line in BRAND_LINES {
+        html.push_str("<p class=\"brand\">");
+        html.push_str(&esc(line));
+        html.push_str("</p>");
+    }
+    html.push_str("<pre class=\"licence\">");
+    html.push_str(&esc(MIT_TEXT));
+    html.push_str("</pre></footer>");
+    html
+}
+
 /// The control-console page. Built once.
 #[must_use]
 pub fn document() -> &'static str {
@@ -420,6 +546,9 @@ fn render() -> String {
     html.push_str(
         "<header><div><p class=\"kicker\">Obsidian Open Mind</p>\
 <h1>Control console</h1></div>\
+<nav class=\"entries\" aria-label=\"Products\">\
+<a href=\"/one\">Galion One</a>\
+<a href=\"/research\">Galion Research</a></nav>\
 <button type=\"button\" id=\"mute\" aria-pressed=\"false\">Mute</button></header>",
     );
     html.push_str("<section class=\"stack\" aria-label=\"Stack\"><h2>Stack</h2><ol>");
@@ -438,7 +567,7 @@ fn render() -> String {
     html.push_str(
         "<main class=\"stage\" id=\"main\"><div class=\"presence\">\
 <h2>Open Mind</h2>\
-<p>Ask from here. The command stays on this page. No model is called.</p>\
+<p>Ask from here. The command stays on this page. No model is called. Tones are 432 Hz.</p>\
 <div class=\"prompt\" role=\"group\" aria-label=\"Command\">\
 <label class=\"plus\"><input id=\"files\" type=\"file\" multiple aria-label=\"Add files\">",
     );
@@ -458,10 +587,7 @@ placeholder=\"Ask Open Mind\" enterkeyhint=\"send\" aria-label=\"Command\">\
 <div class=\"notes\"><p>Kept on this page</p><ul id=\"kept\"></ul></div>\
 </div></main>",
     );
-    html.push_str(
-        "<footer><span>MIT License. Local only. 432 Hz.</span>\
-<span>Copyright (c) 3000 Galion / galion-studio</span></footer>",
-    );
+    html.push_str(&brand_block());
     for tone in TONES {
         let bytes = sound::wav(tone.id).expect("tone id");
         let b64 = galion_common::base64::encode(&bytes);
@@ -521,6 +647,12 @@ mod tests {
         assert!(html.contains("Control console"));
         assert!(html.contains("MIT License"));
         assert!(html.contains("432 Hz"));
+        assert!(html.contains("href=\"/one\""));
+        assert!(html.contains("href=\"/research\""));
+        assert!(html.contains("aria-label=\"Stack\""));
+        for line in BRAND_LINES {
+            assert!(html.contains(line), "{line}");
+        }
         assert!(!html.contains("border-radius:50%"));
         assert!(!html.contains("border-radius: 50%"));
         assert!(!html.contains("id=\"talk\""));
@@ -594,6 +726,28 @@ mod tests {
             assert_eq!(bytes, made, "{}", tone.id);
             assert!(bytes.starts_with(b"RIFF"));
         }
+    }
+
+    #[test]
+    fn one_and_research_are_entries_and_the_stack_stays_on_the_console() {
+        let one = entry("/one").expect("one");
+        let research = entry("/research").expect("research");
+        assert!(entry("/os").is_none());
+        assert!(one.contains("data-entry=\"one\""));
+        assert!(research.contains("data-entry=\"research\""));
+        assert!(one.contains("Galion One"));
+        assert!(research.contains("Galion Research"));
+        assert!(one.contains("href=\"/\""));
+        assert!(research.contains("Open Mind stack"));
+        assert!(!one.contains("aria-label=\"Stack\""));
+        for line in BRAND_LINES {
+            assert!(one.contains(line), "{line}");
+            assert!(research.contains(line), "{line}");
+        }
+        assert!(one.contains("Permission is hereby granted, free of charge"));
+        assert!(research.contains("Permission is hereby granted, free of charge"));
+        assert!(!one.contains("https://"));
+        assert!(!research.contains("https://"));
     }
 
     fn embedded(html: &str, id: &str) -> Vec<u8> {

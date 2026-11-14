@@ -289,7 +289,7 @@ pub fn body(
 <button type=\"submit\" class=\"ask-go\">Attach</button>\
 </form>\
 <textarea class=\"ask-input\" rows=\"3\" readonly placeholder=\"Ask a big question\" aria-label=\"Prompt\"></textarea>\
-<button type=\"button\" class=\"ask-voice\" disabled aria-label=\"Voice\" title=\"Voice is not on this page yet\">{voice}</button>\
+<button type=\"button\" class=\"ask-voice\" disabled aria-label=\"Voice, unavailable\" title=\"Voice is not on this page yet\">{voice}</button>\
 </div>\
 {fault}{chips}\
 <p class=\"note\">Files you add stay on this machine. Asking, runs, the mic and the guard switches are not on this page yet: they wait on Slavik's JavaScript ruling and the paid-model decision (H1). The Hermes gateway is unchanged; this room is served from Rust even when the old console is installed.</p>\
@@ -438,7 +438,7 @@ mod tests {
             "galion.app/research",
             "Ask a big question",
             "aria-label=\"Add files\"",
-            "aria-label=\"Voice\"",
+            "disabled aria-label=\"Voice, unavailable\"",
             "class=\"ask-plus\"",
             "class=\"ask-voice\"",
         ] {
@@ -453,7 +453,7 @@ mod tests {
         assert!(b.contains("enctype=\"multipart/form-data\""));
         assert!(b.contains("type=\"file\""));
         assert!(b.contains("class=\"ask-go\""));
-        assert!(b.contains("disabled aria-label=\"Voice\""));
+        assert!(b.contains("disabled aria-label=\"Voice, unavailable\""));
         assert!(b.contains("Files you add stay on this machine."));
         assert!(!b.contains("127.0.0.1:8642"), "bind address must not show");
         assert!(!b.contains("secret-ish output"), "tool output is not shown");

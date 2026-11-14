@@ -18,12 +18,14 @@
 
 #![forbid(unsafe_code)]
 
+pub mod a11y;
 pub mod admin_catalog;
 pub mod admin_sheet;
 pub mod admin_views;
 pub mod attach;
 pub mod client;
 pub mod css;
+pub mod cues;
 pub mod gate;
 pub mod html;
 pub mod icons;
@@ -36,6 +38,7 @@ pub mod port3;
 pub mod port4;
 pub mod port5;
 pub mod rooms;
+pub mod sound;
 
 use client::Forward;
 use gate::Decision;
@@ -157,7 +160,7 @@ impl Reply {
                 ("Cache-Control".into(), "no-store".into()),
                 (
                     "Content-Security-Policy".into(),
-                    "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'".into(),
+                    "default-src 'none'; style-src 'self'; img-src 'self' data:; media-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'".into(),
                 ),
                 ("X-Frame-Options".into(), "DENY".into()),
             ],
@@ -320,6 +323,8 @@ impl Ui {
                 _ => None,
             },
             path: req.path,
+            silence: crate::gate::cookie(req.cookie, crate::cues::SILENCE_COOKIE).as_deref()
+                == Some("1"),
         }
     }
 
@@ -374,7 +379,11 @@ impl Ui {
                                         layout::document(
                                             &f,
                                             "",
-                                            &pages::gate::pair(safe_back(req.path), None),
+                                            &pages::gate::pair(
+                                                safe_back(req.path),
+                                                None,
+                                                f.silence,
+                                            ),
                                         ),
                                     );
                                     if clear {
@@ -394,7 +403,7 @@ impl Ui {
                                 layout::document(
                                     &f,
                                     "",
-                                    &pages::gate::pair(safe_back(req.path), None),
+                                    &pages::gate::pair(safe_back(req.path), None, f.silence),
                                 ),
                             ))
                         }
@@ -403,7 +412,7 @@ impl Ui {
                         let f = self.frame(req, "Admin");
                         Err(Reply::html(
                             503,
-                            layout::document(&f, "", &pages::gate::unavailable()),
+                            layout::document(&f, "", &pages::gate::unavailable(f.silence)),
                         ))
                     }
                 }
@@ -438,8 +447,15 @@ impl Ui {
                 }
             }
             "/_ui/theme" => return self.theme(req),
+            "/_ui/silence" => return self.silence(req),
+            p if p == crate::a11y::href() => return self.a11y_sheet(),
             "/_ui/pair" => return self.pair(req),
-            p if p.starts_with("/_ui/") => return Reply::text(404, "Not Found\n"),
+            p if p.starts_with("/_ui/") => {
+                if let Some(sound) = crate::sound::Sound::from_path(p) {
+                    return self.sound(sound);
+                }
+                return Reply::text(404, "Not Found\n");
+            }
             _ => {}
         }
         let post_ok = (req.path == "/agents"
@@ -531,6 +547,51 @@ impl Ui {
             ],
             body: self.sprite.as_bytes().to_vec(),
         }
+    }
+
+    fn a11y_sheet(&self) -> Reply {
+        Reply {
+            status: 200,
+            headers: vec![
+                ("Content-Type".into(), "text/css; charset=utf-8".into()),
+                (
+                    "Cache-Control".into(),
+                    "public, max-age=31536000, immutable".into(),
+                ),
+                ("ETag".into(), crate::a11y::etag().to_string()),
+            ],
+            body: crate::a11y::cached().as_bytes().to_vec(),
+        }
+    }
+
+    fn sound(&self, sound: crate::sound::Sound) -> Reply {
+        Reply {
+            status: 200,
+            headers: vec![
+                ("Content-Type".into(), "audio/wav".into()),
+                (
+                    "Cache-Control".into(),
+                    "public, max-age=31536000, immutable".into(),
+                ),
+            ],
+            body: crate::sound::cached_wav(sound).to_vec(),
+        }
+    }
+
+    fn silence(&self, req: &Request<'_>) -> Reply {
+        let q = html::form_pairs(req.query);
+        let on = html::form_get(&q, "to") == Some("on");
+        let back = safe_back(html::form_get(&q, "back").unwrap_or("/console"));
+        let value = if on { "1" } else { "0" };
+        let mut r = Reply::redirect(303, back);
+        r.headers.push((
+            "Set-Cookie".into(),
+            format!(
+                "{name}={value}; Path=/; Max-Age=31536000; SameSite=Lax",
+                name = crate::cues::SILENCE_COOKIE
+            ),
+        ));
+        r
     }
 
     fn theme(&self, req: &Request<'_>) -> Reply {
@@ -629,7 +690,11 @@ impl Ui {
         if fields.is_empty() {
             return Reply::html(
                 200,
-                layout::document(&f, "", &pages::gate::pair(&back, Some("Enter the code."))),
+                layout::document(
+                    &f,
+                    "",
+                    &pages::gate::pair(&back, Some("Enter the code."), f.silence),
+                ),
             );
         }
         let body = json::obj(&fields).to_json();
@@ -668,7 +733,11 @@ impl Ui {
                 layout::document(
                     &f,
                     "",
-                    &pages::gate::pair(&back, Some("Too many attempts. Wait 15 minutes.")),
+                    &pages::gate::pair(
+                        &back,
+                        Some("Too many attempts. Wait 15 minutes."),
+                        f.silence,
+                    ),
                 ),
             ),
             Ok(_) => Reply::html(
@@ -676,10 +745,13 @@ impl Ui {
                 layout::document(
                     &f,
                     "",
-                    &pages::gate::pair(&back, Some("That code was refused.")),
+                    &pages::gate::pair(&back, Some("That code was refused."), f.silence),
                 ),
             ),
-            Err(_) => Reply::html(503, layout::document(&f, "", &pages::gate::unavailable())),
+            Err(_) => Reply::html(
+                503,
+                layout::document(&f, "", &pages::gate::unavailable(f.silence)),
+            ),
         }
     }
 
@@ -964,8 +1036,11 @@ impl Ui {
             Some(h) if h.get("status").as_str() == Some("healthy") => Origin::Up,
             _ => Origin::Down,
         };
-        let body = pages::agents::body(health.as_ref(), &note);
         let f = self.frame(req, "Galion Console · Agents");
+        let mut body = pages::agents::body(health.as_ref(), &note);
+        if req.method == "POST" && !note.is_empty() {
+            body.push_str(&cues::admin_tag(cues::result_kind(&note), f.silence));
+        }
         Reply::html(status, layout::console(&f, origin, &body))
     }
 }
@@ -1023,6 +1098,7 @@ mod tests {
             extra_css_href: None,
             light: Some(false),
             path: "/agents",
+            silence: false,
         };
         let mut all = String::new();
         all.push_str(&layout::console(
@@ -1039,7 +1115,7 @@ mod tests {
             true,
         ));
         all.push_str(&pages::status::body(Some(true), &svcs, &domains, &[]));
-        all.push_str(&pages::gate::pair("/agents", Some("x")));
+        all.push_str(&pages::gate::pair("/agents", Some("x"), false));
         all.push_str(&pages::gate::links());
         all.push_str(&pages::not_ported::body(&rooms::ROOMS[0], PORTED));
         let cat = json::parse(br#"{"owner":"o","public":1,"privateVisible":1,"items":[{"name":"a","visibility":"fork","empty":true,"weight":"heavy","role":"r","method":"GET","path":"/p","title":"t","source":"s","zone":"live","host":"h","brand":"b","serviceId":"a"},{"method":"POST","path":"/q","title":"t","source":"s","zone":"held"}],"steps":["one"],"tunnel":{"cname":"c"},"zones":[{"zone":"z","records":[{"type":"CNAME","name":"@","host":"z"}]}],"target":{"provider":"cpu","pod":"p","podId":"p"},"compose":"x","caddy":"y","services":[{"name":"n","weight":"heavy","summary":"s"}],"fridge":[{"name":"f","summary":"s"}]}"#).unwrap();
@@ -1135,5 +1211,57 @@ mod tests {
         missing.dedup();
         // `room`-level and state classes are styled via compound selectors.
         assert!(missing.is_empty(), "unstyled classes: {missing:?}");
+    }
+
+    #[test]
+    fn sound_sheet_and_silence_are_routed() {
+        let ui = Ui::new(UiConfig {
+            upstream: "127.0.0.1:9".parse().unwrap(),
+            pulse: None,
+            extra_hosts: Vec::new(),
+            desk: None,
+            files: port4::HostFiles {
+                memory_root: None,
+                model_file: None,
+                user_md: None,
+            },
+        });
+        let wav = ui.handle(&Request {
+            method: "GET",
+            path: "/_ui/sound/approval.wav",
+            ..Request::default()
+        });
+        assert_eq!(wav.status, 200);
+        assert_eq!(wav.header("content-type"), Some("audio/wav"));
+        assert!(wav.body.starts_with(b"RIFF"));
+        assert_eq!(
+            ui.handle(&Request {
+                method: "GET",
+                path: "/_ui/sound/bell-open.wav",
+                ..Request::default()
+            })
+            .status,
+            200
+        );
+        let sheet = ui.handle(&Request {
+            method: "GET",
+            path: a11y::href(),
+            ..Request::default()
+        });
+        assert_eq!(sheet.status, 200);
+        let css = String::from_utf8(sheet.body).unwrap();
+        assert!(css.contains(".ask-voice .i{background:#F7F9FB"));
+        let quiet = ui.handle(&Request {
+            method: "GET",
+            path: "/_ui/silence",
+            query: "to=on&back=/agents",
+            ..Request::default()
+        });
+        assert_eq!(quiet.status, 303);
+        assert_eq!(quiet.header("location"), Some("/agents"));
+        assert!(quiet
+            .header("set-cookie")
+            .unwrap()
+            .contains("galion_silence=1"));
     }
 }

@@ -11,7 +11,7 @@
 //! 127.0.0.1:20401 -> VPS 127.0.0.1:8080 (console API), 20403 -> 8670
 //! (galion-nerve). The binary listens on 127.0.0.1:20400 (slot 170 ports
 //! 20400-20409). Checks: `/hermes` and `/hermes?id=` are the Rust page
-//! (not the SPA) with the live thread count, no script, CSP unchanged;
+//! (not the SPA) with the live thread count, no script, CSP with media-src 'self';
 //! POST/PUT to `/hermes` are 405 in the binary and never leave the box;
 //! every other live route goes where `Ui::spa_fallbacks(true)` says; the
 //! old SPA's `/api/hermes/*` proxy still answers (GET only); the nerve
@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 const BIND: &str = "127.0.0.1:20400";
 const API: &str = "127.0.0.1:20401";
 const NERVE: &str = "127.0.0.1:20403";
-const CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+const CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self' data:; media-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
 struct Kill(Child, &'static str);
 impl Drop for Kill {
@@ -251,7 +251,7 @@ fn real_route31_hermes_rust_first_against_live_vps() {
     assert!(!r.body.contains("old-spa-shell"));
     assert!(r.body.contains(&format!("<p class=\"small\">{n} items ·")));
     eprintln!(
-        "real: /hermes threads {} (listed {shown}), first thread items {n}, CSP unchanged, no script",
+        "real: /hermes threads {} (listed {shown}), first thread items {n}, CSP media-src self, no script",
         items.len()
     );
 

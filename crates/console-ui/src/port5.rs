@@ -133,9 +133,15 @@ impl Ui {
             incidents: incidents.as_ref(),
             note: &note,
         };
-        let body = security::body(&view);
         let t = title("Defence");
         let f = self.frame(req, &t);
+        let mut body = security::body(&view);
+        if req.method == "POST" && !note.is_empty() {
+            body.push_str(&crate::cues::admin_tag(
+                crate::cues::result_kind(&note),
+                f.silence,
+            ));
+        }
         Reply::html(status, layout::console(&f, origin, &body))
     }
 

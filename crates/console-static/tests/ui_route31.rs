@@ -6,7 +6,8 @@
 //! pre-built SPA fallback (`--root`) is configured. The real server runs
 //! in-process with an SPA root (shell + an asset), the 31 live-source page
 //! routes, the `/api/` proxy and a fake console API on loopback; raw
-//! HTTP/1.1. Checks: `/hermes` is the Rust page (no script, CSP unchanged),
+//! HTTP/1.1. Checks: `/hermes` is the Rust page (no script, CSP still
+//! default-src none, with media-src 'self' for the admin sound set),
 //! writes are held (POST/PUT 405, nothing upstream), every other live route
 //! goes where `Ui::spa_fallbacks` says, and the old SPA's `/api/hermes/*`
 //! proxy is untouched.
@@ -25,7 +26,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-const CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+const CSP: &str = "default-src 'none'; style-src 'self'; img-src 'self' data:; media-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 const SHELL: &str =
     "<!doctype html><title>old-spa-shell</title><script src=\"/assets/index-x.js\"></script>";
 

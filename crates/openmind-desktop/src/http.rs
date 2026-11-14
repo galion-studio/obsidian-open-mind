@@ -106,6 +106,7 @@ pub fn reply(req: &Request, probes: &ProbeConfig, files: &Files) -> Response {
     }
     match (req.method(), req.path()) {
         ("GET" | "HEAD", "/" | "/index.html") => page_response(),
+        ("GET" | "HEAD", "/one" | "/research") => entry_response(req.path()),
         ("GET" | "HEAD", "/probes") => {
             let body = probe::probe_all(probes).to_json();
             guarded(Response::json(200, body))
@@ -119,6 +120,14 @@ pub fn reply(req: &Request, probes: &ProbeConfig, files: &Files) -> Response {
             Response::text(405, "Method not allowed\n").with_header("allow", "GET, HEAD, POST"),
         ),
     }
+}
+
+fn entry_response(path: &str) -> Response {
+    let body = page::entry(path).unwrap_or("");
+    guarded(
+        Response::new(200, "text/html; charset=utf-8", body.as_bytes().to_vec())
+            .with_header("content-security-policy", CSP),
+    )
 }
 
 fn page_response() -> Response {
@@ -243,6 +252,17 @@ mod tests {
         let head = String::from_utf8(home.to_bytes(true)).unwrap();
         assert!(head.contains("content-length:"));
         assert!(!head.contains("data-desktop"));
+    }
+
+    #[test]
+    fn one_and_research_are_pages() {
+        for path in ["/one", "/research"] {
+            let bytes = call("GET", path).to_bytes(false);
+            let text = String::from_utf8(bytes).unwrap();
+            assert!(text.starts_with("HTTP/1.1 200 "), "{path}");
+            assert!(text.contains("data-entry="), "{path}");
+            assert!(text.contains("content-security-policy:"), "{path}");
+        }
     }
 
     #[test]

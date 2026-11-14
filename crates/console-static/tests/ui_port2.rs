@@ -403,11 +403,13 @@ fn hermes_read_only() {
     }
     assert!(r.body.contains("/_ui/research."), "research sheet linked");
     assert!(r.body.contains("aria-label=\"Add files\""));
-    assert!(r.body.contains("aria-label=\"Voice\""));
     assert!(r.body.contains("action=\"/hermes/attach\""));
     assert!(r.body.contains("enctype=\"multipart/form-data\""));
     assert!(r.body.contains("type=\"file\""));
     assert!(!r.body.contains("action=\"/api/"));
+    assert!(r
+        .body
+        .contains("disabled aria-label=\"Voice, unavailable\""));
     assert!(!r.body.contains("127.0.0.1:8642"));
     let r = get(a, "/hermes?id=t-1", "127.0.0.1", "");
     assert!(r.body.contains("<pre class=\"say\">hello hermes</pre>"));
@@ -554,7 +556,7 @@ fn research_attach_stays_local_and_shows_a_chip() {
     assert!(research
         .body
         .contains("aria-label=\"Galion Research prompt\""));
-    assert!(research.body.contains("disabled aria-label=\"Voice\""));
+    assert!(research.body.contains("disabled aria-label=\"Voice, unavailable\""));
 
     let (code, _, _) = post_file(
         a,

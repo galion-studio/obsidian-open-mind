@@ -388,6 +388,7 @@ const SCRIPT: &str = r#"
       return res.text().then(function (text) {
         if (res.ok) {
           row.textContent = file.name + " — sent";
+          markSeen("galion-one", "sent");
         } else {
           row.textContent = file.name + " — " + fault(text);
           play("deny");
@@ -796,6 +797,7 @@ mod tests {
         assert!(html.contains("aria-label=\"Attached files\""));
         assert!(html.contains("className = \"chip\""));
         assert!(html.contains("fetch(\"/files\""));
+        assert!(html.contains("markSeen(\"galion-one\", \"sent\")"));
     }
 
     #[test]

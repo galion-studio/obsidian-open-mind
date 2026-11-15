@@ -10,6 +10,8 @@
 //! they run only when the operator presses Look. That button does not
 //! change these states. It writes the probe word into the row's `.seen`
 //! span when the probe service matches `id`, and leaves `state` as it is.
+//! A file the console accepts writes `sent` on the Galion One row. Look
+//! clears that word.
 
 /// One row of the stack view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

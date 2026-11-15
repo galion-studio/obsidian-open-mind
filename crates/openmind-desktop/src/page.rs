@@ -430,6 +430,7 @@ const SCRIPT: &str = r#"
     row.textContent = text;
     kept.appendChild(row);
     command.value = "";
+    if (text.toLowerCase() === "look") { runLook(); return; }
     play("done");
   });
   function probeWord(item) {
@@ -455,7 +456,7 @@ const SCRIPT: &str = r#"
       if (mark) mark.textContent = word;
     }
   }
-  look.addEventListener("click", function () {
+  function runLook() {
     lookRows.textContent = "";
     clearSeen();
     if (location.protocol === "file:" || !loopbackPage()) {
@@ -511,7 +512,8 @@ const SCRIPT: &str = r#"
       lookState.textContent = "The local stack did not answer.";
       play("deny");
     });
-  });
+  }
+  look.addEventListener("click", runLook);
   mute.addEventListener("click", function () {
     var on = mute.getAttribute("aria-pressed") === "true";
     mute.setAttribute("aria-pressed", on ? "false" : "true");
@@ -770,6 +772,9 @@ mod tests {
         assert!(html.contains("location.protocol !== \"file:\" && loopbackPage()"));
         assert!(html.contains("id=\"look\""));
         assert!(html.contains("Look at the local stack"));
+        assert!(html.contains("text.toLowerCase() === \"look\""));
+        assert!(html.contains("runLook()"));
+        assert!(html.contains("look.addEventListener(\"click\", runLook)"));
         assert_eq!(html.matches("class=\"seen\"").count(), LAYERS.len());
         assert!(html.contains("mark.textContent = word"));
         assert!(!html.contains("state.textContent"));

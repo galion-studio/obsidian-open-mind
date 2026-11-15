@@ -82,7 +82,7 @@ Response headers are `content-security-policy`, `referrer-policy: no-referrer`, 
 
 The microphone is opt-in and loopback-only, and the meter is the level line. The checkbox `#mic-opt` starts unchecked (`render`, and `microphone_is_opt_in_and_loopback_only`). The voice button calls `startMic` only after that box is ticked and `loopbackPage()` is true: a `file:` page, or a hostname of `localhost`, `127.0.0.1`, `::1`, or `[::1]` (`loopbackPage` and `startMic` in `crates/openmind-desktop/src/page.rs`). It then calls `getUserMedia({ audio: true, video: false })`. Samples sit in one reused `Float32Array` the size of `fftSize` (256). Each tick writes the RMS into `#mic-level` as `Level N` (`pump`). The next tick overwrites that buffer. Closing the button, or clearing the box, calls `stopMic`, which stops every track and clears the level line. The label says the audio is not saved and is not sent. The crate docs state the same (`crates/openmind-desktop/src/lib.rs`). The Voice stack row is `staged` with that role (`crates/openmind-desktop/src/stack.rs`).
 
-Stack rows do not probe other programs. Nothing on the list is `live` (`crates/openmind-desktop/src/stack.rs`). Look writes `up`, `down`, `unknown`, or `off` into the empty `.seen` span on the row whose id matches the probe service (`nerve`, `hermes`, `voice`, `console`). The `.state` span stays `staged` or `planned`. A probe with no row, such as cortex, is only a chip under the button. The ten rows are `LAYERS`, in this order:
+Typing `look` and pressing Enter keeps that word on the page and runs the same Look as the button. Any other non-empty command is only kept. Stack rows do not probe other programs. Nothing on the list is `live` (`crates/openmind-desktop/src/stack.rs`). Look writes `up`, `down`, `unknown`, or `off` into the empty `.seen` span on the row whose id matches the probe service (`nerve`, `hermes`, `voice`, `console`). The `.state` span stays `staged` or `planned`. A probe with no row, such as cortex, is only a chip under the button. The ten rows are `LAYERS`, in this order:
 
 | id | name | state | role |
 | --- | --- | --- | --- |
@@ -125,7 +125,7 @@ Every pitch is an integer ratio of 432 Hz. `REFERENCE_HZ` is 432. `hz` is `REFER
 | ask | 5/4 | 540 | 120 | Voice armed, or a question | the microphone opens after the box is ticked on a loopback or file page |
 | hear | 9/8 | 486 | 100 | A file was picked for upload | the file input changes and at least one file is selected |
 | notice | 4/3 | 576 | 140 | The stack wants a look | Look finds a probe that is not up, or no probe was enabled |
-| done | 3/2 | 648 | 160 | A command was kept on the page | Enter on a non-empty command |
+| done | 3/2 | 648 | 160 | A command was kept on the page | Enter on a non-empty command other than the word `look` |
 | deny | 3/4 | 324 | 180 | Refused. Nothing was sent | empty command, empty or oversize file, upload refused, box not ticked, page not on loopback, no microphone API, or permission refused |
 | close | 2/3 | 288 | 140 | Voice disarmed | the voice button closes the microphone |
 

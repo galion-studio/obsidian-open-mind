@@ -137,6 +137,9 @@ How the parts fit:
   `planned`.
 - **Hermes** is upstream software that runs next to this stack. The desktop `hermes` row is
   `planned`. `desk-hermes` and `hermes-rs` are crates in this workspace.
+  `HERMES_RS_MCP_GITHUB=1` is opt-in and read-only. The contract is
+  `docs/hermes-mcp.md` on draft [#51](https://github.com/galion-studio/obsidian-open-mind/pull/51)
+  (`ff9d400`). That file is not on `main`.
 - **Persona Plex v2** is still the scaffold described above. Weights are not bundled here.
 - **omnode** is the edge package under `edge/openmind-node`.
 
@@ -256,9 +259,12 @@ read a numeric Scorecard score.
 
 `REUSE.toml` and `LICENSES/` are on `main`. A REUSE compliance run was not done here.
 
-[SBOM](.github/workflows/sbom.yml) and [launch-gates](.github/workflows/launch-gates.yml) are
-`workflow_dispatch` only. [release.yml](.github/workflows/release.yml) runs on tags `v*`.
-None of those was dispatched for this refresh.
+[launch-gates](.github/workflows/launch-gates.yml) and [realtest](.github/workflows/realtest.yml)
+run on pull requests to `main` and `swarm/main-staging`, and on `workflow_dispatch`.
+[sbom.yml](.github/workflows/sbom.yml) is `workflow_dispatch` only.
+[release.yml](.github/workflows/release.yml) runs on tags `v*`.
+None of those four was a completed run on the push of `de7480e`, and none was dispatched
+by hand for this refresh.
 
 Disclosure: [SECURITY.md](SECURITY.md).
 

@@ -18,7 +18,7 @@ Searches for an open pull request titled "Swarm 9 desktop plan" returned 0 items
 - `GET /repos/galion-studio/obsidian-open-mind/releases`: empty list.
 - `cargo metadata --no-deps --format-version 1 --locked --offline`: exit 0, Cargo 1.83.0, 75 workspace packages.
 - GitHub Actions on that commit: self-eval run 43659205932 success (16 jobs, including `cargo test --workspace --locked`); openmind-desktop run 43659205942 success (4 jobs); miri run 43659205926 success; scorecard run 43659206156 success. A later scheduled miri run 43686845489 on the same commit also succeeded.
-- `launch-gates.yml`, `realtest.yml`, and `sbom.yml` are `workflow_dispatch`. `release.yml` is tags `v*`. Not dispatched.
+- Workflow triggers, re-read from the files on this checkout: `launch-gates.yml` and `realtest.yml` run on `pull_request` to `main` and `swarm/main-staging`, and on `workflow_dispatch`. `sbom.yml` is `workflow_dispatch` only. `release.yml` runs on tags `v*`. The earlier note that launch-gates and realtest were dispatch-only was wrong. None of the four was a completed run on the push of `de7480e`. None was dispatched by hand.
 - Local rustc 1.83.0 failed `cargo test -p openmind-desktop --locked` with `E0658` on `is_multiple_of` in `galion-common`.
 - rustc 1.100.0 (`0ef1bc386`, 2026-11-09): `cargo test -p openmind-desktop --locked` 43 passed, 0 failed. `cargo build -p openmind-desktop --locked` finished. `--help` and `--version` exited 0. No flags wrote a 59313-byte page and exited 0 (6 staged, 4 planned). `--listen` was not used.
 - `cargo fmt --all -- --check` and `cargo fmt --manifest-path edge/openmind-node/Cargo.toml --all -- --check` with rustc 1.100.0: both exit 0.
@@ -41,6 +41,13 @@ Searches for an open pull request titled "Swarm 9 desktop plan" returned 0 items
 - A REUSE compliance command.
 - Any bind, including `--listen`.
 - Any host or production check. The October "live" rows were not re-measured.
+
+## Review on pull request 60
+
+2026-11-15T15:35:57+01:00 (Europe/Zagreb). Comment https://github.com/galion-studio/obsidian-open-mind/pull/60#issuecomment-6896168353. Both items checked against files, then edited. `scripts/status-percent.sh` still matched the fence.
+
+- `docs/hermes-mcp.md` is absent on this branch. It was read from draft #51 head `ff9d400387f598c1c2091f84ad19c3544f9dc962`. The README now has one pointer: `HERMES_RS_MCP_GITHUB=1` is opt-in and read-only, and the contract is that file. The file text does not name ports 18181 or 18080. Those ports stay on the desktop sentences.
+- The workflow trigger sentences in `README.md` and `docs/STATUS.md` now match the `on:` blocks.
 
 ## Open questions for Maciej
 

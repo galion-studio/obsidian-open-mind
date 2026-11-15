@@ -95,9 +95,14 @@ refused); `aarch64 build and test (qemu-user)`; `build and test
 A later scheduled miri run on the same commit also succeeded:
 https://github.com/galion-studio/obsidian-open-mind/actions/runs/43686845489
 
-`launch-gates.yml`, `realtest.yml`, and `sbom.yml` are `workflow_dispatch`
-only. `release.yml` runs on tags `v*`. They were not dispatched. They do
-not appear among the completed runs for this push.
+`launch-gates.yml` and `realtest.yml` run on `pull_request` to `main` and
+`swarm/main-staging`, and on `workflow_dispatch`
+(`.github/workflows/launch-gates.yml` lines 12-15,
+`.github/workflows/realtest.yml` lines 10-15, read on this checkout of
+`de7480e`). `sbom.yml` is `workflow_dispatch` only (lines 12-13).
+`release.yml` runs on tags `v*` (lines 14-16). None of these four appears
+in the completed push runs for `de7480e` listed above. None was dispatched
+by hand for this refresh.
 
 A numeric OpenSSF Scorecard value was not read.
 

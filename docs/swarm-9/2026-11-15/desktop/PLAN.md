@@ -34,6 +34,14 @@ Observed at 2026-11-15T15:30:15+01:00, from `gh pr list` check rollups (success 
 
 #29 stays a note. Its base is not `main`, and payments are out of scope. Do not recreate the pricing pages.
 
+## Owner decision at 15:34
+
+Owner FRXDEL, 2026-11-15 15:34 CET (`+01:00`). This overrides every licence-copy instruction earlier in this file.
+
+The year-3000 line stays: `Copyright (c) 3000 Galion / galion-studio`. It is intentional. Agents build against future variables set in the year 3000. No licence change and no copyright-header change anywhere in this repo.
+
+Draft **#65** (`Swarm 9 desktop/licence`, branch `cursor/desktop-licence-76a2`, head `c856266bc5f36993cf8003e87de70da409bbc41d` when this was written) stays a draft. The orchestrator does not merge it. The owner closes it. The licence lane makes no further edits.
+
 ## Design direction
 
 Owner FRXDEL, 2026-11-15 15:25 CET (`+01:00`). This applies to every Swarm 9 desktop lane.
@@ -74,11 +82,11 @@ A bump that cannot go green stays open, with a comment that names the failing ch
 
 | Owner | Paths |
 |---|---|
-| Desktop licence | Root `LICENSE`. Every project `LICENSE` that is still a byte-for-byte copy of today's root `LICENSE`. `.github/workflows/self-eval.yml` **license job `run:` block only** (not the `uses:` pins). `crates/repo-check` licence gate: `check_license` and the tests that read the root `LICENSE` text. `scripts/desktop/verify-local.sh` packaged-`LICENSE` compare. `docs/swarm-9/2026-11-15/desktop/licence.md`. |
+| Desktop licence | No files. The 15:34 decision stops this lane. #65 stays a draft for the owner. |
 | Desktop old-prs-deps | One bump at a time, the files that bump lists under [Bump queue](#bump-queue). `brand/BRAND.md` and `brand/STYLE-GUIDE.md` for the #7 refresh. `docs/swarm-9/2026-11-15/desktop/old-prs-deps.md`. |
 | Desktop readme-status | `README.md`, `docs/STATUS.md`, `docs/crate-index.md`, `docs/swarm-9/2026-11-15/desktop/readme-status.md`. |
 | Desktop plan | This file only, on the plan pull request. Workers do not edit it. |
-| Core | All other `crates/**`, `Cargo.toml`, and `Cargo.lock`, including Rust, CPU, and Linux. Core leaves the licence-gate functions and the files of the **one open bump** alone until that pull request merges. |
+| Core | All other `crates/**`, `Cargo.toml`, and `Cargo.lock`, including Rust, CPU, and Linux. Core leaves the files of the **one open bump** alone until that pull request merges. Core does not edit `LICENSE` or copyright headers either. |
 
 `docs/desktop/README.md` stays with #52 until the owner merges #52. Desktop lanes do not edit it. `docs/hermes-mcp.md` stays with #51. Do not copy that file onto a new branch.
 
@@ -86,9 +94,8 @@ A bump that cannot go green stays open, with a comment that names the failing ch
 
 | Item | Lane | What the lane does |
 |---|---|---|
-| Canonical GOS `LICENSE`, byte for byte | licence | Copy, update the gate that would reject the new first line, compare packaged bytes |
-| #51 decision 5 and #52 decision 3 (copyright line / packaged `LICENSE`) | licence | Safe default: the GOS file unchanged. Record the "name Maciej Grajczyk?" question. Do not rename the holder |
-| `check-package.sh` brand-line test | licence | That script is only on #52. Do not edit #52. Byte-compare on `main` via `verify-local.sh`. Record the #52 follow-up |
+| `LICENSE` and copyright headers | — | Stay `Copyright (c) 3000 Galion / galion-studio`. No lane edits them. #65 is not merged |
+| #51 decision 5 and #52 decision 3 | recorded | The year-3000 line stays. Do not edit #51 or #52 |
 | #7 brand icon list | old-prs-deps | New branch from `main`. Docs only. Icons are already on `main` |
 | #14, #15, #16, #17 | old-prs-deps | Triage in the lane notes. Do not replay crate edits and do not copy any `SOUL.md` change. `docs/crate-index.md` belongs to readme-status |
 | #28 secrets-guard gitignore | old-prs-deps | Note only. Do not apply the patch (it would ignore vendored `*.pt` fixtures again) |
@@ -104,38 +111,16 @@ A bump that cannot go green stays open, with a comment that names the failing ch
 
 ## Lane: licence
 
-Title: `Swarm 9 desktop/licence`. Branch from `main`. Do not push to #51, #52, or #57.
+Stopped at 15:34. Title of the existing draft: `Swarm 9 desktop/licence` (#65).
 
-### Work
+The lane does not copy the Galion OS `LICENSE`, does not retarget the licence gate, and does not rewrite headers. `Copyright (c) 3000 Galion / galion-studio` stays, including SPDX headers that already say that. #65 remains a draft for the owner to close. This swarm does not merge it and does not push more commits to `cursor/desktop-licence-76a2`.
 
-1. Download `LICENSE` from `galion-studio/galion-operating-system` branch `main` and copy it byte for byte. Acceptance is `cmp` against that download, not a retyped file. Swarm 8 measured 1257 bytes on 2026-11-15; measure again with `wc -c` and record the number.
-2. Replace every **project** `LICENSE` that is still byte-identical to today's root file (the `Copyright (c) 3000 Galion / galion-studio` MIT text, 1079 bytes on `de7480e`). The self-eval job compares `crates/*/LICENSE` and `edge/*/LICENSE` to the root. Also replace other identical copies (`release/repo/LICENSE`, `release/obsidian-open-mind-kit/LICENSE`, `docs/swarm/galion-os-staging/LICENSE`, `contrib/grokbot/LICENSE`) when `cmp` says they match the old root. Leave third-party licences under `vendor/candle-core` and `stack/agents/personas/crew-skills`.
-3. The GOS file's first line is the G.A.L.I.O.N. banner, not `MIT License`. Today's gate rejects that. Update only:
-   - `.github/workflows/self-eval.yml` license job `run:` block, so it accepts this file (MIT grant still required, copyright line contains `Copyright (c) 2026 Galion Labs`, and the four branding lines below are present).
-   - `crates/repo-check` `check_license`, same rule, plus tests that fail only because they read the root `LICENSE`.
-   Do not change `uses:` pins in the workflow. Do not rewrite SPDX headers in other crates. Those headers stay `3000 Galion / galion-studio`.
-4. The four branding lines inside the canonical file are:
-   - `G.A.L.I.O.N. — General Autonomous Local Intelligence Open Network`
-   - `Developed and distributed by Galion Labs`
-   - `Perpetual Open MIT License`
-   - `Copyright © 2026 Galion Labs. All rights reserved.`
-   The MIT body also contains `Copyright (c) 2026 Galion Labs`.
-5. `scripts/desktop/package-local.sh` already copies the root `LICENSE` into the local tarball. `scripts/desktop/verify-local.sh` only checks that the packaged file exists. Make `verify-local.sh` fail unless the packaged `LICENSE` is byte-identical to the root `LICENSE` and those four lines are in it.
-
-### Decision 5 (recorded, not settled)
-
-#51 decision 5 and #52 decision 3 ask whether the copyright line should name Maciej Grajczyk. The canonical file names Galion Labs. The safe default is that file, unchanged. Do not write `Maciej Grajczyk` or `FRXDEL STUDIOS` into `LICENSE`.
-
-#52's `scripts/desktop/check-package.sh` (function `desktop_assemble_license` on branch `cursor/desktop-ci-artifacts-c14b`) still builds the old MIT text plus four appended lines, and its brand-line test fails when the last appended line is missing. Required end state: the packaged `LICENSE` is the canonical file, and the brand-line test checks the four lines inside that file. Do not edit #52. A later branch from #52's head, with only that fix, may be opened as `Swarm 9 desktop/licence-package`. This swarm does not merge it while its base is #52, because that would take #52 with it. Say so in `licence.md`.
+#51 decision 5 and #52 decision 3 asked whether the copyright line should name Maciej Grajczyk. Recorded answer: the year-3000 line stays. Do not edit #51 or #52. Do not open a follow-up that changes `check-package.sh` or `verify-local.sh` for a different licence text.
 
 ### Acceptance
 
-- `cmp` of root `LICENSE` against a fresh GOS download: identical. Record `wc -c`.
-- `cmp` of each replaced project `LICENSE` against the root: identical.
-- `vendor/candle-core` and `stack/agents/personas/crew-skills` `LICENSE` files: unchanged (`git diff` empty for those paths).
-- Self-eval license job logic and `cargo test -p repo-check --test checks --locked` pass locally or on CI. Record the command and the result. Unrun stays "not run".
-- `verify-local.sh` rejects a packaged `LICENSE` that differs by one byte. Show that command's exit code.
-- No SPDX header outside the licence-gate files was rewritten.
+- No pull request from this swarm merges a `LICENSE` or copyright-header diff.
+- #65 is still a draft.
 
 ## Lane: old-prs-deps
 
@@ -169,7 +154,7 @@ Swarm 8 triage (`docs/swarm-8/2026-11-15/a2-deps-triage.md` on #57) classified t
 | 4 | #26 | `pageant` 0.2.4 → 0.2.5 | `contrib/grokbot/mcp/vps-mcp` lock and manifest | Same as #24. Own head still failed. Recreate. Core's plan does not own `contrib/`. |
 | 5 | #30 | `russh` 0.64.1 → 0.65.1 | same package as #26 | Recreate after #26, from the new `main`. |
 | 6 | #19 | `actions/upload-artifact` 4.6.2 → 7.0.2 | `uses: actions/upload-artifact` pins in `.github/workflows/launch-gates.yml`, `realtest.yml`, `sbom.yml`, `scorecard.yml`, `self-eval.yml` | v6 wants Node 24. Call sites use the default zip upload. |
-| 7 | #20 | `actions/checkout` 4.4.0 → 7.0.1 | `uses: actions/checkout` pins, including `.github/workflows/openmind-desktop.yml` | After the licence pull request, and after core's linux lane if it is editing `self-eval.yml`. v7 blocks fork checkout from `pull_request_target` and `workflow_run`. |
+| 7 | #20 | `actions/checkout` 4.4.0 → 7.0.1 | `uses: actions/checkout` pins, including `.github/workflows/openmind-desktop.yml` | After core's linux lane if it is editing `self-eval.yml`. The licence lane no longer edits that file. v7 blocks fork checkout from `pull_request_target` and `workflow_run`. |
 | 8 | #2 | `toml` 0.8.23 → 1.2.1+spec-1.1.0 | Root `Cargo.toml` `toml`, `edge/openmind-node/Cargo.toml` `toml`, `Cargo.lock`, and call sites that fail the required checks | Triage: `galion-feature-pin` test `every_release_bin_alone_has_the_full_set_features` failed. Confirm it is still this bump. Core hygiene owns that test file. If the failure is there, comment on #59 before editing it. |
 | 9 | #23 | `getrandom` 0.2.17 → 0.3.4 | `crates/hermes-rs/Cargo.toml`, `edge/openmind-node/Cargo.toml`, `Cargo.lock`, `crates/hermes-rs/src/enroll/mod.rs` call sites that use `getrandom::getrandom` | Triage: `getrandom` was removed in 0.3 (`enroll/mod.rs` around lines 348 and 502 on the old base). Core leaves `hermes-rs` alone. |
 | 10 | #21 | `rusqlite` 0.32.1 → 0.41.1 | Root `Cargo.toml` `rusqlite`, `crates/hermes-gateway/Cargo.toml`, `spikes/sqlite-pure/fixtures/Cargo.toml`, `Cargo.lock`, and `prepare_cached` call sites that fail (triage named `crates/openmind-memory/src/store.rs`) | Edition 2024, MSRV, iterator API. |
@@ -214,6 +199,7 @@ Title: `Swarm 9 desktop/readme-status`. Branch from `main`.
 - Each description matches the `description` field. Show the command that compared them.
 - `scripts/status-percent.sh` output is pasted, with the Zagreb timestamp of the run.
 - `README.md` names `HERMES_RS_MCP_GITHUB=1` as opt-in and read-only, and names ports 18181 and 18080, with the citations above. It does not contain a paste of `docs/hermes-mcp.md`.
+- `README.md` and the lane notes do not call `Copyright (c) 3000 Galion / galion-studio` an old, short, or temporary licence. The line stays as the copyright line.
 - `docs/desktop/README.md` and `docs/hermes-mcp.md` are absent from the diff.
 - `git diff --stat` shows only `README.md`, `docs/STATUS.md`, `docs/crate-index.md`, and the lane notes file.
 
@@ -223,11 +209,11 @@ Title: `Swarm 9 desktop/readme-status`. Branch from `main`.
 
 1. **#55**, then **#54**. Both were green at 15:30. Merge #55 first. Update #54 from `main` and wait for its new head to be green before merging it.
 2. **Swarm 9 desktop plan** (this file), when its required checks are green.
-3. **Swarm 9 desktop/licence**, updated from `main` after the plan merges.
-4. **#58** (brand tables and the safe gitignore) and **#60** (readme-status), after the review notes in the log are addressed and the required checks are green. One at a time. They do not carry a dependency bump.
-5. Bump queue rows 3 through 11, one at a time. Checkout (#20) waits until the licence pull request has merged and core is not mid-edit on `self-eval.yml`.
-6. Recreated **#14** and **#15**, after the crate-index pull request has merged so #15 does not touch that file.
-7. `Swarm 9 desktop/licence-package`, if opened, stays open until the owner has merged #52 and the branch has been updated onto `main`. This swarm does not merge it before that.
+3. **#58** (brand tables and the safe gitignore) and **#60** (readme-status), after the review notes are addressed and the required checks are green. One at a time. #60 drops wording that treats the year-3000 line as an old licence. Neither pull request carries a dependency bump or a licence edit.
+4. Bump queue rows 3 through 11, one at a time. Checkout (#20) waits while core is mid-edit on `self-eval.yml`.
+5. Recreated **#14** and **#15**, after the crate-index pull request has merged so #15 does not touch that file.
+
+#65 is not in this list. It stays a draft.
 
 Before each merge, re-read **Swarm 9 core plan** (#59). If core is landing a pull request that touches the same paths, desktop waits and comments.
 
@@ -237,7 +223,7 @@ A merge to `main` runs the workflows that already trigger on `push` to `main`: `
 
 Observed green at 15:30, except #16 and #17:
 
-1. **#57** — CI was green (25 success, 1 skipped, CLEAN). It holds `miniz_oxide` 0.9.1, `pageant` 0.2.5, `russh` 0.65.1, `anchore/sbom-action` 0.24.3, and a GOS `LICENSE` copy. Take it only if that CI goes red. If the desktop licence pull request merges first, the owner rebases #57 and drops the duplicate `LICENSE` commit.
+1. **#57** — CI was green (25 success, 1 skipped, CLEAN). It holds `miniz_oxide` 0.9.1, `pageant` 0.2.5, `russh` 0.65.1, `anchore/sbom-action` 0.24.3, and a GOS `LICENSE` copy. Take it only if that CI goes red. The year-3000 line on `main` stays even if #57 contains a different `LICENSE`. Desktop does not merge #57.
 2. **#51** — Hermes MCP client and `docs/hermes-mcp.md`.
 3. **#52** — desktop CI artifacts. `check-package.sh` still assembles the old MIT text plus four lines. This swarm does not edit #52.
 4. **#16** and **#17** — the owner named these with the green set. Their rollups at 15:30 were 21 failures each. They stay with the owner anyway.
@@ -245,11 +231,12 @@ Observed green at 15:30, except #16 and #17:
 
 ## Conflicts already known
 
-- Core #59 gives the whole of `.github/workflows/self-eval.yml` to the linux lane, and the root `Cargo.toml` `rust-version` line plus a possible `Cargo.lock` edge to hygiene and linux. Desktop licence edits only the license job `run:` block. Desktop bumps edit dependency lines and `Cargo.lock`. Checkout (#20) edits `uses:` pins in that same workflow. Comment on #59 before either side edits those files. One owner per hunk.
+- Core #59 may edit `.github/workflows/self-eval.yml`. Desktop no longer edits the licence job. Desktop bumps still edit dependency lines and `Cargo.lock`. Checkout (#20) edits `uses:` pins. One owner per hunk.
+- `LICENSE` and copyright headers stay as they are. #65 is the draft that tried to replace them. It is not merged.
 - Core #59 does not edit `crates/hermes-rs/**`. The #14 recreation does. Desktop owns that recreation. Core linux may edit `crates/openmind-desktop/src/lib.rs`, `files.rs`, and `http.rs` for bind defaults. This plan does not.
 - #15's conflict is `docs/crate-index.md`, which #60 owns. The recreation stays out of that file.
 - `docs/desktop/README.md` stays on #52.
-- Licence vs #57: both copy the GOS `LICENSE`. #57 is green, so the owner merges it. If licence lands first, the bytes should match and the owner drops the duplicate.
+- #57's branch also copies a Galion OS `LICENSE`. Desktop does not merge that. The owner decides #57. `main` keeps the year-3000 line unless the owner merges a change.
 - #24, #26, and #30 overlap #57. Recreated pins should match #57 so the owner's merge is a duplicate, not a second version.
 - #22 vs vendored `candle-core` 0.9.2: likely to stay open. Do not treat a red check as a merge.
 - #60 (readme-status) does not yet name `HERMES_RS_MCP_GITHUB`. That is an open review note. #58's notes still say the majors are undecided. The 15:29 section above replaces that.
@@ -269,4 +256,5 @@ Checked for this plan. Times are Europe/Zagreb (`+01:00`).
 - Cloud-agent lookup for `bc-004d8f8c`: not available to this run (not found or not accessible).
 - 15:30. `gh pr list` rollups recorded in the 15:29 table. Open Swarm 9 drafts: #58 `Swarm 9 desktop/old-prs-deps` (`ed3da063`, brand tables and the safe gitignore, CI still running), #60 `Swarm 9 desktop/readme-status` (`610458a6`, CI still running), #59 `Swarm 9 core plan` (`8eb597f2`).
 - Read #59's plan and #58's diff. #60's README names ports 18181 and 18080 and does not name `HERMES_RS_MCP_GITHUB`. Its STATUS text calls `launch-gates.yml` and `realtest.yml` `workflow_dispatch` only; both also run on `pull_request` (read from those files on `de7480e`).
-- Not run: `cargo test`, `scripts/status-percent.sh`, a GOS `LICENSE` download, CI on this plan. Those belong to the lane acceptance and to this pull request's CI.
+- 15:34. Owner decision: the year-3000 copyright stays. #65 (`c856266`) stays a draft and is not merged. #55 merged as `0188e1301a9e8a94841fde82bbcd07dd56cde49f` at 2026-11-15T15:34:19+01:00. #54 was updated from that `main` as `c02f91d0` so its CI can re-run. Not merged yet.
+- Not run: `cargo test`, `scripts/status-percent.sh`, CI on this plan beyond the push. Those belong to this pull request's CI.

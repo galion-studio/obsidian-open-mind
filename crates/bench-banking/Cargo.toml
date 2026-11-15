@@ -5,6 +5,7 @@
 name = "bench-banking"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "B1 banking benchmark: a local Revolut-shaped mock bank, a local-only client, a draft-only Hermes tool layer and the per-axis scorer. Never talks to a live bank."
 
@@ -14,3 +15,6 @@ zagreb-time = { path = "../zagreb-time" }
 # Shared harness (swarm/bench-harness ea8315c): Scorecard for the score file;
 # MockServer for the cross-check test.
 galion-bench = { path = "../galion-bench" }
+
+[lints]
+workspace = true

@@ -6,6 +6,7 @@
 name = "openmind-desktop"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Local control console for the Open Mind desktop: command field, stack view, file pick/read/upload, read-only health probes, and a 432 Hz seven-tone set. No model call. Loopback only."
 
@@ -26,3 +27,6 @@ galion-common = { path = "../galion-common" }
 # open_nofollow passes FILE_FLAG_OPEN_REPARSE_POINT (0x00200000) there.
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
 libc = "0.2"
+
+[lints]
+workspace = true

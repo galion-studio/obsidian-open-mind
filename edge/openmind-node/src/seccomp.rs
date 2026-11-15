@@ -206,12 +206,13 @@ fn errno() -> i32 {
 /// fork or install failure reads as not enforced.
 pub fn self_test() -> SelfTest {
     let f = Filter::new();
-    // SAFETY (all probes): the child runs only `install` and plain syscalls,
-    // no allocation, locks or unwinding; see `util::fork_probe`.
+    // SAFETY: the child runs only `install` and plain syscalls, no
+    // allocation, locks or unwinding; see `util::fork_probe`.
     let installed = unsafe { crate::util::fork_probe(|| f.install().is_ok()) };
     if !installed {
         return SelfTest::default();
     }
+    // SAFETY: the child runs only install and ptrace; see fork_probe.
     let ptrace_denied = unsafe {
         crate::util::fork_probe(|| {
             f.install().is_ok()
@@ -219,6 +220,7 @@ pub fn self_test() -> SelfTest {
                 && errno() == libc::EPERM
         })
     };
+    // SAFETY: the child runs only install and plain syscalls; see fork_probe.
     let fsconfig_denied = unsafe {
         crate::util::fork_probe(|| {
             f.install().is_ok()
@@ -229,11 +231,13 @@ pub fn self_test() -> SelfTest {
                 && errno() == libc::EPERM
         })
     };
+    // SAFETY: the child runs only install and unshare; see fork_probe.
     let unshare_denied = unsafe {
         crate::util::fork_probe(|| {
             f.install().is_ok() && libc::unshare(libc::CLONE_NEWUSER) < 0 && errno() == libc::EPERM
         })
     };
+    // SAFETY: the child runs only install, getppid and a zero-length write.
     let everyday_allowed = unsafe {
         crate::util::fork_probe(|| {
             let msg = b"";
@@ -278,19 +282,25 @@ mod tests {
             eprintln!("seccomp unavailable here; skipping enforce test");
             return;
         }
+        // SAFETY: fork has no pointer arguments. The child only installs the
+        // filter, calls ptrace, and leaves through _exit (no destructors).
         let pid = unsafe { libc::fork() };
         assert!(pid >= 0);
         if pid == 0 {
             let f = Filter::new();
             if f.install().is_err() {
+                // SAFETY: _exit is async-signal-safe and does not return.
                 unsafe { libc::_exit(2) };
             }
             // ptrace(PTRACE_TRACEME) must fail with EPERM under the filter.
+            // SAFETY: PTRACE_TRACEME takes no buffer. The result is only compared.
             let r = unsafe { libc::ptrace(libc::PTRACE_TRACEME, 0, 0, 0) };
             let err = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+            // SAFETY: _exit does not return, so the child runs no destructors.
             unsafe { libc::_exit(if r < 0 && err == libc::EPERM { 0 } else { 3 }) };
         }
         let mut st = 0;
+        // SAFETY: `pid` is the child we just forked and `st` is a writable c_int.
         assert_eq!(unsafe { libc::waitpid(pid, &mut st, 0) }, pid);
         assert!(libc::WIFEXITED(st), "child status {st:#x}");
         assert_eq!(
@@ -306,18 +316,25 @@ mod tests {
         if !available() {
             return;
         }
+        // SAFETY: fork has no pointer arguments. The child only installs the
+        // filter, writes a stack buffer to stderr, and leaves through _exit.
         let pid = unsafe { libc::fork() };
         assert!(pid >= 0);
         if pid == 0 {
             let f = Filter::new();
             if f.install().is_err() {
+                // SAFETY: _exit is async-signal-safe and does not return.
                 unsafe { libc::_exit(2) };
             }
             let msg = b"ok\n";
+            // SAFETY: `msg` is a valid byte slice that outlives the write.
+            // fd 2 is stderr, which the child inherited.
             let r = unsafe { libc::write(2, msg.as_ptr().cast(), msg.len()) };
+            // SAFETY: _exit does not return, so the child runs no destructors.
             unsafe { libc::_exit(if r == msg.len() as isize { 0 } else { 3 }) };
         }
         let mut st = 0;
+        // SAFETY: `pid` is the child we just forked and `st` is a writable c_int.
         assert_eq!(unsafe { libc::waitpid(pid, &mut st, 0) }, pid);
         assert_eq!(libc::WEXITSTATUS(st), 0);
     }

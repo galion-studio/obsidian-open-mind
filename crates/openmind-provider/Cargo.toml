@@ -5,9 +5,13 @@
 name = "openmind-provider"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "ComputeProvider trait, a JSON registry of approval state (Pending, Approved, Rejected), the fallback policy and route (folded in from openmind-fallback and openmind-route)."
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[lints]
+workspace = true

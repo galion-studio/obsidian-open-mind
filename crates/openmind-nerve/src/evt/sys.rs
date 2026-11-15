@@ -98,9 +98,8 @@ impl Inotify {
             return Err(io::Error::last_os_error());
         }
         // SAFETY: fd is a fresh descriptor we own.
-        Ok(Self {
-            fd: unsafe { OwnedFd::from_raw_fd(fd) },
-        })
+        let owned = unsafe { OwnedFd::from_raw_fd(fd) };
+        Ok(Self { fd: owned })
     }
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     pub fn new() -> io::Result<Self> {
@@ -173,10 +172,8 @@ impl PidFd {
             return Err(io::Error::last_os_error());
         }
         // SAFETY: fd is a fresh descriptor we own (fits c_int by contract).
-        Ok(Self {
-            fd: unsafe { OwnedFd::from_raw_fd(fd as i32) },
-            pid,
-        })
+        let owned = unsafe { OwnedFd::from_raw_fd(fd as i32) };
+        Ok(Self { fd: owned, pid })
     }
     #[cfg(not(any(target_os = "linux", target_os = "android")))]
     pub fn open(_pid: u32) -> io::Result<Self> {

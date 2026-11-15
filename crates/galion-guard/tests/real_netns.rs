@@ -64,6 +64,10 @@ fn main() {
         println!("real_netns: test");
         return;
     }
+    // SAFETY: getppid(2) takes no pointers and cannot fail. Runs on every
+    // `cargo test` invocation, including the GALION_REAL skip path.
+    let probe = unsafe { libc::getppid() };
+    assert!(probe > 0, "getppid");
     if std::env::var("GALION_REAL").as_deref() != Ok("1") {
         println!("real_netns: skipped (set GALION_REAL=1)");
         return;
@@ -157,6 +161,7 @@ fn fake_journalctl() {
     let Ok(path) = std::env::var("GUARD_FAKE_JOURNAL") else {
         return;
     };
+    // SAFETY: getppid(2) takes no pointers and cannot fail.
     let ppid = unsafe { libc::getppid() };
     let mut f = loop {
         match File::open(&path) {
@@ -169,6 +174,7 @@ fn fake_journalctl() {
     loop {
         match f.read(&mut buf) {
             Ok(0) => {
+                // SAFETY: getppid(2) takes no pointers and cannot fail.
                 if unsafe { libc::getppid() } != ppid {
                     return;
                 }

@@ -10,6 +10,7 @@
 name = "persona-plex-relay"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Persona Plex v2: VPS relay scaffold for the voice-to-voice channel (auth, session, speaker verification policy; no inference)."
 
@@ -27,3 +28,6 @@ default = []
 # PersonaPlex wire codec (Opus in Ogg) via opus-pure. Off by default: the crate
 # carries runtime-dispatched SIMD kernels (see docs/ws-voice.md section 7).
 opus = ["dep:opus-pure"]
+
+[lints]
+workspace = true

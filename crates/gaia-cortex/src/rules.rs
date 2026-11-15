@@ -200,7 +200,7 @@ impl Rules {
 
     fn open_circuit(&mut self, unit: &str, now: u64) -> bool {
         let b = self.books.entry(unit.to_string()).or_default();
-        let first = !b.circuit_until.is_some_and(|t| t > now);
+        let first = b.circuit_until.is_none_or(|t| t <= now);
         if first {
             b.circuit_escalated = false;
         }

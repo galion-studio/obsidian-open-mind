@@ -18,6 +18,9 @@
 // - dead_code: the live binary carries these same unused items (
 //   `ask_hermes`, `cut_prefix`, `field_of`, `lane_json`, `lane_name`,
 //   `set_lane`, `shorten`). They are unreferenced today, not newly orphaned.
+// unknown_lints: manual_is_multiple_of and manual_checked_ops are newer
+// than the 1.89.0 MSRV clippy. On 1.89 they are not lint names yet.
+#![allow(unknown_lints)]
 #![allow(clippy::manual_is_multiple_of)]
 #![allow(clippy::manual_flatten)]
 #![allow(clippy::manual_checked_ops)]

@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn hermes_is_rust_first_with_and_without_spa() {
-        assert!(SPA_FIRST.is_empty());
+        assert_eq!(SPA_FIRST.len(), 0);
         let ui = ui();
         for spa in [true, false] {
             for p in ROUTES {

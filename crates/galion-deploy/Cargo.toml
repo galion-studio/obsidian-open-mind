@@ -5,6 +5,7 @@
 name = "galion-deploy"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Backup -> atomic install -> restart -> health check -> automatic rollback, for one systemd (or simsup) unit. Rust replacement for deploy/foundation/galion-deploy."
 publish = false
@@ -17,3 +18,6 @@ galion-tar = { path = "../galion-tar" }
 [[bin]]
 name = "galion-deploy"
 path = "src/main.rs"
+
+[lints]
+workspace = true

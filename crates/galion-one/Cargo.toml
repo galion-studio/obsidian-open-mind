@@ -4,6 +4,7 @@
 name = "galion-one"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Galion One: the operator's own ear, mind and mouth on one box."
 
@@ -18,3 +19,6 @@ galion-common = { path = "../galion-common" }
 # Test-only cross-check of the dependency-free Zagreb clock (src/zagreb.rs)
 # against the tz database. Not linked into the binary.
 zagreb-time = { path = "../zagreb-time" }
+
+[lints]
+workspace = true

@@ -10,6 +10,26 @@ exclude = ["contrib", "vendor"]
 edition = "2021"
 license = "MIT"
 version = "0.1.0"
+# Minimum rustc that compiles this workspace. Measured 2026-11-15:
+# - rustc 1.83.0: galion-common E0658 `unsigned_is_multiple_of` and `slice_as_chunks`
+# - rustc 1.87.0: galion-common E0658 `slice_as_chunks` (is_multiple_of is stable)
+# - rustc 1.88.0: galion-common compiles; hades-gate E0658 `file_lock` (`File::lock`)
+# - rustc 1.89.0: hades-gate compiles
+# Locked deps declare at most rust-version 1.88.0 (opus-pure 0.2.2, zip 9.0.5).
+# The binding constraint is our own `File::lock` use, so the floor is 1.89.0.
+# CI installs rust-toolchain.toml instead of floating stable. See
+# docs/swarm-9/2026-11-15/core/rust-hygiene.md.
+rust-version = "1.89.0"
+
+# `cargo clippy -D warnings` turns this warn into an error. Every member
+# opts in with `[lints] workspace = true`.
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "warn"
+
+# The cfg is set for every crate by .cargo/config.toml. hades-gate's
+# simd_free test is what fails if a build drops it.
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(curve25519_dalek_backend, values("serial", "fiat", "simd"))'] }
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive", "alloc"] }

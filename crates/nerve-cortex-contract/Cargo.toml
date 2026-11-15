@@ -5,9 +5,13 @@
 name = "nerve-cortex-contract"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Wire contract between the event-driven nerve and the cortex: B33 event envelope + event kinds (nerve -> cortex), action request/result (cortex -> nerve). serde + serde_json only."
 
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+
+[lints]
+workspace = true

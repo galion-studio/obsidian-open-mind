@@ -5,6 +5,7 @@
 name = "galion-tar"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Shared std-only tar writer + reader: GNU-format tree writer (byte-identical to GNU tar 1.35 `tar -c`, used by galion-backup), POSIX ustar entry writer/reader (used by galion-deploy), and a streaming reader for both formats."
 publish = false
@@ -12,3 +13,6 @@ publish = false
 # std only: no dependencies, not even libc. Callers that need NSS-exact
 # uid/gid -> name lookups (galion-backup) plug their own `Names`.
 [dependencies]
+
+[lints]
+workspace = true

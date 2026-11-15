@@ -5,6 +5,7 @@
 name = "openmind-nerve"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "NERVE + CORTEX: the Galion signals hub. Pull probes (health endpoints, systemd, journald, access logs) and POST /signal ingest, incident correlation, cortex view (vulnerabilities, bleeding, DDoS rate anomalies), self-eval scoring, one loopback JSON API and a dashboard. Also the append-only JSONL nerve writer. std + serde + serde_json + zagreb-time."
 
@@ -42,3 +43,6 @@ galion-deploy = { path = "../galion-deploy" }
 toml = { workspace = true }
 # Fuzz/property targets (T5.2) also drive the ingress YAML parser; path crate, no deps.
 tunnel-lint = { path = "../tunnel-lint" }
+
+[lints]
+workspace = true

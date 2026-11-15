@@ -5,6 +5,7 @@
 name = "gaia-cortex"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Event-driven Gaia cortex: the decision layer above the event-driven nerve. Coalesces event bursts into incidents (openmind-nerve correlate), runs deterministic rules (restart via the nerve allowlist, circuit breaker, protected never-act), alert sink, escalate-to-human queue, optional OFF-by-default LLM advisor with a hard USD budget. Idle = zero work."
 
@@ -31,3 +32,6 @@ default = []
 # OFF by default: without it the advisor can never send a byte, whatever the
 # config says. Enabling it (and setting llm.enabled) needs Mate's approval.
 llm-advisor = []
+
+[lints]
+workspace = true

@@ -5,6 +5,7 @@
 name = "openmind-mcp-notes"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Stdio MCP for a research vault. Search, read, list recent, tag search and backlinks are read-only. Writes go only under drafts/. No sockets."
 
@@ -15,3 +16,6 @@ path = "src/main.rs"
 [dependencies]
 serde_json = { workspace = true }
 zagreb-time = { path = "../zagreb-time" }
+
+[lints]
+workspace = true

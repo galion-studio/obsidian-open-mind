@@ -33,8 +33,15 @@ struct Counting;
 static LIVE: AtomicIsize = AtomicIsize::new(0);
 static ALLOCS: AtomicU64 = AtomicU64::new(0);
 
+// SAFETY: Counting is a counter in front of the system allocator. Every
+// pointer it returns comes from System, and dealloc/realloc are only called
+// with that pointer and the layout the compiler passed in. The atomics are
+// bookkeeping and are not used to invent pointers.
 unsafe impl GlobalAlloc for Counting {
+    // SAFETY: `l` is a non-zero layout from the compiler. System::alloc has
+    // the same contract. A null result is returned as-is and not dereferenced.
     unsafe fn alloc(&self, l: Layout) -> *mut u8 {
+        // SAFETY: `l` is valid for System::alloc.
         let p = unsafe { System.alloc(l) };
         if !p.is_null() {
             LIVE.fetch_add(l.size() as isize, Ordering::Relaxed);
@@ -42,11 +49,17 @@ unsafe impl GlobalAlloc for Counting {
         }
         p
     }
+    // SAFETY: `p` was allocated by this impl with layout `l` and has not
+    // been freed. System::dealloc has the same contract.
     unsafe fn dealloc(&self, p: *mut u8, l: Layout) {
+        // SAFETY: `p` and `l` match a live allocation from System.
         unsafe { System.dealloc(p, l) };
         LIVE.fetch_sub(l.size() as isize, Ordering::Relaxed);
     }
+    // SAFETY: `l` is a non-zero layout from the compiler. System::alloc_zeroed
+    // has the same contract and zeroes the block.
     unsafe fn alloc_zeroed(&self, l: Layout) -> *mut u8 {
+        // SAFETY: `l` is valid for System::alloc_zeroed.
         let p = unsafe { System.alloc_zeroed(l) };
         if !p.is_null() {
             LIVE.fetch_add(l.size() as isize, Ordering::Relaxed);
@@ -54,7 +67,10 @@ unsafe impl GlobalAlloc for Counting {
         }
         p
     }
+    // SAFETY: `p` was allocated by this impl with layout `l` and has not
+    // been freed. `new` is non-zero. System::realloc has the same contract.
     unsafe fn realloc(&self, p: *mut u8, l: Layout, new: usize) -> *mut u8 {
+        // SAFETY: `p` and `l` match a live allocation from System.
         let q = unsafe { System.realloc(p, l, new) };
         if !q.is_null() {
             LIVE.fetch_add(new as isize - l.size() as isize, Ordering::Relaxed);
@@ -212,6 +228,47 @@ fn measure(gw: &Arc<Gateway>) -> Measured {
 type Case = (&'static str, Arc<dyn Provider>, Option<Arc<MockProvider>>);
 
 static SERIAL: Mutex<()> = Mutex::new(());
+
+/// The counting allocator's four unsafe methods, without the long chat soak.
+#[test]
+fn counting_allocator_round_trip() {
+    let _g = SERIAL.lock().unwrap();
+    let layout = Layout::from_size_align(256, 8).unwrap();
+    for _ in 0..32 {
+        let before = live();
+        // SAFETY: `layout` is non-zero and 8-aligned. The pointer is freed
+        // with the same layout before this iteration returns, and it is not
+        // dereferenced.
+        let p = unsafe { GLOBAL.alloc(layout) };
+        if p.is_null() {
+            continue;
+        }
+        let mid = live();
+        // SAFETY: `p` came from GLOBAL.alloc(layout) above and has not been freed.
+        unsafe { GLOBAL.dealloc(p, layout) };
+        let after = live();
+        if mid >= before + 256 && after == mid - 256 {
+            // SAFETY: `layout` is non-zero and 8-aligned. This pointer is
+            // passed to realloc below and then freed; it is not used after that.
+            let z = unsafe { GLOBAL.alloc_zeroed(layout) };
+            assert!(!z.is_null());
+            // SAFETY: `z` is the first byte of a live zeroed allocation of
+            // `layout` (256 bytes). The read does not go past that byte.
+            let zero = unsafe { std::ptr::read(z) };
+            assert_eq!(zero, 0);
+            let grown = Layout::from_size_align(512, 8).unwrap();
+            // SAFETY: `z` is the live pointer from alloc_zeroed(layout).
+            // 512 is non-zero and keeps the alignment. The old pointer is
+            // not used after this call.
+            let z2 = unsafe { GLOBAL.realloc(z, layout, grown.size()) };
+            assert!(!z2.is_null());
+            // SAFETY: `z2` is the pointer realloc just returned, with `grown`.
+            unsafe { GLOBAL.dealloc(z2, grown) };
+            return;
+        }
+    }
+    panic!("counting allocator did not move live bytes by the layout size");
+}
 
 #[test]
 fn heap_profile_chat_path() {

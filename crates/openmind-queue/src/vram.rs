@@ -337,7 +337,7 @@ impl VramPool {
         }
         if d.state == DeviceState::Approved
             && d.cents_per_hour > 0
-            && !(!d.provider.is_empty() && provider_approved(&d.provider))
+            && (d.provider.is_empty() || !provider_approved(&d.provider))
         {
             d.state = DeviceState::Planned;
             return Some("paid device needs an approved openmind-provider row (owner spend approval); kept as planned");

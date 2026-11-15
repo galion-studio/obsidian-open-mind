@@ -5,6 +5,7 @@
 name = "tuner"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Ukulele tuner static server. Bind and root are config-driven; defaults match the live tuner."
 
@@ -17,3 +18,6 @@ path = "src/main.rs"
 
 [dependencies]
 galion-common = { path = "../galion-common" }
+
+[lints]
+workspace = true

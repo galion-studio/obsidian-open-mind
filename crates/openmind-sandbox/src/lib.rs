@@ -1625,6 +1625,9 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
                         // the tmpfs size, never more (sparse files included).
                         libc::signal(libc::SIGXFSZ, libc::SIG_IGN);
                         let mut sv: libc::statvfs = std::mem::zeroed();
+                        // fsblkcnt_t is already u64 on this host and u32 on
+                        // other targets. The cast is the portable widening.
+                        #[allow(clippy::unnecessary_cast)]
                         let used = if libc::fstatvfs(wd_tmp, &mut sv) == 0 {
                             (sv.f_blocks as u64).saturating_sub(sv.f_bfree as u64)
                                 * sv.f_frsize as u64
@@ -1735,8 +1738,9 @@ pub fn run(cmd: &[String], policy: &SandboxPolicy) -> Outcome {
             c.finish();
         }
     };
-    // SAFETY: closing our copy of the write end, then reading at most 4 bytes.
     let mut b = [0u8; 4];
+    // SAFETY: closing our copy of the write end, then reading at most 4 bytes
+    // into `b`. Both fds come from the pipe created above.
     let got_bits = unsafe {
         libc::close(wfd);
         let n = libc::read(rfd, b.as_mut_ptr().cast(), 4);

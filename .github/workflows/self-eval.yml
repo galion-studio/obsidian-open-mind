@@ -37,9 +37,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; rustc channel is rust-toolchain.toml
         with:
-          toolchain: stable
           components: rustfmt
       - run: cargo fmt --all -- --check
       - run: cargo fmt --manifest-path edge/openmind-node/Cargo.toml --all -- --check
@@ -50,10 +49,21 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; rustc channel is rust-toolchain.toml
         with:
-          toolchain: stable
           components: clippy
+      - name: rustc is the channel in rust-toolchain.toml
+        run: |
+          set -eu
+          channel=$(sed -n 's/^channel = "\([^"]*\)"/\1/p' rust-toolchain.toml)
+          test -n "$channel"
+          got=$(rustc --version)
+          echo "rustc: $got"
+          echo "channel: $channel"
+          case "$got" in
+            *" $channel "*) echo "pinned toolchain enforced" ;;
+            *) echo "CI rustc does not match rust-toolchain.toml"; exit 1 ;;
+          esac
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   test:
@@ -62,9 +72,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; rustc channel is rust-toolchain.toml
         with:
-          toolchain: stable
           targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
       - name: fetch musl graphs for the offline feature-pin cargo tree
         run: scripts/linux/fetch-offline-tree.sh
@@ -92,9 +101,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
-        with:
-          toolchain: stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; rustc channel is rust-toolchain.toml
       - run: cargo xtask replay-corpus
 
   omnode:
@@ -103,9 +110,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; rustc channel is rust-toolchain.toml
         with:
-          toolchain: stable
           components: clippy
       - run: cargo clippy --manifest-path edge/openmind-node/Cargo.toml --all-targets --locked -- -D warnings
       - run: cargo test --manifest-path edge/openmind-node/Cargo.toml --locked
@@ -128,9 +134,13 @@ jobs:
       UCPU_TIER1: ${{ matrix.target }}
       UCPU_JOBS: 4
       UCPU_NICE: 0
+      # Size gate. rustc 1.89.0 emits hermes-gateway at 2149728 bytes,
+      # over the 2097152 cap. Stable stays under it. The env overrides
+      # rust-toolchain.toml for this job only.
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; size job stays on stable
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
@@ -157,9 +167,12 @@ jobs:
       UCPU_NICE: 0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20
         with:
-          toolchain: stable
+          # The action's omitted toolchain input defaults to stable and
+          # would install this target there. cargo then follows
+          # rust-toolchain.toml (1.89.0) and fails with E0463.
+          toolchain: "1.89.0"
           targets: ${{ matrix.target }}
       - name: install zig cc (pinned, checksum-verified)
         run: echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
@@ -174,9 +187,9 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20
         with:
-          toolchain: stable
+          toolchain: "1.89.0"
           targets: aarch64-unknown-linux-musl, armv7-unknown-linux-musleabihf
       - name: install qemu-user-static and zig cc
         run: |
@@ -216,9 +229,9 @@ jobs:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20
         with:
-          toolchain: stable
+          toolchain: "1.89.0"
           targets: x86_64-unknown-linux-musl
       - name: build repo-check (portable musl)
         run: cargo build --release --locked -p repo-check --target x86_64-unknown-linux-musl

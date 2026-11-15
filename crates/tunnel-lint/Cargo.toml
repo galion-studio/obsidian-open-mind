@@ -5,6 +5,7 @@
 name = "tunnel-lint"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Read-only linter for a cloudflared ingress config.yml: flags routes to local ports where nothing listens."
 
@@ -18,3 +19,6 @@ path = "src/main.rs"
 # No dependencies on purpose: the cloudflared ingress subset is parsed by hand
 # and listeners are checked with std::net or read from captured `ss -ltn` text.
 [dependencies]
+
+[lints]
+workspace = true

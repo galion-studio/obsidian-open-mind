@@ -6,6 +6,7 @@
 name = "console-ui"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Server-rendered Rust UI for the Galion console: HTML pages, a CSS sheet generated from Rust, the phone/host gate, and a loopback API client. std only, no JavaScript."
 
@@ -13,3 +14,6 @@ description = "Server-rendered Rust UI for the Galion console: HTML pages, a CSS
 path = "src/lib.rs"
 
 [dependencies]
+
+[lints]
+workspace = true

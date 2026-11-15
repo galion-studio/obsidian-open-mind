@@ -64,8 +64,9 @@ impl KittenTts {
     pub fn load(dir: &Path, cmudict: &Path) -> Result<Self, String> {
         let device = Device::Cpu;
         let cfg = config::KittenConfig::nano();
-        // Safety: the weight file is opened read-only and not modified while
-        // mapped (same pattern as the Whisper loader).
+        // SAFETY: the weight file is opened read-only and not modified while
+        // mapped (same pattern as the Whisper loader). A missing file makes
+        // candle return Err; this function does not dereference a failed map.
         #[allow(unsafe_code)]
         let vb = unsafe {
             VarBuilder::from_mmaped_safetensors(
@@ -168,5 +169,28 @@ impl TextToSpeech for KittenTts {
     /// while making chunk 2.
     fn chunks<'a>(&self, text: &'a str) -> Vec<&'a str> {
         clauses(text, 60)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The mmap in `load` must fail closed when the weight file is absent.
+    #[test]
+    fn missing_weights_are_an_error() {
+        let dir = std::env::temp_dir().join("kitten-missing-weights-rust-hygiene");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dict = dir.join("cmudict");
+        std::fs::write(&dict, "").unwrap();
+        match KittenTts::load(&dir, &dict) {
+            Err(err) => assert!(
+                !err.is_empty(),
+                "missing kitten-nano.safetensors must be an error"
+            ),
+            Ok(_) => panic!("missing kitten-nano.safetensors must be an error"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

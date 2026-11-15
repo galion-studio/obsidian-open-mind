@@ -4,6 +4,7 @@
 name = "galion-feature-pin"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Code-free feature pin (hand-kept workspace-hack): makes `cargo build -p X` and the full release -p set compile shared dependencies with the same features."
 
@@ -23,3 +24,6 @@ serde = { workspace = true }
 [dev-dependencies]
 # Real test only: SHA-256 of the release binaries.
 galion-common = { path = "../galion-common" }
+
+[lints]
+workspace = true

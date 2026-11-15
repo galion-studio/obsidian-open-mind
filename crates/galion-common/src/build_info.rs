@@ -62,7 +62,12 @@ mod tests {
             BUILD_TIME,
             option_env!("GALION_BUILD_TIME").unwrap_or("unknown")
         );
-        assert!(!COMMIT.is_empty() && !BUILD_TIME.is_empty());
+        // The fallback is the non-empty word "unknown". const_is_empty would
+        // fold this on the MSRV clippy because the value is a const.
+        #[allow(clippy::const_is_empty)]
+        {
+            assert!(!COMMIT.is_empty() && !BUILD_TIME.is_empty());
+        }
     }
 
     #[test]

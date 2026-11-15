@@ -46,6 +46,11 @@ jobs:
     env:
       LINUX_JOBS: 2
       LINUX_NICE: 0
+      # rust-toolchain.toml selects 1.89.0. On that compiler, stripped
+      # hermes-gateway for x86_64-unknown-linux-musl was 2149728 bytes
+      # (2026-11-15), which is over the 2097152 cap. This job stays on the
+      # stable compiler it installs. RUSTUP_TOOLCHAIN overrides the file.
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20

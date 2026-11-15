@@ -3,7 +3,7 @@
   "maker": "Galion / galion-studio",
   "version": "1.0.0",
   "updated": "2026-10-18T20:50:13+02:00",
-  "copyright": "Copyright (c) 3000 Galion / galion-studio",
+  "copyright": "see LICENSE",
   "source": "Ink, Paper, Sky, Ocean, Mist, Slate, Surface, Text and Line are carried over unchanged from release/brand/BRAND.md and release/site/style.css. Obsidian, Glass and Ice are added for the faceted mark and banner.",
   "colors": [
     { "token": "obsidian",    "hex": "#05070A", "rgb": [5, 7, 10],      "role": "deepest background: banner, hero, favicon tile" },

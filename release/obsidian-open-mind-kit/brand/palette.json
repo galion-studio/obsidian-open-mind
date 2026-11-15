@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "theme": "obsidian: deep volcanic black glass, one restrained sky accent",
   "source": "Core hexes reused from the earlier Galion release kit: /opt/galion/openmind/release/brand/BRAND.md (section 4) and release/site/style.css. Facet shades are darker steps of Ink/Surface used only inside the logo mark and banner.",
-  "license": "MIT License, Copyright (c) 3000 Galion / galion-studio",
+  "license": "MIT License; see LICENSE",
   "colors": {
     "ink":           { "hex": "#0B0F14", "role": "primary dark background; body text on light", "origin": "release kit" },
     "surface":       { "hex": "#131A22", "role": "raised panel and code block on dark", "origin": "release kit" },

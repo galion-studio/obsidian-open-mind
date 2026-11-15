@@ -2,7 +2,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="t">
   <title id="t">Obsidian Open Mind, made by Galion. Rust on CPU. Providers are just rows.</title>
   <!-- Hand-written SVG. Repo header and GitHub social preview (1280x640). Content stays inside a 80 px safe margin.
-       MIT License, Copyright (c) 3000 Galion / galion-studio. -->
+       MIT License; see LICENSE. -->
   <defs>
     <radialGradient id="glow" cx="0.5" cy="0.42" r="0.62">
       <stop offset="0" stop-color="#131A22"/>

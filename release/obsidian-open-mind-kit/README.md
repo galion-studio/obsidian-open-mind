@@ -282,4 +282,3 @@ Timestamps in this project are Europe/Zagreb with an explicit offset: `+02:00` u
 ## License
 
 Obsidian Open Mind is MIT-licensed: see [LICENSE](LICENSE).
-Copyright (c) 3000 Galion / galion-studio.

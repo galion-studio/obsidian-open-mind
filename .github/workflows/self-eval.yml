@@ -232,8 +232,8 @@ jobs:
       - name: self-eval
         run: |
           bin=target/x86_64-unknown-linux-musl/release/repo-check
-          "$bin" --json --copyright "3000 Galion / galion-studio" > self-eval.json || true
-          "$bin" --copyright "3000 Galion / galion-studio"
+          "$bin" --json --copyright "2026 Galion Labs" > self-eval.json || true
+          "$bin" --copyright "2026 Galion Labs"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
@@ -333,8 +333,13 @@ jobs:
         run: |
           set -eu
           test -f LICENSE || { echo "::error::LICENSE missing"; exit 1; }
-          head -n 1 LICENSE | grep -qx 'MIT License' || { echo "::error::LICENSE is not the MIT text"; exit 1; }
-          grep -qx 'Copyright (c) 3000 Galion / galion-studio' LICENSE || { echo "::error::LICENSE copyright line changed"; exit 1; }
+          hash=$(sha256sum LICENSE | awk '{print $1}')
+          size=$(wc -c < LICENSE)
+          size=${size// /}
+          test "$hash" = "33a955cb5bedbd5a58802766dd6a692f252dd7b3c663809496c21782ec21b22a" || { echo "::error::LICENSE sha256 is $hash"; exit 1; }
+          test "$size" = "1257" || { echo "::error::LICENSE is $size bytes"; exit 1; }
+          grep -qx 'MIT License' LICENSE || { echo "::error::LICENSE is not the MIT text"; exit 1; }
+          grep -qx 'Copyright (c) 2026 Galion Labs' LICENSE || { echo "::error::LICENSE copyright line changed"; exit 1; }
           grep -q 'Permission is hereby granted, free of charge' LICENSE || { echo "::error::MIT grant text missing"; exit 1; }
           grep -qE '^license *= *"MIT"' Cargo.toml || { echo "::error::Cargo.toml [workspace.package] license is not MIT"; exit 1; }
           for l in crates/*/LICENSE edge/*/LICENSE; do

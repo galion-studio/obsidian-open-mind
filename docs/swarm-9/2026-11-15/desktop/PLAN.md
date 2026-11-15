@@ -233,13 +233,15 @@ Observed green at 15:30, except #16 and #17:
 
 - Core #59 may edit `.github/workflows/self-eval.yml`. Desktop no longer edits the licence job. Desktop bumps still edit dependency lines and `Cargo.lock`. Checkout (#20) edits `uses:` pins. One owner per hunk.
 - `LICENSE` and copyright headers stay as they are. #65 is the draft that tried to replace them. It is not merged.
-- Core #59 does not edit `crates/hermes-rs/**`. The #14 recreation does. Desktop owns that recreation. Core linux may edit `crates/openmind-desktop/src/lib.rs`, `files.rs`, and `http.rs` for bind defaults. This plan does not.
+- Core #59 does not edit `crates/hermes-rs/**`. Desktop owns that tree until the #14 recreation and the getrandom bump (#70, which edits `crates/hermes-rs`) have each merged, one at a time. Confirmed with core at 15:40: CPU draft #71 (`8c6f047b`) had edited `crates/hermes-rs/src/http.rs`, `lib.rs`, `mcp.rs`, and `benches/cpu.rs`. The #14 overlap is `lib.rs` only. Core will drop the whole `hermes-rs` tree from #71 and will not merge #71 while those files remain. Linux #69 does not edit `hermes-rs`.
+- Desktop does not claim `crates/openmind-desktop/**`. CPU #71 keeps `files.rs`, `probe.rs`, and `benches/cpu.rs` there. Those are CPU edits, not the #14 recreation. Core linux may still edit `lib.rs`, `files.rs`, and `http.rs` in that crate for bind defaults. This plan does not.
 - #15's conflict is `docs/crate-index.md`, which #60 owns. The recreation stays out of that file.
 - `docs/desktop/README.md` stays on #52.
 - #57's branch also copies a Galion OS `LICENSE`. Desktop does not merge that. The owner decides #57. `main` keeps the year-3000 line unless the owner merges a change.
 - #24, #26, and #30 overlap #57. Recreated pins should match #57 so the owner's merge is a duplicate, not a second version.
 - #22 vs vendored `candle-core` 0.9.2: likely to stay open. Do not treat a red check as a merge.
-- #60 (readme-status) does not yet name `HERMES_RS_MCP_GITHUB`. That is an open review note. #58's notes still say the majors are undecided. The 15:29 section above replaces that.
+- #60's three review notes were closed on `fda745b511` (plain year-3000 line, Hermes pointer, workflow triggers). It stays a draft until CI is green.
+- #58's notes may still say the majors are undecided. The 15:29 section above replaces that. Do not merge a second copy of a bump that is already on `main` (#55 is merged; #62 duplicates it).
 
 ## Orchestrator log
 
@@ -257,4 +259,5 @@ Checked for this plan. Times are Europe/Zagreb (`+01:00`).
 - 15:30. `gh pr list` rollups recorded in the 15:29 table. Open Swarm 9 drafts: #58 `Swarm 9 desktop/old-prs-deps` (`ed3da063`, brand tables and the safe gitignore, CI still running), #60 `Swarm 9 desktop/readme-status` (`610458a6`, CI still running), #59 `Swarm 9 core plan` (`8eb597f2`).
 - Read #59's plan and #58's diff. #60's README names ports 18181 and 18080 and does not name `HERMES_RS_MCP_GITHUB`. Its STATUS text calls `launch-gates.yml` and `realtest.yml` `workflow_dispatch` only; both also run on `pull_request` (read from those files on `de7480e`).
 - 15:34. Owner decision: the year-3000 copyright stays. #65 (`c856266`) stays a draft and is not merged. #55 merged as `0188e1301a9e8a94841fde82bbcd07dd56cde49f` at 2026-11-15T15:34:19+01:00. #54 was updated from that `main` as `c02f91d0` so its CI can re-run. Not merged yet.
+- 15:40. Core recorded a conflict on this plan: CPU #71 (`8c6f047b`) edits `crates/hermes-rs/**`. Desktop keeps that tree for the #14 recreation and for #70. Core keeps `crates/openmind-desktop/**` on #71. Linux #69 does not edit `hermes-rs`.
 - Not run: `cargo test`, `scripts/status-percent.sh`, CI on this plan beyond the push. Those belong to this pull request's CI.

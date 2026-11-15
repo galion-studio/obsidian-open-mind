@@ -7,7 +7,8 @@
 //! States use the brand words: `staged` (built, not switched on) and
 //! `planned` (not started by this page). Nothing here is marked live.
 //! This list is not a health check. Live checks are [`crate::probe`], and
-//! they run only when the operator asks.
+//! they run only when the operator presses Look. That button does not
+//! change these states.
 
 /// One row of the stack view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

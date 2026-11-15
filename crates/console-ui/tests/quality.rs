@@ -8,9 +8,10 @@
 //! rendered HTML must match the committed snapshot.
 
 use console_ui::a11y::{self, focusables, unlabeled_fields};
+use console_ui::connectors;
 use console_ui::json::{self, Value};
 use console_ui::layout::{self, Frame, Origin};
-use console_ui::pages::{self, hermes};
+use console_ui::pages::{self, connectors as cn, hermes};
 use console_ui::sound::{self, Ratio, TONIC_HZ};
 use std::path::PathBuf;
 
@@ -35,6 +36,21 @@ fn sample() -> (Vec<pages::Service>, Value) {
 
 fn screens() -> Vec<(&'static str, String)> {
     let (svcs, domains) = sample();
+    let catalog = connectors::catalog();
+    let connectors_html = layout::console(
+        &frame("/connectors"),
+        Origin::Down,
+        &cn::body(&cn::View {
+            catalog: &catalog,
+            customs: &[],
+            store: None,
+            csrf: "csrf-test",
+            notice: None,
+            saved: None,
+            q: "",
+            logos: &[],
+        }),
+    );
     let health =
         json::parse(br#"{"status":"healthy","version":"1","target":{"pod":"ip50"}}"#).unwrap();
     let f = frame("/console");
@@ -89,6 +105,7 @@ fn screens() -> Vec<(&'static str, String)> {
             "overview",
             pages::overview::body(console_ui::PORTED.len() + 1),
         ),
+        ("connectors", connectors_html),
     ]
 }
 

@@ -176,7 +176,7 @@ mod tests {
         let path = scratch();
         let before = std::fs::read(&path).unwrap();
         let conn = open_readonly(&path).unwrap();
-        assert!(conn.is_readonly(rusqlite::DatabaseName::Main).unwrap());
+        assert!(conn.is_readonly(rusqlite::MAIN_DB).unwrap());
         let err = conn.execute(
             "INSERT INTO health_checks (service, status, response_time_ms) VALUES ('nope', 'healthy', 1)",
             [],

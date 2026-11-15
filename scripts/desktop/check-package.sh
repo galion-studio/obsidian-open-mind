@@ -432,12 +432,21 @@ EOF
     tar -C "$top" -xzf "$dir/$base"
     ;;
   *.zip)
+    if ! desktop_zip_magic "$dir/$base"; then
+      desktop_die "archive is not a zip"
+    fi
+    names=""
     if command -v zipinfo >/dev/null 2>&1; then
-      names=$(zipinfo -1 "$dir/$base")
-    elif command -v unzip >/dev/null 2>&1; then
-      names=$(unzip -Z1 "$dir/$base")
-    else
-      desktop_die "zipinfo or unzip is required"
+      names=$(zipinfo -1 "$dir/$base" 2>/dev/null || true)
+    fi
+    if [ -z "$names" ] && command -v unzip >/dev/null 2>&1; then
+      names=$(unzip -Z1 "$dir/$base" 2>/dev/null || true)
+    fi
+    if [ -z "$names" ]; then
+      names=$(tar -tf "$dir/$base" 2>/dev/null || true)
+    fi
+    if [ -z "$names" ]; then
+      desktop_die "could not list the zip"
     fi
     while IFS= read -r entry; do
       [ -z "$entry" ] && continue

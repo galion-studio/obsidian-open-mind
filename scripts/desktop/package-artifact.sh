@@ -217,10 +217,11 @@ if [ "$format" = "linux" ]; then
     "$deb_root/usr/bin" \
     "$deb_root/usr/share/doc/openmind-desktop"
   cp -- "$bin" "$deb_root/usr/bin/openmind-desktop"
-  chmod 755 -- "$deb_root/usr/bin/openmind-desktop"
+  # No "--": macOS chmod treats it as a file name.
+  chmod 755 "$deb_root/usr/bin/openmind-desktop"
   cp -- "$out/LICENSE" "$deb_root/usr/share/doc/openmind-desktop/LICENSE"
   cp -- "$out/README.md" "$deb_root/usr/share/doc/openmind-desktop/README.md"
-  chmod 644 -- \
+  chmod 644 \
     "$deb_root/usr/share/doc/openmind-desktop/LICENSE" \
     "$deb_root/usr/share/doc/openmind-desktop/README.md"
   {
@@ -237,7 +238,7 @@ if [ "$format" = "linux" ]; then
     printf ' Loopback-only page. Tones are integer ratios of 432 Hz.\n'
     printf ' Workflow artifact, not a signed GitHub Release.\n'
   } > "$deb_root/DEBIAN/control"
-  chmod 644 -- "$deb_root/DEBIAN/control"
+  chmod 644 "$deb_root/DEBIAN/control"
   dpkg-deb --root-owner-group --build "$deb_root" "$out/$deb_name"
 fi
 
@@ -246,7 +247,7 @@ mkdir -p -- "$stage"
 pkg="$stage/$stem"
 mkdir -p -- "$pkg"
 cp -- "$bin" "$pkg/$bin_name"
-chmod 755 -- "$pkg/$bin_name"
+chmod 755 "$pkg/$bin_name"
 cp -- "$out/LICENSE" "$pkg/LICENSE"
 cp -- "$out/README.md" "$pkg/README.md"
 if [ -n "$deb_name" ]; then
@@ -269,11 +270,7 @@ desktop_write_note "$pkg/LOCAL-ARTIFACT.txt" "$ver" "$triple" "$archive_name" "$
 
 case "$format" in
   zip)
-    if command -v zip >/dev/null 2>&1; then
-      (cd "$stage" && zip -r -X "$out/$archive_name" "$stem")
-    else
-      tar -a -cf "$out/$archive_name" -C "$stage" "$stem"
-    fi
+    desktop_write_zip "$out/$archive_name" "$stage" "$stem"
     ;;
   linux|tar)
     tar -C "$stage" -czf "$out/$archive_name" "$stem"

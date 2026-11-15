@@ -214,8 +214,67 @@ desktop_write_sums() {
 
 desktop_cmp() {
   local what=$1 want=$2 got=$3
-  if ! cmp -s -- "$want" "$got"; then
-    diff -u -- "$want" "$got" >&2 || true
+  # No "--": macOS cmp and diff treat it as a file name.
+  if ! cmp -s "$want" "$got"; then
+    diff -u "$want" "$got" >&2 || true
     desktop_die "$what does not match"
   fi
+}
+
+# True when the file starts with a local-file zip signature.
+desktop_zip_magic() {
+  local magic
+  if [ ! -f "$1" ]; then
+    return 1
+  fi
+  if ! command -v od >/dev/null 2>&1; then
+    desktop_die "od is required"
+  fi
+  magic=$(od -An -t x1 -N 4 "$1" | tr -d ' \t\n' | tr 'A-F' 'a-f')
+  case "$magic" in
+    504b0304|504b0506|504b0708) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Write a zip of $stem inside $stage to $dest. GNU tar -a names a tar ".zip",
+# so a ".zip" suffix is not enough. The result must start with a PK signature.
+desktop_write_zip() {
+  local dest=$1 stage=$2 stem=$3
+  rm -f "$dest"
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$stage" && zip -r -X "$dest" "$stem") || desktop_die "zip failed"
+    if desktop_zip_magic "$dest"; then
+      return 0
+    fi
+    rm -f "$dest"
+  fi
+  # bsdtar. GNU tar rejects --format=zip and must not leave a tar behind.
+  if tar --format=zip -cf "$dest" -C "$stage" "$stem" 2>/dev/null && desktop_zip_magic "$dest"; then
+    return 0
+  fi
+  rm -f "$dest"
+  if desktop_try_powershell_zip "$dest" "$stage/$stem" && desktop_zip_magic "$dest"; then
+    return 0
+  fi
+  desktop_die "could not write a zip archive"
+}
+
+desktop_try_powershell_zip() {
+  local dest=$1 src=$2 ps="" win_dest win_src
+  if command -v powershell.exe >/dev/null 2>&1; then
+    ps=powershell.exe
+  elif command -v pwsh >/dev/null 2>&1; then
+    ps=pwsh
+  else
+    return 1
+  fi
+  if command -v cygpath >/dev/null 2>&1; then
+    win_dest=$(cygpath -w "$dest")
+    win_src=$(cygpath -w "$src")
+  else
+    win_dest=$dest
+    win_src=$src
+  fi
+  "$ps" -NoProfile -NonInteractive -Command "Compress-Archive -LiteralPath '$win_src' -DestinationPath '$win_dest'"
 }

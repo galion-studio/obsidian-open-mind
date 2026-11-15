@@ -4,7 +4,8 @@
 # openmind-desktop gate. Linux builds, runs clippy and tests, then a local
 # tarball. The aarch64 job cross-builds and runs those tests under qemu-user
 # (same emulator split as the self-eval ucpu-qemu job). Windows
-# (x86_64-pc-windows-msvc) and macOS (aarch64-apple-darwin) only build.
+# (x86_64-pc-windows-msvc) and macOS (aarch64-apple-darwin) build, run
+# clippy, and run the tests. They do not package a tarball.
 # permissions stay contents: read. This file does not create a GitHub
 # Release, upload an artifact, or publish a crate.
 name: openmind-desktop
@@ -136,29 +137,43 @@ jobs:
           cargo test -p openmind-desktop --locked --target aarch64-unknown-linux-musl
 
   windows:
-    name: build (x86_64-pc-windows-msvc)
+    name: build and test (x86_64-pc-windows-msvc)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
+          components: clippy
 
       - name: build
         run: cargo build -p openmind-desktop --locked --target x86_64-pc-windows-msvc
 
+      - name: clippy
+        run: cargo clippy -p openmind-desktop --all-targets --locked --target x86_64-pc-windows-msvc -- -D warnings
+
+      - name: test
+        run: cargo test -p openmind-desktop --locked --target x86_64-pc-windows-msvc
+
   macos:
-    name: build (aarch64-apple-darwin)
+    name: build and test (aarch64-apple-darwin)
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
           targets: aarch64-apple-darwin
+          components: clippy
 
       - name: build
         run: cargo build -p openmind-desktop --locked --target aarch64-apple-darwin
+
+      - name: clippy
+        run: cargo clippy -p openmind-desktop --all-targets --locked --target aarch64-apple-darwin -- -D warnings
+
+      - name: test
+        run: cargo test -p openmind-desktop --locked --target aarch64-apple-darwin

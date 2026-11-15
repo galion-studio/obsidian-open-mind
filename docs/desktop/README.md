@@ -17,7 +17,7 @@ From a checkout of this repository, on Linux:
 nice -n 19 cargo build -j 2 -p openmind-desktop --release --locked
 ```
 
-The binary is `target/release/openmind-desktop`. The crate depends on `galion-common`, and on `libc` for the Linux `O_NOFOLLOW` value (`crates/openmind-desktop/Cargo.toml`, `open_nofollow` in `crates/openmind-desktop/src/files.rs`).
+The binary is `target/release/openmind-desktop`. The crate depends on `galion-common`, and on `libc` for `O_NOFOLLOW` on Linux and macOS (`crates/openmind-desktop/Cargo.toml`, `open_nofollow` in `crates/openmind-desktop/src/files.rs`). Windows passes `FILE_FLAG_OPEN_REPARSE_POINT` in that function.
 
 A local package (tarball and checksums, kept on this machine):
 
@@ -139,4 +139,4 @@ The `linux` job (`ubuntu-latest`) builds the crate, runs clippy with `-D warning
 
 The `linux-aarch64` job cross-builds `aarch64-unknown-linux-musl` (linker `rust-lld`, `.cargo/config.toml`) and runs the same tests under qemu-user (`qemu-aarch64-static` or `qemu-aarch64`, the same package split as the self-eval `ucpu-qemu` job). That is the run that checks `libc::O_NOFOLLOW` (`O_NOFOLLOW` and `nofollow_flag_matches_this_target` in `crates/openmind-desktop/src/files.rs`): `libc` supplies the flag, which is `0x8000` on aarch64 and `0x20000` on x86. On ARM, `0x20000` is `O_LARGEFILE`, so a hard-coded x86 value would not stop `open` from following a symlink.
 
-Windows (`windows-latest`, target `x86_64-pc-windows-msvc`) and macOS (`macos-latest`, target `aarch64-apple-darwin`) only build the crate. They do not run the tests, package a tarball, or upload an artifact. Linux file opens stay on the `libc::O_NOFOLLOW` path (`open_nofollow` in `crates/openmind-desktop/src/files.rs`). The other targets use the existing non-Linux open, which checks `symlink_metadata` and then opens the file.
+Windows (`windows-latest`, target `x86_64-pc-windows-msvc`) and macOS (`macos-latest`, target `aarch64-apple-darwin`) build the crate, run clippy with `-D warnings` on all targets, and run the tests. They do not package a tarball or upload an artifact. macOS file opens use `libc::O_NOFOLLOW`, which is `0x0100` (`O_NOFOLLOW` and `nofollow_flag_matches_this_target` in `crates/openmind-desktop/src/files.rs`). Windows passes `FILE_FLAG_OPEN_REPARSE_POINT` (`0x00200000`) and refuses a handle that is a reparse point before any byte is read (`FILE_FLAG_OPEN_REPARSE_POINT`, `open_reparse_point_flag_matches_this_target`, and `open_reparse_point_does_not_read_a_symlink` in the same file). Any other target checks `symlink_metadata` and then opens the file.

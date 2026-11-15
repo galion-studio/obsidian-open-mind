@@ -517,6 +517,7 @@ const SCRIPT: &str = r#"
     mute.setAttribute("aria-pressed", on ? "false" : "true");
     mute.textContent = on ? "Mute" : "Muted";
   });
+  if (location.protocol !== "file:" && loopbackPage()) play("wake");
 })();
 "#;
 
@@ -765,6 +766,8 @@ mod tests {
         let one_row = html.find("data-layer=\"galion-one\"").unwrap();
         assert!(html[one_row..one_row + 160].contains("<a href=\"/one\">Galion One</a>"));
         assert!(html.contains("aria-label=\"Stack\""));
+        assert!(html.contains("play(\"wake\")"));
+        assert!(html.contains("location.protocol !== \"file:\" && loopbackPage()"));
         assert!(html.contains("id=\"look\""));
         assert!(html.contains("Look at the local stack"));
         assert_eq!(html.matches("class=\"seen\"").count(), LAYERS.len());

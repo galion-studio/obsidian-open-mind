@@ -965,26 +965,62 @@ fn read_limited(path: &Path, max: usize) -> Result<Vec<u8>, FileError> {
     Ok(bytes)
 }
 
-/// Linux `O_NOFOLLOW` for the architecture this binary is compiled for.
+/// `O_NOFOLLOW` for the operating system this binary is compiled for.
 ///
-/// x86 and x86_64 use `0x20000`. aarch64 and arm use `0x8000`. On those ARM
-/// targets `0x20000` is `O_LARGEFILE`, so the x86 literal does not stop
-/// `open` from following a symlink. `libc` supplies the kernel value.
-#[cfg(target_os = "linux")]
+/// Linux x86 and x86_64 use `0x20000`. Linux aarch64 and arm use `0x8000`.
+/// On those ARM targets `0x20000` is `O_LARGEFILE`, so the x86 literal does
+/// not stop `open` from following a symlink. macOS uses `0x0100`. `libc`
+/// supplies the value.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const O_NOFOLLOW: i32 = libc::O_NOFOLLOW;
 
+// A wrong libc value fails this build. The tests repeat the check on the runner.
+#[cfg(all(target_os = "linux", any(target_arch = "x86", target_arch = "x86_64")))]
+const _: () = assert!(O_NOFOLLOW == 0x20000);
+#[cfg(all(target_os = "linux", any(target_arch = "aarch64", target_arch = "arm")))]
+const _: () = assert!(O_NOFOLLOW == 0x8000);
+#[cfg(target_os = "macos")]
+const _: () = assert!(O_NOFOLLOW == 0x0100);
+
+/// Win32 `FILE_FLAG_OPEN_REPARSE_POINT`. `CreateFileW` opens a symlink
+/// itself instead of the file it names.
+#[cfg(target_os = "windows")]
+const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x00200000;
+
+/// Win32 `FILE_ATTRIBUTE_REPARSE_POINT` on a handle opened with
+/// [`FILE_FLAG_OPEN_REPARSE_POINT`].
+#[cfg(target_os = "windows")]
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x00000400;
+
 fn open_nofollow(path: &Path) -> Result<File, FileError> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        // A last-component swap cannot be followed: open fails with ELOOP.
+        // The last component is not followed. A symlink fails the open with ELOOP.
         File::options()
             .read(true)
             .custom_flags(O_NOFOLLOW)
             .open(path)
             .map_err(|err| map_open_err(path, err))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // The handle is the reparse point, not the target. Refuse it before
+        // any byte is read. The check uses this handle, so a swap after the
+        // open cannot redirect the read.
+        let file = File::options()
+            .read(true)
+            .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+            .open(path)
+            .map_err(|err| map_open_err(path, err))?;
+        let meta = file.metadata().map_err(|err| map_open_err(path, err))?;
+        if opened_reparse_point(&meta) {
+            return Err(FileError::Symlink);
+        }
+        Ok(file)
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         let meta = fs::symlink_metadata(path).map_err(|err| map_open_err(path, err))?;
         if meta.file_type().is_symlink() {
@@ -992,6 +1028,12 @@ fn open_nofollow(path: &Path) -> Result<File, FileError> {
         }
         File::open(path).map_err(|err| map_open_err(path, err))
     }
+}
+
+#[cfg(target_os = "windows")]
+fn opened_reparse_point(meta: &fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    meta.file_type().is_symlink() || meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
 }
 
 fn map_open_err(path: &Path, err: std::io::Error) -> FileError {
@@ -1452,13 +1494,54 @@ mod tests {
     use std::time::Duration;
 
     fn scratch() -> PathBuf {
-        let mut buf = [0u8; 8];
-        let mut random = File::open("/dev/urandom").unwrap();
-        random.read_exact(&mut buf).unwrap();
-        let dir =
-            std::env::temp_dir().join(format!("om-desk-{}", galion_common::hex::encode(&buf)));
+        let dir = std::env::temp_dir().join(format!(
+            "om-desk-{}",
+            galion_common::hex::encode(&temp_id())
+        ));
         fs::create_dir(&dir).unwrap();
         dir
+    }
+
+    /// Eight bytes that differ per call. Unix reads `/dev/urandom`. Windows
+    /// has no such file, so the id is a counter mixed with the process id.
+    fn temp_id() -> [u8; 8] {
+        #[cfg(unix)]
+        {
+            let mut buf = [0u8; 8];
+            let mut random = File::open("/dev/urandom").unwrap();
+            random.read_exact(&mut buf).unwrap();
+            buf
+        }
+        #[cfg(not(unix))]
+        {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            let n = NEXT
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                ^ u64::from(std::process::id());
+            n.to_le_bytes()
+        }
+    }
+
+    #[cfg(unix)]
+    fn link_file(target: &Path, link: &Path) {
+        std::os::unix::fs::symlink(target, link).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn link_dir(target: &Path, link: &Path) {
+        std::os::unix::fs::symlink(target, link).unwrap();
+    }
+
+    #[cfg(windows)]
+    fn link_file(target: &Path, link: &Path) {
+        std::os::windows::fs::symlink_file(target, link).unwrap();
+    }
+
+    #[cfg(windows)]
+    fn link_dir(target: &Path, link: &Path) {
+        std::os::windows::fs::symlink_dir(target, link).unwrap();
     }
 
     struct Tmp {
@@ -1594,19 +1677,18 @@ mod tests {
         assert_eq!(listed[0].name, "only.txt");
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn symlinks_are_not_followed() {
-        use std::os::unix::fs::symlink;
         let tmp = Tmp::new();
         let grant = tmp.path.join("chosen");
         fs::create_dir(&grant).unwrap();
         let outside = tmp.path.join("secret.txt");
         fs::write(&outside, b"SENTINEL-LINK").unwrap();
-        symlink(&outside, grant.join("link.txt")).unwrap();
-        symlink(tmp.path.join("nope"), grant.join("dangling.txt")).unwrap();
+        link_file(&outside, &grant.join("link.txt"));
+        link_file(&tmp.path.join("nope"), &grant.join("dangling.txt"));
         let via = tmp.path.join("via");
-        symlink(&grant, &via).unwrap();
+        link_dir(&grant, &via);
         assert!(Files::open_limited(std::slice::from_ref(&via), None, None, 64).is_err());
         let files = limited(&[grant], None, None, 64);
         for name in ["link.txt", "dangling.txt"] {
@@ -1631,15 +1713,32 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn nofollow_flag_matches_this_target() {
+        assert_eq!(O_NOFOLLOW, libc::O_NOFOLLOW);
+        // Apple fcntl.h: O_NOFOLLOW is 0x0100. It is not a Linux value.
+        assert_eq!(O_NOFOLLOW, 0x0100);
+        assert_ne!(O_NOFOLLOW, 0x20000);
+        assert_ne!(O_NOFOLLOW, 0x8000);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn open_reparse_point_flag_matches_this_target() {
+        // Win32 FILE_FLAG_OPEN_REPARSE_POINT and FILE_ATTRIBUTE_REPARSE_POINT.
+        assert_eq!(FILE_FLAG_OPEN_REPARSE_POINT, 0x00200000);
+        assert_eq!(FILE_ATTRIBUTE_REPARSE_POINT, 0x00000400);
+    }
+
     #[cfg(unix)]
     #[test]
     fn open_nofollow_does_not_read_a_symlink() {
-        use std::os::unix::fs::symlink;
         let tmp = Tmp::new();
         let real = tmp.path.join("secret.txt");
         fs::write(&real, b"SENTINEL-OPEN").unwrap();
         let link = tmp.path.join("link.txt");
-        symlink(&real, &link).unwrap();
+        link_file(&real, &link);
         let err = open_nofollow(&link).unwrap_err();
         assert_eq!(err.code(), "symlink", "{err}");
         assert!(!err.to_string().contains("SENTINEL"));
@@ -1647,6 +1746,23 @@ mod tests {
         let mut buf = Vec::new();
         file.read_to_end(&mut buf).unwrap();
         assert_eq!(buf, b"SENTINEL-OPEN");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn open_reparse_point_does_not_read_a_symlink() {
+        let tmp = Tmp::new();
+        let real = tmp.path.join("secret.txt");
+        fs::write(&real, b"SENTINEL-REPARSE").unwrap();
+        let link = tmp.path.join("link.txt");
+        link_file(&real, &link);
+        let err = open_nofollow(&link).unwrap_err();
+        assert_eq!(err.code(), "symlink", "{err}");
+        assert!(!err.to_string().contains("SENTINEL"));
+        let mut file = open_nofollow(&real).unwrap();
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).unwrap();
+        assert_eq!(buf, b"SENTINEL-REPARSE");
     }
 
     #[test]

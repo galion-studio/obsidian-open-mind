@@ -161,6 +161,9 @@ pub fn is_attach_path(path: &str) -> bool {
 pub fn body_limit(method: &str, path: &str) -> usize {
     if method == "POST" && is_attach_path(path) {
         MAX_BODY
+    } else if method == "POST" && path == crate::connectors::PATH {
+        // A pasted token is up to 4096 bytes, plus the csrf field.
+        16 * 1024
     } else {
         crate::MAX_FORM
     }
@@ -771,6 +774,7 @@ mod tests {
         assert_eq!(MAX_BYTES, 8 * 1024 * 1024);
         assert!(body_limit("POST", "/hermes/attach") > crate::MAX_FORM);
         assert_eq!(body_limit("POST", "/hermes"), crate::MAX_FORM);
+        assert_eq!(body_limit("POST", "/connectors"), 16 * 1024);
         assert_eq!(body_limit("GET", "/hermes/attach"), crate::MAX_FORM);
         assert!(is_attach_path("/research/attach"));
         assert!(!is_attach_path("/hermes"));

@@ -24,6 +24,7 @@ pub mod admin_sheet;
 pub mod admin_views;
 pub mod attach;
 pub mod client;
+pub mod connectors;
 pub mod css;
 pub mod cues;
 pub mod gate;
@@ -31,6 +32,8 @@ pub mod html;
 pub mod icons;
 pub mod json;
 pub mod layout;
+pub mod logos;
+pub mod oauth;
 pub mod overview;
 pub mod pages;
 pub mod port2;
@@ -38,6 +41,7 @@ pub mod port3;
 pub mod port4;
 pub mod port5;
 pub mod rooms;
+pub mod sha256;
 pub mod sound;
 
 use client::Forward;
@@ -210,6 +214,12 @@ pub struct Ui {
     research_css: String,
     research_css_href: String,
     research_css_etag: String,
+    /// `/connectors` brand logos (`--connectors-logo-dir`, read at start).
+    cn_logos: Vec<logos::Logo>,
+    /// `/connectors` sheet. Linked only on that room.
+    cn_css: String,
+    cn_css_href: String,
+    cn_css_etag: String,
     sprite_href: String,
     sprite_etag: String,
     sprite: String,
@@ -255,6 +265,9 @@ impl Ui {
         let oh = css::fnv64(overview_css.as_bytes());
         let research_css = css::research_sheet();
         let rh = css::fnv64(research_css.as_bytes());
+        let cn_logos = logos::load(cfg.files.connectors_logo_dir.as_deref());
+        let cn_css = css::connectors_sheet();
+        let cc = css::fnv64(cn_css.as_bytes());
         Ui {
             cfg,
             css_href: format!("/_ui/console.{h:016x}.css"),
@@ -266,6 +279,10 @@ impl Ui {
             research_css_href: format!("/_ui/research.{rh:016x}.css"),
             research_css_etag: format!("\"{rh:016x}\""),
             research_css,
+            cn_css_href: format!("/_ui/connectors.{cc:016x}.css"),
+            cn_css_etag: format!("\"{cc:016x}\""),
+            cn_css,
+            cn_logos,
             sprite_href: icons::sprite_href().to_string(),
             sprite_etag: icons::sprite_etag().to_string(),
             sprite: icons::sprite_body().to_string(),
@@ -289,6 +306,8 @@ impl Ui {
             || (PORTED.contains(&path) && !(spa_fallback && SPA_FIRST.contains(&path)))
             || port4::owns(path)
             || path == "/research"
+            || path == connectors::PATH
+            || path == oauth::CALLBACK_PATH
             || attach::is_attach_path(path)
             || admin_views::owns(path)
             || path == "/"
@@ -429,6 +448,26 @@ impl Ui {
             p if p == self.research_css_href => {
                 return self.stylesheet(&self.research_css_etag, self.research_css.as_bytes())
             }
+            p if p == self.cn_css_href => {
+                return self.stylesheet(&self.cn_css_etag, self.cn_css.as_bytes())
+            }
+            p if p.starts_with(logos::PREFIX) => {
+                return match logos::by_path(&self.cn_logos, p) {
+                    Some(l) => Reply {
+                        status: 200,
+                        headers: vec![
+                            ("Content-Type".into(), l.mime.into()),
+                            (
+                                "Cache-Control".into(),
+                                "public, max-age=31536000, immutable".into(),
+                            ),
+                            ("ETag".into(), l.etag.clone()),
+                        ],
+                        body: l.bytes.clone(),
+                    },
+                    None => Reply::text(404, "Not Found\n"),
+                }
+            }
             p if admin_sheet::is_sheet(p) => return admin_sheet::reply(),
             p if p == self.sprite_href => return self.sprite(req),
             "/_ui/favicon.svg" => {
@@ -462,14 +501,21 @@ impl Ui {
             || port2::POST_ROUTES.contains(&req.path)
             || port3::POST_ROUTES.contains(&req.path)
             || port5::POST_ROUTES.contains(&req.path)
-            || attach::is_attach_path(req.path))
+            || attach::is_attach_path(req.path)
+            || req.path == connectors::PATH)
             && req.method == "POST";
         if req.method != "GET" && req.method != "HEAD" && !post_ok {
             let mut r = Reply::text(405, "Method Not Allowed\n");
             r.headers.push(("Allow".into(), "GET, HEAD".into()));
             return r;
         }
-        if let Err(r) = self.gate(req) {
+        if let Err(mut r) = self.gate(req) {
+            // /connectors stays owner-only: a pairing page is a 401, so the
+            // catalog is not rendered for a signed-out console host.
+            if (req.path == connectors::PATH || req.path == oauth::CALLBACK_PATH) && r.status == 200
+            {
+                r.status = 401;
+            }
             return r;
         }
         match req.path {
@@ -503,6 +549,8 @@ impl Ui {
             p if port4::owns(p) => self.port4_room(req),
             p if admin_views::owns(p) => self.admin_room(req),
             "/node" | "/security" | "/session" => self.port5_room(req),
+            connectors::PATH => self.connectors_room(req),
+            oauth::CALLBACK_PATH => self.oauth_callback(req),
             p => match rooms::exact(p) {
                 Some(room) => {
                     let fwd = self.forward(req);
@@ -1220,11 +1268,7 @@ mod tests {
             pulse: None,
             extra_hosts: Vec::new(),
             desk: None,
-            files: port4::HostFiles {
-                memory_root: None,
-                model_file: None,
-                user_md: None,
-            },
+            files: port4::HostFiles::default(),
         });
         let wav = ui.handle(&Request {
             method: "GET",

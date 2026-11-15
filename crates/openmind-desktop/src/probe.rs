@@ -832,6 +832,14 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_error_is_down() {
+        let err = std::io::Error::from(std::io::ErrorKind::ConnectionRefused);
+        let (state, detail) = io_failure(&err);
+        assert_eq!(state, State::Down);
+        assert_eq!(detail, "connection refused");
+    }
+
+    #[test]
     fn up_down_timeout_and_garbage() {
         let up = serve_status(200, "{\"status\":\"ok\"}");
         let up_report = probe_one(
@@ -854,16 +862,33 @@ mod tests {
         assert_eq!(down_report.detail, "http 503");
         assert!(down_report.observed_mode.is_none());
 
-        let refused = TcpListener::bind((DEFAULT_HOST, 0)).unwrap();
+        // Nothing is listening on this loopback port. Linux and macOS reset
+        // the SYN. The Windows runner drops it, so the connect reaches the
+        // deadline instead of returning a refusal.
+        let refused = TcpListener::bind("127.0.0.1:0").unwrap();
         let refused_addr = refused.local_addr().unwrap();
         drop(refused);
         let refused_report = probe_one(
             &endpoint_at(Service::Hermes, refused_addr, "/health"),
-            Duration::from_secs(1),
+            Duration::from_millis(400),
         );
-        assert_eq!(refused_report.state, State::Down);
-        assert_eq!(refused_report.detail, "connection refused");
         assert!(refused_report.http_status.is_none());
+        assert_ne!(refused_report.state, State::Up);
+        #[cfg(windows)]
+        assert!(
+            matches!(
+                (refused_report.state, refused_report.detail.as_str()),
+                (State::Unknown, "timeout") | (State::Down, "connection refused")
+            ),
+            "{:?} {}",
+            refused_report.state,
+            refused_report.detail
+        );
+        #[cfg(not(windows))]
+        {
+            assert_eq!(refused_report.state, State::Down);
+            assert_eq!(refused_report.detail, "connection refused");
+        }
 
         let hung = TcpListener::bind((DEFAULT_HOST, 0)).unwrap();
         let hung_addr = hung.local_addr().unwrap();

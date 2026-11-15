@@ -684,15 +684,22 @@ fn read_rooms_render_get_only() {
     let not_ported: Vec<&str> = console_ui::rooms::ROOMS
         .iter()
         .filter_map(|r| r.to)
-        .filter(|p| !console_ui::PORTED.contains(p))
+        .filter(|p| !console_ui::PORTED.contains(p) && *p != "/connectors")
         .collect();
-    // 28 in-console rooms; every one is either ported or says so.
+    // 28 original in-console rooms; every one is either ported or says so.
+    // /connectors is a later room (not one of those 28, and not one of the
+    // 31 console-ide routes the overview counts).
     let ported_rooms = console_ui::rooms::ROOMS
         .iter()
         .filter_map(|r| r.to)
         .filter(|p| console_ui::PORTED.contains(p))
         .count();
     assert_eq!(not_ported.len() + ported_rooms, 28, "{not_ported:?}");
+    let cn = get(a, "/connectors", "127.0.0.1", "");
+    assert_eq!(cn.code, 200, "{}", cn.head);
+    assert!(cn.body.contains("Connectors let Hermes use external tools"));
+    assert!(!cn.body.contains("Not in Rust yet"));
+    assert!(!cn.body.contains("<script"));
     // console-port-merge (slot 169): all 28 rooms are ported; PORTED holds 30
     // entries, and the overview (/console) counts itself: 31 of 31.
     assert!(not_ported.is_empty(), "{not_ported:?}");

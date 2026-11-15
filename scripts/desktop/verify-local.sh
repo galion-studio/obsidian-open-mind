@@ -14,8 +14,9 @@ DIR is the directory written by scripts/desktop/package-local.sh.
 It must contain SHA256SUMS and one openmind-desktop-*.tar.gz.
 
 Checks the checksum, then the archive: an ELF openmind-desktop binary,
-console.html for the control console, and LOCAL-ARTIFACT.txt stating
-this is not a GitHub Release and was not published.
+console.html for the control console, LOCAL-ARTIFACT.txt stating this
+is not a GitHub Release and was not published, and LICENSE byte for
+byte with the repository file. Line 4 of LICENSE is the last brand line.
 
 This script never publishes. --publish, --upload, --gh-release and
 --cargo-publish are refused.
@@ -148,6 +149,18 @@ if [ ! -f "$readme" ]; then
 fi
 if [ ! -f "$license" ]; then
   die "LICENSE missing"
+fi
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root=$(CDPATH= cd -- "$script_dir/../.." && pwd)
+repo_license="$root/LICENSE"
+repo_last=$(sed -n '4p' "$repo_license")
+got_last=$(sed -n '4p' "$license")
+if [ -z "$repo_last" ] || [ "$got_last" != "$repo_last" ]; then
+  die "last brand line does not match"
+fi
+if ! cmp -s "$repo_license" "$license"; then
+  die "LICENSE does not match the repository LICENSE"
 fi
 
 magic=$(od -An -t x1 -N 4 -- "$bin" | tr -d ' \n')

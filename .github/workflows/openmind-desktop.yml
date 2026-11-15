@@ -53,6 +53,36 @@ jobs:
       - name: verify local package
         run: scripts/desktop/verify-local.sh "$RUNNER_TEMP/openmind-desktop-dist"
 
+      - name: a LICENSE missing the last brand line fails verification
+        run: |
+          set -eu
+          src="$RUNNER_TEMP/openmind-desktop-dist"
+          bad="$RUNNER_TEMP/openmind-desktop-short-license"
+          rm -rf "$bad"
+          cp -a "$src" "$bad"
+          tarball=$(echo "$bad"/openmind-desktop-*.tar.gz)
+          work=$(mktemp -d)
+          tar -C "$work" -xzf "$tarball"
+          lic=$(echo "$work"/*/LICENSE)
+          # Line 4 is the last of the four brand lines.
+          awk 'NR != 4' "$lic" > "$lic.cut"
+          mv "$lic.cut" "$lic"
+          name=$(basename -- "$tarball")
+          top=$(basename -- "$(dirname -- "$lic")")
+          tar -C "$work" -czf "$bad/$name" "$top"
+          (
+            cd "$bad"
+            sha256sum -- "$name" > SHA256SUMS
+          )
+          set +e
+          scripts/desktop/verify-local.sh "$bad"
+          status=$?
+          set -e
+          if [ "$status" -ne 1 ]; then
+            printf 'checker exited %s, want 1\n' "$status" >&2
+            exit 1
+          fi
+
       - name: publish flags are refused
         run: |
           set -eu

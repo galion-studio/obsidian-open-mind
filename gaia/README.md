@@ -87,4 +87,4 @@ other workstream:
 
 ## License
 
-MIT, `Copyright (c) 3000 Galion / galion-studio`. See [LICENSE](../LICENSE).
+MIT. See [LICENSE](../LICENSE).

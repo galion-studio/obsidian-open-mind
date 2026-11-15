@@ -161,6 +161,11 @@ mkdir -p -- "$pkg"
 
 cp -- "$bin" "$pkg/openmind-desktop"
 chmod 755 "$pkg/openmind-desktop"
+# Line 4 is the last of the four brand lines. Copy the repository file
+# as it is. Do not append those lines a second time.
+if [ -z "$(sed -n '4p' "$root/LICENSE")" ]; then
+  die "LICENSE is missing the last brand line"
+fi
 cp -- "$root/LICENSE" "$pkg/LICENSE"
 cp -- "$root/docs/desktop/README.md" "$pkg/README.md"
 

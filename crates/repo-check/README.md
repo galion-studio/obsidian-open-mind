@@ -18,7 +18,7 @@ repo-check --only portable,secrets         # subset
 
 | check | default | what |
 |---|---|---|
-| license | error | root LICENSE starts `MIT License`, has `Copyright (c) ` (and `--copyright TEXT` if given) and the MIT grant; crate LICENSE copies are identical |
+| license | error | root LICENSE contains a `MIT License` line, a `Copyright (c) ` line (and `--copyright TEXT` if given) and the MIT grant; a branding block may precede the heading; crate LICENSE copies are identical |
 | spdx | error | `.rs`, `.sh`, `Cargo.toml` under `crates/` and `deploy/` carry `SPDX-License-Identifier: MIT` in the first 5 lines |
 | cjk | error | Han / Hiragana / Katakana / Hangul code points (Croatian letters are fine) |
 | python | error | `.py`/`.pyc`/`.pyw` files and python shebangs |

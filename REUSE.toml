@@ -2,8 +2,11 @@
 # SPDX-FileCopyrightText: 3000 Galion / galion-studio
 #
 # REUSE 3.3 manifest (https://reuse.software/spec-3.3/).
-# Checked with `scripts/reuse-lint.sh` (comply, a Rust REUSE linter; the FSFE
-# `reuse` tool is Python and is not run here). Licence texts live in LICENSES/.
+# Checked with comply (a Rust REUSE linter; the FSFE `reuse` tool is Python
+# and is not run here). Licence texts live in LICENSES/.
+# The root LICENSE file is the galion-operating-system text, byte for byte.
+# comply skips a file named LICENSE, so this manifest does not restate it.
+# The copyright below matches the SPDX headers in source files.
 
 version = 1
 

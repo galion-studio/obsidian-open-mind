@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="t">
   <title id="t">Obsidian Open Mind mark</title>
-  <!-- Hand-written SVG. Obsidian Open Mind, made by Galion. MIT License, Copyright (c) 3000 Galion / galion-studio. -->
+  <!-- Hand-written SVG. Obsidian Open Mind, made by Galion. MIT License; see LICENSE. -->
   <!-- Obsidian: a hexagonal shard of volcanic glass, split into six facets. -->
   <polygon points="64,6 114.2,35 114.2,93 64,122 13.8,93 13.8,35" fill="#0B0F14"/>
   <polygon points="64,6 114.2,35 64,64" fill="#1A2430"/>

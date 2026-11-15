@@ -1,7 +1,7 @@
 # Obsidian Open Mind: style guide
 
 Obsidian Open Mind, made by Galion. Brand pack version 1.0.0, written 2026-10-18 (Europe/Zagreb, +02:00).
-Released under the MIT License, Copyright (c) 3000 Galion / galion-studio (see [../LICENSE](../LICENSE)).
+Released under the MIT License in [../LICENSE](../LICENSE).
 
 ## 1. Name
 

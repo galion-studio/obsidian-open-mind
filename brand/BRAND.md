@@ -122,6 +122,6 @@ angular and geometric (facets, diamonds, chips), no gradients inside icons, no t
 
 ## 8. Copyright line
 
-`Copyright (c) 3000 Galion / galion-studio`, as in [`../LICENSE`](../LICENSE). The year 3000 is a
-deliberate choice by the maker; use it unchanged wherever the copyright line
-appears. It is not a date: real dates (for example the 2026-10-31 release milestone) are written as they are.
+The copyright lines are the ones in [`../LICENSE`](../LICENSE). That file is the
+galion-operating-system `LICENSE`, copied byte for byte. Do not retype it.
+Dates of documents (for example the 2026-10-31 release milestone) stay written as they are.

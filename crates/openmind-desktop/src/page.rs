@@ -430,30 +430,18 @@ pub const BRAND_LINES: [&str; 4] = [
     "Copyright \u{00A9} 2026 Galion Labs. All rights reserved.",
 ];
 
+/// Repository `LICENSE`, copied from galion-operating-system. The four brand
+/// lines are the first four lines. [`mit_text`] is the MIT heading onward.
+const LICENSE_FILE: &str = include_str!("../../../LICENSE");
+
 /// Plain MIT licence text shown on the console and the product entries.
-pub const MIT_TEXT: &str = "\
-MIT License
-
-Copyright (c) 3000 Galion / galion-studio
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the \"Software\"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-";
+/// Taken from the repository `LICENSE` so the page cannot drift from that file.
+#[must_use]
+pub fn mit_text() -> &'static str {
+    LICENSE_FILE
+        .find("MIT License\n")
+        .map_or(LICENSE_FILE, |at| &LICENSE_FILE[at..])
+}
 
 /// Galion One (`/one`) or Galion Research (`/research`).
 #[must_use]
@@ -517,7 +505,7 @@ fn brand_block() -> String {
         html.push_str("</p>");
     }
     html.push_str("<pre class=\"licence\">");
-    html.push_str(&esc(MIT_TEXT));
+    html.push_str(&esc(mit_text()));
     html.push_str("</pre></footer>");
     html
 }
@@ -751,6 +739,17 @@ mod tests {
         assert!(research.contains("Permission is hereby granted, free of charge"));
         assert!(!one.contains("https://"));
         assert!(!research.contains("https://"));
+    }
+
+    #[test]
+    fn license_file_matches_the_brand_lines() {
+        let lines: Vec<&str> = LICENSE_FILE.lines().take(4).collect();
+        assert_eq!(lines.as_slice(), BRAND_LINES);
+        assert_eq!(LICENSE_FILE.lines().nth(3), Some(BRAND_LINES[3]));
+        assert_eq!(LICENSE_FILE.lines().nth(4), Some(""));
+        assert!(mit_text().starts_with("MIT License\n"));
+        assert!(LICENSE_FILE.ends_with(mit_text()));
+        assert_eq!(LICENSE_FILE.len(), 1257);
     }
 
     fn embedded(html: &str, id: &str) -> Vec<u8> {

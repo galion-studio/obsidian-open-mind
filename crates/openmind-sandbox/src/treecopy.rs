@@ -355,7 +355,7 @@ impl Walk<'_> {
                 return Ok(());
             }
             let mut o = [0u8; 4097];
-            // SAFETY: as above.
+            // SAFETY: readlinkat into a stack buffer, one byte kept for the NUL.
             let m =
                 unsafe { libc::readlinkat(dst, name.as_ptr(), o.as_mut_ptr().cast(), o.len() - 1) };
             if m >= 0 && m as usize == n && o[..n] == t[..n] {

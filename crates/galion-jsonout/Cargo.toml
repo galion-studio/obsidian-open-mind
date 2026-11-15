@@ -4,6 +4,7 @@
 name = "galion-jsonout"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "CPython json.dumps compatible writer over serde_json::Value (was galion-common feature serde-json)."
 
@@ -11,3 +12,6 @@ description = "CPython json.dumps compatible writer over serde_json::Value (was 
 galion-common = { path = "../galion-common" }
 serde = { workspace = true }
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
+
+[lints]
+workspace = true

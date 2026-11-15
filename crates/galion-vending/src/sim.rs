@@ -628,7 +628,7 @@ impl Sim {
                 let i = self.sku(&sku)?;
                 let slot = &mut self.st.slots[i];
                 let n = expired(&slot.phys, d);
-                slot.phys.retain(|l| !l.expires.is_some_and(|e| e <= d));
+                slot.phys.retain(|l| l.expires.is_none_or(|e| e > d));
                 take(&mut slot.book, n, d, false);
                 self.st.metrics.spoiled_units += u64::from(n);
                 Ok(ToolOk::Pulled { sku, qty: n })

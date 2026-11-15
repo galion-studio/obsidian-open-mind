@@ -58,7 +58,7 @@ pub fn run(cfg: &Config, id: Option<&Identity>) -> Value {
     };
 
     let mut advice: Vec<String> = Vec::new();
-    if termux && !obs.ssid.is_some() {
+    if termux && obs.ssid.is_none() {
         advice.push(
             "SSID unread: install Termux:API (F-Droid) and grant Location permission, then retry"
                 .into(),

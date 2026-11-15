@@ -42,6 +42,9 @@ impl Names for LibcNames {
 
 fn lookup_user(uid: u32) -> Vec<u8> {
     let mut buf = vec![0 as libc::c_char; 16384];
+    // SAFETY: libc::passwd is a repr(C) record of integers and raw pointers.
+    // The all-zero pattern is a valid value. No field is read until
+    // getpwuid_r has returned success.
     let mut pw: libc::passwd = unsafe { std::mem::zeroed() };
     let mut res: *mut libc::passwd = std::ptr::null_mut();
     // SAFETY: all pointers refer to live, correctly sized buffers.
@@ -56,6 +59,9 @@ fn lookup_user(uid: u32) -> Vec<u8> {
 
 fn lookup_group(gid: u32) -> Vec<u8> {
     let mut buf = vec![0 as libc::c_char; 16384];
+    // SAFETY: libc::group is a repr(C) record of integers and raw pointers.
+    // The all-zero pattern is a valid value. No field is read until
+    // getgrgid_r has returned success.
     let mut gr: libc::group = unsafe { std::mem::zeroed() };
     let mut res: *mut libc::group = std::ptr::null_mut();
     // SAFETY: as above.

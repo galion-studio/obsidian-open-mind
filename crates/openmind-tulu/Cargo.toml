@@ -5,8 +5,12 @@
 name = "openmind-tulu"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Parse a DR Tulu llama-server fixture TOML. No process, no socket, no GPU."
 
 [dependencies]
 toml = { workspace = true }
+
+[lints]
+workspace = true

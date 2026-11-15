@@ -5,8 +5,12 @@
 name = "galion-health"
 version = "0.2.0"
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Loopback health dashboard: polls service ports + systemd states, serves HTML/JSON. std only."
 
 [dependencies]
 zagreb-time = { path = "../zagreb-time" }
+
+[lints]
+workspace = true

@@ -183,6 +183,8 @@ fn err(ctx: &str, e: impl std::fmt::Display) -> i32 {
 pub fn avail_kb(dir: &Path) -> io::Result<u64> {
     let c = CString::new(dir.as_os_str().as_bytes())
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "NUL in path"))?;
+    // SAFETY: libc::statvfs is a repr(C) record of integers. Zero is a valid
+    // bit pattern, and statvfs overwrites the struct before any field is read.
     let mut st: libc::statvfs = unsafe { std::mem::zeroed() };
     // SAFETY: c is NUL-terminated, st is a valid out-pointer.
     if unsafe { libc::statvfs(c.as_ptr(), &mut st) } != 0 {
@@ -539,6 +541,12 @@ fn in_workdir(o: &Opts, w: &Path, stamp: &str) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn avail_kb_of_tmp_is_positive() {
+        let kb = avail_kb(Path::new("/tmp")).expect("statvfs /tmp");
+        assert!(kb > 0, "avail_kb(/tmp) = {kb}");
+    }
 
     #[test]
     fn stamp_format() {

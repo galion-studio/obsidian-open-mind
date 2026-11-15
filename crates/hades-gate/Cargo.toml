@@ -5,6 +5,7 @@
 name = "hades-gate"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Admin approval gate. Dry-run by default. Signed (Ed25519), expiring, single-use approval tokens scoped to one action, target and plan hash; fsynced replay ledger; hard admin-safety rule. WouldApply is a decision only and never runs a command. kill and rotate are always refused. journal: one JSON record per decision."
 
@@ -22,6 +23,5 @@ ed25519-dalek = { version = "2.2", default-features = false, features = ["std", 
 sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
 zeroize = { version = "1", default-features = false }
 
-[lints.rust]
-# Set workspace-wide in .cargo/config.toml; checked by tests/simd_free.rs.
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(curve25519_dalek_backend, values("serial", "fiat", "simd"))'] }
+[lints]
+workspace = true

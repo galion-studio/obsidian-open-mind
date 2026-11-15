@@ -46,7 +46,7 @@ pub fn live_cfg(env: &dyn Fn(&str) -> Option<String>) -> Result<LiveCfg, String>
     if !on(env(LIVE_FLAG)) {
         return Err(format!("live model path is off (set {LIVE_FLAG}=1)"));
     }
-    if !env(KEY_ENV).is_some_and(|k| !k.trim().is_empty()) {
+    if env(KEY_ENV).is_none_or(|k| k.trim().is_empty()) {
         return Err(format!("{LIVE_FLAG}=1 but {KEY_ENV} is not set; refusing"));
     }
     let usd_cap = env(CAP_ENV)

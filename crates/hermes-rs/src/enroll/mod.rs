@@ -345,7 +345,7 @@ fn ct_eq(a: &str, b: &str) -> bool {
 
 fn new_token() -> Result<String, String> {
     let mut b = [0u8; 32];
-    getrandom::getrandom(&mut b).map_err(|e| format!("no randomness: {e}"))?;
+    getrandom::fill(&mut b).map_err(|e| format!("no randomness: {e}"))?;
     Ok(format!("{TOKEN_PREFIX}{}", hex(&b)))
 }
 
@@ -499,7 +499,7 @@ fn lock_or<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 fn rand_hex(n: usize) -> Result<String, String> {
     let mut b = vec![0u8; n];
-    getrandom::getrandom(&mut b).map_err(|e| format!("no randomness: {e}"))?;
+    getrandom::fill(&mut b).map_err(|e| format!("no randomness: {e}"))?;
     Ok(hex(&b))
 }
 

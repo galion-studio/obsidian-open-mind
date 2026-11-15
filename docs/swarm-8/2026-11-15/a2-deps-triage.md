@@ -104,3 +104,17 @@ Not run locally: `cargo test --workspace`, `cargo clippy --workspace`, miri, ucp
 4. Leave #19 and #20 open until they are rebased onto current `main`. Both are multi-major action bumps (Node.js 24; checkout v7's fork-PR block). #20 does not update `openmind-desktop.yml`. Their red `cargo test` / `cargo deny` results are from stale bases whose `main` successors are green.
 5. Leave #54 and #55 open until the tag-only release workflow and a scorecard run have actually executed the new pins. Pull-request CI on current `main` is green and does not run those steps. Installer v4 switches the default Cosign to v3; `release.yml` already passes `--bundle`.
 6. Older work: keep #7, rebase #14, #15, #16, and #17, and close #28. Those are recommendations only; this pass did not close or rebase them.
+7. Close draft #29. Do not merge `main` into it. Reason in the next section.
+8. Root `LICENSE` on this branch is a byte copy of `galion-operating-system` `main` `LICENSE` (1257 bytes, fetched 2026-11-15). The same bytes replace every project `LICENSE` that was previously identical to the old root file (67 copies besides the root: `crates/*/LICENSE`, `edge/openmind-node/LICENSE`, `release/repo/LICENSE`, `release/obsidian-open-mind-kit/LICENSE`, `docs/swarm/galion-os-staging/LICENSE`, `contrib/grokbot/LICENSE`). Third-party licences under `vendor/candle-core` and `stack/agents/personas/crew-skills` were left as they were. The license job and `repo-check --copyright` now expect `Copyright (c) 2026 Galion Labs`, because the old gate required `Copyright (c) 3000 Galion / galion-studio` and a first line of `MIT License`.
+
+## Draft #29
+
+[#29](https://github.com/galion-studio/obsidian-open-mind/pull/29) is a draft, `galion.app: USD/EUR geo pricing, Galion Labs footer, Research rename`. Head `00f2d443`, base `swarm/galion-one-ask-anything-20261101` (`46c6889c`), not `main`. GitHub reported it mergeable against that base. Its CI rollup on the head is four miri checks (three success, `miri full` skipped).
+
+[galion-operating-system#16](https://github.com/galion-studio/galion-operating-system/pull/16) merged at `2026-11-15T00:39:02Z` (`b9517e92`). That is the live galion.app site. It already shows USD for the United States, Canada, Australia, New Zealand, and everywhere outside UN M49 Europe, and EUR for Europe including GB and IE. Plus (Galion One) is $20 or €20 per month. Ultra (Galion Research) is $220 or €220 per month. The footer uses the same four lines as that repo's `LICENSE`. The product name on the site is Galion Research.
+
+This repo's `main` does not contain `crates/galion-one/src/home.rs` or `crates/galion-one/home/index.html`. Those files exist on the swarm branch #29 targets. Merging `main` into that branch would not put the marketing pages on `main`, and the live site copy is already in the other repository.
+
+One difference: #29's body prices Galion Research as a one-time $220 / €220. The merged site prices it per month. The merged site is the one that is live.
+
+Recommendation: **close**. Not rebased, not merged with `main`, and not closed from this pass.

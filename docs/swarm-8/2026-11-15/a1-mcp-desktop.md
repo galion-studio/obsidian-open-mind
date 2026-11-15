@@ -19,7 +19,7 @@ Both branches were 11 commits behind `main` (`de7480e7`) and had already been pu
 - A `url` that contains a token-shaped string, or a query name ending in `key`, `token`, `secret`, or `password` with a value of 8 characters or more, is dropped and not stored (`url_embeds_secret` in `crates/hermes-rs/src/config.rs`).
 - Tests cover an exact GitHub host (including a different server name and a mixed-case host), a lookalike host that is not clamped, an empty allowlist that does not spawn, a write-only GitHub allowlist that does not connect, session ids with spaces or control characters, and curl arguments `--max-redirs 0` plus `--proto`.
 - `crates/hermes-gateway/tests/mcp_http_off.rs` checks that the default gateway build reports a `url` server and does not dial. `mcp-http` stays out of `default`.
-- `docs/hermes-mcp.md` has a "How to use it" section for stdio and for `HERMES_RS_MCP_GITHUB=1`. The 2,091,904 byte figure is the x86_64 musl size-budget log for `08b8318e` (2026-11-15T01:31:46+01:00, job 132641771940), not a measurement of this branch after the merge. The doc marks the current byte count `TODO(verify)`.
+- `docs/hermes-mcp.md` has a "How to use it" section for stdio and for `HERMES_RS_MCP_GITHUB=1`. The x86_64 musl size-budget log for `05adf328` (2026-11-15T15:05:37+01:00, job 132836192211) measured `hermes-gateway` at 2,092,640 bytes, stripped, status ok, 4,512 bytes under the 2,097,152 cap. The earlier log for `08b8318e` measured 2,091,904 bytes. Both leave `mcp-http` off.
 
 ## Pull request 52
 
@@ -65,7 +65,7 @@ Pull request 51 head `08b8318e`: 26 check runs, 25 success, 1 skipped (`miri ful
 
 Pull request 52 head `0cde1c54`: 26 check runs, 25 success, 1 skipped. GitHub reported `mergeable_state` dirty before the merge.
 
-New CI starts when these commits are pushed. This note does not claim a result for that run.
+CI on `05adf328` (pull request 51) completed with 26 checks: 25 success, 1 skipped (`miri full`). Pull request 52's `self-eval` workflow was still running when this note was updated. The other four workflows on `406dece3` (`openmind-desktop`, `realtest`, `launch-gates`, `miri`) had already succeeded.
 
 ## Secrets and addresses
 
@@ -73,7 +73,7 @@ I searched the pull-request diffs for token prefixes, private-key blocks, and do
 
 ## Decisions for Maciej
 
-1. Leave `mcp-http` out of the default `hermes-gateway` build. The last measured default musl binary (`08b8318e`) was 2,091,904 bytes against a 2,097,152 cap. This branch has since merged `main` and the musl binary was not rebuilt here.
+1. Leave `mcp-http` out of the default `hermes-gateway` build. On `05adf328` the x86_64 musl binary is 2,092,640 bytes against a 2,097,152 cap (4,512 bytes of room). Turning the feature on in the default build still needs a size-cap decision.
 2. Keep read-only GitHub opt-in (`HERMES_RS_MCP_GITHUB=1`), with `GITHUB_TOKEN` read at request time, host `api.githubcopilot.com`, and header `X-MCP-Readonly: true`.
 3. Drop a `url` that already contains a token, or a query name ending in key, token, secret, or password with a value of 8 or more characters, instead of storing it. The entry disappears from config with no separate error line.
 4. Cleartext HTTP still allows `localhost` and `::1` as well as the IPv4 loopback address. `localhost` is a name, not a parsed loopback address.

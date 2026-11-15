@@ -26,11 +26,13 @@ and zip 8 is still inside RUSTSEC-2026-0367, -0368 and -0369 (fixed in zip >= 9.
      the upstream portable variants are kept with their bodies unchanged;
    - `src/quantized/k_quants.rs`: dropped the 26 `#[cfg(target_feature = ...)] return super::<simd>::...;`
      early returns, so each `vec_dot` always calls its upstream `vec_dot_unopt` (or the portable `vec_dot_4`
-     / `from_float` tail);
-   - `src/quantized/mod.rs`: dropped the three `mod` lines;
+     / `from_float` tail), and dropped the AArch64 `dotprod` `BlockQ4Kx8` pack/matmul (`target_feature`
+     is itself a grep-gate hit);
+   - `src/quantized/mod.rs`: dropped the three `mod` lines and the `dotprod` Q4K fast path;
    - `src/utils.rs`: `with_avx`, `with_neon`, `with_simd128`, `with_f16c` return `false`.
-   The `dotprod` block types in `k_quants.rs` stay behind `target_feature = "dotprod"`. They contain no
-   `core::arch` and are not compiled on the musl targets this repo builds.
+   The GGUF tokenizer (`quantized/tokenizer.rs`) is behind the `tokenizers` feature, off by default.
+   That dependency enables regex's full `unicode` feature, which Cargo then compiles into every
+   binary of a workspace build and put `galion-guard` over 2 MiB. Nothing in this workspace calls it.
    On x86_64 musl (no AVX2 in the baseline target) this is the code upstream already compiled. On aarch64
    the scalar paths replace NEON (same maths, slower).
 

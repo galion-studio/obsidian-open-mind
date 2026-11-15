@@ -58,6 +58,9 @@ nccl = [
     "cudarc/nccl",
 ]
 ug = ["dep:candle-ug"]
+# Optional. Default off: see quantized/mod.rs. Enables regex `unicode` for
+# the whole workspace build when left on.
+tokenizers = ["dep:tokenizers"]
 
 [lib]
 name = "candle_core"
@@ -272,5 +275,6 @@ optional = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies.tokenizers]
 version = "0.22.0"
+optional = true
 features = ["onig"]
 default-features = false

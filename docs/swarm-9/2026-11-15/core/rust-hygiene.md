@@ -64,6 +64,23 @@ The self-eval clippy job reads `channel` out of `rust-toolchain.toml` and
 fails unless `rustc --version` contains that version. `RELEASE-CHECKLIST.md`
 item 1.8 is marked done (2026-11-15T15:40:00+01:00).
 
+The pinned `dtolnay/rust-toolchain` action defaults an omitted `toolchain:`
+input to stable and installs `targets:` on that compiler. `cargo` then
+follows `rust-toolchain.toml` and switches to 1.89.0, which does not have
+the target (`E0463`, can't find `std`). Cross jobs that are not size-gated
+pass `toolchain: "1.89.0"` so the target is installed on the MSRV compiler:
+self-eval `ucpu-tier2`, `ucpu-qemu`, and `repo-check`, and
+`openmind-desktop` `linux-aarch64`.
+
+Size-gated jobs stay on stable (`toolchain: stable` and
+`RUSTUP_TOOLCHAIN=stable`, which overrides this file): `linux-musl` `musl`
+and self-eval `ucpu-tier1`. On `583a7f1e`, rustc 1.89.0 produced a stripped
+`hermes-gateway` of 2,149,728 bytes for `x86_64-unknown-linux-musl`, which
+is 52,576 over the 2,097,152 cap. `linux-musl` on main `55982371` (run
+43759641600) is green on stable, so the same sources fit when that job
+keeps stable. The cap is unchanged. `mcp-http` stays out of the default
+build. Recorded 2026-11-15T21:45:00+01:00.
+
 `.github/workflows/miri.yml` still passes `toolchain: nightly-2026-10-20`.
 Miri is not on the MSRV channel. The comment in `rust-toolchain.toml` says so.
 

@@ -134,10 +134,15 @@ jobs:
       UCPU_TIER1: ${{ matrix.target }}
       UCPU_JOBS: 4
       UCPU_NICE: 0
+      # Size gate. rustc 1.89.0 emits hermes-gateway at 2149728 bytes,
+      # over the 2097152 cap. Stable stays under it. The env overrides
+      # rust-toolchain.toml for this job only.
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; rustc channel is rust-toolchain.toml
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; size job stays on stable
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
           components: clippy
       - name: install zig cc (pinned, checksum-verified)
@@ -162,8 +167,12 @@ jobs:
       UCPU_NICE: 0
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; rustc channel is rust-toolchain.toml
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20
         with:
+          # The action's omitted toolchain input defaults to stable and
+          # would install this target there. cargo then follows
+          # rust-toolchain.toml (1.89.0) and fails with E0463.
+          toolchain: "1.89.0"
           targets: ${{ matrix.target }}
       - name: install zig cc (pinned, checksum-verified)
         run: echo "ZIG=$(scripts/install-zig.sh "$RUNNER_TEMP/zig")" >> "$GITHUB_ENV"
@@ -178,8 +187,9 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; rustc channel is rust-toolchain.toml
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20
         with:
+          toolchain: "1.89.0"
           targets: aarch64-unknown-linux-musl, armv7-unknown-linux-musleabihf
       - name: install qemu-user-static and zig cc
         run: |
@@ -219,8 +229,9 @@ jobs:
       CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20; rustc channel is rust-toolchain.toml
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # action pin 2026-10-20
         with:
+          toolchain: "1.89.0"
           targets: x86_64-unknown-linux-musl
       - name: build repo-check (portable musl)
         run: cargo build --release --locked -p repo-check --target x86_64-unknown-linux-musl

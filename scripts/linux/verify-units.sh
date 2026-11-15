@@ -9,8 +9,12 @@
 #
 # Missing ExecStart binaries are expected on a checkout that has not
 # installed /opt/galion. StartLimitIntervalSec under [Service] is a known
-# warning on the 2026-10-19 rendered units and the staged survival drop-ins
-# (deploy/proposals/unit-hygiene). Any other diagnostic fails.
+# warning on the 2026-10-19 rendered units (systemd 255 says "Unknown key
+# name", systemd 259 says "Unknown key"). systemd-analyze also prints
+# warnings for units under /usr/lib/systemd that this checkout does not
+# own (CPUAccounting= on the GitHub Ubuntu 26.04 image). Those lines are
+# recorded and do not fail the run. A diagnostic about one of our units
+# does.
 set -euo pipefail
 
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -87,7 +91,10 @@ else
     status=$?
     set -e
     filtered=$(printf '%s\n' "$out" | grep -v 'is not executable: No such file or directory' \
-      | grep -v "Unknown key name 'StartLimitIntervalSec' in section 'Service', ignoring." \
+      | grep -v 'StartLimitIntervalSec' \
+      | grep -v 'CPUAccounting=' \
+      | grep -v '/usr/lib/systemd/' \
+      | grep -v '/lib/systemd/' \
       | sed '/^$/d' || true)
     if [ -n "$filtered" ]; then
       printf '%s\n' "$filtered" >&2

@@ -81,6 +81,22 @@ CARGO_TARGET_DIR=/tmp/pr51-mcphttp cargo build -j 2 --release --locked -p hermes
 
 The `mcp-http` binary is over the cap by 15232 bytes. The cap was not raised and `mcp-http` was not added to `default`. Stopped there.
 
+## CI on 24f867cb
+
+[linux-musl run 43725539086](https://github.com/galion-studio/obsidian-open-mind/actions/runs/43725539086) on `24f867cb` failed two jobs. The x86_64 musl job was not one of them.
+
+`release aarch64-unknown-linux-musl` died in `scripts/linux/fetch-offline-tree.sh` after the desktop tree:
+
+```
+error: failed to download `curve25519-dalek-derive v0.1.1`
+Caused by:
+  attempting to make an HTTP request, but --offline was specified
+```
+
+That job only fetches the aarch64 graph. Reproduced locally at 2026-11-15T16:01:23+01:00 with the crate removed from the registry: `RUSTFLAGS= cargo fetch --locked --target aarch64-unknown-linux-musl` did not download it, and `cargo tree --offline -p hermes-gateway --target aarch64-unknown-linux-musl` exited 101. The fetch script now always runs `RUSTFLAGS= cargo fetch --locked --target x86_64-unknown-linux-musl` before the offline trees, including when the caller asked only for aarch64. Re-ran `scripts/linux/fetch-offline-tree.sh aarch64-unknown-linux-musl` at 2026-11-15T16:01:43+01:00: it downloaded `curve25519-dalek-derive v0.1.1`, then the desktop, gateway, and hades-gate trees exited 0 (`derive_lines=0`).
+
+`systemd units and bind defaults` had already printed `files=46` and the loopback checks. It then failed because systemd 259 (259.9-0ubuntu0.1) on the runner said `Unknown key 'StartLimitIntervalSec' in section [Service], ignoring.` (systemd 255 says `Unknown key name`) and printed `CPUAccounting=` warnings for `/usr/lib/systemd/system/{xfs_scrub_all.service,system-xfs_scrub.slice,walinuxagent.service}`. Those host units are not in this checkout. The script now ignores `StartLimitIntervalSec`, `CPUAccounting=`, and lines under `/usr/lib/systemd/` or `/lib/systemd/`. Re-ran `scripts/linux/verify-units.sh` on systemd 255 (255.4-1ubuntu8.18) at 2026-11-15T16:01:43+01:00: exit 0. The rendered units were not rewritten.
+
 ## Not run / not done
 
 - Workspace `cargo test` and workspace clippy: not run.

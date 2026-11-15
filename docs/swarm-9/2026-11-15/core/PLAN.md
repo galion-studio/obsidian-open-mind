@@ -59,6 +59,7 @@ Keep developing until the three lanes are finished and the tests you were requir
    - #63 (`actions/upload-artifact` 7.0.2) edits the upload-artifact pin in `.github/workflows/self-eval.yml`.
    - #61 edits `.github/workflows/release.yml` only. #62 edits `.github/workflows/scorecard.yml` only. Neither file is a core lane.
    - #65 (`licence`) edits the repo `LICENSE`, `README.md`, and per-crate `LICENSE` files, including `crates/galion-bench/LICENSE`, `crates/openmind-llama/LICENSE`, `crates/hades-gate/LICENSE`, `crates/openmind-sandbox/LICENSE`, and `crates/openmind-schema/LICENSE`. It also edits `.github/workflows/self-eval.yml`. A `**/` lane owns the crate except its `LICENSE`. Leave every `LICENSE` to desktop.
+   - #66 (`toml` 1.2.1) edits `Cargo.lock`, the `toml` line in the root `Cargo.toml`, and `crates/link-watch/Cargo.toml` (adds `galion-feature-pin`). Hygiene may add `rust-version` in the root `Cargo.toml` and must not change the `toml` version. Linux does not edit `crates/link-watch/Cargo.toml` (only `src/main.rs`). Rebase onto #66 after it merges. The feature-pin dependency it adds is desktop’s fix for the #2 mismatch. Hygiene does not copy it.
 
 ## How to open your pull request
 

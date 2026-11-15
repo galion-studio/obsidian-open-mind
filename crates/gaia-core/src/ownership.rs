@@ -155,6 +155,7 @@ pub const CRATES: &[CrateOwner] = &[
     c("openmind-discovery", S(System::LanDiscovery), "LAN peer seeds and scan path; network identity is AETHER (was APOLLO)"),
     c("openmind-exo", S(System::VramPool), "exo compute adapter (fixtures); external compute is POSEIDON (was HEPHAESTUS)"),
     c("openmind-llama", S(System::VramPool), "llama.cpp compute adapter (fixtures) (was HEPHAESTUS)"),
+    c("openmind-mcp-notes", S(System::MemoryGateway), "stdio MCP for a research vault: search, read, list recent, tags, backlinks; writes only under drafts/"),
     c("openmind-mcp-stack", S(System::StackSchema), "stdio MCP stack_status: serves knowledge about the stack (was MINERVA)"),
     c("openmind-memory", S(System::MemoryGateway), "memory store and gateway (:8420)"),
     c("openmind-nerve", S(System::Nerve), "nerve event archive: the signal lines are AETHER (was APOLLO)"),
@@ -359,9 +360,10 @@ mod tests {
         // gaia-cortex, nerve-cortex-contract, xtask from cortex-live-merge-3 via
         // cortex-staging-fold (wave-4 slot 293), merged by release-bins-add (slot 337).
         // openmind-desktop: the local control console (command field, stack view, loopback files).
+        // openmind-mcp-notes: research vault MCP. Reads markdown. Writes only under drafts/.
         assert_eq!(
             CRATES.iter().filter(|r| r.role.system().is_some()).count(),
-            62
+            63
         );
     }
 

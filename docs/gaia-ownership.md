@@ -87,6 +87,7 @@ Old rows for crates no longer in main (`gaia-registry`, `hades-journal`, `galleo
 | `openmind-discovery` | system | lan-discovery | AETHER | LAN peer seeds and scan path; network identity is AETHER (was APOLLO) |
 | `openmind-exo` | system | vram-pool | POSEIDON | exo compute adapter (fixtures); external compute is POSEIDON (was HEPHAESTUS) |
 | `openmind-llama` | system | vram-pool | POSEIDON | llama.cpp compute adapter (fixtures) (was HEPHAESTUS) |
+| `openmind-mcp-notes` | system | memory-gateway | APOLLO | stdio MCP for a research vault: search, read, list recent, tags, backlinks; writes only under drafts/ |
 | `openmind-mcp-stack` | system | stack-schema | APOLLO | stdio MCP stack_status: serves knowledge about the stack (was MINERVA) |
 | `openmind-memory` | system | memory-gateway | APOLLO | memory store and gateway (:8420) |
 | `openmind-nerve` | system | nerve | AETHER | nerve event archive: the signal lines are AETHER (was APOLLO) |

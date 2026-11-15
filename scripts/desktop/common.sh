@@ -260,8 +260,12 @@ desktop_write_zip() {
   desktop_die "could not write a zip archive"
 }
 
+# Compress-Archive stores backslashes. Info-ZIP then warns and exits 1, and a
+# Linux unzip keeps the backslash in the name. Entry names are written with
+# forward slashes instead.
 desktop_try_powershell_zip() {
-  local dest=$1 src=$2 ps="" win_dest win_src
+  local dest=$1 src=$2 ps="" win_dest win_src win_ps1 status
+  local work ps1
   if command -v powershell.exe >/dev/null 2>&1; then
     ps=powershell.exe
   elif command -v pwsh >/dev/null 2>&1; then
@@ -269,12 +273,58 @@ desktop_try_powershell_zip() {
   else
     return 1
   fi
+  work=$(mktemp -d)
+  ps1="$work/zip.ps1"
+  cat > "$ps1" << 'EOF'
+param(
+  [Parameter(Mandatory = $true)][string]$Dest,
+  [Parameter(Mandatory = $true)][string]$Src
+)
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+if (Test-Path -LiteralPath $Dest) {
+  Remove-Item -LiteralPath $Dest
+}
+$zip = [System.IO.Compression.ZipFile]::Open(
+  $Dest,
+  [System.IO.Compression.ZipArchiveMode]::Create
+)
+try {
+  $srcFull = [System.IO.Path]::GetFullPath($Src).TrimEnd('\')
+  $parent = [System.IO.Path]::GetDirectoryName($srcFull)
+  $files = @(Get-ChildItem -LiteralPath $srcFull -Recurse -File)
+  if ($files.Count -eq 0) {
+    throw "no files under $Src"
+  }
+  foreach ($file in $files) {
+    $rel = $file.FullName.Substring($parent.Length).TrimStart('\')
+    $rel = $rel.Replace('\', '/')
+    if ($rel -match '\\' -or $rel.StartsWith('/') -or $rel.Contains('..')) {
+      throw "refusing zip entry $rel"
+    }
+    [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+      $zip,
+      $file.FullName,
+      $rel,
+      [System.IO.Compression.CompressionLevel]::Optimal
+    )
+  }
+} finally {
+  $zip.Dispose()
+}
+EOF
   if command -v cygpath >/dev/null 2>&1; then
     win_dest=$(cygpath -w "$dest")
     win_src=$(cygpath -w "$src")
+    win_ps1=$(cygpath -w "$ps1")
   else
     win_dest=$dest
     win_src=$src
+    win_ps1=$ps1
   fi
-  "$ps" -NoProfile -NonInteractive -Command "Compress-Archive -LiteralPath '$win_src' -DestinationPath '$win_dest'"
+  "$ps" -NoProfile -NonInteractive -File "$win_ps1" -Dest "$win_dest" -Src "$win_src"
+  status=$?
+  rm -rf "$work"
+  return "$status"
 }

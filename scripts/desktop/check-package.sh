@@ -451,13 +451,21 @@ EOF
     while IFS= read -r entry; do
       [ -z "$entry" ] && continue
       case "$entry" in
+        *\\*) desktop_die "zip entry uses a backslash: $entry" ;;
         /*|*..*) desktop_die "archive path is not local: $entry" ;;
       esac
     done << EOF
 $names
 EOF
     if command -v unzip >/dev/null 2>&1; then
+      # Info-ZIP uses exit 1 for a warning. A real failure is 2 or higher.
+      set +e
       unzip -q "$dir/$base" -d "$top"
+      status=$?
+      set -e
+      if [ "$status" -gt 1 ]; then
+        desktop_die "unzip failed ($status)"
+      fi
     else
       tar -xf "$dir/$base" -C "$top"
     fi

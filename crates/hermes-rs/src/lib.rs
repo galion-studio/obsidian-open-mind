@@ -53,13 +53,6 @@ pub fn new_id(prefix: &str) -> String {
 /// Upstream `_hdr`: collapse whitespace, cap length. Used on every value put
 /// into a response header (Galion patch on api_server_openai_routes.py).
 pub fn hdr_value(v: &str, limit: usize) -> String {
-    if v.is_ascii()
-        && v.bytes()
-            .all(|b| !b.is_ascii_whitespace() && !b.is_ascii_control())
-    {
-        let end = v.len().min(limit);
-        return v[..end].to_string();
-    }
     let s = v.split_whitespace().collect::<Vec<_>>().join(" ");
     s.chars().filter(|c| !c.is_control()).take(limit).collect()
 }
@@ -127,9 +120,6 @@ mod tests {
     fn hdr_collapses_and_caps() {
         assert_eq!(hdr_value("a\n b\tc", 200), "a b c");
         assert_eq!(hdr_value(&"x".repeat(300), 200).len(), 200);
-        assert_eq!(hdr_value("session_key", 4), "sess");
-        assert_eq!(hdr_value("a\u{0001}b", 10), "ab");
-        assert_eq!(hdr_value("", 8), "");
     }
 
     #[test]

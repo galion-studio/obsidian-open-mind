@@ -502,13 +502,9 @@ fn report(
     }
 }
 
-/// Cortex health `mode` copied from `body`.
-///
-/// Other services return [`None`], so a health body cannot be mistaken for a
-/// cortex mode change. The string is kept only when it is 1 to 32 characters
-/// of ASCII letters, digits, or `-`.
-#[must_use]
-pub fn observed_mode(service: Service, body: &str) -> Option<String> {
+/// Cortex only. Other services ignore a `mode` field so a health body cannot
+/// be mistaken for a cortex mode change.
+fn observed_mode(service: Service, body: &str) -> Option<String> {
     if service != Service::Cortex {
         return None;
     }

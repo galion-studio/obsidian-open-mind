@@ -29,10 +29,17 @@ pub struct Request {
 
 impl Request {
     pub fn header(&self, name: &str) -> Option<&str> {
-        let n = name.to_ascii_lowercase();
+        if name.bytes().any(|b| b.is_ascii_uppercase()) {
+            let n = name.to_ascii_lowercase();
+            return self
+                .headers
+                .iter()
+                .find(|(k, _)| k == &n)
+                .map(|(_, v)| v.as_str());
+        }
         self.headers
             .iter()
-            .find(|(k, _)| *k == n)
+            .find(|(k, _)| k == name)
             .map(|(_, v)| v.as_str())
     }
 
@@ -66,7 +73,10 @@ impl Request {
             headers: head
                 .headers
                 .into_iter()
-                .map(|(k, v)| (k.to_ascii_lowercase(), v))
+                .map(|(mut k, v)| {
+                    k.make_ascii_lowercase();
+                    (k, v)
+                })
                 .collect(),
             body,
         }

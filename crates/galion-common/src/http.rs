@@ -444,7 +444,12 @@ impl Response {
         if let Some(raw) = &self.raw {
             return raw.clone();
         }
-        let mut out = format!("HTTP/1.1 {} {}\r\n", self.status, reason(self.status));
+        let mut out = String::with_capacity(96 + self.headers.len() * 24);
+        out.push_str("HTTP/1.1 ");
+        push_u64(&mut out, u64::from(self.status));
+        out.push(' ');
+        out.push_str(reason(self.status));
+        out.push_str("\r\n");
         for (k, v) in &self.headers {
             let bad = |s: &str| s.bytes().any(|c| matches!(c, b'\r' | b'\n' | 0));
             if bad(k) || bad(v) || !is_token(k.as_bytes()) {
@@ -453,17 +458,35 @@ impl Response {
             if k.eq_ignore_ascii_case("content-length") || k.eq_ignore_ascii_case("connection") {
                 continue;
             }
-            out.push_str(&format!("{k}: {v}\r\n"));
+            out.push_str(k);
+            out.push_str(": ");
+            out.push_str(v);
+            out.push_str("\r\n");
         }
-        out.push_str(&format!(
-            "content-length: {}\r\nconnection: close\r\n\r\n",
-            self.body.len()
-        ));
+        out.push_str("content-length: ");
+        push_u64(&mut out, self.body.len() as u64);
+        out.push_str("\r\nconnection: close\r\n\r\n");
         let mut out = out.into_bytes();
         if !head_only {
             out.extend_from_slice(&self.body);
         }
         out
+    }
+}
+
+fn push_u64(out: &mut String, mut n: u64) {
+    let mut buf = [0u8; 20];
+    let mut i = buf.len();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    for byte in &buf[i..] {
+        out.push(*byte as char);
     }
 }
 

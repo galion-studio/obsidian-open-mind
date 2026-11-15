@@ -22,29 +22,36 @@ pub const PROTOCOL_VERSION: &str = "2025-03-26";
 pub const PREFIX: &str = "mcp__";
 
 pub fn sanitize(s: &str) -> String {
-    s.chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() || c == '_' {
+            out.push(c);
+        } else {
+            out.push('_');
+        }
+    }
+    out
 }
 
 /// Upstream `mcp_prefixed_tool_name`.
 pub fn prefixed_name(server: &str, tool: &str) -> String {
-    let full = format!("{PREFIX}{}__{}", sanitize(server), sanitize(tool));
+    let server = sanitize(server);
+    let tool = sanitize(tool);
+    let mut full = String::with_capacity(PREFIX.len() + server.len() + 2 + tool.len());
+    full.push_str(PREFIX);
+    full.push_str(&server);
+    full.push_str("__");
+    full.push_str(&tool);
     if full.len() <= 64 {
         return full;
     }
-    let hex: String = sha256(full.as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    let suffix = format!("_{}", &hex[..8]);
-    format!("{}{}", &full[..64 - suffix.len()], suffix)
+    let digest = sha256(full.as_bytes());
+    let hex = galion_common::hex::encode(&digest[..4]);
+    let mut out = String::with_capacity(64);
+    out.push_str(&full[..55]);
+    out.push('_');
+    out.push_str(&hex);
+    out
 }
 
 struct Conn {
@@ -93,7 +100,7 @@ impl McpClient {
         let (tx, rx) = channel();
         std::thread::spawn(move || {
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
-                if let Ok(v) = serde_json::from_str::<Value>(line.trim()) {
+                if let Some(v) = parse_line(&line) {
                     if tx.send(v).is_err() {
                         break;
                     }
@@ -227,25 +234,7 @@ impl Tool for McpTool {
             t,
         ) {
             Ok(r) => {
-                let text: Vec<String> = r["content"]
-                    .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .map(|c| match c["type"].as_str() {
-                                Some("text") => c["text"].as_str().unwrap_or("").to_string(),
-                                Some(k) => format!("[{k} content]"),
-                                None => c.to_string(),
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let mut s = text.join("\n");
-                if s.is_empty() {
-                    if let Some(sc) = r.get("structuredContent") {
-                        s = sc.to_string();
-                    }
-                }
-                let s = crate::redact(&s);
+                let s = crate::redact(&tool_result_text(&r));
                 if r["isError"] == true {
                     ToolOutput::err(s)
                 } else {
@@ -299,6 +288,49 @@ pub fn discover(servers: &[McpServerCfg]) -> (Vec<Arc<dyn Tool>>, Vec<String>) {
     (tools, errors)
 }
 
+/// One newline-delimited JSON-RPC message from a stdio MCP server.
+///
+/// Blank lines and lines that are not JSON are [`None`]. The reader thread
+/// uses this and drops those lines.
+#[must_use]
+pub fn parse_line(line: &str) -> Option<Value> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+    serde_json::from_str(line).ok()
+}
+
+/// Text kept from a `tools/call` result, before redaction.
+///
+/// Text blocks are joined with newlines. Another block becomes
+/// `[<type> content]`. A block with no `type` is its JSON. When `content`
+/// is missing or empty, `structuredContent` is used instead. `isError` is
+/// not read here.
+#[must_use]
+pub fn tool_result_text(result: &Value) -> String {
+    let text: Vec<String> = result["content"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .map(|item| match item["type"].as_str() {
+                    Some("text") => item["text"].as_str().unwrap_or("").to_string(),
+                    Some(kind) => format!("[{kind} content]"),
+                    None => item.to_string(),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut text = text.join("\n");
+    if text.is_empty() {
+        if let Some(structured) = result.get("structuredContent") {
+            text = structured.to_string();
+        }
+    }
+    text
+}
+
 /// FIPS 180-4 SHA-256 (only used for the 64-char name clamp). Shared
 /// implementation from galion-common.
 pub fn sha256(data: &[u8]) -> [u8; 32] {
@@ -327,5 +359,29 @@ mod tests {
         let long = prefixed_name(&"s".repeat(40), &"t".repeat(40));
         assert_eq!(long.len(), 64);
         assert_eq!(&long[55..56], "_");
+        let full = format!("mcp__{}__{}", "s".repeat(40), "t".repeat(40));
+        let hex = galion_common::hex::encode(&sha256(full.as_bytes())[..4]);
+        assert_eq!(&long[56..], hex);
+    }
+
+    #[test]
+    fn line_and_tool_result_parse() {
+        assert!(parse_line("  ").is_none());
+        assert!(parse_line("not-json").is_none());
+        let line = r#"{"jsonrpc":"2.0","id":1,"result":{"tools":[]}}"#;
+        assert_eq!(parse_line(line).unwrap()["id"], 1);
+
+        let blocks = json!({
+            "content": [
+                {"type": "text", "text": "a"},
+                {"type": "image"},
+                {"type": "text", "text": "b"}
+            ]
+        });
+        assert_eq!(tool_result_text(&blocks), "a\n[image content]\nb");
+        let structured = json!({"content": [], "structuredContent": {"n": 1}});
+        assert_eq!(tool_result_text(&structured), "{\"n\":1}");
+        let bare = json!({"content": [1]});
+        assert_eq!(tool_result_text(&bare), "1");
     }
 }

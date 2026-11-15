@@ -97,7 +97,7 @@ Typing `look` and pressing Enter keeps that word on the page and runs the same L
 | desk | Desk | staged | Read-only pod endpoint, separate program |
 | console | Console | staged | Operator rooms, separate program |
 
-`/research` is not a row. It is an entry page linked from the header. The Galion One row stays `planned`, and its name is a same-origin link to `/one` (`render` in `crates/openmind-desktop/src/page.rs`). The header still links both `/one` and `/research`.
+`/research` is not a row. It is an entry page linked from the header. The Galion One row stays `planned`, and its name is a same-origin link to `/one` (`render` in `crates/openmind-desktop/src/page.rs`). A file the console accepts writes `sent` in that row's `.seen` span. The next Look clears it, because Galion One has no probe. The `.state` span stays `planned`. The header still links both `/one` and `/research`.
 
 ## Stack intake
 

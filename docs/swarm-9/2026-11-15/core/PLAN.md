@@ -44,7 +44,7 @@ Keep developing until the three lanes are finished and the tests you were requir
 
    Checked the open pre-Swarm-9 pulls against the lane lists on 2026-11-15. None are both blocked or failing and inside a core lane. Not taken:
 
-   - #14 conflicts on `crates/hermes-gateway/src/main.rs` and `crates/hermes-rs/**`. Desktop plan #67 recreates it as `Swarm 9 desktop/hermes-offhost` and owns those source files until that pull request merges. Linux keeps `crates/hermes-gateway/tests/real_size_2mib.rs` only and does not edit `crates/hermes-gateway/src/**` or `crates/hermes-rs/**` while that recreation is open.
+   - #14 conflicts on `crates/hermes-gateway/src/main.rs` and `crates/hermes-rs/**`. Desktop plan #67, re-read at `c8439c04`, keeps `crates/hermes-rs/**` until two pull requests have each merged: the #14 recreation, and #70 (getrandom 0.3.4, which edits `crates/hermes-rs/Cargo.toml` and `crates/hermes-rs/src/enroll/mod.rs`). CPU #71 drops the whole `hermes-rs` tree. The overlap with #70 is `lib.rs` only. Linux keeps `crates/hermes-gateway/tests/real_size_2mib.rs` only and does not edit `crates/hermes-gateway/src/**` or `crates/hermes-rs/**`.
    - #16 and #17 stay with the owner. Desktop plan #67 says their rollups were 21 failures and 1 skipped at 15:30, and the owner still keeps them. This orchestrator did not re-query those checks.
    - #15 is recreated by desktop. The conflict is `docs/crate-index.md` (#60). #7 and #28 stay with desktop.
    - #51 and #52 stay untouched.
@@ -61,7 +61,7 @@ Keep developing until the three lanes are finished and the tests you were requir
    - Hygiene owns `.github/workflows/miri.yml` except the `actions/checkout` pin lines, which #64 edits.
    - Do not add a `Cargo.lock` edge while a desktop bump that edits `Cargo.lock` is open (#66 and the queue in #67: #2, #21, #22, #23, #24, #26, #30). Hygiene may still add `rust-version` beside the `toml` line.
    - `README.md`, `docs/STATUS.md`, and `docs/crate-index.md` stay with desktop for the docs refresh. #60 is the crate-index pull request. The licence text itself does not change.
-   - Linux may edit `crates/openmind-desktop/src/lib.rs`, `files.rs`, and `http.rs`. Desktop #67 does not own those.
+   - Desktop does not claim `crates/openmind-desktop/**`. CPU #71 keeps `src/files.rs`, `src/probe.rs`, and `benches/cpu.rs`. Linux #69 does not edit those three. Linux may still edit `src/lib.rs` and `src/http.rs` for a bind default, and it does not edit `files.rs` while #71's diff includes it.
    - `release_feature_unify.rs` stays hygiene. Desktop comments on this plan before editing that test.
 
    Live clashes seen 2026-11-15T15:32+01:00. Core lanes do not edit these lines. Rebase after desktop merges them:
@@ -111,6 +111,8 @@ Real benchmarks and hot paths, in service of a flow a person can feel: local JSO
 - `crates/galion-jsonout/**` except `LICENSE`
 - `crates/openmind-llama/**` except `LICENSE`
 - `docs/swarm-9/2026-11-15/core/cpu.md`
+
+CPU draft #71 also keeps `crates/openmind-desktop/src/files.rs`, `src/probe.rs`, and `benches/cpu.rs`. Drop `crates/hermes-rs/**` and `crates/galion-common/src/http.rs` from that pull request. Hygiene owns `galion-common`.
 
 ### Work
 

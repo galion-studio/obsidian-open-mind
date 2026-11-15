@@ -8,7 +8,27 @@ The MCP client lives in `crates/hermes-rs/src/mcp.rs`. Per-server configuration,
 
 `HERMES_RS_MCP=0` (also `false`, `no`, `off`) drops every configured server, including GitHub. Nothing here edits `config.yaml`. The GitHub entry stays off until `HERMES_RS_MCP_GITHUB=1`.
 
-Streamable HTTP and that GitHub entry are the `mcp-http` feature. It is on for tests. It is **not** in the default `hermes-gateway` build. On main, that musl binary is 2,086,816 bytes and the cap in `config/release/size-budget.tsv` is 2,097,152. The client does not fit in the 10,336 bytes that are left. Build the gateway with `--features mcp-http` to include it. A `url` server in a build without the feature is reported at discovery and skipped.
+Streamable HTTP and that GitHub entry are the `mcp-http` feature. The `hermes-rs` unit tests compile it (`cfg(test)`). It is not in the default `hermes-gateway` build: `default` in `crates/hermes-gateway/Cargo.toml` does not name `mcp-http`. The musl size cap for that binary is 2,097,152 bytes (`config/release/size-budget.tsv`, row `hermes-gateway`). The x86_64 musl size-budget log for `08b8318e` (2026-11-15T01:31:46+01:00) measured `hermes-gateway` at 2,091,904 bytes, stripped, status ok. That commit is before this branch merged current main, so it is not a measurement of this branch. `TODO(verify)` the byte count after the next size-budget run. Build the gateway with `--features mcp-http` to include HTTP and GitHub. A `url` server in a build without the feature is reported at discovery and skipped (`crates/hermes-gateway/tests/mcp_http_off.rs`).
+
+## How to use it
+
+Stdio works in the default gateway. Add one entry and start the gateway with `HERMES_RS_MCP` unset (or any value other than `0`, `false`, `no`, or `off`):
+
+```yaml
+mcp_servers:
+  lab:
+    command: /usr/local/bin/lab-mcp
+    args: ["--stdio"]
+    tools: [list_notes, get_note]
+```
+
+Read-only GitHub needs a gateway built with `--features mcp-http`, then:
+
+```sh
+HERMES_RS_MCP_GITHUB=1
+```
+
+The token is the `GITHUB_TOKEN` environment variable of that process. It is read when a request is sent. It is not written into config. `HERMES_RS_MCP=0` still drops GitHub. The registered tool names look like `mcp__github__get_file_contents`. The steps below are the same rules in more detail.
 
 ## What the client speaks
 
@@ -50,7 +70,7 @@ mcp_servers:
     tools: [list_notes, get_note]
 ```
 
-Header values are strings. Quote `true` if you send it as a header. `Authorization` is not accepted as a header; put the variable name in `token_env` and the secret in the environment. A `token_env` that looks like a token, or a header that looks like one, drops the whole entry.
+Header values are strings. Quote `true` if you send it as a header. `Authorization` is not accepted as a header; put the variable name in `token_env` and the secret in the environment. A `token_env` that looks like a token, a header that looks like one, or a `url` that contains one, drops the whole entry. The dropped URL is not stored. A query name ending in `key`, `token`, `secret`, or `password` with a value of 8 characters or more is treated the same way (`url_embeds_secret` in `crates/hermes-rs/src/config.rs`).
 
 `timeout` and `connect_timeout` are seconds. Defaults are 30 and 15. The GitHub entry uses 60 and 15. `lazy` is accepted and stored. Discovery still runs at startup, which is the existing behaviour.
 

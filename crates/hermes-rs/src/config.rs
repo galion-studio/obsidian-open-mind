@@ -235,6 +235,69 @@ pub(crate) fn looks_like_secret(value: &str) -> bool {
                 || v.starts_with(concat!("s", "k-"))))
 }
 
+/// A URL that already contains a token, or a query name that is a key,
+/// token, secret, or password with a value of 8 characters or more.
+/// The entry is dropped. The URL is not stored and not logged.
+pub(crate) fn url_embeds_secret(url: &str) -> bool {
+    if looks_like_secret(url) || marker_in(url) {
+        return true;
+    }
+    let Some((_, query)) = url.split_once('?') else {
+        return false;
+    };
+    let query = query.split('#').next().unwrap_or("");
+    for pair in query.split('&') {
+        let (name, val) = pair.split_once('=').unwrap_or((pair, ""));
+        if looks_like_secret(val) {
+            return true;
+        }
+        let name = name.to_ascii_uppercase();
+        if val.len() >= 8
+            && ["KEY", "TOKEN", "SECRET", "PASSWORD"]
+                .iter()
+                .any(|k| name.ends_with(k))
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Token-shaped text at a non-alphanumeric boundary, at least 16 bytes.
+fn marker_in(value: &str) -> bool {
+    let b = value.as_bytes();
+    let markers: [&[u8]; 4] = [
+        concat!("gh", "p_").as_bytes(),
+        concat!("gh", "o_").as_bytes(),
+        concat!("github", "_pat_").as_bytes(),
+        concat!("s", "k-").as_bytes(),
+    ];
+    let mut i = 0;
+    while i < b.len() {
+        let boundary = i == 0 || !b[i - 1].is_ascii_alphanumeric();
+        if boundary {
+            for m in markers {
+                if b[i..].starts_with(m) {
+                    let mut n = m.len();
+                    while i + n < b.len() {
+                        let c = b[i + n];
+                        if c.is_ascii_alphanumeric() || c == b'_' || c == b'-' {
+                            n += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    if n >= 16 {
+                        return true;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 pub(crate) fn valid_env_name(name: &str) -> bool {
     let mut bytes = name.bytes();
     match bytes.next() {
@@ -382,6 +445,9 @@ fn mcp_server_from_yaml(name: &str, sv: &Value) -> Option<McpServerCfg> {
     let command = s(&sv["command"]);
     let url = s(&sv["url"]);
     if command.is_some() == url.is_some() {
+        return None;
+    }
+    if url.as_deref().is_some_and(url_embeds_secret) {
         return None;
     }
     let args = sv["args"]
@@ -935,12 +1001,32 @@ mcp_servers:
   off:
     command: /bin/true
     enabled: false
+  pasted:
+    url: https://example.com/mcp?x={leaked}
+  query:
+    url: https://example.com/mcp?access_token=abcdefghijklmnop
+  lookalike:
+    url: https://api.githubcopilot.com.evil.example/mcp
+    tools: [push_files]
+  notes:
+    url: https://API.GITHUBCOPILOT.COM/mcp/x/all/readonly
+    tools: [get_file_contents, push_files]
+  writes:
+    url: https://api.githubcopilot.com/mcp/
+    tools: [push_files, merge_pull_request]
 "
         );
         let mut c = Config::defaults(Path::new("/h"));
         c.apply_yaml(&yaml::parse(&yaml).unwrap());
         let names: Vec<&str> = c.mcp_servers.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(names, ["lab", "github"], "{names:?}");
+        assert_eq!(
+            names,
+            ["lab", "github", "lookalike", "notes", "writes"],
+            "{names:?}"
+        );
+        let dumped = format!("{:?}", c.mcp_servers);
+        assert!(!dumped.contains(leaked), "{dumped}");
+        assert!(!dumped.contains("abcdefghijklmnop"), "{dumped}");
         let lab = c.mcp_servers.iter().find(|s| s.name == "lab").unwrap();
         assert_eq!(
             lab.allow,
@@ -959,9 +1045,29 @@ mcp_servers:
             .iter()
             .any(|(k, v)| k == "X-MCP-Readonly" && v == "true"));
         assert!(gh.headers.iter().all(|(k, _)| k != "Authorization"));
-        let dumped = format!("{gh:?}");
-        assert!(!dumped.contains(concat!("gh", "p_")));
-        assert!(!dumped.contains("Bearer"));
+        let gh_dump = format!("{gh:?}");
+        assert!(!gh_dump.contains(concat!("gh", "p_")));
+        assert!(!gh_dump.contains("Bearer"));
+        let look = c
+            .mcp_servers
+            .iter()
+            .find(|s| s.name == "lookalike")
+            .unwrap();
+        assert!(look.allow.permits("push_files"));
+        assert!(look.token_env.is_none());
+        assert!(look.headers.is_empty());
+        let notes = c.mcp_servers.iter().find(|s| s.name == "notes").unwrap();
+        assert!(notes.allow.permits("get_file_contents"));
+        assert!(!notes.allow.permits("push_files"));
+        assert_eq!(notes.token_env.as_deref(), Some(GITHUB_TOKEN_ENV));
+        assert!(notes
+            .headers
+            .iter()
+            .any(|(k, v)| k == "X-MCP-Readonly" && v == "true"));
+        let writes = c.mcp_servers.iter().find(|s| s.name == "writes").unwrap();
+        assert_eq!(writes.allow, ToolAllow::Only(vec![]));
+        assert!(!writes.allow.permits("push_files"));
+        assert!(!writes.allow.permits("merge_pull_request"));
     }
 
     #[test]

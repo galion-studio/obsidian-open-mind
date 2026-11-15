@@ -16,7 +16,8 @@
 //! back when the server assigned one. Cleartext HTTP is loopback only.
 //! Both schemes go through the system `curl` (no TLS crate, and no second
 //! HTTP stack in the gateway). The token travels in the curl config on
-//! stdin, never in argv. The legacy HTTP+SSE
+//! stdin, never in argv. A URL that already contains a token is dropped
+//! in config and is not stored. The legacy HTTP+SSE
 //! transport (protocol 2024-11-05) is not implemented.
 
 use crate::config::{header_safe, valid_env_name, McpServerCfg, ToolAllow};
@@ -317,21 +318,9 @@ impl McpClient {
         let url = self.cfg.url.as_deref().unwrap_or("");
         let secs = timeout.as_secs().max(1);
         let connect = secs.min(self.cfg.connect_timeout_s.max(1));
+        let args = curl_args(https, connect, secs);
         let mut child = Command::new(&self.curl)
-            .args([
-                "-sS",
-                "-i",
-                "--http1.1",
-                "--max-redirs",
-                "0",
-                "--proto",
-                if https { "=https" } else { "=http" },
-                "--connect-timeout",
-            ])
-            .arg(connect.to_string())
-            .arg("--max-time")
-            .arg(secs.to_string())
-            .args(["-K", "-"])
+            .args(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -528,6 +517,28 @@ fn push_quoted(out: &mut String, s: &str) {
         }
     }
     out.push('"');
+}
+
+/// curl arguments for one MCP POST. Redirects stay off (`--max-redirs 0`)
+/// and `--proto` locks the scheme parsed from the URL. The URL and the
+/// token are not arguments; they go in the config on stdin.
+#[cfg(any(test, feature = "mcp-http"))]
+fn curl_args(https: bool, connect_s: u64, max_s: u64) -> Vec<String> {
+    vec![
+        "-sS".into(),
+        "-i".into(),
+        "--http1.1".into(),
+        "--max-redirs".into(),
+        "0".into(),
+        "--proto".into(),
+        if https { "=https" } else { "=http" }.into(),
+        "--connect-timeout".into(),
+        connect_s.to_string(),
+        "--max-time".into(),
+        max_s.to_string(),
+        "-K".into(),
+        "-".into(),
+    ]
 }
 
 #[cfg(any(test, feature = "mcp-http"))]
@@ -963,6 +974,70 @@ mod tests {
         assert!(msgs[0].get("id").is_none());
         assert_eq!(msgs[1]["id"], 7);
         assert_eq!(msgs[1]["result"]["ok"], true);
+    }
+
+    #[test]
+    fn curl_args_disable_redirects_and_lock_the_scheme() {
+        let https = curl_args(true, 15, 60);
+        let http = curl_args(false, 5, 5);
+        assert_eq!(
+            https
+                .iter()
+                .position(|a| a == "--max-redirs")
+                .map(|i| https[i + 1].as_str()),
+            Some("0")
+        );
+        assert_eq!(
+            https
+                .iter()
+                .position(|a| a == "--proto")
+                .map(|i| https[i + 1].as_str()),
+            Some("=https")
+        );
+        assert_eq!(
+            http.iter()
+                .position(|a| a == "--proto")
+                .map(|i| http[i + 1].as_str()),
+            Some("=http")
+        );
+        assert!(https.iter().any(|a| a == "-K"));
+        assert!(https
+            .iter()
+            .all(|a| !a.contains("Bearer") && !a.contains("://")));
+        assert!(http
+            .iter()
+            .all(|a| !a.contains("Bearer") && !a.contains("://")));
+    }
+
+    #[test]
+    fn session_id_rejects_whitespace_and_overlong_values() {
+        let ok = session_from(&[("Mcp-Session-Id".into(), "sess-1".into())]);
+        assert_eq!(ok.as_deref(), Some("sess-1"));
+        assert!(session_from(&[("Mcp-Session-Id".into(), "bad id".into())]).is_none());
+        assert!(session_from(&[("Mcp-Session-Id".into(), "bad\nid".into())]).is_none());
+        assert!(session_from(&[("Mcp-Session-Id".into(), String::new())]).is_none());
+        assert!(session_from(&[("Mcp-Session-Id".into(), "a".repeat(257))]).is_none());
+    }
+
+    #[test]
+    fn empty_allowlist_does_not_spawn() {
+        let cfg = McpServerCfg {
+            allow: ToolAllow::Only(vec![]),
+            ..McpServerCfg::stdio("empty", "/nonexistent/mcp", vec![])
+        };
+        let (tools, errors) = discover(&[cfg]);
+        assert!(tools.is_empty());
+        assert_eq!(errors, vec!["empty: allowlist is empty".to_string()]);
+    }
+
+    #[test]
+    fn github_write_only_allowlist_does_not_connect() {
+        let mut cfg = McpServerCfg::http("github", "http://localhost:1/mcp");
+        cfg.allow = ToolAllow::Only(vec!["push_files".into()]);
+        crate::config::clamp_github_readonly(&mut cfg);
+        let (tools, errors) = discover(&[cfg]);
+        assert!(tools.is_empty());
+        assert_eq!(errors, vec!["github: allowlist is empty".to_string()]);
     }
 
     #[test]

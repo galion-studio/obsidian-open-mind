@@ -97,7 +97,7 @@ Stack rows do not probe other programs. Nothing on the list is `live` (`crates/o
 | desk | Desk | staged | Read-only pod endpoint, separate program |
 | console | Console | staged | Operator rooms, separate program |
 
-`/one` and `/research` are not rows. They are the entry pages linked from the header (`render` in `crates/openmind-desktop/src/page.rs`).
+`/research` is not a row. It is an entry page linked from the header. The Galion One row stays `planned`, and its name is a same-origin link to `/one` (`render` in `crates/openmind-desktop/src/page.rs`). The header still links both `/one` and `/research`.
 
 ## Stack intake
 

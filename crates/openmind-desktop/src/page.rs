@@ -146,6 +146,8 @@ h1 { font-size: 18px; font-weight: 600; }
 }
 .stack li:first-child { border-top: 0; }
 .stack .name { font-weight: 600; }
+.stack .name a { color: inherit; text-underline-offset: 2px; }
+.stack .name a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .stack .role { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
 .stack .state, .stack .seen {
   font: 12px/1.3 "IBM Plex Mono", ui-monospace, monospace;
@@ -655,7 +657,13 @@ fn render() -> String {
         html.push_str("<li data-layer=\"");
         html.push_str(layer.id);
         html.push_str("\"><span class=\"name\">");
-        html.push_str(&esc(layer.name));
+        if layer.id == "galion-one" {
+            html.push_str("<a href=\"/one\">");
+            html.push_str(&esc(layer.name));
+            html.push_str("</a>");
+        } else {
+            html.push_str(&esc(layer.name));
+        }
         html.push_str("</span><span class=\"state\">");
         html.push_str(layer.state);
         html.push_str("</span><span class=\"seen\"></span><span class=\"role\">");
@@ -752,6 +760,10 @@ mod tests {
         assert!(html.contains("432 Hz"));
         assert!(html.contains("href=\"/one\""));
         assert!(html.contains("href=\"/research\""));
+        assert_eq!(html.matches("href=\"/one\"").count(), 2);
+        assert_eq!(html.matches("href=\"/research\"").count(), 1);
+        let one_row = html.find("data-layer=\"galion-one\"").unwrap();
+        assert!(html[one_row..one_row + 160].contains("<a href=\"/one\">Galion One</a>"));
         assert!(html.contains("aria-label=\"Stack\""));
         assert!(html.contains("id=\"look\""));
         assert!(html.contains("Look at the local stack"));

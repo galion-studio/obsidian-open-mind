@@ -273,8 +273,7 @@ Disclosure: [SECURITY.md](SECURITY.md).
 > **Planned.** A search of `crates/` for `web3` and `license key` on 2026-11-15 found no
 > matches. [brand/STYLE-GUIDE.md](brand/STYLE-GUIDE.md) still says the design is undecided.
 
-Until a design is published, the tree is MIT-licensed and needs no key. `LICENSE` was not
-edited in the docs refresh that wrote this paragraph.
+Until a design is published, the tree is MIT-licensed and needs no key.
 
 ## Known limits of this page
 
@@ -299,5 +298,4 @@ Timestamps in this project are Europe/Zagreb with an explicit offset: `+02:00` u
 ## License
 
 Obsidian Open Mind is MIT-licensed: see [LICENSE](LICENSE).
-The copyright line in that file is `Copyright (c) 3000 Galion / galion-studio`.
-This README quotes that file. It does not replace it.
+Copyright (c) 3000 Galion / galion-studio.

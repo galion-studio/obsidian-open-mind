@@ -9,7 +9,7 @@ Searches for an open pull request titled "Swarm 9 desktop plan" returned 0 items
 - `repo:galion-studio/obsidian-open-mind is:open "Swarm 9 desktop"`
 - `repo:galion-studio/obsidian-open-mind is:open "Swarm 9"`
 
-`docs/swarm-9/` was not on `main`. Work followed the lane text in the task: refresh `README.md`, `docs/STATUS.md`, and `docs/crate-index.md` from `main`, and leave `LICENSE` alone.
+`docs/swarm-9/` was not on `main`. Work followed the lane text in the task: refresh `README.md`, `docs/STATUS.md`, and `docs/crate-index.md` from `main`. `LICENSE` was not edited.
 
 ## Checked
 
@@ -24,7 +24,7 @@ Searches for an open pull request titled "Swarm 9 desktop plan" returned 0 items
 - `cargo fmt --all -- --check` and `cargo fmt --manifest-path edge/openmind-node/Cargo.toml --all -- --check` with rustc 1.100.0: both exit 0.
 - `scripts/status-percent.sh` after the status edit, 2026-11-15T15:28:16+01:00, and again at 2026-11-15T15:28:53+01:00: 89 items, D 54, P 12, N 2, O 21, weight 122. Matches the fence in `docs/STATUS.md`.
 - `find` for `vite.config.*` and `package.json`: no paths.
-- `LICENSE` still starts `MIT License` / `Copyright (c) 3000 Galion / galion-studio`. Not edited.
+- `LICENSE` starts `MIT License` and `Copyright (c) 3000 Galion / galion-studio`. Not edited.
 
 ## Changed
 
@@ -48,11 +48,12 @@ Searches for an open pull request titled "Swarm 9 desktop plan" returned 0 items
 
 - `docs/hermes-mcp.md` is absent on this branch. It was read from draft #51 head `ff9d400387f598c1c2091f84ad19c3544f9dc962`. The README now has one pointer: `HERMES_RS_MCP_GITHUB=1` is opt-in and read-only, and the contract is that file. The file text does not name ports 18181 or 18080. Those ports stay on the desktop sentences.
 - The workflow trigger sentences in `README.md` and `docs/STATUS.md` now match the `on:` blocks.
+- 2026-11-15T15:37:02+01:00. Owner decision 15:34 CET in desktop plan #67: the copyright line stays. The README licence section is the plain line again. Notes no longer call that text short, or assign the file to another lane.
 
 ## Open questions for Maciej
 
 - The 89 backlog letters were left as the 2026-10-21 audit. Gaia crates and `openmind-desktop` are on `main`. Re-scoring those letters needs a decision; this lane did not guess.
 - FE-1 still says the console runs vite. No `vite.config.*` or `package.json` was found. The letter stays N until someone re-audits the item.
-- `LICENSE` is still the short MIT text with `Copyright (c) 3000 Galion / galion-studio`. The licence lane owns that file.
+- Owner decision 2026-11-15 15:34 CET, recorded in desktop plan #67: `Copyright (c) 3000 Galion / galion-studio` stays. It is the current copyright. No licence or header changes in this lane.
 - The October swarm-branch SHA tables were not rebuilt. Say if they should move to an archive doc.
 - No "Swarm 9 desktop plan" pull request was visible when this lane started.

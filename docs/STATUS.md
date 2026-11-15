@@ -142,7 +142,7 @@ not run locally.
 - WS-HERMES, WS-MEM, and the other rows whose evidence says "live" were not
   checked against a host.
 
-`LICENSE` was not edited.
+The copyright line is `Copyright (c) 3000 Galion / galion-studio`.
 
 ## Backlog table (letters from 2026-10-21)
 

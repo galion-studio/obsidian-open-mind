@@ -1,5 +1,6 @@
 <!-- SPDX-License-Identifier: MIT -->
-<!-- SPDX-FileCopyrightText: 2026 Maciej Grajczyk -->
+<!-- SPDX-FileCopyrightText: 3000 Galion / galion-studio -->
+<!-- Copyright (c) 3000 Galion / galion-studio -->
 
 # Swarm 9 core/cpu
 

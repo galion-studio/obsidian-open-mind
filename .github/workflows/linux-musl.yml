@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# Linux musl release builds of openmind-desktop and hermes-gateway.
+# x86_64-unknown-linux-musl and aarch64-unknown-linux-musl. The fetch step
+# keeps `cargo tree --offline` working for curve25519-dalek-derive. The size
+# step prints measured byte counts against the 2 MiB cap. A separate job
+# checks loopback bind defaults and runs systemd-analyze verify.
+#
+# This file does not upload artifacts and does not edit
+# .github/workflows/openmind-desktop.yml (draft PR #52 packages the desktop).
+# Overlap: #52 also builds openmind-desktop for aarch64-unknown-linux-musl.
+# This workflow adds the x86_64 musl desktop build, both musl gateway
+# builds, the offline tree, the size cap, and the unit check. Nothing here
+# is published.
+name: linux-musl
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-musl-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  TZ: Europe/Zagreb
+
+jobs:
+  musl:
+    name: release ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    env:
+      LINUX_JOBS: 2
+      LINUX_NICE: 0
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - name: offline tree, musl release, size cap
+        run: scripts/linux/build-musl.sh "${{ matrix.target }}"
+
+  units:
+    name: systemd units and bind defaults
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: loopback binds and systemd-analyze verify
+        run: scripts/linux/verify-units.sh

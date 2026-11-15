@@ -44,16 +44,25 @@ Keep developing until the three lanes are finished and the tests you were requir
 
    Checked the open pre-Swarm-9 pulls against the lane lists on 2026-11-15. None are both blocked or failing and inside a core lane. Not taken:
 
-   - #14 conflicts on `crates/hermes-gateway/src/main.rs` and `crates/hermes-rs/**` (desktop #58 merge-tree), and adds `deploy/survival/` docs. Those paths are not in the Linux list. `hermes-rs` stays on #51.
-   - #16 edits memory, nerve, and Hermes sources, not a core lane. Desktop #58 reported a clean merge-tree. Left for the owner. This orchestrator did not re-read its checks (not run).
-   - #15 conflicts on `docs/crate-index.md` (desktop). #17 adds `SOUL.md` (forbidden). #7 and #28 are brand and gitignore; desktop #58 already carried the safe parts.
+   - #14 conflicts on `crates/hermes-gateway/src/main.rs` and `crates/hermes-rs/**`. Desktop plan #67 recreates it as `Swarm 9 desktop/hermes-offhost` and owns those source files until that pull request merges. Linux keeps `crates/hermes-gateway/tests/real_size_2mib.rs` only and does not edit `crates/hermes-gateway/src/**` or `crates/hermes-rs/**` while that recreation is open.
+   - #16 and #17 stay with the owner. Desktop plan #67 says their rollups were 21 failures and 1 skipped at 15:30, and the owner still keeps them. This orchestrator did not re-query those checks.
+   - #15 is recreated by desktop. The conflict is `docs/crate-index.md` (#60). #7 and #28 stay with desktop.
    - #51 and #52 stay untouched.
 
 2. Desktop major bumps are allowed. The desktop swarm merges them once every non-skipped check is green. Named set: #2 (`toml` 1.x), #19 (`actions/upload-artifact` 7), #20 (`actions/checkout` 7), #54 (`cosign-installer` 4), #55 (`codeql-action` 4), plus any later major they take. Core does not merge those and does not bump versions. #54 and #55 were already green apart from skipped `miri full` (desktop #58 cited runs 43684433869 and 43684453433). They still stay with desktop.
 
    Linux watches `Cargo.lock` and the pins in `.github/workflows/self-eval.yml`. After a desktop major reaches `main`, merge `main` into the Linux branch (no force-push) and re-run the cold `cargo tree` test before merging Linux. If that lockfile move changes a release binary’s features or size, re-measure `hermes-gateway`. Hygiene does not absorb #2. If `toml` 1.x lands and `release_feature_unify` fails on a new mismatch, hygiene fixes that test after rebasing. The red 0.x bumps #21 (`rusqlite`), #22 (`candle-nn`), and #23 (`getrandom`) are not core-lane files. Leave them unless desktop takes them as majors.
 
-   Live clashes seen 2026-11-15T15:32+01:00, while no desktop plan pull request was open. Core lanes do not edit these lines. Rebase after desktop merges them:
+   Desktop plan is #67 (`docs/swarm-9/2026-11-15/desktop/PLAN.md`), read at 2026-11-15T15:34+01:00. Agreed split:
+
+   - Linux owns `.github/workflows/self-eval.yml` except the license job `run:` block. Desktop licence (#65) edits that block only. Linux does not edit it. Desktop checkout and upload-artifact bumps edit `uses:` pins in the same file. Linux does not edit those pins. Rebase after they merge.
+   - Hygiene owns `.github/workflows/miri.yml` except the `actions/checkout` pin lines, which #64 edits.
+   - Do not add a `Cargo.lock` edge while a desktop bump that edits `Cargo.lock` is open (#66 and the queue in #67: #2, #21, #22, #23, #24, #26, #30). Hygiene may still add `rust-version` beside the `toml` line.
+   - `LICENSE`, `README.md`, `docs/STATUS.md`, and `docs/crate-index.md` stay with desktop. #60 is the crate-index pull request.
+   - Linux may edit `crates/openmind-desktop/src/lib.rs`, `files.rs`, and `http.rs`. Desktop #67 does not own those.
+   - `release_feature_unify.rs` stays hygiene. Desktop comments on this plan before editing that test.
+
+   Live clashes seen 2026-11-15T15:32+01:00. Core lanes do not edit these lines. Rebase after desktop merges them:
 
    - #64 (`actions/checkout` 7.0.1) edits `.github/workflows/self-eval.yml` (Linux) and `.github/workflows/miri.yml` (hygiene). The diff is the checkout pin only.
    - #63 (`actions/upload-artifact` 7.0.2) edits the upload-artifact pin in `.github/workflows/self-eval.yml`.
@@ -150,7 +159,7 @@ Musl and aarch64 builds, the binary size cap, systemd units, and loopback bind d
   - `crates/openmind-desktop/src/lib.rs`
   - `crates/openmind-desktop/src/files.rs`
   - `crates/openmind-desktop/src/http.rs`
-- A new non-release member such as `crates/musl-tree-fetch/**` if you use that fix
+- `scripts/fetch-musl-graphs.sh` (new). Do not add `crates/musl-tree-fetch` or any other `Cargo.lock` edge while a desktop `Cargo.lock` bump is open.
 - `docs/swarm-9/2026-11-15/core/linux.md`
 
 Do not edit `crates/galion-one/**`. Do not edit `crates/galion-feature-pin/**`. Do not edit `crates/hermes-rs/**` (pull request 51). Do not edit `crates/galion-realtest/Cargo.toml`.
@@ -179,7 +188,7 @@ Make a cold `cargo test -p galion-feature-pin --locked --test release_feature_un
 
 Keep the serial cfg. Do not clear `[build] rustflags` in `.cargo/config.toml`. `crates/hades-gate/tests/simd_free.rs` fails if `RUSTFLAGS` replaces that list, and that test file is hygiene’s.
 
-A working fix: a new workspace member this lane owns, not a release binary and not linked into `hermes-gateway`, whose only dependency is the already-locked `curve25519-dalek-derive`. A normal fetch then downloads it before the offline tree. Do not change any existing dependency version. The only `Cargo.lock` edit is that new edge. If that collides with pull request 57, stop and comment. Do not merge 57. Leave the CI prefetch in place until the cold-cache test has passed once.
+While a desktop `Cargo.lock` bump is open, the fix is `scripts/fetch-musl-graphs.sh`: the same empty-`RUSTFLAGS` `cargo fetch` the CI job already runs, for both musl targets. No `Cargo.lock` edit. No new crate. Call that script from the Linux-owned part of `self-eval.yml`, outside the license job `run:` block. Leave the existing prefetch in place until a cold run of `cargo test -p galion-feature-pin --locked --test release_feature_unify` has passed after the script. A workspace member that depends on `curve25519-dalek-derive` waits until those bump pull requests have merged. Do not merge #57.
 
 Paste the cold-cache command and its exit status in `linux.md`.
 
@@ -247,7 +256,7 @@ Status (updated by the orchestrator):
 | Swarm 9 core/hygiene | not opened | | | |
 | Swarm 9 core/cpu | not opened | | | |
 
-Desktop plan pull request: still not opened at the 15:29 check. Desktop worker drafts #58 (`old-prs-deps`) and #60 (`readme-status`) are open. Neither edits a core lane file. #60 is `README.md`, `docs/STATUS.md`, `docs/crate-index.md`, and its own notes file.
+Desktop plan pull request: #67, read 2026-11-15T15:34+01:00. The split above is the record. #60 remains `README.md`, `docs/STATUS.md`, `docs/crate-index.md`, and its notes file.
 
 Owner decisions still open, not settled here:
 

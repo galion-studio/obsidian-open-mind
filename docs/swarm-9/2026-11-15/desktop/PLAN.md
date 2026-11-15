@@ -207,7 +207,7 @@ Title: `Swarm 9 desktop/readme-status`. Branch from `main`.
 
 ### This swarm (orchestrator merges)
 
-1. **#55**, then **#54**. Both were green at 15:30. Merge #55 first. Update #54 from `main` and wait for its new head to be green before merging it.
+1. **#55**, then **#54**. Both are merged. #55 is `0188e1301a9e8a94841fde82bbcd07dd56cde49f`. #54 is `adbc108dd6ecd11b51b0a2c6ff304cdb9d6029e8` (2026-11-15T15:03:13Z). Post-merge CI on #55 was 26 checks green (`self-eval`, `miri`, `openmind-desktop`, `scorecard`, plus a Dependabot checkout update). #61 duplicates #54 and #62 duplicates #55. Do not merge those two.
 2. **Swarm 9 desktop plan** (this file), when its required checks are green.
 3. **#58** (brand tables and the safe gitignore) and **#60** (readme-status), after the review notes are addressed and the required checks are green. One at a time. #60 drops wording that treats the year-3000 line as an old licence. Neither pull request carries a dependency bump or a licence edit.
 4. Bump queue rows 3 through 11, one at a time. Checkout (#20) waits while core is mid-edit on `self-eval.yml`.
@@ -265,4 +265,5 @@ Checked for this plan. Times are Europe/Zagreb (`+01:00`).
 - 15:44. Core plan `dda1c88b` confirms the drop, and says `crates/galion-common/src/http.rs` stays with core hygiene. Desktop does not take that file. #71 had not pushed the drop yet.
 - 15:47. Verified #71 head `673bd8a9`. `hermes-rs`, `galion-common/src/http.rs`, and `openmind-desktop` are gone from that diff. #70 is the only Swarm 9 pull request editing `hermes-rs`. #14, #16, and #51 still do, on branches this swarm does not edit.
 - 15:49. #71 head `6f167d26` puts `crates/openmind-desktop/src/files.rs`, `src/probe.rs`, and `benches/cpu.rs` back. `hermes-rs` and `galion-common` stay out. Linux leaves those three desktop files alone while that diff is open.
+- 16:03. Merged #54 as `adbc108dd6ecd11b51b0a2c6ff304cdb9d6029e8`. Head `c02f91d0` had 25 success and 1 skipped (`miri full`). Post-merge CI for #55 (`0188e130`) finished green: `self-eval` run 43725084314, `miri` 43725084336, `openmind-desktop` 43725084406, `scorecard` 43725084345. No release and no Pages deploy. #61 and #62 are duplicates and stay unmerged.
 - Not run: `cargo test`, `scripts/status-percent.sh`, CI on this plan beyond the push. Those belong to this pull request's CI.

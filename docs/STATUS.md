@@ -3,9 +3,154 @@
 
 # Backlog status (the one table)
 
+## Measured 2026-11-15
+
+Clock reading for this section: 2026-11-15T15:26:12+01:00 (Europe/Zagreb,
+`TZ=Europe/Zagreb date -Iseconds`). Git: `main`
+`de7480e71ce98191d2ee11f018fa15be6c5a1707`.
+
+This section is what was run and read. The 89-row table further down was not
+re-scored. Letters there stay the 2026-10-21 audit. A `D` or the word "live"
+in that table is not a 2026-11-15 measurement of a host.
+
+### Repository
+
+- `GET /repos/galion-studio/obsidian-open-mind` returned `private: false` and
+  `visibility: public`. Default branch `main`.
+- `GET /repos/galion-studio/obsidian-open-mind/releases` returned an empty
+  list. No GitHub Release is recorded.
+- Search for an open pull request titled "Swarm 9 desktop plan" returned 0
+  items (query `repo:galion-studio/obsidian-open-mind is:open "Swarm 9 desktop"`,
+  and the same with `Swarm 9`). No `docs/swarm-9/` file was on `main`.
+
+### Workspace packages
+
+`cargo metadata --no-deps --format-version 1 --locked --offline` exited 0
+(Cargo 1.83.0). The JSON had 75 packages and 75 workspace members, all under
+`crates/`. The table is [crate-index.md](crate-index.md). Ten other
+`Cargo.toml` files are in the tree and were not members; they are listed at
+the bottom of that index, read from each file.
+
+### Desktop rows
+
+Source of the states: `LAYERS` in `crates/openmind-desktop/src/stack.rs`.
+`staged` means built and not switched on. `planned` means not started by
+this page. The test `stack::tests::open_mind_leads_and_nothing_is_live`
+asserts the first id is `open-mind`, the name is `Open Mind`, and every
+state is `staged` or `planned`.
+
+`DEFAULT_PORT` is `18181` and `DEFAULT_BIND` is `127.0.0.1:18181`
+(`crates/openmind-desktop/src/lib.rs`). The comment there says 18081 is the
+staging page beside the Rust console on 18080, so the desktop does not bind
+18081. `Service::Console`'s `default_port` is `18080`
+(`crates/openmind-desktop/src/probe.rs`). Test
+`cli::tests::port_flag_and_env_choose_the_listen_port` asserts
+`DEFAULT_PORT != 18081` and `DEFAULT_BIND` is `127.0.0.1:` plus that port.
+Test `probe::tests::defaults_use_a_name_and_the_five_health_paths` asserts
+each endpoint port equals `default_port()`.
+
+| id | name | state | role |
+| --- | --- | --- | --- |
+| open-mind | Open Mind | staged | Main presence on this desktop |
+| command | Command | staged | Centre field. Text stays on this page |
+| files | Files | staged | Plus picks files. Read and upload stay on loopback |
+| voice | Voice | staged | Opt-in microphone on loopback. Audio is not saved |
+| galion-one | Galion One | planned | Voice surface. Not started by this page |
+| hermes | Hermes | planned | Engine. Not started by this page |
+| memory | Memory | planned | Long-term store. Not started by this page |
+| nerve | Nerve | planned | Health monitor. Not started by this page |
+| desk | Desk | staged | Read-only pod endpoint, separate program |
+| console | Console | staged | Operator rooms, separate program |
+
+These rows are not backlog letters. They are not counted by
+`scripts/status-percent.sh`.
+
+### CI on `de7480e` (push at 2026-11-15T01:38:49+01:00)
+
+Listed from `GET /repos/galion-studio/obsidian-open-mind/actions/runs` for
+branch `main`, then each run's jobs. Conclusions are the API `conclusion`
+field. This refresh did not re-run these workflows.
+
+| workflow | run | conclusion |
+| --- | --- | --- |
+| self-eval | https://github.com/galion-studio/obsidian-open-mind/actions/runs/43659205932 | success (16 jobs) |
+| openmind-desktop | https://github.com/galion-studio/obsidian-open-mind/actions/runs/43659205942 | success (4 jobs) |
+| miri | https://github.com/galion-studio/obsidian-open-mind/actions/runs/43659205926 | success |
+| scorecard | https://github.com/galion-studio/obsidian-open-mind/actions/runs/43659206156 | success |
+
+Self-eval jobs, all `success`: cargo fmt --check; cargo clippy -D warnings;
+cargo test (the step `cargo test --workspace --locked` completed
+2026-11-15T01:43:04+01:00); omnode; repo-check self-eval; no Python; no CJK;
+Zagreb timestamps (the job is warning-only and its conclusion was success);
+gitleaks; license check (MIT); cortex replay corpus; ucpu tier-1
+x86_64-unknown-linux-musl; ucpu tier-1 aarch64-unknown-linux-musl; ucpu
+tier-2 armv7-unknown-linux-musleabihf; ucpu tier-2 aarch64-linux-android;
+ucpu real run under qemu-user.
+
+openmind-desktop jobs, all `success`: `build, clippy, test` on
+ubuntu-latest (steps include local package, verify, and publish flags
+refused); `aarch64 build and test (qemu-user)`; `build and test
+(x86_64-pc-windows-msvc)`; `build and test (aarch64-apple-darwin)`.
+
+A later scheduled miri run on the same commit also succeeded:
+https://github.com/galion-studio/obsidian-open-mind/actions/runs/43686845489
+
+`launch-gates.yml` and `realtest.yml` run on `pull_request` to `main` and
+`swarm/main-staging`, and on `workflow_dispatch`
+(`.github/workflows/launch-gates.yml` lines 12-15,
+`.github/workflows/realtest.yml` lines 10-15, read on this checkout of
+`de7480e`). `sbom.yml` is `workflow_dispatch` only (lines 12-13).
+`release.yml` runs on tags `v*` (lines 14-16). None of these four appears
+in the completed push runs for `de7480e` listed above. None was dispatched
+by hand for this refresh.
+
+A numeric OpenSSF Scorecard value was not read.
+
+### Local commands
+
+Finished by the clock reading above.
+
+| command | result |
+| --- | --- |
+| `scripts/status-percent.sh` on the 89-row table, before any edit | the four lines in the fence below |
+| `cargo metadata --no-deps --format-version 1 --locked --offline` | exit 0, 75 workspace packages |
+| `cargo test -p openmind-desktop --locked` with rustc 1.83.0 | failed to compile `galion-common`: `E0658` `is_multiple_of` unstable |
+| same test with rustc 1.100.0 (`0ef1bc386`, 2026-11-09), `CARGO_TARGET_DIR=/tmp/om-desktop-target` | 43 passed, 0 failed, 0 ignored; lib tests 0.28s |
+| `cargo build -p openmind-desktop --locked` with that compiler | finished |
+| `/tmp/om-desktop-target/debug/openmind-desktop --help` | exit 0; usage says `(no flags) print the control-console page and exit; no socket` and `--listen` serves `127.0.0.1:18181` |
+| same binary `--version` | `openmind-desktop 0.1.0 (commit unknown, built unknown)`, exit 0 |
+| same binary with no flags | exit 0, 59313 bytes; 6 `staged` and 4 `planned` state spans, matching the table |
+| `cargo fmt --all -- --check` and the edge manifest, rustc 1.100.0 | both exit 0 |
+| `find` for `vite.config.*` and `package.json` from the repo root | no paths |
+
+`--listen` was not passed. No port was bound. `cargo test --workspace`,
+`cargo clippy --workspace`, and `cargo test` for `edge/openmind-node` were
+not run locally.
+
+### Tree checks that do not change a backlog letter
+
+- GAIA-1 stays **P**. Metadata includes `gaia`, `gaia-aether`, `gaia-apollo`,
+  `gaia-artemis`, `gaia-core`, `gaia-cortex`, `gaia-demeter`, `gaia-eleuthia`,
+  `gaia-hades`, `gaia-hephaestus`, `gaia-live`, `gaia-minerva`, and
+  `gaia-poseidon`. The row's VPS sentence was not re-measured.
+- B42 stays **P**. `REUSE.toml` and `LICENSES/` are on this commit. A REUSE
+  compliance command was not run.
+- FE-1 stays **N**. The evidence text says the console still runs vite. The
+  `find` above printed no `vite.config.*` and no `package.json`.
+  `console-ui`'s description says "std only, no JavaScript". The letter was
+  not changed, because the backlog item was not re-audited.
+- WS-HERMES, WS-MEM, and the other rows whose evidence says "live" were not
+  checked against a host.
+
+The copyright line is `Copyright (c) 3000 Galion / galion-studio`.
+
+## Backlog table (letters from 2026-10-21)
+
 This is the single status table for the 89-item backlog (BACKLOG.md of
 2026-10-18). Update a row here when an item changes; do not add record-only
 docs. The percentage is computed, never typed: run `scripts/status-percent.sh`.
+The bullets under this heading, including which rows "run in production",
+are the 2026-10-21 text. Hosts were not checked on 2026-11-15.
 
 - Status: **D** done (deliverable on GitHub main or the merge branch), **P**
   partial, **N** not started, **O** blocked on the owner.
@@ -23,7 +168,10 @@ docs. The percentage is computed, never typed: run `scripts/status-percent.sh`.
 Computed on 2026-10-20 (Europe/Zagreb) with `scripts/status-percent.sh`; re-run
 on 2026-10-20T18:58:00+02:00 after the docs-sync evidence fixes, and again on
 2026-10-21T23:51:59+02:00 on swarm/docs-status-refresh (base integration-5 0d68f46) after
-the B42 evidence fix (no status changed), same result:
+the B42 evidence fix (no status changed), same result. Re-run again on
+2026-11-15T15:28:16+01:00 after the measured section above was added.
+The script printed the same four lines. No letter in the table was changed
+on 2026-11-15:
 
 ```
 status-percent: items 89 (D 54, P 12, N 2, O 21), weight 122
@@ -123,6 +271,14 @@ owner-blocked: 23.6 % of items
 | B48 | 1 | D | docs/arena.md, crates/galleon-arena |
 | B49 | 2 | D | docs/arena.md, crates/galleon-arena |
 | B50 | 1 | D | docs/arena.md, crates/galleon-arena |
+
+## Swarm branches (record of 2026-10-21, not re-measured)
+
+The tables under this heading are the 2026-10-21T23:50:33+02:00 record.
+On 2026-11-15 this refresh did not list GitHub branches and did not read
+`/workspace/swarm/CALL-RECORD.md` (that path is not in this checkout).
+GitHub `main` is `de7480e`, not `13a296c`. The SHAs below are not current
+heads.
 
 ## Swarm branches (updated 2026-10-21T23:50:33+02:00)
 

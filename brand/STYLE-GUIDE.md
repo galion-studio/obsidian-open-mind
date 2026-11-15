@@ -81,3 +81,24 @@ The mark is a hexagonal shard of obsidian cut into six facets, with an open Sky 
 ## 6. Planned brand element: Web3 license key
 
 A Web3-based license key system is **planned** and is meant to apply to everything Obsidian Open Mind ships. It is **not implemented**, and its design (chain, key format, how it relates to the MIT License) is undecided. When it exists it will get its own mark derived from the hexagon. Until then, do not show any key, token or chain artwork, and do not describe it as available.
+
+## 7. Feature icons
+
+48x48 SVG feature icons in [`icons/`](icons/), one per product feature. Each carries its own ink tile
+(`#0B0F14`, 11 px radius, `#24303C` border) with Sky (`#58C4FF`) line art at 2.25 px stroke, so it reads
+on GitHub light and dark. Use them at 32 or 48 px next to a feature name; don't recolour, add text or
+put them on a second tile. Full rules: [BRAND.md section 7](BRAND.md#7-icons).
+
+| Icon | File | Feature (SVG `<title>`) |
+|---|---|---|
+| <img src="icons/cpu.svg" width="32" height="32" alt=""> | [`icons/cpu.svg`](icons/cpu.svg) | CPU-only Rust foundation |
+| <img src="icons/config.svg" width="32" height="32" alt=""> | [`icons/config.svg`](icons/config.svg) | No hard-coded hosts |
+| <img src="icons/galion-one.svg" width="32" height="32" alt=""> | [`icons/galion-one.svg`](icons/galion-one.svg) | Galion One voice surface |
+| <img src="icons/guardian.svg" width="32" height="32" alt=""> | [`icons/guardian.svg`](icons/guardian.svg) | Rust guardian and healer |
+| <img src="icons/hermes.svg" width="32" height="32" alt=""> | [`icons/hermes.svg`](icons/hermes.svg) | Hermes boss agent with capped subagents |
+| <img src="icons/omnode.svg" width="32" height="32" alt=""> | [`icons/omnode.svg`](icons/omnode.svg) | omnode phone and edge node |
+| <img src="icons/sandbox.svg" width="32" height="32" alt=""> | [`icons/sandbox.svg`](icons/sandbox.svg) | CPU agent sandbox |
+| <img src="icons/security.svg" width="32" height="32" alt=""> | [`icons/security.svg`](icons/security.svg) | Open-source security: SBOM, signed releases, Scorecard |
+| <img src="icons/voice.svg" width="32" height="32" alt=""> | [`icons/voice.svg`](icons/voice.svg) | Persona Plex full-duplex voice relay |
+
+SVG only (no PNG exports). Drawn for this project; no third-party artwork.

@@ -15,120 +15,145 @@
   <a href="https://scorecard.dev/viewer/?uri=github.com/galion-studio/obsidian-open-mind"><img src="https://api.scorecard.dev/projects/github.com/galion-studio/obsidian-open-mind/badge" alt="OpenSSF Scorecard"></a>
 </p>
 
-> **Status: pre-release.** The repository is being prepared for its first public release on
-> **2026-10-31**. The build and Scorecard badges start rendering once the repository is public
-> and the workflows have run. Nothing below claims to be live in production.
+> **Status, measured 2026-11-15** (Europe/Zagreb, +01:00). GitHub `main` is
+> [`de7480e`](https://github.com/galion-studio/obsidian-open-mind/commit/de7480e71ce98191d2ee11f018fa15be6c5a1707).
+> The repository is public. The GitHub releases list was empty, so no release has been cut.
+> The 2026-10-31 date in the previous README was a planned release day. That signed release
+> was not created.
+>
+> Open Mind is the desktop layer inside Galion OS. The local console is `openmind-desktop`.
+> With no flags it prints a page and opens no socket. `--listen` binds `127.0.0.1:18181`.
+> It does not bind port 18081. The console probe stays on port 18080. Stack rows are
+> `staged` or `planned`. None of them is live.
+>
+> Numbers, commands, and links are in [docs/STATUS.md](docs/STATUS.md). The package list is
+> [docs/crate-index.md](docs/crate-index.md) (75 workspace packages from `cargo metadata`).
 
 ## Overview
 
-Obsidian Open Mind is a lightweight, Rust-only foundation for running an AI agent stack from a
-CPU box. The processor runs the loop and keeps the memory and the keys; a GPU is not a special
-case, it is one more provider row. Heavy model inference (voice, large models) is sent to
-external providers; the box itself stays CPU-light.
+Obsidian Open Mind is a Rust workspace for running an agent stack from a CPU box. The processor
+runs the loop and keeps the memory and the keys. A GPU is one more provider row, not a special
+case. Heavy model inference is sent to external providers. The box itself stays CPU-light.
 
-The project is Rust only. It is a Cargo workspace of small, std-first crates with a release
-profile tuned for footprint (`opt-level = "z"`, LTO, one codegen unit, `panic = "abort"`,
-stripped binaries). There is no Python in the tree, and new code is Rust.
+The workspace is `crates/*` (see the root `Cargo.toml`). The release profile is tuned for
+footprint (`opt-level = "z"`, LTO, one codegen unit, `panic = "abort"`, stripped binaries).
+New code is Rust.
 
+The short name in prose is **Open Mind** (two words). Crate names stay `openmind-*`.
 Obsidian Open Mind is not affiliated with the Obsidian note-taking app.
+
+## Desktop
+
+`openmind-desktop` is a workspace package. Install and the loopback rules are in
+[docs/desktop/README.md](docs/desktop/README.md). Bind defaults are in
+[docs/bind-defaults.md](docs/bind-defaults.md).
+
+Source (`crates/openmind-desktop/src/lib.rs`): `DEFAULT_PORT` is `18181` and `DEFAULT_BIND` is
+`127.0.0.1:18181`. The comment on `DEFAULT_PORT` says 18081 is the staging page beside the Rust
+console on 18080, so the desktop does not bind 18081. `crates/openmind-desktop/src/probe.rs`
+sets the console probe's `default_port` to `18080`.
+
+The stack list is `LAYERS` in `crates/openmind-desktop/src/stack.rs`. States are `staged`
+(built, not switched on) or `planned` (not started by this page). The test
+`stack::tests::open_mind_leads_and_nothing_is_live` passed in the local run recorded in
+[docs/STATUS.md](docs/STATUS.md). The same ten rows were in the page printed by the binary
+with no flags (no socket):
+
+| id | name | state | role |
+| --- | --- | --- | --- |
+| open-mind | Open Mind | staged | Main presence on this desktop |
+| command | Command | staged | Centre field. Text stays on this page |
+| files | Files | staged | Plus picks files. Read and upload stay on loopback |
+| voice | Voice | staged | Opt-in microphone on loopback. Audio is not saved |
+| galion-one | Galion One | planned | Voice surface. Not started by this page |
+| hermes | Hermes | planned | Engine. Not started by this page |
+| memory | Memory | planned | Long-term store. Not started by this page |
+| nerve | Nerve | planned | Health monitor. Not started by this page |
+| desk | Desk | staged | Read-only pod endpoint, separate program |
+| console | Console | staged | Operator rooms, separate program |
+
+`/one` and `/research` are entry pages, not stack rows.
+
+## What is in the tree
+
+`cargo metadata --no-deps --format-version 1 --locked --offline` on this commit returned 75
+workspace packages. The full table, including version and description, is
+[docs/crate-index.md](docs/crate-index.md).
+
+The previous README said `openmind-config`, `openmind-survival`, `guardian-tick`,
+`openmind-sandbox`, `persona-plex-relay`, and `edge/openmind-node` were still outside this
+snapshot. The first five are workspace packages. `edge/openmind-node` (`omnode`) is in the
+tree and is its own package, outside the workspace glob. Packages that were not in the
+2026-10-19 index, including `openmind-desktop`, `console-ui`, `console-static`, the `gaia-*`
+crates, and the Hermes Rust crates, are listed in the index.
 
 ## Features
 
-What exists today, and how finished it is:
+What the previous overview named, against this tree. "On main" means the package is in the
+workspace metadata for `de7480e`. Workspace `cargo test` passed in
+[self-eval run 43659205932](https://github.com/galion-studio/obsidian-open-mind/actions/runs/43659205932).
+This refresh re-ran tests for `openmind-desktop` only. The other rows were not re-tested on
+this machine.
 
 | Area | What it does | State |
-|---|---|---|
-| Stack contract (`openmind-schema`) | `Machine`, `Provider`, `ProviderKind`, `KeySlot`, `Surface`, `Stack`. A provider is a row (`Local` or `Remote`), not a new program. Key slots record only name, presence and a hint, never key material. | built, tested |
-| Zagreb time (`zagreb-time`) | Every timestamp is Europe/Zagreb RFC 3339 with an explicit offset, never `Z`. Timezone data compiled in. | built, tested |
-| Galion One (`galion-one`) | The box's own voice surface (ear, mind, mouth). Its default voice persona is **Samantha**; the mind is the Hermes channel `galion-one`. OpenRouter model-list refresh is ported to Rust. | built; ported from earlier code |
-| Operator views (`galion-desk`, `room`) | The operator's desk endpoint and a read-only view of the operator's files as one page. Both read, never write. | built |
-| Hermes bridges (`desk-hermes`, `link-watch`) | `desk-hermes` prints one compact JSON snapshot and opens the Hermes state database read-only. `link-watch` probes the link to the laptop/Ollama/Hermes and writes a JSON card. | built, tested |
-| Config (`openmind-config`) | One TOML loader for every binary: file, then `OPENMIND_<SECTION>_<KEY>` env overrides, loopback defaults. | built, tested |
-| Survival probes (`openmind-survival`) and `guardian-tick` | Read-only probes (HTTP, `systemctl is-active`, disk, memory, load, file freshness, cloudflared) and incident logic. `guardian-tick` runs a TOML probe set once, writes a JSON report and can print suggestions. | built; **report-only**, it changes nothing |
-| Agent sandbox (`openmind-sandbox`) | Runs one command under rlimits, a cleared environment, a fixed workdir, a wall timeout and Landlock when the kernel has it. A safety net against sloppy commands, not a boundary against hostile code. | v0 built |
-| Persona Plex v2 relay (`persona-plex-relay`) | VPS side of a full-duplex voice-to-voice channel to NVIDIA PersonaPlex on a GPU host: wire protocol types, config validation, session state machine, speaker-verification policy. | **scaffold**: loads config and prints its plan; opens no socket, runs no model, no GPU provisioned |
-| Edge / phone node (`omnode`, `edge/openmind-node`) | Runs on a device on the owner's Wi-Fi (Android via Termux, Linux laptop, Raspberry Pi): ed25519 device identity bound to a hashed **Wi-Fi identity**, polite **LAN discovery** (passive mDNS/SSDP), `_openmind._tcp` announce, and a **CPU-only agent sandbox**. | v0.1 built and tested; **pairing is a stub** (prints a payload and QR, sends nothing) |
-| Self-evaluation | CI that runs fmt, clippy, tests, no-Python, no-CJK and Zagreb-timestamp scans and gitleaks before anything can be released. | workflows written; run once the repository is public |
-
-Crates marked in the table that are not yet in this repository snapshot (`openmind-config`,
-`openmind-survival`, `guardian-tick`, `openmind-sandbox`, `persona-plex-relay`,
-`edge/openmind-node`) live in the development tree and are synced in before the release.
+| --- | --- | --- |
+| Desktop (`openmind-desktop`) | Local control console. Page mode opens no socket. `--listen` binds `127.0.0.1:18181`. Console probe default port `18080`. | on main; local tests passed; stack rows staged or planned |
+| Stack contract (`openmind-schema`) | `Machine`, `Provider`, `ProviderKind`, `KeySlot`, `Surface`, `Stack`. A provider is a row (`Local` or `Remote`). Key slots record name, presence, and a hint. | on main |
+| Zagreb time (`zagreb-time`) | Timestamps are Europe/Zagreb RFC 3339 with an explicit offset. | on main |
+| Galion One (`galion-one`) | The box's ear, mind, and mouth. The desktop stack row `galion-one` is `planned`: this page does not start it. | crate on main; desktop row planned |
+| Operator views (`galion-desk`, `room`) | Desk endpoint and a read-only file page. The desktop `desk` row is `staged` (a separate program). | on main; desktop desk row staged |
+| Hermes bridges (`desk-hermes`, `link-watch`) | `desk-hermes` prints one JSON snapshot. `link-watch` probes the link and writes a JSON card. The desktop `hermes` row is `planned`. | crates on main; desktop row planned |
+| Config (`openmind-config`) | TOML loader: file, then `OPENMIND_<SECTION>_<KEY>`, loopback defaults. | on main |
+| Survival (`openmind-survival`) and `guardian-tick` | Read-only probes and a report-only tick. | on main |
+| Agent sandbox (`openmind-sandbox`) | One command under rlimits, a cleared environment, a fixed workdir, a wall timeout, and Landlock when the kernel has it. | on main |
+| Persona Plex v2 relay (`persona-plex-relay`) | `crates/persona-plex-relay/src/plan.rs` still prints `mode: SCAFFOLD` and says it loads config, opens no listener, and runs no model. | scaffold, on main |
+| Edge node (`edge/openmind-node`) | Package `openmind-node`, binary `omnode`. Own workspace, not a member of this one. `edge/openmind-node/src/boot.rs` documents a loopback pairing listener. | in the tree; not re-run here |
+| Self-evaluation | fmt, clippy, tests, no-Python, no-CJK, Zagreb-timestamp scan, gitleaks, licence check. | [self-eval on `de7480e`](https://github.com/galion-studio/obsidian-open-mind/actions/runs/43659205932) succeeded |
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  subgraph AG["Agents (Hermes runtime, runs alongside; not part of this repo)"]
-    H["Hermes boss agent"]
-    S1["subagent"]
-    S2["subagent"]
-    S3["subagent"]
-    H --> S1
-    H --> S2
-    H --> S3
-  end
-
   subgraph BOX["CPU box: Rust workspace (crates/)"]
-    SCHEMA["openmind-schema<br/>Machine · Provider rows · KeySlot"]
+    DESKTOP["openmind-desktop<br/>127.0.0.1:18181<br/>console probe :18080"]
+    SCHEMA["openmind-schema"]
     TIME["zagreb-time"]
-    CFG["openmind-config"]
-    ONE["galion-one<br/>Galion One voice surface<br/>persona: Samantha"]
-    DESK["galion-desk · room<br/>read-only views"]
-    DH["desk-hermes · link-watch"]
-    GT["guardian-tick<br/>report-only"]
-    SURV["openmind-survival<br/>read-only probes"]
-    RELAY["persona-plex-relay<br/>Persona Plex v2 (scaffold)"]
-    SBX["openmind-sandbox"]
-    GT --> SURV
+    ONE["galion-one"]
+    DESK["galion-desk · room"]
+    SURV["openmind-survival · guardian-tick"]
   end
 
-  GPU["External GPU host<br/>NVIDIA PersonaPlex<br/>(not provisioned)"]
-
-  subgraph LAN["Owner's Wi-Fi / LAN"]
-    NODE["omnode (edge/openmind-node)<br/>Wi-Fi identity · LAN discovery<br/>CPU agent sandbox"]
-    VOICE["phone / browser voice client"]
-  end
-
-  H <-->|"channel galion-one"| ONE
-  DH -.->|"reads Hermes state, read-only"| H
-  VOICE -->|"Opus over WebSocket"| RELAY
-  RELAY -.->|"planned: audio band only"| GPU
-  RELAY -.->|"fallback when GPU is off"| ONE
-  NODE -.->|"pairing payload (stub, nothing sent)"| H
+  DESKTOP -.->|"stack rows staged or planned<br/>this page does not start them"| ONE
+  DESKTOP -.->|"read-only probe"| SURV
 ```
 
 How the parts fit:
 
-- **Hermes** is the boss agent. It coordinates a small, capped number of subagents in their own
-  sessions, and it is the "mind" behind Galion One. Hermes is upstream software that runs next
-  to this stack; the Rust crates only read its state (`desk-hermes`) or talk to it over its
-  channel. It is not vendored here.
-- **The Rust workspace** is the CPU box: the contract (`openmind-schema`), shared helpers
-  (`zagreb-time`, `openmind-config`), the operator surfaces, the survival probes and the
-  sandbox. Providers, local or remote, are rows in the contract.
-- **Galion One / Samantha.** Galion One is the voice front end. Samantha is its default voice
-  persona: warm, plain English, one or two short sentences, never touches money. The
-  [Persona Plex v1](personas/persona-plex-v1.md) persona is derived from her.
-- **Persona Plex v2** is the planned full-duplex voice channel: the browser or phone streams
-  Opus to `persona-plex-relay` on the CPU box, which authenticates, holds one session, sets the
-  persona itself and (once a GPU host exists) forwards only audio frames to NVIDIA PersonaPlex
-  on that GPU. The voice is a soft identity signal only: it never unlocks privileged actions on
-  its own, and money actions are always denied. Today the relay is a scaffold. PersonaPlex
-  weights are under the NVIDIA Open Model License and are never bundled here.
-- **omnode** is the edge node for a phone or LAN device, because the CPU box in a data centre
-  cannot see the owner's Wi-Fi. It keeps an ed25519 device key (mode 600), stores only a
-  salted SHA-256 hash of the network (never the raw SSID or MACs), discovers peers passively,
-  and runs agent commands in a CPU-only sandbox. The design rule is that no device joins the
-  stack without the owner's explicit approval.
+- **Open Mind desktop** is the local console. It listens on loopback port 18181 only when
+  `--listen` is passed. The page's stack list does not mark a row live.
+- **The Rust workspace** is the CPU box: the contract, the operator surfaces, the probes, and
+  the sandbox. The crate index is the list.
+- **Galion One** is a voice surface in its own crate. On the desktop page that row is
+  `planned`.
+- **Hermes** is upstream software that runs next to this stack. The desktop `hermes` row is
+  `planned`. `desk-hermes` and `hermes-rs` are crates in this workspace.
+  `HERMES_RS_MCP_GITHUB=1` is opt-in and read-only. The contract is
+  `docs/hermes-mcp.md` on draft [#51](https://github.com/galion-studio/obsidian-open-mind/pull/51)
+  (`ff9d400`). That file is not on `main`.
+- **Persona Plex v2** is still the scaffold described above. Weights are not bundled here.
+- **omnode** is the edge package under `edge/openmind-node`.
 
 ## Setup and install
 
 Requirements:
 
-- A Rust toolchain with Cargo, installed with [rustup](https://rustup.rs/). The workspace does
-  not pin a version yet (no `rust-version`, no `rust-toolchain.toml`); it is developed on
-  current stable.
-- Linux. No Python, no Node and no system services are needed to build or test.
+- A Rust toolchain with Cargo, installed with [rustup](https://rustup.rs/). The root
+  `Cargo.toml` has no `rust-version` field, and the tree has no `rust-toolchain.toml`.
+- Linux is the host this refresh used. The desktop workflow also builds on Windows and macOS.
+
+The default toolchain on the machine that refreshed these docs was rustc 1.83.0. That compiler
+failed on `galion-common` (`is_multiple_of` is unstable there). The local desktop build and
+tests used rustc 1.100.0 (`0ef1bc386`, 2026-11-09).
 
 ```sh
 git clone https://github.com/galion-studio/obsidian-open-mind
@@ -145,136 +170,127 @@ nice -n 19 cargo build -j 2 --release --workspace
 nice -n 19 cargo test  -j 2 --workspace
 ```
 
-The edge node is a standalone crate (its own empty `[workspace]`, kept outside `crates/` so the
-workspace glob does not pick it up):
+Desktop console:
+
+```sh
+cargo build -p openmind-desktop --locked
+cargo test -p openmind-desktop --locked
+```
+
+The edge node is a standalone package (its own `[workspace]`, outside the `crates/*` glob):
 
 ```sh
 cd edge/openmind-node
-cargo build --release          # target/release/omnode
+cargo build --release
 cargo test
-
-# cross-compile for Android/Termux or a Raspberry Pi
-rustup target add aarch64-unknown-linux-musl
-CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
-  cargo build --release --target aarch64-unknown-linux-musl
 ```
 
 ## Usage
 
-Every command below exists in the code and was run against a local release build on
-2026-10-18 (Europe/Zagreb, +02:00).
+Desktop, run on 2026-11-15 with the debug binary from
+`cargo build -p openmind-desktop --locked` (rustc 1.100.0). `--listen` was not used, so no
+port was bound.
 
-**omnode, the edge node.** Its real `--help` output:
+```text
+openmind-desktop 0.1.0 (commit unknown, built unknown)
+```
+
+```text
+usage: openmind-desktop [--listen [ADDR]] [--port PORT] [--grant PATH]... [--inbox DIR]
+                        [--stack ADDR|off] [--probe [SPEC] | --help | --version]
+  (no flags)     print the control-console page and exit; no socket
+  --listen       serve that page on 127.0.0.1:18181
+  --listen ADDR  serve it on a loopback ADDR only (for example 127.0.0.1:0)
+```
+
+No flags wrote a 59313-byte page and exited 0. The stack `<span class="state">` values were the
+ten rows in the table above (6 `staged`, 4 `planned`).
+
+The commands below were recorded on 2026-10-18 (Europe/Zagreb, +02:00). They were not re-run
+on 2026-11-15.
+
+**omnode.** Screenshot of an older `--help`:
 
 <p align="center"><img src="brand/screens/omnode-help.png" alt="Terminal output of omnode --help (omnode 0.1.0)" width="760"></p>
 
 ```sh
-omnode version                      # omnode 0.1.0 (x86_64, linux)
-omnode sandbox check                # which isolation this platform provides (JSON)
+omnode version
+omnode sandbox check
 omnode sandbox run --wall 5 -- /bin/echo hello
-omnode discover --dry-run           # what discovery would do, sends nothing
-omnode identity init                # device key in ~/.config/openmind/node.key (600)
-omnode identity show                # fingerprint and device id only
-omnode pair --no-qr                 # prints the signed pairing payload; sends nothing (v0.1)
+omnode discover --dry-run
+omnode identity init
+omnode identity show
+omnode pair --no-qr
 ```
 
-Config is `~/.config/openmind/node.toml` (template `omnode.example.toml`), or `--config FILE` /
-`$OMNODE_CONFIG`. No host is hard-coded.
-
-**persona-plex-relay, the Persona Plex v2 scaffold.** Prints its plan and starts nothing:
+**persona-plex-relay.** The plan text in `crates/persona-plex-relay/src/plan.rs` still begins
+`mode: SCAFFOLD`. The binary was not run on 2026-11-15.
 
 ```sh
 persona-plex-relay --config crates/persona-plex-relay/persona-plex-relay.example.toml
 ```
 
-```text
-persona-plex-relay plan  (2026-10-18T20:46:20+02:00)
-mode: SCAFFOLD - loads config and prints this plan; no listener, no upstream connection, no model
-...
-  GPU upstream        disabled (no GPU provisioned) -> host GPU_HOST_NOT_PROVISIONED:8998
-  gate                conversation: open | personal: voice | privileged: voice + 2nd factor | money: DENIED
-```
-
-**guardian-tick, report-only health check.** Runs each probe once and writes a JSON report:
-
-```sh
-guardian-tick --probes crates/guardian-tick/tests/fixtures/probes.toml \
-              --out target/test-out/guardian.json --suggest
-# guardian-tick 2026-10-18T20:46:27+02:00 host_ok=false probes=11 failed=8
-# suggest: hermes down: operator may restart hermes
-```
-
-The probe file can also come from `$GUARDIAN_PROBES`. Suggestions are text for the operator;
-guardian-tick never restarts anything.
-
-**Library examples:**
-
-```sh
-cargo run --example clock     -p zagreb-time        # current Europe/Zagreb time with offset
-cargo run --example demo      -p openmind-sandbox   # one sandboxed /bin/echo and its enforced layers
-cargo run --example probe_once -p openmind-survival # three read-only probes as JSON lines
-cargo run --example dump      -p openmind-config    # one field of the default config
-```
+**guardian-tick** and the library examples (`zagreb-time` clock, `openmind-sandbox` demo,
+`openmind-survival` probe_once, `openmind-config` dump) were not re-run on 2026-11-15.
 
 ## Roadmap
 
-| Date (Europe/Zagreb) | Milestone |
-|---|---|
-| 2026-10-18 | Foundation workspace, ported binaries, survival probes, sandbox v0, omnode v0.1, Persona Plex v2 design and relay scaffold. |
-| until 2026-10-31 | Sync all crates into this repository; self-evaluation green on `main`; fill the security contact in `SECURITY.md`. |
-| **2026-10-31** | **First public release.** The repository goes public and the first signed release is cut **only after the self-evaluation checks pass** and the owner approves. |
-| after the release | Persona Plex v2 relay with a real GPU host; omnode pairing that actually enrolls (with owner approval); guardian/healer beyond report-only; sandbox v1 (seccomp, namespaces); LAN devices as provider rows. |
-| planned | Web3-based license key system (see below). |
+| Date (Europe/Zagreb) | What is true |
+| --- | --- |
+| 2026-10-18 | Foundation workspace, ported binaries, survival probes, sandbox, omnode 0.1.0, Persona Plex v2 scaffold. Recorded then. |
+| 2026-10-31 | Planned first signed release. Not cut. The releases list was empty on 2026-11-15. The repository is already public. |
+| 2026-11-15 | `main` `de7480e`. 75 workspace packages. Desktop listen default `127.0.0.1:18181`. Console probe port 18080. Stack rows staged or planned. Self-eval on that commit succeeded. |
 
-## Open-source security goal
+Still described as future by the code this refresh read: a Persona Plex relay that opens a
+listener (`plan.rs` is still `SCAFFOLD`). Other roadmap lines from the 2026-10-18 README
+(a provisioned GPU host, sandbox v1, LAN devices as provider rows) were not re-measured.
 
-The goal is that Obsidian Open Mind is recognised automatically as a fully open-source and secure
-project, and that **nothing is published until its own checks pass**:
+## Open-source security
 
-- **Self-evaluation gate** ([`self-eval.yml`](.github/workflows/self-eval.yml)): `cargo fmt --check`,
-  `cargo clippy -D warnings`, `cargo test`, no Python files or shebangs, no stray CJK
-  characters, Zagreb-timestamp scan.
-- **Secret scanning:** gitleaks (checksum-verified binary) in CI, plus GitHub secret scanning
-  once public. Key slots in the schema never hold key material.
-- **SBOM:** a CycloneDX SBOM is generated for every release ([`release.yml`](.github/workflows/release.yml)).
-- **Signed releases:** every release artifact is signed keyless with Sigstore cosign via
-  GitHub OIDC, and the release job only runs after the self-eval gate.
-- **OpenSSF Scorecard:** supply-chain analysis in [`scorecard.yml`](.github/workflows/scorecard.yml),
-  results published once the repository is public.
-- **Dependency updates:** Dependabot ([`dependabot.yml`](.github/dependabot.yml)).
-- **Disclosure:** see [SECURITY.md](SECURITY.md). Do not open public issues for security problems.
+[Self-eval](.github/workflows/self-eval.yml) on `de7480e` succeeded, including
+`cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --workspace --locked`, the
+no-Python and no-CJK scans, gitleaks, and the MIT licence check. Job list:
+[docs/STATUS.md](docs/STATUS.md).
 
-Still open: REUSE compliance (SPDX headers are partial) and the OpenSSF Best Practices badge.
+Also on that commit: [openmind-desktop](.github/workflows/openmind-desktop.yml) succeeded
+(Linux, Linux aarch64 under qemu-user, Windows, macOS), [miri](.github/workflows/miri.yml)
+succeeded, and [scorecard](.github/workflows/scorecard.yml) succeeded. This refresh did not
+read a numeric Scorecard score.
+
+`REUSE.toml` and `LICENSES/` are on `main`. A REUSE compliance run was not done here.
+
+[launch-gates](.github/workflows/launch-gates.yml) and [realtest](.github/workflows/realtest.yml)
+run on pull requests to `main` and `swarm/main-staging`, and on `workflow_dispatch`.
+[sbom.yml](.github/workflows/sbom.yml) is `workflow_dispatch` only.
+[release.yml](.github/workflows/release.yml) runs on tags `v*`.
+None of those four was a completed run on the push of `de7480e`, and none was dispatched
+by hand for this refresh.
+
+Disclosure: [SECURITY.md](SECURITY.md).
 
 ## Planned: Web3 license key system
 
-> **Planned, not implemented.** Nothing in this repository checks, issues or requires a key.
+> **Planned.** A search of `crates/` for `web3` and `license key` on 2026-11-15 found no
+> matches. [brand/STYLE-GUIDE.md](brand/STYLE-GUIDE.md) still says the design is undecided.
 
-The concept is a Web3-based license key system that will apply to everything Obsidian Open
-Mind ships: crates, binaries, edge nodes and brand assets. The design is undecided, including
-which chain or technology it would use, the key format, and how it relates to the MIT License.
-Until a design is published and released, everything here is MIT-licensed and needs no key.
+Until a design is published, the tree is MIT-licensed and needs no key.
 
-## Known gaps
+## Known limits of this page
 
-- `link-watch` keeps its legacy UTC `at` field next to the new Zagreb `at_local` field, for
-  readers that already parse it. Galion One keeps one opt-in legacy path (`ONE_LEGACY_PY=1`,
-  off by default) that starts the retired Python voice worker from the older Galion tree; no
-  Python ships in this repository.
-- On kernels where Landlock is actively enforced, three `openmind-sandbox` integration tests
-  currently fail (the allow-list does not cover `/dev/null` and `/dev/zero`); observed
-  2026-10-18. All `omnode` tests pass.
-- No accelerator provider row exists yet; adding NVIDIA, AMD or Apple compute (for example
-  through [exo](https://github.com/exo-explore/exo) or llama.cpp `rpc-server`) is a design
-  goal, not code.
+- Production hosts were not probed. A row that older docs call "live" is not confirmed here.
+- `cargo test --workspace` was not re-run on this machine. The self-eval job on `de7480e` did
+  run it, and that job succeeded.
+- The 2026-10-18 note about three `openmind-sandbox` tests failing when Landlock is enforced
+  was not re-run.
+- `edge/openmind-node` was not run. Its boot module documents a pairing listener; the older
+  "pairing is a stub that sends nothing" sentence is not repeated.
 
 ## Contributing
 
-- [CONTRIBUTING.md](CONTRIBUTING.md): build, test, style and sign-off rules.
+- [CONTRIBUTING.md](CONTRIBUTING.md): build, test, style, and sign-off rules.
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md): Contributor Covenant 2.1.
-- [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) and [docs/PUBLISHING.md](docs/PUBLISHING.md):
-  what must be true before the release.
-- Brand: [brand/STYLE-GUIDE.md](brand/STYLE-GUIDE.md) (name, colours, fonts, logo use).
+- [RELEASE-CHECKLIST.md](RELEASE-CHECKLIST.md) and [docs/PUBLISHING.md](docs/PUBLISHING.md).
+- Brand: [brand/STYLE-GUIDE.md](brand/STYLE-GUIDE.md) and [brand/BRAND.md](brand/BRAND.md).
 
 Timestamps in this project are Europe/Zagreb with an explicit offset: `+02:00` until
 2026-10-25 03:00, then `+01:00`.

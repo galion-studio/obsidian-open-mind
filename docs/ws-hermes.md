@@ -108,14 +108,14 @@ Design (Universal CPU):
     - redacted output written in upstream `cron/output/<id>/<ts>.md` format.
   - Agent jobs run through the agent, using `cron.model`/provider.
   - Off unless `HERMES_RS_CRON=1`.
-- **MCP client (stdio).** `initialize` → `notifications/initialized` → paged `tools/list` → `tools/call`. Upstream names `mcp__<server>__<tool>`, with a 64-char clamp and sha256 suffix. Per-call timeout, one reconnect. `HERMES_RS_MCP=0` disables it. Streamable HTTP (protocol 2025-03-26), per-server tool allowlists, and the read-only GitHub entry are documented in docs/hermes-mcp.md.
+- **MCP client (stdio).** `initialize` → `notifications/initialized` → paged `tools/list` → `tools/call`. Upstream names `mcp__<server>__<tool>`, with a 64-char clamp and sha256 suffix. Per-call timeout, one reconnect. `HERMES_RS_MCP=0` disables it. Streamable HTTP (protocol 2025-03-26), per-server tool allowlists, and the read-only GitHub entry are the `mcp-http` feature, off in the default gateway build. See docs/hermes-mcp.md.
 - **Mock provider** for all tests (`--mock` on the binary).
 
 ### Stubbed / not ported (v1)
 
 - `cron` expression schedules: listed with `supported:false`, never fired. Self-healing re-runs and chat delivery aren't ported (Galion has no platforms).
 - Python cron scripts are **refused** (hermes-rs never runs Python). All 4 Galion jobs are `.sh`.
-- MCP: the legacy HTTP+SSE transport (protocol 2024-11-05), resources/prompts utility tools, sampling, hot reload, lazy cached tool lists (discovery runs at startup instead). Streamable HTTP is implemented; see docs/hermes-mcp.md.
+- MCP: the legacy HTTP+SSE transport (protocol 2024-11-05), resources/prompts utility tools, sampling, hot reload, lazy cached tool lists (discovery runs at startup instead). Streamable HTTP is implemented behind `mcp-http`; see docs/hermes-mcp.md.
 - `/v1/responses`, `/v1/artifacts/*`, `/v1/skills`, `/v1/toolsets`, `/api/sessions/{id}/chat[/stream]`, `/fork`, `/api/jobs/*` writes, `/api/cron/fire`, `/api/model/options`, `/api/platforms/*`. hermes.ts and Galion One use none of these.
 - Approvals (Galion runs `approvals.mode: off`), memory providers (`memory_tencentdb`), `galion_privacy` tool, context compression (it truncates instead), skills, toolsets beyond clock/delegate/MCP, `streaming.enabled` gating, keep-alive connections.
 - No money or payment tools, by design.

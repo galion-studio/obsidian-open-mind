@@ -122,10 +122,12 @@ impl McpServerCfg {
 
 /// Remote GitHub MCP server, read-only toolset, all toolsets.
 /// Documented at https://github.com/github/github-mcp-server (`/x/all/readonly`).
+#[cfg(any(test, feature = "mcp-http"))]
 pub const GITHUB_MCP_URL: &str = "https://api.githubcopilot.com/mcp/x/all/readonly";
 
 /// Environment variable the GitHub entry reads. The value is never copied
 /// into config.
+#[cfg(any(test, feature = "mcp-http"))]
 pub const GITHUB_TOKEN_ENV: &str = "GITHUB_TOKEN";
 
 /// Read-only tool names from the GitHub MCP server README `## Tools` headings
@@ -135,7 +137,9 @@ pub const GITHUB_TOKEN_ENV: &str = "GITHUB_TOKEN";
 /// is a write, so it is not included.
 ///
 /// A server named `github`, or any URL on `api.githubcopilot.com`, is clamped
-/// to this list.
+/// to this list. Compiled with `mcp-http` (and in tests). The default
+/// hermes-gateway build leaves that feature off; see docs/hermes-mcp.md.
+#[cfg(any(test, feature = "mcp-http"))]
 pub const GITHUB_READONLY_TOOLS: &[&str] = &[
     "actions_get",
     "actions_list",
@@ -202,6 +206,7 @@ pub const GITHUB_READONLY_TOOLS: &[&str] = &[
 /// The built-in GitHub server: streamable HTTP, read-only header, token from
 /// [`GITHUB_TOKEN_ENV`] at request time. Not added unless
 /// `HERMES_RS_MCP_GITHUB` is on (see [`Config::apply_env`]).
+#[cfg(any(test, feature = "mcp-http"))]
 pub fn github_readonly_server() -> McpServerCfg {
     let mut cfg = McpServerCfg {
         name: "github".into(),
@@ -267,6 +272,7 @@ fn header_pair_ok(name: &str, value: &str) -> bool {
         && !looks_like_secret(value)
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 pub(crate) fn url_host(url: &str) -> Option<&str> {
     let rest = url
         .strip_prefix("https://")
@@ -295,10 +301,12 @@ pub(crate) fn url_host(url: &str) -> Option<&str> {
     }
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 fn github_mcp_host(url: &str) -> bool {
     url_host(url).is_some_and(|h| h.eq_ignore_ascii_case("api.githubcopilot.com"))
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 fn is_github_entry(cfg: &McpServerCfg) -> bool {
     cfg.name == "github" || cfg.url.as_deref().is_some_and(github_mcp_host)
 }
@@ -306,6 +314,7 @@ fn is_github_entry(cfg: &McpServerCfg) -> bool {
 /// Force a GitHub entry down to [`GITHUB_READONLY_TOOLS`]. An explicit
 /// `tools` list keeps only the intersection, so a write tool in config
 /// cannot be registered. An omitted list becomes the full read-only set.
+#[cfg(any(test, feature = "mcp-http"))]
 pub fn clamp_github_readonly(cfg: &mut McpServerCfg) {
     if !is_github_entry(cfg) {
         return;
@@ -365,6 +374,7 @@ fn header_value(v: &Value) -> Option<String> {
 
 /// `None` drops the entry (disabled, incomplete, or it would have stored a
 /// secret). A GitHub entry that survives is clamped to the read-only list.
+#[inline(never)]
 fn mcp_server_from_yaml(name: &str, sv: &Value) -> Option<McpServerCfg> {
     if sv["enabled"].as_bool() == Some(false) {
         return None;
@@ -415,8 +425,15 @@ fn mcp_server_from_yaml(name: &str, sv: &Value) -> Option<McpServerCfg> {
         token_env,
         headers,
     };
-    clamp_github_readonly(&mut cfg);
+    maybe_clamp(&mut cfg);
     Some(cfg)
+}
+
+fn maybe_clamp(cfg: &mut McpServerCfg) {
+    #[cfg(any(test, feature = "mcp-http"))]
+    clamp_github_readonly(cfg);
+    #[cfg(not(any(test, feature = "mcp-http")))]
+    let _ = cfg;
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -733,8 +750,11 @@ impl Config {
             .is_some_and(|x| matches!(x.as_str(), "0" | "false" | "no" | "off"));
         if mcp_off {
             self.mcp_servers.clear();
-        } else if get("HERMES_RS_MCP_GITHUB")
-            .is_some_and(|x| matches!(x.as_str(), "1" | "true" | "yes" | "on"))
+        }
+        #[cfg(any(test, feature = "mcp-http"))]
+        if !mcp_off
+            && get("HERMES_RS_MCP_GITHUB")
+                .is_some_and(|x| matches!(x.as_str(), "1" | "true" | "yes" | "on"))
             && !self
                 .mcp_servers
                 .iter()

@@ -14,17 +14,17 @@
 //! Streamable HTTP sends one POST per JSON-RPC message, accepts
 //! `application/json` or `text/event-stream`, and sends `Mcp-Session-Id`
 //! back when the server assigned one. Cleartext HTTP is loopback only.
-//! HTTPS goes through the system `curl` (no TLS crate); the token travels
-//! in the curl config on stdin, never in argv. The legacy HTTP+SSE
+//! Both schemes go through the system `curl` (no TLS crate, and no second
+//! HTTP stack in the gateway). The token travels in the curl config on
+//! stdin, never in argv. The legacy HTTP+SSE
 //! transport (protocol 2024-11-05) is not implemented.
 
 use crate::config::{header_safe, valid_env_name, McpServerCfg, ToolAllow};
-use crate::provider::curl_quote;
 use crate::tools::{Tool, ToolCtx, ToolOutput};
-use galion_common::http::{self, ClientRequest};
 use serde_json::{json, Value};
-use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+#[cfg(any(test, feature = "mcp-http"))]
+use std::io::Read;
+use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{channel, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -34,6 +34,7 @@ pub const PROTOCOL_VERSION: &str = "2025-03-26";
 pub const PREFIX: &str = "mcp__";
 
 /// Largest streamable-HTTP response body Hermes will accept.
+#[cfg(any(test, feature = "mcp-http"))]
 const MAX_HTTP_BYTES: usize = 8 * 1024 * 1024;
 
 pub type EnvFn = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -78,14 +79,21 @@ impl Drop for StdioConn {
     }
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 #[derive(Debug)]
 struct Endpoint {
     https: bool,
+    /// Checked by `parse_endpoint` and by the unit tests. `curl` is given
+    /// the original URL, so these fields are not read on the request path.
+    #[cfg_attr(not(test), allow(dead_code))]
     host: String,
+    #[cfg_attr(not(test), allow(dead_code))]
     port: u16,
+    #[cfg_attr(not(test), allow(dead_code))]
     path: String,
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 struct HttpConn {
     ep: Endpoint,
     session_id: Option<String>,
@@ -94,9 +102,11 @@ struct HttpConn {
 
 enum Link {
     Stdio(StdioConn),
+    #[cfg(any(test, feature = "mcp-http"))]
     Http(HttpConn),
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 struct Reply {
     status: u16,
     headers: Vec<(String, String)>,
@@ -107,6 +117,7 @@ pub struct McpClient {
     pub cfg: McpServerCfg,
     conn: Mutex<Option<Link>>,
     env: EnvFn,
+    #[cfg(any(test, feature = "mcp-http"))]
     curl: String,
 }
 
@@ -120,6 +131,7 @@ impl McpClient {
             cfg,
             conn: Mutex::new(None),
             env,
+            #[cfg(any(test, feature = "mcp-http"))]
             curl: "curl".into(),
         }
     }
@@ -141,6 +153,7 @@ impl McpClient {
         }
     }
 
+    #[cfg(any(test, feature = "mcp-http"))]
     fn loopback_only(&self) -> bool {
         (self.env)("HERMES_RS_PROVIDER_LOOPBACK_ONLY")
             .is_some_and(|v| matches!(v.trim(), "1" | "true" | "yes" | "on"))
@@ -195,6 +208,8 @@ impl McpClient {
         Ok(c)
     }
 
+    #[cfg(any(test, feature = "mcp-http"))]
+    #[inline(never)]
     fn open_http(&self) -> Result<HttpConn, String> {
         let ep = parse_endpoint(self.cfg.url.as_deref().unwrap_or(""))?;
         if ep.https && self.loopback_only() {
@@ -208,19 +223,29 @@ impl McpClient {
             next_id: 1,
         };
         let t = Duration::from_secs(self.cfg.connect_timeout_s.max(1));
-        let init = json!({
-            "protocolVersion": PROTOCOL_VERSION,
-            "capabilities": {},
-            "clientInfo": {"name": "hermes-rs", "version": crate::VERSION}
-        });
-        self.http_rpc(&mut link, "initialize", init, t)?;
+        let mut init = String::from(r#"{"protocolVersion":""#);
+        init.push_str(PROTOCOL_VERSION);
+        init.push_str(r#"","capabilities":{},"clientInfo":{"name":"hermes-rs","version":""#);
+        init.push_str(crate::VERSION);
+        init.push_str(r#""}}"#);
+        self.http_rpc(&mut link, "initialize", &init, t)?;
         self.http_notify(&mut link, t)?;
         Ok(link)
     }
 
+    #[cfg(any(test, feature = "mcp-http"))]
+    fn open_url(&self) -> Result<Link, String> {
+        self.open_http().map(Link::Http)
+    }
+
+    #[cfg(not(any(test, feature = "mcp-http")))]
+    fn open_url(&self) -> Result<Link, String> {
+        Err("streamable HTTP needs the mcp-http feature".into())
+    }
+
     fn open(&self) -> Result<Link, String> {
         if self.cfg.url.is_some() {
-            self.open_http().map(Link::Http)
+            self.open_url()
         } else if !self.cfg.command.is_empty() {
             self.spawn_stdio().map(Link::Stdio)
         } else {
@@ -228,6 +253,7 @@ impl McpClient {
         }
     }
 
+    #[cfg(any(test, feature = "mcp-http"))]
     fn headers_for(&self, link: &HttpConn, bearer: Option<&str>) -> Vec<(String, String)> {
         let mut h = vec![
             ("Content-Type".into(), "application/json".into()),
@@ -251,6 +277,8 @@ impl McpClient {
         h
     }
 
+    #[cfg(any(test, feature = "mcp-http"))]
+    #[inline(never)]
     fn post(
         &self,
         link: &HttpConn,
@@ -260,11 +288,7 @@ impl McpClient {
     ) -> Result<Reply, String> {
         let bearer = self.token()?;
         let headers = self.headers_for(link, bearer.as_deref());
-        let reply = if link.ep.https {
-            self.post_https(body, &headers, timeout)?
-        } else {
-            post_loopback(link, body, &headers, timeout)?
-        };
+        let reply = self.curl_post(body, &headers, link.ep.https, timeout)?;
         if reply.status == 404 && !initialize {
             return Err("server exited".into());
         }
@@ -278,10 +302,16 @@ impl McpClient {
         Ok(reply)
     }
 
-    fn post_https(
+    /// One POST through `curl` for both loopback `http` and `https`. The
+    /// gateway already links `curl` for model calls. Using it here keeps the
+    /// galion-common HTTP client out of this binary.
+    #[cfg(any(test, feature = "mcp-http"))]
+    #[inline(never)]
+    fn curl_post(
         &self,
         body: &str,
         headers: &[(String, String)],
+        https: bool,
         timeout: Duration,
     ) -> Result<Reply, String> {
         let url = self.cfg.url.as_deref().unwrap_or("");
@@ -291,12 +321,11 @@ impl McpClient {
             .args([
                 "-sS",
                 "-i",
-                "-N",
                 "--http1.1",
                 "--max-redirs",
                 "0",
                 "--proto",
-                "=https",
+                if https { "=https" } else { "=http" },
                 "--connect-timeout",
             ])
             .arg(connect.to_string())
@@ -305,68 +334,65 @@ impl McpClient {
             .args(["-K", "-"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::null())
             .spawn()
-            .map_err(|e| format!("curl: {e}"))?;
-        let write_result = (|| -> Result<(), String> {
-            let mut si = child.stdin.take().ok_or("curl stdin")?;
-            let cfg = curl_config(url, body, headers);
-            si.write_all(cfg.as_bytes())
-                .map_err(|e| format!("curl: {e}"))
-        })();
-        if let Err(e) = write_result {
+            .map_err(|e| format!("write: curl {e}"))?;
+        let cfg = curl_config(url, body, headers);
+        let wrote = match child.stdin.take() {
+            Some(mut si) => si
+                .write_all(cfg.as_bytes())
+                .map_err(|e| format!("write: curl {e}")),
+            None => Err("write: curl stdin".into()),
+        };
+        if let Err(e) = wrote {
             let _ = child.kill();
             let _ = child.wait();
             return Err(e);
         }
-        let stdout = child.stdout.take().ok_or("curl stdout")?;
-        let stderr = child.stderr.take();
-        let err_thread = std::thread::spawn(move || {
-            let mut e = String::new();
-            if let Some(mut p) = stderr {
-                let _ = std::io::Read::read_to_string(&mut p, &mut e);
-            }
-            e
-        });
-        let buf = match read_capped(stdout, MAX_HTTP_BYTES) {
-            Ok(b) => b,
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = err_thread.join();
-                return Err(e);
-            }
+        let mut buf = Vec::new();
+        let read = match child.stdout.take() {
+            Some(mut so) => read_capped(&mut so, &mut buf, MAX_HTTP_BYTES),
+            None => Err("write: curl stdout".into()),
         };
-        let status = child.wait().map_err(|e| format!("curl: {e}"))?;
-        let err = err_thread.join().unwrap_or_default();
+        let _ = child.wait();
+        read?;
         if buf.is_empty() {
-            return Err(crate::redact(&format!(
-                "curl: exit {:?} {}",
-                status.code(),
-                err.trim()
-            )));
+            return Err("write: curl empty".into());
         }
         split_http(&buf)
     }
 
+    #[cfg(any(test, feature = "mcp-http"))]
     fn http_notify(&self, link: &mut HttpConn, timeout: Duration) -> Result<(), String> {
-        let msg = json!({"jsonrpc": "2.0", "method": "notifications/initialized"});
         // A notification has no id. 202 with an empty body is success.
-        let _ = self.post(link, &msg.to_string(), timeout, false)?;
+        let _ = self.post(
+            link,
+            r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+            timeout,
+            false,
+        )?;
         Ok(())
     }
 
+    #[cfg(any(test, feature = "mcp-http"))]
+    #[inline(never)]
     fn http_rpc(
         &self,
         link: &mut HttpConn,
         method: &str,
-        params: Value,
+        params: &str,
         timeout: Duration,
     ) -> Result<Value, String> {
         let id = link.next_id;
         link.next_id += 1;
-        let msg = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        let reply = self.post(link, &msg.to_string(), timeout, method == "initialize")?;
+        let mut msg = String::from(r#"{"jsonrpc":"2.0","id":"#);
+        msg.push_str(&id.to_string());
+        msg.push_str(r#","method":""#);
+        msg.push_str(method);
+        msg.push_str(r#"","params":"#);
+        msg.push_str(params);
+        msg.push('}');
+        let reply = self.post(link, &msg, timeout, method == "initialize")?;
         if let Some(sid) = session_from(&reply.headers) {
             link.session_id = Some(sid);
         }
@@ -383,7 +409,11 @@ impl McpClient {
     ) -> Result<Value, String> {
         match link {
             Link::Stdio(c) => stdio_rpc(c, method, &params, timeout),
-            Link::Http(c) => self.http_rpc(c, method, params, timeout),
+            #[cfg(any(test, feature = "mcp-http"))]
+            Link::Http(c) => {
+                let params = serde_json::to_string(&params).map_err(|e| e.to_string())?;
+                self.http_rpc(c, method, &params, timeout)
+            }
         }
     }
 
@@ -466,14 +496,10 @@ fn stdio_rpc(
 }
 
 fn dead(e: &str) -> bool {
-    e.contains("server exited")
-        || e.starts_with("write")
-        || e.contains("http: connect")
-        || e.contains("http: read")
-        || e.contains("http: write")
-        || e.starts_with("curl:")
+    e.contains("server exited") || e.starts_with("write")
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 fn extra_header(name: &str) -> bool {
     !matches!(
         name.to_ascii_lowercase().as_str(),
@@ -488,111 +514,100 @@ fn extra_header(name: &str) -> bool {
     )
 }
 
-fn post_loopback(
-    link: &HttpConn,
-    body: &str,
-    headers: &[(String, String)],
-    timeout: Duration,
-) -> Result<Reply, String> {
-    let addr = match link.ep.host.as_str() {
-        "127.0.0.1" | "localhost" => SocketAddr::from((Ipv4Addr::LOCALHOST, link.ep.port)),
-        "::1" => SocketAddr::from((Ipv6Addr::LOCALHOST, link.ep.port)),
-        _ => return Err("cleartext mcp url is only allowed for loopback".into()),
-    };
-    let host_header = if link.ep.host == "::1" {
-        format!("[::1]:{}", link.ep.port)
-    } else if link.ep.port == 80 {
-        link.ep.host.clone()
-    } else {
-        format!("{}:{}", link.ep.host, link.ep.port)
-    };
-    let mut req_headers = vec![
-        ("Host".into(), host_header),
-        ("Content-Length".into(), body.len().to_string()),
-        ("Connection".into(), "close".into()),
-    ];
-    req_headers.extend(headers.iter().cloned());
-    let req = ClientRequest {
-        method: "POST",
-        path: &link.ep.path,
-        minor: 1,
-        headers: req_headers,
-        body: body.as_bytes(),
-    };
-    let resp = http::send(addr, &req, timeout, MAX_HTTP_BYTES).map_err(|e| format!("http: {e}"))?;
-    Ok(Reply {
-        status: resp.status,
-        headers: resp.headers,
-        body: resp.body,
-    })
+#[cfg(any(test, feature = "mcp-http"))]
+fn push_quoted(out: &mut String, s: &str) {
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 fn curl_config(url: &str, body: &str, headers: &[(String, String)]) -> String {
-    let mut cfg = format!("url = {}\nrequest = \"POST\"\n", curl_quote(url));
+    let mut cfg = String::with_capacity(64 + url.len() + body.len());
+    cfg.push_str("url = ");
+    push_quoted(&mut cfg, url);
+    cfg.push_str("\nrequest = \"POST\"\n");
     for (k, v) in headers {
-        cfg.push_str(&format!("header = {}\n", curl_quote(&format!("{k}: {v}"))));
+        cfg.push_str("header = \"");
+        cfg.push_str(k);
+        cfg.push_str(": ");
+        cfg.push_str(v);
+        cfg.push_str("\"\n");
     }
-    cfg.push_str(&format!("data-binary = {}\n", curl_quote(body)));
+    cfg.push_str("data-binary = ");
+    push_quoted(&mut cfg, body);
+    cfg.push('\n');
     cfg
 }
 
-fn read_capped(mut r: impl Read, max: usize) -> Result<Vec<u8>, String> {
-    let mut buf = Vec::new();
-    let mut chunk = [0u8; 8192];
+#[cfg(any(test, feature = "mcp-http"))]
+fn read_capped(r: &mut impl Read, buf: &mut Vec<u8>, max: usize) -> Result<(), String> {
+    let mut chunk = [0u8; 4096];
     loop {
-        let n = r.read(&mut chunk).map_err(|e| format!("curl: {e}"))?;
+        let n = r.read(&mut chunk).map_err(|e| format!("write: curl {e}"))?;
         if n == 0 {
-            break;
+            return Ok(());
         }
         if buf.len() + n > max {
             return Err("http: response too large".into());
         }
         buf.extend_from_slice(&chunk[..n]);
     }
-    Ok(buf)
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
+fn header_get<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.as_str())
+}
+
+#[cfg(any(test, feature = "mcp-http"))]
 fn split_http(raw: &[u8]) -> Result<Reply, String> {
-    let mut rest = raw;
-    while !rest.is_empty() {
-        let Some((status, _reason, headers, head_len)) = http::parse_response_head(rest) else {
-            break;
-        };
-        let after = &rest[head_len..];
-        let (body, next) = take_body(&headers, after);
-        if status >= 200 {
-            return Ok(Reply {
-                status,
-                headers,
-                body,
-            });
+    let head_end = raw
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|i| i + 4)
+        .or_else(|| raw.windows(2).position(|w| w == b"\n\n").map(|i| i + 2))
+        .ok_or("bad http response")?;
+    let head = String::from_utf8_lossy(&raw[..head_end]);
+    let mut lines = head.lines();
+    let status = lines
+        .next()
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|s| s.parse::<u16>().ok())
+        .ok_or("bad http response")?;
+    let mut headers = Vec::new();
+    for line in lines {
+        let line = line.trim_end_matches('\r');
+        if let Some((k, v)) = line.split_once(':') {
+            headers.push((k.trim().to_string(), v.trim().to_string()));
         }
-        if next.len() == rest.len() {
-            break;
-        }
-        rest = next;
     }
-    Err("bad http response".into())
+    let mut body = raw[head_end..].to_vec();
+    if let Some(n) = header_get(&headers, "content-length").and_then(|s| s.parse().ok()) {
+        body.truncate(n);
+    }
+    Ok(Reply {
+        status,
+        headers,
+        body,
+    })
 }
 
-fn take_body<'a>(headers: &[(String, String)], after: &'a [u8]) -> (Vec<u8>, &'a [u8]) {
-    if let Some(cl) = http::header(headers, "content-length").and_then(|s| s.parse::<usize>().ok())
-    {
-        let n = cl.min(after.len());
-        return (after[..n].to_vec(), &after[n..]);
-    }
-    if http::header(headers, "transfer-encoding")
-        .is_some_and(|v| v.to_ascii_lowercase().contains("chunked"))
-    {
-        if let Some(b) = http::dechunk(after) {
-            return (b, &[]);
-        }
-    }
-    (after.to_vec(), &[])
-}
-
+#[cfg(any(test, feature = "mcp-http"))]
 fn session_from(headers: &[(String, String)]) -> Option<String> {
-    let v = http::header(headers, "mcp-session-id")?;
+    let v = header_get(headers, "mcp-session-id")?;
     if (1..=256).contains(&v.len())
         && header_safe(v)
         && v.bytes().all(|c| (0x21..=0x7e).contains(&c))
@@ -603,12 +618,13 @@ fn session_from(headers: &[(String, String)]) -> Option<String> {
     }
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 fn messages_from(reply: &Reply) -> Result<Vec<Value>, String> {
     if reply.status == 202 && reply.body.is_empty() {
         return Ok(Vec::new());
     }
     let text = String::from_utf8_lossy(&reply.body);
-    let ct = http::header(&reply.headers, "content-type").unwrap_or("");
+    let ct = header_get(&reply.headers, "content-type").unwrap_or("");
     if ct.to_ascii_lowercase().contains("text/event-stream") {
         return Ok(parse_sse(&text));
     }
@@ -624,6 +640,7 @@ fn messages_from(reply: &Reply) -> Result<Vec<Value>, String> {
     }
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 fn pick(messages: &[Value], id: u64) -> Result<Value, String> {
     for m in messages {
         if m.get("id").and_then(|v| v.as_u64()) != Some(id) {
@@ -637,6 +654,7 @@ fn pick(messages: &[Value], id: u64) -> Result<Value, String> {
     Err("no response".into())
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 fn push_sse_data(data: &mut String, out: &mut Vec<Value>) {
     if data.is_empty() {
         return;
@@ -647,6 +665,7 @@ fn push_sse_data(data: &mut String, out: &mut Vec<Value>) {
     }
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 fn parse_sse(body: &str) -> Vec<Value> {
     let mut out = Vec::new();
     let mut data = String::new();
@@ -670,6 +689,8 @@ fn parse_sse(body: &str) -> Vec<Value> {
     out
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
+#[inline(never)]
 fn parse_endpoint(url: &str) -> Result<Endpoint, String> {
     let (https, rest) = if let Some(r) = url.strip_prefix("https://") {
         (true, r)
@@ -711,6 +732,7 @@ fn parse_endpoint(url: &str) -> Result<Endpoint, String> {
     })
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 fn split_host_port(authority: &str, https: bool) -> Result<(String, u16), String> {
     let default = if https { 443 } else { 80 };
     if let Some(rest) = authority.strip_prefix('[') {
@@ -738,6 +760,7 @@ fn split_host_port(authority: &str, https: bool) -> Result<(String, u16), String
     Ok((authority.to_string(), default))
 }
 
+#[cfg(any(test, feature = "mcp-http"))]
 fn parse_port(port: &str) -> Result<u16, String> {
     if port.is_empty() || !port.bytes().all(|c| c.is_ascii_digit()) {
         return Err("bad mcp port".into());
@@ -955,7 +978,10 @@ mod tests {
                 ("Authorization".into(), "Bearer secret-token".into()),
             ],
         );
-        assert!(cfg.contains(&format!("url = {}", curl_quote(GITHUB_MCP_URL))));
+        assert!(cfg.contains(&format!(
+            "url = {}",
+            crate::provider::curl_quote(GITHUB_MCP_URL)
+        )));
         assert!(cfg.contains("Authorization: Bearer secret-token"));
         assert!(cfg.contains("data-binary"));
         assert!(!cfg.lines().next().unwrap().contains("secret-token"));
@@ -1020,4 +1046,6 @@ mod tests {
         assert!(err.contains("unusable"), "{err}");
         assert!(!err.contains("token-value"), "{err}");
     }
+
+    include!("mcp_http_live.rs");
 }

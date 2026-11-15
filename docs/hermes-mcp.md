@@ -8,6 +8,8 @@ The MCP client lives in `crates/hermes-rs/src/mcp.rs`. Per-server configuration,
 
 `HERMES_RS_MCP=0` (also `false`, `no`, `off`) drops every configured server, including GitHub. Nothing here edits `config.yaml`. The GitHub entry stays off until `HERMES_RS_MCP_GITHUB=1`.
 
+Streamable HTTP and that GitHub entry are the `mcp-http` feature. It is on for tests. It is **not** in the default `hermes-gateway` build. On main, that musl binary is 2,086,816 bytes and the cap in `config/release/size-budget.tsv` is 2,097,152. The client does not fit in the 10,336 bytes that are left. Build the gateway with `--features mcp-http` to include it. A `url` server in a build without the feature is reported at discovery and skipped.
+
 ## What the client speaks
 
 Two transports, same JSON-RPC methods: `initialize`, `notifications/initialized`, paged `tools/list`, `tools/call`.
@@ -19,7 +21,7 @@ Two transports, same JSON-RPC methods: `initialize`, `notifications/initialized`
 
 An entry has exactly one of `command` or `url`. Anything else is ignored.
 
-`http://` is accepted only for `127.0.0.1`, `localhost`, and `::1`. Any other cleartext URL is refused before a socket is opened. `https://` is sent through the system `curl`, with the request config on stdin, so the URL and the token are not process arguments. Redirects are not followed.
+`http://` is accepted only for `127.0.0.1`, `localhost`, and `::1`. Any other cleartext URL is refused before `curl` starts. Both schemes go through the system `curl`, with the request config on stdin, so the URL and the token are not process arguments and the gateway does not link a second HTTP client. Redirects are not followed.
 
 The legacy HTTP+SSE transport (protocol 2024-11-05) is not implemented.
 
@@ -80,6 +82,8 @@ Set the token in the environment that starts the gateway. Do not write it in `co
 `HERMES_RS_PROVIDER_LOOPBACK_ONLY=1` refuses every non-loopback MCP URL, including GitHub, before `curl` is started.
 
 ## Adding another server
+
+A `command` server works in the default gateway. A `url` server, including GitHub, needs the gateway built with `--features mcp-http`.
 
 1. Run the server yourself, on stdio or on loopback HTTP, or give an `https://` URL you mean to call.
 2. Add an entry under `mcp_servers` with either `command` or `url`.

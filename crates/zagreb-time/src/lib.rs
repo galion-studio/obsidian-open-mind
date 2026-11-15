@@ -52,6 +52,30 @@ pub fn label(secs: i64) -> String {
         .to_string()
 }
 
+/// Re-render a stored RFC 3339 instant in Europe/Zagreb.
+///
+/// Storage stays UTC (`...Z`, JS `toISOString()` parity, lexical order); this
+/// is the display side. Any offset is accepted (`Z`, `+00:00`, `+02:00`...);
+/// the output is [`now_rfc3339`]'s format: seconds precision, explicit
+/// `+01:00`/`+02:00`, never `Z`. Sub-seconds are truncated. Returns `None` when
+/// `ts` is not RFC 3339 with an offset, so callers can keep legacy text as is.
+pub fn render_rfc3339(ts: &str) -> Option<String> {
+    let dt = DateTime::parse_from_rfc3339(ts.trim()).ok()?;
+    Some(rfc3339(dt.with_timezone(&Utc)))
+}
+
+/// Like [`render_rfc3339`] but minutes precision for short labels:
+/// `2026-10-25 02:30 +01:00`. The offset stays so the repeated hour at the
+/// autumn DST switch is not ambiguous.
+pub fn render_minutes(ts: &str) -> Option<String> {
+    let dt = DateTime::parse_from_rfc3339(ts.trim()).ok()?;
+    Some(
+        dt.with_timezone(&ZAGREB)
+            .format("%Y-%m-%d %H:%M %:z")
+            .to_string(),
+    )
+}
+
 /// Why [`require_rfc3339`] refused a timestamp.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StampReject {
@@ -183,5 +207,45 @@ mod tests {
             "now_rfc3339 must use +01:00 or +02:00: {now}"
         );
         assert_eq!(require_rfc3339(&now), Ok(()));
+    }
+
+    #[test]
+    fn render_stored_utc_across_dst_switch_2026_10_25() {
+        // Last CEST second, the first CET second, and the repeated 02:30 hour.
+        assert_eq!(
+            render_rfc3339("2026-10-25T00:59:59.999Z").as_deref(), // repo-check: allow (stored UTC input under test)
+            Some("2026-10-25T02:59:59+02:00")
+        );
+        assert_eq!(
+            render_rfc3339("2026-10-25T01:00:00.000Z").as_deref(), // repo-check: allow (stored UTC input under test)
+            Some("2026-10-25T02:00:00+01:00")
+        );
+        assert_eq!(
+            render_minutes("2026-10-25T00:30:00Z").as_deref(), // repo-check: allow (stored UTC input under test)
+            Some("2026-10-25 02:30 +02:00")
+        );
+        assert_eq!(
+            render_minutes("2026-10-25T01:30:00Z").as_deref(), // repo-check: allow (stored UTC input under test)
+            Some("2026-10-25 02:30 +01:00")
+        );
+    }
+
+    #[test]
+    fn render_accepts_any_offset_and_rejects_junk() {
+        assert_eq!(
+            render_rfc3339("2026-10-28T03:08:06.277+00:00").as_deref(),
+            Some("2026-10-28T04:08:06+01:00")
+        );
+        assert_eq!(
+            render_rfc3339("2026-07-01T12:00:00+02:00").as_deref(),
+            Some("2026-07-01T12:00:00+02:00")
+        );
+        assert_eq!(render_rfc3339(""), None);
+        assert_eq!(render_rfc3339("2026-10-28"), None);
+        assert_eq!(render_rfc3339("2026-10-28T03:08:06"), None);
+        assert_eq!(render_minutes("yesterday"), None);
+        let out = render_rfc3339("2026-03-29T01:00:00Z").unwrap(); // repo-check: allow (stored UTC input under test)
+        assert_eq!(out, "2026-03-29T03:00:00+02:00");
+        assert_eq!(require_rfc3339(&out), Ok(()));
     }
 }

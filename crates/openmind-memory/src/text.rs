@@ -538,6 +538,12 @@ pub fn generate_scene_navigation(entries: &[SceneEntry], data_dir: &str) -> Stri
 }
 
 /// Port of `formatTimestamp`: `YYYY-MM-DD` or `YYYY-MM-DD HH:MM`.
+///
+/// F-354-1: an instant with an offset (stored UTC `...Z`) is shown in
+/// Europe/Zagreb as `YYYY-MM-DD HH:MM +01:00` (offset kept, so the repeated
+/// hour at the autumn DST switch stays unambiguous). A `00:00` time in the
+/// source is a date written as an instant and stays `YYYY-MM-DD` (as before).
+/// A time without an offset is taken as already local and kept as is.
 pub fn format_timestamp(ts: &str) -> Option<String> {
     let b = ts.as_bytes();
     let digits = |r: std::ops::Range<usize>| {
@@ -556,6 +562,9 @@ pub fn format_timestamp(ts: &str) -> Option<String> {
     if b.get(10) == Some(&b'T') && digits(11..13) && b.get(13) == Some(&b':') && digits(14..16) {
         let time = &ts[11..16];
         if time != "00:00" {
+            if let Some(local) = zagreb_time::render_minutes(ts) {
+                return Some(local);
+            }
             return Some(format!("{date} {time}"));
         }
     }
@@ -669,7 +678,7 @@ mod tests {
     fn memory_line_and_time() {
         assert_eq!(
             format_timestamp("2025-03-01T14:30:00.000Z").as_deref(), // repo-check: allow (legacy stored UTC row under test; output is the formatted label)
-            Some("2025-03-01 14:30")
+            Some("2025-03-01 15:30 +01:00")
         );
         assert_eq!(
             format_timestamp("2025-03-01T00:00:00Z").as_deref(), // repo-check: allow (legacy stored UTC row under test; output is the formatted label)
@@ -689,6 +698,49 @@ mod tests {
         assert_eq!(
             format_memory_line("persona", "x", "", None, None, None),
             "- [persona] x"
+        );
+    }
+
+    #[test]
+    fn memory_line_times_render_zagreb_across_dst_2026_10_25() {
+        // stored UTC instants -> Zagreb with offset; the repeated 02:30 differs
+        assert_eq!(
+            format_timestamp("2026-10-25T00:30:00.000Z").as_deref(), // repo-check: allow (stored UTC row under test)
+            Some("2026-10-25 02:30 +02:00")
+        );
+        assert_eq!(
+            format_timestamp("2026-10-25T01:30:00.000Z").as_deref(), // repo-check: allow (stored UTC row under test)
+            Some("2026-10-25 02:30 +01:00")
+        );
+        // late UTC evening crosses into the next local day
+        assert_eq!(
+            format_timestamp("2026-10-24T22:15:00Z").as_deref(), // repo-check: allow (stored UTC row under test)
+            Some("2026-10-25 00:15 +02:00")
+        );
+        // date-only, date-as-midnight-instant and offset-less local times unchanged
+        assert_eq!(
+            format_timestamp("2026-10-25").as_deref(),
+            Some("2026-10-25")
+        );
+        assert_eq!(
+            format_timestamp("2026-10-25T00:00:00.000Z").as_deref(), // repo-check: allow (stored UTC row under test)
+            Some("2026-10-25")
+        );
+        assert_eq!(
+            format_timestamp("2026-10-25T09:45").as_deref(),
+            Some("2026-10-25 09:45")
+        );
+        assert_eq!(format_timestamp("soon"), None);
+        assert_eq!(
+            format_memory_line(
+                "episodic",
+                "ferry",
+                "",
+                None,
+                None,
+                Some("2026-10-28T03:08:06.277Z") // repo-check: allow (stored UTC row under test)
+            ),
+            "- [episodic] ferry (\u{6D3B}\u{52A8}\u{65F6}\u{95F4}: 2026-10-28 04:08 +01:00)"
         );
     }
 

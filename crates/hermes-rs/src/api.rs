@@ -29,6 +29,8 @@ pub struct Gateway {
     pub jobs: Option<Arc<crate::cron::Scheduler>>,
     /// Device enrollment (`/openmind/*`); `None` = disabled, every such path is 404.
     pub enroll: Option<Arc<crate::enroll::Enroll>>,
+    /// openmind-memory recall + capture (slot 403); `None` = off (default).
+    pub memory: Option<Arc<crate::memory::MemoryClient>>,
 }
 
 /// Holds one agent slot (`gateway.api_server.max_concurrent_runs`).
@@ -88,6 +90,7 @@ impl Gateway {
             runs: crate::runs::Runs::default(),
             jobs: None,
             enroll: None,
+            memory: None,
         }
     }
 
@@ -193,13 +196,15 @@ impl Gateway {
     }
 
     fn health_detailed(&self) -> Response {
-        Response::json(
-            200,
-            &json!({"status": "ok", "platform": "hermes-agent", "version": crate::UPSTREAM_COMPAT, "implementation": "hermes-rs",
+        let mut v = json!({"status": "ok", "platform": "hermes-agent", "version": crate::UPSTREAM_COMPAT, "implementation": "hermes-rs",
                     "gateway_state": "running", "active_agents": self.active.load(Ordering::SeqCst),
                     "max_concurrent_runs": self.cfg.max_concurrent_runs, "platforms": {"api_server": {"state": "connected"}},
-                    "spend": self.agent.spend.status(), "pid": std::process::id()}),
-        )
+                    "spend": self.agent.spend.status(), "pid": std::process::id()});
+        // Only when on, so the default /health/detailed body is unchanged.
+        if let Some(m) = &self.memory {
+            v["memory"] = m.status();
+        }
+        Response::json(200, &v)
     }
 
     fn models(&self) -> Response {
@@ -344,6 +349,11 @@ impl Gateway {
 
         let mut messages = history.clone();
         messages.push(json!({"role": "user", "content": user_text}));
+        if let Some(mem) = &self.memory {
+            // Recall goes into the API copy only; persist() stores `user_text`.
+            let block = mem.recall(&user_text, &memory_key(&row));
+            crate::memory::inject(&mut messages, &block);
+        }
         let max_tokens = body["max_tokens"]
             .as_u64()
             .or_else(|| body["max_completion_tokens"].as_u64());
@@ -387,6 +397,15 @@ impl Gateway {
         msgs.push(json!({"role": "user", "content": p.user_text}));
         msgs.extend(res.added.iter().cloned());
         let _ = self.store.append(&row.id, &msgs);
+        if let Some(mem) = &self.memory {
+            if res.completed && !res.final_text.trim().is_empty() {
+                mem.capture_bg(
+                    p.user_text.clone(),
+                    res.final_text.clone(),
+                    memory_key(&row),
+                );
+            }
+        }
     }
 
     fn chat(self: &Arc<Self>, req: &Request) -> Response {
@@ -708,4 +727,15 @@ pub fn spawn(gw: Arc<Gateway>, addr: &str) -> std::io::Result<std::net::SocketAd
         .name("hermes-accept".into())
         .spawn(move || crate::http::serve(listener, handler, 64))?;
     Ok(local)
+}
+
+/// The memory `session_key` for a session: the client's
+/// `X-Hermes-Session-Key` when given (the legacy store holds `one-warm`,
+/// `one-voice`, ... keys), else the session id (`api-...`), as the Python
+/// plugin did.
+pub fn memory_key(row: &SessionRow) -> String {
+    row.session_key
+        .clone()
+        .filter(|k| !k.trim().is_empty())
+        .unwrap_or_else(|| row.id.clone())
 }

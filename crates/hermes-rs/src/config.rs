@@ -101,6 +101,9 @@ pub struct Config {
     pub tool_hard_stop_after: usize,
     pub api_key_env: String,
     pub persona_file: Option<PathBuf>,
+    /// Optional openmind-memory client (slot 403). Off unless
+    /// `HERMES_RS_MEMORY=1` or `hermes_rs.memory.enabled: true`.
+    pub memory: crate::memory::MemoryCfg,
 }
 
 fn s(v: &Value) -> Option<String> {
@@ -184,6 +187,7 @@ impl Config {
             tool_hard_stop_after: 5,
             api_key_env: "API_SERVER_KEY".into(),
             persona_file: None,
+            memory: crate::memory::MemoryCfg::default(),
         }
     }
 
@@ -327,6 +331,9 @@ impl Config {
         if let Some(x) = rs["daily_call_cap"].as_u64() {
             self.spend.daily_call_cap = x;
         }
+        // The Python `memory.provider` key is ignored on purpose: only the
+        // hermes-rs key (or HERMES_RS_MEMORY=1) turns the client on.
+        self.memory.apply_yaml(&rs["memory"]);
     }
 
     /// Apply env overrides. `env` is injected so tests do not touch the
@@ -389,6 +396,7 @@ impl Config {
                 p.base_url = x;
             }
         }
+        self.memory.apply_env(&get)?;
         Ok(())
     }
 
@@ -496,6 +504,29 @@ mcp_servers:
         assert_eq!(c.max_turns, 500);
         assert_eq!(c.mcp_servers[0].name, "galion-stack");
         assert!(c.free_only_background);
+    }
+
+    /// Slot 403: the live config.yaml still names the Python memory plugin;
+    /// that alone must never switch the hermes-rs client on.
+    #[test]
+    fn memory_client_off_unless_hermes_rs_key_or_env() {
+        let live = "memory:\n  provider: memory_tencentdb\n  memory_enabled: true\n";
+        let mut c = Config::defaults(Path::new("/h"));
+        c.apply_yaml(&yaml::parse(live).unwrap());
+        c.apply_env(&|_k: &str| None).unwrap();
+        assert!(!c.memory.enabled);
+        let on = "hermes_rs:\n  memory:\n    enabled: true\n    recall_timeout_ms: 1500\n";
+        let mut d = Config::defaults(Path::new("/h"));
+        d.apply_yaml(&yaml::parse(on).unwrap());
+        assert!(d.memory.enabled);
+        assert_eq!(d.memory.recall_timeout.as_millis(), 1500);
+        let env = |k: &str| (k == "HERMES_RS_MEMORY").then(|| "0".to_string());
+        d.apply_env(&env).unwrap();
+        assert!(!d.memory.enabled, "env wins over yaml");
+        let env = |k: &str| (k == "HERMES_RS_MEMORY").then(|| "1".to_string());
+        c.apply_env(&env).unwrap();
+        assert!(c.memory.enabled);
+        assert_eq!(c.memory.url, "http://127.0.0.1:8420");
     }
 
     #[test]

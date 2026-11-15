@@ -6,6 +6,7 @@
 pub mod api;
 pub mod config;
 pub mod engine;
+pub mod freshness;
 pub mod fts;
 pub mod hash;
 pub mod http;

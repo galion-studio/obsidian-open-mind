@@ -138,3 +138,19 @@ One `GET http://127.0.0.1:8420/health` returned 200, `Content-Type: application/
 - Did not change `crates/openmind-memory`.
 - Did not claim the running Rust `hermes-gateway` binary issues these calls. The calls are in the Python provider the redacted config selects.
 - Did not curl any route except that single health GET.
+
+## `/recall` `scope` (slot 426, 2026-10-28 21:58 +01:00 Europe/Zagreb)
+
+openmind-memory (Rust) accepts an optional `scope` on `POST /recall`:
+
+| `scope` | L1 keyword lines + L0 text fallback | reply |
+|---|---|---|
+| absent / `null` | every session of the store (legacy gateway parity, unchanged) | no `scope` key (byte-identical to before) |
+| `"all"` | every session | `"scope": "all"` |
+| `"session"` | only rows whose `session_key` equals the request's (SQL filter before the limit) | `"scope": "session"` |
+| anything else | - | 400 `{"error": "scope must be \"session\" or \"all\""}` |
+
+Persona and scene blocks were already per session and are unchanged. The echo lets a client
+tell this server from an older one, which ignores the field and answers from every session.
+hermes-rs sends `scope: "session"` by default and drops any reply without the echo
+(see docs/hermes-memory-client.md).

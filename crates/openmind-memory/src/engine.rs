@@ -125,7 +125,7 @@ impl Engine {
     }
 
     /// `searchByKeyword` (auto-recall): formatted L1 lines.
-    fn keyword_lines(&self, clean: &str) -> Vec<String> {
+    fn keyword_lines(&self, clean: &str, only: Option<&str>) -> Vec<String> {
         let Some(store) = &self.store else {
             return Vec::new();
         };
@@ -136,7 +136,14 @@ impl Engine {
             return Vec::new();
         };
         let max = self.cfg.recall_max_results;
-        let hits = store.search_l1_fts(&q, max * 2);
+        let hits = match only {
+            None => store.search_l1_fts(&q, max * 2),
+            // Session filter before the limit; scan a wider window so other
+            // sessions cannot starve this one (bounded: 50x the limit).
+            Some(sk) => {
+                store.search_l1_fts_filtered(&q, max * 2, max * 100, &|h| h.session_key == sk)
+            }
+        };
         if hits.is_empty() {
             return Vec::new();
         }
@@ -205,17 +212,30 @@ impl Engine {
     }
 
     /// POST /recall
+    ///
+    /// Optional `scope` (slot 426, D-403-2): absent or `"all"` = legacy
+    /// gateway behaviour (L1 keyword lines and the L0 text fallback span every
+    /// session of the store); `"session"` = only rows whose `session_key`
+    /// equals the request's. Persona and scene blocks are per session either
+    /// way. A given `scope` is echoed in the reply so a client can tell an
+    /// older server (which ignores the field) from one that honoured it.
     pub fn recall(&self, body: &Value) -> (u16, Value) {
         if !truthy(body.get("query")) || !truthy(body.get("session_key")) {
             return err("Missing required fields: query, session_key");
         }
+        let scope = match body.get("scope") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(s)) if s == "all" || s == "session" => Some(s.as_str()),
+            Some(_) => return err("scope must be \"session\" or \"all\""),
+        };
         let query = str_of(body.get("query"));
         let session_key = str_of(body.get("session_key"));
+        let only = (scope == Some("session")).then_some(session_key.as_str());
 
         // L1 keyword search (embedding/hybrid fall back to keyword: no embeddings).
         let clean = sanitize_text(&query);
         let lines = if js_len(&clean) >= 2 {
-            self.keyword_lines(&clean)
+            self.keyword_lines(&clean, only)
         } else {
             Vec::new()
         };
@@ -292,7 +312,7 @@ impl Engine {
         if let Some(store) = &self.store {
             let mut seen = std::collections::HashSet::new();
             let exact: Vec<String> = store
-                .l0_text_fallback(&query, 8)
+                .l0_text_fallback_scoped(&query, only, 8)
                 .into_iter()
                 .filter(|t| !t.is_empty() && seen.insert(t.clone()))
                 .filter(|t| t.contains(query.as_str()))
@@ -320,6 +340,9 @@ impl Engine {
         out.insert("code".into(), json!(0));
         out.insert("message".into(), json!("ok"));
         out.insert("retryable".into(), json!(false));
+        if let Some(s) = scope {
+            out.insert("scope".into(), json!(s));
+        }
         (200, Value::Object(out))
     }
 
@@ -651,7 +674,12 @@ impl Engine {
             let date = if it.recorded_at.is_empty() {
                 String::new()
             } else {
-                format!(" [{}]", it.recorded_at)
+                // Stored UTC (JS toISOString parity, lexical order); shown in
+                // Europe/Zagreb with its offset (F-354-1). Legacy text that is
+                // not RFC 3339 is shown unchanged.
+                let shown = zagreb_time::render_rfc3339(&it.recorded_at)
+                    .unwrap_or_else(|| it.recorded_at.clone());
+                format!(" [{shown}]")
             };
             lines.push("---".into());
             lines.push(format!(

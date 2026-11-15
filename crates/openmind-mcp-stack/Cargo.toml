@@ -6,7 +6,7 @@ name = "openmind-mcp-stack"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Read-only stdio MCP stub. initialize and tools/list for stack_status. Fixture JSON only. No sockets."
+description = "OpenMind stdio MCP server: memory search/recall/save over the loopback openmind-memory gateway, and a read-only Obsidian vault (list, read, search)."
 
 [[bin]]
 name = "openmind-mcp-stack"
@@ -15,3 +15,6 @@ path = "src/main.rs"
 [dependencies]
 serde_json = { workspace = true }
 zagreb-time = { path = "../zagreb-time" }
+
+[dev-dependencies]
+hermes-rs = { path = "../hermes-rs", default-features = false }

@@ -1059,20 +1059,24 @@ pub fn classify(name: &str, bytes: &[u8]) -> Result<&'static str, FileError> {
         .iter()
         .find(|item| item.ext == ext)
         .ok_or(FileError::Type)?;
-    if magic_ok(&ext, bytes) {
+    if magic_ok(ext, bytes) {
         Ok(spec.kind)
     } else {
         Err(FileError::Magic)
     }
 }
 
-fn extension(name: &str) -> Option<String> {
+/// Allow-list extension, already lower case. No allocation.
+fn extension(name: &str) -> Option<&'static str> {
     let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
     let (_, ext) = base.rsplit_once('.')?;
     if ext.is_empty() || ext.len() > 8 || !ext.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
         return None;
     }
-    Some(ext.to_ascii_lowercase())
+    ALLOWED
+        .iter()
+        .find(|item| item.ext.eq_ignore_ascii_case(ext))
+        .map(|item| item.ext)
 }
 
 fn magic_ok(ext: &str, bytes: &[u8]) -> bool {
@@ -1105,9 +1109,10 @@ fn preview(bytes: &[u8]) -> String {
 /// [`FileError::BadName`] when nothing safe remains.
 pub fn sanitize_name(raw: &str) -> Result<String, FileError> {
     let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw).trim();
-    let mut out = String::new();
+    let mut out = String::with_capacity(base.len().min(MAX_NAME * 4));
+    let mut count = 0usize;
     for ch in base.chars() {
-        if out.chars().count() >= MAX_NAME {
+        if count >= MAX_NAME {
             break;
         }
         if ch.is_control()
@@ -1119,8 +1124,14 @@ pub fn sanitize_name(raw: &str) -> Result<String, FileError> {
             continue;
         }
         out.push(ch);
+        count += 1;
     }
-    let out = out.trim().trim_start_matches('.').trim().to_string();
+    let trimmed = out.trim().trim_start_matches('.').trim();
+    let out = if trimmed.len() == out.len() {
+        out
+    } else {
+        trimmed.to_string()
+    };
     if out.is_empty() || out == "." || out == ".." || out.contains('/') || out.contains('\\') {
         return Err(FileError::BadName);
     }
@@ -1361,15 +1372,18 @@ impl<'a> Parser<'a> {
 
     fn string(&mut self) -> Result<String, FileError> {
         self.expect(b'"')?;
-        let mut out = String::new();
+        let mut out = String::with_capacity(self.bytes.len().saturating_sub(self.index));
         loop {
             let Some(byte) = self.peek() else {
                 return Err(FileError::BadJson);
             };
-            self.bump();
             match byte {
-                b'"' => return Ok(out),
+                b'"' => {
+                    self.bump();
+                    return Ok(out);
+                }
                 b'\\' => {
+                    self.bump();
                     let Some(esc) = self.peek() else {
                         return Err(FileError::BadJson);
                     };
@@ -1388,7 +1402,23 @@ impl<'a> Parser<'a> {
                     }
                 }
                 b if b < 0x20 => return Err(FileError::BadJson),
+                b if b < 0x80 => {
+                    let start = self.index;
+                    let mut end = start + 1;
+                    while end < self.bytes.len() {
+                        let next = self.bytes[end];
+                        if next < 0x20 || next == b'"' || next == b'\\' || next >= 0x80 {
+                            break;
+                        }
+                        end += 1;
+                    }
+                    let text = std::str::from_utf8(&self.bytes[start..end])
+                        .map_err(|_| FileError::BadJson)?;
+                    out.push_str(text);
+                    self.index = end;
+                }
                 _ => {
+                    self.bump();
                     let width = utf8_width(byte).ok_or(FileError::BadJson)?;
                     if self.index + width - 1 > self.bytes.len() {
                         return Err(FileError::BadJson);
@@ -1605,6 +1635,12 @@ mod tests {
             "sub/notes.txt"
         );
         assert_eq!(json_path(br#"{"path":"a\u002eb"}"#).unwrap(), "a.b");
+        let utf8 = "{\"path\":\"caf\u{e9}.txt\"}";
+        assert_eq!(json_path(utf8.as_bytes()).unwrap(), "caf\u{e9}.txt");
+        assert_eq!(
+            json_path(br#"{"path":"bad\x80"}"#).unwrap_err().code(),
+            "bad-json"
+        );
         assert_eq!(json_path(br#"{"path":1}"#).unwrap_err().code(), "bad-json");
         assert_eq!(
             json_path(br#"{"path":"a","path":"b"}"#).unwrap_err().code(),

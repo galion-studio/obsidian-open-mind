@@ -437,7 +437,7 @@ impl Store {
                    session_key, session_id, timestamp_str, timestamp_start, timestamp_end, metadata_json, \
                    bm25(l1_fts) AS rank FROM l1_fts WHERE l1_fts MATCH ? \
                    ORDER BY rank ASC LIMIT ?";
-        let res = conn.prepare_cached(sql).and_then(|mut st| {
+        let res = conn.prepare(sql).and_then(|mut st| {
             let rows = st.query_map(params![fts_query, scan.max(limit) as i64], |r| {
                 Ok(L1Hit {
                     record_id: s(r, 0),
@@ -502,7 +502,7 @@ impl Store {
                 score: bm25_rank_to_score(f(r, 7)),
             })
         };
-        let res = conn.prepare_cached(&sql).and_then(|mut st| {
+        let res = conn.prepare(&sql).and_then(|mut st| {
             let rows: Vec<L0Hit> = match session_key {
                 Some(sk) => st
                     .query_map(params![fts_query, limit as i64, sk], map)?
@@ -550,7 +550,7 @@ impl Store {
             .collect();
         let conn = self.lock();
         let res = conn
-            .prepare_cached(
+            .prepare(
                 "SELECT message_text FROM l0_conversations WHERE message_text LIKE ? ESCAPE '\\' \
                  ORDER BY timestamp DESC LIMIT ?",
             )
@@ -603,15 +603,15 @@ impl Store {
         let mut conn = self.lock();
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         {
-            let mut seen = tx.prepare_cached(
+            let mut seen = tx.prepare(
                 "SELECT COUNT(*) FROM l0_conversations WHERE record_id = ?1 \
                  OR (session_key = ?2 AND timestamp = ?3 AND message_text = ?4)",
             )?;
-            let mut ins = tx.prepare_cached(
+            let mut ins = tx.prepare(
                 "INSERT INTO l0_conversations (record_id, session_key, session_id, role, message_text, recorded_at, timestamp) \
                  VALUES (?, ?, ?, ?, ?, ?, ?)",
             )?;
-            let mut fts = tx.prepare_cached(
+            let mut fts = tx.prepare(
                 "INSERT INTO l0_fts (message_text, message_text_original, record_id, session_key, session_id, role, recorded_at, timestamp) \
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             )?;

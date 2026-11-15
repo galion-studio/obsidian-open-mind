@@ -7,9 +7,9 @@
 # that selects a portable pure-Rust backend, not a CPU feature flag.
 
 [env]
-# rusqlite "bundled" (libsqlite3-sys 0.30) compiles the SQLite amalgamation
-# with FTS3, R*Tree, DBSTAT, STAT4, SOUNDEX, column metadata and runtime
-# extension loading switched on. No workspace crate uses any of them
+# rusqlite "bundled" (libsqlite3-sys 0.39, SQLite 3.54.1) compiles the SQLite
+# amalgamation with FTS3, R*Tree, DBSTAT, STAT4, SOUNDEX, column metadata and
+# runtime extension loading switched on. No workspace crate uses any of them
 # (grep: no fts3/rtree/dbstat/soundex/load_extension/column_metadata in
 # crates/*/src). Turning them off saves ~130 KB of C code per binary that
 # links SQLite (docs/ucpu.md).
@@ -41,9 +41,13 @@ LIBSQLITE3_FLAGS = "-USQLITE_ENABLE_FTS3 -USQLITE_ENABLE_FTS3_PARENTHESIS -USQLI
 # frames; the tables were ~90 KB of .eh_frame in hermes-gateway (slot 329).
 # Size flags only, no CPU or codegen-target flags (UNIVERSAL-CPU.md).
 # cc-rs reads CFLAGS_<target>; an env var of the same name still wins.
-CFLAGS_x86_64_unknown_linux_musl = "-fno-asynchronous-unwind-tables -fno-unwind-tables"
-CFLAGS_aarch64_unknown_linux_musl = "-fno-asynchronous-unwind-tables -fno-unwind-tables"
-CFLAGS_armv7_unknown_linux_musleabihf = "-fno-asynchronous-unwind-tables -fno-unwind-tables"
+# zig cc (CI's C compiler, scripts/ucpu-gate.sh) inlines much harder than
+# gcc -Os. SQLite 3.54.1 then puts hermes-gateway at 2,127,168 B on x86_64
+# musl, 30,016 B over the 2 MiB row. -fno-inline is the size knob that brings
+# that object back under the row. It does not change SQL results.
+CFLAGS_x86_64_unknown_linux_musl = "-fno-asynchronous-unwind-tables -fno-unwind-tables -fno-inline"
+CFLAGS_aarch64_unknown_linux_musl = "-fno-asynchronous-unwind-tables -fno-unwind-tables -fno-inline"
+CFLAGS_armv7_unknown_linux_musleabihf = "-fno-asynchronous-unwind-tables -fno-unwind-tables -fno-inline"
 
 # curve25519-dalek (via ed25519-dalek in crates/hades-gate) would otherwise
 # compile its AVX2 SIMD backend on x86_64. Project rule: no SIMD. "serial"

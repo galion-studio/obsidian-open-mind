@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://galion.example/survival.json",
+  "title": "Galion survival.json",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "cash_usd": {
+      "type": ["number", "null"],
+      "description": "Cash lane. Written by survival-cash. Off-host continuity must not set this."
+    },
+    "lane": {
+      "type": ["string", "null"],
+      "description": "Cash lane label. Off-host continuity must not set this."
+    },
+    "when": {
+      "type": ["string", "null"],
+      "description": "Cash-lane stamp. Older files may use a Z suffix. Off-host does not rewrite it. New off-host stamps use a Europe/Zagreb numeric offset."
+    },
+    "volume_used_pct": {
+      "type": ["number", "null"],
+      "description": "Disk percent read by galion-desk. Off-host continuity must not set this."
+    },
+    "offhost_enabled": {
+      "type": "boolean",
+      "description": "True after HERMES_OFFHOST=1 has heartbeated into this file. Absent means off."
+    },
+    "last_heartbeat": {
+      "type": ["string", "null"],
+      "description": "Europe/Zagreb RFC 3339 with a numeric offset."
+    },
+    "external_state_uri": {
+      "type": ["string", "null"],
+      "description": "Public secondary path or URI. Query, fragment, and userinfo are removed. No token."
+    },
+    "resume_policy": {
+      "type": "string",
+      "enum": ["if_local_missing_or_stale", "if_missing", "never"]
+    },
+    "offhost_role": {
+      "type": ["string", "null"],
+      "enum": ["primary", "standby", null]
+    },
+    "continuity_schema": {
+      "type": "integer",
+      "const": 1
+    },
+    "last_export_ok": {
+      "type": ["boolean", "null"],
+      "description": "Whether the last primary heartbeat reached the secondary store. Null when no store is configured or the writer is a standby."
+    }
+  }
+}

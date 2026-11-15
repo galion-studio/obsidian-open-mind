@@ -439,7 +439,7 @@ pub fn probe_one(endpoint: &Endpoint, timeout: Duration) -> ProbeReport {
                 return classify_http(endpoint, response.status, mode);
             }
             Err(ClientError::Connect(err)) => {
-                let (state, detail) = connect_failure(addr, err);
+                let (state, detail) = io_failure(&err);
                 if state == State::Down {
                     refused = true;
                     continue;
@@ -593,21 +593,6 @@ fn host_header(host: &str, port: u16) -> String {
     }
 }
 
-fn connect_failure(addr: SocketAddr, err: io::Error) -> (State, &'static str) {
-    if is_refused(&err) {
-        return (State::Down, "connection refused");
-    }
-    // `TcpStream::connect_timeout` on Windows spends the whole budget and
-    // returns a timeout when the port is closed. A blocking connect still
-    // returns the refusal at once. The extra wait is only the confirm.
-    #[cfg(windows)]
-    if is_timeout(&err) && windows_port_refuses(addr) {
-        return (State::Down, "connection refused");
-    }
-    let _ = addr;
-    io_failure(&err)
-}
-
 /// Winsock `WSAECONNREFUSED`.
 #[cfg(windows)]
 const WSAECONNREFUSED: i32 = 10061;
@@ -616,8 +601,10 @@ const WSAECONNREFUSED: i32 = 10061;
 #[cfg(windows)]
 const WSAENOTCONN: i32 = 10057;
 
-/// A closed port answered. Windows `connect_timeout` sometimes keeps
-/// `WSAECONNREFUSED` only in the message or the raw code.
+/// A closed port answered with a refusal. Windows `connect_timeout` on the
+/// desktop runner does not: a closed loopback port comes back as a timeout,
+/// which [`is_timeout`] reports as unknown. These codes are the refusal when
+/// Winsock does return one.
 fn is_refused(err: &io::Error) -> bool {
     if matches!(
         err.kind(),
@@ -630,19 +617,6 @@ fn is_refused(err: &io::Error) -> bool {
         return true;
     }
     err.to_string().to_ascii_lowercase().contains("refused")
-}
-
-/// `true` when a blocking connect to `addr` is refused before this wait ends.
-#[cfg(windows)]
-fn windows_port_refuses(addr: SocketAddr) -> bool {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let _ = tx.send(std::net::TcpStream::connect(addr));
-    });
-    match rx.recv_timeout(Duration::from_millis(250)) {
-        Ok(Err(err)) => is_refused(&err),
-        _ => false,
-    }
 }
 
 fn io_failure(err: &io::Error) -> (State, &'static str) {
@@ -908,9 +882,10 @@ mod tests {
         assert_eq!(down_report.detail, "http 503");
         assert!(down_report.observed_mode.is_none());
 
-        // A closed `[::1]` port on the Windows runner is a timeout, not a
-        // refusal (desktop CI: state unknown, detail "timeout"). The refusal
-        // check uses IPv4 loopback, which Winsock rejects at once.
+        // Linux and macOS reset a closed loopback port, so the probe is
+        // `down`. The Windows runner does not: `connect_timeout` reports a
+        // timeout for a closed `[::1]` port and for a closed `127.0.0.1`
+        // port (desktop CI, detail "timeout").
         let refused = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
         let refused_addr = refused.local_addr().unwrap();
         drop(refused);
@@ -918,14 +893,27 @@ mod tests {
             &endpoint_at(Service::Hermes, refused_addr, "/health"),
             Duration::from_secs(1),
         );
-        assert_eq!(
-            refused_report.state,
-            State::Down,
-            "{} via {refused_addr}",
-            refused_report.detail
-        );
-        assert_eq!(refused_report.detail, "connection refused");
         assert!(refused_report.http_status.is_none());
+        #[cfg(windows)]
+        {
+            assert_eq!(
+                refused_report.state,
+                State::Unknown,
+                "{} via {refused_addr}",
+                refused_report.detail
+            );
+            assert_eq!(refused_report.detail, "timeout");
+        }
+        #[cfg(not(windows))]
+        {
+            assert_eq!(
+                refused_report.state,
+                State::Down,
+                "{} via {refused_addr}",
+                refused_report.detail
+            );
+            assert_eq!(refused_report.detail, "connection refused");
+        }
 
         let hung = TcpListener::bind((DEFAULT_HOST, 0)).unwrap();
         let hung_addr = hung.local_addr().unwrap();

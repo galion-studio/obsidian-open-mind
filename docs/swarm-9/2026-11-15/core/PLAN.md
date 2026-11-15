@@ -30,13 +30,28 @@ Keep developing until the three lanes are finished and the tests you were requir
 
 ## What this swarm does not touch
 
-- Desktop swarm owns `LICENSE`, `README.md`, `docs/STATUS.md`, `docs/crate-index.md`, and dependency pull requests. Do not edit those. Do not bump dependency versions. Do not merge pull request 57.
+- Desktop swarm owns `LICENSE`, `README.md`, `docs/STATUS.md`, `docs/crate-index.md`, and dependency pull requests. Do not edit those. Do not bump dependency versions. Do not merge pull request 57. Desktop merges its own major bumps once they are green (15:29 decision below). Linux rebases onto that `main`.
 - Do not edit, push, or merge draft pull requests 51 or 52, or their branches `cursor/hermes-mcp-client-3083` and `cursor/desktop-ci-artifacts-c14b`.
 - Do not edit voice, symphony-the-product, `galion-one-voice`, Emotion V2, billing, servers, nexuslang, downloader, or infrastructure. `crates/galion-one/**` stays out of scope (Galion One).
 - Do not edit `SOUL.md`, `config.yaml`, `LOCKS.toml`, `voices/`, `weights/`, `runtimes/`.
 - No secrets, tokens, keys, or dotted IPv4 addresses in commits, pull requests, comments, or logs. Say “IPv4 loopback” and the port number.
 - No new crates.io dependency (the desktop swarm owns dependency pulls). Time things with `std`. No SIMD, no `target-cpu=native`, no `target-feature` (see `UNIVERSAL-CPU.md`).
 - Do not edit `.github/workflows/release.yml`, `.github/workflows/openmind-desktop.yml`, `vendor/`, or `contrib/`.
+
+## Owner decisions (FRXDEL, 2026-11-15 15:29 CET)
+
+1. Older pull requests, opened before Swarm 9: a core lane takes one only when it is blocked or failing **and** the change is inside that lane’s files. Carry the fix on a new branch from current `main`. Do not push the old branch. A pull request that is ready and green stays for the owner. Do not merge it and do not redo it.
+
+   Checked the open pre-Swarm-9 pulls against the lane lists on 2026-11-15. None are both blocked or failing and inside a core lane. Not taken:
+
+   - #14 conflicts on `crates/hermes-gateway/src/main.rs` and `crates/hermes-rs/**` (desktop #58 merge-tree), and adds `deploy/survival/` docs. Those paths are not in the Linux list. `hermes-rs` stays on #51.
+   - #16 edits memory, nerve, and Hermes sources, not a core lane. Desktop #58 reported a clean merge-tree. Left for the owner. This orchestrator did not re-read its checks (not run).
+   - #15 conflicts on `docs/crate-index.md` (desktop). #17 adds `SOUL.md` (forbidden). #7 and #28 are brand and gitignore; desktop #58 already carried the safe parts.
+   - #51 and #52 stay untouched.
+
+2. Desktop major bumps are allowed. The desktop swarm merges them once every non-skipped check is green. Named set: #2 (`toml` 1.x), #19 (`actions/upload-artifact` 7), #20 (`actions/checkout` 7), #54 (`cosign-installer` 4), #55 (`codeql-action` 4), plus any later major they take. Core does not merge those and does not bump versions. #54 and #55 were already green apart from skipped `miri full` (desktop #58 cited runs 43684433869 and 43684453433). They still stay with desktop.
+
+   Linux watches `Cargo.lock` and the pins in `.github/workflows/self-eval.yml`. After a desktop major reaches `main`, merge `main` into the Linux branch (no force-push) and re-run the cold `cargo tree` test before merging Linux. If that lockfile move changes a release binary’s features or size, re-measure `hermes-gateway`. Hygiene does not absorb #2. If `toml` 1.x lands and `release_feature_unify` fails on a new mismatch, hygiene fixes that test after rebasing. The red 0.x bumps #21 (`rusqlite`), #22 (`candle-nn`), and #23 (`getrandom`) are not core-lane files. Leave them unless desktop takes them as majors.
 
 ## How to open your pull request
 
@@ -61,7 +76,7 @@ Coordinate with the open pull request titled **Swarm 9 desktop plan** in this re
 Preferred order, one at a time, each updated from `main` with CI re-run:
 
 1. This plan (docs only).
-2. Linux. The hygiene test depends on the cold-cache `cargo tree` fix.
+2. Linux. The hygiene test depends on the cold-cache `cargo tree` fix. If a desktop major lands on `main` while Linux is open, update Linux from `main` and let CI run again before hygiene.
 3. Hygiene.
 4. CPU. It may merge before Linux only when its diff touches none of the Linux or hygiene paths and Linux is not mid-update from `main`.
 
@@ -219,12 +234,12 @@ Status (updated by the orchestrator):
 
 | Pull request | Head | CI | Review | Merged SHA |
 | --- | --- | --- | --- | --- |
-| Swarm 9 core plan | this file | not run yet | n/a | not merged |
+| Swarm 9 core plan | `8eb597f2`, then this decision commit | on `8eb597f2`: 20 success, 5 in progress, 1 skipped (`miri full`); CI restarts on the decision commit | n/a | not merged |
 | Swarm 9 core/linux | not opened | | | |
 | Swarm 9 core/hygiene | not opened | | | |
 | Swarm 9 core/cpu | not opened | | | |
 
-Desktop plan pull request: not seen at 2026-11-15T15:27:37+01:00 (open pulls checked; none titled Swarm 9 desktop plan).
+Desktop plan pull request: still not opened at the 15:29 check. Desktop worker drafts #58 (`old-prs-deps`) and #60 (`readme-status`) are open. Neither edits a core lane file. #60 is `README.md`, `docs/STATUS.md`, `docs/crate-index.md`, and its own notes file.
 
 Owner decisions still open, not settled here:
 

@@ -39,3 +39,44 @@ stack/**/galion-secrets/*
 
 # vendored candle-core keeps its two upstream torch test fixtures (vendor/candle-core/tests/pth_tests.rs)
 !vendor/candle-core/tests/*.pt
+
+# G.A.L.I.O.N. secrets guard, safe subset of #28 (10e3d478).
+# Already covered above, so not repeated: .env, media weights, target/, node_modules/.
+# Not taken from #28: *.pt (it would override the candle-core exception above)
+# and *secret* / *secrets* (they match tracked redacted copies and secrets.rs).
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+id_ecdsa
+id_ecdsa.*
+*.keystore
+*.jks
+credentials.json
+credentials*.json
+*.token
+token*.txt
+link.env
+*.kdbx
+.npmrc
+.pypirc
+.netrc
+.aws/
+.ssh/
+*-service-account.json
+*service-account*.json
+*.age
+*.gpg
+.dev.vars
+.wrangler/state/
+*.ckpt
+*.flac
+*.cbxvoice
+clip-store*/
+venv/
+.venv/
+__pycache__/

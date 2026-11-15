@@ -1,16 +1,16 @@
 //! Traits and methods for CPU-backed Tensors
-
+#![allow(clippy::needless_range_loop)]
 pub mod erf;
 pub mod kernels;
 
 #[allow(unused)]
-trait Cpu<const ARR: usize> {
+trait Cpu {
     type Unit;
     type Array;
     const STEP: usize;
     const EPR: usize;
+    const ARR: usize = Self::STEP / Self::EPR;
 
-    fn n() -> usize;
     unsafe fn zero() -> Self::Unit;
     unsafe fn zero_array() -> Self::Array;
     unsafe fn load(mem_addr: *const f32) -> Self::Unit;
@@ -22,13 +22,16 @@ trait Cpu<const ARR: usize> {
 }
 
 #[allow(unused)]
-trait CpuF16<const ARR: usize> {
+trait CpuF16 {
     type Unit;
     type Array;
     const STEP: usize;
     const EPR: usize;
+    const ARR: usize = Self::STEP / Self::EPR;
+    // How many outer loop steps to accumulate in Self::Unit before flushing to f32.
+    // Set to a finite value to bound rounding error (16 for example).
+    const FLUSH_INTERVAL: usize = usize::MAX;
 
-    fn n() -> usize;
     unsafe fn zero() -> Self::Unit;
     unsafe fn zero_array() -> Self::Array;
     unsafe fn load(mem_addr: *const f16) -> Self::Unit;
@@ -40,13 +43,13 @@ trait CpuF16<const ARR: usize> {
 }
 
 #[allow(unused)]
-trait CpuBF16<const ARR: usize> {
+trait CpuBF16 {
     type Unit;
     type Array;
     const STEP: usize;
     const EPR: usize;
+    const ARR: usize = Self::STEP / Self::EPR;
 
-    fn n() -> usize;
     unsafe fn zero() -> Self::Unit;
     unsafe fn zero_array() -> Self::Array;
     unsafe fn load(mem_addr: *const bf16) -> Self::Unit;
@@ -63,15 +66,19 @@ use half::{bf16, f16};
 // (`avx.rs`, `neon.rs`, `simd128.rs` in this directory) are removed from this vendored copy.
 // Project rule (UNIVERSAL-CPU.md): no SIMD intrinsics; NEON is on by default on aarch64, so the
 // upstream code would have compiled intrinsics into every aarch64 binary. Only the upstream
-// portable fallbacks below remain (their bodies are unchanged from candle-core 0.9.2).
+// portable fallbacks below remain (their bodies are unchanged from candle-core 0.11.0).
+
+
+
+
 
 #[inline(always)]
 pub(crate) unsafe fn vec_dot_f32(a_row: *const f32, b_row: *const f32, c: *mut f32, k: usize) {
-    // leftovers
     for i in 0..k {
         *c += *a_row.add(i) * (*b_row.add(i));
     }
 }
+
 
 #[inline(always)]
 pub(crate) unsafe fn vec_sum(row: *const f32, b: *mut f32, k: usize) {
@@ -80,6 +87,8 @@ pub(crate) unsafe fn vec_sum(row: *const f32, b: *mut f32, k: usize) {
         *b += *row.add(i)
     }
 }
+
+
 
 #[inline(always)]
 pub(crate) unsafe fn vec_dot_f16(a_row: *const f16, b_row: *const f16, c: *mut f32, k: usize) {
@@ -99,4 +108,36 @@ pub(crate) unsafe fn vec_dot_bf16(a_row: *const bf16, b_row: *const bf16, c: *mu
         sum += (*a_row.add(i)).to_f32() * (*b_row.add(i)).to_f32();
     }
     *c = sum;
+}
+
+
+#[inline(always)]
+pub(crate) unsafe fn vec_add_f16(a_row: *const f16, b_row: *const f16, c: *mut f16, k: usize) {
+    for i in 0..k {
+        *c.add(i) = *a_row.add(i) + *b_row.add(i);
+    }
+}
+
+
+#[inline(always)]
+pub(crate) unsafe fn vec_add_bf16(a_row: *const bf16, b_row: *const bf16, c: *mut bf16, k: usize) {
+    for i in 0..k {
+        *c.add(i) = *a_row.add(i) + *b_row.add(i);
+    }
+}
+
+
+#[inline(always)]
+pub(crate) unsafe fn vec_scalar_add_f16(scalar: f16, xs: *const f16, ys: *mut f16, k: usize) {
+    for i in 0..k {
+        *ys.add(i) = *xs.add(i) + scalar;
+    }
+}
+
+
+#[inline(always)]
+pub(crate) unsafe fn vec_scalar_add_bf16(scalar: bf16, xs: *const bf16, ys: *mut bf16, k: usize) {
+    for i in 0..k {
+        *ys.add(i) = *xs.add(i) + scalar;
+    }
 }

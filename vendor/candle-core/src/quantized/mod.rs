@@ -2,7 +2,7 @@ use crate::{
     backend::BackendStorage, CpuStorage, DType, Device, Result, Shape, Storage, Tensor, D,
 };
 use k_quants::*;
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::OnceLock};
 
 mod dummy_cuda;
 mod dummy_metal;
@@ -10,28 +10,39 @@ pub mod ggml_file;
 pub mod gguf_file;
 pub mod imatrix_file;
 pub mod k_quants;
-// galion candle-zip-fix (int5-candle-repocheck): the upstream `avx`, `neon` and `simd128` kernel modules
-// are removed from this vendored copy (no SIMD intrinsics, UNIVERSAL-CPU.md); `k_quants` always uses its
-// portable `vec_dot_unopt` paths, which upstream also uses on targets without those features.
 #[cfg(feature = "metal")]
 pub mod metal;
+#[cfg(not(target_arch = "wasm32"))]
+// GGUF tokenizer loader. Off unless the `tokenizers` feature is on: that
+// crate enables regex's full `unicode` feature, and Cargo then builds that
+// heavier regex into every binary in the workspace build, which pushes
+// galion-guard over the 2 MiB budget. Nothing in this workspace calls it.
+#[cfg(feature = "tokenizers")]
+pub mod tokenizer;
 #[cfg(not(feature = "metal"))]
 mod metal {
     pub use super::dummy_metal::*;
 }
 #[cfg(feature = "cuda")]
 pub mod cuda;
+#[cfg(feature = "cuda")]
+pub mod fast_mmq;
+#[cfg(feature = "cuda")]
+pub mod fast_mmvq;
 #[cfg(not(feature = "cuda"))]
 mod cuda {
     pub use super::dummy_cuda::*;
 }
 
+// galion candle-zip-fix (int5-candle-repocheck): the upstream `avx`, `neon` and `simd128` kernel modules
+// are removed from this vendored copy (no SIMD intrinsics, UNIVERSAL-CPU.md); `k_quants` always uses its
+// portable `vec_dot_unopt` paths, which upstream also uses on targets without those features.
 pub mod utils;
 use half::{bf16, f16};
 
 pub use k_quants::GgmlType;
 
-fn as_t_slice<T>(data: Cow<'_, [u8]>) -> &[T] {
+fn as_t_slice<T>(data: &[u8]) -> &[T] {
     let size = std::mem::size_of::<T>();
     assert_eq!(
         data.len() % size,
@@ -50,6 +61,10 @@ fn as_t_slice<T>(data: Cow<'_, [u8]>) -> &[T] {
 pub struct QTensor {
     storage: QStorage,
     shape: Shape,
+    /// Lazily initialized storage for repacked quantized data. Currently raw bits, could be `QStorage` in the future.
+    /// Not always used.
+    #[allow(dead_code)]
+    repacked_qs: OnceLock<Option<Vec<u8>>>,
 }
 
 impl Device {
@@ -79,8 +94,9 @@ pub enum QStorage {
 
 impl QStorage {
     pub fn from_data(data: Cow<'_, [u8]>, device: &Device, dtype: GgmlDType) -> Result<Self> {
+        let data: &[u8] = &data;
         match device {
-            Device::Cpu => Ok(Self::Cpu(dtype.from_data(data))),
+            Device::Cpu => Ok(Self::Cpu(dtype.from_data(Cow::Borrowed(data)))),
             Device::Metal(d) => match dtype {
                 GgmlDType::F32 => metal::load_quantized(d, as_t_slice::<f32>(data)),
                 GgmlDType::F16 => metal::load_quantized(d, as_t_slice::<f16>(data)),
@@ -245,6 +261,22 @@ impl QStorage {
             }
         }
     }
+
+    #[cfg(feature = "cuda")]
+    pub fn device_ptr_with_guard<'a>(
+        &'a self,
+        stream: &'a crate::cuda_backend::cudarc::driver::CudaStream,
+    ) -> Result<(
+        *const u8,
+        crate::cuda_backend::cudarc::driver::SyncOnDrop<'a>,
+    )> {
+        match self {
+            QStorage::Cuda(storage) => storage.device_ptr_with_guard(stream),
+            QStorage::Metal(_) | QStorage::Cpu(_) => {
+                crate::bail!("not implemented");
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -333,6 +365,7 @@ impl GgmlDType {
     }
 
     pub fn from_data(&self, data: Cow<'_, [u8]>) -> Box<dyn QuantizedType> {
+        let data: &[u8] = &data;
         match self {
             Self::F32 => Box::new(as_t_slice::<f32>(data).to_vec()),
             Self::F16 => Box::new(as_t_slice::<f16>(data).to_vec()),
@@ -395,6 +428,7 @@ pub trait QuantizedType: Send + Sync {
     fn dtype(&self) -> GgmlDType;
     fn matmul_t(&self, mkn: (usize, usize, usize), lhs: &[f32], dst: &mut [f32]) -> Result<()>;
     fn matmul_t_f16(&self, mkn: (usize, usize, usize), lhs: &[f16], dst: &mut [f16]) -> Result<()>;
+    fn embedding(&self, ids: &[u32], rows: usize, hidden: usize) -> Result<CpuStorage>;
     fn dequantize(&self, elem_count: usize) -> Result<CpuStorage>;
     fn storage_size_in_bytes(&self) -> usize;
     fn as_ptr(&self) -> *const u8;
@@ -412,6 +446,34 @@ impl<T: k_quants::GgmlType + Send + Sync> QuantizedType for Vec<T> {
     }
     fn matmul_t_f16(&self, mkn: (usize, usize, usize), lhs: &[f16], dst: &mut [f16]) -> Result<()> {
         k_quants::matmul_f16(mkn, lhs, self.as_slice(), dst)
+    }
+
+    fn embedding(&self, ids: &[u32], rows: usize, hidden: usize) -> Result<CpuStorage> {
+        if !hidden.is_multiple_of(T::BLCK_SIZE) {
+            crate::bail!(
+                "quantized embedding hidden size {hidden} is not divisible by block size {}",
+                T::BLCK_SIZE
+            )
+        }
+        let row_blocks = hidden / T::BLCK_SIZE;
+        if self.len() != rows * row_blocks {
+            crate::bail!(
+                "quantized tensor has {} blocks, expected {}",
+                self.len(),
+                rows * row_blocks
+            )
+        }
+        let mut out = vec![0f32; ids.len() * hidden];
+        for (out_row, &row_id) in ids.iter().enumerate() {
+            let row = row_id as usize;
+            if row >= rows {
+                crate::bail!("embedding id {row} is out of range for {rows} rows")
+            }
+            let src = &self[row * row_blocks..(row + 1) * row_blocks];
+            let dst = &mut out[out_row * hidden..(out_row + 1) * hidden];
+            T::to_float(src, dst);
+        }
+        Ok(CpuStorage::F32(out))
     }
 
     fn size(&self) -> usize {
@@ -473,7 +535,11 @@ impl QTensor {
     pub fn new<S: Into<Shape>>(storage: QStorage, shape: S) -> Result<Self> {
         let shape = shape.into();
         check_shape(&shape, storage.block_size())?;
-        Ok(Self { storage, shape })
+        Ok(Self {
+            storage,
+            shape,
+            repacked_qs: OnceLock::new(),
+        })
     }
 
     pub fn quantize(src: &Tensor, dtype: GgmlDType) -> Result<Self> {
@@ -493,6 +559,7 @@ impl QTensor {
         Ok(Self {
             storage,
             shape: shape.clone(),
+            repacked_qs: OnceLock::new(),
         })
     }
 
@@ -528,6 +595,7 @@ impl QTensor {
         Ok(Self {
             storage,
             shape: shape.clone(),
+            repacked_qs: OnceLock::new(),
         })
     }
 
@@ -571,6 +639,7 @@ impl QTensor {
         Ok(Self {
             storage,
             shape: shape.clone(),
+            repacked_qs: OnceLock::new(),
         })
     }
 
@@ -599,6 +668,7 @@ impl QTensor {
         Ok(Self {
             storage,
             shape: shape.clone(),
+            repacked_qs: OnceLock::new(),
         })
     }
 
@@ -639,6 +709,44 @@ impl QTensor {
                 Ok(s)
             }
         }
+    }
+
+    pub fn embedding(&self, ids: &Tensor) -> Result<Tensor> {
+        let (rows, hidden) = self.shape.dims2()?;
+        if !hidden.is_multiple_of(self.dtype().block_size()) {
+            crate::bail!(
+                "quantized embedding hidden size {hidden} is not divisible by block size {}",
+                self.dtype().block_size()
+            )
+        }
+        let mut out_shape = ids.dims().to_vec();
+        out_shape.push(hidden);
+        let device = self.device();
+        let ids = ids
+            .to_device(&device)?
+            .to_dtype(DType::U32)?
+            .flatten_all()?
+            .contiguous()?;
+        let storage = match &self.storage {
+            QStorage::Cpu(storage) => {
+                let ids = ids.to_vec1::<u32>()?;
+                Storage::Cpu(storage.embedding(&ids, rows, hidden)?)
+            }
+            QStorage::Metal(storage) => match &*ids.storage() {
+                Storage::Metal(ids_storage) => {
+                    Storage::Metal(storage.embedding(rows, hidden, ids_storage, ids.layout())?)
+                }
+                _ => unreachable!("ids were moved to the QTensor device"),
+            },
+            QStorage::Cuda(storage) => match &*ids.storage() {
+                Storage::Cuda(ids_storage) => {
+                    Storage::Cuda(storage.embedding(rows, hidden, ids_storage, ids.layout())?)
+                }
+                _ => unreachable!("ids were moved to the QTensor device"),
+            },
+        };
+        let none = crate::op::BackpropOp::none();
+        Ok(crate::tensor::from_storage(storage, out_shape, none, false))
     }
 
     pub fn storage_size_in_bytes(&self) -> usize {
@@ -684,6 +792,17 @@ impl QTensor {
                 crate::bail!("not implemented");
             }
         }
+    }
+
+    #[cfg(feature = "cuda")]
+    pub fn device_ptr_with_guard<'a>(
+        &'a self,
+        stream: &'a crate::cuda_backend::cudarc::driver::CudaStream,
+    ) -> Result<(
+        *const u8,
+        crate::cuda_backend::cudarc::driver::SyncOnDrop<'a>,
+    )> {
+        self.storage.device_ptr_with_guard(stream)
     }
 }
 
@@ -765,6 +884,18 @@ impl QMatMul {
             }
         }
     }
+
+    pub fn embedding(&self, ids: &Tensor) -> Result<Tensor> {
+        match self {
+            Self::QTensor(t) => t.embedding(ids),
+            Self::Tensor(w) | Self::TensorF16(w) => {
+                let mut final_dims = ids.dims().to_vec();
+                final_dims.push(w.dim(D::Minus1)?);
+                let ids = ids.to_device(w.device())?.flatten_all()?;
+                w.index_select(&ids, 0)?.reshape(final_dims)
+            }
+        }
+    }
 }
 
 impl crate::CustomOp1 for QTensor {
@@ -804,6 +935,7 @@ impl crate::CustomOp1 for QTensor {
                 let slice =
                     &slice[layout.start_offset()..layout.start_offset() + src_shape.elem_count()];
                 let mut dst_storage = vec![0f32; dst_shape.elem_count()];
+
                 self_storage.matmul_t(
                     (dst_shape.elem_count() / n, k, n),
                     slice,

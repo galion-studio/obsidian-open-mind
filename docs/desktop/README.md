@@ -17,7 +17,7 @@ From a checkout of this repository, on Linux:
 nice -n 19 cargo build -j 2 -p openmind-desktop --release --locked
 ```
 
-The binary is `target/release/openmind-desktop`. The crate depends on `galion-common`, and on `libc` for the Linux `O_NOFOLLOW` value (`crates/openmind-desktop/Cargo.toml`, `open_nofollow` in `crates/openmind-desktop/src/files.rs`).
+The binary is `target/release/openmind-desktop`. The crate depends on `galion-common`, and on `libc` for `O_NOFOLLOW` on Linux and macOS (`crates/openmind-desktop/Cargo.toml`, `open_nofollow` in `crates/openmind-desktop/src/files.rs`). Windows passes `FILE_FLAG_OPEN_REPARSE_POINT` in that function.
 
 A local package (tarball and checksums, kept on this machine):
 
@@ -83,13 +83,46 @@ Only `--listen` may open a socket. With no flags the binary prints the page and 
 
 The listener answers `GET` and `HEAD` of `/` and `/index.html` with the control console. `/one` and `/research` are the Galion One and Galion Research entries (`entry` in `crates/openmind-desktop/src/page.rs`). Each entry is its own page: a title, one sentence, a link back to `/`, the four brand lines, and the MIT text. The Open Mind stack list stays on `/`. The entries do not include it (`one_and_research_are_entries_and_the_stack_stays_on_the_console`). `GET /probes` is the read-only probe report. `GET /files` lists chosen paths. `GET /files/sent` lists what was stored. `POST /files/read` reads one chosen path. `POST /files` uploads picker bytes, or a chosen path when the body is `{"path":"..."}`. Any other path is 404. A method that does not match the path is 405, including `PUT` and a `POST` to `/`, `/mic`, or `/audio` (`reply` in `crates/openmind-desktop/src/http.rs`). A peer that is not loopback is 403 before a file is touched.
 
-File uploads are capped at 8 MiB. `MAX_FILE_BYTES` is `8 * 1024 * 1024` (`crates/openmind-desktop/src/files.rs`). The listener uses that as `max_body_bytes` (`listen` in `crates/openmind-desktop/src/http.rs`). The page script uses the same number as `FILE_MAX` (`render` in `crates/openmind-desktop/src/page.rs`). An empty file or a larger file is not sent. The plus is `<input id="files" type="file" multiple>` with no `accept` attribute. On change, each name is shown with `textContent` in `#picked`, then the script `fetch("/files")` with `method: "POST"`, `credentials: "omit"`, header `X-File-Name`, and the file as the body. That is the only `fetch(`. There is no `FileReader`. The server still checks the extension allow-list and the magic bytes (`ALLOWED` and `classify` in `crates/openmind-desktop/src/files.rs`): `txt`, `md`, `json`, `csv`, `log`, `pdf`, `jpg`, `jpeg`, `png`, `webp`. Probe reads stay small (`MAX_BODY` in `crates/openmind-desktop/src/probe.rs`).
+File uploads are capped at 8 MiB. `MAX_FILE_BYTES` is `8 * 1024 * 1024` (`crates/openmind-desktop/src/files.rs`). The listener uses that as `max_body_bytes` (`listen` in `crates/openmind-desktop/src/http.rs`). The page script uses the same number as `FILE_MAX` (`render` in `crates/openmind-desktop/src/page.rs`). An empty file or a larger file is not sent. The plus is `<input id="files" type="file" multiple>` with no `accept` attribute. On change, each name is shown with `textContent` on an `li` of class `chip` inside `<ul class="chips" id="picked" aria-label="Attached files">`, then the script `fetch("/files")` with `method: "POST"`, `credentials: "omit"`, header `X-File-Name`, and the file as the body. That is the only `fetch(`. There is no `FileReader`. The server still checks the extension allow-list and the magic bytes (`ALLOWED` and `classify` in `crates/openmind-desktop/src/files.rs`): `txt`, `md`, `json`, `csv`, `log`, `pdf`, `jpg`, `jpeg`, `png`, `webp`. Probe reads stay small (`MAX_BODY` in `crates/openmind-desktop/src/probe.rs`).
+
+Plain `--listen` dials the stack intake and does not open a path. `listen` builds `Files` with no grants, no inbox, and `DEFAULT_STACK` (`listen` in `crates/openmind-desktop/src/http.rs`). A path read is refused. Picker bytes are still accepted, then forwarded. See [Stack intake](#stack-intake).
 
 Response headers are `content-security-policy`, `referrer-policy: no-referrer`, `x-content-type-options: nosniff`, and `cache-control: no-store`. The policy is `default-src 'none'`, inline style and script only, `media-src data:`, `img-src data:`, `connect-src 'self'`, `base-uri 'none'`, `form-action 'none'`, `frame-ancestors 'none'` (`CSP` in `crates/openmind-desktop/src/page.rs`). `connect-src 'self'` is what allows the one same-origin upload. Any other origin is refused. The console page repeats that policy in a meta tag and sets `Permissions-Policy` to `microphone=(self)` (`render` in the same file). `/one` and `/research` get the same CSP header from the listener (`entry_response` in `crates/openmind-desktop/src/http.rs`). The page source contains no `http://`, `https://`, `XMLHttpRequest`, `WebSocket`, `MediaRecorder`, `indexedDB`, `localStorage`, `createObjectURL`, or `sendBeacon` (`page_stays_on_the_machine` in `crates/openmind-desktop/src/page.rs`). No model is called (the presence copy in `render` in the same file). Enter on the command field appends the text to "Kept on this page" or plays deny when the field is empty. The command is not uploaded.
 
 The microphone is opt-in and loopback-only, and the meter is the level line. The checkbox `#mic-opt` starts unchecked (`render`, and `microphone_is_opt_in_and_loopback_only`). The voice button calls `startMic` only after that box is ticked and `loopbackPage()` is true: a `file:` page, or a hostname of `localhost`, `127.0.0.1`, `::1`, or `[::1]` (`loopbackPage` and `startMic` in `crates/openmind-desktop/src/page.rs`). It then calls `getUserMedia({ audio: true, video: false })`. Samples sit in one reused `Float32Array` the size of `fftSize` (256). Each tick writes the RMS into `#mic-level` as `Level N` (`pump`). The next tick overwrites that buffer. Closing the button, or clearing the box, calls `stopMic`, which stops every track and clears the level line. The label says the audio is not saved and is not sent. The crate docs state the same (`crates/openmind-desktop/src/lib.rs`). The Voice stack row is `staged` with that role (`crates/openmind-desktop/src/stack.rs`).
 
-Stack rows do not probe other programs. Nothing on the list is `live` (`crates/openmind-desktop/src/stack.rs`).
+Stack rows do not probe other programs. Nothing on the list is `live` (`crates/openmind-desktop/src/stack.rs`). The ten rows are `LAYERS`, in this order:
+
+| id | name | state | role |
+| --- | --- | --- | --- |
+| open-mind | Open Mind | staged | Main presence on this desktop |
+| command | Command | staged | Centre field. Text stays on this page |
+| files | Files | staged | Plus picks files. Read and upload stay on loopback |
+| voice | Voice | staged | Opt-in microphone on loopback. Audio is not saved |
+| galion-one | Galion One | planned | Voice surface. Not started by this page |
+| hermes | Hermes | planned | Engine. Not started by this page |
+| memory | Memory | planned | Long-term store. Not started by this page |
+| nerve | Nerve | planned | Health monitor. Not started by this page |
+| desk | Desk | staged | Read-only pod endpoint, separate program |
+| console | Console | staged | Operator rooms, separate program |
+
+`/one` and `/research` are not rows. They are the entry pages linked from the header (`render` in `crates/openmind-desktop/src/page.rs`).
+
+## Stack intake
+
+`DEFAULT_STACK` is `127.0.0.1:8091` (`crates/openmind-desktop/src/files.rs`). That is Galion One's loopback `POST /files`, a dial, not a bind. The desktop listener stays on 18181.
+
+`forward` connects only when the address is loopback, then `POST /files` with `Content-Type: application/octet-stream` and `X-File-Name` (`forward` in the same file). A connect failure is unreachable. A body containing `"error":"pair"` is a pairing refusal. The pairing token is not sent and is not a flag. Any other non-200, or a body containing `"error"`, is a stack status failure.
+
+`--stack ADDR` chooses another loopback `host:port`. `--stack off` does not open a client. `--inbox DIR` stores an accepted file in that directory. `--grant PATH` is a file or directory the operator chose, and it is repeatable. Path reads need a grant. `--grant`, `--inbox`, `--port`, and `--stack` are refused without `--listen` (`USAGE` in `crates/openmind-desktop/src/cli.rs`).
+
+With neither an inbox nor a stack address, an upload has no destination (`accept` in `crates/openmind-desktop/src/files.rs`).
+
+## Galion Research file attach
+
+The desktop `/research` page is the entry above. It does not post a file.
+
+The Rust console's add-file is a different route. `POST /hermes/attach` and `POST /research/attach` keep a copy on this machine (`crates/console-ui/src/attach.rs`). The handler does not open a path from the request, does not dial the Hermes gateway, and does not put the bytes in the redirect. The cap is the same 8 MiB (`MAX_BYTES` in that file). Asking, runs, the microphone, and speak stay off that room (`crates/console-ui/src/pages/hermes.rs`).
 
 ## Seven Galion tones at 432 Hz
 
@@ -111,10 +144,12 @@ Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src
 
 `.github/workflows/openmind-desktop.yml` runs four jobs. Workflow permissions are `contents: read` and `actions: write`. `actions: write` is the permission `actions/upload-artifact` uses. The workflow does not set `contents: write`, so it cannot create a GitHub Release. It does not sign packages and it does not publish a crate.
 
-The `linux` job (`ubuntu-latest`) builds the crate, runs clippy with `-D warnings` on all targets, runs the tests, then `package-local.sh` and `verify-local.sh` with the output under the runner temp directory. It checks that `rustc -vV` reports `x86_64-unknown-linux-gnu`, then `package-artifact.sh --skip-build` and `check-package.sh` write and check `target/openmind-desktop-ci`. That directory is uploaded as `openmind-desktop-linux-x86_64`. A publish or sign flag must exit 2.
+The `linux` job (`ubuntu-latest`) builds the crate, runs clippy with `-D warnings` on all targets, runs the tests, then `package-local.sh` and `verify-local.sh` with the output under the runner temp directory. It checks that `rustc -vV` reports `x86_64-unknown-linux-gnu`, then `package-artifact.sh --skip-build` and `check-package.sh` write and check `target/openmind-desktop-ci`. That directory is uploaded as `openmind-desktop-linux-x86_64`. A publish or sign flag must exit 2. A README that no longer matches `SHA256SUMS` must make `check-package.sh` exit 1. A LICENSE that is one line short, after `SHA256SUMS` is rewritten for that file, must also exit 1.
 
 The `linux-aarch64` job cross-builds `aarch64-unknown-linux-musl` (linker `rust-lld`, `.cargo/config.toml`) and runs the same tests under qemu-user (`qemu-aarch64-static` or `qemu-aarch64`, the same package split as the self-eval `ucpu-qemu` job). That is the run that checks `libc::O_NOFOLLOW` (`O_NOFOLLOW` and `nofollow_flag_matches_this_target` in `crates/openmind-desktop/src/files.rs`): `libc` supplies the flag, which is `0x8000` on aarch64 and `0x20000` on x86. On ARM, `0x20000` is `O_LARGEFILE`, so a hard-coded x86 value would not stop `open` from following a symlink. After the tests it release-builds the same target, packages the tarball and `arm64` `.deb` with `--runner` set to that qemu binary, checks the package, and uploads `openmind-desktop-linux-aarch64`.
 
-Windows (`windows-latest`, target `x86_64-pc-windows-msvc`) release-builds the crate, writes a zip, checks it, and uploads `openmind-desktop-windows-x86_64`. macOS (`macos-latest`, target `aarch64-apple-darwin`) release-builds the crate, writes a tarball, checks it, and uploads `openmind-desktop-macos-aarch64`. Those two jobs do not run the tests. Linux file opens stay on the `libc::O_NOFOLLOW` path (`open_nofollow` in `crates/openmind-desktop/src/files.rs`). The other targets use the existing non-Linux open, which checks `symlink_metadata` and then opens the file.
+Windows (`windows-latest`, target `x86_64-pc-windows-msvc`) and macOS (`macos-latest`, target `aarch64-apple-darwin`) build the crate, run clippy with `-D warnings` on all targets, and run the tests. After the tests, Windows writes a zip and uploads `openmind-desktop-windows-x86_64`. macOS writes a tarball and uploads `openmind-desktop-macos-aarch64`. macOS file opens use `libc::O_NOFOLLOW`, which is `0x0100` (`O_NOFOLLOW` and `nofollow_flag_matches_this_target` in `crates/openmind-desktop/src/files.rs`). Windows passes `FILE_FLAG_OPEN_REPARSE_POINT` (`0x00200000`) and refuses a handle that is a reparse point before any byte is read (`FILE_FLAG_OPEN_REPARSE_POINT`, `open_reparse_point_flag_matches_this_target`, and `open_reparse_point_does_not_read_a_symlink` in the same file). Any other target checks `symlink_metadata` and then opens the file.
 
-Artifact retention is 14 days, the same `retention-days` value as the self-eval upload (`.github/workflows/self-eval.yml`). The upload action is pinned to the same commit as the other workflows in this repository (`actions/upload-artifact` `ea165f8d65b6e75b540449e92b4886f43607fa02`).
+Artifact retention is 14 days (`retention-days` on each `actions/upload-artifact` step in `.github/workflows/openmind-desktop.yml`). The upload action is pinned to `actions/upload-artifact` `ea165f8d65b6e75b540449e92b4886f43607fa02`.
+
+The four uploaded directories are `openmind-desktop-linux-x86_64`, `openmind-desktop-linux-aarch64`, `openmind-desktop-windows-x86_64`, and `openmind-desktop-macos-aarch64`. Each one is a workflow artifact on the run, not a GitHub Release. Unpack it and run `./openmind-desktop` (Unix or macOS) or `.\openmind-desktop.exe` (Windows). On Debian or Ubuntu, `dpkg -i` installs the Linux `.deb`. The short instructions inside the artifact are `scripts/desktop/artifact-readme.md`.

@@ -5,7 +5,8 @@
 # tarball and a workflow artifact. The aarch64 job cross-builds, runs those
 # tests under qemu-user (same emulator split as the self-eval ucpu-qemu
 # job), and packages an arm64 artifact. Windows (x86_64-pc-windows-msvc)
-# and macOS (aarch64-apple-darwin) package a zip and a tarball.
+# and macOS (aarch64-apple-darwin) build, run clippy, run the tests, then
+# package a zip and a tarball.
 # permissions are contents: read and actions: write. actions: write uploads
 # a workflow artifact. This file does not create a GitHub Release, sign a
 # package, or publish a crate.
@@ -73,6 +74,41 @@ jobs:
           test -f target/openmind-desktop-ci/openmind-desktop-*-x86_64-unknown-linux-gnu.tar.gz
           test -f target/openmind-desktop-ci/openmind-desktop_*_amd64.deb
           test ! -e target/openmind-desktop-ci/*.zip
+
+      - name: a changed file fails the checker
+        run: |
+          set -eu
+          expect_fail() {
+            set +e
+            scripts/desktop/check-package.sh "$1"
+            status=$?
+            set -e
+            if [ "$status" -ne 1 ]; then
+              printf 'checker exited %s, want 1, for %s\n' "$status" "$1" >&2
+              exit 1
+            fi
+          }
+          rewrite_sums() {
+            dir=$1
+            files=$(awk '{print $2}' "$dir/SHA256SUMS")
+            : > "$dir/SHA256SUMS"
+            (
+              cd "$dir"
+              for f in $files; do
+                sha256sum "$f" >> SHA256SUMS
+              done
+            )
+          }
+          bad="$RUNNER_TEMP/openmind-desktop-bad-readme"
+          cp -a target/openmind-desktop-ci "$bad"
+          printf '\n' >> "$bad/README.md"
+          expect_fail "$bad"
+          short="$RUNNER_TEMP/openmind-desktop-short-license"
+          cp -a target/openmind-desktop-ci "$short"
+          head -n -1 "$short/LICENSE" > "$short/LICENSE.cut"
+          mv "$short/LICENSE.cut" "$short/LICENSE"
+          rewrite_sums "$short"
+          expect_fail "$short"
 
       - name: upload workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -242,15 +278,25 @@ jobs:
           retention-days: 14
 
   windows:
-    name: build (x86_64-pc-windows-msvc)
+    name: build and test (x86_64-pc-windows-msvc)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
           targets: x86_64-pc-windows-msvc
+          components: clippy
+
+      - name: build
+        run: cargo build -p openmind-desktop --locked --target x86_64-pc-windows-msvc
+
+      - name: clippy
+        run: cargo clippy -p openmind-desktop --all-targets --locked --target x86_64-pc-windows-msvc -- -D warnings
+
+      - name: test
+        run: cargo test -p openmind-desktop --locked --target x86_64-pc-windows-msvc
 
       - name: package workflow artifact
         shell: bash
@@ -276,15 +322,25 @@ jobs:
           retention-days: 14
 
   macos:
-    name: build (aarch64-apple-darwin)
+    name: build and test (aarch64-apple-darwin)
     runs-on: macos-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
         with:
           toolchain: stable
           targets: aarch64-apple-darwin
+          components: clippy
+
+      - name: build
+        run: cargo build -p openmind-desktop --locked --target aarch64-apple-darwin
+
+      - name: clippy
+        run: cargo clippy -p openmind-desktop --all-targets --locked --target aarch64-apple-darwin -- -D warnings
+
+      - name: test
+        run: cargo test -p openmind-desktop --locked --target aarch64-apple-darwin
 
       - name: package workflow artifact
         run: scripts/desktop/package-artifact.sh --out target/openmind-desktop-ci --target aarch64-apple-darwin
@@ -306,3 +362,4 @@ jobs:
           path: target/openmind-desktop-ci
           if-no-files-found: error
           retention-days: 14
+

@@ -122,6 +122,30 @@ pub fn run() -> ExitCode {
         cfg.upstream.map(|u| u.to_string()).unwrap_or_else(|| "none".into()),
         cfg.proxy_prefixes
     );
+    if let (Some(dir), Some(oauth)) = (
+        cfg.files.connectors_dir.clone(),
+        cfg.files.connectors_oauth_dir.clone(),
+    ) {
+        let st = console_ui::connectors::Store::new(dir)
+            .with_hermes_file(cfg.files.connectors_hermes_file.clone())
+            .with_oauth_dir(Some(oauth));
+        match st.sync_oauth_entries() {
+            Ok(changed) => eprintln!(
+                "galion-console-static: connectors oauth entries {}",
+                if changed { "written" } else { "unchanged" }
+            ),
+            Err(e) => eprintln!(
+                "galion-console-static: connectors oauth entries not written ({})",
+                e.kind()
+            ),
+        }
+        if let Err(e) = console_ui::oauth::spawn_refresher(st) {
+            eprintln!(
+                "galion-console-static: oauth refresher not started ({})",
+                e.kind()
+            );
+        }
+    }
     let state = Arc::new(State::new(site, routes, cfg));
     match server::serve(listener, state) {
         Ok(()) => ExitCode::SUCCESS,

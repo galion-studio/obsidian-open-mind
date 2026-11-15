@@ -302,13 +302,10 @@ mod tests {
 
     #[test]
     fn files_stay_on_chosen_paths_and_loopback_peers() {
-        let mut buf = [0u8; 8];
-        std::fs::File::open("/dev/urandom")
-            .unwrap()
-            .read_exact(&mut buf)
-            .unwrap();
-        let tmp =
-            std::env::temp_dir().join(format!("om-desk-http-{}", galion_common::hex::encode(&buf)));
+        let tmp = std::env::temp_dir().join(format!(
+            "om-desk-http-{}",
+            galion_common::hex::encode(&temp_id())
+        ));
         std::fs::create_dir(&tmp).unwrap();
         let grant = tmp.join("chosen");
         std::fs::create_dir(&grant).unwrap();
@@ -409,5 +406,29 @@ mod tests {
         files: &Files,
     ) -> Response {
         dispatch(&request(method, path, headers, body, true), files)
+    }
+
+    /// Eight bytes that differ per call. Unix reads `/dev/urandom`. Windows
+    /// has no such file, so the id is a counter mixed with the process id.
+    fn temp_id() -> [u8; 8] {
+        #[cfg(unix)]
+        {
+            let mut buf = [0u8; 8];
+            std::fs::File::open("/dev/urandom")
+                .unwrap()
+                .read_exact(&mut buf)
+                .unwrap();
+            buf
+        }
+        #[cfg(not(unix))]
+        {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(1);
+            let n = NEXT
+                .fetch_add(1, Ordering::Relaxed)
+                .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                ^ u64::from(std::process::id());
+            n.to_le_bytes()
+        }
     }
 }

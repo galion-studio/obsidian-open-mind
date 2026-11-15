@@ -1289,6 +1289,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "openmind-mcp-notes"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+ "zagreb-time",
+]
+
+[[package]]
 name = "openmind-mcp-stack"
 version = "0.1.0"
 dependencies = [

@@ -2,6 +2,14 @@
 
 Lane: licence. Written 2026-11-15T15:31:00+01:00 (Europe/Zagreb).
 
+## Owner decision
+
+2026-11-15T15:34:00+01:00 (Europe/Zagreb). FRXDEL: the `Copyright (c) 3000 Galion / galion-studio` licence and the headers that use it stay. They are intentional. Agents build against future variables set in the year 3000.
+
+No pull request titled "Swarm 9 desktop/licence-headers" was opened. No source header was edited. A local branch `cursor/desktop-licence-headers-76a2` existed only as a checkout of `main` (`de7480e7`) with no commits and no file changes. It was deleted and was not pushed.
+
+This pull request stays a draft. It was not marked ready for review and it was not merged. The draft still replaces `LICENSE` with the Galion OS text, whose copyright line is `Copyright (c) 2026 Galion Labs`. That conflicts with the decision above. The draft was left open for the owner to close or keep.
+
 ## Plan
 
 Searched open pull requests titled "Swarm 9 desktop plan" in galion-studio/obsidian-open-mind at 2026-11-15T14:19Z and again at 2026-11-15T15:31+01:00. No such pull request was returned. Work followed the lane brief and the swarm rules.
@@ -59,5 +67,5 @@ Not run: `cargo test --workspace`, `cargo clippy --workspace`, `scripts/desktop/
 ## Open questions for Maciej
 
 1. Draft #52 still builds a packaged `LICENSE` by appending `scripts/desktop/brand-lines.txt` after the repository file, and its negative test deletes the last line of that file. After this change the four lines are already at the top. That branch was not edited.
-2. SPDX headers in source still say `3000 Galion / galion-studio`. This lane did not rewrite them.
+2. SPDX headers in source still say `3000 Galion / galion-studio`. The follow-up that would have changed them was stopped by the owner decision above. They stay.
 3. No Swarm 9 desktop plan pull request was found.

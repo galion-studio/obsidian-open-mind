@@ -151,22 +151,17 @@ fn under(path: &str, dirs: &[&str]) -> bool {
 
 // ---------------------------------------------------------------- license
 
-/// Root LICENSE: MIT header plus a `Copyright (c) ` line. `expect` optionally
-/// pins the holder text (for example "2026 Slavik / Galion Studio").
+/// Root LICENSE: a line that is exactly `MIT License`, a `Copyright (c) ` line,
+/// and the MIT grant. A branding block may sit above the MIT heading.
+/// `expect` optionally pins the holder text (for example "2026 Galion Labs").
 pub fn check_license(text: Option<&str>, expect: Option<&str>) -> Vec<Finding> {
     let c = Check::License;
     let Some(text) = text else {
         return vec![finding(c, "LICENSE", 0, "root LICENSE file missing")];
     };
     let mut out = Vec::new();
-    let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("");
-    if first.trim() != "MIT License" {
-        out.push(finding(
-            c,
-            "LICENSE",
-            1,
-            "first line is not \"MIT License\"",
-        ));
+    if !text.lines().any(|l| l.trim() == "MIT License") {
+        out.push(finding(c, "LICENSE", 1, "no \"MIT License\" heading"));
     }
     let copyright = text
         .lines()

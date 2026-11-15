@@ -35,6 +35,16 @@ fn license_ok_missing_and_pinned() {
     assert_eq!(check_license(None, None).len(), 1);
     let apache = check_license(Some("Apache License\nVersion 2.0\n"), None);
     assert_eq!(apache.len(), 3);
+    let branded = "\
+G.A.L.I.O.N. line\n\n\
+MIT License\n\n\
+Copyright (c) 2026 Galion Labs\n\n\
+Permission is hereby granted, free of charge, to any person\n";
+    assert!(check_license(Some(branded), Some("2026 Galion Labs")).is_empty());
+    let root =
+        std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../LICENSE"))
+            .expect("root LICENSE");
+    assert!(check_license(Some(&root), Some("2026 Galion Labs")).is_empty());
 }
 
 #[test]

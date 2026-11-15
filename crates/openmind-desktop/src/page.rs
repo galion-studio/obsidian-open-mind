@@ -139,7 +139,7 @@ h1 { font-size: 18px; font-weight: 600; }
 #look:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .stack li {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 2px 8px;
   padding: 8px 0;
   border-top: 1px solid var(--line);
@@ -147,10 +147,11 @@ h1 { font-size: 18px; font-weight: 600; }
 .stack li:first-child { border-top: 0; }
 .stack .name { font-weight: 600; }
 .stack .role { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
-.stack .state {
+.stack .state, .stack .seen {
   font: 12px/1.3 "IBM Plex Mono", ui-monospace, monospace;
-  color: var(--accent);
 }
+.stack .state { color: var(--accent); }
+.stack .seen { color: var(--muted); }
 .stage {
   display: grid;
   place-items: center;
@@ -435,8 +436,26 @@ const SCRIPT: &str = r#"
     if (state !== "up" && state !== "down" && state !== "unknown") return "unknown";
     return state;
   }
+  function clearSeen() {
+    var rows = document.querySelectorAll("li[data-layer]");
+    var n;
+    for (n = 0; n < rows.length; n = n + 1) {
+      var mark = rows[n].querySelector(".seen");
+      if (mark) mark.textContent = "";
+    }
+  }
+  function markSeen(service, word) {
+    var rows = document.querySelectorAll("li[data-layer]");
+    var n;
+    for (n = 0; n < rows.length; n = n + 1) {
+      if (rows[n].getAttribute("data-layer") !== service) continue;
+      var mark = rows[n].querySelector(".seen");
+      if (mark) mark.textContent = word;
+    }
+  }
   look.addEventListener("click", function () {
     lookRows.textContent = "";
+    clearSeen();
     if (location.protocol === "file:" || !loopbackPage()) {
       lookState.textContent = "Look only runs on the loopback listener.";
       play("deny");
@@ -475,9 +494,11 @@ const SCRIPT: &str = r#"
           var item = probes[i];
           var row = document.createElement("li");
           row.className = "chip";
-          row.textContent = String(item.service || "service") + " — " + probeWord(item);
+          var word = probeWord(item);
+          row.textContent = String(item.service || "service") + " — " + word;
           lookRows.appendChild(row);
-          if (item.enabled && probeWord(item) !== "up") wants = true;
+          markSeen(String(item.service || ""), word);
+          if (item.enabled && word !== "up") wants = true;
         }
         lookState.textContent = wants
           ? "The local stack wants a look. Rows stay staged or planned."
@@ -637,7 +658,7 @@ fn render() -> String {
         html.push_str(&esc(layer.name));
         html.push_str("</span><span class=\"state\">");
         html.push_str(layer.state);
-        html.push_str("</span><span class=\"role\">");
+        html.push_str("</span><span class=\"seen\"></span><span class=\"role\">");
         html.push_str(&esc(layer.role));
         html.push_str("</span></li>");
     }
@@ -734,6 +755,9 @@ mod tests {
         assert!(html.contains("aria-label=\"Stack\""));
         assert!(html.contains("id=\"look\""));
         assert!(html.contains("Look at the local stack"));
+        assert_eq!(html.matches("class=\"seen\"").count(), LAYERS.len());
+        assert!(html.contains("mark.textContent = word"));
+        assert!(!html.contains("state.textContent"));
         let look = html.find("id=\"look\"").unwrap();
         let layers = html.find("data-layer=\"open-mind\"").unwrap();
         assert!(layers < look);

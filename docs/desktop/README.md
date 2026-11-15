@@ -82,7 +82,7 @@ Response headers are `content-security-policy`, `referrer-policy: no-referrer`, 
 
 The microphone is opt-in and loopback-only, and the meter is the level line. The checkbox `#mic-opt` starts unchecked (`render`, and `microphone_is_opt_in_and_loopback_only`). The voice button calls `startMic` only after that box is ticked and `loopbackPage()` is true: a `file:` page, or a hostname of `localhost`, `127.0.0.1`, `::1`, or `[::1]` (`loopbackPage` and `startMic` in `crates/openmind-desktop/src/page.rs`). It then calls `getUserMedia({ audio: true, video: false })`. Samples sit in one reused `Float32Array` the size of `fftSize` (256). Each tick writes the RMS into `#mic-level` as `Level N` (`pump`). The next tick overwrites that buffer. Closing the button, or clearing the box, calls `stopMic`, which stops every track and clears the level line. The label says the audio is not saved and is not sent. The crate docs state the same (`crates/openmind-desktop/src/lib.rs`). The Voice stack row is `staged` with that role (`crates/openmind-desktop/src/stack.rs`).
 
-Stack rows do not probe other programs. Nothing on the list is `live` (`crates/openmind-desktop/src/stack.rs`). The ten rows are `LAYERS`, in this order:
+Stack rows do not probe other programs. Nothing on the list is `live` (`crates/openmind-desktop/src/stack.rs`). Look writes `up`, `down`, `unknown`, or `off` into the empty `.seen` span on the row whose id matches the probe service (`nerve`, `hermes`, `voice`, `console`). The `.state` span stays `staged` or `planned`. A probe with no row, such as cortex, is only a chip under the button. The ten rows are `LAYERS`, in this order:
 
 | id | name | state | role |
 | --- | --- | --- | --- |

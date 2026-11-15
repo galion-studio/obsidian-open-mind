@@ -10,7 +10,29 @@
 - Notes for each lane go in that lane's own draft pull request: `docs/swarm-9/2026-11-15/desktop/<lane>.md`. Lane slugs: `licence`, `old-prs-deps`, `readme-status`.
 - Draft pull request titles start with `Swarm 9 desktop/` so the orchestrator can see them. Workers mark a pull request ready for review when its required checks are green. Workers do not merge.
 
-A separate Swarm 9 **core** swarm owns Rust, CPU, and Linux inside the crates of this repo. Desktop does not take that work, except the two narrow exceptions in [File ownership](#file-ownership).
+A separate Swarm 9 **core** swarm owns Rust, CPU, and Linux inside the crates of this repo. Its plan is the open draft **Swarm 9 core plan** (#59, branch `cursor/swarm-9-core-plan-7126`). Desktop does not take that work, except the exceptions in [File ownership](#file-ownership) and the 15:29 list below.
+
+## Owner decisions at 15:29
+
+Owner FRXDEL, 2026-11-15 15:29 CET (`+01:00`). These two decisions override earlier sentences in this file that left a listed bump for later, or that left #14 and #15 as notes only.
+
+1. Every bump in this list is allowed. Merge it once every required, non-skipped check on its **current** head is green: **#2, #19, #20, #21, #22, #23, #24, #26, #30, #54, #55**. Lane `old-prs-deps` (worker run `bc-004d8f8c`, draft #58) is already on this queue. One at a time. After each merge, update the next from `main` and let CI finish on the new head. A bump that cannot go green stays open with the failing check and the job URL. #56 is not in this list. It stays inside #57.
+2. Older pull requests from before Swarm 9: this swarm takes **only** the ones that are blocked or failing. Rebase them, or recreate them as Swarm 9 pull requests, until the required checks are green, then the orchestrator merges them. The owner named conflicting **#14** and **#15**, and **#57 if its CI fails**. Pull requests the owner named as already ready (#51, #52, #16, #17) stay for the owner. Do not merge them and do not edit their branches.
+
+Observed at 2026-11-15T15:30:15+01:00, from `gh pr list` check rollups (success / failure / skipped):
+
+| PR | Rollup | Merge state | This swarm |
+|---|---|---|---|
+| #57 | 25 success, 1 skipped | CLEAN | CI is not failing. Do not take it. Owner merges. |
+| #51, #52 | 25 success, 1 skipped each | CLEAN | Leave for the owner. |
+| #16, #17 | 21 failure, 1 skipped each | UNSTABLE, mergeable | The owner still named these as owner-merged. Do not edit them. The failing rollup is recorded here so it is not described as green. |
+| #14 | no checks | CONFLICTING, base `swarm/main-staging` | Take. Recreate on a new branch from `main`. |
+| #15 | 21 failure, 1 skipped | CONFLICTING | Take. Recreate on a new branch from `main`. |
+| #7 | 12 success | CLEAN | Already green. Do not edit #7. The doc tables are already copied on #58. |
+| #54, #55 | 25 success, 1 skipped each | CLEAN | In the bump list and green now. Merge these pull requests one at a time. |
+| #2, #19, #20, #21, #22, #23, #24, #26, #30 | at least one failure each | UNSTABLE | Recreate on new branches from current `main`. Do not push to `dependabot/*`. |
+
+#29 stays a note. Its base is not `main`, and payments are out of scope. Do not recreate the pricing pages.
 
 ## Design direction
 
@@ -36,19 +58,17 @@ Still in force:
 - No secrets, tokens, keys, or IP addresses in commits, pull requests, comments, or logs.
 - No server credentials. Existing GitHub workflows may run after a merge to `main`. Do not push a `v*` tag. `release.yml` runs only on a `v*` tag and is the owner's publish switch.
 - Do not edit `SOUL.md`, `config.yaml`, `LOCKS.toml`, `voices/`, `weights/`, or `runtimes/`.
-- Do not merge #51, #52, #57, or a Dependabot pull request. Those are not Swarm 9 pull requests. Recreate a bump on a new branch from current `main`.
+- Do not merge or edit #51, #52, #16, or #17. Do not take #57 while its CI stays green (it was green at 15:30). Dependabot heads that are still red are recreated as Swarm 9 pull requests. #54 and #55 are already green, so those two pull requests themselves are the ones that merge.
 - Do not settle an owner decision. Record it, and merge only the safe default named in this plan.
 - Do not edit the branches of #51 (`cursor/hermes-mcp-client-3083`), #52 (`cursor/desktop-ci-artifacts-c14b`), or #57 (`swarm8/deps-batch`).
 
-### Major-version bumps
+### Bumps named at 15:29
 
-Owner decision, 2026-11-15 15:24 CET: merge the risky major-version bumps if all tests pass. A 15:25 hold on merging #2, #19–#24, #26, #30, #54, and #55 was lifted at 15:26 CET. The 15:24 rule is in force again.
+The 15:24 decision allowed the risky majors once tests passed. A 15:25 hold covered #2, #19–#24, #26, #30, #54, and #55. The 15:26 instruction lifted that hold. The 15:29 decision is the current list and includes #24, #26, and #30 as well as the majors.
 
-`old-prs-deps` (worker run `bc-004d8f8c`) takes the majors **one at a time**: rebase or recreate the bump on a new branch from current `main`, let CI run, fix only the fallout that stops the required checks, and open one Swarm 9 pull request. The orchestrator merges that pull request only when every required check on its current head is green, then the worker updates the next bump from the new `main`.
+`old-prs-deps` takes them one at a time. #54 and #55 are already green, so the orchestrator merges those pull requests directly, one at a time. Every other number on the list is recreated from current `main` because its own head is still failing. Do not edit #57 to extract #24, #26, or #30: #57's CI is green, and the owner merges #57. A second copy of those three bumps will conflict with #57; keep the recreated diff to the same version pins #57 already uses, and record the overlap.
 
 A bump that cannot go green stays open, with a comment that names the failing check and the job URL. Do not close it and do not merge it.
-
-#24, #26, #30, and #56 are already inside draft #57 (patch or minor). Do not open a second copy of those four, and do not merge #57. The merge queue below is the majors and the risky `candle-nn` jump, which was inside the 15:25 list.
 
 ## File ownership
 
@@ -73,9 +93,12 @@ A bump that cannot go green stays open, with a comment that names the failing ch
 | #14, #15, #16, #17 | old-prs-deps | Triage in the lane notes. Do not replay crate edits and do not copy any `SOUL.md` change. `docs/crate-index.md` belongs to readme-status |
 | #28 secrets-guard gitignore | old-prs-deps | Note only. Do not apply the patch (it would ignore vendored `*.pt` fixtures again) |
 | #29 pricing | old-prs-deps | Note only. Payments stay out of scope. Do not merge `main` into it and do not close it |
-| Dependabot majors #2, #19, #20, #21, #22, #23, #54, #55 | old-prs-deps | One Swarm 9 pull request at a time. Orchestrator merges each when required checks are green |
-| Dependabot #24, #26, #30, #56 | — | Already in #57. Leave them there |
-| #57, #51, #52 merge order | orchestrator records it | This swarm does not merge those three. Order for the owner is below |
+| Bumps #2, #19, #20, #21, #22, #23, #24, #26, #30, #54, #55 | old-prs-deps | Allowed. Merge each when its required checks are green, one at a time |
+| #56 | — | Not in the 15:29 list. Stays inside #57 |
+| #14, #15 | old-prs-deps | Blocked. Recreate as Swarm 9 pull requests until green, then merge |
+| #16, #17, #51, #52 | owner | Do not merge or edit. #16 and #17's rollups were failing at 15:30; the owner still keeps them |
+| #57 | owner while CI is green | 25 success and 1 skipped at 15:30. Take it only if that CI goes red |
+| #7 | owner | Green at 15:30. Doc tables already copied onto #58 |
 | README, STATUS, crate index | readme-status | Refresh from the tree. Pointer to the MCP flag and the 18181/18080 ports. Do not duplicate `docs/hermes-mcp.md` |
 | Design direction | all three lanes | Working and connected, minimal UI, existing brand files |
 
@@ -124,32 +147,35 @@ Do not push to their branches.
 
 | PR | Base observed 2026-11-15 | Lane action |
 |---|---|---|
-| #7 `ws/brand` | `main`. Docs only: icon tables in `brand/BRAND.md` and `brand/STYLE-GUIDE.md`. The nine SVGs are already under `brand/icons/`. `git merge-tree` was clean in the swarm 8 triage. | New branch from **current** `main`. Port the doc tables. Follow `brand/STYLE-GUIDE.md`. Section 8's copyright sentence must cite the root `LICENSE` after the licence pull request merges; do not invent a holder. |
-| #14 | `swarm/main-staging`. Conflicts on `crates/hermes-gateway/src/main.rs` and `crates/hermes-rs/src/api.rs` (swarm 8 triage). | Notes only. Core owns those crates. |
-| #15 | `main`, conflicts on `docs/crate-index.md`. Crate side is a real MCP server still absent from `main`. | Notes only. Crate index belongs to readme-status. Crates belong to core. |
-| #16 | `main`, merge-tree clean in the triage, CI on that head was red. Memory client still absent on `main`. | Notes only. Core owns the crates. |
-| #17 | `main`. Teaching files absent. The pull request describes a `SOUL.md` edit. | Notes only. Do not copy a `SOUL.md` change. |
-| #28 | `main`. Gitignore block would ignore vendored `vendor/candle-core/tests/*.pt` again and could match `galion-secrets`. The pull request body says it is a save branch. | Notes only. Do not apply it. |
+| #7 `ws/brand` | Green at 15:30 (12 success, CLEAN). | Do not edit #7. #58 already carries the icon tables. |
+| #14 | Conflicting. Base `swarm/main-staging`. Conflicts on `crates/hermes-gateway/src/main.rs` and `crates/hermes-rs/src/api.rs`. | Recreate on a new branch from `main` as `Swarm 9 desktop/hermes-offhost`. Core's plan already leaves `crates/hermes-rs/**` alone. This lane owns the recreated files until that pull request merges. Do not push to #14's branch. |
+| #15 | Conflicting, and 21 checks failed at 15:30. Conflict is `docs/crate-index.md`. #58 notes that merged #50 already covers the vault half. | Recreate on a new branch from `main` as `Swarm 9 desktop/mcp-stack`. Do not edit `docs/crate-index.md` (readme-status #60 owns it). Do not add a second vault server on top of #50. Do not push to #15's branch. |
+| #16 | Owner keeps it. Rollup at 15:30 was 21 failures, not green. | Do not merge or edit. |
+| #17 | Owner keeps it. Rollup at 15:30 was 21 failures. The branch adds `SOUL.md`. | Do not merge or edit. Do not copy `SOUL.md`. |
+| #28 | One failing check at 15:30. The raw gitignore would ignore vendored `*.pt` fixtures again. | The safe subset is already on #58. Do not push to #28 and do not add `*.pt` or `*secret*`. |
 | #29 | Base `swarm/galion-one-ask-anything-20261101`, not `main`. Pricing and footer. | Note only. Payments and billing are out of scope. Galion OS #16 already has the live price copy. Do not merge `main` into #29 and do not close #29. One difference to record: #29's body prices Galion Research as a one-time amount; the merged site prices it per month. The merged site is the live copy. |
 
 ### Bump queue
 
-Recreate from the open Dependabot diff onto current `main`. Do not push to `dependabot/*`. Do not merge the Dependabot pull request. Open the next bump only after the previous one has merged, or after it is recorded as blocked with a failing-check URL.
+#54 and #55 merge as they are, one at a time, because their checks were already green. Every other row is recreated from the Dependabot diff onto current `main`. Do not push to `dependabot/*`. Open the next recreation only after the previous bump has merged, or after it is recorded as blocked with a failing-check URL.
 
 Swarm 8 triage (`docs/swarm-8/2026-11-15/a2-deps-triage.md` on #57) classified these. Re-read the Dependabot pull request and CI before recreating. Fix only the fallout that stops a required check.
 
 | Order | Source | Bump | Files the lane owns for that pull request | Known fallout from the triage (re-check) |
 |---|---|---|---|---|
 | 1 | #55 | `github/codeql-action/upload-sarif` 3.39.0 → 4.39.3 | `.github/workflows/scorecard.yml` pin only | Pull-request checks were green. `scorecard.yml` does not run on `pull_request`. |
-| 2 | #54 | `sigstore/cosign-installer` 3.9.1 → 4.1.3 | `.github/workflows/release.yml` pin only | Pull-request checks were green. The release job runs on a `v*` tag. Do not push a tag. Record the tag job as not run. |
-| 3 | #19 | `actions/upload-artifact` 4.6.2 → 7.0.2 | `uses: actions/upload-artifact` pins in `.github/workflows/launch-gates.yml`, `realtest.yml`, `sbom.yml`, `scorecard.yml`, `self-eval.yml` | v6 wants Node 24. Call sites use the default zip upload. |
-| 4 | #20 | `actions/checkout` 4.4.0 → 7.0.1 | `uses: actions/checkout` pins, including `.github/workflows/openmind-desktop.yml` | Start this only after the licence pull request has merged, because both touch `self-eval.yml`. v7 blocks fork checkout from `pull_request_target` and `workflow_run`. |
-| 5 | #2 | `toml` 0.8.23 → 1.2.1+spec-1.1.0 | Root `Cargo.toml` `toml`, `edge/openmind-node/Cargo.toml` `toml`, `Cargo.lock`, and call sites that fail the required checks | Triage: `galion-feature-pin` test `every_release_bin_alone_has_the_full_set_features` failed. Confirm it is still this bump. |
-| 6 | #23 | `getrandom` 0.2.17 → 0.3.4 | `crates/hermes-rs/Cargo.toml`, `edge/openmind-node/Cargo.toml`, `Cargo.lock`, `crates/hermes-rs/src/enroll/mod.rs` call sites that use `getrandom::getrandom` | Triage: `getrandom` was removed in 0.3 (`enroll/mod.rs` around lines 348 and 502 on the old base). |
-| 7 | #21 | `rusqlite` 0.32.1 → 0.41.1 | Root `Cargo.toml` `rusqlite`, `crates/hermes-gateway/Cargo.toml`, `spikes/sqlite-pure/fixtures/Cargo.toml`, `Cargo.lock`, and `prepare_cached` call sites that fail (triage named `crates/openmind-memory/src/store.rs`) | Edition 2024, MSRV, iterator API. |
-| 8 | #22 | `candle-nn` 0.9.2 → 0.11.0 | `crates/galion-chatterbox/Cargo.toml`, `crates/galion-voice-cpu/Cargo.toml`, `Cargo.lock`, and the compile errors those two crates hit | Triage: does not compile against vendored `candle-core` 0.9.2. If the required checks still fail after a direct fix, leave the pull request open and stop. Do not upgrade the vendored candle tree (core owns that). |
+| 2 | #54 | `sigstore/cosign-installer` 3.9.1 → 4.1.3 | `.github/workflows/release.yml` pin only | Checks were green at 15:30. Merge after #55, once this head is updated from `main` and CI is green again. The release job runs on a `v*` tag. Do not push a tag. |
+| 3 | #24 | `miniz_oxide` 0.8.9 → 0.9.1 | `crates/galion-backup/Cargo.toml`, `Cargo.lock` | Own head still failed at 15:30. Same pin #57 already tested. Recreate. Do not edit #57. |
+| 4 | #26 | `pageant` 0.2.4 → 0.2.5 | `contrib/grokbot/mcp/vps-mcp` lock and manifest | Same as #24. Own head still failed. Recreate. Core's plan does not own `contrib/`. |
+| 5 | #30 | `russh` 0.64.1 → 0.65.1 | same package as #26 | Recreate after #26, from the new `main`. |
+| 6 | #19 | `actions/upload-artifact` 4.6.2 → 7.0.2 | `uses: actions/upload-artifact` pins in `.github/workflows/launch-gates.yml`, `realtest.yml`, `sbom.yml`, `scorecard.yml`, `self-eval.yml` | v6 wants Node 24. Call sites use the default zip upload. |
+| 7 | #20 | `actions/checkout` 4.4.0 → 7.0.1 | `uses: actions/checkout` pins, including `.github/workflows/openmind-desktop.yml` | After the licence pull request, and after core's linux lane if it is editing `self-eval.yml`. v7 blocks fork checkout from `pull_request_target` and `workflow_run`. |
+| 8 | #2 | `toml` 0.8.23 → 1.2.1+spec-1.1.0 | Root `Cargo.toml` `toml`, `edge/openmind-node/Cargo.toml` `toml`, `Cargo.lock`, and call sites that fail the required checks | Triage: `galion-feature-pin` test `every_release_bin_alone_has_the_full_set_features` failed. Confirm it is still this bump. Core hygiene owns that test file. If the failure is there, comment on #59 before editing it. |
+| 9 | #23 | `getrandom` 0.2.17 → 0.3.4 | `crates/hermes-rs/Cargo.toml`, `edge/openmind-node/Cargo.toml`, `Cargo.lock`, `crates/hermes-rs/src/enroll/mod.rs` call sites that use `getrandom::getrandom` | Triage: `getrandom` was removed in 0.3 (`enroll/mod.rs` around lines 348 and 502 on the old base). Core leaves `hermes-rs` alone. |
+| 10 | #21 | `rusqlite` 0.32.1 → 0.41.1 | Root `Cargo.toml` `rusqlite`, `crates/hermes-gateway/Cargo.toml`, `spikes/sqlite-pure/fixtures/Cargo.toml`, `Cargo.lock`, and `prepare_cached` call sites that fail (triage named `crates/openmind-memory/src/store.rs`) | Edition 2024, MSRV, iterator API. |
+| 11 | #22 | `candle-nn` 0.9.2 → 0.11.0 | `crates/galion-chatterbox/Cargo.toml`, `crates/galion-voice-cpu/Cargo.toml`, `Cargo.lock`, and the compile errors those two crates hit | Triage: does not compile against vendored `candle-core` 0.9.2. If the required checks still fail after a direct fix, leave the pull request open and stop. Do not upgrade the vendored candle tree (core does not list `vendor/`, and this lane does not take it). |
 
-Core may be editing `hermes-rs`, `openmind-memory`, and `Cargo.lock` at the same time. Before opening bump 5, 6, 7, or 8, read the open pull request titled **Swarm 9 core plan**. If a core pull request already changes the same path, comment on both pull requests and wait for the orchestrators to name a single owner for that path. Do not edit the path in both swarms.
+Core's plan (#59) leaves `hermes-rs` alone and may still touch root `Cargo.toml` (`rust-version` only) and `Cargo.lock` (one fetch edge). Before opening bump rows 8 through 11, re-read #59. If a core pull request already changes the same path, comment on both and wait until one side owns that path.
 
 ### Acceptance
 
@@ -195,34 +221,38 @@ Title: `Swarm 9 desktop/readme-status`. Branch from `main`.
 
 ### This swarm (orchestrator merges)
 
-1. **Swarm 9 desktop plan** (this file), when its required checks are green.
-2. **Swarm 9 desktop/licence**, updated from `main` after step 1, when its required checks are green.
-3. **Swarm 9 desktop/readme-status** and the #7 brand-doc pull request, when they are green and updated from `main`. They do not touch bump files, so they can merge before the crate bumps. One at a time.
-4. Bump queue order 1 through 8, one at a time. After each merge, the next bump updates from `main` and CI runs on the new head. Bump 4 (`actions/checkout`) waits until step 2 has merged.
-5. `Swarm 9 desktop/licence-package`, if opened, stays open until the owner has merged #52 and the branch has been updated onto `main`. This swarm does not merge it before that.
+1. **#55**, then **#54**. Both were green at 15:30. Merge #55 first. Update #54 from `main` and wait for its new head to be green before merging it.
+2. **Swarm 9 desktop plan** (this file), when its required checks are green.
+3. **Swarm 9 desktop/licence**, updated from `main` after the plan merges.
+4. **#58** (brand tables and the safe gitignore) and **#60** (readme-status), after the review notes in the log are addressed and the required checks are green. One at a time. They do not carry a dependency bump.
+5. Bump queue rows 3 through 11, one at a time. Checkout (#20) waits until the licence pull request has merged and core is not mid-edit on `self-eval.yml`.
+6. Recreated **#14** and **#15**, after the crate-index pull request has merged so #15 does not touch that file.
+7. `Swarm 9 desktop/licence-package`, if opened, stays open until the owner has merged #52 and the branch has been updated onto `main`. This swarm does not merge it before that.
 
-Before each merge the orchestrator re-reads an open pull request titled **Swarm 9 core plan**. If core is landing a pull request that touches the same paths, desktop waits and comments. No core plan pull request was visible at search time (see the log).
+Before each merge, re-read **Swarm 9 core plan** (#59). If core is landing a pull request that touches the same paths, desktop waits and comments.
 
 A merge to `main` runs the workflows that already trigger on `push` to `main`: `self-eval`, `openmind-desktop`, `scorecard`, and `miri` (`on: push` with no branch filter). `release.yml` does not run on a branch push. `launch-gates` and `realtest` run on `pull_request`. `sbom.yml` is `workflow_dispatch`. There is no Pages deploy workflow in `.github/workflows`.
 
-### Frozen pull requests (owner merges, this swarm does not)
+### Left for the owner (do not merge, do not edit)
 
-Recommended order, so later rebases see the licence and the small dependency batch:
+Observed green at 15:30, except #16 and #17:
 
-1. **#57** — patch/minor batch (`miniz_oxide` 0.9.1, `pageant` 0.2.5, `russh` 0.65.1, `anchore/sbom-action` 0.24.3) and a GOS `LICENSE` copy. If step 2 of this swarm has already merged, the owner rebases #57 and drops the duplicate `LICENSE` commit, keeping the four bumps.
-2. **#51** — Hermes MCP client and `docs/hermes-mcp.md`. Decision 5 stays recorded: the holder in the canonical `LICENSE` is Galion Labs.
-3. **#52** — desktop CI artifacts. After the GOS `LICENSE` is on `main`, `check-package.sh` has to compare the packaged file to that `LICENSE` before #52 merges. This swarm does not edit #52.
+1. **#57** — CI was green (25 success, 1 skipped, CLEAN). It holds `miniz_oxide` 0.9.1, `pageant` 0.2.5, `russh` 0.65.1, `anchore/sbom-action` 0.24.3, and a GOS `LICENSE` copy. Take it only if that CI goes red. If the desktop licence pull request merges first, the owner rebases #57 and drops the duplicate `LICENSE` commit.
+2. **#51** — Hermes MCP client and `docs/hermes-mcp.md`.
+3. **#52** — desktop CI artifacts. `check-package.sh` still assembles the old MIT text plus four lines. This swarm does not edit #52.
+4. **#16** and **#17** — the owner named these with the green set. Their rollups at 15:30 were 21 failures each. They stay with the owner anyway.
+5. **#7** — 12 success, CLEAN. The same doc tables are on #58.
 
 ## Conflicts already known
 
-- Licence gate vs core: `crates/repo-check` `check_license` is desktop's for this swarm. Everything else in that crate stays with core.
-- Licence job vs bump 4: both touch `.github/workflows/self-eval.yml`. Licence lands first and does not change `uses:` pins. Checkout bump rebases after that.
-- Bumps 5–8 vs core: `Cargo.lock`, `hermes-rs`, `openmind-memory`. One owner per path, agreed in comments before either side edits.
-- Readme-status vs #15: both would touch `docs/crate-index.md`. Readme-status owns it. #15 is not edited.
-- Readme-status vs #52: `docs/desktop/README.md` stays on #52.
-- Licence vs #57: both copy the GOS `LICENSE` and both retarget the licence gate. Desktop still does the copy, because this swarm does not merge #57. Expect a conflict if both land. The bytes should match; the owner drops the duplicate when rebasing #57.
+- Core #59 gives the whole of `.github/workflows/self-eval.yml` to the linux lane, and the root `Cargo.toml` `rust-version` line plus a possible `Cargo.lock` edge to hygiene and linux. Desktop licence edits only the license job `run:` block. Desktop bumps edit dependency lines and `Cargo.lock`. Checkout (#20) edits `uses:` pins in that same workflow. Comment on #59 before either side edits those files. One owner per hunk.
+- Core #59 does not edit `crates/hermes-rs/**`. The #14 recreation does. Desktop owns that recreation. Core linux may edit `crates/openmind-desktop/src/lib.rs`, `files.rs`, and `http.rs` for bind defaults. This plan does not.
+- #15's conflict is `docs/crate-index.md`, which #60 owns. The recreation stays out of that file.
+- `docs/desktop/README.md` stays on #52.
+- Licence vs #57: both copy the GOS `LICENSE`. #57 is green, so the owner merges it. If licence lands first, the bytes should match and the owner drops the duplicate.
+- #24, #26, and #30 overlap #57. Recreated pins should match #57 so the owner's merge is a duplicate, not a second version.
 - #22 vs vendored `candle-core` 0.9.2: likely to stay open. Do not treat a red check as a merge.
-- `bc-004d8f8c` was not visible to this run's cloud-agent lookup (see the log). The lane assignment still names that run.
+- #60 (readme-status) does not yet name `HERMES_RS_MCP_GITHUB`. That is an open review note. #58's notes still say the majors are undecided. The 15:29 section above replaces that.
 
 ## Orchestrator log
 
@@ -237,4 +267,6 @@ Checked for this plan. Times are Europe/Zagreb (`+01:00`).
 - Root `LICENSE` is 1079 bytes and starts with `MIT License` / `Copyright (c) 3000 Galion / galion-studio`.
 - GitHub search `repo:galion-studio/obsidian-open-mind is:open "Swarm 9"` and `"Swarm 9 desktop"`: `total_count` 0, before this pull request existed.
 - Cloud-agent lookup for `bc-004d8f8c`: not available to this run (not found or not accessible).
+- 15:30. `gh pr list` rollups recorded in the 15:29 table. Open Swarm 9 drafts: #58 `Swarm 9 desktop/old-prs-deps` (`ed3da063`, brand tables and the safe gitignore, CI still running), #60 `Swarm 9 desktop/readme-status` (`610458a6`, CI still running), #59 `Swarm 9 core plan` (`8eb597f2`).
+- Read #59's plan and #58's diff. #60's README names ports 18181 and 18080 and does not name `HERMES_RS_MCP_GITHUB`. Its STATUS text calls `launch-gates.yml` and `realtest.yml` `workflow_dispatch` only; both also run on `pull_request` (read from those files on `de7480e`).
 - Not run: `cargo test`, `scripts/status-percent.sh`, a GOS `LICENSE` download, CI on this plan. Those belong to the lane acceptance and to this pull request's CI.

@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 3000 Galion / galion-studio
+#
+# Replaces the old Python `galion-stack` entry under `mcp_servers:` in the
+# Hermes config.yaml. <sha> = the installed build. The key file is parsed
+# for OPENMIND_MEMORY_API_KEY / MEMORY_TENCENTDB_GATEWAY_API_KEY /
+# TDAI_GATEWAY_API_KEY only; nothing else is read from it.
+mcp_servers:
+  openmind:
+    command: /opt/galion/rust/bin/openmind-mcp-stack-<sha>
+    args: ["--vault", "/opt/galion/galion-light/docs/build-session", "--memory-url", "http://127.0.0.1:8420", "--key-file", "/opt/galion/hermes/.env"]
+    timeout: 30
+    connect_timeout: 15
+    lazy: false

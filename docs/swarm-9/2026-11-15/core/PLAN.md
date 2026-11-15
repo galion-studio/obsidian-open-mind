@@ -53,6 +53,13 @@ Keep developing until the three lanes are finished and the tests you were requir
 
    Linux watches `Cargo.lock` and the pins in `.github/workflows/self-eval.yml`. After a desktop major reaches `main`, merge `main` into the Linux branch (no force-push) and re-run the cold `cargo tree` test before merging Linux. If that lockfile move changes a release binary’s features or size, re-measure `hermes-gateway`. Hygiene does not absorb #2. If `toml` 1.x lands and `release_feature_unify` fails on a new mismatch, hygiene fixes that test after rebasing. The red 0.x bumps #21 (`rusqlite`), #22 (`candle-nn`), and #23 (`getrandom`) are not core-lane files. Leave them unless desktop takes them as majors.
 
+   Live clashes seen 2026-11-15T15:32+01:00, while no desktop plan pull request was open. Core lanes do not edit these lines. Rebase after desktop merges them:
+
+   - #64 (`actions/checkout` 7.0.1) edits `.github/workflows/self-eval.yml` (Linux) and `.github/workflows/miri.yml` (hygiene). The diff is the checkout pin only.
+   - #63 (`actions/upload-artifact` 7.0.2) edits the upload-artifact pin in `.github/workflows/self-eval.yml`.
+   - #61 edits `.github/workflows/release.yml` only. #62 edits `.github/workflows/scorecard.yml` only. Neither file is a core lane.
+   - #65 (`licence`) edits the repo `LICENSE`, `README.md`, and per-crate `LICENSE` files, including `crates/galion-bench/LICENSE`, `crates/openmind-llama/LICENSE`, `crates/hades-gate/LICENSE`, `crates/openmind-sandbox/LICENSE`, and `crates/openmind-schema/LICENSE`. It also edits `.github/workflows/self-eval.yml`. A `**/` lane owns the crate except its `LICENSE`. Leave every `LICENSE` to desktop.
+
 ## How to open your pull request
 
 Base `main`. Draft until CI is green, then mark it ready. Title, exactly:
@@ -88,9 +95,9 @@ Real benchmarks and hot paths, in service of a flow a person can feel: local JSO
 
 ### Files (this lane only)
 
-- `crates/galion-bench/**`
-- `crates/galion-jsonout/**`
-- `crates/openmind-llama/**`
+- `crates/galion-bench/**` except `LICENSE`
+- `crates/galion-jsonout/**` except `LICENSE`
+- `crates/openmind-llama/**` except `LICENSE`
 - `docs/swarm-9/2026-11-15/core/cpu.md`
 
 ### Work
@@ -187,11 +194,11 @@ MSRV, clippy, miri, a bounded unsafe audit, and tests. The user-facing result is
 
 ### Files (this lane only)
 
-- `crates/galion-common/**`
-- `crates/galion-feature-pin/**`
-- `crates/hades-gate/**`
-- `crates/openmind-schema/**`
-- `crates/openmind-sandbox/**`
+- `crates/galion-common/**` except `LICENSE`
+- `crates/galion-feature-pin/**` except `LICENSE`
+- `crates/hades-gate/**` except `LICENSE`
+- `crates/openmind-schema/**` except `LICENSE`
+- `crates/openmind-sandbox/**` except `LICENSE`
 - `crates/galion-realtest/tests/miri_workflow.rs`
 - `.github/workflows/miri.yml`
 - `.github/workflows/msrv.yml` (new, this lane only)
@@ -234,7 +241,7 @@ Status (updated by the orchestrator):
 
 | Pull request | Head | CI | Review | Merged SHA |
 | --- | --- | --- | --- | --- |
-| Swarm 9 core plan | `8eb597f2`, then this decision commit | on `8eb597f2`: 20 success, 5 in progress, 1 skipped (`miri full`); CI restarts on the decision commit | n/a | not merged |
+| Swarm 9 core plan | `ed6b8058`, then the clash note | on `ed6b8058` at 15:32 +01:00: 25 queued, 1 skipped (`miri full`); CI restarts on the clash note | n/a | not merged |
 | Swarm 9 core/linux | not opened | | | |
 | Swarm 9 core/hygiene | not opened | | | |
 | Swarm 9 core/cpu | not opened | | | |

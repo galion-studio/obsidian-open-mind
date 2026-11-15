@@ -13,8 +13,8 @@ use crate::stack::LAYERS;
 use std::sync::OnceLock;
 
 /// Content-Security-Policy for the page. Scripts and styles are inline.
-/// `connect-src 'self'` allows the one same-origin file upload. Any other
-/// origin, frames, and form posts are refused.
+/// `connect-src 'self'` allows the same-origin file upload and the Look
+/// probe. Any other origin, frames, and form posts are refused.
 pub const CSP: &str = "\
 default-src 'none'; \
 style-src 'unsafe-inline'; \
@@ -126,9 +126,20 @@ h1 { font-size: 18px; font-weight: 600; }
   font-weight: 500;
 }
 .stack ol { list-style: none; margin: 0; padding: 0; }
+#look {
+  margin-top: 12px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  padding: 0 14px;
+}
+#look:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .stack li {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 2px 8px;
   padding: 8px 0;
   border-top: 1px solid var(--line);
@@ -136,10 +147,11 @@ h1 { font-size: 18px; font-weight: 600; }
 .stack li:first-child { border-top: 0; }
 .stack .name { font-weight: 600; }
 .stack .role { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
-.stack .state {
+.stack .state, .stack .seen {
   font: 12px/1.3 "IBM Plex Mono", ui-monospace, monospace;
-  color: var(--accent);
 }
+.stack .state { color: var(--accent); }
+.stack .seen { color: var(--muted); }
 .stage {
   display: grid;
   place-items: center;
@@ -240,7 +252,8 @@ audio { display: none; }
 /// script does not use `FileReader`. The microphone opens only after the
 /// opt-in box is ticked, and only on loopback or a `file:` page. Samples are
 /// overwritten in one buffer and then dropped. The level line is the only
-/// meter. Night hours and Mute skip tones.
+/// meter. Look asks `GET /probes` on the loopback listener and writes the
+/// service names with `textContent`. Night hours and Mute skip tones.
 const SCRIPT: &str = r#"
 (function () {
   var files = document.getElementById("files");
@@ -252,6 +265,9 @@ const SCRIPT: &str = r#"
   var picked = document.getElementById("picked");
   var kept = document.getElementById("kept");
   var mute = document.getElementById("mute");
+  var look = document.getElementById("look");
+  var lookRows = document.getElementById("look-rows");
+  var lookState = document.getElementById("look-state");
   var live = null;
   var ctx = null;
   var raf = 0;
@@ -414,6 +430,86 @@ const SCRIPT: &str = r#"
     command.value = "";
     play("done");
   });
+  function probeWord(item) {
+    if (!item || !item.enabled) return "off";
+    var state = String(item.state || "unknown");
+    if (state !== "up" && state !== "down" && state !== "unknown") return "unknown";
+    return state;
+  }
+  function clearSeen() {
+    var rows = document.querySelectorAll("li[data-layer]");
+    var n;
+    for (n = 0; n < rows.length; n = n + 1) {
+      var mark = rows[n].querySelector(".seen");
+      if (mark) mark.textContent = "";
+    }
+  }
+  function markSeen(service, word) {
+    var rows = document.querySelectorAll("li[data-layer]");
+    var n;
+    for (n = 0; n < rows.length; n = n + 1) {
+      if (rows[n].getAttribute("data-layer") !== service) continue;
+      var mark = rows[n].querySelector(".seen");
+      if (mark) mark.textContent = word;
+    }
+  }
+  look.addEventListener("click", function () {
+    lookRows.textContent = "";
+    clearSeen();
+    if (location.protocol === "file:" || !loopbackPage()) {
+      lookState.textContent = "Look only runs on the loopback listener.";
+      play("deny");
+      return;
+    }
+    var pending;
+    try {
+      pending = fetch("/probes", { method: "GET", credentials: "omit" });
+    } catch (e) {
+      lookState.textContent = "The local stack did not answer.";
+      play("deny");
+      return;
+    }
+    pending.then(function (res) {
+      return res.text().then(function (text) {
+        var data;
+        if (!res.ok) {
+          lookState.textContent = "The local stack did not answer.";
+          play("deny");
+          return;
+        }
+        try { data = JSON.parse(text); } catch (err) {
+          lookState.textContent = "The probe report was not readable.";
+          play("deny");
+          return;
+        }
+        var probes = data && data.probes;
+        if (!probes || !probes.length) {
+          lookState.textContent = "No probes were enabled. Rows stay staged or planned.";
+          play("notice");
+          return;
+        }
+        var wants = false;
+        var i;
+        for (i = 0; i < probes.length; i = i + 1) {
+          var item = probes[i];
+          var row = document.createElement("li");
+          row.className = "chip";
+          var word = probeWord(item);
+          row.textContent = String(item.service || "service") + " — " + word;
+          lookRows.appendChild(row);
+          markSeen(String(item.service || ""), word);
+          if (item.enabled && word !== "up") wants = true;
+        }
+        lookState.textContent = wants
+          ? "The local stack wants a look. Rows stay staged or planned."
+          : "The local stack answered. Rows stay staged or planned.";
+        if (wants) play("notice");
+      });
+    }).catch(function () {
+      lookState.textContent = "The local stack did not answer.";
+      play("deny");
+    });
+  });
   mute.addEventListener("click", function () {
     var on = mute.getAttribute("aria-pressed") === "true";
     mute.setAttribute("aria-pressed", on ? "false" : "true");
@@ -562,11 +658,15 @@ fn render() -> String {
         html.push_str(&esc(layer.name));
         html.push_str("</span><span class=\"state\">");
         html.push_str(layer.state);
-        html.push_str("</span><span class=\"role\">");
+        html.push_str("</span><span class=\"seen\"></span><span class=\"role\">");
         html.push_str(&esc(layer.role));
         html.push_str("</span></li>");
     }
-    html.push_str("</ol></section>");
+    html.push_str(
+        "</ol><p class=\"notes\" id=\"look-state\">The stack list is not a health check.</p>\
+<button type=\"button\" id=\"look\">Look at the local stack</button>\
+<ul class=\"chips\" id=\"look-rows\" aria-label=\"Local stack probes\"></ul></section>",
+    );
     html.push_str(
         "<main class=\"stage\" id=\"main\"><div class=\"presence\">\
 <h2>Open Mind</h2>\
@@ -653,6 +753,15 @@ mod tests {
         assert!(html.contains("href=\"/one\""));
         assert!(html.contains("href=\"/research\""));
         assert!(html.contains("aria-label=\"Stack\""));
+        assert!(html.contains("id=\"look\""));
+        assert!(html.contains("Look at the local stack"));
+        assert_eq!(html.matches("class=\"seen\"").count(), LAYERS.len());
+        assert!(html.contains("mark.textContent = word"));
+        assert!(!html.contains("state.textContent"));
+        let look = html.find("id=\"look\"").unwrap();
+        let layers = html.find("data-layer=\"open-mind\"").unwrap();
+        assert!(layers < look);
+        assert!(html.contains("Rows stay staged or planned."));
         for line in BRAND_LINES {
             assert!(html.contains(line), "{line}");
         }
@@ -689,8 +798,9 @@ mod tests {
         ] {
             assert!(!html.contains(banned), "{banned} leaked into the page");
         }
-        assert_eq!(html.matches("fetch(").count(), 1);
+        assert_eq!(html.matches("fetch(").count(), 2);
         assert!(html.contains("fetch(\"/files\""));
+        assert!(html.contains("fetch(\"/probes\""));
         assert!(html.contains("credentials: \"omit\""));
         assert!(html.contains("connect-src 'self'"));
         assert!(html.contains("h >= 22"));

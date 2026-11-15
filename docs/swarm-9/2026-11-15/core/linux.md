@@ -59,9 +59,27 @@ Draft [#52](https://github.com/galion-studio/obsidian-open-mind/pull/52) (`curso
 
 ## Open questions for Maciej
 
-1. `hermes-gateway` on x86_64 musl is 2087296 bytes, 9856 under the 2 MiB cap. The cap was left at 2097152. A small growth fails the new CI job.
+1. `hermes-gateway` on this branch's x86_64 musl build is 2087296 bytes, 9856 under the 2 MiB cap. The cap was left at 2097152. On #51 at `ff9d4003`, the default x86_64 musl binary is 2093088 bytes (4064 under) and `--features mcp-http` is 2112384 bytes (15232 over). The cap was not raised.
 2. There is still no systemd unit for `openmind-desktop`. The listener default stays the binary constant `127.0.0.1:18181`.
 3. The four rendered units still put `StartLimitIntervalSec` in `[Service]`, where systemd ignores it. They were not rewritten. `docs/staged-not-live.md` records their 2026-10-19 byte sizes.
+
+## mcp-http size on #51
+
+Measured 2026-11-15T15:38:54+01:00 in a detached worktree of [#51](https://github.com/galion-studio/obsidian-open-mind/pull/51) at `ff9d400387f598c1c2091f84ad19c3544f9dc962` (`cursor/hermes-mcp-client-3083`). That branch was not pushed. No manifest `default` was changed. `crates/hermes-gateway/Cargo.toml` on that commit has `default = ["sqlite", "coding"]` and `mcp-http = ["hermes-rs/mcp-http"]`.
+
+Commands, rustc 1.100.0, zig 0.15.2, target `x86_64-unknown-linux-musl`:
+
+```
+CARGO_TARGET_DIR=/tmp/pr51-default cargo build -j 2 --release --locked -p hermes-gateway --target x86_64-unknown-linux-musl
+CARGO_TARGET_DIR=/tmp/pr51-mcphttp cargo build -j 2 --release --locked -p hermes-gateway --features mcp-http --target x86_64-unknown-linux-musl
+```
+
+| Build | Bytes | Cap | Margin | Stripped | PT_INTERP | sha256 |
+| --- | ---: | ---: | ---: | --- | --- | --- |
+| default | 2093088 | 2097152 | 4064 | yes | no | 106818b0a992588f96c89d78c129e63e83b8c1d2d6e471908366b41aa01eaa5c |
+| mcp-http | 2112384 | 2097152 | -15232 | yes | no | aad7ab8d8ee78a8f9c1d6bd6c69d0fbdc40184d273d696949ee60c57419310fe |
+
+The `mcp-http` binary is over the cap by 15232 bytes. The cap was not raised and `mcp-http` was not added to `default`. Stopped there.
 
 ## Not run / not done
 

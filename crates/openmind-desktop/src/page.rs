@@ -255,7 +255,9 @@ audio { display: none; }
 /// opt-in box is ticked, and only on loopback or a `file:` page. Samples are
 /// overwritten in one buffer and then dropped. The level line is the only
 /// meter. Look asks `GET /probes` on the loopback listener and writes the
-/// service names with `textContent`. Night hours and Mute skip tones.
+/// service names with `textContent`. The word `files` opens the same picker
+/// as the plus and writes `open` on the Files row. Night hours and Mute
+/// skip tones.
 const SCRIPT: &str = r#"
 (function () {
   var files = document.getElementById("files");
@@ -431,7 +433,13 @@ const SCRIPT: &str = r#"
     row.textContent = text;
     kept.appendChild(row);
     command.value = "";
-    if (text.toLowerCase() === "look") { runLook(); return; }
+    var word = text.toLowerCase();
+    if (word === "look") { runLook(); return; }
+    if (word === "files") {
+      markSeen("files", "open");
+      files.click();
+      return;
+    }
     play("done");
   });
   function probeWord(item) {
@@ -773,7 +781,10 @@ mod tests {
         assert!(html.contains("location.protocol !== \"file:\" && loopbackPage()"));
         assert!(html.contains("id=\"look\""));
         assert!(html.contains("Look at the local stack"));
-        assert!(html.contains("text.toLowerCase() === \"look\""));
+        assert!(html.contains("word === \"look\""));
+        assert!(html.contains("word === \"files\""));
+        assert!(html.contains("markSeen(\"files\", \"open\")"));
+        assert!(html.contains("files.click()"));
         assert!(html.contains("runLook()"));
         assert!(html.contains("look.addEventListener(\"click\", runLook)"));
         assert_eq!(html.matches("class=\"seen\"").count(), LAYERS.len());

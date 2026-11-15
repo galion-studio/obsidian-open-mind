@@ -70,7 +70,7 @@
 | openmind-exo | 0.1.0 | crates/openmind-exo/Cargo.toml | Parse exo fixture bodies for an OpenAI-compatible /v1/models and /health. No sockets and no GPU. |
 | openmind-llama | 0.1.0 | crates/openmind-llama/Cargo.toml | Parse llama.cpp llama-server fixture bodies for /health and /v1/models. No sockets and no GPU. |
 | openmind-mcp-notes | 0.1.0 | crates/openmind-mcp-notes/Cargo.toml | Stdio MCP for a research vault. Search, read, list recent, tag search and backlinks are read-only. Writes go only under drafts/. No sockets. |
-| openmind-mcp-stack | 0.1.0 | crates/openmind-mcp-stack/Cargo.toml | Read-only stdio MCP stub. initialize and tools/list for stack_status. Fixture JSON only. No sockets. |
+| openmind-mcp-stack | 0.1.0 | crates/openmind-mcp-stack/Cargo.toml | OpenMind stdio MCP server: memory search/recall/save over the loopback openmind-memory gateway, and a read-only Obsidian vault (list, read, search). |
 | openmind-memory | 0.1.0 | crates/openmind-memory/Cargo.toml | API-compatible Rust replacement for the TencentDB tdai memory gateway (the endpoints Hermes uses): SQLite FTS5 BM25 recall, offline, std HTTP. |
 | openmind-nerve | 0.1.0 | crates/openmind-nerve/Cargo.toml | NERVE + CORTEX: the Galion signals hub. Pull probes (health endpoints, systemd, journald, access logs) and POST /signal ingest, incident correlation, cortex view (vulnerabilities, bleeding, DDoS rate anomalies), self-eval scoring, one loopback JSON API and a dashboard. Also the append-only JSONL nerve writer. std + serde + serde_json + zagreb-time. |
 | openmind-persona | 0.1.0 | crates/openmind-persona/Cargo.toml | Persona Plex: load, validate and render Galion persona files (role prompt, voice prompt reference, per-channel style rules, changelog). Std only. |

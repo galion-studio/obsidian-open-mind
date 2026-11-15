@@ -53,12 +53,14 @@ Keep developing until the three lanes are finished and the tests you were requir
 
    Linux watches `Cargo.lock` and the pins in `.github/workflows/self-eval.yml`. After a desktop major reaches `main`, merge `main` into the Linux branch (no force-push) and re-run the cold `cargo tree` test before merging Linux. If that lockfile move changes a release binary’s features or size, re-measure `hermes-gateway`. Hygiene does not absorb #2. If `toml` 1.x lands and `release_feature_unify` fails on a new mismatch, hygiene fixes that test after rebasing. The red 0.x bumps #21 (`rusqlite`), #22 (`candle-nn`), and #23 (`getrandom`) are not core-lane files. Leave them unless desktop takes them as majors.
 
-   Desktop plan is #67 (`docs/swarm-9/2026-11-15/desktop/PLAN.md`), read at 2026-11-15T15:34+01:00. Agreed split:
+   Desktop plan is #67, re-read after its 15:34 update. Owner decision recorded there: `Copyright (c) 3000 Galion / galion-studio` stays. No core lane edits `LICENSE` or a copyright header. #65 stays a draft for the owner. This swarm does not merge it.
 
-   - Linux owns `.github/workflows/self-eval.yml` except the license job `run:` block. Desktop licence (#65) edits that block only. Linux does not edit it. Desktop checkout and upload-artifact bumps edit `uses:` pins in the same file. Linux does not edit those pins. Rebase after they merge.
+   Agreed split after that decision:
+
+   - Linux owns `.github/workflows/self-eval.yml`, including the license job `run:` block. Desktop no longer edits that block. Desktop checkout (#20 / #64) and upload-artifact (#19 / #63) still edit `uses:` pins, and only while that bump pull request is the one in progress. Linux does not edit those pins. Rebase after they merge.
    - Hygiene owns `.github/workflows/miri.yml` except the `actions/checkout` pin lines, which #64 edits.
    - Do not add a `Cargo.lock` edge while a desktop bump that edits `Cargo.lock` is open (#66 and the queue in #67: #2, #21, #22, #23, #24, #26, #30). Hygiene may still add `rust-version` beside the `toml` line.
-   - `LICENSE`, `README.md`, `docs/STATUS.md`, and `docs/crate-index.md` stay with desktop. #60 is the crate-index pull request.
+   - `README.md`, `docs/STATUS.md`, and `docs/crate-index.md` stay with desktop for the docs refresh. #60 is the crate-index pull request. The licence text itself does not change.
    - Linux may edit `crates/openmind-desktop/src/lib.rs`, `files.rs`, and `http.rs`. Desktop #67 does not own those.
    - `release_feature_unify.rs` stays hygiene. Desktop comments on this plan before editing that test.
 
@@ -67,7 +69,7 @@ Keep developing until the three lanes are finished and the tests you were requir
    - #64 (`actions/checkout` 7.0.1) edits `.github/workflows/self-eval.yml` (Linux) and `.github/workflows/miri.yml` (hygiene). The diff is the checkout pin only.
    - #63 (`actions/upload-artifact` 7.0.2) edits the upload-artifact pin in `.github/workflows/self-eval.yml`.
    - #61 edits `.github/workflows/release.yml` only. #62 edits `.github/workflows/scorecard.yml` only. Neither file is a core lane.
-   - #65 (`licence`) edits the repo `LICENSE`, `README.md`, and per-crate `LICENSE` files, including `crates/galion-bench/LICENSE`, `crates/openmind-llama/LICENSE`, `crates/hades-gate/LICENSE`, `crates/openmind-sandbox/LICENSE`, and `crates/openmind-schema/LICENSE`. It also edits `.github/workflows/self-eval.yml`. A `**/` lane owns the crate except its `LICENSE`. Leave every `LICENSE` to desktop.
+   - #65 (`licence`) is stopped. It stays a draft. Do not merge it and do not build on its `LICENSE` diff. A `**/` lane still does not edit a `LICENSE` file or a copyright header.
    - #66 (`toml` 1.2.1) edits `Cargo.lock`, the `toml` line in the root `Cargo.toml`, and `crates/link-watch/Cargo.toml` (adds `galion-feature-pin`). Hygiene may add `rust-version` in the root `Cargo.toml` and must not change the `toml` version. Linux does not edit `crates/link-watch/Cargo.toml` (only `src/main.rs`). Rebase onto #66 after it merges. The feature-pin dependency it adds is desktop’s fix for the #2 mismatch. Hygiene does not copy it.
 
 ## How to open your pull request
@@ -188,7 +190,7 @@ Make a cold `cargo test -p galion-feature-pin --locked --test release_feature_un
 
 Keep the serial cfg. Do not clear `[build] rustflags` in `.cargo/config.toml`. `crates/hades-gate/tests/simd_free.rs` fails if `RUSTFLAGS` replaces that list, and that test file is hygiene’s.
 
-While a desktop `Cargo.lock` bump is open, the fix is `scripts/fetch-musl-graphs.sh`: the same empty-`RUSTFLAGS` `cargo fetch` the CI job already runs, for both musl targets. No `Cargo.lock` edit. No new crate. Call that script from the Linux-owned part of `self-eval.yml`, outside the license job `run:` block. Leave the existing prefetch in place until a cold run of `cargo test -p galion-feature-pin --locked --test release_feature_unify` has passed after the script. A workspace member that depends on `curve25519-dalek-derive` waits until those bump pull requests have merged. Do not merge #57.
+While a desktop `Cargo.lock` bump is open, the fix is `scripts/fetch-musl-graphs.sh`: the same empty-`RUSTFLAGS` `cargo fetch` the CI job already runs, for both musl targets. No `Cargo.lock` edit. No new crate. Call that script from the test-job fetch step in `self-eval.yml`. Do not rewrite the license job to change licence text. Leave the existing prefetch in place until a cold run of `cargo test -p galion-feature-pin --locked --test release_feature_unify` has passed after the script. A workspace member that depends on `curve25519-dalek-derive` waits until those bump pull requests have merged. Do not merge #57.
 
 Paste the cold-cache command and its exit status in `linux.md`.
 

@@ -233,9 +233,9 @@ Observed green at 15:30, except #16 and #17:
 
 - Core #59 may edit `.github/workflows/self-eval.yml`. Desktop no longer edits the licence job. Desktop bumps still edit dependency lines and `Cargo.lock`. Checkout (#20) edits `uses:` pins. One owner per hunk.
 - `LICENSE` and copyright headers stay as they are. #65 is the draft that tried to replace them. It is not merged.
-- CPU #71 head `673bd8a9` no longer lists `crates/hermes-rs/**`, `crates/galion-common/src/http.rs`, or `crates/openmind-desktop/**`. Its diff is `crates/galion-bench/**`, `crates/galion-jsonout/**`, `crates/openmind-llama/benches/cpu.rs`, and `docs/swarm-9/2026-11-15/core/cpu.md`. Desktop does not edit those paths.
+- CPU #71 head `6f167d26` (the comment named `18999c1c`; the live head is newer and has the same file list) edits `crates/galion-bench/**`, `crates/galion-jsonout/**`, `crates/openmind-llama/benches/cpu.rs`, `crates/openmind-desktop/src/files.rs`, `src/probe.rs`, `benches/cpu.rs`, and `docs/swarm-9/2026-11-15/core/cpu.md`. `hermes-rs` and `galion-common` stay out. Desktop does not edit any of those paths.
 - Desktop owns `crates/hermes-rs/**` for the #14 recreation and for #70, one pull request at a time. #70 is the only Swarm 9 pull request editing that tree. Older open pull requests still do, and this swarm does not edit their branches: #14 (`api.rs`, `lib.rs`, `offhost.rs`), #16 (`api.rs`, `config.rs`, `lib.rs`, `memory.rs`), and #51 (`Cargo.toml`, `config.rs`, `mcp.rs`, `mcp_http_live.rs`, `tests/mcp.rs`). #70 also edits `Cargo.toml`, so the owner rebases #51 after #70 merges.
-- Desktop does not claim `crates/openmind-desktop/**`. #71 no longer edits it. Linux may edit `src/lib.rs` and `src/http.rs` there for bind defaults. This plan does not.
+- Desktop does not claim `crates/openmind-desktop/**`. #71 again owns `src/files.rs`, `src/probe.rs`, and `benches/cpu.rs`. Linux does not edit those three while that diff is open. Linux may still edit `src/lib.rs` and `src/http.rs` there for bind defaults. This plan does not.
 - `crates/galion-common/**` stays with core hygiene. Desktop does not edit it.
 - #15's conflict is `docs/crate-index.md`, which #60 owns. The recreation stays out of that file.
 - `docs/desktop/README.md` stays on #52.
@@ -264,4 +264,5 @@ Checked for this plan. Times are Europe/Zagreb (`+01:00`).
 - 15:40. Core recorded a conflict on this plan: CPU #71 (`8c6f047b`) edits `crates/hermes-rs/**`. Desktop keeps that tree for the #14 recreation and for #70. Core keeps `crates/openmind-desktop/**` on #71. Linux #69 does not edit `hermes-rs`.
 - 15:44. Core plan `dda1c88b` confirms the drop, and says `crates/galion-common/src/http.rs` stays with core hygiene. Desktop does not take that file. #71 had not pushed the drop yet.
 - 15:47. Verified #71 head `673bd8a9`. `hermes-rs`, `galion-common/src/http.rs`, and `openmind-desktop` are gone from that diff. #70 is the only Swarm 9 pull request editing `hermes-rs`. #14, #16, and #51 still do, on branches this swarm does not edit.
+- 15:49. #71 head `6f167d26` puts `crates/openmind-desktop/src/files.rs`, `src/probe.rs`, and `benches/cpu.rs` back. `hermes-rs` and `galion-common` stay out. Linux leaves those three desktop files alone while that diff is open.
 - Not run: `cargo test`, `scripts/status-percent.sh`, CI on this plan beyond the push. Those belong to this pull request's CI.

@@ -20,6 +20,12 @@ path = "src/main.rs"
 [dependencies]
 galion-common = { path = "../galion-common" }
 
+# Tests only. A bound socket that is not listening refuses the handshake on
+# Linux, macOS, and Windows. Dropping a listener does not: the Windows
+# runner drops that SYN, and any other process can bind the port first.
+[dev-dependencies]
+socket2 = "0.6.5"
+
 # Linux and macOS take O_NOFOLLOW from libc. The value is not shared:
 # Linux x86 is 0x20000; on Linux aarch64 and arm that bit is O_LARGEFILE
 # and O_NOFOLLOW is 0x8000; macOS is 0x0100. Windows does not link libc.

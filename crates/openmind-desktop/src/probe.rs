@@ -57,15 +57,18 @@ pub enum Service {
     Hermes,
     /// Voice `GET /health`.
     Voice,
+    /// Galion Desk `GET /health`. Read only.
+    Desk,
 }
 
-/// The five services, in report order.
-pub const SERVICES: [Service; 5] = [
+/// The six services, in report order.
+pub const SERVICES: [Service; 6] = [
     Service::Nerve,
     Service::Cortex,
     Service::Console,
     Service::Hermes,
     Service::Voice,
+    Service::Desk,
 ];
 
 impl Service {
@@ -78,6 +81,7 @@ impl Service {
             Service::Console => "console",
             Service::Hermes => "hermes",
             Service::Voice => "voice",
+            Service::Desk => "desk",
         }
     }
 
@@ -85,7 +89,7 @@ impl Service {
     ///
     /// Nerve 8670 (`openmind-nerve` default), cortex 8674 (`gaia-cortex`
     /// default), console 18080 (Rust console API), Hermes 8642, voice 8002
-    /// (Galion One mouth).
+    /// (Galion One mouth), desk 8646 (`galion-desk` default).
     #[must_use]
     pub fn default_port(self) -> u16 {
         match self {
@@ -94,6 +98,7 @@ impl Service {
             Service::Console => 18080,
             Service::Hermes => 8642,
             Service::Voice => 8002,
+            Service::Desk => 8646,
         }
     }
 
@@ -102,11 +107,13 @@ impl Service {
     pub fn default_path(self) -> &'static str {
         match self {
             Service::Console => "/api/v1/health",
-            Service::Nerve | Service::Cortex | Service::Hermes | Service::Voice => "/health",
+            Service::Nerve | Service::Cortex | Service::Hermes | Service::Voice | Service::Desk => {
+                "/health"
+            }
         }
     }
 
-    /// Parses a spec name. `None` when `name` is not one of the five.
+    /// Parses a spec name. `None` when `name` is not one of the six.
     #[must_use]
     pub fn parse(name: &str) -> Option<Self> {
         SERVICES
@@ -121,6 +128,7 @@ impl Service {
             Service::Console => 2,
             Service::Hermes => 3,
             Service::Voice => 4,
+            Service::Desk => 5,
         }
     }
 }
@@ -176,13 +184,13 @@ impl Endpoint {
     }
 }
 
-/// Time budget and the five endpoints.
+/// Time budget and the six endpoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeConfig {
     /// Per-service budget for resolve plus the HTTP exchange.
     pub timeout: Duration,
-    /// Nerve, cortex, console, Hermes, voice, in that order.
-    pub endpoints: [Endpoint; 5],
+    /// Nerve, cortex, console, Hermes, voice, desk, in that order.
+    pub endpoints: [Endpoint; 6],
 }
 
 impl ProbeConfig {
@@ -232,7 +240,7 @@ impl ProbeConfig {
             return Err("empty probe spec".into());
         }
         let mut cfg = Self::defaults();
-        let mut seen = [false; 5];
+        let mut seen = [false; SERVICES.len()];
         let mut timeout_seen = false;
         for entry in spec.split([',', ';']) {
             let entry = entry.trim();
@@ -292,7 +300,7 @@ pub struct ProbeReport {
     pub observed_mode: Option<String>,
 }
 
-/// The five reports from one [`probe_all`] call.
+/// The six reports from one [`probe_all`] call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeSet {
     /// Budget that was used.
@@ -378,7 +386,7 @@ impl ProbeSet {
     }
 }
 
-/// Probes every endpoint. Each service has its own timeout, and the five
+/// Probes every endpoint. Each service has its own timeout, and the six
 /// run together so one slow service does not eat the others' budgets.
 #[must_use]
 pub fn probe_all(cfg: &ProbeConfig) -> ProbeSet {
@@ -753,10 +761,13 @@ mod tests {
     }
 
     #[test]
-    fn defaults_use_a_name_and_the_five_health_paths() {
+    fn defaults_use_a_name_and_the_six_health_paths() {
         let cfg = ProbeConfig::defaults();
         assert_eq!(cfg.timeout, DEFAULT_TIMEOUT);
-        assert_eq!(cfg.endpoints.len(), 5);
+        assert_eq!(cfg.endpoints.len(), 6);
+        assert_eq!(Service::Desk.default_port(), 8646);
+        assert_eq!(Service::Desk.default_path(), "/health");
+        assert_eq!(Service::parse("desk"), Some(Service::Desk));
         for (endpoint, service) in cfg.endpoints.iter().zip(SERVICES) {
             assert_eq!(endpoint.service, service);
             assert_eq!(endpoint.host, DEFAULT_HOST);

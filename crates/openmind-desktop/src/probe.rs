@@ -896,19 +896,35 @@ mod tests {
         assert_eq!(down_report.detail, "http 503");
         assert!(down_report.observed_mode.is_none());
 
-        // The port stays owned and is not listening, so the stack refuses the
-        // handshake. Dropping the listener instead made this race two ways:
-        // another process could bind the port, and the Windows runner drops a
-        // SYN to a port nobody owns, so connect_timeout waited out the budget
-        // and the probe reported Unknown (runs 43655186465 and 43655827496).
+        // The port stays owned and is not listening, so nothing else can bind
+        // it and answer. Linux resets that handshake (Down / connection
+        // refused). macOS and the Windows runner drop the SYN instead, so
+        // connect_timeout reports a timeout and the probe stays Unknown.
+        // Runs 43655186465 and 43655827496 failed when the test required Down
+        // for a port nobody owned. Requiring Down for an owned port failed
+        // the same way on macOS and Windows (run 43793840098).
         let (_owned, refused_addr) = refusing_socket();
+        let started = Instant::now();
         let refused_report = probe_one(
             &endpoint_at(Service::Hermes, refused_addr, "/health"),
             Duration::from_millis(400),
         );
         assert!(refused_report.http_status.is_none());
-        assert_eq!(refused_report.state, State::Down);
-        assert_eq!(refused_report.detail, "connection refused");
+        assert_ne!(refused_report.state, State::Up);
+        assert!(
+            matches!(
+                (refused_report.state, refused_report.detail.as_str()),
+                (State::Down, "connection refused") | (State::Unknown, "timeout")
+            ),
+            "{:?} {}",
+            refused_report.state,
+            refused_report.detail
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
 
         // The peer accepts and then holds past the budget. It must not close
         // on its own: an 800 ms close raced a 200 ms budget, and a late
@@ -1045,7 +1061,12 @@ mod tests {
         assert!(report.observed_mode.is_none());
     }
 
+    /// Linux resets a connect to a bound socket that is not listening, so
+    /// `probe_one` tries the next address. macOS and Windows drop that SYN,
+    /// and a timeout stops the walk. Windows also does not resolve
+    /// `*.localhost` (WSAHOST_NOT_FOUND in run 43793840098).
     #[test]
+    #[cfg(target_os = "linux")]
     fn a_refused_address_does_not_hide_a_later_one() {
         let host = "walk.localhost";
         let preview: Vec<std::net::IpAddr> = (host, 9u16)
@@ -1093,12 +1114,14 @@ mod tests {
 
     #[test]
     fn unresolved_name_is_unknown() {
-        // A space cannot be a DNS name, so this fails inside getaddrinfo.
-        // `not-a-host.invalid` is a real lookup: a slow resolver burns the
-        // budget and the probe reports "timeout" instead of "resolve failed".
+        // A DNS label is at most 63 octets, so this name is rejected before a
+        // lookup. `not-a-host.invalid` and `not a host` still reached a
+        // resolver on macOS and under qemu (run 43793840098) and the probe
+        // reported timeout.
+        let host = format!("{}.invalid", "a".repeat(64));
         let endpoint = Endpoint {
             service: Service::Console,
-            host: "not a host".into(),
+            host,
             port: 9,
             path: "/api/v1/health".into(),
             enabled: true,
@@ -1109,7 +1132,7 @@ mod tests {
         assert_eq!(report.detail, "resolve failed");
         assert!(report.observed_mode.is_none());
         assert!(
-            started.elapsed() < Duration::from_millis(500),
+            started.elapsed() < Duration::from_millis(1500),
             "resolve consulted a resolver: {:?}",
             started.elapsed()
         );

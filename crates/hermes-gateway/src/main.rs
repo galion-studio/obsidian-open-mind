@@ -4,6 +4,7 @@
 //! hermes-gateway: the Rust Hermes API server.
 //!
 //!   hermes-gateway [--mock] [--check-config] [--offhost-once] [--offhost-standby]
+//!   hermes-gateway --help | --version
 //!
 //! Config: $HERMES_HOME/config.yaml (the Python Hermes file, subset), then
 //! env (HERMES_RS_HOST, HERMES_RS_PORT, HERMES_RS_STATE_DB, ...). The API key
@@ -98,6 +99,16 @@ fn open_store(cfg: &Config) -> Result<Arc<dyn SessionStore>, String> {
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // Seed smoke runs these under qemu-user. They return before config load
+    // and before any bind. A flag combined with another argument is not a probe.
+    if args.len() == 1 && (args[0] == "--version" || args[0] == "-V") {
+        println!("hermes-gateway {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if args.len() == 1 && (args[0] == "--help" || args[0] == "-h") {
+        println!("hermes-gateway [--mock] [--check-config] [--offhost-once] [--offhost-standby]");
+        return;
+    }
     let mock = args.iter().any(|a| a == "--mock");
     let cfg = match Config::load(&env) {
         Ok(c) => c,

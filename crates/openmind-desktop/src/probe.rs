@@ -766,7 +766,7 @@ fn validate_path(service: Service, path: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
-    use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+    use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
@@ -1046,6 +1046,52 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_address_does_not_hide_a_later_one() {
+        let host = "walk.localhost";
+        let preview: Vec<std::net::IpAddr> = (host, 9u16)
+            .to_socket_addrs()
+            .expect("localhost name")
+            .map(|addr| addr.ip())
+            .collect();
+        assert!(
+            !preview.is_empty(),
+            "{host} did not resolve on this machine"
+        );
+        let serve_ip = *preview.last().expect("address");
+        let listener = TcpListener::bind((serve_ip, 0)).expect("serve");
+        let port = listener.local_addr().expect("port").port();
+        let mut held = Vec::new();
+        for ip in &preview[..preview.len() - 1] {
+            held.push(refusing_socket_at(SocketAddr::new(*ip, port)));
+        }
+        let requests = Arc::new(Mutex::new(0u32));
+        let counted = Arc::clone(&requests);
+        thread::spawn(move || {
+            if let Ok((mut sock, _)) = listener.accept() {
+                *counted.lock().expect("hits") += 1;
+                let _ = sock.write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok",
+                );
+                let _ = sock.shutdown(Shutdown::Both);
+            }
+        });
+        let report = probe_one(
+            &Endpoint {
+                service: Service::Nerve,
+                host: host.into(),
+                port,
+                path: "/health".into(),
+                enabled: true,
+            },
+            Duration::from_secs(1),
+        );
+        assert_eq!(report.state, State::Up, "{}", report.detail);
+        assert_eq!(report.http_status, Some(200));
+        assert_eq!(*requests.lock().expect("hits"), 1);
+        assert_eq!(held.len(), preview.len() - 1);
+    }
+
+    #[test]
     fn unresolved_name_is_unknown() {
         // A space cannot be a DNS name, so this fails inside getaddrinfo.
         // `not-a-host.invalid` is a real lookup: a slow resolver burns the
@@ -1089,21 +1135,29 @@ mod tests {
     /// Bound, not listening. The port cannot be stolen, and the handshake is
     /// refused on every target this crate tests.
     fn refusing_socket() -> (socket2::Socket, SocketAddr) {
-        let socket = socket2::Socket::new(
-            socket2::Domain::IPV4,
-            socket2::Type::STREAM,
-            Some(socket2::Protocol::TCP),
-        )
-        .expect("tcp socket");
-        socket
-            .bind(&SocketAddr::from((Ipv4Addr::LOCALHOST, 0)).into())
-            .expect("bind");
+        let socket = refusing_socket_at(SocketAddr::from((Ipv4Addr::LOCALHOST, 0)));
         let addr = socket
             .local_addr()
             .expect("local addr")
             .as_socket()
             .expect("ip socket");
         (socket, addr)
+    }
+
+    fn refusing_socket_at(addr: SocketAddr) -> socket2::Socket {
+        let domain = if addr.is_ipv4() {
+            socket2::Domain::IPV4
+        } else {
+            socket2::Domain::IPV6
+        };
+        let socket =
+            socket2::Socket::new(domain, socket2::Type::STREAM, Some(socket2::Protocol::TCP))
+                .expect("tcp socket");
+        if addr.is_ipv6() {
+            socket.set_only_v6(true).expect("ipv6 only");
+        }
+        socket.bind(&addr.into()).expect("bind");
+        socket
     }
 
     fn endpoint_at(service: Service, addr: SocketAddr, path: &str) -> Endpoint {

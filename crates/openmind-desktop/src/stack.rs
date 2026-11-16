@@ -18,7 +18,8 @@
 //! `staged`. Memory is one too: `GET /health` on port 8420. That row stays
 //! `planned`. Galion One is `GET /health` on port 8091. That row stays
 //! `planned`. A file the console accepts still writes `sent` there until
-//! the next Look.
+//! the next Look. The loopback listener writes `here` on the Open Mind
+//! row. Look clears it and writes it again. That row stays `staged`.
 
 /// One row of the stack view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

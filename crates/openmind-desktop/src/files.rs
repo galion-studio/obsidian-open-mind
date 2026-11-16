@@ -184,6 +184,36 @@ impl FileError {
             FileError::Io(_) => "io",
         }
     }
+
+    /// One sentence for the operator. The [`Self::code`] token stays stable.
+    /// An I/O failure does not include the path.
+    #[must_use]
+    pub fn message(&self) -> String {
+        match self {
+            FileError::Empty => "The file is empty.".to_string(),
+            FileError::TooLarge => {
+                let mib = MAX_FILE_BYTES / (1024 * 1024);
+                format!("The file is larger than {mib} MiB.")
+            }
+            FileError::Type => "That file type is not accepted.".to_string(),
+            FileError::Magic => "The bytes do not match the file name.".to_string(),
+            FileError::Traversal => "That path leaves the chosen folder.".to_string(),
+            FileError::Outside => "That path was not chosen.".to_string(),
+            FileError::Symlink => "A symlink is not opened.".to_string(),
+            FileError::NotFound => "That file is not in the chosen folder.".to_string(),
+            FileError::NotFile => "That path is not a file.".to_string(),
+            FileError::NoDestination => "There is nowhere to store the file yet.".to_string(),
+            FileError::NotLoopback => "The intake is not on loopback.".to_string(),
+            FileError::Unreachable => "The intake did not answer.".to_string(),
+            FileError::Pair => {
+                "The intake asked to pair. This desktop does not send a token.".to_string()
+            }
+            FileError::StackStatus => "The intake refused the file.".to_string(),
+            FileError::BadName => "That name is not a single file name.".to_string(),
+            FileError::BadJson => "The request was not a path.".to_string(),
+            FileError::Io(_) => "The disk read failed.".to_string(),
+        }
+    }
 }
 
 impl std::fmt::Display for FileError {
@@ -568,10 +598,17 @@ impl Receipt {
     }
 }
 
-/// `{"error":"<code>"}`.
+/// `{"error":"<code>","message":"<sentence>"}`.
+///
+/// `error` stays the stable token from [`FileError::code`]. `message` is
+/// [`FileError::message`].
 #[must_use]
 pub fn error_json(err: &FileError) -> String {
-    format!("{{\"error\":{}}}", json::string(err.code()))
+    format!(
+        "{{\"error\":{},\"message\":{}}}",
+        json::string(err.code()),
+        json::string(&err.message())
+    )
 }
 
 /// HTTP status for [`FileError`].
@@ -1931,5 +1968,50 @@ mod tests {
         );
         assert!(files.pick().is_empty());
         assert_eq!(files.sent_json(), "{\"sent\":[]}");
+        let err = files.upload_bytes("a.txt", b"hi").unwrap_err();
+        assert_eq!(err.message(), "There is nowhere to store the file yet.");
+        let body = error_json(&err);
+        assert!(body.contains("\"error\":\"no-destination\""));
+        assert!(body.contains("\"message\":\"There is nowhere to store the file yet.\""));
+    }
+
+    #[test]
+    fn every_refusal_has_a_sentence_and_keeps_its_code() {
+        let cases = [
+            FileError::Empty,
+            FileError::TooLarge,
+            FileError::Type,
+            FileError::Magic,
+            FileError::Traversal,
+            FileError::Outside,
+            FileError::Symlink,
+            FileError::NotFound,
+            FileError::NotFile,
+            FileError::NoDestination,
+            FileError::NotLoopback,
+            FileError::Unreachable,
+            FileError::Pair,
+            FileError::StackStatus,
+            FileError::BadName,
+            FileError::BadJson,
+            FileError::Io("secret-path".into()),
+        ];
+        for err in cases {
+            let sentence = err.message();
+            assert!(sentence.ends_with('.'), "{sentence}");
+            assert_ne!(sentence, err.code());
+            let body = error_json(&err);
+            assert!(body.contains(&format!("\"error\":\"{}\"", err.code())));
+            assert!(body.contains("\"message\":"));
+            assert!(!body.contains("secret-path"));
+        }
+        assert_eq!(
+            FileError::TooLarge.message(),
+            format!(
+                "The file is larger than {} MiB.",
+                MAX_FILE_BYTES / (1024 * 1024)
+            )
+        );
+        assert_eq!(FileError::Empty.message(), "The file is empty.");
     }
 }

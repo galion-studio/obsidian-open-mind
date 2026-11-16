@@ -63,7 +63,12 @@ cleanup() {
 trap cleanup EXIT
 
 root=$(mktemp -d)
+# mktemp is mode 700 and owned by the runner. Root can still enter the
+# chroot. The obsidian user cannot search that directory, so execve returns
+# EACCES for every binary, including /usr/bin/env. 755 lets that user in.
+chmod 755 "$root"
 sudo debootstrap --variant=minbase --arch=arm64 bookworm "$root" http://deb.debian.org/debian
+sudo chmod 755 "$root"
 
 sudo mkdir -p "$root/proc" "$root/sys" "$root/dev" "$root/dev/pts"
 sudo mount --bind /proc "$root/proc"

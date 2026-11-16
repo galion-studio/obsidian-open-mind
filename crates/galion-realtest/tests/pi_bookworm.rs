@@ -50,6 +50,10 @@ fn install_and_emulator_name_the_same_non_pi_result() {
     assert!(workflow.contains("contents: read"));
     assert!(!workflow.contains("contents: write"));
     assert!(emulator.contains("debootstrap"));
+    assert!(
+        emulator.contains("chmod 755 \"$root\""),
+        "the chroot root must be searchable by the service user"
+    );
     assert!(emulator.contains("--arch=arm64"));
     assert!(emulator.contains("bookworm"));
     assert!(emulator.contains("PI_BOOKWORM_EMULATOR=1"));

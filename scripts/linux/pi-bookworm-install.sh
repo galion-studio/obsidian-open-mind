@@ -457,11 +457,28 @@ port_open() {
   (echo >"/dev/tcp/127.0.0.1/$port") >/dev/null 2>&1
 }
 
+background_pids_alive() {
+  local f pid found=0
+  [ -d "${run_dir:-}" ] || return 0
+  for f in "$run_dir"/*.pid; do
+    [ -f "$f" ] || continue
+    found=1
+    pid=$(tr -d '[:space:]' < "$f")
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+      return 0
+    fi
+  done
+  [ "$found" = 0 ]
+}
+
 wait_ports() {
   local deadline=$((SECONDS + 180))
   local port pending
   local ports=(18181 8420 8670 8674 18080 8642 8646 8002 8091)
   while [ "$SECONDS" -lt "$deadline" ]; do
+    if ! background_pids_alive; then
+      die "services exited before listening"
+    fi
     pending=0
     for port in "${ports[@]}"; do
       if ! port_open "$port"; then

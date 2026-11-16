@@ -257,7 +257,7 @@ audio { display: none; }
 /// overwritten in one buffer and then dropped. The level line is the only
 /// meter. Look asks `GET /probes` on the loopback listener and writes the
 /// service names with `textContent`. The word `files` opens the same picker
-/// as the plus and writes `open` on the Files row. The word `voice` runs the
+/// as the plus. That click writes `open` on the Files row. The word `voice` runs the
 /// same toggle as the voice button and does not tick the opt-in box. Opening
 /// the microphone writes `open` on the Voice row. The word `mute` runs the
 /// same toggle as the Mute button and plays no tone. Any other kept
@@ -419,6 +419,9 @@ const SCRIPT: &str = r#"
     if (i >= list.length) return;
     sendFile(list[i], function () { sendAt(list, i + 1); });
   }
+  files.addEventListener("click", function () {
+    markSeen("files", "open");
+  });
   files.addEventListener("change", function () {
     picked.textContent = "";
     var list = files.files;
@@ -448,11 +451,7 @@ const SCRIPT: &str = r#"
     command.value = "";
     var word = text.toLowerCase();
     if (word === "look") { runLook(); return; }
-    if (word === "files") {
-      markSeen("files", "open");
-      files.click();
-      return;
-    }
+    if (word === "files") { files.click(); return; }
     if (word === "voice") { toggleVoice(); return; }
     if (word === "mute") { toggleMute(); return; }
     markSeen("command", "kept");
@@ -858,6 +857,7 @@ mod tests {
         assert!(html.contains("markSeen(\"voice\", \"open\")"));
         assert!(html.contains("clearSeenWord(\"voice\", \"open\")"));
         assert!(html.contains("files.click()"));
+        assert!(html.contains("files.addEventListener(\"click\""));
         assert!(html.contains("toggleVoice()"));
         assert!(html.contains("voice.addEventListener(\"click\", toggleVoice)"));
         assert!(html.contains("runLook()"));

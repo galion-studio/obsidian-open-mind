@@ -706,6 +706,7 @@ fn render() -> String {
         "<main class=\"stage\" id=\"main\"><div class=\"presence\">\
 <h2>Open Mind</h2>\
 <p>Ask from here. The command stays on this page. No model is called. Tones are 432 Hz.</p>\
+<p class=\"notes\" id=\"words\">look checks the stack. files opens the picker. voice toggles the microphone.</p>\
 <div class=\"prompt\" role=\"group\" aria-label=\"Command\">\
 <label class=\"plus\"><input id=\"files\" type=\"file\" multiple aria-label=\"Add files\">",
     );
@@ -785,6 +786,11 @@ mod tests {
         assert!(html.contains("Control console"));
         assert!(html.contains("MIT License"));
         assert!(html.contains("432 Hz"));
+        assert!(html.contains(
+            "look checks the stack. files opens the picker. voice toggles the microphone."
+        ));
+        let words = html.find("id=\"words\"").unwrap();
+        assert!(words < field);
         assert!(html.contains("href=\"/one\""));
         assert!(html.contains("href=\"/research\""));
         assert_eq!(html.matches("href=\"/one\"").count(), 2);

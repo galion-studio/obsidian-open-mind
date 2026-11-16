@@ -11,7 +11,8 @@
 //! change these states. It writes the probe word into the row's `.seen`
 //! span when the probe service matches `id`, and leaves `state` as it is.
 //! A file the console accepts writes `sent` on the Galion One row. The
-//! command `files` writes `open` on the Files row. Opening the microphone
+//! command `files` and the plus both open the picker. That click writes
+//! `open` on the Files row. Opening the microphone
 //! writes `open` on the Voice row, and closing it clears that word when it
 //! is still `open`. Look clears every `.seen` span, then writes probe words.
 //! Desk is one of those probes: `GET /health` on port 8646. The row stays

@@ -61,10 +61,12 @@ pub enum Service {
     Desk,
     /// Open Mind memory `GET /health`. Read only.
     Memory,
+    /// Galion One `GET /health`. Read only.
+    GalionOne,
 }
 
-/// The seven services, in report order.
-pub const SERVICES: [Service; 7] = [
+/// The eight services, in report order.
+pub const SERVICES: [Service; 8] = [
     Service::Nerve,
     Service::Cortex,
     Service::Console,
@@ -72,6 +74,7 @@ pub const SERVICES: [Service; 7] = [
     Service::Voice,
     Service::Desk,
     Service::Memory,
+    Service::GalionOne,
 ];
 
 impl Service {
@@ -86,6 +89,7 @@ impl Service {
             Service::Voice => "voice",
             Service::Desk => "desk",
             Service::Memory => "memory",
+            Service::GalionOne => "galion-one",
         }
     }
 
@@ -94,7 +98,7 @@ impl Service {
     /// Nerve 8670 (`openmind-nerve` default), cortex 8674 (`gaia-cortex`
     /// default), console 18080 (Rust console API), Hermes 8642, voice 8002
     /// (Galion One mouth), desk 8646 (`galion-desk` default), memory 8420
-    /// (`openmind-memory` default).
+    /// (`openmind-memory` default), Galion One 8091 (`ONE_BIND` default).
     #[must_use]
     pub fn default_port(self) -> u16 {
         match self {
@@ -105,6 +109,7 @@ impl Service {
             Service::Voice => 8002,
             Service::Desk => 8646,
             Service::Memory => 8420,
+            Service::GalionOne => 8091,
         }
     }
 
@@ -118,11 +123,12 @@ impl Service {
             | Service::Hermes
             | Service::Voice
             | Service::Desk
-            | Service::Memory => "/health",
+            | Service::Memory
+            | Service::GalionOne => "/health",
         }
     }
 
-    /// Parses a spec name. `None` when `name` is not one of the seven.
+    /// Parses a spec name. `None` when `name` is not one of the eight.
     #[must_use]
     pub fn parse(name: &str) -> Option<Self> {
         SERVICES
@@ -139,6 +145,7 @@ impl Service {
             Service::Voice => 4,
             Service::Desk => 5,
             Service::Memory => 6,
+            Service::GalionOne => 7,
         }
     }
 }
@@ -194,13 +201,13 @@ impl Endpoint {
     }
 }
 
-/// Time budget and the seven endpoints.
+/// Time budget and the eight endpoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeConfig {
     /// Per-service budget for resolve plus the HTTP exchange.
     pub timeout: Duration,
-    /// Nerve, cortex, console, Hermes, voice, desk, memory, in that order.
-    pub endpoints: [Endpoint; 7],
+    /// Nerve, cortex, console, Hermes, voice, desk, memory, Galion One, in that order.
+    pub endpoints: [Endpoint; 8],
 }
 
 impl ProbeConfig {
@@ -310,7 +317,7 @@ pub struct ProbeReport {
     pub observed_mode: Option<String>,
 }
 
-/// The seven reports from one [`probe_all`] call.
+/// The eight reports from one [`probe_all`] call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeSet {
     /// Budget that was used.
@@ -396,7 +403,7 @@ impl ProbeSet {
     }
 }
 
-/// Probes every endpoint. Each service has its own timeout, and the seven
+/// Probes every endpoint. Each service has its own timeout, and the eight
 /// run together so one slow service does not eat the others' budgets.
 #[must_use]
 pub fn probe_all(cfg: &ProbeConfig) -> ProbeSet {
@@ -771,14 +778,14 @@ mod tests {
     }
 
     #[test]
-    fn defaults_use_a_name_and_the_seven_health_paths() {
+    fn defaults_use_a_name_and_the_eight_health_paths() {
         let cfg = ProbeConfig::defaults();
         assert_eq!(cfg.timeout, DEFAULT_TIMEOUT);
-        assert_eq!(cfg.endpoints.len(), 7);
-        assert_eq!(Service::Desk.default_port(), 8646);
+        assert_eq!(cfg.endpoints.len(), 8);
         assert_eq!(Service::Memory.default_port(), 8420);
-        assert_eq!(Service::Memory.default_path(), "/health");
-        assert_eq!(Service::parse("memory"), Some(Service::Memory));
+        assert_eq!(Service::GalionOne.default_port(), 8091);
+        assert_eq!(Service::GalionOne.default_path(), "/health");
+        assert_eq!(Service::parse("galion-one"), Some(Service::GalionOne));
         for (endpoint, service) in cfg.endpoints.iter().zip(SERVICES) {
             assert_eq!(endpoint.service, service);
             assert_eq!(endpoint.host, DEFAULT_HOST);

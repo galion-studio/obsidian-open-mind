@@ -50,3 +50,13 @@ Probes that exit 0 without binding, from the `# probe:` lines in `scripts/linux/
 | galion-console-static, galion-console-serve | `--help` only (no `--version`) |
 
 `hermes-gateway` and `galion-backup` grew a single-argument `--help` / `--version` that returns before config, sqlite, or a bind, so the smoke can run them.
+
+## Install
+
+On Raspberry Pi OS Bookworm 64-bit, one command installs the desktop and the services its probes ask. See `docs/PI-BOOKWORM.md`.
+
+```sh
+sudo scripts/linux/pi-bookworm-install.sh --seed target/pi-seed-out/aarch64-unknown-linux-musl
+```
+
+The `bookworm arm64 emulator` job in `.github/workflows/pi-seed.yml` runs that install twice under qemu-user in a Debian Bookworm arm64 root. That job is not a Raspberry Pi 5 boot and not Raspberry Pi OS.

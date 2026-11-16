@@ -7,6 +7,8 @@
 # under qemu-user. That is not a boot on Raspberry Pi 5 hardware and not a
 # Galion OS image test. The tarball is a workflow artifact only.
 # permissions stay contents: read. This file does not create a GitHub Release.
+# The bookworm job runs the desktop install twice in a Debian Bookworm arm64
+# root under qemu-user. That job is not Raspberry Pi OS and not Raspberry Pi 5.
 name: pi-seed
 
 on:
@@ -113,3 +115,17 @@ jobs:
           path: dist/obsidian-pi5-seed-${{ github.sha }}.tar.gz
           if-no-files-found: error
           retention-days: 14
+
+  bookworm-emulator:
+    name: bookworm arm64 emulator
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pi-seed-bins-aarch64-unknown-linux-musl
+          path: seed-bins
+      - name: install twice under qemu-user and check probes
+        run: scripts/linux/pi-bookworm-emulator.sh seed-bins

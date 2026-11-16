@@ -260,8 +260,9 @@ audio { display: none; }
 /// as the plus and writes `open` on the Files row. The word `voice` runs the
 /// same toggle as the voice button and does not tick the opt-in box. Opening
 /// the microphone writes `open` on the Voice row. The word `mute` runs the
-/// same toggle as the Mute button and plays no tone. Night hours and Mute
-/// skip tones. During local hours 22:00–06:59 the page writes the quiet
+/// same toggle as the Mute button and plays no tone. Any other kept
+/// command writes `kept` on the Command row. Look clears that word.
+/// Night hours and Mute skip tones. During local hours 22:00–06:59 the page writes the quiet
 /// sentence into `#quiet`. A `file:` page writes the printed-page sentence
 /// into `#printed`. Look and uploads still need the loopback listener. The
 /// loopback listener writes `Listening on` plus the page host into `#here`,
@@ -454,6 +455,7 @@ const SCRIPT: &str = r#"
     }
     if (word === "voice") { toggleVoice(); return; }
     if (word === "mute") { toggleMute(); return; }
+    markSeen("command", "kept");
     play("done");
   });
   function probeWord(item) {
@@ -850,6 +852,7 @@ mod tests {
         assert!(html.contains("word === \"voice\""));
         assert!(html.contains("word === \"mute\""));
         assert!(html.contains("toggleMute()"));
+        assert!(html.contains("markSeen(\"command\", \"kept\")"));
         assert!(html.contains("mute.addEventListener(\"click\", toggleMute)"));
         assert!(html.contains("markSeen(\"files\", \"open\")"));
         assert!(html.contains("markSeen(\"voice\", \"open\")"));

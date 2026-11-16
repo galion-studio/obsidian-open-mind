@@ -21,7 +21,10 @@ fn run() -> Result<(), DesktopError> {
                 )
             );
         }
-        Mode::Page => print!("{}", openmind_desktop::document()),
+        Mode::Page => print!(
+            "{}",
+            openmind_desktop::present(openmind_desktop::document())
+        ),
         Mode::Listen(opts) => {
             let probes = load_probes(None)?;
             let env_port = listen_port_from_env()?;

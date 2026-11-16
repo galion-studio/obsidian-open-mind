@@ -135,7 +135,7 @@ fn page_response() -> Response {
         Response::new(
             200,
             "text/html; charset=utf-8",
-            page::document().as_bytes().to_vec(),
+            crate::surface::present(page::document()).into_bytes(),
         )
         .with_header("content-security-policy", CSP),
     )

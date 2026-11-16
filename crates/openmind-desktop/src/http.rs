@@ -281,22 +281,17 @@ mod tests {
                 Arc::new(move |req: &Request| dispatch(req, &files));
             let _ = galion_common::http::serve(listener, limits, handler);
         });
+        // The listener is already accepting. One connect queues until the
+        // handler thread calls accept; retrying hid a refused handshake.
+        let mut stream = TcpStream::connect(addr).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\r\n")
+            .unwrap();
         let mut body = String::new();
-        for _ in 0..20 {
-            thread::sleep(Duration::from_millis(20));
-            let mut stream = match TcpStream::connect(addr) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            stream
-                .set_read_timeout(Some(Duration::from_secs(2)))
-                .unwrap();
-            stream
-                .write_all(b"GET / HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\r\n")
-                .unwrap();
-            stream.read_to_string(&mut body).unwrap();
-            break;
-        }
+        stream.read_to_string(&mut body).unwrap();
         assert!(body.contains("data-desktop=\"control-console\""), "{body}");
     }
 

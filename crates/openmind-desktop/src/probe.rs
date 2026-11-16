@@ -766,7 +766,8 @@ fn validate_path(service: Service, path: &str) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::io::{Read, Write};
-    use std::net::{Shutdown, TcpListener, TcpStream};
+    use std::net::{Ipv4Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
     fn looks_like_ipv4(host: &str) -> bool {
@@ -895,39 +896,28 @@ mod tests {
         assert_eq!(down_report.detail, "http 503");
         assert!(down_report.observed_mode.is_none());
 
-        // Nothing is listening on this loopback port. Linux and macOS reset
-        // the SYN. The Windows runner drops it, so the connect reaches the
-        // deadline instead of returning a refusal.
-        let refused = TcpListener::bind("127.0.0.1:0").unwrap();
-        let refused_addr = refused.local_addr().unwrap();
-        drop(refused);
+        // The port stays owned and is not listening, so the stack refuses the
+        // handshake. Dropping the listener instead made this race two ways:
+        // another process could bind the port, and the Windows runner drops a
+        // SYN to a port nobody owns, so connect_timeout waited out the budget
+        // and the probe reported Unknown (runs 43655186465 and 43655827496).
+        let (_owned, refused_addr) = refusing_socket();
         let refused_report = probe_one(
             &endpoint_at(Service::Hermes, refused_addr, "/health"),
             Duration::from_millis(400),
         );
         assert!(refused_report.http_status.is_none());
-        assert_ne!(refused_report.state, State::Up);
-        #[cfg(windows)]
-        assert!(
-            matches!(
-                (refused_report.state, refused_report.detail.as_str()),
-                (State::Unknown, "timeout") | (State::Down, "connection refused")
-            ),
-            "{:?} {}",
-            refused_report.state,
-            refused_report.detail
-        );
-        #[cfg(not(windows))]
-        {
-            assert_eq!(refused_report.state, State::Down);
-            assert_eq!(refused_report.detail, "connection refused");
-        }
+        assert_eq!(refused_report.state, State::Down);
+        assert_eq!(refused_report.detail, "connection refused");
 
+        // The peer accepts and then holds past the budget. It must not close
+        // on its own: an 800 ms close raced a 200 ms budget, and a late
+        // timeout came back as "connection closed" or blew the wall clock.
         let hung = TcpListener::bind((DEFAULT_HOST, 0)).unwrap();
         let hung_addr = hung.local_addr().unwrap();
         thread::spawn(move || {
             if let Ok((sock, _)) = hung.accept() {
-                thread::sleep(Duration::from_millis(800));
+                thread::sleep(Duration::from_secs(10));
                 drop(sock);
             }
         });
@@ -938,7 +928,11 @@ mod tests {
         );
         assert_eq!(hung_report.state, State::Unknown);
         assert_eq!(hung_report.detail, "timeout");
-        assert!(started.elapsed() < Duration::from_millis(700));
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "budget should fire while the peer is still holding: {:?}",
+            started.elapsed()
+        );
 
         let garbage = serve_raw(b"hello\r\n");
         let garbage_report = probe_one(
@@ -1000,26 +994,36 @@ mod tests {
     #[test]
     fn timeouts_run_together() {
         let mut cfg = ProbeConfig::defaults();
-        cfg.timeout = Duration::from_millis(250);
+        cfg.timeout = Duration::from_millis(200);
+        let current = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
         for endpoint in &mut cfg.endpoints {
-            let listener = TcpListener::bind((DEFAULT_HOST, 0)).unwrap();
+            let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
             let addr = listener.local_addr().unwrap();
             endpoint.host = addr.ip().to_string();
             endpoint.port = addr.port();
+            let current = Arc::clone(&current);
+            let peak = Arc::clone(&peak);
             thread::spawn(move || {
                 if let Ok((sock, _)) = listener.accept() {
-                    thread::sleep(Duration::from_millis(800));
+                    let now = current.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(now, Ordering::SeqCst);
+                    // Hold well past one budget so a serial walk cannot finish
+                    // by the server closing, and a late timeout is still a timeout.
+                    thread::sleep(Duration::from_secs(10));
                     drop(sock);
                 }
             });
         }
         let started = Instant::now();
         let report = probe_all(&cfg);
+        let elapsed = started.elapsed();
         assert!(
-            started.elapsed() < Duration::from_millis(700),
-            "{:?}",
-            started.elapsed()
+            elapsed < Duration::from_secs(3),
+            "probes should share one budget, not the server hold: {elapsed:?}"
         );
+        let in_flight = peak.load(Ordering::SeqCst);
+        assert!(in_flight >= 2, "probes in flight at once: {in_flight}");
         assert!(report
             .probes
             .iter()
@@ -1043,17 +1047,26 @@ mod tests {
 
     #[test]
     fn unresolved_name_is_unknown() {
+        // A space cannot be a DNS name, so this fails inside getaddrinfo.
+        // `not-a-host.invalid` is a real lookup: a slow resolver burns the
+        // budget and the probe reports "timeout" instead of "resolve failed".
         let endpoint = Endpoint {
             service: Service::Console,
-            host: "not-a-host.invalid".into(),
+            host: "not a host".into(),
             port: 9,
             path: "/api/v1/health".into(),
             enabled: true,
         };
-        let report = probe_one(&endpoint, Duration::from_millis(500));
+        let started = Instant::now();
+        let report = probe_one(&endpoint, Duration::from_secs(2));
         assert_eq!(report.state, State::Unknown);
         assert_eq!(report.detail, "resolve failed");
         assert!(report.observed_mode.is_none());
+        assert!(
+            started.elapsed() < Duration::from_millis(500),
+            "resolve consulted a resolver: {:?}",
+            started.elapsed()
+        );
     }
 
     struct Mock {
@@ -1071,6 +1084,26 @@ mod tests {
                 .filter_map(|request| request.split_whitespace().next().map(str::to_string))
                 .collect()
         }
+    }
+
+    /// Bound, not listening. The port cannot be stolen, and the handshake is
+    /// refused on every target this crate tests.
+    fn refusing_socket() -> (socket2::Socket, SocketAddr) {
+        let socket = socket2::Socket::new(
+            socket2::Domain::IPV4,
+            socket2::Type::STREAM,
+            Some(socket2::Protocol::TCP),
+        )
+        .expect("tcp socket");
+        socket
+            .bind(&SocketAddr::from((Ipv4Addr::LOCALHOST, 0)).into())
+            .expect("bind");
+        let addr = socket
+            .local_addr()
+            .expect("local addr")
+            .as_socket()
+            .expect("ip socket");
+        (socket, addr)
     }
 
     fn endpoint_at(service: Service, addr: SocketAddr, path: &str) -> Endpoint {

@@ -258,8 +258,9 @@ audio { display: none; }
 /// service names with `textContent`. The word `files` opens the same picker
 /// as the plus and writes `open` on the Files row. The word `voice` runs the
 /// same toggle as the voice button and does not tick the opt-in box. Opening
-/// the microphone writes `open` on the Voice row. Night hours and Mute skip
-/// tones.
+/// the microphone writes `open` on the Voice row. The word `mute` runs the
+/// same toggle as the Mute button and plays no tone. Night hours and Mute
+/// skip tones.
 const SCRIPT: &str = r#"
 (function () {
   var files = document.getElementById("files");
@@ -446,6 +447,7 @@ const SCRIPT: &str = r#"
       return;
     }
     if (word === "voice") { toggleVoice(); return; }
+    if (word === "mute") { toggleMute(); return; }
     play("done");
   });
   function probeWord(item) {
@@ -538,11 +540,12 @@ const SCRIPT: &str = r#"
     });
   }
   look.addEventListener("click", runLook);
-  mute.addEventListener("click", function () {
+  function toggleMute() {
     var on = mute.getAttribute("aria-pressed") === "true";
     mute.setAttribute("aria-pressed", on ? "false" : "true");
     mute.textContent = on ? "Mute" : "Muted";
-  });
+  }
+  mute.addEventListener("click", toggleMute);
   if (location.protocol !== "file:" && loopbackPage()) play("wake");
 })();
 "#;
@@ -706,7 +709,7 @@ fn render() -> String {
         "<main class=\"stage\" id=\"main\"><div class=\"presence\">\
 <h2>Open Mind</h2>\
 <p>Ask from here. The command stays on this page. No model is called. Tones are 432 Hz.</p>\
-<p class=\"notes\" id=\"words\">look checks the stack. files opens the picker. voice toggles the microphone.</p>\
+<p class=\"notes\" id=\"words\">look checks the stack. files opens the picker. voice toggles the microphone. mute toggles the tones.</p>\
 <div class=\"prompt\" role=\"group\" aria-label=\"Command\">\
 <label class=\"plus\"><input id=\"files\" type=\"file\" multiple aria-label=\"Add files\">",
     );
@@ -787,7 +790,7 @@ mod tests {
         assert!(html.contains("MIT License"));
         assert!(html.contains("432 Hz"));
         assert!(html.contains(
-            "look checks the stack. files opens the picker. voice toggles the microphone."
+            "look checks the stack. files opens the picker. voice toggles the microphone. mute toggles the tones."
         ));
         let words = html.find("id=\"words\"").unwrap();
         assert!(words < field);
@@ -805,6 +808,9 @@ mod tests {
         assert!(html.contains("word === \"look\""));
         assert!(html.contains("word === \"files\""));
         assert!(html.contains("word === \"voice\""));
+        assert!(html.contains("word === \"mute\""));
+        assert!(html.contains("toggleMute()"));
+        assert!(html.contains("mute.addEventListener(\"click\", toggleMute)"));
         assert!(html.contains("markSeen(\"files\", \"open\")"));
         assert!(html.contains("markSeen(\"voice\", \"open\")"));
         assert!(html.contains("clearSeenWord(\"voice\", \"open\")"));

@@ -50,6 +50,19 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+[profile.pi-seed]
+# Speed seed for Pi 5 (scripts/linux/pi-seed.sh, .github/workflows/pi-seed.yml,
+# docs/PI5-SEED.md). [profile.release] stays opt-level "z" for the 2 MiB
+# budget (docs/low-end-profile.md, config/release/size-budget.tsv). This
+# profile is not size-budgeted. Linker: rust-lld (.cargo/config.toml,
+# CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER).
+inherits = "release"
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
 # Exception to opt-level "z" for the on-device voice models only (voice-rust):
 # Chatterbox and Whisper run billions of multiply-adds per request in candle
 # and gemm, and "z" makes those loops several times slower. Size of every other

@@ -14,6 +14,8 @@
 //! command `files` writes `open` on the Files row. Opening the microphone
 //! writes `open` on the Voice row, and closing it clears that word when it
 //! is still `open`. Look clears every `.seen` span, then writes probe words.
+//! Desk is one of those probes: `GET /health` on port 8646. The row stays
+//! `staged`.
 
 /// One row of the stack view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

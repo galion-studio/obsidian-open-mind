@@ -28,7 +28,7 @@ usage: openmind-desktop [--listen [ADDR]] [--port PORT] [--grant PATH]... [--inb
   --inbox DIR    store accepted files in this directory
   --stack ADDR   upload them to a loopback OpenMind intake (default 127.0.0.1:8091)
   --stack off    do not open a client
-  --probe        GET nerve, cortex, console, hermes and voice; print the report
+  --probe        GET nerve, cortex, console, hermes, voice and desk; print the report
   --probe SPEC   same, with SPEC (name=host:port/path, comma-separated)
                  timeout=MILLISECONDS (50 to 10000) is one SPEC entry
                  name=- skips that service and opens no socket for it

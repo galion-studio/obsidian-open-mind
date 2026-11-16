@@ -16,7 +16,7 @@
 //! cap, then uploaded on loopback. The page does not call a model.
 //!
 //! Printing the page opens no socket. [`listen`] binds a loopback address
-//! only. Live checks of nerve, cortex, console, Hermes and voice are
+//! only. Live checks of nerve, cortex, console, Hermes, voice and desk are
 //! [`probe`]: read-only GETs, and only when `--probe` or `GET /probes` asks.
 
 #![forbid(unsafe_code)]

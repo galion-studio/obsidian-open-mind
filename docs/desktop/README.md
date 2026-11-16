@@ -129,7 +129,7 @@ Every pitch is an integer ratio of 432 Hz. `REFERENCE_HZ` is 432. `hz` is `REFER
 | deny | 3/4 | 324 | 180 | Refused. Nothing was sent | empty command, empty or oversize file, upload refused, box not ticked, page not on loopback, no microphone API, or permission refused |
 | close | 2/3 | 288 | 140 | Voice disarmed | the voice button or the word `voice` closes the microphone |
 
-Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src/sound.rs`. The script calls are `play("wake")`, `play("hear")`, `play("ask")`, `play("close")`, `play("deny")`, `play("done")`, and `play("notice")` in `crates/openmind-desktop/src/page.rs`. `wake` runs only when `location.protocol` is not `file:` and `loopbackPage()` is true. Mute (`aria-pressed` on `#mute`) and local hours 22:00–06:59 skip playback (`night` and `play` in that script). `wake` is checked against 432 Hz, not concert 440 (`wake_is_432_not_440` in `sound.rs`).
+Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src/sound.rs`. The script calls are `play("wake")`, `play("hear")`, `play("ask")`, `play("close")`, `play("deny")`, `play("done")`, and `play("notice")` in `crates/openmind-desktop/src/page.rs`. `wake` runs only when `location.protocol` is not `file:` and `loopbackPage()` is true. Mute (`aria-pressed` on `#mute`) and local hours 22:00–06:59 skip playback (`night` and `play` in that script). During those hours the page writes `Tones are quiet until 07:00.` into `#quiet`. The line stays hidden while it is empty (`#quiet:empty` in the page style). `wake` is checked against 432 Hz, not concert 440 (`wake_is_432_not_440` in `sound.rs`).
 
 ## CI
 

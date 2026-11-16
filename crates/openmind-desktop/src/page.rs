@@ -256,8 +256,10 @@ audio { display: none; }
 /// overwritten in one buffer and then dropped. The level line is the only
 /// meter. Look asks `GET /probes` on the loopback listener and writes the
 /// service names with `textContent`. The word `files` opens the same picker
-/// as the plus and writes `open` on the Files row. Night hours and Mute
-/// skip tones.
+/// as the plus and writes `open` on the Files row. The word `voice` runs the
+/// same toggle as the voice button and does not tick the opt-in box. Opening
+/// the microphone writes `open` on the Voice row. Night hours and Mute skip
+/// tones.
 const SCRIPT: &str = r#"
 (function () {
   var files = document.getElementById("files");
@@ -304,6 +306,7 @@ const SCRIPT: &str = r#"
     voice.setAttribute("aria-pressed", "false");
     level.textContent = "";
     voiceState.textContent = "Microphone closed. Nothing was saved.";
+    clearSeenWord("voice", "open");
   }
   function pump(analyser) {
     var buf = new Float32Array(analyser.fftSize);
@@ -344,6 +347,7 @@ const SCRIPT: &str = r#"
       source.connect(analyser);
       voice.setAttribute("aria-pressed", "true");
       voiceState.textContent = "Microphone open on this machine. Audio is not saved or sent.";
+      markSeen("voice", "open");
       play("ask");
       pump(analyser);
     }).catch(function () {
@@ -413,14 +417,15 @@ const SCRIPT: &str = r#"
     if (list.length) play("hear");
     sendAt(list, 0);
   });
-  voice.addEventListener("click", function () {
+  function toggleVoice() {
     if (voice.getAttribute("aria-pressed") === "true") {
       stopMic();
       play("close");
     } else {
       startMic();
     }
-  });
+  }
+  voice.addEventListener("click", toggleVoice);
   opt.addEventListener("change", function () {
     if (!opt.checked) stopMic();
   });
@@ -440,6 +445,7 @@ const SCRIPT: &str = r#"
       files.click();
       return;
     }
+    if (word === "voice") { toggleVoice(); return; }
     play("done");
   });
   function probeWord(item) {
@@ -463,6 +469,15 @@ const SCRIPT: &str = r#"
       if (rows[n].getAttribute("data-layer") !== service) continue;
       var mark = rows[n].querySelector(".seen");
       if (mark) mark.textContent = word;
+    }
+  }
+  function clearSeenWord(service, word) {
+    var rows = document.querySelectorAll("li[data-layer]");
+    var n;
+    for (n = 0; n < rows.length; n = n + 1) {
+      if (rows[n].getAttribute("data-layer") !== service) continue;
+      var mark = rows[n].querySelector(".seen");
+      if (mark && mark.textContent === word) mark.textContent = "";
     }
   }
   function runLook() {
@@ -783,8 +798,13 @@ mod tests {
         assert!(html.contains("Look at the local stack"));
         assert!(html.contains("word === \"look\""));
         assert!(html.contains("word === \"files\""));
+        assert!(html.contains("word === \"voice\""));
         assert!(html.contains("markSeen(\"files\", \"open\")"));
+        assert!(html.contains("markSeen(\"voice\", \"open\")"));
+        assert!(html.contains("clearSeenWord(\"voice\", \"open\")"));
         assert!(html.contains("files.click()"));
+        assert!(html.contains("toggleVoice()"));
+        assert!(html.contains("voice.addEventListener(\"click\", toggleVoice)"));
         assert!(html.contains("runLook()"));
         assert!(html.contains("look.addEventListener(\"click\", runLook)"));
         assert_eq!(html.matches("class=\"seen\"").count(), LAYERS.len());

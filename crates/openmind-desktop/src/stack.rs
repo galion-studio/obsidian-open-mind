@@ -20,6 +20,8 @@
 //! `planned`. A file the console accepts still writes `sent` there until
 //! the next Look. The loopback listener writes `here` on the Open Mind
 //! row. Look clears it and writes it again. That row stays `staged`.
+//! A kept command other than `look`, `files`, `voice`, and `mute` writes
+//! `kept` on the Command row. Look clears that word. The row stays `staged`.
 
 /// One row of the stack view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

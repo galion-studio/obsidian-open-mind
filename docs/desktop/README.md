@@ -48,7 +48,7 @@ Serve on the default loopback address. `DEFAULT_PORT` is 18181 and `DEFAULT_BIND
 ./target/release/openmind-desktop --listen
 ```
 
-Open `http://127.0.0.1:18181/` in a browser on this machine. The process prints the bound address on stderr (`crates/openmind-desktop/src/http.rs`, `listen`).
+Open `http://127.0.0.1:18181/` in a browser on this machine. The process prints the bound address on stderr (`crates/openmind-desktop/src/http.rs`, `listen`). The page writes `Listening on ` plus `location.host` into `#here` when the protocol is not `file:` and `loopbackPage()` is true (`render` in `crates/openmind-desktop/src/page.rs`). The line stays hidden on a printed page.
 
 The port is configurable. `--port` and `OPENMIND_DESKTOP_PORT` both bind `127.0.0.1` on that port. An address given to `--listen` wins, and `--port` cannot be combined with that address. A blank environment value is unset. A value that is not a port from 1 to 65535 is a usage error (exit 2). The binary reads the variable (`crates/openmind-desktop/src/main.rs`, `listen_port_from_env`). `parse` does not (`crates/openmind-desktop/src/cli.rs`, `resolve_listen_addr`).
 
@@ -131,7 +131,7 @@ Every pitch is an integer ratio of 432 Hz. `REFERENCE_HZ` is 432. `hz` is `REFER
 | deny | 3/4 | 324 | 180 | Refused. Nothing was sent | empty command, empty or oversize file, upload refused, box not ticked, page not on loopback, no microphone API, or permission refused |
 | close | 2/3 | 288 | 140 | Voice disarmed | the voice button or the word `voice` closes the microphone |
 
-Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src/sound.rs`. The script calls are `play("wake")`, `play("hear")`, `play("ask")`, `play("close")`, `play("deny")`, `play("done")`, and `play("notice")` in `crates/openmind-desktop/src/page.rs`. `wake` runs only when `location.protocol` is not `file:` and `loopbackPage()` is true. Mute (`aria-pressed` on `#mute`) and local hours 22:00–06:59 skip playback (`night` and `play` in that script). During those hours the page writes `Tones are quiet until 07:00.` into `#quiet`. The line stays hidden while it is empty (`#quiet:empty, #printed:empty` in the page style). `wake` is checked against 432 Hz, not concert 440 (`wake_is_432_not_440` in `sound.rs`).
+Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src/sound.rs`. The script calls are `play("wake")`, `play("hear")`, `play("ask")`, `play("close")`, `play("deny")`, `play("done")`, and `play("notice")` in `crates/openmind-desktop/src/page.rs`. `wake` runs only when `location.protocol` is not `file:` and `loopbackPage()` is true. Mute (`aria-pressed` on `#mute`) and local hours 22:00–06:59 skip playback (`night` and `play` in that script). During those hours the page writes `Tones are quiet until 07:00.` into `#quiet`. The line stays hidden while it is empty (`#quiet:empty, #printed:empty, #here:empty` in the page style). `wake` is checked against 432 Hz, not concert 440 (`wake_is_432_not_440` in `sound.rs`).
 
 ## CI
 

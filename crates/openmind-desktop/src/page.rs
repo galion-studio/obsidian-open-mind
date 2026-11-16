@@ -260,8 +260,12 @@ audio { display: none; }
 /// as the plus. That click writes `open` on the Files row. The word `voice` runs the
 /// same toggle as the voice button and does not tick the opt-in box. Opening
 /// the microphone writes `open` on the Voice row. The word `mute` runs the
-/// same toggle as the Mute button and plays no tone. Any other kept
-/// command writes `kept` on the Command row. Look clears that word.
+/// same toggle as the Mute button and plays no tone. Muting writes `muted`
+/// on the Voice row when the microphone is closed. Unmuting clears that
+/// word only. Opening the microphone still writes `open`. Closing it writes
+/// `muted` again when the tones are still muted. Look clears that word.
+/// Any other kept command writes `kept` on the Command row. Look clears
+/// that word.
 /// Night hours and Mute skip tones. During local hours 22:00–06:59 the page writes the quiet
 /// sentence into `#quiet`. A `file:` page writes the printed-page sentence
 /// into `#printed`. Look and uploads still need the loopback listener. The
@@ -315,6 +319,7 @@ const SCRIPT: &str = r#"
     level.textContent = "";
     voiceState.textContent = "Microphone closed. Nothing was saved.";
     clearSeenWord("voice", "open");
+    if (mute.getAttribute("aria-pressed") === "true") markSeen("voice", "muted");
   }
   function pump(analyser) {
     var buf = new Float32Array(analyser.fftSize);
@@ -552,10 +557,16 @@ const SCRIPT: &str = r#"
     });
   }
   look.addEventListener("click", runLook);
+  function markMuted() {
+    if (voice.getAttribute("aria-pressed") === "true") return;
+    markSeen("voice", "muted");
+  }
   function toggleMute() {
     var on = mute.getAttribute("aria-pressed") === "true";
     mute.setAttribute("aria-pressed", on ? "false" : "true");
     mute.textContent = on ? "Mute" : "Muted";
+    if (on) clearSeenWord("voice", "muted");
+    else markMuted();
   }
   mute.addEventListener("click", toggleMute);
   if (night()) {
@@ -856,6 +867,13 @@ mod tests {
         assert!(html.contains("markSeen(\"files\", \"open\")"));
         assert!(html.contains("markSeen(\"voice\", \"open\")"));
         assert!(html.contains("clearSeenWord(\"voice\", \"open\")"));
+        assert!(html.contains("function markMuted()"));
+        assert!(html.contains("if (voice.getAttribute(\"aria-pressed\") === \"true\") return;"));
+        assert!(html.contains("markSeen(\"voice\", \"muted\")"));
+        assert!(html.contains("clearSeenWord(\"voice\", \"muted\")"));
+        assert!(html.contains(
+            "if (mute.getAttribute(\"aria-pressed\") === \"true\") markSeen(\"voice\", \"muted\")"
+        ));
         assert!(html.contains("files.click()"));
         assert!(html.contains("files.addEventListener(\"click\""));
         assert!(html.contains("toggleVoice()"));

@@ -23,6 +23,11 @@
 //! row. Look clears it and writes it again. That row stays `staged`.
 //! A kept command other than `look`, `files`, `voice`, and `mute` writes
 //! `kept` on the Command row. Look clears that word. The row stays `staged`.
+//! Muting the tones writes `muted` on the Voice row when the microphone is
+//! closed. Unmuting clears that word only. Opening the microphone still
+//! writes `open`, which replaces `muted`. Closing it clears `open` and
+//! writes `muted` again when the tones are still muted. Look clears that
+//! word. The row stays `staged`.
 
 /// One row of the stack view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

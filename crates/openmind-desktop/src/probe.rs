@@ -1115,6 +1115,28 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_reset_peer_is_connection_closed() {
+        let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let (stream, _) = listener.accept().expect("accept");
+            // Linger 0 aborts the socket. std's set_linger is still unstable
+            // on the 1.100 toolchain, so the test socket does it.
+            let sock = socket2::Socket::from(stream);
+            sock.set_linger(Some(Duration::from_secs(0)))
+                .expect("linger");
+            drop(sock);
+        });
+        let report = probe_one(
+            &endpoint_at(Service::Voice, addr, "/health"),
+            Duration::from_secs(1),
+        );
+        assert_eq!(report.state, State::Down, "{}", report.detail);
+        assert_eq!(report.detail, "connection closed");
+        assert!(report.http_status.is_none());
+    }
+
     struct Mock {
         addr: SocketAddr,
         requests: Arc<Mutex<Vec<String>>>,

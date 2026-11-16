@@ -264,7 +264,9 @@ audio { display: none; }
 /// skip tones. During local hours 22:00–06:59 the page writes the quiet
 /// sentence into `#quiet`. A `file:` page writes the printed-page sentence
 /// into `#printed`. Look and uploads still need the loopback listener. The
-/// loopback listener writes `Listening on` plus the page host into `#here`.
+/// loopback listener writes `Listening on` plus the page host into `#here`,
+/// and writes `here` on the Open Mind row. Look clears that word and writes
+/// it again, because Open Mind is not a probe.
 const SCRIPT: &str = r#"
 (function () {
   var files = document.getElementById("files");
@@ -486,6 +488,10 @@ const SCRIPT: &str = r#"
       if (mark && mark.textContent === word) mark.textContent = "";
     }
   }
+  function markHere() {
+    if (location.protocol === "file:" || !loopbackPage()) return;
+    markSeen("open-mind", "here");
+  }
   function runLook() {
     lookRows.textContent = "";
     clearSeen();
@@ -494,6 +500,7 @@ const SCRIPT: &str = r#"
       play("deny");
       return;
     }
+    markHere();
     var pending;
     try {
       pending = fetch("/probes", { method: "GET", credentials: "omit" });
@@ -561,6 +568,7 @@ const SCRIPT: &str = r#"
   if (location.protocol !== "file:" && loopbackPage()) {
     var here = document.getElementById("here");
     if (here) here.textContent = "Listening on " + location.host + ".";
+    markHere();
     play("wake");
   }
 })();
@@ -821,6 +829,8 @@ mod tests {
             html.contains("This is a printed page. Look and uploads need the loopback listener.")
         );
         assert!(html.contains("Listening on \" + location.host"));
+        assert!(html.contains("markSeen(\"open-mind\", \"here\")"));
+        assert!(html.contains("markHere()"));
         assert!(html.contains("#quiet:empty, #printed:empty, #here:empty { display: none; }"));
         assert!(html.contains("if (night())"));
         assert!(html.contains("location.protocol === \"file:\""));

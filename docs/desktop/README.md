@@ -48,7 +48,7 @@ Serve on the default loopback address. `DEFAULT_PORT` is 18181 and `DEFAULT_BIND
 ./target/release/openmind-desktop --listen
 ```
 
-Open `http://127.0.0.1:18181/` in a browser on this machine. The process prints the bound address on stderr (`crates/openmind-desktop/src/http.rs`, `listen`). The page writes `Listening on ` plus `location.host` into `#here` when the protocol is not `file:` and `loopbackPage()` is true (`render` in `crates/openmind-desktop/src/page.rs`). The line stays hidden on a printed page.
+Open `http://127.0.0.1:18181/` in a browser on this machine. The process prints the bound address on stderr (`crates/openmind-desktop/src/http.rs`, `listen`). The page writes `Listening on ` plus `location.host` into `#here` when the protocol is not `file:` and `loopbackPage()` is true (`render` in `crates/openmind-desktop/src/page.rs`). The line stays hidden on a printed page. The same check writes `here` on the Open Mind row. Look clears every `.seen` span and then writes `here` again, because Open Mind is not a probe. The row stays `staged`.
 
 The port is configurable. `--port` and `OPENMIND_DESKTOP_PORT` both bind `127.0.0.1` on that port. An address given to `--listen` wins, and `--port` cannot be combined with that address. A blank environment value is unset. A value that is not a port from 1 to 65535 is a usage error (exit 2). The binary reads the variable (`crates/openmind-desktop/src/main.rs`, `listen_port_from_env`). `parse` does not (`crates/openmind-desktop/src/cli.rs`, `resolve_listen_addr`).
 

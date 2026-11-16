@@ -40,6 +40,8 @@ Print the page and exit. This opens no socket (`crates/openmind-desktop/src/cli.
 ./target/release/openmind-desktop > console.html
 ```
 
+Opening that file writes `This is a printed page. Look and uploads need the loopback listener.` into `#printed` (`render` in `crates/openmind-desktop/src/page.rs`). The line stays hidden on the listener (`#printed:empty` in the page style). The microphone still follows the opt-in rule on a `file:` page.
+
 Serve on the default loopback address. `DEFAULT_PORT` is 18181 and `DEFAULT_BIND` is `127.0.0.1:18181` (`crates/openmind-desktop/src/lib.rs`). Port 18081 is the staging page beside the Rust console on 18080, so the desktop does not bind it. This listener is not the console probe. The console probe stays on 18080 (`crates/openmind-desktop/src/probe.rs`, `Service::default_port`).
 
 ```sh
@@ -129,7 +131,7 @@ Every pitch is an integer ratio of 432 Hz. `REFERENCE_HZ` is 432. `hz` is `REFER
 | deny | 3/4 | 324 | 180 | Refused. Nothing was sent | empty command, empty or oversize file, upload refused, box not ticked, page not on loopback, no microphone API, or permission refused |
 | close | 2/3 | 288 | 140 | Voice disarmed | the voice button or the word `voice` closes the microphone |
 
-Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src/sound.rs`. The script calls are `play("wake")`, `play("hear")`, `play("ask")`, `play("close")`, `play("deny")`, `play("done")`, and `play("notice")` in `crates/openmind-desktop/src/page.rs`. `wake` runs only when `location.protocol` is not `file:` and `loopbackPage()` is true. Mute (`aria-pressed` on `#mute`) and local hours 22:00–06:59 skip playback (`night` and `play` in that script). During those hours the page writes `Tones are quiet until 07:00.` into `#quiet`. The line stays hidden while it is empty (`#quiet:empty` in the page style). `wake` is checked against 432 Hz, not concert 440 (`wake_is_432_not_440` in `sound.rs`).
+Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src/sound.rs`. The script calls are `play("wake")`, `play("hear")`, `play("ask")`, `play("close")`, `play("deny")`, `play("done")`, and `play("notice")` in `crates/openmind-desktop/src/page.rs`. `wake` runs only when `location.protocol` is not `file:` and `loopbackPage()` is true. Mute (`aria-pressed` on `#mute`) and local hours 22:00–06:59 skip playback (`night` and `play` in that script). During those hours the page writes `Tones are quiet until 07:00.` into `#quiet`. The line stays hidden while it is empty (`#quiet:empty, #printed:empty` in the page style). `wake` is checked against 432 Hz, not concert 440 (`wake_is_432_not_440` in `sound.rs`).
 
 ## CI
 

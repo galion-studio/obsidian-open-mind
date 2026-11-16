@@ -211,7 +211,7 @@ h1 { font-size: 18px; font-weight: 600; }
 .voice[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 #mute { width: auto; padding: 0 12px; font: inherit; }
 .notes { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
-#quiet:empty { display: none; }
+#quiet:empty, #printed:empty { display: none; }
 .notes ul { margin: 8px 0 0; padding-left: 1.1rem; }
 .chips {
   display: flex;
@@ -262,7 +262,8 @@ audio { display: none; }
 /// the microphone writes `open` on the Voice row. The word `mute` runs the
 /// same toggle as the Mute button and plays no tone. Night hours and Mute
 /// skip tones. During local hours 22:00–06:59 the page writes the quiet
-/// sentence into `#quiet`.
+/// sentence into `#quiet`. A `file:` page writes the printed-page sentence
+/// into `#printed`. Look and uploads still need the loopback listener.
 const SCRIPT: &str = r#"
 (function () {
   var files = document.getElementById("files");
@@ -552,6 +553,10 @@ const SCRIPT: &str = r#"
     var quiet = document.getElementById("quiet");
     if (quiet) quiet.textContent = "Tones are quiet until 07:00.";
   }
+  if (location.protocol === "file:") {
+    var printed = document.getElementById("printed");
+    if (printed) printed.textContent = "This is a printed page. Look and uploads need the loopback listener.";
+  }
   if (location.protocol !== "file:" && loopbackPage()) play("wake");
 })();
 "#;
@@ -717,6 +722,7 @@ fn render() -> String {
 <p>Ask from here. The command stays on this page. No model is called. Tones are 432 Hz.</p>\
 <p class=\"notes\" id=\"words\">look checks the stack. files opens the picker. voice toggles the microphone. mute toggles the tones.</p>\
 <p class=\"notes\" id=\"quiet\"></p>\
+<p class=\"notes\" id=\"printed\"></p>\
 <div class=\"prompt\" role=\"group\" aria-label=\"Command\">\
 <label class=\"plus\"><input id=\"files\" type=\"file\" multiple aria-label=\"Add files\">",
     );
@@ -801,10 +807,15 @@ mod tests {
         ));
         let words = html.find("id=\"words\"").unwrap();
         let quiet = html.find("id=\"quiet\"").unwrap();
-        assert!(words < quiet && quiet < field);
+        let printed = html.find("id=\"printed\"").unwrap();
+        assert!(words < quiet && quiet < printed && printed < field);
         assert!(html.contains("Tones are quiet until 07:00."));
-        assert!(html.contains("#quiet:empty { display: none; }"));
+        assert!(
+            html.contains("This is a printed page. Look and uploads need the loopback listener.")
+        );
+        assert!(html.contains("#quiet:empty, #printed:empty { display: none; }"));
         assert!(html.contains("if (night())"));
+        assert!(html.contains("location.protocol === \"file:\""));
         assert!(html.contains("href=\"/one\""));
         assert!(html.contains("href=\"/research\""));
         assert_eq!(html.matches("href=\"/one\"").count(), 2);

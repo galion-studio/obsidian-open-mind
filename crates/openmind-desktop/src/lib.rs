@@ -35,7 +35,7 @@ pub mod surface;
 pub use cli::{parse, resolve_listen_addr, Mode, USAGE};
 pub use error::DesktopError;
 pub use files::Files;
-pub use http::{listen, listen_with};
+pub use http::{listen, listen_banner, listen_with, page_hint};
 pub use page::document;
 pub use probe::{probe_all, probe_one, ProbeConfig, ProbeSet, Service, State, SERVICES};
 pub use sound::{wav, TONES};

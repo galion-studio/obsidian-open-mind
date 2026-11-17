@@ -184,6 +184,36 @@ impl FileError {
             FileError::Io(_) => "io",
         }
     }
+
+    /// One sentence for the operator. The [`Self::code`] token stays stable.
+    /// An I/O failure does not include the path.
+    #[must_use]
+    pub fn message(&self) -> String {
+        match self {
+            FileError::Empty => "The file is empty.".to_string(),
+            FileError::TooLarge => {
+                let mib = MAX_FILE_BYTES / (1024 * 1024);
+                format!("The file is larger than {mib} MiB.")
+            }
+            FileError::Type => "That file type is not accepted.".to_string(),
+            FileError::Magic => "The bytes do not match the file name.".to_string(),
+            FileError::Traversal => "That path leaves the chosen folder.".to_string(),
+            FileError::Outside => "That path was not chosen.".to_string(),
+            FileError::Symlink => "A symlink is not opened.".to_string(),
+            FileError::NotFound => "That file is not in the chosen folder.".to_string(),
+            FileError::NotFile => "That path is not a file.".to_string(),
+            FileError::NoDestination => "There is nowhere to store the file yet.".to_string(),
+            FileError::NotLoopback => "The intake is not on loopback.".to_string(),
+            FileError::Unreachable => "The intake did not answer.".to_string(),
+            FileError::Pair => {
+                "The intake asked to pair. This desktop does not send a token.".to_string()
+            }
+            FileError::StackStatus => "The intake refused the file.".to_string(),
+            FileError::BadName => "That name is not a single file name.".to_string(),
+            FileError::BadJson => "The request was not a path.".to_string(),
+            FileError::Io(_) => "The disk read failed.".to_string(),
+        }
+    }
 }
 
 impl std::fmt::Display for FileError {
@@ -568,10 +598,17 @@ impl Receipt {
     }
 }
 
-/// `{"error":"<code>"}`.
+/// `{"error":"<code>","message":"<sentence>"}`.
+///
+/// `error` stays the stable token from [`FileError::code`]. `message` is
+/// [`FileError::message`].
 #[must_use]
 pub fn error_json(err: &FileError) -> String {
-    format!("{{\"error\":{}}}", json::string(err.code()))
+    format!(
+        "{{\"error\":{},\"message\":{}}}",
+        json::string(err.code()),
+        json::string(&err.message())
+    )
 }
 
 /// HTTP status for [`FileError`].
@@ -1059,20 +1096,24 @@ pub fn classify(name: &str, bytes: &[u8]) -> Result<&'static str, FileError> {
         .iter()
         .find(|item| item.ext == ext)
         .ok_or(FileError::Type)?;
-    if magic_ok(&ext, bytes) {
+    if magic_ok(ext, bytes) {
         Ok(spec.kind)
     } else {
         Err(FileError::Magic)
     }
 }
 
-fn extension(name: &str) -> Option<String> {
+/// Allow-list extension, already lower case. No allocation.
+fn extension(name: &str) -> Option<&'static str> {
     let base = name.rsplit(['/', '\\']).next().unwrap_or(name);
     let (_, ext) = base.rsplit_once('.')?;
     if ext.is_empty() || ext.len() > 8 || !ext.bytes().all(|byte| byte.is_ascii_alphanumeric()) {
         return None;
     }
-    Some(ext.to_ascii_lowercase())
+    ALLOWED
+        .iter()
+        .find(|item| item.ext.eq_ignore_ascii_case(ext))
+        .map(|item| item.ext)
 }
 
 fn magic_ok(ext: &str, bytes: &[u8]) -> bool {
@@ -1105,9 +1146,10 @@ fn preview(bytes: &[u8]) -> String {
 /// [`FileError::BadName`] when nothing safe remains.
 pub fn sanitize_name(raw: &str) -> Result<String, FileError> {
     let base = raw.rsplit(['/', '\\']).next().unwrap_or(raw).trim();
-    let mut out = String::new();
+    let mut out = String::with_capacity(base.len().min(MAX_NAME * 4));
+    let mut count = 0usize;
     for ch in base.chars() {
-        if out.chars().count() >= MAX_NAME {
+        if count >= MAX_NAME {
             break;
         }
         if ch.is_control()
@@ -1119,8 +1161,14 @@ pub fn sanitize_name(raw: &str) -> Result<String, FileError> {
             continue;
         }
         out.push(ch);
+        count += 1;
     }
-    let out = out.trim().trim_start_matches('.').trim().to_string();
+    let trimmed = out.trim().trim_start_matches('.').trim();
+    let out = if trimmed.len() == out.len() {
+        out
+    } else {
+        trimmed.to_string()
+    };
     if out.is_empty() || out == "." || out == ".." || out.contains('/') || out.contains('\\') {
         return Err(FileError::BadName);
     }
@@ -1361,15 +1409,18 @@ impl<'a> Parser<'a> {
 
     fn string(&mut self) -> Result<String, FileError> {
         self.expect(b'"')?;
-        let mut out = String::new();
+        let mut out = String::with_capacity(self.bytes.len().saturating_sub(self.index));
         loop {
             let Some(byte) = self.peek() else {
                 return Err(FileError::BadJson);
             };
-            self.bump();
             match byte {
-                b'"' => return Ok(out),
+                b'"' => {
+                    self.bump();
+                    return Ok(out);
+                }
                 b'\\' => {
+                    self.bump();
                     let Some(esc) = self.peek() else {
                         return Err(FileError::BadJson);
                     };
@@ -1388,7 +1439,23 @@ impl<'a> Parser<'a> {
                     }
                 }
                 b if b < 0x20 => return Err(FileError::BadJson),
+                b if b < 0x80 => {
+                    let start = self.index;
+                    let mut end = start + 1;
+                    while end < self.bytes.len() {
+                        let next = self.bytes[end];
+                        if next < 0x20 || next == b'"' || next == b'\\' || next >= 0x80 {
+                            break;
+                        }
+                        end += 1;
+                    }
+                    let text = std::str::from_utf8(&self.bytes[start..end])
+                        .map_err(|_| FileError::BadJson)?;
+                    out.push_str(text);
+                    self.index = end;
+                }
                 _ => {
+                    self.bump();
                     let width = utf8_width(byte).ok_or(FileError::BadJson)?;
                     if self.index + width - 1 > self.bytes.len() {
                         return Err(FileError::BadJson);
@@ -1605,6 +1672,12 @@ mod tests {
             "sub/notes.txt"
         );
         assert_eq!(json_path(br#"{"path":"a\u002eb"}"#).unwrap(), "a.b");
+        let utf8 = "{\"path\":\"caf\u{e9}.txt\"}";
+        assert_eq!(json_path(utf8.as_bytes()).unwrap(), "caf\u{e9}.txt");
+        assert_eq!(
+            json_path(br#"{"path":"bad\x80"}"#).unwrap_err().code(),
+            "bad-json"
+        );
         assert_eq!(json_path(br#"{"path":1}"#).unwrap_err().code(), "bad-json");
         assert_eq!(
             json_path(br#"{"path":"a","path":"b"}"#).unwrap_err().code(),
@@ -1895,5 +1968,50 @@ mod tests {
         );
         assert!(files.pick().is_empty());
         assert_eq!(files.sent_json(), "{\"sent\":[]}");
+        let err = files.upload_bytes("a.txt", b"hi").unwrap_err();
+        assert_eq!(err.message(), "There is nowhere to store the file yet.");
+        let body = error_json(&err);
+        assert!(body.contains("\"error\":\"no-destination\""));
+        assert!(body.contains("\"message\":\"There is nowhere to store the file yet.\""));
+    }
+
+    #[test]
+    fn every_refusal_has_a_sentence_and_keeps_its_code() {
+        let cases = [
+            FileError::Empty,
+            FileError::TooLarge,
+            FileError::Type,
+            FileError::Magic,
+            FileError::Traversal,
+            FileError::Outside,
+            FileError::Symlink,
+            FileError::NotFound,
+            FileError::NotFile,
+            FileError::NoDestination,
+            FileError::NotLoopback,
+            FileError::Unreachable,
+            FileError::Pair,
+            FileError::StackStatus,
+            FileError::BadName,
+            FileError::BadJson,
+            FileError::Io("secret-path".into()),
+        ];
+        for err in cases {
+            let sentence = err.message();
+            assert!(sentence.ends_with('.'), "{sentence}");
+            assert_ne!(sentence, err.code());
+            let body = error_json(&err);
+            assert!(body.contains(&format!("\"error\":\"{}\"", err.code())));
+            assert!(body.contains("\"message\":"));
+            assert!(!body.contains("secret-path"));
+        }
+        assert_eq!(
+            FileError::TooLarge.message(),
+            format!(
+                "The file is larger than {} MiB.",
+                MAX_FILE_BYTES / (1024 * 1024)
+            )
+        );
+        assert_eq!(FileError::Empty.message(), "The file is empty.");
     }
 }

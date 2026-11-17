@@ -7,7 +7,27 @@
 //! States use the brand words: `staged` (built, not switched on) and
 //! `planned` (not started by this page). Nothing here is marked live.
 //! This list is not a health check. Live checks are [`crate::probe`], and
-//! they run only when the operator asks.
+//! they run only when the operator presses Look. That button does not
+//! change these states. It writes the probe word into the row's `.seen`
+//! span when the probe service matches `id`, and leaves `state` as it is.
+//! A file the console accepts writes `sent` on the Galion One row. The
+//! command `files` and the plus both open the picker. That click writes
+//! `open` on the Files row. Opening the microphone
+//! writes `open` on the Voice row, and closing it clears that word when it
+//! is still `open`. Look clears every `.seen` span, then writes probe words.
+//! Desk is one of those probes: `GET /health` on port 8646. The row stays
+//! `staged`. Memory is one too: `GET /health` on port 8420. That row stays
+//! `planned`. Galion One is `GET /health` on port 8091. That row stays
+//! `planned`. A file the console accepts still writes `sent` there until
+//! the next Look. The loopback listener writes `here` on the Open Mind
+//! row. Look clears it and writes it again. That row stays `staged`.
+//! A kept command other than `look`, `files`, `voice`, and `mute` writes
+//! `kept` on the Command row. Look clears that word. The row stays `staged`.
+//! Muting the tones writes `muted` on the Voice row when the microphone is
+//! closed. Unmuting clears that word only. Opening the microphone still
+//! writes `open`, which replaces `muted`. Closing it clears `open` and
+//! writes `muted` again when the tones are still muted. Look clears that
+//! word. The row stays `staged`.
 
 /// One row of the stack view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -8,6 +8,7 @@
 //!   verify <db>                  PRAGMA integrity_check + table count; exit 1 if not "ok"
 //!   schema <db>                  print user_version and schema_migrations rows (read-only)
 //!   migrate-baseline <db> <ver> <name>   create schema_migrations if missing, record baseline (idempotent)
+//!   --help | --version                    usage or version, then exit 0 (no sqlite)
 
 use galion_backup::{backup, sqlite};
 use std::path::Path;
@@ -20,6 +21,14 @@ fn die(m: &str) -> ! {
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     match a.get(1).map(|s| s.as_str()) {
+        Some("--version" | "-V") if a.len() == 2 => {
+            println!("galion-backup {}", env!("CARGO_PKG_VERSION"));
+        }
+        Some("--help" | "-h") if a.len() == 2 => {
+            println!(
+                "usage: galion-backup <run | snapshot <src> <dst> | verify <db> | schema <db> | migrate-baseline <db> <ver> <name>>"
+            );
+        }
         Some("run") if a.len() == 2 => {
             let o = backup::Opts::from_env().unwrap_or_else(|e| die(&e));
             backup::install_signal_handlers();

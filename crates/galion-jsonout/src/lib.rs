@@ -28,6 +28,9 @@ impl serde_json::ser::Formatter for PyFormatter {
         W: ?Sized + Write,
     {
         let bytes = fragment.as_bytes();
+        if bytes.is_ascii() {
+            return writer.write_all(bytes);
+        }
         let mut start = 0usize;
         let mut esc = String::new();
         for (i, ch) in fragment.char_indices() {

@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# Pi 5 seed. Release binaries from config/release/size-budget.tsv (including
+# openmind-desktop) as static musl, profile pi-seed (opt-level 3, lto,
+# codegen-units 1, strip). Both targets. aarch64 --help/--version probes run
+# under qemu-user. That is not a boot on Raspberry Pi 5 hardware and not a
+# Galion OS image test. The tarball is a workflow artifact only.
+# permissions stay contents: read. This file does not create a GitHub Release.
+# The bookworm job runs the desktop install twice in a Debian Bookworm arm64
+# root under qemu-user. That job is not Raspberry Pi OS and not Raspberry Pi 5.
+name: pi-seed
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pi-seed-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+  CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+  PI_SEED_JOBS: 2
+  PI_SEED_NICE: 0
+  TZ: Europe/Zagreb
+
+jobs:
+  build:
+    name: pi-seed ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: install qemu-user
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          set -eu
+          sudo apt-get update -q
+          # The emulator the smoke invokes by name. Ubuntu 26.04 (resolute)
+          # ships it as qemu-aarch64 in qemu-user. qemu-user-static is a
+          # virtual package there (no candidate) and a real package on older
+          # images, where the name ends in -static. Same split as the
+          # openmind-desktop linux-aarch64 job.
+          sudo apt-get install -y -q qemu-user
+          if apt-cache show qemu-user-static 2>/dev/null | grep -q '^Package: qemu-user-static$'; then
+            sudo apt-get install -y -q qemu-user-static
+          fi
+          pick() {
+            if command -v "$1" >/dev/null; then
+              command -v "$1"
+            elif command -v "$2" >/dev/null; then
+              command -v "$2"
+            else
+              echo "missing $1 and $2" >&2
+              exit 1
+            fi
+          }
+          qemu=$(pick qemu-aarch64-static qemu-aarch64)
+          echo "QEMU=$qemu" >> "$GITHUB_ENV"
+          echo "qemu runner: $qemu"
+
+      - name: build
+        run: scripts/linux/pi-seed.sh build "${{ matrix.target }}"
+
+      - name: static check and --help/--version smoke
+        run: scripts/linux/pi-seed.sh verify "${{ matrix.target }}" "${QEMU:-}"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pi-seed-bins-${{ matrix.target }}
+          path: target/pi-seed-out/${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 1
+
+  pack:
+    name: pack obsidian-pi5-seed tarball
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: pi-seed-bins-*
+          path: seed-bins
+      - name: pack
+        run: |
+          set -eu
+          scripts/linux/pi-seed.sh pack "${{ github.sha }}" \
+            seed-bins/pi-seed-bins-aarch64-unknown-linux-musl \
+            seed-bins/pi-seed-bins-x86_64-unknown-linux-musl \
+            dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: obsidian-pi5-seed-${{ github.sha }}
+          path: dist/obsidian-pi5-seed-${{ github.sha }}.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  bookworm-emulator:
+    name: bookworm arm64 emulator
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: pi-seed-bins-aarch64-unknown-linux-musl
+          path: seed-bins
+      - name: install twice under qemu-user and check probes
+        run: scripts/linux/pi-bookworm-emulator.sh seed-bins

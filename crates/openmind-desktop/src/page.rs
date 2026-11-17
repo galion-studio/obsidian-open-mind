@@ -13,8 +13,8 @@ use crate::stack::LAYERS;
 use std::sync::OnceLock;
 
 /// Content-Security-Policy for the page. Scripts and styles are inline.
-/// `connect-src 'self'` allows the one same-origin file upload. Any other
-/// origin, frames, and form posts are refused.
+/// `connect-src 'self'` allows the same-origin file upload and the Look
+/// probe. Any other origin, frames, and form posts are refused.
 pub const CSP: &str = "\
 default-src 'none'; \
 style-src 'unsafe-inline'; \
@@ -126,20 +126,34 @@ h1 { font-size: 18px; font-weight: 600; }
   font-weight: 500;
 }
 .stack ol { list-style: none; margin: 0; padding: 0; }
+#look {
+  margin-top: 12px;
+  height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  padding: 0 14px;
+}
+#look:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .stack li {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 2px 8px;
   padding: 8px 0;
   border-top: 1px solid var(--line);
 }
 .stack li:first-child { border-top: 0; }
 .stack .name { font-weight: 600; }
+.stack .name a { color: inherit; text-underline-offset: 2px; }
+.stack .name a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .stack .role { grid-column: 1 / -1; color: var(--muted); font-size: 13px; }
-.stack .state {
+.stack .state, .stack .seen {
   font: 12px/1.3 "IBM Plex Mono", ui-monospace, monospace;
-  color: var(--accent);
 }
+.stack .state { color: var(--accent); }
+.stack .seen { color: var(--muted); }
 .stage {
   display: grid;
   place-items: center;
@@ -197,6 +211,7 @@ h1 { font-size: 18px; font-weight: 600; }
 .voice[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
 #mute { width: auto; padding: 0 12px; font: inherit; }
 .notes { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
+#quiet:empty, #printed:empty, #here:empty { display: none; }
 .notes ul { margin: 8px 0 0; padding-left: 1.1rem; }
 .chips {
   display: flex;
@@ -240,7 +255,23 @@ audio { display: none; }
 /// script does not use `FileReader`. The microphone opens only after the
 /// opt-in box is ticked, and only on loopback or a `file:` page. Samples are
 /// overwritten in one buffer and then dropped. The level line is the only
-/// meter. Night hours and Mute skip tones.
+/// meter. Look asks `GET /probes` on the loopback listener and writes the
+/// service names with `textContent`. The word `files` opens the same picker
+/// as the plus. That click writes `open` on the Files row. The word `voice` runs the
+/// same toggle as the voice button and does not tick the opt-in box. Opening
+/// the microphone writes `open` on the Voice row. The word `mute` runs the
+/// same toggle as the Mute button and plays no tone. Muting writes `muted`
+/// on the Voice row when the microphone is closed. Unmuting clears that
+/// word only. Opening the microphone still writes `open`. Closing it writes
+/// `muted` again when the tones are still muted. Look clears that word.
+/// Any other kept command writes `kept` on the Command row. Look clears
+/// that word.
+/// Night hours and Mute skip tones. During local hours 22:00–06:59 the page writes the quiet
+/// sentence into `#quiet`. A `file:` page writes the printed-page sentence
+/// into `#printed`. Look and uploads still need the loopback listener. The
+/// loopback listener writes `Listening on` plus the page host into `#here`,
+/// and writes `here` on the Open Mind row. Look clears that word and writes
+/// it again, because Open Mind is not a probe.
 const SCRIPT: &str = r#"
 (function () {
   var files = document.getElementById("files");
@@ -252,6 +283,9 @@ const SCRIPT: &str = r#"
   var picked = document.getElementById("picked");
   var kept = document.getElementById("kept");
   var mute = document.getElementById("mute");
+  var look = document.getElementById("look");
+  var lookRows = document.getElementById("look-rows");
+  var lookState = document.getElementById("look-state");
   var live = null;
   var ctx = null;
   var raf = 0;
@@ -284,6 +318,8 @@ const SCRIPT: &str = r#"
     voice.setAttribute("aria-pressed", "false");
     level.textContent = "";
     voiceState.textContent = "Microphone closed. Nothing was saved.";
+    clearSeenWord("voice", "open");
+    if (mute.getAttribute("aria-pressed") === "true") markSeen("voice", "muted");
   }
   function pump(analyser) {
     var buf = new Float32Array(analyser.fftSize);
@@ -324,6 +360,7 @@ const SCRIPT: &str = r#"
       source.connect(analyser);
       voice.setAttribute("aria-pressed", "true");
       voiceState.textContent = "Microphone open on this machine. Audio is not saved or sent.";
+      markSeen("voice", "open");
       play("ask");
       pump(analyser);
     }).catch(function () {
@@ -370,6 +407,7 @@ const SCRIPT: &str = r#"
       return res.text().then(function (text) {
         if (res.ok) {
           row.textContent = file.name + " — sent";
+          markSeen("galion-one", "sent");
         } else {
           row.textContent = file.name + " — " + fault(text);
           play("deny");
@@ -386,20 +424,24 @@ const SCRIPT: &str = r#"
     if (i >= list.length) return;
     sendFile(list[i], function () { sendAt(list, i + 1); });
   }
+  files.addEventListener("click", function () {
+    markSeen("files", "open");
+  });
   files.addEventListener("change", function () {
     picked.textContent = "";
     var list = files.files;
     if (list.length) play("hear");
     sendAt(list, 0);
   });
-  voice.addEventListener("click", function () {
+  function toggleVoice() {
     if (voice.getAttribute("aria-pressed") === "true") {
       stopMic();
       play("close");
     } else {
       startMic();
     }
-  });
+  }
+  voice.addEventListener("click", toggleVoice);
   opt.addEventListener("change", function () {
     if (!opt.checked) stopMic();
   });
@@ -412,13 +454,135 @@ const SCRIPT: &str = r#"
     row.textContent = text;
     kept.appendChild(row);
     command.value = "";
+    var word = text.toLowerCase();
+    if (word === "look") { runLook(); return; }
+    if (word === "files") { files.click(); return; }
+    if (word === "voice") { toggleVoice(); return; }
+    if (word === "mute") { toggleMute(); return; }
+    markSeen("command", "kept");
     play("done");
   });
-  mute.addEventListener("click", function () {
+  function probeWord(item) {
+    if (!item || !item.enabled) return "off";
+    var state = String(item.state || "unknown");
+    if (state !== "up" && state !== "down" && state !== "unknown") return "unknown";
+    return state;
+  }
+  function clearSeen() {
+    var rows = document.querySelectorAll("li[data-layer]");
+    var n;
+    for (n = 0; n < rows.length; n = n + 1) {
+      var mark = rows[n].querySelector(".seen");
+      if (mark) mark.textContent = "";
+    }
+  }
+  function markSeen(service, word) {
+    var rows = document.querySelectorAll("li[data-layer]");
+    var n;
+    for (n = 0; n < rows.length; n = n + 1) {
+      if (rows[n].getAttribute("data-layer") !== service) continue;
+      var mark = rows[n].querySelector(".seen");
+      if (mark) mark.textContent = word;
+    }
+  }
+  function clearSeenWord(service, word) {
+    var rows = document.querySelectorAll("li[data-layer]");
+    var n;
+    for (n = 0; n < rows.length; n = n + 1) {
+      if (rows[n].getAttribute("data-layer") !== service) continue;
+      var mark = rows[n].querySelector(".seen");
+      if (mark && mark.textContent === word) mark.textContent = "";
+    }
+  }
+  function markHere() {
+    if (location.protocol === "file:" || !loopbackPage()) return;
+    markSeen("open-mind", "here");
+  }
+  function runLook() {
+    lookRows.textContent = "";
+    clearSeen();
+    if (location.protocol === "file:" || !loopbackPage()) {
+      lookState.textContent = "Look only runs on the loopback listener.";
+      play("deny");
+      return;
+    }
+    markHere();
+    var pending;
+    try {
+      pending = fetch("/probes", { method: "GET", credentials: "omit" });
+    } catch (e) {
+      lookState.textContent = "The local stack did not answer.";
+      play("deny");
+      return;
+    }
+    pending.then(function (res) {
+      return res.text().then(function (text) {
+        var data;
+        if (!res.ok) {
+          lookState.textContent = "The local stack did not answer.";
+          play("deny");
+          return;
+        }
+        try { data = JSON.parse(text); } catch (err) {
+          lookState.textContent = "The probe report was not readable.";
+          play("deny");
+          return;
+        }
+        var probes = data && data.probes;
+        if (!probes || !probes.length) {
+          lookState.textContent = "No probes were enabled. Rows stay staged or planned.";
+          play("notice");
+          return;
+        }
+        var wants = false;
+        var i;
+        for (i = 0; i < probes.length; i = i + 1) {
+          var item = probes[i];
+          var row = document.createElement("li");
+          row.className = "chip";
+          var word = probeWord(item);
+          row.textContent = String(item.service || "service") + " — " + word;
+          lookRows.appendChild(row);
+          markSeen(String(item.service || ""), word);
+          if (item.enabled && word !== "up") wants = true;
+        }
+        lookState.textContent = wants
+          ? "The local stack wants a look. Rows stay staged or planned."
+          : "The local stack answered. Rows stay staged or planned.";
+        if (wants) play("notice");
+      });
+    }).catch(function () {
+      lookState.textContent = "The local stack did not answer.";
+      play("deny");
+    });
+  }
+  look.addEventListener("click", runLook);
+  function markMuted() {
+    if (voice.getAttribute("aria-pressed") === "true") return;
+    markSeen("voice", "muted");
+  }
+  function toggleMute() {
     var on = mute.getAttribute("aria-pressed") === "true";
     mute.setAttribute("aria-pressed", on ? "false" : "true");
     mute.textContent = on ? "Mute" : "Muted";
-  });
+    if (on) clearSeenWord("voice", "muted");
+    else markMuted();
+  }
+  mute.addEventListener("click", toggleMute);
+  if (night()) {
+    var quiet = document.getElementById("quiet");
+    if (quiet) quiet.textContent = "Tones are quiet until 07:00.";
+  }
+  if (location.protocol === "file:") {
+    var printed = document.getElementById("printed");
+    if (printed) printed.textContent = "This is a printed page. Look and uploads need the loopback listener.";
+  }
+  if (location.protocol !== "file:" && loopbackPage()) {
+    var here = document.getElementById("here");
+    if (here) here.textContent = "Listening on " + location.host + ".";
+    markHere();
+    play("wake");
+  }
 })();
 "#;
 
@@ -559,18 +723,32 @@ fn render() -> String {
         html.push_str("<li data-layer=\"");
         html.push_str(layer.id);
         html.push_str("\"><span class=\"name\">");
-        html.push_str(&esc(layer.name));
+        if layer.id == "galion-one" {
+            html.push_str("<a href=\"/one\">");
+            html.push_str(&esc(layer.name));
+            html.push_str("</a>");
+        } else {
+            html.push_str(&esc(layer.name));
+        }
         html.push_str("</span><span class=\"state\">");
         html.push_str(layer.state);
-        html.push_str("</span><span class=\"role\">");
+        html.push_str("</span><span class=\"seen\"></span><span class=\"role\">");
         html.push_str(&esc(layer.role));
         html.push_str("</span></li>");
     }
-    html.push_str("</ol></section>");
+    html.push_str(
+        "</ol><p class=\"notes\" id=\"look-state\">The stack list is not a health check.</p>\
+<button type=\"button\" id=\"look\">Look at the local stack</button>\
+<ul class=\"chips\" id=\"look-rows\" aria-label=\"Local stack probes\"></ul></section>",
+    );
     html.push_str(
         "<main class=\"stage\" id=\"main\"><div class=\"presence\">\
 <h2>Open Mind</h2>\
 <p>Ask from here. The command stays on this page. No model is called. Tones are 432 Hz.</p>\
+<p class=\"notes\" id=\"words\">look checks the stack. files opens the picker. voice toggles the microphone. mute toggles the tones.</p>\
+<p class=\"notes\" id=\"quiet\"></p>\
+<p class=\"notes\" id=\"printed\"></p>\
+<p class=\"notes\" id=\"here\"></p>\
 <div class=\"prompt\" role=\"group\" aria-label=\"Command\">\
 <label class=\"plus\"><input id=\"files\" type=\"file\" multiple aria-label=\"Add files\">",
     );
@@ -650,9 +828,65 @@ mod tests {
         assert!(html.contains("Control console"));
         assert!(html.contains("MIT License"));
         assert!(html.contains("432 Hz"));
+        assert!(html.contains(
+            "look checks the stack. files opens the picker. voice toggles the microphone. mute toggles the tones."
+        ));
+        let words = html.find("id=\"words\"").unwrap();
+        let quiet = html.find("id=\"quiet\"").unwrap();
+        let printed = html.find("id=\"printed\"").unwrap();
+        let here = html.find("id=\"here\"").unwrap();
+        assert!(words < quiet && quiet < printed && printed < here && here < field);
+        assert!(html.contains("Tones are quiet until 07:00."));
+        assert!(
+            html.contains("This is a printed page. Look and uploads need the loopback listener.")
+        );
+        assert!(html.contains("Listening on \" + location.host"));
+        assert!(html.contains("markSeen(\"open-mind\", \"here\")"));
+        assert!(html.contains("markHere()"));
+        assert!(html.contains("#quiet:empty, #printed:empty, #here:empty { display: none; }"));
+        assert!(html.contains("if (night())"));
+        assert!(html.contains("location.protocol === \"file:\""));
         assert!(html.contains("href=\"/one\""));
         assert!(html.contains("href=\"/research\""));
+        assert_eq!(html.matches("href=\"/one\"").count(), 2);
+        assert_eq!(html.matches("href=\"/research\"").count(), 1);
+        let one_row = html.find("data-layer=\"galion-one\"").unwrap();
+        assert!(html[one_row..one_row + 160].contains("<a href=\"/one\">Galion One</a>"));
         assert!(html.contains("aria-label=\"Stack\""));
+        assert!(html.contains("play(\"wake\")"));
+        assert!(html.contains("location.protocol !== \"file:\" && loopbackPage()"));
+        assert!(html.contains("id=\"look\""));
+        assert!(html.contains("Look at the local stack"));
+        assert!(html.contains("word === \"look\""));
+        assert!(html.contains("word === \"files\""));
+        assert!(html.contains("word === \"voice\""));
+        assert!(html.contains("word === \"mute\""));
+        assert!(html.contains("toggleMute()"));
+        assert!(html.contains("markSeen(\"command\", \"kept\")"));
+        assert!(html.contains("mute.addEventListener(\"click\", toggleMute)"));
+        assert!(html.contains("markSeen(\"files\", \"open\")"));
+        assert!(html.contains("markSeen(\"voice\", \"open\")"));
+        assert!(html.contains("clearSeenWord(\"voice\", \"open\")"));
+        assert!(html.contains("function markMuted()"));
+        assert!(html.contains("if (voice.getAttribute(\"aria-pressed\") === \"true\") return;"));
+        assert!(html.contains("markSeen(\"voice\", \"muted\")"));
+        assert!(html.contains("clearSeenWord(\"voice\", \"muted\")"));
+        assert!(html.contains(
+            "if (mute.getAttribute(\"aria-pressed\") === \"true\") markSeen(\"voice\", \"muted\")"
+        ));
+        assert!(html.contains("files.click()"));
+        assert!(html.contains("files.addEventListener(\"click\""));
+        assert!(html.contains("toggleVoice()"));
+        assert!(html.contains("voice.addEventListener(\"click\", toggleVoice)"));
+        assert!(html.contains("runLook()"));
+        assert!(html.contains("look.addEventListener(\"click\", runLook)"));
+        assert_eq!(html.matches("class=\"seen\"").count(), LAYERS.len());
+        assert!(html.contains("mark.textContent = word"));
+        assert!(!html.contains("state.textContent"));
+        let look = html.find("id=\"look\"").unwrap();
+        let layers = html.find("data-layer=\"open-mind\"").unwrap();
+        assert!(layers < look);
+        assert!(html.contains("Rows stay staged or planned."));
         for line in BRAND_LINES {
             assert!(html.contains(line), "{line}");
         }
@@ -667,6 +901,7 @@ mod tests {
         assert!(html.contains("aria-label=\"Attached files\""));
         assert!(html.contains("className = \"chip\""));
         assert!(html.contains("fetch(\"/files\""));
+        assert!(html.contains("markSeen(\"galion-one\", \"sent\")"));
     }
 
     #[test]
@@ -689,8 +924,9 @@ mod tests {
         ] {
             assert!(!html.contains(banned), "{banned} leaked into the page");
         }
-        assert_eq!(html.matches("fetch(").count(), 1);
+        assert_eq!(html.matches("fetch(").count(), 2);
         assert!(html.contains("fetch(\"/files\""));
+        assert!(html.contains("fetch(\"/probes\""));
         assert!(html.contains("credentials: \"omit\""));
         assert!(html.contains("connect-src 'self'"));
         assert!(html.contains("h >= 22"));

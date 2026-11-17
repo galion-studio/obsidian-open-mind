@@ -12,6 +12,9 @@ name = "link-watch"
 path = "src/main.rs"
 
 [dependencies]
+# toml 1 reaches indexmap with no features. This pin turns on indexmap
+# default/std so a solo link-watch build matches the release set (D-312-4).
+galion-feature-pin = { path = "../galion-feature-pin" }
 galion-common = { path = "../galion-common" }
 galion-jsonout = { path = "../galion-jsonout" }
 openmind-config = { path = "../openmind-config" }

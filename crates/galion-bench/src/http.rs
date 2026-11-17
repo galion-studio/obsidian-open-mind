@@ -171,6 +171,20 @@ pub fn reason(status: u16) -> &'static str {
     }
 }
 
+fn push_u64(out: &mut String, mut n: u64) {
+    let mut buf = [0u8; 20];
+    let mut i = buf.len();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 {
+            break;
+        }
+    }
+    out.push_str(std::str::from_utf8(&buf[i..]).unwrap_or("0"));
+}
+
 /// Write a full response with `Content-Length` and `Connection: close`.
 /// Header names `content-length` and `connection` in `headers` are ignored.
 pub fn write_response<W: Write>(
@@ -179,21 +193,27 @@ pub fn write_response<W: Write>(
     headers: &[(String, String)],
     body: &str,
 ) -> io::Result<()> {
-    let mut head = format!("HTTP/1.1 {status} {}\r\n", reason(status));
+    let mut head = String::with_capacity(48 + headers.len() * 16 + body.len());
+    head.push_str("HTTP/1.1 ");
+    push_u64(&mut head, u64::from(status));
+    head.push(' ');
+    head.push_str(reason(status));
+    head.push_str("\r\n");
     for (k, v) in headers {
-        let lk = k.to_ascii_lowercase();
-        if lk == "content-length" || lk == "connection" {
+        if k.eq_ignore_ascii_case("content-length") || k.eq_ignore_ascii_case("connection") {
             continue;
         }
         if k.contains(['\r', '\n']) || v.contains(['\r', '\n']) {
             continue; // never let a fixture inject header lines
         }
-        head.push_str(&format!("{k}: {v}\r\n"));
+        head.push_str(k);
+        head.push_str(": ");
+        head.push_str(v);
+        head.push_str("\r\n");
     }
-    head.push_str(&format!(
-        "Content-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    ));
+    head.push_str("Content-Length: ");
+    push_u64(&mut head, body.len() as u64);
+    head.push_str("\r\nConnection: close\r\n\r\n");
     w.write_all(head.as_bytes())?;
     w.write_all(body.as_bytes())?;
     w.flush()

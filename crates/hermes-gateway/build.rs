@@ -19,6 +19,14 @@
 //!   raw `-z pack-relative-relocs` argument. A `cc` driver would need
 //!   `-Wl,` and a GNU ld >= 2.38, so it is left alone.
 //!
+//! The same gate also discards `.eh_frame` via `link-nounwind.ld`, which
+//! INSERTs a discard into lld's default script. A script that replaced the
+//! default one grew this binary (docs/real-tests/hermes-gateway-2mib.md);
+//! INSERT does not. Release builds use `panic = "abort"`, so those tables
+//! are never walked. They were ~160 KB on x86_64 musl, which put this binary
+//! over 2 MiB once off-host continuity linked in. A crash still aborts; it
+//! has no unwind backtrace.
+//!
 //! `cargo:rustc-link-arg-bins` touches only this package's binaries; every
 //! other workspace binary links exactly as before.
 
@@ -27,6 +35,7 @@ use std::path::Path;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=link-nounwind.ld");
     println!("cargo:rerun-if-env-changed=RUSTC_LINKER");
     let var = |k: &str| env::var(k).unwrap_or_default();
     if var("CARGO_CFG_TARGET_ARCH") != "x86_64"
@@ -42,5 +51,7 @@ fn main() {
         .unwrap_or("");
     if name.contains("lld") {
         println!("cargo:rustc-link-arg-bins=-zpack-relative-relocs");
+        let script = Path::new(&var("CARGO_MANIFEST_DIR")).join("link-nounwind.ld");
+        println!("cargo:rustc-link-arg-bins=-T{}", script.display());
     }
 }

@@ -16,7 +16,7 @@
 //! cap, then uploaded on loopback. The page does not call a model.
 //!
 //! Printing the page opens no socket. [`listen`] binds a loopback address
-//! only. Live checks of nerve, cortex, console, Hermes and voice are
+//! only. Live checks of nerve, cortex, console, Hermes, voice, desk, memory and Galion One are
 //! [`probe`]: read-only GETs, and only when `--probe` or `GET /probes` asks.
 
 #![forbid(unsafe_code)]
@@ -34,7 +34,7 @@ pub mod stack;
 pub use cli::{parse, resolve_listen_addr, Mode, USAGE};
 pub use error::DesktopError;
 pub use files::Files;
-pub use http::{listen, listen_with};
+pub use http::{listen, listen_banner, listen_with, page_hint};
 pub use page::document;
 pub use probe::{probe_all, probe_one, ProbeConfig, ProbeSet, Service, State, SERVICES};
 pub use sound::{wav, TONES};

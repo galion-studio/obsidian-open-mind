@@ -80,4 +80,11 @@ ignore = [
     # written by a less trusted party. The upgrade is the open dependency
     # bump, not this desktop change.
     { id = "RUSTSEC-2026-0459", reason = "local WAL page-size mismatch; fix needs rusqlite 0.41" },
+    # RUSTSEC-2026-0543 and RUSTSEC-2026-0555: chrono 0.4.45 and chrono-tz
+    # 0.10.4 are marked unmaintained. Both advisories say every version is
+    # affected and no patched release exists. The named replacements are
+    # jiff and time. crates/zagreb-time/Cargo.toml still depends on chrono
+    # and chrono-tz. Replacing them is not this desktop packaging change.
+    { id = "RUSTSEC-2026-0543", reason = "chrono unmaintained; no patched release; replacement is jiff or time" },
+    { id = "RUSTSEC-2026-0555", reason = "chrono-tz unmaintained; no patched release" },
 ]

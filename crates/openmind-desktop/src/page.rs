@@ -989,6 +989,26 @@ mod tests {
         assert!(!research.contains("https://"));
     }
 
+    #[test]
+    fn brand_lines_file_matches_the_page() {
+        let file = include_str!("../../../scripts/desktop/brand-lines.txt");
+        let lines: Vec<&str> = file.lines().collect();
+        assert_eq!(lines.as_slice(), BRAND_LINES);
+        assert_eq!(lines.len(), 4);
+    }
+
+    #[test]
+    fn artifact_readme_explains_how_to_run() {
+        let text = include_str!("../../../scripts/desktop/artifact-readme.md");
+        assert!(text.contains("./openmind-desktop"));
+        assert!(text.contains(".\\openmind-desktop.exe"));
+        assert!(text.contains("dpkg -i"));
+        assert!(text.contains("not a GitHub Release"));
+        assert!(text.contains("not signed"));
+        assert!(text.contains("432 Hz"));
+        assert!(text.contains("four Galion Labs lines"));
+    }
+
     fn embedded(html: &str, id: &str) -> Vec<u8> {
         let key = format!("data-tone=\"{id}\" src=\"data:audio/wav;base64,");
         let start = html.find(&key).unwrap() + key.len();

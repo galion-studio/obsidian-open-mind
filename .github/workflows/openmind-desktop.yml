@@ -2,12 +2,14 @@
 # SPDX-FileCopyrightText: 3000 Galion / galion-studio
 #
 # openmind-desktop gate. Linux builds, runs clippy and tests, then a local
-# tarball. The aarch64 job cross-builds and runs those tests under qemu-user
-# (same emulator split as the self-eval ucpu-qemu job). Windows
-# (x86_64-pc-windows-msvc) and macOS (aarch64-apple-darwin) build, run
-# clippy, and run the tests. They do not package a tarball.
-# permissions stay contents: read. This file does not create a GitHub
-# Release, upload an artifact, or publish a crate.
+# tarball and a workflow artifact. The aarch64 job cross-builds, runs those
+# tests under qemu-user (same emulator split as the self-eval ucpu-qemu
+# job), and packages an arm64 artifact. Windows (x86_64-pc-windows-msvc)
+# and macOS (aarch64-apple-darwin) build, run clippy, run the tests, then
+# package a zip and a tarball.
+# permissions are contents: read and actions: write. actions: write uploads
+# a workflow artifact. This file does not create a GitHub Release, sign a
+# package, or publish a crate.
 name: openmind-desktop
 
 on:
@@ -18,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 concurrency:
   group: openmind-desktop-${{ github.ref }}
@@ -30,7 +33,7 @@ jobs:
   linux:
     name: build, clippy, test
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
@@ -53,7 +56,69 @@ jobs:
       - name: verify local package
         run: scripts/desktop/verify-local.sh "$RUNNER_TEMP/openmind-desktop-dist"
 
-      - name: publish flags are refused
+      - name: host triple is x86_64 linux gnu
+        run: |
+          set -eu
+          host=$(rustc -vV | sed -n 's/^host: //p')
+          test "$host" = "x86_64-unknown-linux-gnu"
+
+      - name: package workflow artifact
+        run: scripts/desktop/package-artifact.sh --skip-build --out target/openmind-desktop-ci
+
+      - name: check workflow artifact
+        run: scripts/desktop/check-package.sh target/openmind-desktop-ci
+
+      - name: linux artifact names
+        run: |
+          set -eu
+          test -f target/openmind-desktop-ci/openmind-desktop-*-x86_64-unknown-linux-gnu.tar.gz
+          test -f target/openmind-desktop-ci/openmind-desktop_*_amd64.deb
+          test ! -e target/openmind-desktop-ci/*.zip
+
+      - name: a changed file fails the checker
+        run: |
+          set -eu
+          expect_fail() {
+            set +e
+            scripts/desktop/check-package.sh "$1"
+            status=$?
+            set -e
+            if [ "$status" -ne 1 ]; then
+              printf 'checker exited %s, want 1, for %s\n' "$status" "$1" >&2
+              exit 1
+            fi
+          }
+          rewrite_sums() {
+            dir=$1
+            files=$(awk '{print $2}' "$dir/SHA256SUMS")
+            : > "$dir/SHA256SUMS"
+            (
+              cd "$dir"
+              for f in $files; do
+                sha256sum "$f" >> SHA256SUMS
+              done
+            )
+          }
+          bad="$RUNNER_TEMP/openmind-desktop-bad-readme"
+          cp -a target/openmind-desktop-ci "$bad"
+          printf '\n' >> "$bad/README.md"
+          expect_fail "$bad"
+          short="$RUNNER_TEMP/openmind-desktop-short-license"
+          cp -a target/openmind-desktop-ci "$short"
+          head -n -1 "$short/LICENSE" > "$short/LICENSE.cut"
+          mv "$short/LICENSE.cut" "$short/LICENSE"
+          rewrite_sums "$short"
+          expect_fail "$short"
+
+      - name: upload workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: openmind-desktop-linux-x86_64
+          path: target/openmind-desktop-ci
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: publish and signing are refused
         run: |
           set -eu
           expect_refuse() {
@@ -74,20 +139,67 @@ jobs:
           expect_refuse scripts/desktop/package-local.sh --upload
           expect_refuse scripts/desktop/package-local.sh --gh-release
           expect_refuse scripts/desktop/verify-local.sh --cargo-publish
+          expect_refuse scripts/desktop/package-artifact.sh --publish
+          expect_refuse scripts/desktop/package-artifact.sh --upload
+          expect_refuse scripts/desktop/package-artifact.sh --gh-release
+          expect_refuse scripts/desktop/package-artifact.sh --sign
+          expect_refuse scripts/desktop/check-package.sh --cargo-publish
+          expect_refuse scripts/desktop/check-package.sh --sign
           expect_refuse env OPENMIND_DESKTOP_PUBLISH=1 scripts/desktop/package-local.sh --out "$RUNNER_TEMP/openmind-desktop-no-publish"
+          expect_refuse env OPENMIND_DESKTOP_PUBLISH=1 scripts/desktop/package-artifact.sh --out "$RUNNER_TEMP/openmind-desktop-no-artifact"
+          expect_refuse env OPENMIND_DESKTOP_SIGN=1 scripts/desktop/package-artifact.sh --out "$RUNNER_TEMP/openmind-desktop-no-sign"
           if [ -e "$RUNNER_TEMP/openmind-desktop-no-publish" ]; then
             printf 'refused publish still created an output directory\n' >&2
             exit 1
           fi
+          if [ -e "$RUNNER_TEMP/openmind-desktop-no-artifact" ]; then
+            printf 'refused publish still created an artifact directory\n' >&2
+            exit 1
+          fi
+          if [ -e "$RUNNER_TEMP/openmind-desktop-no-sign" ]; then
+            printf 'refused sign still created an artifact directory\n' >&2
+            exit 1
+          fi
+
+      - name: workflow does not publish or sign
+        run: |
+          set -eu
+          f=.github/workflows/openmind-desktop.yml
+          # Needles are assembled so this step does not contain the text it rejects.
+          n1=$(printf '%s%s' 'gh ' 'release')
+          n2=$(printf '%s%s' 'action-' 'gh-release')
+          n3=$(printf '%s%s' 'co' 'sign')
+          n4=$(printf '%s%s' 'dpkg-' 'sig')
+          n5=$(printf '%s%s' 'contents: ' 'write')
+          n6=$(printf '%s%s' 'id-' 'token:')
+          if grep -nE "$n1|$n2|$n3|$n4|$n5|$n6" "$f"; then
+            printf 'workflow would publish or sign\n' >&2
+            exit 1
+          fi
+          s1=$(printf '%s%s' 'cu' 'rl')
+          s2=$(printf '%s%s' 'wg' 'et')
+          s3=$(printf '%s%s' 'co' 'sign')
+          s4=$(printf '%s%s' 'dpkg-' 'sig')
+          if grep -nE "(^|[^a-z-])($s1|$s2|$s3|$s4)( |$)" \
+            scripts/desktop/package-artifact.sh \
+            scripts/desktop/check-package.sh \
+            scripts/desktop/common.sh; then
+            printf 'packager invokes a publish or sign tool\n' >&2
+            exit 1
+          fi
+          grep -q 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02' "$f"
+          grep -q 'actions: write' "$f"
+          grep -q 'contents: read' "$f"
 
   # Cross build of the same crate, then the test binary under qemu-user.
   # O_NOFOLLOW is libc::O_NOFOLLOW: 0x8000 on aarch64 and 0x20000 on x86, so
   # the host job cannot catch a hard-coded x86 flag. No C code, so no zig cc.
-  # The linker is rust-lld from .cargo/config.toml. Nothing is uploaded.
+  # The linker is rust-lld from .cargo/config.toml. The release package is
+  # uploaded as a workflow artifact. Nothing is signed and no release is created.
   linux-aarch64:
     name: aarch64 build and test (qemu-user)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
@@ -136,10 +248,39 @@ jobs:
           export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUNNER="$QEMU"
           cargo test -p openmind-desktop --locked --target aarch64-unknown-linux-musl
 
+      - name: package workflow artifact
+        run: |
+          set -eu
+          test -n "$QEMU"
+          scripts/desktop/package-artifact.sh \
+            --out target/openmind-desktop-ci \
+            --target aarch64-unknown-linux-musl \
+            --runner "$QEMU"
+
+      - name: check workflow artifact
+        run: |
+          set -eu
+          test -n "$QEMU"
+          scripts/desktop/check-package.sh --runner "$QEMU" target/openmind-desktop-ci
+
+      - name: aarch64 artifact names
+        run: |
+          set -eu
+          test -f target/openmind-desktop-ci/openmind-desktop-*-aarch64-unknown-linux-musl.tar.gz
+          test -f target/openmind-desktop-ci/openmind-desktop_*_arm64.deb
+
+      - name: upload workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: openmind-desktop-linux-aarch64
+          path: target/openmind-desktop-ci
+          if-no-files-found: error
+          retention-days: 14
+
   windows:
     name: build and test (x86_64-pc-windows-msvc)
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
@@ -157,10 +298,33 @@ jobs:
       - name: test
         run: cargo test -p openmind-desktop --locked --target x86_64-pc-windows-msvc
 
+      - name: package workflow artifact
+        shell: bash
+        run: scripts/desktop/package-artifact.sh --out target/openmind-desktop-ci --target x86_64-pc-windows-msvc
+
+      - name: check workflow artifact
+        shell: bash
+        run: scripts/desktop/check-package.sh target/openmind-desktop-ci
+
+      - name: windows artifact names
+        shell: bash
+        run: |
+          set -eu
+          test -f target/openmind-desktop-ci/openmind-desktop-*-x86_64-pc-windows-msvc.zip
+          test ! -e target/openmind-desktop-ci/*.deb
+
+      - name: upload workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: openmind-desktop-windows-x86_64
+          path: target/openmind-desktop-ci
+          if-no-files-found: error
+          retention-days: 14
+
   macos:
     name: build and test (aarch64-apple-darwin)
     runs-on: macos-latest
-    timeout-minutes: 25
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
@@ -177,3 +341,25 @@ jobs:
 
       - name: test
         run: cargo test -p openmind-desktop --locked --target aarch64-apple-darwin
+
+      - name: package workflow artifact
+        run: scripts/desktop/package-artifact.sh --out target/openmind-desktop-ci --target aarch64-apple-darwin
+
+      - name: check workflow artifact
+        run: scripts/desktop/check-package.sh target/openmind-desktop-ci
+
+      - name: macos artifact names
+        run: |
+          set -eu
+          test -f target/openmind-desktop-ci/openmind-desktop-*-aarch64-apple-darwin.tar.gz
+          test ! -e target/openmind-desktop-ci/*.deb
+          test ! -e target/openmind-desktop-ci/*.zip
+
+      - name: upload workflow artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: openmind-desktop-macos-aarch64
+          path: target/openmind-desktop-ci
+          if-no-files-found: error
+          retention-days: 14
+

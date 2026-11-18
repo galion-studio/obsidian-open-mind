@@ -28,6 +28,10 @@ fn call(reg: &Registry, args: Value) -> ToolOutput {
 
 #[test]
 fn workspace_scripts_run_and_bad_ones_are_refused() {
+    if !agent::terminal_can_be_offline() {
+        eprintln!("SKIP: no terminal on this host (it cannot be kept offline)");
+        return;
+    }
     let root = std::env::temp_dir().join(format!(
         "hermes-script-mode-{}-{}",
         std::process::id(),

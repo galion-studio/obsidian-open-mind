@@ -50,6 +50,14 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
+# hermes-gateway only (build with --profile release-unwind): a panic in one
+# tool call is caught (hermes_rs::tools::call_isolated) and becomes an error
+# result, instead of aborting the gateway for every user. Same as release
+# otherwise.
+[profile.release-unwind]
+inherits = "release"
+panic = "unwind"
+
 # Exception to opt-level "z" for the on-device voice models only (voice-rust):
 # Chatterbox and Whisper run billions of multiply-adds per request in candle
 # and gemm, and "z" makes those loops several times slower. Size of every other

@@ -77,6 +77,35 @@ pub struct Registry {
     policy: Option<Arc<crate::denylist::Policy>>,
 }
 
+/// Run one tool call so that a panic inside the tool (a bug, e.g. a byte
+/// slice that splits a multi-byte character) becomes an error result for
+/// that call instead of taking the whole gateway down. Effective when the
+/// binary is built with `panic = "unwind"` (profile `release-unwind`, used
+/// for hermes-gateway); under `panic = "abort"` it is a plain call.
+pub fn call_isolated(t: &dyn Tool, name: &str, args: &Value, ctx: &ToolCtx) -> ToolOutput {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t.call(args, ctx))) {
+        Ok(o) => o,
+        Err(e) => {
+            let msg = e
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| e.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".into());
+            let msg: String = msg.chars().take(300).collect();
+            eprintln!(
+                "hermes-rs tools: tool={name} session={} depth={} PANIC caught, gateway keeps running: {}",
+                ctx.session_id,
+                ctx.depth,
+                crate::redact(&msg)
+            );
+            ToolOutput::err(format!(
+                "tool {name} failed internally (bug, caught; the gateway keeps running): {}",
+                crate::redact(&msg)
+            ))
+        }
+    }
+}
+
 /// Every registered tool is wrapped in this: the deny list runs before the
 /// tool, for the boss agent, delegated children, cron and MCP tools alike.
 /// There is no switch that turns it off.
@@ -101,7 +130,7 @@ impl Tool for Guarded {
     fn call(&self, args: &Value, ctx: &ToolCtx) -> ToolOutput {
         let name = self.inner.name();
         match crate::denylist::check_tool_call(&self.inner.deny_name(), args, &self.policy) {
-            Ok(()) => self.inner.call(args, ctx),
+            Ok(()) => call_isolated(&*self.inner, &name, args, ctx),
             Err(d) => {
                 eprintln!(
                     "hermes-rs denylist: refused tool={name} rule={} session={} depth={}",

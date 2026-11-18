@@ -107,7 +107,14 @@ fn fx_with(tag: &str, edit: impl FnOnce(&mut AgentToolsConfig)) -> (Fx, Arc<Fake
         Some(prov.clone() as Arc<dyn Provider>),
         Some(hermes),
     );
-    assert_eq!(names, agent::TOOL_NAMES.to_vec());
+    // On a host where the terminal cannot be kept offline (no user
+    // namespaces, no Landlock TCP deny) it is not registered at all.
+    let want: Vec<_> = agent::TOOL_NAMES
+        .iter()
+        .filter(|n| agent::terminal_can_be_offline() || **n != "terminal")
+        .copied()
+        .collect();
+    assert_eq!(names, want);
     (
         Fx {
             ws,

@@ -29,6 +29,7 @@ pub mod session;
 #[cfg(feature = "sqlite")]
 pub mod session_sqlite;
 pub mod skills;
+pub mod source_check;
 pub mod spend;
 pub mod time;
 pub mod tools;

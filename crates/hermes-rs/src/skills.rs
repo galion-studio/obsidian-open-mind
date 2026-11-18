@@ -28,6 +28,7 @@ const MAX_DEPTH: usize = 5;
 pub const RUST_PORTS: &[(&str, &[&str])] = &[
     ("arxiv", &["arxiv_search"]),
     ("grounded-citations", &["citations"]),
+    ("source-check", &["source_check"]),
 ];
 
 #[derive(Debug, Clone, PartialEq)]

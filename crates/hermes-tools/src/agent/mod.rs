@@ -431,6 +431,14 @@ pub fn cut(s: &str, n: usize) -> String {
     format!("{}…[{} more bytes]", &s[..i], s.len() - i)
 }
 
+/// True when a sandboxed terminal run can be kept offline on this host:
+/// an empty network namespace (user namespaces) or a Landlock TCP deny
+/// (ABI >= 4). Without either the terminal tool is not registered at all.
+pub fn terminal_can_be_offline() -> bool {
+    let f = openmind_sandbox::features();
+    f.userns || f.landlock_abi >= 4
+}
+
 /// Startup checks; returns notes for the log.
 pub fn preflight(cfg: &AgentToolsConfig, spend: &SpendCfg) -> Result<Vec<String>, String> {
     if spend.session_usd_cap <= 0.0 || spend.daily_usd_cap <= 0.0 {
@@ -448,9 +456,12 @@ pub fn preflight(cfg: &AgentToolsConfig, spend: &SpendCfg) -> Result<Vec<String>
         f.userns,
         cfg.hide.len()
     )];
-    if !f.userns && f.landlock_abi < 4 {
-        return Err(
-            "no network namespace and no Landlock TCP deny: terminal could not be kept offline"
+    if !terminal_can_be_offline() {
+        // Fail closed for the terminal only: it is not registered (see
+        // `register`), the other agent tools (files, browser, vision) stay on.
+        // The offline requirement itself is unchanged.
+        notes.push(
+            "terminal: OFF (no network namespace and no Landlock TCP deny: terminal could not be kept offline)"
                 .into(),
         );
     }
@@ -481,7 +492,9 @@ pub fn register(
         names.push(t.name());
         reg.add_in_workspace(t, &ws);
     };
-    add(reg, Arc::new(shell::Terminal(sh.clone())));
+    if terminal_can_be_offline() {
+        add(reg, Arc::new(shell::Terminal(sh.clone())));
+    }
     add(reg, Arc::new(files::ReadFile(sh.clone())));
     add(reg, Arc::new(files::WriteFile(sh.clone())));
     add(reg, Arc::new(files::EditFile(sh.clone())));

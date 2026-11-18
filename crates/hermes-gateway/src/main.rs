@@ -193,7 +193,8 @@ fn main() {
         });
         tools.add(Arc::new(hermes_rs::arxiv::ArxivTool::default()));
         tools.add(Arc::new(hermes_rs::citations::CitationsTool { dir }));
-        log("skill tools: arxiv_search, citations");
+        tools.add(Arc::new(hermes_rs::source_check::SourceCheckTool::default()));
+        log("skill tools: arxiv_search, citations, source_check");
     }
     for w in &cfg.mcp_warnings {
         log(&format!("mcp: WARNING: {w}"));

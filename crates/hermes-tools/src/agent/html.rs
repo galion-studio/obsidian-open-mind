@@ -54,7 +54,13 @@ pub fn decode_entities(s: &str) -> String {
     while let Some(i) = rest.find('&') {
         out.push_str(&rest[..i]);
         let tail = &rest[i..];
-        let end = tail[..tail.len().min(12)].find(';');
+        // At most 12 bytes, cut back to a char boundary (a multi-byte
+        // letter right after '&' used to panic the whole gateway).
+        let mut lim = tail.len().min(12);
+        while !tail.is_char_boundary(lim) {
+            lim -= 1;
+        }
+        let end = tail[..lim].find(';');
         let Some(end) = end else {
             out.push('&');
             rest = &tail[1..];
@@ -296,5 +302,14 @@ mod tests {
         assert_eq!(absolutize(b, "//cdn.x/y").unwrap(), "https://cdn.x/y");
         assert!(absolutize(b, "javascript:alert(1)").is_none());
         assert!(absolutize(b, "#top").is_none());
+    }
+}
+
+#[cfg(test)]
+mod netfix_tests {
+    #[test]
+    fn entity_scan_never_splits_a_multibyte_char() {
+        let t = super::decode_entities("a &xxxxxxxxxč; b &čččččč c &amp; d");
+        assert!(t.contains("& d"), "{t}");
     }
 }

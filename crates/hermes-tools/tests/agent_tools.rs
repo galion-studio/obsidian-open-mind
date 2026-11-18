@@ -141,7 +141,15 @@ fn call(fx: &Fx, tool: &str, args: Value) -> ToolOutput {
         cancel: &cancel,
         emit: &emit,
     };
-    fx.reg.get(tool).unwrap().call(&args, &ctx)
+    match fx.reg.get(tool) {
+        Some(t) => t.call(&args, &ctx),
+        // Only the terminal may be absent: on a host that cannot keep it
+        // offline it is not registered, so every call fails closed.
+        None if tool == "terminal" && !agent::terminal_can_be_offline() => {
+            ToolOutput::err("refused: terminal not registered (cannot be kept offline on this host)")
+        }
+        None => panic!("tool {tool} not registered"),
+    }
 }
 
 fn refused(o: &ToolOutput) -> bool {

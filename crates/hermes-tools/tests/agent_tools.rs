@@ -343,6 +343,13 @@ fn secret_values_are_redacted_in_reads() {
 #[test]
 fn terminal_attacks_are_refused_by_the_deny_list_before_running() {
     let f = fx("attacks");
+    if !agent::terminal_can_be_offline() {
+        // No terminal on this host: nothing reaches the deny list, every
+        // call fails closed (see `call`).
+        assert!(refused(&call(&f, "terminal", json!({"command": "cat /etc/shadow"}))));
+        eprintln!("SKIP: deny-list checks need a registered terminal (host cannot keep it offline)");
+        return;
+    }
     let marker = f.ws.join("ran");
     let attacks = [
         "cat /root/galion-secrets/openrouter.key",

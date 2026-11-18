@@ -74,10 +74,18 @@ impl Usage {
 /// List prices in USD per 1M tokens: (model id, input, cached input, output).
 /// Used only when the provider's usage block has no `cost` (River does not
 /// send one; OpenRouter does), so the spend caps can see that spend.
-/// Source: https://console.river.ai/api/public/pricing (2026-11-01).
+/// Source: https://console.river.ai/api/public/pricing ("inference", read
+/// 2026-11-01; the other River inference models added 2026-11-19 so a model
+/// switch, e.g. to GLM-5.3-Flash, is never invisible to the caps).
 const MODEL_PRICES: &[(&str, f64, f64, f64)] = &[
     ("deepseek-ai/DeepSeek-V4.1-Flash-1017", 0.12, 0.0024, 0.48),
     ("deepseek-ai/DeepSeek-V4.1-Flash", 0.12, 0.0024, 0.48),
+    ("zai-org/GLM-5.3-Flash", 0.12, 0.024, 0.40),
+    ("GLM-5.3", 1.12, 0.208, 3.52),
+    ("Qwen/Qwen3.8-27B-FP8", 0.10, 0.02, 2.0),
+    ("moonshotai/Kimi-K3", 3.0, 0.3, 15.0),
+    ("moonshotai/Kimi-K3.1-Pro", 2.0, 0.2, 10.0),
+    ("nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4", 0.07, 0.024, 0.37),
 ];
 
 /// (input, cached input, output) USD per 1M tokens for a model id, if known.

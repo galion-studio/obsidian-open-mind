@@ -6,10 +6,10 @@
 //!
 //! The page document stays the source of the stack, the prompt, and the
 //! tones. This module only adds a style and a script around that document,
-//! plus three short notes. It does not fetch a font: the content-security
-//! policy is `default-src 'none'`. The type stack is the brand fallback
-//! from `brand/STYLE-GUIDE.md` (Inter, then the system UI; Geist Mono, then
-//! a system mono). A machine without those faces keeps the system fonts.
+//! plus three short notes. It does not fetch a font. The page already names
+//! IBM Plex Sans and IBM Plex Mono (`brand/BRAND.md`) and falls back to the
+//! system faces. The content-security policy is `default-src 'none'`, so
+//! this layer does not name a second family and does not request a file.
 
 const FILES_EMPTY: &str =
     "<p class=\"notes\" id=\"files-empty\">No files attached. The plus opens the picker.</p>";
@@ -21,12 +21,6 @@ const WELCOME: &str = "<p class=\"notes\" id=\"welcome\">This console stays on t
 const KEYS: &str = "<div id=\"keys\" hidden role=\"region\" aria-label=\"Keyboard shortcuts\"><p class=\"kicker\">Keys</p><p><kbd>/</kbd> command <kbd>Enter</kbd> keep <kbd>L</kbd> look <kbd>F</kbd> files <kbd>V</kbd> voice <kbd>M</kbd> mute <kbd>?</kbd> keys <kbd>Esc</kbd> clear</p></div>";
 
 const SURFACE_CSS: &str = r#"
-body {
-  font-family: "Inter", "Helvetica Neue", Arial, "Liberation Sans", system-ui, sans-serif;
-}
-.kicker, .stack h2, .stack .state, .stack .seen, .licence, #keys {
-  font-family: "Geist Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, "DejaVu Sans Mono", monospace;
-}
 #keys {
   margin: 12px 0 0;
   padding: 10px 14px;
@@ -34,18 +28,18 @@ body {
   border-radius: 11px;
   background: var(--panel);
   color: var(--muted);
-  font-size: 13px;
-  line-height: 1.45;
+  font: 13px/1.45 "IBM Plex Mono", ui-monospace, monospace;
 }
 #keys p { margin: 0; }
 #keys .kicker { margin: 0 0 8px; }
 #keys kbd { font: inherit; color: var(--fg); }
+#look-why { overflow-wrap: break-word; }
 #welcome[hidden], #files-empty[hidden], #kept-empty[hidden], #keys[hidden], #look-why[hidden] {
   display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
   .chip {
-    animation: om-rise 180ms ease;
+    animation: om-rise 160ms ease;
   }
   #look, .plus, .voice, #mute, .entries a, .back {
     transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
@@ -57,6 +51,11 @@ body {
 }
 "#;
 
+// Chip text after the em dash. The server tokens are [`crate::files::FileError::message`].
+// `too large` is the page's client check before the upload. `not sent` and `refused`
+// are the page script, not [`crate::files::FileError`] codes. Eight MiB is
+// [`crate::files::MAX_FILE_BYTES`] divided by 1024 twice.
+
 const SURFACE_JS: &str = r#"
 (function () {
   var welcome = document.getElementById("welcome");
@@ -67,33 +66,43 @@ const SURFACE_JS: &str = r#"
   var picked = document.getElementById("picked");
   var kept = document.getElementById("kept");
   var faults = {
-    "empty": "the file is empty",
-    "too large": "the file is over 8 MiB",
-    "too-large": "the file is over 8 MiB",
-    "type": "that type is not accepted",
-    "magic": "the bytes do not match the name",
-    "traversal": "that path leaves the chosen folder",
-    "outside": "that path was not chosen",
-    "symlink": "a symlink is not opened",
-    "not-found": "that file is not in the chosen folder",
-    "not-file": "that path is not a file",
-    "no-destination": "there is nowhere to store it yet",
-    "not-loopback": "the intake is not on loopback",
-    "unreachable": "the intake did not answer",
-    "pair": "the intake asked to pair",
-    "stack": "the intake refused the file",
-    "bad-name": "that name is not one file name",
-    "bad-json": "the request was not a path",
-    "io": "the disk read failed",
-    "refused": "the request was refused",
-    "not sent": "the listener did not answer"
+    "empty": "The file is empty.",
+    "too large": "The file is larger than 8 MiB.",
+    "too-large": "The file is larger than 8 MiB.",
+    "type": "That file type is not accepted.",
+    "magic": "The bytes do not match the file name.",
+    "traversal": "That path leaves the chosen folder.",
+    "outside": "That path was not chosen.",
+    "symlink": "A symlink is not opened.",
+    "not-found": "That file is not in the chosen folder.",
+    "not-file": "That path is not a file.",
+    "no-destination": "There is nowhere to store the file yet.",
+    "not-loopback": "The intake is not on loopback.",
+    "unreachable": "The intake did not answer.",
+    "pair": "The intake asked to pair. This desktop does not send a token.",
+    "stack": "The intake refused the file.",
+    "bad-name": "That name is not a single file name.",
+    "bad-json": "The request was not a path.",
+    "io": "The disk read failed.",
+    "refused": "The request was refused.",
+    "not sent": "The listener did not answer."
   };
   function dismissWelcome() {
     if (welcome) welcome.hidden = true;
   }
   function syncEmpty() {
-    if (filesEmpty && picked) filesEmpty.hidden = picked.children.length > 0;
-    if (keptEmpty && kept) keptEmpty.hidden = kept.children.length > 0;
+    if (filesEmpty && picked) {
+      var filesFilled = picked.children.length > 0;
+      filesEmpty.hidden = filesFilled;
+      if (filesFilled) dismissWelcome();
+    }
+    if (keptEmpty && kept) {
+      var keptFilled = kept.children.length > 0;
+      keptEmpty.hidden = keptFilled;
+      var head = kept.previousElementSibling;
+      if (head && head.tagName === "P") head.hidden = !keptFilled;
+      if (keptFilled) dismissWelcome();
+    }
     if (!picked) return;
     var i;
     for (i = 0; i < picked.children.length; i = i + 1) {
@@ -121,7 +130,14 @@ const SURFACE_JS: &str = r#"
   }
   syncEmpty();
   var look = document.getElementById("look");
+  var files = document.getElementById("files");
+  var voice = document.getElementById("voice");
+  var mute = document.getElementById("mute");
   if (look) look.addEventListener("click", dismissWelcome);
+  if (files) files.addEventListener("click", dismissWelcome);
+  if (voice) voice.addEventListener("click", dismissWelcome);
+  if (mute) mute.addEventListener("click", dismissWelcome);
+  if (command) command.addEventListener("input", dismissWelcome);
   function showWhy(data) {
     var probes = data && data.probes;
     if (!probes) return;
@@ -226,10 +242,12 @@ const SURFACE_JS: &str = r#"
 /// The console page plus the surface notes, keys, and motion.
 ///
 /// A string that is not the control console is returned unchanged, so the
-/// product entries stay as [`crate::page::entry`] wrote them.
+/// product entries stay as [`crate::page::entry`] wrote them. A console that
+/// already carries `id="surface"` is returned unchanged, so the notes are
+/// not inserted twice.
 #[must_use]
 pub fn present(html: &str) -> String {
-    if !html.contains("data-desktop=\"control-console\"") {
+    if !html.contains("data-desktop=\"control-console\"") || html.contains("id=\"surface\"") {
         return html.to_string();
     }
     let mut out = html.to_string();
@@ -314,10 +332,50 @@ mod tests {
         }
         assert!(html.contains("Copyright (c) 3000 Galion / galion-studio"));
         assert!(html.contains("432 Hz"));
+        assert!(html.contains("IBM Plex Sans"));
+        assert!(html.contains("IBM Plex Mono"));
+        assert!(!html.contains("font-family: \"Inter\""));
+        assert!(!html.contains("Geist Mono"));
+        assert!(html.contains("160ms ease"));
+        assert!(!html.contains("om-rise 180ms"));
+        assert!(html.contains("head.tagName === \"P\""));
+        assert_eq!(present(&html), html);
         assert_eq!(present("<p>entry only</p>"), "<p>entry only</p>");
         assert_eq!(
             present(page::entry("/one").unwrap()),
             page::entry("/one").unwrap()
         );
+    }
+
+    #[test]
+    fn chip_sentences_match_file_error_message() {
+        use crate::files::FileError;
+
+        let html = present(page::document());
+        let cases = [
+            FileError::Empty,
+            FileError::TooLarge,
+            FileError::Type,
+            FileError::Magic,
+            FileError::Traversal,
+            FileError::Outside,
+            FileError::Symlink,
+            FileError::NotFound,
+            FileError::NotFile,
+            FileError::NoDestination,
+            FileError::NotLoopback,
+            FileError::Unreachable,
+            FileError::Pair,
+            FileError::StackStatus,
+            FileError::BadName,
+            FileError::BadJson,
+            FileError::Io(String::new()),
+        ];
+        for err in cases {
+            let needle = format!("\"{}\": \"{}\"", err.code(), err.message());
+            assert!(html.contains(&needle), "{needle}");
+        }
+        let large = FileError::TooLarge.message();
+        assert!(html.contains(&format!("\"too large\": \"{large}\"")));
     }
 }

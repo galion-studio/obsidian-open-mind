@@ -46,7 +46,48 @@ Obsidian Open Mind is not affiliated with the Obsidian note-taking app.
 
 `openmind-desktop` is a workspace package. Install and the loopback rules are in
 [docs/desktop/README.md](docs/desktop/README.md). Bind defaults are in
-[docs/bind-defaults.md](docs/bind-defaults.md).
+[docs/bind-defaults.md](docs/bind-defaults.md). The short path is below.
+
+### First launch
+
+Build only the console. Printing the page opens no socket (`Mode::Page` in
+`crates/openmind-desktop/src/cli.rs`). `--listen` binds `127.0.0.1:18181`
+(`DEFAULT_BIND` in `crates/openmind-desktop/src/lib.rs`).
+
+```sh
+cargo build -p openmind-desktop --locked
+./target/debug/openmind-desktop > console.html
+./target/debug/openmind-desktop --listen
+```
+
+`cargo build` without `--release` writes `target/debug/openmind-desktop`. The release
+binary from [Setup and install](#setup-and-install) is `target/release/openmind-desktop`.
+
+Page mode writes the HTML to stdout. On stderr it says nothing is listening, and it
+names `http://127.0.0.1:18181/` (`page_hint` in `crates/openmind-desktop/src/http.rs`).
+`--listen` prints the address it bound, then `open http://` and that address
+(`listen_banner` in the same file). Open that URL in a browser on this machine.
+A non-loopback address is still refused before a socket is created.
+
+The page starts with one welcome line (`present` in
+`crates/openmind-desktop/src/surface.rs`). That line clears when Look, the plus,
+voice, mute, or the command is used. No files are attached until the plus or the files command is used.
+Nothing is kept until the command field keeps a line, and the heading "Kept on this
+page" stays hidden until then. Press `?` for the keys. `/` focuses the command.
+Enter keeps the line. `L` looks at the stack. `F` opens the picker. `V` toggles the
+microphone. `M` toggles mute. Esc clears the command, or closes the key list when
+that list is open. The letter keys do not fire while a field is focused. Ctrl+K and
+Cmd+K focus the command. Chips and the Look, voice, and mute controls ease for 160ms.
+That motion is off when the system asks for less (`prefers-reduced-motion` in the
+same file). The page keeps IBM Plex Sans and IBM Plex Mono (`brand/BRAND.md`). No
+font file is fetched.
+
+Look calls `GET /probes`. `--probe` prints one sentence for each enabled service
+that is not up, and the JSON report includes that sentence as `message`
+(`ProbeReport::message` in `crates/openmind-desktop/src/probe.rs`). The page shows
+those sentences between the Look state line and the Look button. A refused file
+keeps its `error` token and adds a `message` sentence (`FileError::message` in
+`crates/openmind-desktop/src/files.rs`). The chip says that sentence.
 
 Source (`crates/openmind-desktop/src/lib.rs`): `DEFAULT_PORT` is `18181` and `DEFAULT_BIND` is
 `127.0.0.1:18181`. The comment on `DEFAULT_PORT` says 18081 is the staging page beside the Rust
@@ -138,12 +179,13 @@ How the parts fit:
 - **Hermes** is upstream software that runs next to this stack. The desktop `hermes` row is
   `planned`. `desk-hermes` and `hermes-rs` are crates in this workspace.
   `HERMES_RS_MCP_GITHUB=1` is opt-in and read-only. The contract is
-  `docs/hermes-mcp.md` on draft [#51](https://github.com/galion-studio/obsidian-open-mind/pull/51)
-  (`ff9d400`). That file is not on `main`.
+  [docs/hermes-mcp.md](docs/hermes-mcp.md).
 - **Persona Plex v2** is still the scaffold described above. Weights are not bundled here.
 - **omnode** is the edge package under `edge/openmind-node`.
 
 ## Setup and install
+
+The console alone is [First launch](#first-launch). This section is the whole workspace.
 
 Requirements:
 
@@ -176,6 +218,9 @@ Desktop console:
 cargo build -p openmind-desktop --locked
 cargo test -p openmind-desktop --locked
 ```
+
+Run it with the commands in [First launch](#first-launch). On a shared or small box,
+prefix the build with `nice -n 19` and `-j 2`, as in the workspace block above.
 
 The edge node is a standalone package (its own `[workspace]`, outside the `crates/*` glob):
 

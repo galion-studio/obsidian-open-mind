@@ -4,7 +4,7 @@
 
 //! `/hermes` (console-ide `src/routes/_console/hermes.tsx` ->
 //! `src/components/hermes-panel.tsx`, 2758 lines, live tree 2026-10-20
-//! 21:25 CEST): the **read-only part** of Hermes Research, without
+//! 21:25 CEST): the **read-only research room**, without
 //! JavaScript.
 //!
 //! Ported: gateway health (`/api/hermes/health`), guard and auto-accept
@@ -13,11 +13,10 @@
 //! list and token totals (`/api/hermes/history`) and one thread
 //! (`/api/hermes/history?id=`), all GET.
 //!
-//! The page shows the Galion Research prompt: a large centred field, a plus
-//! on the left (add files) and a voice button on the right (the Ice → Sky →
-//! Ocean gradient). The plus posts a file to `/hermes/attach` or
-//! `/research/attach`. That copy stays on this machine. The voice button
-//! stays disabled.
+//! The web interface lives in galion-studio/hermes-research. This room no
+//! longer draws the prompt. The old markup is
+//! `docs/archive/research-web/console-prompt.html`. `POST /hermes/attach`
+//! and `POST /research/attach` still store a file.
 //!
 //! Held, on purpose (owner decisions, docs/console-port-2.md):
 //! - asking / runs / steer / stop / approvals / mic / speak
@@ -25,7 +24,7 @@
 //!   (decision 1: no-JS form, script island, or keep the SPA) and H1 (a
 //!   question may reach a paid model) are Slavik's;
 //! - guard / auto-accept toggles, loops, settings, background start/stop:
-//!   state-changing POSTs that move Hermes's safety switches;
+//!   state-changing POSTs that move the research engine's safety switches;
 //! - localStorage (threads, mode, seen marks): server-side history only.
 //!
 //! The gateway's bind address is not shown (only whether it is loopback).
@@ -274,6 +273,7 @@ pub fn body(
     chips: &[crate::attach::Chip],
     fault: Option<&str>,
 ) -> String {
+    let _ = action;
     let fault_html = fault
         .map(|text| format!("<p class=\"note t-bad\">{}</p>", esc(text)))
         .unwrap_or_default();
@@ -282,22 +282,12 @@ pub fn body(
     );
     out.push_str(&format!(
         "<h1>{mark}<span class=\"ell\">The mind</span></h1>\
-<p class=\"lede\">One window. One prompt. galion.app/research. Type or speak, then watch what happens. This room still only reads threads, models and the guard.</p></header>\
-<div class=\"ask\" role=\"group\" aria-label=\"Galion Research prompt\">\
-<form class=\"ask-file\" method=\"post\" action=\"{action}\" enctype=\"multipart/form-data\">\
-<label class=\"ask-plus\"><input type=\"file\" name=\"file\" aria-label=\"Add files\" required>{plus}</label>\
-<button type=\"submit\" class=\"ask-go\">Attach</button>\
-</form>\
-<textarea class=\"ask-input\" rows=\"3\" readonly placeholder=\"Ask a big question\" aria-label=\"Prompt\"></textarea>\
-<button type=\"button\" class=\"ask-voice\" disabled aria-label=\"Voice, unavailable\" title=\"Voice is not on this page yet\">{voice}</button>\
+<p class=\"lede\">The Galion Research web interface is one app, galion-studio/hermes-research, for research.galion.app. This room still only reads threads, models and the guard.</p></header>\
+<p class=\"note\">Asking, the microphone, and the guard switches are not on this page. They wait on Slavik's JavaScript ruling and the paid-model decision (H1). The research engine is unchanged; this room is served from Rust even when the old console is installed.</p>\
 </div>\
 {fault}{chips}\
-<p class=\"note\">Files you add stay on this machine. Asking, runs, the mic and the guard switches are not on this page yet: they wait on Slavik's JavaScript ruling and the paid-model decision (H1). The Hermes gateway is unchanged; this room is served from Rust even when the old console is installed.</p>\
-</div><ul class=\"facts\">",
+<ul class=\"facts\">",
         mark = icon("research", "i i-md"),
-        plus = icon("plus", "i"),
-        voice = icon("voice", "i"),
-        action = esc(action),
         fault = fault_html,
         chips = chips_html(chips),
     ));
@@ -435,26 +425,21 @@ mod tests {
             "<span class=\"mono\">terminal</span> <span class=\"muted\">done</span> <span class=\"subtle mono\">ls -la</span>",
             "Slavik's JavaScript ruling",
             "Galion Research",
-            "galion.app/research",
-            "Ask a big question",
-            "aria-label=\"Add files\"",
-            "disabled aria-label=\"Voice, unavailable\"",
-            "class=\"ask-plus\"",
-            "class=\"ask-voice\"",
+            "research.galion.app",
+            "galion-studio/hermes-research",
+            "The research engine is unchanged",
         ] {
             assert!(b.contains(n), "missing {n}\n{b}");
         }
-        let ask = b.find("class=\"ask\"").expect("prompt");
-        let plus_at = b.find("ask-plus").expect("plus");
-        let field_at = b.find("ask-input").expect("field");
-        let voice_at = b.find("ask-voice").expect("voice");
-        assert!(ask < plus_at && plus_at < field_at && field_at < voice_at);
-        assert!(b.contains("action=\"/hermes/attach\""));
-        assert!(b.contains("enctype=\"multipart/form-data\""));
-        assert!(b.contains("type=\"file\""));
-        assert!(b.contains("class=\"ask-go\""));
-        assert!(b.contains("disabled aria-label=\"Voice, unavailable\""));
-        assert!(b.contains("Files you add stay on this machine."));
+        for n in [
+            "ask-plus",
+            "ask-input",
+            "ask-voice",
+            "Ask a big question",
+            "galion.app/research",
+        ] {
+            assert!(!b.contains(n), "prompt markup leaked: {n}\n{b}");
+        }
         assert!(!b.contains("127.0.0.1:8642"), "bind address must not show");
         assert!(!b.contains("secret-ish output"), "tool output is not shown");
         assert!(!b.contains("action=\"/api/"));
@@ -473,15 +458,15 @@ mod tests {
             &chips,
             Some(crate::attach::Code::Type.note()),
         );
-        assert!(b.contains("action=\"/research/attach\""));
+        assert!(!b.contains("action=\"/research/attach\""));
         assert!(b.contains("&lt;b&gt;notes.txt"));
         assert!(!b.contains("<b>notes"));
         assert!(b.contains("text · 12 B"));
         assert!(b.contains("That file type is not allowed."));
-        let ask = b.find("class=\"ask\"").unwrap();
+        let stage = b.find("ask-stage").unwrap();
         let chip = b.find("ask-chip").unwrap();
         let facts = b.find("class=\"facts\"").unwrap();
-        assert!(ask < chip && chip < facts);
+        assert!(stage < chip && chip < facts);
     }
 
     #[test]

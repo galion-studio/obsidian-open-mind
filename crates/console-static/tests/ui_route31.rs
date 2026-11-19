@@ -226,7 +226,7 @@ fn hermes_is_rust_first_under_spa_fallback() {
         assert!(!r.body.contains("style=\""), "{p}: inline style");
         assert!(
             !r.body.contains("action=\"/hermes/attach\""),
-            "{p}: the prompt form is not on this page"
+            "{p}: the room does not draw the attach form"
         );
         assert!(
             !r.body.contains("action=\"/api/"),

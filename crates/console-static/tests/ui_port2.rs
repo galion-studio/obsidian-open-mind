@@ -403,14 +403,19 @@ fn hermes_read_only() {
     }
     assert!(r.body.contains("/_ui/research."), "research sheet linked");
     assert!(r.body.contains("galion-studio/hermes-research"));
+    assert!(r.body.contains("Galion Research"));
+    assert!(r.body.contains("The research engine is unchanged"));
     // The prompt form left this room in #123. Attach stays a POST, not a form.
     assert!(!r.body.contains("aria-label=\"Add files\""));
     assert!(!r.body.contains("action=\"/hermes/attach\""));
     assert!(!r.body.contains("type=\"file\""));
-    assert!(!r.body.contains("action=\"/api/"));
+    assert!(!r.body.contains("aria-label=\"Galion Research prompt\""));
+    assert!(!r.body.contains("ask-plus"));
+    assert!(!r.body.contains("ask-voice"));
     assert!(!r
         .body
         .contains("disabled aria-label=\"Voice, unavailable\""));
+    assert!(!r.body.contains("action=\"/api/"));
     assert!(!r.body.contains("127.0.0.1:8642"));
     let r = get(a, "/hermes?id=t-1", "127.0.0.1", "");
     assert!(r.body.contains("<pre class=\"say\">hello hermes</pre>"));
@@ -554,6 +559,8 @@ fn research_attach_stays_local_and_shows_a_chip() {
     let (a, log) = start(true);
     let research = get(a, "/research", "127.0.0.1", "");
     assert!(research.body.contains("galion-studio/hermes-research"));
+    assert!(research.body.contains("Galion Research"));
+    assert!(research.body.contains("The research engine is unchanged"));
     assert!(!research.body.contains("action=\"/research/attach\""));
     assert!(!research
         .body
@@ -561,6 +568,8 @@ fn research_attach_stays_local_and_shows_a_chip() {
     assert!(!research
         .body
         .contains("disabled aria-label=\"Voice, unavailable\""));
+    assert!(!research.body.contains("ask-plus"));
+    assert!(!research.body.contains("ask-voice"));
 
     let (code, _, _) = post_file(
         a,

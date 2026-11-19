@@ -6,7 +6,8 @@
 //!
 //! The page document stays the source of the stack, the prompt, and the
 //! tones. This module only adds a style and a script around that document,
-//! plus three short notes. It does not fetch a font. The page already names
+//! plus three short notes. Arrow keys move focus along the header, Look,
+//! the prompt, and the microphone opt-in. No font is fetched. The page already names
 //! IBM Plex Sans and IBM Plex Mono (`brand/BRAND.md`) and falls back to the
 //! system faces. The content-security policy is `default-src 'none'`, so
 //! this layer does not name a second family and does not request a file.
@@ -18,7 +19,7 @@ const KEPT_EMPTY: &str = "<p class=\"notes\" id=\"kept-empty\">Nothing kept yet.
 
 const WELCOME: &str = "<p class=\"notes\" id=\"welcome\">This console stays on this machine. Type look, or press L, to check the stack. Press ? for the keys.</p>";
 
-const KEYS: &str = "<div id=\"keys\" hidden role=\"region\" aria-label=\"Keyboard shortcuts\"><p class=\"kicker\">Keys</p><p><kbd>/</kbd> command <kbd>Enter</kbd> keep <kbd>L</kbd> look <kbd>F</kbd> files <kbd>V</kbd> voice <kbd>M</kbd> mute <kbd>?</kbd> keys <kbd>Esc</kbd> clear</p></div>";
+const KEYS: &str = "<div id=\"keys\" hidden role=\"region\" aria-label=\"Keyboard shortcuts\"><p class=\"kicker\">Keys</p><p><kbd>/</kbd> command <kbd>Enter</kbd> keep <kbd>L</kbd> look <kbd>F</kbd> files <kbd>V</kbd> voice <kbd>M</kbd> mute <kbd>?</kbd> keys <kbd>Esc</kbd> clear <kbd>Arrows</kbd> move</p></div>";
 
 const SURFACE_CSS: &str = r#"
 #keys {
@@ -186,6 +187,41 @@ const SURFACE_JS: &str = r#"
     var el = document.getElementById(id);
     if (el) el.click();
   }
+  function focusId(id) {
+    var el = document.getElementById(id);
+    if (el) el.focus();
+  }
+  function press(id) {
+    dismissWelcome();
+    focusId(id);
+    clickId(id);
+  }
+  function controls() {
+    return document.querySelectorAll("nav.entries a, #mute, #look, #files, #command, #voice, #mic-opt");
+  }
+  function moveFocus(dir) {
+    var list = controls();
+    if (!list.length) return;
+    var i;
+    var at = -1;
+    for (i = 0; i < list.length; i = i + 1) {
+      if (list[i] === document.activeElement) at = i;
+    }
+    var next = at < 0
+      ? (dir > 0 ? list[0] : list[list.length - 1])
+      : list[(at + dir + list.length) % list.length];
+    if (next) next.focus();
+  }
+  function textField(ev) {
+    var t = ev.target;
+    if (!t) return false;
+    if (t === command) return true;
+    var tag = t.tagName;
+    if (tag === "TEXTAREA" || t.isContentEditable) return true;
+    if (tag !== "INPUT") return false;
+    var type = (t.getAttribute("type") || "text").toLowerCase();
+    return type === "text" || type === "search" || type === "url" || type === "email" || type === "password";
+  }
   function typing(ev) {
     var t = ev.target;
     if (!t) return false;
@@ -214,6 +250,12 @@ const SURFACE_JS: &str = r#"
       }
       return;
     }
+    if (ev.key === "ArrowDown" || ev.key === "ArrowRight" || ev.key === "ArrowUp" || ev.key === "ArrowLeft") {
+      if (textField(ev) || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+      moveFocus((ev.key === "ArrowDown" || ev.key === "ArrowRight") ? 1 : -1);
+      ev.preventDefault();
+      return;
+    }
     if (typing(ev)) return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
     if (ev.key === "/") {
@@ -231,10 +273,10 @@ const SURFACE_JS: &str = r#"
       return;
     }
     var key = ev.key.toLowerCase();
-    if (key === "l") { dismissWelcome(); clickId("look"); ev.preventDefault(); }
-    else if (key === "f") { dismissWelcome(); clickId("files"); ev.preventDefault(); }
-    else if (key === "v") { dismissWelcome(); clickId("voice"); ev.preventDefault(); }
-    else if (key === "m") { dismissWelcome(); clickId("mute"); ev.preventDefault(); }
+    if (key === "l") { press("look"); ev.preventDefault(); }
+    else if (key === "f") { press("files"); ev.preventDefault(); }
+    else if (key === "v") { press("voice"); ev.preventDefault(); }
+    else if (key === "m") { press("mute"); ev.preventDefault(); }
   });
 })();
 "#;
@@ -305,6 +347,10 @@ mod tests {
         assert!(html.contains("prefers-reduced-motion: no-preference"));
         assert!(html.contains("keydown"));
         assert!(html.contains("Escape"));
+        assert!(html.contains("ArrowRight"));
+        assert!(html.contains("ArrowLeft"));
+        assert!(html.contains("nav.entries a, #mute, #look, #files, #command, #voice, #mic-opt"));
+        assert!(html.contains("<kbd>Arrows</kbd> move"));
         assert!(html.contains("\"/probes\""));
         for code in [
             "empty",

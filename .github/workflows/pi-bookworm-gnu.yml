@@ -1,0 +1,54 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+#
+# Cross-build the desktop binaries for aarch64-unknown-linux-gnu and record
+# openmind-desktop --probe startup time and peak memory on this runner.
+# The job summary says "CI runner, not a Pi 5". qemu is not used. Nothing
+# is installed on a Raspberry Pi and nothing is published.
+# permissions stay contents: read.
+name: pi-bookworm-gnu
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pi-bookworm-gnu-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  PI_BOOKWORM_GNU_JOBS: 2
+  PI_BOOKWORM_GNU_NICE: 0
+  TZ: Europe/Zagreb
+
+jobs:
+  bookworm-gnu:
+    name: aarch64 gnu cross-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch head 2026-10-20
+        with:
+          toolchain: stable
+          targets: aarch64-unknown-linux-gnu
+
+      - name: install time and binutils
+        run: |
+          set -eu
+          sudo apt-get update -q
+          sudo apt-get install -y -q time binutils
+          test -x /usr/bin/time
+          command -v readelf >/dev/null
+
+      - name: cross-build aarch64-unknown-linux-gnu
+        run: scripts/linux/pi-bookworm-gnu.sh build
+
+      - name: probe on the CI runner, not a Pi 5
+        run: scripts/linux/pi-bookworm-gnu.sh measure

@@ -49,3 +49,9 @@ pi-bookworm: emulator result, not a Raspberry Pi 5 result and not a Raspberry Pi
 ```
 
 The job then runs `openmind-desktop --probe` and `check-report`. The JSON in the job log is that run's output. It is not a Raspberry Pi 5 result. `check-report` expects the seven services other than voice to be `up`, and voice to be `down` with HTTP 503, because this install has no speech backend. The desktop binary exits 1 when any enabled probe is not up (`DesktopError::Probes` in `crates/openmind-desktop/src/error.rs`). The job allows that exit code and still checks the JSON.
+
+## GNU cross-build
+
+`.github/workflows/pi-bookworm-gnu.yml` runs `scripts/linux/pi-bookworm-gnu.sh`. `build` cross-compiles the names in `bins` in `scripts/linux/pi-bookworm-install.sh` for `aarch64-unknown-linux-gnu`. The C compiler and the linker are the zig binary from `scripts/install-zig.sh` (the installer `scripts/linux/pi-seed.sh` calls). The zig target is `aarch64-linux-gnu.2.36` (`ZIG_GLIBC` in `scripts/linux/pi-bookworm-gnu.sh`). This job does not run the musl seed build and does not run the install.
+
+`measure` builds the host `openmind-desktop` release and runs `--probe` (no `--listen`). Startup time is the wall clock around that process, in seconds to three decimal places (`date +%s.%N` in `scripts/linux/pi-bookworm-gnu.sh`). Peak memory is `/usr/bin/time`'s maximum resident set size in kbytes. The job summary heading is `CI runner, not a Pi 5`. Those two numbers are from the machine that ran the job. On GitHub Actions that machine is the CI runner. They are not a Raspberry Pi 5 result. The aarch64 binaries are checked as dynamic AArch64 ELF files and are not the process that was timed.

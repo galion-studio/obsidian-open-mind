@@ -44,7 +44,7 @@ pub fn listen_with(addr: &str, probes: &ProbeConfig, files: &Files) -> Result<()
         .local_addr()
         .map(|a| a.to_string())
         .unwrap_or_else(|_| addr.to_string());
-    eprintln!("openmind-desktop: listening on {bound}");
+    eprintln!("{}", listen_banner(&bound));
     let limits = Limits {
         max_body_bytes: files::MAX_FILE_BYTES,
         max_connections: 8,
@@ -61,6 +61,26 @@ pub fn listen_with(addr: &str, probes: &ProbeConfig, files: &Files) -> Result<()
         addr: addr.to_string(),
         source,
     })
+}
+
+/// Two stderr lines for [`listen_with`]: the bound address, then the page URL.
+///
+/// The URL uses `bound` as the browser host, so an IPv6 address that
+/// [`std::net::SocketAddr`] already brackets stays bracketed.
+#[must_use]
+pub fn listen_banner(bound: &str) -> String {
+    format!(
+        "openmind-desktop: listening on {bound}\nopenmind-desktop: open http://{bound}/ in a browser on this machine"
+    )
+}
+
+/// Stderr text for page mode. The process has not opened a socket.
+#[must_use]
+pub fn page_hint() -> String {
+    format!(
+        "openmind-desktop: wrote the page to stdout. Nothing is listening.\nopenmind-desktop: serve it with --listen, then open http://{}/",
+        crate::DEFAULT_BIND
+    )
 }
 
 /// Binds `addr` after checking it is loopback. `127.0.0.1:0` picks a free port.
@@ -135,7 +155,7 @@ fn page_response() -> Response {
         Response::new(
             200,
             "text/html; charset=utf-8",
-            page::document().as_bytes().to_vec(),
+            crate::surface::present(page::document()).into_bytes(),
         )
         .with_header("content-security-policy", CSP),
     )
@@ -220,6 +240,20 @@ mod tests {
     }
 
     #[test]
+    fn banners_name_the_loopback_page() {
+        let listen = listen_banner("127.0.0.1:18181");
+        assert!(listen.contains("listening on 127.0.0.1:18181"));
+        assert!(listen.contains("open http://127.0.0.1:18181/"));
+        assert!(listen.contains("on this machine"));
+        let v6 = listen_banner("[::1]:18181");
+        assert!(v6.contains("http://[::1]:18181/"));
+        let page = page_hint();
+        assert!(page.contains("Nothing is listening"));
+        assert!(page.contains(&format!("http://{}/", crate::DEFAULT_BIND)));
+        assert!(page.contains("--listen"));
+    }
+
+    #[test]
     fn refuses_non_loopback_before_bind() {
         for addr in [
             "0.0.0.0:18181",
@@ -282,20 +316,30 @@ mod tests {
             let _ = galion_common::http::serve(listener, limits, handler);
         });
         let mut body = String::new();
-        for _ in 0..20 {
-            thread::sleep(Duration::from_millis(20));
+        // The accept loop can win the race before the handler is installed,
+        // or the first read can return empty. Keep trying until the page
+        // arrives instead of trusting the first successful connect.
+        for _ in 0..40 {
+            thread::sleep(Duration::from_millis(25));
             let mut stream = match TcpStream::connect(addr) {
-                Ok(s) => s,
+                Ok(stream) => stream,
                 Err(_) => continue,
             };
             stream
                 .set_read_timeout(Some(Duration::from_secs(2)))
                 .unwrap();
-            stream
+            if stream
                 .write_all(b"GET / HTTP/1.1\r\nhost: localhost\r\nconnection: close\r\n\r\n")
-                .unwrap();
-            stream.read_to_string(&mut body).unwrap();
-            break;
+                .is_err()
+            {
+                continue;
+            }
+            let mut chunk = String::new();
+            let _ = stream.read_to_string(&mut chunk);
+            if chunk.contains("data-desktop=\"control-console\"") {
+                body = chunk;
+                break;
+            }
         }
         assert!(body.contains("data-desktop=\"control-console\""), "{body}");
     }

@@ -93,6 +93,21 @@ impl Service {
         }
     }
 
+    /// Name used in a sentence for the operator.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            Service::Nerve => "Nerve",
+            Service::Cortex => "Cortex",
+            Service::Console => "Console",
+            Service::Hermes => "Hermes",
+            Service::Voice => "Voice",
+            Service::Desk => "Desk",
+            Service::Memory => "Memory",
+            Service::GalionOne => "Galion One",
+        }
+    }
+
     /// Port used by [`ProbeConfig::defaults`].
     ///
     /// Nerve 8670 (`openmind-nerve` default), cortex 8674 (`gaia-cortex`
@@ -317,6 +332,49 @@ pub struct ProbeReport {
     pub observed_mode: Option<String>,
 }
 
+impl ProbeReport {
+    /// One sentence. It names the service, where it was asked, and why the
+    /// state is up, down, or unknown. A disabled probe says it was not checked.
+    #[must_use]
+    pub fn message(&self) -> String {
+        let name = self.service.label();
+        if !self.enabled || self.detail == "not configured" {
+            return format!("{name} is not configured, so it was not checked.");
+        }
+        let at = format!("{}{}", host_header(&self.host, self.port), self.path);
+        match self.state {
+            State::Up => format!("{name} answered on {at}."),
+            State::Down => down_message(name, &self.detail, &at),
+            State::Unknown => unknown_message(name, &self.detail, &at),
+        }
+    }
+}
+
+fn down_message(name: &str, detail: &str, at: &str) -> String {
+    if detail == "connection refused" {
+        format!("{name} is down. Nothing is listening on {at}.")
+    } else if detail == "connection closed" {
+        format!("{name} is down. The connection closed on {at}.")
+    } else if let Some(code) = detail.strip_prefix("http ") {
+        format!("{name} is down. It answered HTTP {code} on {at}.")
+    } else {
+        format!("{name} is down ({detail}) on {at}.")
+    }
+}
+
+fn unknown_message(name: &str, detail: &str, at: &str) -> String {
+    match detail {
+        "timeout" => format!("{name} did not answer on {at} before the timeout."),
+        "resolve failed" => format!("{name} could not be found at {at}."),
+        "not http" => format!("{name} answered on {at}, but the bytes were not HTTP."),
+        "response too large" => format!("{name} sent more than the probe keeps on {at}."),
+        "invalid request" => format!("{name} could not be asked on {at}."),
+        "probe failed" => format!("{name} could not be checked."),
+        "connect failed" => format!("{name} could not be reached on {at}."),
+        other => format!("{name} is unknown ({other}) on {at}."),
+    }
+}
+
 /// The eight reports from one [`probe_all`] call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProbeSet {
@@ -343,7 +401,10 @@ impl ProbeSet {
         any
     }
 
-    /// One line for stderr when [`Self::confirmed`] is false.
+    /// Stderr text when [`Self::confirmed`] is false.
+    ///
+    /// The first line is the machine summary. Each following line is
+    /// [`ProbeReport::message`] for an enabled probe that is not up.
     #[must_use]
     pub fn summary(&self) -> String {
         let parts: Vec<String> = self
@@ -352,15 +413,22 @@ impl ProbeSet {
             .filter(|probe| probe.enabled)
             .map(|probe| format!("{}={}", probe.service.as_str(), probe.state.as_str()))
             .collect();
-        if parts.is_empty() {
-            "openmind-desktop: no probes enabled".into()
+        let head = if parts.is_empty() {
+            "openmind-desktop: no probes enabled".to_string()
         } else {
             format!("openmind-desktop: probes {}", parts.join(" "))
+        };
+        let mut lines = vec![head];
+        for probe in &self.probes {
+            if probe.enabled && probe.state != State::Up {
+                lines.push(probe.message());
+            }
         }
+        lines.join("\n")
     }
 
     /// Compact JSON. `writes` is always 0: the probe run sent no body and
-    /// changed no mode.
+    /// changed no mode. `message` is [`ProbeReport::message`].
     #[must_use]
     pub fn to_json(&self) -> String {
         let mut out = String::with_capacity(1024);
@@ -391,6 +459,8 @@ impl ProbeSet {
             }
             out.push_str(",\"detail\":");
             galion_common::json::push_str(&mut out, &probe.detail);
+            out.push_str(",\"message\":");
+            galion_common::json::push_str(&mut out, &probe.message());
             out.push_str(",\"observed_mode\":");
             match &probe.observed_mode {
                 Some(mode) => galion_common::json::push_str(&mut out, mode),
@@ -859,6 +929,7 @@ mod tests {
         let report = probe_one(&endpoint, Duration::from_millis(200));
         assert_eq!(report.state, State::Unknown);
         assert_eq!(report.detail, "not configured");
+        assert!(report.message().contains("not configured"));
         assert!(report.observed_mode.is_none());
         thread::sleep(Duration::from_millis(50));
         assert_eq!(*hits.lock().expect("hits"), 0);
@@ -894,6 +965,9 @@ mod tests {
         assert_eq!(down_report.http_status, Some(503));
         assert_eq!(down_report.detail, "http 503");
         assert!(down_report.observed_mode.is_none());
+        assert!(down_report.message().contains("Voice is down"));
+        assert!(down_report.message().contains("HTTP 503"));
+        assert!(up_report.message().contains("Nerve answered"));
 
         // Nothing is listening on this loopback port. Linux and macOS reset
         // the SYN. The Windows runner drops it, so the connect reaches the
@@ -927,7 +1001,7 @@ mod tests {
         let hung_addr = hung.local_addr().unwrap();
         thread::spawn(move || {
             if let Ok((sock, _)) = hung.accept() {
-                thread::sleep(Duration::from_millis(800));
+                thread::sleep(Duration::from_millis(3_000));
                 drop(sock);
             }
         });
@@ -938,7 +1012,15 @@ mod tests {
         );
         assert_eq!(hung_report.state, State::Unknown);
         assert_eq!(hung_report.detail, "timeout");
-        assert!(started.elapsed() < Duration::from_millis(700));
+        // The server holds the socket for 3s. A return before that is the
+        // timeout, with room for a scheduler stall (a 700ms cap flaked when
+        // the box was busy and the 200ms budget was simply late).
+        assert!(
+            started.elapsed() < Duration::from_millis(1_500),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(hung_report.message().contains("Console did not answer"));
 
         let garbage = serve_raw(b"hello\r\n");
         let garbage_report = probe_one(
@@ -1008,15 +1090,18 @@ mod tests {
             endpoint.port = addr.port();
             thread::spawn(move || {
                 if let Ok((sock, _)) = listener.accept() {
-                    thread::sleep(Duration::from_millis(800));
+                    thread::sleep(Duration::from_millis(5_000));
                     drop(sock);
                 }
             });
         }
         let started = Instant::now();
         let report = probe_all(&cfg);
+        // Eight serial 250ms budgets are 2s. Finishing under 1.6s means the
+        // probes overlapped. The old 700ms cap failed when the box stalled
+        // after the probes had already started together.
         assert!(
-            started.elapsed() < Duration::from_millis(700),
+            started.elapsed() < Duration::from_millis(1_600),
             "{:?}",
             started.elapsed()
         );
@@ -1028,6 +1113,68 @@ mod tests {
         assert!(!report.confirmed());
         assert!(report.to_json().contains("\"writes\":0"));
         assert!(report.to_json().contains("\"read_only\":true"));
+        assert!(report.to_json().contains("\"message\":"));
+        assert!(report.summary().contains("did not answer"));
+        assert!(report.summary().contains('\n'));
+    }
+
+    #[test]
+    fn a_down_service_is_a_sentence() {
+        let refused = ProbeReport {
+            service: Service::Hermes,
+            enabled: true,
+            state: State::Down,
+            host: "localhost".into(),
+            port: 8642,
+            path: "/health".into(),
+            http_status: None,
+            detail: "connection refused".into(),
+            observed_mode: None,
+        };
+        assert_eq!(
+            refused.message(),
+            "Hermes is down. Nothing is listening on localhost:8642/health."
+        );
+        let closed = ProbeReport {
+            service: Service::Desk,
+            enabled: true,
+            state: State::Down,
+            host: "localhost".into(),
+            port: 8646,
+            path: "/health".into(),
+            http_status: None,
+            detail: "connection closed".into(),
+            observed_mode: None,
+        };
+        assert!(closed.message().contains("The connection closed"));
+        let odd = ProbeReport {
+            service: Service::Memory,
+            enabled: true,
+            state: State::Unknown,
+            host: "localhost".into(),
+            port: 8420,
+            path: "/health".into(),
+            http_status: None,
+            detail: "connect failed".into(),
+            observed_mode: None,
+        };
+        assert_eq!(
+            odd.message(),
+            "Memory could not be reached on localhost:8420/health."
+        );
+        let set = ProbeSet {
+            timeout: Duration::from_millis(50),
+            probes: vec![refused, odd],
+        };
+        let summary = set.summary();
+        assert!(summary.starts_with("openmind-desktop: probes hermes=down memory=unknown"));
+        assert!(summary.contains("Nothing is listening"));
+        assert!(summary.contains("could not be reached"));
+        let quiet = ProbeSet {
+            timeout: Duration::from_millis(50),
+            probes: vec![],
+        };
+        assert_eq!(quiet.summary(), "openmind-desktop: no probes enabled");
     }
 
     #[test]
@@ -1053,6 +1200,7 @@ mod tests {
         let report = probe_one(&endpoint, Duration::from_millis(500));
         assert_eq!(report.state, State::Unknown);
         assert_eq!(report.detail, "resolve failed");
+        assert!(report.message().contains("could not be found"));
         assert!(report.observed_mode.is_none());
     }
 

@@ -16,12 +16,9 @@ use std::sync::Arc;
 
 fn cfg(args: Vec<String>) -> McpServerCfg {
     McpServerCfg {
-        name: "openmind".into(),
-        command: env!("CARGO_BIN_EXE_openmind-mcp-stack").into(),
-        args,
         timeout_s: 10,
         connect_timeout_s: 10,
-        lazy: false,
+        ..McpServerCfg::stdio("openmind", env!("CARGO_BIN_EXE_openmind-mcp-stack"), args)
     }
 }
 

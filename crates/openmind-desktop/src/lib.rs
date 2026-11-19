@@ -30,15 +30,17 @@ pub mod page;
 pub mod probe;
 pub mod sound;
 pub mod stack;
+pub mod surface;
 
 pub use cli::{parse, resolve_listen_addr, Mode, USAGE};
 pub use error::DesktopError;
 pub use files::Files;
-pub use http::{listen, listen_with};
+pub use http::{listen, listen_banner, listen_with, page_hint};
 pub use page::document;
 pub use probe::{probe_all, probe_one, ProbeConfig, ProbeSet, Service, State, SERVICES};
 pub use sound::{wav, TONES};
 pub use stack::LAYERS;
+pub use surface::present;
 
 /// Listen port when [`Mode::Listen`] has no address, `--port` is absent, and
 /// [`PORT_ENV`] is unset.

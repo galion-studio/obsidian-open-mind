@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // SPDX-FileCopyrightText: 3000 Galion / galion-studio
 
-use hermes_rs::config::McpServerCfg;
+use hermes_rs::config::{McpServerCfg, ToolAllow};
 use hermes_rs::tools::{ToolCtx, ToolOutput};
 use serde_json::json;
 use std::sync::atomic::AtomicBool;
@@ -24,12 +24,10 @@ fn call(t: &Arc<dyn hermes_rs::tools::Tool>, args: serde_json::Value) -> ToolOut
 fn stdio_server_discovery_paging_call_and_reconnect() {
     let script = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-mcp.sh");
     let cfg = McpServerCfg {
-        name: "galion-stack".into(),
-        command: "bash".into(),
-        args: vec![script.into()],
         timeout_s: 5,
         connect_timeout_s: 5,
         lazy: true,
+        ..McpServerCfg::stdio("galion-stack", "bash", vec![script.into()])
     };
     let broken = McpServerCfg {
         name: "gone".into(),
@@ -60,4 +58,21 @@ fn stdio_server_discovery_paging_call_and_reconnect() {
         o.content, "console.service active",
         "reconnected after the crash"
     );
+}
+
+#[test]
+fn stdio_allowlist_drops_tools_the_server_listed() {
+    let script = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/fake-mcp.sh");
+    let cfg = McpServerCfg {
+        timeout_s: 5,
+        connect_timeout_s: 5,
+        allow: ToolAllow::Only(vec!["stack-status".into()]),
+        ..McpServerCfg::stdio("galion-stack", "bash", vec![script.into()])
+    };
+    let (tools, errors) = hermes_rs::mcp::discover(&[cfg]);
+    assert!(errors.is_empty(), "{errors:?}");
+    let names: Vec<String> = tools.iter().map(|t| t.name()).collect();
+    assert_eq!(names, ["mcp__galion_stack__stack_status"]);
+    let o = call(&tools[0], json!({"unit": "hermes.service"}));
+    assert_eq!(o.content, "hermes.service active", "{o:?}");
 }

@@ -279,7 +279,9 @@ pub fn write_response(stream: &mut TcpStream, resp: Response) {
         }
         let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
         let mut w = SseWriter::new(stream);
-        writer(&mut w);
+        if let Err(p) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| writer(&mut w))) {
+            let _ = crate::guard::report("request.stream", p);
+        }
     }
     let _ = stream.shutdown(std::net::Shutdown::Write);
 }
@@ -291,7 +293,17 @@ fn connection(mut stream: TcpStream, limits: &common::Limits, h: &Handler) {
     match common::read_request(&mut stream, limits) {
         Ok(Some(req)) => {
             let _ = stream.set_read_timeout(None);
-            let resp = h(Request::from_common(req));
+            let resp = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                h(Request::from_common(req))
+            })) {
+                Ok(r) => r,
+                Err(p) => error(
+                    500,
+                    &crate::guard::report("request", p),
+                    "internal_error",
+                    Some("request_panic"),
+                ),
+            };
             write_response(&mut stream, resp);
         }
         // Connected and sent nothing (or closed): nothing to answer.
@@ -328,4 +340,64 @@ pub fn serve(listener: TcpListener, handler: Handler, max_conns: usize) -> io::R
         )
     });
     common::serve_connections_with(listener, limits, busy, conn, Some(on_busy))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    fn exchange(addr: std::net::SocketAddr, raw: &[u8]) -> String {
+        let mut last = String::new();
+        for _ in 0..40 {
+            if let Ok(mut s) = TcpStream::connect(addr) {
+                s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                s.write_all(raw).unwrap();
+                let mut out = Vec::new();
+                let _ = s.read_to_end(&mut out);
+                if !out.is_empty() {
+                    return String::from_utf8_lossy(&out).into_owned();
+                }
+            }
+            std::thread::sleep(Duration::from_millis(25));
+            last = "no reply".into();
+        }
+        last
+    }
+
+    #[test]
+    fn a_panicking_request_does_not_stop_the_listener() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let h: Handler = Arc::new(|req: Request| {
+            if req.path == "/boom" {
+                let s = "Ž";
+                let _ = &s[..1];
+            }
+            let text = String::from_utf8_lossy(&req.body);
+            let clip = galion_common::utf8::prefix_bytes(&text, 6);
+            Response::json(200, &serde_json::json!({"path": req.path, "clip": clip}))
+        });
+        std::thread::spawn(move || {
+            let _ = serve(listener, h, 8);
+        });
+        let boom = exchange(
+            addr,
+            b"GET /boom HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        );
+        assert!(boom.contains("500"), "{boom}");
+        assert!(boom.contains("request_panic"), "{boom}");
+        let body = [0xff, 0xfe, 0xc4, b'c', 0x80];
+        let mut raw = format!(
+            "POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        raw.extend_from_slice(&body);
+        let ok = exchange(addr, &raw);
+        assert!(ok.contains("200"), "{ok}");
+        assert!(ok.contains("echo"), "{ok}");
+    }
 }

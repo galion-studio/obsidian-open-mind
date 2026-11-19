@@ -87,10 +87,10 @@ fn rfc3339_ms(ts: &str) -> Option<i64> {
     if b.len() < 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' {
         return None;
     }
-    let num = |s: &str| s.parse::<i64>().ok();
-    let (y, mo, d) = (num(&t[0..4])?, num(&t[5..7])?, num(&t[8..10])?);
-    let (h, mi, s) = (num(&t[11..13])?, num(&t[14..16])?, num(&t[17..19])?);
-    let mut rest = &t[19..];
+    let num = |a: usize, c: usize| t.get(a..c)?.parse::<i64>().ok();
+    let (y, mo, d) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let (h, mi, s) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    let mut rest = t.get(19..)?;
     let mut frac_ms = 0i64;
     if let Some(r) = rest.strip_prefix('.') {
         let digits: String = r.chars().take_while(|c| c.is_ascii_digit()).collect();
@@ -99,13 +99,13 @@ fn rfc3339_ms(ts: &str) -> Option<i64> {
         while ms3.len() < 3 {
             ms3.push('0');
         }
-        frac_ms = num(&ms3)?;
-        rest = &r[digits.len()..];
+        frac_ms = ms3.parse().ok()?;
+        rest = r.get(digits.len()..)?;
     }
     let off_min = match rest {
         "Z" | "z" => 0,
         o if o.len() == 6 && (o.starts_with('+') || o.starts_with('-')) => {
-            let v = num(&o[1..3])? * 60 + num(&o[4..6])?;
+            let v = o.get(1..3)?.parse::<i64>().ok()? * 60 + o.get(4..6)?.parse::<i64>().ok()?;
             if o.starts_with('-') {
                 -v
             } else {
@@ -323,6 +323,9 @@ mod tests {
         );
         assert_eq!(rfc3339_ms("garbage"), None);
         assert_eq!(rfc3339_ms("2026-10-13 09:04:38Z"), None);
+        // A multi-byte character on a fixed offset used to panic.
+        assert_eq!(rfc3339_ms("2026-10-18T1€00:00Z"), None);
+        assert_eq!(rfc3339_ms(&"č".repeat(20)), None);
     }
 
     #[test]

@@ -762,7 +762,7 @@ pub fn check_url(url: &str, pol: &Policy, from_shell: bool) -> R {
         return Ok(());
     };
     if scheme == "file" {
-        check_path_x(&u[7..], Access::Read, &pol.cwd, pol, true)?;
+        check_path_x(u.get(7..).unwrap_or(""), Access::Read, &pol.cwd, pol, true)?;
         return Err(deny("S7-scheme", "file:// URLs read local files"));
     }
     if scheme != "http" && scheme != "https" {

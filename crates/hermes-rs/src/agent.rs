@@ -89,7 +89,26 @@ pub fn fit_context(
 }
 
 impl Agent {
-    pub fn run(&self, mut turn: Turn, emit: &(dyn Fn(Event) + Sync)) -> TurnResult {
+    /// One turn. A panic inside the model call or the tool loop becomes a
+    /// failed [`TurnResult`] for this turn; the process keeps running
+    /// (`panic = "unwind"`).
+    pub fn run(&self, turn: Turn, emit: &(dyn Fn(Event) + Sync)) -> TurnResult {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.run_inner(turn, emit)))
+        {
+            Ok(r) => r,
+            Err(p) => {
+                let msg = crate::guard::report("agent.turn", p);
+                TurnResult {
+                    failed: true,
+                    error: Some(msg),
+                    finish_reason: "error".into(),
+                    ..TurnResult::default()
+                }
+            }
+        }
+    }
+
+    fn run_inner(&self, mut turn: Turn, emit: &(dyn Fn(Event) + Sync)) -> TurnResult {
         let mut res = TurnResult::default();
         let user_text = turn
             .messages

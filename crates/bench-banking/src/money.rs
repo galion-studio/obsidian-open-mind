@@ -117,10 +117,12 @@ pub fn norm_iban(raw: &str) -> String {
 /// `HR12 **** **** 0160` style mask: country + check digits + last 4.
 pub fn mask_iban(raw: &str) -> String {
     let s = norm_iban(raw);
-    if s.len() < 8 {
+    if s.len() < 8 || !s.is_ascii() {
         return "****".into();
     }
-    format!("{} **** {}", &s[..4], &s[s.len() - 4..])
+    let head = s.get(..4).unwrap_or("");
+    let tail = s.get(s.len() - 4..).unwrap_or("");
+    format!("{head} **** {tail}")
 }
 
 #[cfg(test)]
@@ -154,6 +156,8 @@ mod t {
         assert!(!valid_iban("HR1210010051863000161"));
         assert!(!valid_iban("XX00"));
         assert_eq!(mask_iban("HR1210010051863000160"), "HR12 **** 0160");
+        assert_eq!(mask_iban("€€€"), "****");
+        assert_eq!(mask_iban("čččččččč"), "****");
         assert!(valid_currency("EUR") && !valid_currency("eur") && !valid_currency("EURO"));
     }
 }

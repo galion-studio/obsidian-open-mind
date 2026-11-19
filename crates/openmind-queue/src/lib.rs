@@ -46,9 +46,8 @@ pub fn zagreb(ms: u64) -> String {
 /// Like [`zagreb`] but with milliseconds, e.g. `2026-10-20T19:00:00.123+02:00`.
 pub fn zagreb_ms(ms: u64) -> String {
     let s = zagreb(ms);
-    if s.len() > 19 {
-        format!("{}.{:03}{}", &s[..19], ms % 1000, &s[19..])
-    } else {
-        s
+    match (s.get(..19), s.get(19..)) {
+        (Some(head), Some(tail)) if !tail.is_empty() => format!("{head}.{:03}{tail}", ms % 1000),
+        _ => s,
     }
 }

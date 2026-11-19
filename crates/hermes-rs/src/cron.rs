@@ -198,7 +198,9 @@ impl Scheduler {
         let dir = self.output_dir.join(id);
         std::fs::create_dir_all(&dir).ok()?;
         let stamp = crate::time::zagreb_rfc3339(now); // 2026-10-18T21:00:00+02:00
-        let fname = format!("{}_{}.md", &stamp[..10], stamp[11..19].replace(':', "-"));
+        let day = crate::utf8::prefix_bytes(&stamp, 10);
+        let clock = stamp.get(11..19).unwrap_or("").replace(':', "-");
+        let fname = format!("{day}_{clock}.md");
         let body = format!(
             "# Cron Job: {}\n\n**Job ID:** {}\n**Run Time:** {}\n**Mode:** {}\n\n---\n\n{}\n",
             job["name"].as_str().unwrap_or(id),
@@ -379,12 +381,16 @@ impl Scheduler {
         let me = self.clone();
         std::thread::spawn(move || {
             while !me.stop.load(Ordering::Relaxed) {
-                for (id, o) in me.tick(crate::time::now_secs()) {
-                    eprintln!(
-                        "{} cron {id} ok={}",
-                        crate::time::zagreb_rfc3339(crate::time::now_secs()),
-                        o.ok
-                    );
+                if let Err(p) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    for (id, o) in me.tick(crate::time::now_secs()) {
+                        eprintln!(
+                            "{} cron {id} ok={}",
+                            crate::time::zagreb_rfc3339(crate::time::now_secs()),
+                            o.ok
+                        );
+                    }
+                })) {
+                    let _ = crate::guard::report("session.cron", p);
                 }
                 for _ in 0..30 {
                     if me.stop.load(Ordering::Relaxed) {

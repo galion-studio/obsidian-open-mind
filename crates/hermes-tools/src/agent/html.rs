@@ -56,11 +56,8 @@ pub fn decode_entities(s: &str) -> String {
         let tail = &rest[i..];
         // At most 12 bytes, cut back to a char boundary (a multi-byte
         // letter right after '&' used to panic the whole gateway).
-        let mut lim = tail.len().min(12);
-        while !tail.is_char_boundary(lim) {
-            lim -= 1;
-        }
-        let end = tail[..lim].find(';');
+        let lim = hermes_rs::utf8::floor_char_boundary(tail, tail.len().min(12));
+        let end = hermes_rs::utf8::prefix_bytes(tail, lim).find(';');
         let Some(end) = end else {
             out.push('&');
             rest = &tail[1..];

@@ -130,11 +130,12 @@ fn ip_of(s: &str) -> Option<IpAddr> {
 pub fn parse_line(line: &str, zone: Zone, jail: &str) -> Option<Record> {
     // "<date> <time>,<ms> <logger> [<pid>]: <LEVEL> [<jail>] <message>"
     let line = line.trim_end_matches(['\r', '\n']);
-    if line.len() < 24 || !line.is_char_boundary(23) {
+    let head = line.get(..23)?;
+    let rest = line.get(23..)?;
+    if rest.is_empty() {
         return None;
     }
-    let at = parse_time(&line[..23], zone)?;
-    let rest = &line[23..];
+    let at = parse_time(head, zone)?;
     let close = rest.find("]: ")?;
     let after = rest[close + 3..].trim_start();
     // level

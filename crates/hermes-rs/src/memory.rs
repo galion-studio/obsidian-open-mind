@@ -527,7 +527,11 @@ impl MemoryClient {
         let spawned = std::thread::Builder::new()
             .name("hermes-mem-capture".into())
             .spawn(move || {
-                let _ = me.capture(&user, &assistant, &session_key);
+                if let Err(p) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let _ = me.capture(&user, &assistant, &session_key);
+                })) {
+                    let _ = crate::guard::report("session.capture", p);
+                }
                 me.stats.inflight.fetch_sub(1, Ordering::SeqCst);
             });
         if spawned.is_err() {

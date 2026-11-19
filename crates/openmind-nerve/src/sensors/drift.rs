@@ -410,7 +410,11 @@ impl Sensor for Drift {
                     )
                     .with_evidence(vec![
                         format!("path {}", e.path.display()),
-                        format!("expected sha256 {}.. live {}..", &e.expected[..12], &actual[..12]),
+                        format!(
+                            "expected sha256 {}.. live {}..",
+                            e.expected.get(..12).unwrap_or(e.expected.as_str()),
+                            actual.get(..12).unwrap_or(actual.as_str())
+                        ),
                         format!("size {} B, mtime {}", meta.len, zagreb_time::from_unix(meta.mtime)),
                     ])
                     .with_fix("redeploy the released build (owner-approved cutover), or regenerate the manifest if this build is the intended release")

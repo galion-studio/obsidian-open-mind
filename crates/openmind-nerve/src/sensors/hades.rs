@@ -204,7 +204,7 @@ pub fn parse_ts(s: &str) -> Option<u64> {
     let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
     let (y, mo, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
     let (h, mi, se) = (n(11..13)?, n(14..16)?, n(17..19)?);
-    let mut rest = &s[19..];
+    let mut rest = s.get(19..)?;
     if let Some(r) = rest.strip_prefix('.') {
         rest = r.trim_start_matches(|c: char| c.is_ascii_digit());
     }

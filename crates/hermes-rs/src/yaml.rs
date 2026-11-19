@@ -177,7 +177,12 @@ impl Parser {
             if line.indent != indent || !is_item(&line.text) {
                 break;
             }
-            let item = line.text[1..].trim_start().to_string();
+            let item = line
+                .text
+                .strip_prefix('-')
+                .unwrap_or("")
+                .trim_start()
+                .to_string();
             if item.is_empty() {
                 self.i += 1;
                 self.skip_blank();
@@ -214,9 +219,10 @@ fn split_key(t: &str) -> Option<(String, String)> {
     let b = t.as_bytes();
     if b.first() == Some(&b'"') || b.first() == Some(&b'\'') {
         let q = b[0] as char;
-        let end = t[1..].find(q)? + 1;
-        let key = t[1..end].to_string();
-        let after = t[end + 1..].trim_start();
+        let rel = t.get(1..)?.find(q)?;
+        let end = rel + 1;
+        let key = t.get(1..end)?.to_string();
+        let after = t.get(end + 1..)?.trim_start();
         let rest = after.strip_prefix(':')?;
         return Some((key, rest.to_string()));
     }

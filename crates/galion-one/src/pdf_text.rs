@@ -1275,10 +1275,8 @@ fn glyph_char(name: &[u8]) -> Option<char> {
         return base.chars().next();
     }
     if let Some(h) = base.strip_prefix("uni") {
-        if h.len() >= 4 {
-            return u32::from_str_radix(&h[..4], 16)
-                .ok()
-                .and_then(char::from_u32);
+        if let Some(hex) = h.get(..4) {
+            return u32::from_str_radix(hex, 16).ok().and_then(char::from_u32);
         }
     }
     if let Some(h) = base.strip_prefix('u') {
@@ -2487,5 +2485,12 @@ mod tests {
             out.push((acc << (8 - n)) as u8);
         }
         out
+    }
+
+    #[test]
+    fn glyph_name_does_not_panic_on_a_multibyte_char() {
+        assert_eq!(glyph_char(b"uni0041"), Some('A'));
+        assert_eq!(glyph_char("uni€€".as_bytes()), None);
+        assert_eq!(glyph_char("čččč".as_bytes()), None);
     }
 }

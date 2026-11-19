@@ -424,11 +424,8 @@ pub fn cut(s: &str, n: usize) -> String {
     if s.len() <= n {
         return s.to_string();
     }
-    let mut i = n;
-    while !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    format!("{}…[{} more bytes]", &s[..i], s.len() - i)
+    let head = hermes_rs::utf8::prefix_bytes(s, n);
+    format!("{head}…[{} more bytes]", s.len() - head.len())
 }
 
 /// True when a sandboxed terminal run can be kept offline on this host:

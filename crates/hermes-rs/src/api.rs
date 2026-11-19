@@ -122,7 +122,19 @@ impl Gateway {
         Some(Slot(self.active.clone()))
     }
 
-    pub fn handle(self: &Arc<Self>, mut req: Request) -> Response {
+    pub fn handle(self: &Arc<Self>, req: Request) -> Response {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.dispatch(req))) {
+            Ok(r) => r,
+            Err(p) => error(
+                500,
+                &crate::guard::report("request", p),
+                "internal_error",
+                Some("request_panic"),
+            ),
+        }
+    }
+
+    fn dispatch(self: &Arc<Self>, mut req: Request) -> Response {
         // multiplex mirror: /p/<profile>/<path>. Only the default profile here.
         if let Some(rest) = req.path.strip_prefix("/p/") {
             let (profile, tail) = rest.split_once('/').unwrap_or((rest, ""));
@@ -170,17 +182,29 @@ impl Gateway {
                         "endpoints": ["/v1/chat/completions", "/v1/models", "/v1/runs", "/api/sessions", "/api/jobs"],
                         "streaming": true, "runs": true, "responses_api": false}),
             ),
-            ("POST", ["v1", "chat", "completions"]) => self.chat(&req),
-            ("POST", ["v1", "runs"]) => crate::runs::start(self, &req),
+            ("POST", ["v1", "chat", "completions"]) => {
+                crate::guard::isolate("session.chat", || self.chat(&req))
+            }
+            ("POST", ["v1", "runs"]) => {
+                crate::guard::isolate("session.run", || crate::runs::start(self, &req))
+            }
             ("GET", ["v1", "runs", id]) => crate::runs::get(self, id),
             ("GET", ["v1", "runs", id, "events"]) => crate::runs::events(self, id),
             ("POST", ["v1", "runs", id, "stop"]) => crate::runs::stop(self, id),
             ("POST", ["v1", "runs", id, "steer"]) => crate::runs::steer(self, id, &req),
             ("POST", ["v1", "runs", id, "approval"]) => crate::runs::approval(self, id),
-            ("GET", ["api", "sessions"]) => self.list_sessions(&req),
-            ("GET", ["api", "sessions", id]) => self.get_session(id),
-            ("GET", ["api", "sessions", id, "messages"]) => self.session_messages(id),
-            ("POST", ["api", "sessions", id, "model"]) => self.lock_model(id, &req),
+            ("GET", ["api", "sessions"]) => {
+                crate::guard::isolate("session.list", || self.list_sessions(&req))
+            }
+            ("GET", ["api", "sessions", id]) => {
+                crate::guard::isolate("session.get", || self.get_session(id))
+            }
+            ("GET", ["api", "sessions", id, "messages"]) => {
+                crate::guard::isolate("session.messages", || self.session_messages(id))
+            }
+            ("POST", ["api", "sessions", id, "model"]) => {
+                crate::guard::isolate("session.model", || self.lock_model(id, &req))
+            }
             ("GET", ["api", "jobs"]) => match &self.jobs {
                 Some(s) => Response::json(200, &json!({"jobs": s.list()})),
                 None => Response::json(200, &json!({"jobs": []})),
@@ -238,6 +262,33 @@ impl Gateway {
 
     /// Resolve session, history, model pin, prompt and the agent turn.
     pub fn prepare(
+        &self,
+        session_id: Option<String>,
+        session_key: Option<String>,
+        body: &Value,
+        body_messages: &[Value],
+        extra_instructions: Option<&str>,
+    ) -> Result<Prepared, Response> {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.prepare_inner(
+                session_id,
+                session_key,
+                body,
+                body_messages,
+                extra_instructions,
+            )
+        })) {
+            Ok(r) => r,
+            Err(p) => Err(error(
+                500,
+                &crate::guard::report("session.prepare", p),
+                "internal_error",
+                Some("session_panic"),
+            )),
+        }
+    }
+
+    fn prepare_inner(
         &self,
         session_id: Option<String>,
         session_key: Option<String>,
@@ -399,6 +450,14 @@ impl Gateway {
     /// Store the turn: any body history the store lacked, the user message,
     /// the assistant/tool messages, usage.
     pub fn persist(&self, p: &Prepared, res: &TurnResult) {
+        if let Err(payload) =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.persist_inner(p, res)))
+        {
+            let _ = crate::guard::report("session.persist", payload);
+        }
+    }
+
+    fn persist_inner(&self, p: &Prepared, res: &TurnResult) {
         let mut row = p.row.clone();
         row.input_tokens += res.usage.prompt_tokens;
         row.output_tokens += res.usage.completion_tokens;

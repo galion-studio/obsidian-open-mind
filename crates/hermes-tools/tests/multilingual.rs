@@ -8,15 +8,22 @@ use hermes_tools::agent::html;
 
 const SAMPLES: &[&str] = &[
     "Črnomerec Šibenik Đakovo Łódź Straße",
+    "Zażółć gęślą jaźń",
+    "Češljuga, Đakovo, šuma",
     "Москва Київ Београд &ё; &Ж",
-    "数学的証明 中华人民共和国 한국어",
+    "数学的証明 中华人民共和国",
+    "日本語の試験。漢字とひらがな",
     "مرحبا بالعالم",
     "שלום עולם",
     "नमस्ते दुनिया",
     "👩‍👩‍👧‍👦 🏳️‍🌈 ❤️ 🇭🇷 👍🏽",
+    "e\u{301} combining ZWJ\u{200d}X",
     "&č; &数; &👍; &#x1F44D; &#128077; &#xZZ; &amp;ž",
 ];
-const DELIMS: &[&str] = &["&", ";", "&#", "&#x", "<", ">", "</", "<!--", "-->", "\"", "'", "=", "<a href=", "<title>", "<script>"];
+const DELIMS: &[&str] = &[
+    "&", ";", "&#", "&#x", "<", ">", "</", "<!--", "-->", "\"", "'", "=", "<a href=", "<title>",
+    "<script>",
+];
 
 fn variants() -> Vec<String> {
     let mut v = vec![];
@@ -45,6 +52,21 @@ fn html_helpers_take_any_text() {
     }
     let p = html::to_text("<p>Привет &amp; 数学 &č;</p>", "https://x.org/", 0);
     assert!(p.text.contains("Привет & 数学"), "{}", p.text);
+}
+
+#[test]
+fn lossy_invalid_utf8_does_not_panic() {
+    let raw = [
+        0xff, 0xfe, b'&', 0xc4, b';', b'<', 0x80, b'>', b'c', 0xc3, 0x28, b'&', b'a', b'm', b'p',
+        b';',
+    ];
+    let t = String::from_utf8_lossy(&raw);
+    let _ = html::decode_entities(&t);
+    let _ = html::to_text(&t, "https://例え.jp/パス/", 4);
+    for n in 0..t.len() + 1 {
+        let _ = hermes_tools::agent::cut(&t, n);
+        let _ = hermes_tools::audit::cut(&t, n);
+    }
 }
 
 #[test]

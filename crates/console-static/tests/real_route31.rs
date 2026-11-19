@@ -226,7 +226,8 @@ fn real_route31_hermes_rust_first_against_live_vps() {
     assert!(!r.body.contains("old-spa-shell"), "SPA took /hermes");
     assert!(r.body.contains("Hermes Research"));
     assert!(!r.body.to_ascii_lowercase().contains("<script"));
-    assert!(r.body.contains("action=\"/hermes/attach\""));
+    assert!(!r.body.contains("action=\"/hermes/attach\""));
+    assert!(r.body.contains("The research engine is unchanged"));
     assert!(!r.body.contains("action=\"/api/"));
     assert!(!r.body.contains("127.0.0.1:8642"), "bind address hidden");
     assert!(!r.body.contains("did not load"), "{}", r.body);

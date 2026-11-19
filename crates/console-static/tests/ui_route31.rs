@@ -225,8 +225,12 @@ fn hermes_is_rust_first_under_spa_fallback() {
         assert!(!r.body.to_ascii_lowercase().contains("<script"), "{p}");
         assert!(!r.body.contains("style=\""), "{p}: inline style");
         assert!(
-            r.body.contains("action=\"/hermes/attach\""),
-            "{p}: local attach form"
+            !r.body.contains("action=\"/hermes/attach\""),
+            "{p}: the room no longer draws the attach form"
+        );
+        assert!(
+            r.body.contains("galion-studio/hermes-research"),
+            "{p}: research app is named"
         );
         assert!(
             !r.body.contains("action=\"/api/"),

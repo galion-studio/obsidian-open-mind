@@ -656,6 +656,7 @@ dependencies = [
  "galion-common",
  "openmind-config",
  "serde_json",
+ "socket2",
 ]
 
 [[package]]

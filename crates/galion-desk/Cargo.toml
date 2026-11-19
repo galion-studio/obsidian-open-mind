@@ -21,3 +21,6 @@ openmind-config = { path = "../openmind-config" }
 
 [dev-dependencies]
 serde_json = { workspace = true } # preserve_order: pinned in the root Cargo.toml
+# Tests only. A bound socket that is not listening refuses the handshake.
+# Dropping a listener lets another test bind the port and answer.
+socket2 = "0.6.5"

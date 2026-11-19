@@ -100,7 +100,7 @@ const BOARD_KEYS: [&str; 13] = [
 fn binary_health_desk_note_404_and_413() {
     let dir = scratch("binary");
     std::fs::write(dir.join("one/voice"), "jarvis\n").unwrap();
-    let addr = closed_addr();
+    let addr = free_addr();
     let closed = closed_addr();
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_galion-desk"));
     cmd.env("DESK_BIND", &addr)

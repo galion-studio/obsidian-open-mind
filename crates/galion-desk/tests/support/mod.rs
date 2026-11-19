@@ -7,7 +7,7 @@
 #![allow(dead_code)]
 
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -138,8 +138,35 @@ impl Fake {
     }
 }
 
-/// A TCP port with nothing listening (bound then dropped).
-pub fn closed_addr() -> String {
-    let l = TcpListener::bind("127.0.0.1:0").unwrap();
-    l.local_addr().unwrap().to_string()
+/// A free loopback port. The listener is dropped so a child can bind it.
+pub fn free_addr() -> String {
+    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    listener.local_addr().unwrap().to_string()
 }
+
+/// A loopback port that refuses connections for the rest of this process.
+///
+/// The socket stays bound and does not listen. Dropping it let another test
+/// bind the same port and answer, so `line` came back true in self-eval run
+/// 43772175462 (`binary_health_desk_note_404_and_413`).
+pub fn closed_addr() -> String {
+    let socket = socket2::Socket::new(
+        socket2::Domain::IPV4,
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    )
+    .unwrap();
+    socket
+        .bind(&SocketAddr::from((Ipv4Addr::LOCALHOST, 0)).into())
+        .unwrap();
+    let addr = socket
+        .local_addr()
+        .unwrap()
+        .as_socket()
+        .unwrap()
+        .to_string();
+    HELD.lock().unwrap().push(socket);
+    addr
+}
+
+static HELD: Mutex<Vec<socket2::Socket>> = Mutex::new(Vec::new());

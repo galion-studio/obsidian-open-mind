@@ -182,11 +182,8 @@ fn cut(s: &str, n: usize) -> String {
     if s.len() <= n {
         return s.to_string();
     }
-    let mut i = n;
-    while !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    format!("{}…", &s[..i])
+    let head = crate::utf8::prefix_bytes(s, n);
+    format!("{head}…")
 }
 
 pub struct SourceCheckTool {
@@ -349,8 +346,7 @@ impl SourceCheckTool {
         let excerpt_at = args["excerpt_from"].as_str().and_then(|p| hay.find(&squash(p)));
         let excerpt = match excerpt_at {
             Some(i) => {
-                let mut s = i;
-                while s > 0 && !hay.is_char_boundary(s) { s -= 1; }
+                let s = crate::utf8::floor_char_boundary(&hay, i);
                 cut(&hay[s..], MAX_TEXT)
             }
             None => cut(&text, MAX_TEXT),

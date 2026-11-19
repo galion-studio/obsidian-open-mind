@@ -62,6 +62,19 @@ impl Run {
     pub fn is_done(&self) -> bool {
         self.done.load(Ordering::SeqCst)
     }
+
+    /// A panic in the run thread: mark the run failed and wake SSE waiters.
+    fn mark_failed(&self, msg: &str) {
+        {
+            let mut s = self.status.lock().unwrap_or_else(|p| p.into_inner());
+            s["status"] = json!("failed");
+            s["updated_at"] = json!(crate::time::now_f64());
+            s["error"] = json!(msg);
+        }
+        self.push("run.failed", json!({"error": msg}));
+        self.done.store(true, Ordering::SeqCst);
+        self.cond.notify_all();
+    }
 }
 
 #[derive(Default)]
@@ -185,7 +198,12 @@ pub fn start(gw: &Arc<Gateway>, req: &Request) -> Response {
         .name("hermes-run".into())
         .spawn(move || {
             let _slot = slot;
-            execute(&gw2, &r2, prepared);
+            if let Err(p) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                execute(&gw2, &r2, prepared)
+            })) {
+                let msg = crate::guard::report("session.run", p);
+                r2.mark_failed(&msg);
+            }
         });
     if spawned.is_err() {
         return error(500, "could not start run", "server_error", None);

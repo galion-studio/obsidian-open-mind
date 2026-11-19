@@ -630,9 +630,11 @@ pub fn verify(dir: &Path, live_root: Option<&Path>) -> Verified {
             if let Some(p) = under(root, &r.path) {
                 match file_sum(&p) {
                     Ok((h, n)) if h == r.sum && n == r.size => {}
-                    Ok((h, n)) => v
-                        .drift
-                        .push(format!("{} now {n} B sha {}", r.path, &h[..12])),
+                    Ok((h, n)) => v.drift.push(format!(
+                        "{} now {n} B sha {}",
+                        r.path,
+                        h.get(..12).unwrap_or(h.as_str())
+                    )),
                     Err(e) => v.drift.push(format!("{} now unreadable: {e}", r.path)),
                 }
             }

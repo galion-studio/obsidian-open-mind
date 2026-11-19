@@ -250,7 +250,7 @@ fn script_dollar(s: &[char], i: usize, lx: &mut Lx, in_dq: bool) -> Result<Optio
                 .find(|(_, c)| !(c.is_ascii_alphanumeric() || *c == '_'))
                 .map(|(p, _)| p)
                 .unwrap_or(inner.len());
-            let (name, op) = inner.split_at(name_end);
+            let (name, op) = crate::utf8::split_at_floor(&inner, name_end);
             let name_ok = is_ident(name)
                 || (name.len() == 1 && name.chars().all(|c| c.is_ascii_digit()))
                 || (name.is_empty() && op.starts_with('#') && is_ident(&op[1..]));

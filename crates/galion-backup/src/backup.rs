@@ -151,21 +151,23 @@ pub fn now_iso() -> String {
 /// `TZ=Europe/Zagreb date +%Y%m%d-%H%M%S%z` from an RFC 3339 Zagreb stamp.
 pub fn stamp_from_rfc3339(s: &str) -> String {
     // 2026-10-20T20:22:05+02:00 -> 20261020-202205+0200
-    let b = s.as_bytes();
-    if b.len() < 25 {
-        return s.replace([':', '-', 'T'], "");
+    // Fixed offsets panic when a byte lands inside a multi-byte character.
+    let p = |a: usize, b: usize| s.get(a..b);
+    match (
+        p(0, 4),
+        p(5, 7),
+        p(8, 10),
+        p(11, 13),
+        p(14, 16),
+        p(17, 19),
+        p(19, 22),
+        p(23, 25),
+    ) {
+        (Some(y), Some(mo), Some(d), Some(h), Some(mi), Some(se), Some(off), Some(mm)) => {
+            format!("{y}{mo}{d}-{h}{mi}{se}{off}{mm}")
+        }
+        _ => s.replace([':', '-', 'T'], ""),
     }
-    format!(
-        "{}{}{}-{}{}{}{}{}",
-        &s[0..4],
-        &s[5..7],
-        &s[8..10],
-        &s[11..13],
-        &s[14..16],
-        &s[17..19],
-        &s[19..22],
-        &s[23..25]
-    )
 }
 
 pub fn log(msg: &str) {
@@ -549,6 +551,11 @@ mod tests {
         assert_eq!(
             stamp_from_rfc3339("2026-12-01T06:17:00+01:00"),
             "20261201-061700+0100"
+        );
+        let messy = "č".repeat(30);
+        assert_eq!(
+            stamp_from_rfc3339(&messy),
+            messy.replace([':', '-', 'T'], "")
         );
     }
 }

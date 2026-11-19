@@ -90,17 +90,17 @@ pub fn parse_rfc3339(s: &str) -> Option<i64> {
     if b[4] != b'-' || b[7] != b'-' || !(b[10] == b'T' || b[10] == b' ') {
         return None;
     }
-    let y = num(&s[0..4])? as i64;
-    let mo = num(&s[5..7]).filter(|m| (1..=12).contains(m))?;
-    let d = num(&s[8..10]).filter(|d| (1..=31).contains(d))?;
-    let (h, mi, sec) = hms(&s[11..19])?;
-    let mut rest = &s[19..];
+    let y = num(s.get(0..4)?)? as i64;
+    let mo = num(s.get(5..7)?).filter(|m| (1..=12).contains(m))?;
+    let d = num(s.get(8..10)?).filter(|d| (1..=31).contains(d))?;
+    let (h, mi, sec) = hms(s.get(11..19)?)?;
+    let mut rest = s.get(19..)?;
     if let Some(r) = rest.strip_prefix('.') {
         let n = r.bytes().take_while(|c| c.is_ascii_digit()).count();
         if n == 0 {
             return None;
         }
-        rest = &r[n..];
+        rest = r.get(n..)?;
     }
     let off = if rest == "Z" {
         0
@@ -110,12 +110,12 @@ pub fn parse_rfc3339(s: &str) -> Option<i64> {
             b'-' => -1,
             _ => return None,
         };
-        let z = rest[1..].replace(':', "");
+        let z = rest.get(1..)?.replace(':', "");
         if z.len() != 4 {
             return None;
         }
-        let oh = num(&z[0..2])? as i64;
-        let om = num(&z[2..4])? as i64;
+        let oh = num(z.get(0..2)?)? as i64;
+        let om = num(z.get(2..4)?)? as i64;
         if oh > 23 || om > 59 {
             return None;
         }

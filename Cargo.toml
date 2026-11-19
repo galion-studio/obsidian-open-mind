@@ -50,10 +50,11 @@ codegen-units = 1
 panic = "abort"
 strip = true
 
-# hermes-gateway only (build with --profile release-unwind): a panic in one
-# tool call is caught (hermes_rs::tools::call_isolated) and becomes an error
-# result, instead of aborting the gateway for every user. Same as release
-# otherwise.
+# hermes-gateway only (build with --profile release-unwind; scripts/real/hermes-tools.sh
+# does). A panic in one request, session or tool call is caught and becomes an
+# error for that call, instead of aborting the gateway. Same as release otherwise.
+# The workspace release profile stays panic = "abort" so unwind does not cross
+# the C frames of bundled SQLite (those objects are built without unwind tables).
 [profile.release-unwind]
 inherits = "release"
 panic = "unwind"

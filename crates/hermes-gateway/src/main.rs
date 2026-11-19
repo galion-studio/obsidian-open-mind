@@ -387,6 +387,11 @@ fn main() {
         log("refusing to start: API_SERVER_KEY is missing or shorter than 16 chars");
         std::process::exit(2);
     }
+    if cfg!(panic = "abort") {
+        log("panic=abort: a panic still ends the process. Build with --profile release-unwind so one bad request is an error and the gateway keeps serving.");
+    } else {
+        log("panic=unwind: a panic in one request, session or tool is logged and does not stop the process");
+    }
     let addr = format!("{}:{}", cfg.host, cfg.port);
     match hermes_rs::api::spawn(gw, &addr) {
         Ok(a) => log(&format!(

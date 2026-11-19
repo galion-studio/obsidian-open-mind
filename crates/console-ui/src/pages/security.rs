@@ -98,10 +98,10 @@ pub fn parse_iso(s: &str) -> Option<i64> {
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || se > 60 {
         return None;
     }
-    let mut rest = &s[19..];
+    let mut rest = s.get(19..)?;
     if let Some(r) = rest.strip_prefix('.') {
         let k = r.bytes().take_while(u8::is_ascii_digit).count();
-        rest = &r[k..];
+        rest = r.get(k..)?;
     }
     let off = match rest {
         "Z" | "z" => 0,

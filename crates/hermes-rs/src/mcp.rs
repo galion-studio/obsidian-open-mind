@@ -58,8 +58,9 @@ pub fn prefixed_name(server: &str, tool: &str) -> String {
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    let suffix = format!("_{}", &hex[..8]);
-    format!("{}{}", &full[..64 - suffix.len()], suffix)
+    let suffix = format!("_{}", hex.get(..8).unwrap_or(&hex));
+    let keep = 64usize.saturating_sub(suffix.len());
+    format!("{}{suffix}", crate::utf8::prefix_bytes(&full, keep))
 }
 
 // ------------------------------------------------------------------ secrets
@@ -123,7 +124,7 @@ pub fn parse_env_text(text: &str) -> BTreeMap<String, String> {
             && ((v.starts_with('"') && v.ends_with('"'))
                 || (v.starts_with('\'') && v.ends_with('\'')))
         {
-            &v[1..v.len() - 1]
+            v.get(1..v.len() - 1).unwrap_or(v)
         } else {
             v
         };

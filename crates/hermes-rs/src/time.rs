@@ -105,10 +105,10 @@ pub fn parse_rfc3339(s: &str) -> Option<i64> {
         num(14, 16)?,
         num(17, 19)?,
     );
-    let mut rest = &s[19..];
+    let mut rest = s.get(19..)?;
     if let Some(r) = rest.strip_prefix('.') {
         let n = r.find(|c: char| !c.is_ascii_digit()).unwrap_or(r.len());
-        rest = &r[n..];
+        rest = r.get(n..)?;
     }
     let off = if rest.is_empty() || rest == "Z" || rest == "z" {
         0
@@ -127,7 +127,7 @@ pub fn parse_rfc3339(s: &str) -> Option<i64> {
 
 /// "YYYY-MM-DD" in Europe/Zagreb, used as the spend-day key.
 pub fn zagreb_day(secs: i64) -> String {
-    zagreb_rfc3339(secs)[..10].to_string()
+    crate::utf8::prefix_bytes(&zagreb_rfc3339(secs), 10).to_string()
 }
 
 #[cfg(test)]

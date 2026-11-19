@@ -237,10 +237,10 @@ pub fn parse_rfc3339(s: &str) -> Option<u64> {
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || se > 60 {
         return None;
     }
-    let mut rest = &s[19..];
+    let mut rest = s.get(19..)?;
     if let Some(r) = rest.strip_prefix('.') {
         let n = r.bytes().take_while(u8::is_ascii_digit).count();
-        rest = &r[n..];
+        rest = r.get(n..)?;
     }
     let off: i64 = match rest {
         "" | "Z" | "z" => 0,

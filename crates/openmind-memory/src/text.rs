@@ -558,9 +558,9 @@ pub fn format_timestamp(ts: &str) -> Option<String> {
     {
         return None;
     }
-    let date = &ts[..10];
+    let date = ts.get(..10)?;
     if b.get(10) == Some(&b'T') && digits(11..13) && b.get(13) == Some(&b':') && digits(14..16) {
-        let time = &ts[11..16];
+        let time = ts.get(11..16)?;
         if time != "00:00" {
             if let Some(local) = zagreb_time::render_minutes(ts) {
                 return Some(local);

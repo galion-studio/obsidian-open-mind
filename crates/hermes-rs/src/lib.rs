@@ -17,6 +17,7 @@ pub mod cron;
 pub mod delegate;
 pub mod denylist;
 pub mod enroll;
+pub mod guard;
 pub mod http;
 pub mod mcp;
 pub mod mcp_transport;
@@ -34,6 +35,10 @@ pub mod spend;
 pub mod time;
 pub mod tools;
 pub mod yaml;
+
+/// Char-boundary string cuts ([`galion_common::utf8`]). Use these instead of
+/// `&s[i..j]` when `i` or `j` is a byte count.
+pub use galion_common::utf8;
 
 /// Version string reported on /health. `compat` is the upstream release the
 /// wire format follows.

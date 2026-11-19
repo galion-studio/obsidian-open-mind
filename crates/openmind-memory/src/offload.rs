@@ -128,10 +128,7 @@ fn truncate_prefix(text: &str, max_tokens: usize) -> (String, bool) {
     if count_tokens(text) <= max_tokens {
         return (text.to_string(), false);
     }
-    let mut end = (max_tokens * 4).min(text.len());
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
+    let end = galion_common::utf8::floor_char_boundary(text, (max_tokens * 4).min(text.len()));
     (text[..end].to_string(), true)
 }
 
@@ -625,11 +622,10 @@ impl Offload {
                     let mut a = mid.saturating_sub(budget / 2);
                     let mut b = (a + budget).min(raw.len());
                     a = b.saturating_sub(budget).min(a);
-                    while !raw.is_char_boundary(a) {
-                        a -= 1;
-                    }
-                    while !raw.is_char_boundary(b) {
-                        b += 1;
+                    a = galion_common::utf8::floor_char_boundary(&raw, a);
+                    b = galion_common::utf8::ceil_char_boundary(&raw, b);
+                    if b < a {
+                        b = a;
                     }
                     o.insert("content".into(), json!(&raw[a..b]));
                     o.insert("truncated".into(), json!(a > 0 || b < raw.len()));

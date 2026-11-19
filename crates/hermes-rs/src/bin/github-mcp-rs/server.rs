@@ -511,14 +511,27 @@ fn cat<'a>(a: &[&'a str], b: &[&'a str]) -> Vec<&'a str> {
     a.iter().chain(b).copied().collect()
 }
 
+fn floor_boundary(s: &str, i: usize) -> usize {
+    let mut i = i.min(s.len());
+    while !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+fn ceil_boundary(s: &str, i: usize) -> usize {
+    let mut i = i.min(s.len());
+    while !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 fn tail(s: &str, n: usize) -> String {
     if s.len() <= n {
         return s.to_string();
     }
-    let mut i = s.len() - n;
-    while !s.is_char_boundary(i) {
-        i += 1;
-    }
+    let i = ceil_boundary(s, s.len() - n);
     format!(
         "[…first {} bytes cut; last {n} bytes follow]\n{}",
         i,
@@ -545,14 +558,13 @@ impl Server {
         let a = A(&o);
         let out = self.dispatch(name, &a)?;
         Ok(if out.len() > self.max_reply {
-            let mut i = self.max_reply;
-            while !out.is_char_boundary(i) {
-                i -= 1;
-            }
+            let head = {
+                let i = floor_boundary(&out, self.max_reply);
+                &out[..i]
+            };
             format!(
-                "{}\n[…truncated at {} bytes of {}]",
-                &out[..i],
-                i,
+                "{head}\n[…truncated at {} bytes of {}]",
+                head.len(),
                 out.len()
             )
         } else {

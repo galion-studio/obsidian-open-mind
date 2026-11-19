@@ -14,6 +14,7 @@
 //! - [`time`]: Europe/Zagreb RFC 3339 with an explicit offset, never `Z`.
 //! - [`http`]: strict HTTP/1.x request parser, a bounded thread-per-connection
 //!   server (deadlines, size limits, `Connection: close`) and a small client.
+//! - [`utf8`]: char-boundary cuts so a byte index never splits a character.
 
 #![forbid(unsafe_code)]
 
@@ -24,3 +25,4 @@ pub mod http;
 pub mod json;
 pub mod sha256;
 pub mod time;
+pub mod utf8;

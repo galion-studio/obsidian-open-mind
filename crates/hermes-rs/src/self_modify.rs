@@ -1191,7 +1191,7 @@ pub fn deploy(
         return Err("bad drop-in name".into());
     }
     let id = rec["id"].as_str().unwrap_or("x");
-    let short = &rec["artifact"]["sha256"].as_str().unwrap_or("")[..12];
+    let short = crate::utf8::prefix_bytes(rec["artifact"]["sha256"].as_str().unwrap_or(""), 12);
     let bin = d.bin_dir.join(format!("hermes-gateway-{id}-{short}"));
     std::fs::create_dir_all(&d.bin_dir).map_err(|x| x.to_string())?;
     {

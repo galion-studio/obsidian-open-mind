@@ -86,12 +86,10 @@ pub fn call_isolated(t: &dyn Tool, name: &str, args: &Value, ctx: &ToolCtx) -> T
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| t.call(args, ctx))) {
         Ok(o) => o,
         Err(e) => {
-            let msg = e
-                .downcast_ref::<&str>()
-                .map(|s| s.to_string())
-                .or_else(|| e.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "unknown panic".into());
-            let msg: String = msg.chars().take(300).collect();
+            let msg: String = crate::guard::panic_message(e.as_ref())
+                .chars()
+                .take(300)
+                .collect();
             eprintln!(
                 "hermes-rs tools: tool={name} session={} depth={} PANIC caught, gateway keeps running: {}",
                 ctx.session_id,

@@ -30,11 +30,11 @@ FIX=$REPO/crates/hermes-tools/tests/fixtures
 ts() { TZ=Europe/Zagreb date -Iseconds; }
 say() { echo "[$(ts)] $*"; }
 
-say "build (release, nice, -j 4)"
-nice -n 10 cargo build -q --release -j 4 -p hermes-tools --bin hermes-mock-model
-nice -n 10 cargo build -q --release -j 4 -p hermes-gateway --no-default-features --features coding
-GW=$CARGO_TARGET_DIR/release/hermes-gateway
-MOCK=$CARGO_TARGET_DIR/release/hermes-mock-model
+say "build (release-unwind so one panic cannot abort the gateway, nice, -j 4)"
+nice -n 10 cargo build -q --profile release-unwind -j 4 -p hermes-tools --bin hermes-mock-model
+nice -n 10 cargo build -q --profile release-unwind -j 4 -p hermes-gateway --no-default-features --features coding
+GW=$CARGO_TARGET_DIR/release-unwind/hermes-gateway
+MOCK=$CARGO_TARGET_DIR/release-unwind/hermes-mock-model
 ls -l "$GW" "$MOCK" | awk '{print "  " $5 " bytes  " $9}'
 
 rm -rf "$RUN"; mkdir -p "$RUN"/{home,canary}

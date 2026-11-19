@@ -45,8 +45,11 @@ impl Phone {
         Some(Phone(i | (stress.unwrap_or(NO_STRESS).min(NO_STRESS) << 6)))
     }
     fn parse(tok: &str) -> Option<Phone> {
-        let (code, digit) = match tok.as_bytes().last()? {
-            d @ b'0'..=b'2' => (&tok[..tok.len() - 1], Some(d - b'0')),
+        let (code, digit) = match tok.chars().next_back() {
+            Some(d @ '0'..='2') => {
+                let cut = tok.len() - d.len_utf8();
+                (&tok[..cut], Some(d as u8 - b'0'))
+            }
             _ => (tok, None),
         };
         Phone::new(code, digit)
@@ -855,5 +858,13 @@ aalborg AO1 L B AO0 R G # place, danish
             ids,
             [0, 50, 83, 54, 156, 57, 135, 16, 3, 16, 65, 156, 87, 158, 54, 46, 16, 4, 10, 0]
         );
+    }
+
+    #[test]
+    fn phone_parse_does_not_split_a_multibyte_char() {
+        assert!(Phone::parse("č").is_none());
+        assert!(Phone::parse("č0").is_none());
+        assert!(Phone::parse("AA1").is_some());
+        assert_eq!(Phone::parse("HH").unwrap().code(), "HH");
     }
 }

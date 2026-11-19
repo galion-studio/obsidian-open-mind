@@ -631,7 +631,7 @@ pub fn entry(path: &str) -> Option<&'static str> {
         "/research" => Some(entry_page(
             "research",
             "Galion Research",
-            "Research entry. Hermes stays the engine. The Open Mind stack view stays on the console.",
+            "Research entry. The web app is separate from this console. The Open Mind stack view stays on the console.",
         )),
         _ => None,
     }

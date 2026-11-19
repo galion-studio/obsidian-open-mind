@@ -120,11 +120,13 @@ Typing `look` and pressing Enter keeps that word on the page and runs the same L
 
 With neither an inbox nor a stack address, an upload has no destination (`accept` in `crates/openmind-desktop/src/files.rs`).
 
-## Galion Research file attach
+## Galion Research
+
+The web interface is https://github.com/galion-studio/hermes-research for research.galion.app. This desktop does not draw that prompt. The console room no longer draws it either. The earlier markup is `docs/archive/research-web/console-prompt.html`.
 
 The desktop `/research` page is the entry above. It does not post a file.
 
-The Rust console's add-file is a different route. `POST /hermes/attach` and `POST /research/attach` keep a copy on this machine (`crates/console-ui/src/attach.rs`). The handler does not open a path from the request, does not dial the Hermes gateway, and does not put the bytes in the redirect. The cap is the same 8 MiB (`MAX_BYTES` in that file). Asking, runs, the microphone, and speak stay off that room (`crates/console-ui/src/pages/hermes.rs`).
+`POST /hermes/attach` and `POST /research/attach` still keep a file on this machine (`crates/console-ui/src/attach.rs`) without dialing the research engine. The handler does not open a path from the request and does not put the bytes in the redirect. The cap is the same 8 MiB (`MAX_BYTES` in that file). Asking, runs, the microphone, and speak stay off that room (`crates/console-ui/src/pages/hermes.rs`).
 
 ## Seven Galion tones at 432 Hz
 

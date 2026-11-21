@@ -19,7 +19,7 @@ const KEPT_EMPTY: &str = "<p class=\"notes\" id=\"kept-empty\">Nothing kept yet.
 
 const WELCOME: &str = "<p class=\"notes\" id=\"welcome\">This console stays on this machine. Type look, or press L, to check the stack. Press ? for the keys.</p>";
 
-const KEYS: &str = "<div id=\"keys\" hidden role=\"region\" aria-label=\"Keyboard shortcuts\"><p class=\"kicker\">Keys</p><p><kbd>/</kbd> command <kbd>Enter</kbd> keep <kbd>L</kbd> look <kbd>F</kbd> files <kbd>V</kbd> voice <kbd>M</kbd> mute <kbd>?</kbd> keys <kbd>Esc</kbd> clear <kbd>Arrows</kbd> move</p></div>";
+const KEYS: &str = "<div id=\"keys\" hidden role=\"region\" aria-label=\"Keyboard shortcuts\"><p class=\"kicker\">Keys</p><p><kbd>/</kbd> command <kbd>Enter</kbd> keep <kbd>L</kbd> look <kbd>F</kbd> files <kbd>V</kbd> voice <kbd>M</kbd> mute <kbd>S</kbd> silence <kbd>?</kbd> keys <kbd>Esc</kbd> clear <kbd>Arrows</kbd> move</p></div>";
 
 const SURFACE_CSS: &str = r#"
 #keys {
@@ -40,10 +40,10 @@ const SURFACE_CSS: &str = r#"
 }
 @media (prefers-reduced-motion: no-preference) {
   .chip {
-    animation: om-rise 160ms ease;
+    animation: om-rise var(--motion-step) var(--motion-ease);
   }
-  #look, .plus, .voice, #mute, .entries a, .back {
-    transition: border-color 160ms ease, color 160ms ease, background-color 160ms ease;
+  #look, .plus, .voice, #mute, #silence, .entries a, .back, .tile, #win-close {
+    transition: border-color var(--motion-step) var(--motion-ease), color var(--motion-step) var(--motion-ease), background-color var(--motion-step) var(--motion-ease);
   }
 }
 @keyframes om-rise {
@@ -57,7 +57,7 @@ const SURFACE_CSS: &str = r#"
 // are the page script, not [`crate::files::FileError`] codes. Eight MiB is
 // [`crate::files::MAX_FILE_BYTES`] divided by 1024 twice.
 
-const SURFACE_JS: &str = r#"
+const SURFACE_JS: &str = r##"
 (function () {
   var welcome = document.getElementById("welcome");
   var filesEmpty = document.getElementById("files-empty");
@@ -138,6 +138,13 @@ const SURFACE_JS: &str = r#"
   if (files) files.addEventListener("click", dismissWelcome);
   if (voice) voice.addEventListener("click", dismissWelcome);
   if (mute) mute.addEventListener("click", dismissWelcome);
+  var silence = document.getElementById("silence");
+  if (silence) silence.addEventListener("click", dismissWelcome);
+  var tiles = document.querySelectorAll(".hub .tile");
+  var tileAt;
+  for (tileAt = 0; tileAt < tiles.length; tileAt = tileAt + 1) {
+    tiles[tileAt].addEventListener("click", dismissWelcome);
+  }
   if (command) command.addEventListener("input", dismissWelcome);
   function showWhy(data) {
     var probes = data && data.probes;
@@ -197,7 +204,9 @@ const SURFACE_JS: &str = r#"
     clickId(id);
   }
   function controls() {
-    return document.querySelectorAll("nav.entries a, #mute, #look, #files, #command, #voice, #mic-opt");
+    var win = document.getElementById("win");
+    if (win && !win.hidden) return document.querySelectorAll("#win-open, #win-close");
+    return document.querySelectorAll("nav.entries a, #mute, #silence, .hub .tile, #look, #files, #command, #voice, #mic-opt");
   }
   function moveFocus(dir) {
     var list = controls();
@@ -231,6 +240,8 @@ const SURFACE_JS: &str = r#"
   }
   document.addEventListener("keydown", function (ev) {
     if (ev.repeat) return;
+    var win = document.getElementById("win");
+    if (win && !win.hidden && ev.key !== "Escape" && ev.key.indexOf("Arrow") !== 0) return;
     if (ev.key === "Escape") {
       if (keys && !keys.hidden) {
         keys.hidden = true;
@@ -277,9 +288,10 @@ const SURFACE_JS: &str = r#"
     else if (key === "f") { press("files"); ev.preventDefault(); }
     else if (key === "v") { press("voice"); ev.preventDefault(); }
     else if (key === "m") { press("mute"); ev.preventDefault(); }
+    else if (key === "s") { press("silence"); ev.preventDefault(); }
   });
 })();
-"#;
+"##;
 
 /// The console page plus the surface notes, keys, and motion.
 ///
@@ -349,7 +361,11 @@ mod tests {
         assert!(html.contains("Escape"));
         assert!(html.contains("ArrowRight"));
         assert!(html.contains("ArrowLeft"));
-        assert!(html.contains("nav.entries a, #mute, #look, #files, #command, #voice, #mic-opt"));
+        assert!(html.contains(
+            "nav.entries a, #mute, #silence, .hub .tile, #look, #files, #command, #voice, #mic-opt"
+        ));
+        assert!(html.contains("#win-open, #win-close"));
+        assert!(html.contains("<kbd>S</kbd> silence"));
         assert!(html.contains("<kbd>Arrows</kbd> move"));
         assert!(html.contains("\"/probes\""));
         for code in [
@@ -382,8 +398,10 @@ mod tests {
         assert!(html.contains("IBM Plex Mono"));
         assert!(!html.contains("font-family: \"Inter\""));
         assert!(!html.contains("Geist Mono"));
-        assert!(html.contains("160ms ease"));
+        assert!(html.contains("om-rise var(--motion-step) var(--motion-ease)"));
+        assert!(html.contains("--motion-step: 160ms"));
         assert!(!html.contains("om-rise 180ms"));
+        assert!(!html.contains("160ms ease"));
         assert!(html.contains("head.tagName === \"P\""));
         assert_eq!(present(&html), html);
         assert_eq!(present("<p>entry only</p>"), "<p>entry only</p>");

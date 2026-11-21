@@ -6,8 +6,10 @@
 //!
 //! The page is the stack's command surface: a stack list, Open Mind as the
 //! presence, and one prompt. The plus on the left opens the operating
-//! system's file picker. The voice button is on the right. Nothing on the
-//! page is a home screen built around a circle.
+//! system's file picker. The voice button is on the right. Launch tiles
+//! open Galion One and Galion Research on this machine. Nothing on the
+//! page is a home screen built around a circle. A wake disc plays once
+//! when the loopback page opens, then leaves.
 //!
 //! The seven tones are sines tuned from 432 Hz. The microphone opens only
 //! after an unchecked box is ticked, and only on loopback or a local file.
@@ -26,6 +28,7 @@ pub mod cli;
 pub mod error;
 pub mod files;
 pub mod http;
+pub mod motion;
 pub mod page;
 pub mod probe;
 pub mod sound;

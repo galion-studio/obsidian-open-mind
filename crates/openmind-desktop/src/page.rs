@@ -6,7 +6,9 @@
 //!
 //! Colours are the Open Mind tokens (Ink, Surface, Sky, Paper). No font is
 //! fetched. The seven tones are embedded as `data:` URLs so opening the
-//! file needs no server and no network.
+//! file needs no server and no network. Motion durations live in
+//! [`crate::motion`]. The wake disc expands once on the loopback page,
+//! then the console fades in. Silence is the `galion-silence` flag.
 
 use crate::sound::{self, TONES};
 use crate::stack::LAYERS;
@@ -70,7 +72,7 @@ header, footer {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 16px 20px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
@@ -80,6 +82,7 @@ footer {
   border-bottom: 0;
   border-top: 1px solid var(--line);
 }
+.tools { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .entries { display: flex; gap: 8px; flex-wrap: wrap; }
 .entries a, .back {
   color: var(--fg);
@@ -111,9 +114,16 @@ header p { margin: 0; }
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
-h1 { font-size: 18px; font-weight: 600; }
+h1 {
+  margin: 0;
+  font-family: "Jost", "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 1.35rem;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+}
 .stack {
-  padding: 16px;
+  padding: 20px 16px;
   border-right: 1px solid var(--line);
   background: var(--bg);
 }
@@ -128,20 +138,20 @@ h1 { font-size: 18px; font-weight: 600; }
 .stack ol { list-style: none; margin: 0; padding: 0; }
 #look {
   margin-top: 12px;
-  height: 36px;
+  min-height: 44px;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: transparent;
   color: var(--fg);
   font: inherit;
-  padding: 0 14px;
+  padding: 0 16px;
 }
 #look:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .stack li {
   display: grid;
   grid-template-columns: 1fr auto auto;
-  gap: 2px 8px;
-  padding: 8px 0;
+  gap: 4px 8px;
+  padding: 10px 0;
   border-top: 1px solid var(--line);
 }
 .stack li:first-child { border-top: 0; }
@@ -157,7 +167,7 @@ h1 { font-size: 18px; font-weight: 600; }
 .stage {
   display: grid;
   place-items: center;
-  padding: 24px 16px;
+  padding: 32px 24px;
 }
 .presence { width: min(40rem, 100%); }
 .presence > p { margin: 0 0 16px; color: var(--muted); }
@@ -171,7 +181,7 @@ h1 { font-size: 18px; font-weight: 600; }
   border: 1px solid var(--line);
   border-radius: 11px;
 }
-.plus, .voice, #mute {
+.plus, .voice, #mute, #silence {
   position: relative;
   width: 44px;
   height: 44px;
@@ -204,12 +214,83 @@ h1 { font-size: 18px; font-weight: 600; }
   padding: 0 8px;
 }
 #command:focus { outline: none; }
-.prompt:focus-within, .plus:focus-within, .voice:focus-visible, #mute:focus-visible {
+.prompt:focus-within, .plus:focus-within, .voice:focus-visible, #mute:focus-visible, #silence:focus-visible, .tile:focus-visible, #win-close:focus-visible, #win-open:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
 .voice[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
-#mute { width: auto; padding: 0 12px; font: inherit; }
+#mute, #silence { width: auto; flex: 0 0 auto; padding: 0 12px; font: inherit; }
+#silence[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+#wake {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: #05070A;
+}
+#wake[hidden] { display: none; }
+#wake .disc {
+  border-radius: 999px;
+  background: #F5F5F7;
+}
+.hub {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 0 0 20px;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 96px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+  color: var(--fg);
+  text-decoration: none;
+}
+.tile .role { color: var(--muted); font-size: 14px; line-height: 1.45; }
+.tile .url {
+  font: 12px/1.3 "IBM Plex Mono", ui-monospace, monospace;
+  color: var(--fg);
+}
+.win {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: rgba(5, 7, 10, 0.72);
+}
+.win[hidden] { display: none; }
+.win .sheet {
+  width: min(28rem, 100%);
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--panel);
+  color: var(--fg);
+}
+.win h2 { margin: 0 0 8px; font-size: 1.5rem; }
+.win p { margin: 0 0 12px; }
+#win-copy, #win-url { color: var(--muted); }
+#win-url { font: 13px/1.4 "IBM Plex Mono", ui-monospace, monospace; overflow-wrap: anywhere; }
+#win-close {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+}
+#look-empty[hidden] { display: none; }
+.app[data-window="open"] .panel { opacity: 0.45; }
 .notes { margin: 12px 0 0; color: var(--muted); font-size: 14px; }
 #quiet:empty, #printed:empty, #here:empty { display: none; }
 .notes ul { margin: 8px 0 0; padding-left: 1.1rem; }
@@ -244,9 +325,10 @@ audio { display: none; }
 @media (max-width: 720px) {
   .app { grid-template-columns: 1fr; }
   .stack { border-right: 0; border-bottom: 1px solid var(--line); }
-  .stage { min-height: 50vh; }
+  .stage { min-height: 50vh; padding: 24px 16px; }
   header { flex-wrap: wrap; }
-  .entries { width: 100%; }
+  .tools, .entries { width: 100%; }
+  .hub { grid-template-columns: 1fr; }
 }
 "#;
 
@@ -266,8 +348,12 @@ audio { display: none; }
 /// `muted` again when the tones are still muted. Look clears that word.
 /// Any other kept command writes `kept` on the Command row. Look clears
 /// that word.
-/// Night hours and Mute skip tones. During local hours 22:00–06:59 the page writes the quiet
-/// sentence into `#quiet`. A `file:` page writes the printed-page sentence
+/// Night hours, Mute, and persistent Silence skip tones. Silence is the
+/// `galion-silence` flag, the same key as the TypeScript console. A query
+/// `silence=1` stores that flag. During local hours 22:00–06:59 the page writes the quiet
+/// sentence into `#quiet`. The wake disc runs once on the loopback listener,
+/// then the page fades in. Reduced motion skips the disc and the fades.
+/// A `file:` page writes the printed-page sentence
 /// into `#printed`. Look and uploads still need the loopback listener. The
 /// loopback listener writes `Listening on` plus the page host into `#here`,
 /// and writes `here` on the Open Mind row. Look clears that word and writes
@@ -293,13 +379,174 @@ const SCRIPT: &str = r#"
     var h = new Date().getHours();
     return h >= 22 || h < 7;
   }
+  function storeSilence(on) {
+    try { localStorage.setItem("galion-silence", on ? "1" : "0"); } catch (e) {}
+  }
+  function silenceStored() {
+    var query = false;
+    try { query = new URLSearchParams(location.search).get("silence") === "1"; } catch (e) {}
+    if (query) storeSilence(true);
+    try { return localStorage.getItem("galion-silence") === "1"; } catch (e2) { return query; }
+  }
+  function quiet() {
+    return mute.getAttribute("aria-pressed") === "true" || night() || silenceStored();
+  }
   function play(id) {
-    if (mute.getAttribute("aria-pressed") === "true" || night()) return;
+    if (quiet()) return;
     var el = document.querySelector("audio[data-tone='" + id + "']");
     if (!el) return;
     try { el.currentTime = 0; } catch (e) {}
     var pending = el.play();
     if (pending && pending.catch) pending.catch(function () {});
+  }
+  function reduced() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+  function strike(context, frequency, when, dur, gain) {
+    var osc = context.createOscillator();
+    var amp = context.createGain();
+    osc.frequency.value = frequency;
+    osc.type = "sine";
+    amp.gain.setValueAtTime(0.0001, when);
+    amp.gain.exponentialRampToValueAtTime(Math.max(0.001, gain), when + 0.003);
+    amp.gain.exponentialRampToValueAtTime(0.0001, when + dur);
+    osc.connect(amp);
+    amp.connect(context.destination);
+    osc.start(when);
+    osc.stop(when + dur + 0.02);
+  }
+  function bell(name) {
+    if (quiet()) return;
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    try {
+      if (!window.__galionEar) window.__galionEar = new AC();
+    } catch (e) { return; }
+    var context = window.__galionEar;
+    if (context.resume) {
+      var pending = context.resume();
+      if (pending && pending.catch) pending.catch(function () {});
+    }
+    var fund = name === "close" ? 216 : 432;
+    var partials = [[1, 1], [3, 2], [2, 1], [5, 2], [3, 1], [4, 1]];
+    var gains = [0.16, 0.09, 0.055, 0.03, 0.02, 0.012];
+    var now = context.currentTime;
+    var i;
+    for (i = 0; i < partials.length; i = i + 1) {
+      strike(context, fund * (partials[i][0] / partials[i][1]), now, 0.7, gains[i]);
+    }
+  }
+  var LAUNCH = {
+    one: {
+      title: "Galion One",
+      copy: "Opens the voice surface on this machine. This desktop does not start it.",
+      href: "http://127.0.0.1:8091/"
+    },
+    research: {
+      title: "Galion Research",
+      copy: "Opens the research room on this machine. This desktop does not start it.",
+      href: "http://127.0.0.1:18080/research"
+    }
+  };
+  var returnFocus = null;
+  function openWin(id) {
+    var spec = LAUNCH[id];
+    var win = document.getElementById("win");
+    var app = document.querySelector(".app");
+    if (!spec || !win) return;
+    document.getElementById("win-kicker").textContent = "On this machine";
+    document.getElementById("win-title").textContent = spec.title;
+    document.getElementById("win-copy").textContent = spec.copy;
+    var link = document.getElementById("win-open");
+    link.href = spec.href;
+    link.textContent = "Open " + spec.title;
+    document.getElementById("win-url").textContent = spec.href;
+    returnFocus = document.activeElement;
+    win.hidden = false;
+    win.setAttribute("data-state", "open");
+    if (app) app.setAttribute("data-window", "open");
+    link.focus();
+    bell("open");
+  }
+  function finishClose() {
+    var win = document.getElementById("win");
+    var app = document.querySelector(".app");
+    if (win) {
+      win.hidden = true;
+      win.setAttribute("data-state", "open");
+    }
+    if (app) app.removeAttribute("data-window");
+    if (returnFocus && returnFocus.focus) returnFocus.focus();
+  }
+  function closeWin() {
+    var win = document.getElementById("win");
+    if (!win || win.hidden) return;
+    bell("close");
+    if (reduced()) { finishClose(); return; }
+    win.setAttribute("data-state", "close");
+    window.setTimeout(finishClose, WINDOW_MS);
+  }
+  function beginWake() {
+    var veil = document.getElementById("wake");
+    var app = document.querySelector(".app");
+    var live = location.protocol !== "file:" && loopbackPage();
+    if (!live || reduced()) {
+      if (app) app.setAttribute("data-awake", "1");
+      if (veil) veil.hidden = true;
+      return;
+    }
+    if (!veil) {
+      if (app) app.setAttribute("data-awake", "1");
+      return;
+    }
+    veil.hidden = false;
+    window.requestAnimationFrame(function () {
+      veil.setAttribute("data-phase", "expand");
+      if (app) app.setAttribute("data-awake", "1");
+    });
+    window.setTimeout(function () { veil.hidden = true; }, WAKE_MS);
+  }
+  function paintSilence() {
+    var button = document.getElementById("silence");
+    if (!button) return;
+    var on = silenceStored();
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+    button.textContent = on ? "Sound" : "Silence";
+    if (!on || night()) return;
+    var line = document.getElementById("quiet");
+    if (line && !line.textContent) line.textContent = "Silence is on. Tones stay quiet.";
+  }
+  function toggleSilence() {
+    var button = document.getElementById("silence");
+    if (!button) return;
+    var on = button.getAttribute("aria-pressed") === "true";
+    storeSilence(!on);
+    if (on) {
+      var line = document.getElementById("quiet");
+      if (line && line.textContent === "Silence is on. Tones stay quiet.") line.textContent = "";
+    }
+    paintSilence();
+  }
+  function bindLaunch() {
+    var tiles = document.querySelectorAll(".hub .tile");
+    var i;
+    for (i = 0; i < tiles.length; i = i + 1) {
+      tiles[i].addEventListener("click", function (ev) {
+        if (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.button) return;
+        ev.preventDefault();
+        openWin(ev.currentTarget.getAttribute("data-launch"));
+      });
+    }
+    var close = document.getElementById("win-close");
+    if (close) close.addEventListener("click", closeWin);
+    document.addEventListener("keydown", function (ev) {
+      if (ev.key !== "Escape") return;
+      var win = document.getElementById("win");
+      if (!win || win.hidden) return;
+      ev.preventDefault();
+      ev.stopImmediatePropagation();
+      closeWin();
+    });
   }
   function loopbackPage() {
     var host = location.hostname;
@@ -468,6 +715,10 @@ const SCRIPT: &str = r#"
     if (state !== "up" && state !== "down" && state !== "unknown") return "unknown";
     return state;
   }
+  function setLookEmpty(on) {
+    var empty = document.getElementById("look-empty");
+    if (empty) empty.hidden = !on;
+  }
   function clearSeen() {
     var rows = document.querySelectorAll("li[data-layer]");
     var n;
@@ -501,6 +752,7 @@ const SCRIPT: &str = r#"
   function runLook() {
     lookRows.textContent = "";
     clearSeen();
+    setLookEmpty(true);
     if (location.protocol === "file:" || !loopbackPage()) {
       lookState.textContent = "Look only runs on the loopback listener.";
       play("deny");
@@ -546,6 +798,7 @@ const SCRIPT: &str = r#"
           markSeen(String(item.service || ""), word);
           if (item.enabled && word !== "up") wants = true;
         }
+        setLookEmpty(false);
         lookState.textContent = wants
           ? "The local stack wants a look. Rows stay staged or planned."
           : "The local stack answered. Rows stay staged or planned.";
@@ -568,21 +821,31 @@ const SCRIPT: &str = r#"
     if (on) clearSeenWord("voice", "muted");
     else markMuted();
   }
+  var woke = false;
   mute.addEventListener("click", toggleMute);
+  var silence = document.getElementById("silence");
+  if (silence) silence.addEventListener("click", toggleSilence);
   if (night()) {
     var quiet = document.getElementById("quiet");
     if (quiet) quiet.textContent = "Tones are quiet until 07:00.";
   }
+  paintSilence();
   if (location.protocol === "file:") {
     var printed = document.getElementById("printed");
     if (printed) printed.textContent = "This is a printed page. Look and uploads need the loopback listener.";
   }
-  if (location.protocol !== "file:" && loopbackPage()) {
+  beginWake();
+  if (!woke && location.protocol !== "file:" && loopbackPage()) {
     var here = document.getElementById("here");
     if (here) here.textContent = "Listening on " + location.host + ".";
     markHere();
+    woke = true;
     play("wake");
   }
+  bindLaunch();
+  var openTo = "";
+  try { openTo = new URLSearchParams(location.search).get("open") || ""; } catch (e) {}
+  if (openTo === "one" || openTo === "research") openWin(openTo);
 })();
 "#;
 
@@ -660,7 +923,7 @@ fn render_entry(id: &str, title: &str, lede: &str) -> String {
     );
     html.push_str(&esc(title));
     html.push_str("</title><style>");
-    html.push_str(CSS);
+    html.push_str(&styles());
     html.push_str("</style></head><body><main class=\"stage\" data-entry=\"");
     html.push_str(id);
     html.push_str("\"><div class=\"presence\"><p class=\"kicker\">galion.app</p><h1>");
@@ -708,17 +971,22 @@ fn render() -> String {
         "\"><meta http-equiv=\"Permissions-Policy\" content=\"microphone=(self)\">\
 <style>",
     );
-    html.push_str(CSS);
-    html.push_str("</style></head><body><div class=\"app\" data-desktop=\"control-console\">");
+    html.push_str(&styles());
+    html.push_str(
+        "</style><noscript><style>.app{opacity:1}#wake{display:none}</style></noscript>\
+</head><body><div id=\"wake\" aria-hidden=\"true\"><div class=\"disc\"></div></div>\
+<div class=\"app\" data-desktop=\"control-console\">",
+    );
     html.push_str(
         "<header><div><p class=\"kicker\">Obsidian Open Mind</p>\
 <h1>Control console</h1></div>\
-<nav class=\"entries\" aria-label=\"Products\">\
+<div class=\"tools\"><nav class=\"entries\" aria-label=\"Products\">\
 <a href=\"/one\">Galion One</a>\
 <a href=\"/research\">Galion Research</a></nav>\
-<button type=\"button\" id=\"mute\" aria-pressed=\"false\">Mute</button></header>",
+<button type=\"button\" id=\"mute\" aria-pressed=\"false\">Mute</button>\
+<button type=\"button\" id=\"silence\" aria-pressed=\"false\">Silence</button></div></header>",
     );
-    html.push_str("<section class=\"stack\" aria-label=\"Stack\"><h2>Stack</h2><ol>");
+    html.push_str("<section class=\"stack panel\" aria-label=\"Stack\"><h2>Stack</h2><ol>");
     for layer in LAYERS {
         html.push_str("<li data-layer=\"");
         html.push_str(layer.id);
@@ -738,13 +1006,23 @@ fn render() -> String {
     }
     html.push_str(
         "</ol><p class=\"notes\" id=\"look-state\">The stack list is not a health check.</p>\
+<p class=\"notes\" id=\"look-empty\">No probe yet. Look checks this machine.</p>\
 <button type=\"button\" id=\"look\">Look at the local stack</button>\
 <ul class=\"chips\" id=\"look-rows\" aria-label=\"Local stack probes\"></ul></section>",
     );
     html.push_str(
-        "<main class=\"stage\" id=\"main\"><div class=\"presence\">\
+        "<main class=\"stage panel\" id=\"main\"><div class=\"presence\">\
 <h2>Open Mind</h2>\
 <p>Ask from here. The command stays on this page. No model is called. Tones are 432 Hz.</p>\
+<nav class=\"hub\" aria-label=\"Launch\">\
+<a class=\"tile\" data-launch=\"one\" href=\"http://127.0.0.1:8091/\">\
+<span class=\"kicker\">Galion One</span>\
+<span class=\"role\">Voice companion on this machine. This page does not start it.</span>\
+<span class=\"url\">127.0.0.1:8091</span></a>\
+<a class=\"tile\" data-launch=\"research\" href=\"http://127.0.0.1:18080/research\">\
+<span class=\"kicker\">Galion Research</span>\
+<span class=\"role\">Research room on this machine. This page does not start it.</span>\
+<span class=\"url\">127.0.0.1:18080/research</span></a></nav>\
 <p class=\"notes\" id=\"words\">look checks the stack. files opens the picker. voice toggles the microphone. mute toggles the tones.</p>\
 <p class=\"notes\" id=\"quiet\"></p>\
 <p class=\"notes\" id=\"printed\"></p>\
@@ -766,7 +1044,12 @@ placeholder=\"Ask Open Mind\" enterkeyhint=\"send\" aria-label=\"Command\">\
 <p class=\"notes\" id=\"voice-state\">Microphone closed.</p>\
 <p class=\"notes\" id=\"mic-level\"></p>\
 <div class=\"notes\"><p>Kept on this page</p><ul id=\"kept\"></ul></div>\
-</div></main>",
+</div></main>\
+<div id=\"win\" class=\"win\" hidden role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"win-title\">\
+<div class=\"sheet\"><p class=\"kicker\" id=\"win-kicker\"></p><h2 id=\"win-title\"></h2>\
+<p id=\"win-copy\"></p><p><a class=\"back\" id=\"win-open\" href=\"http://127.0.0.1:8091/\">Open</a></p>\
+<p class=\"notes\" id=\"win-url\"></p>\
+<button type=\"button\" id=\"win-close\">Close</button></div></div>",
     );
     html.push_str(&brand_block());
     for tone in TONES {
@@ -779,9 +1062,20 @@ placeholder=\"Ask Open Mind\" enterkeyhint=\"send\" aria-label=\"Command\">\
         html.push_str("\" preload=\"none\"></audio>");
     }
     html.push_str("<script>");
-    html.push_str(&SCRIPT.replace("FILE_MAX", &crate::files::MAX_FILE_BYTES.to_string()));
+    html.push_str(
+        &SCRIPT
+            .replace("FILE_MAX", &crate::files::MAX_FILE_BYTES.to_string())
+            .replace("WAKE_MS", &crate::motion::WAKE_MS.to_string())
+            .replace("WINDOW_MS", &crate::motion::WINDOW_MS.to_string()),
+    );
     html.push_str("</script></div></body></html>\n");
     html
+}
+
+fn styles() -> String {
+    let mut out = crate::motion::sheet();
+    out.push_str(CSS);
+    out
 }
 
 fn esc(s: &str) -> String {
@@ -908,7 +1202,6 @@ mod tests {
     fn page_stays_on_the_machine() {
         let html = document();
         for banned in [
-            "http://",
             "https://",
             "ws://",
             "wss://",
@@ -918,12 +1211,16 @@ mod tests {
             "WebSocket",
             "MediaRecorder",
             "indexedDB",
-            "localStorage",
             "createObjectURL",
             "sendBeacon",
         ] {
             assert!(!html.contains(banned), "{banned} leaked into the page");
         }
+        let rest = html
+            .replace("http://127.0.0.1:8091/", "")
+            .replace("http://127.0.0.1:18080/research", "");
+        assert!(!rest.contains("http://"), "unexpected url in the page");
+        assert_eq!(html.matches("localStorage").count(), 2);
         assert_eq!(html.matches("fetch(").count(), 2);
         assert!(html.contains("fetch(\"/files\""));
         assert!(html.contains("fetch(\"/probes\""));
@@ -932,6 +1229,47 @@ mod tests {
         assert!(html.contains("h >= 22"));
         assert!(html.contains("h < 7"));
         assert!(html.contains("textContent"));
+    }
+
+    #[test]
+    fn wake_silence_motion_and_launch_tiles() {
+        let html = document();
+        assert!(html.contains("id=\"wake\""));
+        assert!(html.contains("class=\"disc\""));
+        assert!(html.contains("data-phase"));
+        assert!(html.contains("var woke = false"));
+        assert!(html.contains("!woke"));
+        assert_eq!(html.matches("play(\"wake\")").count(), 1);
+        assert!(html.contains("galion-silence"));
+        assert!(html.contains("Silence is on. Tones stay quiet."));
+        assert!(html.contains("prefers-reduced-motion: reduce"));
+        assert!(html.contains("--motion-step: 160ms"));
+        assert!(html.contains("--motion-window: 320ms"));
+        assert!(html.contains("--motion-wake: 640ms"));
+        assert!(html.contains("width: 14vmin"));
+        assert!(html.contains("http://127.0.0.1:8091/"));
+        assert!(html.contains("http://127.0.0.1:18080/research"));
+        assert!(html.contains("data-launch=\"one\""));
+        assert!(html.contains("data-launch=\"research\""));
+        assert!(html.contains("aria-label=\"Launch\""));
+        assert!(html.contains("id=\"win\""));
+        assert!(html.contains("role=\"dialog\""));
+        assert!(html.contains("bell(\"open\")"));
+        assert!(html.contains("bell(\"close\")"));
+        assert!(html.contains("[[1, 1], [3, 2], [2, 1], [5, 2], [3, 1], [4, 1]]"));
+        assert!(html.contains("No probe yet. Look checks this machine."));
+        assert!(html.contains("id=\"silence\""));
+        assert!(html.contains("function quiet()"));
+        let sound =
+            include_str!("../../../stack/research-agent/console-ide/src/lib/galion-sound.ts");
+        assert!(sound.contains("const SILENCE_KEY = \"galion-silence\""));
+        assert!(sound.contains("[1, 1]"));
+        let lower = html.to_ascii_lowercase();
+        assert!(!lower.contains("samantha"));
+        assert!(!lower.contains("jarvis"));
+        assert!(!lower.contains("s711"));
+        assert!(html.contains("Copyright (c) 3000 Galion / galion-studio"));
+        assert!(!html.contains("Copyright (c) 3000 Galion Labs"));
     }
 
     #[test]

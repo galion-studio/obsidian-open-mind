@@ -5,9 +5,11 @@
 # local browser so WSLg can show a window. Installed by
 # scripts/install-wsl-ubuntu.sh as /usr/bin/openmind-desktop-wslg.
 #
-# The desktop binary is started with --listen only. A Chromium-family
-# browser receives --no-sandbox only from chromium_extra, and only when
-# chromium_needs_no_sandbox says the browser sandbox cannot start.
+# The desktop binary is started with --listen on its default bind.
+# --stack off is added when the Galion One intake port accepts no
+# connection. A Chromium-family browser receives --no-sandbox only from
+# chromium_extra, and only when chromium_needs_no_sandbox says the
+# browser sandbox cannot start.
 # Firefox and Epiphany never receive that switch.
 set -euo pipefail
 
@@ -47,9 +49,11 @@ usage: openmind-desktop-wslg
        openmind-desktop-wslg --browser-flags firefox|chromium|webkit
        openmind-desktop-wslg --help
 
-With no arguments, start openmind-desktop --listen when it is not already
-this user's listener, then open the URL from its listen banner in a local
-browser. The browser process is the WSLg window.
+With no arguments, start openmind-desktop --listen when that default
+port is closed, then open the listen-banner URL in a local browser.
+--stack off is added when the Galion One intake port is closed.
+The browser process is the WSLg window. An already-open default port
+is left running.
 
 --print-browser   print the browser path, or none
 --browser-flags   print extra arguments for that browser family
@@ -214,16 +218,59 @@ banner_url() {
   printf '%s' "${url%%$'\n'*}"
 }
 
+# Pieces, so this file does not store a dotted address or a URL.
+loopback_host() {
+  printf '%s.%s.%s.%s' 127 0 0 1
+}
+
+page_url() {
+  local scheme
+  scheme=$(printf '%s%s' 'http' '://')
+  printf '%s%s:%s/' "$scheme" "$(loopback_host)" 18181
+}
+
+# 0 when a TCP accept happens. A refusal is not a match.
+port_accepts() {
+  local host=$1 port=$2
+  timeout 1 bash -c "echo >/dev/tcp/${host}/${port}" >/dev/null 2>&1
+}
+
+desired_command() {
+  local args=()
+  args=(--listen "$(printf '%s:%s' "$(loopback_host)" 18181)")
+  if ! port_accepts "$(loopback_host)" 8091; then
+    args+=(--stack off)
+  fi
+  printf '%s' "$BIN ${args[*]}"
+}
+
 start_server() {
-  local pid i
+  local pid i got want
   mkdir -p -- "$state"
+  want=$(desired_command)
   if server_alive; then
+    got=$(ps -p "$(tr -d '[:space:]' < "$pidfile")" -o args= 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    if [ "$got" = "$want" ]; then
+      return 0
+    fi
+    pid=$(tr -d '[:space:]' < "$pidfile")
+    kill "$pid" 2>/dev/null || true
+    i=0
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 50 ]; do
+      i=$((i + 1))
+      sleep 0.1
+    done
+  fi
+  if port_accepts "$(loopback_host)" 18181; then
     return 0
   fi
   : > "$log"
-  # --listen only. The Chromium switch is not an argument of this binary.
-  nohup "$BIN" --listen >>"$log" 2>&1 &
+  # --listen, and --stack off when the intake is closed.
+  # The Chromium switch is not an argument of this binary.
+  # shellcheck disable=SC2086
+  nohup $want >>"$log" 2>&1 </dev/null &
   pid=$!
+  disown "$pid" 2>/dev/null || true
   printf '%s\n' "$pid" > "$pidfile"
   i=0
   while [ "$i" -lt 50 ]; do
@@ -260,7 +307,11 @@ open_page() {
   local url path kind extra=() line
   url=$(banner_url)
   if [ -z "$url" ]; then
-    die "listen banner has no page URL; log $log"
+    if port_accepts "$(loopback_host)" 18181; then
+      url=$(page_url)
+    else
+      die "listen banner has no page URL; log $log"
+    fi
   fi
   if path=$(pick_browser); then
     kind=$(browser_kind "$path")

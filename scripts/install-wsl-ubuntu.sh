@@ -8,9 +8,14 @@
 # Safe to run again: packages, the .deb, the menu file, and the launcher
 # are written to the same paths.
 #
-# Cargo, rustup, and the package directory stay on the distro filesystem
-# (/opt/galion and /var/cache/galion). That filesystem is the distro disk.
-# A path on /mnt/<letter> is refused.
+# Cargo, rustup, the package directory, and the listener state stay on the
+# distro filesystem (/opt/galion, /var/cache/galion, /var/lib/galion). That
+# filesystem is the distro disk. A path on /mnt/<letter> is refused.
+#
+# After install, the script starts
+#   openmind-desktop --listen 127.0.0.1:18181
+# and adds --stack off when nothing accepts a connection on
+# 127.0.0.1:8091. The page is http://127.0.0.1:18181/ .
 #
 # The Linux package is the .deb from scripts/desktop/package-artifact.sh.
 # dpkg -i installs that package. This script does not publish or sign.
@@ -60,9 +65,19 @@ The .deb directory and temp files are under /var/cache/galion/tmp.
 Those paths are on the distro filesystem. The script refuses the
 checkout or any of those directories when it is under /mnt/<letter>.
 
-The listener log is $HOME/.local/state/openmind-desktop/wslg.log when
-that directory is on the distro filesystem. A home directory on
-/mnt/<letter> uses /var/tmp/openmind-desktop-$USER instead.
+The script then starts the installed binary and leaves it running:
+  openmind-desktop --listen 127.0.0.1:18181
+Plain --listen dials 127.0.0.1:8091 (DEFAULT_STACK in
+crates/openmind-desktop/src/files.rs). When that address accepts no
+connection, the script adds --stack off. The page is
+http://127.0.0.1:18181/
+A second run leaves a matching listener in place.
+
+The listener log is /var/lib/galion/openmind-desktop/listener.log .
+The menu launcher's own log, if it has to start the binary, is
+$HOME/.local/state/openmind-desktop/wslg.log when that directory is on
+the distro filesystem. A home directory on /mnt/<letter> uses
+/var/tmp/openmind-desktop-$USER instead.
 Browser GPU flags are off unless the environment asks. See the launcher
 --help for OPENMIND_WSL_NO_SANDBOX, OPENMIND_WSL_SOFTWARE_GL,
 OPENMIND_WSL_WEBKIT_SOFTWARE, and OPENMIND_WSL_X11.
@@ -201,6 +216,8 @@ pin_distro_dirs() {
   assert_distro_disk "$RUSTUP_HOME" "rustup home"
   assert_distro_disk "$CARGO_TARGET_DIR" "cargo target"
   assert_distro_disk "$TMPDIR" "temp directory"
+  install -d -m 0755 /var/lib/galion/openmind-desktop
+  assert_distro_disk /var/lib/galion/openmind-desktop "listener state"
 }
 
 on_wsl() {
@@ -413,13 +430,72 @@ smoke_check() {
   banner_smoke
 }
 
-# Start the installed binary, parse the listen banner, then stop it.
-# The page URL is whatever the binary prints. It is not stored here.
-banner_smoke() {
-  local blog pid i url
-  blog=$(mktemp)
-  /usr/bin/openmind-desktop --listen >"$blog.out" 2>"$blog" &
+# Page served by --listen on the default bind. DEFAULT_BIND in
+# crates/openmind-desktop/src/lib.rs. DEFAULT_STACK is the Galion One intake.
+PAGE_URL='http://127.0.0.1:18181/'
+LISTEN_ADDR='127.0.0.1:18181'
+STACK_ADDR='127.0.0.1:8091'
+LISTENER_DIR=/var/lib/galion/openmind-desktop
+LISTENER_LOG=$LISTENER_DIR/listener.log
+LISTENER_PID=$LISTENER_DIR/listener.pid
+listener_args=()
+
+# 0 when a TCP accept happens on host:port. A refusal is not a match.
+port_accepts() {
+  local addr=$1 host port
+  host=${addr%:*}
+  port=${addr##*:}
+  timeout 1 bash -c "echo >/dev/tcp/${host}/${port}" >/dev/null 2>&1
+}
+
+build_listener_args() {
+  listener_args=(/usr/bin/openmind-desktop --listen "$LISTEN_ADDR")
+  if ! port_accepts "$STACK_ADDR"; then
+    listener_args+=(--stack off)
+  fi
+}
+
+listener_pid() {
+  local pid
+  [ -f "$LISTENER_PID" ] || return 1
+  pid=$(tr -d '[:space:]' < "$LISTENER_PID")
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  printf '%s' "$pid"
+}
+
+listener_command() {
+  local pid
+  pid=$(listener_pid) || return 1
+  ps -p "$pid" -o args= 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+# Leave the desktop listening. A second run does not start a duplicate
+# when the live command already matches.
+start_listener() {
+  local pid i url got
+  install -d -m 0755 "$LISTENER_DIR"
+  assert_distro_disk "$LISTENER_DIR" "listener state"
+  build_listener_args
+  got=$(listener_command || true)
+  if [ "$got" = "${listener_args[*]}" ]; then
+    printf 'openmind-wsl: already listening at %s\n' "$PAGE_URL"
+    return 0
+  fi
+  if pid=$(listener_pid); then
+    kill "$pid" 2>/dev/null || true
+    i=0
+    while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 50 ]; do
+      i=$((i + 1))
+      sleep 0.1
+    done
+  fi
+  : > "$LISTENER_LOG"
+  # The binary's own arguments. --no-sandbox is not one of them.
+  nohup "${listener_args[@]}" >>"$LISTENER_LOG" 2>&1 </dev/null &
   pid=$!
+  disown "$pid" 2>/dev/null || true
+  printf '%s\n' "$pid" > "$LISTENER_PID"
   i=0
   url=
   while [ "$i" -lt 50 ]; do
@@ -427,17 +503,32 @@ banner_smoke() {
     if ! kill -0 "$pid" 2>/dev/null; then
       break
     fi
-    url=$(/usr/bin/openmind-desktop-wslg --banner-url "$blog" || true)
+    url=$(/usr/bin/openmind-desktop-wslg --banner-url "$LISTENER_LOG" || true)
     if [ -n "$url" ]; then
       break
     fi
     sleep 0.1
   done
-  kill "$pid" 2>/dev/null || true
-  wait "$pid" 2>/dev/null || true
-  rm -f -- "$blog" "$blog.out"
-  if [ -z "$url" ]; then
-    die "listen banner was not parsed"
+  if [ "$url" != "$PAGE_URL" ]; then
+    die "listener did not serve ${PAGE_URL}"
+  fi
+  printf 'openmind-wsl: listening at %s\n' "$PAGE_URL"
+  if ! port_accepts "$STACK_ADDR"; then
+    printf 'openmind-wsl: stack intake is closed; started with --stack off\n'
+  fi
+}
+
+# The live listener's banner is the documented page URL.
+banner_smoke() {
+  local url got
+  url=$(/usr/bin/openmind-desktop-wslg --banner-url "$LISTENER_LOG" || true)
+  if [ "$url" != "$PAGE_URL" ]; then
+    die "listen banner was not ${PAGE_URL}"
+  fi
+  build_listener_args
+  got=$(listener_command || true)
+  if [ "$got" != "${listener_args[*]}" ]; then
+    die "listener command is not ${listener_args[*]}"
   fi
   printf 'openmind-wsl: listen banner parsed\n'
 }
@@ -456,6 +547,7 @@ case "$line" in
   *) die "version line was not openmind-desktop <version>" ;;
 esac
 printf 'openmind-wsl: menu /usr/share/applications/openmind-desktop.desktop\n'
+start_listener
 
 if [ "$smoke" -eq 1 ]; then
   smoke_check

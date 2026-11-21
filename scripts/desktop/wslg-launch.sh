@@ -12,7 +12,31 @@
 set -euo pipefail
 
 BIN=/usr/bin/openmind-desktop
-state=${XDG_STATE_HOME:-$HOME/.local/state}/openmind-desktop
+
+# 0 when the path is on a Windows drive mounted into the distro.
+on_windows_mount() {
+  local path=$1 resolved
+  resolved=$(readlink -f -- "$path" 2>/dev/null || printf '%s' "$path")
+  case "$resolved" in
+    /mnt/[a-zA-Z]|/mnt/[a-zA-Z]/*) return 0 ;;
+  esac
+  return 1
+}
+
+# Listener state stays on the distro filesystem. A home directory on a
+# Windows drive mount is not used.
+choose_state() {
+  local prefer fallback
+  prefer=${XDG_STATE_HOME:-$HOME/.local/state}/openmind-desktop
+  fallback=/var/tmp/openmind-desktop-${USER:-user}
+  if on_windows_mount "$prefer"; then
+    printf '%s' "$fallback"
+  else
+    printf '%s' "$prefer"
+  fi
+}
+
+state=$(choose_state)
 log=$state/wslg.log
 pidfile=$state/listener.pid
 

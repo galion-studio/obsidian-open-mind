@@ -2,9 +2,15 @@
 # SPDX-License-Identifier: MIT
 # SPDX-FileCopyrightText: 3000 Galion / galion-studio
 #
-# Install openmind-desktop on Ubuntu 24.04, including the WSL2 distro
-# named Galion-Ubuntu. Safe to run again: packages, the .deb, the menu
-# file, and the launcher are written to the same paths.
+# W0 entry for the Obsidian desktop step. One script:
+#   sudo bash scripts/install-wsl-ubuntu.sh
+# Run it as root inside Galion-Ubuntu, from a checkout of this repository.
+# Safe to run again: packages, the .deb, the menu file, and the launcher
+# are written to the same paths.
+#
+# Cargo, rustup, and the package directory stay on the distro filesystem
+# (/opt/galion and /var/cache/galion). That filesystem is the distro disk.
+# A path on /mnt/<letter> is refused.
 #
 # The Linux package is the .deb from scripts/desktop/package-artifact.sh.
 # dpkg -i installs that package. This script does not publish or sign.
@@ -21,13 +27,15 @@ set -euo pipefail
 
 usage() {
   cat << 'EOF'
-usage: sudo scripts/install-wsl-ubuntu.sh [--smoke] [--no-browser] [--with-browser]
+usage: sudo bash scripts/install-wsl-ubuntu.sh [--smoke] [--no-browser] [--with-browser]
 
-Install build packages, a rustup stable toolchain when rustc is older
-than 1.88, and the openmind-desktop .deb built by
-scripts/desktop/package-artifact.sh. Then install the WSLg menu entry.
+W0 calls that command. It is the only desktop entry. Install build
+packages, a rustup stable toolchain when rustc is older than 1.88, and
+the openmind-desktop .deb built by scripts/desktop/package-artifact.sh.
+Then install the WSLg menu entry.
 
-Run it from a checkout, inside Ubuntu 24.04. A second run exits 0.
+Run it as root inside Ubuntu 24.04, from a checkout of this repository.
+A second run exits 0.
 
 --smoke         after install, check --version, xvfb-run --version,
                 the menu file, a parsed listen banner, and that the
@@ -43,11 +51,18 @@ Ubuntu 24.04's Firefox package is a snap shim; a snap shim is skipped.
 
 rustc 1.88 or newer is required because crates/galion-common/src/hex.rs
 calls as_chunks. The Ubuntu 24.04 rustc package is older. This script
-installs upstream rustup stable into the root user's cargo home. It
-does not install the Ubuntu rustup package: that package conflicts with
-the rustc package.
+installs upstream rustup stable under /opt/galion. It does not install
+the Ubuntu rustup package: that package conflicts with the rustc package.
 
-The listener log is $HOME/.local/state/openmind-desktop/wslg.log.
+Cargo home, the rustup home, and the cargo target directory are
+/opt/galion/cargo, /opt/galion/rustup, and /opt/galion/cargo/target.
+The .deb directory and temp files are under /var/cache/galion/tmp.
+Those paths are on the distro filesystem. The script refuses the
+checkout or any of those directories when it is under /mnt/<letter>.
+
+The listener log is $HOME/.local/state/openmind-desktop/wslg.log when
+that directory is on the distro filesystem. A home directory on
+/mnt/<letter> uses /var/tmp/openmind-desktop-$USER instead.
 Browser GPU flags are off unless the environment asks. See the launcher
 --help for OPENMIND_WSL_NO_SANDBOX, OPENMIND_WSL_SOFTWARE_GL,
 OPENMIND_WSL_WEBKIT_SOFTWARE, and OPENMIND_WSL_X11.
@@ -151,6 +166,43 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 
+# 0 when the path is on a Windows drive mounted into the distro.
+on_windows_mount() {
+  local path=$1 resolved
+  resolved=$(readlink -f -- "$path" 2>/dev/null || printf '%s' "$path")
+  case "$resolved" in
+    /mnt/[a-zA-Z]|/mnt/[a-zA-Z]/*) return 0 ;;
+  esac
+  return 1
+}
+
+assert_distro_disk() {
+  local path=$1 label=$2
+  if on_windows_mount "$path"; then
+    die "$label is on a Windows drive mount; keep it on the distro disk"
+  fi
+}
+
+# Cargo, rustup, the package directory, and temp files stay on the distro
+# filesystem. Inside Galion-Ubuntu that filesystem is the distro disk.
+pin_distro_dirs() {
+  export CARGO_HOME=/opt/galion/cargo
+  export RUSTUP_HOME=/opt/galion/rustup
+  export CARGO_TARGET_DIR=/opt/galion/cargo/target
+  install -d -m 0755 \
+    /opt/galion/cargo/target \
+    /opt/galion/rustup \
+    /var/cache/galion/tmp
+  # shellcheck disable=SC1007
+  TMPDIR=$(CDPATH= cd -- /var/cache/galion/tmp && pwd)
+  export TMPDIR
+  assert_distro_disk "$repo" "checkout"
+  assert_distro_disk "$CARGO_HOME" "cargo home"
+  assert_distro_disk "$RUSTUP_HOME" "rustup home"
+  assert_distro_disk "$CARGO_TARGET_DIR" "cargo target"
+  assert_distro_disk "$TMPDIR" "temp directory"
+}
+
 on_wsl() {
   if [ -n "${WSL_DISTRO_NAME:-}" ]; then
     return 0
@@ -229,8 +281,8 @@ install_rustup() {
 }
 
 ensure_rust() {
-  export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
-  export RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"
+  export CARGO_HOME="${CARGO_HOME:-/opt/galion/cargo}"
+  export RUSTUP_HOME="${RUSTUP_HOME:-/opt/galion/rustup}"
   if [ -d "$CARGO_HOME/bin" ]; then
     PATH="$CARGO_HOME/bin:$PATH"
     hash -r
@@ -259,7 +311,7 @@ ensure_rust() {
 
 install_deb() {
   local out debs
-  out=$repo/target/openmind-desktop-wsl
+  out=$TMPDIR/openmind-desktop-wsl
   "$repo/scripts/desktop/package-artifact.sh" --out "$out"
   "$repo/scripts/desktop/check-package.sh" "$out"
   shopt -s nullglob
@@ -352,6 +404,12 @@ smoke_check() {
     /usr/bin/openmind-desktop-wslg; then
     die "menu files contain a URL or an IPv4 address"
   fi
+  for p in "$CARGO_HOME" "$RUSTUP_HOME" "$CARGO_TARGET_DIR" "$TMPDIR"; do
+    if on_windows_mount "$p"; then
+      die "build path left the distro disk: $p"
+    fi
+  done
+  test -d "$CARGO_TARGET_DIR"
   banner_smoke
 }
 
@@ -385,6 +443,7 @@ banner_smoke() {
 }
 
 apt_install
+pin_distro_dirs
 ensure_rust
 install_deb
 install_menu

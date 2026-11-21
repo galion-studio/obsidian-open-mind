@@ -6,7 +6,9 @@
 # tests under qemu-user (same emulator split as the self-eval ucpu-qemu
 # job), and packages an arm64 artifact. Windows (x86_64-pc-windows-msvc)
 # and macOS (aarch64-apple-darwin) build, run clippy, run the tests, then
-# package a zip and a tarball.
+# package a zip and a tarball. The ubuntu 24.04 container job runs
+# scripts/install-wsl-ubuntu.sh --smoke twice. That job does not upload
+# an artifact.
 # permissions are contents: read and actions: write. actions: write uploads
 # a workflow artifact. This file does not create a GitHub Release, sign a
 # package, or publish a crate.
@@ -362,4 +364,28 @@ jobs:
           path: target/openmind-desktop-ci
           if-no-files-found: error
           retention-days: 14
+
+  # Headless install of the same .deb inside a clean Ubuntu 24.04 container.
+  # --smoke checks --version and xvfb-run. This is not a WSLg session.
+  # Nothing is uploaded and no release is created.
+  wsl-ubuntu:
+    name: ubuntu 24.04 install smoke
+    runs-on: ubuntu-latest
+    container: ubuntu:24.04
+    timeout-minutes: 50
+    steps:
+      - name: packages checkout needs
+        run: |
+          set -eu
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends ca-certificates git
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: install and headless smoke
+        run: scripts/install-wsl-ubuntu.sh --smoke
+
+      - name: second install exits 0
+        run: scripts/install-wsl-ubuntu.sh --smoke
 

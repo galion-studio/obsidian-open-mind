@@ -41,6 +41,34 @@ scripts/desktop/check-package.sh target/openmind-desktop-ci
 
 `--out DIR` chooses another local directory. `--target TRIPLE` passes that triple to cargo when the toolchain already has it. `--skip-build` packages a release binary that is already built.
 
+## Ubuntu 24.04 WSL2
+
+W0 calls one command. Run it as root inside the Galion-Ubuntu distro, from a checkout of this repository:
+
+```sh
+sudo bash scripts/install-wsl-ubuntu.sh
+```
+
+That file is `scripts/install-wsl-ubuntu.sh`. It is the desktop entry. A second run writes the same paths and exits 0.
+
+The script leaves the desktop running:
+
+```sh
+openmind-desktop --listen 127.0.0.1:18181
+```
+
+`DEFAULT_BIND` is `127.0.0.1:18181` (`crates/openmind-desktop/src/lib.rs`). The page is [http://127.0.0.1:18181/](http://127.0.0.1:18181/). Plain `--listen` still dials `127.0.0.1:8091` (`DEFAULT_STACK` in `crates/openmind-desktop/src/files.rs`). `start_listener` in `scripts/install-wsl-ubuntu.sh` adds `--stack off` when that address accepts no connection. `--stack off` does not open a client (`USAGE` in `crates/openmind-desktop/src/cli.rs`). The ten rows in `crates/openmind-desktop/src/stack.rs` stay `staged` or `planned`. This script does not start them. The listener log is `/var/lib/galion/openmind-desktop/listener.log`, on the distro filesystem. A second run leaves a listener whose command already matches.
+
+The script installs the build packages and, when `rustc` is older than 1.88, an upstream rustup stable toolchain under `/opt/galion`. `crates/galion-common/src/hex.rs` calls `as_chunks`, which is why 1.88 is the floor. The Ubuntu 24.04 `rustc` package is older. The script does not install the Ubuntu `rustup` package, because that package conflicts with `rustc`. Cargo home is `/opt/galion/cargo`, the rustup home is `/opt/galion/rustup`, and the cargo target directory is `/opt/galion/cargo/target`. The `.deb` directory and temp files are under `/var/cache/galion/tmp`. Those directories are on the distro filesystem, which is the Galion-Ubuntu disk. `pin_distro_dirs` in `scripts/install-wsl-ubuntu.sh` refuses the checkout or any of those directories when the path is under `/mnt/<letter>`. It then runs `scripts/desktop/package-artifact.sh`, checks the directory with `scripts/desktop/check-package.sh`, and installs the Linux `.deb` with `dpkg -i`. That package places `openmind-desktop` in `/usr/bin`. The script refuses the same publish and sign flags as `package-artifact.sh`.
+
+WSLg reads `/usr/share/applications/openmind-desktop.desktop` and lists it in the Windows Start menu for this distro. `Exec` is `/usr/bin/openmind-desktop-wslg`, which is `scripts/desktop/wslg-launch.sh`. The launcher starts `openmind-desktop --listen` and opens the URL from `listen_banner` (`crates/openmind-desktop/src/http.rs`) in a browser on this distro. That browser window is the WSLg window. `choose_state` in `scripts/desktop/wslg-launch.sh` writes the listener log at `$HOME/.local/state/openmind-desktop/wslg.log` when that path is on the distro filesystem, and at `/var/tmp/openmind-desktop-$USER/wslg.log` when the home path is under `/mnt/<letter>`.
+
+`openmind-desktop` is not a Chromium or Electron process. `--no-sandbox` is a usage error for it (exit 2, `DesktopError::Usage` in `crates/openmind-desktop/src/error.rs`). The launcher never passes that switch to the binary. `chromium_needs_no_sandbox` in `scripts/desktop/wslg-launch.sh` adds it only for a Chromium-family browser: `OPENMIND_WSL_NO_SANDBOX=1` forces it, `OPENMIND_WSL_NO_SANDBOX=0` forbids it, and otherwise the launcher adds it when that browser has no setuid `chrome-sandbox` and either `/proc/sys/kernel/apparmor_restrict_unprivileged_userns` is `1` or `unshare --user --map-root-user true` fails. Firefox and Epiphany do not get the switch.
+
+On WSL, if no usable browser is on `PATH`, the script installs the `epiphany-browser` package. A snap shim is not usable. `--no-browser` skips the package. `--with-browser` installs it even when a browser is already present. `--smoke` skips it.
+
+The browser keeps the WSLg GPU path. `OPENMIND_WSL_SOFTWARE_GL=1` sets `LIBGL_ALWAYS_SOFTWARE=1` for the browser process only. `OPENMIND_WSL_WEBKIT_SOFTWARE=1` sets `WEBKIT_DISABLE_COMPOSITING_MODE=1` for Epiphany. `OPENMIND_WSL_X11=1` sets `GDK_BACKEND=x11` and `MOZ_ENABLE_WAYLAND=0`, and adds `--ozone-platform=x11` for Chromium. The listener is started before those variables are exported.
+
 ## Run
 
 Print the page and exit. This opens no socket (`crates/openmind-desktop/src/cli.rs`, `Mode::Page`, and the usage text):
@@ -146,9 +174,11 @@ Roles, ratios, and lengths are the `TONES` table in `crates/openmind-desktop/src
 
 ## CI
 
-`.github/workflows/openmind-desktop.yml` runs four jobs. Workflow permissions are `contents: read` and `actions: write`. `actions: write` is the permission `actions/upload-artifact` uses. The workflow does not set `contents: write`, so it cannot create a GitHub Release. It does not sign packages and it does not publish a crate.
+`.github/workflows/openmind-desktop.yml` runs five jobs. Workflow permissions are `contents: read` and `actions: write`. `actions: write` is the permission `actions/upload-artifact` uses. The workflow does not set `contents: write`, so it cannot create a GitHub Release. It does not sign packages and it does not publish a crate.
 
 The `linux` job (`ubuntu-latest`) builds the crate, runs clippy with `-D warnings` on all targets, runs the tests, then `package-local.sh` and `verify-local.sh` with the output under the runner temp directory. It checks that `rustc -vV` reports `x86_64-unknown-linux-gnu`, then `package-artifact.sh --skip-build` and `check-package.sh` write and check `target/openmind-desktop-ci`. That directory is uploaded as `openmind-desktop-linux-x86_64`. A publish or sign flag must exit 2. A README that no longer matches `SHA256SUMS` must make `check-package.sh` exit 1. A LICENSE that is one line short, after `SHA256SUMS` is rewritten for that file, must also exit 1.
+
+The `wsl-ubuntu` job runs in an `ubuntu:24.04` container. It runs `scripts/install-wsl-ubuntu.sh --smoke`, then runs that command again. `--smoke` requires `openmind-desktop --version` to print a version line, the same command under `xvfb-run -a` to exit 0, `desktop-file-validate` to accept the menu file, `openmind-desktop --no-sandbox` to exit 2, and a live `openmind-desktop --listen 127.0.0.1:18181` whose banner URL is `http://127.0.0.1:18181/`. When `127.0.0.1:8091` accepts no connection, that command includes `--stack off`. The smoke also requires the cargo, rustup, and temp directories to stay off `/mnt/<letter>`. Those directories are `/opt/galion/cargo`, `/opt/galion/rustup`, `/opt/galion/cargo/target`, and `/var/cache/galion/tmp` (`pin_distro_dirs` in `scripts/install-wsl-ubuntu.sh`). The listener state is `/var/lib/galion/openmind-desktop`. The container root filesystem stands in for the distro disk. The container is not a WSLg session. The job does not upload an artifact.
 
 The `linux-aarch64` job cross-builds `aarch64-unknown-linux-musl` (linker `rust-lld`, `.cargo/config.toml`) and runs the same tests under qemu-user (`qemu-aarch64-static` or `qemu-aarch64`, the same package split as the self-eval `ucpu-qemu` job). That is the run that checks `libc::O_NOFOLLOW` (`O_NOFOLLOW` and `nofollow_flag_matches_this_target` in `crates/openmind-desktop/src/files.rs`): `libc` supplies the flag, which is `0x8000` on aarch64 and `0x20000` on x86. On ARM, `0x20000` is `O_LARGEFILE`, so a hard-coded x86 value would not stop `open` from following a symlink. After the tests it release-builds the same target, packages the tarball and `arm64` `.deb` with `--runner` set to that qemu binary, checks the package, and uploads `openmind-desktop-linux-aarch64`.
 

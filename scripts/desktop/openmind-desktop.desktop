@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: 3000 Galion / galion-studio
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Open Mind Desktop
+GenericName=Open Mind console
+Comment=Local control console for the Obsidian Open Mind desktop
+Exec=/usr/bin/openmind-desktop-wslg
+Icon=/usr/share/icons/hicolor/64x64/apps/openmind-desktop.png
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+Keywords=openmind;galion;
